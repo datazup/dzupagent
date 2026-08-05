@@ -4,6 +4,7 @@ import {
   FLOW_CORPUS_MANIFEST_SCHEMA,
   createFlowCompiler,
   hashFlowCorpusSource,
+  measureFlowCorpusRoundTrip,
   parseFlowCorpusManifest,
   qualifyFlowCorpusSources,
   renderFlowCorpusQualificationMarkdown,
@@ -125,6 +126,80 @@ describe("flow corpus qualification", () => {
       qualification: "authoring-only",
       compileStatus: "not-required",
       compileDiagnosticCodes: [],
+    });
+  });
+
+  describe("formatter round trip", () => {
+    // A multi-line description is the case that used to emit the block scalar
+    // header as the quoted VALUE `description: "|"`, making the formatter's own
+    // output unparsable. VALID_DSL (single-line, no description) is the
+    // ACCEPTING control: it holds every other dimension constant, so a
+    // "not-reparsable" assertion cannot pass merely because everything fails.
+    const MULTILINE_DESCRIPTION_DSL = [
+      "dsl: dzupflow/v1",
+      "id: described",
+      "description: |",
+      "  First line of prose.",
+      "  Second line of prose.",
+      "version: 1",
+      "steps:",
+      "  - prompt:",
+      "      id: greet",
+      '      userPrompt: "Hello"',
+      "      outputKey: greeting",
+    ].join("\n");
+
+    it("reports a faithfully formatted document as lossless", () => {
+      expect(measureFlowCorpusRoundTrip(VALID_DSL)).toEqual({
+        status: "lossless",
+        lossPaths: [],
+      });
+    });
+
+    it("keeps a multi-line description reparsable", () => {
+      // Regression pin: this returned "not-reparsable" before the block-scalar
+      // header was emitted raw.
+      expect(measureFlowCorpusRoundTrip(MULTILINE_DESCRIPTION_DSL).status).toBe(
+        "lossless",
+      );
+    });
+
+    it("classifies a source that does not parse without blaming the formatter", () => {
+      expect(measureFlowCorpusRoundTrip("not: a: valid: flow")).toEqual({
+        status: "unparsable-source",
+        lossPaths: [],
+      });
+    });
+
+    it("reports round-trip counts without gating the qualification verdict", async () => {
+      const report = await qualifyFlowCorpusSources(
+        [
+          {
+            id: "qualified",
+            path: "qualified.yaml",
+            sha256: hashFlowCorpusSource(VALID_DSL),
+            qualification: "compile-example",
+            source: VALID_DSL,
+          },
+        ],
+        compiler,
+      );
+
+      expect(report.passed).toBe(true);
+      expect(report.roundTrip).toEqual({
+        total: 1,
+        lossless: 1,
+        lossy: 0,
+        notReparsable: 0,
+        unparsableSource: 0,
+      });
+      expect(report.items[0]).toMatchObject({
+        roundTripStatus: "lossless",
+        roundTripLossPaths: [],
+      });
+      expect(renderFlowCorpusQualificationMarkdown(report)).toContain(
+        "Lossless: **1 / 1**",
+      );
     });
   });
 

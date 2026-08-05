@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto";
 
+import {
+  formatDocumentToDslChecked,
+  parseDslToDocument,
+} from "@dzupagent/flow-dsl";
+
 import type { FlowCompiler, StrictReferenceMigrationItem } from "./types.js";
 
 export const FLOW_CORPUS_MANIFEST_SCHEMA =
@@ -23,6 +28,48 @@ export interface LoadedFlowCorpusSource extends FlowCorpusManifestEntry {
   source: string;
 }
 
+/**
+ * Formatter round-trip outcome for one corpus source, measured
+ * `parse → format → reparse`:
+ *
+ * - `lossless`   — the formatter reproduced every authored field.
+ * - `lossy`      — output reparsed, but authored fields were dropped or
+ *                  altered (`lossPaths` names them).
+ * - `not-reparsable` — output failed to parse at all.
+ * - `unparsable-source` — the corpus source itself did not parse, so the
+ *                  formatter was never exercised.
+ *
+ * This is a MEASUREMENT, not a gate: it is deliberately excluded from
+ * `report.passed` so the qualifier stays usable while losslessness is still
+ * being driven up. Ratchet on `summary.roundTrip.lossless` instead.
+ */
+export type FlowCorpusRoundTripStatus =
+  | "lossless"
+  | "lossy"
+  | "not-reparsable"
+  | "unparsable-source";
+
+/**
+ * Formatter round-trip outcome for one corpus source, measured
+ * `parse -> format -> reparse`:
+ *
+ * - `lossless`   - the formatter reproduced every authored field.
+ * - `lossy`      - output reparsed, but authored fields were dropped or
+ *                  altered (`lossPaths` names them).
+ * - `not-reparsable` - output failed to parse at all.
+ * - `unparsable-source` - the corpus source itself did not parse, so the
+ *                  formatter was never exercised.
+ *
+ * This is a MEASUREMENT, not a gate: it is deliberately excluded from
+ * `report.passed` so the qualifier stays usable while losslessness is still
+ * being driven up. Ratchet on `roundTrip.lossless` instead.
+ */
+export type FlowCorpusRoundTripStatus =
+  | "lossless"
+  | "lossy"
+  | "not-reparsable"
+  | "unparsable-source";
+
 export interface FlowCorpusQualificationItem {
   id: string;
   path: string;
@@ -37,6 +84,9 @@ export interface FlowCorpusQualificationItem {
   compatibilityWarningCodes: string[];
   strictDiagnosticCodes: string[];
   blockingReferenceCodes: string[];
+  roundTripStatus: FlowCorpusRoundTripStatus;
+  /** Authored document paths the formatter failed to preserve. */
+  roundTripLossPaths: string[];
 }
 
 export interface FlowCorpusQualificationReport {
@@ -52,6 +102,17 @@ export interface FlowCorpusQualificationReport {
     compileReady: number;
     compileFailed: number;
     authoringOnly: number;
+  };
+  /**
+   * Formatter fidelity across the whole corpus. Reported, never gated — see
+   * {@link FlowCorpusRoundTripStatus}.
+   */
+  roundTrip: {
+    total: number;
+    lossless: number;
+    lossy: number;
+    notReparsable: number;
+    unparsableSource: number;
   };
   items: FlowCorpusQualificationItem[];
 }
@@ -111,6 +172,56 @@ export function hashFlowCorpusSource(source: string): string {
   return createHash("sha256").update(source, "utf8").digest("hex");
 }
 
+/**
+ * Measures `parse → format → reparse` fidelity for one authored source.
+ * Uses the fail-closed formatter so a dropped field is reported as a named
+ * `lossPath` rather than silently surviving as plausible-looking output.
+ */
+export function measureFlowCorpusRoundTrip(source: string): {
+  status: FlowCorpusRoundTripStatus;
+  lossPaths: string[];
+} {
+  const parsed = parseDslToDocument(source);
+  if (!parsed.ok || parsed.document === null) {
+    return { status: "unparsable-source", lossPaths: [] };
+  }
+  const formatted = formatDocumentToDslChecked(parsed.document);
+  if (formatted.ok) return { status: "lossless", lossPaths: [] };
+  // `formatDocumentToDslChecked` signals a total reparse failure with the
+  // sentinel path "document"; anything else is field-level loss.
+  const notReparsable =
+    formatted.lossPaths.length === 1 && formatted.lossPaths[0] === "document";
+  return {
+    status: notReparsable ? "not-reparsable" : "lossy",
+    lossPaths: [...formatted.lossPaths],
+  };
+}
+
+/**
+ * Measures `parse -> format -> reparse` fidelity for one authored source.
+ * Uses the fail-closed formatter so a dropped field is reported as a named
+ * `lossPath` rather than silently surviving as plausible-looking output.
+ */
+export function measureFlowCorpusRoundTrip(source: string): {
+  status: FlowCorpusRoundTripStatus;
+  lossPaths: string[];
+} {
+  const parsed = parseDslToDocument(source);
+  if (!parsed.ok || parsed.document === null) {
+    return { status: "unparsable-source", lossPaths: [] };
+  }
+  const formatted = formatDocumentToDslChecked(parsed.document);
+  if (formatted.ok) return { status: "lossless", lossPaths: [] };
+  // `formatDocumentToDslChecked` signals a total reparse failure with the
+  // sentinel path "document"; anything else is field-level loss.
+  const notReparsable =
+    formatted.lossPaths.length === 1 && formatted.lossPaths[0] === "document";
+  return {
+    status: notReparsable ? "not-reparsable" : "lossy",
+    lossPaths: [...formatted.lossPaths],
+  };
+}
+
 export async function qualifyFlowCorpusSources(
   sources: readonly LoadedFlowCorpusSource[],
   compiler: Pick<
@@ -141,6 +252,7 @@ export async function qualifyFlowCorpusSources(
       throw new Error(`migration result is missing source "${source.id}"`);
     }
     const actualSha256 = hashFlowCorpusSource(source.source);
+    const roundTrip = measureFlowCorpusRoundTrip(source.source);
     const compileResult = compileResults.get(source.id);
     const compileDiagnosticCodes =
       compileResult !== undefined && "errors" in compileResult
@@ -169,6 +281,8 @@ export async function qualifyFlowCorpusSources(
       ),
       strictDiagnosticCodes: uniqueCodes(migrationItem.strictDiagnostics),
       blockingReferenceCodes: [...migrationItem.blockingReferenceCodes],
+      roundTripStatus: roundTrip.status,
+      roundTripLossPaths: roundTrip.lossPaths,
     };
   });
 
@@ -188,9 +302,20 @@ export async function qualifyFlowCorpusSources(
       (item) => item.compileStatus === "not-required",
     ).length,
   };
+  const countRoundTrip = (status: FlowCorpusRoundTripStatus): number =>
+    items.filter((item) => item.roundTripStatus === status).length;
+  const roundTrip = {
+    total: items.length,
+    lossless: countRoundTrip("lossless"),
+    lossy: countRoundTrip("lossy"),
+    notReparsable: countRoundTrip("not-reparsable"),
+    unparsableSource: countRoundTrip("unparsable-source"),
+  };
   return {
     schema: FLOW_CORPUS_REPORT_SCHEMA,
     resolverMode: "corpus-documents",
+    // Round-trip fidelity is intentionally absent from this predicate: it is a
+    // tracked measurement, not an admission gate. See FlowCorpusRoundTripStatus.
     passed:
       summary.ready === summary.total &&
       summary.changesRequired === 0 &&
@@ -198,6 +323,7 @@ export async function qualifyFlowCorpusSources(
       summary.hashMismatches === 0 &&
       summary.compileFailed === 0,
     summary,
+    roundTrip,
     items,
   };
 }
@@ -214,12 +340,20 @@ export function renderFlowCorpusQualificationMarkdown(
     "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     `| ${report.summary.total} | ${report.summary.ready} | ${report.summary.changesRequired} | ${report.summary.invalid} | ${report.summary.hashMismatches} | ${report.summary.compileReady} | ${report.summary.compileFailed} | ${report.summary.authoringOnly} |`,
     "",
-    "| Source | Hash | Qualification | Strict migration | Compile | Diagnostics | Compatibility warnings |",
-    "| --- | --- | --- | --- | --- | --- | --- |",
+    "## Formatter round trip (measured, not gated)",
+    "",
+    `Lossless: **${report.roundTrip.lossless} / ${report.roundTrip.total}**`,
+    "",
+    "| Lossless | Lossy | Not reparsable | Unparsable source |",
+    "| ---: | ---: | ---: | ---: |",
+    `| ${report.roundTrip.lossless} | ${report.roundTrip.lossy} | ${report.roundTrip.notReparsable} | ${report.roundTrip.unparsableSource} |`,
+    "",
+    "| Source | Hash | Qualification | Strict migration | Compile | Round trip | Diagnostics | Compatibility warnings |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- |",
   ];
   for (const item of report.items) {
     lines.push(
-      `| \`${item.path}\` | ${item.hashMatches ? "match" : "mismatch"} | ${item.qualification} | ${item.status} | ${item.compileStatus} | ${item.compileDiagnosticCodes.join(", ") || "none"} | ${item.compatibilityWarningCodes.join(", ") || "none"} |`,
+      `| \`${item.path}\` | ${item.hashMatches ? "match" : "mismatch"} | ${item.qualification} | ${item.status} | ${item.compileStatus} | ${item.roundTripStatus} | ${item.compileDiagnosticCodes.join(", ") || "none"} | ${item.compatibilityWarningCodes.join(", ") || "none"} |`,
     );
   }
   lines.push(
@@ -227,6 +361,14 @@ export function renderFlowCorpusQualificationMarkdown(
     "This is a provider-free authoring qualification. Placeholder tool and persona",
     "resolvers isolate parser, normalization, compiler, composition, and strict-reference drift;",
     "the result is not runtime, provider, deployment, or host-capability qualification.",
+    "",
+    "Formatter round-trip counts are reported for tracking and do NOT affect the",
+    "pass/fail status above. A `lossy` row means formatter output reparsed but lost",
+    "authored fields; never persist that output as a source of truth.",
+    "",
+    "Formatter round-trip counts are reported for tracking and do NOT affect the",
+    "pass/fail status above. A `lossy` row means formatter output reparsed but lost",
+    "authored fields; never persist that output as a source of truth.",
     "",
   );
   return lines.join("\n");

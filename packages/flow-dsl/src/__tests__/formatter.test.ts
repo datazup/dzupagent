@@ -60,10 +60,13 @@ describe('formatDocumentToDsl', () => {
       expect(out).toContain('description: "A simple flow"')
     })
 
-    it('emits multiline description with lines indented', () => {
-      // The formatter passes '|' to pushField which quotes it as '"|"',
-      // then separately emits each line at 2-space indent.
+    it('emits multiline description as a real block scalar', () => {
+      // The block scalar header is YAML syntax and must be UNQUOTED. Emitting
+      // `description: "|"` (the old behavior) made the indented body an
+      // indentation error, so the formatter's own output could not reparse.
       const out = formatDocumentToDsl(makeDoc({ description: 'Line 1\nLine 2' }))
+      expect(out).toContain('description: |')
+      expect(out).not.toContain('description: "|"')
       expect(out).toContain('  Line 1')
       expect(out).toContain('  Line 2')
     })
