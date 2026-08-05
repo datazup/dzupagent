@@ -143,6 +143,7 @@ export {
   FLOW_CORPUS_MANIFEST_SCHEMA,
   FLOW_CORPUS_REPORT_SCHEMA,
   hashFlowCorpusSource,
+  measureFlowCorpusRoundTrip,
   parseFlowCorpusManifest,
   qualifyFlowCorpusSources,
   renderFlowCorpusQualificationMarkdown,
@@ -152,6 +153,7 @@ export type {
   FlowCorpusManifestEntry,
   FlowCorpusQualificationItem,
   FlowCorpusQualificationReport,
+  FlowCorpusRoundTripStatus,
   LoadedFlowCorpusSource,
 } from "./corpus-qualification.js";
 export { mapFlowLeafToExecutionRequest } from "./execution-mapper.js";

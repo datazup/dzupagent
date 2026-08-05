@@ -30,27 +30,6 @@ export interface LoadedFlowCorpusSource extends FlowCorpusManifestEntry {
 
 /**
  * Formatter round-trip outcome for one corpus source, measured
- * `parse → format → reparse`:
- *
- * - `lossless`   — the formatter reproduced every authored field.
- * - `lossy`      — output reparsed, but authored fields were dropped or
- *                  altered (`lossPaths` names them).
- * - `not-reparsable` — output failed to parse at all.
- * - `unparsable-source` — the corpus source itself did not parse, so the
- *                  formatter was never exercised.
- *
- * This is a MEASUREMENT, not a gate: it is deliberately excluded from
- * `report.passed` so the qualifier stays usable while losslessness is still
- * being driven up. Ratchet on `summary.roundTrip.lossless` instead.
- */
-export type FlowCorpusRoundTripStatus =
-  | "lossless"
-  | "lossy"
-  | "not-reparsable"
-  | "unparsable-source";
-
-/**
- * Formatter round-trip outcome for one corpus source, measured
  * `parse -> format -> reparse`:
  *
  * - `lossless`   - the formatter reproduced every authored field.
@@ -170,31 +149,6 @@ export function parseFlowCorpusManifest(value: unknown): FlowCorpusManifest {
 
 export function hashFlowCorpusSource(source: string): string {
   return createHash("sha256").update(source, "utf8").digest("hex");
-}
-
-/**
- * Measures `parse → format → reparse` fidelity for one authored source.
- * Uses the fail-closed formatter so a dropped field is reported as a named
- * `lossPath` rather than silently surviving as plausible-looking output.
- */
-export function measureFlowCorpusRoundTrip(source: string): {
-  status: FlowCorpusRoundTripStatus;
-  lossPaths: string[];
-} {
-  const parsed = parseDslToDocument(source);
-  if (!parsed.ok || parsed.document === null) {
-    return { status: "unparsable-source", lossPaths: [] };
-  }
-  const formatted = formatDocumentToDslChecked(parsed.document);
-  if (formatted.ok) return { status: "lossless", lossPaths: [] };
-  // `formatDocumentToDslChecked` signals a total reparse failure with the
-  // sentinel path "document"; anything else is field-level loss.
-  const notReparsable =
-    formatted.lossPaths.length === 1 && formatted.lossPaths[0] === "document";
-  return {
-    status: notReparsable ? "not-reparsable" : "lossy",
-    lossPaths: [...formatted.lossPaths],
-  };
 }
 
 /**
