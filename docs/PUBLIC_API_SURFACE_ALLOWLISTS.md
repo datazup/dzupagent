@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-08-04
+Date: 2026-08-05
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -104,8 +104,8 @@ Root index: `packages/core/src/index.ts`
 | `deprecated-transitional` | `./middleware/cost-tracking.js` | 3 | `prefix:./middleware/` | `calculateCostCents`, `getModelCosts`, `CostTracker` |
 | `deprecated-transitional` | `./middleware/langfuse.js` | 3 | `prefix:./middleware/` | `createLangfuseHandler`, `LangfuseConfig`, `LangfuseHandlerOptions` |
 | `deprecated-transitional` | `./middleware/cost-attribution.js` | 5 | `prefix:./middleware/` | `CostAttributionCollector`, `CostAttribution`, `CostReport`, `CostBucket` |
-| `deprecated-transitional` | `./middleware/model-rates.js` | 5 | `prefix:./middleware/` | `MODEL_RATES_AUTHORITY_ID`, `MODEL_RATES_EFFECTIVE_AT`, `MODEL_RATES_REVISION`, `getModelRate` |
-| `deprecated-transitional` | `./middleware/model-tariff.js` | 4 | `prefix:./middleware/` | `buildModelTariff`, `centsPer1MToMicrosPerToken`, `modelRatesProvenance`, `toAiTokenRates` |
+| `deprecated-transitional` | `./middleware/model-rates.js` | 6 | `prefix:./middleware/` | `MODEL_RATES_AUTHORITY_ID`, `MODEL_RATES_EFFECTIVE_AT`, `MODEL_RATES_REVISION`, `hasKnownModelRate` |
+| `deprecated-transitional` | `./middleware/model-tariff.js` | 5 | `prefix:./middleware/` | `buildKnownModelTariff`, `buildModelTariff`, `centsPer1MToMicrosPerToken`, `modelRatesProvenance` |
 | `stable` | `./persistence/checkpointer.js` | 2 | `exact:./persistence/checkpointer.js` | `createCheckpointer`, `CheckpointerConfig` |
 | `deprecated-transitional` | `./persistence/session.js` | 1 | `prefix:./persistence/` | `SessionManager` |
 | `deprecated-transitional` | `./persistence/working-memory.js` | 2 | `prefix:./persistence/` | `WorkingMemory`, `createWorkingMemory` |
@@ -216,7 +216,7 @@ Root index: `packages/core/src/index.ts`
 Root index: `packages/agent/src/index.ts`
 
 - Stable root sources: `13`
-- Deprecated transitional root sources: `92`
+- Deprecated transitional root sources: `93`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x with migration to runtime/workflow/tools/compat before a future 1.0 root contraction.
 
@@ -258,6 +258,7 @@ Root index: `packages/agent/src/index.ts`
 | `stable` | `./guardrails/guardrail-types.js` | 4 | `exact:./guardrails/guardrail-types.js` | `GuardrailConfig`, `BudgetState`, `BudgetWarning`, `DistributedGuardrailConfig` |
 | `deprecated-transitional` | `./guardrails/distributed-rate-limiter.js` | 4 | `prefix:./guardrails/` | `DistributedRateLimiter`, `RateLimiterClient`, `LocalRateLimiter`, `DistributedRateLimiterConfig` |
 | `deprecated-transitional` | `./guardrails/distributed-budget.js` | 4 | `prefix:./guardrails/` | `DistributedCostLedger`, `CostLedgerClient`, `DistributedCostLedgerConfig`, `CostLedgerRecordResult` |
+| `deprecated-transitional` | `./agent/rate-limit-coordinator.js` | 1 | `prefix:./agent/` | `CostCeilingExceededError` |
 | `stable` | `./workflow/workflow-builder.js` | 5 | `prefix:./workflow/` | `WorkflowBuilder`, `CompiledWorkflow`, `createWorkflow`, `WorkflowConfig` |
 | `stable` | `./workflow/workflow-types.js` | 4 | `prefix:./workflow/` | `WorkflowStep`, `WorkflowContext`, `WorkflowEvent`, `MergeStrategy` |
 | `deprecated-transitional` | `./orchestration/orchestrator.js` | 4 | `prefix:./orchestration/` | `AgentOrchestrator`, `MergeFn`, `SupervisorConfig`, `SupervisorResult` |
