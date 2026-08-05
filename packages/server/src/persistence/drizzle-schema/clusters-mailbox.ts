@@ -109,9 +109,12 @@ export const agentMailDlq = pgTable(
     nextRetryAt: integer("next_retry_at").notNull(),
     createdAt: integer("created_at").notNull(),
     deadAt: integer("dead_at"),
+    /** SEC-H-06: Tenant scope, mirroring {@link agentMailbox}. */
+    tenantId: text("tenant_id").notNull().default("default"),
   },
   (table) => [
     index("agent_mail_dlq_next_retry_at_idx").on(table.nextRetryAt),
     index("agent_mail_dlq_to_agent_idx").on(table.toAgent),
+    index("agent_mail_dlq_tenant_id_idx").on(table.tenantId),
   ]
 );

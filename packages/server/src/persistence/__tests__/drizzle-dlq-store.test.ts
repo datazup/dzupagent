@@ -230,6 +230,10 @@ vi.mock('drizzle-orm', async () => {
         dead_at: 'deadAt',
         read_at: 'readAt',
         ttl_seconds: 'ttlSeconds',
+        // SEC-H-06: without this mapping a tenant predicate would read
+        // row['tenant_id'] (undefined) instead of row.tenantId, making every
+        // tenant-scoping assertion below vacuously true.
+        tenant_id: 'tenantId',
       }
       return row[map[name] ?? name]
     }
@@ -405,6 +409,56 @@ describe('DrizzleDlqStore', () => {
     await store.markDead(row.id, 9_999)
     const drained = await store.drain(10, Number.MAX_SAFE_INTEGER)
     expect(drained).toHaveLength(0)
+  })
+
+  // SEC-H-06: tenancy must survive the DLQ round trip and scope redelivery.
+  describe('tenant scoping (SEC-H-06)', () => {
+    const msg = (tenantId?: string) => ({
+      id: 'original-42',
+      from: 'sender',
+      to: 'recipient',
+      subject: 'hi',
+      body: { n: 1 },
+      createdAt: 123,
+      ...(tenantId === undefined ? {} : { tenantId }),
+    })
+
+    it('persists the owning tenant into the DLQ row', async () => {
+      const row = await store.enqueue(msg('tenant-a'), 'rate_limit', 123)
+      expect(row.tenantId).toBe('tenant-a')
+      expect(db.dlq[0]).toMatchObject({ tenantId: 'tenant-a' })
+    })
+
+    it('defaults a tenant-less message to the default tenant', async () => {
+      await store.enqueue(msg(), 'rate_limit', 123)
+      expect(db.dlq[0]).toMatchObject({ tenantId: 'default' })
+    })
+
+    it('refuses to redeliver another tenant\'s DLQ row and leaves it intact', async () => {
+      const row = await store.enqueue(msg('tenant-a'), 'rate_limit', 123)
+
+      const ok = await store.redeliver(row.id, 'tenant-b')
+
+      expect(ok).toBe(false)
+      // The row must survive: a denied redelivery must not delete evidence.
+      expect(db.dlq).toHaveLength(1)
+      // And nothing may leak into the attacker's mailbox.
+      expect(db.mailbox).toHaveLength(0)
+    })
+
+    it('redelivers when the caller owns the row, restoring the owning tenant', async () => {
+      const row = await store.enqueue(msg('tenant-a'), 'rate_limit', 123)
+
+      const ok = await store.redeliver(row.id, 'tenant-a')
+
+      expect(ok).toBe(true)
+      expect(db.dlq).toHaveLength(0)
+      // Must land back in tenant-a, not silently fall back to 'default'.
+      expect(db.mailbox[0]).toMatchObject({
+        id: 'original-42',
+        tenantId: 'tenant-a',
+      })
+    })
   })
 
   it('listDead returns only dead rows for a recipient', async () => {

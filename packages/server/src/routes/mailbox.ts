@@ -79,7 +79,11 @@ export function createMailboxRoutes(config: MailboxRouteConfig): Hono<AppEnv> {
       )
     }
     const id = c.req.param('id')
-    const ok = await dlqStore.redeliver(id)
+    // SEC-H-06: the `:id` is client-supplied. Scope the redelivery to the
+    // caller's server-derived tenant so one tenant cannot redeliver (and
+    // thereby read) another tenant's dead-lettered mail.
+    const tenantId = getRequestingTenantId(c)
+    const ok = await dlqStore.redeliver(id, tenantId)
     if (!ok) {
       return c.json(
         { error: { code: 'NOT_FOUND', message: `DLQ entry ${id} not found` } },

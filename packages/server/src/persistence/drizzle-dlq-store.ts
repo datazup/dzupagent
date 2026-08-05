@@ -48,6 +48,8 @@ export interface DlqRow {
   nextRetryAt: number
   createdAt: number
   deadAt: number | null
+  /** SEC-H-06: tenant that owned the original message. */
+  tenantId: string
 }
 
 /** Convert a stored DLQ row back to a {@link MailMessage}. */
@@ -59,6 +61,7 @@ export function dlqRowToMessage(row: DlqRow): MailMessage {
     subject: row.subject,
     body: row.body,
     createdAt: row.createdAt,
+    tenantId: row.tenantId,
   }
 }
 
@@ -94,6 +97,10 @@ export class DrizzleDlqStore {
       nextRetryAt: now + DLQ_INITIAL_BACKOFF_MS,
       createdAt: now,
       deadAt: null,
+      // SEC-H-06: carry the owning tenant into the DLQ. Without this the
+      // tenant was destroyed at the DLQ boundary and could not be restored
+      // on redelivery.
+      tenantId: msg.tenantId ?? 'default',
     }
     await this.db.insert(agentMailDlq).values(row)
     return row
@@ -133,11 +140,20 @@ export class DrizzleDlqStore {
    *
    * Returns `true` if the row was found and redelivered, `false` otherwise.
    */
-  async redeliver(id: string): Promise<boolean> {
+  async redeliver(id: string, tenantId?: string): Promise<boolean> {
+    // SEC-H-06: when a tenant scope is supplied, it is part of the lookup
+    // predicate rather than a post-hoc check, so a cross-tenant id is
+    // indistinguishable from a missing one (returns false -> 404) and leaks
+    // no existence information.
+    const where =
+      tenantId === undefined
+        ? eq(agentMailDlq.id, id)
+        : and(eq(agentMailDlq.id, id), eq(agentMailDlq.tenantId, tenantId))
+
     const rows = await this.db
       .select()
       .from(agentMailDlq)
-      .where(eq(agentMailDlq.id, id))
+      .where(where)
       .limit(1) as DlqRow[]
 
     const row = rows[0]
@@ -152,9 +168,12 @@ export class DrizzleDlqStore {
       createdAt: row.createdAt,
       readAt: null,
       ttlSeconds: null,
+      // SEC-H-06: restore into the owning tenant. Previously omitted, so a
+      // redelivered message silently fell back to the 'default' tenant.
+      tenantId: row.tenantId,
     })
 
-    await this.db.delete(agentMailDlq).where(eq(agentMailDlq.id, id))
+    await this.db.delete(agentMailDlq).where(where)
     return true
   }
 
