@@ -121,8 +121,19 @@ jobs:
       - name: Check Turbo typecheck build order
         run: yarn check:turbo:typecheck-order
 
+      # Runs the same 22 gates as `verify:strict:ci:no-circular`, in the same
+      # order, but reports the status of EVERY gate instead of stopping at the
+      # first red one. The `&&` chain surfaced exactly one failure per run,
+      # which is why DZUPAGENT-TEST-C-13 recurred as C-14: `check:test-typecheck`
+      # sat at position 16, and while it was red nobody could see that the gates
+      # after it were also broken. Decomposing it immediately exposed three
+      # further real defects that had been hiding behind that short-circuit.
+      #
+      # Fail-fast is preserved where it is load-bearing: the build step is
+      # marked `blocking`, so the artifact gates never run against a tree that
+      # failed to build.
       - name: Run strict verification without circular imports
-        run: yarn verify:strict:ci:no-circular
+        run: yarn verify:gates
 
   # TEST-H-02: fail-closed integration lane. The fail-closed helpers
   # (requireIntegration / requireIntegrationEnv, RUN_REQUIRED_INTEGRATION=1)
