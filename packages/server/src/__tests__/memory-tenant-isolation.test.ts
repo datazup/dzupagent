@@ -591,6 +591,80 @@ describe("Memory namespace isolation (SEC-H-07)", () => {
     );
   });
 
+  it("rejects a browse addressing a namespace outside the allowlist", async () => {
+    const app = createForgeApp(authedNamespaceConfig(["lessons"]));
+    memoryService.calls.length = 0;
+
+    const res = await reqAuthed(
+      app,
+      "GET",
+      "/api/memory-browse/secrets",
+      "token-a"
+    );
+
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("NAMESPACE_NOT_ALLOWED");
+    // The namespace arrives as a URL path segment and flows straight into the
+    // store, so prove the read never happened rather than only checking status.
+    expect(memoryService.calls.some((c) => c.namespace === "secrets")).toBe(
+      false
+    );
+  });
+
+  it("rejects a browse SEARCH addressing a disallowed namespace", async () => {
+    const app = createForgeApp(authedNamespaceConfig(["lessons"]));
+    memoryService.calls.length = 0;
+
+    const res = await reqAuthed(
+      app,
+      "GET",
+      "/api/memory-browse/secrets?search=SECRET",
+      "token-a"
+    );
+
+    expect(res.status).toBe(403);
+    expect(memoryService.calls.some((c) => c.namespace === "secrets")).toBe(
+      false
+    );
+  });
+
+  it("allows a browse of a namespace that IS on the allowlist", async () => {
+    const app = createForgeApp(authedNamespaceConfig(["lessons"]));
+    memoryService.calls.length = 0;
+
+    const res = await reqAuthed(
+      app,
+      "GET",
+      "/api/memory-browse/lessons",
+      "token-a"
+    );
+
+    expect(res.status).toBe(200);
+    // Guard against a vacuous pass: prove the allowed namespace really reached
+    // the store rather than being short-circuited by the new guard.
+    expect(memoryService.calls.some((c) => c.namespace === "lessons")).toBe(
+      true
+    );
+  });
+
+  it("allows any browse namespace when no allowlist is configured", async () => {
+    const app = createForgeApp(authedNamespaceConfig());
+    memoryService.calls.length = 0;
+
+    const res = await reqAuthed(
+      app,
+      "GET",
+      "/api/memory-browse/secrets",
+      "token-a"
+    );
+
+    expect(res.status).toBe(200);
+    expect(memoryService.calls.some((c) => c.namespace === "secrets")).toBe(
+      true
+    );
+  });
+
   it("allows any namespace when no allowlist is configured (single-tenant)", async () => {
     const app = createForgeApp(authedNamespaceConfig());
 

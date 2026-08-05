@@ -33,7 +33,14 @@ export function mountMemoryRoutes(
     );
     app.route(
       "/api/memory-browse",
-      createMemoryBrowseRoutes({ memoryService: runtimeConfig.memoryService })
+      createMemoryBrowseRoutes({
+        memoryService: runtimeConfig.memoryService,
+        // SEC-H-07: same reachability requirement as /api/memory above —
+        // omitting this leaves the namespace guard permanently unconfigured.
+        ...(runtimeConfig.memoryTenantScope && {
+          tenantScope: runtimeConfig.memoryTenantScope,
+        }),
+      })
     );
   }
   if (runtimeConfig.memoryHealth) {

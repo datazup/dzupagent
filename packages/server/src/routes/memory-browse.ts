@@ -9,6 +9,8 @@ import type { AppEnv } from "../types.js";
 import type { MemoryServiceLike } from "@dzupagent/memory-ipc";
 import {
   applyAuthoritativeScope,
+  resolveAuthoritativeNamespace,
+  MemoryNamespaceNotAllowedError,
   type MemoryTenantScopeConfig,
 } from "./memory-tenant-scope.js";
 import { logRouteError, mapErrorToStatus } from "./route-error.js";
@@ -27,7 +29,25 @@ export function createMemoryBrowseRoutes(
 
   // GET /:namespace — List or search entries in a namespace
   app.get("/:namespace", async (c) => {
-    const namespace = c.req.param("namespace");
+    // SEC-H-07: `namespace` is a partition key BESIDE `scope`, so forcing the
+    // authoritative scope below does not constrain it. Without this guard a
+    // caller reaches any partition simply by changing the path segment.
+    // Rejected before the store is touched.
+    let namespace: string;
+    try {
+      namespace = resolveAuthoritativeNamespace(
+        c.req.param("namespace"),
+        tenantScope
+      );
+    } catch (err) {
+      if (err instanceof MemoryNamespaceNotAllowedError) {
+        return c.json(
+          { error: { code: "NAMESPACE_NOT_ALLOWED", message: err.message } },
+          403
+        );
+      }
+      throw err;
+    }
     const limitStr = c.req.query("limit");
     const offsetStr = c.req.query("offset");
     const search = c.req.query("search");
