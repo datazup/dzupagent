@@ -23,7 +23,7 @@ Auto-generated on 2026-08-05. Do not edit manually — run `yarn docs:capability
 | create-dzupagent | CLI scaffolder for new DzupAgent projects | Alpha | ScaffoldEngine, generateProject, wireProject, renderTemplate, ... |
 | @dzupagent/dialogue-core | Provider-neutral dialogue orchestration contracts for DzupAgent | Alpha | DialogueScheduler, assertValidRunSpec, canonicalizeRunSpec, hashRunSpec, ... |
 | @dzupagent/dialogue-core-replay | Deterministic replay harness ports for DzupAgent dialogue-core | Alpha | ReplayExhaustedError, RecordedAgentPort, RecordedValidatorPort, RecordedWorkspacePort, GoldenTraceValidationError, loadGoldenTrace, validateGoldenTrace, replayDialogue, ... |
-| @dzupagent/eval-contracts | Neutral type contracts shared between @dzupagent/evals and @dzupagent/server. Types only — no runtime dependencies. | Alpha | Measurable, EvalResult, EvalScorer, EvalCase, EvalSuite, EvalRunResult, EvalEntry, DatasetMetadata, ... |
+| @dzupagent/eval-contracts | Neutral type contracts shared between @dzupagent/evals and @dzupagent/server. Types only — no runtime dependencies. | Alpha | Measurable, EvalResult, EvalScorer, EvalCase, EvalSuite, EvalRunResult, EvalCaseError, EvalEntry, ... |
 | @dzupagent/evals | Evaluation: scorers, LLM judge, benchmarks | Alpha | DeterministicScorer, LLMJudgeScorer, CompositeScorer, LlmJudgeScorer, ScorerRegistry, createLLMJudge, createJSONSchemaScorer, createKeywordScorer, ... |
 | @dzupagent/execution-contracts | Neutral execution isolation policies, validation, and qualification receipts | Alpha | UnsupportedEnforcementDriver, CommandValidationError, EgressPolicy, HostCapabilityError, computeCatalogDigest, computePolicySignature, buildCommandCatalog, ... |
 | @dzupagent/express | Express adapter: SSE streaming, agent router | Alpha | SSEHandler, SSEWriter, ClientSafeError, SSEProjectionRouter, isClientSafeError, routeError, sanitizeError, ... |
@@ -201,7 +201,7 @@ Auto-generated on 2026-08-05. Do not edit manually — run `yarn docs:capability
 
 ### @dzupagent/eval-contracts
 
-**Types:** Measurable, EvalResult, EvalScorer, EvalCase, EvalSuite, EvalRunResult, EvalEntry, DatasetMetadata, EvalDatasetLike, EvalRunStatus, ScorerConfigLike, BenchmarkSuite, BenchmarkResult, BenchmarkComparison, BenchmarkCategory, EvalRunErrorRecord, EvalRunRecoveryRecord, EvalRunExecutionOwnershipRecord, EvalRunAttemptRecord, EvalRunRecord, EvalRunListFilter, EvalRunStore, BenchmarkRunArtifactRecord, BenchmarkRunRecord, BenchmarkBaselineRecord, BenchmarkCompareRecord, BenchmarkRunListFilter, BenchmarkRunListPage, BenchmarkRunStore, EvalExecutionContext, EvalQueueStats, EvalOrchestratorLike, BenchmarkRunSuiteInput, BenchmarkCompareResult, BenchmarkOrchestratorLike, BenchmarkOrchestratorConfigLike, EvalExecutionTarget
+**Types:** Measurable, EvalResult, EvalScorer, EvalCase, EvalSuite, EvalRunResult, EvalCaseError, EvalEntry, DatasetMetadata, EvalDatasetLike, EvalRunStatus, ScorerConfigLike, BenchmarkSuite, BenchmarkResult, BenchmarkComparison, BenchmarkCategory, EvalRunErrorRecord, EvalRunRecoveryRecord, EvalRunExecutionOwnershipRecord, EvalRunAttemptRecord, EvalRunRecord, EvalRunListFilter, EvalRunStore, BenchmarkRunArtifactRecord, BenchmarkRunRecord, BenchmarkBaselineRecord, BenchmarkCompareRecord, BenchmarkRunListFilter, BenchmarkRunListPage, BenchmarkRunStore, EvalExecutionContext, EvalQueueStats, EvalOrchestratorLike, BenchmarkRunSuiteInput, BenchmarkCompareResult, BenchmarkOrchestratorLike, BenchmarkOrchestratorConfigLike, EvalExecutionTarget
 
 ### @dzupagent/evals
 

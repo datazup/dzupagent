@@ -1,4 +1,5 @@
 import { defaultLogger } from '@dzupagent/core/utils';
+import type { EvalCaseError } from '@dzupagent/eval-contracts';
 import type { EvalCase, EvalResult, EvalRunResult, EvalScorer, EvalSuite } from './types.js';
 
 /**
@@ -54,6 +55,18 @@ function isControlFlowError(error: unknown): boolean {
   return typeof code === 'string' && CONTROL_FLOW_ERROR_CODES.has(code);
 }
 
+/**
+ * Narrow a thrown value to the serialisable case-error shape.
+ *
+ * `name` is preserved (not flattened to a generic code) because the
+ * orchestrator maps it onto the run-level error record's `code`.
+ */
+function toCaseError(error: unknown): EvalCaseError {
+  return error instanceof Error
+    ? { name: error.name || 'Error', message: error.message }
+    : { name: 'UnknownError', message: String(error) };
+}
+
 function errorResult(error: unknown): EvalResult {
   return {
     score: 0,
@@ -100,6 +113,11 @@ export async function runEvalSuite(
           scorerResults: [],
           aggregateScore: 0,
           pass: false,
+          // Isolation must not erase the fault: a zero score alone is
+          // indistinguishable from a case that legitimately scored 0, which
+          // left the orchestrator recording a wholly-failed run as
+          // `completed`. See EvalRunResult['results'][number]['error'].
+          error: toCaseError(error),
         };
       }
 

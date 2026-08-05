@@ -11,6 +11,7 @@ import type {
   EvalExecutionContext,
   EvalExecutionTarget,
   EvalRunRecord,
+  EvalRunResult,
   EvalRunStore,
 } from '@dzupagent/eval-contracts'
 import { runEvalSuite } from '../eval-runner.js'
@@ -30,6 +31,35 @@ export interface RunExecutorConfig {
   queueMetrics: QueueMetricsTracker
   costCap: CostCapConfig
   getExecuteTarget: () => EvalExecutionTarget | undefined
+}
+
+/**
+ * Reconstruct a run-level error when *every* case's target invocation faulted.
+ *
+ * `runEvalSuite` isolates target faults per case (ERR-C-25) so one bad case
+ * cannot discard a suite's other results — it therefore resolves normally even
+ * when nothing succeeded. Left unexamined that made a wholly-failed run
+ * indistinguishable from a legitimate all-zero score, and the orchestrator
+ * persisted it as `completed`.
+ *
+ * The threshold is deliberately *all* cases, not any: failing the run on a
+ * single isolated fault would undo ERR-C-25. A partially-faulted suite still
+ * completes and reports the faults through its case results.
+ *
+ * Returns `undefined` for an empty suite — nothing was attempted, so nothing
+ * faulted.
+ */
+function toTotalTargetFailure(result: EvalRunResult | undefined): Error | undefined {
+  const cases = result?.results
+  if (!cases || cases.length === 0) return undefined
+  if (!cases.every((entry) => entry.error)) return undefined
+
+  const first = cases[0]!.error!
+  const error = new Error(first.message)
+  // Preserved so `toEvalRunError` maps it back to the thrown type's name
+  // rather than flattening every isolated fault to a generic code.
+  error.name = first.name
+  return error
 }
 
 export class RunExecutor {
@@ -74,6 +104,12 @@ export class RunExecutor {
         await assertCostWithinCap(this.config.costCap)
         return output
       })
+
+      const totalFailure = toTotalTargetFailure(result)
+      if (totalFailure) {
+        await this.recordFailure(run, attempt, abortController, totalFailure)
+        return
+      }
 
       await this.recordCompletion(run, attempt, abortController, result)
     } catch (error) {

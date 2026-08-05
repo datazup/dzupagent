@@ -109,9 +109,30 @@ export interface EvalRunResult {
     }>
     aggregateScore: number
     pass: boolean
+    /**
+     * Set when the case's *target invocation* threw and the fault was isolated
+     * (ERR-C-25) rather than rejecting the suite.
+     *
+     * Without this, an isolated fault is indistinguishable from a case that
+     * legitimately scored 0 — both are `aggregateScore: 0, pass: false`. The
+     * orchestrator needs the difference to decide `failed` vs `completed`, and
+     * only the case result can carry it, since the suite resolves normally.
+     */
+    error?: EvalCaseError | undefined
   }>
   aggregateScore: number
   passRate: number
+}
+
+/**
+ * A target-invocation fault that was isolated into a single case result.
+ *
+ * Carries the original error's `name` so downstream mapping to a run-level
+ * error record preserves the thrown type rather than flattening it.
+ */
+export interface EvalCaseError {
+  name: string
+  message: string
 }
 
 /** Lifecycle status of a persisted eval run. */
