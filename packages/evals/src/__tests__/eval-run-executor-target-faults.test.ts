@@ -56,6 +56,9 @@ class MemoryStore implements EvalRunStore {
   async listRuns(_filter?: EvalRunListFilter): Promise<EvalRunRecord[]> {
     return [...this.runs.values()].map((r) => ({ ...r }))
   }
+  async listAllRuns(): Promise<EvalRunRecord[]> {
+    return [...this.runs.values()].map((r) => ({ ...r }))
+  }
 }
 
 /** Scorer that always passes, so a case's score reflects only the target. */
