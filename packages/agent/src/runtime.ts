@@ -28,6 +28,9 @@ export type { GuardrailConfig } from "./guardrails/guardrail-types.js";
 // persistence + cost showback) embed this to enforce shared run budgets. Exposed on
 // the runtime subpath so consumers don't import the broad @dzupagent/agent root.
 export { DistributedCostLedger } from "./guardrails/distributed-budget.js";
+// AGENT-H-28 — thrown when the fleet-wide spend ceiling is breached, so
+// hosts can distinguish a budget abort from a provider/runtime failure.
+export { CostCeilingExceededError } from "./agent/rate-limit-coordinator.js";
 export type {
   CostLedgerClient,
   DistributedCostLedgerConfig,

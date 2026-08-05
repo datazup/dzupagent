@@ -214,6 +214,9 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
         ...(options.guardrailClient
           ? { guardrailClient: options.guardrailClient }
           : {}),
+        ...(options.guardrailMaxCostUsd !== undefined
+          ? { guardrailMaxCostUsd: options.guardrailMaxCostUsd }
+          : {}),
         ...(options.tenantRunQuota
           ? { tenantRunQuota: options.tenantRunQuota }
           : {}),
@@ -290,6 +293,7 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
       // guardrail client is configured or the run produced no cost.
       await recordDistributedCost({
         guardrailClient: options.guardrailClient,
+        guardrailMaxCostUsd: options.guardrailMaxCostUsd,
         runStore: options.runStore,
         job,
         costCents: execution.costCents,

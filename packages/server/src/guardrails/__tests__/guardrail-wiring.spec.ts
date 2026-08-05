@@ -121,6 +121,92 @@ describe("runAdmissionStage guardrail-client wiring", () => {
     ).toBeUndefined();
   });
 
+  // AGENT-H-28 — the ledger's `allowed` flag is only meaningful if a finite
+  // `maxCostUsd` actually reaches it. Before this, nothing assigned one, so
+  // the fleet-wide ceiling was structurally `Infinity`.
+  it("threads the deployment-wide maxCostUsd onto the derived cost ledger", async () => {
+    const client = makeGuardrailClient();
+    const agent: AgentExecutionSpec = {
+      id: "agent-1",
+      name: "Agent One",
+      instructions: "do things",
+      modelTier: "chat",
+    } as AgentExecutionSpec;
+
+    const result = await runAdmissionStage({
+      job: makeJob(),
+      inputGuard: null,
+      runStore: makeRunStore(),
+      eventBus: makeEventBus(),
+      resolveAgent: async () => agent,
+      guardrailClient: client,
+      guardrailMaxCostUsd: 25,
+    });
+
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return; // narrow
+    const distributed = (result.agent.guardrails as Record<string, unknown>)[
+      "distributed"
+    ] as { costLedger: { maxCostUsd?: number } };
+    expect(distributed.costLedger.maxCostUsd).toBe(25);
+  });
+
+  it("lets a per-agent maxCostUsd override the deployment-wide default", async () => {
+    const client = makeGuardrailClient();
+    const agent: AgentExecutionSpec = {
+      id: "agent-1",
+      name: "Agent One",
+      instructions: "do things",
+      modelTier: "chat",
+      guardrails: { distributed: { costLedger: { maxCostUsd: 3 } } },
+    } as unknown as AgentExecutionSpec;
+
+    const result = await runAdmissionStage({
+      job: makeJob(),
+      inputGuard: null,
+      runStore: makeRunStore(),
+      eventBus: makeEventBus(),
+      resolveAgent: async () => agent,
+      guardrailClient: client,
+      guardrailMaxCostUsd: 25,
+    });
+
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return; // narrow
+    const distributed = (result.agent.guardrails as Record<string, unknown>)[
+      "distributed"
+    ] as { costLedger: { maxCostUsd?: number; client: unknown } };
+    expect(distributed.costLedger.maxCostUsd).toBe(3);
+    // The client is still injected alongside the preserved cap.
+    expect(distributed.costLedger.client).toBe(client);
+  });
+
+  it("omits maxCostUsd entirely when no ceiling is configured (track-only default)", async () => {
+    const client = makeGuardrailClient();
+    const agent: AgentExecutionSpec = {
+      id: "agent-1",
+      name: "Agent One",
+      instructions: "do things",
+      modelTier: "chat",
+    } as AgentExecutionSpec;
+
+    const result = await runAdmissionStage({
+      job: makeJob(),
+      inputGuard: null,
+      runStore: makeRunStore(),
+      eventBus: makeEventBus(),
+      resolveAgent: async () => agent,
+      guardrailClient: client,
+    });
+
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return; // narrow
+    const distributed = (result.agent.guardrails as Record<string, unknown>)[
+      "distributed"
+    ] as { costLedger: Record<string, unknown> };
+    expect("maxCostUsd" in distributed.costLedger).toBe(false);
+  });
+
   it("createRedisGuardrailClientFromConnection returns a RedisGuardrailClient", () => {
     const conn: RedisLikeConnection = {
       incr: async () => 1,

@@ -36,6 +36,7 @@ import {
 } from "./provider-failover.js";
 import {
   awaitRateLimit,
+  CostCeilingExceededError,
   recordDistributedCost,
   type RateLimitCoordinatorDeps,
 } from "./rate-limit-coordinator.js";
@@ -184,7 +185,14 @@ export async function invokeModelWithMiddleware(
     await recordDistributedCost(deps, result);
     return result;
   } catch (err) {
-    if (deps.resolvedProvider && deps.registry) {
+    // AGENT-H-28: a breached spend ceiling is our own budget verdict, not a
+    // provider fault. Feeding it to the circuit breaker would penalise a
+    // perfectly healthy provider for our accounting decision.
+    if (
+      deps.resolvedProvider &&
+      deps.registry &&
+      !(err instanceof CostCeilingExceededError)
+    ) {
       const asError = err instanceof Error ? err : new Error(String(err));
       // Registry filters to transient errors internally, so unconditional
       // is safe.

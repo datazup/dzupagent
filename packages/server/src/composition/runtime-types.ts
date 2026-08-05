@@ -123,17 +123,6 @@ export interface ForgeRuntimeConfig {
    */
   guardrailClient?: CostLedgerClient;
   /**
-   * AGENT-H-28 — fleet-wide cumulative spend ceiling in USD, applied per
-   * `tenantId:agentId`. Threaded onto each run's agent spec as
-   * `guardrails.distributed.costLedger.maxCostUsd`, so a breach aborts the
-   * in-flight run instead of merely emitting an event.
-   *
-   * Absent ⇒ the ledger defaults to `Infinity` (track-only), preserving the
-   * previous behaviour exactly. Only meaningful alongside
-   * {@link guardrailClient}.
-   */
-  guardrailMaxCostUsd?: number;
-  /**
    * Prometheus `/metrics` endpoint exposure policy. The endpoint is not mounted
    * unless this is configured, so public scraping requires an explicit
    * `unsafe-public` opt-in.
