@@ -62,7 +62,7 @@ export interface RunExecutorResult {
 }
 
 export type RunExecutor = (
-  context: RunExecutionContext,
+  context: RunExecutionContext
 ) => Promise<unknown | RunExecutorResult>;
 
 // ---------------------------------------------------------------------------
@@ -115,7 +115,7 @@ export interface EscalationPolicyLike {
   recordScore(
     key: string,
     score: number,
-    currentTier: string,
+    currentTier: string
   ): EscalationResultLike;
 }
 
@@ -128,7 +128,7 @@ export interface RunOutcomeAnalyzerLike {
       input?: string;
       output?: string;
       reference?: string;
-    },
+    }
   ): Promise<unknown>;
 }
 
@@ -210,6 +210,13 @@ export interface StartRunWorkerOptions {
    * enforcement, unchanged.
    */
   guardrailClient?: CostLedgerClient;
+  /**
+   * AGENT-H-28 — fleet-wide cumulative spend ceiling in USD per
+   * `tenantId:agentId`. Attached to each run's agent spec during admission as
+   * `guardrails.distributed.costLedger.maxCostUsd` and applied to the post-run
+   * ledger write. Absent ⇒ `Infinity` (track-only), unchanged behaviour.
+   */
+  guardrailMaxCostUsd?: number;
   /**
    * P1: Optional worker fleet registry. When provided, the worker registers a
    * node on start, heartbeats its in-flight count on an interval, runs a

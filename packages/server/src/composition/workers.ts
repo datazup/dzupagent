@@ -134,6 +134,9 @@ export function maybeStartRunWorker(
     ...(runtimeConfig.guardrailClient
       ? { guardrailClient: runtimeConfig.guardrailClient }
       : {}),
+    ...(runtimeConfig.guardrailMaxCostUsd !== undefined
+      ? { guardrailMaxCostUsd: runtimeConfig.guardrailMaxCostUsd }
+      : {}),
     ...(workerRegistry ? { workerRegistry } : {}),
   });
   startedRunQueues.add(runtimeConfig.runQueue);

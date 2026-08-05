@@ -19,11 +19,18 @@ import { logBestEffortFailure } from "./shared.js";
  */
 export async function recordDistributedCost(options: {
   guardrailClient?: CostLedgerClient;
+  /**
+   * AGENT-H-28 — fleet-wide ceiling in USD. Threaded through so this
+   * post-run write shares the deployment's cap instead of silently
+   * constructing a track-only (`Infinity`) ledger. The run is already
+   * finished here, so a breach is reported, not thrown.
+   */
+  guardrailMaxCostUsd?: number;
   runStore: RunStore;
   job: RunJob;
   costCents?: number;
 }): Promise<void> {
-  const { guardrailClient, costCents } = options;
+  const { guardrailClient, guardrailMaxCostUsd, costCents } = options;
   if (!guardrailClient) return;
   if (
     typeof costCents !== "number" ||
@@ -38,8 +45,37 @@ export async function recordDistributedCost(options: {
   const tenantId = resolveTenantId(options.job);
 
   try {
-    const ledger = new DistributedCostLedger({ client: guardrailClient });
-    await ledger.record(tenantId, options.job.agentId, costCents / 100);
+    const ledger = new DistributedCostLedger({
+      client: guardrailClient,
+      ...(guardrailMaxCostUsd !== undefined
+        ? { maxCostUsd: guardrailMaxCostUsd }
+        : {}),
+    });
+    const result = await ledger.record(
+      tenantId,
+      options.job.agentId,
+      costCents / 100
+    );
+    if (!result.allowed) {
+      // The run has already completed, so this cannot abort anything —
+      // but a silent breach here is exactly how a fleet overspends. Leave
+      // a durable marker so the next admission is investigable.
+      await options.runStore
+        .addLog(options.job.runId, {
+          level: "warn",
+          phase: "guardrails",
+          message: "Distributed cost ceiling reached after run completion",
+          data: {
+            tenantId,
+            agentId: options.job.agentId,
+            totalCostUsd: result.totalCostUsd,
+            maxCostUsd: guardrailMaxCostUsd,
+          },
+        })
+        .catch((logErr) => {
+          logBestEffortFailure("recordDistributedCost.ceilingLog", logErr);
+        });
+    }
   } catch (err) {
     await options.runStore
       .addLog(options.job.runId, {

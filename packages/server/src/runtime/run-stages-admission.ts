@@ -22,6 +22,7 @@ const DEFAULT_TENANT_RUN_LIMIT = 20;
 function withDistributedGuardrails(
   agent: AgentExecutionSpec,
   guardrailClient: CostLedgerClient | undefined,
+  guardrailMaxCostUsd?: number
 ): AgentExecutionSpec {
   if (!guardrailClient) return agent;
   const guardrails = (agent.guardrails ?? {}) as Record<string, unknown>;
@@ -29,6 +30,8 @@ function withDistributedGuardrails(
     string,
     unknown
   >;
+  const costLedger =
+    (distributed["costLedger"] as Record<string, unknown>) ?? {};
   return {
     ...agent,
     guardrails: {
@@ -40,8 +43,16 @@ function withDistributedGuardrails(
           client: guardrailClient,
         },
         costLedger: {
-          ...((distributed["costLedger"] as Record<string, unknown>) ?? {}),
+          ...costLedger,
           client: guardrailClient,
+          // AGENT-H-28: apply the deployment-wide ceiling. A per-agent spec
+          // value wins, so an agent can tighten (or widen) its own cap; the
+          // server default only fills the gap. Absent on both ⇒ the ledger's
+          // own `Infinity` default (track-only), unchanged.
+          ...(costLedger["maxCostUsd"] === undefined &&
+          guardrailMaxCostUsd !== undefined
+            ? { maxCostUsd: guardrailMaxCostUsd }
+            : {}),
         },
       },
     },
@@ -69,6 +80,12 @@ export async function runAdmissionStage(options: {
    */
   guardrailClient?: CostLedgerClient;
   /**
+   * AGENT-H-28 — deployment-wide cumulative spend ceiling in USD. Applied to
+   * the derived spec's `costLedger.maxCostUsd` unless the agent spec already
+   * carries its own value.
+   */
+  guardrailMaxCostUsd?: number;
+  /**
    * Stage 4-D — optional per-tenant concurrent-run cap. When present and the
    * job carries a `metadata.tenantId`, the tenant's active count is checked
    * against `metadata.tenantRunLimit` (default {@link DEFAULT_TENANT_RUN_LIMIT})
@@ -80,7 +97,11 @@ export async function runAdmissionStage(options: {
 }): Promise<AdmissionStageResult> {
   const resolvedAgent = await options.resolveAgent(options.job.agentId);
   const agent = resolvedAgent
-    ? withDistributedGuardrails(resolvedAgent, options.guardrailClient)
+    ? withDistributedGuardrails(
+        resolvedAgent,
+        options.guardrailClient,
+        options.guardrailMaxCostUsd
+      )
     : resolvedAgent;
   if (!agent) {
     await options.runStore.update(options.job.runId, {
@@ -97,8 +118,8 @@ export async function runAdmissionStage(options: {
           errorCode: "REGISTRY_AGENT_NOT_FOUND",
           message: `Agent "${options.job.agentId}" not found`,
         },
-        options.job,
-      ),
+        options.job
+      )
     );
     return { input: options.job.input, rejected: true };
   }
@@ -140,14 +161,14 @@ export async function runAdmissionStage(options: {
             errorCode: "TENANT_QUOTA_EXCEEDED",
             message: reason,
           },
-          options.job,
-        ),
+          options.job
+        )
       );
       await closeTraceWithTerminalStep(
         options.traceStore,
         options.job.runId,
         "rejected",
-        { reason, guardedBy: "tenant-run-quota" },
+        { reason, guardedBy: "tenant-run-quota" }
       );
       return { agent, input: options.job.input, rejected: true };
     }
@@ -196,14 +217,14 @@ export async function runAdmissionStage(options: {
           errorCode: "POLICY_DENIED",
           message: reason,
         },
-        options.job,
-      ),
+        options.job
+      )
     );
     await closeTraceWithTerminalStep(
       options.traceStore,
       options.job.runId,
       "rejected",
-      { reason, guardedBy: "input-guard" },
+      { reason, guardedBy: "input-guard" }
     );
     return { agent, input, rejected: true };
   }
@@ -256,14 +277,14 @@ export async function waitForRunApproval(options: {
         runId: options.job.runId,
         plan: { input: options.input },
       },
-      options.job,
-    ),
+      options.job
+    )
   );
 
   const decision = await waitForApprovalDecision(
     options.eventBus,
     options.job.runId,
-    timeoutMs,
+    timeoutMs
   );
   if (!decision.approved) {
     await options.runStore.update(options.job.runId, {
@@ -287,14 +308,14 @@ export async function waitForRunApproval(options: {
           errorCode: "APPROVAL_REJECTED",
           message: decision.reason ?? "Run rejected by approval policy",
         },
-        options.job,
-      ),
+        options.job
+      )
     );
     await closeTraceWithTerminalStep(
       options.traceStore,
       options.job.runId,
       "rejected",
-      { reason: decision.reason ?? "Run rejected by approval policy" },
+      { reason: decision.reason ?? "Run rejected by approval policy" }
     );
     return false;
   }
@@ -311,7 +332,7 @@ export async function waitForRunApproval(options: {
 async function waitForApprovalDecision(
   eventBus: DzupEventBus,
   runId: string,
-  timeoutMs: number,
+  timeoutMs: number
 ): Promise<{ approved: boolean; reason?: string }> {
   return new Promise((resolve) => {
     const unsubGrant = eventBus.on("approval:granted", (event) => {
