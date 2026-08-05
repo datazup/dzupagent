@@ -14,16 +14,6 @@ export type {
   MCPRouterConfig,
 } from "./types.js";
 export { SSEHandler, SSEWriter } from "./sse-handler.js";
-export {
-  ClientSafeError,
-  GENERIC_ERROR_CODE,
-  GENERIC_ERROR_MESSAGE,
-  isClientSafeError,
-  routeError,
-  sanitizeError,
-  toError,
-} from "./route-error.js";
-export type { RouteErrorContext, SanitizedError } from "./route-error.js";
 export { SSEProjectionRouter, withProjection } from "./sse-projections.js";
 export type {
   SSENamespace,
