@@ -596,9 +596,14 @@ describe("inlineSubflows", () => {
         id: "root",
         nodes: [
           {
+            type: "set",
+            id: "initialize",
+            assign: { ready: true },
+          },
+          {
             type: "branch",
             id: "gate",
-            condition: "inputs.approved == true",
+            condition: "state.ready && inputs.approved == true",
             then: [{ type: "complete", id: "done", result: "ok" }],
           },
         ],
@@ -623,10 +628,63 @@ describe("inlineSubflows", () => {
 
     expect(result.root.type).toBe("sequence");
     if (result.root.type !== "sequence") throw new Error("expected sequence");
-    expect(result.root.nodes[1]).toMatchObject({
+    expect(result.root.nodes[2]).toMatchObject({
       type: "branch",
-      condition: "state.child_call__input__approved == true",
+      condition:
+        "state.child_call__ready && state.child_call__input__approved == true",
     });
+  });
+
+  it("normalizes authored subflow ids before using them in state references", async () => {
+    const child: FlowDocumentV1 = {
+      dsl: "dzupflow/v1",
+      id: "child",
+      version: 1,
+      meta: { subflowOutput: "result" },
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "set",
+            id: "produce",
+            assign: { result: "ok" },
+          },
+        ],
+      },
+    };
+
+    const result = await inlineSubflows(
+      {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "subflow",
+            id: "child-call",
+            flowRef: "child",
+            outputVar: "result",
+          },
+        ],
+      },
+      resolverFrom({ child }),
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.root.type).toBe("sequence");
+    if (result.root.type !== "sequence") throw new Error("expected sequence");
+    expect(result.root.nodes).toEqual([
+      {
+        type: "set",
+        id: "child_call__produce",
+        assign: { child_call__result: "ok" },
+      },
+      {
+        type: "set",
+        id: "child_call__export_output",
+        assign: { result: "{{ state.child_call__result }}" },
+      },
+    ]);
   });
 
   it("fails closed on missing, unknown, or undeclared boundary fields", async () => {

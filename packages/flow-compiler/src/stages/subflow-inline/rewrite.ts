@@ -3,6 +3,7 @@ import type { FlowNode } from "@dzupagent/flow-ast";
 import {
   INPUT_TEMPLATE_RE,
   RAW_INPUT_REFERENCE_RE,
+  RAW_STATE_REFERENCE_RE,
   inputStateKey,
   SOURCE_IS_STATE_NODE_TYPES,
   STATE_KEY_FIELDS,
@@ -69,10 +70,19 @@ export function rewriteInputReferences(
   );
 }
 
+export function rewriteRawStateReferences(
+  value: string,
+  instanceId: string,
+): string {
+  return value.replace(
+    RAW_STATE_REFERENCE_RE,
+    (_match, key: string) => `state.${privateKey(instanceId, key)}`,
+  );
+}
+
 export function instanceIdFor(node: FlowNode): string {
-  return node.id && node.id.length > 0
-    ? node.id
-    : node.type.replace(/[^A-Za-z0-9_]+/g, "_");
+  const authoredId = node.id && node.id.length > 0 ? node.id : node.type;
+  return authoredId.replace(/[^A-Za-z0-9_]+/g, "_");
 }
 
 function shouldRewriteStateKeyField(
@@ -133,10 +143,15 @@ export function rewriteValue(
     checkpointLabels: new Set<string>(),
   },
   inputKeys: ReadonlySet<string> = new Set<string>(),
+  fieldName?: string,
 ): unknown {
   if (typeof value === "string") {
+    const stateRewritten =
+      fieldName === "condition" && !value.includes("{{")
+        ? rewriteRawStateReferences(value, instanceId)
+        : rewriteStateTemplates(value, instanceId);
     return rewriteInputReferences(
-      rewriteStateTemplates(value, instanceId),
+      stateRewritten,
       instanceId,
       inputKeys,
     );
@@ -151,6 +166,7 @@ export function rewriteValue(
         nodeScopeEligible,
         referenceScope,
         inputKeys,
+        fieldName,
       )
     );
   }
@@ -190,6 +206,7 @@ export function rewriteValue(
               false,
               referenceScope,
               inputKeys,
+              key,
             ),
           ]
         )
@@ -215,6 +232,7 @@ export function rewriteValue(
               false,
               referenceScope,
               inputKeys,
+              key,
             );
       continue;
     }
@@ -247,6 +265,7 @@ export function rewriteValue(
       CHILD_NODE_FIELDS.has(key),
       referenceScope,
       inputKeys,
+      key,
     );
   }
   return output;

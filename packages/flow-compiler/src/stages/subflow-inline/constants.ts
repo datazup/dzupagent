@@ -43,6 +43,10 @@ export const INPUT_TEMPLATE_RE =
 // Match only the declared head key; any dotted tail remains in the source.
 export const RAW_INPUT_REFERENCE_RE = /\binputs\.([A-Za-z_][A-Za-z0-9_]*)/g;
 
+// Runtime condition expressions use `state.foo` without template delimiters.
+// The subflow rewrite pass applies this only to condition fields.
+export const RAW_STATE_REFERENCE_RE = /\bstate\.([A-Za-z_][A-Za-z0-9_]*)/g;
+
 export function inputStateKey(inputKey: string): string {
   return `input__${inputKey}`;
 }
