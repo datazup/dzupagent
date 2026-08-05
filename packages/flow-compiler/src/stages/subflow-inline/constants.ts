@@ -33,6 +33,20 @@ export const SOURCE_IS_STATE_NODE_TYPES = new Set([
 // stricter grammar (`ident(.ident)*`).
 export const STATE_TEMPLATE_RE = /\{\{\s*state\.([A-Za-z0-9_.]+)\s*\}\}/g;
 
+// Matches a complete `inputs.foo.bar` template reference while preserving an
+// optional filter suffix. The flat character classes keep matching linear and
+// the rewrite pass validates the dotted path before substituting it.
+export const INPUT_TEMPLATE_RE =
+  /\{\{\s*inputs\.([A-Za-z0-9_.]+)([^{}]*)\}\}/g;
+
+// Raw condition expressions use `inputs.foo` without template delimiters.
+// Match only the declared head key; any dotted tail remains in the source.
+export const RAW_INPUT_REFERENCE_RE = /\binputs\.([A-Za-z_][A-Za-z0-9_]*)/g;
+
+export function inputStateKey(inputKey: string): string {
+  return `input__${inputKey}`;
+}
+
 export const CHILD_NODE_FIELDS = new Set([
   "nodes",
   "body",

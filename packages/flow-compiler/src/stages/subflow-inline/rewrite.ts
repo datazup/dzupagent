@@ -1,6 +1,9 @@
 import type { FlowNode } from "@dzupagent/flow-ast";
 
 import {
+  INPUT_TEMPLATE_RE,
+  RAW_INPUT_REFERENCE_RE,
+  inputStateKey,
   SOURCE_IS_STATE_NODE_TYPES,
   STATE_KEY_FIELDS,
   STATE_TEMPLATE_RE,
@@ -37,6 +40,33 @@ export function rewriteStateTemplates(
     const pathRest = rest.length > 0 ? `.${rest.join(".")}` : "";
     return `{{ state.${privateKey(instanceId, key!)}${pathRest} }}`;
   });
+}
+
+export function rewriteInputReferences(
+  value: string,
+  instanceId: string,
+  inputKeys: ReadonlySet<string>,
+): string {
+  const templatesRewritten = value.replace(
+    INPUT_TEMPLATE_RE,
+    (match, path: string, suffix: string) => {
+      const segments = path.split(".");
+      if (segments.some((segment) => segment.length === 0)) return match;
+      const [key, ...rest] = segments;
+      if (key === undefined || !inputKeys.has(key)) return match;
+      const pathRest = rest.length > 0 ? `.${rest.join(".")}` : "";
+      const filterSuffix = suffix.trim();
+      return `{{ state.${privateKey(instanceId, inputStateKey(key))}${pathRest}${filterSuffix.length > 0 ? ` ${filterSuffix}` : ""} }}`;
+    },
+  );
+
+  return templatesRewritten.replace(
+    RAW_INPUT_REFERENCE_RE,
+    (match, key: string) =>
+      inputKeys.has(key)
+        ? `state.${privateKey(instanceId, inputStateKey(key))}`
+        : match,
+  );
 }
 
 export function instanceIdFor(node: FlowNode): string {
@@ -101,10 +131,16 @@ export function rewriteValue(
   referenceScope: ReferenceScope = {
     nodeIds: new Set<string>(),
     checkpointLabels: new Set<string>(),
-  }
+  },
+  inputKeys: ReadonlySet<string> = new Set<string>(),
 ): unknown {
-  if (typeof value === "string")
-    return rewriteStateTemplates(value, instanceId);
+  if (typeof value === "string") {
+    return rewriteInputReferences(
+      rewriteStateTemplates(value, instanceId),
+      instanceId,
+      inputKeys,
+    );
+  }
   if (Array.isArray(value)) {
     return value.map((item) =>
       rewriteValue(
@@ -113,7 +149,8 @@ export function rewriteValue(
         nodeType,
         stateKeyFieldDepth + 1,
         nodeScopeEligible,
-        referenceScope
+        referenceScope,
+        inputKeys,
       )
     );
   }
@@ -151,7 +188,8 @@ export function rewriteValue(
               currentNodeType,
               currentStateKeyFieldDepth + 1,
               false,
-              referenceScope
+              referenceScope,
+              inputKeys,
             ),
           ]
         )
@@ -175,7 +213,8 @@ export function rewriteValue(
               currentNodeType,
               currentStateKeyFieldDepth + 1,
               false,
-              referenceScope
+              referenceScope,
+              inputKeys,
             );
       continue;
     }
@@ -206,7 +245,8 @@ export function rewriteValue(
       currentNodeType,
       currentStateKeyFieldDepth + 1,
       CHILD_NODE_FIELDS.has(key),
-      referenceScope
+      referenceScope,
+      inputKeys,
     );
   }
   return output;

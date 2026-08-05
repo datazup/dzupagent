@@ -262,6 +262,40 @@ describe('formatDocumentToDsl', () => {
     })
   })
 
+  describe('steps — subflow node', () => {
+    it('round-trips input bindings and the canonical outputVar field', () => {
+      const document = makeDoc({
+        root: {
+          type: 'sequence',
+          id: 'root',
+          nodes: [
+            {
+              type: 'subflow',
+              id: 'child-call',
+              flowRef: 'child-flow',
+              input: { request: '{{ inputs.request }}', mode: 'brief' },
+              outputVar: 'childResult',
+            },
+          ],
+        },
+      })
+
+      const output = formatDocumentToDsl(document)
+      expect(output).toContain('input: {"request":"{{ inputs.request }}","mode":"brief"}')
+      expect(output).toContain('outputVar: childResult')
+      expect(output).not.toContain('output: childResult')
+
+      const reparsed = parseDslToDocument(output)
+      expect(reparsed.ok).toBe(true)
+      expect(reparsed.document?.root.nodes[0]).toMatchObject({
+        type: 'subflow',
+        flowRef: 'child-flow',
+        input: { request: '{{ inputs.request }}', mode: 'brief' },
+        outputVar: 'childResult',
+      })
+    })
+  })
+
   describe('steps — complete node', () => {
     it('emits complete node with result', () => {
       const out = formatDocumentToDsl(makeDoc({

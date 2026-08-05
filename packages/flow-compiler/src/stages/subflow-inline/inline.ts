@@ -5,6 +5,7 @@ import type {
   FlowCompileSubflowEvidence,
   FlowDocumentResolver,
 } from "../../types.js";
+import { createSubflowBoundary } from "./bindings.js";
 import { collectReferenceScope } from "./reference-scope.js";
 import { instanceIdFor, rewriteValue } from "./rewrite.js";
 
@@ -71,9 +72,16 @@ export async function inlineNode(
       subflows
     );
     const instanceId = instanceIdFor(node);
+    const boundary = createSubflowBoundary(
+      node,
+      document,
+      instanceId,
+      path,
+      diagnostics,
+    );
     const referenceScope = collectReferenceScope(nested);
     subflows.push({ flowRef: node.flowRef, instanceId, nodePath: path });
-    return nested.map(
+    const rewritten = nested.map(
       (child) =>
         rewriteValue(
           child,
@@ -81,9 +89,11 @@ export async function inlineNode(
           child.type,
           0,
           true,
-          referenceScope
+          referenceScope,
+          boundary.inputKeys,
         ) as FlowNode
     );
+    return [...boundary.before, ...rewritten, ...boundary.after];
   }
 
   if (node.type === "sequence") {

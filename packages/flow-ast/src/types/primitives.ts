@@ -220,6 +220,8 @@ export interface FlowDurabilityPolicy {
 }
 
 export type FlowNodeMetadata = Record<string, unknown> & {
+  /** State key exported when this document is compile-time inlined as a subflow. */
+  subflowOutput?: string;
   invocation?: Record<string, unknown>;
   requires?: FlowValue;
   produces?: FlowValue;

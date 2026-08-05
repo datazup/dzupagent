@@ -514,6 +514,215 @@ describe("inlineSubflows", () => {
     });
   });
 
+  it("binds declared child inputs privately and exports only the declared output", async () => {
+    const child: FlowDocumentV1 = {
+      dsl: "dzupflow/v1",
+      id: "child",
+      version: 1,
+      inputs: {
+        request: { type: "string", required: true },
+        mode: { type: "string", default: "brief" },
+      },
+      meta: { subflowOutput: "summary" },
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "prompt",
+            id: "summarize",
+            userPrompt:
+              "Summarize {{ inputs.request }} in {{ inputs.mode }} mode",
+            outputKey: "summary",
+          },
+        ],
+      },
+    };
+
+    const result = await inlineSubflows(
+      {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "subflow",
+            id: "child_call",
+            flowRef: "child",
+            input: { request: "{{ inputs.topic }}" },
+            outputVar: "childResult",
+          },
+        ],
+      },
+      resolverFrom({ child }),
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.root.type).toBe("sequence");
+    if (result.root.type !== "sequence") throw new Error("expected sequence");
+    expect(result.root.nodes).toEqual([
+      {
+        type: "set",
+        id: "child_call__bind_inputs",
+        assign: {
+          child_call__input__request: "{{ inputs.topic }}",
+          child_call__input__mode: "brief",
+        },
+      },
+      expect.objectContaining({
+        type: "prompt",
+        id: "child_call__summarize",
+        userPrompt:
+          "Summarize {{ state.child_call__input__request }} in {{ state.child_call__input__mode }} mode",
+        outputKey: "child_call__summary",
+      }),
+      {
+        type: "set",
+        id: "child_call__export_output",
+        assign: {
+          childResult: "{{ state.child_call__summary }}",
+        },
+      },
+    ]);
+  });
+
+  it("rewrites raw child input references in strict condition expressions", async () => {
+    const child: FlowDocumentV1 = {
+      dsl: "dzupflow/v1",
+      id: "child",
+      version: 1,
+      inputs: { approved: { type: "boolean", required: true } },
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "branch",
+            id: "gate",
+            condition: "inputs.approved == true",
+            then: [{ type: "complete", id: "done", result: "ok" }],
+          },
+        ],
+      },
+    };
+
+    const result = await inlineSubflows(
+      {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "subflow",
+            id: "child_call",
+            flowRef: "child",
+            input: { approved: "{{ inputs.approved }}" },
+          },
+        ],
+      },
+      resolverFrom({ child }),
+    );
+
+    expect(result.root.type).toBe("sequence");
+    if (result.root.type !== "sequence") throw new Error("expected sequence");
+    expect(result.root.nodes[1]).toMatchObject({
+      type: "branch",
+      condition: "state.child_call__input__approved == true",
+    });
+  });
+
+  it("fails closed on missing, unknown, or undeclared boundary fields", async () => {
+    const child: FlowDocumentV1 = {
+      dsl: "dzupflow/v1",
+      id: "child",
+      version: 1,
+      inputs: { requiredInput: { type: "string", required: true } },
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [{ type: "complete", id: "done", result: "ok" }],
+      },
+    };
+
+    const result = await inlineSubflows(
+      {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "subflow",
+            id: "child_call",
+            flowRef: "child",
+            input: { unexpected: "value" },
+            outputVar: "result",
+          },
+        ],
+      },
+      resolverFrom({ child }),
+    );
+
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "SUBFLOW_INPUT_UNKNOWN" }),
+        expect.objectContaining({ code: "SUBFLOW_INPUT_REQUIRED" }),
+        expect.objectContaining({ code: "SUBFLOW_OUTPUT_UNDECLARED" }),
+      ]),
+    );
+  });
+
+  it("compiles a strict parent reference to an exported subflow result", async () => {
+    const child: FlowDocumentV1 = {
+      dsl: "dzupflow/v1",
+      id: "child",
+      version: 1,
+      inputs: { request: { type: "string", required: true } },
+      meta: { subflowOutput: "summary" },
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "prompt",
+            id: "summarize",
+            userPrompt: "Summarize {{ inputs.request }}",
+            outputKey: "summary",
+          },
+        ],
+      },
+    };
+    const compiler = createFlowCompiler({
+      toolResolver,
+      flowDocumentResolver: resolverFrom({ child }),
+      referencePolicy: "strict",
+    });
+
+    const result = await compiler.compileDocument({
+      dsl: "dzupflow/v1",
+      id: "parent",
+      version: 1,
+      inputs: { topic: { type: "string", required: true } },
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "subflow",
+            id: "child_call",
+            flowRef: "child",
+            input: { request: "{{ inputs.topic }}" },
+            outputVar: "childResult",
+          },
+          {
+            type: "prompt",
+            id: "report",
+            userPrompt: "Report {{ state.childResult }}",
+            outputKey: "report",
+          },
+        ],
+      },
+    });
+
+    expect("errors" in result ? result.errors : []).toEqual([]);
+  });
+
   it("fails when a subflow reference cannot be resolved", async () => {
     const result = await inlineSubflows(
       {

@@ -182,7 +182,11 @@ export function formatInteractionNode(
       lines.push(`${indent}- subflow:`);
       pushCommon(lines, node, indentLevel + 2);
       lines.push(`${childIndent}flowRef: ${quote(node.flowRef)}`);
-      if (node.outputVar) lines.push(`${childIndent}output: ${node.outputVar}`);
+      if (node.input && Object.keys(node.input).length > 0) {
+        lines.push(`${childIndent}input: ${formatScalar(node.input)}`);
+      }
+      if (node.outputVar)
+        lines.push(`${childIndent}outputVar: ${node.outputVar}`);
       return;
     case "prompt":
       lines.push(`${indent}- prompt:`);
