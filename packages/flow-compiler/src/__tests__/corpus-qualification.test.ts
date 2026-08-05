@@ -32,11 +32,25 @@ describe("flow corpus qualification", () => {
     expect(
       parseFlowCorpusManifest({
         schema: FLOW_CORPUS_MANIFEST_SCHEMA,
-        entries: [{ id: "qualified", path: "qualified.yaml", sha256 }],
+        entries: [
+          {
+            id: "qualified",
+            path: "qualified.yaml",
+            sha256,
+            qualification: "compile-example",
+          },
+        ],
       }),
     ).toEqual({
       schema: FLOW_CORPUS_MANIFEST_SCHEMA,
-      entries: [{ id: "qualified", path: "qualified.yaml", sha256 }],
+      entries: [
+        {
+          id: "qualified",
+          path: "qualified.yaml",
+          sha256,
+          qualification: "compile-example",
+        },
+      ],
     });
   });
 
@@ -48,6 +62,7 @@ describe("flow corpus qualification", () => {
           id: "qualified",
           path: "qualified.yaml",
           sha256,
+          qualification: "compile-example",
           source: VALID_DSL,
         },
       ],
@@ -60,6 +75,9 @@ describe("flow corpus qualification", () => {
       changesRequired: 0,
       invalid: 0,
       hashMismatches: 0,
+      compileReady: 1,
+      compileFailed: 0,
+      authoringOnly: 0,
     });
     expect(renderFlowCorpusQualificationMarkdown(report)).toContain(
       "Status: **passed**",
@@ -73,6 +91,7 @@ describe("flow corpus qualification", () => {
           id: "qualified",
           path: "qualified.yaml",
           sha256: "0".repeat(64),
+          qualification: "compile-example",
           source: VALID_DSL,
         },
       ],

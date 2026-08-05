@@ -11,6 +11,7 @@ export interface FlowCorpusManifestEntry {
   id: string;
   path: string;
   sha256: string;
+  qualification: "compile-example" | "authoring-only";
 }
 
 export interface FlowCorpusManifest {
@@ -28,7 +29,10 @@ export interface FlowCorpusQualificationItem {
   expectedSha256: string;
   actualSha256: string;
   hashMatches: boolean;
+  qualification: FlowCorpusManifestEntry["qualification"];
   status: StrictReferenceMigrationItem["status"];
+  compileStatus: "succeeded" | "failed" | "not-required";
+  compileDiagnosticCodes: string[];
   compatibilityDiagnosticCodes: string[];
   compatibilityWarningCodes: string[];
   strictDiagnosticCodes: string[];
@@ -37,7 +41,7 @@ export interface FlowCorpusQualificationItem {
 
 export interface FlowCorpusQualificationReport {
   schema: typeof FLOW_CORPUS_REPORT_SCHEMA;
-  resolverMode: "placeholder-authoring";
+  resolverMode: "corpus-documents";
   passed: boolean;
   summary: {
     total: number;
@@ -45,6 +49,9 @@ export interface FlowCorpusQualificationReport {
     changesRequired: number;
     invalid: number;
     hashMismatches: number;
+    compileReady: number;
+    compileFailed: number;
+    authoringOnly: number;
   };
   items: FlowCorpusQualificationItem[];
 }
@@ -76,13 +83,25 @@ export function parseFlowCorpusManifest(value: unknown): FlowCorpusManifest {
         `manifest.entries[${index}].sha256 must be a 64-character SHA-256 hex digest`,
       );
     }
+    const rawQualification = raw.qualification;
+    if (
+      rawQualification !== undefined &&
+      rawQualification !== "compile-example" &&
+      rawQualification !== "authoring-only"
+    ) {
+      throw new Error(
+        `manifest.entries[${index}].qualification must be "compile-example" or "authoring-only"`,
+      );
+    }
+    const qualification: FlowCorpusManifestEntry["qualification"] =
+      rawQualification ?? "compile-example";
     if (ids.has(id)) throw new Error(`duplicate manifest entry id "${id}"`);
     if (paths.has(path)) {
       throw new Error(`duplicate manifest entry path "${path}"`);
     }
     ids.add(id);
     paths.add(path);
-    return { id, path, sha256 };
+    return { id, path, sha256, qualification };
   });
 
   return { schema: FLOW_CORPUS_MANIFEST_SCHEMA, entries };
@@ -94,13 +113,26 @@ export function hashFlowCorpusSource(source: string): string {
 
 export async function qualifyFlowCorpusSources(
   sources: readonly LoadedFlowCorpusSource[],
-  compiler: Pick<FlowCompiler, "analyzeStrictReferenceMigration">,
+  compiler: Pick<
+    FlowCompiler,
+    "analyzeStrictReferenceMigration" | "compileDsl"
+  >,
 ): Promise<FlowCorpusQualificationReport> {
   const migration = await compiler.analyzeStrictReferenceMigration(
     sources.map(({ id, source }) => ({ id, kind: "dsl", input: source })),
   );
   const migrationById = new Map(
     migration.items.map((item) => [item.id, item]),
+  );
+  const compileResults = new Map(
+    await Promise.all(
+      sources
+        .filter((source) => source.qualification === "compile-example")
+        .map(async (source) => {
+          const result = await compiler.compileDsl(source.source);
+          return [source.id, result] as const;
+        }),
+    ),
   );
 
   const items = sources.map((source) => {
@@ -109,13 +141,26 @@ export async function qualifyFlowCorpusSources(
       throw new Error(`migration result is missing source "${source.id}"`);
     }
     const actualSha256 = hashFlowCorpusSource(source.source);
+    const compileResult = compileResults.get(source.id);
+    const compileDiagnosticCodes =
+      compileResult !== undefined && "errors" in compileResult
+        ? uniqueCodes(compileResult.errors)
+        : [];
     return {
       id: source.id,
       path: source.path,
       expectedSha256: source.sha256,
       actualSha256,
       hashMatches: actualSha256 === source.sha256,
+      qualification: source.qualification,
       status: migrationItem.status,
+      compileStatus:
+        source.qualification === "authoring-only"
+          ? ("not-required" as const)
+          : compileResult !== undefined && "errors" in compileResult
+            ? ("failed" as const)
+            : ("succeeded" as const),
+      compileDiagnosticCodes,
       compatibilityDiagnosticCodes: uniqueCodes(
         migrationItem.compatibilityDiagnostics,
       ),
@@ -135,15 +180,23 @@ export async function qualifyFlowCorpusSources(
     ).length,
     invalid: items.filter((item) => item.status === "invalid").length,
     hashMismatches: items.filter((item) => !item.hashMatches).length,
+    compileReady: items.filter((item) => item.compileStatus === "succeeded")
+      .length,
+    compileFailed: items.filter((item) => item.compileStatus === "failed")
+      .length,
+    authoringOnly: items.filter(
+      (item) => item.compileStatus === "not-required",
+    ).length,
   };
   return {
     schema: FLOW_CORPUS_REPORT_SCHEMA,
-    resolverMode: "placeholder-authoring",
+    resolverMode: "corpus-documents",
     passed:
       summary.ready === summary.total &&
       summary.changesRequired === 0 &&
       summary.invalid === 0 &&
-      summary.hashMismatches === 0,
+      summary.hashMismatches === 0 &&
+      summary.compileFailed === 0,
     summary,
     items,
   };
@@ -157,22 +210,22 @@ export function renderFlowCorpusQualificationMarkdown(
     "",
     `Status: **${report.passed ? "passed" : "failed"}**`,
     "",
-    "| Total | Strict-ready | Changes required | Invalid | Hash mismatches |",
-    "| ---: | ---: | ---: | ---: | ---: |",
-    `| ${report.summary.total} | ${report.summary.ready} | ${report.summary.changesRequired} | ${report.summary.invalid} | ${report.summary.hashMismatches} |`,
+    "| Total | Strict-ready | Changes required | Invalid | Hash mismatches | Compile-ready | Compile-failed | Authoring-only |",
+    "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    `| ${report.summary.total} | ${report.summary.ready} | ${report.summary.changesRequired} | ${report.summary.invalid} | ${report.summary.hashMismatches} | ${report.summary.compileReady} | ${report.summary.compileFailed} | ${report.summary.authoringOnly} |`,
     "",
-    "| Source | Hash | Strict migration | Compatibility warnings |",
-    "| --- | --- | --- | --- |",
+    "| Source | Hash | Qualification | Strict migration | Compile | Diagnostics | Compatibility warnings |",
+    "| --- | --- | --- | --- | --- | --- | --- |",
   ];
   for (const item of report.items) {
     lines.push(
-      `| \`${item.path}\` | ${item.hashMatches ? "match" : "mismatch"} | ${item.status} | ${item.compatibilityWarningCodes.join(", ") || "none"} |`,
+      `| \`${item.path}\` | ${item.hashMatches ? "match" : "mismatch"} | ${item.qualification} | ${item.status} | ${item.compileStatus} | ${item.compileDiagnosticCodes.join(", ") || "none"} | ${item.compatibilityWarningCodes.join(", ") || "none"} |`,
     );
   }
   lines.push(
     "",
     "This is a provider-free authoring qualification. Placeholder tool and persona",
-    "resolvers isolate parser, normalization, compiler, and strict-reference drift;",
+    "resolvers isolate parser, normalization, compiler, composition, and strict-reference drift;",
     "the result is not runtime, provider, deployment, or host-capability qualification.",
     "",
   );

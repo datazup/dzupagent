@@ -2,7 +2,8 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { ToolResolver } from "@dzupagent/flow-ast";
+import type { FlowDocumentV1, ToolResolver } from "@dzupagent/flow-ast";
+import { parseDslToDocument } from "@dzupagent/flow-dsl";
 
 import {
   createFlowCompiler,
@@ -68,9 +69,24 @@ async function main(): Promise<number> {
         };
       }),
     );
+    const documents = new Map<string, FlowDocumentV1>();
+    for (const source of sources) {
+      const parsed = parseDslToDocument(source.source);
+      if (!parsed.ok) continue;
+      if (documents.has(parsed.document.id)) {
+        throw new Error(
+          `duplicate flow document id in corpus: ${parsed.document.id}`,
+        );
+      }
+      documents.set(parsed.document.id, parsed.document);
+    }
     const compiler = createFlowCompiler({
       toolResolver: PLACEHOLDER_TOOL_RESOLVER,
       personaResolver: { resolve: () => true },
+      flowDocumentResolver: {
+        resolve: (flowRef) => documents.get(flowRef) ?? null,
+      },
+      referencePolicy: "strict",
     });
     const report = await qualifyFlowCorpusSources(sources, compiler);
     const output =
@@ -127,8 +143,9 @@ function usage(): string {
     "       [--format json|markdown] [--output <path>]",
     "",
     "Checks an explicit, hash-pinned DSL corpus with provider-free placeholder",
-    "resolvers. Exit 0 only when every hash matches and every source is",
-    "strict-reference ready.",
+    "tool/persona resolvers and a corpus-backed subflow resolver. Exit 0 only",
+    "when every hash matches, every source is strict-reference ready, and every",
+    "compile-example compiles.",
   ].join("\n");
 }
 
