@@ -159,10 +159,21 @@ export function lowerNodeToPipeline(
       return lowerRuntimeLeaf(node, ctx, path);
 
     default: {
-      // Exhaustiveness guard — adding a FlowNode variant without a case fails here.
+      // Exhaustiveness guard — adding a FlowNode variant without a case fails here
+      // at compile time. The throw below covers the runtime case the `never` guard
+      // cannot: a node reaching a stale build, a hand-built AST, or a document
+      // parsed from JSON. Returning an empty graph there would silently drop the
+      // node AND its entire subtree with no diagnostic, so it fails closed instead.
       const _exhaustive: never = node;
       void _exhaustive;
-      return { nodes: [], edges: [], warnings: [] };
+      const unknown = node as FlowNode;
+      throw new Error(
+        `lower/composite: unsupported node type ${JSON.stringify(
+          unknown.type
+        )} at path '${path}' (id: ${JSON.stringify(
+          unknown.id ?? path
+        )}); lowering refuses to emit an empty graph for an unrecognized node`
+      );
     }
   }
 }

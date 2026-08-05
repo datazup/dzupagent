@@ -464,3 +464,54 @@ describe('lowerNodeToPipeline — approval', () => {
     expect(result.nodes).toHaveLength(3)
   })
 })
+
+// ---------------------------------------------------------------------------
+// lowerNodeToPipeline — unknown node types (silent-drop guard)
+// ---------------------------------------------------------------------------
+
+describe('lowerNodeToPipeline — unknown node type', () => {
+  // The `never` exhaustiveness guard is compile-time only. These cases model what
+  // reaches lowering at RUNTIME: a hand-built AST, a JSON-parsed document, or a
+  // node type newer than the compiled build. Previously each returned an empty
+  // graph, silently dropping the node and its whole subtree.
+  const unknownNode = (over: Record<string, unknown> = {}): FlowNode =>
+    ({ type: 'totally-unknown-kind', id: 'n-unknown', ...over }) as unknown as FlowNode
+
+  it('throws instead of silently returning an empty graph', () => {
+    expect(() => lowerNodeToPipeline(unknownNode(), makeCtx(), 'root')).toThrow(
+      /lower\/composite: unsupported node type/
+    )
+  })
+
+  it('names the offending type, path, and id so the denial is source-mapped', () => {
+    let message = ''
+    try {
+      lowerNodeToPipeline(unknownNode(), makeCtx(), 'root.body[2]')
+    } catch (err) {
+      message = (err as Error).message
+    }
+    // Assert the CODE's own identifying fields, not merely that something threw.
+    expect(message).toContain('"totally-unknown-kind"')
+    expect(message).toContain("path 'root.body[2]'")
+    expect(message).toContain('"n-unknown"')
+  })
+
+  it('falls back to the path when the unknown node carries no id', () => {
+    let message = ''
+    try {
+      lowerNodeToPipeline(unknownNode({ id: undefined }), makeCtx(), 'root.body[7]')
+    } catch (err) {
+      message = (err as Error).message
+    }
+    expect(message).toContain('"root.body[7]"')
+  })
+
+  it('does not throw for a KNOWN runtime-executed type that legitimately lowers to an empty graph', () => {
+    // Holds the "empty graph" dimension constant while varying only recognition:
+    // without this, the throw above could pass because everything throws.
+    const node: FlowNode = { type: 'checkpoint', id: 'cp-1' } as unknown as FlowNode
+    const result = lowerNodeToPipeline(node, makeCtx(), 'root')
+    expect(result.nodes).toHaveLength(0)
+    expect(result.edges).toHaveLength(0)
+  })
+})
