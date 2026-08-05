@@ -135,5 +135,9 @@ export function buildKnownModelTariff(
   options: { readonly provider?: string } = {}
 ): AiTariff | undefined {
   if (!hasKnownModelRate(providerOrModel)) return undefined;
+  // The one safe call site: the guard above has already established the table
+  // knows this id, so the `default` fallback inside is unreachable from here.
+  // This function IS the billing-safe wrapper the lint rule points callers to.
+  // eslint-disable-next-line no-restricted-syntax
   return buildModelTariff(providerOrModel, options);
 }

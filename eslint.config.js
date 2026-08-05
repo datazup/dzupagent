@@ -98,6 +98,30 @@ export default [
       "security/detect-possible-timing-attacks": "warn",
       "security/detect-pseudoRandomBytes": "warn",
       "security/detect-unsafe-regex": "error",
+      // Billing guard: `buildModelTariff` prices an unknown model from the
+      // generic `default` rate, so a caller that bills from it stores a
+      // fabricated charge as the record of what was spent. Its safe sibling
+      // `buildKnownModelTariff` returns undefined instead, letting the caller
+      // report cost as unknown with a reason.
+      //
+      // The unsafe variant stays exported because non-billing callers
+      // (estimates, capacity planning) legitimately want a number for any
+      // model — this rule is what stops new billing code reaching for it.
+      //
+      // Scoped to this block on purpose: the test-file blocks below REPLACE
+      // `no-restricted-syntax` rather than merging (see the layering note),
+      // so this does not apply to tests — which is correct, since the unsafe
+      // variant's own specs must call it.
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "CallExpression[callee.name='buildModelTariff']",
+          message:
+            "buildModelTariff invents a price for unknown models from the `default` rate. " +
+            "Use buildKnownModelTariff for anything that bills, records, or reports spend. " +
+            "If this site is a non-billing estimate, add an eslint-disable-next-line with a justification.",
+        },
+      ],
       // SSRF guard: route outbound HTTP through fetchWithOutboundUrlPolicy
       "no-restricted-globals": [
         "error",
