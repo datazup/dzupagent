@@ -10,15 +10,42 @@ import {
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
-function parseCommand(args) {
+/**
+ * Split argv into the child command to run under build custody.
+ *
+ * `--shell "<cmd>"` runs one string through a shell. Any arguments *after* that
+ * string are appended to it rather than rejected: yarn appends user flags to the
+ * script it runs, so `yarn workspace <pkg> run build --filter=x` arrives here as
+ * `['--shell', '<cmd>', '--filter=x']`. Requiring exactly two args made every
+ * package-level `build` script (40+ of them use `--shell`) fail with
+ * "--shell requires exactly one command string" the moment any flag was passed —
+ * including the flags people reach for when a build misbehaves.
+ *
+ * Appended args are quoted so a path containing spaces cannot split into two
+ * words, and so they cannot inject additional shell commands.
+ */
+export function parseCommand(args) {
   if (args[0] === '--shell') {
-    if (args.length !== 2 || !args[1]) {
+    const [, script, ...rest] = args
+    if (!script) {
       throw new Error('--shell requires exactly one command string')
     }
-    return { command: args[1], args: [], shell: true }
+    const command = rest.length > 0
+      ? `${script} ${rest.map(quoteShellArg).join(' ')}`
+      : script
+    return { command, args: [], shell: true }
   }
   if (!args[0]) throw new Error('a command is required after run-with-build-custody.mjs')
   return { command: args[0], args: args.slice(1), shell: false }
+}
+
+/**
+ * Single-quote an argument for POSIX `sh`, escaping any embedded single quotes.
+ * Without this, an appended argument could terminate the command and start a new
+ * one, turning a build flag into arbitrary shell execution.
+ */
+function quoteShellArg(value) {
+  return `'${String(value).replaceAll("'", `'\\''`)}'`
 }
 
 function runChild(command, token) {
