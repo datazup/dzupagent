@@ -1,8 +1,15 @@
 import { ForgeError } from "@dzupagent/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { runAgentExecution } from "../integration/run-agent-execution.js";
-import type { RunAgentExecutionOptions } from "../integration/run-agent-execution.js";
+import {
+  prepareAgentExecutionRunner,
+  runAgentExecution,
+  runPreparedAgentExecution,
+} from "../integration/run-agent-execution.js";
+import type {
+  AgentExecutionRequest,
+  PrepareAgentExecutionRunnerOptions,
+} from "../integration/run-agent-execution.js";
 import type {
   AdapterCapabilityProfile,
   AdapterConfig,
@@ -29,6 +36,8 @@ const capabilities: AdapterCapabilityProfile = {
   supportsResume: true,
   supportsFork: false,
   supportsToolCalls: true,
+  emitsToolCalls: true,
+  executesToolLoop: true,
   supportsStreaming: true,
   supportsCostUsage: true,
 };
@@ -105,6 +114,39 @@ function createFakeAdapter(
   };
 }
 
+function exactRequest(
+  request: AgentExecutionRequest
+): AgentExecutionRequest & {
+  providerId: "codex" | "claude";
+  backend: "cli" | "sdk";
+  authMode: "subscription_cli" | "api_key";
+} {
+  const providerId = request.providerId ?? "codex";
+  const backend = request.backend ?? "cli";
+  const authMode = request.authMode ?? "subscription_cli";
+  return {
+    ...request,
+    providerId,
+    backend,
+    authMode,
+    profileRef:
+      authMode === "subscription_cli"
+        ? request.profileRef ?? `${providerId}-test-profile`
+        : request.profileRef,
+  };
+}
+
+function prepareFakeRunner(
+  request: AgentExecutionRequest,
+  adapter: AgentCLIAdapter,
+  options: Omit<PrepareAgentExecutionRunnerOptions, "materializeAdapter"> = {}
+) {
+  return prepareAgentExecutionRunner(request, {
+    ...options,
+    materializeAdapter: () => adapter,
+  });
+}
+
 describe("runAgentExecution", () => {
   beforeEach(() => {
     adapterFactories.createCodexBackendAdapter.mockReset();
@@ -114,7 +156,7 @@ describe("runAgentExecution", () => {
   it("materializes exactly the explicit Codex backend/auth selection and returns execution truth", async () => {
     const usage = { inputTokens: 10, outputTokens: 20 };
     const materializeAdapter = vi.fn<
-      NonNullable<RunAgentExecutionOptions["materializeAdapter"]>
+      NonNullable<PrepareAgentExecutionRunnerOptions["materializeAdapter"]>
     >(() =>
       createFakeAdapter("codex", {
         result: "codex text",
@@ -122,8 +164,7 @@ describe("runAgentExecution", () => {
       })
     );
 
-    const result = await runAgentExecution(
-      {
+    const request = exactRequest({
         providerId: "codex",
         backend: "cli",
         authMode: "subscription_cli",
@@ -137,12 +178,12 @@ describe("runAgentExecution", () => {
         runId: "run-1",
         packetId: "P001",
         sandboxMode: "workspace-write",
-      },
-      {
-        materializeAdapter,
-        now: vi.fn().mockReturnValueOnce(1_000).mockReturnValueOnce(1_025),
-      }
-    );
+      });
+    const result = await runAgentExecution(request, {
+      materializeAdapter,
+      requiredCapabilities: ["supportsStreaming", "executesToolLoop"],
+      now: vi.fn().mockReturnValueOnce(1_000).mockReturnValueOnce(1_025),
+    });
 
     expect(result).toMatchObject({
       ok: true,
@@ -152,6 +193,18 @@ describe("runAgentExecution", () => {
       usage,
       durationMs: 25,
       attemptedProviders: ["codex"],
+      runnerAttestation: {
+        selection: {
+          providerId: "codex",
+          backend: "cli",
+          authMode: "subscription_cli",
+          profileRef: "codex-default",
+        },
+        capabilityEvidence: {
+          required: { supportsStreaming: true, executesToolLoop: true },
+          exactMatch: true,
+        },
+      },
     });
     expect(result.events.map((event) => event.type)).toContain(
       "adapter:completed"
@@ -182,17 +235,19 @@ describe("runAgentExecution", () => {
   });
 
   it("never ignores a subscription profile when no qualified materializer is injected", async () => {
-    const result = await runAgentExecution({
-      providerId: "codex",
-      backend: "cli",
-      authMode: "subscription_cli",
-      profileRef: "codex-default",
-      prompt: "test",
-    });
-    expect(result).toMatchObject({
-      ok: false,
-      code: "AGENT_EXECUTION_SUBSCRIPTION_MATERIALIZER_REQUIRED",
-    });
+    expect(() =>
+      prepareAgentExecutionRunner({
+        providerId: "codex",
+        backend: "cli",
+        authMode: "subscription_cli",
+        profileRef: "codex-default",
+        prompt: "test",
+      })
+    ).toThrowError(
+      expect.objectContaining({
+        code: "AGENT_EXECUTION_SUBSCRIPTION_MATERIALIZER_REQUIRED",
+      })
+    );
     expect(adapterFactories.createCodexBackendAdapter).not.toHaveBeenCalled();
   });
 
@@ -223,33 +278,52 @@ describe("runAgentExecution", () => {
     ],
   ])(
     "fails closed when materialization selection is incomplete %#",
-    async (selection, code) => {
-      const result = await runAgentExecution({ ...selection, prompt: "test" });
-      expect(result).toMatchObject({ ok: false, code, error: { code } });
+    (selection, code) => {
+      expect(() =>
+        prepareAgentExecutionRunner(
+          { ...selection, prompt: "test" },
+          { materializeAdapter: () => createFakeAdapter("codex") }
+        )
+      ).toThrowError(expect.objectContaining({ code }));
     }
   );
 
   it("requires an injected key only when api_key authentication is selected", async () => {
-    const missing = await runAgentExecution({
+    expect(() =>
+      prepareAgentExecutionRunner(
+        {
+          providerId: "claude",
+          backend: "sdk",
+          authMode: "api_key",
+          prompt: "test",
+        },
+        { resolveApiKey: () => "must-not-resolve" }
+      )
+    ).toThrowError(
+      expect.objectContaining({ code: "AGENT_EXECUTION_SECRET_REF_REQUIRED" })
+    );
+    const request = exactRequest({
       providerId: "claude",
       backend: "sdk",
       authMode: "api_key",
+      profileRef: undefined,
+      secretRef: "test-claude-api-key",
       prompt: "test",
     });
-    expect(missing.code).toBe("AGENT_EXECUTION_API_KEY_REQUIRED");
+    expect(() => prepareAgentExecutionRunner(request)).toThrowError(
+      expect.objectContaining({ code: "AGENT_EXECUTION_API_KEY_REQUIRED" })
+    );
 
     adapterFactories.createClaudeBackendAdapter.mockReturnValue(
       createFakeAdapter("claude")
     );
-    const result = await runAgentExecution(
-      {
-        providerId: "claude",
-        backend: "sdk",
-        authMode: "api_key",
-        prompt: "test",
+    const result = await runAgentExecution(request, {
+      resolveApiKey: ({ providerId, secretRef }) => {
+        expect(providerId).toBe("claude");
+        expect(secretRef).toBe("test-claude-api-key");
+        return "injected-only";
       },
-      { resolveApiKey: () => "injected-only" }
-    );
+    });
     expect(result.ok).toBe(true);
     expect(adapterFactories.createClaudeBackendAdapter).toHaveBeenCalledWith(
       expect.objectContaining({ backend: "sdk", apiKey: "injected-only" })
@@ -258,143 +332,133 @@ describe("runAgentExecution", () => {
 
   it("streams normalized events to an injected observer", async () => {
     const observed: AgentEvent[] = [];
-    await runAgentExecution(
-      { providerId: "codex", prompt: "observe" },
-      {
-        adapters: [createFakeAdapter("codex")],
-        onEvent: (event) => {
-          observed.push(event);
-        },
-      }
+    const request = exactRequest({ providerId: "codex", prompt: "observe" });
+    const preparedRunner = prepareFakeRunner(
+      request,
+      createFakeAdapter("codex")
     );
+    await runPreparedAgentExecution(request, preparedRunner, {
+      onEvent: (event) => {
+        observed.push(event);
+      },
+    });
     expect(observed.map(({ type }) => type)).toEqual(
       expect.arrayContaining(["adapter:started", "adapter:completed"])
     );
   });
 
-  it("routes an explicit Claude request through the registry without invoking Codex first", async () => {
-    const codexInputs: AgentInput[] = [];
+  it("binds an exact Claude selection to the attested adapter", async () => {
     const claudeInputs: AgentInput[] = [];
-
-    const result = await runAgentExecution(
-      {
-        providerId: "claude",
-        prompt: "Review this plan",
-        timeoutMs: 5_000,
-      },
-      {
-        adapters: [
-          createFakeAdapter("codex", {
-            onExecute: (input) => codexInputs.push(input),
-          }),
-          createFakeAdapter("claude", {
-            result: "claude answer",
-            onExecute: (input) => claudeInputs.push(input),
-          }),
-        ],
-      }
+    const request = exactRequest({
+      providerId: "claude",
+      prompt: "Review this plan",
+      timeoutMs: 5_000,
+    });
+    const preparedRunner = prepareFakeRunner(
+      request,
+      createFakeAdapter("claude", {
+        result: "claude answer",
+        onExecute: (input) => claudeInputs.push(input),
+      })
     );
+    const result = await runPreparedAgentExecution(request, preparedRunner);
 
     expect(result.ok).toBe(true);
     expect(result.providerId).toBe("claude");
     expect(result.text).toBe("claude answer");
     expect(claudeInputs).toHaveLength(1);
-    expect(codexInputs).toHaveLength(0);
   });
 
-  it("preserves failed events when the registry falls back to a later provider", async () => {
-    const result = await runAgentExecution(
+  it("rejects forged runners and arbitrary registry injection", async () => {
+    const request = exactRequest({ providerId: "codex", prompt: "test" });
+    const result = await runPreparedAgentExecution(
+      request,
       {
-        providerId: "codex",
-        approvedFallbackProviders: ["claude"],
-        prompt: "Try fallback",
-      },
-      {
-        adapters: [
-          createFakeAdapter("codex", {
-            fail: {
-              message: "codex missing sdk",
-              code: "ADAPTER_SDK_NOT_INSTALLED",
-            },
-          }),
-          createFakeAdapter("claude", { result: "fallback text" }),
-        ],
+        attestation: {
+          schema: "dzupagent/prepared-agent-execution-runner-attestation/v1",
+          selection: {
+            providerId: "codex",
+            backend: "cli",
+            authMode: "subscription_cli",
+            profileRef: "codex-test-profile",
+          },
+          capabilityEvidence: {
+            required: {},
+            observed: capabilities,
+            exactMatch: true,
+          },
+          provenance: "agent-adapters-module-private-weakmap",
+        },
       }
     );
+    expect(result).toMatchObject({
+      ok: false,
+      code: "AGENT_EXECUTION_PREPARED_RUNNER_REQUIRED",
+    });
+  });
 
-    expect(result.ok).toBe(true);
-    expect(result.providerId).toBe("claude");
-    expect(result.text).toBe("fallback text");
-    expect(result.attemptedProviders).toEqual(["codex", "claude"]);
-    expect(result.events).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          type: "adapter:failed",
-          providerId: "codex",
-          code: "ADAPTER_SDK_NOT_INSTALLED",
-        }),
-        expect.objectContaining({
-          type: "adapter:completed",
-          providerId: "claude",
-        }),
-      ])
+  it("fails preparation when exact required capability evidence is absent", () => {
+    const request = exactRequest({ providerId: "codex", prompt: "test" });
+    const adapter = createFakeAdapter("codex");
+    adapter.getCapabilities = () => ({
+      ...capabilities,
+      executesToolLoop: false,
+    });
+    expect(() =>
+      prepareFakeRunner(request, adapter, {
+        requiredCapabilities: ["supportsStreaming", "executesToolLoop"],
+      })
+    ).toThrowError(
+      expect.objectContaining({ code: "AGENT_EXECUTION_CAPABILITY_REQUIRED" })
     );
   });
 
-  it("returns a structured failure when every adapter fails", async () => {
-    const result = await runAgentExecution(
-      {
-        providerId: "codex",
-        approvedFallbackProviders: ["claude"],
-        prompt: "Fail all",
-        model: "model-x",
-      },
-      {
-        adapters: [
-          createFakeAdapter("codex", {
-            fail: { message: "codex failed", code: "CODEX_FAILED" },
-          }),
-          createFakeAdapter("claude", {
-            fail: { message: "claude failed", code: "CLAUDE_FAILED" },
-          }),
-        ],
-      }
+  it("returns a structured failure from the exact prepared adapter", async () => {
+    const request = exactRequest({
+      providerId: "codex",
+      prompt: "Fail",
+      model: "model-x",
+    });
+    const preparedRunner = prepareFakeRunner(
+      request,
+      createFakeAdapter("codex", {
+        fail: { message: "codex failed", code: "CODEX_FAILED" },
+      })
     );
+    const result = await runPreparedAgentExecution(request, preparedRunner);
 
     expect(result).toMatchObject({
       ok: false,
-      providerId: "claude",
+      providerId: "codex",
       model: "model-x",
       text: "",
-      code: "CLAUDE_FAILED",
+      code: "CODEX_FAILED",
       error: {
-        code: "CLAUDE_FAILED",
-        message: "claude failed",
-        providerId: "claude",
+        code: "CODEX_FAILED",
+        message: "codex failed",
+        providerId: "codex",
       },
-      attemptedProviders: ["codex", "claude"],
+      attemptedProviders: ["codex"],
     });
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
   });
 
   it("maps optional SDK import failures into structured adapter failure state", async () => {
-    const result = await runAgentExecution(
-      {
-        providerId: "codex",
-        prompt: "Needs SDK",
-      },
-      {
-        adapters: [
-          createFakeAdapter("codex", {
-            throwError: new ForgeError({
-              code: "ADAPTER_SDK_NOT_INSTALLED",
-              message: "@openai/codex-sdk is not installed",
-              recoverable: false,
-            }),
-          }),
-        ],
-      }
+    const request = exactRequest({
+      providerId: "codex",
+      prompt: "Needs SDK",
+    });
+    const preparedRunner = prepareFakeRunner(
+      request,
+      createFakeAdapter("codex", {
+        throwError: new ForgeError({
+          code: "ADAPTER_SDK_NOT_INSTALLED",
+          message: "@openai/codex-sdk is not installed",
+          recoverable: false,
+        }),
+      })
     );
+    const result = await runPreparedAgentExecution(request, preparedRunner);
 
     expect(result.ok).toBe(false);
     expect(result.text).toBe("");
@@ -419,28 +483,31 @@ describe("runAgentExecution", () => {
 
   it("projects timeout and packet metadata into AgentInput options", async () => {
     let captured: AgentInput | undefined;
-
-    await runAgentExecution(
+    const request = exactRequest({
+      providerId: "codex",
+      prompt: "Capture input",
+      timeoutMs: 1234,
+      runId: "run-123",
+      packetId: "P001",
+      sandboxMode: "read-only",
+      reasoning: "low",
+      correlationId: "corr-123",
+    });
+    const preparedRunner = prepareFakeRunner(
+      request,
+      createFakeAdapter("codex", {
+        onExecute: (input) => {
+          captured = input;
+        },
+      }),
       {
-        providerId: "codex",
-        prompt: "Capture input",
-        timeoutMs: 1234,
-        runId: "run-123",
-        packetId: "P001",
-        sandboxMode: "read-only",
-        reasoning: "low",
-        correlationId: "corr-123",
-      },
-      {
-        adapters: [
-          createFakeAdapter("codex", {
-            onExecute: (input) => {
-              captured = input;
-            },
-          }),
-        ],
+        projectInput: (input) => ({
+          ...input,
+          options: { ...input.options, hostEvidence: "attested" },
+        }),
       }
     );
+    await runPreparedAgentExecution(request, preparedRunner);
 
     expect(captured).toMatchObject({
       prompt: "Capture input",
@@ -451,6 +518,7 @@ describe("runAgentExecution", () => {
         packetId: "P001",
         sandboxMode: "read-only",
         reasoning: "low",
+        hostEvidence: "attested",
       },
     });
     expect(captured?.signal).toBeInstanceOf(AbortSignal);

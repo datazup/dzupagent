@@ -6,6 +6,7 @@ import { createCodexBackendAdapter } from '../codex/codex-backend.js'
 import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterConfig,
+  AdapterCapabilityProfile,
   AdapterProviderId,
   AgentCLIAdapter,
   AgentEvent,
@@ -30,6 +31,8 @@ export interface AgentExecutionRequest {
   authMode?: AgentExecutionAuthMode | undefined
   /** Opaque operator-owned identity; raw profile paths stay in the materializer. */
   profileRef?: string | undefined
+  /** Opaque secret identity required for api_key auth; raw keys stay in the resolver. */
+  secretRef?: string | undefined
   /** Explicit legacy cross-provider fallback authorization. */
   approvedFallbackProviders?: AgentExecutionProviderId[] | undefined
   prompt: string
@@ -68,23 +71,86 @@ export interface AgentExecutionResult {
   attemptedProviders: AdapterProviderId[]
   error?: AgentExecutionError | undefined
   code?: string | undefined
+  runnerAttestation?: PreparedAgentExecutionAttestation | undefined
 }
 
 export interface RunAgentExecutionOptions {
-  registry?: ProviderAdapterRegistry | undefined
-  adapters?: AgentCLIAdapter[] | undefined
+  /** Private host hook for explicit binary/profile materialization. */
+  materializeAdapter?: PrepareAgentExecutionRunnerOptions['materializeAdapter']
+  /** Resolves only the explicitly selected secretRef; returned values are never retained. */
+  resolveApiKey?: PrepareAgentExecutionRunnerOptions['resolveApiKey']
+  requiredCapabilities?: PrepareAgentExecutionRunnerOptions['requiredCapabilities']
+  projectInput?: PrepareAgentExecutionRunnerOptions['projectInput']
+  projectEvent?: PrepareAgentExecutionRunnerOptions['projectEvent']
+  onEvent?: ((event: AgentEvent) => void | Promise<void>) | undefined
+  now?: (() => number) | undefined
+}
+
+export interface RunPreparedAgentExecutionOptions {
+  onEvent?: ((event: AgentEvent) => void | Promise<void>) | undefined
+  now?: (() => number) | undefined
+}
+
+export type AgentExecutionBooleanCapability =
+  | 'supportsResume'
+  | 'supportsFork'
+  | 'supportsToolCalls'
+  | 'emitsToolCalls'
+  | 'executesToolLoop'
+  | 'supportsStreaming'
+  | 'supportsCostUsage'
+
+export interface PreparedAgentExecutionAttestation {
+  schema: 'dzupagent/prepared-agent-execution-runner-attestation/v1'
+  selection: {
+    providerId: AgentExecutionProviderId
+    backend: AgentExecutionBackend
+    authMode: AgentExecutionAuthMode
+    profileRef?: string | undefined
+    secretRef?: string | undefined
+  }
+  capabilityEvidence: {
+    required: Readonly<Partial<Record<AgentExecutionBooleanCapability, true>>>
+    observed: Readonly<AdapterCapabilityProfile>
+    exactMatch: true
+  }
+  provenance: 'agent-adapters-module-private-weakmap'
+}
+
+export interface PreparedAgentExecutionRunner {
+  readonly attestation: PreparedAgentExecutionAttestation
+}
+
+export interface PreparedAgentExecutionEventProjection {
+  events: readonly AgentEvent[]
+  terminal?: boolean | undefined
+}
+
+export interface PrepareAgentExecutionRunnerOptions {
   /** Private host hook for explicit binary/profile materialization. */
   materializeAdapter?: ((input: {
     providerId: AgentExecutionProviderId
     backend: AgentExecutionBackend
     authMode: AgentExecutionAuthMode
     profileRef?: string | undefined
+    secretRef?: string | undefined
     config: AdapterConfig
   }) => AgentCLIAdapter) | undefined
   /** Called only for authMode=api_key; the returned value is never retained. */
-  resolveApiKey?: ((providerId: AgentExecutionProviderId) => string | undefined) | undefined
-  onEvent?: ((event: AgentEvent) => void | Promise<void>) | undefined
-  now?: (() => number) | undefined
+  resolveApiKey?: ((input: {
+    providerId: AgentExecutionProviderId
+    secretRef: string
+  }) => string | undefined) | undefined
+  /** Capabilities that must be observed as true before execution can be prepared. */
+  requiredCapabilities?: readonly AgentExecutionBooleanCapability[] | undefined
+  /** Host projection applied before the attested registry sees the request. */
+  projectInput?: ((input: AgentInput, task: TaskDescriptor) => AgentInput) | undefined
+  /** Host event policy; terminal=true closes the underlying adapter stream. */
+  projectEvent?: (
+    (event: AgentEvent) =>
+      | PreparedAgentExecutionEventProjection
+      | Promise<PreparedAgentExecutionEventProjection>
+  ) | undefined
 }
 
 class AgentExecutionConfigurationError extends Error {
@@ -94,10 +160,10 @@ class AgentExecutionConfigurationError extends Error {
   }
 }
 
-function createDefaultRegistry(
+function materializeSelectedAdapter(
   request: AgentExecutionRequest,
-  options: RunAgentExecutionOptions,
-): ProviderAdapterRegistry {
+  options: PrepareAgentExecutionRunnerOptions,
+): AgentCLIAdapter {
   if (!request.providerId) {
     throw new AgentExecutionConfigurationError(
       'AGENT_EXECUTION_PROVIDER_REQUIRED',
@@ -128,17 +194,22 @@ function createDefaultRegistry(
       'subscription_cli authentication requires an opaque profileRef',
     )
   }
+  if (request.authMode === 'api_key' && !request.secretRef) {
+    throw new AgentExecutionConfigurationError(
+      'AGENT_EXECUTION_SECRET_REF_REQUIRED',
+      'api_key authentication requires an opaque secretRef',
+    )
+  }
   if (request.authMode === 'subscription_cli' && !options.materializeAdapter) {
     throw new AgentExecutionConfigurationError(
       'AGENT_EXECUTION_SUBSCRIPTION_MATERIALIZER_REQUIRED',
       'subscription_cli authentication requires an injected, operator-qualified profile materializer',
     )
   }
-  const registry = new ProviderAdapterRegistry({ executionTimeoutMs: request.timeoutMs })
   const config: AdapterConfig = {
     ...projectAdapterConfig(request),
     ...(request.authMode === 'api_key'
-      ? { apiKey: requireApiKey(request.providerId, options) }
+      ? { apiKey: requireApiKey(request as AgentExecutionRequest & { providerId: AgentExecutionProviderId }, options) }
       : { env: stripApiAuthenticationEnvironment(process.env) }),
   }
   const selection = {
@@ -146,26 +217,34 @@ function createDefaultRegistry(
     backend: request.backend,
     authMode: request.authMode,
     ...(request.profileRef ? { profileRef: request.profileRef } : {}),
+    ...(request.secretRef ? { secretRef: request.secretRef } : {}),
     config,
   }
-  const adapter = options.materializeAdapter
+  return options.materializeAdapter
     ? options.materializeAdapter(selection)
     : request.providerId === 'codex'
       ? createCodexBackendAdapter({ ...config, backend: request.backend })
       : createClaudeBackendAdapter({ ...config, backend: request.backend })
-  registry.registerProductionAdapters([adapter])
-  return registry
 }
 
 function requireApiKey(
-  providerId: AgentExecutionProviderId,
-  options: RunAgentExecutionOptions,
+  request: AgentExecutionRequest & { providerId: AgentExecutionProviderId },
+  options: PrepareAgentExecutionRunnerOptions,
 ): string {
-  const value = options.resolveApiKey?.(providerId)
+  if (!request.secretRef) {
+    throw new AgentExecutionConfigurationError(
+      'AGENT_EXECUTION_SECRET_REF_REQUIRED',
+      'api_key authentication requires an opaque secretRef',
+    )
+  }
+  const value = options.resolveApiKey?.({
+    providerId: request.providerId,
+    secretRef: request.secretRef,
+  })
   if (!value) {
     throw new AgentExecutionConfigurationError(
       'AGENT_EXECUTION_API_KEY_REQUIRED',
-      `An injected API key is required for ${providerId} because authMode=api_key`,
+      `An injected API key is required for ${request.providerId} because authMode=api_key`,
     )
   }
   return value
@@ -191,21 +270,127 @@ export function stripApiAuthenticationEnvironment(
   )
 }
 
-function resolveRegistry(
+type PreparedRunnerState = {
+  executeWithFallback: (
+    input: AgentInput,
+    task: TaskDescriptor,
+  ) => AsyncGenerator<AgentEvent, void, undefined>
+}
+
+const PREPARED_RUNNER_STATE = new WeakMap<PreparedAgentExecutionRunner, PreparedRunnerState>()
+
+function capabilityValue(
+  profile: AdapterCapabilityProfile,
+  capability: AgentExecutionBooleanCapability,
+): boolean {
+  return profile[capability] === true
+}
+
+function frozenCapabilityProfile(profile: AdapterCapabilityProfile): Readonly<AdapterCapabilityProfile> {
+  return Object.freeze({
+    ...profile,
+    ...(profile.nativeToolControls
+      ? { nativeToolControls: Object.freeze({ ...profile.nativeToolControls }) }
+      : {}),
+    ...(profile.providerRequestCorrelation
+      ? {
+          providerRequestCorrelation: Object.freeze({
+            ...profile.providerRequestCorrelation,
+            idempotencyKey: Object.freeze({ ...profile.providerRequestCorrelation.idempotencyKey }),
+            restartLookup: Object.freeze({
+              ...profile.providerRequestCorrelation.restartLookup,
+              lookupBy: Object.freeze([...profile.providerRequestCorrelation.restartLookup.lookupBy]),
+            }),
+          }),
+        }
+      : {}),
+  })
+}
+
+export function prepareAgentExecutionRunner(
   request: AgentExecutionRequest,
-  options: RunAgentExecutionOptions,
-): ProviderAdapterRegistry {
-  const registry = options.registry ?? new ProviderAdapterRegistry({ executionTimeoutMs: request.timeoutMs })
-
-  if (options.adapters) {
-    registry.registerProductionAdapters(options.adapters)
+  options: PrepareAgentExecutionRunnerOptions = {},
+): PreparedAgentExecutionRunner {
+  const adapter = materializeSelectedAdapter(request, options)
+  if (adapter.providerId !== request.providerId) {
+    throw new AgentExecutionConfigurationError(
+      'AGENT_EXECUTION_ADAPTER_PROVIDER_MISMATCH',
+      `Materialized adapter provider ${adapter.providerId} does not match ${request.providerId}`,
+    )
   }
 
-  if (!options.registry && !options.adapters) {
-    return createDefaultRegistry(request, options)
+  const observed = frozenCapabilityProfile(adapter.getCapabilities())
+  const required = Object.fromEntries(
+    (options.requiredCapabilities ?? []).map((capability) => [capability, true]),
+  ) as Partial<Record<AgentExecutionBooleanCapability, true>>
+  for (const capability of options.requiredCapabilities ?? []) {
+    if (!capabilityValue(observed, capability)) {
+      throw new AgentExecutionConfigurationError(
+        'AGENT_EXECUTION_CAPABILITY_REQUIRED',
+        `Materialized ${request.providerId} adapter does not attest required capability ${capability}`,
+      )
+    }
   }
 
-  return registry
+  const registry = new ProviderAdapterRegistry({ executionTimeoutMs: request.timeoutMs })
+  registry.registerProductionAdapters([adapter])
+  const attestation: PreparedAgentExecutionAttestation = Object.freeze({
+    schema: 'dzupagent/prepared-agent-execution-runner-attestation/v1',
+    selection: Object.freeze({
+      providerId: request.providerId!,
+      backend: request.backend!,
+      authMode: request.authMode!,
+      ...(request.profileRef ? { profileRef: request.profileRef } : {}),
+      ...(request.secretRef ? { secretRef: request.secretRef } : {}),
+    }),
+    capabilityEvidence: Object.freeze({
+      required: Object.freeze(required),
+      observed,
+      exactMatch: true as const,
+    }),
+    provenance: 'agent-adapters-module-private-weakmap' as const,
+  })
+  const preparedRunner: PreparedAgentExecutionRunner = Object.freeze({ attestation })
+  PREPARED_RUNNER_STATE.set(preparedRunner, {
+    async *executeWithFallback(input, task) {
+      const projectedInput = options.projectInput?.(input, task) ?? input
+      for await (const event of registry.executeWithFallback(projectedInput, task)) {
+        const projection = options.projectEvent
+          ? await options.projectEvent(event)
+          : { events: [event] }
+        for (const projectedEvent of projection.events) yield projectedEvent
+        if (projection.terminal === true) return
+      }
+    },
+  })
+  return preparedRunner
+}
+
+function requirePreparedRunner(
+  request: AgentExecutionRequest,
+  preparedRunner: PreparedAgentExecutionRunner | undefined,
+): { runner: PreparedAgentExecutionRunner; state: PreparedRunnerState } {
+  const state = preparedRunner ? PREPARED_RUNNER_STATE.get(preparedRunner) : undefined
+  if (!preparedRunner || !state) {
+    throw new AgentExecutionConfigurationError(
+      'AGENT_EXECUTION_PREPARED_RUNNER_REQUIRED',
+      'runAgentExecution requires an in-process runner from prepareAgentExecutionRunner',
+    )
+  }
+  const selection = preparedRunner.attestation.selection
+  if (
+    selection.providerId !== request.providerId ||
+    selection.backend !== request.backend ||
+    selection.authMode !== request.authMode ||
+    selection.profileRef !== request.profileRef ||
+    selection.secretRef !== request.secretRef
+  ) {
+    throw new AgentExecutionConfigurationError(
+      'AGENT_EXECUTION_PREPARED_RUNNER_SELECTION_MISMATCH',
+      'Prepared runner selection does not exactly match the execution request',
+    )
+  }
+  return { runner: preparedRunner, state }
 }
 
 function projectAdapterConfig(request: AgentExecutionRequest): AdapterConfig {
@@ -292,9 +477,10 @@ function extractFailure(err: unknown, failedEvent: AgentFailedEvent | undefined)
   }
 }
 
-export async function runAgentExecution(
+export async function runPreparedAgentExecution(
   request: AgentExecutionRequest,
-  options: RunAgentExecutionOptions = {},
+  preparedRunner: PreparedAgentExecutionRunner,
+  options: RunPreparedAgentExecutionOptions = {},
 ): Promise<AgentExecutionResult> {
   const now = options.now ?? Date.now
   const startMs = now()
@@ -303,10 +489,10 @@ export async function runAgentExecution(
   let lastFailedEvent: AgentFailedEvent | undefined
 
   try {
-    const registry = resolveRegistry(request, options)
+    const prepared = requirePreparedRunner(request, preparedRunner)
     const input = projectAgentInput(request)
     const task = projectTaskDescriptor(request)
-    for await (const event of registry.executeWithFallback(input, task)) {
+    for await (const event of prepared.state.executeWithFallback(input, task)) {
       events.push(event)
       await options.onEvent?.(event)
       collectProviderId(event, attempted)
@@ -325,6 +511,7 @@ export async function runAgentExecution(
           ...(event.usage ? { usage: event.usage } : {}),
           durationMs: now() - startMs,
           attemptedProviders: [...attempted],
+          runnerAttestation: prepared.runner.attestation,
         }
       }
     }
@@ -345,6 +532,7 @@ export async function runAgentExecution(
       attemptedProviders: [...attempted],
       error,
       code: error.code,
+      runnerAttestation: prepared.runner.attestation,
     }
   } catch (err: unknown) {
     const error = extractFailure(err, lastFailedEvent)
@@ -356,6 +544,44 @@ export async function runAgentExecution(
       events,
       durationMs: now() - startMs,
       attemptedProviders: [...attempted],
+      error,
+      code: error.code,
+    }
+  }
+}
+
+/** Normal public entry point: materialize an exact selection, attest it, then execute it. */
+export async function runAgentExecution(
+  request: AgentExecutionRequest,
+  options: RunAgentExecutionOptions = {},
+): Promise<AgentExecutionResult> {
+  const {
+    onEvent,
+    now,
+    materializeAdapter,
+    resolveApiKey,
+    requiredCapabilities,
+    projectInput,
+    projectEvent,
+  } = options
+  try {
+    const preparedRunner = prepareAgentExecutionRunner(request, {
+      materializeAdapter,
+      resolveApiKey,
+      requiredCapabilities,
+      projectInput,
+      projectEvent,
+    })
+    return runPreparedAgentExecution(request, preparedRunner, { onEvent, now })
+  } catch (err: unknown) {
+    const error = extractFailure(err, undefined)
+    return {
+      ok: false,
+      ...(request.model ? { model: request.model } : {}),
+      text: '',
+      events: [],
+      durationMs: 0,
+      attemptedProviders: [],
       error,
       code: error.code,
     }
