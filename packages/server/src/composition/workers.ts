@@ -71,6 +71,63 @@ export function resolveWorkerNodeStore(
 const startedNodeLedgers = new WeakSet<DurableNodeLedger>();
 const startedScheduleStores = new WeakSet<ScheduleStore>();
 
+/**
+ * AGENT-H-28 — fail fast when a spend ceiling is configured but cannot be
+ * enforced.
+ *
+ * `guardrailMaxCostUsd` is only applied alongside `guardrailClient`: both
+ * the admission path (`withDistributedGuardrails`) and the post-run write
+ * (`recordDistributedCost`) return early when the client is absent. So a
+ * deployment that sets a ceiling and forgets the client gets **silent
+ * unlimited spend** — the single most expensive way this feature can be
+ * misconfigured, and indistinguishable at runtime from a correctly
+ * configured track-only deployment.
+ *
+ * Three distinct states must stay distinguishable, and collapsing the
+ * middle one into "no ceiling" is the bug:
+ *   - no client, no ceiling      → local-only enforcement (fine)
+ *   - client, ceiling            → enforced (fine)
+ *   - **ceiling, no client**     → operator asked for a cap and silently
+ *                                  got none (throws here)
+ *
+ * Throwing at startup rather than warning per-run: a warning in a log
+ * nobody reads is how the fleet overspends anyway, and this is a
+ * programmer/deployment error that is trivially fixable at boot.
+ */
+function assertGuardrailCeilingIsEnforceable(
+  runtimeConfig: ForgeServerConfig
+): void {
+  const ceiling = runtimeConfig.guardrailMaxCostUsd;
+  if (ceiling === undefined) return;
+
+  if (!runtimeConfig.guardrailClient) {
+    throw new Error(
+      "guardrailMaxCostUsd is set but guardrailClient is not: the spend " +
+        "ceiling would be silently ignored and runs would spend without " +
+        "limit. Supply a CostLedgerClient (e.g. " +
+        "createRedisGuardrailClientFromConnection) or remove " +
+        "guardrailMaxCostUsd to run track-only."
+    );
+  }
+
+  // A NaN ceiling never compares true against accumulated spend (`total <
+  // NaN` is always false), so it is enforcement-shaped but unenforceable —
+  // the same silent-overspend class as a missing client. A negative ceiling
+  // is unsatisfiable in the other direction (every run aborts immediately),
+  // which is a typo rather than an intent.
+  //
+  // `Infinity` is explicitly ALLOWED: it is the ledger's own track-only
+  // default (`distributed-budget.ts:86`), so passing it is a legitimate way
+  // to say "record spend, never abort".
+  if (Number.isNaN(ceiling) || ceiling < 0) {
+    throw new Error(
+      `guardrailMaxCostUsd must be a non-negative number (got ${String(
+        ceiling
+      )}). A NaN or negative ceiling cannot be enforced.`
+    );
+  }
+}
+
 export function maybeStartRunWorker(
   runtimeConfig: ForgeServerConfig,
   effectiveRunExecutor: RunExecutor
@@ -78,6 +135,8 @@ export function maybeStartRunWorker(
   if (!runtimeConfig.runQueue || startedRunQueues.has(runtimeConfig.runQueue)) {
     return;
   }
+
+  assertGuardrailCeilingIsEnforceable(runtimeConfig);
 
   // P1: resolve the fleet store (explicit → Drizzle → in-memory). When present,
   // register this worker node into the shared fleet via `startRunWorker`'s
