@@ -83,6 +83,27 @@ test('fails when declaration artifacts disappear for a budgeted package', () => 
   assert.match(result.messages.join('\n'), /@dzupagent\/codegen: minDeclarationBytes below minimum/);
 });
 
+test('points a minimum-floor breach at a rebuild, and does not misdirect an overage', () => {
+  // A floor fires when dist holds JS but zero .d.ts. Without a cause named in the
+  // message it reads as debt, and the plausible wrong fix -- lowering the floor --
+  // disables the only check for a declaration-less publish. An overage is real
+  // growth, so the same hint there would send the reader to a pointless rebuild.
+  const floor = evaluateBudgets([makeResult('@dzupagent/codegen', { declarationFileCount: 0 })], {
+    packages: { '@dzupagent/codegen': { minDeclarationFiles: 120 } },
+  });
+
+  assert.equal(floor.ok, false);
+  assert.match(floor.messages.join('\n'), /stale or partial/);
+  assert.match(floor.messages.join('\n'), /--filter=@dzupagent\/codegen --force/);
+
+  const overage = evaluateBudgets([makeResult('@dzupagent/codegen', { declarationBytes: 999 })], {
+    packages: { '@dzupagent/codegen': { maxDeclarationBytes: 1 } },
+  });
+
+  assert.equal(overage.ok, false);
+  assert.doesNotMatch(overage.messages.join('\n'), /stale or partial/);
+});
+
 test('fails when a measured package has no configured budget', () => {
   const result = evaluateBudgets([makeResult('@dzupagent/agent')], { packages: {} });
 

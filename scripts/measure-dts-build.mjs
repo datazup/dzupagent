@@ -356,10 +356,20 @@ export function evaluateBudgets(results, budgetConfig) {
         continue;
       }
       if (isMinimumMetric(metric) ? measured < limit : measured > limit) {
-        const relation = isMinimumMetric(metric) ? 'below minimum' : 'exceeded';
+        const isMinimum = isMinimumMetric(metric);
+        const relation = isMinimum ? 'below minimum' : 'exceeded';
+        // A minimum floor catches a dist that built JS but emitted no declarations,
+        // which reads like accumulated debt and invites lowering the floor -- that
+        // would disable the only check for a declaration-less publish. Name the
+        // likely cause so the remedy is a rebuild, not a re-pin.
+        const hint = isMinimum
+          ? ' -- dist may be stale or partial; rebuild the package with'
+            + ` \`npx turbo run build --filter=${result.name} --force\` before re-pinning`
+          : '';
         messages.push(
           `${result.name}: ${metric} ${relation} `
-          + `(measured ${formatBudgetValue(metric, measured)}, budget ${formatBudgetValue(metric, limit)})`,
+          + `(measured ${formatBudgetValue(metric, measured)}, budget ${formatBudgetValue(metric, limit)})`
+          + hint,
         );
       }
     }
