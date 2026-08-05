@@ -123,9 +123,6 @@ export type {
   DistributedRateLimiterConfig,
 } from "./guardrails/distributed-rate-limiter.js";
 export { DistributedCostLedger } from "./guardrails/distributed-budget.js";
-// AGENT-H-28 — thrown when the fleet-wide spend ceiling is breached, so
-// hosts can distinguish a budget abort from a provider/runtime failure.
-export { CostCeilingExceededError } from "./agent/rate-limit-coordinator.js";
 export type {
   CostLedgerClient,
   DistributedCostLedgerConfig,

@@ -18,7 +18,6 @@ export * from "./contracts/run-store.js";
 export * from "./contracts/provider-origin.js";
 export * from "./contracts/collab-task.js";
 export * from "./contracts/command-gate.js";
-export * from "./contracts/budget.js";
 export * from "./contracts/circuit-gate.js";
 export * from "./contracts/validation.js";
 export * from "./contracts/interrupt.js";

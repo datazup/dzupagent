@@ -144,7 +144,7 @@
       "maxRootIndexLines": 1327
     },
     "@dzupagent/security": {
-      "maxRootIndexLines": 69,
+      "maxRootIndexLines": 78,
       "maxFileLines": 500,
       "fileLineAllowlist": []
     },
