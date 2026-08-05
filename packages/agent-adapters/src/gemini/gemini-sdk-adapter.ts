@@ -98,9 +98,10 @@ export class GeminiSDKAdapter
       supportsResume: false,
       supportsFork: false,
       supportsToolCalls: true,
-      // CLI/SDK adapter: runs its own in-subprocess/agentic tool loop.
+      // The network SDK surfaces function calls but this adapter does not
+      // execute them or re-invoke Gemini with their results.
       emitsToolCalls: true,
-      executesToolLoop: true,
+      executesToolLoop: false,
       supportsStreaming: true,
       supportsCostUsage: true,
       maxContextTokens: this.config.maxContextTokens ?? 2_000_000,

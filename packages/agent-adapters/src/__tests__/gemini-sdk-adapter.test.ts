@@ -144,6 +144,42 @@ describe("GeminiSDKAdapter", () => {
       expect(toolCall.toolName).toBe("search");
       expect(toolCall.input).toEqual({ query: "dzip" });
     }
+    expect(events.some((event) => event.type === "adapter:tool_result")).toBe(
+      false
+    );
+    expect(events.at(-1)?.type).toBe("adapter:completed");
+    expect(mockGenerateContentStream).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not claim an autonomous loop for unresolved function calls", async () => {
+    async function* streamChunks() {
+      yield {
+        text: () => "",
+        functionCalls: () => [{ name: "search", args: { query: "dzip" } }],
+      };
+    }
+
+    mockGenerateContentStream.mockResolvedValue({
+      stream: streamChunks(),
+      response: Promise.resolve({}),
+    });
+
+    const adapter = new GeminiSDKAdapter({ googleApiKey: TEST_API_KEY });
+    const events = await collectEvents(
+      adapter.execute({ prompt: "search for dzip" })
+    );
+
+    expect(adapter.getCapabilities()).toMatchObject({
+      supportsToolCalls: true,
+      emitsToolCalls: true,
+      executesToolLoop: false,
+    });
+    expect(events.map((event) => event.type)).toEqual([
+      "adapter:started",
+      "adapter:tool_call",
+      "adapter:completed",
+    ]);
+    expect(mockGenerateContentStream).toHaveBeenCalledTimes(1);
   });
 
   it("getCapabilities returns correct profile", () => {
@@ -158,7 +194,7 @@ describe("GeminiSDKAdapter", () => {
       supportsFork: false,
       supportsToolCalls: true,
       emitsToolCalls: true,
-      executesToolLoop: true,
+      executesToolLoop: false,
       supportsStreaming: true,
       supportsCostUsage: true,
       maxContextTokens: 1_000_000,

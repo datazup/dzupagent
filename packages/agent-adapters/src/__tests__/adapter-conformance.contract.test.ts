@@ -22,6 +22,12 @@ const codexSdkMock = vi.hoisted(() => {
   return { Codex, startThread, resumeThread }
 })
 
+const claudeSdkMock = vi.hoisted(() => ({
+  query: vi.fn(),
+  listSessions: vi.fn(),
+  getSessionInfo: vi.fn(),
+}))
+
 vi.mock('../utils/process-helpers.js', () => ({
   isBinaryAvailable: vi.fn(),
   spawnAndStreamJsonl: vi.fn(),
@@ -29,6 +35,12 @@ vi.mock('../utils/process-helpers.js', () => ({
 
 vi.mock('@openai/codex-sdk', () => ({
   Codex: codexSdkMock.Codex,
+}))
+
+vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
+  query: claudeSdkMock.query,
+  listSessions: claudeSdkMock.listSessions,
+  getSessionInfo: claudeSdkMock.getSessionInfo,
 }))
 
 type CliConformanceCase = {
@@ -50,6 +62,25 @@ async function drainEvents<T>(gen: AsyncGenerator<T, void, undefined>): Promise<
 
 function terminalEvents(events: AgentEvent[]): AgentEvent[] {
   return events.filter((event) => event.type === 'adapter:completed' || event.type === 'adapter:failed')
+}
+
+function expectAutonomousToolLoopEvidence(events: AgentEvent[]): void {
+  const toolCallIndex = events.findIndex((event) => event.type === 'adapter:tool_call')
+  const toolResultIndex = events.findIndex(
+    (event, index) => index > toolCallIndex && event.type === 'adapter:tool_result',
+  )
+  const postToolModelIndex = events.findIndex(
+    (event, index) =>
+      index > toolResultIndex &&
+      (event.type === 'adapter:message' || event.type === 'adapter:stream_delta'),
+  )
+
+  expect(toolCallIndex, 'autonomous loop must expose a tool call').toBeGreaterThanOrEqual(0)
+  expect(toolResultIndex, 'autonomous loop must expose tool execution').toBeGreaterThan(toolCallIndex)
+  expect(
+    postToolModelIndex,
+    'autonomous loop must expose a model response after tool execution',
+  ).toBeGreaterThan(toolResultIndex)
 }
 
 describe('CLI adapter conformance contract', () => {
@@ -235,6 +266,43 @@ describe('CLI adapter conformance contract', () => {
     })
   }
 
+  it('requires behavioral tool execution and a post-tool model response for a true loop capability', async () => {
+    mockSpawnAndStreamJsonl.mockImplementation(async function* () {
+      yield { type: 'tool_call', name: 'search', arguments: { query: 'contract' } }
+      yield { type: 'tool_result', name: 'search', output: 'found' }
+      yield { type: 'message', role: 'assistant', content: 'Used the search result' }
+      yield { type: 'completed', result: 'done' }
+    })
+
+    const adapter = new GeminiCLIAdapter()
+    const events = await drainEvents(adapter.execute({ prompt: 'contract' }))
+
+    expect(adapter.getCapabilities().executesToolLoop).toBe(true)
+    expectAutonomousToolLoopEvidence(events)
+  })
+
+  it('rejects a function-call-only trace as autonomous loop evidence', () => {
+    const events: AgentEvent[] = [
+      {
+        type: 'adapter:tool_call',
+        providerId: 'gemini-sdk',
+        toolName: 'search',
+        input: { query: 'contract' },
+        timestamp: 1,
+      },
+      {
+        type: 'adapter:completed',
+        providerId: 'gemini-sdk',
+        sessionId: 'session-1',
+        result: '',
+        durationMs: 1,
+        timestamp: 2,
+      },
+    ]
+
+    expect(() => expectAutonomousToolLoopEvidence(events)).toThrow()
+  })
+
   it('crush keeps resume unsupported as an explicit contract', async () => {
     const adapter = new CrushAdapter()
 
@@ -249,6 +317,27 @@ describe('CLI adapter conformance contract', () => {
 // ---------------------------------------------------------------------------
 
 describe('Claude adapter conformance contract', () => {
+  beforeEach(() => {
+    claudeSdkMock.query.mockReset()
+    claudeSdkMock.query.mockReturnValue({
+      interrupt: vi.fn(),
+      async *[Symbol.asyncIterator]() {
+        yield {
+          type: 'system',
+          session_id: 'claude-contract-session',
+          model: 'claude-sonnet-4-5-20250514',
+          tools: [],
+        }
+        yield {
+          type: 'result',
+          subtype: 'success',
+          result: 'done',
+          session_id: 'claude-contract-session',
+        }
+      },
+    })
+  })
+
   it('creates with valid config and reports capabilities', () => {
     const adapter = new ClaudeAgentAdapter({ model: 'claude-sonnet-4-5-20250514' })
     expect(adapter.providerId).toBe('claude')
@@ -261,67 +350,17 @@ describe('Claude adapter conformance contract', () => {
     expect(caps.supportsCostUsage).toBe(true)
   })
 
-  it('execute() either throws SDK_NOT_INSTALLED or starts with adapter:started', async () => {
+  it('execute() starts with adapter:started through the provider-free SDK fixture', async () => {
     const adapter = new ClaudeAgentAdapter()
-    const controller = new AbortController()
-    const stream = adapter.execute({ prompt: 'test', signal: controller.signal })
+    const events = await drainEvents(adapter.execute({ prompt: 'test' }))
 
-    try {
-      const firstEventTimeout = Symbol('firstEventTimeout')
-      const firstPromise = stream.next()
-      const first = await Promise.race([
-        firstPromise,
-        new Promise<typeof firstEventTimeout>((resolve) => {
-          setTimeout(() => resolve(firstEventTimeout), 5_000)
-        }),
-      ])
-
-      if (first === firstEventTimeout) {
-        controller.abort()
-        await stream.return?.().catch(() => undefined)
-        await firstPromise.catch(() => undefined)
-        return
-      }
-
-      // Some environments have the optional SDK installed but no configured
-      // local runtime/session, so the iterator may complete without emitting.
-      // Treat that as inconclusive rather than a conformance failure.
-      if (first.done) {
-        return
-      }
-      // SDK is installed and active: first event must be adapter:started
-      expect(first.value?.type).toBe('adapter:started')
-      if (first.value?.type === 'adapter:started') {
-        expect(first.value.providerId).toBe('claude')
-      }
-      // Clean up: interrupt and fully drain the stream so any abort
-      // rejection inside the SDK's child process is observed here
-      // rather than escaping as an unhandled rejection.
-      adapter.interrupt()
-      // Drain remaining events. We swallow any abort/teardown errors
-      // because the test only asserts the very first emitted event.
-      try {
-        // Use a for-await with a safety bound to avoid hangs.
-        let drained = 0
-        for await (const event of stream) {
-          void event
-          if (++drained > 100) break
-        }
-      } catch {
-        // expected: abort or teardown error
-      }
-    } catch (err) {
-      // Only treat the optional-SDK path as acceptable here. Assertion
-      // failures from the started-event contract should still fail the test.
-      const errorCode = typeof err === 'object' && err !== null
-        ? (err as { code?: unknown }).code
-        : undefined
-      if (errorCode !== 'ADAPTER_SDK_NOT_INSTALLED') {
-        throw err
-      }
-      expect(err).toMatchObject({ code: 'ADAPTER_SDK_NOT_INSTALLED' })
+    expect(events[0]?.type).toBe('adapter:started')
+    if (events[0]?.type === 'adapter:started') {
+      expect(events[0].providerId).toBe('claude')
     }
-  }, 60_000)
+    expect(events.at(-1)?.type).toBe('adapter:completed')
+    expect(claudeSdkMock.query).toHaveBeenCalledTimes(1)
+  })
 
   it('configure() merges config without throwing', () => {
     const adapter = new ClaudeAgentAdapter()

@@ -145,10 +145,11 @@ export interface AdapterCapabilityProfile {
   emitsToolCalls?: boolean | undefined
   /**
    * The adapter itself executes tools and re-invokes the model until the task
-   * completes (an autonomous tool-use loop). True for CLI/SDK adapters that run
-   * their own in-subprocess/agentic loops (Claude, Codex, Gemini, Crush, Goose,
-   * Qwen). FALSE for fetch-based adapters (openai, openrouter, ollama), which
-   * stop at the first tool_call with no result. Routers selecting an adapter for
+   * completes (an autonomous tool-use loop). True only for CLI or SDK-managed
+   * process adapters whose harness performs that loop (for example Claude,
+   * Codex, Gemini CLI, Crush, Goose, and Qwen). FALSE for network SDK/HTTP
+   * adapters such as Gemini SDK, openai, openrouter, and ollama when they stop
+   * at the first tool_call with no result. Routers selecting an adapter for
    * autonomous agentic work MUST key on this flag, not {@link supportsToolCalls}.
    */
   executesToolLoop?: boolean | undefined
