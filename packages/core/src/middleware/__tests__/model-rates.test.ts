@@ -166,6 +166,55 @@ describe("ARCH-M-08 canonical rate consolidation", () => {
     expect(getModelRate("gpt-4o-mini").cacheWriteCentsPer1M).toBeUndefined();
   });
 
+  it("never lets a claude model inherit cache tiers priced for a different input rate", () => {
+    // The defect this pins: an entry that omits cache tiers silently inherits
+    // the `claude` FAMILY tiers, which are scaled to the family's input price
+    // (300). For any model whose own input price differs, that is simply the
+    // wrong number — Haiku 4.5 (input 80) billed cached reads at 30 instead of
+    // 8, a 3.75x overcharge, until its tiers were declared.
+    //
+    // Asserted structurally rather than per-model so a NEW claude entry added
+    // without cache tiers fails here instead of shipping a silent mispricing.
+    const familyInput = PROVIDER_RATE_TABLE.claude.inputCentsPer1M;
+    const claudeModels = Object.keys(MODEL_RATE_TABLE).filter((model) =>
+      model.startsWith("claude")
+    );
+    expect(claudeModels.length).toBeGreaterThan(0);
+
+    for (const model of claudeModels) {
+      const rate = getModelRate(model);
+      if (rate.inputCentsPer1M === familyInput) continue; // family scale: inheriting is correct
+      expect(
+        rate.cachedInputCentsPer1M,
+        `${model} must declare its own cache-read tier (input ${rate.inputCentsPer1M} != family ${familyInput})`
+      ).toBeCloseTo(rate.inputCentsPer1M * 0.1, 5);
+      expect(
+        rate.cacheWriteCentsPer1M,
+        `${model} must declare its own cache-write tier (input ${rate.inputCentsPer1M} != family ${familyInput})`
+      ).toBeCloseTo(rate.inputCentsPer1M * 1.25, 5);
+    }
+  });
+
+  it("prices Haiku 4.5 and Opus 4.6 cached traffic from their own input rates", () => {
+    expect(getModelRate("claude-haiku-4-5-20251001")).toEqual({
+      inputCentsPer1M: 80,
+      outputCentsPer1M: 400,
+      cachedInputCentsPer1M: 8,
+      cacheWriteCentsPer1M: 100,
+    });
+    expect(getModelRate("claude-opus-4-6")).toEqual({
+      inputCentsPer1M: 1500,
+      outputCentsPer1M: 7500,
+      cachedInputCentsPer1M: 150,
+      cacheWriteCentsPer1M: 1875,
+    });
+    // Sonnet is the family scale, so inheritance remains correct for it.
+    expect(getModelRate("claude-sonnet-4-6")).toMatchObject({
+      cachedInputCentsPer1M: PROVIDER_RATE_TABLE.claude.cachedInputCentsPer1M,
+      cacheWriteCentsPer1M: PROVIDER_RATE_TABLE.claude.cacheWriteCentsPer1M,
+    });
+  });
+
   it("PROVIDER_RATE_TABLE preserves the previously hand-maintained adapter values", () => {
     // Guards against silent drift of the values agent-adapters used to own.
     expect(PROVIDER_RATE_TABLE.claude).toEqual({

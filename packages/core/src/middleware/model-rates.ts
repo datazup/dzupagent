@@ -32,7 +32,7 @@ export const MODEL_RATES_AUTHORITY_ID = "dzupagent.core/model-rates" as const;
  * Bump this and {@link MODEL_RATES_EFFECTIVE_AT} together in the same edit that
  * changes a rate — a stale revision claims prices are current when they are not.
  */
-export const MODEL_RATES_REVISION = "2026-08-05" as const;
+export const MODEL_RATES_REVISION = "2026-08-05.1" as const;
 
 /**
  * When these rate values took effect, not when they were read.
@@ -40,7 +40,7 @@ export const MODEL_RATES_REVISION = "2026-08-05" as const;
  * Feeds `AiPriceProvenance.effectiveAt`, which reconciliation uses to decide
  * which of two disagreeing tables is newer.
  */
-export const MODEL_RATES_EFFECTIVE_AT = "2026-08-05T00:00:00.000Z" as const;
+export const MODEL_RATES_EFFECTIVE_AT = "2026-08-05T12:00:00.000Z" as const;
 
 /** Full rate for a provider family or model, cents per 1M tokens. */
 export interface ModelRate {
@@ -95,7 +95,15 @@ export type ProviderRateKey = keyof typeof PROVIDER_RATE_TABLE;
  * `getModelCosts`. The `default` entry is the fallback for unknown models.
  */
 export const MODEL_RATE_TABLE = {
-  "claude-haiku-4-5-20251001": { inputCentsPer1M: 80, outputCentsPer1M: 400 },
+  // Cache tiers are per-model, not per-family: they scale with each model's own
+  // input price (~0.1x read, ~1.25x write). Only a model whose input price
+  // equals the family's may omit them — see `claude-sonnet-4-6` below.
+  "claude-haiku-4-5-20251001": {
+    inputCentsPer1M: 80,
+    outputCentsPer1M: 400,
+    cachedInputCentsPer1M: 8,
+    cacheWriteCentsPer1M: 100,
+  },
   // Haiku 3.5 has distinct prompt-cache tiers; do not inherit Sonnet prices.
   "claude-3-5-haiku-20241022": {
     inputCentsPer1M: 80,
@@ -103,8 +111,15 @@ export const MODEL_RATE_TABLE = {
     cachedInputCentsPer1M: 8,
     cacheWriteCentsPer1M: 100,
   },
+  // Sonnet's input price IS the `claude` family price, so inheriting 30/375
+  // from the family is correct here and stays exercised by the resolver test.
   "claude-sonnet-4-6": { inputCentsPer1M: 300, outputCentsPer1M: 1500 },
-  "claude-opus-4-6": { inputCentsPer1M: 1500, outputCentsPer1M: 7500 },
+  "claude-opus-4-6": {
+    inputCentsPer1M: 1500,
+    outputCentsPer1M: 7500,
+    cachedInputCentsPer1M: 150,
+    cacheWriteCentsPer1M: 1875,
+  },
   "gpt-4o-mini": {
     inputCentsPer1M: 15,
     outputCentsPer1M: 60,
