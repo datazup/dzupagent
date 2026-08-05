@@ -307,7 +307,7 @@ export async function dispatchStandardNode(
     if (stuckAbort) return fail(stuckAbort);
 
     await recordCalibration(config, emit, node.id, finalResult, runId);
-    recordIterationBudget(
+    const budgetAbort = recordIterationBudget(
       config,
       emit,
       budgetTracker,
@@ -315,6 +315,14 @@ export async function dispatchStandardNode(
       finalResult,
       completedNodeIds.length
     );
+    if (budgetAbort) {
+      // The node itself succeeded and is already recorded in
+      // `nodeResults`; count it as completed before aborting so the run
+      // result reflects the work actually paid for.
+      completedNodeIds.push(node.id);
+      onCompleted?.();
+      return fail(budgetAbort);
+    }
 
     completedNodeIds.push(node.id);
     onCompleted?.();

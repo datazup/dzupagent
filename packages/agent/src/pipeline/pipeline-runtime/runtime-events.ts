@@ -140,7 +140,7 @@ export function calibrationSuboptimalEvent(
 }
 
 export function iterationBudgetWarningEvent(
-  level: 'warn_70' | 'warn_90',
+  level: 'warn_70' | 'warn_90' | 'exceeded',
   totalCost: number,
   budgetCents: number,
   iteration: number,

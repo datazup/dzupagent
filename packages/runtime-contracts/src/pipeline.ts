@@ -245,8 +245,13 @@ export type PipelineRuntimeEvent =
       suggestion: string;
     }
   | {
+      /**
+       * Iteration-budget threshold crossing. `warn_70`/`warn_90` are
+       * advisory; `exceeded` means the run has spent its entire budget
+       * and the pipeline aborts immediately after this event is emitted.
+       */
       type: "pipeline:iteration_budget_warning";
-      level: "warn_70" | "warn_90";
+      level: "warn_70" | "warn_90" | "exceeded";
       totalCost: number;
       budgetCents: number;
       iteration: number;

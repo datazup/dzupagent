@@ -20,6 +20,12 @@
  *     runtime behaviour and is intentionally preserved).
  *   - Zero or negative cost contributions never advance the cumulative
  *     total and never trigger a warning.
+ *   - Reaching >=100% of the budget reports `exceeded`, which takes
+ *     precedence over both warnings and — unlike them — is NOT one-shot:
+ *     it is re-reported on every subsequent call. The caller aborts the
+ *     run on this signal.
+ *   - A non-positive `maxCostCents` means "no budget configured" and can
+ *     never report `exceeded`.
  *
  * @module pipeline/pipeline-runtime/iteration-budget-tracker
  */
@@ -27,22 +33,29 @@
 /** Mutable state owned by the caller (runtime) and updated by `applyCost`. */
 export interface BudgetTrackerState {
   /** Total cost in cents accumulated across the run so far. */
-  cumulativeCostCents: number
+  cumulativeCostCents: number;
   /** Whether each one-shot warning has already fired. */
-  warnings: { warn70: boolean; warn90: boolean }
+  warnings: { warn70: boolean; warn90: boolean };
 }
 
 /** Outcome of accounting a single cost contribution. */
 export interface BudgetThresholdDecision {
   /** Updated cumulative cost (also written back into the supplied state). */
-  cumulativeCostCents: number
+  cumulativeCostCents: number;
   /** Threshold that just crossed, if any. */
-  warning: 'warn_70' | 'warn_90' | undefined
+  warning: "warn_70" | "warn_90" | "exceeded" | undefined;
+  /**
+   * True when cumulative cost has reached or passed 100% of the budget.
+   * Unlike the advisory warnings this is NOT one-shot: it stays true for
+   * every subsequent call so a caller can never lose the signal by
+   * checking late. The caller is responsible for aborting the run.
+   */
+  exceeded: boolean;
 }
 
 /** Build a fresh tracker state with zero cost and no warnings emitted. */
 export function createBudgetTrackerState(): BudgetTrackerState {
-  return { cumulativeCostCents: 0, warnings: { warn70: false, warn90: false } }
+  return { cumulativeCostCents: 0, warnings: { warn70: false, warn90: false } };
 }
 
 /**
@@ -61,35 +74,78 @@ export function createBudgetTrackerState(): BudgetTrackerState {
 export function applyCost(
   state: BudgetTrackerState,
   costCents: number,
-  maxCostCents: number,
+  maxCostCents: number
 ): BudgetThresholdDecision {
   // Match the runtime's gating behaviour: zero-or-negative contributions
   // never advance the budget or fire a warning.
   if (costCents <= 0) {
-    return { cumulativeCostCents: state.cumulativeCostCents, warning: undefined }
+    return {
+      cumulativeCostCents: state.cumulativeCostCents,
+      warning: undefined,
+      exceeded: false,
+    };
   }
 
   // Guard against a non-positive budget. Returning early keeps the helper
   // total and avoids divide-by-zero / negative-percentage anomalies.
+  //
+  // NOTE: a non-positive budget means "no budget configured", NOT "budget
+  // instantly exhausted". Reporting `exceeded` here would abort every
+  // pipeline in a deployment that leaves `maxCostCents` unset.
   if (maxCostCents <= 0) {
-    state.cumulativeCostCents += costCents
-    return { cumulativeCostCents: state.cumulativeCostCents, warning: undefined }
+    state.cumulativeCostCents += costCents;
+    return {
+      cumulativeCostCents: state.cumulativeCostCents,
+      warning: undefined,
+      exceeded: false,
+    };
   }
 
-  state.cumulativeCostCents += costCents
-  const pct = state.cumulativeCostCents / maxCostCents
+  state.cumulativeCostCents += costCents;
+  const pct = state.cumulativeCostCents / maxCostCents;
+
+  // Checked BEFORE the 0.9 branch so a single contribution that jumps
+  // straight past 100% reports `exceeded` rather than `warn_90`.
+  //
+  // Deliberately NOT one-shot and not gated on a `warnings` flag: once the
+  // budget is blown every subsequent call keeps reporting it, so a caller
+  // that starts checking late still sees the breach.
+  if (pct >= 1) {
+    // Mark the advisory flags as spent — the run is aborting, and a
+    // later sub-90% step must not emit a stale "warning" after the
+    // budget has already been reported as exceeded.
+    state.warnings.warn90 = true;
+    state.warnings.warn70 = true;
+    return {
+      cumulativeCostCents: state.cumulativeCostCents,
+      warning: "exceeded",
+      exceeded: true,
+    };
+  }
 
   // Order matches the runtime's original `if/else if`: 90% wins over 70%
   // when both thresholds cross in the same step.
   if (pct >= 0.9 && !state.warnings.warn90) {
-    state.warnings.warn90 = true
-    return { cumulativeCostCents: state.cumulativeCostCents, warning: 'warn_90' }
+    state.warnings.warn90 = true;
+    return {
+      cumulativeCostCents: state.cumulativeCostCents,
+      warning: "warn_90",
+      exceeded: false,
+    };
   }
 
   if (pct >= 0.7 && !state.warnings.warn70) {
-    state.warnings.warn70 = true
-    return { cumulativeCostCents: state.cumulativeCostCents, warning: 'warn_70' }
+    state.warnings.warn70 = true;
+    return {
+      cumulativeCostCents: state.cumulativeCostCents,
+      warning: "warn_70",
+      exceeded: false,
+    };
   }
 
-  return { cumulativeCostCents: state.cumulativeCostCents, warning: undefined }
+  return {
+    cumulativeCostCents: state.cumulativeCostCents,
+    warning: undefined,
+    exceeded: false,
+  };
 }

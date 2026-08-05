@@ -1,0 +1,6 @@
+# dzupagent formats with ESLint, not prettier — there is no prettier config
+# in this repo. Without this ignore file an editor/tooling prettier pass
+# reflows entire files against a foreign style (single -> double quotes,
+# re-wrapping), turning a one-line change into a 100+ line diff and burying
+# the real edit in review. Opt the whole repo out.
+*

@@ -168,6 +168,12 @@ export async function recordCalibration(
  * isolation; the runtime owns event emission and `iteration`
  * (completedNodeIds.length) is captured before the tracker
  * mutates so the warning event keeps its original meaning.
+ *
+ * Returns an abort error string when the run has spent its entire
+ * budget, or undefined to keep going — the same abort-channel shape as
+ * `recordFailureInStuckDetector`. The breach event is emitted BEFORE the
+ * abort string is returned, so an observer always sees why the run
+ * stopped.
  */
 export function recordIterationBudget(
   config: PipelineRuntimeConfig,
@@ -176,8 +182,8 @@ export function recordIterationBudget(
   nodeId: string,
   finalResult: NodeResult,
   iteration: number,
-): void {
-  if (!config.iterationBudget) return
+): string | undefined {
+  if (!config.iterationBudget) return undefined
   const ib = config.iterationBudget
   const cost = ib.extractCost(nodeId, finalResult)
   const decision = applyBudgetCost(budgetTracker, cost, ib.maxCostCents)
@@ -191,6 +197,15 @@ export function recordIterationBudget(
       ),
     )
   }
+
+  if (decision.exceeded) {
+    return (
+      `Pipeline iteration budget exceeded: ` +
+      `${decision.cumulativeCostCents} of ${ib.maxCostCents} cents spent`
+    )
+  }
+
+  return undefined
 }
 
 export interface RecoveryCounter {

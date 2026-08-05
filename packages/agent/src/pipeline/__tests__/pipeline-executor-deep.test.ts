@@ -45,7 +45,7 @@ import type {
 
 function makeNode(
   id: string,
-  overrides: Partial<Omit<PipelineNode, "id">> = {},
+  overrides: Partial<Omit<PipelineNode, "id">> = {}
 ): PipelineNode {
   return {
     id,
@@ -59,7 +59,7 @@ function makeNode(
 function makeDef(
   nodes: PipelineNode[],
   edges: PipelineEdge[] = [],
-  overrides: Partial<PipelineDefinition> = {},
+  overrides: Partial<PipelineDefinition> = {}
 ): PipelineDefinition {
   return {
     id: "executor-test-pipeline",
@@ -82,7 +82,7 @@ function linearEdges(nodes: PipelineNode[]): PipelineEdge[] {
 }
 
 function successExecutor(
-  outputMap: Record<string, unknown> = {},
+  outputMap: Record<string, unknown> = {}
 ): NodeExecutor {
   return async (nodeId) => ({
     nodeId,
@@ -152,7 +152,7 @@ describe("PipelineExecutor — single-step pipeline", () => {
     expect(types).toContain("pipeline:started");
     expect(types).toContain("pipeline:completed");
     expect(types.indexOf("pipeline:started")).toBeLessThan(
-      types.indexOf("pipeline:completed"),
+      types.indexOf("pipeline:completed")
     );
   });
 
@@ -465,7 +465,7 @@ describe("PipelineExecutor — suspend handling", () => {
     const wfEvents: Array<{ type: string; reason?: string }> = [];
     await wf.run(
       {},
-      { onEvent: (e) => wfEvents.push(e as { type: string; reason?: string }) },
+      { onEvent: (e) => wfEvents.push(e as { type: string; reason?: string }) }
     );
 
     expect(wfEvents.some((e) => e.type === "suspended")).toBe(true);
@@ -503,7 +503,7 @@ describe("PipelineExecutor — suspend handling", () => {
     const events: Array<{ type: string }> = [];
     await wf.run(
       { runId: "chk-run" },
-      { onEvent: (e) => events.push(e as { type: string }) },
+      { onEvent: (e) => events.push(e as { type: string }) }
     );
 
     // A checkpoint should have been saved (either via after_each_node or suspend)
@@ -998,7 +998,7 @@ describe("PipelineExecutor — checkpoint saving", () => {
     await runtime.execute();
 
     const cpEvents = events.filter(
-      (e) => e.type === "pipeline:checkpoint_saved",
+      (e) => e.type === "pipeline:checkpoint_saved"
     );
     expect(cpEvents.length).toBeGreaterThanOrEqual(1);
   });
@@ -1110,7 +1110,7 @@ describe("PipelineExecutor — telemetry events", () => {
     await runtime.execute();
 
     const failedEvents = events.filter(
-      (e) => e.type === "pipeline:node_failed",
+      (e) => e.type === "pipeline:node_failed"
     );
     expect(failedEvents.length).toBeGreaterThanOrEqual(1);
   });
@@ -1127,11 +1127,11 @@ describe("PipelineExecutor — telemetry events", () => {
 
     const completed = events.find(
       (
-        e,
+        e
       ): e is Extract<
         PipelineRuntimeEvent,
         { type: "pipeline:node_completed" }
-      > => e.type === "pipeline:node_completed",
+      > => e.type === "pipeline:node_completed"
     );
     expect(completed?.nodeId).toBe("A");
     expect(completed?.durationMs).toBeGreaterThanOrEqual(0);
@@ -1149,7 +1149,7 @@ describe("PipelineExecutor — telemetry events", () => {
 
     const completed = events.find(
       (e): e is Extract<PipelineRuntimeEvent, { type: "pipeline:completed" }> =>
-        e.type === "pipeline:completed",
+        e.type === "pipeline:completed"
     );
     expect(completed?.totalDurationMs).toBeGreaterThanOrEqual(0);
   });
@@ -1173,7 +1173,7 @@ describe("PipelineExecutor — telemetry events", () => {
 
     const failed = events.find(
       (e): e is Extract<PipelineRuntimeEvent, { type: "pipeline:failed" }> =>
-        e.type === "pipeline:failed",
+        e.type === "pipeline:failed"
     );
     expect(failed?.error).toBe("specific-failure-message");
   });
@@ -1188,7 +1188,7 @@ describe("PipelineExecutor — iteration budget tracker", () => {
     const runtime = new PipelineRuntime({
       definition: makeDef(
         [makeNode("A"), makeNode("B")],
-        linearEdges([makeNode("A"), makeNode("B")]),
+        linearEdges([makeNode("A"), makeNode("B")])
       ),
       nodeExecutor: successExecutor(),
       iterationBudget: {
@@ -1227,9 +1227,73 @@ describe("PipelineExecutor — iteration budget tracker", () => {
     // Budget warning events should have been emitted as cost thresholds were crossed.
     // The actual event type is 'pipeline:iteration_budget_warning'.
     const budgetEvents = events.filter(
-      (e) => e.type === "pipeline:iteration_budget_warning",
+      (e) => e.type === "pipeline:iteration_budget_warning"
     );
     expect(budgetEvents.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("aborts the run when the iteration budget is exceeded", async () => {
+    const events: PipelineRuntimeEvent[] = [];
+    const executed: string[] = [];
+
+    const executor: NodeExecutor = async (nodeId) => {
+      executed.push(nodeId);
+      return { nodeId, output: `out-${nodeId}`, durationMs: 1 };
+    };
+
+    // Budget of 10 cents, 6 cents per node: node 1 = 60% (no abort),
+    // node 2 = 120% (breach). Nodes 3-5 must never run.
+    const nodes = Array.from({ length: 5 }, (_, i) => makeNode(`N${i}`));
+    const runtime = new PipelineRuntime({
+      definition: makeDef(nodes, linearEdges(nodes)),
+      nodeExecutor: executor,
+      iterationBudget: { maxCostCents: 10, extractCost: () => 6 },
+      onEvent: collectEvents(events),
+    });
+
+    const result = await runtime.execute();
+
+    // The run must actually stop, not merely warn.
+    expect(result.state).toBe("failed");
+
+    // The abort REASON must reach the failure event — otherwise an operator
+    // sees a failed run with no indication the budget was the cause.
+    const failedEvent = events.find((e) => e.type === "pipeline:failed");
+    expect(failedEvent).toBeDefined();
+    expect((failedEvent as { error: string } | undefined)?.error).toContain(
+      "iteration budget exceeded"
+    );
+
+    // Execution stopped at the breaching node — this is the assertion that
+    // proves money is no longer being spent past the ceiling.
+    expect(executed).toEqual(["N0", "N1"]);
+
+    // The breach is observable, so a subscriber can see WHY the run stopped.
+    const exceededEvents = events.filter(
+      (e) =>
+        e.type === "pipeline:iteration_budget_warning" && e.level === "exceeded"
+    );
+    expect(exceededEvents).toHaveLength(1);
+  });
+
+  it("does not abort a pipeline that leaves the budget unset", async () => {
+    const executed: string[] = [];
+    const executor: NodeExecutor = async (nodeId) => {
+      executed.push(nodeId);
+      return { nodeId, output: `out-${nodeId}`, durationMs: 1 };
+    };
+
+    // maxCostCents of 0 means "no budget configured". Every node must run.
+    const nodes = Array.from({ length: 3 }, (_, i) => makeNode(`N${i}`));
+    const runtime = new PipelineRuntime({
+      definition: makeDef(nodes, linearEdges(nodes)),
+      nodeExecutor: executor,
+      iterationBudget: { maxCostCents: 0, extractCost: () => 500 },
+    });
+
+    const result = await runtime.execute();
+    expect(result.state).toBe("completed");
+    expect(executed).toEqual(["N0", "N1", "N2"]);
   });
 });
 
