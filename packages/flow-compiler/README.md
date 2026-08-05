@@ -272,7 +272,9 @@ not activate a provider, secret backend, key store, or production runtime.
 
 `dzupagent-qualify-flow-corpus` checks an explicit manifest of DSL files. Each
 entry is SHA-256 pinned, so the command fails on unreviewed source drift as well
-as parser, compiler, or strict-reference failures.
+as parser, compiler, composition, or strict-reference failures. The command
+builds a resolver from every parseable document in the corpus, so referenced
+subflows are compiled with the same pinned source set.
 
 ```bash
 dzupagent-qualify-flow-corpus \
@@ -289,16 +291,18 @@ The manifest schema is:
     {
       "id": "hello",
       "path": "hello.dzupflow.yaml",
-      "sha256": "64-character lowercase SHA-256 digest"
+      "sha256": "64-character lowercase SHA-256 digest",
+      "qualification": "compile-example"
     }
   ]
 }
 ```
 
-Paths must be relative to the manifest and cannot escape its directory. The
-gate uses placeholder tool and persona resolvers to isolate authoring contract
-drift. A passing report is not provider, runtime, host-capability, or deployment
-qualification.
+`qualification` is either `compile-example` or `authoring-only`; omitted values
+default to `compile-example` for compatibility. Paths must be relative to the
+manifest and cannot escape its directory. The gate uses placeholder tool and
+persona resolvers to isolate authoring contract drift. A passing report is not
+provider, runtime, host-capability, or deployment qualification.
 
 ## License
 

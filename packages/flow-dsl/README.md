@@ -832,15 +832,31 @@ Spawn a child flow run from a template; optionally block until completion.
 
 ### `subflow`
 
-Inline another flow document by reference.
+Inline another flow document by reference. Invocation inputs bind to the
+child's declared top-level `inputs` as hygienic private state. If the caller
+sets `outputVar`, the child must declare exactly which internal state key is
+exported with `meta.subflowOutput`.
 
 ```yaml
+# auth-flow-id.dzupflow.yaml
+meta:
+  subflowOutput: authenticatedUser
+inputs:
+  user: string
+
+# parent flow
 - subflow:
     id: inline_auth
     flowRef: auth-flow-id # flow_ref alias accepted
     input: { user: "{{ state.user }}" }
     outputVar: authResult
 ```
+
+Unknown invocation inputs, missing required child inputs, and an `outputVar`
+without `meta.subflowOutput` fail compilation. The formatter preserves
+canonical `input` and `outputVar` fields on round-trip. Inlining also namespaces
+child node IDs, state keys, template references, and raw condition references;
+only the declared output is copied back to the caller's public state.
 
 ### `return_to`
 
