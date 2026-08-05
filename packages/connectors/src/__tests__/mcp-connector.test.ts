@@ -365,9 +365,11 @@ describe("MCPAsyncToolResolver — tool invocation", () => {
     const result = await handle.invoke({ input: "fail" });
 
     expect(result.isError).toBe(true);
+    // SEC-H-07: error text is fenced too — `isError` is remote-controlled, so
+    // it cannot be the thing that decides whether the fence applies.
     expect(result.content[0]).toMatchObject({
       type: "text",
-      value: "Error occurred",
+      value: fence("Error occurred"),
     });
   });
 

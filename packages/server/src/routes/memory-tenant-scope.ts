@@ -10,9 +10,9 @@
  * the helpers fall back to a configurable default scope when no authenticated
  * identity is present.
  */
-import type { Context } from 'hono'
+import type { Context } from "hono";
 
-import type { AppEnv } from '../types.js'
+import type { AppEnv } from "../types.js";
 
 /**
  * Configuration for memory routes tenant-scope resolution.
@@ -29,13 +29,57 @@ export interface MemoryTenantScopeConfig {
    * Defaults to {@link defaultResolveAuthScope} which inspects the `apiKey`
    * context variable populated by the auth middleware.
    */
-  resolveAuthScope?: (c: Context) => Record<string, string>
+  resolveAuthScope?: (c: Context) => Record<string, string>;
   /**
    * Fallback scope when no authenticated identity is present. Use this for
    * single-tenant deployments running with auth disabled.
    * Defaults to `{}` (no implicit scope filter).
    */
-  defaultScope?: Record<string, string>
+  defaultScope?: Record<string, string>;
+  /**
+   * Namespaces a caller may address (SEC-H-07). `namespace` is a partition key
+   * that sits BESIDE `scope` — forcing authoritative scope keys does not
+   * constrain it, so a caller supplying an arbitrary namespace addresses a
+   * different partition than the one their tenant scope describes.
+   *
+   * When set, a caller-supplied namespace outside this list is rejected. When
+   * omitted, any namespace is allowed (preserving single-tenant behaviour).
+   */
+  allowedNamespaces?: readonly string[];
+}
+
+/** Thrown when a caller addresses a namespace outside {@link MemoryTenantScopeConfig.allowedNamespaces}. */
+export class MemoryNamespaceNotAllowedError extends Error {
+  readonly namespace: string;
+
+  constructor(namespace: string) {
+    super(`namespace "${namespace}" is not allowed`);
+    this.name = "MemoryNamespaceNotAllowedError";
+    this.namespace = namespace;
+  }
+}
+
+/**
+ * Resolve the namespace a request may address (SEC-H-07).
+ *
+ * Mirrors {@link applyAuthoritativeScope} for the namespace partition key:
+ * `scope` alone does not isolate tenants, because every memory operation is
+ * keyed by (namespace, scope). A caller that keeps a correct scope but swaps
+ * the namespace still reaches a partition the server never authorised.
+ *
+ * @throws {MemoryNamespaceNotAllowedError} when the namespace is not permitted.
+ */
+export function resolveAuthoritativeNamespace(
+  clientNamespace: string,
+  config: MemoryTenantScopeConfig = {}
+): string {
+  const allowed = config.allowedNamespaces;
+  if (allowed === undefined) return clientNamespace;
+
+  if (!allowed.includes(clientNamespace)) {
+    throw new MemoryNamespaceNotAllowedError(clientNamespace);
+  }
+  return clientNamespace;
 }
 
 /**
@@ -44,18 +88,18 @@ export interface MemoryTenantScopeConfig {
  * uses the same fields for owner/tenant scoping.
  */
 export function defaultResolveAuthScope(c: Context): Record<string, string> {
-  const key = (c as Context<AppEnv>).get('apiKey')
-  if (!key) return {}
-  const out: Record<string, string> = {}
-  const tenantId = key.tenantId
-  if (typeof tenantId === 'string' && tenantId.length > 0) {
-    out['tenantId'] = tenantId
+  const key = (c as Context<AppEnv>).get("apiKey");
+  if (!key) return {};
+  const out: Record<string, string> = {};
+  const tenantId = key.tenantId;
+  if (typeof tenantId === "string" && tenantId.length > 0) {
+    out["tenantId"] = tenantId;
   }
-  const ownerId = key.ownerId
-  if (typeof ownerId === 'string' && ownerId.length > 0) {
-    out['ownerId'] = ownerId
+  const ownerId = key.ownerId;
+  if (typeof ownerId === "string" && ownerId.length > 0) {
+    out["ownerId"] = ownerId;
   }
-  return out
+  return out;
 }
 
 /**
@@ -68,16 +112,16 @@ export function defaultResolveAuthScope(c: Context): Record<string, string> {
 export function applyAuthoritativeScope(
   c: Context,
   clientScope: Record<string, string>,
-  config: MemoryTenantScopeConfig = {},
+  config: MemoryTenantScopeConfig = {}
 ): Record<string, string> {
-  const resolver = config.resolveAuthScope ?? defaultResolveAuthScope
-  const authScope = resolver(c)
+  const resolver = config.resolveAuthScope ?? defaultResolveAuthScope;
+  const authScope = resolver(c);
 
   if (Object.keys(authScope).length > 0) {
     // Authenticated request: force auth scope keys to override client values.
-    return { ...clientScope, ...authScope }
+    return { ...clientScope, ...authScope };
   }
 
   // Single-tenant / unauthenticated: layer default scope under client scope.
-  return { ...(config.defaultScope ?? {}), ...clientScope }
+  return { ...(config.defaultScope ?? {}), ...clientScope };
 }

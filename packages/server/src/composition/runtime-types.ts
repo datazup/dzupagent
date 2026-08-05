@@ -39,6 +39,7 @@ import type { RetrievalFeedbackHookConfig } from "../runtime/retrieval-feedback-
 import type { ConsolidationSchedulerConfig } from "../runtime/consolidation-scheduler.js";
 import type { SleepConsolidatorLike } from "../runtime/sleep-consolidation-task.js";
 import type { MemoryHealthRouteConfig } from "../routes/memory-health-types.js";
+import type { MemoryTenantScopeConfig } from "../routes/memory-tenant-scope.js";
 import type { TokenLifecycleRegistry } from "../routes/run-context-types.js";
 import type { RunTraceStore } from "../persistence/run-trace-store.js";
 import type { LearningRouteConfig } from "../routes/learning-types.js";
@@ -143,6 +144,12 @@ export interface ForgeMemoryRouteFamilyConfig {
   memoryHealth?: MemoryHealthRouteConfig;
   traceStore?: RunTraceStore;
   tokenLifecycleRegistry?: TokenLifecycleRegistry;
+  /**
+   * Tenant scoping for memory routes (MJ-SEC-04 / SEC-H-07). Controls both the
+   * authoritative `scope` keys and, via `allowedNamespaces`, which memory
+   * namespaces a caller may address. Omit for single-tenant deployments.
+   */
+  memoryTenantScope?: MemoryTenantScopeConfig;
 }
 
 /** Learning, evaluation, and benchmark route family config. */

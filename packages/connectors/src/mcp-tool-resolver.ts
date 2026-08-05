@@ -153,12 +153,25 @@ export class MCPAsyncToolResolver implements AsyncToolResolver {
               // AGENT-M-16 — fence untrusted server text so direct-invoke
               // consumers inherit the same <untrusted_content source=
               // "tool_result"> boundary the agent tool loop applies via
-              // AGENT-H-06. Error text (framework-generated: validation,
-              // path-escape, transport failure) is surfaced unfenced so
-              // callers can read the structured reason cleanly.
+              // AGENT-H-06.
+              //
+              // Resolver fencing: error text is NOT reliably
+              // framework-generated, so `isError` cannot gate the fence.
+              // MCPClient.invokeTool returns executeToolCall's result
+              // verbatim (mcp-client.ts:336, :554), so a remote server that
+              // replies `{isError: true, content: [...]}` reaches here with
+              // fully attacker-controlled text — the exact injection vector
+              // the fence exists to close, reachable by just setting a flag
+              // the attacker owns.
+              //
+              // This matches the contract fenceToolError() already documents
+              // in @dzupagent/security: "the error path fences through the
+              // same primitive as the success path." Framework-generated
+              // errors carry a machine-readable `errorCode`, which structured
+              // consumers should branch on instead of parsing fenced prose.
               return {
                 type: "text" as const,
-                value: isError ? text : fenceToolResult(text),
+                value: fenceToolResult(text),
               };
             }
             if (part.type === "image") {

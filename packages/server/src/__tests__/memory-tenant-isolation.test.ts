@@ -466,3 +466,144 @@ describe("Memory analytics — tenant isolation (MJ-SEC-04)", () => {
     expect(reads.some((c) => c.scope["ownerId"] === "owner-b")).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// SEC-H-07: `namespace` is a partition key beside `scope`
+// ---------------------------------------------------------------------------
+
+describe("Memory namespace isolation (SEC-H-07)", () => {
+  let memoryService: ReturnType<typeof createTrackingMemoryService>;
+
+  function authedNamespaceConfig(
+    allowedNamespaces?: readonly string[]
+  ): ForgeServerConfig {
+    const config = createAuthedConfig(memoryService, {
+      keys: {
+        "token-a": { id: "k-a", tenantId: "tenant-a", role: "operator" },
+      },
+    });
+    if (allowedNamespaces) {
+      config.memoryTenantScope = { allowedNamespaces };
+    }
+    return config;
+  }
+
+  beforeEach(async () => {
+    memoryService = createTrackingMemoryService();
+    await memoryService.put("lessons", { tenantId: "tenant-a" }, "a-1", {
+      text: "A1",
+    });
+    await memoryService.put("secrets", { tenantId: "tenant-a" }, "s-1", {
+      text: "SECRET",
+    });
+  });
+
+  it("rejects an export addressing a namespace outside the allowlist", async () => {
+    const app = createForgeApp(authedNamespaceConfig(["lessons"]));
+
+    const res = await reqAuthed(app, "POST", "/api/memory/export", "token-a", {
+      namespace: "secrets",
+      scope: {},
+      format: "json",
+      limit: 100,
+    });
+
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("NAMESPACE_NOT_ALLOWED");
+    // The rejection must happen BEFORE the store is READ. Seeding in
+    // beforeEach uses `put`, so filter to reads rather than asserting the
+    // namespace is absent from `calls` entirely.
+    expect(
+      memoryService.calls.some(
+        (c) => c.namespace === "secrets" && c.op !== "put"
+      )
+    ).toBe(false);
+  });
+
+  it("rejects an import writing into a namespace outside the allowlist", async () => {
+    const app = createForgeApp(authedNamespaceConfig(["lessons"]));
+
+    // Round-trip a REAL export payload: a malformed body short-circuits as
+    // `invalid_payload` (HTTP 200) before importFrame is ever reached, which
+    // would make this test pass vacuously against a missing guard.
+    const exportRes = await reqAuthed(
+      app,
+      "POST",
+      "/api/memory/export",
+      "token-a",
+      { namespace: "lessons", scope: {}, format: "arrow_ipc", limit: 100 }
+    );
+    expect(exportRes.status).toBe(200);
+    const exportBody = (await exportRes.json()) as {
+      data: { data: string; record_count: number };
+    };
+    expect(exportBody.data.record_count).toBeGreaterThan(0);
+
+    memoryService.calls.length = 0;
+
+    const res = await reqAuthed(app, "POST", "/api/memory/import", "token-a", {
+      namespace: "secrets",
+      scope: {},
+      format: "arrow_ipc",
+      data: exportBody.data.data,
+      merge_strategy: "upsert",
+    });
+
+    expect(res.status).toBe(403);
+    expect(
+      memoryService.calls.some(
+        (c) => c.op === "put" && c.namespace === "secrets"
+      )
+    ).toBe(false);
+  });
+
+  it("rejects an analytics query addressing a disallowed namespace", async () => {
+    const app = createForgeApp(authedNamespaceConfig(["lessons"]));
+
+    const res = await reqAuthed(
+      app,
+      "GET",
+      "/api/memory/analytics/namespace-stats?namespace=secrets",
+      "token-a"
+    );
+
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("NAMESPACE_NOT_ALLOWED");
+  });
+
+  it("allows a namespace that IS on the allowlist", async () => {
+    const app = createForgeApp(authedNamespaceConfig(["lessons"]));
+
+    const res = await reqAuthed(app, "POST", "/api/memory/export", "token-a", {
+      namespace: "lessons",
+      scope: {},
+      format: "json",
+      limit: 100,
+    });
+
+    expect(res.status).toBe(200);
+    // Guard against a vacuous pass: prove the allowed namespace really
+    // reached the store rather than being short-circuited.
+    expect(memoryService.calls.some((c) => c.namespace === "lessons")).toBe(
+      true
+    );
+  });
+
+  it("allows any namespace when no allowlist is configured (single-tenant)", async () => {
+    const app = createForgeApp(authedNamespaceConfig());
+
+    const res = await reqAuthed(app, "POST", "/api/memory/export", "token-a", {
+      namespace: "secrets",
+      scope: {},
+      format: "json",
+      limit: 100,
+    });
+
+    expect(res.status).toBe(200);
+    expect(memoryService.calls.some((c) => c.namespace === "secrets")).toBe(
+      true
+    );
+  });
+});

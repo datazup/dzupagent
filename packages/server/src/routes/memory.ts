@@ -9,8 +9,8 @@
  * These routes bridge the MCP memory transport handlers from
  * @dzupagent/memory-ipc into the Hono REST API.
  */
-import { Hono, type Context } from 'hono'
-import type { AppEnv } from '../types.js'
+import { Hono, type Context } from "hono";
+import type { AppEnv } from "../types.js";
 import {
   handleExportMemory,
   handleImportMemory,
@@ -20,120 +20,206 @@ import {
   extendMemoryServiceWithArrow,
   type MemoryServiceLike,
   type ImportStrategy,
-} from '@dzupagent/memory-ipc'
+} from "@dzupagent/memory-ipc";
 import {
   getAnalytics,
   isDuckDBError,
   analyticsResultToJson,
-} from './analytics-handler.js'
+} from "./analytics-handler.js";
 import {
   applyAuthoritativeScope,
+  resolveAuthoritativeNamespace,
+  MemoryNamespaceNotAllowedError,
   type MemoryTenantScopeConfig,
-} from './memory-tenant-scope.js'
-import { getSerializedJsonSizeBytes } from '../validation/route-validator.js'
+} from "./memory-tenant-scope.js";
+import { getSerializedJsonSizeBytes } from "../validation/route-validator.js";
 
-const MEMORY_IMPORT_DATA_MAX_BYTES = 4 * 1_048_576
+const MEMORY_IMPORT_DATA_MAX_BYTES = 4 * 1_048_576;
 
 /**
  * Duck-type check for ZodError without importing zod directly.
  * Zod v4 uses `issues` (not `errors`), and `name === 'ZodError'`.
  */
-function isZodError(err: unknown): err is Error & { issues: Array<{ message: string }> } {
-  if (!(err instanceof Error)) return false
-  if (err.name === 'ZodError') return true
+function isZodError(
+  err: unknown
+): err is Error & { issues: Array<{ message: string }> } {
+  if (!(err instanceof Error)) return false;
+  if (err.name === "ZodError") return true;
   // Zod v3 compat: check for `errors` array
-  if ('errors' in err && Array.isArray((err as Record<string, unknown>)['errors'])) return true
-  return false
+  if (
+    "errors" in err &&
+    Array.isArray((err as Record<string, unknown>)["errors"])
+  )
+    return true;
+  return false;
 }
 
 /** Extract validation messages from a ZodError (v3 or v4). */
-function zodErrorMessage(err: Error & { issues?: Array<{ message: string }>; errors?: Array<{ message: string }> }): string {
-  const items = err.issues ?? err.errors
-  if (items && items.length > 0) {
-    return items.map((e) => e.message).join('; ')
+function zodErrorMessage(
+  err: Error & {
+    issues?: Array<{ message: string }>;
+    errors?: Array<{ message: string }>;
   }
-  return err.message
+): string {
+  const items = err.issues ?? err.errors;
+  if (items && items.length > 0) {
+    return items.map((e) => e.message).join("; ");
+  }
+  return err.message;
 }
 
 export interface MemoryRouteConfig {
-  memoryService: MemoryServiceLike
+  memoryService: MemoryServiceLike;
   /** Tenant scoping config (MJ-SEC-04). Defaults to auth-middleware-based resolution. */
-  tenantScope?: MemoryTenantScopeConfig
+  tenantScope?: MemoryTenantScopeConfig;
 }
 
 export function createMemoryRoutes(config: MemoryRouteConfig): Hono<AppEnv> {
-  const app = new Hono<AppEnv>()
-  const arrowMemory = extendMemoryServiceWithArrow(config.memoryService)
-  const { tenantScope } = config
+  const app = new Hono<AppEnv>();
+  const arrowMemory = extendMemoryServiceWithArrow(config.memoryService);
+  const { tenantScope } = config;
+
+  // SEC-H-07: analytics routes rethrow anything that is not a DuckDB error,
+  // so map the namespace rejection to 403 here rather than duplicating the
+  // check across every analytics handler.
+  app.onError((err, c) => {
+    if (err instanceof MemoryNamespaceNotAllowedError) {
+      return c.json(
+        { error: { code: "NAMESPACE_NOT_ALLOWED", message: err.message } },
+        403
+      );
+    }
+    throw err;
+  });
 
   // POST /export — Export memories as Arrow IPC or JSON
-  app.post('/export', async (c) => {
-    const body: unknown = await c.req.json()
+  app.post("/export", async (c) => {
+    const body: unknown = await c.req.json();
 
-    let input: ReturnType<typeof exportMemoryInputSchema.parse>
+    let input: ReturnType<typeof exportMemoryInputSchema.parse>;
     try {
-      input = exportMemoryInputSchema.parse(body)
+      input = exportMemoryInputSchema.parse(body);
     } catch (err: unknown) {
       if (isZodError(err)) {
         return c.json(
-          { error: { code: 'VALIDATION_ERROR', message: zodErrorMessage(err) } },
-          400,
-        )
+          {
+            error: { code: "VALIDATION_ERROR", message: zodErrorMessage(err) },
+          },
+          400
+        );
       }
-      throw err
+      throw err;
     }
 
     // MJ-SEC-04: override caller-supplied scope with authenticated tenant identity.
-    const safeScope = applyAuthoritativeScope(c, input.scope ?? {}, tenantScope)
-    const result = await handleExportMemory({ ...input, scope: safeScope }, {
-      exportFrame: (ns, scope, opts) => arrowMemory.exportFrame(ns, scope, opts),
-    })
-    return c.json({ data: result })
-  })
+    const safeScope = applyAuthoritativeScope(
+      c,
+      input.scope ?? {},
+      tenantScope
+    );
+    // SEC-H-07: `namespace` is a partition key beside `scope`; authoritative
+    // scope alone does not constrain which partition the caller addresses.
+    try {
+      const result = await handleExportMemory(
+        { ...input, scope: safeScope },
+        {
+          exportFrame: (ns, scope, opts) =>
+            arrowMemory.exportFrame(
+              resolveAuthoritativeNamespace(ns, tenantScope),
+              scope,
+              opts
+            ),
+        }
+      );
+      return c.json({ data: result });
+    } catch (err: unknown) {
+      if (err instanceof MemoryNamespaceNotAllowedError) {
+        return c.json(
+          {
+            error: { code: "NAMESPACE_NOT_ALLOWED", message: err.message },
+          },
+          403
+        );
+      }
+      throw err;
+    }
+  });
 
   // POST /import — Import memories from Arrow IPC or JSON
-  app.post('/import', async (c) => {
-    const body: unknown = await c.req.json()
+  app.post("/import", async (c) => {
+    const body: unknown = await c.req.json();
 
-    let input: ReturnType<typeof importMemoryInputSchema.parse>
+    let input: ReturnType<typeof importMemoryInputSchema.parse>;
     try {
-      input = importMemoryInputSchema.parse(body)
+      input = importMemoryInputSchema.parse(body);
     } catch (err: unknown) {
       if (isZodError(err)) {
         return c.json(
-          { error: { code: 'VALIDATION_ERROR', message: zodErrorMessage(err) } },
-          400,
-        )
+          {
+            error: { code: "VALIDATION_ERROR", message: zodErrorMessage(err) },
+          },
+          400
+        );
       }
-      throw err
+      throw err;
     }
 
     if (
-      typeof input.format === 'string' &&
-      input.format.toLowerCase() === 'json' &&
-      'data' in input &&
+      typeof input.format === "string" &&
+      input.format.toLowerCase() === "json" &&
+      "data" in input &&
       getSerializedJsonSizeBytes(input.data) > MEMORY_IMPORT_DATA_MAX_BYTES
     ) {
       return c.json(
-        { error: { code: 'PAYLOAD_TOO_LARGE', message: 'data too large (max 4 MiB)' } },
-        413,
-      )
+        {
+          error: {
+            code: "PAYLOAD_TOO_LARGE",
+            message: "data too large (max 4 MiB)",
+          },
+        },
+        413
+      );
     }
 
     // MJ-SEC-04: override caller-supplied scope with authenticated tenant identity.
-    const safeScope = applyAuthoritativeScope(c, input.scope ?? {}, tenantScope)
-    const result = await handleImportMemory({ ...input, scope: safeScope }, {
-      importFrame: (ns, scope, table, strategy) =>
-        arrowMemory.importFrame(ns, scope, table, strategy as ImportStrategy | undefined),
-    })
-    return c.json({ data: result })
-  })
+    const safeScope = applyAuthoritativeScope(
+      c,
+      input.scope ?? {},
+      tenantScope
+    );
+    // SEC-H-07: constrain the write partition, not just the scope keys.
+    try {
+      const result = await handleImportMemory(
+        { ...input, scope: safeScope },
+        {
+          importFrame: (ns, scope, table, strategy) =>
+            arrowMemory.importFrame(
+              resolveAuthoritativeNamespace(ns, tenantScope),
+              scope,
+              table,
+              strategy as ImportStrategy | undefined
+            ),
+        }
+      );
+      return c.json({ data: result });
+    } catch (err: unknown) {
+      if (err instanceof MemoryNamespaceNotAllowedError) {
+        return c.json(
+          {
+            error: { code: "NAMESPACE_NOT_ALLOWED", message: err.message },
+          },
+          403
+        );
+      }
+      throw err;
+    }
+  });
 
   // GET /schema — Return memory frame schema
-  app.get('/schema', (c) => {
-    const result = handleMemorySchema()
-    return c.json({ data: result })
-  })
+  app.get("/schema", (c) => {
+    const result = handleMemorySchema();
+    return c.json({ data: result });
+  });
 
   // ── Analytics routes ─────────────────────────────────────
 
@@ -141,159 +227,219 @@ export function createMemoryRoutes(config: MemoryRouteConfig): Hono<AppEnv> {
    * Helper: parse namespace/scope from query params and export as Arrow Table.
    */
   async function getMemoryTableFromQuery(c: Context) {
-    const namespace = c.req.query('namespace') ?? 'lessons'
-    let parsedScope: Record<string, string> = {}
-    const scopeStr = c.req.query('scope')
+    // SEC-H-07: the namespace query param selects a partition; it must be
+    // validated, not merely defaulted.
+    const namespace = resolveAuthoritativeNamespace(
+      c.req.query("namespace") ?? "lessons",
+      tenantScope
+    );
+    let parsedScope: Record<string, string> = {};
+    const scopeStr = c.req.query("scope");
     if (scopeStr) {
       try {
-        const parsed: unknown = JSON.parse(scopeStr)
-        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-          parsedScope = parsed as Record<string, string>
+        const parsed: unknown = JSON.parse(scopeStr);
+        if (
+          typeof parsed === "object" &&
+          parsed !== null &&
+          !Array.isArray(parsed)
+        ) {
+          parsedScope = parsed as Record<string, string>;
         }
       } catch {
         // Use empty scope on parse failure
       }
     }
-    const scope = applyAuthoritativeScope(c, parsedScope, tenantScope)
-    return arrowMemory.exportFrame(namespace, scope, { limit: 10_000 })
+    const scope = applyAuthoritativeScope(c, parsedScope, tenantScope);
+    return arrowMemory.exportFrame(namespace, scope, { limit: 10_000 });
   }
 
   // GET /analytics/decay-trends?window=hour|day|week&namespace=...&scope=...
-  app.get('/analytics/decay-trends', async (c) => {
+  app.get("/analytics/decay-trends", async (c) => {
     try {
-      const table = await getMemoryTableFromQuery(c)
-      const analytics = await getAnalytics()
-      const window = c.req.query('window')
-      const bucketSize: 'hour' | 'day' | 'week' =
-        window === 'hour' || window === 'day' || window === 'week'
+      const table = await getMemoryTableFromQuery(c);
+      const analytics = await getAnalytics();
+      const window = c.req.query("window");
+      const bucketSize: "hour" | "day" | "week" =
+        window === "hour" || window === "day" || window === "week"
           ? window
-          : 'day'
-      const result = await analytics.decayTrends(table, bucketSize)
-      return c.json({ data: analyticsResultToJson(result) })
+          : "day";
+      const result = await analytics.decayTrends(table, bucketSize);
+      return c.json({ data: analyticsResultToJson(result) });
     } catch (err: unknown) {
       if (isDuckDBError(err)) {
         return c.json(
-          { error: { code: 'DUCKDB_UNAVAILABLE', message: 'DuckDB-WASM is not installed. Analytics features require @duckdb/duckdb-wasm.' } },
-          503,
-        )
+          {
+            error: {
+              code: "DUCKDB_UNAVAILABLE",
+              message:
+                "DuckDB-WASM is not installed. Analytics features require @duckdb/duckdb-wasm.",
+            },
+          },
+          503
+        );
       }
-      throw err
+      throw err;
     }
-  })
+  });
 
   // GET /analytics/namespace-stats?namespace=...&scope=...
-  app.get('/analytics/namespace-stats', async (c) => {
+  app.get("/analytics/namespace-stats", async (c) => {
     try {
-      const table = await getMemoryTableFromQuery(c)
-      const analytics = await getAnalytics()
-      const result = await analytics.namespaceStats(table)
-      return c.json({ data: analyticsResultToJson(result) })
+      const table = await getMemoryTableFromQuery(c);
+      const analytics = await getAnalytics();
+      const result = await analytics.namespaceStats(table);
+      return c.json({ data: analyticsResultToJson(result) });
     } catch (err: unknown) {
       if (isDuckDBError(err)) {
         return c.json(
-          { error: { code: 'DUCKDB_UNAVAILABLE', message: 'DuckDB-WASM is not installed. Analytics features require @duckdb/duckdb-wasm.' } },
-          503,
-        )
+          {
+            error: {
+              code: "DUCKDB_UNAVAILABLE",
+              message:
+                "DuckDB-WASM is not installed. Analytics features require @duckdb/duckdb-wasm.",
+            },
+          },
+          503
+        );
       }
-      throw err
+      throw err;
     }
-  })
+  });
 
   // GET /analytics/expiring?horizonMs=86400000&namespace=...&scope=...
-  app.get('/analytics/expiring', async (c) => {
-    const horizonStr = c.req.query('horizonMs')
-    const horizonMs = horizonStr ? parseInt(horizonStr, 10) : 86_400_000
+  app.get("/analytics/expiring", async (c) => {
+    const horizonStr = c.req.query("horizonMs");
+    const horizonMs = horizonStr ? parseInt(horizonStr, 10) : 86_400_000;
     if (isNaN(horizonMs) || horizonMs <= 0) {
       return c.json(
-        { error: { code: 'VALIDATION_ERROR', message: 'horizonMs must be a positive integer' } },
-        400,
-      )
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "horizonMs must be a positive integer",
+          },
+        },
+        400
+      );
     }
     try {
-      const table = await getMemoryTableFromQuery(c)
-      const analytics = await getAnalytics()
-      const result = await analytics.expiringMemories(table, horizonMs)
-      return c.json({ data: analyticsResultToJson(result) })
+      const table = await getMemoryTableFromQuery(c);
+      const analytics = await getAnalytics();
+      const result = await analytics.expiringMemories(table, horizonMs);
+      return c.json({ data: analyticsResultToJson(result) });
     } catch (err: unknown) {
       if (isDuckDBError(err)) {
         return c.json(
-          { error: { code: 'DUCKDB_UNAVAILABLE', message: 'DuckDB-WASM is not installed. Analytics features require @duckdb/duckdb-wasm.' } },
-          503,
-        )
+          {
+            error: {
+              code: "DUCKDB_UNAVAILABLE",
+              message:
+                "DuckDB-WASM is not installed. Analytics features require @duckdb/duckdb-wasm.",
+            },
+          },
+          503
+        );
       }
-      throw err
+      throw err;
     }
-  })
+  });
 
   // GET /analytics/agent-performance?namespace=...&scope=...
-  app.get('/analytics/agent-performance', async (c) => {
+  app.get("/analytics/agent-performance", async (c) => {
     try {
-      const table = await getMemoryTableFromQuery(c)
-      const analytics = await getAnalytics()
-      const result = await analytics.agentPerformance(table)
-      return c.json({ data: analyticsResultToJson(result) })
+      const table = await getMemoryTableFromQuery(c);
+      const analytics = await getAnalytics();
+      const result = await analytics.agentPerformance(table);
+      return c.json({ data: analyticsResultToJson(result) });
     } catch (err: unknown) {
       if (isDuckDBError(err)) {
         return c.json(
-          { error: { code: 'DUCKDB_UNAVAILABLE', message: 'DuckDB-WASM is not installed. Analytics features require @duckdb/duckdb-wasm.' } },
-          503,
-        )
+          {
+            error: {
+              code: "DUCKDB_UNAVAILABLE",
+              message:
+                "DuckDB-WASM is not installed. Analytics features require @duckdb/duckdb-wasm.",
+            },
+          },
+          503
+        );
       }
-      throw err
+      throw err;
     }
-  })
+  });
 
   // GET /analytics/usage-patterns?bucketMs=3600000&namespace=...&scope=...
-  app.get('/analytics/usage-patterns', async (c) => {
-    const bucketStr = c.req.query('bucketMs')
-    const bucketMs = bucketStr ? parseInt(bucketStr, 10) : 3_600_000
+  app.get("/analytics/usage-patterns", async (c) => {
+    const bucketStr = c.req.query("bucketMs");
+    const bucketMs = bucketStr ? parseInt(bucketStr, 10) : 3_600_000;
     if (isNaN(bucketMs) || bucketMs <= 0) {
       return c.json(
-        { error: { code: 'VALIDATION_ERROR', message: 'bucketMs must be a positive integer' } },
-        400,
-      )
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "bucketMs must be a positive integer",
+          },
+        },
+        400
+      );
     }
     try {
-      const table = await getMemoryTableFromQuery(c)
-      const analytics = await getAnalytics()
-      const result = await analytics.usagePatterns(table, bucketMs)
-      return c.json({ data: analyticsResultToJson(result) })
+      const table = await getMemoryTableFromQuery(c);
+      const analytics = await getAnalytics();
+      const result = await analytics.usagePatterns(table, bucketMs);
+      return c.json({ data: analyticsResultToJson(result) });
     } catch (err: unknown) {
       if (isDuckDBError(err)) {
         return c.json(
-          { error: { code: 'DUCKDB_UNAVAILABLE', message: 'DuckDB-WASM is not installed. Analytics features require @duckdb/duckdb-wasm.' } },
-          503,
-        )
+          {
+            error: {
+              code: "DUCKDB_UNAVAILABLE",
+              message:
+                "DuckDB-WASM is not installed. Analytics features require @duckdb/duckdb-wasm.",
+            },
+          },
+          503
+        );
       }
-      throw err
+      throw err;
     }
-  })
+  });
 
   // GET /analytics/duplicates?prefixLength=50&namespace=...&scope=...
-  app.get('/analytics/duplicates', async (c) => {
-    const prefixStr = c.req.query('prefixLength')
-    const prefixLength = prefixStr ? parseInt(prefixStr, 10) : 50
+  app.get("/analytics/duplicates", async (c) => {
+    const prefixStr = c.req.query("prefixLength");
+    const prefixLength = prefixStr ? parseInt(prefixStr, 10) : 50;
     if (isNaN(prefixLength) || prefixLength <= 0) {
       return c.json(
-        { error: { code: 'VALIDATION_ERROR', message: 'prefixLength must be a positive integer' } },
-        400,
-      )
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "prefixLength must be a positive integer",
+          },
+        },
+        400
+      );
     }
     try {
-      const table = await getMemoryTableFromQuery(c)
-      const analytics = await getAnalytics()
-      const result = await analytics.duplicateCandidates(table, prefixLength)
-      return c.json({ data: analyticsResultToJson(result) })
+      const table = await getMemoryTableFromQuery(c);
+      const analytics = await getAnalytics();
+      const result = await analytics.duplicateCandidates(table, prefixLength);
+      return c.json({ data: analyticsResultToJson(result) });
     } catch (err: unknown) {
       if (isDuckDBError(err)) {
         return c.json(
-          { error: { code: 'DUCKDB_UNAVAILABLE', message: 'DuckDB-WASM is not installed. Analytics features require @duckdb/duckdb-wasm.' } },
-          503,
-        )
+          {
+            error: {
+              code: "DUCKDB_UNAVAILABLE",
+              message:
+                "DuckDB-WASM is not installed. Analytics features require @duckdb/duckdb-wasm.",
+            },
+          },
+          503
+        );
       }
-      throw err
+      throw err;
     }
-  })
+  });
 
-  return app
+  return app;
 }

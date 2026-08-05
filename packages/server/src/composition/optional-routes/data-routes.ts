@@ -22,7 +22,14 @@ export function mountMemoryRoutes(
   if (runtimeConfig.memoryService) {
     app.route(
       "/api/memory",
-      createMemoryRoutes({ memoryService: runtimeConfig.memoryService })
+      createMemoryRoutes({
+        memoryService: runtimeConfig.memoryService,
+        // SEC-H-07: without this the namespace guard is unreachable from a
+        // real deployment — the route would always run unconfigured.
+        ...(runtimeConfig.memoryTenantScope && {
+          tenantScope: runtimeConfig.memoryTenantScope,
+        }),
+      })
     );
     app.route(
       "/api/memory-browse",

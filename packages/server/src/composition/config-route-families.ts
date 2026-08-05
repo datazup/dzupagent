@@ -63,6 +63,7 @@ import type {
   PromptFeedbackLoopLike,
   LearningEventProcessorLike,
 } from "./config-control-plane.js";
+import type { MemoryTenantScopeConfig } from "../routes/memory-tenant-scope.js";
 
 /** Memory and run-history route family config. */
 export interface ForgeMemoryRouteFamilyConfig {
@@ -70,6 +71,12 @@ export interface ForgeMemoryRouteFamilyConfig {
   memoryHealth?: MemoryHealthRouteConfig;
   traceStore?: RunTraceStore;
   tokenLifecycleRegistry?: TokenLifecycleRegistry;
+  /**
+   * Tenant scoping for memory routes (MJ-SEC-04 / SEC-H-07). Controls both the
+   * authoritative `scope` keys and, via `allowedNamespaces`, which memory
+   * namespaces a caller may address. Omit for single-tenant deployments.
+   */
+  memoryTenantScope?: MemoryTenantScopeConfig;
 }
 
 /** Compatibility and deployment route family config. */
