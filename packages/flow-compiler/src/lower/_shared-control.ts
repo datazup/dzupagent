@@ -103,19 +103,23 @@ export function lowerBranch(
   // Determine the exit points (tails) of the branch sub-graph so that the
   // parent sequence can wire ALL of them to the next sibling node.
   //
-  // - then-tail: last node produced by the then body (if any).
-  // - else-tail: last node produced by the else body (if any).
+  // - then-tail(s): exit points of the then body (none when it ends terminal,
+  //   e.g. in `complete`).
+  // - else-tail(s): exit points of the else body, same terminal rule.
   // - false-path tail: when there is no else body, the gate itself is the
   //   exit point for the false outcome — it must also wire to the continuation.
   const thenLastNode = thenResult.nodes[thenResult.nodes.length - 1];
   const elseLastNode = elseResult.nodes[elseResult.nodes.length - 1];
 
-  const tailNodeIds: string[] = [];
-  if (thenLastNode !== undefined) {
-    tailNodeIds.push(thenLastNode.id);
-  }
-  if (elseLastNode !== undefined) {
-    tailNodeIds.push(elseLastNode.id);
+  const tailNodeIds: string[] = [
+    ...(thenResult.tailNodeIds ??
+      (thenLastNode !== undefined ? [thenLastNode.id] : [])),
+  ];
+  if (elseResult.nodes.length > 0) {
+    tailNodeIds.push(
+      ...(elseResult.tailNodeIds ??
+        (elseLastNode !== undefined ? [elseLastNode.id] : []))
+    );
   } else {
     // No else branch → the gate's false-path dead-ends without a tail node.
     // The gate itself is the false-path exit and must connect to any continuation.

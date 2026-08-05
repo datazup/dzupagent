@@ -98,21 +98,48 @@ export function lowerChildren(
   // Add sequential edges between executable child parts. Some DSL nodes lower
   // to no pipeline nodes (for example `set` today), so bridge across those
   // empty parts rather than letting the executable chain stop early.
+  //
+  // An explicit empty tailNodeIds array means the part is terminal (e.g.
+  // `complete`): nothing may be wired after it, and any later sibling that
+  // still produces nodes is unreachable.
   let pendingTailNodeIds: string[] = [];
+  let afterTerminal = false;
   for (const part of parts) {
     const firstNode = part.nodes[0];
     if (firstNode !== undefined) {
+      if (afterTerminal) {
+        merged.warnings.push(
+          `lower/children: node '${firstNode.id}' is unreachable — it follows a terminal sibling (e.g. complete) and receives no incoming edge`
+        );
+        afterTerminal = false;
+      }
       for (const tailId of pendingTailNodeIds) {
         merged.edges.push(seqEdge(tailId, firstNode.id));
       }
     }
 
     const lastNode = part.nodes[part.nodes.length - 1];
-    if (part.tailNodeIds !== undefined && part.tailNodeIds.length > 0) {
+    // Empty tailNodeIds only means "terminal" when the part produced nodes;
+    // a node-less part with empty tails is transparent (bridge across it).
+    if (
+      part.tailNodeIds !== undefined &&
+      (part.tailNodeIds.length > 0 || lastNode !== undefined)
+    ) {
       pendingTailNodeIds = part.tailNodeIds;
+      if (part.tailNodeIds.length === 0) {
+        afterTerminal = true;
+      }
     } else if (lastNode !== undefined) {
       pendingTailNodeIds = [lastNode.id];
     }
+  }
+
+  // Expose this subtree's exit points so containing composites stitch their
+  // continuation from the true tails (all branch exits; none after a terminal
+  // part) instead of the flat last-node fallback. A list that lowered to zero
+  // nodes stays transparent (no tails claimed) so parents bridge across it.
+  if (merged.nodes.length > 0) {
+    merged.tailNodeIds = pendingTailNodeIds;
   }
 
   return merged;

@@ -86,10 +86,26 @@ export function lowerApproval(
     branches: branchMap,
   }
 
+  // Exit points: BOTH branch tails must wire to the next sibling, otherwise
+  // the last-node fallback picks only the reject branch and the approve path
+  // dead-ends before the continuation.
+  //
+  // When onReject is absent the rejected path is deliberately terminal — an
+  // approval gate must not fail open into the continuation on rejection.
+  const approveLast = approveResult.nodes[approveResult.nodes.length - 1]
+  const rejectLast = rejectResult.nodes[rejectResult.nodes.length - 1]
+  const tailNodeIds: string[] = [
+    ...(approveResult.tailNodeIds ??
+      (approveLast !== undefined ? [approveLast.id] : [])),
+    ...(rejectResult.tailNodeIds ??
+      (rejectLast !== undefined ? [rejectLast.id] : [])),
+  ]
+
   return {
     nodes: [gateNode, ...approveResult.nodes, ...rejectResult.nodes],
     edges: [conditionalEdge, ...approveResult.edges, ...rejectResult.edges],
     warnings: [...approveResult.warnings, ...rejectResult.warnings],
+    tailNodeIds,
   }
 }
 
@@ -135,10 +151,18 @@ export function lowerPersona(
     edges.push(seqEdge(suspendId, firstBodyNode.id))
   }
 
+  const lastBodyNode = bodyResult.nodes[bodyResult.nodes.length - 1]
   return {
     nodes: [suspendNode, ...bodyResult.nodes],
     edges,
     warnings,
+    // Continuation exits from the body tails; an empty body exits from the
+    // suspend node itself. A body ending in `complete` yields no tails.
+    tailNodeIds:
+      firstBodyNode === undefined
+        ? [suspendId]
+        : (bodyResult.tailNodeIds ??
+          (lastBodyNode !== undefined ? [lastBodyNode.id] : [])),
   }
 }
 
@@ -175,9 +199,17 @@ export function lowerRoute(
     edges.push(seqEdge(suspendId, firstBodyNode.id))
   }
 
+  const lastBodyNode = bodyResult.nodes[bodyResult.nodes.length - 1]
   return {
     nodes: [suspendNode, ...bodyResult.nodes],
     edges,
     warnings: bodyResult.warnings,
+    // Same tail contract as lowerPersona: body tails, or the suspend node
+    // when the body is empty; a body ending in `complete` yields no tails.
+    tailNodeIds:
+      firstBodyNode === undefined
+        ? [suspendId]
+        : (bodyResult.tailNodeIds ??
+          (lastBodyNode !== undefined ? [lastBodyNode.id] : [])),
   }
 }

@@ -67,6 +67,9 @@ export interface LowerPipelineResult {
    * or then-tail + gate for the false-path), this lists all node IDs that must
    * receive a sequential edge to the next sibling in a containing sequence.
    *
+   * An explicit empty array means the subtree is terminal (e.g. `complete`):
+   * it has no exit points and nothing may be wired after it.
+   *
    * When absent, the stitching logic falls back to `nodes[nodes.length - 1]`
    * (the default single-tail behaviour).
    */

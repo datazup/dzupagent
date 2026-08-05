@@ -45,5 +45,7 @@ export function parseLoop(
     body,
   }
   if (typeof obj.maxIterations === 'number') node.maxIterations = obj.maxIterations
+  if (typeof obj.progressKey === 'string' && obj.progressKey.length > 0)
+    node.progressKey = obj.progressKey
   return node
 }

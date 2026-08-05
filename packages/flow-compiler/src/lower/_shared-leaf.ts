@@ -223,5 +223,7 @@ export function lowerComplete(
     // No resumeCondition — this node is terminal.
     ...nodeDurabilityFields(node),
   };
-  return { nodes: [suspendNode], edges: [], warnings: [] };
+  // Empty tailNodeIds: terminal — no sibling may be wired after complete,
+  // otherwise resume would continue past it along the sequential edge.
+  return { nodes: [suspendNode], edges: [], warnings: [], tailNodeIds: [] };
 }

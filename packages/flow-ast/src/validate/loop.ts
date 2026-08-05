@@ -27,5 +27,7 @@ export function validateLoop(
   }
   const node: FlowNode = { type: 'loop', ...common, condition, body }
   if (typeof obj['maxIterations'] === 'number') node.maxIterations = obj['maxIterations']
+  const progressKey = obj['progressKey']
+  if (typeof progressKey === 'string' && progressKey.length > 0) node.progressKey = progressKey
   return node
 }
