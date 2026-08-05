@@ -22,9 +22,20 @@ export function collectFlowRequirements(ast: FlowNode): FlowRequirementSummary {
   visitFlow(ast, (node) => nodeKinds.add(node.type));
 
   const target = routeTarget(ast).target;
-  const descriptors = [...nodeKinds].map(
-    (kind) => FLOW_NODE_CAPABILITY_REGISTRY[kind]
-  );
+  // A kind missing from the registry can only come from a forward-version or
+  // untyped (JS) artifact. Treat it as unsupported so readiness blocks instead
+  // of crashing on an undefined descriptor.
+  const unknownNodeKinds: FlowNodeKind[] = [];
+  const descriptors = [...nodeKinds].flatMap((kind) => {
+    const descriptor = FLOW_NODE_CAPABILITY_REGISTRY[kind] as
+      | (typeof FLOW_NODE_CAPABILITY_REGISTRY)[FlowNodeKind]
+      | undefined;
+    if (descriptor === undefined) {
+      unknownNodeKinds.push(kind);
+      return [];
+    }
+    return [descriptor];
+  });
   const requiredCapabilities = new Set<string>([
     TARGET_CAPABILITY_MANIFESTS[target].capability,
   ]);
@@ -53,17 +64,31 @@ export function collectFlowRequirements(ast: FlowNode): FlowRequirementSummary {
       .filter((item) => item.status === "partial")
       .map((item) => item.kind)
       .sort(),
-    unsupportedNodeKinds: descriptors
-      .filter((item) => item.status === "unsupported")
-      .map((item) => item.kind)
-      .sort(),
+    unsupportedNodeKinds: [
+      ...descriptors
+        .filter((item) => item.status === "unsupported")
+        .map((item) => item.kind),
+      ...unknownNodeKinds,
+    ].sort(),
   };
+}
+
+export interface ResolveHostReadinessOptions {
+  /**
+   * "default" preserves the historical gate: target + capability strings +
+   * unsupported nodes. "release-strict" additionally blocks on `partial`
+   * node kinds — flows whose nodes lower degraded or metadata-only must not
+   * be promoted as ready for a release surface.
+   */
+  profile?: "default" | "release-strict";
 }
 
 export function resolveHostReadiness(
   requirements: FlowRequirementSummary,
-  host: HostCapabilityManifest
+  host: HostCapabilityManifest,
+  options: ResolveHostReadinessOptions = {}
 ): HostReadinessResult {
+  const profile = options.profile ?? "default";
   const diagnostics: HostReadinessDiagnostic[] = [];
 
   if (!host.targets.includes(requirements.target)) {
@@ -91,6 +116,20 @@ export function resolveHostReadiness(
       message: `Node type "${nodeKind}" is unsupported by current generic compiler targets.`,
       nodeKind,
     });
+  }
+
+  if (profile === "release-strict") {
+    for (const nodeKind of requirements.partialNodeKinds) {
+      const descriptor = FLOW_NODE_CAPABILITY_REGISTRY[nodeKind] as
+        | (typeof FLOW_NODE_CAPABILITY_REGISTRY)[FlowNodeKind]
+        | undefined;
+      const detail = descriptor?.notes !== undefined ? ` ${descriptor.notes}` : "";
+      diagnostics.push({
+        code: "PARTIAL_NODE",
+        message: `Node type "${nodeKind}" lowers only partially (${descriptor?.lowering ?? "unknown"}) and is blocked under the release-strict profile.${detail}`,
+        nodeKind,
+      });
+    }
   }
 
   return {

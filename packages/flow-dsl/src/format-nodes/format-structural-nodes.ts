@@ -76,6 +76,27 @@ export function formatStructuralNode(
       pushCommon(lines, node, indentLevel + 2);
       lines.push(`${childIndent}source: ${quote(node.source)}`);
       lines.push(`${childIndent}as: ${node.as}`);
+      if (node.attachAs !== undefined)
+        lines.push(`${childIndent}attachAs: ${quote(node.attachAs)}`);
+      if (node.collect !== undefined) {
+        lines.push(`${childIndent}collect:`);
+        lines.push(`${childIndent}  from: ${quote(node.collect.from)}`);
+        lines.push(`${childIndent}  into: ${quote(node.collect.into)}`);
+      }
+      if (node.accumulator !== undefined) {
+        lines.push(`${childIndent}accumulator:`);
+        lines.push(`${childIndent}  key: ${quote(node.accumulator.key)}`);
+        if (node.accumulator.window !== undefined)
+          lines.push(`${childIndent}  window: ${node.accumulator.window}`);
+        if (node.accumulator.initialValue !== undefined)
+          lines.push(
+            `${childIndent}  initialValue: ${formatScalar(node.accumulator.initialValue)}`
+          );
+      }
+      if (node.concurrency !== undefined)
+        lines.push(`${childIndent}concurrency: ${node.concurrency}`);
+      if (node.failFast !== undefined)
+        lines.push(`${childIndent}failFast: ${String(node.failFast)}`);
       lines.push(`${childIndent}body:`);
       for (const child of node.body) formatNode(lines, child, indentLevel + 3);
       return;
@@ -98,6 +119,8 @@ export function formatStructuralNode(
       lines.push(`${childIndent}condition: ${quote(node.condition)}`);
       if (node.maxIterations !== undefined)
         lines.push(`${childIndent}max_iterations: ${node.maxIterations}`);
+      if (node.progressKey !== undefined)
+        lines.push(`${childIndent}progressKey: ${quote(node.progressKey)}`);
       lines.push(`${childIndent}body:`);
       for (const child of node.body) formatNode(lines, child, indentLevel + 3);
       return;

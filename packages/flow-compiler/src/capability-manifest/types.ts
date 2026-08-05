@@ -69,7 +69,11 @@ export interface HostCapabilityManifest {
 }
 
 export interface HostReadinessDiagnostic {
-  code: "UNSUPPORTED_TARGET" | "MISSING_CAPABILITY" | "UNSUPPORTED_NODE";
+  code:
+    | "UNSUPPORTED_TARGET"
+    | "MISSING_CAPABILITY"
+    | "UNSUPPORTED_NODE"
+    | "PARTIAL_NODE";
   message: string;
   target?: CompilationTarget;
   capability?: string;

@@ -36,6 +36,7 @@ export {
 export {
   collectFlowRequirements,
   resolveHostReadiness,
+  type ResolveHostReadinessOptions,
 } from "./capability-manifest/requirements.js";
 
 export {

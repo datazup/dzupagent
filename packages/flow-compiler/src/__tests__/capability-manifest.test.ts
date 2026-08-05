@@ -191,3 +191,71 @@ describe("compile requirement summary", () => {
     expect(result.evidence.sourceHash).toMatch(/^sha256:[a-f0-9]{64}$/);
   });
 });
+
+describe("host readiness gates", () => {
+  it("treats a node kind missing from the registry as unsupported instead of crashing", () => {
+    const forwardVersionAst = {
+      type: "sequence",
+      nodes: [
+        { type: "action", toolRef: "test.run", input: {} },
+        { type: "quantum.entangle" },
+      ],
+    } as unknown as FlowNode;
+
+    const requirements = collectFlowRequirements(forwardVersionAst);
+    expect(requirements.unsupportedNodeKinds).toEqual(["quantum.entangle"]);
+
+    // Host accepts the target and every capability string, so the unknown
+    // node is the single dimension that blocks readiness.
+    const result = resolveHostReadiness(requirements, {
+      schema: "dzupagent.hostCapabilityManifest/v1",
+      host: "fixture-host",
+      version: "1.0.0",
+      targets: [requirements.target],
+      capabilities: [...requirements.requiredCapabilities],
+    });
+    expect(result.status).toBe("blocked");
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        code: "UNSUPPORTED_NODE",
+        nodeKind: "quantum.entangle",
+      }),
+    ]);
+  });
+
+  it("blocks partial node kinds only under the release-strict profile", () => {
+    const requirements = collectFlowRequirements({
+      type: "loop",
+      condition: "{{ state.keepGoing }}",
+      body: [{ type: "action", toolRef: "test.run", input: {} }],
+    });
+    expect(requirements.partialNodeKinds).toEqual(["loop"]);
+
+    const host = {
+      schema: "dzupagent.hostCapabilityManifest/v1" as const,
+      host: "fixture-host",
+      version: "1.0.0",
+      targets: [requirements.target],
+      capabilities: [...requirements.requiredCapabilities],
+    };
+
+    // Same requirements + same host: default profile passes, so the profile
+    // switch is the only varied dimension.
+    expect(resolveHostReadiness(requirements, host).status).toBe("ready");
+
+    const strict = resolveHostReadiness(requirements, host, {
+      profile: "release-strict",
+    });
+    expect(strict.status).toBe("blocked");
+    expect(strict.diagnostics).toEqual([
+      expect.objectContaining({
+        code: "PARTIAL_NODE",
+        nodeKind: "loop",
+        message: expect.stringContaining("release-strict"),
+      }),
+    ]);
+    expect(strict.diagnostics[0]?.message).toContain(
+      "authored condition is runtime-owned",
+    );
+  });
+});

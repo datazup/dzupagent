@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import type { FlowDocumentV1 } from '@dzupagent/flow-ast'
 
-import { formatDocumentToDsl } from '../src/format-dsl.js'
+import {
+  formatDocumentToDsl,
+  formatDocumentToDslChecked,
+} from '../src/format-dsl.js'
+import { parseDslToDocument } from '../src/parse-dsl.js'
 
 describe('formatDocumentToDsl', () => {
   it('formats a canonical document deterministically', () => {
@@ -80,5 +85,152 @@ describe('formatDocumentToDsl', () => {
     expect(output).toContain('spddRunId: run-1')
     expect(output).toContain('subTasks: [{"role":"review","personaRef":"reviewer","input":{"artifactRef":"artifact-1"}}]')
     expect(output).toContain('outputKey: swarmResult')
+  })
+
+  it('emits the document dsl version instead of hardcoding dzupflow/v1', () => {
+    const output = formatDocumentToDsl({
+      dsl: 'dzupflow/v1alpha-agent',
+      id: 'alpha-flow',
+      version: 1,
+      root: {
+        type: 'sequence',
+        id: 'root',
+        nodes: [{ type: 'complete', id: 'done' }],
+      },
+    })
+    expect(output).toContain('dsl: dzupflow/v1alpha-agent')
+    expect(output).not.toContain('dsl: dzupflow/v1\n')
+  })
+})
+
+describe('formatDocumentToDsl round-trip', () => {
+  it('round-trips every for_each execution field and loop.progressKey', () => {
+    const document: FlowDocumentV1 = {
+      dsl: 'dzupflow/v1',
+      id: 'exec-fields',
+      version: 1,
+      root: {
+        type: 'sequence',
+        id: 'root',
+        nodes: [
+          {
+            type: 'for_each',
+            id: 'fan_out',
+            source: '{{ state.items }}',
+            as: 'item',
+            attachAs: 'enriched',
+            collect: { from: 'result', into: 'results' },
+            accumulator: { key: 'tally', window: 5, initialValue: 0 },
+            concurrency: 4,
+            failFast: true,
+            body: [
+              { type: 'set', id: 'mark', assign: { seen: true } },
+            ],
+          },
+          {
+            type: 'loop',
+            id: 'retry',
+            condition: '{{ state.pending }}',
+            maxIterations: 3,
+            progressKey: 'pending',
+            body: [
+              { type: 'set', id: 'tick', assign: { pending: false } },
+            ],
+          },
+        ],
+      },
+    }
+
+    const result = formatDocumentToDslChecked(document)
+    expect(result.ok).toBe(true)
+
+    const reparsed = parseDslToDocument(formatDocumentToDsl(document))
+    const forEach = reparsed.document?.root.nodes[0]
+    expect(forEach).toMatchObject({
+      type: 'for_each',
+      attachAs: 'enriched',
+      collect: { from: 'result', into: 'results' },
+      accumulator: { key: 'tally', window: 5, initialValue: 0 },
+      concurrency: 4,
+      failFast: true,
+    })
+    const loop = reparsed.document?.root.nodes[1]
+    expect(loop).toMatchObject({
+      type: 'loop',
+      maxIterations: 3,
+      progressKey: 'pending',
+    })
+  })
+
+  it('reports lost paths fail-closed instead of returning unfaithful output', () => {
+    const document = {
+      dsl: 'dzupflow/v1',
+      id: 'lossy',
+      version: 1,
+      root: {
+        type: 'sequence',
+        id: 'root',
+        nodes: [
+          {
+            type: 'action',
+            id: 'act',
+            toolRef: 'test.run',
+            input: {},
+            // Generic nodes have no effectClass DSL syntax yet: the formatter
+            // drops it, so the checked formatter must refuse.
+            effectClass: 'read_only',
+          },
+        ],
+      },
+    } as unknown as FlowDocumentV1
+
+    const result = formatDocumentToDslChecked(document)
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error('unreachable')
+    expect(result.lossPaths).toContain('document.root.nodes[0].effectClass')
+  })
+
+  // Known formatter gaps pinned as expected failures: each test goes red the
+  // moment the gap is fixed, forcing the corpus to shrink honestly.
+  it.fails('round-trips a nested sequence node without flattening it', () => {
+    const document: FlowDocumentV1 = {
+      dsl: 'dzupflow/v1',
+      id: 'nested-seq',
+      version: 1,
+      root: {
+        type: 'sequence',
+        id: 'root',
+        nodes: [
+          {
+            type: 'sequence',
+            id: 'inner',
+            nodes: [{ type: 'set', id: 's1', assign: { a: 1 } }],
+          },
+        ],
+      },
+    }
+    expect(formatDocumentToDslChecked(document).ok).toBe(true)
+  })
+
+  it.fails('round-trips generic node effectClass', () => {
+    const document = {
+      dsl: 'dzupflow/v1',
+      id: 'effect',
+      version: 1,
+      root: {
+        type: 'sequence',
+        id: 'root',
+        nodes: [
+          {
+            type: 'action',
+            id: 'act',
+            toolRef: 'test.run',
+            input: {},
+            effectClass: 'read_only',
+          },
+        ],
+      },
+    } as unknown as FlowDocumentV1
+    expect(formatDocumentToDslChecked(document).ok).toBe(true)
   })
 })

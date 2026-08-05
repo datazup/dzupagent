@@ -1,4 +1,6 @@
 import type { FlowDocumentV1, FlowNode } from "@dzupagent/flow-ast";
+import { parseDslToDocument } from "./parse-dsl.js";
+import type { DslDiagnostic } from "./types.js";
 import {
   formatScalar,
   pushField,
@@ -13,7 +15,7 @@ import { formatSpddNode } from "./format-nodes/format-spdd-nodes.js";
 
 export function formatDocumentToDsl(document: FlowDocumentV1): string {
   const lines: string[] = [];
-  pushField(lines, 0, "dsl", "dzupflow/v1");
+  pushField(lines, 0, "dsl", document.dsl);
   pushField(lines, 0, "id", document.id);
   if (document.title) pushField(lines, 0, "title", document.title);
   if (document.description)
@@ -82,6 +84,97 @@ export function formatDocumentToDsl(document: FlowDocumentV1): string {
     formatNode(lines, node, 1);
   }
   return lines.join("\n");
+}
+
+export type FormatDslCheckedResult =
+  | { ok: true; dsl: string }
+  | {
+      ok: false;
+      /** Best-effort output; do NOT persist it as a faithful representation. */
+      dsl: string;
+      /** Document paths whose authored value did not survive format→parse. */
+      lossPaths: string[];
+      /** Parse/normalize diagnostics from the round-trip, if any. */
+      diagnostics: DslDiagnostic[];
+    };
+
+/**
+ * Fail-closed formatter: formats the document, re-parses the output, and
+ * verifies every authored field survived the round trip. Fields the parser
+ * adds (normalization defaults) are tolerated; fields the formatter dropped
+ * or altered are reported as `lossPaths`. Use this instead of
+ * {@link formatDocumentToDsl} anywhere the output is stored as a source of
+ * truth (e.g. canonical templates).
+ */
+export function formatDocumentToDslChecked(
+  document: FlowDocumentV1
+): FormatDslCheckedResult {
+  const dsl = formatDocumentToDsl(document);
+  const reparsed = parseDslToDocument(dsl);
+  if (reparsed.document === null) {
+    return {
+      ok: false,
+      dsl,
+      lossPaths: ["document"],
+      diagnostics: [...reparsed.diagnostics],
+    };
+  }
+  const lossPaths: string[] = [];
+  collectLossPaths(document, reparsed.document, "document", lossPaths);
+  if (lossPaths.length > 0) {
+    return { ok: false, dsl, lossPaths, diagnostics: [...reparsed.diagnostics] };
+  }
+  return { ok: true, dsl };
+}
+
+/**
+ * One-directional structural diff: every defined value in `original` must be
+ * present and equal in `reparsed`; extra reparsed fields are fine. An empty
+ * authored array/object matching an absent reparsed field counts as preserved
+ * (formatters legitimately omit empty optional containers).
+ */
+function collectLossPaths(
+  original: unknown,
+  reparsed: unknown,
+  path: string,
+  out: string[]
+): void {
+  if (original === undefined) return;
+  if (Array.isArray(original)) {
+    if (original.length === 0 && reparsed === undefined) return;
+    if (!Array.isArray(reparsed) || reparsed.length !== original.length) {
+      out.push(path);
+      return;
+    }
+    original.forEach((item, index) => {
+      collectLossPaths(item, reparsed[index], `${path}[${index}]`, out);
+    });
+    return;
+  }
+  if (original !== null && typeof original === "object") {
+    const entries = Object.entries(original).filter(
+      ([, value]) => value !== undefined
+    );
+    if (entries.length === 0 && reparsed === undefined) return;
+    if (
+      reparsed === null ||
+      typeof reparsed !== "object" ||
+      Array.isArray(reparsed)
+    ) {
+      out.push(path);
+      return;
+    }
+    for (const [key, value] of entries) {
+      collectLossPaths(
+        value,
+        (reparsed as Record<string, unknown>)[key],
+        `${path}.${key}`,
+        out
+      );
+    }
+    return;
+  }
+  if (original !== reparsed) out.push(path);
 }
 
 /**
