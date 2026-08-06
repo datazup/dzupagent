@@ -187,12 +187,29 @@ export function lowerParallel(
     if (firstNode !== undefined) {
       allEdges.push(seqEdge(forkId, firstNode.id));
     }
-    if (lastNode !== undefined) {
-      allEdges.push(seqEdge(lastNode.id, joinId));
+
+    // Join from the branch's TRUE exit points, not the flat last-node
+    // fallback: a branch whose body ends in a nested composite (approval,
+    // branch, …) has several exits, and every non-terminal one must reach
+    // the join. An explicit empty tail set means the branch is terminal
+    // (e.g. ends in `complete`) — it must NOT be wired into the join, or a
+    // resume would advance past the declared completion.
+    const branchTailIds =
+      branchResult.tailNodeIds ??
+      (lastNode !== undefined ? [lastNode.id] : []);
+    if (branchTailIds.length === 0 && branchResult.nodes.length > 0) {
+      warnings.push(
+        `lower/parallel: branch [${bIdx}] of '${path}' is terminal (e.g. ends in complete) and does not reach the join`
+      );
+    }
+    for (const tailId of branchTailIds) {
+      allEdges.push(seqEdge(tailId, joinId));
     }
   }
 
   allNodes.push(joinNode);
 
-  return { nodes: allNodes, edges: allEdges, warnings };
+  // The join node is the parallel's single exit point; publish it as the
+  // explicit tail instead of relying on the parent's last-node fallback.
+  return { nodes: allNodes, edges: allEdges, warnings, tailNodeIds: [joinId] };
 }

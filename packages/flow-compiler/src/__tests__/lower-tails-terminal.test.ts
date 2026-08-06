@@ -215,6 +215,43 @@ describe('complete terminality (DSL-03)', () => {
     expect(hasSeqEdge(artifact, complete.id, next.id)).toBe(false)
   })
 
+  it('a parallel branch ending in complete is not wired into the join, and warns', () => {
+    const resolved = new Map<string, ResolvedTool>()
+    resolved.set('root.nodes[0].branches[1][0]', makeSkillRt('skill:work'))
+    resolved.set('root.nodes[1]', makeSkillRt('skill:next'))
+
+    const ast: FlowNode = {
+      type: 'sequence',
+      nodes: [
+        {
+          type: 'parallel',
+          branches: [
+            [{ type: 'complete', result: 'early-exit' }],
+            [makeAction('skill:work')],
+          ],
+        },
+        makeAction('skill:next'),
+      ],
+    }
+
+    const { artifact, warnings } = lowerPipelineFlat({
+      ast,
+      resolved,
+      resolvedPersonas: new Map(),
+      _idGen: makeIdGen('par-term'),
+    })
+
+    const complete = nodeByNamePrefix(artifact, 'complete:')
+    const work = nodeByName(artifact, 'skill:work')
+    const join = nodeByNamePrefix(artifact, 'parallel-join:')
+
+    // Before the fix the last-node fallback wired complete → join, so a
+    // resume could advance past the declared completion through the join.
+    expect(hasSeqEdge(artifact, complete.id, join.id)).toBe(false)
+    expect(hasSeqEdge(artifact, work.id, join.id)).toBe(true)
+    expect(warnings.some((w) => w.includes('does not reach the join'))).toBe(true)
+  })
+
   it('a persona body ending in complete contributes no tail to the continuation', () => {
     const resolved = new Map<string, ResolvedTool>()
     resolved.set('root.nodes[1]', makeSkillRt('skill:next'))
@@ -243,5 +280,98 @@ describe('complete terminality (DSL-03)', () => {
 
     expect(hasSeqEdge(artifact, complete.id, next.id)).toBe(false)
     expect(warnings.some((w) => w.includes('unreachable'))).toBe(true)
+  })
+})
+
+describe('parallel tails (DSL-02c)', () => {
+  it('joins EVERY exit of a branch ending in a nested composite, not the flat last node', () => {
+    const resolved = new Map<string, ResolvedTool>()
+    resolved.set(
+      'root.nodes[0].branches[0][0].onApprove[0]',
+      makeSkillRt('skill:approve-work'),
+    )
+    resolved.set(
+      'root.nodes[0].branches[0][0].onReject[0]',
+      makeSkillRt('skill:reject-work'),
+    )
+    resolved.set('root.nodes[0].branches[1][0]', makeSkillRt('skill:other'))
+    resolved.set('root.nodes[1]', makeSkillRt('skill:next'))
+
+    const ast: FlowNode = {
+      type: 'sequence',
+      nodes: [
+        {
+          type: 'parallel',
+          branches: [
+            [
+              {
+                type: 'approval',
+                question: 'ship it?',
+                onApprove: [makeAction('skill:approve-work')],
+                onReject: [makeAction('skill:reject-work')],
+              },
+            ],
+            [makeAction('skill:other')],
+          ],
+        },
+        makeAction('skill:next'),
+      ],
+    }
+
+    const { artifact } = lowerPipelineFlat({
+      ast,
+      resolved,
+      resolvedPersonas: new Map(),
+      _idGen: makeIdGen('par-appr'),
+    })
+
+    const approveTail = nodeByName(artifact, 'skill:approve-work')
+    const rejectTail = nodeByName(artifact, 'skill:reject-work')
+    const other = nodeByName(artifact, 'skill:other')
+    const join = nodeByNamePrefix(artifact, 'parallel-join:')
+
+    // Before the fix the branch was joined by its LAST FLATTENED node only,
+    // so the approve exit of a nested approval never reached the join.
+    expect(hasSeqEdge(artifact, approveTail.id, join.id)).toBe(true)
+    expect(hasSeqEdge(artifact, rejectTail.id, join.id)).toBe(true)
+    expect(hasSeqEdge(artifact, other.id, join.id)).toBe(true)
+    // The approval gate itself must not bypass its arms into the join.
+    const gate = nodeByNamePrefix(artifact, 'approval:')
+    expect(hasSeqEdge(artifact, gate.id, join.id)).toBe(false)
+  })
+
+  it('publishes the join as the explicit exit: the continuation is wired from the join only', () => {
+    const resolved = new Map<string, ResolvedTool>()
+    resolved.set('root.nodes[0].branches[0][0]', makeSkillRt('skill:a'))
+    resolved.set('root.nodes[0].branches[1][0]', makeSkillRt('skill:b'))
+    resolved.set('root.nodes[1]', makeSkillRt('skill:next'))
+
+    const ast: FlowNode = {
+      type: 'sequence',
+      nodes: [
+        {
+          type: 'parallel',
+          branches: [[makeAction('skill:a')], [makeAction('skill:b')]],
+        },
+        makeAction('skill:next'),
+      ],
+    }
+
+    const { artifact } = lowerPipelineFlat({
+      ast,
+      resolved,
+      resolvedPersonas: new Map(),
+      _idGen: makeIdGen('par-exit'),
+    })
+
+    const a = nodeByName(artifact, 'skill:a')
+    const b = nodeByName(artifact, 'skill:b')
+    const join = nodeByNamePrefix(artifact, 'parallel-join:')
+    const next = nodeByName(artifact, 'skill:next')
+
+    expect(hasSeqEdge(artifact, join.id, next.id)).toBe(true)
+    // Inner branch tails reach the join, never the continuation directly.
+    expect(hasSeqEdge(artifact, a.id, next.id)).toBe(false)
+    expect(hasSeqEdge(artifact, b.id, next.id)).toBe(false)
   })
 })
