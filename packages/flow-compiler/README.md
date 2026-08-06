@@ -282,6 +282,23 @@ dzupagent-qualify-flow-corpus \
   --format markdown
 ```
 
+### Ratcheting formatter round-trip fidelity
+
+Formatter round-trip losslessness is **measured, not gated, by default**: a
+corpus that regresses from lossless to lossy still exits 0. Pass
+`--min-lossless <n>` to enforce a floor, so a later formatter change that drops
+authored fields fails loudly instead of sliding silently:
+
+```bash
+dzupagent-qualify-flow-corpus \
+  --manifest ./qualification.manifest.json \
+  --min-lossless 26
+```
+
+Pin `<n>` to the fidelity the corpus has already reached. Sources that fail to
+parse are counted as `unparsable-source`, not formatter loss, and an explicit
+`--min-lossless 0` is a real (satisfiable) floor rather than "gating off".
+
 The manifest schema is:
 
 ```json
