@@ -240,9 +240,11 @@ describe("flow corpus qualification", () => {
     });
 
     it("tracks a non-lossless round trip without failing qualification", async () => {
-      // The round-trip metric is reported, never gated. An authoring-only entry
-      // whose source does not parse is counted as non-lossless while the report
-      // still passes — proving the metric cannot flip `passed`.
+      // Default contract: with no `minLossless` floor supplied, the round-trip
+      // metric is reported and never gated. An authoring-only entry whose
+      // source does not parse is counted as non-lossless while the report still
+      // passes. The ratchet that CAN flip `passed` is opt-in and is covered by
+      // the "lossless ratchet" suite below.
       const report = await qualifyFlowCorpusSources(
         [
           {
