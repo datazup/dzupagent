@@ -353,10 +353,19 @@ function parseLiteralBlock(
 
 function parseScalar(raw: string): unknown {
   const value = raw.trim();
-  if (
-    (value.startsWith('"') && value.endsWith('"')) ||
-    (value.startsWith("'") && value.endsWith("'"))
-  ) {
+  if (value.startsWith('"') && value.endsWith('"')) {
+    // The formatter's quote() helper emits JSON string syntax. Decode that
+    // syntax here so escaped quotes, backslashes, and newlines do not acquire
+    // an extra escape layer on every format -> parse cycle. Preserve the old
+    // permissive behavior for handwritten double-quoted values that are not
+    // valid JSON strings.
+    try {
+      return JSON.parse(value) as unknown;
+    } catch {
+      return value.slice(1, -1);
+    }
+  }
+  if (value.startsWith("'") && value.endsWith("'")) {
     return value.slice(1, -1);
   }
   if (value === "true") return true;

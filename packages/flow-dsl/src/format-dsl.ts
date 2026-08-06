@@ -4,6 +4,7 @@ import type { DslDiagnostic } from "./types.js";
 import {
   formatScalar,
   pushField,
+  pushTextField,
   quote,
   type FormatContext,
 } from "./format-nodes/format-helpers.js";
@@ -19,18 +20,7 @@ export function formatDocumentToDsl(document: FlowDocumentV1): string {
   pushField(lines, 0, "id", document.id);
   if (document.title) pushField(lines, 0, "title", document.title);
   if (document.description !== undefined && document.description !== "") {
-    if (document.description.includes("\n")) {
-      // A block scalar header is YAML SYNTAX, not a value: it must be emitted
-      // raw. Routing it through `pushField` quoted it to `description: "|"`,
-      // which made the following indented body an indentation error and left
-      // the formatter's own output unparsable (INVALID_YAML_SUBSET).
-      lines.push("description: |");
-      for (const line of document.description.split("\n")) {
-        lines.push(line === "" ? "" : `  ${line}`);
-      }
-    } else {
-      pushField(lines, 0, "description", document.description);
-    }
+    pushTextField(lines, 0, "description", document.description);
   }
   pushField(lines, 0, "version", document.version);
   if (document.inputs && Object.keys(document.inputs).length > 0) {
@@ -49,7 +39,7 @@ export function formatDocumentToDsl(document: FlowDocumentV1): string {
         if (spec.required !== undefined)
           lines.push(`    required: ${String(spec.required)}`);
         if (spec.description !== undefined)
-          lines.push(`    description: ${quote(spec.description)}`);
+          pushTextField(lines, 2, "description", spec.description);
         if (spec.default !== undefined)
           lines.push(`    default: ${formatScalar(spec.default)}`);
         if (spec.classification !== undefined)

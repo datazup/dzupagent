@@ -31,7 +31,7 @@ export function pushCommon(
   if (node.id) lines.push(`${indent}id: ${node.id}`);
   if (node.name) lines.push(`${indent}name: ${quote(node.name)}`);
   if (node.description)
-    lines.push(`${indent}description: ${quote(node.description)}`);
+    pushTextField(lines, indentLevel, "description", node.description);
   if (
     node.meta &&
     Object.keys(node.meta).length > 0 &&
@@ -54,6 +54,33 @@ export function pushField(
   lines.push(
     `${indent}${key}: ${typeof value === "string" ? quote(value) : value}`
   );
+}
+
+/**
+ * Emit authored text without routing embedded newlines through JSON escapes.
+ *
+ * Formatting a multiline prompt through {@link quote} historically changed
+ * an authored newline into the two characters `\\` and `n` on reparse. The
+ * parser now decodes formatter-compatible JSON escapes as a compatibility
+ * safeguard, while a real block scalar remains the canonical, reviewable
+ * representation for multiline prose. Keep single-line output compact.
+ */
+export function pushTextField(
+  lines: string[],
+  indentLevel: number,
+  key: string,
+  value: string
+): void {
+  if (!value.includes("\n")) {
+    pushField(lines, indentLevel, key, value);
+    return;
+  }
+
+  const indent = indentFor(indentLevel);
+  lines.push(`${indent}${key}: |`);
+  for (const line of value.split("\n")) {
+    lines.push(`${indent}  ${line}`);
+  }
 }
 
 export function quote(value: string): string {

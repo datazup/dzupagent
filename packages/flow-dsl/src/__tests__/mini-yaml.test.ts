@@ -182,6 +182,26 @@ describe('parseYamlSubset', () => {
     })
   })
 
+  describe('quoted scalar escapes', () => {
+    it('decodes formatter-compatible JSON string escapes', () => {
+      const source = String.raw`prompt: "line one\nline two: \"quoted\" \\ path"`
+      const result = parseYamlSubset(source)
+      expect(result).toEqual({
+        ok: true,
+        value: { prompt: 'line one\nline two: "quoted" \\ path' },
+      })
+    })
+
+    it('keeps permissive legacy handling for invalid JSON escapes', () => {
+      const source = String.raw`prompt: "legacy \q escape"`
+      const result = parseYamlSubset(source)
+      expect(result).toEqual({
+        ok: true,
+        value: { prompt: String.raw`legacy \q escape` },
+      })
+    })
+  })
+
   describe('inline arrays', () => {
     it('parses an inline array of strings', () => {
       const source = 'tags: [foo, bar, baz]'

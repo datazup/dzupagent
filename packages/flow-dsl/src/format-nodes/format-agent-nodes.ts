@@ -2,6 +2,7 @@ import {
   formatScalar,
   indentFor,
   pushCommon,
+  pushTextField,
   quote,
   type FormatContext,
   type NodeOf,
@@ -31,7 +32,12 @@ export function formatAgentNode(
       if (node.profile) lines.push(`${childIndent}profile: ${node.profile}`);
       if (node.toolset) lines.push(`${childIndent}toolset: ${node.toolset}`);
       if (node.model) lines.push(`${childIndent}model: ${node.model}`);
-      lines.push(`${childIndent}instructions: ${quote(node.instructions)}`);
+      pushTextField(
+        lines,
+        indentLevel + 2,
+        "instructions",
+        node.instructions
+      );
       lines.push(`${childIndent}output:`);
       lines.push(`${childIndent}  key: ${node.output.key}`);
       if (node.output.schemaRef)
@@ -64,8 +70,18 @@ export function formatAgentNode(
       }
       if (node.model) lines.push(`${childIndent}model: ${node.model}`);
       if (node.systemPrompt)
-        lines.push(`${childIndent}systemPrompt: ${quote(node.systemPrompt)}`);
-      lines.push(`${childIndent}instructions: ${quote(node.instructions)}`);
+        pushTextField(
+          lines,
+          indentLevel + 2,
+          "systemPrompt",
+          node.systemPrompt
+        );
+      pushTextField(
+        lines,
+        indentLevel + 2,
+        "instructions",
+        node.instructions
+      );
       if (node.input)
         lines.push(`${childIndent}input: ${formatScalar(node.input)}`);
       if (node.persona) lines.push(`${childIndent}persona: ${node.persona}`);
@@ -95,8 +111,18 @@ export function formatAgentNode(
       );
       if (node.model) lines.push(`${childIndent}model: ${node.model}`);
       if (node.systemPrompt)
-        lines.push(`${childIndent}systemPrompt: ${quote(node.systemPrompt)}`);
-      lines.push(`${childIndent}instructions: ${quote(node.instructions)}`);
+        pushTextField(
+          lines,
+          indentLevel + 2,
+          "systemPrompt",
+          node.systemPrompt
+        );
+      pushTextField(
+        lines,
+        indentLevel + 2,
+        "instructions",
+        node.instructions
+      );
       if (node.input)
         lines.push(`${childIndent}input: ${formatScalar(node.input)}`);
       if (node.persona) lines.push(`${childIndent}persona: ${node.persona}`);
@@ -127,8 +153,18 @@ export function formatAgentNode(
       if (node.merge) lines.push(`${childIndent}merge: ${node.merge}`);
       if (node.model) lines.push(`${childIndent}model: ${node.model}`);
       if (node.systemPrompt)
-        lines.push(`${childIndent}systemPrompt: ${quote(node.systemPrompt)}`);
-      lines.push(`${childIndent}instructions: ${quote(node.instructions)}`);
+        pushTextField(
+          lines,
+          indentLevel + 2,
+          "systemPrompt",
+          node.systemPrompt
+        );
+      pushTextField(
+        lines,
+        indentLevel + 2,
+        "instructions",
+        node.instructions
+      );
       if (node.input)
         lines.push(`${childIndent}input: ${formatScalar(node.input)}`);
       if (node.persona) lines.push(`${childIndent}persona: ${node.persona}`);
@@ -153,7 +189,7 @@ export function formatAgentNode(
     case "adapter.supervisor":
       lines.push(`${indent}- adapter.supervisor:`);
       pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}goal: ${quote(node.goal)}`);
+      pushTextField(lines, indentLevel + 2, "goal", node.goal);
       if (node.specialists && node.specialists.length > 0) {
         lines.push(
           `${childIndent}specialists: [${node.specialists
@@ -163,7 +199,12 @@ export function formatAgentNode(
       }
       if (node.model) lines.push(`${childIndent}model: ${node.model}`);
       if (node.systemPrompt)
-        lines.push(`${childIndent}systemPrompt: ${quote(node.systemPrompt)}`);
+        pushTextField(
+          lines,
+          indentLevel + 2,
+          "systemPrompt",
+          node.systemPrompt
+        );
       if (node.input)
         lines.push(`${childIndent}input: ${formatScalar(node.input)}`);
       if (node.persona) lines.push(`${childIndent}persona: ${node.persona}`);

@@ -2,6 +2,7 @@ import {
   formatScalar,
   indentFor,
   pushCommon,
+  pushTextField,
   quote,
   type FormatContext,
   type NodeOf,
@@ -34,8 +35,18 @@ export function formatFleetNode(
       lines.push(`${childIndent}provider: ${node.provider}`);
       if (node.model) lines.push(`${childIndent}model: ${node.model}`);
       if (node.systemPrompt)
-        lines.push(`${childIndent}systemPrompt: ${quote(node.systemPrompt)}`);
-      lines.push(`${childIndent}instructions: ${quote(node.instructions)}`);
+        pushTextField(
+          lines,
+          indentLevel + 2,
+          "systemPrompt",
+          node.systemPrompt
+        );
+      pushTextField(
+        lines,
+        indentLevel + 2,
+        "instructions",
+        node.instructions
+      );
       if (node.input)
         lines.push(`${childIndent}input: ${formatScalar(node.input)}`);
       if (node.commandSurface)

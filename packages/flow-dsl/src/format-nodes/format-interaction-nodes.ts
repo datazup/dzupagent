@@ -2,6 +2,7 @@ import {
   formatScalar,
   indentFor,
   pushCommon,
+  pushTextField,
   quote,
   type FormatContext,
   type NodeOf,
@@ -36,7 +37,7 @@ export function formatInteractionNode(
     case "approval":
       lines.push(`${indent}- approval:`);
       pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}question: ${quote(node.question)}`);
+      pushTextField(lines, indentLevel + 2, "question", node.question);
       if (node.options && node.options.length > 0) {
         lines.push(
           `${childIndent}options: [${node.options.map(quote).join(", ")}]`
@@ -54,7 +55,7 @@ export function formatInteractionNode(
     case "clarification":
       lines.push(`${indent}- clarify:`);
       pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}question: ${quote(node.question)}`);
+      pushTextField(lines, indentLevel + 2, "question", node.question);
       if (node.expected) lines.push(`${childIndent}expected: ${node.expected}`);
       if (node.choices && node.choices.length > 0) {
         lines.push(
@@ -96,7 +97,7 @@ export function formatInteractionNode(
     case "classify":
       lines.push(`${indent}- classify:`);
       pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}prompt: ${quote(node.prompt)}`);
+      pushTextField(lines, indentLevel + 2, "prompt", node.prompt);
       lines.push(
         `${childIndent}choices: [${node.choices.map(quote).join(", ")}]`
       );
@@ -191,9 +192,14 @@ export function formatInteractionNode(
     case "prompt":
       lines.push(`${indent}- prompt:`);
       pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}userPrompt: ${quote(node.userPrompt)}`);
+      pushTextField(lines, indentLevel + 2, "userPrompt", node.userPrompt);
       if (node.systemPrompt)
-        lines.push(`${childIndent}systemPrompt: ${quote(node.systemPrompt)}`);
+        pushTextField(
+          lines,
+          indentLevel + 2,
+          "systemPrompt",
+          node.systemPrompt
+        );
       if (node.outputKey)
         lines.push(`${childIndent}outputKey: ${node.outputKey}`);
       if (node.provider) lines.push(`${childIndent}provider: ${node.provider}`);

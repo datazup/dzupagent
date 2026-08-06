@@ -190,6 +190,115 @@ describe('formatDocumentToDsl round-trip', () => {
     expect(result.lossPaths).toContain('document.root.nodes[0].effectClass')
   })
 
+  it('round-trips multiline prose fields as literal block scalars', () => {
+    const document: FlowDocumentV1 = {
+      dsl: 'dzupflow/v1alpha-agent',
+      id: 'multiline-prose',
+      description: 'Document line one\nDocument line two',
+      version: 1,
+      inputs: {
+        request: {
+          type: 'string',
+          required: true,
+          description: 'Input line one\nInput line two',
+        },
+      },
+      root: {
+        type: 'sequence',
+        id: 'root',
+        nodes: [
+          {
+            type: 'approval',
+            id: 'approve',
+            question: 'Approve line one?\nApprove line two?',
+            onApprove: [
+              { type: 'complete', id: 'approved', result: 'approved' },
+            ],
+          },
+          {
+            type: 'clarification',
+            id: 'clarify',
+            question: 'Clarify line one?\nClarify line two?',
+          },
+          {
+            type: 'classify',
+            id: 'classify',
+            prompt: 'Classify line one\nClassify line two',
+            choices: ['a', 'b'],
+            outputKey: 'class',
+          },
+          {
+            type: 'prompt',
+            id: 'prompt',
+            description: 'Node line one\nNode line two',
+            userPrompt: 'User line one\nUser line two',
+            systemPrompt: 'System line one\nSystem line two',
+            outputKey: 'promptResult',
+          },
+          {
+            type: 'agent',
+            id: 'agent',
+            agentId: 'reviewer',
+            instructions: 'Agent line one\nAgent line two',
+            output: { key: 'agentResult', schemaRef: 'review.v1' },
+          },
+          {
+            type: 'adapter.run',
+            id: 'run',
+            provider: 'claude',
+            systemPrompt: 'Run system one\nRun system two',
+            instructions: 'Run line one\nRun line two',
+            output: 'runResult',
+          },
+          {
+            type: 'adapter.race',
+            id: 'race',
+            providers: ['claude', 'codex'],
+            systemPrompt: 'Race system one\nRace system two',
+            instructions: 'Race line one\nRace line two',
+            output: 'raceResult',
+          },
+          {
+            type: 'adapter.parallel',
+            id: 'parallel',
+            providers: ['claude', 'codex'],
+            systemPrompt: 'Parallel system one\nParallel system two',
+            instructions: 'Parallel line one\nParallel line two',
+            output: 'parallelResult',
+          },
+          {
+            type: 'adapter.supervisor',
+            id: 'supervisor',
+            goal: 'Goal line one\nGoal line two',
+            systemPrompt: 'Supervisor system one\nSupervisor system two',
+            output: 'supervisorResult',
+          },
+          {
+            type: 'worker.dispatch',
+            id: 'worker',
+            dispatchId: 'worker-dispatch',
+            provider: 'codex',
+            systemPrompt: 'Worker system one\nWorker system two',
+            instructions: 'Worker line one\nWorker line two',
+            outputKey: 'workerResult',
+          },
+        ],
+      },
+    }
+
+    const result = formatDocumentToDslChecked(document)
+    if (!result.ok) {
+      throw new Error(
+        `${result.lossPaths.join(', ')}: ${JSON.stringify(result.diagnostics)}`,
+      )
+    }
+    expect(result.ok).toBe(true)
+    expect(result.dsl).toContain('userPrompt: |')
+    expect(result.dsl).toContain('instructions: |')
+    expect(result.dsl).toContain('question: |')
+    expect(result.dsl).not.toContain('\\n')
+  })
+
   // Known formatter gaps pinned as expected failures: each test goes red the
   // moment the gap is fixed, forcing the corpus to shrink honestly.
   it.fails('round-trips a nested sequence node without flattening it', () => {

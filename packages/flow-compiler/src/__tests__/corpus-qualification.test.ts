@@ -164,10 +164,7 @@ describe("flow corpus qualification", () => {
       );
     });
 
-    // A node-level multi-line scalar still round-trips lossily (the document
-    // -level block scalar was fixed; node-level prose was not). This is the
-    // DISCRIMINATING case: it reaches the same classification branch as the
-    // lossless fixtures above and must NOT be reported as lossless.
+    // Node-level prose uses the same raw block-scalar writer as document prose.
     const NODE_MULTILINE_DSL = [
       "dsl: dzupflow/v1",
       "id: lossy-node-prose",
@@ -181,22 +178,48 @@ describe("flow corpus qualification", () => {
       "      outputKey: greeting",
     ].join("\n");
 
-    it("reports field-level loss with the authored path that did not survive", () => {
+    it("round-trips node-level multiline prose without JSON escape drift", () => {
       expect(measureFlowCorpusRoundTrip(NODE_MULTILINE_DSL)).toEqual({
-        status: "lossy",
-        lossPaths: ["document.root.nodes[0].userPrompt"],
+        status: "lossless",
+        lossPaths: [],
       });
     });
 
-    it("counts a lossy source as lossy without failing qualification", async () => {
+    const DERIVED_LINEAGE_DSL = [
+      "dsl: dzupflow/v1",
+      "id: derived-lineage",
+      "version: 1",
+      "uses:",
+      "  sdlc: dzup.sdlc@1",
+      "inputs:",
+      "  validationItems:",
+      "    type: array",
+      "    required: true",
+      "steps:",
+      "  - sdlc.batch_validation:",
+      "      id: validation_batch",
+      "      items: inputs.validationItems",
+      "      concurrency: 2",
+      "      failFast: false",
+      "      output: validationStatuses",
+    ].join("\n");
+
+    it("keeps generated composite lineage classified as a known loss", () => {
+      expect(measureFlowCorpusRoundTrip(DERIVED_LINEAGE_DSL)).toEqual({
+        status: "lossy",
+        lossPaths: ["document.meta.fragmentExpansions"],
+      });
+    });
+
+    it("counts a known lineage loss without failing qualification", async () => {
       const report = await qualifyFlowCorpusSources(
         [
           {
-            id: "lossy-node-prose",
-            path: "lossy-node-prose.yaml",
-            sha256: hashFlowCorpusSource(NODE_MULTILINE_DSL),
+            id: "derived-lineage",
+            path: "derived-lineage.yaml",
+            sha256: hashFlowCorpusSource(DERIVED_LINEAGE_DSL),
             qualification: "compile-example",
-            source: NODE_MULTILINE_DSL,
+            source: DERIVED_LINEAGE_DSL,
           },
         ],
         compiler,
@@ -207,7 +230,7 @@ describe("flow corpus qualification", () => {
       expect(report.roundTrip).toMatchObject({ lossless: 0, lossy: 1 });
       expect(report.items[0]).toMatchObject({
         roundTripStatus: "lossy",
-        roundTripLossPaths: ["document.root.nodes[0].userPrompt"],
+        roundTripLossPaths: ["document.meta.fragmentExpansions"],
       });
       expect(renderFlowCorpusQualificationMarkdown(report)).toContain(
         "Lossless: **0 / 1**",
