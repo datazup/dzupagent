@@ -4,6 +4,10 @@ import type {
   SequenceNode,
   TryCatchNode,
 } from "@dzupagent/flow-ast";
+import {
+  FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW,
+  isFlowTypedCondition,
+} from "@dzupagent/flow-ast/expressions";
 
 import { DSL_ERROR } from "./errors.js";
 import {
@@ -130,6 +134,7 @@ export function normalizeTryCatch(
 const LOOP_KEYS = new Set<string>([
   ...COMMON_NODE_KEYS,
   "condition",
+  "typedCondition",
   "body",
   "maxIterations",
   "max_iterations",
@@ -164,8 +169,40 @@ export function normalizeLoop(
     });
   }
 
+  if (
+    raw.typedCondition !== undefined &&
+    !isFlowTypedCondition(raw.typedCondition)
+  ) {
+    diagnostics.push({
+      phase: "normalize",
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: "loop.typedCondition must be a canonical FlowTypedCondition",
+      path: `${path}.typedCondition`,
+    });
+  }
+
   const body = normalizeSteps(raw.body ?? [], `${path}.body`, diagnostics);
-  const node: LoopNode = { type: "loop", ...base, condition, body };
+  const node: LoopNode = {
+    type: "loop",
+    ...base,
+    condition,
+    ...(isFlowTypedCondition(raw.typedCondition)
+      ? { typedCondition: raw.typedCondition }
+      : {}),
+    body,
+  };
+
+  if (
+    node.typedCondition !== undefined &&
+    node.condition !== FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW
+  ) {
+    diagnostics.push({
+      phase: "normalize",
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: `loop.condition must equal "${FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW}" when typedCondition is present`,
+      path: `${path}.condition`,
+    });
+  }
 
   const maxRaw = raw.maxIterations ?? raw.max_iterations;
   if (typeof maxRaw === "number" && maxRaw > 0) {
