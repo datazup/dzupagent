@@ -96,6 +96,28 @@ function lowerLoop(loopFields: Record<string, unknown>): {
   return { nodes: artifact.nodes };
 }
 
+/** A `for_each` loop — lowers to a real LoopNode that carries no typedWhile. */
+function lowerForEachLoop(): readonly PipelineNode[] {
+  const resolver = makeResolver(["items.process"]);
+  const resolved = new Map<string, ResolvedTool>();
+  const rt = resolver.resolve("items.process");
+  if (rt !== null) resolved.set("root.body[0]", rt);
+  const ast: FlowNode = {
+    type: "for_each",
+    source: "$.items",
+    as: "item",
+    body: [action("items.process")],
+  } as FlowNode;
+  const { artifact } = lowerPipelineLoop({
+    ast,
+    resolved,
+    resolvedPersonas: new Map(),
+    idGen: makeIdGen(),
+    id: "pipeline-foreach",
+  });
+  return artifact.nodes;
+}
+
 function typedLoopNodes(): readonly PipelineNode[] {
   return lowerLoop({
     typedCondition: {
@@ -140,13 +162,26 @@ describe("F-R4 — typed loop predicate registration", () => {
     expect(predicate({ state: { status: "done" } })).toBe(false);
   });
 
-  it("skips loops with no typedWhile contract (negative control)", () => {
-    // A string-condition loop keeps the legacy flattened lowering and emits no
-    // LoopNode at all, so there is nothing to register. Proves registration is
-    // conditioned on the typed contract rather than applied blanket.
+  it("skips a string-condition loop, which lowers to no LoopNode at all", () => {
+    // A legacy string-condition loop keeps the flattened lowering. Proves
+    // registration is conditioned on the typed contract rather than blanket —
+    // but note it never reaches the typedWhile guard, since there is no loop
+    // node to inspect. The forEach case below is what exercises that guard.
     const nodes = lowerLoop({}).nodes;
 
     expect(nodes.some((n) => n.type === "loop")).toBe(false);
+    expect(createTypedLoopPredicates(nodes, GRANTED)).toEqual({});
+  });
+
+  it("skips a forEach LoopNode, which carries no typedWhile contract", () => {
+    // forEach DOES lower to a real LoopNode with its own predicate name, so
+    // this is the case that actually exercises the typedWhile skip guard:
+    // registering here would shadow the forEach executor's own predicate.
+    const nodes = lowerForEachLoop();
+    const loopNode = loopNodeOf(nodes);
+
+    expect(loopNode.typedWhile).toBeUndefined();
+    expect(loopNode.continuePredicateName).toBe("forEach__item__predicate");
     expect(createTypedLoopPredicates(nodes, GRANTED)).toEqual({});
   });
 

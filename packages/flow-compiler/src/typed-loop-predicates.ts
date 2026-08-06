@@ -134,7 +134,7 @@ export function createTypedLoopPredicate(
       hostCapabilities: options.hostCapabilities,
       bindings: state,
     });
-    if (false) { // MUTANT
+    if (!result.ok) {
       throw new TypedLoopPredicateError({
         nodeId: loopNode.id,
         predicateName: loopNode.continuePredicateName,
