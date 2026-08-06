@@ -121,13 +121,18 @@ describe("agent template/validate normalizer fails closed", () => {
   };
 
   it("admits a well-formed template and validate block with zero diagnostics", () => {
-    const { diagnostics, partialDocument } = normalize({
+    // NOTE: on the SUCCESS path the node lives under `document`;
+    // `partialDocument` is null and is only populated when normalization
+    // partially fails (see `normalize.ts`). Reading `partialDocument` here
+    // would make this positive control assert against `undefined` and fail
+    // even though both fields normalize correctly.
+    const { diagnostics, document } = normalize({
       ...VALID_AGENT,
       template: { ref: "tpl-1", inputDefaults: { a: 1 } },
       validate: { schema: { type: "object" }, failBehavior: "abort" },
     });
     expect(diagnostics).toEqual([]);
-    const node = partialDocument?.root.nodes[0] as
+    const node = document?.root.nodes[0] as
       | Record<string, unknown>
       | undefined;
     expect(node?.template).toEqual({

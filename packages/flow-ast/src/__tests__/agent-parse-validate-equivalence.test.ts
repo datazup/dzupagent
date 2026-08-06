@@ -518,3 +518,122 @@ describe("equivalence — policy", () => {
     expect(validateRejects(node)).toBe(true);
   });
 });
+
+// ── template (optional compile-time template ref) — F-R1 codec closure ───────
+// `template` was validator-only: parse silently dropped it AND hard-required
+// `instructions`, contradicting the validator's template-ref relaxation. Both
+// stages now share the rule: `ref` required non-empty string, `inputDefaults`
+// optional object, and instructions may be absent when template.ref is present.
+
+describe("equivalence — template (optional AgentTemplateRef)", () => {
+  it("both accept a valid template alongside instructions", () => {
+    const node = {
+      ...VALID_BASE,
+      template: { ref: "tpl-1", inputDefaults: { a: 1 } },
+    };
+    expect(parseAccepts(node)).toBe(true);
+    expect(validateAccepts(node)).toBe(true);
+  });
+
+  it("both accept template-ref mode without instructions", () => {
+    const { instructions: _omit, ...base } = VALID_BASE;
+    const node = { ...base, template: { ref: "tpl-1" } };
+    expect(parseAccepts(node as Record<string, unknown>)).toBe(true);
+    expect(validateAccepts(node as Record<string, unknown>)).toBe(true);
+  });
+
+  it("both reject a template missing its ref", () => {
+    const node = { ...VALID_BASE, template: { inputDefaults: { a: 1 } } };
+    expect(parseRejects(node)).toBe(true);
+    expect(validateRejects(node)).toBe(true);
+  });
+
+  it("both reject a template that is not an object", () => {
+    const node = { ...VALID_BASE, template: "tpl-1" };
+    expect(parseRejects(node)).toBe(true);
+    expect(validateRejects(node)).toBe(true);
+  });
+
+  it("both reject template.inputDefaults that is not an object", () => {
+    const node = {
+      ...VALID_BASE,
+      template: { ref: "tpl-1", inputDefaults: "a=1" },
+    };
+    expect(parseRejects(node)).toBe(true);
+    expect(validateRejects(node)).toBe(true);
+  });
+
+  it("both reject a missing-ref template even when instructions are also absent", () => {
+    // The relaxation must not fire for a malformed template — otherwise a bad
+    // template would ALSO forgive the missing instructions.
+    const { instructions: _omit, ...base } = VALID_BASE;
+    const node = { ...base, template: { inputDefaults: {} } };
+    expect(parseRejects(node as Record<string, unknown>)).toBe(true);
+    expect(validateRejects(node as Record<string, unknown>)).toBe(true);
+  });
+});
+
+// ── validate (optional inline ValidationBlock, Stage 2) — F-R1 codec closure ──
+// `validate` was TYPE-only: neither parse nor validate handled it, so an
+// authored block was silently dropped by both stages.
+
+describe("equivalence — validate (optional ValidationBlock)", () => {
+  it("both accept a full validate block", () => {
+    const node = {
+      ...VALID_BASE,
+      validate: {
+        schema: { type: "object" },
+        errorMessage: "bad shape",
+        failBehavior: "retry",
+        maxRetries: 2,
+      },
+    };
+    expect(parseAccepts(node)).toBe(true);
+    expect(validateAccepts(node)).toBe(true);
+  });
+
+  it("both accept a minimal validate block (schema only)", () => {
+    const node = { ...VALID_BASE, validate: { schema: { type: "object" } } };
+    expect(parseAccepts(node)).toBe(true);
+    expect(validateAccepts(node)).toBe(true);
+  });
+
+  it("both reject a validate block missing its schema", () => {
+    const node = { ...VALID_BASE, validate: { failBehavior: "abort" } };
+    expect(parseRejects(node)).toBe(true);
+    expect(validateRejects(node)).toBe(true);
+  });
+
+  it("both reject a validate block that is not an object", () => {
+    const node = { ...VALID_BASE, validate: "strict" };
+    expect(parseRejects(node)).toBe(true);
+    expect(validateRejects(node)).toBe(true);
+  });
+
+  it("both reject an out-of-enum failBehavior", () => {
+    const node = {
+      ...VALID_BASE,
+      validate: { schema: { type: "object" }, failBehavior: "explode" },
+    };
+    expect(parseRejects(node)).toBe(true);
+    expect(validateRejects(node)).toBe(true);
+  });
+
+  it("both reject a negative maxRetries", () => {
+    const node = {
+      ...VALID_BASE,
+      validate: { schema: { type: "object" }, maxRetries: -1 },
+    };
+    expect(parseRejects(node)).toBe(true);
+    expect(validateRejects(node)).toBe(true);
+  });
+
+  it("both reject a non-string errorMessage", () => {
+    const node = {
+      ...VALID_BASE,
+      validate: { schema: { type: "object" }, errorMessage: 42 },
+    };
+    expect(parseRejects(node)).toBe(true);
+    expect(validateRejects(node)).toBe(true);
+  });
+});
