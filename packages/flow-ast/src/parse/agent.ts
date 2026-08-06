@@ -21,8 +21,12 @@ import {
   parseRetry,
   parseStop,
 } from "./agent-loop.js";
-import { parseCommands, parseValidation } from "./agent-validation.js";
-import { parsePolicy } from "./agent-policy.js";
+import {
+  parseCommands,
+  parseValidation,
+  parseValidationBlock,
+} from "./agent-validation.js";
+import { parsePolicy, parseTemplateRef } from "./agent-policy.js";
 
 export function parseAgent(
   obj: Record<string, unknown>,
@@ -43,11 +47,40 @@ export function parseAgent(
     failed = true;
   }
 
+  // Parse the optional `template` field early so we know whether to require
+  // `instructions`. When `template.ref` is present, instructions may be absent
+  // at parse time — the synthesis pass fills them in before execution.
+  // Mirrors `../validate/agent.ts`.
+  const templateRef = parseTemplateRef(
+    obj.template,
+    joinPointer(pointer, "template"),
+    ctx
+  );
+  const hasTemplateRef =
+    templateRef !== undefined &&
+    typeof templateRef.ref === "string" &&
+    templateRef.ref.length > 0;
+
   const instructionsRaw = obj.instructions;
-  if (typeof instructionsRaw !== "string" || instructionsRaw.length === 0) {
+  if (
+    !hasTemplateRef &&
+    (typeof instructionsRaw !== "string" || instructionsRaw.length === 0)
+  ) {
     ctx.errors.push({
       code: "WRONG_FIELD_TYPE",
-      message: `agent.instructions must be a non-empty string, received ${describeJsType(
+      message: `agent.instructions must be a non-empty string when template.ref is absent, received ${describeJsType(
+        instructionsRaw
+      )}`,
+      pointer: joinPointer(pointer, "instructions"),
+    });
+    failed = true;
+  } else if (
+    instructionsRaw !== undefined &&
+    typeof instructionsRaw !== "string"
+  ) {
+    ctx.errors.push({
+      code: "WRONG_FIELD_TYPE",
+      message: `agent.instructions must be a string when present, received ${describeJsType(
         instructionsRaw
       )}`,
       pointer: joinPointer(pointer, "instructions"),
@@ -60,13 +93,22 @@ export function parseAgent(
 
   if (failed) return null;
 
+  // When instructions is absent (template-ref mode), use a sentinel that the
+  // synthesis pass will replace before execution. Mirrors `../validate/agent.ts`.
+  const resolvedInstructions =
+    typeof instructionsRaw === "string" && instructionsRaw.length > 0
+      ? instructionsRaw
+      : ""; // synthesis pass must fill this before execution
+
   const node: AgentNode = {
     type: "agent",
     ...parseCommonNodeFields(obj, pointer, ctx),
     agentId: agentIdRaw as string,
-    instructions: instructionsRaw as string,
+    instructions: resolvedInstructions,
     output: output as AgentOutput,
   };
+
+  if (templateRef !== undefined) node.template = templateRef;
 
   copyOptionalString(obj, "profile", pointer, ctx, (v) => {
     node.profile = v;
@@ -127,6 +169,13 @@ export function parseAgent(
     ctx
   );
   if (validation !== undefined) node.validation = validation;
+
+  const validateBlock = parseValidationBlock(
+    obj.validate,
+    joinPointer(pointer, "validate"),
+    ctx
+  );
+  if (validateBlock !== undefined) node.validate = validateBlock;
 
   const policy = parsePolicy(obj.policy, joinPointer(pointer, "policy"), ctx);
   if (policy !== undefined) node.policy = policy;

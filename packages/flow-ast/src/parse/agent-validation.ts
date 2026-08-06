@@ -8,9 +8,87 @@
  * constraints are unchanged.
  */
 
-import type { AgentValidation, AgentValidationCommand } from "../types.js";
+import type {
+  AgentValidation,
+  AgentValidationCommand,
+  ValidationBlock,
+} from "../types.js";
 import { type ParseContext, isPlainObject, joinPointer } from "./shared.js";
 import { isNonNegativeNumber } from "../policy-numbers.js";
+
+const VALIDATION_FAIL_BEHAVIORS = ["retry", "abort", "continue"] as const;
+
+/**
+ * Parses the optional `agent.validate` inline JSON-Schema validation block
+ * (Stage 2). Mirrors `../validate/agent-validation.ts`'s
+ * `validateValidationBlock`; shape constraints must stay isomorphic
+ * (`schema` required object, `errorMessage` optional string, `failBehavior`
+ * optional enum, `maxRetries` optional non-negative number).
+ */
+export function parseValidationBlock(
+  raw: unknown,
+  pointer: string,
+  ctx: ParseContext
+): ValidationBlock | undefined {
+  if (raw === undefined) return undefined;
+  if (!isPlainObject(raw)) {
+    ctx.errors.push({
+      code: "EXPECTED_OBJECT",
+      message: "agent.validate must be an object when present",
+      pointer,
+    });
+    return undefined;
+  }
+  if (!isPlainObject(raw.schema)) {
+    ctx.errors.push({
+      code: "WRONG_FIELD_TYPE",
+      message: "agent.validate.schema is required (object)",
+      pointer: joinPointer(pointer, "schema"),
+    });
+    return undefined;
+  }
+  const out: ValidationBlock = { schema: raw.schema };
+  if (raw.errorMessage !== undefined) {
+    if (typeof raw.errorMessage === "string") {
+      out.errorMessage = raw.errorMessage;
+    } else {
+      ctx.errors.push({
+        code: "WRONG_FIELD_TYPE",
+        message: "agent.validate.errorMessage must be a string when present",
+        pointer: joinPointer(pointer, "errorMessage"),
+      });
+    }
+  }
+  if (raw.failBehavior !== undefined) {
+    if (
+      (VALIDATION_FAIL_BEHAVIORS as readonly unknown[]).includes(
+        raw.failBehavior
+      )
+    ) {
+      out.failBehavior = raw.failBehavior as ValidationBlock["failBehavior"];
+    } else {
+      ctx.errors.push({
+        code: "WRONG_FIELD_TYPE",
+        message:
+          'agent.validate.failBehavior must be "retry", "abort" or "continue"',
+        pointer: joinPointer(pointer, "failBehavior"),
+      });
+    }
+  }
+  if (raw.maxRetries !== undefined) {
+    if (isNonNegativeNumber(raw.maxRetries)) {
+      out.maxRetries = raw.maxRetries;
+    } else {
+      ctx.errors.push({
+        code: "WRONG_FIELD_TYPE",
+        message:
+          "agent.validate.maxRetries must be a non-negative number when present",
+        pointer: joinPointer(pointer, "maxRetries"),
+      });
+    }
+  }
+  return out;
+}
 
 export function parseValidation(
   raw: unknown,

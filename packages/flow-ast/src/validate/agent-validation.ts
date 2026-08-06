@@ -7,7 +7,11 @@
  * `validate` node's `commands`. The shape constraints are unchanged.
  */
 
-import type { AgentValidation, AgentValidationCommand } from "../types.js";
+import type {
+  AgentValidation,
+  AgentValidationCommand,
+  ValidationBlock,
+} from "../types.js";
 import {
   describeJsType,
   isPlainObject,
@@ -15,6 +19,80 @@ import {
 } from "../validation-helpers.js";
 import { isNonNegativeNumber } from "../policy-numbers.js";
 import type { SchemaIssue } from "./shared.js";
+
+const VALIDATION_FAIL_BEHAVIORS = ["retry", "abort", "continue"] as const;
+
+/**
+ * Validates the optional `agent.validate` inline JSON-Schema validation block
+ * (Stage 2). Mirrors `../parse/agent-validation.ts`'s `parseValidationBlock`;
+ * shape constraints must stay isomorphic.
+ */
+export function validateValidationBlock(
+  raw: unknown,
+  path: string,
+  issues: SchemaIssue[]
+): ValidationBlock | undefined {
+  if (raw === undefined) return undefined;
+  if (!isPlainObject(raw)) {
+    issues.push({
+      path,
+      code: "MISSING_REQUIRED_FIELD",
+      message: `agent.validate must be an object when present, received ${describeJsType(
+        raw
+      )}`,
+    });
+    return undefined;
+  }
+  if (!isPlainObject(raw["schema"])) {
+    issues.push({
+      path: joinPath(path, "schema"),
+      code: "MISSING_REQUIRED_FIELD",
+      message: "agent.validate.schema is required (object)",
+    });
+    return undefined;
+  }
+  const out: ValidationBlock = { schema: raw["schema"] };
+  if (raw["errorMessage"] !== undefined) {
+    if (typeof raw["errorMessage"] === "string") {
+      out.errorMessage = raw["errorMessage"];
+    } else {
+      issues.push({
+        path: joinPath(path, "errorMessage"),
+        code: "MISSING_REQUIRED_FIELD",
+        message: "agent.validate.errorMessage must be a string when present",
+      });
+    }
+  }
+  if (raw["failBehavior"] !== undefined) {
+    if (
+      (VALIDATION_FAIL_BEHAVIORS as readonly unknown[]).includes(
+        raw["failBehavior"]
+      )
+    ) {
+      out.failBehavior = raw["failBehavior"] as ValidationBlock["failBehavior"];
+    } else {
+      issues.push({
+        path: joinPath(path, "failBehavior"),
+        code: "MISSING_REQUIRED_FIELD",
+        message:
+          'agent.validate.failBehavior must be "retry", "abort" or "continue"',
+      });
+    }
+  }
+  if (raw["maxRetries"] !== undefined) {
+    if (isNonNegativeNumber(raw["maxRetries"])) {
+      out.maxRetries = raw["maxRetries"];
+    } else {
+      issues.push({
+        path: joinPath(path, "maxRetries"),
+        code: "MISSING_REQUIRED_FIELD",
+        message:
+          "agent.validate.maxRetries must be a non-negative number when present",
+      });
+    }
+  }
+  return out;
+}
 
 export function validateAgentValidation(
   raw: unknown,

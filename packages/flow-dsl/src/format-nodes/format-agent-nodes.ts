@@ -41,7 +41,22 @@ export function formatAgentNode(
         lines.push(`${childIndent}tools: ${formatScalar(node.tools)}`);
       if (node.model) lines.push(`${childIndent}model: ${node.model}`);
       if (node.provider) lines.push(`${childIndent}provider: ${node.provider}`);
-      pushTextField(lines, indentLevel + 2, "instructions", node.instructions);
+      if (node.template)
+        pushObjectBlock(
+          lines,
+          indentLevel + 2,
+          "template",
+          asRecord(node.template)
+        );
+      // In template-ref mode instructions may be the empty-string sentinel the
+      // synthesis pass fills in later; omit it rather than emitting "".
+      if (node.instructions)
+        pushTextField(
+          lines,
+          indentLevel + 2,
+          "instructions",
+          node.instructions
+        );
       if (node.input)
         pushObjectBlock(lines, indentLevel + 2, "input", node.input);
       if (node.stop)
@@ -67,6 +82,13 @@ export function formatAgentNode(
           indentLevel + 2,
           "validation",
           asRecord(node.validation)
+        );
+      if (node.validate)
+        pushObjectBlock(
+          lines,
+          indentLevel + 2,
+          "validate",
+          asRecord(node.validate)
         );
       if (node.policy)
         pushObjectBlock(

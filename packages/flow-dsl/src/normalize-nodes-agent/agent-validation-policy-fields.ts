@@ -7,14 +7,142 @@
 
 import type {
   AgentPolicy,
+  AgentTemplateRef,
   AgentValidation,
   AgentValidationCommand,
+  ValidationBlock,
 } from "@dzupagent/flow-ast";
-import { isPositiveFinitePolicyNumber } from "@dzupagent/flow-ast";
+import {
+  isNonNegativeNumber,
+  isPositiveFinitePolicyNumber,
+} from "@dzupagent/flow-ast";
 
 import { DSL_ERROR } from "../errors.js";
 import { isPlainObject } from "../normalize-value-helpers.js";
 import type { DslDiagnostic } from "../types.js";
+
+/**
+ * Normalizes the optional `agent.template` compile-time template reference.
+ * Shape constraints must agree with `@dzupagent/flow-ast`'s
+ * `parse/agent-policy.ts` (`parseTemplateRef`) and `validate/agent-policy.ts`
+ * (`validateAgentTemplateRef`): `ref` required non-empty string,
+ * `inputDefaults` optional object.
+ */
+export function normalizeTemplate(
+  raw: unknown,
+  path: string,
+  diagnostics: DslDiagnostic[]
+): AgentTemplateRef | undefined {
+  if (raw === undefined) return undefined;
+  if (!isPlainObject(raw)) {
+    diagnostics.push({
+      phase: "normalize",
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: "agent.template must be an object",
+      path,
+    });
+    return undefined;
+  }
+  const ref = raw.ref;
+  if (typeof ref !== "string" || ref.length === 0) {
+    diagnostics.push({
+      phase: "normalize",
+      code: DSL_ERROR.MISSING_REQUIRED_FIELD,
+      message: "agent.template.ref is required (non-empty string)",
+      path: `${path}.ref`,
+    });
+    return undefined;
+  }
+  const out: AgentTemplateRef = { ref };
+  if (raw.inputDefaults !== undefined) {
+    if (!isPlainObject(raw.inputDefaults)) {
+      diagnostics.push({
+        phase: "normalize",
+        code: DSL_ERROR.INVALID_NODE_SHAPE,
+        message: "agent.template.inputDefaults must be an object",
+        path: `${path}.inputDefaults`,
+      });
+    } else {
+      out.inputDefaults = raw.inputDefaults;
+    }
+  }
+  return out;
+}
+
+/**
+ * Normalizes the optional `agent.validate` inline JSON-Schema validation
+ * block (Stage 2). Shape constraints must agree with `@dzupagent/flow-ast`'s
+ * `parse/agent-validation.ts` (`parseValidationBlock`) and
+ * `validate/agent-validation.ts` (`validateValidationBlock`).
+ */
+export function normalizeValidate(
+  raw: unknown,
+  path: string,
+  diagnostics: DslDiagnostic[]
+): ValidationBlock | undefined {
+  if (raw === undefined) return undefined;
+  if (!isPlainObject(raw)) {
+    diagnostics.push({
+      phase: "normalize",
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: "agent.validate must be an object",
+      path,
+    });
+    return undefined;
+  }
+  if (!isPlainObject(raw.schema)) {
+    diagnostics.push({
+      phase: "normalize",
+      code: DSL_ERROR.MISSING_REQUIRED_FIELD,
+      message: "agent.validate.schema is required (object)",
+      path: `${path}.schema`,
+    });
+    return undefined;
+  }
+  const out: ValidationBlock = { schema: raw.schema };
+  if (raw.errorMessage !== undefined) {
+    if (typeof raw.errorMessage === "string") {
+      out.errorMessage = raw.errorMessage;
+    } else {
+      diagnostics.push({
+        phase: "normalize",
+        code: DSL_ERROR.INVALID_NODE_SHAPE,
+        message: "agent.validate.errorMessage must be a string",
+        path: `${path}.errorMessage`,
+      });
+    }
+  }
+  if (raw.failBehavior !== undefined) {
+    if (
+      raw.failBehavior === "retry" ||
+      raw.failBehavior === "abort" ||
+      raw.failBehavior === "continue"
+    ) {
+      out.failBehavior = raw.failBehavior;
+    } else {
+      diagnostics.push({
+        phase: "normalize",
+        code: DSL_ERROR.INVALID_NODE_SHAPE,
+        message:
+          'agent.validate.failBehavior must be "retry", "abort" or "continue"',
+        path: `${path}.failBehavior`,
+      });
+    }
+  }
+  if (raw.maxRetries !== undefined) {
+    if (isNonNegativeNumber(raw.maxRetries)) {
+      out.maxRetries = raw.maxRetries;
+    } else {
+      diagnostics.push({
+        phase: "normalize",
+        code: DSL_ERROR.INVALID_NODE_SHAPE,
+        message: "agent.validate.maxRetries must be a non-negative number",
+        path: `${path}.maxRetries`,
+      });
+    }
+  }
+  return out;
+}
 
 export function normalizeValidation(
   raw: unknown,

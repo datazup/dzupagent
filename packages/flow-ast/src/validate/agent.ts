@@ -25,6 +25,7 @@ import {
 } from "./agent-loop.js";
 import {
   validateAgentValidation,
+  validateValidationBlock,
   validateValidationCommands,
 } from "./agent-validation.js";
 import {
@@ -157,6 +158,13 @@ export function validateAgent(
     issues
   );
   if (validation !== undefined) node.validation = validation;
+
+  const validateBlock = validateValidationBlock(
+    obj["validate"],
+    joinPath(path, "validate"),
+    issues
+  );
+  if (validateBlock !== undefined) node.validate = validateBlock;
 
   const policy = validateAgentPolicy(
     obj["policy"],

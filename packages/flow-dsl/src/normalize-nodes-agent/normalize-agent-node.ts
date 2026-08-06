@@ -25,6 +25,8 @@ import {
 } from "./agent-output-retry-fields.js";
 import {
   normalizePolicy,
+  normalizeTemplate,
+  normalizeValidate,
   normalizeValidation,
 } from "./agent-validation-policy-fields.js";
 
@@ -36,6 +38,7 @@ const AGENT_KEYS = new Set<string>([
   "tools",
   "model",
   "provider",
+  "template",
   "instructions",
   "input",
   "stop",
@@ -43,6 +46,7 @@ const AGENT_KEYS = new Set<string>([
   "onInvalidOutput",
   "retry",
   "validation",
+  "validate",
   "policy",
 ]);
 
@@ -59,6 +63,16 @@ export function normalizeAgent(
     typeof raw.instructions === "string" ? raw.instructions : "";
   const output = normalizeOutput(raw.output, `${path}.output`, diagnostics);
 
+  // Normalize the optional `template` field early so we know whether to
+  // require `instructions`. When `template.ref` is present, instructions may
+  // be absent — the synthesis pass fills them in before execution. Mirrors
+  // `@dzupagent/flow-ast`'s `validate/agent.ts` and `parse/agent.ts`.
+  const template = normalizeTemplate(
+    raw.template,
+    `${path}.template`,
+    diagnostics
+  );
+
   if (agentId.length === 0) {
     diagnostics.push({
       phase: "normalize",
@@ -67,11 +81,11 @@ export function normalizeAgent(
       path: `${path}.agentId`,
     });
   }
-  if (instructions.length === 0) {
+  if (instructions.length === 0 && template === undefined) {
     diagnostics.push({
       phase: "normalize",
       code: DSL_ERROR.MISSING_REQUIRED_FIELD,
-      message: "agent.instructions is required",
+      message: "agent.instructions is required when template.ref is absent",
       path: `${path}.instructions`,
     });
   }
@@ -92,6 +106,7 @@ export function normalizeAgent(
   if (typeof raw.toolset === "string") node.toolset = raw.toolset;
   if (typeof raw.model === "string") node.model = raw.model;
   if (typeof raw.provider === "string") node.provider = raw.provider;
+  if (template !== undefined) node.template = template;
 
   if (raw.tools !== undefined) {
     if (
@@ -133,6 +148,13 @@ export function normalizeAgent(
     diagnostics
   );
   if (validation !== undefined) node.validation = validation;
+
+  const validateBlock = normalizeValidate(
+    raw.validate,
+    `${path}.validate`,
+    diagnostics
+  );
+  if (validateBlock !== undefined) node.validate = validateBlock;
 
   const policy = normalizePolicy(raw.policy, `${path}.policy`, diagnostics);
   if (policy !== undefined) node.policy = policy;
