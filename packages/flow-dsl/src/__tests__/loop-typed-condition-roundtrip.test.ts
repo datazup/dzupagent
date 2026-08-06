@@ -16,13 +16,14 @@
 import { describe, expect, it } from "vitest";
 
 import { FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW } from "@dzupagent/flow-ast/expressions";
+import type { FlowTypedCondition } from "@dzupagent/flow-ast/expressions";
 import type { FlowDocumentV1, FlowNode, LoopNode } from "@dzupagent/flow-ast";
 
 import { canonicalizeDsl } from "../canonicalize-dsl.js";
 import { formatDocumentToDsl } from "../format-dsl.js";
 import { normalizeDslDocument } from "../normalize.js";
 
-const TYPED = {
+const TYPED: FlowTypedCondition = {
   schema: "dzupagent.flowTypedCondition/v1",
   expression: {
     op: "eq",

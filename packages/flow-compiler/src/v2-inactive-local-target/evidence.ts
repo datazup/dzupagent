@@ -103,7 +103,10 @@ function visit(
   path: string,
   result: Array<{ path: string; condition: FlowTypedCondition }>
 ): void {
-  if (node.type === "branch" && node.typedCondition !== undefined) {
+  if (
+    (node.type === "branch" || node.type === "loop") &&
+    node.typedCondition !== undefined
+  ) {
     result.push({
       path: `${path}.typedCondition`,
       condition: node.typedCondition,
