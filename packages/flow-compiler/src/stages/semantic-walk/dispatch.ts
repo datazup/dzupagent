@@ -9,6 +9,7 @@ import {
   validateTypedConditionExpr,
 } from "../semantic-condition.js";
 import type { WalkContext } from "../semantic-context.js";
+import { nodeFieldSpan } from "../semantic-diagnostic.js";
 import { validateNodeTemplateReferences } from "../semantic-reference-values.js";
 import { resolvePersonaNode } from "../semantic-persona-resolver.js";
 import { resolveAgentProfile } from "../semantic-profile-resolver.js";
@@ -238,6 +239,18 @@ export async function visit(
       return;
     }
     case "loop": {
+      if (ctx.admissionProfile === "unattended") {
+        ctx.errors.push({
+          nodeType: node.type,
+          nodePath: `${path}.condition`,
+          code: "FLOW_LOOP_CONDITION_RUNTIME_ONLY",
+          category: "policy",
+          span: nodeFieldSpan(0, node.condition.length),
+          message:
+            "unattended compilation denies loop conditions because the " +
+            "current lowering does not preserve canonical condition semantics",
+        });
+      }
       validateConditionExpr(
         node.type,
         node.condition,
