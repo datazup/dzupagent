@@ -319,12 +319,36 @@ function withIds(node: FlowNode, path: string): FlowNode {
   return copy as FlowNode;
 }
 
+/**
+ * Nodes that must be preceded by another node to satisfy a DOCUMENT-level
+ * validation rule, independent of their own field codec. Without this,
+ * `spdd.arm_dispatch` fails the round trip with SPDD_ORDERING_VIOLATION —
+ * a fixture-validity failure that would masquerade as codec loss and would be
+ * "fixed" by wrongly re-adding the kind to the debt register.
+ */
+function orderingPrelude(node: FlowNode): FlowNode[] {
+  if (node.type !== "spdd.arm_dispatch") return [];
+  return [
+    {
+      type: "spdd.project_plan",
+      id: "prelude-project-plan",
+      spddRunId: node.spddRunId,
+      promptAssetVersionId: "pav-1",
+      outputKey: "prelude-out",
+    } as FlowNode,
+  ];
+}
+
 function docWith(node: FlowNode): FlowDocumentV1 {
   return {
     dsl: "dzupflow/v1",
     id: "matrix-fixture",
     version: 1,
-    root: { type: "sequence", id: "root", nodes: [node] },
+    root: {
+      type: "sequence",
+      id: "root",
+      nodes: [...orderingPrelude(node), node],
+    },
   } as FlowDocumentV1;
 }
 
@@ -346,24 +370,12 @@ function roundTrip(node: FlowNode): MatrixOutcome {
 // ---------------------------------------------------------------------------
 
 /** Kinds whose minimal fixture does not round-trip at all yet. */
-const KNOWN_LOSSY_KINDS: Partial<Record<FlowNode["type"], true>> = {
-  // Measured 2026-08-06: no spdd.* kind survives the round trip — the
-  // formatter/normalizer pair does not carry the spdd field tails yet.
-  // Closing these is registry work (F-R1 follow-up), one kind at a time.
-  "spdd.import_sources": true,
-  "spdd.build_source_pack": true,
-  "spdd.run_analysis": true,
-  "spdd.generate_canvas": true,
-  "spdd.validate_canvas": true,
-  "spdd.review_canvas": true,
-  "spdd.project_plan": true,
-  "spdd.arm_dispatch": true,
-  "spdd.run_validation": true,
-  "spdd.collect_proof": true,
-  "spdd.scan_drift": true,
-  "spdd.create_sync_proposal": true,
-  "spdd.agent_swarm": true,
-};
+// CLOSED 2026-08-06: all 13 spdd.* kinds now round-trip. The loss was never
+// field-level — the formatter and the flow-ast parser/validator had carried
+// every spdd field since Phase 3 Slice 3.1, but flow-dsl's normalizer had no
+// arm for any spdd kind, so re-parse died on UNKNOWN_NODE_TYPE and the whole
+// document was reported lost. Closed by normalize-nodes-spdd.ts.
+const KNOWN_LOSSY_KINDS: Partial<Record<FlowNode["type"], true>> = {};
 
 /** (kind, contract-field) pairs that do not round-trip yet. */
 const KNOWN_LOSSY_CONTRACT_PAIRS: Partial<Record<FlowNode["type"], string[]>> =

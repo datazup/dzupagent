@@ -45,6 +45,21 @@ import {
   normalizeValidateSchema,
 } from "./normalize-nodes-implementation.js";
 import {
+  normalizeSpddAgentSwarm,
+  normalizeSpddArmDispatch,
+  normalizeSpddBuildSourcePack,
+  normalizeSpddCollectProof,
+  normalizeSpddCreateSyncProposal,
+  normalizeSpddGenerateCanvas,
+  normalizeSpddImportSources,
+  normalizeSpddProjectPlan,
+  normalizeSpddReviewCanvas,
+  normalizeSpddRunAnalysis,
+  normalizeSpddRunValidation,
+  normalizeSpddScanDrift,
+  normalizeSpddValidateCanvas,
+} from "./normalize-nodes-spdd.js";
+import {
   normalizeFleetContractNet,
   normalizeFleetDispatch,
   normalizeFleetGather,
@@ -193,6 +208,32 @@ export function normalizeNodeWrapper(
       return normalizeEvidenceWrite(value, path, diagnostics);
     case "validate.schema":
       return normalizeValidateSchema(value, path, diagnostics);
+    case "spdd.import_sources":
+      return normalizeSpddImportSources(value, path, diagnostics);
+    case "spdd.build_source_pack":
+      return normalizeSpddBuildSourcePack(value, path, diagnostics);
+    case "spdd.run_analysis":
+      return normalizeSpddRunAnalysis(value, path, diagnostics);
+    case "spdd.generate_canvas":
+      return normalizeSpddGenerateCanvas(value, path, diagnostics);
+    case "spdd.validate_canvas":
+      return normalizeSpddValidateCanvas(value, path, diagnostics);
+    case "spdd.review_canvas":
+      return normalizeSpddReviewCanvas(value, path, diagnostics);
+    case "spdd.project_plan":
+      return normalizeSpddProjectPlan(value, path, diagnostics);
+    case "spdd.arm_dispatch":
+      return normalizeSpddArmDispatch(value, path, diagnostics);
+    case "spdd.run_validation":
+      return normalizeSpddRunValidation(value, path, diagnostics);
+    case "spdd.collect_proof":
+      return normalizeSpddCollectProof(value, path, diagnostics);
+    case "spdd.scan_drift":
+      return normalizeSpddScanDrift(value, path, diagnostics);
+    case "spdd.create_sync_proposal":
+      return normalizeSpddCreateSyncProposal(value, path, diagnostics);
+    case "spdd.agent_swarm":
+      return normalizeSpddAgentSwarm(value, path, diagnostics);
     default:
       diagnostics.push({
         phase: "normalize",
