@@ -28,6 +28,7 @@ import {
   normalizeWait,
 } from "./normalize-nodes-spawn-emit-memory.js";
 import {
+  normalizeGroup,
   normalizeLoop,
   normalizeTryCatch,
 } from "./normalize-nodes-structural.js";
@@ -146,6 +147,8 @@ export function normalizeNodeWrapper(
       return normalizeMemory(value, path, diagnostics);
     case "set":
       return normalizeSet(value, path, diagnostics);
+    case "group":
+      return normalizeGroup(value, path, diagnostics, normalizeSteps);
     case "try_catch":
       return normalizeTryCatch(value, path, diagnostics, normalizeSteps);
     case "loop":

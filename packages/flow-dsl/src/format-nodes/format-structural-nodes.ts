@@ -90,7 +90,9 @@ export function formatStructuralNode(
           lines.push(`${childIndent}  window: ${node.accumulator.window}`);
         if (node.accumulator.initialValue !== undefined)
           lines.push(
-            `${childIndent}  initialValue: ${formatScalar(node.accumulator.initialValue)}`
+            `${childIndent}  initialValue: ${formatScalar(
+              node.accumulator.initialValue
+            )}`
           );
       }
       if (node.concurrency !== undefined)
@@ -101,7 +103,15 @@ export function formatStructuralNode(
       for (const child of node.body) formatNode(lines, child, indentLevel + 3);
       return;
     case "sequence":
-      for (const child of node.nodes) formatNode(lines, child, indentLevel);
+      // The ROOT sequence never reaches here — `formatDocument` writes it as
+      // the top-level `steps:` list directly. So any sequence at this point
+      // is nested, and must emit its `group:` wrapper rather than splice its
+      // children into the parent list (which silently dropped type/id/nodes
+      // on every round trip before the `group:` surface existed).
+      lines.push(`${indent}- group:`);
+      pushCommon(lines, node, indentLevel + 2);
+      lines.push(`${childIndent}steps:`);
+      for (const child of node.nodes) formatNode(lines, child, indentLevel + 3);
       return;
     case "try_catch":
       lines.push(`${indent}- try_catch:`);

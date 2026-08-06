@@ -52,7 +52,13 @@ const MATRIX_NODE_FIXTURES: Record<FlowNode["type"], FlowNode> = {
     provider: "openai",
     body: [{ type: "complete" }],
   },
-  parallel: { type: "parallel", branches: [[{ type: "complete" }]] },
+  // Two branches on purpose: `normalizeParallel` rejects a single-branch
+  // parallel (INVALID_NODE_SHAPE), so a one-branch fixture would fail the
+  // round trip for a fixture-validity reason rather than a codec-loss one.
+  parallel: {
+    type: "parallel",
+    branches: [[{ type: "complete" }], [{ type: "complete" }]],
+  },
   complete: { type: "complete", result: "done" },
   spawn: {
     type: "spawn",
@@ -341,10 +347,6 @@ function roundTrip(node: FlowNode): MatrixOutcome {
 
 /** Kinds whose minimal fixture does not round-trip at all yet. */
 const KNOWN_LOSSY_KINDS: Partial<Record<FlowNode["type"], true>> = {
-  // Measured 2026-08-06: a bare nested `sequence` child is FLATTENED on
-  // reparse (loses type/nodes/id); nested `parallel` fails the same class.
-  sequence: true,
-  parallel: true,
   // Measured 2026-08-06: no spdd.* kind survives the round trip — the
   // formatter/normalizer pair does not carry the spdd field tails yet.
   // Closing these is registry work (F-R1 follow-up), one kind at a time.
