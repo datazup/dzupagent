@@ -176,9 +176,11 @@ describe('formatDocumentToDsl round-trip', () => {
             id: 'act',
             toolRef: 'test.run',
             input: {},
-            // Generic nodes have no effectClass DSL syntax yet: the formatter
-            // drops it, so the checked formatter must refuse.
-            effectClass: 'read_only',
+            // The codec has no syntax for unknown vendor keys: the formatter
+            // drops them, so the checked formatter must refuse. (effectClass,
+            // the previous example here, round-trips since the field registry
+            // admits it on every kind.)
+            vendorExtension: 'not-representable',
           },
         ],
       },
@@ -187,7 +189,9 @@ describe('formatDocumentToDsl round-trip', () => {
     const result = formatDocumentToDslChecked(document)
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('unreachable')
-    expect(result.lossPaths).toContain('document.root.nodes[0].effectClass')
+    expect(result.lossPaths).toContain(
+      'document.root.nodes[0].vendorExtension',
+    )
   })
 
   it('round-trips multiline prose fields as literal block scalars', () => {

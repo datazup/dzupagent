@@ -97,8 +97,6 @@ export function formatAgentNode(
         );
       if (node.promptPrep)
         lines.push(`${childIndent}promptPrep: ${node.promptPrep}`);
-      if (node.idempotency)
-        lines.push(`${childIndent}idempotency: ${node.idempotency}`);
       if (node.policy)
         lines.push(`${childIndent}policy: ${formatScalar(node.policy)}`);
       lines.push(`${childIndent}output: ${node.output}`);
@@ -138,8 +136,6 @@ export function formatAgentNode(
         );
       if (node.promptPrep)
         lines.push(`${childIndent}promptPrep: ${node.promptPrep}`);
-      if (node.idempotency)
-        lines.push(`${childIndent}idempotency: ${node.idempotency}`);
       if (node.policy)
         lines.push(`${childIndent}policy: ${formatScalar(node.policy)}`);
       lines.push(`${childIndent}output: ${node.output}`);
@@ -180,8 +176,6 @@ export function formatAgentNode(
         );
       if (node.promptPrep)
         lines.push(`${childIndent}promptPrep: ${node.promptPrep}`);
-      if (node.idempotency)
-        lines.push(`${childIndent}idempotency: ${node.idempotency}`);
       if (node.policy)
         lines.push(`${childIndent}policy: ${formatScalar(node.policy)}`);
       lines.push(`${childIndent}output: ${node.output}`);
@@ -220,8 +214,6 @@ export function formatAgentNode(
         );
       if (node.promptPrep)
         lines.push(`${childIndent}promptPrep: ${node.promptPrep}`);
-      if (node.idempotency)
-        lines.push(`${childIndent}idempotency: ${node.idempotency}`);
       if (node.policy)
         lines.push(`${childIndent}policy: ${formatScalar(node.policy)}`);
       lines.push(`${childIndent}output: ${node.output}`);
