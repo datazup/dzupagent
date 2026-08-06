@@ -29,7 +29,7 @@ import {
 } from "./_shared-control.js";
 import { lowerApproval, lowerPersona, lowerRoute } from "./_shared-suspend.js";
 import { lowerRuntimeLeaf } from "./_shared-runtime-leaf.js";
-import { lowerChildren } from "./_shared-utils.js";
+import { lowerChildren, portsOf } from "./_shared-utils.js";
 
 /**
  * Lower a single FlowNode (and its subtree) into a flat list of
@@ -41,6 +41,20 @@ import { lowerChildren } from "./_shared-utils.js";
  *              node naming and resolved-map lookups.
  */
 export function lowerNodeToPipeline(
+  node: FlowNode,
+  ctx: LowerPipelineContext,
+  path: string
+): LowerPipelineResult {
+  const result = lowerNodeVariant(node, ctx, path);
+  // Every dispatched result carries ports: composites publish them
+  // explicitly; leaves get the synthesized single-entry/single-exit shape.
+  if (result.ports === undefined) {
+    result.ports = portsOf(result);
+  }
+  return result;
+}
+
+function lowerNodeVariant(
   node: FlowNode,
   ctx: LowerPipelineContext,
   path: string

@@ -13,25 +13,25 @@ import type {
   FlowNode,
   PersonaNode,
   RouteNode,
-} from '@dzupagent/flow-ast'
+} from "@dzupagent/flow-ast";
 import type {
   GateNode,
   PipelineEdge,
   SuspendNode,
-} from '@dzupagent/core/orchestration'
+} from "@dzupagent/core/orchestration";
 
 import type {
   LowerPipelineContext,
   LowerPipelineResult,
-} from './_shared-types.js'
-import { nodeDurabilityFields } from './_shared-durability.js'
-import { freshId, lowerChildren, seqEdge } from './_shared-utils.js'
+} from "./_shared-types.js";
+import { nodeDurabilityFields } from "./_shared-durability.js";
+import { freshId, lowerChildren, portsOf, seqEdge } from "./_shared-utils.js";
 
 type LowerOne = (
   child: FlowNode,
   ctx: LowerPipelineContext,
-  path: string,
-) => LowerPipelineResult
+  path: string
+) => LowerPipelineResult;
 
 /**
  * approval → GateNode(approval) suspend + onApprove/onReject branches.
@@ -40,51 +40,51 @@ export function lowerApproval(
   node: ApprovalNode,
   ctx: LowerPipelineContext,
   path: string,
-  lowerOne: LowerOne,
+  lowerOne: LowerOne
 ): LowerPipelineResult {
-  const gateId = freshId(ctx)
+  const gateId = freshId(ctx);
   const gateNode: GateNode = {
     id: gateId,
-    type: 'gate',
-    gateType: 'approval',
+    type: "gate",
+    gateType: "approval",
     name: `approval:${path}`,
     condition: node.question,
     ...nodeDurabilityFields(node),
-  }
+  };
 
   const approveResult = lowerChildren(
     node.onApprove,
     ctx,
     (idx) => `${path}.onApprove[${idx}]`,
-    lowerOne,
-  )
+    lowerOne
+  );
   const rejectResult =
     node.onReject !== undefined
       ? lowerChildren(
           node.onReject,
           ctx,
           (idx) => `${path}.onReject[${idx}]`,
-          lowerOne,
+          lowerOne
         )
-      : { nodes: [], edges: [], warnings: [] }
+      : { nodes: [], edges: [], warnings: [] };
 
-  const approveFirst = approveResult.nodes[0]
-  const rejectFirst = rejectResult.nodes[0]
+  const approveFirst = approveResult.nodes[0];
+  const rejectFirst = rejectResult.nodes[0];
 
-  const branchMap: Record<string, string> = {}
+  const branchMap: Record<string, string> = {};
   if (approveFirst !== undefined) {
-    branchMap['approved'] = approveFirst.id
+    branchMap["approved"] = approveFirst.id;
   }
   if (rejectFirst !== undefined) {
-    branchMap['rejected'] = rejectFirst.id
+    branchMap["rejected"] = rejectFirst.id;
   }
 
   const conditionalEdge: PipelineEdge = {
-    type: 'conditional',
+    type: "conditional",
     sourceNodeId: gateId,
     predicateName: `approval__${gateId}__predicate`,
     branches: branchMap,
-  }
+  };
 
   // Exit points: BOTH branch tails must wire to the next sibling, otherwise
   // the last-node fallback picks only the reject branch and the approve path
@@ -92,21 +92,40 @@ export function lowerApproval(
   //
   // When onReject is absent the rejected path is deliberately terminal — an
   // approval gate must not fail open into the continuation on rejection.
-  const approveLast = approveResult.nodes[approveResult.nodes.length - 1]
-  const rejectLast = rejectResult.nodes[rejectResult.nodes.length - 1]
+  const approveLast = approveResult.nodes[approveResult.nodes.length - 1];
+  const rejectLast = rejectResult.nodes[rejectResult.nodes.length - 1];
   const tailNodeIds: string[] = [
     ...(approveResult.tailNodeIds ??
       (approveLast !== undefined ? [approveLast.id] : [])),
     ...(rejectResult.tailNodeIds ??
       (rejectLast !== undefined ? [rejectLast.id] : [])),
-  ]
+  ];
 
+  const approvePorts = portsOf(approveResult);
+  const rejectPorts = portsOf(rejectResult);
   return {
     nodes: [gateNode, ...approveResult.nodes, ...rejectResult.nodes],
     edges: [conditionalEdge, ...approveResult.edges, ...rejectResult.edges],
     warnings: [...approveResult.warnings, ...rejectResult.warnings],
     tailNodeIds,
-  }
+    ports: {
+      entryNodeIds: [gateId],
+      normalExits: tailNodeIds,
+      // Absent onReject: the rejected outcome dead-ends at the gate awaiting
+      // nothing further — a suspended exit, distinguishable at last from the
+      // approve-path continuation the flat tail array merged it with.
+      suspendedExits: [
+        ...(node.onReject === undefined ? [gateId] : []),
+        ...approvePorts.suspendedExits,
+        ...rejectPorts.suspendedExits,
+      ],
+      terminalExits: [
+        ...approvePorts.terminalExits,
+        ...rejectPorts.terminalExits,
+      ],
+      errorExits: [...approvePorts.errorExits, ...rejectPorts.errorExits],
+    },
+  };
 }
 
 /**
@@ -117,53 +136,62 @@ export function lowerPersona(
   node: PersonaNode,
   ctx: LowerPipelineContext,
   path: string,
-  lowerOne: LowerOne,
+  lowerOne: LowerOne
 ): LowerPipelineResult {
-  const warnings: string[] = []
-  const confirmedPersona = ctx.resolvedPersonas.get(path)
+  const warnings: string[] = [];
+  const confirmedPersona = ctx.resolvedPersonas.get(path);
   if (confirmedPersona === undefined) {
     warnings.push(
-      `lower/persona: persona '${node.personaId}' not confirmed in resolvedPersonas at '${path}'`,
-    )
+      `lower/persona: persona '${node.personaId}' not confirmed in resolvedPersonas at '${path}'`
+    );
   }
 
-  const suspendId = freshId(ctx)
+  const suspendId = freshId(ctx);
   const suspendNode: SuspendNode = {
     id: suspendId,
-    type: 'suspend',
+    type: "suspend",
     name: `persona:${node.personaId}`,
     description: confirmedPersona ?? node.personaId,
     resumeCondition: `persona__${node.personaId}__activated`,
     ...nodeDurabilityFields(node),
-  }
+  };
 
   const bodyResult = lowerChildren(
     node.body,
     ctx,
     (idx) => `${path}.body[${idx}]`,
-    lowerOne,
-  )
-  warnings.push(...bodyResult.warnings)
+    lowerOne
+  );
+  warnings.push(...bodyResult.warnings);
 
-  const firstBodyNode = bodyResult.nodes[0]
-  const edges: PipelineEdge[] = [...bodyResult.edges]
+  const firstBodyNode = bodyResult.nodes[0];
+  const edges: PipelineEdge[] = [...bodyResult.edges];
   if (firstBodyNode !== undefined) {
-    edges.push(seqEdge(suspendId, firstBodyNode.id))
+    edges.push(seqEdge(suspendId, firstBodyNode.id));
   }
 
-  const lastBodyNode = bodyResult.nodes[bodyResult.nodes.length - 1]
+  const lastBodyNode = bodyResult.nodes[bodyResult.nodes.length - 1];
+  const personaTails =
+    firstBodyNode === undefined
+      ? [suspendId]
+      : bodyResult.tailNodeIds ??
+        (lastBodyNode !== undefined ? [lastBodyNode.id] : []);
+  const bodyPorts = portsOf(bodyResult);
   return {
     nodes: [suspendNode, ...bodyResult.nodes],
     edges,
     warnings,
     // Continuation exits from the body tails; an empty body exits from the
     // suspend node itself. A body ending in `complete` yields no tails.
-    tailNodeIds:
-      firstBodyNode === undefined
-        ? [suspendId]
-        : (bodyResult.tailNodeIds ??
-          (lastBodyNode !== undefined ? [lastBodyNode.id] : [])),
-  }
+    tailNodeIds: personaTails,
+    ports: {
+      entryNodeIds: [suspendId],
+      normalExits: personaTails,
+      suspendedExits: bodyPorts.suspendedExits,
+      terminalExits: bodyPorts.terminalExits,
+      errorExits: bodyPorts.errorExits,
+    },
+  };
 }
 
 /**
@@ -174,42 +202,51 @@ export function lowerRoute(
   node: RouteNode,
   ctx: LowerPipelineContext,
   path: string,
-  lowerOne: LowerOne,
+  lowerOne: LowerOne
 ): LowerPipelineResult {
-  const suspendId = freshId(ctx)
-  const routeMeta = node.provider ?? node.tags?.join(',') ?? node.strategy
+  const suspendId = freshId(ctx);
+  const routeMeta = node.provider ?? node.tags?.join(",") ?? node.strategy;
   const suspendNode: SuspendNode = {
     id: suspendId,
-    type: 'suspend',
+    type: "suspend",
     name: `route:${node.strategy}`,
     description: routeMeta,
     resumeCondition: `route__${node.strategy}__resolved`,
     ...nodeDurabilityFields(node),
-  }
+  };
 
   const bodyResult = lowerChildren(
     node.body,
     ctx,
     (idx) => `${path}.body[${idx}]`,
-    lowerOne,
-  )
-  const firstBodyNode = bodyResult.nodes[0]
-  const edges: PipelineEdge[] = [...bodyResult.edges]
+    lowerOne
+  );
+  const firstBodyNode = bodyResult.nodes[0];
+  const edges: PipelineEdge[] = [...bodyResult.edges];
   if (firstBodyNode !== undefined) {
-    edges.push(seqEdge(suspendId, firstBodyNode.id))
+    edges.push(seqEdge(suspendId, firstBodyNode.id));
   }
 
-  const lastBodyNode = bodyResult.nodes[bodyResult.nodes.length - 1]
+  const lastBodyNode = bodyResult.nodes[bodyResult.nodes.length - 1];
+  const routeTails =
+    firstBodyNode === undefined
+      ? [suspendId]
+      : bodyResult.tailNodeIds ??
+        (lastBodyNode !== undefined ? [lastBodyNode.id] : []);
+  const bodyPorts = portsOf(bodyResult);
   return {
     nodes: [suspendNode, ...bodyResult.nodes],
     edges,
     warnings: bodyResult.warnings,
     // Same tail contract as lowerPersona: body tails, or the suspend node
     // when the body is empty; a body ending in `complete` yields no tails.
-    tailNodeIds:
-      firstBodyNode === undefined
-        ? [suspendId]
-        : (bodyResult.tailNodeIds ??
-          (lastBodyNode !== undefined ? [lastBodyNode.id] : [])),
-  }
+    tailNodeIds: routeTails,
+    ports: {
+      entryNodeIds: [suspendId],
+      normalExits: routeTails,
+      suspendedExits: bodyPorts.suspendedExits,
+      terminalExits: bodyPorts.terminalExits,
+      errorExits: bodyPorts.errorExits,
+    },
+  };
 }

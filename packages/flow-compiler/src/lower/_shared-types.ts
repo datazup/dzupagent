@@ -74,4 +74,54 @@ export interface LowerPipelineResult {
    * (the default single-tail behaviour).
    */
   tailNodeIds?: string[];
+  /**
+   * Structured port sets (doc 14 §7 R2) — a refinement OVER the tails
+   * contract, never a replacement: `ports.normalExits` is always identical to
+   * the effective tails (`tailNodeIds` or the last-node fallback), and the
+   * stitching engine still wires from tails. The ports make the outcome
+   * classes the flat tail array erases distinguishable again: which exits
+   * continue, which suspend forever, and which end the flow.
+   */
+  ports?: LoweredPorts;
+}
+
+/**
+ * Outcome-classified boundary nodes of one lowered subtree.
+ *
+ * Every lowered fragment gets ports: composites publish them explicitly;
+ * plain leaves get synthesized single-entry/single-exit ports at the
+ * dispatcher (`lowerNodeToPipeline`).
+ */
+export interface LoweredPorts {
+  /**
+   * Node ids that receive control when the fragment is entered. At most one
+   * today (branch → gate, parallel → fork, persona/route/complete → suspend,
+   * sequence → first child's entry); empty when the fragment lowered to zero
+   * nodes (runtime-transparent leaves).
+   */
+  entryNodeIds: string[];
+  /**
+   * Exits that continue into the next sibling — identical to the effective
+   * tails contract by invariant.
+   */
+  normalExits: string[];
+  /**
+   * Exits where a path stops awaiting an external decision WITH NO lowered
+   * continuation, e.g. an approval gate without `onReject`: the rejected
+   * outcome dead-ends at the gate by design. (A suspend that resumes into a
+   * continuation is a normal exit, not a suspended one.)
+   */
+  suspendedExits: string[];
+  /**
+   * Lowered `complete` nodes: the flow deliberately ends here. Propagated
+   * upward through every composite — including `for_each`, whose body tails
+   * the loop contract otherwise discards.
+   */
+  terminalExits: string[];
+  /**
+   * Reserved: the lowerer emits no ErrorEdge today (`try_catch.catch` is
+   * runtime-only and never lowered). Always empty until error-path lowering
+   * ships; pinned by tests so its first production is a deliberate act.
+   */
+  errorExits: string[];
 }

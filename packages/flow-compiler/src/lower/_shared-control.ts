@@ -22,7 +22,7 @@ import type {
   LowerPipelineResult,
 } from "./_shared-types.js";
 import { nodeDurabilityFields } from "./_shared-durability.js";
-import { freshId, lowerChildren, seqEdge } from "./_shared-utils.js";
+import { freshId, lowerChildren, portsOf, seqEdge } from "./_shared-utils.js";
 
 type LowerOne = (
   child: FlowNode,
@@ -126,11 +126,23 @@ export function lowerBranch(
     tailNodeIds.push(gateId);
   }
 
+  const thenPorts = portsOf(thenResult);
+  const elsePorts = portsOf(elseResult);
   return {
     nodes: [gateNode, ...thenResult.nodes, ...elseResult.nodes],
     edges: [conditionalEdge, ...thenResult.edges, ...elseResult.edges],
     warnings,
     tailNodeIds,
+    ports: {
+      entryNodeIds: [gateId],
+      normalExits: tailNodeIds,
+      suspendedExits: [
+        ...thenPorts.suspendedExits,
+        ...elsePorts.suspendedExits,
+      ],
+      terminalExits: [...thenPorts.terminalExits, ...elsePorts.terminalExits],
+      errorExits: [...thenPorts.errorExits, ...elsePorts.errorExits],
+    },
   };
 }
 
@@ -166,6 +178,9 @@ export function lowerParallel(
   const allNodes: PipelineNode[] = [forkNode];
   const allEdges: PipelineEdge[] = [];
   const warnings: string[] = [];
+  const suspendedExits: string[] = [];
+  const terminalExits: string[] = [];
+  const errorExits: string[] = [];
 
   for (let bIdx = 0; bIdx < node.branches.length; bIdx++) {
     const branch = node.branches[bIdx];
@@ -195,8 +210,7 @@ export function lowerParallel(
     // (e.g. ends in `complete`) — it must NOT be wired into the join, or a
     // resume would advance past the declared completion.
     const branchTailIds =
-      branchResult.tailNodeIds ??
-      (lastNode !== undefined ? [lastNode.id] : []);
+      branchResult.tailNodeIds ?? (lastNode !== undefined ? [lastNode.id] : []);
     if (branchTailIds.length === 0 && branchResult.nodes.length > 0) {
       warnings.push(
         `lower/parallel: branch [${bIdx}] of '${path}' is terminal (e.g. ends in complete) and does not reach the join`
@@ -205,11 +219,28 @@ export function lowerParallel(
     for (const tailId of branchTailIds) {
       allEdges.push(seqEdge(tailId, joinId));
     }
+
+    const branchPorts = portsOf(branchResult);
+    suspendedExits.push(...branchPorts.suspendedExits);
+    terminalExits.push(...branchPorts.terminalExits);
+    errorExits.push(...branchPorts.errorExits);
   }
 
   allNodes.push(joinNode);
 
   // The join node is the parallel's single exit point; publish it as the
   // explicit tail instead of relying on the parent's last-node fallback.
-  return { nodes: allNodes, edges: allEdges, warnings, tailNodeIds: [joinId] };
+  return {
+    nodes: allNodes,
+    edges: allEdges,
+    warnings,
+    tailNodeIds: [joinId],
+    ports: {
+      entryNodeIds: [forkId],
+      normalExits: [joinId],
+      suspendedExits,
+      terminalExits,
+      errorExits,
+    },
+  };
 }

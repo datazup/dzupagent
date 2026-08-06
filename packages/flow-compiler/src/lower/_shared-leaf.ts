@@ -28,7 +28,12 @@ import type {
   LowerPipelineResult,
 } from "./_shared-types.js";
 import { nodeDurabilityFields } from "./_shared-durability.js";
-import { freshId, loweringMode, lowerChildren } from "./_shared-utils.js";
+import {
+  freshId,
+  loweringMode,
+  lowerChildren,
+  portsOf,
+} from "./_shared-utils.js";
 
 /**
  * action → look up resolved tool, emit ToolNode or AgentNode depending on kind.
@@ -52,7 +57,7 @@ export function lowerAction(
     const message = `lower/action: no resolved tool at path '${path}' (toolRef='${node.toolRef}')`;
     if (loweringMode(ctx) === "executable") {
       throw new Error(
-        `${message}; executable lowering rejects unresolved semantic references`,
+        `${message}; executable lowering rejects unresolved semantic references`
       );
     }
 
@@ -100,10 +105,7 @@ export function lowerAction(
   return { nodes: [toolNode], edges: [], warnings };
 }
 
-function flowNodeSource(
-  node: ActionNode,
-  path: string,
-): PipelineNodeSource {
+function flowNodeSource(node: ActionNode, path: string): PipelineNodeSource {
   return {
     kind: "flow-node",
     path,
@@ -128,7 +130,7 @@ export function lowerForEach(
 ): LowerPipelineResult {
   if (!ctx.allowForEach) {
     throw new Error(
-      `router-contract violation: for_each in flat target at ${path}`,
+      `router-contract violation: for_each in flat target at ${path}`
     );
   }
 
@@ -137,7 +139,7 @@ export function lowerForEach(
     node.body,
     ctx,
     (idx) => `${path}.body[${idx}]`,
-    lowerOne,
+    lowerOne
   );
   const bodyNodeIds = bodyResult.nodes.map((n) => n.id);
 
@@ -154,11 +156,24 @@ export function lowerForEach(
 
   // The loop node acts as the container; body nodes remain in the flat list
   // alongside it. Sequential edges from the body are kept.
+  //
+  // The loop contract discards the body's NORMAL tails (iteration control
+  // returns to the loop node), but the body's suspended/terminal exits are
+  // real outcomes of the fragment — a `complete` inside the body ends the
+  // whole flow — so the ports propagate them instead of swallowing them.
+  const bodyPorts = portsOf(bodyResult);
   return {
     nodes: [loopNode, ...bodyResult.nodes],
     edges: bodyResult.edges,
     warnings: bodyResult.warnings,
     tailNodeIds: [loopNode.id],
+    ports: {
+      entryNodeIds: [loopNode.id],
+      normalExits: [loopNode.id],
+      suspendedExits: bodyPorts.suspendedExits,
+      terminalExits: bodyPorts.terminalExits,
+      errorExits: bodyPorts.errorExits,
+    },
   };
 }
 
@@ -225,5 +240,17 @@ export function lowerComplete(
   };
   // Empty tailNodeIds: terminal — no sibling may be wired after complete,
   // otherwise resume would continue past it along the sequential edge.
-  return { nodes: [suspendNode], edges: [], warnings: [], tailNodeIds: [] };
+  return {
+    nodes: [suspendNode],
+    edges: [],
+    warnings: [],
+    tailNodeIds: [],
+    ports: {
+      entryNodeIds: [suspendNode.id],
+      normalExits: [],
+      suspendedExits: [],
+      terminalExits: [suspendNode.id],
+      errorExits: [],
+    },
+  };
 }
