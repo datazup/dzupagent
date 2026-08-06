@@ -39,15 +39,29 @@ export interface LoadedFlowCorpusSource extends FlowCorpusManifestEntry {
  * - `unparsable-source` - the corpus source itself did not parse, so the
  *                  formatter was never exercised.
  *
- * This is a MEASUREMENT, not a gate: it is deliberately excluded from
+ * This is a MEASUREMENT, not a gate BY DEFAULT: it is excluded from
  * `report.passed` so the qualifier stays usable while losslessness is still
- * being driven up. Ratchet on `roundTrip.lossless` instead.
+ * being driven up. Callers that have already reached a fidelity level ratchet
+ * it by passing `minLossless` — see {@link FlowCorpusQualificationOptions}.
  */
 export type FlowCorpusRoundTripStatus =
   | "lossless"
   | "lossy"
   | "not-reparsable"
   | "unparsable-source";
+
+/**
+ * Admission knobs for {@link qualifyFlowCorpusSources}.
+ *
+ * `minLossless` is the round-trip ratchet: the minimum number of corpus
+ * documents that must round-trip losslessly for `report.passed` to hold. It is
+ * opt-in precisely because the default contract is measure-don't-enforce; a
+ * caller that has driven the corpus to a given level passes that level here so
+ * a later regression fails loudly instead of silently sliding.
+ */
+export interface FlowCorpusQualificationOptions {
+  minLossless?: number;
+}
 
 export interface FlowCorpusQualificationItem {
   id: string;
@@ -83,8 +97,8 @@ export interface FlowCorpusQualificationReport {
     authoringOnly: number;
   };
   /**
-   * Formatter fidelity across the whole corpus. Reported, never gated — see
-   * {@link FlowCorpusRoundTripStatus}.
+   * Formatter fidelity across the whole corpus. Gated only when the caller
+   * supplies `minLossless` — see {@link FlowCorpusRoundTripStatus}.
    */
   roundTrip: {
     total: number;
@@ -92,6 +106,10 @@ export interface FlowCorpusQualificationReport {
     lossy: number;
     notReparsable: number;
     unparsableSource: number;
+    /** The enforced floor, or `null` when the ratchet is off. */
+    minLossless: number | null;
+    /** True when the ratchet is on and `lossless` fell below the floor. */
+    belowMinLossless: boolean;
   };
   items: FlowCorpusQualificationItem[];
 }
@@ -182,7 +200,15 @@ export async function qualifyFlowCorpusSources(
     FlowCompiler,
     "analyzeStrictReferenceMigration" | "compileDsl"
   >,
+  options: FlowCorpusQualificationOptions = {},
 ): Promise<FlowCorpusQualificationReport> {
+  const { minLossless } = options;
+  if (
+    minLossless !== undefined &&
+    (!Number.isInteger(minLossless) || minLossless < 0)
+  ) {
+    throw new Error("minLossless must be a non-negative integer");
+  }
   const migration = await compiler.analyzeStrictReferenceMigration(
     sources.map(({ id, source }) => ({ id, kind: "dsl", input: source })),
   );
@@ -258,24 +284,31 @@ export async function qualifyFlowCorpusSources(
   };
   const countRoundTrip = (status: FlowCorpusRoundTripStatus): number =>
     items.filter((item) => item.roundTripStatus === status).length;
+  const losslessCount = countRoundTrip("lossless");
+  const belowMinLossless =
+    minLossless !== undefined && losslessCount < minLossless;
   const roundTrip = {
     total: items.length,
-    lossless: countRoundTrip("lossless"),
+    lossless: losslessCount,
     lossy: countRoundTrip("lossy"),
     notReparsable: countRoundTrip("not-reparsable"),
     unparsableSource: countRoundTrip("unparsable-source"),
+    minLossless: minLossless ?? null,
+    belowMinLossless,
   };
   return {
     schema: FLOW_CORPUS_REPORT_SCHEMA,
     resolverMode: "corpus-documents",
-    // Round-trip fidelity is intentionally absent from this predicate: it is a
-    // tracked measurement, not an admission gate. See FlowCorpusRoundTripStatus.
+    // Round-trip fidelity gates this predicate ONLY when the caller opted in
+    // via `minLossless`; otherwise it stays a tracked measurement. See
+    // FlowCorpusRoundTripStatus.
     passed:
       summary.ready === summary.total &&
       summary.changesRequired === 0 &&
       summary.invalid === 0 &&
       summary.hashMismatches === 0 &&
-      summary.compileFailed === 0,
+      summary.compileFailed === 0 &&
+      !belowMinLossless,
     summary,
     roundTrip,
     items,
@@ -294,9 +327,15 @@ export function renderFlowCorpusQualificationMarkdown(
     "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     `| ${report.summary.total} | ${report.summary.ready} | ${report.summary.changesRequired} | ${report.summary.invalid} | ${report.summary.hashMismatches} | ${report.summary.compileReady} | ${report.summary.compileFailed} | ${report.summary.authoringOnly} |`,
     "",
-    "## Formatter round trip (measured, not gated)",
+    report.roundTrip.minLossless === null
+      ? "## Formatter round trip (measured, not gated)"
+      : `## Formatter round trip (gated: minimum ${report.roundTrip.minLossless} lossless)`,
     "",
-    `Lossless: **${report.roundTrip.lossless} / ${report.roundTrip.total}**`,
+    `Lossless: **${report.roundTrip.lossless} / ${report.roundTrip.total}**${
+      report.roundTrip.belowMinLossless
+        ? ` — **BELOW the required ${report.roundTrip.minLossless}**`
+        : ""
+    }`,
     "",
     "| Lossless | Lossy | Not reparsable | Unparsable source |",
     "| ---: | ---: | ---: | ---: |",

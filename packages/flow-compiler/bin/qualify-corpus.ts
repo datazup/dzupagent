@@ -16,6 +16,7 @@ interface CliArgs {
   manifest?: string;
   format: "json" | "markdown";
   output?: string;
+  minLossless?: number;
   help: boolean;
 }
 
@@ -88,7 +89,9 @@ async function main(): Promise<number> {
       },
       referencePolicy: "strict",
     });
-    const report = await qualifyFlowCorpusSources(sources, compiler);
+    const report = await qualifyFlowCorpusSources(sources, compiler, {
+      minLossless: args.minLossless,
+    });
     const output =
       args.format === "markdown"
         ? renderFlowCorpusQualificationMarkdown(report)
@@ -120,6 +123,12 @@ function parseArgs(argv: readonly string[]): CliArgs {
         throw new Error("--format must be json or markdown");
       }
       args.format = value;
+    } else if (arg === "--min-lossless") {
+      const value = requiredNext(argv, ++index, "--min-lossless");
+      if (!/^\d+$/.test(value)) {
+        throw new Error("--min-lossless must be a non-negative integer");
+      }
+      args.minLossless = Number(value);
     } else {
       throw new Error(`unknown argument: ${String(arg)}`);
     }
@@ -141,11 +150,16 @@ function usage(): string {
   return [
     "Usage: dzupagent-qualify-flow-corpus --manifest <path>",
     "       [--format json|markdown] [--output <path>]",
+    "       [--min-lossless <n>]",
     "",
     "Checks an explicit, hash-pinned DSL corpus with provider-free placeholder",
     "tool/persona resolvers and a corpus-backed subflow resolver. Exit 0 only",
     "when every hash matches, every source is strict-reference ready, and every",
     "compile-example compiles.",
+    "",
+    "--min-lossless ratchets formatter fidelity: exit nonzero if fewer than <n>",
+    "corpus documents round-trip losslessly. Omitted, round-trip fidelity is",
+    "measured and reported but never gated.",
   ].join("\n");
 }
 

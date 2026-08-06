@@ -152,6 +152,7 @@ export type {
   FlowCorpusManifest,
   FlowCorpusManifestEntry,
   FlowCorpusQualificationItem,
+  FlowCorpusQualificationOptions,
   FlowCorpusQualificationReport,
   FlowCorpusRoundTripStatus,
   LoadedFlowCorpusSource,

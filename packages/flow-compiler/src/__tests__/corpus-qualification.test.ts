@@ -293,6 +293,8 @@ describe("flow corpus qualification", () => {
         lossy: 0,
         notReparsable: 0,
         unparsableSource: 0,
+        minLossless: null,
+        belowMinLossless: false,
       });
       expect(report.items[0]).toMatchObject({
         roundTripStatus: "lossless",
@@ -301,6 +303,103 @@ describe("flow corpus qualification", () => {
       expect(renderFlowCorpusQualificationMarkdown(report)).toContain(
         "Lossless: **1 / 1**",
       );
+    });
+
+    describe("lossless ratchet", () => {
+      // An unparsable authoring-only entry is the fixture of choice: it is
+      // non-lossless while every OTHER admission dimension still passes
+      // (ready, hash-matched, no compile required). So `passed` here can only
+      // be flipped by the ratchet — nothing else is failing.
+      const NON_LOSSLESS = {
+        id: "unparsable",
+        path: "unparsable.yaml",
+        sha256: hashFlowCorpusSource("not: a: valid: flow"),
+        qualification: "authoring-only" as const,
+        source: "not: a: valid: flow",
+      };
+      // The ACCEPTING control on the same axis: parses and round-trips
+      // losslessly, so a floor of 1 is met rather than breached.
+      const LOSSLESS = {
+        id: "qualified",
+        path: "qualified.yaml",
+        sha256: hashFlowCorpusSource(VALID_DSL),
+        qualification: "compile-example" as const,
+        source: VALID_DSL,
+      };
+
+      it("stays ungated when no floor is supplied", async () => {
+        const report = await qualifyFlowCorpusSources([NON_LOSSLESS], compiler);
+
+        // 0 lossless yet still passing — this is the default contract.
+        expect(report.roundTrip.lossless).toBe(0);
+        expect(report.passed).toBe(true);
+        expect(report.roundTrip.minLossless).toBeNull();
+        expect(report.roundTrip.belowMinLossless).toBe(false);
+        expect(renderFlowCorpusQualificationMarkdown(report)).toContain(
+          "measured, not gated",
+        );
+      });
+
+      it("fails when lossless count falls below the floor", async () => {
+        const report = await qualifyFlowCorpusSources([NON_LOSSLESS], compiler, {
+          minLossless: 1,
+        });
+
+        expect(report.roundTrip).toMatchObject({
+          lossless: 0,
+          minLossless: 1,
+          belowMinLossless: true,
+        });
+        expect(report.passed).toBe(false);
+        // Every non-round-trip dimension is still clean, proving the ratchet —
+        // not some unrelated failure — is what flipped the verdict.
+        expect(report.summary).toMatchObject({
+          ready: 1,
+          changesRequired: 0,
+          invalid: 0,
+          hashMismatches: 0,
+          compileFailed: 0,
+        });
+        const markdown = renderFlowCorpusQualificationMarkdown(report);
+        expect(markdown).toContain("gated: minimum 1 lossless");
+        expect(markdown).toContain("BELOW the required 1");
+      });
+
+      it("passes when the floor is exactly met", async () => {
+        const report = await qualifyFlowCorpusSources([LOSSLESS], compiler, {
+          minLossless: 1,
+        });
+
+        expect(report.roundTrip).toMatchObject({
+          lossless: 1,
+          minLossless: 1,
+          belowMinLossless: false,
+        });
+        expect(report.passed).toBe(true);
+      });
+
+      it("passes when a floor of zero is supplied", async () => {
+        // Distinguishes an explicit 0 from an omitted option: 0 is a real,
+        // enforced floor that happens to be satisfiable, not "gating off".
+        const report = await qualifyFlowCorpusSources([NON_LOSSLESS], compiler, {
+          minLossless: 0,
+        });
+
+        expect(report.passed).toBe(true);
+        expect(report.roundTrip.minLossless).toBe(0);
+        expect(renderFlowCorpusQualificationMarkdown(report)).toContain(
+          "gated: minimum 0 lossless",
+        );
+      });
+
+      it("rejects a floor that is not a non-negative integer", async () => {
+        await expect(
+          qualifyFlowCorpusSources([LOSSLESS], compiler, { minLossless: -1 }),
+        ).rejects.toThrow("minLossless must be a non-negative integer");
+        await expect(
+          qualifyFlowCorpusSources([LOSSLESS], compiler, { minLossless: 1.5 }),
+        ).rejects.toThrow("minLossless must be a non-negative integer");
+      });
     });
   });
 
