@@ -43,6 +43,8 @@ export function formatInteractionNode(
           `${childIndent}options: [${node.options.map(quote).join(", ")}]`
         );
       }
+      if (node.approvalClass !== undefined)
+        lines.push(`${childIndent}approvalClass: ${node.approvalClass}`);
       lines.push(`${childIndent}on_approve:`);
       for (const child of node.onApprove)
         formatNode(lines, child, indentLevel + 3);
@@ -90,9 +92,14 @@ export function formatInteractionNode(
     case "spawn":
       lines.push(`${indent}- spawn:`);
       pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}template: ${node.templateRef}`);
+      // The normalizer admits `templateRef`/`template_ref` only — the old
+      // `template:`/`wait:` spellings were silently dropped on reparse.
+      lines.push(`${childIndent}templateRef: ${node.templateRef}`);
+      if (node.input && Object.keys(node.input).length > 0) {
+        lines.push(`${childIndent}input: ${formatScalar(node.input)}`);
+      }
       if (node.waitForCompletion !== undefined)
-        lines.push(`${childIndent}wait: ${node.waitForCompletion}`);
+        lines.push(`${childIndent}waitForCompletion: ${node.waitForCompletion}`);
       return;
     case "classify":
       lines.push(`${indent}- classify:`);
@@ -122,7 +129,15 @@ export function formatInteractionNode(
       lines.push(`${childIndent}operation: ${node.operation}`);
       lines.push(`${childIndent}tier: ${node.tier}`);
       if (node.key) lines.push(`${childIndent}key: ${quote(node.key)}`);
-      if (node.outputVar) lines.push(`${childIndent}output: ${node.outputVar}`);
+      if (node.valueExpr !== undefined)
+        pushTextField(lines, indentLevel + 2, "valueExpr", node.valueExpr);
+      if (node.query !== undefined)
+        pushTextField(lines, indentLevel + 2, "query", node.query);
+      if (node.limit !== undefined)
+        lines.push(`${childIndent}limit: ${node.limit}`);
+      // `outputVar` is the admitted spelling; `output:` was dropped on reparse.
+      if (node.outputVar)
+        lines.push(`${childIndent}outputVar: ${node.outputVar}`);
       return;
     case "set":
       lines.push(`${indent}- set:`);
@@ -159,6 +174,17 @@ export function formatInteractionNode(
       pushCommon(lines, node, indentLevel + 2);
       lines.push(`${childIndent}url: ${quote(node.url)}`);
       if (node.method) lines.push(`${childIndent}method: ${node.method}`);
+      if (node.headers && Object.keys(node.headers).length > 0) {
+        lines.push(`${childIndent}headers:`);
+        for (const [key, value] of Object.entries(node.headers)) {
+          lines.push(`${childIndent}  ${key}: ${formatScalar(value)}`);
+        }
+      }
+      if (node.body && Object.keys(node.body).length > 0) {
+        lines.push(`${childIndent}body: ${formatScalar(node.body)}`);
+      }
+      if (node.timeoutMs !== undefined)
+        lines.push(`${childIndent}timeoutMs: ${node.timeoutMs}`);
       if (node.auth) {
         lines.push(`${childIndent}auth:`);
         lines.push(`${childIndent}  scheme: ${node.auth.scheme}`);
@@ -177,7 +203,8 @@ export function formatInteractionNode(
           );
         }
       }
-      if (node.outputVar) lines.push(`${childIndent}output: ${node.outputVar}`);
+      if (node.outputVar)
+        lines.push(`${childIndent}outputVar: ${node.outputVar}`);
       return;
     case "subflow":
       lines.push(`${indent}- subflow:`);

@@ -112,6 +112,43 @@ export function quote(value: string): string {
   return JSON.stringify(value);
 }
 
+/**
+ * Emit a plain-object value as a nested YAML block: sub-objects recurse into
+ * deeper blocks; scalars and arrays go through {@link formatScalar}.
+ * `undefined` entries are skipped. Empty objects emit `key: {}` so the
+ * authored (empty) value still round-trips.
+ */
+export function pushObjectBlock(
+  lines: string[],
+  indentLevel: number,
+  key: string,
+  value: Record<string, unknown>
+): void {
+  const indent = indentFor(indentLevel);
+  const entries = Object.entries(value).filter(([, v]) => v !== undefined);
+  if (entries.length === 0) {
+    lines.push(`${indent}${key}: {}`);
+    return;
+  }
+  lines.push(`${indent}${key}:`);
+  for (const [entryKey, entryValue] of entries) {
+    if (
+      typeof entryValue === "object" &&
+      entryValue !== null &&
+      !Array.isArray(entryValue)
+    ) {
+      pushObjectBlock(
+        lines,
+        indentLevel + 1,
+        entryKey,
+        entryValue as Record<string, unknown>
+      );
+    } else {
+      lines.push(`${indent}  ${entryKey}: ${formatScalar(entryValue)}`);
+    }
+  }
+}
+
 export function formatScalar(value: unknown): string {
   if (typeof value === "string") return quote(value);
   if (typeof value === "number" || typeof value === "boolean")

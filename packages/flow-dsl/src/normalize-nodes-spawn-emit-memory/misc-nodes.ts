@@ -28,6 +28,8 @@ const HTTP_KEYS = new Set<string>([
   "auth",
   "outputVar",
   "output_var",
+  "timeoutMs",
+  "timeout_ms",
 ]);
 
 export function normalizeHttp(
@@ -113,6 +115,20 @@ export function normalizeHttp(
 
   const outputVarRaw = raw.outputVar ?? raw.output_var;
   if (typeof outputVarRaw === "string") node.outputVar = outputVarRaw;
+
+  const timeoutRaw = raw.timeoutMs ?? raw.timeout_ms;
+  if (timeoutRaw !== undefined) {
+    if (typeof timeoutRaw === "number" && timeoutRaw > 0) {
+      node.timeoutMs = timeoutRaw;
+    } else {
+      diagnostics.push({
+        phase: "normalize",
+        code: DSL_ERROR.INVALID_NODE_SHAPE,
+        message: "http.timeoutMs must be a positive number",
+        path: `${path}.timeoutMs`,
+      });
+    }
+  }
 
   return node;
 }

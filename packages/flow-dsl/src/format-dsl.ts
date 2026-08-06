@@ -4,6 +4,7 @@ import type { DslDiagnostic } from "./types.js";
 import {
   formatScalar,
   pushField,
+  pushObjectBlock,
   pushTextField,
   quote,
   type FormatContext,
@@ -60,6 +61,14 @@ export function formatDocumentToDsl(document: FlowDocumentV1): string {
         lines.push(`    delayMs: ${document.defaults.retry.delayMs}`);
       }
     }
+  }
+  if (document.durability !== undefined) {
+    pushObjectBlock(
+      lines,
+      0,
+      "durability",
+      document.durability as Record<string, unknown>
+    );
   }
   if (document.tags && document.tags.length > 0) {
     lines.push(`tags: [${document.tags.map(quote).join(", ")}]`);
