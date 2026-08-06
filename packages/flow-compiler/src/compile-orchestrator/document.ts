@@ -48,7 +48,7 @@ import { extractFragmentExpansions } from "./evidence.js";
  */
 export async function runCompileDocument(
   deps: CompileOrchestratorDeps,
-  document: unknown,
+  document: unknown
 ): Promise<CompileSuccess | CompileFailure> {
   const prepared = prepareFlowInputFromDocument(document);
   if (!prepared.ok) {
@@ -92,9 +92,9 @@ export async function runCompileDocument(
       bindings: deriveDocumentReferenceBindings(document as FlowDocumentV1),
       types: deriveDocumentReferenceTypeBindings(document as FlowDocumentV1),
       classifications: deriveDocumentReferenceClassificationBindings(
-        document as FlowDocumentV1,
+        document as FlowDocumentV1
       ),
-    },
+    }
   );
 
   if ("errors" in result) return result;
@@ -157,7 +157,7 @@ export async function runCompileDocument(
  */
 export async function runCompileDsl(
   deps: CompileOrchestratorDeps,
-  source: unknown,
+  source: unknown
 ): Promise<CompileSuccess | CompileFailure> {
   const prepared = prepareFlowInputFromDsl(source, {
     ...(deps.opts.primitiveRegistry === undefined
@@ -188,7 +188,7 @@ export async function runCompileDsl(
           bindings: deriveDocumentReferenceBindings(prepared.document),
           types: deriveDocumentReferenceTypeBindings(prepared.document),
           classifications: deriveDocumentReferenceClassificationBindings(
-            prepared.document,
+            prepared.document
           ),
           ...(prepared.sourceMap !== undefined
             ? { dslSourceMap: prepared.sourceMap }
@@ -214,7 +214,7 @@ export async function runCompileDsl(
                 dslV2MultiPortSaves: prepared.frontend.multiPortSaves,
               }),
         }
-      : {},
+      : {}
   );
 
   if ("errors" in result) return result;
@@ -232,10 +232,13 @@ export async function runCompileDsl(
   // bytes and can fail compilation. Bringing them to the DSL path is a
   // behavioural change that needs its own slice and golden-artifact evidence.
   //
-  // Note the DSL grammar admits `durability` but not `policy` (flow-dsl
-  // `TOP_LEVEL_KEYS`), so `documentPolicy` is currently always undefined here.
-  // It is extracted anyway so that admitting `policy` into the grammar later
-  // needs no second fix in this file.
+  // The DSL grammar now admits `policy` alongside `durability` (flow-dsl
+  // `TOP_LEVEL_KEYS`, G-C2), so a DSL-authored budget/timeout ceiling reaches
+  // `documentPolicy` here instead of being silently dropped. The extraction
+  // below was already written to anticipate that, so admitting the key into the
+  // grammar needed no change in this file — see
+  // `__tests__/document-policy-ceiling.test.ts`, which pins the ceiling on the
+  // compiled artifact rather than merely on the normalized document.
   const documentPolicy = extractDocumentPolicy(prepared.document);
   const documentDurability = extractDocumentDurability(prepared.document);
 
@@ -256,7 +259,7 @@ export async function runCompileDsl(
  * cast is safe. Returns `undefined` when the field is absent.
  */
 function extractDocumentPolicy(
-  document: unknown,
+  document: unknown
 ): FlowDocumentPolicy | undefined {
   if (typeof document !== "object" || document === null) return undefined;
   const raw = (document as Record<string, unknown>)["policy"];
@@ -278,7 +281,7 @@ function extractDocumentPolicy(
  * when present and an object — is well-typed; we pass it through verbatim.
  */
 function extractDocumentDurability(
-  document: unknown,
+  document: unknown
 ): FlowDurabilityPolicy | undefined {
   if (typeof document !== "object" || document === null) return undefined;
   const raw = (document as Record<string, unknown>)["durability"];

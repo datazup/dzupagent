@@ -62,6 +62,14 @@ export function formatDocumentToDsl(document: FlowDocumentV1): string {
       }
     }
   }
+  if (document.policy !== undefined) {
+    pushObjectBlock(
+      lines,
+      0,
+      "policy",
+      document.policy as Record<string, unknown>
+    );
+  }
   if (document.durability !== undefined) {
     pushObjectBlock(
       lines,
@@ -123,7 +131,12 @@ export function formatDocumentToDslChecked(
   const lossPaths: string[] = [];
   collectLossPaths(document, reparsed.document, "document", lossPaths);
   if (lossPaths.length > 0) {
-    return { ok: false, dsl, lossPaths, diagnostics: [...reparsed.diagnostics] };
+    return {
+      ok: false,
+      dsl,
+      lossPaths,
+      diagnostics: [...reparsed.diagnostics],
+    };
   }
   return { ok: true, dsl };
 }

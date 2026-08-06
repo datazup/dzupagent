@@ -34,16 +34,18 @@ const TOP_LEVEL_KEYS = new Set([
   "tags",
   "meta",
   "uses",
+  "policy",
   "durability",
   "steps",
 ]);
 
 export function normalizeDslDocument(
   raw: unknown,
-  options: NormalizeDslDocumentOptions = {},
+  options: NormalizeDslDocumentOptions = {}
 ): NormalizeDslResult {
   const diagnostics: DslDiagnostic[] = [];
-  const fragmentRegistry = options.fragmentRegistry ?? BUILT_IN_FRAGMENT_REGISTRY;
+  const fragmentRegistry =
+    options.fragmentRegistry ?? BUILT_IN_FRAGMENT_REGISTRY;
   if (!isPlainObject(raw)) {
     diagnostics.push({
       phase: "normalize",
@@ -82,19 +84,26 @@ export function normalizeDslDocument(
   const defaults = normalizeDefaults(raw.defaults, diagnostics);
   const tags = normalizeStringArray(raw.tags, "root.tags", diagnostics);
   const meta = normalizeObject(raw.meta, "root.meta", diagnostics);
+  // G-C2: carry the top-level `policy` block (budgetCents/timeoutMs/
+  // workingDirectory) through. Until this was admitted the DSL path dropped a
+  // real spend ceiling silently — `extractDocumentPolicy` in flow-compiler was
+  // already wired but always saw `undefined`. Mirrors `durability` below: deep
+  // field validation belongs to flow-ast `validateDocument`; here we only
+  // ensure it is a plain object and pass it on.
+  const policy = normalizeObject(raw.policy, "root.policy", diagnostics);
   // P0 durability contract: carry the top-level `durability` block through.
   // Deep field validation happens in flow-ast `validateDocument`; here we only
   // ensure it is a plain object and pass it on.
   const durability = normalizeObject(
     raw.durability,
     "root.durability",
-    diagnostics,
+    diagnostics
   );
   const uses = normalizePrimitiveImports(
     raw.uses,
     diagnostics,
     options.primitiveRegistry ?? DEFAULT_PRIMITIVE_REGISTRY,
-    fragmentRegistry,
+    fragmentRegistry
   );
 
   const dslDeclared = typeof raw.dsl === "string" ? raw.dsl : undefined;
@@ -129,6 +138,9 @@ export function normalizeDslDocument(
         ? { fragmentUses: uses.fragmentUses }
         : {}),
     };
+  }
+  if (policy !== undefined) {
+    doc.policy = policy as FlowDocumentV1["policy"];
   }
   if (durability !== undefined) {
     doc.durability = durability as FlowDocumentV1["durability"];
