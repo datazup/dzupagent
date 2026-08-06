@@ -308,19 +308,15 @@ describe("flow corpus qualification", () => {
     });
 
     describe("lossless ratchet", () => {
-      // An unparsable authoring-only entry is the fixture of choice: it is
-      // non-lossless while every OTHER admission dimension still passes
-      // (ready, hash-matched, no compile required). So `passed` here can only
-      // be flipped by the ratchet — nothing else is failing.
-      const NON_LOSSLESS = {
-        id: "unparsable",
-        path: "unparsable.yaml",
-        sha256: hashFlowCorpusSource("not: a: valid: flow"),
-        qualification: "authoring-only" as const,
-        source: "not: a: valid: flow",
-      };
-      // The ACCEPTING control on the same axis: parses and round-trips
-      // losslessly, so a floor of 1 is met rather than breached.
+      // A fully admissible fixture: strict-ready, hash-matched, compiles, and
+      // round-trips losslessly. Holding every dimension ACCEPTING means the
+      // only thing that can flip `passed` in this suite is the floor itself.
+      //
+      // Note the corpus codec is currently lossless on every parseable input,
+      // so a "non-lossless yet otherwise admissible" fixture does not exist to
+      // construct: an unparsable source is also `invalid`/not-`ready`, which
+      // would fail admission on its own and make a ratchet assertion vacuous.
+      // The floor is therefore varied instead of the document.
       const LOSSLESS = {
         id: "qualified",
         path: "qualified.yaml",
@@ -330,10 +326,8 @@ describe("flow corpus qualification", () => {
       };
 
       it("stays ungated when no floor is supplied", async () => {
-        const report = await qualifyFlowCorpusSources([NON_LOSSLESS], compiler);
+        const report = await qualifyFlowCorpusSources([LOSSLESS], compiler);
 
-        // 0 lossless yet still passing — this is the default contract.
-        expect(report.roundTrip.lossless).toBe(0);
         expect(report.passed).toBe(true);
         expect(report.roundTrip.minLossless).toBeNull();
         expect(report.roundTrip.belowMinLossless).toBe(false);
@@ -342,19 +336,20 @@ describe("flow corpus qualification", () => {
         );
       });
 
-      it("fails when lossless count falls below the floor", async () => {
-        const report = await qualifyFlowCorpusSources([NON_LOSSLESS], compiler, {
-          minLossless: 1,
+      it("fails when the lossless count falls below the floor", async () => {
+        // 1 lossless document against a floor of 2 — the REJECTING case.
+        const report = await qualifyFlowCorpusSources([LOSSLESS], compiler, {
+          minLossless: 2,
         });
 
         expect(report.roundTrip).toMatchObject({
-          lossless: 0,
-          minLossless: 1,
+          lossless: 1,
+          minLossless: 2,
           belowMinLossless: true,
         });
         expect(report.passed).toBe(false);
-        // Every non-round-trip dimension is still clean, proving the ratchet —
-        // not some unrelated failure — is what flipped the verdict.
+        // Every non-round-trip dimension is clean, proving the ratchet — not
+        // some unrelated failure — is what flipped the verdict.
         expect(report.summary).toMatchObject({
           ready: 1,
           changesRequired: 0,
@@ -363,11 +358,13 @@ describe("flow corpus qualification", () => {
           compileFailed: 0,
         });
         const markdown = renderFlowCorpusQualificationMarkdown(report);
-        expect(markdown).toContain("gated: minimum 1 lossless");
-        expect(markdown).toContain("BELOW the required 1");
+        expect(markdown).toContain("gated: minimum 2 lossless");
+        expect(markdown).toContain("BELOW the required 2");
       });
 
       it("passes when the floor is exactly met", async () => {
+        // The boundary: floor === lossless count must ACCEPT, so the
+        // comparison is `<` and not `<=`.
         const report = await qualifyFlowCorpusSources([LOSSLESS], compiler, {
           minLossless: 1,
         });
@@ -378,12 +375,17 @@ describe("flow corpus qualification", () => {
           belowMinLossless: false,
         });
         expect(report.passed).toBe(true);
+        expect(renderFlowCorpusQualificationMarkdown(report)).toContain(
+          "gated: minimum 1 lossless",
+        );
       });
 
-      it("passes when a floor of zero is supplied", async () => {
-        // Distinguishes an explicit 0 from an omitted option: 0 is a real,
-        // enforced floor that happens to be satisfiable, not "gating off".
-        const report = await qualifyFlowCorpusSources([NON_LOSSLESS], compiler, {
+      it("treats an explicit floor of zero as gating, not as gating off", async () => {
+        // Distinguishes `minLossless: 0` from an omitted option: 0 is a real
+        // enforced floor that happens to be satisfiable. If the implementation
+        // used a falsy check instead of `!== undefined`, the heading below
+        // would read "measured, not gated".
+        const report = await qualifyFlowCorpusSources([LOSSLESS], compiler, {
           minLossless: 0,
         });
 
