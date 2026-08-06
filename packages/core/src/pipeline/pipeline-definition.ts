@@ -175,6 +175,24 @@ export interface LoopNode extends PipelineNodeBase {
       aggregate: "empty-array";
     };
   };
+  /**
+   * Compile-time contract for a lowered typed-condition `loop` flow node
+   * (F-R4). Carries the canonical typed condition so a runtime holding a
+   * reviewed `flow.typedCondition` evaluator can decide continuation without
+   * re-reading the source AST. `condition` is kept structural here — core
+   * cannot depend on flow-ast — and is validated upstream by the compiler.
+   * Runtimes without a reviewed evaluator fail closed: the generated
+   * `continuePredicateName` is never auto-registered, so execution throws
+   * instead of iterating on unevaluated semantics.
+   */
+  typedWhile?: {
+    conditionSchema: "dzupagent.flowTypedCondition/v1";
+    condition: Record<string, unknown>;
+    /** Exhaustion policy: `fail` throws when maxIterations is reached. */
+    onExhausted: "fail" | "continue";
+    /** Step ID tracked for no-progress detection across iterations. */
+    progressKey?: string;
+  };
 }
 
 export interface SuspendNode extends PipelineNodeBase {

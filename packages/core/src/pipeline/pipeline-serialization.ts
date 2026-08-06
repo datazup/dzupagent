@@ -101,6 +101,14 @@ export const LoopNodeSchema = PipelineNodeBaseSchema.extend({
       }),
     })
     .optional(),
+  typedWhile: z
+    .object({
+      conditionSchema: z.literal("dzupagent.flowTypedCondition/v1"),
+      condition: z.record(z.string(), z.unknown()),
+      onExhausted: z.enum(["fail", "continue"]),
+      progressKey: z.string().min(1).optional(),
+    })
+    .optional(),
 });
 
 export const SuspendNodeSchema = PipelineNodeBaseSchema.extend({

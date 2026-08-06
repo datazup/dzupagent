@@ -14,6 +14,7 @@ import type {
   CompleteNode,
   FlowNode,
   ForEachNode,
+  LoopNode as FlowLoopNode,
 } from "@dzupagent/flow-ast";
 import type {
   AgentNode,
@@ -161,6 +162,91 @@ export function lowerForEach(
   // returns to the loop node), but the body's suspended/terminal exits are
   // real outcomes of the fragment — a `complete` inside the body ends the
   // whole flow — so the ports propagate them instead of swallowing them.
+  const bodyPorts = portsOf(bodyResult);
+  return {
+    nodes: [loopNode, ...bodyResult.nodes],
+    edges: bodyResult.edges,
+    warnings: bodyResult.warnings,
+    tailNodeIds: [loopNode.id],
+    ports: {
+      entryNodeIds: [loopNode.id],
+      normalExits: [loopNode.id],
+      suspendedExits: bodyPorts.suspendedExits,
+      terminalExits: bodyPorts.terminalExits,
+      errorExits: bodyPorts.errorExits,
+    },
+  };
+}
+
+/**
+ * loop with a canonical typed condition — emit a LoopNode wrapping the
+ * lowered body (F-R4), mirroring lowerForEach. The typed condition rides the
+ * artifact as the `typedWhile` compile-time contract so a runtime holding a
+ * reviewed evaluator can decide continuation without re-reading the AST.
+ * The continue predicate keeps the registered-name indirection: a host that
+ * never registers it fails closed at execution instead of iterating on
+ * semantics it cannot evaluate. String-condition loops never reach here —
+ * the composite dispatcher keeps their legacy flattened lowering.
+ */
+export function lowerTypedLoop(
+  node: FlowLoopNode,
+  ctx: LowerPipelineContext,
+  path: string,
+  lowerOne: (
+    child: FlowNode,
+    ctx: LowerPipelineContext,
+    path: string
+  ) => LowerPipelineResult
+): LowerPipelineResult {
+  if (!ctx.allowForEach) {
+    throw new Error(
+      `router-contract violation: typed loop in flat target at ${path}`
+    );
+  }
+  const typedCondition = node.typedCondition;
+  if (typedCondition === undefined) {
+    throw new Error(
+      `lowerTypedLoop: loop at ${path} has no typedCondition — dispatcher contract violated`
+    );
+  }
+
+  const bodyResult = lowerChildren(
+    node.body,
+    ctx,
+    (idx) => `${path}.body[${idx}]`,
+    lowerOne
+  );
+  const bodyNodeIds = bodyResult.nodes.map((n) => n.id);
+
+  const loopNode: LoopNode = {
+    id: freshId(ctx),
+    type: "loop",
+    name: `loop:${node.id ?? path}`,
+    bodyNodeIds,
+    maxIterations: node.maxIterations ?? 100,
+    continuePredicateName: `loopTyped__${node.id ?? path}__predicate`,
+    // Exhaustion is fail-closed: a typed while-loop hitting maxIterations
+    // means its condition never released — silently continuing would commit
+    // downstream effects on a state the author declared not-ready. An
+    // author-facing onExhausted override is R4-remainder for the R4+R6 join.
+    failOnMaxIterations: true,
+    typedWhile: {
+      conditionSchema: typedCondition.schema,
+      condition: typedCondition.expression as unknown as Record<
+        string,
+        unknown
+      >,
+      onExhausted: "fail",
+      ...(node.progressKey !== undefined
+        ? { progressKey: node.progressKey }
+        : {}),
+    },
+    ...nodeDurabilityFields(node),
+  };
+
+  // Same port contract as lowerForEach: iteration control returns to the
+  // loop node (body NORMAL tails are discarded) while suspended/terminal
+  // exits of the body remain real outcomes of the fragment.
   const bodyPorts = portsOf(bodyResult);
   return {
     nodes: [loopNode, ...bodyResult.nodes],

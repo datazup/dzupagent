@@ -21,6 +21,7 @@ import {
   lowerClarification,
   lowerComplete,
   lowerForEach,
+  lowerTypedLoop,
 } from "./_shared-leaf.js";
 import {
   lowerBranch,
@@ -133,7 +134,12 @@ function lowerNodeVariant(
       return lowerTryCatch(node, ctx, path, lowerNodeToPipeline);
 
     case "loop":
-      // loop body is lowered as a sequence; condition evaluation is runtime-only.
+      // F-R4: a typed condition lowers to a real LoopNode carrying the
+      // typedWhile contract. Legacy string-condition loops keep the
+      // flattened lowering; their condition evaluation is runtime-only.
+      if (node.typedCondition !== undefined) {
+        return lowerTypedLoop(node, ctx, path, lowerNodeToPipeline);
+      }
       return lowerChildren(
         node.body,
         ctx,
