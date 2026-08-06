@@ -324,9 +324,77 @@ describe('F-R2 trace agreement: terminal exits end the run', () => {
   })
 })
 
+/**
+ * action → try_catch(body: action / catch: action), try_catch last so the
+ * catch tail is both a normal tail of the root fragment and its one pinned
+ * error exit (F-R2c).
+ */
+const ERROR_FLOW = {
+  type: 'sequence',
+  nodes: [
+    { type: 'action', toolRef: 'topics.get', input: { id: 'topic-ts' } },
+    {
+      type: 'try_catch',
+      body: [{ type: 'action', toolRef: 'topics.search', input: { query: 'ts' } }],
+      catch: [{ type: 'action', toolRef: 'topics.list', input: {} }],
+    },
+  ],
+}
+
+describe('F-R2c trace agreement: error exits land the error path', () => {
+  it('a failing body node routes the live run into the catch and ends at the pinned error exit', async () => {
+    const { definition, ports } = await compileToPipeline(ERROR_FLOW)
+
+    // Compiled claims: one error exit (the catch tail), which — sitting at
+    // the fragment boundary — is also among the normal tails.
+    expect(ports.errorExits).toHaveLength(1)
+    const errorExitId = ports.errorExits[0] as string
+    expect(ports.normalExits).toContain(errorExitId)
+
+    const harness = makeTraceHarness(definition)
+    // Only the try body fails; everything else executes normally.
+    const failingRuntime = new PipelineRuntime({
+      definition,
+      checkpointStore: harness.store,
+      onEvent: (event) => harness.events.push(event),
+      nodeExecutor: async (nodeId, node) => {
+        const name = (node as PipelineNode).name ?? nodeId
+        harness.executedNames.push(name)
+        harness.executedIds.push(nodeId)
+        if (name === 'topics.search') {
+          throw new Error('search backend down')
+        }
+        return { nodeId, output: { ok: true }, durationMs: 0 }
+      },
+    })
+
+    const result = await failingRuntime.execute()
+
+    // A handled error resumes: the run COMPLETES through the catch.
+    expect(result.state).toBe('completed')
+    expect(harness.executedNames).toContain('topics.list')
+    expect(harness.executedIds[harness.executedIds.length - 1]).toBe(
+      errorExitId,
+    )
+  })
+
+  it('without a failure the catch never runs and the run ends at a non-error normal exit', async () => {
+    const { definition, ports } = await compileToPipeline(ERROR_FLOW)
+
+    const harness = makeTraceHarness(definition)
+    const result = await harness.runtime.execute()
+
+    expect(result.state).toBe('completed')
+    expect(harness.executedNames).not.toContain('topics.list')
+    const lastId = harness.executedIds[harness.executedIds.length - 1]
+    expect(ports.normalExits).toContain(lastId)
+    expect(ports.errorExits).not.toContain(lastId)
+  })
+})
+
 describe('F-R2 trace agreement: ports reference real artifact nodes', () => {
   it('every pinned port id resolves to a node in the compiled definition', async () => {
-    for (const flow of [APPROVAL_FLOW, TERMINAL_FLOW]) {
+    for (const flow of [APPROVAL_FLOW, TERMINAL_FLOW, ERROR_FLOW]) {
       const { definition, ports } = await compileToPipeline(flow)
       const ids = new Set(definition.nodes.map((n) => n.id))
       for (const portClass of [

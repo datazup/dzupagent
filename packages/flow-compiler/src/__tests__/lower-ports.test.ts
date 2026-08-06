@@ -242,18 +242,19 @@ describe("entry ports", () => {
   });
 });
 
-describe("error exits are reserved (no ErrorEdge production today)", () => {
-  it("keeps errorExits empty for try_catch and never lowers the catch list", () => {
+describe("error exits are produced by try_catch (F-R2c, deliberate)", () => {
+  // This block previously pinned errorExits as reserved-empty and the catch
+  // list as never-lowered; error-path lowering shipped, so the pin is now the
+  // positive claim. Full behaviour lives in lower-try-catch.test.ts.
+  it("lowers the catch list and classifies its tail as the error exit", () => {
     const result = lower({
       type: "try_catch",
       body: [makeAction("attempt")],
       catch: [makeAction("recover")],
     });
-    expect(result.ports?.errorExits).toEqual([]);
-    // The catch branch is runtime-only: its action must NOT appear in the
-    // lowered node list. When error-path lowering ships, this pin forces a
-    // deliberate update here and in the port model.
-    expect(result.nodes.some((n) => n.name?.includes("recover"))).toBe(false);
-    expect(result.edges.every((e) => e.type !== "error")).toBe(true);
+    const recover = result.nodes.find((n) => n.name === "recover");
+    expect(recover).toBeDefined();
+    expect(result.ports?.errorExits).toEqual([recover?.id]);
+    expect(result.edges.some((e) => e.type === "error")).toBe(true);
   });
 });

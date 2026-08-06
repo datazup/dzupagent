@@ -1,14 +1,19 @@
 /**
  * _shared-control.ts — Per-variant lowerers for control-flow composite
- * nodes: sequence, branch, parallel.
+ * nodes: sequence, branch, parallel, try_catch.
  *
  * These lowerers own multiple child sub-graphs and stitch them with
- * sequential or conditional edges around gate/fork/join nodes.
+ * sequential, conditional, or error edges around gate/fork/join nodes.
  *
  * @module lower/_shared-control
  */
 
-import type { BranchNode, FlowNode, ParallelNode } from "@dzupagent/flow-ast";
+import type {
+  BranchNode,
+  FlowNode,
+  ParallelNode,
+  TryCatchNode,
+} from "@dzupagent/flow-ast";
 import type {
   ForkNode,
   GateNode,
@@ -22,7 +27,13 @@ import type {
   LowerPipelineResult,
 } from "./_shared-types.js";
 import { nodeDurabilityFields } from "./_shared-durability.js";
-import { freshId, lowerChildren, portsOf, seqEdge } from "./_shared-utils.js";
+import {
+  effectiveTails,
+  freshId,
+  lowerChildren,
+  portsOf,
+  seqEdge,
+} from "./_shared-utils.js";
 
 type LowerOne = (
   child: FlowNode,
@@ -241,6 +252,107 @@ export function lowerParallel(
       suspendedExits,
       terminalExits,
       errorExits,
+    },
+  };
+}
+
+/**
+ * try_catch → body sub-graph + catch sub-graph joined by catch-all
+ * ErrorEdges (F-R2c, the first deliberate ErrorEdge production): every node
+ * the body fragment lowered gets an error edge to the catch entry, so the
+ * runtime's error routing (`getErrorTarget`) lands in the catch fragment
+ * instead of failing the run. No sequential edge enters the catch — it is
+ * reachable only via the error path.
+ *
+ * A handled error RESUMES: the fragment's tails are body tails + catch
+ * tails, and the catch tails are also published as `ports.errorExits`. The
+ * error set refines WHICH continuations are error-path ones without
+ * breaking the `normalExits === effectiveTails` invariant. Suspended and
+ * terminal exits from both sub-graphs compose upward unchanged, so a catch
+ * that deliberately ends the flow (`complete`) contributes a terminal exit
+ * and no error exit.
+ */
+export function lowerTryCatch(
+  node: TryCatchNode,
+  ctx: LowerPipelineContext,
+  path: string,
+  lowerOne: LowerOne
+): LowerPipelineResult {
+  const bodyResult = lowerChildren(
+    node.body,
+    ctx,
+    (idx) => `${path}.body[${idx}]`,
+    lowerOne
+  );
+  const catchResult = lowerChildren(
+    node.catch,
+    ctx,
+    (idx) => `${path}.catch[${idx}]`,
+    lowerOne
+  );
+
+  const warnings = [...bodyResult.warnings, ...catchResult.warnings];
+
+  if (node.errorVar !== undefined && catchResult.nodes.length > 0) {
+    warnings.push(
+      `lower/try_catch: errorVar ${JSON.stringify(node.errorVar)} at '${path}' ` +
+        "is not written into run state by the generic pipeline runtime yet; " +
+        "the failed node's result carries the error message instead"
+    );
+  }
+
+  // Nothing in the body can fail at runtime (it lowered to zero pipeline
+  // nodes), so the catch branch is unreachable — dropping it is the
+  // fail-safe shape, and the warning makes the drop visible.
+  if (bodyResult.nodes.length === 0) {
+    if (catchResult.nodes.length > 0) {
+      warnings.push(
+        `lower/try_catch: body at '${path}' lowered to zero pipeline nodes, ` +
+          "so its catch branch is unreachable and was not lowered"
+      );
+    }
+    return { ...bodyResult, warnings };
+  }
+
+  const catchPorts = portsOf(catchResult);
+  const catchEntry = catchPorts.entryNodeIds[0];
+
+  // Catch lowered to zero nodes: keep the error path runtime-only (the
+  // pre-F-R2c behaviour) rather than emitting dangling error edges.
+  if (catchEntry === undefined) {
+    return { ...bodyResult, warnings };
+  }
+
+  const errorEdgesToCatch: PipelineEdge[] = bodyResult.nodes.map((n) => ({
+    type: "error",
+    sourceNodeId: n.id,
+    targetNodeId: catchEntry,
+  }));
+
+  const bodyPorts = portsOf(bodyResult);
+  const bodyTails = effectiveTails(bodyResult);
+  const catchTails = effectiveTails(catchResult);
+  const tailNodeIds = [...bodyTails, ...catchTails];
+
+  return {
+    nodes: [...bodyResult.nodes, ...catchResult.nodes],
+    // Child edges first: a nested try_catch's inner error edges must precede
+    // the outer ones, so the runtime's first-catch-all lookup picks the
+    // inner handler — mirroring language-level nesting.
+    edges: [...bodyResult.edges, ...catchResult.edges, ...errorEdgesToCatch],
+    warnings,
+    tailNodeIds,
+    ports: {
+      entryNodeIds: bodyPorts.entryNodeIds,
+      normalExits: tailNodeIds,
+      suspendedExits: [
+        ...bodyPorts.suspendedExits,
+        ...catchPorts.suspendedExits,
+      ],
+      terminalExits: [...bodyPorts.terminalExits, ...catchPorts.terminalExits],
+      // Every continuing exit of the catch fragment is an error-path exit of
+      // this fragment; body-side error exits (nested try_catch) propagate.
+      errorExits: [...bodyPorts.errorExits, ...catchTails],
     },
   };
 }

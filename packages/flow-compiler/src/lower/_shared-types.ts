@@ -119,9 +119,14 @@ export interface LoweredPorts {
    */
   terminalExits: string[];
   /**
-   * Reserved: the lowerer emits no ErrorEdge today (`try_catch.catch` is
-   * runtime-only and never lowered). Always empty until error-path lowering
-   * ships; pinned by tests so its first production is a deliberate act.
+   * Error-path landings (F-R2c): the continuing tails of lowered
+   * `try_catch.catch` fragments — the nodes where control rejoins the flow
+   * after a handled error. Accumulated upward through composites exactly
+   * like suspended/terminal exits; unlike those, an error exit CONTINUES (a
+   * handled error resumes), so at the fragment whose boundary the catch
+   * reaches these ids also appear among the normal tails. A catch that ends
+   * terminally (`complete`) or suspends contributes to
+   * `terminalExits`/`suspendedExits` instead.
    */
   errorExits: string[];
 }

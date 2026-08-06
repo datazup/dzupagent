@@ -26,6 +26,7 @@ import {
   lowerBranch,
   lowerParallel,
   lowerSequence,
+  lowerTryCatch,
 } from "./_shared-control.js";
 import { lowerApproval, lowerPersona, lowerRoute } from "./_shared-suspend.js";
 import { lowerRuntimeLeaf } from "./_shared-runtime-leaf.js";
@@ -127,13 +128,9 @@ function lowerNodeVariant(
       return { nodes: [], edges: [], warnings: [] };
 
     case "try_catch":
-      // try_catch body is lowered normally; the catch branch is runtime-only (error path).
-      return lowerChildren(
-        node.body,
-        ctx,
-        (idx) => `${path}.body[${idx}]`,
-        lowerNodeToPipeline
-      );
+      // F-R2c: body lowers normally; the catch branch lowers onto the error
+      // path via catch-all ErrorEdges from every body node.
+      return lowerTryCatch(node, ctx, path, lowerNodeToPipeline);
 
     case "loop":
       // loop body is lowered as a sequence; condition evaluation is runtime-only.
