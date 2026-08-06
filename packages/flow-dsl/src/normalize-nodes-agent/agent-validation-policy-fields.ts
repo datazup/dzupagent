@@ -90,7 +90,11 @@ export function normalizeValidate(
     });
     return undefined;
   }
-  if (!isPlainObject(raw.schema)) {
+  // Bind before the guard so `isPlainObject`'s narrowing survives: narrowing an
+  // indexed access (`raw.schema`) is discarded on re-access, which is what made
+  // the direct assignment below fail typecheck with TS2322 while tests passed.
+  const schema = raw.schema;
+  if (!isPlainObject(schema)) {
     diagnostics.push({
       phase: "normalize",
       code: DSL_ERROR.MISSING_REQUIRED_FIELD,
@@ -99,7 +103,7 @@ export function normalizeValidate(
     });
     return undefined;
   }
-  const out: ValidationBlock = { schema: raw.schema };
+  const out: ValidationBlock = { schema };
   if (raw.errorMessage !== undefined) {
     if (typeof raw.errorMessage === "string") {
       out.errorMessage = raw.errorMessage;
