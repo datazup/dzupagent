@@ -59,8 +59,10 @@ function reaches(root: FlowNode, markerId: string): boolean {
  * what a hand-written switch forgets — `branch.else` and `approval.onReject`
  * are optional, so omitting them still type-checks.
  */
-const CONTAINER_SLOTS: Array<[kind: string, slot: string, build: (m: FlowNode) => FlowNode]> = [
-  ["sequence", "nodes", (m) => ({ type: "sequence", nodes: [m] }) as FlowNode],
+const CONTAINER_SLOTS: Array<
+  [kind: string, slot: string, build: (m: FlowNode) => FlowNode]
+> = [
+  ["sequence", "nodes", (m) => ({ type: "sequence", nodes: [m] } as FlowNode)],
   [
     "for_each",
     "body",
@@ -71,17 +73,14 @@ const CONTAINER_SLOTS: Array<[kind: string, slot: string, build: (m: FlowNode) =
         source: "state.items",
         as: "item",
         body: [m],
-      }) as FlowNode,
+      } as FlowNode),
   ],
-  [
-    "loop",
-    "body",
-    (m) => ({ type: "loop", id: "lp", body: [m] }) as FlowNode,
-  ],
+  ["loop", "body", (m) => ({ type: "loop", id: "lp", body: [m] } as FlowNode)],
   [
     "branch",
     "then",
-    (m) => ({ type: "branch", id: "br", condition: "x", then: [m] }) as FlowNode,
+    (m) =>
+      ({ type: "branch", id: "br", condition: "x", then: [m] } as FlowNode),
   ],
   [
     "branch",
@@ -93,12 +92,12 @@ const CONTAINER_SLOTS: Array<[kind: string, slot: string, build: (m: FlowNode) =
         condition: "x",
         then: [],
         else: [m],
-      }) as FlowNode,
+      } as FlowNode),
   ],
   [
     "parallel",
     "branches",
-    (m) => ({ type: "parallel", id: "par", branches: [[m]] }) as FlowNode,
+    (m) => ({ type: "parallel", id: "par", branches: [[m]] } as FlowNode),
   ],
   [
     "approval",
@@ -109,7 +108,7 @@ const CONTAINER_SLOTS: Array<[kind: string, slot: string, build: (m: FlowNode) =
         id: "ap",
         question: "ok?",
         onApprove: [m],
-      }) as FlowNode,
+      } as FlowNode),
   ],
   [
     "approval",
@@ -121,13 +120,13 @@ const CONTAINER_SLOTS: Array<[kind: string, slot: string, build: (m: FlowNode) =
         question: "ok?",
         onApprove: [],
         onReject: [m],
-      }) as FlowNode,
+      } as FlowNode),
   ],
   [
     "persona",
     "body",
     (m) =>
-      ({ type: "persona", id: "pe", personaId: "qa", body: [m] }) as FlowNode,
+      ({ type: "persona", id: "pe", personaId: "qa", body: [m] } as FlowNode),
   ],
   [
     "route",
@@ -136,9 +135,10 @@ const CONTAINER_SLOTS: Array<[kind: string, slot: string, build: (m: FlowNode) =
       ({
         type: "route",
         id: "ro",
-        strategy: "cheapest",
+        strategy: "fixed-provider",
+        provider: "openai",
         body: [m],
-      }) as FlowNode,
+      } as FlowNode),
   ],
   [
     "try_catch",
@@ -150,7 +150,7 @@ const CONTAINER_SLOTS: Array<[kind: string, slot: string, build: (m: FlowNode) =
         errorVar: "e",
         body: [m],
         catch: [],
-      }) as FlowNode,
+      } as FlowNode),
   ],
   [
     "try_catch",
@@ -162,7 +162,7 @@ const CONTAINER_SLOTS: Array<[kind: string, slot: string, build: (m: FlowNode) =
         errorVar: "e",
         body: [],
         catch: [m],
-      }) as FlowNode,
+      } as FlowNode),
   ],
 ];
 
@@ -173,13 +173,10 @@ describe("composite child-walk coverage", () => {
     expect(reaches(marker("solo"), "solo")).toBe(true);
   });
 
-  it.each(CONTAINER_SLOTS)(
-    "descends into %s.%s",
-    (_kind, slot, build) => {
-      const id = `marker_${slot}`;
-      expect(reaches(build(marker(id)), id)).toBe(true);
-    }
-  );
+  it.each(CONTAINER_SLOTS)("descends into %s.%s", (_kind, slot, build) => {
+    const id = `marker_${slot}`;
+    expect(reaches(build(marker(id)), id)).toBe(true);
+  });
 
   it("does not descend into a leaf kind (negative control)", () => {
     // Keeps the assertions above honest: if `reaches` returned true for
