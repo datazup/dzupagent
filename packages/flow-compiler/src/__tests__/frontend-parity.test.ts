@@ -273,3 +273,210 @@ describe("F-R3 — compileDsl / compileDocument frontend parity", () => {
     expect(baseline.documentPolicy).not.toEqual(divergent.documentPolicy);
   });
 });
+
+// ---------------------------------------------------------------------------
+// F-R4 acceptance — durability-block parity over a loop-bearing (pipeline
+// target) flow. The F-R3 ledger note recorded this exact gap: the fixture
+// above carries `policy` but no `durability`, and durability lowering was
+// exclusive to `runCompileDocument` (the CR-08 deferral). Both frontends now
+// run `applyDocumentDurabilityContract`; this block is the demanded evidence.
+//
+// The flow routes to the `pipeline` target (loop ⇒ FOR_EACH bit), whose
+// artifact node ids are freshly generated per compile — so full byte-identity
+// is asserted under ordinal id renaming (`normalizePipelineIds`), with the
+// durability fields ALSO pinned by value on both sides so a normalizer bug
+// cannot fake parity by erasing them.
+// ---------------------------------------------------------------------------
+
+const DURABILITY_FLOW_ID = "durability_parity_flow";
+
+const DURABILITY_DSL_SOURCE = `
+dsl: dzupflow/v1
+id: ${DURABILITY_FLOW_ID}
+version: 1
+durability:
+  mode: durable
+  checkpoint:
+    strategy: after_each_node
+    storeRef: pg://ck
+steps:
+  - loop:
+      id: poll
+      condition: "true"
+      max_iterations: 3
+      body:
+        - action:
+            id: run
+            ref: tasks.run
+            input:
+              mode: run
+`;
+
+const DURABILITY_DOCUMENT_SOURCE = {
+  dsl: "dzupflow/v1",
+  id: DURABILITY_FLOW_ID,
+  version: 1,
+  durability: {
+    mode: "durable",
+    checkpoint: { strategy: "after_each_node", storeRef: "pg://ck" },
+  },
+  root: {
+    type: "sequence",
+    id: "root",
+    nodes: [
+      {
+        type: "loop",
+        id: "poll",
+        condition: "true",
+        maxIterations: 3,
+        body: [
+          {
+            type: "action",
+            id: "run",
+            toolRef: "tasks.run",
+            input: { mode: "run" },
+          },
+        ],
+      },
+    ],
+  },
+};
+
+/**
+ * Rename per-compile-random pipeline ids to ordinals (artifact id →
+ * "pipeline", node ids → n0, n1, … in emission order) so two compiles of the
+ * SAME flow become comparable. Everything else — names, types, config,
+ * durability fields, metadata — is left untouched and therefore asserted.
+ */
+function normalizePipelineIds(artifact: unknown): Record<string, unknown> {
+  const clone = JSON.parse(JSON.stringify(artifact)) as Record<string, unknown>;
+  const nodes = clone["nodes"] as Array<Record<string, unknown>>;
+  const idMap = new Map<string, string>();
+  nodes.forEach((node, index) => {
+    idMap.set(node["id"] as string, `n${index}`);
+  });
+  const rename = (id: unknown): unknown =>
+    typeof id === "string" && idMap.has(id) ? idMap.get(id) : id;
+
+  clone["id"] = "pipeline";
+  clone["entryNodeId"] = rename(clone["entryNodeId"]);
+  for (const node of nodes) {
+    node["id"] = rename(node["id"]);
+    if (Array.isArray(node["bodyNodeIds"])) {
+      node["bodyNodeIds"] = node["bodyNodeIds"].map(rename);
+    }
+  }
+  for (const edge of (clone["edges"] as Array<Record<string, unknown>>) ?? []) {
+    edge["sourceNodeId"] = rename(edge["sourceNodeId"]);
+    edge["targetNodeId"] = rename(edge["targetNodeId"]);
+  }
+  return clone;
+}
+
+describe("F-R4 — durability-block frontend parity (loop-bearing pipeline flow)", () => {
+  async function compileDurabilityFrontends() {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tasks.run"]),
+    });
+    const fromDsl = await compiler.compileDsl(DURABILITY_DSL_SOURCE);
+    const fromDocument = await compiler.compileDocument(
+      DURABILITY_DOCUMENT_SOURCE
+    );
+
+    expect("errors" in fromDsl, JSON.stringify(fromDsl, null, 2)).toBe(false);
+    expect(
+      "errors" in fromDocument,
+      JSON.stringify(fromDocument, null, 2)
+    ).toBe(false);
+
+    return {
+      fromDsl: fromDsl as CompileSuccess,
+      fromDocument: fromDocument as CompileSuccess,
+    };
+  }
+
+  it("routes both frontends to the pipeline target", async () => {
+    const { fromDsl, fromDocument } = await compileDurabilityFrontends();
+
+    // Pin the routing decision itself — two frontends broken the same way
+    // would still "agree".
+    expect(fromDsl.target).toBe("pipeline");
+    expect(fromDocument.target).toBe("pipeline");
+  });
+
+  it("lowers the SAME durability fields onto both artifacts, pinned by value", async () => {
+    const { fromDsl, fromDocument } = await compileDurabilityFrontends();
+
+    // Value pins on BOTH sides: `toEqual(other)` alone would pass if both
+    // frontends dropped the strategy — the exact pre-F-R4 DSL behavior.
+    const dslArtifact = fromDsl.artifact as Record<string, unknown>;
+    const documentArtifact = fromDocument.artifact as Record<string, unknown>;
+    expect(dslArtifact["checkpointStrategy"]).toBe("after_each_node");
+    expect(documentArtifact["checkpointStrategy"]).toBe("after_each_node");
+    expect(dslArtifact["checkpoint"]).toEqual(documentArtifact["checkpoint"]);
+    expect(dslArtifact["checkpoint"]).toMatchObject({
+      storeRef: "pg://ck",
+    });
+
+    expect(fromDsl.documentDurability).toEqual({
+      mode: "durable",
+      checkpoint: { strategy: "after_each_node", storeRef: "pg://ck" },
+    });
+    expect(fromDocument.documentDurability).toEqual(fromDsl.documentDurability);
+  });
+
+  it("produces an identical artifact under ordinal id renaming", async () => {
+    const { fromDsl, fromDocument } = await compileDurabilityFrontends();
+
+    // compileId is embedded in the artifact's classification envelope — the
+    // SAME single-field strip the headline parity case uses composes here.
+    expect(stripNondeterminism(normalizePipelineIds(fromDsl.artifact))).toEqual(
+      stripNondeterminism(normalizePipelineIds(fromDocument.artifact))
+    );
+  });
+
+  it("agrees on warnings, requirements, and semantic identity", async () => {
+    const { fromDsl, fromDocument } = await compileDurabilityFrontends();
+
+    expect(fromDsl.warnings).toEqual(fromDocument.warnings);
+    expect(fromDsl.requirements).toEqual(fromDocument.requirements);
+    expect(fromDsl.evidence.semanticHash).toBe(
+      fromDocument.evidence.semanticHash
+    );
+  });
+
+  it("positive control: without a durability block neither artifact carries the fields", async () => {
+    // Proves the value pins above measure the durability contract, not a
+    // default the lowerer would emit anyway.
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tasks.run"]),
+    });
+    const { durability: _dropped, ...documentWithout } =
+      DURABILITY_DOCUMENT_SOURCE;
+    const strippedDsl = DURABILITY_DSL_SOURCE.replace(
+      "durability:\n  mode: durable\n  checkpoint:\n    strategy: after_each_node\n    storeRef: pg://ck\n",
+      ""
+    );
+    // Guard the string surgery itself — a silent non-match would turn this
+    // control into a duplicate of the positive cases.
+    expect(strippedDsl).not.toContain("durability:");
+    const fromDsl = await compiler.compileDsl(strippedDsl);
+    const fromDocument = await compiler.compileDocument(documentWithout);
+
+    expect("errors" in fromDsl, JSON.stringify(fromDsl, null, 2)).toBe(false);
+    expect(
+      "errors" in fromDocument,
+      JSON.stringify(fromDocument, null, 2)
+    ).toBe(false);
+    if ("errors" in fromDsl || "errors" in fromDocument) return;
+
+    expect(
+      (fromDsl.artifact as Record<string, unknown>)["checkpointStrategy"]
+    ).toBeUndefined();
+    expect(
+      (fromDocument.artifact as Record<string, unknown>)["checkpointStrategy"]
+    ).toBeUndefined();
+    expect(fromDsl.documentDurability).toBeUndefined();
+    expect(fromDocument.documentDurability).toBeUndefined();
+  });
+});
