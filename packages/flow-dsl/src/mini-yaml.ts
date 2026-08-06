@@ -375,7 +375,16 @@ function parseScalar(raw: string): unknown {
   if (value.startsWith("[") && value.endsWith("]")) {
     const inner = value.slice(1, -1).trim();
     if (inner.length === 0) return [];
-    return inner.split(",").map((part) => parseScalar(part.trim()));
+    // Prefer strict JSON (mirrors the flow-mapping branch below): the formatter
+    // emits structured meta such as meta.fragmentExpansions as inline JSON, and
+    // naive comma splitting shreds objects, quoted commas, and nested arrays
+    // into garbage strings. Fall back to the permissive split for handwritten
+    // YAML flow sequences (bare scalars, single quotes) that are not valid JSON.
+    try {
+      return JSON.parse(value) as unknown;
+    } catch {
+      return inner.split(",").map((part) => parseScalar(part.trim()));
+    }
   }
   if (value.startsWith("{") && value.endsWith("}")) {
     try {

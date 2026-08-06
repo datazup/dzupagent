@@ -249,4 +249,61 @@ describe('parseYamlSubset', () => {
       expect(result).toEqual({ ok: true, value: { key: 'value', other: 2 } })
     })
   })
+
+  describe('inline JSON flow sequences', () => {
+    // Regression: the formatter emits structured meta (meta.fragmentExpansions)
+    // as an inline JSON array. Naive comma splitting shredded each object into
+    // garbage strings, so the value never survived format -> parse.
+    it('parses an inline array of objects as JSON, not comma-split strings', () => {
+      const source =
+        'meta: [{"id":"sdlc.batch","expandedPaths":["steps[0].fragment[0]","steps[0].fragment[1]"]}]'
+      const result = parseYamlSubset(source)
+      expect(result).toEqual({
+        ok: true,
+        value: {
+          meta: [
+            {
+              id: 'sdlc.batch',
+              expandedPaths: ['steps[0].fragment[0]', 'steps[0].fragment[1]'],
+            },
+          ],
+        },
+      })
+    })
+
+    it('keeps a quoted comma inside one element instead of splitting on it', () => {
+      const source = 'items: ["a,b", "c"]'
+      const result = parseYamlSubset(source)
+      expect(result).toEqual({ ok: true, value: { items: ['a,b', 'c'] } })
+    })
+
+    it('preserves nested arrays as structure', () => {
+      const source = 'grid: [[1, 2], [3, 4]]'
+      const result = parseYamlSubset(source)
+      expect(result).toEqual({
+        ok: true,
+        value: { grid: [[1, 2], [3, 4]] },
+      })
+    })
+
+    it('still parses handwritten bare-scalar flow sequences', () => {
+      const source = 'tags: [alpha, beta, 3, true]'
+      const result = parseYamlSubset(source)
+      expect(result).toEqual({
+        ok: true,
+        value: { tags: ['alpha', 'beta', 3, true] },
+      })
+    })
+
+    it("still parses single-quoted flow sequences that are not valid JSON", () => {
+      const source = "tags: ['alpha', 'beta']"
+      const result = parseYamlSubset(source)
+      expect(result).toEqual({ ok: true, value: { tags: ['alpha', 'beta'] } })
+    })
+
+    it('still parses an empty flow sequence', () => {
+      const result = parseYamlSubset('tags: []')
+      expect(result).toEqual({ ok: true, value: { tags: [] } })
+    })
+  })
 })
