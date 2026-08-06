@@ -27,6 +27,7 @@ import type {
   CompilationDiagnostic,
   CompilationWarning,
 } from "./diagnostic-types.js";
+import type { LoweredPorts } from "./lower/_shared-types.js";
 
 export type { FlowReferenceValueType } from "./reference-value-types.js";
 export type {
@@ -179,6 +180,16 @@ export interface CompilerOptions {
    */
   admissionProfile?: FlowAdmissionProfile;
   /**
+   * Explicit operator acknowledgment that suspended exits (lowered paths
+   * that stop awaiting an external decision with no continuation, e.g. an
+   * approval gate without `onReject`) are intentional. Only consulted under
+   * `admissionProfile: "unattended"`, where such exits otherwise fail
+   * closed with `SUSPENDED_EXIT_UNATTENDED`; when honored, the admission is
+   * traced with a `SUSPENDED_EXIT_ACKNOWLEDGED` warning. Never read from
+   * the environment — hosts must pass it deliberately per compiler.
+   */
+  acknowledgeSuspendedExits?: boolean;
+  /**
    * Additional host/late-bound names by reference root. The compiler derives
    * ordinary document inputs, state outputs, step ids, and loop symbols, then
    * unions this snapshot for host-owned context, secret, artifact, or external
@@ -330,6 +341,16 @@ export interface CompileSuccess {
    * surfaced as compile evidence only — no runtime behavior change.
    */
   documentDurability?: FlowDurabilityPolicy;
+  /**
+   * Outcome-classified boundary ports of the root lowered fragment (F-R2
+   * port model): which exits continue, suspend awaiting an external
+   * decision, or deliberately end the flow. Present for pipeline-family
+   * targets (`pipeline`, `workflow-builder`, `planning-dag`); absent for
+   * `skill-chain`, whose router contract excludes suspend-bearing nodes.
+   * Additive surface — consumers must treat absence as "no port data",
+   * never as "no suspended exits".
+   */
+  ports?: LoweredPorts;
 }
 
 export interface CompileFailure {

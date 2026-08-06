@@ -105,6 +105,12 @@ export type {
   FlowClassificationHostAdmission,
   FlowClassificationHostAdmissionRequest,
 } from "./classification-host-admission.js";
+export type { LoweredPorts } from "./lower/_shared-types.js";
+export { admitSuspendedExits } from "./suspended-exit-admission.js";
+export type {
+  SuspendedExitAdmissionDecision,
+  SuspendedExitAdmissionInput,
+} from "./suspended-exit-admission.js";
 export {
   resolveFlowCredentialLeaseForEnvelope,
   resolveFlowToolCredentialLeaseForEnvelope,

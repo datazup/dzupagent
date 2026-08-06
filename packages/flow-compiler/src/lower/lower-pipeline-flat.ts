@@ -20,8 +20,12 @@ import type {
   PipelineDefinition,
 } from "@dzupagent/core/pipeline";
 
-import { lowerNodeToPipeline } from "./_shared.js";
-import type { LoweringMode, LowerPipelineContext } from "./_shared.js";
+import { lowerNodeToPipeline, portsOf } from "./_shared.js";
+import type {
+  LoweredPorts,
+  LoweringMode,
+  LowerPipelineContext,
+} from "./_shared.js";
 import { collectFlowArtifactMetadata } from "../flow-artifact-metadata.js";
 
 // ---------------------------------------------------------------------------
@@ -68,6 +72,12 @@ export interface LowerPipelineFlatInput {
 export function lowerPipelineFlat(input: LowerPipelineFlatInput): {
   artifact: PipelineDefinition;
   warnings: string[];
+  /**
+   * Outcome-classified boundary ports of the root fragment (doc 14 §7 R2).
+   * A refinement over the artifact, not part of it: consumers (readiness
+   * rules, admission gates) read these; the artifact stays byte-identical.
+   */
+  ports: LoweredPorts;
 } {
   const ctx: LowerPipelineContext = {
     resolved: input.resolved,
@@ -107,5 +117,5 @@ export function lowerPipelineFlat(input: LowerPipelineFlatInput): {
       : {}),
   };
 
-  return { artifact, warnings: result.warnings };
+  return { artifact, warnings: result.warnings, ports: portsOf(result) };
 }
