@@ -204,14 +204,17 @@ describe("flow corpus qualification", () => {
       "      output: validationStatuses",
     ].join("\n");
 
-    it("keeps generated composite lineage classified as a known loss", () => {
+    it("round-trips generated composite lineage losslessly", () => {
+      // Regression: meta.fragmentExpansions is emitted as an inline JSON array.
+      // The mini-YAML flow-sequence parser used to comma-split it into garbage
+      // strings, so this lineage was classified lossy. It must now survive.
       expect(measureFlowCorpusRoundTrip(DERIVED_LINEAGE_DSL)).toEqual({
-        status: "lossy",
-        lossPaths: ["document.meta.fragmentExpansions"],
+        status: "lossless",
+        lossPaths: [],
       });
     });
 
-    it("counts a known lineage loss without failing qualification", async () => {
+    it("counts generated composite lineage as lossless", async () => {
       const report = await qualifyFlowCorpusSources(
         [
           {
@@ -225,12 +228,37 @@ describe("flow corpus qualification", () => {
         compiler,
       );
 
-      // Round-trip loss is tracked, never gated: `passed` stays true.
       expect(report.passed).toBe(true);
-      expect(report.roundTrip).toMatchObject({ lossless: 0, lossy: 1 });
+      expect(report.roundTrip).toMatchObject({ lossless: 1, lossy: 0 });
       expect(report.items[0]).toMatchObject({
-        roundTripStatus: "lossy",
-        roundTripLossPaths: ["document.meta.fragmentExpansions"],
+        roundTripStatus: "lossless",
+        roundTripLossPaths: [],
+      });
+      expect(renderFlowCorpusQualificationMarkdown(report)).toContain(
+        "Lossless: **1 / 1**",
+      );
+    });
+
+    it("tracks a non-lossless round trip without failing qualification", async () => {
+      // The round-trip metric is reported, never gated. An authoring-only entry
+      // whose source does not parse is counted as non-lossless while the report
+      // still passes — proving the metric cannot flip `passed`.
+      const report = await qualifyFlowCorpusSources(
+        [
+          {
+            id: "unparsable",
+            path: "unparsable.yaml",
+            sha256: hashFlowCorpusSource("not: a: valid: flow"),
+            qualification: "authoring-only",
+            source: "not: a: valid: flow",
+          },
+        ],
+        compiler,
+      );
+
+      expect(report.roundTrip).toMatchObject({
+        lossless: 0,
+        unparsableSource: 1,
       });
       expect(renderFlowCorpusQualificationMarkdown(report)).toContain(
         "Lossless: **0 / 1**",
