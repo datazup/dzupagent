@@ -41,14 +41,19 @@ export function defaultMemoryRanker(
 /**
  * The slice of the memory service the context loader actually uses.
  *
- * The loader family calls exactly two methods, so it asks for exactly two.
- * Derived from the real service via `Pick`, so the signatures cannot drift
- * from it — but a caller (or a test double) needs only these to satisfy it.
+ * `get` and `formatForPrompt` are required — every loader path calls them.
+ * The retrieval methods are optional because they are only reached in
+ * `memoryContextMode: 'query'` (MC-QR), and existing callers and test
+ * doubles that predate that mode must keep satisfying this type. Derived
+ * from the real service via `Pick`, so no signature can drift from it.
  */
 export type AgentMemoryService = Pick<
   NonNullable<DzupAgentConfig['memory']>,
   'get' | 'formatForPrompt'
->
+> &
+  Partial<
+    Pick<NonNullable<DzupAgentConfig['memory']>, 'search' | 'searchWithStatus'>
+  >
 export type ResolvedArrowMemoryConfig = ArrowMemoryConfig
 export type StandardMemoryBudgetConfig = Required<
   Pick<
@@ -56,6 +61,31 @@ export type StandardMemoryBudgetConfig = Required<
     'totalBudget' | 'maxMemoryFraction' | 'minResponseReserve'
   >
 >
+
+/**
+ * How the standard (non-Arrow) memory path selects records (MC-QR).
+ *
+ * - `'namespace'` — read the whole namespace via `memory.get()` and let the
+ *   ranker + token budget decide what survives. The historical behaviour and
+ *   the default; nothing about it changes when the mode is left unset.
+ * - `'query'` — derive a retrieval query from the most recent user message in
+ *   the windowed conversation and ask the memory service for the matching
+ *   records. This is the only path that reaches a configured vector /
+ *   semantic store, because fusion happens inside `MemoryService.search`.
+ *   Falls back to the namespace read when no query can be derived or the
+ *   search reports failure.
+ */
+export type MemoryContextMode = 'namespace' | 'query'
+
+export const DEFAULT_MEMORY_CONTEXT_MODE: MemoryContextMode = 'namespace'
+
+/**
+ * Character cap applied to the derived retrieval query.
+ *
+ * Retrieval quality does not improve past a couple of sentences, and an
+ * unbounded query is an unbounded embedding cost on every turn.
+ */
+export const DEFAULT_MEMORY_QUERY_MAX_CHARS = 512
 
 export const DEFAULT_ARROW_FAILURE_FALLBACK_MAX_TOKENS = 4_000
 export const FALLBACK_CHARS_PER_TOKEN = 4
@@ -149,6 +179,19 @@ export interface AgentMemoryContextLoaderConfig {
    * copied into provenance metadata.
    */
   memoryReadContext?: AgentMemoryReadContext
+  /**
+   * Record-selection strategy for the standard memory path (MC-QR).
+   *
+   * Defaults to {@link DEFAULT_MEMORY_CONTEXT_MODE} (`'namespace'`), which
+   * preserves the whole-namespace read the loader has always performed.
+   * See {@link MemoryContextMode}.
+   */
+  memoryContextMode?: MemoryContextMode
+  /**
+   * Character cap on the query derived in `'query'` mode.
+   * Defaults to {@link DEFAULT_MEMORY_QUERY_MAX_CHARS} (512).
+   */
+  memoryQueryMaxChars?: number
   arrowMemory?: DzupAgentConfig['arrowMemory']
   memoryProfile?: DzupAgentConfig['memoryProfile']
   estimateConversationTokens: (messages: BaseMessage[]) => number

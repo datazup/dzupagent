@@ -83,6 +83,28 @@ export interface MemoryConfigSlice {
   /** Memory namespace to use */
   memoryNamespace?: string
   /**
+   * How the standard (non-Arrow) memory context loader selects records.
+   *
+   * - `'namespace'` (default) — read the whole namespace and let the ranker
+   *   and token budget decide what reaches the prompt. Unchanged historical
+   *   behaviour.
+   * - `'query'` — derive a retrieval query from the newest user message in
+   *   the windowed conversation and ask `MemoryService.search()` for the
+   *   matching records. This is what makes a configured semantic/vector
+   *   store observable in the prompt: RRF fusion with the vector results
+   *   happens inside the memory service's search path, so a namespace-mode
+   *   agent never reaches it no matter how the store is wired.
+   *
+   * Degrades to the namespace read when no query can be derived or the
+   * search reports the store as unreadable; memory failures stay non-fatal.
+   */
+  memoryContextMode?: 'namespace' | 'query'
+  /**
+   * Character cap on the query derived in `memoryContextMode: 'query'`.
+   * Defaults to 512.
+   */
+  memoryQueryMaxChars?: number
+  /**
    * When true (default), the agent's response content is persisted to
    * MemoryService after each successful run. Set to false to disable
    * automatic write-back.

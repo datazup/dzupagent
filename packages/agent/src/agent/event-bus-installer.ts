@@ -133,6 +133,8 @@ export function installEventBus(
     memoryReadContext: config.toolExecution?.runId
       ? { runId: config.toolExecution.runId }
       : undefined,
+    memoryContextMode: config.memoryContextMode,
+    memoryQueryMaxChars: config.memoryQueryMaxChars,
     arrowMemory: config.arrowMemory,
     memoryProfile: config.memoryProfile,
     frozenSnapshot: config.frozenSnapshot,
