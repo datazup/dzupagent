@@ -308,6 +308,17 @@ describe("flow corpus qualification", () => {
     });
 
     describe("lossless ratchet", () => {
+      // COVERAGE NOTE - why no `lossy` fixture here. The gate's real target is
+      // FORMATTER loss (`lossy`), but the parser is strict: unknown top-level
+      // and unknown node fields are rejected as `unparsable-source` before the
+      // formatter ever runs, so a lossy round trip cannot be produced from
+      // authored text - only by an actual formatter defect. Mocking the
+      // formatter to fake one would test the mock, not the gate. The gate was
+      // therefore proven against formatter loss by mutation: dropping the
+      // `outputKey` emitter in format-interaction-nodes.ts took the corpus to
+      // 10/26 lossless, where ungated qualification still exited 0 (a SILENT
+      // regression) while `--min-lossless 26` exited 1. Re-run that mutation
+      // if you change this gate.
       // A fully admissible fixture: strict-ready, hash-matched, compiles, and
       // round-trips losslessly. Holding every dimension ACCEPTING means the
       // only thing that can flip `passed` in this suite is the floor itself.
