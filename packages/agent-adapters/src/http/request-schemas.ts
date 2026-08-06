@@ -40,7 +40,14 @@ export const SandboxModeSchema = z.enum([
   'workspace-write',
   'full-access',
 ])
-export const ReasoningEffortSchema = z.enum(['low', 'medium', 'high'])
+export const ReasoningEffortSchema = z.enum([
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+])
 
 /**
  * SEC-C-01: the HTTP `options` bag used to be `z.record(z.string(),
