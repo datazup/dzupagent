@@ -6,7 +6,10 @@
 //                              (plus the for_each scalar-export check).
 //   • checkpoint-restore.ts  — the separate two-pass checkpoint/restore
 //                              cross-node validator.
-// Public surface (visit, validateCheckpointRestore) is unchanged; consumers
-// keep importing from "./semantic-walk.js".
+//   • terminality.ts         — the DSL-03 terminal-continuation validator
+//                              (unreachable siblings after `complete`).
+// Public surface (visit, validateCheckpointRestore, ...) is unchanged;
+// consumers keep importing from "./semantic-walk.js".
 export { visit } from "./semantic-walk/dispatch.js";
 export { validateCheckpointRestore } from "./semantic-walk/checkpoint-restore.js";
+export { validateTerminalContinuations } from "./semantic-walk/terminality.js";

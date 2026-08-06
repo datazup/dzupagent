@@ -27,7 +27,11 @@ import type {
 
 import type { WalkContext } from './semantic-context.js'
 import type { SemanticDiagnostic } from './semantic-diagnostic.js'
-import { validateCheckpointRestore, visit } from './semantic-walk.js'
+import {
+  validateCheckpointRestore,
+  validateTerminalContinuations,
+  visit,
+} from './semantic-walk.js'
 import { analyzeReferenceFlow } from './reference-flow-analysis.js'
 
 // ---------------------------------------------------------------------------
@@ -260,6 +264,10 @@ export async function semanticResolve(
   //   • restore.checkpointLabel must match a checkpoint label somewhere in
   //     the flow (missing match is a hard error).
   validateCheckpointRestore(ast, errors, warnings)
+
+  // DSL-03: a terminal `complete` must never have a normal continuation —
+  // siblings after it are unreachable (warning interactive, error unattended).
+  validateTerminalContinuations(ast, errors, warnings, ctx.admissionProfile)
 
   return { ast, errors, warnings, resolved, resolvedPersonas, expandedAgentTools, expandedAgentProfiles }
 }
