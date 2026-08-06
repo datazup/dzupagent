@@ -145,6 +145,44 @@ describe("PipelineRuntime — linear pipeline", () => {
     await runtime.execute({ foo: "bar" });
     expect(captured[0]).toEqual({ foo: "bar" });
   });
+
+  it("uses one host-injected run identity across results and runtime events", async () => {
+    const events: PipelineRuntimeEvent[] = [];
+    const runtime = new PipelineRuntime({
+      definition: makePipeline({
+        nodes: [{ id: "A", type: "agent", agentId: "a1", timeoutMs: 5000 }],
+        edges: [],
+      }),
+      nodeExecutor: createMockExecutor(),
+      onEvent: collectEvents(events),
+    });
+
+    const result = await runtime.execute({}, { runId: "dsl_run_01" });
+
+    expect(result.runId).toBe("dsl_run_01");
+    expect(events).toContainEqual({
+      type: "pipeline:started",
+      pipelineId: "test-pipeline",
+      runId: "dsl_run_01",
+    });
+    expect(events.at(-1)).toEqual(
+      expect.objectContaining({
+        type: "pipeline:completed",
+        runId: "dsl_run_01",
+      }),
+    );
+  });
+
+  it("rejects malformed host-injected run identities before execution", async () => {
+    const runtime = new PipelineRuntime({
+      definition: makePipeline(),
+      nodeExecutor: createMockExecutor(),
+    });
+
+    await expect(runtime.execute({}, { runId: " invalid " })).rejects.toThrow(
+      "Pipeline runId must be a non-empty, trimmed identifier",
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

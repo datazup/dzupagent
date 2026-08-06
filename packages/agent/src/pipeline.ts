@@ -91,6 +91,7 @@ export type {
   NodeExecutor,
   NodeExecutionContext,
   ProviderSessionRef,
+  PipelineExecuteOptions,
   PipelineRuntimeConfig,
   PipelineRuntimeEvent,
   PipelineExecutionLogEntry,

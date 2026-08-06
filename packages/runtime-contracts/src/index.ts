@@ -87,9 +87,31 @@ export type {
   LocalModelProtocol,
 } from "./local-model.js";
 export {
+  CANONICAL_JSON_VERSION,
+  canonicalJson,
   canonicalInputDigest,
   materializeIdempotencyKey,
 } from "./idempotency.js";
+export {
+  DEFAULT_FLOW_RUNTIME_INPUT_LIMITS,
+  FLOW_CREDENTIAL_HANDLE_REF_SCHEMA,
+  FLOW_RUNTIME_INPUT_CONTRACT,
+  sha256Text,
+  validateFlowRuntimeInput,
+} from "./flow-runtime-input.js";
+export type {
+  FlowRuntimeCredentialHandleRef,
+  FlowRuntimeInputClassification,
+  FlowRuntimeInputIssue,
+  FlowRuntimeInputIssueCode,
+  FlowRuntimeInputLimits,
+  FlowRuntimeInputSpec,
+  FlowRuntimeInputType,
+  FlowRuntimeInputValidationRequest,
+  FlowRuntimeInputValidationResult,
+  FlowRuntimeJsonValue,
+  ValidatedFlowRuntimeInput,
+} from "./flow-runtime-input.js";
 export {
   AI_COST_UNKNOWN_REASONS,
   AI_PRICE_SOURCE_KINDS,

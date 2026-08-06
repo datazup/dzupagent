@@ -30,8 +30,14 @@ import { createHash } from "node:crypto";
  *
  * Pure function -- no I/O, no side effects.
  */
-function canonicalJson(value: unknown): string {
-  return JSON.stringify(sortValue(value));
+export const CANONICAL_JSON_VERSION = "dzupagent.sorted-json/v1" as const;
+
+export function canonicalJson(value: unknown): string {
+  const encoded = JSON.stringify(sortValue(value));
+  if (encoded === undefined) {
+    throw new TypeError("Canonical JSON input must be JSON-serializable.");
+  }
+  return encoded;
 }
 
 /**
@@ -46,7 +52,12 @@ function sortValue(value: unknown): unknown {
   }
   if (value !== null && typeof value === "object") {
     const source = value as Record<string, unknown>;
-    const sorted: Record<string, unknown> = {};
+    // A null-prototype object preserves JSON keys such as `__proto__` as data
+    // instead of invoking the legacy object prototype setter.
+    const sorted: Record<string, unknown> = Object.create(null) as Record<
+      string,
+      unknown
+    >;
     for (const key of Object.keys(source).sort()) {
       sorted[key] = sortValue(source[key]);
     }

@@ -307,6 +307,15 @@ export interface PipelineRuntimeConfig {
 }
 
 /**
+ * Per-execution options that cannot safely live on a reusable runtime config.
+ * A durable host supplies its authoritative run identity here so checkpoints,
+ * events, idempotency keys, effects, and app records all share one ID.
+ */
+export interface PipelineExecuteOptions {
+  runId?: string;
+}
+
+/**
  * Structural subset of `@dzupagent/core` `DurableNodeLedger` the pipeline
  * runtime needs. Kept structural so the types module stays import-light.
  */

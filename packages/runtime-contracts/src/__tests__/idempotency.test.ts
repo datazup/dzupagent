@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { canonicalInputDigest, materializeIdempotencyKey } from "../index.js";
+import {
+  canonicalInputDigest,
+  canonicalJson,
+  materializeIdempotencyKey,
+} from "../index.js";
 
 describe("runtime-contracts idempotency (OQ-2)", () => {
   it("produces the same digest regardless of object key insertion order", () => {
@@ -42,6 +46,15 @@ describe("runtime-contracts idempotency (OQ-2)", () => {
       nested: { a: null, b: [1, 2, 3] },
     });
     expect(reordered).not.toBe(first);
+  });
+
+  it("preserves prototype-sensitive JSON keys as data", () => {
+    const value = JSON.parse('{"__proto__":{"safe":true},"a":1}') as unknown;
+
+    expect(canonicalJson(value)).toBe(
+      '{"__proto__":{"safe":true},"a":1}',
+    );
+    expect(({} as { safe?: boolean }).safe).toBeUndefined();
   });
 
   it("materializes the canonical dzup:v1 key format", () => {

@@ -24,6 +24,7 @@ import type {
   PipelineRunResult,
   PipelineRuntimeConfig,
   PipelineRuntimeEvent,
+  PipelineExecuteOptions,
   ForkRuntimeState,
   PipelineRunContext,
 } from "./pipeline-runtime-types.js";
@@ -164,7 +165,8 @@ export class PipelineRuntime {
 
   /** Execute the pipeline from the entry node. */
   async execute(
-    initialState?: Record<string, unknown>
+    initialState?: Record<string, unknown>,
+    options: PipelineExecuteOptions = {},
   ): Promise<PipelineRunResult> {
     // Validate first
     const validation = validatePipeline(this.config.definition);
@@ -174,7 +176,7 @@ export class PipelineRuntime {
     }
     this.assertRuntimeToolReadiness();
 
-    const runId = generateRunId();
+    const runId = resolveRunId(options.runId);
     const runState: Record<string, unknown> = { ...initialState };
     const nodeResults = new Map<string, NodeResult>();
     const completedNodeIds: string[] = [];
@@ -393,4 +395,19 @@ export class PipelineRuntime {
       throw new Error(formatRuntimeToolReadinessError(readiness));
     }
   }
+}
+
+function resolveRunId(injected: string | undefined): string {
+  if (injected === undefined) return generateRunId();
+  if (
+    injected.length < 1 ||
+    injected.length > 200 ||
+    injected.trim() !== injected ||
+    /[\u0000-\u001f\u007f]/.test(injected)
+  ) {
+    throw new TypeError(
+      "Pipeline runId must be a non-empty, trimmed identifier of at most 200 characters without control characters.",
+    );
+  }
+  return injected;
 }
