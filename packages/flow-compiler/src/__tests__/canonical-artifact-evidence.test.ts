@@ -177,20 +177,59 @@ describe("F-R3 — canonical-artifact evidence", () => {
   });
 
   it("pins the normalizer itself — compileId stripped at every depth, nothing else", () => {
+    // The fixture deliberately carries the realistic sibling keys a widened
+    // strip would plausibly reach for (`name`, `input`, the other two hash
+    // identities) — every one of them must SURVIVE canonicalization, so any
+    // widening beyond `compileId` fails here, not just exotic keys.
     const input = {
       compileId: "11111111-1111-1111-1111-111111111111",
-      keep: "top",
+      name: "keep-name",
+      sourceHash: "sha256:keep-source",
+      semanticHash: "sha256:keep-semantic",
+      input: { mode: "keep-input" },
       nested: {
         compileId: "22222222-2222-2222-2222-222222222222",
+        semanticHash: "sha256:keep-nested-semantic",
         keep: true,
       },
       list: [{ compileId: "33333333-3333-3333-3333-333333333333", n: 1 }],
     };
 
     expect(canonicalizeArtifact(input)).toEqual({
-      keep: "top",
-      nested: { keep: true },
+      name: "keep-name",
+      sourceHash: "sha256:keep-source",
+      semanticHash: "sha256:keep-semantic",
+      input: { mode: "keep-input" },
+      nested: {
+        semanticHash: "sha256:keep-nested-semantic",
+        keep: true,
+      },
       list: [{ n: 1 }],
     });
+  });
+
+  it("derives sensitivity from the canonicalized body, not merely an embedded digest", async () => {
+    // Vacuity guard for the vacuity guard. "changes when the flow genuinely
+    // changes" above compares two full compiles, and the artifact embeds a
+    // PRE-COMPUTED `classificationHash` that already differs between them.
+    // That digest alone is enough to move the evidence hash, so that case stays
+    // green even if canonicalization strips the entire flow body — verified
+    // empirically: stripping `input` left `classificationHash` as the ONLY
+    // surviving difference and the case still passed.
+    //
+    // So assert sensitivity where no embedded digest can carry it: hash two
+    // artifact-shaped objects that differ ONLY in a body field, with every
+    // digest field held equal.
+    const withDigestsHeldEqual = (mode: string) => ({
+      compileId: "11111111-1111-1111-1111-111111111111",
+      classificationHash: "sha256:held-equal",
+      semanticHash: "sha256:held-equal",
+      sourceHash: "sha256:held-equal",
+      root: { type: "sequence", nodes: [{ id: "run", input: { mode } }] },
+    });
+
+    expect(hashSource(canonicalizeArtifact(withDigestsHeldEqual("retry")))).not.toBe(
+      hashSource(canonicalizeArtifact(withDigestsHeldEqual("run"))),
+    );
   });
 });
