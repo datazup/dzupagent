@@ -23,6 +23,7 @@
 // Public types and handle re-exports
 export type {
   AgentHandle,
+  LoweredPorts,
   LoweringMode,
   LowerPipelineContext,
   LowerPipelineResult,
@@ -40,7 +41,7 @@ export {
 } from './_shared-handles.js'
 
 // Edge stitching utility used by top-level lowerers to join skill chains
-export { chainEdges } from './_shared-utils.js'
+export { chainEdges, effectiveTails, portsOf } from './_shared-utils.js'
 
 // Top-level dispatcher
 export { lowerNodeToPipeline } from './_shared-composite.js'

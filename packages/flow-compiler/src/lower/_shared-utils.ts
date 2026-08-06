@@ -15,11 +15,40 @@ import type {
 import type {
   LowerPipelineContext,
   LowerPipelineResult,
+  LoweredPorts,
   LoweringMode,
 } from "./_shared-types.js";
 
 export function freshId(ctx: LowerPipelineContext): string {
   return ctx.idGen !== undefined ? ctx.idGen() : crypto.randomUUID();
+}
+
+/**
+ * The effective tails of a result under the shipped contract: the explicit
+ * `tailNodeIds`, or the last-node fallback when absent. This is the exact
+ * rule the stitching engine applies; `ports.normalExits` must equal it.
+ */
+export function effectiveTails(result: LowerPipelineResult): string[] {
+  if (result.tailNodeIds !== undefined) return result.tailNodeIds;
+  const lastNode = result.nodes[result.nodes.length - 1];
+  return lastNode !== undefined ? [lastNode.id] : [];
+}
+
+/**
+ * A result's ports, synthesizing the default single-entry shape for results
+ * that did not publish them (plain leaves): entry = first node, normal exits
+ * = effective tails, no suspended/terminal/error exits.
+ */
+export function portsOf(result: LowerPipelineResult): LoweredPorts {
+  if (result.ports !== undefined) return result.ports;
+  const firstNode = result.nodes[0];
+  return {
+    entryNodeIds: firstNode !== undefined ? [firstNode.id] : [],
+    normalExits: effectiveTails(result),
+    suspendedExits: [],
+    terminalExits: [],
+    errorExits: [],
+  };
 }
 
 export function loweringMode(ctx: LowerPipelineContext): LoweringMode {
@@ -140,6 +169,30 @@ export function lowerChildren(
   // nodes stays transparent (no tails claimed) so parents bridge across it.
   if (merged.nodes.length > 0) {
     merged.tailNodeIds = pendingTailNodeIds;
+
+    // Compose ports across the children: control enters at the first part
+    // that produced nodes; suspended/terminal/error exits accumulate from
+    // every child; normal exits are exactly the tails computed above.
+    const suspendedExits: string[] = [];
+    const terminalExits: string[] = [];
+    const errorExits: string[] = [];
+    let entryNodeIds: string[] = [];
+    for (const part of parts) {
+      const ports = portsOf(part);
+      if (entryNodeIds.length === 0 && part.nodes.length > 0) {
+        entryNodeIds = ports.entryNodeIds;
+      }
+      suspendedExits.push(...ports.suspendedExits);
+      terminalExits.push(...ports.terminalExits);
+      errorExits.push(...ports.errorExits);
+    }
+    merged.ports = {
+      entryNodeIds,
+      normalExits: pendingTailNodeIds,
+      suspendedExits,
+      terminalExits,
+      errorExits,
+    };
   }
 
   return merged;

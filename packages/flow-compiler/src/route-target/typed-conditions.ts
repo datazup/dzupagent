@@ -21,7 +21,10 @@ function visit(
   path: string,
   unsupported: UnsupportedTypedCondition[],
 ): void {
-  if (node.type === "branch" && node.typedCondition !== undefined) {
+  if (
+    (node.type === "branch" || node.type === "loop") &&
+    node.typedCondition !== undefined
+  ) {
     unsupported.push({ path: `${path}.typedCondition` });
   }
   for (const [child, childPath] of childNodes(node, path)) {

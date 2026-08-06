@@ -34,7 +34,6 @@ const ADAPTER_RUN_KEYS = new Set<string>([
   "reasoning",
   "outputSchema",
   "promptPrep",
-  "idempotency",
   "policy",
   "output",
 ]);
@@ -62,12 +61,6 @@ const VALID_PROMPT_PREP = new Set<NonNullable<AdapterRunNode["promptPrep"]>>([
   "raw",
 ]);
 
-const VALID_IDEMPOTENCY = new Set<NonNullable<AdapterRunNode["idempotency"]>>([
-  "idempotent",
-  "at-least-once",
-  "exactly-once-required",
-]);
-
 function isAdapterProvider(
   value: unknown
 ): value is NonNullable<AdapterRunNode["provider"]> {
@@ -83,11 +76,7 @@ export function normalizeAdapterRun(
   diagnostics: DslDiagnostic[]
 ): AdapterRunNode {
   reportUnsupportedFields(raw, ADAPTER_RUN_KEYS, path, diagnostics);
-  // `idempotency` is a generic-metadata key, but on `adapter.run` it is a
-  // first-class typed node field (spec §3). Hide it from the common-field
-  // metadata sweep so it lands only on `node.idempotency`, never `node.meta`.
-  const { idempotency: _rawIdempotency, ...rawForCommon } = raw;
-  const base = normalizeCommonNodeFields(rawForCommon, path, diagnostics);
+  const base = normalizeCommonNodeFields(raw, path, diagnostics);
 
   const instructions =
     typeof raw.instructions === "string" ? raw.instructions : "";
@@ -221,27 +210,6 @@ export function normalizeAdapterRun(
         code: DSL_ERROR.INVALID_ENUM_VALUE,
         message: 'adapter.run.promptPrep must be "auto" or "raw"',
         path: `${path}.promptPrep`,
-      });
-    }
-  }
-
-  if (raw.idempotency !== undefined) {
-    if (
-      typeof raw.idempotency === "string" &&
-      VALID_IDEMPOTENCY.has(
-        raw.idempotency as NonNullable<AdapterRunNode["idempotency"]>
-      )
-    ) {
-      node.idempotency = raw.idempotency as NonNullable<
-        AdapterRunNode["idempotency"]
-      >;
-    } else {
-      diagnostics.push({
-        phase: "normalize",
-        code: DSL_ERROR.INVALID_ENUM_VALUE,
-        message:
-          'adapter.run.idempotency must be "idempotent", "at-least-once", or "exactly-once-required"',
-        path: `${path}.idempotency`,
       });
     }
   }

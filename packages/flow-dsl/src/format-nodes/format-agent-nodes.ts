@@ -2,11 +2,17 @@ import {
   formatScalar,
   indentFor,
   pushCommon,
+  pushObjectBlock,
   pushTextField,
   quote,
   type FormatContext,
   type NodeOf,
 } from "./format-helpers.js";
+
+/** Interfaces lack index signatures; bridge them into `pushObjectBlock`. */
+function asRecord(value: object): Record<string, unknown> {
+  return value as Record<string, unknown>;
+}
 
 /** Agent, validation, and multi-provider adapter node categories. */
 export function formatAgentNode(
@@ -31,17 +37,66 @@ export function formatAgentNode(
       lines.push(`${childIndent}agentId: ${node.agentId}`);
       if (node.profile) lines.push(`${childIndent}profile: ${node.profile}`);
       if (node.toolset) lines.push(`${childIndent}toolset: ${node.toolset}`);
+      if (node.tools)
+        lines.push(`${childIndent}tools: ${formatScalar(node.tools)}`);
       if (node.model) lines.push(`${childIndent}model: ${node.model}`);
-      pushTextField(
-        lines,
-        indentLevel + 2,
-        "instructions",
-        node.instructions
-      );
+      if (node.provider) lines.push(`${childIndent}provider: ${node.provider}`);
+      if (node.template)
+        pushObjectBlock(
+          lines,
+          indentLevel + 2,
+          "template",
+          asRecord(node.template)
+        );
+      // In template-ref mode instructions may be the empty-string sentinel the
+      // synthesis pass fills in later; omit it rather than emitting "".
+      if (node.instructions)
+        pushTextField(
+          lines,
+          indentLevel + 2,
+          "instructions",
+          node.instructions
+        );
+      if (node.input)
+        pushObjectBlock(lines, indentLevel + 2, "input", node.input);
+      if (node.stop)
+        pushObjectBlock(lines, indentLevel + 2, "stop", asRecord(node.stop));
       lines.push(`${childIndent}output:`);
       lines.push(`${childIndent}  key: ${node.output.key}`);
       if (node.output.schemaRef)
         lines.push(`${childIndent}  schemaRef: ${node.output.schemaRef}`);
+      if (node.output.schema)
+        pushObjectBlock(lines, indentLevel + 3, "schema", node.output.schema);
+      if (node.onInvalidOutput)
+        pushObjectBlock(
+          lines,
+          indentLevel + 2,
+          "onInvalidOutput",
+          asRecord(node.onInvalidOutput)
+        );
+      if (node.retry)
+        pushObjectBlock(lines, indentLevel + 2, "retry", asRecord(node.retry));
+      if (node.validation)
+        pushObjectBlock(
+          lines,
+          indentLevel + 2,
+          "validation",
+          asRecord(node.validation)
+        );
+      if (node.validate)
+        pushObjectBlock(
+          lines,
+          indentLevel + 2,
+          "validate",
+          asRecord(node.validate)
+        );
+      if (node.policy)
+        pushObjectBlock(
+          lines,
+          indentLevel + 2,
+          "policy",
+          asRecord(node.policy)
+        );
       return;
     case "validate":
       lines.push(`${indent}- validate:`);
@@ -76,12 +131,7 @@ export function formatAgentNode(
           "systemPrompt",
           node.systemPrompt
         );
-      pushTextField(
-        lines,
-        indentLevel + 2,
-        "instructions",
-        node.instructions
-      );
+      pushTextField(lines, indentLevel + 2, "instructions", node.instructions);
       if (node.input)
         lines.push(`${childIndent}input: ${formatScalar(node.input)}`);
       if (node.persona) lines.push(`${childIndent}persona: ${node.persona}`);
@@ -97,8 +147,6 @@ export function formatAgentNode(
         );
       if (node.promptPrep)
         lines.push(`${childIndent}promptPrep: ${node.promptPrep}`);
-      if (node.idempotency)
-        lines.push(`${childIndent}idempotency: ${node.idempotency}`);
       if (node.policy)
         lines.push(`${childIndent}policy: ${formatScalar(node.policy)}`);
       lines.push(`${childIndent}output: ${node.output}`);
@@ -117,12 +165,7 @@ export function formatAgentNode(
           "systemPrompt",
           node.systemPrompt
         );
-      pushTextField(
-        lines,
-        indentLevel + 2,
-        "instructions",
-        node.instructions
-      );
+      pushTextField(lines, indentLevel + 2, "instructions", node.instructions);
       if (node.input)
         lines.push(`${childIndent}input: ${formatScalar(node.input)}`);
       if (node.persona) lines.push(`${childIndent}persona: ${node.persona}`);
@@ -138,8 +181,6 @@ export function formatAgentNode(
         );
       if (node.promptPrep)
         lines.push(`${childIndent}promptPrep: ${node.promptPrep}`);
-      if (node.idempotency)
-        lines.push(`${childIndent}idempotency: ${node.idempotency}`);
       if (node.policy)
         lines.push(`${childIndent}policy: ${formatScalar(node.policy)}`);
       lines.push(`${childIndent}output: ${node.output}`);
@@ -159,12 +200,7 @@ export function formatAgentNode(
           "systemPrompt",
           node.systemPrompt
         );
-      pushTextField(
-        lines,
-        indentLevel + 2,
-        "instructions",
-        node.instructions
-      );
+      pushTextField(lines, indentLevel + 2, "instructions", node.instructions);
       if (node.input)
         lines.push(`${childIndent}input: ${formatScalar(node.input)}`);
       if (node.persona) lines.push(`${childIndent}persona: ${node.persona}`);
@@ -180,8 +216,6 @@ export function formatAgentNode(
         );
       if (node.promptPrep)
         lines.push(`${childIndent}promptPrep: ${node.promptPrep}`);
-      if (node.idempotency)
-        lines.push(`${childIndent}idempotency: ${node.idempotency}`);
       if (node.policy)
         lines.push(`${childIndent}policy: ${formatScalar(node.policy)}`);
       lines.push(`${childIndent}output: ${node.output}`);
@@ -220,8 +254,6 @@ export function formatAgentNode(
         );
       if (node.promptPrep)
         lines.push(`${childIndent}promptPrep: ${node.promptPrep}`);
-      if (node.idempotency)
-        lines.push(`${childIndent}idempotency: ${node.idempotency}`);
       if (node.policy)
         lines.push(`${childIndent}policy: ${formatScalar(node.policy)}`);
       lines.push(`${childIndent}output: ${node.output}`);

@@ -175,6 +175,24 @@ export interface LoopNode extends PipelineNodeBase {
       aggregate: "empty-array";
     };
   };
+  /**
+   * Compile-time contract for a lowered typed-condition `loop` flow node
+   * (F-R4). Carries the canonical typed condition so a runtime holding a
+   * reviewed `flow.typedCondition` evaluator can decide continuation without
+   * re-reading the source AST. `condition` is kept structural here — core
+   * cannot depend on flow-ast — and is validated upstream by the compiler.
+   * Runtimes without a reviewed evaluator fail closed: the generated
+   * `continuePredicateName` is never auto-registered, so execution throws
+   * instead of iterating on unevaluated semantics.
+   */
+  typedWhile?: {
+    conditionSchema: "dzupagent.flowTypedCondition/v1";
+    condition: Record<string, unknown>;
+    /** Exhaustion policy: `fail` throws when maxIterations is reached. */
+    onExhausted: "fail" | "continue";
+    /** Step ID tracked for no-progress detection across iterations. */
+    progressKey?: string;
+  };
 }
 
 export interface SuspendNode extends PipelineNodeBase {
@@ -291,6 +309,19 @@ export interface PipelineExecutionLogPolicy {
  * Describes a DAG of nodes connected by edges with optional budget limits,
  * checkpoint strategy, and metadata.
  */
+/**
+ * Admitted pipeline-artifact schema versions (F-R2 artifact evolution).
+ *
+ * Adding a version here is THE deliberate act that widens the artifact
+ * contract: the type below and every serialization/deserialization guard
+ * derive from this list, so a new version admitted without updating the
+ * producers/migrations fails typecheck instead of sliding through one
+ * hand-written literal at a time. Exactly one version exists today.
+ */
+export const PIPELINE_SCHEMA_VERSIONS = ["1.0.0"] as const;
+
+export type PipelineSchemaVersion = (typeof PIPELINE_SCHEMA_VERSIONS)[number];
+
 export interface PipelineDefinition {
   /** Unique pipeline identifier */
   id: string;
@@ -301,7 +332,7 @@ export interface PipelineDefinition {
   /** Optional description */
   description?: string;
   /** Schema version for forward compatibility */
-  schemaVersion: "1.0.0";
+  schemaVersion: PipelineSchemaVersion;
   /** ID of the first node to execute */
   entryNodeId: string;
   /** All nodes in the pipeline */

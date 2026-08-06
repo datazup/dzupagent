@@ -11,6 +11,10 @@ import { createHash } from "node:crypto";
 import type { FlowNode } from "@dzupagent/flow-ast";
 
 import { collectFlowArtifactMetadata } from "../flow-artifact-metadata.js";
+import {
+  FLOW_CANONICAL_ARTIFACT_SCHEMA,
+  canonicalizeArtifact,
+} from "./canonical-artifact.js";
 
 import type {
   CompileInvocationOptions,
@@ -50,6 +54,7 @@ function stableStringify(value: unknown, seen = new WeakSet<object>()): string {
 
 export function buildCompileEvidence(args: {
   ast: FlowNode;
+  artifact: unknown;
   compileId: string;
   target: CompilationTarget;
   sourceKind: FlowCompileSourceKind;
@@ -81,6 +86,10 @@ export function buildCompileEvidence(args: {
     sourceKind: args.sourceKind,
     sourceHash: args.sourceHash,
     semanticHash: args.semanticHash,
+    canonicalArtifact: {
+      schema: FLOW_CANONICAL_ARTIFACT_SCHEMA,
+      hash: hashSource(canonicalizeArtifact(args.artifact)),
+    },
     compileId: args.compileId,
     canonicalNodeIds: [...canonicalNodeIds].sort(),
     canonicalNodePaths,

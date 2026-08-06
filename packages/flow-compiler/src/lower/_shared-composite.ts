@@ -21,15 +21,17 @@ import {
   lowerClarification,
   lowerComplete,
   lowerForEach,
+  lowerTypedLoop,
 } from "./_shared-leaf.js";
 import {
   lowerBranch,
   lowerParallel,
   lowerSequence,
+  lowerTryCatch,
 } from "./_shared-control.js";
 import { lowerApproval, lowerPersona, lowerRoute } from "./_shared-suspend.js";
 import { lowerRuntimeLeaf } from "./_shared-runtime-leaf.js";
-import { lowerChildren } from "./_shared-utils.js";
+import { lowerChildren, portsOf } from "./_shared-utils.js";
 
 /**
  * Lower a single FlowNode (and its subtree) into a flat list of
@@ -41,6 +43,20 @@ import { lowerChildren } from "./_shared-utils.js";
  *              node naming and resolved-map lookups.
  */
 export function lowerNodeToPipeline(
+  node: FlowNode,
+  ctx: LowerPipelineContext,
+  path: string
+): LowerPipelineResult {
+  const result = lowerNodeVariant(node, ctx, path);
+  // Every dispatched result carries ports: composites publish them
+  // explicitly; leaves get the synthesized single-entry/single-exit shape.
+  if (result.ports === undefined) {
+    result.ports = portsOf(result);
+  }
+  return result;
+}
+
+function lowerNodeVariant(
   node: FlowNode,
   ctx: LowerPipelineContext,
   path: string
@@ -113,16 +129,17 @@ export function lowerNodeToPipeline(
       return { nodes: [], edges: [], warnings: [] };
 
     case "try_catch":
-      // try_catch body is lowered normally; the catch branch is runtime-only (error path).
-      return lowerChildren(
-        node.body,
-        ctx,
-        (idx) => `${path}.body[${idx}]`,
-        lowerNodeToPipeline
-      );
+      // F-R2c: body lowers normally; the catch branch lowers onto the error
+      // path via catch-all ErrorEdges from every body node.
+      return lowerTryCatch(node, ctx, path, lowerNodeToPipeline);
 
     case "loop":
-      // loop body is lowered as a sequence; condition evaluation is runtime-only.
+      // F-R4: a typed condition lowers to a real LoopNode carrying the
+      // typedWhile contract. Legacy string-condition loops keep the
+      // flattened lowering; their condition evaluation is runtime-only.
+      if (node.typedCondition !== undefined) {
+        return lowerTypedLoop(node, ctx, path, lowerNodeToPipeline);
+      }
       return lowerChildren(
         node.body,
         ctx,

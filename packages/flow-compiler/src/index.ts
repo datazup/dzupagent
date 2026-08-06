@@ -66,6 +66,11 @@ export type {
 } from "./host-tool-registry.js";
 export { collectFlowArtifactMetadata } from "./flow-artifact-metadata.js";
 export {
+  FLOW_CANONICAL_ARTIFACT_SCHEMA,
+  canonicalizeArtifact,
+} from "./compile-orchestrator/canonical-artifact.js";
+export type { FlowCanonicalArtifactSchema } from "./compile-orchestrator/canonical-artifact.js";
+export {
   bindFlowRequirementsToPrimitiveRegistry,
   resolvePrimitiveRegistryReadiness,
   validateCompilerPrimitiveRegistry,
@@ -105,6 +110,22 @@ export type {
   FlowClassificationHostAdmission,
   FlowClassificationHostAdmissionRequest,
 } from "./classification-host-admission.js";
+export type { LoweredPorts } from "./lower/_shared-types.js";
+export {
+  FLOW_TYPED_CONDITION_CAPABILITY,
+  TypedLoopPredicateError,
+  createTypedLoopPredicate,
+  createTypedLoopPredicates,
+} from "./typed-loop-predicates.js";
+export type {
+  RegisterTypedLoopPredicateOptions,
+  TypedLoopPredicate,
+} from "./typed-loop-predicates.js";
+export { admitSuspendedExits } from "./suspended-exit-admission.js";
+export type {
+  SuspendedExitAdmissionDecision,
+  SuspendedExitAdmissionInput,
+} from "./suspended-exit-admission.js";
 export {
   resolveFlowCredentialLeaseForEnvelope,
   resolveFlowToolCredentialLeaseForEnvelope,

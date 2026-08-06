@@ -30,7 +30,6 @@ const ADAPTER_SUPERVISOR_KEYS = new Set<string>([
   "reasoning",
   "outputSchema",
   "promptPrep",
-  "idempotency",
   "policy",
   "output",
 ]);
@@ -43,18 +42,13 @@ const VALID_PROMPT_PREP = new Set<
   NonNullable<AdapterSupervisorNode["promptPrep"]>
 >(["auto", "raw"]);
 
-const VALID_IDEMPOTENCY = new Set<
-  NonNullable<AdapterSupervisorNode["idempotency"]>
->(["idempotent", "at-least-once", "exactly-once-required"]);
-
 export function normalizeAdapterSupervisor(
   raw: Record<string, unknown>,
   path: string,
   diagnostics: DslDiagnostic[]
 ): AdapterSupervisorNode {
   reportUnsupportedFields(raw, ADAPTER_SUPERVISOR_KEYS, path, diagnostics);
-  const { idempotency: _rawIdempotency, ...rawForCommon } = raw;
-  const base = normalizeCommonNodeFields(rawForCommon, path, diagnostics);
+  const base = normalizeCommonNodeFields(raw, path, diagnostics);
 
   const goal = typeof raw.goal === "string" ? raw.goal : "";
   const output = typeof raw.output === "string" ? raw.output : "";
@@ -156,26 +150,6 @@ export function normalizeAdapterSupervisor(
     }
   }
 
-  if (raw.idempotency !== undefined) {
-    if (
-      typeof raw.idempotency === "string" &&
-      VALID_IDEMPOTENCY.has(
-        raw.idempotency as NonNullable<AdapterSupervisorNode["idempotency"]>
-      )
-    ) {
-      node.idempotency = raw.idempotency as NonNullable<
-        AdapterSupervisorNode["idempotency"]
-      >;
-    } else {
-      diagnostics.push({
-        phase: "normalize",
-        code: DSL_ERROR.INVALID_ENUM_VALUE,
-        message:
-          'adapter.supervisor.idempotency must be "idempotent", "at-least-once", or "exactly-once-required"',
-        path: `${path}.idempotency`,
-      });
-    }
-  }
 
   if (raw.policy !== undefined) {
     const policy = normalizeObject(raw.policy, `${path}.policy`, diagnostics);

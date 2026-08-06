@@ -718,6 +718,24 @@ Run named branches concurrently. Requires at least two non-empty branches.
         - action: { ref: skill:ui, input: {} }
 ```
 
+### `group`
+
+Group steps into a named nested block. Requires at least one step.
+
+```yaml
+- group:
+    id: preflight
+    steps:
+      - action: { ref: skill:lint, input: {} }
+      - action: { ref: skill:typecheck, input: {} }
+```
+
+Normalizes to a nested `type: 'sequence'` in the AST. The document's top-level
+`steps:` list is already the root sequence, so `group` is what makes a _nested_
+sequence expressible — without it a nested sequence has no authored form, and
+the formatter can only splice its children into the parent list (which silently
+dropped the wrapper's `id` on every round trip before this keyword existed).
+
 ### `for_each`
 
 Iterate a state source. Supports `attachAs`, `collectInto`, `accumulator`, and

@@ -13,7 +13,12 @@ import type {
   ValidationError,
   ValidationErrorCode,
 } from '../types.js'
-import { EFFECT_CLASSES, NODE_IDEMPOTENCY_MODES } from '../types.js'
+import {
+  EFFECT_CLASSES,
+  NODE_IDEMPOTENCY_MODES,
+  admitCommonField,
+  commonFieldSpec,
+} from '../types.js'
 import { describeJsType, isPlainObject, joinPath } from '../validation-helpers.js'
 
 // ---------------------------------------------------------------------------
@@ -138,22 +143,42 @@ export function validateCommonNodeFields(
   return fields
 }
 
+/**
+ * Admit one registered execution-contract field against the shared registry
+ * rule, pushing validate's own `SchemaIssue` shape on rejection.
+ *
+ * The enum value sets are NOT re-listed here: they come from
+ * `FLOW_COMMON_FIELD_REGISTRY` via `admitCommonField`, so validate cannot
+ * drift from parse and normalize when a value is added.
+ */
+function validateRegisteredContractField(
+  obj: Record<string, unknown>,
+  path: string,
+  field: 'effectClass' | 'idempotency' | 'resumePoint',
+  issues: SchemaIssue[],
+): string | boolean | undefined {
+  const spec = commonFieldSpec(field)
+  if (spec === undefined) return undefined
+  const admission = admitCommonField(spec, obj[field])
+  if (admission.outcome === 'admitted') return admission.value
+  if (admission.outcome === 'invalid') {
+    issues.push({
+      path: joinPath(path, field),
+      code: 'MISSING_REQUIRED_FIELD',
+      message: `${field} must be one of ${admission.expected}`,
+    })
+  }
+  return undefined
+}
+
 export function validateOptionalEffectClassField(
   obj: Record<string, unknown>,
   path: string,
   issues: SchemaIssue[],
 ): EffectClass | undefined {
-  if (!('effectClass' in obj) || obj.effectClass === undefined) return undefined
-  const value = obj.effectClass
-  if (typeof value === 'string' && (EFFECT_CLASSES as readonly string[]).includes(value)) {
-    return value as EffectClass
-  }
-  issues.push({
-    path: joinPath(path, 'effectClass'),
-    code: 'MISSING_REQUIRED_FIELD',
-    message: `effectClass must be one of ${EFFECT_CLASSES.join('|')}`,
-  })
-  return undefined
+  return validateRegisteredContractField(obj, path, 'effectClass', issues) as
+    | EffectClass
+    | undefined
 }
 
 export function validateOptionalIdempotencyField(
@@ -161,20 +186,9 @@ export function validateOptionalIdempotencyField(
   path: string,
   issues: SchemaIssue[],
 ): NodeIdempotencyMode | undefined {
-  if (!('idempotency' in obj) || obj.idempotency === undefined) return undefined
-  const value = obj.idempotency
-  if (
-    typeof value === 'string' &&
-    (NODE_IDEMPOTENCY_MODES as readonly string[]).includes(value)
-  ) {
-    return value as NodeIdempotencyMode
-  }
-  issues.push({
-    path: joinPath(path, 'idempotency'),
-    code: 'MISSING_REQUIRED_FIELD',
-    message: `idempotency must be one of ${NODE_IDEMPOTENCY_MODES.join('|')}`,
-  })
-  return undefined
+  return validateRegisteredContractField(obj, path, 'idempotency', issues) as
+    | NodeIdempotencyMode
+    | undefined
 }
 
 export function validateOptionalStringField(

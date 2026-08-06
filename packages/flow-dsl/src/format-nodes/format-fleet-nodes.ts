@@ -118,10 +118,6 @@ export function formatFleetNode(
       if (node.allowFailure !== undefined)
         lines.push(`${childIndent}allowFailure: ${String(node.allowFailure)}`);
       lines.push(`${childIndent}output: ${node.output}`);
-      if (node.effectClass)
-        lines.push(`${childIndent}effectClass: ${node.effectClass}`);
-      if (node.idempotency)
-        lines.push(`${childIndent}idempotency: ${node.idempotency}`);
       return;
     case "evidence.write":
       lines.push(`${indent}- evidence.write:`);
@@ -130,10 +126,6 @@ export function formatFleetNode(
       lines.push(`${childIndent}output: ${node.output}`);
       if (node.redact !== undefined)
         lines.push(`${childIndent}redact: ${String(node.redact)}`);
-      if (node.effectClass)
-        lines.push(`${childIndent}effectClass: ${node.effectClass}`);
-      if (node.idempotency)
-        lines.push(`${childIndent}idempotency: ${node.idempotency}`);
       return;
     case "validate.schema":
       lines.push(`${indent}- validate.schema:`);
@@ -141,10 +133,6 @@ export function formatFleetNode(
       lines.push(`${childIndent}source: ${quote(node.source)}`);
       lines.push(`${childIndent}schema: ${formatScalar(node.schema)}`);
       lines.push(`${childIndent}output: ${node.output}`);
-      if (node.effectClass)
-        lines.push(`${childIndent}effectClass: ${node.effectClass}`);
-      if (node.idempotency)
-        lines.push(`${childIndent}idempotency: ${node.idempotency}`);
       return;
     default: {
       const _exhaustive: never = node;

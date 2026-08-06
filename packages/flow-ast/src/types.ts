@@ -15,6 +15,7 @@ export * from "./types/nodes.js";
 export * from "./types/agent-nodes.js";
 export * from "./types/spdd-nodes.js";
 export * from "./types/node-registry.js";
+export * from "./types/field-registry.js";
 export * from "./types/document.js";
 export * from "./types/validation.js";
 export * from "./types/resolvers.js";

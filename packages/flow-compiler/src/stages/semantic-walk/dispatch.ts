@@ -239,25 +239,36 @@ export async function visit(
       return;
     }
     case "loop": {
-      if (ctx.admissionProfile === "unattended") {
-        ctx.errors.push({
-          nodeType: node.type,
-          nodePath: `${path}.condition`,
-          code: "FLOW_LOOP_CONDITION_RUNTIME_ONLY",
-          category: "policy",
-          span: nodeFieldSpan(0, node.condition.length),
-          message:
-            "unattended compilation denies loop conditions because the " +
-            "current lowering does not preserve canonical condition semantics",
-        });
+      if (node.typedCondition !== undefined) {
+        // F-R4: the typed condition carries semantic authority; the legacy
+        // string is pinned to the fail-closed shadow by parse/validate, so
+        // only the typed form is analyzed. Unattended admission is satisfied
+        // by the typed evaluator mandate — arbitrary condition strings stay
+        // denied below.
+        validateTypedConditionExpr(node.type, node.typedCondition, path, ctx);
+      } else {
+        if (ctx.admissionProfile === "unattended") {
+          ctx.errors.push({
+            nodeType: node.type,
+            nodePath: `${path}.condition`,
+            code: "FLOW_LOOP_CONDITION_RUNTIME_ONLY",
+            category: "policy",
+            span: nodeFieldSpan(0, node.condition.length),
+            message:
+              "unattended compilation denies arbitrary loop condition " +
+              "strings; author a canonical typedCondition instead (the " +
+              "string lowering does not preserve canonical condition " +
+              "semantics)",
+          });
+        }
+        validateConditionExpr(
+          node.type,
+          node.condition,
+          `${path}.condition`,
+          "loop.condition",
+          ctx
+        );
       }
-      validateConditionExpr(
-        node.type,
-        node.condition,
-        `${path}.condition`,
-        "loop.condition",
-        ctx
-      );
       for (let idx = 0; idx < node.body.length; idx++) {
         const child = node.body[idx];
         if (child !== undefined)

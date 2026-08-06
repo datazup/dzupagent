@@ -32,10 +32,13 @@ import {
 import {
   bindFlowRequirementsToPrimitiveRegistry,
 } from "../primitive-registry-admission.js";
+import { admitSuspendedExits } from "../suspended-exit-admission.js";
+import type { LoweredPorts } from "../lower/_shared-types.js";
 
 import type {
   CompileInvocationOptions,
   CompilationError,
+  CompilationWarning,
   CompileFailure,
   FlowCompileSourceKind,
   CompileSuccess,
@@ -363,6 +366,7 @@ export async function runCompile(
 
   let artifact: unknown;
   let warnings: string[];
+  let ports: LoweredPorts | undefined;
   try {
     if (target === "skill-chain") {
       const out = lowerSkillChain({ ast, resolved, mode: "executable" });
@@ -377,6 +381,7 @@ export async function runCompile(
       });
       artifact = out.artifact;
       warnings = out.warnings;
+      ports = out.ports;
     } else {
       // target === 'pipeline'
       const out = lowerPipelineLoop({
@@ -387,6 +392,7 @@ export async function runCompile(
       });
       artifact = out.artifact;
       warnings = out.warnings;
+      ports = out.ports;
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -416,10 +422,48 @@ export async function runCompile(
     };
   }
 
+  // F-R2 port consumer: the suspended-exit set carries admission authority.
+  // Unattended flows fail closed on a suspended exit unless the operator
+  // passed the explicit acknowledgment option; interactive is untouched.
+  let suspendedExitWarnings: CompilationWarning[] = [];
+  if (ports !== undefined) {
+    const nodeLabels = new Map<string, string>();
+    const artifactNodes = (
+      artifact as { nodes?: Array<{ id: string; name?: string }> }
+    ).nodes;
+    for (const node of artifactNodes ?? []) {
+      if (node.name !== undefined) nodeLabels.set(node.id, node.name);
+    }
+    const decision = admitSuspendedExits({
+      ports,
+      admissionProfile: opts.admissionProfile ?? "interactive",
+      acknowledgeSuspendedExits: opts.acknowledgeSuspendedExits ?? false,
+      describeNode: (id) => nodeLabels.get(id) ?? id,
+    });
+    if (decision.errors.length > 0) {
+      emit({
+        type: "flow:compile_failed",
+        compileId,
+        stage: 4,
+        errorCount: decision.errors.length,
+        durationMs: Date.now() - startedAt,
+      });
+      return {
+        errors: decision.errors,
+        compileId,
+        diagnosticCountsByCategory: countDiagnosticsByCategory(
+          decision.errors,
+        ),
+      };
+    }
+    suspendedExitWarnings = decision.warnings;
+  }
+
   const compilationWarnings = [
     ...semanticWarnings,
     ...toCompilationWarnings(warnings),
     ...conformanceWarnings(requirements),
+    ...suspendedExitWarnings,
   ];
 
   // Collect fleet/knowledge steps from the AST and attach to the artifact so
@@ -463,12 +507,14 @@ export async function runCompile(
     target,
     artifact,
     classificationEnvelope,
+    ...(ports !== undefined ? { ports } : {}),
     warnings: compilationWarnings,
     reasons: targetReasons(target, bitmask),
     requirements,
     compileId,
     evidence: buildCompileEvidence({
       ast,
+      artifact,
       compileId,
       target,
       sourceKind,

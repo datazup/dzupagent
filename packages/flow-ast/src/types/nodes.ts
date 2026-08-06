@@ -240,8 +240,13 @@ export type TryCatchNode = FlowNodeBase & {
 /** Condition-based loop: repeats `body` while `condition` evaluates truthy. */
 export type LoopNode = FlowNodeBase & {
   type: "loop";
-  /** Template expression evaluated against state before each iteration. */
+  /**
+   * Legacy runtime condition. Typed conditions use the fixed fail-closed
+   * shadow and carry semantic authority in `typedCondition`.
+   */
   condition: string;
+  /** Canonical typed condition; generic runtime targets currently reject it. */
+  typedCondition?: FlowTypedCondition;
   body: FlowNode[];
   /** Maximum iterations (default 100, prevents infinite loops). */
   maxIterations?: number;

@@ -1,4 +1,13 @@
-import type { FlowNode, LoopNode, TryCatchNode } from "@dzupagent/flow-ast";
+import type {
+  FlowNode,
+  LoopNode,
+  SequenceNode,
+  TryCatchNode,
+} from "@dzupagent/flow-ast";
+import {
+  FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW,
+  isFlowTypedCondition,
+} from "@dzupagent/flow-ast/expressions";
 
 import { DSL_ERROR } from "./errors.js";
 import {
@@ -13,6 +22,56 @@ type NormalizeSteps = (
   path: string,
   diagnostics: DslDiagnostic[]
 ) => FlowNode[];
+
+// ── group (nested sequence) ───────────────────────────────────────────────────
+
+const GROUP_KEYS = new Set<string>([...COMMON_NODE_KEYS, "steps"]);
+
+/**
+ * `group:` is the authoring surface for a nested {@link SequenceNode}.
+ *
+ * The top-level `steps:` list already IS the root sequence, so a nested
+ * sequence needs its own keyword to be expressible at all; without one the
+ * formatter could only splice a nested sequence's children into the parent
+ * list, silently losing the wrapper (`type`/`id`/`nodes`) on every round
+ * trip. `group` reads as intent — a named block — rather than restating the
+ * AST discriminant, and its child list reuses `steps` for consistency with
+ * the document root.
+ */
+export function normalizeGroup(
+  raw: Record<string, unknown>,
+  path: string,
+  diagnostics: DslDiagnostic[],
+  normalizeSteps: NormalizeSteps
+): SequenceNode {
+  reportUnsupportedFields(raw, GROUP_KEYS, path, diagnostics);
+  const base = normalizeCommonNodeFields(raw, path, diagnostics);
+
+  if (!Array.isArray(raw.steps)) {
+    diagnostics.push({
+      phase: "normalize",
+      code: DSL_ERROR.MISSING_REQUIRED_FIELD,
+      message: "group.steps is required (array of steps)",
+      path: `${path}.steps`,
+    });
+  }
+
+  const nodes = normalizeSteps(raw.steps ?? [], `${path}.steps`, diagnostics);
+  if (nodes.length === 0) {
+    diagnostics.push({
+      phase: "normalize",
+      code: DSL_ERROR.EMPTY_BRANCH_BODY,
+      message: "group.steps must contain at least one step",
+      path: `${path}.steps`,
+    });
+  }
+
+  return {
+    type: "sequence",
+    ...base,
+    nodes,
+  };
+}
 
 // ── try_catch ─────────────────────────────────────────────────────────────────
 
@@ -75,6 +134,7 @@ export function normalizeTryCatch(
 const LOOP_KEYS = new Set<string>([
   ...COMMON_NODE_KEYS,
   "condition",
+  "typedCondition",
   "body",
   "maxIterations",
   "max_iterations",
@@ -109,8 +169,40 @@ export function normalizeLoop(
     });
   }
 
+  if (
+    raw.typedCondition !== undefined &&
+    !isFlowTypedCondition(raw.typedCondition)
+  ) {
+    diagnostics.push({
+      phase: "normalize",
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: "loop.typedCondition must be a canonical FlowTypedCondition",
+      path: `${path}.typedCondition`,
+    });
+  }
+
   const body = normalizeSteps(raw.body ?? [], `${path}.body`, diagnostics);
-  const node: LoopNode = { type: "loop", ...base, condition, body };
+  const node: LoopNode = {
+    type: "loop",
+    ...base,
+    condition,
+    ...(isFlowTypedCondition(raw.typedCondition)
+      ? { typedCondition: raw.typedCondition }
+      : {}),
+    body,
+  };
+
+  if (
+    node.typedCondition !== undefined &&
+    node.condition !== FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW
+  ) {
+    diagnostics.push({
+      phase: "normalize",
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: `loop.condition must equal "${FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW}" when typedCondition is present`,
+      path: `${path}.condition`,
+    });
+  }
 
   const maxRaw = raw.maxIterations ?? raw.max_iterations;
   if (typeof maxRaw === "number" && maxRaw > 0) {

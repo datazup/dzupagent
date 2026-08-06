@@ -257,6 +257,42 @@ export const controlFlowValidators: ShapeRulePartial<ControlFlowKind> = {
         )
       );
     }
+    if (
+      node.typedCondition !== undefined &&
+      !isFlowTypedCondition(node.typedCondition)
+    ) {
+      errors.push(
+        missing(
+          node.type,
+          path,
+          "loop.typedCondition must be a canonical FlowTypedCondition"
+        )
+      );
+    }
+    if (
+      node.typedCondition !== undefined &&
+      node.condition !== FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW
+    ) {
+      errors.push(
+        missing(
+          node.type,
+          path,
+          `loop.condition must equal "${FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW}" when typedCondition is present`
+        )
+      );
+    }
+    if (
+      node.maxIterations !== undefined &&
+      (!Number.isInteger(node.maxIterations) || node.maxIterations <= 0)
+    ) {
+      errors.push(
+        missing(
+          node.type,
+          path,
+          "loop.maxIterations must be a positive integer"
+        )
+      );
+    }
     if (node.body.length === 0) {
       errors.push(
         emptyBody(node.type, path, "loop.body must contain at least one node")

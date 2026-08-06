@@ -74,14 +74,14 @@ describe("createFlowCompiler — forwardInnerEvents guard", () => {
   it("throws when forwardInnerEvents is true and no eventBus is provided", () => {
     const resolver = makeResolver([]);
     expect(() =>
-      createFlowCompiler({ toolResolver: resolver, forwardInnerEvents: true }),
+      createFlowCompiler({ toolResolver: resolver, forwardInnerEvents: true })
     ).toThrow(/forwardInnerEvents.*eventBus|eventBus.*forwardInnerEvents/);
   });
 
   it("does not throw when forwardInnerEvents is false", () => {
     const resolver = makeResolver([]);
     expect(() =>
-      createFlowCompiler({ toolResolver: resolver, forwardInnerEvents: false }),
+      createFlowCompiler({ toolResolver: resolver, forwardInnerEvents: false })
     ).not.toThrow();
   });
 
@@ -191,7 +191,7 @@ steps:
         code: "INVALID_REFERENCE",
         nodePath: "root.nodes[0].input.prompt",
         message: expect.stringContaining("[MISSING_REFERENCE]"),
-      }),
+      })
     );
   });
 
@@ -355,7 +355,7 @@ describe("createFlowCompiler — happy path workflow-builder", () => {
     };
     expect(success.target).toBe("workflow-builder");
     expect(
-      success.reasons.some((reason) => reason.code === "BRANCH_PRESENT"),
+      success.reasons.some((reason) => reason.code === "BRANCH_PRESENT")
     ).toBe(true);
 
     const pipeline = success.artifact as PipelineDefinition;
@@ -394,7 +394,7 @@ describe("createFlowCompiler — happy path pipeline", () => {
     };
     expect(success.target).toBe("pipeline");
     expect(
-      success.reasons.some((reason) => reason.code === "FOR_EACH_PRESENT"),
+      success.reasons.some((reason) => reason.code === "FOR_EACH_PRESENT")
     ).toBe(true);
 
     const pipeline = success.artifact as PipelineDefinition;
@@ -402,7 +402,7 @@ describe("createFlowCompiler — happy path pipeline", () => {
     const loop = pipeline.nodes.find((n) => n.type === "loop");
     expect(loop).toBeDefined();
     expect(
-      (loop as NonNullable<typeof loop> & { forEach?: unknown }).forEach,
+      (loop as NonNullable<typeof loop> & { forEach?: unknown }).forEach
     ).toEqual({
       source: "items",
       as: "item",
@@ -470,7 +470,7 @@ describe("createFlowCompiler — stage 2 errors", () => {
     const resolver = makeResolver([]);
     const compiler = createFlowCompiler({ toolResolver: resolver });
     const result = await compiler.compile(
-      JSON.stringify({ type: "sequence", nodes: [] }),
+      JSON.stringify({ type: "sequence", nodes: [] })
     );
     expect("errors" in result).toBe(true);
     const failure = result as { errors: Array<{ stage: number }> };
@@ -548,7 +548,7 @@ steps:
       }),
     ]);
     expect(failure.errors.some((e) => e.code === "UNKNOWN_NODE_TYPE")).toBe(
-      false,
+      false
     );
   });
 });
@@ -628,7 +628,7 @@ describe("createFlowCompiler — stage 3 errors", () => {
         code: "INVALID_CONDITION",
         nodePath: "root.condition",
         message: expect.stringContaining("MISSING_REFERENCE"),
-      }),
+      })
     );
   });
 
@@ -676,7 +676,7 @@ describe("createFlowCompiler — stage 3 errors", () => {
         code: "INVALID_CONDITION",
         nodePath: "root.nodes[0].condition",
         message: expect.stringContaining("MISSING_REFERENCE"),
-      }),
+      })
     );
   });
 
@@ -762,7 +762,7 @@ describe("createFlowCompiler — stage 3 errors", () => {
         code: "INVALID_REFERENCE",
         nodePath: "root.nodes[0].input.prompt",
         message: expect.stringContaining("[MISSING_REFERENCE]"),
-      }),
+      })
     );
   });
 
@@ -810,12 +810,12 @@ describe("createFlowCompiler — stage 3 errors", () => {
         code: "UNSAFE_DATA_FLOW",
         nodePath: "root.nodes[0].input.prompt",
         message: expect.stringContaining("[SECRET_TO_TOOL_INPUT]"),
-      }),
+      })
     );
     expect(
       result.errors.some((error) =>
-        error.message.includes("[MISSING_REFERENCE]"),
-      ),
+        error.message.includes("[MISSING_REFERENCE]")
+      )
     ).toBe(false);
   });
 
@@ -846,7 +846,7 @@ describe("createFlowCompiler — stage 3 errors", () => {
         code: "INVALID_REFERENCE",
         nodePath: "root.nodes[1].result",
         message: expect.stringContaining("[MISSING_REFERENCE_PORT]"),
-      }),
+      })
     );
   });
 
@@ -901,7 +901,7 @@ describe("createFlowCompiler — stage 3 errors", () => {
         code: "INVALID_REFERENCE",
         nodePath: "root.nodes[0].assign.copied",
         message: expect.stringContaining("[REFERENCE_NOT_AVAILABLE]"),
-      }),
+      })
     );
   });
 
@@ -942,7 +942,7 @@ describe("createFlowCompiler — stage 3 errors", () => {
       expect.objectContaining({
         nodePath: "root.nodes[1].result",
         message: expect.stringContaining("[REFERENCE_NOT_AVAILABLE]"),
-      }),
+      })
     );
   });
 
@@ -1077,7 +1077,7 @@ describe("createFlowCompiler — stage 3 errors", () => {
       expect.objectContaining({
         nodePath: "root.nodes[0].source",
         message: expect.stringContaining("iteration requires an array"),
-      }),
+      })
     );
 
     const leakedAlias = await compiler.compileDocument({
@@ -1120,12 +1120,12 @@ describe("createFlowCompiler — stage 3 errors", () => {
       expect.objectContaining({
         nodePath: "root.nodes[1].result",
         message: expect.stringContaining("[REFERENCE_NOT_AVAILABLE]"),
-      }),
+      })
     );
     expect(
       leakedAlias.errors.filter(
-        (error) => error.nodePath === "root.nodes[0].body[0].assign.itemCopy",
-      ),
+        (error) => error.nodePath === "root.nodes[0].body[0].assign.itemCopy"
+      )
     ).toEqual([]);
   });
 });
@@ -1282,7 +1282,7 @@ describe("C1a — document-level truth survives the DSL entry point", () => {
     // Pinning the two entry points to each other (rather than to a literal)
     // keeps a future change to extraction from silently desynchronising them.
     expect(dslSuccess.documentDurability).toEqual(
-      documentSuccess.documentDurability,
+      documentSuccess.documentDurability
     );
     expect(dslSuccess.documentDurability).toEqual(DURABILITY);
   });
@@ -1307,7 +1307,7 @@ describe("C1a — document-level truth survives the DSL entry point", () => {
         "      input:",
         "        mode: run",
         "",
-      ].join("\n"),
+      ].join("\n")
     );
 
     expect("errors" in result).toBe(false);
@@ -1317,17 +1317,19 @@ describe("C1a — document-level truth survives the DSL entry point", () => {
     expect(success.documentDurability).toBeUndefined();
   });
 
-  it("rejects a top-level policy block in DSL text (grammar gap, not a compileDsl defect)", async () => {
+  it("admits a top-level policy block in DSL text and carries the ceiling (G-C2)", async () => {
     const compiler = createFlowCompiler({
       toolResolver: makeResolver(["tasks.run"]),
     });
 
-    // Pins the C0 finding. `policy` is absent from TOP_LEVEL_KEYS, so document
-    // budget/timeout truth is UNREACHABLE from DSL text — it fails loudly here
-    // rather than being dropped silently. Admitting `policy` into the DSL
-    // grammar is a separate, larger change (it needs narrowing semantics
-    // against per-node policy) and is deliberately NOT part of C1a. This test
-    // exists so that work is a deliberate decision rather than an accident.
+    // Inverted from the C0 finding by G-C2 — the deliberate decision this test
+    // was written to force. `policy` is now in TOP_LEVEL_KEYS, so document
+    // budget/timeout truth is reachable from DSL text and lands on the compiled
+    // artifact instead of being rejected. The narrowing semantics the original
+    // note deferred on already exist (`dslV2PolicyNarrowings`, v2-target-gates),
+    // so admission no longer waits on them.
+    // Round-trip coverage lives in flow-dsl `test/document-policy-roundtrip.test.ts`;
+    // artifact coverage in `document-policy-ceiling.test.ts`.
     const result = await compiler.compileDsl(
       [
         "dsl: dzupflow/v1",
@@ -1342,15 +1344,13 @@ describe("C1a — document-level truth survives the DSL entry point", () => {
         "      input:",
         "        mode: run",
         "",
-      ].join("\n"),
+      ].join("\n")
     );
 
-    expect("errors" in result).toBe(true);
-    const failure = result as {
-      errors: readonly { code: string; nodePath?: string }[];
-    };
-    expect(failure.errors.some((e) => e.code === "UNSUPPORTED_FIELD")).toBe(
-      true,
-    );
+    expect("errors" in result).toBe(false);
+    const success = result as { documentPolicy?: Record<string, unknown> };
+    // Pin the VALUE: a ceiling admitted but arriving empty is the same
+    // governance failure as one rejected outright.
+    expect(success.documentPolicy).toEqual({ budgetCents: 250 });
   });
 });

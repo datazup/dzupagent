@@ -28,6 +28,7 @@ export type {
   PipelineCheckpointPolicy,
   PipelineExecutionLogPolicy,
   PipelineDefinition,
+  PipelineSchemaVersion,
   PipelineValidationError,
   PipelineValidationWarning,
   PipelineValidationResult,
@@ -44,6 +45,8 @@ export type {
 } from "./pipeline-checkpoint-store.js";
 
 // --- Serialization ---
+export { PIPELINE_SCHEMA_VERSIONS } from "./pipeline-definition.js";
+
 export {
   // Zod schemas
   AgentNodeSchema,

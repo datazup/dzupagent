@@ -7,12 +7,56 @@
  * are unchanged.
  */
 
-import type { AgentPolicy } from "../types.js";
+import type { AgentPolicy, AgentTemplateRef } from "../types.js";
 import { type ParseContext, isPlainObject, joinPointer } from "./shared.js";
 import {
   isPositiveFinitePolicyNumber,
   isPositiveFiniteNumber,
 } from "../policy-numbers.js";
+
+/**
+ * Parses the optional `agent.template` compile-time template reference.
+ * Mirrors `../validate/agent-policy.ts`'s `validateAgentTemplateRef`; shape
+ * constraints must stay isomorphic (`ref` required non-empty string,
+ * `inputDefaults` optional object).
+ */
+export function parseTemplateRef(
+  raw: unknown,
+  pointer: string,
+  ctx: ParseContext
+): AgentTemplateRef | undefined {
+  if (raw === undefined) return undefined;
+  if (!isPlainObject(raw)) {
+    ctx.errors.push({
+      code: "EXPECTED_OBJECT",
+      message: "agent.template must be an object when present",
+      pointer,
+    });
+    return undefined;
+  }
+  const ref = raw.ref;
+  if (typeof ref !== "string" || ref.length === 0) {
+    ctx.errors.push({
+      code: "WRONG_FIELD_TYPE",
+      message: "agent.template.ref is required (non-empty string)",
+      pointer: joinPointer(pointer, "ref"),
+    });
+    return undefined;
+  }
+  const out: AgentTemplateRef = { ref };
+  if (raw.inputDefaults !== undefined) {
+    if (!isPlainObject(raw.inputDefaults)) {
+      ctx.errors.push({
+        code: "EXPECTED_OBJECT",
+        message: "agent.template.inputDefaults must be an object when present",
+        pointer: joinPointer(pointer, "inputDefaults"),
+      });
+    } else {
+      out.inputDefaults = raw.inputDefaults;
+    }
+  }
+  return out;
+}
 
 export function parsePolicy(
   raw: unknown,

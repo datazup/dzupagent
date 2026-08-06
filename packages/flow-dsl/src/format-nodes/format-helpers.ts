@@ -1,4 +1,5 @@
 import type { FlowNode } from "@dzupagent/flow-ast";
+import { FLOW_EXECUTION_CONTRACT_FIELDS } from "@dzupagent/flow-ast";
 
 /**
  * Shared context threaded through every node-group formatter.
@@ -32,6 +33,11 @@ export function pushCommon(
   if (node.name) lines.push(`${indent}name: ${quote(node.name)}`);
   if (node.description)
     pushTextField(lines, indentLevel, "description", node.description);
+  for (const spec of FLOW_EXECUTION_CONTRACT_FIELDS) {
+    const value = node[spec.field];
+    if (value === undefined) continue;
+    lines.push(`${indent}${spec.field}: ${formatScalar(value)}`);
+  }
   if (
     node.meta &&
     Object.keys(node.meta).length > 0 &&
@@ -104,7 +110,7 @@ export function quote(value: string): string {
   // 0.17ms (was 2,514ms). Differential-tested vs the old pattern over 9,261
   // strings with 0 mismatches, so the accepted language is unchanged.
   const yamlTypedScalar =
-  // eslint-disable-next-line security/detect-unsafe-regex -- Rewritten above to
+    // eslint-disable-next-line security/detect-unsafe-regex -- Rewritten above to
     /^(?:~|null|true|false|yes|no|on|off|[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?)$/i;
   if (/^[A-Za-z0-9_.\/:-]+$/.test(value) && !yamlTypedScalar.test(value)) {
     return value;

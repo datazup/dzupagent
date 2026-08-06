@@ -4,10 +4,18 @@ import type {
   FlowNodeBase,
   FlowValue,
 } from '@dzupagent/flow-ast'
+import {
+  FLOW_COMMON_FIELD_NAMES,
+  FLOW_EXECUTION_CONTRACT_FIELDS,
+} from '@dzupagent/flow-ast'
 
 import { DSL_ERROR } from './errors.js'
 import type { DslDiagnostic } from './types.js'
 
+// `idempotency` is deliberately NOT in this sweep: it is a typed
+// execution-contract field (FLOW_COMMON_FIELD_REGISTRY) and parse has always
+// put it on the typed position. The richer object form stays authorable under
+// an explicit `meta.idempotency`.
 export const GENERIC_METADATA_KEYS = [
   'invocation',
   'requires',
@@ -19,12 +27,11 @@ export const GENERIC_METADATA_KEYS = [
   'review',
   'approval',
   'resume',
-  'idempotency',
   'mutation',
   'conditions',
 ] as const
 
-export const COMMON_NODE_KEYS = ['id', 'name', 'description', 'meta', 'resumePoint', ...GENERIC_METADATA_KEYS] as const
+export const COMMON_NODE_KEYS = [...FLOW_COMMON_FIELD_NAMES, ...GENERIC_METADATA_KEYS] as const
 
 export function normalizeCommonNodeFields(
   raw: Record<string, unknown>,
@@ -43,15 +50,7 @@ export function normalizeCommonNodeFields(
   }
   if (typeof raw.name === 'string') base.name = raw.name
   if (typeof raw.description === 'string') base.description = raw.description
-  if (typeof raw.resumePoint === 'boolean') base.resumePoint = raw.resumePoint
-  else if ('resumePoint' in raw && raw.resumePoint !== undefined) {
-    diagnostics.push({
-      phase: 'normalize',
-      code: DSL_ERROR.INVALID_NODE_SHAPE,
-      message: 'node resumePoint must be a boolean',
-      path: `${path}.resumePoint`,
-    })
-  }
+  normalizeExecutionContractFields(raw, base, path, diagnostics)
   if (raw.meta !== undefined) {
     const meta = normalizeObject(raw.meta, `${path}.meta`, diagnostics)
     if (meta !== undefined) base.meta = meta
@@ -71,6 +70,51 @@ export function normalizeCommonNodeFields(
     })
   }
   return base
+}
+
+/**
+ * Admit the execution-contract fields (`effectClass`/`idempotency`/
+ * `resumePoint`) on the typed node position for EVERY kind, driven by
+ * `FLOW_EXECUTION_CONTRACT_FIELDS`. Parse has always admitted these
+ * universally (`parseCommonNodeFields`); normalize historically admitted them
+ * only on a few implementation kinds and swept `idempotency` into `meta`.
+ * Invalid values fail closed with a diagnostic, matching parse.
+ */
+function normalizeExecutionContractFields(
+  raw: Record<string, unknown>,
+  base: FlowNodeBase,
+  path: string,
+  diagnostics: DslDiagnostic[],
+): void {
+  for (const spec of FLOW_EXECUTION_CONTRACT_FIELDS) {
+    const value = raw[spec.field]
+    if (value === undefined) continue
+    if (spec.value.kind === 'boolean') {
+      if (typeof value === 'boolean') {
+        ;(base as Record<string, unknown>)[spec.field] = value
+      } else {
+        diagnostics.push({
+          phase: 'normalize',
+          code: DSL_ERROR.INVALID_NODE_SHAPE,
+          message: `node ${spec.field} must be a boolean`,
+          path: `${path}.${spec.field}`,
+        })
+      }
+      continue
+    }
+    if (spec.value.kind === 'enum') {
+      if (typeof value === 'string' && spec.value.values.includes(value)) {
+        ;(base as Record<string, unknown>)[spec.field] = value
+      } else {
+        diagnostics.push({
+          phase: 'normalize',
+          code: DSL_ERROR.INVALID_ENUM_VALUE,
+          message: `${spec.field} must be one of ${spec.value.values.join('|')}`,
+          path: `${path}.${spec.field}`,
+        })
+      }
+    }
+  }
 }
 
 const DEFAULT_KEYS = new Set<string>([

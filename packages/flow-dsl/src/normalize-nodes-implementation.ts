@@ -1,13 +1,7 @@
 import type {
-  EffectClass,
   EvidenceWriteNode,
-  NodeIdempotencyMode,
   ShellRunNode,
   ValidateSchemaNode,
-} from "@dzupagent/flow-ast";
-import {
-  EFFECT_CLASSES,
-  NODE_IDEMPOTENCY_MODES,
 } from "@dzupagent/flow-ast";
 
 import { DSL_ERROR } from "./errors.js";
@@ -19,11 +13,8 @@ import {
 } from "./normalize-value-helpers.js";
 import type { DslDiagnostic } from "./types.js";
 
-const EFFECT_KEYS = ["effectClass", "idempotency"] as const;
-
 const SHELL_KEYS = new Set<string>([
   ...COMMON_NODE_KEYS,
-  ...EFFECT_KEYS,
   "command",
   "cwd",
   "timeoutMs",
@@ -34,7 +25,6 @@ const SHELL_KEYS = new Set<string>([
 
 const EVIDENCE_KEYS = new Set<string>([
   ...COMMON_NODE_KEYS,
-  ...EFFECT_KEYS,
   "source",
   "output",
   "redact",
@@ -42,20 +32,10 @@ const EVIDENCE_KEYS = new Set<string>([
 
 const SCHEMA_KEYS = new Set<string>([
   ...COMMON_NODE_KEYS,
-  ...EFFECT_KEYS,
   "source",
   "schema",
   "output",
 ]);
-
-function commonWithoutEffectMetadata(raw: Record<string, unknown>) {
-  const {
-    effectClass: _effectClass,
-    idempotency: _idempotency,
-    ...rawForCommon
-  } = raw;
-  return rawForCommon;
-}
 
 function requiredString(
   raw: Record<string, unknown>,
@@ -74,45 +54,6 @@ function requiredString(
   return "";
 }
 
-function normalizeEffectFields(
-  raw: Record<string, unknown>,
-  path: string,
-  diagnostics: DslDiagnostic[]
-): Pick<ShellRunNode, "effectClass" | "idempotency"> {
-  const fields: Pick<ShellRunNode, "effectClass" | "idempotency"> = {};
-  if (raw.effectClass !== undefined) {
-    if (
-      typeof raw.effectClass === "string" &&
-      (EFFECT_CLASSES as readonly string[]).includes(raw.effectClass)
-    ) {
-      fields.effectClass = raw.effectClass as EffectClass;
-    } else {
-      diagnostics.push({
-        phase: "normalize",
-        code: DSL_ERROR.INVALID_ENUM_VALUE,
-        message: `effectClass must be one of ${EFFECT_CLASSES.join("|")}`,
-        path: `${path}.effectClass`,
-      });
-    }
-  }
-  if (raw.idempotency !== undefined) {
-    if (
-      typeof raw.idempotency === "string" &&
-      (NODE_IDEMPOTENCY_MODES as readonly string[]).includes(raw.idempotency)
-    ) {
-      fields.idempotency = raw.idempotency as NodeIdempotencyMode;
-    } else {
-      diagnostics.push({
-        phase: "normalize",
-        code: DSL_ERROR.INVALID_ENUM_VALUE,
-        message: `idempotency must be one of ${NODE_IDEMPOTENCY_MODES.join("|")}`,
-        path: `${path}.idempotency`,
-      });
-    }
-  }
-  return fields;
-}
-
 export function normalizeShellRun(
   raw: Record<string, unknown>,
   path: string,
@@ -121,12 +62,7 @@ export function normalizeShellRun(
   reportUnsupportedFields(raw, SHELL_KEYS, path, diagnostics);
   const node: ShellRunNode = {
     type: "shell.run",
-    ...normalizeCommonNodeFields(
-      commonWithoutEffectMetadata(raw),
-      path,
-      diagnostics
-    ),
-    ...normalizeEffectFields(raw, path, diagnostics),
+    ...normalizeCommonNodeFields(raw, path, diagnostics),
     command: requiredString(raw, "command", path, diagnostics),
     output: requiredString(raw, "output", path, diagnostics),
   };
@@ -146,12 +82,7 @@ export function normalizeEvidenceWrite(
   reportUnsupportedFields(raw, EVIDENCE_KEYS, path, diagnostics);
   const node: EvidenceWriteNode = {
     type: "evidence.write",
-    ...normalizeCommonNodeFields(
-      commonWithoutEffectMetadata(raw),
-      path,
-      diagnostics
-    ),
-    ...normalizeEffectFields(raw, path, diagnostics),
+    ...normalizeCommonNodeFields(raw, path, diagnostics),
     source: requiredString(raw, "source", path, diagnostics),
     output: requiredString(raw, "output", path, diagnostics),
   };
@@ -173,12 +104,7 @@ export function normalizeValidateSchema(
   }
   return {
     type: "validate.schema",
-    ...normalizeCommonNodeFields(
-      commonWithoutEffectMetadata(raw),
-      path,
-      diagnostics
-    ),
-    ...normalizeEffectFields(raw, path, diagnostics),
+    ...normalizeCommonNodeFields(raw, path, diagnostics),
     source: requiredString(raw, "source", path, diagnostics),
     schema,
     output: requiredString(raw, "output", path, diagnostics),

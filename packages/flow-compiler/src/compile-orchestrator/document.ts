@@ -48,7 +48,7 @@ import { extractFragmentExpansions } from "./evidence.js";
  */
 export async function runCompileDocument(
   deps: CompileOrchestratorDeps,
-  document: unknown,
+  document: unknown
 ): Promise<CompileSuccess | CompileFailure> {
   const prepared = prepareFlowInputFromDocument(document);
   if (!prepared.ok) {
@@ -63,10 +63,6 @@ export async function runCompileDocument(
   // The policy is validated by validateFlowDocumentShape (inside prepareFlowInputFromDocument)
   // so by the time we reach here the fields are guaranteed to be well-typed.
   const documentPolicy = extractDocumentPolicy(document);
-  // P0 durability contract: extract the top-level durability profile and compute
-  // advisory diagnostics (D4/D5). Additive — no runtime behavior change.
-  const documentDurability = extractDocumentDurability(document);
-  const durabilityWarnings = computeDurabilityDiagnostics(document);
 
   // Gap 4 (W1 Slice 2): an explicit `requireResumePoint: true` with no reachable
   // resume point is a hard compile error — fail fast before lowering.
@@ -92,20 +88,41 @@ export async function runCompileDocument(
       bindings: deriveDocumentReferenceBindings(document as FlowDocumentV1),
       types: deriveDocumentReferenceTypeBindings(document as FlowDocumentV1),
       classifications: deriveDocumentReferenceClassificationBindings(
-        document as FlowDocumentV1,
+        document as FlowDocumentV1
       ),
-    },
+    }
   );
 
   if ("errors" in result) return result;
 
-  // W1 Slice 2: lower the document-level durability policy onto the emitted
-  // PipelineDefinition. Only pipeline-shaped targets (`workflow-builder` /
-  // `pipeline`) produce a PipelineDefinition; `skill-chain` artifacts have a
-  // different shape and are left untouched. Absent policy ⇒ artifact unchanged
-  // (byte-identical). The `CHECKPOINT_STRATEGY_COARSENED` warning is emitted by
-  // the durability-diagnostics stage (canonical home), so the helper's warnings
-  // are intentionally discarded here to avoid a duplicate.
+  const finalized = applyDocumentDurabilityContract(result, document);
+  return {
+    ...finalized,
+    ...(documentPolicy !== undefined ? { documentPolicy } : {}),
+  };
+}
+
+/**
+ * Shared document-durability contract, applied by BOTH frontends over the
+ * canonical document (F-R4 acceptance — closes the CR-08 deferral that kept
+ * durability lowering exclusive to `runCompileDocument`).
+ *
+ * W1 Slice 2 semantics, unchanged: lower the document-level durability policy
+ * onto the emitted PipelineDefinition. Only pipeline-shaped targets
+ * (`workflow-builder` / `pipeline`) produce a PipelineDefinition;
+ * `skill-chain` artifacts have a different shape and are left untouched.
+ * Absent policy ⇒ artifact unchanged (byte-identical). The
+ * `CHECKPOINT_STRATEGY_COARSENED` warning is emitted by the
+ * durability-diagnostics stage (canonical home), so the lowering helper's
+ * warnings are intentionally discarded here to avoid a duplicate.
+ */
+function applyDocumentDurabilityContract(
+  result: CompileSuccess,
+  document: unknown
+): CompileSuccess {
+  const documentDurability = extractDocumentDurability(document);
+  const durabilityWarnings = computeDurabilityDiagnostics(document);
+
   const isPipelineArtifact =
     result.target !== "skill-chain" &&
     typeof result.artifact === "object" &&
@@ -140,7 +157,6 @@ export async function runCompileDocument(
   return {
     ...result,
     warnings: mergedWarnings,
-    ...(documentPolicy !== undefined ? { documentPolicy } : {}),
     ...(documentDurability !== undefined ? { documentDurability } : {}),
     ...(durabilityWarnings.length > 0
       ? {
@@ -157,7 +173,7 @@ export async function runCompileDocument(
  */
 export async function runCompileDsl(
   deps: CompileOrchestratorDeps,
-  source: unknown,
+  source: unknown
 ): Promise<CompileSuccess | CompileFailure> {
   const prepared = prepareFlowInputFromDsl(source, {
     ...(deps.opts.primitiveRegistry === undefined
@@ -176,6 +192,20 @@ export async function runCompileDsl(
       diagnosticCountsByCategory: countDiagnosticsByCategory(prepared.errors),
     };
   }
+  // F-R4 durability parity: the DSL frontend runs the SAME fail-fast
+  // resume-point gate the document frontend runs, over the same canonical
+  // document, before any lowering.
+  if (prepared.document !== undefined) {
+    const durabilityErrors = computeDurabilityErrors(prepared.document);
+    if (durabilityErrors.length > 0) {
+      return {
+        compileId: crypto.randomUUID(),
+        errors: durabilityErrors,
+        diagnosticCountsByCategory:
+          countDiagnosticsByCategory(durabilityErrors),
+      };
+    }
+  }
   const result = await runCompile(
     deps,
     prepared.flowInput,
@@ -188,7 +218,7 @@ export async function runCompileDsl(
           bindings: deriveDocumentReferenceBindings(prepared.document),
           types: deriveDocumentReferenceTypeBindings(prepared.document),
           classifications: deriveDocumentReferenceClassificationBindings(
-            prepared.document,
+            prepared.document
           ),
           ...(prepared.sourceMap !== undefined
             ? { dslSourceMap: prepared.sourceMap }
@@ -214,35 +244,35 @@ export async function runCompileDsl(
                 dslV2MultiPortSaves: prepared.frontend.multiPortSaves,
               }),
         }
-      : {},
+      : {}
   );
 
   if ("errors" in result) return result;
 
-  // CR-08 / C1a: `prepared.document` is the same document shape that
-  // `runCompileDocument` extracts from — it is already used above for reference
-  // bindings, types and classifications. Without this step a DSL-authored flow
-  // silently lost its document-level durability truth: it compiled cleanly and
-  // simply reported nothing, so the loss was invisible to callers.
+  // CR-08 / C1a closed by F-R4: `prepared.document` is the same document shape
+  // `runCompileDocument` extracts from, and both frontends now run the SAME
+  // durability contract over it — advisory D4/D5 diagnostics, artifact
+  // lowering (checkpointStrategy / resume / checkpoint / executionLog on
+  // pipeline-shaped targets), and result re-attachment all live in
+  // `applyDocumentDurabilityContract`. The fail-fast resume-point gate runs
+  // above, before lowering, mirroring the document path. The durability-block
+  // frontend-parity spec (frontend-parity.test.ts) is the evidence this
+  // deferral demanded.
   //
-  // Scope is deliberately narrow. Only extraction/re-attachment is mirrored
-  // here; the durability *lowering* onto the artifact (checkpointStrategy /
-  // resume / checkpoint / executionLog) and the D4/D5 advisory diagnostics stay
-  // exclusive to `runCompileDocument`, because those change emitted artifact
-  // bytes and can fail compilation. Bringing them to the DSL path is a
-  // behavioural change that needs its own slice and golden-artifact evidence.
-  //
-  // Note the DSL grammar admits `durability` but not `policy` (flow-dsl
-  // `TOP_LEVEL_KEYS`), so `documentPolicy` is currently always undefined here.
-  // It is extracted anyway so that admitting `policy` into the grammar later
-  // needs no second fix in this file.
+  // The DSL grammar admits `policy` alongside `durability` (flow-dsl
+  // `TOP_LEVEL_KEYS`, G-C2), so a DSL-authored budget/timeout ceiling reaches
+  // `documentPolicy` here instead of being silently dropped — see
+  // `__tests__/document-policy-ceiling.test.ts`, which pins the ceiling on the
+  // compiled artifact rather than merely on the normalized document.
   const documentPolicy = extractDocumentPolicy(prepared.document);
-  const documentDurability = extractDocumentDurability(prepared.document);
+  const finalized =
+    prepared.document !== undefined
+      ? applyDocumentDurabilityContract(result, prepared.document)
+      : result;
 
   return {
-    ...result,
+    ...finalized,
     ...(documentPolicy !== undefined ? { documentPolicy } : {}),
-    ...(documentDurability !== undefined ? { documentDurability } : {}),
   };
 }
 
@@ -256,7 +286,7 @@ export async function runCompileDsl(
  * cast is safe. Returns `undefined` when the field is absent.
  */
 function extractDocumentPolicy(
-  document: unknown,
+  document: unknown
 ): FlowDocumentPolicy | undefined {
   if (typeof document !== "object" || document === null) return undefined;
   const raw = (document as Record<string, unknown>)["policy"];
@@ -278,7 +308,7 @@ function extractDocumentPolicy(
  * when present and an object — is well-typed; we pass it through verbatim.
  */
 function extractDocumentDurability(
-  document: unknown,
+  document: unknown
 ): FlowDurabilityPolicy | undefined {
   if (typeof document !== "object" || document === null) return undefined;
   const raw = (document as Record<string, unknown>)["durability"];

@@ -14,8 +14,10 @@ import type {
 } from "../types.js";
 import {
   EFFECT_CLASSES,
+  FLOW_EXECUTION_CONTRACT_FIELDS,
   FLOW_NODE_KINDS,
   NODE_IDEMPOTENCY_MODES,
+  admitCommonField,
 } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -123,37 +125,28 @@ export function parseCommonNodeFields(
       }
     }
   }
-  if ("effectClass" in obj && obj.effectClass !== undefined) {
-    if (
-      typeof obj.effectClass === "string" &&
-      (EFFECT_CLASSES as readonly string[]).includes(obj.effectClass)
-    ) {
-      fields.effectClass = obj.effectClass as EffectClass;
-    } else {
-      ctx.errors.push({
-        code: "WRONG_FIELD_TYPE",
-        message: `effectClass must be one of ${EFFECT_CLASSES.join("|")}`,
-        pointer: joinPointer(pointer, "effectClass"),
-      });
+  // Execution-contract fields are admitted from the ONE registry table
+  // (`FLOW_EXECUTION_CONTRACT_FIELDS`) rather than re-listing the enum values
+  // here. The diagnostic shape stays parse's own; only the admitted value set
+  // is shared, so adding a value to EFFECT_CLASSES cannot leave parse behind.
+  for (const spec of FLOW_EXECUTION_CONTRACT_FIELDS) {
+    const admission = admitCommonField(spec, obj[spec.field]);
+    if (admission.outcome === "absent") continue;
+    if (admission.outcome === "admitted") {
+      (fields as Record<string, unknown>)[spec.field] = admission.value;
+      continue;
     }
+    ctx.errors.push({
+      code: "WRONG_FIELD_TYPE",
+      message:
+        spec.value.kind === "enum"
+          ? `${spec.field} must be one of ${admission.expected}`
+          : `Field "${spec.field}" must be ${admission.expected} when present, received ${describeJsType(
+              obj[spec.field]
+            )}`,
+      pointer: joinPointer(pointer, spec.field),
+    });
   }
-  if ("idempotency" in obj && obj.idempotency !== undefined) {
-    if (
-      typeof obj.idempotency === "string" &&
-      (NODE_IDEMPOTENCY_MODES as readonly string[]).includes(obj.idempotency)
-    ) {
-      fields.idempotency = obj.idempotency as NodeIdempotencyMode;
-    } else {
-      ctx.errors.push({
-        code: "WRONG_FIELD_TYPE",
-        message: `idempotency must be one of ${NODE_IDEMPOTENCY_MODES.join("|")}`,
-        pointer: joinPointer(pointer, "idempotency"),
-      });
-    }
-  }
-  parseOptionalBooleanField(obj, "resumePoint", pointer, ctx, (value) => {
-    fields.resumePoint = value;
-  });
 
   return fields;
 }
