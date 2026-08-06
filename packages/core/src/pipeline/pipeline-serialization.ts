@@ -6,6 +6,7 @@
 
 import { z } from "zod";
 import type { PipelineDefinition } from "./pipeline-definition.js";
+import { PIPELINE_SCHEMA_VERSIONS } from "./pipeline-definition.js";
 
 // ---------------------------------------------------------------------------
 // Node schemas
@@ -156,7 +157,7 @@ export const PipelineCheckpointSchema = z.object({
   pipelineRunId: z.string().min(1),
   pipelineId: z.string().min(1),
   version: z.number().int().nonnegative(),
-  schemaVersion: z.literal("1.0.0"),
+  schemaVersion: z.enum(PIPELINE_SCHEMA_VERSIONS),
   completedNodeIds: z.array(z.string()),
   state: z.record(z.string(), z.unknown()),
   suspendedAtNodeId: z.string().optional(),
@@ -201,7 +202,7 @@ export const PipelineDefinitionSchema = z.object({
   name: z.string().min(1),
   version: z.string().min(1),
   description: z.string().optional(),
-  schemaVersion: z.literal("1.0.0"),
+  schemaVersion: z.enum(PIPELINE_SCHEMA_VERSIONS),
   entryNodeId: z.string().min(1),
   nodes: z.array(PipelineNodeSchema).min(1),
   edges: z.array(PipelineEdgeSchema),
