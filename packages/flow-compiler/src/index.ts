@@ -66,6 +66,11 @@ export type {
 } from "./host-tool-registry.js";
 export { collectFlowArtifactMetadata } from "./flow-artifact-metadata.js";
 export {
+  FLOW_CANONICAL_ARTIFACT_SCHEMA,
+  canonicalizeArtifact,
+} from "./compile-orchestrator/canonical-artifact.js";
+export type { FlowCanonicalArtifactSchema } from "./compile-orchestrator/canonical-artifact.js";
+export {
   bindFlowRequirementsToPrimitiveRegistry,
   resolvePrimitiveRegistryReadiness,
   validateCompilerPrimitiveRegistry,

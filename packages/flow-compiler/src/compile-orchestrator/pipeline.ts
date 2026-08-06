@@ -514,6 +514,7 @@ export async function runCompile(
     compileId,
     evidence: buildCompileEvidence({
       ast,
+      artifact,
       compileId,
       target,
       sourceKind,

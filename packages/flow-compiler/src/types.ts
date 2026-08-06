@@ -447,6 +447,18 @@ export interface FlowCompileEvidence {
   sourceKind: FlowCompileSourceKind;
   sourceHash: string;
   semanticHash: string;
+  /**
+   * Canonical-artifact identity, SEPARATE from source identity (`sourceHash`)
+   * and requirement identity (`semanticHash`): `schema` names the versioned
+   * normalization (compileId stripped recursively, nothing else) and `hash`
+   * is computed over that form, so it is stable across recompiles of the same
+   * input and equal across frontends that emit the same artifact (F-R3;
+   * F-R5 byte-identity is over this form).
+   */
+  canonicalArtifact: {
+    schema: "dzupagent.flowCanonicalArtifact/v1";
+    hash: string;
+  };
   compileId: string;
   canonicalNodeIds: string[];
   canonicalNodePaths: Record<string, FlowCompileEvidenceNode>;
