@@ -28,10 +28,13 @@ class FakePrunerStore {
     this.putCalls.push({ ns, key });
   }
 
+  searchedTuples: string[][] = [];
+
   async search(
-    _ns: string[],
+    ns: string[],
     _opts?: { limit?: number }
   ): Promise<Array<{ key: string; value: Rec }>> {
+    this.searchedTuples.push(ns);
     return this.onSearch();
   }
 
@@ -95,6 +98,23 @@ describe("prune finalizer degradation reporting", () => {
     // otherwise the event says "something broke" without saying what.
     expect(String(errors[0]?.["message"])).toContain("search");
     expect(String(errors[0]?.["message"])).toContain("store offline");
+  });
+
+  it("prunes the exact tuple the write path builds (name first, then scope values)", async () => {
+    const store = new FakePrunerStore(async () => []);
+    const config = makeConfig(store, () => undefined);
+
+    await maybeWriteBackMemory({
+      agentId: "agent-test",
+      content: "some content",
+      config,
+    });
+    await flushMicrotasks();
+
+    // Must match @dzupagent/memory's buildNamespaceTuple layout; the previous
+    // local helper produced ["tenant-1", "test-ns"], targeting records that
+    // no write path ever creates (same defect class as SHARED-KIT-AGENT-C-03).
+    expect(store.searchedTuples).toContainEqual(["test-ns", "tenant-1"]);
   });
 
   it("does not emit memory:error when the prune sweep is healthy", async () => {
