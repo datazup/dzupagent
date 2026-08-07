@@ -76,6 +76,12 @@ export class MemoryService {
   private readonly options: MemoryServiceOptions | undefined
   private readonly eventBus: MemoryEventBus | undefined
   private readonly agentId: string | undefined
+  /**
+   * Vector collections already created on this instance. Lives on the
+   * service (not the put helper) so the `ensureCollection` cost is paid once
+   * per collection, not once per write.
+   */
+  private readonly ensuredCollections = new Set<string>()
 
   constructor(
     private readonly store: BaseStore,
@@ -128,6 +134,7 @@ export class MemoryService {
       options: this.options,
       eventBus: this.eventBus,
       agentId: this.agentId,
+      ensuredCollections: this.ensuredCollections,
     })
   }
 

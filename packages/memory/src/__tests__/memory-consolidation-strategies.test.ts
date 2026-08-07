@@ -389,9 +389,9 @@ describe("Merge strategy — two related memories merged into combined memory", 
     // confirm that put() was called with merged text; it cannot confirm the
     // namespace actually ends up holding it, which is the property a merge
     // has to deliver.
-    // The store tuple is built from scope *values*, so a single-key scope of
-    // { bucket: "ns" } puts these records exactly where the consolidator
-    // looks: store.search(["ns"]).
+    // The store tuple is [namespace, ...scope values], so namespace "facts"
+    // with a single-key scope of { bucket: "ns" } puts these records exactly
+    // where the consolidator looks: store.search(["facts", "ns"]).
     const scope = { bucket: "ns" };
     const harness = createMemoryHarness({
       namespace: "facts",
@@ -414,7 +414,7 @@ describe("Merge strategy — two related memories merged into combined memory", 
       })
     );
     const consolidator = new SemanticConsolidator({ model: mergeModel });
-    await consolidator.consolidate(harness.store, ["ns"]);
+    await consolidator.consolidate(harness.store, ["facts", "ns"]);
 
     // A merge must both write the combined text under the surviving key and
     // remove the record it absorbed. Asserting only "some record contains

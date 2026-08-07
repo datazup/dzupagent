@@ -218,7 +218,7 @@ describe("fuseWithVector", () => {
   it("returns empty array when keyword results empty and vector returns nothing", async () => {
     const adapter = createMockSemanticStore();
     adapter.search.mockResolvedValueOnce([]);
-    const result = await fuseWithVector("lessons", "query", [], 5, adapter);
+    const result = await fuseWithVector({ name: "lessons", scopeKeys: [] }, {}, "query", [], 5, adapter);
     expect(result).toEqual([]);
   });
 
@@ -229,8 +229,7 @@ describe("fuseWithVector", () => {
       { key: "k1", score: 0.9 },
       { key: "k2", score: 0.7 },
     ]);
-    const result = await fuseWithVector(
-      "lessons",
+    const result = await fuseWithVector({ name: "lessons", scopeKeys: [] }, {},
       "query",
       keyword,
       10,
@@ -245,7 +244,7 @@ describe("fuseWithVector", () => {
       { id: "v1", text: "vector doc 1", score: 0.95, metadata: { tag: "a" } },
       { id: "v2", text: "vector doc 2", score: 0.85, metadata: { tag: "b" } },
     ]);
-    const result = await fuseWithVector("lessons", "query", [], 10, adapter);
+    const result = await fuseWithVector({ name: "lessons", scopeKeys: [] }, {}, "query", [], 10, adapter);
     expect(result).toHaveLength(2);
     expect(result[0]).toHaveProperty("text");
   });
@@ -264,8 +263,7 @@ describe("fuseWithVector", () => {
       { key: "unique-kw", score: 0.5 },
     ]);
 
-    const result = await fuseWithVector(
-      "lessons",
+    const result = await fuseWithVector({ name: "lessons", scopeKeys: [] }, {},
       "query",
       keyword,
       10,
@@ -287,8 +285,7 @@ describe("fuseWithVector", () => {
       { key: "shared", score: 1.0 },
       { key: "solo-kw", score: 0.99 },
     ]);
-    const result = await fuseWithVector(
-      "lessons",
+    const result = await fuseWithVector({ name: "lessons", scopeKeys: [] }, {},
       "query",
       keyword,
       10,
@@ -313,8 +310,7 @@ describe("fuseWithVector", () => {
       { key: "k1", score: 0.9 },
       { key: "k2", score: 0.8 },
     ]);
-    const result = await fuseWithVector(
-      "lessons",
+    const result = await fuseWithVector({ name: "lessons", scopeKeys: [] }, {},
       "query",
       keyword,
       2,
@@ -330,8 +326,7 @@ describe("fuseWithVector", () => {
       { key: "k1", score: 0.9 },
       { key: "k2", score: 0.5 },
     ]);
-    const result = await fuseWithVector(
-      "lessons",
+    const result = await fuseWithVector({ name: "lessons", scopeKeys: [] }, {},
       "query",
       keyword,
       10,
@@ -344,11 +339,12 @@ describe("fuseWithVector", () => {
   it("calls semanticStore.search with the correct collection name", async () => {
     const adapter = createMockSemanticStore();
     adapter.search.mockResolvedValueOnce([]);
-    await fuseWithVector("my_namespace", "find something", [], 5, adapter);
+    await fuseWithVector({ name: "my_namespace", scopeKeys: [] }, {}, "find something", [], 5, adapter);
     expect(adapter.search).toHaveBeenCalledWith(
       "memory_my_namespace",
       "find something",
-      5
+      5,
+      { field: "_ns", op: "eq", value: "my_namespace" }
     );
   });
 
@@ -362,7 +358,7 @@ describe("fuseWithVector", () => {
         metadata: { author: "alice", tag: "test" },
       },
     ]);
-    const result = await fuseWithVector("lessons", "query", [], 10, adapter);
+    const result = await fuseWithVector({ name: "lessons", scopeKeys: [] }, {}, "query", [], 10, adapter);
     expect(result[0]).toMatchObject({
       text: "some text",
       author: "alice",
@@ -376,8 +372,7 @@ describe("fuseWithVector", () => {
       { id: "v1", text: "t1", score: 0.9, metadata: {} },
     ]);
     const keyword = makeKeywordScored([{ key: "k1", score: 0.9 }]);
-    const result = await fuseWithVector(
-      "lessons",
+    const result = await fuseWithVector({ name: "lessons", scopeKeys: [] }, {},
       "query",
       keyword,
       0,
@@ -392,8 +387,7 @@ describe("fuseWithVector", () => {
       { id: "v1", text: "t1", score: 0.9, metadata: {} },
     ]);
     const keyword = makeKeywordScored([{ key: "k1", score: 0.9 }]);
-    const result = await fuseWithVector(
-      "lessons",
+    const result = await fuseWithVector({ name: "lessons", scopeKeys: [] }, {},
       "query",
       keyword,
       100,
@@ -414,8 +408,7 @@ describe("fuseWithVector", () => {
       { key: "mid", score: 0.5 },
       { key: "low", score: 0.3 },
     ]);
-    const result = await fuseWithVector(
-      "lessons",
+    const result = await fuseWithVector({ name: "lessons", scopeKeys: [] }, {},
       "query",
       keyword,
       10,
@@ -678,7 +671,10 @@ describe("MemoryService delete paths", () => {
     );
 
     expect(deleted).toBe(true);
-    expect(store.delete).toHaveBeenCalledWith(["p1", "decisions"], "dec-1");
+    expect(store.delete).toHaveBeenCalledWith(
+      ["decisions", "p1", "decisions"],
+      "dec-1"
+    );
   });
 
   it("delete() returns false when the store does not support delete", async () => {
@@ -1223,11 +1219,14 @@ describe("MemoryService metadata filters", () => {
       }
     );
 
+    // Doc id is scope-qualified so one tenant cannot overwrite another's
+    // document under the same key (SHARED-KIT-AGENT-C-01 write side).
     expect(semanticStore.upsert).toHaveBeenCalledWith("memory_lessons", [
       expect.objectContaining({
-        id: "lesson-meta",
+        id: "lessons/tenant-x/lessons/lesson-meta",
         metadata: expect.objectContaining({
-          namespace: "lessons",
+          _ns: "lessons",
+          _key: "lesson-meta",
           tenantId: "tenant-x",
         }),
       }),
@@ -1394,7 +1393,10 @@ describe("MemoryService large payload", () => {
 describe("buildNamespaceTuple", () => {
   it("maps scope keys to ordered tuple", () => {
     const ns: NamespaceConfig = { name: "test", scopeKeys: ["a", "b", "c"] };
+    // Tuple layout is [namespace, ...scope values] (SHARED-KIT-AGENT-C-02):
+    // without the namespace name, namespaces sharing scopeKeys collide.
     expect(buildNamespaceTuple(ns, { a: "1", b: "2", c: "3" })).toEqual([
+      "test",
       "1",
       "2",
       "3",
@@ -1415,7 +1417,10 @@ describe("buildNamespaceTuple", () => {
 
   it("single scope key produces single-element tuple", () => {
     const ns: NamespaceConfig = { name: "test", scopeKeys: ["tenantId"] };
-    expect(buildNamespaceTuple(ns, { tenantId: "abc" })).toEqual(["abc"]);
+    expect(buildNamespaceTuple(ns, { tenantId: "abc" })).toEqual([
+      "test",
+      "abc",
+    ]);
   });
 });
 
@@ -1516,7 +1521,10 @@ describe("deleteMemoryRecord", () => {
       store as unknown as BaseStore,
       caps
     );
-    expect(store.delete).toHaveBeenCalledWith(["p1", "decisions"], "my-key");
+    expect(store.delete).toHaveBeenCalledWith(
+      ["decisions", "p1", "decisions"],
+      "my-key"
+    );
   });
 });
 

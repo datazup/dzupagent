@@ -62,6 +62,7 @@ export type {
 export {
   createAutoEmbeddingProvider,
   detectVectorProvider,
+  createDetectedVectorStore,
   createAutoSemanticStore,
 } from "./auto-detect.js";
 export type { AutoDetectResult } from "./auto-detect.js";

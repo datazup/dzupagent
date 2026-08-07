@@ -12,6 +12,12 @@ import { createCohereEmbedding } from "./embeddings/cohere-embedding.js";
 import { createInternalEmbedding } from "./embeddings/internal-embedding.js";
 import { InMemoryVectorStore } from "./in-memory-vector-store.js";
 import { SemanticStore } from "./semantic-store.js";
+import type { VectorStore } from "./types.js";
+import {
+  PineconeAdapter,
+  QdrantAdapter,
+  TurbopufferAdapter,
+} from "./adapters/index.js";
 
 /**
  * Auto-detect embedding provider from environment variables.
@@ -171,11 +177,77 @@ export function detectVectorProvider(
 }
 
 /**
- * Create a fully-wired SemanticStore by auto-detecting embedding provider
- * and using an InMemoryVectorStore as the backing store.
+ * Build the VectorStore named by {@link detectVectorProvider}.
  *
- * This is a convenience for development / testing. For production, construct
- * SemanticStore manually with a real vector store adapter (Qdrant, Pinecone, etc.).
+ * Falls back to `InMemoryVectorStore` for `memory` and for any provider name
+ * with no adapter compiled in, so auto-detection can never fail closed on an
+ * unrecognised `VECTOR_PROVIDER` value.
+ */
+export function createDetectedVectorStore(
+  detected: AutoDetectResult
+): VectorStore {
+  const cfg = detected.config;
+  const str = (k: string): string | undefined => {
+    const v = cfg[k];
+    return typeof v === "string" && v.length > 0 ? v : undefined;
+  };
+
+  switch (detected.provider) {
+    case "qdrant": {
+      const url = str("url") ?? process.env["QDRANT_URL"];
+      const apiKey = str("apiKey") ?? process.env["QDRANT_API_KEY"];
+      return new QdrantAdapter({
+        ...(url != null ? { url } : {}),
+        ...(apiKey != null ? { apiKey } : {}),
+      });
+    }
+    case "turbopuffer": {
+      const apiKey = str("apiKey") ?? process.env["TURBOPUFFER_API_KEY"];
+      if (apiKey == null) break;
+      const baseUrl = str("baseUrl");
+      const namespacePrefix = str("namespacePrefix");
+      return new TurbopufferAdapter({
+        apiKey,
+        ...(baseUrl != null ? { baseUrl } : {}),
+        ...(namespacePrefix != null ? { namespacePrefix } : {}),
+      });
+    }
+    case "pinecone": {
+      const apiKey = str("apiKey") ?? process.env["PINECONE_API_KEY"];
+      if (apiKey == null) break;
+      const environment = str("environment");
+      return new PineconeAdapter({
+        apiKey,
+        ...(environment != null ? { environment } : {}),
+      });
+    }
+    case "lancedb":
+      // LanceDB opens its connection asynchronously (`LanceDBAdapter.create`),
+      // so it cannot be built from this synchronous factory. Throw rather than
+      // fall back to an in-memory store: silently substituting a non-durable
+      // backend for the one the operator configured is the exact failure mode
+      // this function was fixed to remove.
+      throw new Error(
+        "LANCEDB_URI is set, but LanceDB requires an async connection. " +
+          "Build it with `await LanceDBAdapter.create({ uri })` and pass it as " +
+          "`vectorStore` instead of using auto-detection.",
+      );
+    default:
+      break;
+  }
+
+  return new InMemoryVectorStore();
+}
+
+/**
+ * Create a fully-wired SemanticStore by auto-detecting both the embedding
+ * provider and the vector store backend from the environment.
+ *
+ * The vector backend follows {@link detectVectorProvider}, so setting
+ * `QDRANT_URL` / `PINECONE_API_KEY` / `TURBOPUFFER_API_KEY` / `LANCEDB_URI`
+ * (or an explicit `VECTOR_PROVIDER`) actually takes effect here. With none of
+ * them set it falls back to `InMemoryVectorStore`, which is fine for local and
+ * test runs but is not durable.
  *
  * @param env - Optional env object (defaults to process.env)
  * @throws if no embedding provider can be detected
@@ -184,7 +256,7 @@ export function createAutoSemanticStore(
   env?: Record<string, string | undefined>
 ): SemanticStore {
   const embedding = createAutoEmbeddingProvider(env);
-  const vectorStore = new InMemoryVectorStore();
+  const vectorStore = createDetectedVectorStore(detectVectorProvider(env));
 
   return new SemanticStore({
     embedding,

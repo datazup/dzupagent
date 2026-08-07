@@ -38,7 +38,17 @@ export type {
   FormatOptions,
   DecayConfig,
   SemanticStoreAdapter,
+  SemanticMetadataFilter,
 } from "./memory-types.js";
+
+// --- Storage tuple (single source of truth; see buildNamespaceTuple docs) ---
+export {
+  buildNamespaceTuple,
+  buildVectorCollectionName,
+  buildVectorDocId,
+  VECTOR_KEY_META_KEY,
+  VECTOR_NAMESPACE_META_KEY,
+} from "./memory-service-store.js";
 
 // --- Decay Engine ---
 export {

@@ -595,8 +595,12 @@ describe("fuseWithVector — extended", () => {
     it('calls semanticStore.search with "memory_<namespace>"', async () => {
       const adapter = makeSemanticAdapter([]);
       const keyword = [makeKeywordScored("k1", 0.9)];
-      await fuseWithVector("my-ns", "query", keyword, 10, adapter);
-      expect(adapter.search).toHaveBeenCalledWith("memory_my-ns", "query", 10);
+      await fuseWithVector({ name: "my-ns", scopeKeys: [] }, {}, "query", keyword, 10, adapter);
+      expect(adapter.search).toHaveBeenCalledWith("memory_my-ns", "query", 10, {
+        field: "_ns",
+        op: "eq",
+        value: "my-ns",
+      });
     });
   });
 
@@ -610,7 +614,7 @@ describe("fuseWithVector — extended", () => {
         finalScore: number;
         value: Record<string, unknown>;
       }> = [];
-      const results = await fuseWithVector("ns", "query", keyword, 10, adapter);
+      const results = await fuseWithVector({ name: "ns", scopeKeys: [] }, {}, "query", keyword, 10, adapter);
       expect(results.some((r) => r["text"] === "retrieved by vector")).toBe(
         true
       );
@@ -625,7 +629,7 @@ describe("fuseWithVector — extended", () => {
           metadata: { source: "embedding" },
         },
       ]);
-      const results = await fuseWithVector("ns", "q", [], 10, adapter);
+      const results = await fuseWithVector({ name: "ns", scopeKeys: [] }, {}, "q", [], 10, adapter);
       const r = results.find((r) => r["source"] === "embedding");
       expect(r).toBeDefined();
     });
@@ -642,7 +646,7 @@ describe("fuseWithVector — extended", () => {
         makeKeywordScored(sharedKey, 0.8),
         makeKeywordScored(keywordOnly, 0.7),
       ];
-      const results = await fuseWithVector("ns", "query", keyword, 10, adapter);
+      const results = await fuseWithVector({ name: "ns", scopeKeys: [] }, {}, "query", keyword, 10, adapter);
       const sharedScore = results.find((r) => r["text"] === sharedKey);
       const onlyScore = results.find((r) => r["text"] === keywordOnly);
       // Both found; shared item was boosted
@@ -659,7 +663,7 @@ describe("fuseWithVector — extended", () => {
         score: 1 - i * 0.01,
       }));
       const adapter = makeSemanticAdapter(vectorResults);
-      const results = await fuseWithVector("ns", "query", [], 5, adapter);
+      const results = await fuseWithVector({ name: "ns", scopeKeys: [] }, {}, "query", [], 5, adapter);
       expect(results.length).toBeLessThanOrEqual(5);
     });
   });
@@ -679,7 +683,7 @@ describe("fuseWithVector — extended", () => {
         makeKeywordScored("k1", 0.9),
         makeKeywordScored("k2", 0.7),
       ];
-      const results = await fuseWithVector("ns", "query", keyword, 10, adapter);
+      const results = await fuseWithVector({ name: "ns", scopeKeys: [] }, {}, "query", keyword, 10, adapter);
       // Should not throw, should return keyword results
       expect(results.length).toBeGreaterThan(0);
       const keys = results.map((r) => r["text"]);
@@ -695,8 +699,7 @@ describe("fuseWithVector — extended", () => {
       } as unknown as SemanticStoreAdapter;
 
       await expect(
-        fuseWithVector(
-          "ns",
+        fuseWithVector({ name: "ns", scopeKeys: [] }, {},
           "query",
           [makeKeywordScored("k1", 0.5)],
           10,
@@ -712,7 +715,7 @@ describe("fuseWithVector — extended", () => {
         { id: "vec1", text: "vector memory", score: 0.88 },
         { id: "vec2", text: "semantic result", score: 0.76 },
       ]);
-      const results = await fuseWithVector("ns", "query", [], 10, adapter);
+      const results = await fuseWithVector({ name: "ns", scopeKeys: [] }, {}, "query", [], 10, adapter);
       expect(results.length).toBeGreaterThanOrEqual(2);
     });
   });
@@ -727,7 +730,7 @@ describe("fuseWithVector — extended", () => {
       ]);
       // 'boosted' appears in keyword at rank 0 as well → accumulates extra RRF score
       const keyword = [makeKeywordScored("boosted", 0.95)];
-      const results = await fuseWithVector("ns", "q", keyword, 10, adapter);
+      const results = await fuseWithVector({ name: "ns", scopeKeys: [] }, {}, "q", keyword, 10, adapter);
       // 'boosted' gets RRF from both keyword rank-0 and vector rank-0 → must be first
       expect(results[0]!["text"]).toBe("boosted");
     });

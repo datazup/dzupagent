@@ -59,6 +59,7 @@ describe("ERR-H-12 — write-path failure telemetry", () => {
     const semanticStore: SemanticStoreAdapter = {
       upsert: vi.fn().mockRejectedValue(new Error("index boom")),
       search: vi.fn(async () => []),
+      ensureCollection: vi.fn(async () => undefined),
     } as unknown as SemanticStoreAdapter;
 
     const svc = new MemoryService(store, nsConfigs, {

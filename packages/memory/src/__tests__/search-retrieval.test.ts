@@ -1382,8 +1382,7 @@ describe("fuseWithVector", () => {
       },
     ];
 
-    const results = await fuseWithVector(
-      "lessons",
+    const results = await fuseWithVector({ name: "lessons", scopeKeys: [] }, {},
       "query",
       keywordScored,
       5,
@@ -1406,8 +1405,7 @@ describe("fuseWithVector", () => {
       },
     ];
 
-    const results = await fuseWithVector(
-      "ns",
+    const results = await fuseWithVector({ name: "ns", scopeKeys: [] }, {},
       "query",
       keywordScored,
       10,
@@ -1436,8 +1434,7 @@ describe("fuseWithVector", () => {
       finalScore: 0.5 - i * 0.05,
     }));
 
-    const results = await fuseWithVector(
-      "ns",
+    const results = await fuseWithVector({ name: "ns", scopeKeys: [] }, {},
       "query",
       keywordScored,
       3,
@@ -1461,8 +1458,7 @@ describe("fuseWithVector", () => {
       },
     ];
 
-    const results = await fuseWithVector(
-      "ns",
+    const results = await fuseWithVector({ name: "ns", scopeKeys: [] }, {},
       "query",
       keywordScored,
       5,
@@ -1474,8 +1470,12 @@ describe("fuseWithVector", () => {
 
   it('collections are named with "memory_" prefix + namespace', async () => {
     const adapter = makeSemanticStoreAdapter([]);
-    await fuseWithVector("my-namespace", "q", [], 5, adapter);
-    expect(adapter.search).toHaveBeenCalledWith("memory_my-namespace", "q", 5);
+    await fuseWithVector({ name: "my-namespace", scopeKeys: [] }, {}, "q", [], 5, adapter);
+    expect(adapter.search).toHaveBeenCalledWith("memory_my-namespace", "q", 5, {
+      field: "_ns",
+      op: "eq",
+      value: "my-namespace",
+    });
   });
 });
 
@@ -1534,7 +1534,7 @@ describe("searchMemory", () => {
     );
 
     expect(store.search).toHaveBeenCalledWith(
-      ["t1", "p1"],
+      ["lessons", "t1", "p1"],
       expect.objectContaining({ query: "hello" }),
     );
   });

@@ -90,11 +90,19 @@ describe('MemoryService with SemanticStore (VEC-009)', () => {
     })
 
     expect(semanticStore.upsert).toHaveBeenCalledOnce()
+    // Doc id carries the full storage tuple so writes cannot collide across
+    // tenants or namespaces; `_ns`/`_key` are the read path's filter and
+    // fusion markers (SHARED-KIT-AGENT-C-01/C-02).
     expect(semanticStore.upsert).toHaveBeenCalledWith('memory_lessons', [
       {
-        id: 'lesson-1',
+        id: 'lessons/t1/lessons/lesson-1',
         text: 'Always validate user input',
-        metadata: { namespace: 'lessons', tenantId: 't1', lessons: 'lessons' },
+        metadata: {
+          tenantId: 't1',
+          lessons: 'lessons',
+          _ns: 'lessons',
+          _key: 'lesson-1',
+        },
       },
     ])
   })
