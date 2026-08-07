@@ -22,7 +22,7 @@ import {
   buildNamespaceTuple,
   buildVectorCollectionName,
 } from './memory-service-store.js'
-import type { ReadContext } from './memory-service-types.js'
+import type { MemoryEventBus, ReadContext } from './memory-service-types.js'
 
 /**
  * Build the metadata filter that binds the vector channel to exactly the
@@ -105,6 +105,10 @@ interface SearchDeps {
   semanticStore: SemanticStoreAdapter | undefined
   capabilities: MemoryStoreCapabilities
   referenceTracker: ReferenceTracker | undefined
+  /** Optional telemetry sink for non-fatal vector-channel failures. */
+  eventBus?: MemoryEventBus | undefined
+  /** Tag applied to emitted events. */
+  agentId?: string | undefined
 }
 
 /**
@@ -173,7 +177,16 @@ export async function searchMemoryWithStatus(
       return { value, finalScore, key: r.key }
     })
 
-    if (deps.semanticStore) {
+    // The vector channel is consulted only for namespaces the operator
+    // declared `searchable` — the same condition the write path indexes under
+    // (`memory-service-store.ts`, `if (deps.semanticStore && ns.searchable)`).
+    // Branching on `semanticStore` alone made the two halves disagree: a
+    // non-searchable namespace paid a full embedding round trip against a
+    // collection that, by construction, can never hold one of its documents
+    // (SHARED-KIT-AGENT-M-72). `MemoryService.search()` already short-circuits
+    // non-searchable namespaces to `get()`, so this closes the gap for direct
+    // callers of the helper and keeps the two conditions textually paired.
+    if (deps.semanticStore && ns.searchable) {
       finalResults = await fuseWithVector(
         ns,
         scope,
@@ -181,6 +194,8 @@ export async function searchMemoryWithStatus(
         scored,
         limit,
         deps.semanticStore,
+        deps.eventBus,
+        deps.agentId,
       )
     } else {
       // Re-sort by decay-weighted score (descending) and trim to requested limit
@@ -225,6 +240,8 @@ export async function fuseWithVector(
   keywordScored: ScoredKeyword[],
   limit: number,
   semanticStore: SemanticStoreAdapter,
+  eventBus?: MemoryEventBus | undefined,
+  agentId?: string | undefined,
 ): Promise<Record<string, unknown>[]> {
   const RRF_K = 60
 
@@ -270,8 +287,31 @@ export async function fuseWithVector(
         })
       }
     }
-  } catch {
-    // Vector search failed — fall back to keyword-only results
+  } catch (err: unknown) {
+    // Vector search failed — fall back to keyword-only results.
+    //
+    // The fallback is correct, but it must not be SILENT (SHARED-KIT-SEC-L-31).
+    // A bare `catch {}` here made a misconfigured endpoint, an expired API key,
+    // and a genuinely empty vector index indistinguishable: a permanently
+    // degraded keyword-only search looked exactly like a healthy hybrid one,
+    // and a regression in the tenant-filtered vector path (SEC-C-02) could
+    // re-open unnoticed. Surface the error class before degrading.
+    const message = err instanceof Error ? err.message : String(err)
+    const errorClass = err instanceof Error ? err.name : typeof err
+    console.warn('[memory] vector search failed — degrading to keyword-only', {
+      namespace: ns.name,
+      collection: buildVectorCollectionName(ns),
+      errorClass,
+      error: message,
+    })
+    eventBus?.emit({
+      type: 'memory:vector_search_failed',
+      agentId: agentId ?? 'unknown',
+      namespace: ns.name,
+      errorClass,
+      message,
+      degradedTo: 'keyword-only',
+    })
   }
 
   return [...fused.values()]
