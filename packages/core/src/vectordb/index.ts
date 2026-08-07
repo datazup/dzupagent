@@ -30,7 +30,12 @@ export {
   createCustomEmbedding,
   createInternalEmbedding,
   withRateLimit,
+  createLocalEmbedding,
+  isLocalEmbedding,
+  LOCAL_EMBEDDING_MODEL_ID,
+  LOCAL_EMBEDDING_DEFAULT_DIMENSIONS,
 } from "./embeddings/index.js";
+export type { LocalEmbeddingConfig } from "./embeddings/index.js";
 export type {
   OpenAIEmbeddingConfig,
   VoyageEmbeddingConfig,
@@ -62,6 +67,8 @@ export type {
 export {
   createAutoEmbeddingProvider,
   detectVectorProvider,
+  isExternalVectorProvider,
+  IN_PROCESS_VECTOR_PROVIDERS,
   createDetectedVectorStore,
   createAutoSemanticStore,
 } from "./auto-detect.js";

@@ -20,6 +20,20 @@ import {
 } from "./adapters/index.js";
 
 /**
+ * Vector provider names that keep data in this process.
+ *
+ * Anything {@link detectVectorProvider} returns outside this set is a network
+ * (or on-disk, in LanceDB's case) backend the operator must opt into
+ * deliberately.
+ */
+export const IN_PROCESS_VECTOR_PROVIDERS: readonly string[] = ["memory"];
+
+/** True when the detected vector provider stores data outside this process. */
+export function isExternalVectorProvider(provider: string): boolean {
+  return !IN_PROCESS_VECTOR_PROVIDERS.includes(provider);
+}
+
+/**
  * Auto-detect embedding provider from environment variables.
  *
  * Priority chain: EMBEDDER_INTERNAL_URL -> VOYAGE_API_KEY -> OPENAI_API_KEY -> COHERE_API_KEY -> throws
@@ -28,6 +42,12 @@ import {
  * explicitly configured is a deliberate operator choice (cost/latency/data
  * residency), so it takes priority over hosted providers even when their
  * API keys are also present.
+ *
+ * Every provider this can return is network-backed: calling it is a decision
+ * to send the caller's text off-process. Callers that must not egress content
+ * should build `createLocalEmbedding()` instead, and callers that must gate on
+ * egress should inspect the environment *before* calling this — once a
+ * provider exists, the choice has already been made.
  *
  * @param env - Optional env object (defaults to process.env)
  */
