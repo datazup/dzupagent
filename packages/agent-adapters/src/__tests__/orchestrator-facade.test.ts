@@ -11,6 +11,7 @@ import {
   OrchestratorFacade,
   createOrchestrator,
 } from '../facade/orchestrator-facade.js'
+import { buildChatInput } from '../facade/run-executor-helpers.js'
 import { AdapterApprovalGate } from '../approval/adapter-approval.js'
 import { AdapterGuardrails } from '../guardrails/adapter-guardrails.js'
 import { OpenAIAdapter } from '../openai/openai-adapter.js'
@@ -1516,6 +1517,28 @@ Task B.
         expect(skill.degraded).toEqual([])
         expect(skill.dropped).toEqual([])
       }
+    })
+  })
+
+  describe('buildChatInput', () => {
+    it('forwards reasoning and model chat options into AgentInput.options', () => {
+      const input = buildChatInput('hello', {
+        reasoning: 'xhigh',
+        model: 'claude-opus-4-20250514',
+        temperature: 0.5,
+      })
+
+      expect(input.options).toEqual({
+        temperature: 0.5,
+        reasoning: 'xhigh',
+        model: 'claude-opus-4-20250514',
+      })
+    })
+
+    it('omits reasoning and model when not provided', () => {
+      const input = buildChatInput('hello', { temperature: 0.5 })
+
+      expect(input.options).toEqual({ temperature: 0.5 })
     })
   })
 })

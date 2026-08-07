@@ -126,6 +126,10 @@ export interface ChatOptions {
   topP?: number | undefined
   /** Per-turn adapter timeout override (milliseconds) */
   timeoutMs?: number | undefined
+  /** Model override forwarded to the adapter for this turn */
+  model?: string | undefined
+  /** Reasoning effort override forwarded to the adapter for this turn */
+  reasoning?: string | undefined
   /** When true and an approvalGate is configured, requires approval before execution. */
   requireApproval?: boolean | undefined
   /** Approval context metadata forwarded to the approval gate. */

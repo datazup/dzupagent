@@ -58,10 +58,27 @@ export function buildQueryOptions({
   } else if (interactionPolicy.mode === 'auto-approve') {
     options['permissionMode'] = 'bypassPermissions'
   }
-  // Extended thinking for Claude: reasoning='high' or explicit thinkingBudgetTokens
-  const thinkingBudget = config.thinkingBudgetTokens ?? (config.reasoning === 'high' ? 10000 : 0)
-  if (thinkingBudget > 0) {
-    options['thinking'] = { type: 'enabled', budget_tokens: thinkingBudget }
+  // Model selection: per-call input option wins over adapter config.
+  // providerOptions.model (merged below) still takes final precedence.
+  const model = (typeof input.options?.['model'] === 'string' ? input.options['model'] : undefined)
+    ?? config.model
+  if (model) {
+    options['model'] = model
+  }
+
+  // Reasoning effort for Claude. The installed Claude Agent SDK supports a
+  // native `effort` option (EffortLevel: 'low'|'medium'|'high'|'xhigh'|'max'),
+  // so resolved effort is passed through directly. 'minimal' (from the
+  // normalized AdapterConfig union) is downgraded to the SDK's 'low'.
+  // An explicit thinkingBudgetTokens always wins over effort and pins a fixed
+  // extended-thinking budget instead.
+  const resolvedEffort = (typeof input.options?.['reasoning'] === 'string'
+    ? input.options['reasoning']
+    : undefined) ?? config.reasoning
+  if (config.thinkingBudgetTokens !== undefined && config.thinkingBudgetTokens > 0) {
+    options['thinking'] = { type: 'enabled', budgetTokens: config.thinkingBudgetTokens }
+  } else if (resolvedEffort) {
+    options['effort'] = resolvedEffort === 'minimal' ? 'low' : resolvedEffort
   }
 
   // Prompt caching: enabled by default ('auto') unless explicitly disabled.

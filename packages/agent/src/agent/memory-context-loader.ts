@@ -45,6 +45,7 @@ export {
   type AgentMemoryContextLoaderLimits,
   type AgentMemoryReadContext,
   type ArrowMemoryRuntime,
+  type MemoryContextMode,
 } from './memory-context-loader-types.js'
 
 export class AgentMemoryContextLoader {

@@ -822,6 +822,136 @@ describe('ClaudeAgentAdapter', () => {
       )
     })
 
+    it('passes config.model to SDK query options', async () => {
+      const adapterWithModel = new ClaudeAgentAdapter({ model: 'claude-opus-4-20250514' })
+      mockQuery.mockReturnValue(asyncIterableOf([makeSystemMessage(), makeResultSuccess()]))
+
+      await collectEvents(adapterWithModel.execute({ prompt: 'test' }))
+
+      expect(mockQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          options: expect.objectContaining({ model: 'claude-opus-4-20250514' }),
+        }),
+      )
+    })
+
+    it('per-call input.options.model overrides config.model', async () => {
+      const adapterWithModel = new ClaudeAgentAdapter({ model: 'claude-opus-4-20250514' })
+      mockQuery.mockReturnValue(asyncIterableOf([makeSystemMessage(), makeResultSuccess()]))
+
+      await collectEvents(
+        adapterWithModel.execute({
+          prompt: 'test',
+          options: { model: 'claude-sonnet-4-20250514' },
+        }),
+      )
+
+      expect(mockQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          options: expect.objectContaining({ model: 'claude-sonnet-4-20250514' }),
+        }),
+      )
+    })
+
+    it('providerOptions.model overrides both config.model and input.options.model', async () => {
+      const adapterWithModel = new ClaudeAgentAdapter({
+        model: 'claude-opus-4-20250514',
+        providerOptions: { model: 'provider-model' },
+      })
+      mockQuery.mockReturnValue(asyncIterableOf([makeSystemMessage(), makeResultSuccess()]))
+
+      await collectEvents(
+        adapterWithModel.execute({
+          prompt: 'test',
+          options: { model: 'claude-sonnet-4-20250514' },
+        }),
+      )
+
+      expect(mockQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          options: expect.objectContaining({ model: 'provider-model' }),
+        }),
+      )
+    })
+
+    it('passes config.reasoning as native SDK effort', async () => {
+      const adapterWithReasoning = new ClaudeAgentAdapter({ reasoning: 'medium' })
+      mockQuery.mockReturnValue(asyncIterableOf([makeSystemMessage(), makeResultSuccess()]))
+
+      await collectEvents(adapterWithReasoning.execute({ prompt: 'test' }))
+
+      expect(mockQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          options: expect.objectContaining({ effort: 'medium' }),
+        }),
+      )
+    })
+
+    it('per-call input.options.reasoning overrides config.reasoning', async () => {
+      const adapterWithReasoning = new ClaudeAgentAdapter({ reasoning: 'low' })
+      mockQuery.mockReturnValue(asyncIterableOf([makeSystemMessage(), makeResultSuccess()]))
+
+      await collectEvents(
+        adapterWithReasoning.execute({
+          prompt: 'test',
+          options: { reasoning: 'xhigh' },
+        }),
+      )
+
+      expect(mockQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          options: expect.objectContaining({ effort: 'xhigh' }),
+        }),
+      )
+    })
+
+    it('downgrades reasoning "minimal" to SDK effort "low"', async () => {
+      const adapterWithReasoning = new ClaudeAgentAdapter({ reasoning: 'minimal' })
+      mockQuery.mockReturnValue(asyncIterableOf([makeSystemMessage(), makeResultSuccess()]))
+
+      await collectEvents(adapterWithReasoning.execute({ prompt: 'test' }))
+
+      expect(mockQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          options: expect.objectContaining({ effort: 'low' }),
+        }),
+      )
+    })
+
+    it('explicit thinkingBudgetTokens wins over reasoning effort', async () => {
+      const adapterWithBudget = new ClaudeAgentAdapter({
+        reasoning: 'high',
+        thinkingBudgetTokens: 12345,
+      })
+      mockQuery.mockReturnValue(asyncIterableOf([makeSystemMessage(), makeResultSuccess()]))
+
+      await collectEvents(adapterWithBudget.execute({ prompt: 'test' }))
+
+      expect(mockQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          options: expect.objectContaining({
+            thinking: { type: 'enabled', budgetTokens: 12345 },
+          }),
+        }),
+      )
+      const calledOptions = (mockQuery.mock.calls[0] as [Record<string, unknown>])[0][
+        'options'
+      ] as Record<string, unknown>
+      expect(calledOptions['effort']).toBeUndefined()
+    })
+
+    it('omits both effort and thinking when neither reasoning nor budget is configured', async () => {
+      mockQuery.mockReturnValue(asyncIterableOf([makeSystemMessage(), makeResultSuccess()]))
+
+      await collectEvents(adapter.execute({ prompt: 'test' }))
+
+      const calledOptions = (mockQuery.mock.calls[0] as [Record<string, unknown>])[0][
+        'options'
+      ] as Record<string, unknown>
+      expect(calledOptions['effort']).toBeUndefined()
+      expect(calledOptions['thinking']).toBeUndefined()
+    })
+
     it('handles abort signal from input', async () => {
       const abortController = new AbortController()
       let yieldCount = 0

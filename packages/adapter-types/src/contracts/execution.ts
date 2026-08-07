@@ -275,12 +275,14 @@ export interface AdapterConfig {
   skipGitRepoCheck?: boolean | undefined
   /**
    * Normalized reasoning effort level.
-   * Claude maps 'high' to extended thinking; Codex maps to model_reasoning_effort.
+   * Claude passes it through as the SDK's native `effort` option ('minimal'
+   * downgrades to 'low'); Codex maps to model_reasoning_effort.
    */
-  reasoning?: 'low' | 'medium' | 'high' | undefined
+  reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined
   /**
-   * Claude extended thinking budget in tokens. Only applied when reasoning === 'high'
-   * or explicitly set. Ignored by non-Claude adapters.
+   * Claude extended thinking budget in tokens. When set (> 0) it takes
+   * precedence over `reasoning` and pins a fixed extended-thinking budget
+   * instead of the SDK's native effort option. Ignored by non-Claude adapters.
    */
   thinkingBudgetTokens?: number | undefined
   /**
