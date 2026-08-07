@@ -32,6 +32,8 @@ export {
   withRateLimit,
   createLocalEmbedding,
   isLocalEmbedding,
+  fetchWithEmbeddingTimeout,
+  DEFAULT_EMBEDDING_TIMEOUT_MS,
   LOCAL_EMBEDDING_MODEL_ID,
   LOCAL_EMBEDDING_DEFAULT_DIMENSIONS,
 } from "./embeddings/index.js";

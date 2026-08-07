@@ -153,4 +153,20 @@ export class SemanticStore {
 
     await this._store.createCollection(collection, fullConfig)
   }
+
+  /**
+   * Release the resources held by the underlying vector store.
+   *
+   * Every `VectorStore` implementation already declares `close()` — the
+   * network-backed adapters (Qdrant, Pinecone, Turbopuffer, Chroma) hold
+   * sockets, and `InMemoryVectorStore.close()` is a no-op. Without this
+   * delegation `SemanticStore` swallowed the whole lifecycle: a caller holding
+   * only the semantic store (which is what `MemoryService` is handed) had no
+   * way to reach the adapter underneath, so duck-typed teardown found no
+   * shutdown method and reported a successful no-op while the connection
+   * stayed open.
+   */
+  async close(): Promise<void> {
+    await this._store.close()
+  }
 }

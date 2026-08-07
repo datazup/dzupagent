@@ -3,12 +3,22 @@
  */
 
 import type { EmbeddingProvider } from '../embedding-types.js'
+import {
+  fetchWithEmbeddingTimeout,
+  DEFAULT_EMBEDDING_TIMEOUT_MS,
+} from './request-timeout.js'
 import { vectorHttpErrorToForgeError } from '../http-error.js'
 
 export interface VoyageEmbeddingConfig {
   apiKey: string
   /** Model name (default: 'voyage-3') */
   model?: string
+  /**
+   * Per-attempt request deadline in milliseconds (default: 30000).
+   * Composes with the retry loop: a timed-out attempt is recoverable and
+   * retried like a transient 5xx.
+   */
+  timeoutMs?: number
 }
 
 interface VoyageEmbeddingResponseData {
@@ -39,12 +49,12 @@ const VOYAGE_DIMENSIONS: Record<string, number> = {
 export function createVoyageEmbedding(config: VoyageEmbeddingConfig): EmbeddingProvider {
   const model = config.model ?? 'voyage-3'
   const dimensions = VOYAGE_DIMENSIONS[model] ?? 1024
+  const timeoutMs = config.timeoutMs ?? DEFAULT_EMBEDDING_TIMEOUT_MS
 
   async function embed(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return []
 
-    // eslint-disable-next-line no-restricted-globals -- intentional: fixed Voyage vendor API endpoint, no user-controlled URL
-    const response = await fetch(VOYAGE_API_URL, {
+    const response = await fetchWithEmbeddingTimeout(VOYAGE_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -54,7 +64,7 @@ export function createVoyageEmbedding(config: VoyageEmbeddingConfig): EmbeddingP
         model,
         input: texts,
       }),
-    })
+    }, 'voyage-embedding', timeoutMs)
 
     if (!response.ok) {
       const body = await response.text().catch(() => 'unknown error')

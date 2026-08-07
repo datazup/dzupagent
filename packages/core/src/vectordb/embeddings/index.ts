@@ -24,6 +24,11 @@ export { withRateLimit } from "./rate-limited-embedding.js";
 export type { RateLimitedEmbeddingConfig } from "./rate-limited-embedding.js";
 
 export {
+  fetchWithEmbeddingTimeout,
+  DEFAULT_EMBEDDING_TIMEOUT_MS,
+} from "./request-timeout.js";
+
+export {
   createLocalEmbedding,
   isLocalEmbedding,
   LOCAL_EMBEDDING_MODEL_ID,

@@ -5,6 +5,10 @@
  */
 
 import type { EmbeddingProvider } from "../embedding-types.js";
+import {
+  fetchWithEmbeddingTimeout,
+  DEFAULT_EMBEDDING_TIMEOUT_MS,
+} from "./request-timeout.js"
 import { vectorHttpErrorToForgeError } from "../http-error.js";
 import type { ForgeError } from "../../errors/forge-error.js";
 import { calculateBackoff } from "../../utils/backoff.js";
@@ -18,6 +22,12 @@ export interface InternalEmbeddingConfig {
   model?: string;
   /** Max retry attempts on rate limit / transient errors (default: 3) */
   maxRetries?: number;
+  /**
+   * Per-attempt request deadline in milliseconds (default: 30000).
+   * Composes with the retry loop: a timed-out attempt is recoverable and
+   * retried like a transient 5xx.
+   */
+  timeoutMs?: number
 }
 
 const MAX_RETRY_DELAY_MS = 30_000;
@@ -47,19 +57,19 @@ export function createInternalEmbedding(
   const dimensions = config.dimensions ?? 1024;
   const model = config.model ?? "bge-m3";
   const maxRetries = config.maxRetries ?? 3;
+  const timeoutMs = config.timeoutMs ?? DEFAULT_EMBEDDING_TIMEOUT_MS;
 
   async function embed(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return [];
 
     for (let attempt = 0; ; attempt++) {
-      // eslint-disable-next-line no-restricted-globals -- intentional: internal self-hosted embedder; baseUrl is operator-configured infrastructure, not user input
-      const response = await fetch(`${baseUrl}/embed`, {
+      const response = await fetchWithEmbeddingTimeout(`${baseUrl}/embed`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ inputs: texts }),
-      });
+      }, "internal-embedding", timeoutMs);
 
       if (!response.ok) {
         const body = await response.text().catch(() => "unknown error");

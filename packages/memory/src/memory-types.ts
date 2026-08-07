@@ -89,4 +89,15 @@ export interface SemanticStoreAdapter {
     collection: string,
     config?: { dimensions?: number; metric?: string; metadata?: Record<string, string> },
   ): Promise<void>
+
+  /**
+   * Release any resources the adapter holds (sockets to a remote vector
+   * backend, most commonly).
+   *
+   * Optional so that the many test doubles and in-process adapters that own
+   * nothing stay valid implementations. `MemoryService.close()` reaches the
+   * vector store through this method: an adapter that omits it is treated as
+   * holding nothing, which is only true if it really does.
+   */
+  close?(): Promise<void>
 }
