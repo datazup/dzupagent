@@ -687,6 +687,50 @@ describe('OrchestratorFacade', () => {
       expect(facade.getCostReport()?.totalCostCents ?? 0).toBeGreaterThan(0)
     })
 
+    it('links ChatOptions.signal to the adapter-side attempt signal', async () => {
+      const { adapter, getCapturedInput } = createPolicyCapturingRawAdapter('codex')
+      const facade = createOrchestrator({
+        adapters: [adapter],
+        eventBus: bus,
+      })
+      const controller = new AbortController()
+
+      const events: AgentStreamEvent[] = []
+      for await (const event of facade.chatWithRaw('Abortable turn', {
+        provider: 'codex',
+        signal: controller.signal,
+      })) {
+        events.push(event)
+      }
+
+      expect(events.map((event) => event.type)).toContain('adapter:completed')
+      const adapterSignal = getCapturedInput()?.signal
+      expect(adapterSignal).toBeDefined()
+      expect(adapterSignal?.aborted).toBe(false)
+      controller.abort()
+      expect(adapterSignal?.aborted).toBe(true)
+    })
+
+    it('does not link an unrelated controller when ChatOptions carries no signal', async () => {
+      const { adapter, getCapturedInput } = createPolicyCapturingRawAdapter('codex')
+      const facade = createOrchestrator({
+        adapters: [adapter],
+        eventBus: bus,
+      })
+      const unrelated = new AbortController()
+
+      const events: AgentStreamEvent[] = []
+      for await (const event of facade.chatWithRaw('Plain turn', { provider: 'codex' })) {
+        events.push(event)
+      }
+
+      expect(events.map((event) => event.type)).toContain('adapter:completed')
+      const adapterSignal = getCapturedInput()?.signal
+      expect(adapterSignal).toBeDefined()
+      unrelated.abort()
+      expect(adapterSignal?.aborted).toBe(false)
+    })
+
     it('roundtrip: toolCallId propagates through adapter emit and consume', async () => {
       const sseLines = [
         'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"test-id-123","type":"function","function":{"name":"lookup","arguments":"{\\"query\\":\\"dzupagent\\"}"}}]}}]}',
@@ -1539,6 +1583,19 @@ Task B.
       const input = buildChatInput('hello', { temperature: 0.5 })
 
       expect(input.options).toEqual({ temperature: 0.5 })
+    })
+
+    it('forwards the abort signal verbatim into AgentInput.signal', () => {
+      const controller = new AbortController()
+      const input = buildChatInput('hello', { signal: controller.signal })
+
+      expect(input.signal).toBe(controller.signal)
+    })
+
+    it('does not set a signal key when ChatOptions carries none', () => {
+      const input = buildChatInput('hello', { temperature: 0.5 })
+
+      expect('signal' in input).toBe(false)
     })
   })
 })

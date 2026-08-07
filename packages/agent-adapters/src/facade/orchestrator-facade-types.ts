@@ -109,6 +109,12 @@ export interface RunResult {
 export interface ChatOptions {
   /** Resume existing workflow or create new */
   workflowId?: string | undefined
+  /**
+   * Abort signal for cancelling the turn mid-stream. Forwarded to the
+   * provider adapter via AgentInput.signal so cancellation reaches the
+   * underlying provider process, not just the consumer-side iterator.
+   */
+  signal?: AbortSignal | undefined
   provider?: AdapterProviderId | undefined
   /** Explicit legacy cross-provider fallback authorization. */
   approvedFallbackProviders?: AdapterProviderId[] | undefined
