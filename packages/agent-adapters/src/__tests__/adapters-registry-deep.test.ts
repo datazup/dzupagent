@@ -262,11 +262,11 @@ describe("ClaudeAgentAdapter — W30 gap coverage", () => {
       )["options"] as Record<string, unknown>;
       expect(opts["thinking"]).toEqual({
         type: "enabled",
-        budget_tokens: 8000,
+        budgetTokens: 8000,
       });
     });
 
-    it('enables thinking with budget_tokens=10000 when reasoning="high"', async () => {
+    it('passes reasoning="high" through as native SDK effort', async () => {
       const a = new ClaudeAgentAdapter({ reasoning: "high" });
       mockClaudeQuery.mockReturnValue(
         asyncClaudeOf([claudeSys(), claudeResult()])
@@ -275,10 +275,8 @@ describe("ClaudeAgentAdapter — W30 gap coverage", () => {
       const opts = (
         mockClaudeQuery.mock.calls[0]![0] as Record<string, unknown>
       )["options"] as Record<string, unknown>;
-      expect(opts["thinking"]).toEqual({
-        type: "enabled",
-        budget_tokens: 10000,
-      });
+      expect(opts["effort"]).toBe("high");
+      expect(opts["thinking"]).toBeUndefined();
     });
 
     it("does NOT add thinking option when reasoning is not high and no budget set", async () => {
