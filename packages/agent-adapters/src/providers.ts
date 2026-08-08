@@ -124,6 +124,7 @@ export type {
 export {
   PROVIDER_CATALOG,
   HTTP_ROUTABLE_PROVIDER_IDS,
+  assertProviderCatalogEntry,
   getDefaultMonitorStatus,
   getMonitorableProviders,
   getProductProviders,
@@ -132,6 +133,7 @@ export {
 export type {
   ApprovalSupportTier,
   MonitorTier,
+  ProviderCatalogEntry,
   ProviderCapabilities,
 } from './provider-catalog.js'
 

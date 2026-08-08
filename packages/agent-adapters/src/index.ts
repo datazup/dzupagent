@@ -521,6 +521,9 @@ export type {
   InspectorContext,
 } from "./introspection/adapter-installation-inspector.js";
 export { ClaudeInstallationInspector } from "./introspection/claude-inspector.js";
+export { GeminiInstallationInspector } from "./introspection/gemini-inspector.js";
+export { QwenInstallationInspector } from "./introspection/qwen-inspector.js";
+export { PARTIAL_INSPECTOR_GAPS } from "./introspection/partial-inspector-gaps.js";
 export {
   buildCapabilityManifest,
   computeManifestHash,
@@ -919,12 +922,17 @@ export type {
 export {
   PROVIDER_CATALOG,
   HTTP_ROUTABLE_PROVIDER_IDS,
+  assertProviderCatalogEntry,
   getDefaultMonitorStatus,
   getMonitorableProviders,
   getProductProviders,
   getProviderCapabilities,
 } from "./provider-catalog.js";
-export type { ProviderCapabilities, MonitorTier } from "./provider-catalog.js";
+export type {
+  ProviderCapabilities,
+  ProviderCatalogEntry,
+  MonitorTier,
+} from "./provider-catalog.js";
 
 // --- Unified Event Normalization ---
 export { normalizeEvent } from "./normalize.js";

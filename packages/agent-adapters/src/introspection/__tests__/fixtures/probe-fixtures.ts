@@ -1,59 +1,32 @@
 /**
- * Minimal probe fixtures for inspector determinism (WP-M1.3).
+ * Fixture-backed probe runner helpers.
  *
- * Deliberately minimal: full per-version fixture packs are WP-M1.4. These
- * cover only what the inspector tests need to discriminate.
- *
- * Fixture discipline (doc 06 §4): fixtures must *disagree* with each other and
- * with defaults. The Claude and Codex help texts below advertise different
- * subcommands and different flags, so an inspector that ignored its input and
- * returned a constant document could not pass both.
+ * Full normalized per-version packs live in `m1-fixture-packs.ts` (WP-M1.4).
+ * The aliases below keep the inspector suite on the newest pinned capture.
  */
 import type {
   ProbeCommand,
   ProbeCommandRunner,
   ProbeResult,
 } from "../../probe-runner.js";
+import {
+  CLAUDE_2_1_226_FIXTURE,
+  CODEX_0_147_0_FIXTURE,
+} from './m1-fixture-packs.js'
+export {
+  CLAUDE_2_0_14_FIXTURE,
+  CLAUDE_2_1_226_FIXTURE,
+  CODEX_0_48_0_FIXTURE,
+  CODEX_0_147_0_FIXTURE,
+  M1_FIXTURE_PACKS,
+  type ProbeFixturePack,
+} from './m1-fixture-packs.js'
 
-export const CLAUDE_HELP_FIXTURE = `Usage: claude [options] [command] [prompt]
-
-Claude Code - starts an interactive session by default.
-
-Options:
-  -v, --version               Output the version number
-  -p, --print                 Print response and exit
-  --output-format <format>    Output format (text, json, stream-json)
-  --allowedTools <tools...>   Comma-separated list of allowed tools
-  --permission-mode <mode>    Permission mode for the session
-  -h, --help                  Display help for command
-
-Commands:
-  mcp                         Configure and manage MCP servers
-  plugin                      Manage Claude Code plugins
-  config                      Manage configuration
-  update                      Check for updates
-`;
-
-export const CLAUDE_VERSION_FIXTURE = "2.0.14 (Claude Code)\n";
-
-export const CODEX_HELP_FIXTURE = `Usage: codex [OPTIONS] [PROMPT]
-
-Codex CLI
-
-Options:
-  -V, --version                  Print version
-  --json                         Emit events as JSONL
-  --ask-for-approval <POLICY>    Approval policy
-  --sandbox <MODE>               Sandbox mode
-  -h, --help                     Print help
-
-Commands:
-  exec                           Run a non-interactive task
-  login                          Authenticate
-  mcp                            Manage MCP servers
-`;
-
-export const CODEX_VERSION_FIXTURE = "codex-cli 0.48.0\n";
+/** Current pinned fixtures retained under the original test helper names. */
+export const CLAUDE_HELP_FIXTURE = CLAUDE_2_1_226_FIXTURE.help
+export const CLAUDE_VERSION_FIXTURE = CLAUDE_2_1_226_FIXTURE.versionOutput
+export const CODEX_HELP_FIXTURE = CODEX_0_147_0_FIXTURE.help
+export const CODEX_VERSION_FIXTURE = CODEX_0_147_0_FIXTURE.versionOutput
 
 /** A probe result for a binary that is present and healthy. */
 export function ok(stdout: string): ProbeResult {
