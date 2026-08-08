@@ -508,6 +508,35 @@ export type {
   DashboardProjectionSubscriberOptions,
 } from "./observability/dashboard-projection-subscriber.js";
 
+// --- Introspection ---
+export {
+  AdapterInstallationInspector,
+  PROBE_TOOL_VERSION,
+  observed,
+  unspecified,
+  unspecifiedCrud,
+} from "./introspection/adapter-installation-inspector.js";
+export type {
+  ConfigLayerCandidate,
+  InspectorContext,
+} from "./introspection/adapter-installation-inspector.js";
+export { ClaudeInstallationInspector } from "./introspection/claude-inspector.js";
+export { CodexInstallationInspector } from "./introspection/codex-inspector.js";
+export {
+  DEFAULT_PROBE_TIMEOUT_MS,
+  PROBE_ENV_ALLOWLIST,
+  buildProbeEnv,
+  parseHelpFlags,
+  parseHelpSubcommands,
+  parseVersion,
+} from "./introspection/probe-runner.js";
+export type {
+  ProbeCommand,
+  ProbeCommandRunner,
+  ProbeEnvOptions,
+  ProbeResult,
+} from "./introspection/probe-runner.js";
+
 // --- Approval ---
 export { AdapterApprovalGate } from "./approval/adapter-approval.js";
 export type {
