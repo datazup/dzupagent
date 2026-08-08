@@ -176,9 +176,10 @@ describe("probe discipline (doc 05 §4)", () => {
 describe("help parsing", () => {
   it("extracts only the advertised subcommands", () => {
     expect(parseHelpSubcommands(CLAUDE_HELP_FIXTURE)).toEqual([
+      "agents",
+      "auth",
       "mcp",
       "plugin",
-      "config",
       "update",
     ]);
   });
@@ -188,7 +189,17 @@ describe("help parsing", () => {
     const claude = parseHelpSubcommands(CLAUDE_HELP_FIXTURE);
     const codex = parseHelpSubcommands(CODEX_HELP_FIXTURE);
 
-    expect(codex).toEqual(["exec", "login", "mcp"]);
+    expect(codex).toEqual([
+      "exec",
+      "review",
+      "login",
+      "mcp",
+      "plugin",
+      "update",
+      "doctor",
+      "resume",
+      "fork",
+    ]);
     expect(claude).not.toEqual(codex);
   });
 
@@ -207,8 +218,8 @@ describe("help parsing", () => {
   });
 
   it("parses a semver token out of version output", () => {
-    expect(parseVersion(CLAUDE_VERSION_FIXTURE)).toBe("2.0.14");
-    expect(parseVersion(CODEX_VERSION_FIXTURE)).toBe("0.48.0");
+    expect(parseVersion(CLAUDE_VERSION_FIXTURE)).toBe("2.1.226");
+    expect(parseVersion(CODEX_VERSION_FIXTURE)).toBe("0.147.0");
   });
 
   it("returns null rather than the raw line when no version is present", () => {
@@ -240,7 +251,7 @@ describe("ClaudeInstallationInspector", () => {
 
     const document = await inspector.inspect(claudeRef());
 
-    expect(document.binary.version.value).toBe("2.0.14");
+    expect(document.binary.version.value).toBe("2.1.226");
     expect(document.binary.version.certainty).toBe("observed");
     expect(document.binary.version.source).toBe("probe:claude--version");
     expect(document.binary.version.observedAt).toBe(FIXED_NOW);
@@ -257,10 +268,7 @@ describe("ClaudeInstallationInspector", () => {
 
   it("reports an unadvertised subcommand as observed false, not unknown", async () => {
     // Absence from a readable help output is real evidence for that version.
-    const helpWithoutPlugin = CLAUDE_HELP_FIXTURE.replace(
-      "  plugin                      Manage Claude Code plugins\n",
-      ""
-    );
+    const helpWithoutPlugin = CLAUDE_HELP_FIXTURE.replace(/^  plugin.*\n/m, "");
     const inspector = new ClaudeInstallationInspector(
       claudeContext({
         runProbe: recordingRunner({

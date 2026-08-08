@@ -172,6 +172,26 @@ export function parseHelpFlags(helpText: string): string[] {
  * comparisons never operate on a non-version string.
  */
 export function parseVersion(versionOutput: string): string | null {
-  const match = /(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)/.exec(versionOutput);
-  return match ? match[1]! : null;
+  const semver = /(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)/.exec(versionOutput);
+  if (semver) return semver[1]!;
+
+  // Some upstream CLIs identify snapshots by release date instead of semver.
+  // Preserve a valid ISO calendar date as the version identity; malformed
+  // dates stay unknown rather than entering ordering/drift comparisons.
+  const date = /\b(\d{4})-(\d{2})-(\d{2})\b/.exec(versionOutput);
+  if (!date) return null;
+
+  const year = Number(date[1]);
+  const month = Number(date[2]);
+  const day = Number(date[3]);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return date[0];
 }
