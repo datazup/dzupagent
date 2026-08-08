@@ -53,16 +53,26 @@ export {
   ClaudeAgentAdapter,
   createClaudeAdapter,
 } from "./claude/claude-adapter.js";
-export { ClaudeCliAdapter, createClaudeCliAdapter, probeClaudeCliAuth } from "./claude/claude-cli-adapter.js";
+export {
+  ClaudeCliAdapter,
+  createClaudeCliAdapter,
+  probeClaudeCliAuth,
+} from "./claude/claude-cli-adapter.js";
 export type { ClaudeCliAdapterConfig } from "./claude/claude-cli-adapter.js";
 export { createClaudeBackendAdapter } from "./claude/claude-backend.js";
 export type { ClaudeBackendConfig } from "./claude/claude-backend.js";
 export { CodexAdapter, createCodexAdapter } from "./codex/codex-adapter.js";
-export { CodexCliAdapter, createCodexCliAdapter } from "./codex/codex-cli-adapter.js";
+export {
+  CodexCliAdapter,
+  createCodexCliAdapter,
+} from "./codex/codex-cli-adapter.js";
 export type { CodexCliAdapterConfig } from "./codex/codex-cli-adapter.js";
 export { createCodexBackendAdapter } from "./codex/codex-backend.js";
 export type { CodexBackendConfig } from "./codex/codex-backend.js";
-export { GeminiCLIAdapter, createGeminiCliAdapter } from "./gemini/gemini-adapter.js";
+export {
+  GeminiCLIAdapter,
+  createGeminiCliAdapter,
+} from "./gemini/gemini-adapter.js";
 export type { GeminiCliAdapterConfig } from "./gemini/gemini-adapter.js";
 export { GeminiSDKAdapter } from "./gemini/gemini-sdk-adapter.js";
 export type { GeminiSDKAdapterConfig } from "./gemini/gemini-sdk-adapter.js";
@@ -74,8 +84,15 @@ export { CrushAdapter, createCrushCliAdapter } from "./crush/crush-adapter.js";
 export type { CrushCliAdapterConfig } from "./crush/crush-adapter.js";
 export { GooseAdapter, createGooseCliAdapter } from "./goose/goose-adapter.js";
 export type { GooseCliAdapterConfig } from "./goose/goose-adapter.js";
-export { OllamaAdapter, createOllamaAdapter, resolveLocalModelEndpoint } from "./ollama/ollama-adapter.js";
-export type { OllamaAdapterConfig, LocalModelInspection } from "./ollama/ollama-adapter.js";
+export {
+  OllamaAdapter,
+  createOllamaAdapter,
+  resolveLocalModelEndpoint,
+} from "./ollama/ollama-adapter.js";
+export type {
+  OllamaAdapterConfig,
+  LocalModelInspection,
+} from "./ollama/ollama-adapter.js";
 export { OpenRouterAdapter } from "./openrouter/openrouter-adapter.js";
 export type { OpenRouterConfig } from "./openrouter/openrouter-adapter.js";
 export { OpenAIAdapter } from "./openai/openai-adapter.js";
@@ -481,6 +498,15 @@ export type {
   TraceContext,
 } from "./observability/adapter-tracer.js";
 export { createTracingMiddleware } from "./observability/tracing-middleware.js";
+export {
+  DashboardProjectionSubscriber,
+  createDashboardProjectionSubscriber,
+  UNSOURCED_V1_FIELDS,
+} from "./observability/dashboard-projection-subscriber.js";
+export type {
+  DashboardProjectionStats,
+  DashboardProjectionSubscriberOptions,
+} from "./observability/dashboard-projection-subscriber.js";
 
 // --- Approval ---
 export { AdapterApprovalGate } from "./approval/adapter-approval.js";
