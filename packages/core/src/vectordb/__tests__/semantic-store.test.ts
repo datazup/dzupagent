@@ -221,4 +221,22 @@ describe('SemanticStore', () => {
       expect(store.store).toBe(vectorStore)
     })
   })
+
+  describe('close', () => {
+    it('delegates to the underlying vector store', async () => {
+      const closeSpy = vi.spyOn(vectorStore, 'close')
+      await store.close()
+      expect(closeSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('is reachable by duck-typed teardown', async () => {
+      // MemoryService.close() finds a shutdown method by name rather than by
+      // type (packages/memory does not depend on core). Before SemanticStore
+      // grew close(), that lookup found nothing and reported a successful
+      // no-op while the adapter's sockets stayed open.
+      expect(typeof (store as unknown as Record<string, unknown>)['close']).toBe(
+        'function',
+      )
+    })
+  })
 })

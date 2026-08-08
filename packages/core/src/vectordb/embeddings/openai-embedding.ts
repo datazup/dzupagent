@@ -4,6 +4,10 @@
  */
 
 import type { EmbeddingProvider } from "../embedding-types.js";
+import {
+  fetchWithEmbeddingTimeout,
+  DEFAULT_EMBEDDING_TIMEOUT_MS,
+} from "./request-timeout.js"
 import { vectorHttpErrorToForgeError } from "../http-error.js";
 import type { ForgeError } from "../../errors/forge-error.js";
 import { calculateBackoff } from "../../utils/backoff.js";
@@ -18,6 +22,12 @@ export interface OpenAIEmbeddingConfig {
   baseUrl?: string;
   /** Max retry attempts on rate limit / transient errors (default: 3) */
   maxRetries?: number;
+  /**
+   * Per-attempt request deadline in milliseconds (default: 30000).
+   * Composes with the retry loop: a timed-out attempt is recoverable and
+   * retried like a transient 5xx.
+   */
+  timeoutMs?: number
 }
 
 /** Cap on computed/parsed backoff delay so a bad Retry-After can't hang the pipeline. */
@@ -61,13 +71,13 @@ export function createOpenAIEmbedding(
     ""
   );
   const maxRetries = config.maxRetries ?? 3;
+  const timeoutMs = config.timeoutMs ?? DEFAULT_EMBEDDING_TIMEOUT_MS;
 
   async function embed(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return [];
 
     for (let attempt = 0; ; attempt++) {
-      // eslint-disable-next-line no-restricted-globals -- intentional: OpenAI embeddings vendor API; baseUrl is operator-configured infrastructure, not user input
-      const response = await fetch(`${baseUrl}/embeddings`, {
+      const response = await fetchWithEmbeddingTimeout(`${baseUrl}/embeddings`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -78,7 +88,7 @@ export function createOpenAIEmbedding(
           input: texts,
           dimensions,
         }),
-      });
+      }, "openai-embedding", timeoutMs);
 
       if (!response.ok) {
         const body = await response.text().catch(() => "unknown error");

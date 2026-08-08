@@ -34,6 +34,21 @@ export interface FormatOptions {
 }
 
 /**
+ * Normalized metadata filter accepted by {@link SemanticStoreAdapter.search}.
+ *
+ * Structurally identical to `@dzupagent/core`'s `MetadataFilter`, restated here
+ * so `@dzupagent/memory` keeps zero dependency on the vectordb layer. A
+ * `SemanticStore` from core therefore satisfies this interface unchanged.
+ */
+export type SemanticMetadataFilter =
+  | { field: string; op: 'eq' | 'neq'; value: string | number | boolean }
+  | { field: string; op: 'gt' | 'gte' | 'lt' | 'lte'; value: number }
+  | { field: string; op: 'in' | 'not_in'; value: (string | number)[] }
+  | { field: string; op: 'contains'; value: string }
+  | { and: SemanticMetadataFilter[] }
+  | { or: SemanticMetadataFilter[] }
+
+/**
  * Minimal interface for a semantic store that MemoryService can use
  * for vector-backed search and auto-indexing.
  *
@@ -42,11 +57,19 @@ export interface FormatOptions {
  * (including SemanticStore) can be passed to MemoryService.
  */
 export interface SemanticStoreAdapter {
-  /** Search a collection by text query, returning scored documents */
+  /**
+   * Search a collection by text query, returning scored documents.
+   *
+   * `filter` is a tenant/scope restriction and is NOT optional in effect:
+   * `MemoryService` always passes the same scope the keyword channel is
+   * bound to. An adapter that ignores it re-opens the cross-tenant leak
+   * this parameter exists to close.
+   */
   search(
     collection: string,
     query: string,
     limit: number,
+    filter?: SemanticMetadataFilter,
   ): Promise<Array<{ id: string; text: string; score: number; metadata: Record<string, unknown> }>>
 
   /** Upsert documents with automatic embedding */
@@ -66,4 +89,15 @@ export interface SemanticStoreAdapter {
     collection: string,
     config?: { dimensions?: number; metric?: string; metadata?: Record<string, string> },
   ): Promise<void>
+
+  /**
+   * Release any resources the adapter holds (sockets to a remote vector
+   * backend, most commonly).
+   *
+   * Optional so that the many test doubles and in-process adapters that own
+   * nothing stay valid implementations. `MemoryService.close()` reaches the
+   * vector store through this method: an adapter that omits it is treated as
+   * holding nothing, which is only true if it really does.
+   */
+  close?(): Promise<void>
 }

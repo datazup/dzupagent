@@ -174,3 +174,7 @@ export async function createStore(config: StoreConfig): Promise<BaseStore> {
 
   throw new Error(`Unknown store type: ${String(config.type)}`)
 }
+
+// Store shutdown lives in `store-lifecycle.ts` so that `MemoryService` can
+// import it without dragging the Postgres driver into every consumer bundle.
+export { closeMemoryStore } from './store-lifecycle.js'

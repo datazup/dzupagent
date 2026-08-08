@@ -10,7 +10,12 @@
 import type { BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { shouldSummarize, summarizeAndTrim } from '@dzupagent/context'
-import { findWeakMemories, MemoryPruner, ConsolidationEngine } from '@dzupagent/memory'
+import {
+  findWeakMemories,
+  MemoryPruner,
+  ConsolidationEngine,
+  buildNamespaceTuple,
+} from '@dzupagent/memory'
 import type { DecayMetadata, PrunerMemoryStore } from '@dzupagent/memory'
 import { PiiDetector } from '@dzupagent/security'
 import type { DzupAgentConfig } from './agent-types.js'
@@ -303,9 +308,14 @@ async function runMemoryPruner(
   if (!isPrunerStore(store)) return
   const prunerStore = store as unknown as PrunerMemoryStore
 
-  // Build the namespace tuple the same way MemoryService does — `[scope-values..., namespace]`
-  // is too coarse for hosted stores so we stick to the (scope, namespace) tuple.
-  const tuple = buildPruneNamespaceTuple(scope, namespace)
+  // Build the namespace tuple with the same builder the write path uses —
+  // a drifted local layout here makes the pruner target records nothing writes.
+  let tuple: string[]
+  try {
+    tuple = buildNamespaceTuple({ name: namespace, scopeKeys: Object.keys(scope) }, scope)
+  } catch {
+    return
+  }
 
   try {
     const pruner = new MemoryPruner()
@@ -424,14 +434,3 @@ function isPrunerStore(value: unknown): value is PrunerStoreLike {
   )
 }
 
-/**
- * Construct the namespace tuple used by the pruner. Mirrors the
- * `[...scopeKeys, namespace]` convention favoured by `MemoryService`.
- */
-function buildPruneNamespaceTuple(
-  scope: Record<string, string>,
-  namespace: string,
-): string[] {
-  const scopeValues = Object.values(scope)
-  return scopeValues.length > 0 ? [...scopeValues, namespace] : [namespace]
-}

@@ -6,14 +6,71 @@
  * handles and capabilities.
  */
 import type { BaseStore } from '@langchain/langgraph'
-import type { NamespaceConfig, SemanticStoreAdapter } from './memory-types.js'
+import type {
+  NamespaceConfig,
+  SemanticMetadataFilter,
+  SemanticStoreAdapter,
+} from './memory-types.js'
 import { scoreWithDecay } from './decay-engine.js'
 import type { DecayMetadata } from './decay-engine.js'
 import type { MemoryStoreCapabilities } from './store-capabilities.js'
 import type { ReferenceTracker } from './provenance/reference-tracker.js'
 import { deriveMemoryEntryId } from './provenance/reference-tracker.js'
-import { buildNamespaceTuple } from './memory-service-store.js'
-import type { ReadContext } from './memory-service-types.js'
+import {
+  VECTOR_KEY_META_KEY,
+  VECTOR_NAMESPACE_META_KEY,
+  buildNamespaceTuple,
+  buildVectorCollectionName,
+} from './memory-service-store.js'
+import type { MemoryEventBus, ReadContext } from './memory-service-types.js'
+
+/**
+ * Build the metadata filter that binds the vector channel to exactly the
+ * scope the keyword channel is reading.
+ *
+ * A vector collection is per-namespace and therefore holds every tenant's
+ * documents. Searching it unfiltered fuses foreign-tenant text into results
+ * that go straight into the model prompt, defeating the tuple-level isolation
+ * the keyword channel has. The filter dimensions are the namespace's declared
+ * `scopeKeys` — the same dimensions `buildNamespaceTuple` uses — so the two
+ * channels can never drift apart.
+ */
+export function buildVectorScopeFilter(
+  ns: NamespaceConfig,
+  scope: Record<string, string>,
+): SemanticMetadataFilter {
+  const clauses: SemanticMetadataFilter[] = [
+    { field: VECTOR_NAMESPACE_META_KEY, op: 'eq', value: ns.name },
+  ]
+  for (const k of ns.scopeKeys) {
+    const val = scope[k]
+    if (!val) {
+      throw new Error(`Missing scope key "${k}" for namespace "${ns.name}"`)
+    }
+    clauses.push({ field: k, op: 'eq', value: val })
+  }
+  return clauses.length === 1 ? clauses[0]! : { and: clauses }
+}
+
+/**
+ * Reconstruct a record value from a vector-only hit, dropping the internal
+ * indexing markers so they never reach `formatForPrompt`.
+ */
+function valueFromVectorHit(
+  text: string,
+  metadata: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const rest: Record<string, unknown> = {}
+  // `metadata` is required by the interface but adapters do omit it. Reading
+  // it unguarded threw inside the fusion loop, and the surrounding catch
+  // turned that into a silent keyword-only fallback — the whole vector
+  // channel lost to one missing field.
+  for (const [k, v] of Object.entries(metadata ?? {})) {
+    if (k === VECTOR_NAMESPACE_META_KEY || k === VECTOR_KEY_META_KEY) continue
+    rest[k] = v
+  }
+  return { text, ...rest }
+}
 
 /**
  * Extract DecayMetadata from a record value when all required fields are
@@ -48,6 +105,10 @@ interface SearchDeps {
   semanticStore: SemanticStoreAdapter | undefined
   capabilities: MemoryStoreCapabilities
   referenceTracker: ReferenceTracker | undefined
+  /** Optional telemetry sink for non-fatal vector-channel failures. */
+  eventBus?: MemoryEventBus | undefined
+  /** Tag applied to emitted events. */
+  agentId?: string | undefined
 }
 
 /**
@@ -116,13 +177,25 @@ export async function searchMemoryWithStatus(
       return { value, finalScore, key: r.key }
     })
 
-    if (deps.semanticStore) {
+    // The vector channel is consulted only for namespaces the operator
+    // declared `searchable` — the same condition the write path indexes under
+    // (`memory-service-store.ts`, `if (deps.semanticStore && ns.searchable)`).
+    // Branching on `semanticStore` alone made the two halves disagree: a
+    // non-searchable namespace paid a full embedding round trip against a
+    // collection that, by construction, can never hold one of its documents
+    // (SHARED-KIT-AGENT-M-72). `MemoryService.search()` already short-circuits
+    // non-searchable namespaces to `get()`, so this closes the gap for direct
+    // callers of the helper and keeps the two conditions textually paired.
+    if (deps.semanticStore && ns.searchable) {
       finalResults = await fuseWithVector(
-        ns.name,
+        ns,
+        scope,
         query,
         scored,
         limit,
         deps.semanticStore,
+        deps.eventBus,
+        deps.agentId,
       )
     } else {
       // Re-sort by decay-weighted score (descending) and trim to requested limit
@@ -155,13 +228,20 @@ export async function searchMemoryWithStatus(
 /**
  * Fuse keyword search results with vector search results using
  * Reciprocal Rank Fusion (RRF): score = sum(1 / (k + rank)) per result.
+ *
+ * The vector channel is scope-filtered to `ns`/`scope` — the same binding the
+ * keyword channel has — so a vector-only hit can never originate from another
+ * tenant or another namespace.
  */
 export async function fuseWithVector(
-  namespace: string,
+  ns: NamespaceConfig,
+  scope: Record<string, string>,
   query: string,
   keywordScored: ScoredKeyword[],
   limit: number,
   semanticStore: SemanticStoreAdapter,
+  eventBus?: MemoryEventBus | undefined,
+  agentId?: string | undefined,
 ): Promise<Record<string, unknown>[]> {
   const RRF_K = 60
 
@@ -179,25 +259,59 @@ export async function fuseWithVector(
 
   // Run vector search (non-fatal — fall back to keyword-only on error)
   try {
-    const collectionName = `memory_${namespace}`
-    const vectorResults = await semanticStore.search(collectionName, query, limit)
+    const collectionName = buildVectorCollectionName(ns)
+    const vectorResults = await semanticStore.search(
+      collectionName,
+      query,
+      limit,
+      buildVectorScopeFilter(ns, scope),
+    )
 
     for (let rank = 0; rank < vectorResults.length; rank++) {
       const vr = vectorResults[rank]!
       const rrfScore = 1 / (RRF_K + rank)
-      const existing = fused.get(vr.id)
+      // Doc ids are scope-qualified, so fuse on the original store key that
+      // the write path stamped into metadata. Falling back to the doc id
+      // keeps third-party adapters that do not round-trip metadata working
+      // (they merely lose de-duplication, not correctness).
+      const metaKey = vr.metadata?.[VECTOR_KEY_META_KEY]
+      const fusionKey = typeof metaKey === 'string' ? metaKey : vr.id
+      const existing = fused.get(fusionKey)
       if (existing) {
         existing.rrfScore += rrfScore
       } else {
         // Vector-only result: reconstruct value from metadata
-        fused.set(vr.id, {
-          value: { text: vr.text, ...vr.metadata },
+        fused.set(fusionKey, {
+          value: valueFromVectorHit(vr.text, vr.metadata),
           rrfScore,
         })
       }
     }
-  } catch {
-    // Vector search failed — fall back to keyword-only results
+  } catch (err: unknown) {
+    // Vector search failed — fall back to keyword-only results.
+    //
+    // The fallback is correct, but it must not be SILENT (SHARED-KIT-SEC-L-31).
+    // A bare `catch {}` here made a misconfigured endpoint, an expired API key,
+    // and a genuinely empty vector index indistinguishable: a permanently
+    // degraded keyword-only search looked exactly like a healthy hybrid one,
+    // and a regression in the tenant-filtered vector path (SEC-C-02) could
+    // re-open unnoticed. Surface the error class before degrading.
+    const message = err instanceof Error ? err.message : String(err)
+    const errorClass = err instanceof Error ? err.name : typeof err
+    console.warn('[memory] vector search failed — degrading to keyword-only', {
+      namespace: ns.name,
+      collection: buildVectorCollectionName(ns),
+      errorClass,
+      error: message,
+    })
+    eventBus?.emit({
+      type: 'memory:vector_search_failed',
+      agentId: agentId ?? 'unknown',
+      namespace: ns.name,
+      errorClass,
+      message,
+      degradedTo: 'keyword-only',
+    })
   }
 
   return [...fused.values()]

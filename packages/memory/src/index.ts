@@ -9,10 +9,22 @@
 // --- Store ---
 export { createStore } from "./store-factory.js";
 export type { StoreConfig, StoreIndexConfig } from "./store-factory.js";
+// Teardown counterpart to `createStore` (SHARED-KIT-AGENT-M-71). Imported from
+// `store-lifecycle.js` so callers that only need to close a store do not pull
+// in the Postgres driver.
+export { closeMemoryStore } from "./store-lifecycle.js";
 export type { MemoryStoreCapabilities } from "./store-capabilities.js";
 
 // --- Core Service ---
 export { MemoryService } from "./memory-service.js";
+// Option shapes callers need in order to wire telemetry through a factory
+// (SHARED-KIT-AGENT-M-75) — previously only reachable by deep import.
+export type {
+  MemoryServiceOptions,
+  MemoryEventBus,
+  MemoryPIIResult,
+  ReadContext,
+} from "./memory-service.js";
 
 // --- MemoryClient implementations (ADR-0005) ---
 export { InMemoryMemoryClient } from "./in-memory-client.js";
@@ -38,7 +50,17 @@ export type {
   FormatOptions,
   DecayConfig,
   SemanticStoreAdapter,
+  SemanticMetadataFilter,
 } from "./memory-types.js";
+
+// --- Storage tuple (single source of truth; see buildNamespaceTuple docs) ---
+export {
+  buildNamespaceTuple,
+  buildVectorCollectionName,
+  buildVectorDocId,
+  VECTOR_KEY_META_KEY,
+  VECTOR_NAMESPACE_META_KEY,
+} from "./memory-service-store.js";
 
 // --- Decay Engine ---
 export {

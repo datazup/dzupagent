@@ -56,6 +56,7 @@ import {
 } from './memory-service-store.js'
 import { searchMemory, searchMemoryWithStatus } from './memory-service-search.js'
 import { formatMemoryForPrompt } from './memory-service-prompt.js'
+import { closeMemoryStore } from './store-lifecycle.js'
 
 // Re-export public types so existing callers continue to import from
 // `./memory-service.js` without code changes.
@@ -76,6 +77,14 @@ export class MemoryService {
   private readonly options: MemoryServiceOptions | undefined
   private readonly eventBus: MemoryEventBus | undefined
   private readonly agentId: string | undefined
+  /**
+   * Vector collections already created on this instance. Lives on the
+   * service (not the put helper) so the `ensureCollection` cost is paid once
+   * per collection, not once per write.
+   */
+  private readonly ensuredCollections = new Set<string>()
+  /** Set by {@link close}; makes teardown idempotent. */
+  private closed = false
 
   constructor(
     private readonly store: BaseStore,
@@ -128,6 +137,7 @@ export class MemoryService {
       options: this.options,
       eventBus: this.eventBus,
       agentId: this.agentId,
+      ensuredCollections: this.ensuredCollections,
     })
   }
 
@@ -218,6 +228,8 @@ export class MemoryService {
       semanticStore: this.semanticStore,
       capabilities: this.storeCapabilities,
       referenceTracker: this.referenceTracker,
+      eventBus: this.eventBus,
+      agentId: this.agentId,
     })
   }
 
@@ -246,6 +258,8 @@ export class MemoryService {
       semanticStore: this.semanticStore,
       capabilities: this.storeCapabilities,
       referenceTracker: this.referenceTracker,
+      eventBus: this.eventBus,
+      agentId: this.agentId,
     })
   }
 
@@ -367,5 +381,45 @@ export class MemoryService {
     options?: FormatOptions,
   ): string {
     return formatMemoryForPrompt(records, options)
+  }
+
+  // ---------- Lifecycle -------------------------------------------------------
+
+  /**
+   * Release every connection this service is holding.
+   *
+   * A `MemoryService` built by a factory owns two resources it did not
+   * previously expose: the backing store's connection pool (a `PostgresStore`
+   * pool, when `createStore({ type: 'postgres' })` built it) and, when
+   * semantic search is wired, a possibly network-backed vector-store client.
+   * Neither was reachable through the public API, so tests, serverless
+   * handlers, and create-per-request compositions leaked connections until the
+   * pool saturated (SHARED-KIT-AGENT-M-71).
+   *
+   * Idempotent: repeated calls are no-ops. Non-fatal: a store that throws on
+   * shutdown is logged, not propagated, so calling this from a `finally` can
+   * never mask the error a caller is already unwinding from.
+   *
+   * After `close()` the service must not be used again; further calls hit a
+   * closed pool and fail on the store's own (non-fatal) error paths.
+   */
+  async close(): Promise<void> {
+    if (this.closed) return
+    this.closed = true
+
+    // Semantic store first: it is the layer that may hold sockets to a remote
+    // vector database, and it never depends on the record store.
+    await closeMemoryStore(this.semanticStore)
+    await closeMemoryStore(this.store)
+  }
+
+  /** True once {@link close} has run. Exposed so callers can assert teardown. */
+  isClosed(): boolean {
+    return this.closed
+  }
+
+  /** `await using svc = ...` support — delegates to {@link close}. */
+  async [Symbol.asyncDispose](): Promise<void> {
+    await this.close()
   }
 }

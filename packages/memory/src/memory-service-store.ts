@@ -36,18 +36,90 @@ export function getNamespace(
 /**
  * Project a scope object into the ordered tuple required by the namespace,
  * throwing when any required scope key is missing.
+ *
+ * The namespace NAME is the first tuple element. Without it two namespaces
+ * declared with identical `scopeKeys` (the common case — `["tenantId"]`)
+ * share one storage tuple, and identical keys silently overwrite each other
+ * across namespace boundaries.
+ *
+ * This is the single source of truth for the storage tuple: every read,
+ * write, delete, search, and consolidation path MUST build its tuple here.
+ * Any caller that reimplements the layout will silently target records that
+ * do not exist.
+ *
+ * NOTE: the tuple layout is the on-disk memory layout. Changing it
+ * invalidates previously written records. This stack has no production
+ * consumers, so no migration path is provided.
  */
 export function buildNamespaceTuple(
   ns: NamespaceConfig,
   scope: Record<string, string>
 ): string[] {
-  return ns.scopeKeys.map((k) => {
-    const val = scope[k];
-    if (!val) {
-      throw new Error(`Missing scope key "${k}" for namespace "${ns.name}"`);
-    }
-    return val;
-  });
+  return [
+    ns.name,
+    ...ns.scopeKeys.map((k) => {
+      const val = scope[k];
+      if (!val) {
+        throw new Error(`Missing scope key "${k}" for namespace "${ns.name}"`);
+      }
+      return val;
+    }),
+  ];
+}
+
+/**
+ * Metadata key carrying the namespace name on an indexed vector document.
+ *
+ * Underscore-prefixed so it cannot be shadowed by a caller scope key named
+ * `namespace` — which `memory-kit`'s own `tenantScope()` helper produces.
+ */
+export const VECTOR_NAMESPACE_META_KEY = "_ns";
+
+/** Metadata key carrying the original store key on an indexed vector document. */
+export const VECTOR_KEY_META_KEY = "_key";
+
+/**
+ * Vector collection name for a namespace. Collections are per-namespace;
+ * tenant separation inside a collection is by metadata filter, so both the
+ * doc id and the filter must carry the full scope.
+ */
+export function buildVectorCollectionName(ns: NamespaceConfig): string {
+  return `memory_${ns.name}`;
+}
+
+/**
+ * Globally unique vector document id.
+ *
+ * The bare store `key` is only unique within one namespace tuple, but a
+ * collection holds every tenant's documents. Prefixing with the full storage
+ * tuple stops one tenant's write from overwriting another's document under
+ * the same key (the write-side twin of the read-side scope filter).
+ */
+export function buildVectorDocId(
+  ns: NamespaceConfig,
+  scope: Record<string, string>,
+  key: string
+): string {
+  return [...buildNamespaceTuple(ns, scope), key]
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+}
+
+/**
+ * Metadata written alongside an indexed vector document — the scope record
+ * plus the internal namespace/key markers the read path filters and
+ * de-duplicates on.
+ */
+export function buildVectorMetadata(
+  ns: NamespaceConfig,
+  scope: Record<string, string>,
+  key: string
+): Record<string, unknown> {
+  return {
+    ...scope,
+    [VECTOR_NAMESPACE_META_KEY]: ns.name,
+    [VECTOR_KEY_META_KEY]: key,
+  };
 }
 
 interface PutDeps {
@@ -57,6 +129,30 @@ interface PutDeps {
   options: MemoryServiceOptions | undefined;
   eventBus: MemoryEventBus | undefined;
   agentId: string | undefined;
+  /**
+   * Collections already passed through `ensureCollection` on this service
+   * instance. Owned by the coordinator so the guarantee survives across
+   * calls; omit it and every write pays one extra `ensureCollection`.
+   */
+  ensuredCollections?: Set<string> | undefined;
+}
+
+/**
+ * Create the vector collection on first write to it.
+ *
+ * Nothing else in the service ever calls `ensureCollection`, and both
+ * `InMemoryVectorStore.upsert` and `.search` throw on a missing collection.
+ * Because the upsert failure is non-fatal by design, an unensured collection
+ * makes semantic indexing permanently, silently inert.
+ */
+async function ensureCollectionOnce(
+  semanticStore: SemanticStoreAdapter,
+  collection: string,
+  ensured: Set<string> | undefined
+): Promise<void> {
+  if (ensured?.has(collection)) return;
+  await semanticStore.ensureCollection(collection);
+  ensured?.add(collection);
 }
 
 /**
@@ -138,16 +234,22 @@ export async function putMemoryRecord(
         typeof enriched["text"] === "string"
           ? enriched["text"]
           : JSON.stringify(enriched);
-      const collectionName = `memory_${ns.name}`;
-      await deps.semanticStore
-        .upsert(collectionName, [
+      const collectionName = buildVectorCollectionName(ns);
+      const semanticStore = deps.semanticStore;
+      await (async () => {
+        await ensureCollectionOnce(
+          semanticStore,
+          collectionName,
+          deps.ensuredCollections
+        );
+        await semanticStore.upsert(collectionName, [
           {
-            id: key,
+            id: buildVectorDocId(ns, scope, key),
             text,
-            metadata: { namespace: ns.name, ...scope },
+            metadata: buildVectorMetadata(ns, scope, key),
           },
-        ])
-        .catch((err: unknown) => {
+        ]);
+      })().catch((err: unknown) => {
           // Non-fatal — vector indexing failures should not break pipelines.
           // But they MUST NOT be silent: a swallowed upsert leaves the
           // semantic index drifting out of sync with the primary store even

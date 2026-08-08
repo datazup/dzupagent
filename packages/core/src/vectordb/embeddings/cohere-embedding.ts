@@ -3,12 +3,22 @@
  */
 
 import type { EmbeddingProvider } from '../embedding-types.js'
+import {
+  fetchWithEmbeddingTimeout,
+  DEFAULT_EMBEDDING_TIMEOUT_MS,
+} from './request-timeout.js'
 import { vectorHttpErrorToForgeError } from '../http-error.js'
 
 export interface CohereEmbeddingConfig {
   apiKey: string
   /** Model name (default: 'embed-english-v3.0') */
   model?: string
+  /**
+   * Per-attempt request deadline in milliseconds (default: 30000).
+   * Composes with the retry loop: a timed-out attempt is recoverable and
+   * retried like a transient 5xx.
+   */
+  timeoutMs?: number
 }
 
 interface CohereEmbeddingResponse {
@@ -35,12 +45,12 @@ const COHERE_DIMENSIONS: Record<string, number> = {
 export function createCohereEmbedding(config: CohereEmbeddingConfig): EmbeddingProvider {
   const model = config.model ?? 'embed-english-v3.0'
   const dimensions = COHERE_DIMENSIONS[model] ?? 1024
+  const timeoutMs = config.timeoutMs ?? DEFAULT_EMBEDDING_TIMEOUT_MS
 
   async function embed(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return []
 
-    // eslint-disable-next-line no-restricted-globals -- intentional: fixed Cohere vendor API endpoint, no user-controlled URL
-    const response = await fetch(COHERE_API_URL, {
+    const response = await fetchWithEmbeddingTimeout(COHERE_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -52,7 +62,7 @@ export function createCohereEmbedding(config: CohereEmbeddingConfig): EmbeddingP
         input_type: 'search_document',
         embedding_types: ['float'],
       }),
-    })
+    }, 'cohere-embedding', timeoutMs)
 
     if (!response.ok) {
       const body = await response.text().catch(() => 'unknown error')
@@ -70,8 +80,7 @@ export function createCohereEmbedding(config: CohereEmbeddingConfig): EmbeddingP
       throw new Error('Cannot embed empty query text')
     }
 
-    // eslint-disable-next-line no-restricted-globals -- intentional: fixed Cohere vendor API endpoint, no user-controlled URL
-    const response = await fetch(COHERE_API_URL, {
+    const response = await fetchWithEmbeddingTimeout(COHERE_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -83,7 +92,7 @@ export function createCohereEmbedding(config: CohereEmbeddingConfig): EmbeddingP
         input_type: 'search_query',
         embedding_types: ['float'],
       }),
-    })
+    }, 'cohere-embedding', timeoutMs)
 
     if (!response.ok) {
       const body = await response.text().catch(() => 'unknown error')

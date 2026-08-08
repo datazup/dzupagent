@@ -4,6 +4,10 @@
  */
 
 import type { EmbeddingProvider } from '../embedding-types.js'
+import {
+  fetchWithEmbeddingTimeout,
+  DEFAULT_EMBEDDING_TIMEOUT_MS,
+} from './request-timeout.js'
 import { vectorHttpErrorToForgeError } from '../http-error.js'
 
 export interface OllamaEmbeddingConfig {
@@ -13,6 +17,12 @@ export interface OllamaEmbeddingConfig {
   baseUrl?: string
   /** Output dimensions (must match the model's native dimensions) */
   dimensions?: number
+  /**
+   * Per-attempt request deadline in milliseconds (default: 30000).
+   * Composes with the retry loop: a timed-out attempt is recoverable and
+   * retried like a transient 5xx.
+   */
+  timeoutMs?: number
 }
 
 interface OllamaEmbedResponse {
@@ -27,12 +37,12 @@ interface OllamaEmbedResponse {
 export function createOllamaEmbedding(config: OllamaEmbeddingConfig): EmbeddingProvider {
   const baseUrl = (config.baseUrl ?? 'http://localhost:11434').replace(/\/$/, '')
   const dimensions = config.dimensions ?? 768
+  const timeoutMs = config.timeoutMs ?? DEFAULT_EMBEDDING_TIMEOUT_MS
 
   async function embed(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return []
 
-    // eslint-disable-next-line no-restricted-globals -- intentional: Ollama local/self-hosted endpoint; baseUrl is operator-configured infrastructure, not user input
-    const response = await fetch(`${baseUrl}/api/embed`, {
+    const response = await fetchWithEmbeddingTimeout(`${baseUrl}/api/embed`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -41,7 +51,7 @@ export function createOllamaEmbedding(config: OllamaEmbeddingConfig): EmbeddingP
         model: config.model,
         input: texts,
       }),
-    })
+    }, 'ollama-embedding', timeoutMs)
 
     if (!response.ok) {
       const body = await response.text().catch(() => 'unknown error')
