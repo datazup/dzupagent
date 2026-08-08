@@ -521,6 +521,9 @@ export type {
   InspectorContext,
 } from "./introspection/adapter-installation-inspector.js";
 export { ClaudeInstallationInspector } from "./introspection/claude-inspector.js";
+export { GeminiInstallationInspector } from "./introspection/gemini-inspector.js";
+export { QwenInstallationInspector } from "./introspection/qwen-inspector.js";
+export { PARTIAL_INSPECTOR_GAPS } from "./introspection/partial-inspector-gaps.js";
 export {
   buildCapabilityManifest,
   computeManifestHash,
