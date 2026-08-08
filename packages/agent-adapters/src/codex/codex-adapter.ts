@@ -40,9 +40,12 @@ import {
   type RunStreamedThreadContext,
 } from "./codex-streamed-thread.js";
 import type { CodexApprovalContext } from "./codex-approval.js";
+import { lookupCodexProviderRequest } from "./codex-provider-request-lookup.js";
 import {
-  lookupCodexProviderRequest,
-} from "./codex-provider-request-lookup.js";
+  createCodexRunContext,
+  disposeCodexRunContext,
+  type CodexRunContext,
+} from "./codex-run-context.js";
 
 export interface CodexAdapterConfig extends AdapterConfig {
   networkAccessEnabled?: boolean | undefined;
@@ -67,10 +70,15 @@ export function applyDynamicWorkflowCodexDefaults(
 export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
   readonly providerId: AdapterProviderId = "codex";
 
-  private currentSessionId: string | null = null;
   private sdkModule: { Codex: CodexClass } | null = null;
-  private currentInput: AgentInput | null = null;
-  private currentIsResume = false;
+
+  /**
+   * All in-flight runs. Each `execute()`/`resumeSession()` call owns exactly
+   * one {@link CodexRunContext}; no per-run state lives on the adapter
+   * instance itself, so concurrent runs cannot share session identity,
+   * input/resume state, or abort controllers.
+   */
+  private readonly activeRuns = new Set<CodexRunContext>();
 
   // ---- AgentCLIAdapter interface ------------------------------------------
 
@@ -88,18 +96,22 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
     input: AgentInput,
   ): AsyncGenerator<AgentStreamEvent, void, undefined> {
     const sdk = await this.loadSdk();
-    const codex = this.createInstance(sdk, input);
-    const threadOpts = this.buildThreadOptions(input);
+    const run = createCodexRunContext({
+      input,
+      isResume: false,
+      config: this.config,
+    });
+    const codex = this.createInstance(sdk, input, run.config);
+    const threadOpts = this.buildThreadOptions(input, run.config);
 
     const thread = codex.startThread(threadOpts);
 
-    this.currentInput = input;
-    this.currentIsResume = false;
-
-    // Set up the runner's AbortController so interrupt() can abort the stream.
-    // The runner signal is a combination of input.signal + runner's internal controller.
-    this.abortController = new AbortController();
-    const signal = combineSignals(input.signal, this.abortController.signal);
+    // The effective stream signal combines the caller-provided AbortSignal
+    // (the authoritative per-turn cancellation) with this run's OWN internal
+    // controller (timeout + adapter-wide emergency interrupt). Neither is
+    // shared with any concurrent run.
+    this.activeRuns.add(run);
+    const signal = combineSignals(input.signal, run.abortController.signal);
 
     try {
       yield* runStreamedThread(
@@ -107,12 +119,11 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
         input,
         codex,
         signal,
-        this.buildStreamContext(),
+        this.buildStreamContext(run),
       );
     } finally {
-      this.abortController = null;
-      this.currentInput = null;
-      this.disposeResolver();
+      this.activeRuns.delete(run);
+      disposeCodexRunContext(run);
     }
   }
 
@@ -121,33 +132,64 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
     input: AgentInput,
   ): AsyncGenerator<AgentEvent, void, undefined> {
     const sdk = await this.loadSdk();
-    const codex = this.createInstance(sdk, input);
-    const threadOpts = this.buildThreadOptions(input);
+    const run = createCodexRunContext({
+      input,
+      isResume: true,
+      config: this.config,
+      sessionId,
+    });
+    const codex = this.createInstance(sdk, input, run.config);
+    const threadOpts = this.buildThreadOptions(input, run.config);
 
     const thread = codex.resumeThread(sessionId, threadOpts);
 
-    this.currentInput = input;
-    this.currentIsResume = true;
-    this.currentSessionId = sessionId;
-    const resumeSignal = input.signal ?? new AbortController().signal;
-    for await (const event of runStreamedThread(
-      thread,
-      input,
-      codex,
-      resumeSignal,
-      this.buildStreamContext(),
-    )) {
-      if (event.type !== "adapter:provider_raw") {
-        yield event;
+    this.activeRuns.add(run);
+    const resumeSignal = combineSignals(
+      input.signal,
+      run.abortController.signal,
+    );
+    try {
+      for await (const event of runStreamedThread(
+        thread,
+        input,
+        codex,
+        resumeSignal,
+        this.buildStreamContext(run),
+      )) {
+        if (event.type !== "adapter:provider_raw") {
+          yield event;
+        }
       }
+    } finally {
+      this.activeRuns.delete(run);
+      disposeCodexRunContext(run);
     }
   }
 
+  /**
+   * Adapter-wide EMERGENCY stop: aborts EVERY active run on this adapter.
+   *
+   * Per-turn cancellation is the caller-provided `AgentInput.signal` — abort
+   * that to cancel one run without affecting its siblings. Codev session code
+   * must never call `interrupt()`.
+   */
   interrupt(): void {
-    if (this.abortController) {
-      this.abortController.abort();
-      this.abortController = null;
+    for (const run of this.activeRuns) {
+      run.abortController.abort();
     }
+  }
+
+  /**
+   * Route an interaction answer to whichever active run owns the pending
+   * interaction. Run-scoped so concurrent approval flows cannot cross-talk.
+   */
+  override respondInteraction(interactionId: string, answer: string): boolean {
+    for (const run of this.activeRuns) {
+      if (run.resolver?.respond(interactionId, answer)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   async healthCheck(): Promise<HealthStatus> {
@@ -239,20 +281,21 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
   private createInstance(
     sdk: { Codex: CodexClass },
     input: AgentInput,
+    config: AdapterConfig = this.config,
   ): CodexInstance {
     const ctorOpts: CodexCtorOptions = {};
 
-    if (this.config.apiKey) {
-      ctorOpts.apiKey = this.config.apiKey;
+    if (config.apiKey) {
+      ctorOpts.apiKey = config.apiKey;
     }
 
-    const providerOpts = this.config.providerOptions ?? {};
+    const providerOpts = config.providerOptions ?? {};
     if (typeof providerOpts["codexPathOverride"] === "string") {
       ctorOpts.codexPathOverride = providerOpts["codexPathOverride"];
     }
 
-    if (this.config.env) {
-      ctorOpts.env = this.config.env;
+    if (config.env) {
+      ctorOpts.env = config.env;
     }
 
     // systemPrompt is passed via the CLI's `instructions` config key.
@@ -282,7 +325,9 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
       configOverrides["mcp_servers"] = {};
       configOverrides["web_search"] = "disabled";
       configOverrides["features"] = {
-        ...((configOverrides["features"] as Record<string, unknown> | undefined) ?? {}),
+        ...((configOverrides["features"] as
+          | Record<string, unknown>
+          | undefined) ?? {}),
         apps: false,
         browser_use: false,
         browser_use_external: false,
@@ -321,24 +366,28 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
     return new sdk.Codex(ctorOpts);
   }
 
-  /** Build thread options from AgentInput + stored config */
-  private buildThreadOptions(input: AgentInput): CodexThreadOptions {
+  /** Build thread options from AgentInput + the run's config snapshot */
+  private buildThreadOptions(
+    input: AgentInput,
+    config: AdapterConfig = this.config,
+  ): CodexThreadOptions {
     const opts: CodexThreadOptions = {
-      sandboxMode: toCodexSandboxMode(this.config.sandboxMode),
-      approvalPolicy: this.resolveCodexApprovalPolicy(input),
+      sandboxMode: toCodexSandboxMode(config.sandboxMode),
+      approvalPolicy: this.resolveCodexApprovalPolicy(input, config),
       networkAccessEnabled:
-        (this.config as CodexAdapterConfig).networkAccessEnabled ?? true,
+        (config as CodexAdapterConfig).networkAccessEnabled ?? true,
     };
 
     const configuredModel =
-      typeof input.options?.["model"] === "string" && input.options["model"].trim()
+      typeof input.options?.["model"] === "string" &&
+      input.options["model"].trim()
         ? input.options["model"].trim()
-        : this.config.model;
+        : config.model;
     if (configuredModel) {
       opts.model = configuredModel;
     }
 
-    const workDir = input.workingDirectory ?? this.config.workingDirectory;
+    const workDir = input.workingDirectory ?? config.workingDirectory;
     if (workDir) {
       opts.workingDirectory = workDir;
     }
@@ -357,8 +406,8 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
     }
     if (typeof inputOpts["skipGitRepoCheck"] === "boolean") {
       opts.skipGitRepoCheck = inputOpts["skipGitRepoCheck"];
-    } else if (typeof this.config.skipGitRepoCheck === "boolean") {
-      opts.skipGitRepoCheck = this.config.skipGitRepoCheck;
+    } else if (typeof config.skipGitRepoCheck === "boolean") {
+      opts.skipGitRepoCheck = config.skipGitRepoCheck;
     }
 
     // Normalized reasoning effort → Codex modelReasoningEffort field.
@@ -366,7 +415,7 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
     // config specifies one, matching the agent-planning run-layer default.
     const reasoning =
       (inputOpts["reasoning"] as string | undefined) ??
-      this.config.reasoning ??
+      config.reasoning ??
       "medium";
     if (reasoning) {
       opts.modelReasoningEffort = reasoning;
@@ -381,13 +430,15 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
    * All other modes → 'on-failure' so Codex pauses on permission boundaries,
    * allowing the InteractionResolver to intercept via turn.failed detection.
    */
-  private resolveCodexApprovalPolicy(input: AgentInput): string {
+  private resolveCodexApprovalPolicy(
+    input: AgentInput,
+    config: AdapterConfig = this.config,
+  ): string {
     // Explicit per-call override takes priority (checked again in buildThreadOptions)
     if (typeof input.options?.["approvalPolicy"] === "string") {
       return input.options["approvalPolicy"];
     }
-    const configApprovalPolicy = (this.config as CodexAdapterConfig)
-      .approvalPolicy;
+    const configApprovalPolicy = (config as CodexAdapterConfig).approvalPolicy;
     if (typeof configApprovalPolicy === "string") {
       return configApprovalPolicy;
     }
@@ -395,51 +446,59 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
     return policy.mode === "auto-approve" ? "never" : "on-failure";
   }
 
-  /** Get or create the InteractionResolver for the current execution. */
-  private getOrCreateResolver(input: AgentInput): InteractionResolver {
-    if (!this.resolver) {
-      this.resolver = new InteractionResolver(
+  /** Get or create the run-local InteractionResolver for one execution. */
+  private getOrCreateResolver(
+    run: CodexRunContext,
+    input: AgentInput,
+  ): InteractionResolver {
+    if (!run.resolver) {
+      run.resolver = new InteractionResolver(
         this.resolveInteractionPolicy(input),
       );
     }
-    return this.resolver;
+    return run.resolver;
   }
 
-  /** Build the per-call context handed to the streaming loop. */
-  private buildStreamContext(): RunStreamedThreadContext {
+  /** Build the run-scoped context handed to the streaming loop. */
+  private buildStreamContext(run: CodexRunContext): RunStreamedThreadContext {
     const adapter = this;
     return {
       providerId: adapter.providerId,
       get config(): AdapterConfig {
-        return adapter.config;
+        return run.config;
       },
       get currentInput(): AgentInput | undefined {
-        return adapter.currentInput ?? undefined;
+        return run.input;
       },
       get isResume(): boolean {
-        return adapter.currentIsResume;
+        return run.isResume;
       },
-      getSessionId: () => adapter.currentSessionId,
+      getSessionId: () => run.sessionId,
       setSessionId: (sid) => {
-        adapter.currentSessionId = sid;
+        run.sessionId = sid;
       },
       abort: () => {
-        adapter.abortController?.abort();
+        // Timeout enforcement aborts THIS run only.
+        run.abortController.abort();
       },
-      buildApprovalContext: (input) => adapter.buildApprovalContext(input),
+      buildApprovalContext: (input) => adapter.buildApprovalContext(run, input),
       isApprovalCapable: (input) =>
         adapter.resolveInteractionPolicy(input).mode !== "auto-approve",
-      buildThreadOptions: (input) => adapter.buildThreadOptions(input),
+      buildThreadOptions: (input) =>
+        adapter.buildThreadOptions(input, run.config),
     };
   }
 
-  /** Build the per-call context handed to the approval helpers. */
-  private buildApprovalContext(input: AgentInput): CodexApprovalContext {
+  /** Build the run-scoped context handed to the approval helpers. */
+  private buildApprovalContext(
+    run: CodexRunContext,
+    input: AgentInput,
+  ): CodexApprovalContext {
     return {
       providerId: this.providerId,
       policy: this.resolveInteractionPolicy(input),
-      resolver: this.getOrCreateResolver(input),
-      buildThreadOptions: (i) => this.buildThreadOptions(i),
+      resolver: this.getOrCreateResolver(run, input),
+      buildThreadOptions: (i) => this.buildThreadOptions(i, run.config),
     };
   }
 }

@@ -70,6 +70,7 @@ export function buildChatInput(prompt: string, options: ChatOptions | undefined)
     workingDirectory: options?.workingDirectory,
     systemPrompt: options?.systemPrompt,
     maxTurns: options?.maxTurns,
+    ...(options?.signal !== undefined && { signal: options.signal }),
     ...(Object.keys(adapterOptions).length > 0 && { options: adapterOptions }),
   }
 }
