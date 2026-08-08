@@ -919,12 +919,17 @@ export type {
 export {
   PROVIDER_CATALOG,
   HTTP_ROUTABLE_PROVIDER_IDS,
+  assertProviderCatalogEntry,
   getDefaultMonitorStatus,
   getMonitorableProviders,
   getProductProviders,
   getProviderCapabilities,
 } from "./provider-catalog.js";
-export type { ProviderCapabilities, MonitorTier } from "./provider-catalog.js";
+export type {
+  ProviderCapabilities,
+  ProviderCatalogEntry,
+  MonitorTier,
+} from "./provider-catalog.js";
 
 // --- Unified Event Normalization ---
 export { normalizeEvent } from "./normalize.js";
