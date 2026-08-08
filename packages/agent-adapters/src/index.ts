@@ -521,6 +521,19 @@ export type {
   InspectorContext,
 } from "./introspection/adapter-installation-inspector.js";
 export { ClaudeInstallationInspector } from "./introspection/claude-inspector.js";
+export {
+  buildCapabilityManifest,
+  computeManifestHash,
+  detectCapabilityDrift,
+  effectiveCapability,
+  reprobeTriggers,
+} from "./introspection/capability-manifest-builder.js";
+export type {
+  BuildManifestInput,
+  CapabilityDriftFinding,
+  DriftedCapability,
+  ReprobeTrigger,
+} from "./introspection/capability-manifest-builder.js";
 export { CodexInstallationInspector } from "./introspection/codex-inspector.js";
 export {
   DEFAULT_PROBE_TIMEOUT_MS,
