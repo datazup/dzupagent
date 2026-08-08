@@ -333,7 +333,11 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
         browser_use_external: false,
         browser_use_full_cdp_access: false,
         code_mode: false,
-        code_mode_host: false,
+        // Keep the local Code Mode transport available even when the optional
+        // Code Mode feature itself is disabled. Current Codex CLI builds use
+        // this bundled host to execute their built-in tool surface and fail
+        // closed at startup when the adapter explicitly disables it.
+        code_mode_host: true,
         code_mode_only: false,
         computer_use: false,
         enable_mcp_apps: false,

@@ -735,7 +735,7 @@ describe("CodexAdapter", () => {
       );
     });
 
-    it("isolates strict turns from configured MCP and app transports", async () => {
+    it("isolates strict turns from external transports while preserving the local Code Mode host", async () => {
       const thread = createMockThread([
         threadStartedEvent(),
         turnCompletedEvent(),
@@ -772,7 +772,7 @@ describe("CodexAdapter", () => {
               apps: false,
               browser_use: false,
               code_mode: false,
-              code_mode_host: false,
+              code_mode_host: true,
               image_generation: false,
               multi_agent: false,
               plugin_sharing: false,
