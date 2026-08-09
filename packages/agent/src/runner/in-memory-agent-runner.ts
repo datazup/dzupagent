@@ -17,9 +17,8 @@ import {
   type AgentUsageRecord,
 } from '@dzupagent/agent-types/run'
 
-import { assertDurableJson } from './durable-json.js'
+import { assertDurableJson, digestRunnerJson } from './runner-values.js'
 import {
-  digestRunnerJson,
   InMemoryAgentRunnerPersistence,
   isToolCall,
   replaceInvocation,
@@ -41,11 +40,7 @@ import {
   validateDecisionBinding,
 } from './runner-lifecycle.js'
 import { RunControl } from './run-control.js'
-import {
-  AgentRunnerSessionError,
-  AgentRunnerTransitionCommitter,
-  startAgentRun,
-} from './runner-transition-committer.js'
+import { AgentRunnerSessionError, AgentRunnerTransitionCommitter, startAgentRun } from './runner-transition-committer.js'
 
 export type AgentRunnerIdentityKind =
   | 'event'
@@ -113,7 +108,7 @@ export class InMemoryAgentRunner {
       this.#tools.size !== (config.tools ?? []).length ||
       [...this.#tools.values()].some((tool) => tool.effectClass !== 'read')
     ) {
-      throw new TypeError('AgentRunner R4 tools must be unique read-only tools')
+      throw new TypeError('AgentRunner tools must be unique read-only tools')
     }
   }
 
@@ -165,13 +160,12 @@ export class InMemoryAgentRunner {
     if (state.agent.behaviorDigest !== input.behaviorDigest) {
       throw new AgentRunnerResumeError('behavior-mismatch')
     }
-    await this.#transitions.assertResumableSession(state)
-
     const priorDecision = state.interactionDecisions.find(
       (decision) =>
         decision.interactionId === input.decision.interactionId &&
         decision.generation === input.decision.generation,
     )
+    await this.#transitions.assertResumableSession(state, priorDecision?.decision === 'rejected')
     let approvedInvocationId: string
     if (priorDecision !== undefined) {
       if (!decisionsMatch(priorDecision, input.decision)) {

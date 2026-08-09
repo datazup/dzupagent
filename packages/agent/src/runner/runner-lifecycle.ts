@@ -16,8 +16,8 @@ import type {
 } from './runner-ports.js'
 import type { AgentRunnerTransitionCommitter } from './runner-transition-committer.js'
 import { AgentRunnerResumeError } from './runner-transition-committer.js'
-import { assertDurableJson } from './durable-json.js'
-import { digestRunnerJson, replaceInvocation } from './in-memory-persistence.js'
+import { replaceInvocation } from './in-memory-persistence.js'
+import { assertDurableJson, digestRunnerJson } from './runner-values.js'
 
 /** @internal */
 export interface AgentRunnerCheckpointResult {

@@ -15,7 +15,7 @@ import {
   type AgentRunStateV2,
 } from '@dzupagent/agent-types/run'
 
-import { assertDurableJson } from './durable-json.js'
+import { assertDurableJson } from './runner-values.js'
 import {
   assertValidSessionSnapshot,
   createInitialAgentRunState,
@@ -243,7 +243,7 @@ export class AgentRunnerTransitionCommitter {
     this.#now = options.now
   }
 
-  async assertResumableSession(state: AgentRunStateV2): Promise<void> {
+  async assertResumableSession(state: AgentRunStateV2, allowAborted = false): Promise<void> {
     const binding = state.sessionBinding
     if (binding === undefined) return
     if (binding.transactionId === undefined) throw new AgentRunnerSessionError('invalid-session')
@@ -255,7 +255,7 @@ export class AgentRunnerTransitionCommitter {
       throw new AgentRunnerSessionError('invalid-session')
     }
     if (
-      transaction.status !== 'open' ||
+      (transaction.status !== 'open' && !(allowAborted && transaction.status === 'aborted')) ||
       transaction.sessionId !== binding.sessionId ||
       transaction.baseRevision !== binding.baseRevision
     ) {

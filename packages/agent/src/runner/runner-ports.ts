@@ -279,7 +279,6 @@ export type AgentRunnerReadOnlyToolResult =
       readonly retryable: boolean
     }
 
-/** Bounded read-only tool port. */
 export interface AgentRunnerReadOnlyToolPort {
   readonly toolId: string
   readonly toolRevision: string

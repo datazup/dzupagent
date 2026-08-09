@@ -60,7 +60,7 @@ const reviewTool = agent.asTool({ description: 'Run code review' })
 
 ### Experimental cohesive runner
 
-`@dzupagent/agent/runner` exposes the provider-free R4 runner slice:
+`@dzupagent/agent/runner` exposes the provider-free R5A runner slice:
 `InMemoryAgentRunner`, `RunControl`, and `InMemoryAgentRunnerPersistence`. It
 accepts only the bounded runner model port and read-only tool port exported from
 the same subpath. One scheduler drives new and resumed `run()`/`stream()`
@@ -74,9 +74,18 @@ a digest-, revision-, generation-, policy-, and actor-bound decision. The legacy
 experimental primitives; the exact-resume runner does not compose them
 sequentially.
 
+An optional `sessionId` binds a run to an in-memory revisioned conversation
+transaction. Existing history and new input are composed deterministically;
+successful completion commits new input and canonical run items once, approval
+suspension retains the transaction for resume, and rejected, failed, or
+cancelled runs abort staged history. Simultaneous runs from one base revision
+surface a conflict instead of silently interleaving history. This all-or-nothing
+policy is experimental and is not a universal product retention policy.
+
 This subpath remains experimental and memory-only. It does not qualify a durable
-adapter, mutation-capable tool, live provider, or production host, and it does
-not replace or control legacy `DzupAgent.generate()`, `stream()`, or `launch()`.
+adapter, final `AgentSession` port ownership, mutation-capable tool, host
+execution adapter, live provider, or production host, and it does not replace or
+control legacy `DzupAgent.generate()`, `stream()`, or `launch()`.
 
 ### Agent
 

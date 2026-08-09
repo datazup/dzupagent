@@ -260,9 +260,9 @@ export interface AgentSandboxSessionReference {
 }
 
 /**
- * Draft v2 state contract. The experimental in-memory runner proves exact
- * resume for approval-gated read tools only; durable adapters and effectful
- * tools require their own conformance before adopting this shape.
+ * Draft v2 state contract. The experimental in-memory runner proves exact read
+ * approval resume and transactional session binding; durable adapters and
+ * effectful tools require separate conformance.
  */
 export interface AgentRunStateV2<TContext extends AgentRunJsonValue = AgentRunJsonValue> {
   readonly schema: typeof AGENT_RUN_STATE_SCHEMA

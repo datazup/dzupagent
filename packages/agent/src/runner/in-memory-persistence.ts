@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto'
-
 import type {
   AgentEventJournal,
   AgentEventJournalAppendResult,
@@ -21,7 +19,6 @@ import {
   AGENT_RUN_STATE_SCHEMA,
   AGENT_SESSION_SCHEMA,
   type AgentRunEventEnvelope,
-  type AgentRunJsonValue,
   type AgentRunStateV2,
   type AgentSessionBinding,
   type AgentSessionSnapshot,
@@ -29,7 +26,7 @@ import {
   type AgentToolInvocationState,
 } from '@dzupagent/agent-types/run'
 
-import { assertDurableJson, cloneDurableJson } from './durable-json.js'
+import { assertDurableJson, cloneDurableJson, digestRunnerJson } from './runner-values.js'
 
 export class InMemoryAgentRunStore implements AgentRunStore {
   readonly #states = new Map<string, AgentRunStateV2>()
@@ -135,10 +132,7 @@ export interface InMemoryAgentRunnerPersistenceOptions {
   readonly failCommit?: (
     transition: AgentRunnerPersistenceTransition,
   ) => 'state' | 'journal' | undefined
-  readonly failSession?: (
-    operation: 'begin' | 'commit' | 'abort',
-    transactionId: string,
-  ) => boolean
+  readonly failSession?: (operation: 'begin' | 'commit' | 'abort', transactionId: string) => boolean
 }
 
 export class InMemoryAgentRunnerPersistence {
@@ -399,9 +393,7 @@ export class InMemoryAgentRunnerPersistence {
 }
 
 /** @internal */
-export function assertValidSessionSnapshot(
-  value: unknown,
-): asserts value is AgentSessionSnapshot {
+export function assertValidSessionSnapshot(value: unknown): asserts value is AgentSessionSnapshot {
   assertDurableJson(value)
   const snapshot = value as Partial<AgentSessionSnapshot>
   const revision = Number(snapshot.revision)
@@ -423,24 +415,6 @@ function nextSessionRevision(revision: string): string {
   const next = Number(revision) + 1
   if (!Number.isSafeInteger(next)) throw new RangeError('AgentSession revision exhausted')
   return String(next)
-}
-
-function stableJson(value: AgentRunJsonValue): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value)
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`
-  const record = value as Readonly<Record<string, AgentRunJsonValue>>
-  return `{${Object.keys(record)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableJson(record[key] ?? null)}`)
-    .join(',')}}`
-}
-
-/** @internal */
-export function digestRunnerJson(value: unknown): string {
-  assertDurableJson(value)
-  return `sha256:${createHash('sha256')
-    .update(stableJson(value as AgentRunJsonValue))
-    .digest('hex')}`
 }
 
 /** @internal */
