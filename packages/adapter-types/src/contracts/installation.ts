@@ -50,16 +50,55 @@ export interface AdapterInstallationRef {
  */
 export type Certainty = 'official' | 'observed' | 'inferred' | 'unspecified'
 
-/** A single fact plus its provenance. */
-export interface SourcedValue<T> {
-  /** `null` when the probe could not evidence the fact — never guessed. */
-  value: T | null
-  certainty: Certainty
-  /** Doc URL, probe id, or event id backing the value. */
-  source?: string
-  /** ISO-8601 timestamp of observation. */
-  observedAt?: string
+/** A fact declared by an authoritative vendor or machine-readable source. */
+export interface OfficialSourcedValue<T> {
+  value: NonNullable<T>
+  certainty: 'official'
+  /** Doc URL or manifest id backing the declaration. */
+  source: string
+  observedAt?: never
 }
+
+/** A fact directly evidenced by a probe or run event. */
+export interface ObservedSourcedValue<T> {
+  value: NonNullable<T>
+  certainty: 'observed'
+  /** Probe id or event id backing the value. */
+  source: string
+  /** ISO-8601 timestamp at which the fact was observed. */
+  observedAt: string
+}
+
+/** A fact derived from adjacent, identified evidence. */
+export interface InferredSourcedValue<T> {
+  value: NonNullable<T>
+  certainty: 'inferred'
+  /** Evidence id from which the value was inferred. */
+  source: string
+  /** ISO-8601 timestamp at which the inference was made. */
+  observedAt: string
+}
+
+/** An unevidenced fact: it has no value and may carry no provenance. */
+export interface UnspecifiedSourcedValue {
+  value: null
+  certainty: 'unspecified'
+  source?: never
+  observedAt?: never
+}
+
+/**
+ * A single fact plus structurally valid provenance.
+ *
+ * The discriminated union makes the null-not-guessed rule compile-time
+ * enforceable: known values require evidence, observations require a
+ * timestamp, and an unspecified value cannot carry a guessed value or source.
+ */
+export type SourcedValue<T> =
+  | OfficialSourcedValue<T>
+  | ObservedSourcedValue<T>
+  | InferredSourcedValue<T>
+  | UnspecifiedSourcedValue
 
 /** How a binary arrived on the host; drives lifecycle recipe selection. */
 export type BinaryOwnership =
@@ -217,6 +256,20 @@ export interface InstallationCapabilityDocument {
 
   telemetry: TelemetryPosture
 
+  /**
+   * Capability facts evidenced for this concrete installation.
+   *
+   * Older probe documents may omit this block. An omitted fact is unknown and
+   * therefore leaves the catalog value in force; it must never be interpreted
+   * as `false`.
+   */
+  capabilities?: {
+    supportsStreaming?: SourcedValue<boolean>
+    supportsCostUsage?: SourcedValue<boolean>
+    supportsResume?: SourcedValue<boolean>
+    executesToolLoop?: SourcedValue<boolean>
+  }
+
   /** Raw help capture is stored out-of-band; the document carries only its hash. */
   rawProbes: { helpSha256: string; capturePath: string }
 }
@@ -259,12 +312,29 @@ export interface CatalogEntry {
 export interface ObservedCapabilities {
   ref: AdapterInstallationRef
   window: { from: string; to: string }
+  /** Complete only when every included run has a start and terminal event. */
+  completeness: 'complete' | 'partial'
   streamingSeen: boolean | null
   usageReported: boolean | null
   resumeSucceeded: boolean | null
   toolLoopExecuted: boolean | null
   interactionPromptsSeen: boolean | null
   lastSuccessfulRunAt: string | null
+  /** Stable event/run identifiers backing each derived fact. */
+  evidence: {
+    streamingSeen: ObservedCapabilityEvidence | null
+    usageReported: ObservedCapabilityEvidence | null
+    resumeSucceeded: ObservedCapabilityEvidence | null
+    toolLoopExecuted: ObservedCapabilityEvidence | null
+    interactionPromptsSeen: ObservedCapabilityEvidence | null
+    lastSuccessfulRunAt: ObservedCapabilityEvidence | null
+  }
+}
+
+/** Provenance retained from normalized run events without retaining payloads. */
+export interface ObservedCapabilityEvidence {
+  eventIds: string[]
+  runIds: string[]
 }
 
 /**

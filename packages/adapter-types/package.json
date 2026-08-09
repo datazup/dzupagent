@@ -9,6 +9,26 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./monitoring/installation": {
+      "import": "./dist/monitoring/installation.js",
+      "types": "./dist/monitoring/installation.d.ts"
+    },
+    "./monitoring/health": {
+      "import": "./dist/monitoring/health.js",
+      "types": "./dist/monitoring/health.d.ts"
+    },
+    "./monitoring/lifecycle": {
+      "import": "./dist/monitoring/lifecycle.js",
+      "types": "./dist/monitoring/lifecycle.d.ts"
+    },
+    "./monitoring/posture": {
+      "import": "./dist/monitoring/posture.js",
+      "types": "./dist/monitoring/posture.d.ts"
+    },
+    "./monitoring/dashboard": {
+      "import": "./dist/monitoring/dashboard.js",
+      "types": "./dist/monitoring/dashboard.d.ts"
     }
   },
   "files": [

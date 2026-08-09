@@ -14,7 +14,21 @@ Part of the [DzupAgent](../../README.md) framework.
 
 ```ts
 import type { ProviderExecutionPort, TaskRoutingStrategy } from '@dzupagent/adapter-types'
+
+import type {
+  AdapterInstallationRef,
+  CapabilityManifest,
+} from '@dzupagent/adapter-types/monitoring/installation'
 ```
+
+The package root remains available for compatibility. New monitoring consumers
+should use the plane-scoped entrypoints:
+
+- `@dzupagent/adapter-types/monitoring/installation`
+- `@dzupagent/adapter-types/monitoring/health`
+- `@dzupagent/adapter-types/monitoring/lifecycle`
+- `@dzupagent/adapter-types/monitoring/posture`
+- `@dzupagent/adapter-types/monitoring/dashboard`
 
 ## License
 

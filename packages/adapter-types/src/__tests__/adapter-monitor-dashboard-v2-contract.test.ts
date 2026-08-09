@@ -2,11 +2,11 @@ import { describe, expect, expectTypeOf, it } from 'vitest'
 import {
   matchesAdapterMonitorDashboardV1Projection,
   projectAdapterMonitorDashboardV1,
-} from '../index.js'
+} from '../monitoring/dashboard.js'
 import type {
   AdapterMonitorDashboardContract,
   AdapterMonitorDashboardContractV2,
-} from '../index.js'
+} from '../monitoring/dashboard.js'
 
 const v1: AdapterMonitorDashboardContract = {
   providerId: 'claude',

@@ -99,6 +99,80 @@ describe('installation contracts (doc 05)', () => {
     void invalid
   })
 
+  it('requires valid provenance for every sourced-value state', () => {
+    const official: SourcedValue<string> = {
+      value: 'documented',
+      certainty: 'official',
+      source: 'docs://provider/capabilities',
+    }
+    const observed: SourcedValue<string> = {
+      value: '2.1.0',
+      certainty: 'observed',
+      source: 'probe:version',
+      observedAt: '2026-08-08T10:00:00.000Z',
+    }
+    const inferred: SourcedValue<boolean> = {
+      value: true,
+      certainty: 'inferred',
+      source: 'evidence:command-tree/mcp',
+      observedAt: '2026-08-08T10:00:00.000Z',
+    }
+    const unspecified: SourcedValue<string> = {
+      value: null,
+      certainty: 'unspecified',
+    }
+
+    expect(official.certainty).toBe('official')
+    expect(observed.observedAt).toBe('2026-08-08T10:00:00.000Z')
+    expect(inferred.source).toBe('evidence:command-tree/mcp')
+    expect(unspecified.value).toBeNull()
+  })
+
+  it('rejects impossible sourced-value combinations at compile time', () => {
+    // @ts-expect-error official declarations require an evidence source
+    const officialWithoutSource: SourcedValue<string> = {
+      value: 'documented',
+      certainty: 'official',
+    }
+    // @ts-expect-error observed facts require an observation timestamp
+    const observationWithoutTimestamp: SourcedValue<string> = {
+      value: '2.1.0',
+      certainty: 'observed',
+      source: 'probe:version',
+    }
+    // @ts-expect-error inferred facts require identified evidence
+    const inferenceWithoutSource: SourcedValue<boolean> = {
+      value: true,
+      certainty: 'inferred',
+      observedAt: '2026-08-08T10:00:00.000Z',
+    }
+    // @ts-expect-error unspecified facts cannot carry a guessed value
+    const guessedUnknown: SourcedValue<string> = {
+      value: 'probably-present',
+      certainty: 'unspecified',
+    }
+    // @ts-expect-error unspecified facts cannot carry provenance
+    const sourcedUnknown: SourcedValue<string> = {
+      value: null,
+      certainty: 'unspecified',
+      source: 'probe:missing',
+    }
+    // @ts-expect-error known facts cannot use null as their value
+    const nullObservation: SourcedValue<string | null> = {
+      value: null,
+      certainty: 'observed',
+      source: 'probe:version',
+      observedAt: '2026-08-08T10:00:00.000Z',
+    }
+
+    void officialWithoutSource
+    void observationWithoutTimestamp
+    void inferenceWithoutSource
+    void guessedUnknown
+    void sourcedUnknown
+    void nullObservation
+  })
+
   it('pins the capability document to schema version 1.0', () => {
     expectTypeOf<
       InstallationCapabilityDocument['schemaVersion']
@@ -117,12 +191,21 @@ describe('CapabilityManifest (doc 05 §6)', () => {
       from: '2026-08-01T00:00:00.000Z',
       to: '2026-08-08T00:00:00.000Z',
     },
+    completeness: 'complete',
     streamingSeen: true,
     usageReported: null,
     resumeSucceeded: null,
     toolLoopExecuted: true,
     interactionPromptsSeen: null,
     lastSuccessfulRunAt: '2026-08-07T22:15:00.000Z',
+    evidence: {
+      streamingSeen: { eventIds: ['event-stream-1'], runIds: ['run-1'] },
+      usageReported: null,
+      resumeSucceeded: null,
+      toolLoopExecuted: { eventIds: ['event-tool-1'], runIds: ['run-1'] },
+      interactionPromptsSeen: null,
+      lastSuccessfulRunAt: { eventIds: ['event-complete-1'], runIds: ['run-1'] },
+    },
   }
 
   it('represents a never-probed installation as null rather than an empty document', () => {

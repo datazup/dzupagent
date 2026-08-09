@@ -13,7 +13,6 @@ export * from "./contracts/events.js";
 export * from "./contracts/routing.js";
 export * from "./contracts/capabilities.js";
 export * from "./contracts/adapter-monitor-dashboard.js";
-export * from "./contracts/adapter-monitor-dashboard-v2.js";
 export * from "./contracts/dzupagent.js";
 export * from "./contracts/run-store.js";
 export * from "./contracts/provider-origin.js";
