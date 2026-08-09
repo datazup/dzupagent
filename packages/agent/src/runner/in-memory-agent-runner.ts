@@ -37,12 +37,15 @@ import {
   continueApprovedAgentRun,
   executeAgentRunnerTool,
   failRun,
-  startAgentRun,
   suspendAgentRunForApproval,
   validateDecisionBinding,
 } from './runner-lifecycle.js'
 import { RunControl } from './run-control.js'
-import { AgentRunnerTransitionCommitter } from './runner-transition-committer.js'
+import {
+  AgentRunnerSessionError,
+  AgentRunnerTransitionCommitter,
+  startAgentRun,
+} from './runner-transition-committer.js'
 
 export type AgentRunnerIdentityKind =
   | 'event'
@@ -162,6 +165,7 @@ export class InMemoryAgentRunner {
     if (state.agent.behaviorDigest !== input.behaviorDigest) {
       throw new AgentRunnerResumeError('behavior-mismatch')
     }
+    await this.#transitions.assertResumableSession(state)
 
     const priorDecision = state.interactionDecisions.find(
       (decision) =>
@@ -413,12 +417,20 @@ export class InMemoryAgentRunner {
         state = afterModel.state
         if (afterModel.cancelled) return { state, events }
 
-        committed = await this.#transitions.commit(
-          state,
-          'run.completed',
-          { status: 'completed', finalItemId: modelResult.item.itemId },
-          (current) => ({ ...current, status: 'completed' }),
-        )
+        try {
+          committed = await this.#transitions.complete(state, modelResult.item.itemId)
+        } catch (error) {
+          if (error instanceof AgentRunnerSessionError) {
+            return yield* failRun(
+              state,
+              control,
+              events,
+              `session-${error.code}`,
+              this.#transitions,
+            )
+          }
+          throw error
+        }
         state = committed.state
         events.push(committed.event)
         yield committed.event

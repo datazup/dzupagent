@@ -352,3 +352,60 @@ export class AgentRunnerTransitionCommitter {
     throw new AgentRunnerPersistenceError('state-write-conflict')
   }
 }
+
+/** @internal */
+export async function* startAgentRun<TResult>(options: {
+  readonly input: AgentRunnerInput
+  readonly persistence: AgentRunnerPersistence
+  readonly transitions: AgentRunnerTransitionCommitter
+  readonly runId: string
+  readonly now: string
+  readonly continueRun: (
+    state: AgentRunStateV2,
+    events: AgentRunEventEnvelope[],
+  ) => AsyncGenerator<AgentRunEventEnvelope, TResult>
+}): AsyncGenerator<AgentRunEventEnvelope, TResult> {
+  const events: AgentRunEventEnvelope[] = []
+  let input = options.input
+  let sessionBinding: AgentRunStateV2['sessionBinding']
+  if (input.sessionId !== undefined) {
+    if (input.sessionId.length === 0) throw new AgentRunnerSessionError('invalid-session')
+    const opened = await options.persistence.beginSessionTransaction({
+      sessionId: input.sessionId,
+      transactionId: `${options.runId}:session`,
+      stagedInput: input.items,
+    })
+    if (opened.status === 'rejected') throw new AgentRunnerSessionError(opened.code)
+    try {
+      assertValidSessionSnapshot(opened.snapshot)
+    } catch {
+      throw new AgentRunnerSessionError('invalid-session')
+    }
+    sessionBinding = {
+      sessionId: opened.transaction.sessionId,
+      baseRevision: opened.transaction.baseRevision,
+      transactionId: opened.transaction.transactionId,
+    }
+    input = { ...input, items: [...opened.snapshot.items, ...input.items] }
+  }
+
+  let state = createInitialAgentRunState(input, options.runId, options.now, sessionBinding)
+  let started: AgentRunnerCommitResult
+  try {
+    const created = await options.persistence.createRun(state)
+    if (created.status !== 'created') throw new AgentRunnerPersistenceError('run-create-conflict')
+    state = created.state
+    started = await options.transitions.commit(
+      state,
+      'run.started',
+      { status: 'running' },
+      (current) => ({ ...current, status: 'running' }),
+    )
+  } catch (error) {
+    await options.transitions.abortSession(state)
+    throw error
+  }
+  events.push(started.event)
+  yield started.event
+  return yield* options.continueRun(started.state, events)
+}
