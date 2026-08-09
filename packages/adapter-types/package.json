@@ -10,6 +10,10 @@
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
+    "./provider-session": {
+      "import": "./dist/provider-session.js",
+      "types": "./dist/provider-session.d.ts"
+    },
     "./monitoring/installation": {
       "import": "./dist/monitoring/installation.js",
       "types": "./dist/monitoring/installation.d.ts"
