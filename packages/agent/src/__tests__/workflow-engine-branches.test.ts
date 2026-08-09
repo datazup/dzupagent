@@ -131,26 +131,37 @@ describe("parallel branch execution", () => {
     expect(received.every((v) => v === 42)).toBe(true);
   });
 
-  it("parallel branches can execute truly concurrently (timing check)", async () => {
-    const startTimes: number[] = [];
+  it("parallel branches overlap before either branch completes", async () => {
+    let inFlight = 0;
+    let maximumInFlight = 0;
+    let started = 0;
+    let releaseBarrier: () => void = () => undefined;
+    const bothStarted = new Promise<void>((resolve) => {
+      releaseBarrier = resolve;
+    });
+    const enterBranch = async (): Promise<void> => {
+      inFlight += 1;
+      maximumInFlight = Math.max(maximumInFlight, inFlight);
+      started += 1;
+      if (started === 2) releaseBarrier();
+      await bothStarted;
+      inFlight -= 1;
+    };
     const wf = createWorkflow({ id: "par-timing" })
       .parallel([
         step("s1", async () => {
-          startTimes.push(Date.now());
-          await delay(10);
+          await enterBranch();
           return { s1: true };
         }),
         step("s2", async () => {
-          startTimes.push(Date.now());
-          await delay(10);
+          await enterBranch();
           return { s2: true };
         }),
       ])
       .build();
 
     await wf.run({});
-    // Both should have started within a small window (< 20 ms apart)
-    expect(Math.abs(startTimes[0]! - startTimes[1]!)).toBeLessThan(20);
+    expect(maximumInFlight).toBe(2);
   });
 
   it("state from initial input is visible inside each parallel branch", async () => {

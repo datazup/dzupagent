@@ -99,6 +99,9 @@ describe("fetchWithEmbeddingTimeout", () => {
   it("re-throws a caller's own cancellation as a cancellation", async () => {
     const baseUrl = await startBlackHole();
     const caller = new AbortController();
+    // This integration test intentionally races a real socket; fake timers do
+    // not advance Node's HTTP lifecycle and would stop testing cancellation.
+    // eslint-disable-next-line no-restricted-syntax
     setTimeout(() => caller.abort(), 50);
 
     // Not a ForgeError: the caller asked for this, so it must not be reported
