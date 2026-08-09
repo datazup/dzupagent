@@ -4,6 +4,7 @@ import {
   PROVIDER_CATALOG,
   assertProviderCatalogEntry,
   getProviderCapabilities,
+  type ProviderCatalogEntry,
 } from '../provider-catalog.js'
 
 const EXPECTED_PROVIDERS = [
@@ -54,13 +55,13 @@ describe('monitoring provider catalog contract (WP-M1.2)', () => {
   })
 
   it('rejects key/coordinate drift and monitor-tier alias drift', () => {
-    const wrongProvider = structuredClone(PROVIDER_CATALOG.claude)
+    const wrongProvider = structuredClone(PROVIDER_CATALOG.claude) as ProviderCatalogEntry
     wrongProvider.coordinates.providerId = 'codex'
     expect(() => assertProviderCatalogEntry(wrongProvider, 'claude')).toThrow(
       /disagrees with coordinates\.providerId/,
     )
 
-    const wrongTier = structuredClone(PROVIDER_CATALOG.claude)
+    const wrongTier = structuredClone(PROVIDER_CATALOG.claude) as ProviderCatalogEntry
     wrongTier.monitorIntrospection = 'none'
     expect(() => assertProviderCatalogEntry(wrongTier, 'claude')).toThrow(
       /monitorIntrospection alias disagrees/,

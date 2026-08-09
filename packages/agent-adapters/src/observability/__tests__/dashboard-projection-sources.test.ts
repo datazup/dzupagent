@@ -155,6 +155,13 @@ describe('framework-owned dashboard sources', () => {
         return { healthy: true, providerId, sdkInstalled: true, cliAvailable: true }
       },
       configure() {},
+      getCapabilities: () => ({
+        supportsResume: false,
+        supportsFork: false,
+        supportsToolCalls: true,
+        supportsStreaming: true,
+        supportsCostUsage: false,
+      }),
     })
     const fixed: TaskRoutingStrategy = {
       name: 'dashboard-real-router',
@@ -162,6 +169,7 @@ describe('framework-owned dashboard sources', () => {
         provider: available[0]!,
         fallbackProviders: available.slice(1),
         reason: 'test fallback path',
+        confidence: 1,
       }),
     }
     const registry = new ProviderAdapterRegistry()

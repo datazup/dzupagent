@@ -10,7 +10,7 @@ import {
   type ResolvedProbeExecutable,
 } from "../node-probe-runner.js";
 import { walkHelpTree } from "../help-walker.js";
-import type { ProbeCommand, ProbeCommandRunner, ProbeResult } from "../probe-runner.js";
+import type { ProbeCommand, ProbeCommandRunner } from "../probe-runner.js";
 import { ClaudeInstallationInspector } from "../claude-inspector.js";
 import { CodexInstallationInspector } from "../codex-inspector.js";
 import { GeminiInstallationInspector } from "../gemini-inspector.js";
@@ -26,11 +26,9 @@ beforeAll(async () => {
   nodeIdentity = { name: "fixture-node", path: process.execPath, realPath: await realpath(process.execPath) };
 });
 
-function nodeRunner(overrides: Parameters<typeof createNodeProbeRunnerForTesting>[0] = {
-  executables: [],
-  managedHome: MANAGED_HOME,
-  cwd: process.cwd(),
-}) {
+function nodeRunner(
+  overrides: Partial<Parameters<typeof createNodeProbeRunnerForTesting>[0]> = {},
+) {
   return createNodeProbeRunnerForTesting({
     executables: [nodeIdentity],
     managedHome: MANAGED_HOME,
@@ -48,8 +46,8 @@ describe("framework-owned Node probe runner", () => {
   it("rejects arbitrary callbacks at the public inspector boundary", () => {
     const bypass: ProbeCommandRunner = async () => ok("attacker-controlled");
 
-    // @ts-expect-error An unbranded callback cannot satisfy normal public construction.
     const rejectedContext: InspectorContext = {
+      // @ts-expect-error An unbranded callback cannot satisfy normal public construction.
       runProbe: bypass,
       managedHome: MANAGED_HOME,
       now: () => "2026-08-09T00:00:00.000Z",
@@ -168,7 +166,7 @@ describe("framework-owned Node probe runner", () => {
       managedHome: MANAGED_HOME,
       cwd: process.cwd(),
       limits: { maxOutputBytes: 256 },
-      ports: { capture: (capture) => captures.push(capture) },
+      ports: { capture: (capture) => { captures.push(capture); } },
     });
     const secret = "sk-ThisMustNeverEscape12345";
 

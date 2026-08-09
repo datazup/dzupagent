@@ -17,7 +17,6 @@ import { ClaudeInstallationInspector } from '../claude-inspector.js'
 import {
   CLAUDE_HELP_FIXTURE,
   CLAUDE_VERSION_FIXTURE,
-  fixedClock,
   ok,
   recordingRunner,
 } from './fixtures/probe-fixtures.js'

@@ -340,7 +340,7 @@ describe("DashboardProjectionSubscriber", () => {
         type: "agent:failed",
         agentId: "claude",
         runId: "run-3",
-        errorCode: "AGENT_EXECUTION_FAILED",
+        errorCode: "ADAPTER_EXECUTION_FAILED",
         message: "boom",
       });
 
@@ -357,7 +357,7 @@ describe("DashboardProjectionSubscriber", () => {
         type: "agent:failed",
         agentId: "claude",
         runId: "run-1",
-        errorCode: "AGENT_EXECUTION_FAILED",
+        errorCode: "ADAPTER_EXECUTION_FAILED",
         message: "boom",
       });
 
@@ -501,7 +501,7 @@ describe("DashboardProjectionSubscriber", () => {
         type: "agent:failed",
         agentId: "claude",
         runId: "run-1",
-        errorCode: "AGENT_EXECUTION_FAILED",
+        errorCode: "ADAPTER_EXECUTION_FAILED",
         message: "process exited",
       });
 
@@ -734,7 +734,7 @@ describe("DashboardProjectionSubscriber", () => {
 function captureBusTraffic(attachProducer: boolean): DzupEvent[] {
   const localBus = createEventBus();
   const observed: DzupEvent[] = [];
-  localBus.onAny((event) => observed.push(event));
+  localBus.onAny((event) => { observed.push(event); });
 
   const producer = attachProducer
     ? createDashboardProjectionSubscriber(localBus)
