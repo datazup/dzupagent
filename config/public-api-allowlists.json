@@ -229,9 +229,10 @@
         "./cluster": "agent cluster roles and in-memory coordination",
         "./reflection": "post-run reflection analysis and pattern storage",
         "./presets": "agent preset registry and built-in presets",
-        "./streaming": "streaming run handles and stream event types"
+        "./streaming": "streaming run handles and stream event types",
+        "./runner": "experimental cohesive in-process AgentRunner, RunControl, and in-memory persistence"
       },
-      "migrationWindow": "Root transitional exports remain available through 0.x with migration to runtime/workflow/tools/compat before a future 1.0 root contraction."
+      "migrationWindow": "Root transitional exports remain available through 0.x with migration to runtime/workflow/tools/compat before a future 1.0 root contraction. The experimental ./runner subpath is provider-free and does not replace legacy execution paths until exact-resume and compatibility conformance are complete."
     },
     {
       "packageName": "@dzupagent/codegen",
@@ -618,9 +619,10 @@
       ],
       "transitionalRoot": [],
       "subpaths": {
-        "./implementation": "implementation orchestration plan contracts and pure helpers"
+        "./implementation": "implementation orchestration plan contracts and pure helpers",
+        "./run": "draft JSON-safe AgentRunner item, invocation, interaction, event, and state contracts"
       },
-      "migrationWindow": "Agent type root exports are stable Layer 0 contracts; add allowlist rules before exposing new type modules."
+      "migrationWindow": "Agent type root exports are stable Layer 0 contracts. The draft ./run subpath remains experimental until the AgentRunner, compare-and-swap store, and exact-resume conformance suite adopt it. Add allowlist rules before exposing new type modules."
     },
     {
       "packageName": "@dzupagent/eval-contracts",
