@@ -168,61 +168,90 @@ function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boo
   return Object.keys(value).sort().join('|') === [...keys].sort().join('|')
 }
 
+function inlineToolGrantIds(value: unknown): readonly string[] | undefined {
+  if (!object(value) || !Array.isArray(value.grants)) return undefined
+  if (value.mode === 'none') return value.grants.length === 0 ? [] : undefined
+  if (value.mode !== 'explicit') return undefined
+  const toolIds: string[] = []
+  for (const grant of value.grants) {
+    if (!object(grant) || !exactKeys(grant, ['toolRef']) ||
+        typeof grant.toolRef !== 'string' || grant.toolRef.length === 0) return undefined
+    toolIds.push(grant.toolRef)
+  }
+  return toolIds
+}
+
 /** @internal */
 export function validateAgentRunnerInlineProjection(
   request: AiExecutionRequest,
-  projection: AgentRunnerInlineProjection,
+  runnerToolIds: readonly string[],
+  project: () => AgentRunnerInlineProjection,
 ): AgentRunnerInlineProjection {
   const diagnostics = [...validateAiExecutionRequest(request).diagnostics]
+  if (diagnostics.length > 0) throw new AgentRunnerInlineError('invalid-request', diagnostics)
   const execution = request.execution
   const operation = request.operation
   if (operation.kind !== 'agent.run' || execution.kind !== 'agent') {
     diagnostics.push(diagnostic('AI_EXECUTION_KIND_INCOMPATIBLE', 'execution.kind',
       'Inline AgentRunner accepts only an agent.run operation on an agent execution.'))
-  } else if (operation.input.agentRef !== execution.identity.agentId) {
+  } else if (operation.input.agentRef !== execution.identity?.agentId) {
     diagnostics.push(diagnostic('AI_IDENTITY_MISMATCH', 'operation.input.agentRef',
       'Operation and canonical execution agent identities must match.'))
   }
-  if (execution.attempt !== 1 || execution.route.requestId !== execution.requestId) {
+  if (execution.attempt !== 1 || execution.route?.requestId !== execution.requestId) {
     diagnostics.push(diagnostic('AI_IDENTITY_MISMATCH', 'execution',
       'Inline execution requires attempt one and a route bound to the request.'))
   }
   const allowedEffects: readonly unknown[] = [undefined, 'read', 'compute', 'llm']
-  if (execution.tools.mode === 'host-default' ||
-      !allowedEffects.includes(execution.effects.effectClass)) {
+  if (execution.tools?.mode === 'host-default' ||
+      !allowedEffects.includes(execution.effects?.effectClass)) {
     diagnostics.push(diagnostic('AI_INVALID_VALUE', 'execution.effects',
       'Inline AgentRunner requires resolved tools and a provider-free read/compute/llm effect.'))
   }
+  const grantedToolIds = inlineToolGrantIds(execution.tools)
+  const configuredToolIds = [...runnerToolIds].sort()
+  const sortedGrantIds = grantedToolIds === undefined ? undefined : [...grantedToolIds].sort()
+  if (grantedToolIds === undefined || new Set(grantedToolIds).size !== grantedToolIds.length ||
+      sortedGrantIds?.length !== configuredToolIds.length ||
+      sortedGrantIds.some((toolId, index) => toolId !== configuredToolIds[index])) {
+    diagnostics.push(diagnostic('AI_INVALID_VALUE', 'execution.tools',
+      'Canonical tool grants must exactly match the runner tools; operation-level grants are unsupported.'))
+  }
   const expectedFormat = operation.output.modality === 'unknown' ? undefined : operation.output.modality
-  if (expectedFormat !== undefined && execution.output.format !== expectedFormat) {
+  if (expectedFormat !== undefined && execution.output?.format !== expectedFormat) {
     diagnostics.push(diagnostic('AI_OPERATION_KIND_MISMATCH', 'execution.output.format',
       'Canonical and agent operation output modalities must match.'))
   }
+  if (diagnostics.length > 0) throw new AgentRunnerInlineError('invalid-request', diagnostics)
+  const projection = project()
+  const projectionDiagnostics: AiExecutionDiagnostic[] = []
   try {
     assertDurableJson(projection.input)
     assertDurableJson(projection.target)
     assertDurableJson(projection.routeDecision)
   } catch {
-    diagnostics.push(diagnostic('AI_INVALID_VALUE', 'projection',
+    projectionDiagnostics.push(diagnostic('AI_INVALID_VALUE', 'projection',
       'Host projection must be credential-free durable JSON.'))
   }
   if (projection.input.agentId !== (execution.kind === 'agent' ? execution.identity.agentId : '') ||
       projection.input.behaviorDigest.length === 0 || projection.input.sessionId === '') {
-    diagnostics.push(diagnostic('AI_IDENTITY_MISMATCH', 'projection.input',
+    projectionDiagnostics.push(diagnostic('AI_IDENTITY_MISMATCH', 'projection.input',
       'Projected runner identity, behavior digest, and optional session must be valid.'))
   }
-  diagnostics.push(...validateExecutionRouteDecision(execution.route, projection.routeDecision)
+  projectionDiagnostics.push(...validateExecutionRouteDecision(execution.route, projection.routeDecision)
     .diagnostics.map((item) => diagnostic('AI_INVALID_VALUE', `projection.routeDecision.${item.path}`, item.message)))
   if (projection.routeDecision.selectedCandidateId === null ||
       projection.routeDecision.selectedCandidateId !== projection.target.routeCandidateId ||
       projection.target.schema !== AI_RESOLVED_TARGET_SCHEMA ||
       projection.target.operation !== 'agent.run' || projection.target.executionStyle !== 'inline' ||
       (request.target.kind === 'target-id' && request.target.targetId !== projection.target.targetId)) {
-    diagnostics.push(diagnostic('AI_ROUTE_TARGET_MISMATCH', 'projection.target',
+    projectionDiagnostics.push(diagnostic('AI_ROUTE_TARGET_MISMATCH', 'projection.target',
       'Resolved inline target must match the host route decision and requested operation.'))
   }
-  diagnostics.push(...validateAiResolvedTargetSnapshotDigest(projection.target).diagnostics)
-  if (diagnostics.length > 0) throw new AgentRunnerInlineError('invalid-projection', diagnostics)
+  projectionDiagnostics.push(...validateAiResolvedTargetSnapshotDigest(projection.target).diagnostics)
+  if (projectionDiagnostics.length > 0) {
+    throw new AgentRunnerInlineError('invalid-projection', projectionDiagnostics)
+  }
   const { reasoningSummary, ...routeDecision } = projection.routeDecision
   void reasoningSummary
   return cloneDurableJson({ ...projection, routeDecision })

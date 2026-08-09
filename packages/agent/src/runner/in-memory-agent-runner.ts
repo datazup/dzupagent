@@ -84,6 +84,8 @@ export class InMemoryAgentRunner {
   constructor(config: InMemoryAgentRunnerConfig) {
     this.#model = config.model
     this.#tools = new Map((config.tools ?? []).map((tool) => [tool.toolId, tool]))
+    const toolIds = Object.freeze([...this.#tools.keys()])
+    Object.defineProperty(this, Symbol.for('@dzupagent/runner.tools'), { value: toolIds })
     this.#persistence = config.persistence ?? new InMemoryAgentRunnerPersistence()
     this.#createId = config.createId ?? ((kind) => `${kind}-${randomUUID()}`)
     this.#now = config.now ?? (() => new Date().toISOString())

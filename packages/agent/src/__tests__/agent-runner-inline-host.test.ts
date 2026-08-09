@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type {
   AgentRunnerIdentityKind,
+  AgentRunnerInput,
   AgentRunnerModelPort,
   AgentRunnerModelRequest,
   AgentRunnerModelResult,
@@ -122,9 +123,9 @@ function toolCall(): AgentRunnerModelResult {
 class ScriptedModel implements AgentRunnerModelPort {
   readonly adapterId = 'fake-model'
   readonly calls: AgentRunnerModelRequest[] = []
-  readonly #responses: Array<AgentRunnerModelResult | Promise<AgentRunnerModelResult>>
+  readonly #responses: Array<AgentRunnerModelResult | Error | Promise<AgentRunnerModelResult>>
 
-  constructor(responses: Array<AgentRunnerModelResult | Promise<AgentRunnerModelResult>>) {
+  constructor(responses: Array<AgentRunnerModelResult | Error | Promise<AgentRunnerModelResult>>) {
     this.#responses = [...responses]
   }
 
@@ -132,6 +133,7 @@ class ScriptedModel implements AgentRunnerModelPort {
     this.calls.push(input)
     const result = this.#responses.shift()
     if (result === undefined) throw new Error('Fake model exhausted')
+    if (result instanceof Error) throw result
     return result
   }
 }
@@ -157,12 +159,12 @@ class ApprovalReadTool implements AgentRunnerReadOnlyToolPort {
   }
 }
 
-function deterministicIds(): (kind: AgentRunnerIdentityKind) => string {
+function deterministicIds(prefix = ''): (kind: AgentRunnerIdentityKind) => string {
   const counters = new Map<AgentRunnerIdentityKind, number>()
   return (kind) => {
     const next = (counters.get(kind) ?? 0) + 1
     counters.set(kind, next)
-    return `${kind}-${next}`
+    return `${prefix}${kind}-${next}`
   }
 }
 
@@ -172,23 +174,37 @@ function clock(): () => string {
 }
 
 function createFixture(
-  responses: Array<AgentRunnerModelResult | Promise<AgentRunnerModelResult>>,
-  tools: readonly AgentRunnerReadOnlyToolPort[] = [],
+  responses: Array<AgentRunnerModelResult | Error | Promise<AgentRunnerModelResult>>,
+  tools: readonly AgentRunnerReadOnlyToolPort[] = [new ApprovalReadTool()],
+  options: {
+    readonly input?: AgentRunnerInput
+    readonly persistence?: InMemoryAgentRunnerPersistence
+    readonly idPrefix?: string
+  } = {},
 ) {
   const model = new ScriptedModel(responses)
-  const persistence = new InMemoryAgentRunnerPersistence()
-  void persistence.createSession({
-    schema: AGENT_SESSION_SCHEMA, sessionId: 'conversation-1', revision: '0', items: [],
-  })
+  const input = options.input ?? runnerInput
+  const persistence = options.persistence ?? new InMemoryAgentRunnerPersistence()
+  if (input.sessionId !== undefined) {
+    void persistence.createSession({
+      schema: AGENT_SESSION_SCHEMA, sessionId: input.sessionId, revision: '0', items: [],
+    })
+  }
   const runner = new InMemoryAgentRunner({
-    model, tools, persistence, createId: deterministicIds(), now: () => runnerNow,
+    model, tools, persistence, createId: deterministicIds(options.idPrefix), now: () => runnerNow,
   })
   const port = createInlineAgentRunnerExecutionPort(
     runner,
-    () => ({ input: runnerInput, target, routeDecision }),
+    () => ({ input, target, routeDecision }),
     clock(),
   )
-  return { model, port }
+  return { model, persistence, port }
+}
+
+function deferred<T>() {
+  let resolve: (value: T) => void = () => undefined
+  const promise = new Promise<T>((resolvePromise) => { resolve = resolvePromise })
+  return { promise, resolve }
 }
 
 async function collect(events: AsyncIterable<AiExecutionEvent>): Promise<AiExecutionEvent[]> {
@@ -212,7 +228,7 @@ function authorizedPayload(decision: 'approved' | 'rejected') {
 
 describe('inline AgentRunner host composition', () => {
   it('projects a provider-free run into a validator-clean transcript and receipt', async () => {
-    const { model, port } = createFixture([finalResult])
+    const { model, persistence, port } = createFixture([finalResult])
     const handle = port.start(request)
     const eventsPromise = collect(handle.events)
     const receipt = await handle.completion
@@ -227,11 +243,38 @@ describe('inline AgentRunner host composition', () => {
     expect(receipt.usage).toMatchObject({ measurement: 'known', tokens: { input: 8, output: 3 } })
     expect(validateAiExecutionTranscript(receipt, events)).toEqual({ valid: true, diagnostics: [] })
     expect(validateAiExecutionReceiptCustody(receipt)).toEqual({ valid: true, diagnostics: [] })
+    const state = await persistence.loadRun('run-1')
+    expect(state?.sessionBinding).toMatchObject({
+      sessionId: 'conversation-1', baseRevision: '0', transactionId: 'run-1:session',
+    })
+    expect(handle.executionId).not.toBe(state?.runId)
+    expect(receipt.requestId).toBe(request.execution.requestId)
+    expect(receipt.correlationId).toBe(request.execution.correlationId)
+  })
+
+  it('runs without a session binding when the projection omits session identity', async () => {
+    const sessionlessInput: AgentRunnerInput = {
+      agentId: runnerInput.agentId,
+      behaviorDigest: runnerInput.behaviorDigest,
+      items: runnerInput.items,
+    }
+    const { persistence, port } = createFixture(
+      [finalResult], [new ApprovalReadTool()],
+      { input: sessionlessInput, idPrefix: 'sessionless-' },
+    )
+    const handle = port.start(request)
+    const eventsPromise = collect(handle.events)
+    const receipt = await handle.completion
+    const events = await eventsPromise
+
+    expect(receipt.result.status).toBe('succeeded')
+    expect(validateAiExecutionTranscript(receipt, events)).toEqual({ valid: true, diagnostics: [] })
+    expect((await persistence.loadRun('sessionless-run-1'))?.sessionBinding).toBeUndefined()
   })
 
   it('keeps completion pending across interaction and resumes the exact framework run', async () => {
     const tool = new ApprovalReadTool()
-    const { port } = createFixture([toolCall(), finalResult], [tool])
+    const { persistence, port } = createFixture([toolCall(), finalResult], [tool])
     const handle = port.start(request)
     const iterator = handle.events[Symbol.asyncIterator]()
     expect((await iterator.next()).value).toMatchObject({ type: 'started' })
@@ -254,6 +297,9 @@ describe('inline AgentRunner host composition', () => {
     }
     await expect(handle.submitInteraction(submission)).resolves.toMatchObject({ status: 'accepted' })
     await expect(handle.submitInteraction(submission)).resolves.toMatchObject({ status: 'duplicate' })
+    await expect(handle.submitInteraction({
+      ...submission, payload: authorizedPayload('rejected'),
+    })).resolves.toMatchObject({ status: 'rejected', reason: 'submission-conflict' })
     const receipt = await handle.completion
     const remaining: AiExecutionEvent[] = []
     for (let step = await iterator.next(); !step.done; step = await iterator.next()) {
@@ -262,6 +308,11 @@ describe('inline AgentRunner host composition', () => {
     expect(receipt.result.status).toBe('succeeded')
     expect(tool.calls).toHaveLength(1)
     expect(remaining.at(-1)).toMatchObject({ type: 'completed', status: 'succeeded' })
+    const state = await persistence.loadRun('run-1')
+    expect(state?.interactionDecisions).toHaveLength(1)
+    expect(state?.invocations).toHaveLength(1)
+    expect(state?.interactionDecisions[0]?.interactionId).not.toBe(submission.submissionId)
+    expect(state?.invocations[0]?.invocationId).not.toBe(handle.executionId)
   })
 
   it('rejects malformed interaction input without resume and maps authorized rejection terminally', async () => {
@@ -278,9 +329,27 @@ describe('inline AgentRunner host composition', () => {
       interactionRef: interaction.interactionRef,
       submittedAt: runnerNow,
     }
-    await expect(handle.submitInteraction({
+    const malformed = {
       ...base, submissionId: 'malformed', payload: { decision: 'approved' },
-    })).resolves.toMatchObject({ status: 'rejected' })
+    }
+    const firstRejection = await handle.submitInteraction(malformed)
+    expect(firstRejection).toMatchObject({ status: 'rejected' })
+    await expect(handle.submitInteraction(malformed)).resolves.toEqual(firstRejection)
+    await expect(handle.submitInteraction({
+      ...malformed, payload: { decision: 'rejected' },
+    })).resolves.toMatchObject({ status: 'rejected', reason: 'submission-conflict' })
+    await expect(handle.submitInteraction({
+      ...base,
+      interactionRef: `${interaction.interactionRef}:stale`,
+      submissionId: 'stale-interaction',
+      payload: authorizedPayload('approved'),
+    })).resolves.toMatchObject({ status: 'rejected', reason: 'invalid-interaction-decision' })
+    await expect(handle.submitInteraction({
+      ...base,
+      executionId: 'different-execution',
+      submissionId: 'wrong-execution',
+      payload: authorizedPayload('approved'),
+    })).resolves.toMatchObject({ status: 'rejected', reason: 'invalid-submission' })
     await expect(handle.submitInteraction({
       ...base, submissionId: 'rejected', payload: authorizedPayload('rejected'),
     })).resolves.toMatchObject({ status: 'accepted' })
@@ -328,22 +397,143 @@ describe('inline AgentRunner host composition', () => {
     expect(events).not.toContainEqual(expect.objectContaining({ status: 'succeeded' }))
   })
 
-  it('rejects unsupported or sensitive projections before model dispatch', () => {
-    const { model } = createFixture([finalResult])
-    const runner = new InMemoryAgentRunner({ model, createId: deterministicIds(), now: () => runnerNow })
-    const port = createInlineAgentRunnerExecutionPort(runner, () => ({
-      input: {
-        ...runnerInput,
-        items: [{
-          type: 'message', itemId: 'sensitive-input', role: 'user',
-          content: [{ type: 'extension', namespace: 'test', value: { credential: 'forbidden' } }],
-        }],
+  it('redacts model failures and preserves fail-closed session commit evidence', async () => {
+    const modelFailure = createFixture([
+      new Error('provider-shaped secret must not escape'),
+    ], [new ApprovalReadTool()], { idPrefix: 'model-failure-' })
+    const modelHandle = modelFailure.port.start(request)
+    const modelEventsPromise = collect(modelHandle.events)
+    const modelReceipt = await modelHandle.completion
+    const modelEvents = await modelEventsPromise
+
+    expect(modelReceipt.result).toMatchObject({
+      status: 'failed', errorCode: 'model-invocation-failed',
+    })
+    expect(JSON.stringify({ modelReceipt, modelEvents })).not.toContain('provider-shaped secret')
+    expect(validateAiExecutionTranscript(modelReceipt, modelEvents)).toEqual({
+      valid: true, diagnostics: [],
+    })
+
+    const persistence = new InMemoryAgentRunnerPersistence({
+      failSession: (operation) => operation === 'commit',
+    })
+    const sessionFailure = createFixture(
+      [finalResult], [new ApprovalReadTool()],
+      { persistence, idPrefix: 'session-failure-' },
+    )
+    const sessionHandle = sessionFailure.port.start(request)
+    const sessionEventsPromise = collect(sessionHandle.events)
+    const sessionReceipt = await sessionHandle.completion
+    const sessionEvents = await sessionEventsPromise
+
+    expect(sessionReceipt.result).toMatchObject({
+      status: 'failed', errorCode: 'session-injected-failure',
+    })
+    expect(sessionEvents.at(-1)).toMatchObject({ type: 'completed', status: 'failed' })
+    expect((await persistence.readSession('conversation-1'))?.items).toEqual([])
+  })
+
+  it('fails one simultaneous session commit without interleaving shared history', async () => {
+    const persistence = new InMemoryAgentRunnerPersistence()
+    const leftResult = deferred<AgentRunnerModelResult>()
+    const rightResult = deferred<AgentRunnerModelResult>()
+    const left = createFixture(
+      [leftResult.promise], [new ApprovalReadTool()],
+      { persistence, idPrefix: 'left-' },
+    )
+    const right = createFixture(
+      [rightResult.promise], [new ApprovalReadTool()],
+      { persistence, idPrefix: 'right-' },
+    )
+    const leftHandle = left.port.start(request)
+    const rightHandle = right.port.start(request)
+    const leftEventsPromise = collect(leftHandle.events)
+    const rightEventsPromise = collect(rightHandle.events)
+    await vi.waitFor(() => {
+      expect(left.model.calls).toHaveLength(1)
+      expect(right.model.calls).toHaveLength(1)
+    })
+    leftResult.resolve(finalResult)
+    rightResult.resolve({
+      ...finalResult,
+      item: { ...finalResult.item, itemId: 'final-right' },
+    })
+    const [leftReceipt, rightReceipt, leftEvents, rightEvents] = await Promise.all([
+      leftHandle.completion, rightHandle.completion, leftEventsPromise, rightEventsPromise,
+    ])
+
+    expect([leftReceipt.result.status, rightReceipt.result.status].sort()).toEqual([
+      'failed', 'succeeded',
+    ])
+    const failedReceipt = [leftReceipt, rightReceipt].find(({ result }) =>
+      result.status === 'failed')
+    expect(failedReceipt?.result).toMatchObject({ errorCode: 'session-revision-conflict' })
+    expect([...leftEvents, ...rightEvents].filter(({ type }) => type === 'completed')).toHaveLength(2)
+    const session = await persistence.readSession('conversation-1')
+    expect(session?.revision).toBe('1')
+    expect(session?.items.filter((item) => item.type === 'message' && item.role === 'assistant'))
+      .toHaveLength(1)
+  })
+
+  it('rejects invalid authority before projection and sensitive projection before model dispatch', async () => {
+    const model = new ScriptedModel([finalResult])
+    const persistence = new InMemoryAgentRunnerPersistence()
+    const runner = new InMemoryAgentRunner({
+      model, tools: [new ApprovalReadTool()], persistence,
+      createId: deterministicIds(), now: () => runnerNow,
+    })
+    let projections = 0
+    const port = createInlineAgentRunnerExecutionPort(runner, () => {
+      projections += 1
+      return {
+        input: {
+          ...runnerInput,
+          items: [{
+            type: 'message', itemId: 'sensitive-input', role: 'user',
+            content: [{ type: 'extension', namespace: 'test', value: { credential: 'forbidden' } }],
+          }],
+        },
+        target,
+        routeDecision,
+      }
+    })
+    const incompatible = {
+      ...request,
+      operation: {
+        kind: 'text.generate', input: { prompt: 'Invalid agent dispatch.' },
+        output: { modality: 'text' },
       },
-      target,
-      routeDecision,
-    }))
+    } as unknown as AiExecutionRequest
+    let invalidRequestError: unknown
+    try { port.start(incompatible) } catch (error) { invalidRequestError = error }
+    expect(invalidRequestError).toMatchObject({ code: 'invalid-request' })
+    expect(projections).toBe(0)
+
+    const mismatchedIdentity: AiExecutionRequest = {
+      ...request,
+      execution: { ...request.execution, identity: { agentId: 'different-agent' } },
+    }
+    let identityError: unknown
+    try { port.start(mismatchedIdentity) } catch (error) { identityError = error }
+    expect(identityError).toMatchObject({ code: 'invalid-request' })
+    expect(projections).toBe(0)
+
+    const mismatchedTools: AiExecutionRequest = {
+      ...request,
+      execution: {
+        ...request.execution,
+        tools: { mode: 'explicit', grants: [{ toolRef: 'not-configured' }] },
+      },
+    }
+    let toolPolicyError: unknown
+    try { port.start(mismatchedTools) } catch (error) { toolPolicyError = error }
+    expect(toolPolicyError).toMatchObject({ code: 'invalid-request' })
+    expect(projections).toBe(0)
+
     expect(() => port.start(request)).toThrow(AgentRunnerInlineError)
+    expect(projections).toBe(1)
     expect(model.calls).toHaveLength(0)
+    await expect(persistence.loadRun('run-1')).resolves.toBeUndefined()
   })
 
   it('enforces one event consumer and a bounded 32-event buffer', async () => {

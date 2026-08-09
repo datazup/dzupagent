@@ -286,11 +286,12 @@ class AgentRunnerInlineHandle implements InlineAiExecutionHandle {
     }
     const existing = this.#submissions.get(submission.submissionId)
     if (existing !== undefined) {
-      if (existing.digest === digest && existing.acknowledgement.status === 'accepted') {
+      if (existing.digest !== digest) return createAgentRunnerInteractionRejection(
+        submission, this.executionId, this.#now(), 'submission-conflict')
+      if (existing.acknowledgement.status === 'accepted') {
         return { ...existing.acknowledgement, status: 'duplicate', acknowledgedAt: this.#now() }
       }
-      return createAgentRunnerInteractionRejection(
-        submission, this.executionId, this.#now(), 'submission-conflict')
+      return cloneDurableJson(existing.acknowledgement)
     }
     if (submission.executionId !== this.executionId || submission.submissionId.length === 0 ||
         !Number.isFinite(Date.parse(submission.submittedAt))) {
@@ -472,17 +473,17 @@ class AgentRunnerInlineHandle implements InlineAiExecutionHandle {
     this.#pendingInteractionRef = undefined
   }
 }
-
 export function createInlineAgentRunnerExecutionPort(
   runner: InMemoryAgentRunner,
   project: (request: AiExecutionRequest) => AgentRunnerInlineProjection,
   now: () => string = () => new Date().toISOString(),
 ): InlineAiExecutionPort {
+  const toolIds = Reflect.get(runner, Symbol.for('@dzupagent/runner.tools')) as readonly string[]
   return {
     start(request, options) {
       let projection: AgentRunnerInlineProjection
       try {
-        projection = validateAgentRunnerInlineProjection(request, project(request))
+        projection = validateAgentRunnerInlineProjection(request, toolIds, () => project(request))
       } catch (error) {
         if (error instanceof AgentRunnerInlineError) throw error
         throw new AgentRunnerInlineError('projection-failed', [{
