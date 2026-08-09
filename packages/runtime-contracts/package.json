@@ -34,6 +34,10 @@
       "import": "./dist/agent-blueprint.js",
       "types": "./dist/agent-blueprint.d.ts"
     },
+    "./provider-session": {
+      "import": "./dist/provider-session.js",
+      "types": "./dist/provider-session.d.ts"
+    },
     "./fixtures/agent-review-conformance-v1.json": {
       "types": "./fixtures/agent-review-conformance-v1.d.ts",
       "default": "./fixtures/agent-review-conformance-v1.json"
@@ -41,6 +45,10 @@
     "./fixtures/ai-execution-conformance-v1.json": {
       "types": "./fixtures/ai-execution-conformance-v1.d.ts",
       "default": "./fixtures/ai-execution-conformance-v1.json"
+    },
+    "./fixtures/provider-session-conformance-v1.json": {
+      "types": "./fixtures/provider-session-conformance-v1.d.ts",
+      "default": "./fixtures/provider-session-conformance-v1.json"
     }
   },
   "files": [
@@ -53,6 +61,7 @@
     "lint": "node ../../scripts/run-package-lint.mjs",
     "test": "vitest run",
     "fixtures:ai-execution:check": "node scripts/check-ai-execution-conformance.mjs",
+    "fixtures:provider-session:check": "node scripts/check-provider-session-conformance.mjs",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit"
   },

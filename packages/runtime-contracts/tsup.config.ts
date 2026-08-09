@@ -9,6 +9,7 @@ export default defineConfig({
     'src/rag.ts',
     'src/agent-review.ts',
     'src/agent-blueprint.ts',
+    'src/provider-session.ts',
   ],
   format: ['esm'],
   dts: false,
