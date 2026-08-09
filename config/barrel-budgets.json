@@ -13,6 +13,8 @@
     "  auxiliarySourceLineBudgets   - per-file line caps for specific non-index source modules re-exported by the barrel",
     "  maxFileLines                 - per-file LOC ceiling applied to every src/**/*.ts (excl. tests/.d.ts) in the package",
     "  fileLineAllowlist            - package-relative paths exempt from maxFileLines (pre-existing debt, pinned)",
+    "  rootDebtPin                  - exact source hash/commit/review-bound temporary ceiling above a root target",
+    "  fileLineDebtPins             - exact source hash/commit/review-bound temporary ceilings for oversized files",
     "Removing or renaming a root export is a published-consumer breakage and is NOT how you lower these numbers;",
     "lower them only by relocating a cluster to a subpath while keeping a root re-export, which leaves counts flat.",
     "Lower maxFileLines debt by extracting cohesive sub-modules, then shrinking the allowlist.",
@@ -135,7 +137,9 @@
     "2026-07-22 ARCH-M-06 god-module decomposition (audit full-dzupagent-2026-07-21/run-001, FINAL @dzupagent/server batch): @dzupagent/server src/composition/optional-routes.ts (562 LOC, debt-pinned in fileLineAllowlist -- the LAST remaining @dzupagent/server entry) SPLIT and its fileLineAllowlist entry REMOVED; the @dzupagent/server fileLineAllowlist is now empty (src/index.ts is 269 LOC, under the 500-LOC maxFileLines ceiling and governed separately by maxRootIndexLines:269, so it needs no allowlist entry). The sibling src/composition/middleware.ts, src/composition/types.ts, src/schedules/schedule-store.ts, and src/runtime/dzip-agent-run-executor.ts entries were already removed in earlier same-day batches. VERDICT: GOD-MODULE, split (562->172 LOC root). Distinct from a pure re-export barrel, this file fused the buildOptionalRoutePlugins feature-flag adapter (the cohesive coordinator that maps runtimeConfig capability flags into an ordered ServerRoutePlugin[] -- deliberately KEPT WHOLE in the root because the family registration ORDER is load-bearing per the Hono first-match-per-method contract asserted by optional-routes.test.ts) with THIRTEEN independent per-route-family mount helpers co-located inline per the MJ-01 criterion, each a pure side-effect on a Hono app gated by its own capability flag and grouped into five cohesive concern clusters. Decomposed into src/composition/optional-routes/ leaf modules (mirroring the sibling composition/middleware/ and schedules/schedule-store/ per-concern conventions): context.ts (36 LOC: the OptionalRoutesContext shared-context type + the createOptionalRouteFamilyPlugin factory), data-routes.ts (80 LOC: mountMemoryRoutes/mountEventRoutes/mountDeployRoutes/mountLearningRoutes/mountReflectionRoutes -- the data-plane families), evaluation-routes.ts (55 LOC: mountBenchmarkRoutes/mountEvalRoutes/mountPlaygroundRoute -- the evaluation-plane families with their orchestrator/metrics fallback resolution), config-store-routes.ts (66 LOC: mountTriggerScheduleRoutes + mountConfigStoreRoutes -- automation + prompt/persona/preset/marketplace stores), messaging-routes.ts (139 LOC: mountA2ARoutes with its auth/RBAC gating + task-store selection, and mountMailboxAndClusterRoutes with the mail rate-limiter/DLQ store/DLQ drain worker construction + shutdown-drain-hook registration), and compat-routes.ts (110 LOC: mountOpenAICompatRoutes + mountScaleTargetRoute + mountPrometheusMetricsRoute -- the /v1 OpenAI-compat, /scale-target, and Prometheus /metrics surfaces). The original optional-routes.ts is now a 172-LOC composition root holding only the buildOptionalRoutePlugins ordered adapter + the mountOptionalRoutes facade and RE-EXPORTING the EXACT public surface (mountOptionalRoutes, buildOptionalRoutePlugins, the OptionalRoutesContext type, and mountPrometheusMetricsRoute) consumed via the ./composition/optional-routes.js path by app.ts (mountOptionalRoutes + mountPrometheusMetricsRoute) and composition/__tests__/optional-routes.test.ts (buildOptionalRoutePlugins), with zero signature, behavior, mount-path, or family-ordering changes (createOptionalRouteFamilyPlugin + every mountX helper were always module-private, never part of the exported surface). optional-routes.ts is not referenced as a sourceFile in config/architecture-boundaries.json (its serverRouteBoundaries/routeEndpointManifest/forgeServerConfigRouteFamilies manifests track packages/server/src/routes/*.ts and composition/config-route-families.ts + control-plane-types.ts, none of which this batch touched), and the new leaves live under composition/ (not routes/) and export no root-index symbols, so no boundary-manifest repointing was required (domain-boundaries + control-plane-freeze + server-api-surface unaffected). Dependency graph is acyclic: root -> {data,evaluation,config-store,messaging,compat}-routes -> context. This closes the ARCH-M-06 decomposition track for @dzupagent/server -- its fileLineAllowlist is now empty. Every extracted leaf is under the 500-LOC maxFileLines ceiling.",
     "2026-07-31 CODE-C-01 stopgap re-pin (audit full-dzupagent-2026-07-30/run-001): budgets were pinned before source grew across the intervening implementation passes and were never re-pinned, so the gate was RED with 25 violations (up from 8 on 2026-07-10). Re-pinned every violating root-barrel budget to its CURRENT measured value with zero slack: @dzupagent/core explicitExports 926->933 / sourceCount 142->143 / maxRootIndexLines 1313->1322; @dzupagent/memory 606->627; @dzupagent/context 119->127; @dzupagent/agent-adapters 839->863; @dzupagent/dialogue-core-replay 22->50; @dzupagent/flow-dsl 12->15; @dzupagent/memory-ipc 197->207; @dzupagent/server 269->273. Added fileLineAllowlist DEBT-PINS for the 16 newly-oversized files (all >500 LOC, decomposition NOT done here) in agent, memory, context, agent-adapters, runtime-contracts, dialogue-core-replay, and flow-dsl. This is the honest-green stopgap ONLY, per the finding's own fix guidance (quick stopgap now, major extraction tracked separately as CODE-H-03/ARCH-H-05/ARCH-H-06 decomposition work). Do NOT raise @dzupagent/core's budgets again without moving newest root exports to a subpath first. reviewBy: 2026-10-31.",
     "2026-08-04 consolidation re-pin: origin/main had already published token-measurement, provider-capability, memory-outcome, authentication-mode, adapter-port, and task-lease surfaces after the 2026-07-31 snapshot. The coolify-codev merge also adds structured memory logging and subagent lease exports. Preserve those public contracts and pin the resulting root sizes with zero slack: core explicitExports 935 / maxRootIndexLines 1327; memory 643; agent-adapters 870; runtime-contracts 92; adapter-types 28; subagents 212. Added runtime-contracts/src/ai-execution.ts to the time-boxed file debt allowlist; decomposition remains required. reviewBy: 2026-10-31.",
-    "2026-08-05 C3 ai-economics re-pin: @dzupagent/runtime-contracts root grew 92->115 lines when ffff6eb5 (C3 slice 2) published the AI economics contract cluster (AI_TARIFF_SCHEMA, AI_QUOTA_SCHEMA, selectTariffRates, validateAiTariff, validateAiQuotaTruth, MICROS_PER_CENT plus nine types) from src/ai-economics.js. Re-pinned rather than relocated to a subpath because this package is governed root-first: config/public-api-allowlists.json lists ./ai-economics.js under stableRoot (added in the same C3 pass by af370471) and its migrationWindow states runtime contract ROOT exports are the stable neutral contract surface, requiring only that an allowlist rule precede a new contract module -- which it did. runtime-contracts has an EMPTY transitionalRoot, so unlike @dzupagent/core (whose ./middleware/ IS transitional, so its duplicate pricing re-export was DELETED in this same pass, clearing all three core budgets with no bump) there is no migration obligation to move this off the root. Pinned with zero slack to the measured 115. reviewBy: 2026-10-31."
+    "2026-08-05 C3 ai-economics re-pin: @dzupagent/runtime-contracts root grew 92->115 lines when ffff6eb5 (C3 slice 2) published the AI economics contract cluster (AI_TARIFF_SCHEMA, AI_QUOTA_SCHEMA, selectTariffRates, validateAiTariff, validateAiQuotaTruth, MICROS_PER_CENT plus nine types) from src/ai-economics.js. Re-pinned rather than relocated to a subpath because this package is governed root-first: config/public-api-allowlists.json lists ./ai-economics.js under stableRoot (added in the same C3 pass by af370471) and its migrationWindow states runtime contract ROOT exports are the stable neutral contract surface, requiring only that an allowlist rule precede a new contract module -- which it did. runtime-contracts has an EMPTY transitionalRoot, so unlike @dzupagent/core (whose ./middleware/ IS transitional, so its duplicate pricing re-export was DELETED in this same pass, clearing all three core budgets with no bump) there is no migration obligation to move this off the root. Pinned with zero slack to the measured 115. reviewBy: 2026-10-31.",
+    "2026-08-09 Q7 qualification repair: do not silently re-pin stale target budgets. rootDebtPin and fileLineDebtPins retain the lower architecture target while accepting only exact reviewed bytes at clean source 49921e7ec9b1987c53cebba5e8327266669903be. A changed digest, higher metric, malformed provenance, or expired review date fails closed. reviewBy: 2026-09-09.",
+    "The root pins cover shipped compatibility surfaces in memory, agent-adapters, runtime-contracts, adapter-types, and flow-ast. The file pins cover five post-baseline modules that require per-concern decomposition. These are visible finite debts, not general growth licenses; remove each pin when the matching decomposition or public-surface migration lands."
   ],
   "packages": {
     "@dzupagent/core": {
@@ -164,6 +168,13 @@
     },
     "@dzupagent/memory": {
       "maxRootIndexLines": 643,
+      "rootDebtPin": {
+        "maxRootIndexLines": 665,
+        "sourceSha256": "a5895f8063650b07eaacdcfb11ae307b5bcb6b2cf4f4a614b176df909febcda3",
+        "sourceCommit": "49921e7ec9b1987c53cebba5e8327266669903be",
+        "reviewBy": "2026-09-09",
+        "rationale": "Freeze the already-shipped memory compatibility barrel while its subpath migration is reviewed."
+      },
       "maxFileLines": 500,
       "fileLineAllowlist": [
         "src/index.ts",
@@ -189,11 +200,34 @@
     },
     "@dzupagent/agent-adapters": {
       "maxRootIndexLines": 870,
+      "rootDebtPin": {
+        "maxRootIndexLines": 946,
+        "sourceSha256": "0e7852c41be629fdbef8ec3b911c094c42d01e153cfd0bcce2e8624af463341b",
+        "sourceCommit": "49921e7ec9b1987c53cebba5e8327266669903be",
+        "reviewBy": "2026-09-09",
+        "rationale": "Freeze the shipped adapter monitoring compatibility exports while subpath adoption is completed."
+      },
       "maxFileLines": 500,
       "fileLineAllowlist": [
         "src/index.ts",
         "src/model-discovery.ts"
-      ]
+      ],
+      "fileLineDebtPins": {
+        "src/codex/codex-adapter.ts": {
+          "maxLines": 520,
+          "sourceSha256": "680a83f99ef6a3f635635454bfb40e9480e8df0736bdb87fd6aa3ff2fe5e593d",
+          "sourceCommit": "49921e7ec9b1987c53cebba5e8327266669903be",
+          "reviewBy": "2026-09-09",
+          "rationale": "Freeze the current Codex adapter bytes pending extraction of its request and event mapping concerns."
+        },
+        "src/integration/run-agent-execution.ts": {
+          "maxLines": 589,
+          "sourceSha256": "26ecfd11913e873cf027e945e4ed37173fff457ecd85be67b85d5ef027d04f0f",
+          "sourceCommit": "49921e7ec9b1987c53cebba5e8327266669903be",
+          "reviewBy": "2026-09-09",
+          "rationale": "Freeze the execution bridge pending extraction of validation, transcript, and completion concerns."
+        }
+      }
     },
     "@dzupagent/otel": {
       "maxRootIndexLines": 83,
@@ -207,12 +241,28 @@
     },
     "@dzupagent/runtime-contracts": {
       "maxRootIndexLines": 115,
+      "rootDebtPin": {
+        "maxRootIndexLines": 137,
+        "sourceSha256": "42f807b6b2bc6295cb31043317bbd910105a4147b6545ddbca2b640b00673ccf",
+        "sourceCommit": "49921e7ec9b1987c53cebba5e8327266669903be",
+        "reviewBy": "2026-09-09",
+        "rationale": "Freeze the reviewed runtime contract compatibility surface while consumers move to package subpaths."
+      },
       "maxFileLines": 500,
       "fileLineAllowlist": [
         "src/agent-review.ts",
         "src/ai-execution.ts",
         "src/rag.ts"
-      ]
+      ],
+      "fileLineDebtPins": {
+        "src/flow-runtime-input.ts": {
+          "maxLines": 787,
+          "sourceSha256": "8920d22b33c37fac184f4db77538c7399b4ec33d2b9a700266fa753448c05c8f",
+          "sourceCommit": "49921e7ec9b1987c53cebba5e8327266669903be",
+          "reviewBy": "2026-09-09",
+          "rationale": "Freeze the flow runtime input contract pending a behavior-preserving per-concern type split."
+        }
+      }
     },
     "@dzupagent/execution-contracts": {
       "maxRootIndexLines": 16,
@@ -250,6 +300,13 @@
     },
     "@dzupagent/adapter-types": {
       "maxRootIndexLines": 28,
+      "rootDebtPin": {
+        "maxRootIndexLines": 31,
+        "sourceSha256": "92bc985547392f8bd65830f6381ed97760a55cf2d6eca40d7463df4022178a59",
+        "sourceCommit": "49921e7ec9b1987c53cebba5e8327266669903be",
+        "reviewBy": "2026-09-09",
+        "rationale": "Freeze existing compatibility exports while new monitoring contracts remain subpath-only."
+      },
       "maxFileLines": 500,
       "fileLineAllowlist": []
     },
@@ -278,12 +335,36 @@
       "maxRootBarrelStarExports": 6,
       "maxRootBarrelSourceCount": 8,
       "maxRootIndexLines": 17,
+      "rootDebtPin": {
+        "maxRootBarrelStarExports": 7,
+        "maxRootBarrelSourceCount": 9,
+        "sourceSha256": "3ade795e852310f344812507583571e0ae4a6fed28ec7c689a8b00f1dbfb6e43",
+        "sourceCommit": "49921e7ec9b1987c53cebba5e8327266669903be",
+        "reviewBy": "2026-09-09",
+        "rationale": "Freeze the shipped AST compatibility barrel pending an explicit-export consolidation review."
+      },
       "maxFileLines": 500,
       "fileLineAllowlist": []
     },
     "@dzupagent/flow-compiler": {
       "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "fileLineAllowlist": [],
+      "fileLineDebtPins": {
+        "src/compile-orchestrator/pipeline.ts": {
+          "maxLines": 529,
+          "sourceSha256": "4d5cb9802e79741eca64fe6270d5c206792a8cb13ebc011dc19a62aa40ddb643",
+          "sourceCommit": "49921e7ec9b1987c53cebba5e8327266669903be",
+          "reviewBy": "2026-09-09",
+          "rationale": "Freeze the compile pipeline pending extraction of its manifest and validation phase helpers."
+        },
+        "src/stages/semantic-walk/dispatch.ts": {
+          "maxLines": 501,
+          "sourceSha256": "3e8947983310704ea67f7a543da8528072071d435fa39d2278a40afb93ccfd28",
+          "sourceCommit": "49921e7ec9b1987c53cebba5e8327266669903be",
+          "reviewBy": "2026-09-09",
+          "rationale": "Freeze the one-line-over semantic dispatcher pending a behavior-preserving helper extraction."
+        }
+      }
     },
     "@dzupagent/flow-dsl": {
       "maxRootIndexLines": 15,

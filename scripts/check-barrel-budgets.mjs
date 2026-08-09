@@ -28,6 +28,7 @@
  *   node scripts/check-barrel-budgets.mjs --budget-file <path>
  */
 
+import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
@@ -107,6 +108,47 @@ function countLines(text) {
   return normalized.split('\n').length;
 }
 
+function sha256(text) {
+  return text === undefined ? undefined : createHash('sha256').update(text).digest('hex');
+}
+
+function validateDebtPin({ debtPin, label, measured, metric, sourceSha256, now }) {
+  if (!debtPin || typeof debtPin !== 'object' || Array.isArray(debtPin)) {
+    return { ok: false, message: `${label}: ${metric} exceeds its target without a source-bound debt pin` };
+  }
+  const pinnedLimit = debtPin[metric];
+  if (typeof pinnedLimit !== 'number' || !Number.isFinite(pinnedLimit) || pinnedLimit < 0) {
+    return { ok: false, message: `${label}: debt pin ${metric} must be a non-negative number` };
+  }
+  if (measured > pinnedLimit) {
+    return {
+      ok: false,
+      message: `${label}: ${metric} exceeded its source-bound debt pin `
+        + `(measured ${measured}, pin ${pinnedLimit})`,
+    };
+  }
+  if (typeof debtPin.sourceSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(debtPin.sourceSha256)) {
+    return { ok: false, message: `${label}: debt pin sourceSha256 must be a lowercase SHA-256 digest` };
+  }
+  if (sourceSha256 !== debtPin.sourceSha256) {
+    return { ok: false, message: `${label}: source-bound debt pin hash mismatch` };
+  }
+  if (typeof debtPin.sourceCommit !== 'string' || !/^[a-f0-9]{40}$/.test(debtPin.sourceCommit)) {
+    return { ok: false, message: `${label}: debt pin sourceCommit must be a full lowercase Git SHA` };
+  }
+  if (typeof debtPin.reviewBy !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(debtPin.reviewBy)) {
+    return { ok: false, message: `${label}: debt pin reviewBy must be an ISO date` };
+  }
+  const reviewDeadline = Date.parse(`${debtPin.reviewBy}T23:59:59.999Z`);
+  if (!Number.isFinite(reviewDeadline) || now.getTime() > reviewDeadline) {
+    return { ok: false, message: `${label}: source-bound debt pin expired on ${debtPin.reviewBy}` };
+  }
+  if (typeof debtPin.rationale !== 'string' || debtPin.rationale.trim().length < 20) {
+    return { ok: false, message: `${label}: debt pin rationale must explain the retained debt` };
+  }
+  return { ok: true, pinnedLimit };
+}
+
 /**
  * Recursively collect `.ts` source files (excluding tests and declaration
  * files) under a directory, returned as package-relative POSIX paths.
@@ -130,31 +172,60 @@ function collectSourceFiles(absDir, packageRoot, acc = []) {
 
 /**
  * Per-file LOC ceiling for a package's source tree (MC-5 / DZUPAGENT-CODE-L-04).
- * Flags any source file over `maxFileLines` unless it is on `fileLineAllowlist`
- * (pre-existing debt pinned so the gate is green today and RED on any NEW
- * oversized file). Returns violation messages.
+ * Flags any source file over `maxFileLines` unless it is on the legacy
+ * `fileLineAllowlist` or has an exact `fileLineDebtPins` entry. New debt pins
+ * bind the accepted line count to the file bytes, source commit, rationale,
+ * and finite review date so later edits fail closed instead of inheriting an
+ * open-ended exception.
  */
-function evaluateFileLineCeiling({ root, packageDir, budget }) {
+function evaluateFileLineCeiling({ root, packageDir, budget, now }) {
   const messages = [];
+  const debtPins = [];
   const ceiling = budget.maxFileLines;
-  if (ceiling === undefined) return messages;
+  if (ceiling === undefined) return { messages, debtPins };
   if (typeof ceiling !== 'number' || !Number.isFinite(ceiling) || ceiling <= 0) {
     throw new Error('maxFileLines budget must be a positive number');
   }
   const allowlist = new Set(budget.fileLineAllowlist ?? []);
+  const fileLineDebtPins = budget.fileLineDebtPins ?? {};
+  if (typeof fileLineDebtPins !== 'object' || Array.isArray(fileLineDebtPins)) {
+    throw new Error('fileLineDebtPins must be an object');
+  }
   const srcDir = path.join(root, packageDir, 'src');
   for (const relFromPackage of collectSourceFiles(srcDir, path.join(root, packageDir))) {
     if (allowlist.has(relFromPackage)) continue;
-    const measured = countLines(readText(path.join(root, packageDir, relFromPackage)));
+    const sourceText = readText(path.join(root, packageDir, relFromPackage));
+    const measured = countLines(sourceText);
     if (measured !== undefined && measured > ceiling) {
+      const label = `${packageDir}/${relFromPackage}`;
+      const pinResult = validateDebtPin({
+        debtPin: fileLineDebtPins[relFromPackage],
+        label,
+        measured,
+        metric: 'maxLines',
+        sourceSha256: sha256(sourceText),
+        now,
+      });
+      if (pinResult.ok) {
+        debtPins.push({
+          kind: 'file-lines',
+          label,
+          measured,
+          target: ceiling,
+          pinnedLimit: pinResult.pinnedLimit,
+          reviewBy: fileLineDebtPins[relFromPackage].reviewBy,
+          sourceCommit: fileLineDebtPins[relFromPackage].sourceCommit,
+        });
+        continue;
+      }
       messages.push(
         `${packageDir}/${relFromPackage}: ${measured} LOC exceeds the ${ceiling}-LOC per-file ceiling. `
-        + `Extract a cohesive sub-module (see MC-5 / DZUPAGENT-CODE-L-04), or add the file to `
-        + `fileLineAllowlist with justification if it is irreducible legacy debt.`,
+        + `Extract a cohesive sub-module (see MC-5 / DZUPAGENT-CODE-L-04). `
+        + `${pinResult.message}.`,
       );
     }
   }
-  return messages;
+  return { messages, debtPins };
 }
 
 function packageDirFor(packageName) {
@@ -175,10 +246,12 @@ export function measurePackageBarrel({ root, packageName }) {
     rootIndexExists: rootIndexText !== undefined,
     rootBarrel: summarizeRootBarrel(rootIndexText ?? ''),
     rootIndexLines: countLines(rootIndexText),
+    rootIndexSha256: sha256(rootIndexText),
   };
 }
 
-function evaluateMetric({ messages, packageName, metric, measured, limit }) {
+function evaluateMetric({ messages, debtPins, packageName, metric, measured, limit,
+  rootDebtPin, sourceSha256, now }) {
   if (limit === undefined) return;
   if (typeof limit !== 'number' || !Number.isFinite(limit) || limit < 0) {
     throw new Error(`${packageName} ${metric} budget must be a non-negative number`);
@@ -188,21 +261,44 @@ function evaluateMetric({ messages, packageName, metric, measured, limit }) {
     return;
   }
   if (measured > limit) {
+    const pinResult = validateDebtPin({
+      debtPin: rootDebtPin,
+      label: packageName,
+      measured,
+      metric,
+      sourceSha256,
+      now,
+    });
+    if (pinResult.ok) {
+      debtPins.push({
+        kind: 'root-barrel',
+        label: packageName,
+        metric,
+        measured,
+        target: limit,
+        pinnedLimit: pinResult.pinnedLimit,
+        reviewBy: rootDebtPin.reviewBy,
+        sourceCommit: rootDebtPin.sourceCommit,
+      });
+      return;
+    }
     messages.push(
       `${packageName}: ${metric} exceeded `
       + `(measured ${measured}, budget ${limit}). `
-      + `Root barrels are growth-frozen — land new public API on a subpath export instead.`,
+      + `Root barrels are growth-frozen — land new public API on a subpath export instead. `
+      + `${pinResult.message}.`,
     );
   }
 }
 
-export function evaluateBarrelBudgets({ root, budgetConfig }) {
+export function evaluateBarrelBudgets({ root, budgetConfig, now = new Date() }) {
   const packageBudgets = budgetConfig?.packages;
   if (!packageBudgets || typeof packageBudgets !== 'object' || Array.isArray(packageBudgets)) {
     throw new Error('Barrel budget file must contain a "packages" object');
   }
 
   const messages = [];
+  const debtPins = [];
   const measurements = [];
 
   for (const [packageName, budget] of Object.entries(packageBudgets)) {
@@ -221,28 +317,39 @@ export function evaluateBarrelBudgets({ root, budgetConfig }) {
       for (const [metric, read] of Object.entries(ROOT_BARREL_METRICS)) {
         evaluateMetric({
           messages,
+          debtPins,
           packageName,
           metric,
           measured: read(measurement.rootBarrel),
           limit: budget[metric],
+          rootDebtPin: budget.rootDebtPin,
+          sourceSha256: measurement.rootIndexSha256,
+          now,
         });
       }
 
       evaluateMetric({
         messages,
+        debtPins,
         packageName,
         metric: 'maxRootIndexLines',
         measured: measurement.rootIndexLines,
         limit: budget.maxRootIndexLines,
+        rootDebtPin: budget.rootDebtPin,
+        sourceSha256: measurement.rootIndexSha256,
+        now,
       });
     }
 
     // Per-file LOC ceiling across the package src tree (MC-5).
-    messages.push(...evaluateFileLineCeiling({
+    const fileLineResult = evaluateFileLineCeiling({
       root,
       packageDir: measurement.packageDir,
       budget,
-    }));
+      now,
+    });
+    messages.push(...fileLineResult.messages);
+    debtPins.push(...fileLineResult.debtPins);
 
     const auxiliaryBudgets = budget.auxiliarySourceLineBudgets;
     if (auxiliaryBudgets !== undefined) {
@@ -253,10 +360,12 @@ export function evaluateBarrelBudgets({ root, budgetConfig }) {
         const measured = countLines(readText(path.join(root, measurement.packageDir, relativeSource)));
         evaluateMetric({
           messages,
+          debtPins,
           packageName,
           metric: `${relativeSource} maxLines`,
           measured,
           limit,
+          now,
         });
       }
     }
@@ -265,6 +374,7 @@ export function evaluateBarrelBudgets({ root, budgetConfig }) {
   return {
     ok: messages.length === 0,
     messages,
+    debtPins,
     measurements,
   };
 }
@@ -310,7 +420,17 @@ async function main() {
   }
 
   if (result.ok) {
-    console.log('\nBarrel budgets: ok — no root-barrel growth beyond the pinned baselines.');
+    console.log('\nBarrel budgets: ok — no growth beyond targets or source-bound debt pins.');
+    if (result.debtPins.length > 0) {
+      console.log(`Source-bound debt pins accepted: ${result.debtPins.length}`);
+      for (const pin of result.debtPins) {
+        const metric = pin.metric === undefined ? '' : ` ${pin.metric}`;
+        console.log(
+          `  - ${pin.label}${metric}: ${pin.measured} > target ${pin.target}; `
+          + `review by ${pin.reviewBy}`,
+        );
+      }
+    }
     return;
   }
 
