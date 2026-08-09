@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { AdapterInstallationRef } from '@dzupagent/adapter-types'
+import type { AdapterInstallationRef } from '@dzupagent/adapter-types/monitoring/installation'
 import { GeminiInstallationInspector } from '../gemini-inspector.js'
 import { PARTIAL_INSPECTOR_GAPS } from '../partial-inspector-gaps.js'
 import { QwenInstallationInspector } from '../qwen-inspector.js'
@@ -209,6 +209,11 @@ describe('QwenInstallationInspector (WP-M1.6)', () => {
     expect(runner.calls.map((call) => [call.command, ...call.args].join(' '))).toEqual([
       'qwen --version',
       'qwen --help',
+      'qwen mcp --help',
+      'qwen extensions --help',
+      'qwen hooks --help',
+      'qwen channel --help',
+      'qwen serve --help',
     ])
   })
 })

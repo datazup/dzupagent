@@ -4,10 +4,11 @@
  * Full normalized per-version packs live in `m1-fixture-packs.ts` (WP-M1.4).
  * The aliases below keep the inspector suite on the newest pinned capture.
  */
-import type {
-  ProbeCommand,
-  ProbeCommandRunner,
-  ProbeResult,
+import {
+  createInternalSafeProbeRunner,
+  type ProbeCommand,
+  type SafeProbeCommandRunner,
+  type ProbeResult,
 } from "../../probe-runner.js";
 import {
   CLAUDE_2_1_226_FIXTURE,
@@ -63,7 +64,7 @@ export function timedOut(): ProbeResult {
 
 /** Records every probe invocation for assertions about probe discipline. */
 export interface RecordingRunner {
-  run: ProbeCommandRunner;
+  run: SafeProbeCommandRunner;
   calls: ProbeCommand[];
 }
 
@@ -81,11 +82,13 @@ export function recordingRunner(
 
   return {
     calls,
-    run: async (command: ProbeCommand): Promise<ProbeResult> => {
-      calls.push(command);
-      const key = [command.command, ...command.args].join(" ");
-      return responses[key] ?? notInstalled();
-    },
+    run: createInternalSafeProbeRunner(
+      async (command: ProbeCommand): Promise<ProbeResult> => {
+        calls.push(command);
+        const key = [command.command, ...command.args].join(" ");
+        return responses[key] ?? notInstalled();
+      },
+    ),
   };
 }
 

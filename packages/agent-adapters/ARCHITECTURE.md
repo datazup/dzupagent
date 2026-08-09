@@ -41,6 +41,10 @@ Top-level source layout:
 - `src/index.ts`: compatibility root barrel; broad export surface.
 - `src/types.ts`: re-export bridge for `@dzupagent/adapter-types`.
 - Plane barrels: `src/providers.ts`, `src/orchestration.ts`, `src/workflow.ts`, `src/http.ts`, `src/persistence.ts`, `src/learning.ts`, `src/recovery.ts`, `src/skills.ts`, `src/enrichment.ts`, `src/hard-budget.ts`.
+- Monitoring barrels: `src/introspection/index.ts` for installation probing,
+  deterministic live/replayed run-event capability observation, effective
+  drift detection, and re-probe policy; `src/observability/dashboard.ts` for
+  dashboard projection.
 - Provider modules: `src/claude`, `src/codex`, `src/gemini`, `src/qwen`, `src/crush`, `src/goose`, `src/openrouter`, `src/openai`.
 - Registry/routing: `src/registry/*`.
 - Facade: `src/facade/*`.
@@ -75,6 +79,12 @@ Published package subpaths (`package.json` `exports`):
 - `./fleet-executors`
 - `./subagents`
 - `./routing`
+- `./introspection`
+- `./observability/dashboard`
+
+The package root remains a compatibility surface. New monitoring code imports
+contracts from `@dzupagent/adapter-types/monitoring/*` and consumers use the two
+cohesive implementation subpaths above instead of growing either package root.
 
 ## Runtime and Control Flow
 
@@ -150,6 +160,7 @@ Primary runtime APIs:
 - Rules bridge: `prepareAdapterRuleRuntime`, `withAdapterRuleRuntimePlan`, `projectAdapterRuleRuntimePlan`, `getAdapterRuleRuntimePlan`
 - Transport/integration: `AdapterHttpHandler`, `RegistryExecutionPort`, `AgentIntegrationBridge`, plugin SDK/loader exports, MCP manager/tool sharing exports
 - Persistence/logging: `FileCheckpointStore`, `RunManager`, `RunEventStore`, `ScriptRunEventStore`
+- Monitoring: `AdapterInstallationInspector`, provider inspectors, capability-manifest helpers, and `DashboardProjectionSubscriber`
 
 ## Dependencies
 

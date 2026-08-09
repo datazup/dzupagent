@@ -25,8 +25,10 @@ This document supplements the root `ARCHITECTURE.md` with package-specific detai
 | `./fleet-executors` | Fleet executor implementations and registry for multi-repo orchestration runs   |
 | `./subagents`       | Subagent runtime helpers and integration surface                                |
 | `./routing`         | Deterministic candidate materialization, selection, transition, and recovery    |
+| `./introspection`   | Safe installation probes, live/replayed capability observation, drift, and re-probe policy |
+| `./observability/dashboard` | Adapter-monitor dashboard projection and subscriber diagnostics       |
 
-All subpaths are defined in `package.json` `exports`. New consumers should prefer subpath imports over the root `.` barrel.
+All subpaths are defined in `package.json` `exports`. New consumers should prefer subpath imports over the root `.` barrel. Monitoring implementations import their contracts from the matching `@dzupagent/adapter-types/monitoring/*` plane.
 
 ## Strict Provider Input Budgets
 

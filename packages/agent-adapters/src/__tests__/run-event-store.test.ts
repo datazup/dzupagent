@@ -27,6 +27,82 @@ function makeStore(projectDir: string, runId = 'test-run-id'): RunEventStore {
 }
 
 describe('RunEventStore', () => {
+  it('reports live raw, normalized, and artifact counters and removes listeners', async () => {
+    const projectDir = await makeTmpDir()
+    const runId = 'run-dashboard-counters'
+    const store = makeStore(projectDir, runId)
+    let notifications = 0
+    const unsubscribe = store.onCountsChanged(() => notifications++)
+
+    await store.appendRaw({
+      providerId: 'claude',
+      runId,
+      timestamp: 1,
+      source: 'stdout',
+      payload: {},
+    })
+    await store.appendNormalized({
+      type: 'adapter:message',
+      providerId: 'claude',
+      content: 'hi',
+      role: 'assistant',
+      timestamp: 2,
+    })
+    await store.appendArtifact({
+      runId,
+      providerId: 'claude',
+      timestamp: 3,
+      artifactType: 'transcript',
+      path: '/tmp/transcript',
+      action: 'created',
+    })
+
+    expect(store.getCounts()).toEqual({
+      rawEventCount: 1,
+      normalizedEventCount: 1,
+      artifactCount: 1,
+    })
+    expect(notifications).toBe(3)
+    unsubscribe()
+    await store.appendRaw({
+      providerId: 'claude',
+      runId,
+      timestamp: 4,
+      source: 'stdout',
+      payload: {},
+    })
+    expect(notifications).toBe(3)
+  })
+
+  it('repairs counters from retained JSONL when a store is reopened', async () => {
+    const projectDir = await makeTmpDir()
+    const runId = 'run-retained-dashboard-counters'
+    const writer = makeStore(projectDir, runId)
+    await writer.open()
+    await writer.appendRaw({
+      providerId: 'codex',
+      runId,
+      timestamp: 1,
+      source: 'stdout',
+      payload: {},
+    })
+    await writer.appendRaw({
+      providerId: 'codex',
+      runId,
+      timestamp: 2,
+      source: 'stdout',
+      payload: {},
+    })
+
+    const reopened = makeStore(projectDir, runId)
+    await reopened.open()
+    expect(reopened.getCounts()).toEqual({
+      rawEventCount: 2,
+      normalizedEventCount: 0,
+      artifactCount: 0,
+    })
+  })
+
   describe('open()', () => {
     it('creates the run directory', async () => {
       const projectDir = await makeTmpDir()
@@ -129,6 +205,30 @@ describe('RunEventStore', () => {
   })
 
   describe('appendNormalized()', () => {
+    it('assigns stable distinct occurrence identities to identical retained records', async () => {
+      const projectDir = await makeTmpDir()
+      const store = makeStore(projectDir, 'run-occurrence-identities')
+      await store.open()
+      const event: AgentEvent = {
+        type: 'adapter:tool_call',
+        providerId: 'codex',
+        toolName: 'read',
+        toolCallId: 'same-provider-id',
+        input: {},
+        timestamp: 1,
+      }
+      await store.appendNormalized(event)
+      await store.appendNormalized(event)
+
+      const firstRead = await store.readNormalizedEventRecords()
+      const secondRead = await store.readNormalizedEventRecords()
+      expect(firstRead).toEqual([
+        { occurrenceId: 'normalized:0', event },
+        { occurrenceId: 'normalized:1', event },
+      ])
+      expect(secondRead).toEqual(firstRead)
+    })
+
     it('writes to normalized-events.jsonl', async () => {
       const projectDir = await makeTmpDir()
       const runId = 'run-norm-test'

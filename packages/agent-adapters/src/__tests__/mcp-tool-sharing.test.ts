@@ -191,6 +191,22 @@ describe('MCPToolSharingBridge', () => {
         expect(warnSpy).not.toHaveBeenCalled()
       })
 
+      it('distinguishes measured native zero from unavailable fallback invocations', () => {
+        bridge.buildAdapterToolConfig('codex')
+        bridge.buildAdapterToolConfig('gemini')
+
+        expect(bridge.getProviderObservability('codex')).toEqual({
+          providerId: 'codex',
+          mode: 'native',
+          invocationCount: 0,
+        })
+        expect(bridge.getProviderObservability('gemini')).toEqual({
+          providerId: 'gemini',
+          mode: 'system-prompt-fallback',
+          invocationCount: null,
+        })
+      })
+
       it.each(['gemini', 'qwen', 'goose', 'crush'] as const)(
         'marks %s config as system-prompt-fallback',
         (providerId) => {
@@ -239,6 +255,42 @@ describe('MCPToolSharingBridge', () => {
       })) as { result?: { content: Array<{ text: string }> } }
 
       expect(response.result?.content[0]!.text).toContain('Result from my-tool')
+    })
+
+    it('counts invocations inside the Claude in-process host path', async () => {
+      bridge.registerTool(createSharedTool('my-tool', 'claude'))
+      const config = bridge.buildAdapterToolConfig('claude') as {
+        mcpServers: Record<string, { handler: (request: unknown) => Promise<unknown> }>
+      }
+      const handler = config.mcpServers['dzupagent-tools']!.handler
+
+      await handler({ jsonrpc: '2.0', id: 'list', method: 'tools/list' })
+      await handler({
+        jsonrpc: '2.0',
+        id: 'call',
+        method: 'tools/call',
+        params: { name: 'my-tool', arguments: { input: 'host' } },
+      })
+
+      expect(bridge.getProviderObservability('claude')).toMatchObject({
+        mode: 'native',
+        invocationCount: 1,
+      })
+    })
+
+    it('counts invocations inside the Codex dynamic-tool host path', async () => {
+      bridge.registerTool(createSharedTool('my-tool', 'codex'))
+      const config = bridge.buildAdapterToolConfig('codex') as {
+        dynamicTools: Array<{ handler: (args: Record<string, unknown>) => Promise<string> }>
+      }
+
+      await expect(config.dynamicTools[0]!.handler({ input: 'host' })).resolves.toContain(
+        'Result from my-tool',
+      )
+      expect(bridge.getProviderObservability('codex')).toMatchObject({
+        mode: 'native',
+        invocationCount: 1,
+      })
     })
   })
 

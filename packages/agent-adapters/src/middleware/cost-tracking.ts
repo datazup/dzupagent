@@ -124,6 +124,7 @@ export class CostTrackingMiddleware {
 
   private accumulators = new Map<AdapterProviderId, ProviderAccumulator>();
   private totalCostCents = 0;
+  private readonly usageListeners = new Set<() => void>();
 
   /** Tracks whether each threshold has already been emitted to avoid duplicates. */
   private warningEmitted = false;
@@ -191,12 +192,19 @@ export class CostTrackingMiddleware {
     };
   }
 
+  /** Subscribe to measured usage changes for framework-owned projections. */
+  onUsageChanged(listener: () => void): () => void {
+    this.usageListeners.add(listener);
+    return () => this.usageListeners.delete(listener);
+  }
+
   /** Reset all accumulated costs and thresholds. */
   reset(): void {
     this.accumulators.clear();
     this.totalCostCents = 0;
     this.warningEmitted = false;
     this.criticalEmitted = false;
+    this.notifyUsageChanged();
   }
 
   // -----------------------------------------------------------------------
@@ -224,6 +232,7 @@ export class CostTrackingMiddleware {
     const costCents = usage.costCents ?? this.estimateCost(providerId, usage);
     acc.costCents += costCents;
     this.totalCostCents += costCents;
+    this.notifyUsageChanged();
 
     // Check per-provider budget first
     const providerLimit = this.perProviderBudgetCents[providerId];
@@ -340,5 +349,9 @@ export class CostTrackingMiddleware {
       total += acc.invocations;
     }
     return total;
+  }
+
+  private notifyUsageChanged(): void {
+    for (const listener of [...this.usageListeners]) listener();
   }
 }

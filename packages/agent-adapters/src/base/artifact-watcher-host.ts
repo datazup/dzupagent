@@ -72,6 +72,8 @@ export class ArtifactWatcherHost {
   private status: AdapterMonitorStatus;
   private activationState: "not_configured" | "active" | "stopped" =
     "not_configured";
+  private statusObservedAt = Date.now();
+  private readonly statusListeners = new Set<() => void>();
 
   constructor(private readonly providerId: AdapterProviderId) {
     this.status = getDefaultMonitorStatus(providerId);
@@ -84,11 +86,25 @@ export class ArtifactWatcherHost {
   setFactory(factory: ArtifactWatcherFactory | null): void {
     this.factory = factory;
     this.status = this.resolveIdleStatus();
+    this.statusChanged();
   }
 
   /** Returns a defensive copy of the current monitor status. */
   getStatus(): AdapterMonitorStatus {
     return { ...this.status };
+  }
+
+  getProviderId(): AdapterProviderId {
+    return this.providerId;
+  }
+
+  getStatusObservedAt(): number {
+    return this.statusObservedAt;
+  }
+
+  onStatusChanged(listener: () => void): () => void {
+    this.statusListeners.add(listener);
+    return () => this.statusListeners.delete(listener);
   }
 
   /**
@@ -110,6 +126,7 @@ export class ArtifactWatcherHost {
     if (this.watcher) return;
     if (!this.isMonitorSupported()) {
       this.status = this.unsupportedStatus();
+      this.statusChanged();
       return;
     }
     if (!this.factory) {
@@ -119,6 +136,7 @@ export class ArtifactWatcherHost {
         supported: true,
         watchedPathCount: paths.length,
       };
+      this.statusChanged();
       return;
     }
     if (paths.length === 0) {
@@ -128,6 +146,7 @@ export class ArtifactWatcherHost {
         supported: true,
         watchedPathCount: 0,
       };
+      this.statusChanged();
       return;
     }
     try {
@@ -139,6 +158,7 @@ export class ArtifactWatcherHost {
         supported: true,
         watchedPathCount: paths.length,
       };
+      this.statusChanged();
     } catch {
       // Watcher start failures must not break the run — best-effort only.
       this.watcher = null;
@@ -149,6 +169,7 @@ export class ArtifactWatcherHost {
         watchedPathCount: paths.length,
         lastError: "Artifact watcher factory failed to start",
       };
+      this.statusChanged();
     }
   }
 
@@ -163,6 +184,7 @@ export class ArtifactWatcherHost {
     this.watcher = null;
     this.activationState = "stopped";
     this.status = this.resolveIdleStatus();
+    this.statusChanged();
   }
 
   private isMonitorSupported(): boolean {
@@ -199,5 +221,10 @@ export class ArtifactWatcherHost {
       state: this.factory ? "ready" : "not_configured",
       supported: true,
     };
+  }
+
+  private statusChanged(): void {
+    this.statusObservedAt = Date.now();
+    for (const listener of [...this.statusListeners]) listener();
   }
 }

@@ -8,7 +8,7 @@
 import type {
   CredentialBinding,
   InstallationCapabilityDocument,
-} from "@dzupagent/adapter-types";
+} from "@dzupagent/adapter-types/monitoring/installation";
 import {
   AdapterInstallationInspector,
   observed,

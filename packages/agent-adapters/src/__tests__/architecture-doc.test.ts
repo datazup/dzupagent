@@ -75,6 +75,16 @@ describe('architecture docs', () => {
     }
   })
 
+  it('documents the monitoring subpaths and plane-scoped contract boundary', () => {
+    const docs = [readArchitectureDoc(), readPackageArchitectureDoc()]
+
+    for (const content of docs) {
+      expect(content).toContain('`./introspection`')
+      expect(content).toContain('`./observability/dashboard`')
+      expect(content).toContain('@dzupagent/adapter-types/monitoring/')
+    }
+  })
+
   it('authoring surface matrix names the public flow and orchestration owners', () => {
     const content = readAuthoringSurfaceMatrix()
 

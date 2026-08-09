@@ -9,7 +9,7 @@ import {
   PROBE_ENV_ALLOWLIST,
 } from "../probe-runner.js";
 import type { InspectorContext } from "../adapter-installation-inspector.js";
-import type { AdapterInstallationRef } from "@dzupagent/adapter-types";
+import type { AdapterInstallationRef } from "@dzupagent/adapter-types/monitoring/installation";
 import {
   CLAUDE_HELP_FIXTURE,
   CLAUDE_VERSION_FIXTURE,
@@ -128,7 +128,15 @@ describe("probe discipline (doc 05 §4)", () => {
     const invoked = runner.calls.map((call) =>
       [call.command, ...call.args].join(" ")
     );
-    expect(invoked).toEqual(["claude --version", "claude --help"]);
+    expect(invoked).toEqual([
+      "claude --version",
+      "claude --help",
+      "claude agents --help",
+      "claude mcp --help",
+      "claude plugin --help",
+    ]);
+    expect(invoked).not.toContain("claude auth --help");
+    expect(invoked).not.toContain("claude update --help");
     expect(invoked.some((call) => call.includes("nonexistent"))).toBe(false);
   });
 
@@ -146,7 +154,7 @@ describe("probe discipline (doc 05 §4)", () => {
 
     await inspector.inspect(claudeRef());
 
-    expect(runner.calls).toHaveLength(2);
+    expect(runner.calls).toHaveLength(5);
     for (const call of runner.calls) {
       expect(call.timeoutMs).toBe(1234);
     }

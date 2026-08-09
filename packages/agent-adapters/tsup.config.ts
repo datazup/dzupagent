@@ -21,6 +21,8 @@ export default defineConfig({
     "src/hard-budget.ts",
     "src/fleet-executors/index.ts",
     "src/subagents/index.ts",
+    "src/introspection/index.ts",
+    "src/observability/dashboard.ts",
   ],
   format: ["esm"],
   dts: false,

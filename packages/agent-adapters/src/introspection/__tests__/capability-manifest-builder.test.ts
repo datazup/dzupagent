@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type {
-  AdapterCapabilityProfile,
   AdapterInstallationRef,
   CatalogEntry,
   InstallationCapabilityDocument,
   ObservedCapabilities,
-} from '@dzupagent/adapter-types'
+} from '@dzupagent/adapter-types/monitoring/installation'
 import {
   buildCapabilityManifest,
   computeManifestHash,
@@ -13,6 +12,7 @@ import {
   effectiveCapability,
   reprobeTriggers,
 } from '../capability-manifest-builder.js'
+import { PROVIDER_CATALOG } from '../../provider-catalog.js'
 import { ClaudeInstallationInspector } from '../claude-inspector.js'
 import {
   CLAUDE_HELP_FIXTURE,
@@ -21,6 +21,8 @@ import {
   ok,
   recordingRunner,
 } from './fixtures/probe-fixtures.js'
+
+type AdapterCapabilityProfile = CatalogEntry['capabilityProfile']
 
 const BUILT_AT = '2026-08-08T12:00:00.000Z'
 
@@ -72,12 +74,21 @@ function observedWindow(
   return {
     ref,
     window: { from: '2026-08-08T11:00:00.000Z', to: '2026-08-08T11:59:00.000Z' },
+    completeness: 'complete',
     streamingSeen: null,
     usageReported: null,
     resumeSucceeded: null,
     toolLoopExecuted: null,
     interactionPromptsSeen: null,
     lastSuccessfulRunAt: '2026-08-08T11:58:00.000Z',
+    evidence: {
+      streamingSeen: null,
+      usageReported: null,
+      resumeSucceeded: null,
+      toolLoopExecuted: null,
+      interactionPromptsSeen: null,
+      lastSuccessfulRunAt: null,
+    },
     ...overrides,
   }
 }
@@ -278,6 +289,47 @@ describe('detectCapabilityDrift (FR-1.4)', () => {
     expect(detectCapabilityDrift(manifest, BUILT_AT)).toEqual([])
   })
 
+  it('attributes the effective false value to the installation override', async () => {
+    const installation = {
+      ...(await claudeDocument()),
+      ref,
+      capabilities: {
+        supportsStreaming: {
+          value: false,
+          certainty: 'observed',
+          source: 'probe:streaming-flag',
+          observedAt: '2026-08-08T11:55:00.000Z',
+        },
+      },
+    } satisfies InstallationCapabilityDocument
+    const manifest = buildCapabilityManifest({
+      ref,
+      catalog: catalog(profile({ supportsStreaming: true })),
+      installation,
+      observed: observedWindow({
+        streamingSeen: true,
+        evidence: {
+          streamingSeen: { eventIds: ['event-1'], runIds: ['run-1'] },
+          usageReported: null,
+          resumeSucceeded: null,
+          toolLoopExecuted: null,
+          interactionPromptsSeen: null,
+          lastSuccessfulRunAt: null,
+        },
+      }),
+      builtAt: BUILT_AT,
+    })
+
+    expect(detectCapabilityDrift(manifest, BUILT_AT)).toEqual([
+      expect.objectContaining({
+        declaredBy: 'installation',
+        declaredSource: 'probe:streaming-flag',
+        declaredCertainty: 'observed',
+        observedEvidence: { eventIds: ['event-1'], runIds: ['run-1'] },
+      }),
+    ])
+  })
+
   it('does not treat an unobserved capability as contradicting', () => {
     // Absence of evidence is not evidence of absence: a quiet window must not
     // manufacture a finding against a declared-true capability.
@@ -380,74 +432,149 @@ describe('detectCapabilityDrift (FR-1.4)', () => {
 })
 
 describe('reprobeTriggers (FR-1.5)', () => {
-  function freshManifest() {
+  async function freshManifest() {
+    const installation = await claudeDocument()
     return buildCapabilityManifest({
-      ref,
-      catalog: catalog(),
-      installation: null,
+      ref: installation.ref,
+      catalog: PROVIDER_CATALOG.claude,
+      installation,
       observed: null,
       builtAt: BUILT_AT,
-      installationStalenessSeconds: 86_400,
     })
   }
 
-  it('fires on a config hash change', () => {
+  it('fires on a config hash change independently', async () => {
     expect(
       reprobeTriggers({
-        manifest: freshManifest(),
+        manifest: await freshManifest(),
         driftFindings: [],
         configHashChanged: true,
       }),
-    ).toContain('config-hash-changed')
+    ).toEqual(['config-hash-changed'])
   })
 
-  it('fires on each declared trigger independently', () => {
-    const triggers = reprobeTriggers({
-      manifest: freshManifest(),
-      driftFindings: [],
-      versionChanged: true,
-      authFailureSeen: true,
-      mcpFailureSeen: true,
-    })
-
-    expect(triggers).toContain('version-changed')
-    expect(triggers).toContain('auth-failure')
-    expect(triggers).toContain('mcp-failure')
-    expect(triggers).not.toContain('config-hash-changed')
+  it('fires on an installation version change independently', async () => {
+    expect(
+      reprobeTriggers({
+        manifest: await freshManifest(),
+        driftFindings: [],
+        versionChanged: true,
+      }),
+    ).toEqual(['version-changed'])
   })
 
-  it('fires when drift was found', () => {
-    const manifest = buildCapabilityManifest({
-      ref,
-      catalog: catalog(profile({ supportsStreaming: false })),
+  it('fires on binary drift independently', async () => {
+    expect(
+      reprobeTriggers({
+        manifest: await freshManifest(),
+        driftFindings: [],
+        binaryDrift: true,
+      }),
+    ).toEqual(['binary-drift'])
+  })
+
+  it('fires after a lifecycle action independently', async () => {
+    expect(
+      reprobeTriggers({
+        manifest: await freshManifest(),
+        driftFindings: [],
+        lifecycleActionOccurred: true,
+      }),
+    ).toEqual(['lifecycle-action'])
+  })
+
+  it('fires on config drift independently', async () => {
+    expect(
+      reprobeTriggers({
+        manifest: await freshManifest(),
+        driftFindings: [],
+        configDrift: true,
+      }),
+    ).toEqual(['config-drift'])
+  })
+
+  it('fires on recipe drift independently', async () => {
+    expect(
+      reprobeTriggers({
+        manifest: await freshManifest(),
+        driftFindings: [],
+        recipeDrift: true,
+      }),
+    ).toEqual(['recipe-drift'])
+  })
+
+  it('fires on explicit operator demand independently', async () => {
+    expect(
+      reprobeTriggers({
+        manifest: await freshManifest(),
+        driftFindings: [],
+        operatorDemand: true,
+      }),
+    ).toEqual(['operator-demand'])
+  })
+
+  it('fires on capability drift independently', async () => {
+    const gooseRef: AdapterInstallationRef = {
+      installationId: 'inst-goose-01',
+      coordinates: PROVIDER_CATALOG.goose.coordinates,
+      hostBindingId: 'worker-7',
+      managed: true,
+    }
+    const driftManifest = buildCapabilityManifest({
+      ref: gooseRef,
+      catalog: PROVIDER_CATALOG.goose,
       installation: null,
-      observed: observedWindow({ streamingSeen: true }),
+      observed: observedWindow({ ref: gooseRef, streamingSeen: true }),
       builtAt: BUILT_AT,
     })
-    const findings = detectCapabilityDrift(manifest, BUILT_AT)
+    const findings = detectCapabilityDrift(driftManifest, BUILT_AT)
 
     expect(
-      reprobeTriggers({ manifest, driftFindings: findings }),
-    ).toContain('capability-drift')
+      reprobeTriggers({
+        manifest: await freshManifest(),
+        driftFindings: findings,
+      }),
+    ).toEqual(['capability-drift'])
   })
 
   it('fires on a missed staleness floor', () => {
     // A never-probed installation is stale, so it must schedule a probe.
-    expect(
-      reprobeTriggers({ manifest: freshManifest(), driftFindings: [] }),
-    ).toContain('staleness-floor-missed')
-  })
-
-  it('returns empty when nothing fired', async () => {
-    const manifest = buildCapabilityManifest({
+    const staleManifest = buildCapabilityManifest({
       ref,
-      catalog: catalog(),
-      installation: await claudeDocument(),
+      catalog: PROVIDER_CATALOG.qwen,
+      installation: null,
       observed: null,
       builtAt: BUILT_AT,
     })
+    expect(
+      reprobeTriggers({ manifest: staleManifest, driftFindings: [] }),
+    ).toEqual(['staleness-floor-missed'])
+  })
 
-    expect(reprobeTriggers({ manifest, driftFindings: [] })).toEqual([])
+  it('fires on an auth failure independently', async () => {
+    expect(
+      reprobeTriggers({
+        manifest: await freshManifest(),
+        driftFindings: [],
+        authFailureSeen: true,
+      }),
+    ).toEqual(['auth-failure'])
+  })
+
+  it('fires on an MCP failure independently', async () => {
+    expect(
+      reprobeTriggers({
+        manifest: await freshManifest(),
+        driftFindings: [],
+        mcpFailureSeen: true,
+      }),
+    ).toEqual(['mcp-failure'])
+  })
+
+  it('returns empty when nothing fired', async () => {
+    expect(
+      reprobeTriggers({ manifest: await freshManifest(), driftFindings: [] }),
+    ).toEqual([])
   })
 })
 

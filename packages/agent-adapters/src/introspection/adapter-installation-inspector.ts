@@ -25,15 +25,18 @@ import type {
   ProbedCommandTree,
   ProbedCrud,
   SourcedValue,
-} from "@dzupagent/adapter-types";
+} from "@dzupagent/adapter-types/monitoring/installation";
 import {
   DEFAULT_PROBE_TIMEOUT_MS,
-  parseHelpFlags,
-  parseHelpSubcommands,
+  isSafeProbeCommandRunner,
   parseVersion,
-  type ProbeCommandRunner,
-  type ProbeResult,
+  type SafeProbeCommandRunner,
 } from "./probe-runner.js";
+import {
+  walkHelpTree,
+  type HelpWalkCompleteness,
+  type HelpWalkLimits,
+} from "./help-walker.js";
 
 /** Version of the inspector framework, recorded on every document. */
 export const PROBE_TOOL_VERSION = "1.0.0";
@@ -45,7 +48,7 @@ export function unspecified<T>(): SourcedValue<T> {
 
 /** A fact a probe directly observed. */
 export function observed<T>(
-  value: T,
+  value: NonNullable<T>,
   source: string,
   observedAt: string
 ): SourcedValue<T> {
@@ -64,8 +67,8 @@ export function unspecifiedCrud(): ProbedCrud {
 }
 
 export interface InspectorContext {
-  /** Executes probe commands; injectable so tests stay process-free. */
-  runProbe: ProbeCommandRunner;
+  /** Framework-owned runner whose mandatory process policy cannot be weakened. */
+  runProbe: SafeProbeCommandRunner;
   /** Managed HOME the probes are pointed at. */
   managedHome: string;
   /**
@@ -77,6 +80,12 @@ export interface InspectorContext {
   readConfigFile?: (path: string) => Promise<string | null>;
   /** Per-probe timeout override. */
   timeoutMs?: number;
+  /** Bounds for the breadth-first help traversal. */
+  helpWalkLimits?: Partial<HelpWalkLimits>;
+  /** Receives stable completeness evidence without changing the frozen V1 document. */
+  onHelpWalkComplete?: (record: HelpWalkCompleteness) => void;
+  /** Monotonic clock for traversal budgets. */
+  nowMs?: () => number;
 }
 
 /** A config path an inspector knows to look for. */
@@ -97,7 +106,11 @@ export interface ConfigLayerCandidate {
  * per provider.
  */
 export abstract class AdapterInstallationInspector {
-  constructor(protected readonly context: InspectorContext) {}
+  constructor(protected readonly context: InspectorContext) {
+    if (!isSafeProbeCommandRunner(context.runProbe)) {
+      throw new TypeError("Inspector requires a framework-owned safe probe runner");
+    }
+  }
 
   /** Binary this inspector probes, e.g. `claude`. */
   protected abstract readonly binaryName: string;
@@ -147,7 +160,18 @@ export abstract class AdapterInstallationInspector {
       timeoutMs,
     });
 
-    const commands = this.buildCommandTree(helpResult);
+    const helpWalk = await walkHelpTree({
+      command: this.binaryName,
+      rootHelp: helpResult,
+      runProbe: this.context.runProbe,
+      limits: {
+        ...this.context.helpWalkLimits,
+        perProbeTimeoutMs: timeoutMs,
+      },
+      nowMs: this.context.nowMs,
+    });
+    this.context.onHelpWalkComplete?.(helpWalk.completeness);
+    const commands = helpWalk.tree;
     const configLayers = await this.probeConfigLayers();
     const version = parseVersion(versionResult.stdout || versionResult.stderr);
 
@@ -289,21 +313,6 @@ export abstract class AdapterInstallationInspector {
       },
       rawProbes: { helpSha256: sha256(""), capturePath: "" },
     };
-  }
-
-  /** Build the command tree from root help. Only advertised nodes appear. */
-  protected buildCommandTree(helpResult: ProbeResult): ProbedCommandTree {
-    const helpText = helpResult.stdout;
-    const root: CommandSpec = {
-      path: [this.binaryName],
-      flags: parseHelpFlags(helpText),
-    };
-
-    const subcommands: CommandSpec[] = parseHelpSubcommands(helpText).map(
-      (name) => ({ path: [this.binaryName, name] })
-    );
-
-    return { root, subcommands };
   }
 
   /**

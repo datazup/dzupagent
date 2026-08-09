@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { AdapterInstallationRef } from '@dzupagent/adapter-types'
+import type { AdapterInstallationRef } from '@dzupagent/adapter-types/monitoring/installation'
 import { ClaudeInstallationInspector } from '../claude-inspector.js'
 import { CodexInstallationInspector } from '../codex-inspector.js'
 import { parseHelpFlags, parseHelpSubcommands, parseVersion } from '../probe-runner.js'

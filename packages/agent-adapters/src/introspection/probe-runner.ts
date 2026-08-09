@@ -13,8 +13,9 @@
  * - HOME/XDG are redirected to a managed directory so a probe can never write
  *   into a real user profile.
  *
- * The runner is injectable ({@link ProbeCommandRunner}) so inspectors are
- * deterministic over fixtures in tests, with no process spawning at all.
+ * Inspectors accept only a framework-branded runner. Process-free fixtures are
+ * admitted through an internal test port that is deliberately absent from the
+ * package's public exports.
  */
 
 /** Outcome of one probe invocation. */
@@ -27,11 +28,29 @@ export interface ProbeResult {
   timedOut: boolean;
   /** True when the binary could not be found or executed at all. */
   spawnFailed: boolean;
+  /** Stable, redacted classification. Raw host errors are never exposed. */
+  failure?: ProbeFailureClassification;
+  /** True when either output stream exceeded the capture budget. */
+  truncated?: boolean;
+  /** Monotonic elapsed time reported by the runner. */
+  durationMs?: number;
 }
+
+export type ProbeFailureClassification =
+  | "missing-binary"
+  | "executable-identity-mismatch"
+  | "invalid-policy"
+  | "timeout"
+  | "output-limit"
+  | "invalid-encoding"
+  | "spawn-error"
+  | "exit-nonzero"
+  | "signal-exit"
+  | "capture-error";
 
 /** A single probe invocation request. */
 export interface ProbeCommand {
-  /** Absolute path or bare binary name. */
+  /** Logical executable name resolved through the runner's identity map. */
   command: string;
   /** argv tail. Never concatenated into the command string. */
   args: string[];
@@ -48,8 +67,43 @@ export type ProbeCommandRunner = (
   command: ProbeCommand,
 ) => Promise<ProbeResult>;
 
+declare const safeProbeRunnerBrand: unique symbol;
+
+/**
+ * A probe runner created by the framework-owned policy boundary.
+ *
+ * The private brand prevents an arbitrary callback from satisfying an
+ * inspector's public constructor type. Runtime membership is checked too, so
+ * untyped JavaScript callers cannot bypass policy with a lookalike function.
+ */
+export type SafeProbeCommandRunner = ProbeCommandRunner & {
+  readonly [safeProbeRunnerBrand]: true;
+};
+
+const safeProbeRunners = new WeakSet<ProbeCommandRunner>();
+
+/** @internal Test and framework-construction port; not re-exported publicly. */
+export function createInternalSafeProbeRunner(
+  runner: ProbeCommandRunner,
+): SafeProbeCommandRunner {
+  safeProbeRunners.add(runner);
+  return runner as SafeProbeCommandRunner;
+}
+
+/** @internal Runtime enforcement used by inspector construction. */
+export function isSafeProbeCommandRunner(
+  runner: unknown,
+): runner is SafeProbeCommandRunner {
+  return typeof runner === "function" && safeProbeRunners.has(runner as ProbeCommandRunner);
+}
+
 /** Default per-probe timeout. Help output is small; slow means broken. */
 export const DEFAULT_PROBE_TIMEOUT_MS = 5_000;
+
+/** Default hard bounds for one process probe. */
+export const DEFAULT_PROBE_OUTPUT_BYTES = 128 * 1024;
+export const DEFAULT_PROBE_TOTAL_DURATION_MS = 10_000;
+export const DEFAULT_PROBE_KILL_GRACE_MS = 250;
 
 /**
  * Environment variables a probe may inherit.
@@ -106,6 +160,18 @@ export function buildProbeEnv(
   env.XDG_STATE_HOME = `${options.managedHome}/.local/state`;
 
   return env;
+}
+
+/** Redact common credential forms before output crosses the probe boundary. */
+export function redactProbeText(input: string): string {
+  return input
+    .replace(/\b(Bearer\s+)[^\s]+/gi, "$1[REDACTED]")
+    .replace(
+      /\b(api[_-]?key|access[_-]?token|auth[_-]?token|password|secret)\s*([=:])\s*([^\s,;]+)/gi,
+      "$1$2[REDACTED]"
+    )
+    .replace(/([a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:)[^\s/@]+@/gi, "$1[REDACTED]@")
+    .replace(/\b(sk-[A-Za-z0-9_-]{8,})\b/g, "[REDACTED]");
 }
 
 /**

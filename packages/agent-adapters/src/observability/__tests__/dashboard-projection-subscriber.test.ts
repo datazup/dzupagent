@@ -1,11 +1,18 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { createEventBus } from "@dzupagent/core";
 import type { DzupEvent, DzupEventBus } from "@dzupagent/core";
-import type { AdapterMonitorDashboardContract } from "@dzupagent/adapter-types";
+import type { AdapterMonitorDashboardContract } from "@dzupagent/adapter-types/monitoring/dashboard";
 import {
   DashboardProjectionSubscriber,
-  UNSOURCED_V1_FIELDS,
+  createDashboardProjectionState,
   createDashboardProjectionSubscriber,
+  reduceDashboardProjection,
+  replayDashboardProjection,
+} from "../dashboard-projection-subscriber.js";
+import type {
+  DashboardProjectionEvent,
+  DashboardProjectionSource,
+  DashboardProviderMetrics,
 } from "../dashboard-projection-subscriber.js";
 
 const CONTRACT_KEYS = [
@@ -26,13 +33,22 @@ const CONTRACT_KEYS = [
   "successRate",
 ] as const;
 
+const explicitWatcherEvidence: DashboardProjectionSource = {
+  getMetrics: (providerId) => ({
+    providerId,
+    watcherState: { value: "not_configured", stale: false },
+  }),
+};
+
 describe("DashboardProjectionSubscriber", () => {
   let bus: DzupEventBus;
   let subscriber: DashboardProjectionSubscriber;
 
   beforeEach(() => {
     bus = createEventBus();
-    subscriber = createDashboardProjectionSubscriber(bus);
+    subscriber = createDashboardProjectionSubscriber(bus, {
+      watcherSource: explicitWatcherEvidence,
+    });
   });
 
   describe("FR-3.1 — materializes the existing V1 contract", () => {
@@ -267,22 +283,32 @@ describe("DashboardProjectionSubscriber", () => {
       expect(row.totalTokens).not.toBeNull();
     });
 
-    it("documents every unsourced field with a reason", () => {
-      const nullFields = [
-        "rawEventCount",
-        "normalizedEventCount",
-        "artifactCount",
-        "mcpToolUsageCount",
-        "mcpMode",
-        "fallbackCount",
-      ] as const;
+    it("preserves null, measured zero, false freshness, and stale distinctions", () => {
+      const source: DashboardProjectionSource = {
+        getProviderIds: () => ["claude"],
+        getMetrics: () => ({
+          providerId: "claude",
+          rawEventCount: { value: 0, stale: false },
+          normalizedEventCount: { value: 9, stale: true },
+          artifactCount: { value: null, stale: false },
+          mcpToolUsageCount: { value: 0, stale: false },
+          mcpMode: { value: "native", stale: true },
+          fallbackCount: { value: 0, stale: false },
+        }),
+      };
+      const sourced = createDashboardProjectionSubscriber(bus, {
+        runEventSource: source,
+        watcherSource: explicitWatcherEvidence,
+      });
 
-      for (const field of nullFields) {
-        expect(UNSOURCED_V1_FIELDS[field]).toBeTruthy();
-      }
-      expect(Object.keys(UNSOURCED_V1_FIELDS).sort()).toEqual(
-        [...nullFields].sort()
-      );
+      const row = sourced.getProjection("claude")!;
+      expect(row.rawEventCount).toBe(0);
+      expect(row.normalizedEventCount).toBeNull();
+      expect(row.artifactCount).toBeNull();
+      expect(row.mcpToolUsageCount).toBe(0);
+      expect(row.mcpMode).toBeNull();
+      expect(row.fallbackCount).toBe(0);
+      sourced.dispose();
     });
   });
 
@@ -426,6 +452,7 @@ describe("DashboardProjectionSubscriber", () => {
     it("bounds tracked runs when terminal events never arrive", () => {
       const bounded = new DashboardProjectionSubscriber(bus, {
         maxTrackedRuns: 2,
+        watcherSource: explicitWatcherEvidence,
       });
       bounded.start();
 
@@ -439,6 +466,204 @@ describe("DashboardProjectionSubscriber", () => {
 
       expect(bounded.getStats().openRuns).toBe(2);
       bounded.dispose();
+    });
+
+    it("bounds the asynchronous live-event queue with explicit overflow accounting", () => {
+      const boundedQueue = new DashboardProjectionSubscriber(bus, {
+        maxQueuedEvents: 2,
+        watcherSource: explicitWatcherEvidence,
+      });
+      boundedQueue.start();
+      bus.emit({ type: "agent:started", agentId: "codex", runId: "bounded-run" });
+      for (let index = 0; index < 7; index += 1) {
+        bus.emit({
+          type: "tool:called",
+          toolName: "read",
+          executionRunId: "bounded-run",
+        });
+      }
+
+      expect(boundedQueue.getProjection("codex")!.toolCallCount).toBe(1);
+      expect(boundedQueue.getStats().queuedEvents).toBe(0);
+      expect(boundedQueue.getStats().overflowedEvents).toBe(6);
+      boundedQueue.dispose();
+    });
+
+    it("deduplicates terminal lifecycle aliases and records process death", () => {
+      bus.emit({ type: "agent:started", agentId: "claude", runId: "run-1" });
+      bus.emit({
+        type: "adapter:run_halted",
+        providerId: "claude",
+        runId: "run-1",
+        status: "halted",
+      });
+      bus.emit({
+        type: "agent:failed",
+        agentId: "claude",
+        runId: "run-1",
+        errorCode: "AGENT_EXECUTION_FAILED",
+        message: "process exited",
+      });
+
+      expect(subscriber.getProjection("claude")!.successRate).toBe(0);
+      expect(subscriber.getStats()).toMatchObject({
+        openRuns: 0,
+        rememberedTerminalRuns: 1,
+      });
+    });
+  });
+
+  describe("pure reducer and retained replay", () => {
+    const retained: DashboardProjectionEvent[] = [
+      { type: "run_started", providerId: "claude", runId: "run-1", eventId: "e-1" },
+      { type: "tool_called", runId: "run-1", eventId: "e-2" },
+      {
+        type: "run_terminal",
+        providerId: "claude",
+        runId: "run-1",
+        outcome: "completed",
+        eventId: "e-3",
+      },
+    ];
+
+    it("does not mutate its input state", () => {
+      const initial = createDashboardProjectionState(2);
+      const next = reduceDashboardProjection(initial, retained[0]!);
+
+      expect(initial.openRuns.size).toBe(0);
+      expect(initial.providers.size).toBe(0);
+      expect(next.openRuns.size).toBe(1);
+      expect(next.providers.size).toBe(1);
+    });
+
+    it("produces equivalent state through replay and live subscriber adapters", () => {
+      const replayed = createDashboardProjectionSubscriber(bus, {
+        retainedEvents: retained,
+        watcherSource: explicitWatcherEvidence,
+      });
+      const liveBus = createEventBus();
+      const live = createDashboardProjectionSubscriber(liveBus, {
+        watcherSource: explicitWatcherEvidence,
+      });
+      liveBus.emit({ type: "agent:started", agentId: "claude", runId: "run-1" });
+      liveBus.emit({ type: "tool:called", toolName: "read", executionRunId: "run-1" });
+      liveBus.emit({
+        type: "agent:completed",
+        agentId: "claude",
+        runId: "run-1",
+        durationMs: 1,
+      });
+
+      expect(replayed.getProjection("claude")).toEqual(live.getProjection("claude"));
+      expect(replayed.getStats()).toEqual(live.getStats());
+      replayed.dispose();
+      live.dispose();
+    });
+
+    it("repairs a retained terminal event that has no retained start", () => {
+      const repaired = replayDashboardProjection([
+        {
+          type: "run_terminal",
+          providerId: "codex",
+          runId: "lost-start",
+          outcome: "process_death",
+        },
+      ]);
+      const repairedSubscriber = createDashboardProjectionSubscriber(bus, {
+        watcherSource: explicitWatcherEvidence,
+      });
+      repairedSubscriber.repair([
+        {
+          type: "run_terminal",
+          providerId: "codex",
+          runId: "lost-start",
+          outcome: "process_death",
+        },
+      ]);
+
+      expect(repaired.providers.has("codex")).toBe(true);
+      expect(repairedSubscriber.getProjection("codex")!.successRate).toBe(0);
+      repairedSubscriber.dispose();
+    });
+
+    it("deduplicates repeated retained records and ignores a late start", () => {
+      const history: DashboardProjectionEvent[] = [
+        {
+          type: "run_terminal",
+          providerId: "codex",
+          runId: "out-of-order",
+          outcome: "failed",
+          eventId: "terminal",
+        },
+        {
+          type: "run_started",
+          providerId: "codex",
+          runId: "out-of-order",
+          eventId: "start",
+        },
+        { type: "tool_called", runId: "out-of-order", eventId: "tool" },
+        { type: "tool_called", runId: "out-of-order", eventId: "tool" },
+      ];
+
+      const rebuilt = replayDashboardProjection(history);
+      expect(rebuilt.openRuns.size).toBe(0);
+      expect(rebuilt.settledRuns.size).toBe(1);
+      const repaired = createDashboardProjectionSubscriber(bus, {
+        watcherSource: explicitWatcherEvidence,
+      });
+      repaired.repair(history);
+      expect(repaired.getProjection("codex")!.toolCallCount).toBe(1);
+      expect(repaired.getProjection("codex")!.successRate).toBe(0);
+      repaired.repair(history);
+      expect(repaired.getProjection("codex")!.toolCallCount).toBe(1);
+      repaired.dispose();
+    });
+
+    it("unsubscribes injected sources during lifecycle cleanup", () => {
+      let listener: ((metrics: DashboardProviderMetrics) => void) | undefined;
+      let removals = 0;
+      const source: DashboardProjectionSource = {
+        getProviderIds: () => [],
+        getMetrics: () => null,
+        subscribe: (next) => {
+          listener = next;
+          return () => {
+            removals += 1;
+            listener = undefined;
+          };
+        },
+      };
+      const sourced = createDashboardProjectionSubscriber(bus, {
+        mcpSource: source,
+        watcherSource: explicitWatcherEvidence,
+      });
+      listener!({ providerId: "claude", mcpToolUsageCount: { value: 1 } });
+      expect(sourced.getProjection("claude")!.mcpToolUsageCount).toBe(1);
+
+      sourced.dispose();
+      expect(removals).toBe(1);
+      expect(listener).toBeUndefined();
+    });
+
+    it("does not apply retained inputs twice when restarted", () => {
+      const restarted = createDashboardProjectionSubscriber(bus, {
+        retainedEvents: retained,
+        watcherSource: explicitWatcherEvidence,
+      });
+      expect(restarted.getProjection("claude")!.toolCallCount).toBe(1);
+      restarted.dispose();
+      restarted.start();
+      expect(restarted.getProjection("claude")!.toolCallCount).toBe(1);
+      restarted.dispose();
+    });
+
+    it("omits a row when concrete watcher evidence is missing", () => {
+      const localBus = createEventBus();
+      const missing = createDashboardProjectionSubscriber(localBus);
+      localBus.emit({ type: "agent:started", agentId: "claude", runId: "run-missing" });
+
+      expect(missing.getProjection("claude")).toBeNull();
+      missing.dispose();
     });
   });
 

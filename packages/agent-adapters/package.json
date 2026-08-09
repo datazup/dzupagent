@@ -81,6 +81,14 @@
     "./subagents": {
       "types": "./dist/subagents/index.d.ts",
       "import": "./dist/subagents/index.js"
+    },
+    "./introspection": {
+      "types": "./dist/introspection/index.d.ts",
+      "import": "./dist/introspection/index.js"
+    },
+    "./observability/dashboard": {
+      "types": "./dist/observability/dashboard.d.ts",
+      "import": "./dist/observability/dashboard.js"
     }
   },
   "scripts": {

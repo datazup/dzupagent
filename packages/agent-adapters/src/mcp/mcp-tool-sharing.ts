@@ -49,6 +49,20 @@ export interface ToolSharingStats {
   toolNames: string[];
 }
 
+export type MCPProviderObservability =
+  | {
+      providerId: AdapterProviderId;
+      mode: "native";
+      /** Measured calls through a framework-owned callable host path. */
+      invocationCount: number;
+    }
+  | {
+      providerId: AdapterProviderId;
+      mode: "system-prompt-fallback";
+      /** No callable host path exists from which an invocation can be measured. */
+      invocationCount: null;
+    };
+
 // ---------------------------------------------------------------------------
 // Adapter-specific config shapes
 // ---------------------------------------------------------------------------
@@ -77,7 +91,15 @@ interface CodexToolConfig {
     name: string;
     description: string;
     inputSchema: Record<string, unknown>;
+    handler: (args: Record<string, unknown>) => Promise<string>;
   }>;
+}
+
+interface ToolHostDescriptor {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  handler: (args: Record<string, unknown>) => Promise<string>;
 }
 
 /** Config shape returned for CLI-based adapters (system prompt injection) */
@@ -95,6 +117,8 @@ export class MCPToolSharingBridge {
   private readonly mcpServer: DzupAgentMCPServer;
   private readonly serverName: string;
   private readonly eventBus: DzupEventBus | undefined;
+  private readonly providerObservability = new Map<AdapterProviderId, MCPProviderObservability>();
+  private readonly observabilityListeners = new Set<(snapshot: MCPProviderObservability) => void>();
 
   constructor(config?: MCPToolSharingConfig) {
     this.serverName = config?.serverName ?? "dzupagent-tools";
@@ -174,8 +198,10 @@ export class MCPToolSharingBridge {
 
     switch (providerId) {
       case "claude":
-        return this.buildClaudeConfig(toolList);
+        this.recordMode(providerId, "native");
+        return this.buildClaudeConfig(toolList, providerId);
       case "codex":
+        this.recordMode(providerId, "native");
         return this.buildCodexConfig(toolList);
       case "gemini":
       case "qwen":
@@ -185,6 +211,7 @@ export class MCPToolSharingBridge {
       case "openrouter":
       case "openai":
       case "ollama":
+        this.recordMode(providerId, "system-prompt-fallback");
         return this.buildCLIConfig(toolList, providerId);
     }
   }
@@ -198,6 +225,28 @@ export class MCPToolSharingBridge {
     const mcpRequest = request as MCPRequest;
     const response = await this.mcpServer.handleRequest(mcpRequest);
     return response;
+  }
+
+  private recordToolInvocation(providerId: AdapterProviderId): void {
+    const current = this.providerObservability.get(providerId);
+    if (current === undefined || current.mode !== "native") return;
+    this.publishObservability({ ...current, invocationCount: current.invocationCount + 1 });
+  }
+
+  getProviderObservability(providerId: AdapterProviderId): MCPProviderObservability | null {
+    const current = this.providerObservability.get(providerId);
+    return current === undefined ? null : { ...current };
+  }
+
+  getObservedProviderIds(): AdapterProviderId[] {
+    return [...this.providerObservability.keys()];
+  }
+
+  onProviderObservabilityChanged(
+    listener: (snapshot: MCPProviderObservability) => void
+  ): () => void {
+    this.observabilityListeners.add(listener);
+    return () => this.observabilityListeners.delete(listener);
   }
 
   /**
@@ -241,51 +290,42 @@ export class MCPToolSharingBridge {
   // Private helpers
   // ---------------------------------------------------------------------------
 
-  private buildToolList(): Array<{
-    name: string;
-    description: string;
-    inputSchema: Record<string, unknown>;
-  }> {
-    const list: Array<{
-      name: string;
-      description: string;
-      inputSchema: Record<string, unknown>;
-    }> = [];
+  private buildToolList(): ToolHostDescriptor[] {
+    const list: ToolHostDescriptor[] = [];
     for (const tool of this.tools.values()) {
       list.push({
         name: tool.name,
         description: tool.description,
         inputSchema: tool.inputSchema,
+        handler: tool.handler,
       });
     }
     return list;
   }
 
   private buildClaudeConfig(
-    toolList: Array<{
-      name: string;
-      description: string;
-      inputSchema: Record<string, unknown>;
-    }>
+    toolList: ToolHostDescriptor[],
+    providerId: AdapterProviderId
   ): ClaudeToolConfig {
     return {
       mcpMode: "native",
       mcpServers: {
         [this.serverName]: {
           type: "in-process" as const,
-          tools: toolList,
-          handler: async (request: unknown) => this.handleRequest(request),
+          tools: toolList.map(({ handler: _handler, ...descriptor }) => descriptor),
+          handler: async (request: unknown) => {
+            if ((request as { method?: unknown }).method === "tools/call") {
+              this.recordToolInvocation(providerId);
+            }
+            return this.handleRequest(request);
+          },
         },
       },
     };
   }
 
   private buildCodexConfig(
-    toolList: Array<{
-      name: string;
-      description: string;
-      inputSchema: Record<string, unknown>;
-    }>
+    toolList: ToolHostDescriptor[]
   ): CodexToolConfig {
     return {
       mcpMode: "native",
@@ -293,16 +333,16 @@ export class MCPToolSharingBridge {
         name: t.name,
         description: t.description,
         inputSchema: t.inputSchema,
+        handler: async (args: Record<string, unknown>) => {
+          this.recordToolInvocation("codex");
+          return t.handler(args);
+        },
       })),
     };
   }
 
   private buildCLIConfig(
-    toolList: Array<{
-      name: string;
-      description: string;
-      inputSchema: Record<string, unknown>;
-    }>,
+    toolList: ToolHostDescriptor[],
     providerId: AdapterProviderId
   ): CLIToolConfig {
     console.warn(
@@ -331,5 +371,26 @@ export class MCPToolSharingBridge {
     } catch {
       // Event emission is non-fatal — swallow errors silently
     }
+  }
+
+  private recordMode(
+    providerId: AdapterProviderId,
+    mode: MCPProviderObservability["mode"]
+  ): void {
+    const current = this.providerObservability.get(providerId);
+    if (mode === "system-prompt-fallback") {
+      this.publishObservability({ providerId, mode, invocationCount: null });
+      return;
+    }
+    this.publishObservability({
+      providerId,
+      mode,
+      invocationCount: current?.mode === "native" ? current.invocationCount : 0,
+    });
+  }
+
+  private publishObservability(snapshot: MCPProviderObservability): void {
+    this.providerObservability.set(snapshot.providerId, snapshot);
+    for (const listener of [...this.observabilityListeners]) listener({ ...snapshot });
   }
 }

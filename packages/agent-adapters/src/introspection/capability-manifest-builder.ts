@@ -20,9 +20,12 @@ import type {
   AdapterInstallationRef,
   CapabilityManifest,
   CatalogEntry,
+  Certainty,
   InstallationCapabilityDocument,
   ObservedCapabilities,
-} from '@dzupagent/adapter-types'
+  ObservedCapabilityEvidence,
+  SourcedValue,
+} from '@dzupagent/adapter-types/monitoring/installation'
 
 /** Capability facts that can contradict across layers. */
 export type DriftedCapability =
@@ -47,8 +50,22 @@ export interface CapabilityDriftFinding {
   observed: boolean
   /** Which layer supplied `declared`. */
   declaredBy: 'catalog' | 'installation'
+  /** Evidence source of the effective declaration that won. */
+  declaredSource: string
+  /** Confidence carried by that winning source. */
+  declaredCertainty: Exclude<Certainty, 'unspecified'>
+  /** Stable run/event ids backing the contradictory observation. */
+  observedEvidence: ObservedCapabilityEvidence | null
   detectedAt: string
   summary: string
+}
+
+/** The most-restrictive catalog/installation value with winning provenance. */
+export interface EffectiveCapabilityValue {
+  value: boolean
+  layer: 'catalog' | 'installation'
+  source: string
+  certainty: Exclude<Certainty, 'unspecified'>
 }
 
 export interface BuildManifestInput {
@@ -143,50 +160,75 @@ export function detectCapabilityDrift(
 
   const findings: CapabilityDriftFinding[] = []
   const profile = manifest.catalog.capabilityProfile
+  const installed = manifest.installation?.capabilities
 
   const checks: Array<{
     capability: DriftedCapability
     seen: boolean | null
-    declared: boolean
+    effective: EffectiveCapabilityValue
+    evidence: ObservedCapabilityEvidence | null
     label: string
   }> = [
     {
       capability: 'streaming',
       seen: observed.streamingSeen,
-      declared: profile.supportsStreaming,
+      effective: effectiveCapabilityValue(
+        profile.supportsStreaming,
+        manifest.catalog.upstream.docsUrl,
+        installed?.supportsStreaming,
+      ),
+      evidence: observed.evidence.streamingSeen,
       label: 'streaming',
     },
     {
       capability: 'usageReporting',
       seen: observed.usageReported,
-      declared: profile.supportsCostUsage,
+      effective: effectiveCapabilityValue(
+        profile.supportsCostUsage,
+        manifest.catalog.upstream.docsUrl,
+        installed?.supportsCostUsage,
+      ),
+      evidence: observed.evidence.usageReported,
       label: 'usage reporting',
     },
     {
       capability: 'resume',
       seen: observed.resumeSucceeded,
-      declared: profile.supportsResume,
+      effective: effectiveCapabilityValue(
+        profile.supportsResume,
+        manifest.catalog.upstream.docsUrl,
+        installed?.supportsResume,
+      ),
+      evidence: observed.evidence.resumeSucceeded,
       label: 'session resume',
     },
     {
       capability: 'toolLoop',
       seen: observed.toolLoopExecuted,
-      declared: profile.executesToolLoop ?? profile.supportsToolCalls,
+      effective: effectiveCapabilityValue(
+        profile.executesToolLoop ?? profile.supportsToolCalls,
+        manifest.catalog.upstream.docsUrl,
+        installed?.executesToolLoop,
+      ),
+      evidence: observed.evidence.toolLoopExecuted,
       label: 'tool loop execution',
     },
   ]
 
   for (const check of checks) {
-    if (check.seen === true && check.declared === false) {
+    if (check.seen === true && check.effective.value === false) {
       findings.push({
         kind: 'capability-drift',
         ref: manifest.ref,
         capability: check.capability,
         declared: false,
         observed: true,
-        declaredBy: 'catalog',
+        declaredBy: check.effective.layer,
+        declaredSource: check.effective.source,
+        declaredCertainty: check.effective.certainty,
+        observedEvidence: check.evidence,
         detectedAt,
-        summary: `Observed ${check.label} for ${manifest.ref.coordinates.providerId} but the catalog declares it unsupported.`,
+        summary: `Observed ${check.label} for ${manifest.ref.coordinates.providerId} but the effective ${check.effective.layer} value declares it unsupported.`,
       })
     }
   }
@@ -196,6 +238,10 @@ export function detectCapabilityDrift(
 
 /** Events that invalidate a probe and require re-inspection (FR-1.5). */
 export type ReprobeTrigger =
+  | 'binary-drift'
+  | 'config-drift'
+  | 'recipe-drift'
+  | 'operator-demand'
   | 'config-hash-changed'
   | 'version-changed'
   | 'lifecycle-action'
@@ -218,9 +264,18 @@ export function reprobeTriggers(options: {
   lifecycleActionOccurred?: boolean
   authFailureSeen?: boolean
   mcpFailureSeen?: boolean
+  /** Canonical Q3 invalidation inputs. */
+  binaryDrift?: boolean
+  configDrift?: boolean
+  recipeDrift?: boolean
+  operatorDemand?: boolean
 }): ReprobeTrigger[] {
   const triggers: ReprobeTrigger[] = []
 
+  if (options.binaryDrift === true) triggers.push('binary-drift')
+  if (options.configDrift === true) triggers.push('config-drift')
+  if (options.recipeDrift === true) triggers.push('recipe-drift')
+  if (options.operatorDemand === true) triggers.push('operator-demand')
   if (options.configHashChanged === true) triggers.push('config-hash-changed')
   if (options.versionChanged === true) triggers.push('version-changed')
   if (options.lifecycleActionOccurred === true) triggers.push('lifecycle-action')
@@ -245,6 +300,41 @@ export function effectiveCapability(
 ): boolean {
   if (installationSupports === null) return catalogSupports
   return catalogSupports && installationSupports
+}
+
+/** Resolve the effective value and retain the layer that constrained it. */
+export function effectiveCapabilityValue(
+  catalogSupports: boolean,
+  catalogSource: string,
+  installationSupports?: SourcedValue<boolean>,
+): EffectiveCapabilityValue {
+  if (!catalogSupports) {
+    return {
+      value: false,
+      layer: 'catalog',
+      source: catalogSource,
+      certainty: 'official',
+    }
+  }
+
+  if (
+    installationSupports !== undefined &&
+    installationSupports.certainty !== 'unspecified'
+  ) {
+    return {
+      value: installationSupports.value,
+      layer: 'installation',
+      source: installationSupports.source,
+      certainty: installationSupports.certainty,
+    }
+  }
+
+  return {
+    value: true,
+    layer: 'catalog',
+    source: catalogSource,
+    certainty: 'official',
+  }
 }
 
 function isStale(
