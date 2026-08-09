@@ -18,9 +18,11 @@ import type { MemoryClient, RetryPolicy, ToolPermissionPolicy } from '@dzupagent
 ```
 
 `AgentRunStateV2` and the run-event/item/invocation contracts are draft,
-data-only contracts. `AGENT_RUN_STATE_STABILITY` remains `draft` until a runner,
-compare-and-swap store, effect ledger, and exact-resume conformance suite adopt
-the shape. They do not make the legacy `DzupAgent.launch()` handle restartable.
+data-only contracts. The experimental in-memory runner now adopts the decision
+record and exact-resume subset for approval-gated read tools. Stability remains
+`draft` until durable persistence, mutation-effect fencing, session composition,
+and compatibility conformance adopt the shape. These contracts do not make the
+legacy `DzupAgent.launch()` handle restartable.
 
 ## License
 

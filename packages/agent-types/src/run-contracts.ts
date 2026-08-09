@@ -9,6 +9,7 @@
 
 export const AGENT_RUN_EVENT_SCHEMA = 'dzupagent.run-event/v1' as const
 export const AGENT_RUN_STATE_SCHEMA = 'dzupagent.agentRunState/v2' as const
+export const AGENT_SESSION_SCHEMA = 'dzupagent.agentSession/v1' as const
 export const AGENT_RUN_STATE_STABILITY = 'draft' as const
 
 export type AgentRunJsonValue =
@@ -121,6 +122,20 @@ export type AgentItem =
   | AgentGuardrailItem
   | AgentInteractionItem
 
+/** Reusable conversation history, independent of any one framework run. */
+export interface AgentSessionSnapshot {
+  readonly schema: typeof AGENT_SESSION_SCHEMA
+  readonly sessionId: string
+  readonly revision: string
+  readonly items: readonly AgentItem[]
+}
+
+export interface AgentSessionBinding {
+  readonly sessionId: string
+  readonly baseRevision: string
+  readonly transactionId?: string
+}
+
 /** Stable logical identity shared by retries and resume attempts. */
 export interface AgentInvocationIdentity {
   readonly invocationId: string
@@ -170,6 +185,26 @@ export interface AgentPendingInteraction {
   readonly decisionPolicyRef: string
   readonly decisionPolicyRevision: string
   readonly expiresAt?: string
+}
+
+export type AgentInteractionDecisionOutcome = 'approved' | 'rejected'
+
+/** Host-authorized decision evidence bound to one exact suspended interaction. */
+export interface AgentInteractionDecisionInput {
+  readonly interactionId: string
+  readonly generation: number
+  readonly requestDigest: string
+  readonly stateRevision: number
+  readonly decision: AgentInteractionDecisionOutcome
+  readonly decisionPolicyRef: string
+  readonly decisionPolicyRevision: string
+  readonly actor: AgentPrincipalReference
+}
+
+/** Durable form of a decision after the runner commits it exactly once. */
+export interface AgentInteractionDecisionRecord extends AgentInteractionDecisionInput {
+  readonly invocationId: string
+  readonly decidedAt: string
 }
 
 export interface AgentHandoffState {
@@ -225,9 +260,9 @@ export interface AgentSandboxSessionReference {
 }
 
 /**
- * Draft v2 state contract. No current runner promises exact resume from this
- * shape until the compare-and-swap store, effect ledger, and safe-point suites
- * are implemented.
+ * Draft v2 state contract. The experimental in-memory runner proves exact
+ * resume for approval-gated read tools only; durable adapters and effectful
+ * tools require their own conformance before adopting this shape.
  */
 export interface AgentRunStateV2<TContext extends AgentRunJsonValue = AgentRunJsonValue> {
   readonly schema: typeof AGENT_RUN_STATE_SCHEMA
@@ -252,15 +287,12 @@ export interface AgentRunStateV2<TContext extends AgentRunJsonValue = AgentRunJs
   readonly nextEventSeq: number
   readonly invocations: readonly AgentToolInvocationState[]
   readonly interactions: readonly AgentPendingInteraction[]
+  readonly interactionDecisions: readonly AgentInteractionDecisionRecord[]
   readonly handoffs: readonly AgentHandoffState[]
   readonly usage: AgentUsageLedger
   readonly budget: AgentBudgetState
   readonly context: AgentPersistableContext<TContext>
-  readonly sessionBinding?: {
-    readonly sessionId: string
-    readonly baseRevision: string
-    readonly transactionId?: string
-  }
+  readonly sessionBinding?: AgentSessionBinding
   readonly adapterState?: Readonly<Record<string, AgentAdapterReference>>
   readonly sandboxRef?: AgentSandboxSessionReference
   readonly createdAt: string

@@ -1,40 +1,53 @@
 import { randomUUID } from 'node:crypto'
 
 import type {
-  AgentEventJournal,
   AgentRunnerModelPort,
   AgentRunnerModelResult,
   AgentRunnerInput,
+  AgentRunnerPersistence,
   AgentRunnerReadOnlyToolPort,
-  AgentRunnerReadOnlyToolResult,
-  AgentRunStore,
+  AgentRunnerResumeInput,
 } from './runner-ports.js'
 import {
-  type AgentItem,
+  type AgentInteractionDecisionRecord,
   type AgentRunEventEnvelope,
   type AgentRunStateV2,
+  type AgentToolCallItem,
   type AgentToolInvocationState,
   type AgentUsageRecord,
 } from '@dzupagent/agent-types/run'
 
 import { assertDurableJson } from './durable-json.js'
 import {
-  createInitialAgentRunState,
   digestRunnerJson,
-  InMemoryAgentEventJournal,
-  InMemoryAgentRunStore,
+  InMemoryAgentRunnerPersistence,
   isToolCall,
   replaceInvocation,
 } from './in-memory-persistence.js'
-import { checkpointRun, failRun } from './runner-lifecycle.js'
-import { RunControl } from './run-control.js'
 import {
-  AgentRunnerPersistenceError,
-  AgentRunnerTransitionCommitter,
+  AgentRunnerResumeError,
+  assertStateJournalConsistency,
+  assertValidDecision,
+  assertValidResumeState,
+  decisionsMatch,
 } from './runner-transition-committer.js'
+import {
+  checkpointRun,
+  collectAgentRunnerExecution,
+  continueApprovedAgentRun,
+  executeAgentRunnerTool,
+  failRun,
+  startAgentRun,
+  suspendAgentRunForApproval,
+  validateDecisionBinding,
+} from './runner-lifecycle.js'
+import { RunControl } from './run-control.js'
+import { AgentRunnerTransitionCommitter } from './runner-transition-committer.js'
 
 export type AgentRunnerIdentityKind =
   | 'event'
+  | 'interaction'
+  | 'interaction-item'
   | 'invocation'
   | 'model-request'
   | 'run'
@@ -44,8 +57,7 @@ export type AgentRunnerIdentityKind =
 export interface InMemoryAgentRunnerConfig {
   readonly model: AgentRunnerModelPort
   readonly tools?: readonly AgentRunnerReadOnlyToolPort[]
-  readonly store?: AgentRunStore
-  readonly journal?: AgentEventJournal
+  readonly persistence?: InMemoryAgentRunnerPersistence
   readonly createId?: (kind: AgentRunnerIdentityKind) => string
   readonly now?: () => string
   readonly maxModelTurns?: number
@@ -64,7 +76,7 @@ export interface AgentRunnerResult {
 export class InMemoryAgentRunner {
   readonly #model: AgentRunnerModelPort
   readonly #tools: ReadonlyMap<string, AgentRunnerReadOnlyToolPort>
-  readonly #store: AgentRunStore
+  readonly #persistence: AgentRunnerPersistence
   readonly #transitions: AgentRunnerTransitionCommitter
   readonly #createId: (kind: AgentRunnerIdentityKind) => string
   readonly #now: () => string
@@ -74,15 +86,13 @@ export class InMemoryAgentRunner {
   constructor(config: InMemoryAgentRunnerConfig) {
     this.#model = config.model
     this.#tools = new Map((config.tools ?? []).map((tool) => [tool.toolId, tool]))
-    this.#store = config.store ?? new InMemoryAgentRunStore()
-    const journal = config.journal ?? new InMemoryAgentEventJournal()
+    this.#persistence = config.persistence ?? new InMemoryAgentRunnerPersistence()
     this.#createId = config.createId ?? ((kind) => `${kind}-${randomUUID()}`)
     this.#now = config.now ?? (() => new Date().toISOString())
     this.#maxModelTurns = config.maxModelTurns ?? 4
     this.#maxToolAttempts = config.maxToolAttempts ?? 2
     this.#transitions = new AgentRunnerTransitionCommitter({
-      store: this.#store,
-      journal,
+      persistence: this.#persistence,
       createEventId: () => this.#createId('event'),
       now: this.#now,
     })
@@ -100,45 +110,183 @@ export class InMemoryAgentRunner {
       this.#tools.size !== (config.tools ?? []).length ||
       [...this.#tools.values()].some((tool) => tool.effectClass !== 'read')
     ) {
-      throw new TypeError('AgentRunner R3 tools must be unique read-only tools')
+      throw new TypeError('AgentRunner R4 tools must be unique read-only tools')
     }
   }
 
   async run(input: AgentRunnerInput, options: AgentRunnerOptions = {}): Promise<AgentRunnerResult> {
-    const execution = this.stream(input, options)
-    let step = await execution.next()
-    while (!step.done) step = await execution.next()
-    return step.value
+    return collectAgentRunnerExecution(this.stream(input, options))
   }
 
   stream(
     input: AgentRunnerInput,
     options: AgentRunnerOptions = {},
   ): AsyncGenerator<AgentRunEventEnvelope, AgentRunnerResult> {
-    return this.#execute(input, options.control ?? new RunControl())
+    const control = options.control ?? new RunControl()
+    return startAgentRun({
+      input,
+      persistence: this.#persistence,
+      transitions: this.#transitions,
+      runId: this.#createId('run'),
+      now: this.#now(),
+      continueRun: (state, events) => this.#drive(state, control, events, 0),
+    })
   }
 
-  async *#execute(
-    input: AgentRunnerInput,
+  async resume(
+    input: AgentRunnerResumeInput,
+    options: AgentRunnerOptions = {},
+  ): Promise<AgentRunnerResult> {
+    return collectAgentRunnerExecution(this.resumeStream(input, options))
+  }
+
+  resumeStream(
+    input: AgentRunnerResumeInput,
+    options: AgentRunnerOptions = {},
+  ): AsyncGenerator<AgentRunEventEnvelope, AgentRunnerResult> {
+    return this.#executeResume(input, options.control ?? new RunControl())
+  }
+
+  async *#executeResume(
+    input: AgentRunnerResumeInput,
     control: RunControl,
   ): AsyncGenerator<AgentRunEventEnvelope, AgentRunnerResult> {
-    const events: AgentRunEventEnvelope[] = []
-    let state = createInitialAgentRunState(input, this.#createId('run'), this.#now())
-    const created = await this.#store.create(state)
-    if (created.status !== 'created') {
-      throw new AgentRunnerPersistenceError('run-create-conflict')
+    const loaded: unknown = await this.#persistence.loadRun(input.runId)
+    if (loaded === undefined) throw new AgentRunnerResumeError('run-not-found')
+    assertValidResumeState(loaded)
+    let state = loaded
+    const events = [...(await this.#persistence.readEvents(input.runId))]
+    assertStateJournalConsistency(state, events)
+    assertValidDecision(input.decision)
+
+    if (state.agent.behaviorDigest !== input.behaviorDigest) {
+      throw new AgentRunnerResumeError('behavior-mismatch')
     }
-    state = created.state
 
-    let committed = await this.#transitions.commit(state, 'run.started', { status: 'running' }, (current) => ({
-      ...current,
-      status: 'running',
-    }))
-    state = committed.state
-    events.push(committed.event)
-    yield committed.event
+    const priorDecision = state.interactionDecisions.find(
+      (decision) =>
+        decision.interactionId === input.decision.interactionId &&
+        decision.generation === input.decision.generation,
+    )
+    let approvedInvocationId: string
+    if (priorDecision !== undefined) {
+      if (!decisionsMatch(priorDecision, input.decision)) {
+        throw new AgentRunnerResumeError('decision-conflict')
+      }
+      if (state.status !== 'suspended') {
+        throw new AgentRunnerResumeError('decision-already-applied')
+      }
+      if (priorDecision.decision === 'rejected') {
+        return yield* failRun(
+          state,
+          control,
+          events,
+          'interaction-rejected',
+          this.#transitions,
+        )
+      }
+      approvedInvocationId = priorDecision.invocationId
+    } else {
+      if (state.status !== 'suspended') throw new AgentRunnerResumeError('not-suspended')
+      const interaction = state.interactions.find(
+        (entry) => entry.interactionId === input.decision.interactionId,
+      )
+      if (interaction === undefined) throw new AgentRunnerResumeError('interaction-not-found')
+      validateDecisionBinding(state, interaction, input.decision, this.#now)
 
-    let turn = 0
+      const invocation = state.invocations.find(
+        (entry) => entry.invocationId === interaction.invocationId,
+      )
+      if (invocation === undefined || invocation.state !== 'approval-required') {
+        throw new AgentRunnerResumeError('interaction-not-found')
+      }
+      const tool = this.#tools.get(invocation.toolId)
+      if (tool === undefined) throw new AgentRunnerResumeError('tool-not-found')
+      if (tool.toolRevision !== invocation.toolRevision) {
+        throw new AgentRunnerResumeError('tool-revision-mismatch')
+      }
+      const toolCall = state.committedItems.find(
+        (item): item is AgentToolCallItem =>
+          item.type === 'tool-call' &&
+          item.callId === invocation.callId &&
+          item.toolId === invocation.toolId,
+      )
+      if (toolCall === undefined) throw new AgentRunnerResumeError('tool-call-not-found')
+
+      const decisionRecord: AgentInteractionDecisionRecord = {
+        ...input.decision,
+        invocationId: invocation.invocationId,
+        decidedAt: this.#now(),
+      }
+      const decidedInvocation: AgentToolInvocationState = {
+        ...invocation,
+        state: input.decision.decision === 'approved' ? 'approved' : 'rejected',
+      }
+      const resolved = await this.#transitions.commit(
+        state,
+        'interaction.resolved',
+        {
+          interactionId: interaction.interactionId,
+          generation: interaction.generation,
+          invocationId: invocation.invocationId,
+          decision: input.decision.decision,
+          actorId: input.decision.actor.principalId,
+          actorType: input.decision.actor.principalType,
+        },
+        (current) => ({
+          ...current,
+          invocations: replaceInvocation(current, decidedInvocation),
+          interactions: current.interactions.filter(
+            (entry) => entry.interactionId !== interaction.interactionId,
+          ),
+          interactionDecisions: [...current.interactionDecisions, decisionRecord],
+          committedItems: current.committedItems.map((item) =>
+            item.type === 'interaction' && item.interactionId === interaction.interactionId
+              ? { ...item, state: 'resolved' }
+              : item,
+          ),
+        }),
+      )
+      state = resolved.state
+      events.push(resolved.event)
+      yield resolved.event
+      if (input.decision.decision === 'rejected') {
+        return yield* failRun(
+          state,
+          control,
+          events,
+          'interaction-rejected',
+          this.#transitions,
+        )
+      }
+      approvedInvocationId = invocation.invocationId
+    }
+
+    const executed = yield* continueApprovedAgentRun({
+      state,
+      control,
+      events,
+      invocationId: approvedInvocationId,
+      tools: this.#tools,
+      maxToolAttempts: this.#maxToolAttempts,
+      createToolResultItemId: () => this.#createId('tool-result-item'),
+      transitions: this.#transitions,
+    })
+    state = executed.state
+    if (executed.terminal) return { state, events }
+
+    const completedModelTurns = events.filter((event) => event.type === 'model.requested').length
+    return yield* this.#drive(state, control, events, completedModelTurns)
+  }
+
+  async *#drive(
+    initialState: AgentRunStateV2,
+    control: RunControl,
+    events: AgentRunEventEnvelope[],
+    initialTurn: number,
+  ): AsyncGenerator<AgentRunEventEnvelope, AgentRunnerResult> {
+    let state = initialState
+    let turn = initialTurn
     while (turn < this.#maxModelTurns) {
       const beforeModel = yield* checkpointRun(
         state,
@@ -152,7 +300,7 @@ export class InMemoryAgentRunner {
 
       turn += 1
       const requestId = this.#createId('model-request')
-      committed = await this.#transitions.commit(
+      let committed = await this.#transitions.commit(
         state,
         'model.requested',
         { requestId, turn },
@@ -309,164 +457,33 @@ export class InMemoryAgentRunner {
       events.push(committed.event)
       yield committed.event
 
-      let toolCompleted = false
-      while (invocation.attempt <= this.#maxToolAttempts) {
-        const beforeTool = yield* checkpointRun(
+      if (tool.approval !== undefined) {
+        const suspended = yield* suspendAgentRunForApproval({
           state,
-          control,
-          'before-tool-dispatch',
           events,
-          this.#transitions,
-        )
-        state = beforeTool.state
-        if (beforeTool.cancelled) return { state, events }
-
-        invocation = { ...invocation, state: 'started' }
-        committed = await this.#transitions.commit(
-          state,
-          'tool.started',
-          { invocationId, callId: invocation.callId, executionAttempt: invocation.attempt },
-          (current) => ({
-            ...current,
-            invocations: replaceInvocation(current, invocation),
-          }),
-        )
-        state = committed.state
-        events.push(committed.event)
-        yield committed.event
-
-        let toolResult: AgentRunnerReadOnlyToolResult
-        try {
-          toolResult = await tool.execute({
-            runId: state.runId,
-            invocationId,
-            callId: invocation.callId,
-            attempt: invocation.attempt,
-            input: modelResult.item.arguments,
-          })
-          assertDurableJson(toolResult)
-        } catch {
-          invocation = { ...invocation, state: 'effect-unknown' }
-          committed = await this.#transitions.commit(
-            state,
-            'tool.failed',
-            {
-              invocationId,
-              executionAttempt: invocation.attempt,
-              outcome: 'effect-unknown',
-            },
-            (current) => ({
-              ...current,
-              invocations: replaceInvocation(current, invocation),
-            }),
-          )
-          state = committed.state
-          events.push(committed.event)
-          yield committed.event
-          return yield* failRun(
-            state,
-            control,
-            events,
-            'tool-outcome-unknown',
-            this.#transitions,
-          )
-        }
-
-        if (toolResult.status === 'failed-before-effect') {
-          invocation = { ...invocation, state: 'failed-before-effect' }
-          committed = await this.#transitions.commit(
-            state,
-            'tool.failed',
-            {
-              invocationId,
-              executionAttempt: invocation.attempt,
-              outcome: 'failed-before-effect',
-              code: toolResult.code,
-              retryable: toolResult.retryable,
-            },
-            (current) => ({
-              ...current,
-              invocations: replaceInvocation(current, invocation),
-            }),
-          )
-          state = committed.state
-          events.push(committed.event)
-          yield committed.event
-
-          if (!toolResult.retryable || invocation.attempt >= this.#maxToolAttempts) {
-            return yield* failRun(
-              state,
-              control,
-              events,
-              'tool-failed-before-effect',
-              this.#transitions,
-            )
-          }
-          invocation = { ...invocation, attempt: invocation.attempt + 1 }
-          continue
-        }
-
-        const resultDigest = digestRunnerJson(toolResult.output)
-        invocation = {
-          ...invocation,
-          state: 'completed',
-          resultDigest,
-          completionEvidence: toolResult.completionEvidence ?? { resultDigest },
-        }
-        committed = await this.#transitions.commit(
-          state,
-          'tool.completed',
-          {
-            invocationId,
-            executionAttempt: invocation.attempt,
-            resultDigest,
-            effectClass: 'read',
-          },
-          (current) => ({
-            ...current,
-            invocations: replaceInvocation(current, invocation),
-          }),
-        )
-        state = committed.state
-        events.push(committed.event)
-        yield committed.event
-
-        const toolResultItem: AgentItem = {
-          type: 'tool-result',
-          itemId: this.#createId('tool-result-item'),
-          callId: invocation.callId,
-          output: toolResult.output,
-          isError: false,
-        }
-        committed = await this.#transitions.commit(
-          state,
-          'item.added',
-          { itemId: toolResultItem.itemId, itemType: toolResultItem.type },
-          (current) => ({
-            ...current,
-            committedItems: [...current.committedItems, toolResultItem],
-          }),
-        )
-        state = committed.state
-        events.push(committed.event)
-        yield committed.event
-        toolCompleted = true
-
-        const afterTool = yield* checkpointRun(
-          state,
-          control,
-          'after-tool-dispatch',
-          events,
-          this.#transitions,
-        )
-        state = afterTool.state
-        if (afterTool.cancelled) return { state, events }
-        break
+          invocation,
+          toolCall: modelResult.item,
+          tool,
+          interactionId: this.#createId('interaction'),
+          interactionItemId: this.#createId('interaction-item'),
+          transitions: this.#transitions,
+        })
+        return { state: suspended, events }
       }
 
-      if (!toolCompleted) {
-        return yield* failRun(state, control, events, 'tool-attempt-limit', this.#transitions)
-      }
+      const executed = yield* executeAgentRunnerTool({
+        state,
+        control,
+        events,
+        tool,
+        invocation,
+        input: modelResult.item.arguments,
+        maxToolAttempts: this.#maxToolAttempts,
+        createToolResultItemId: () => this.#createId('tool-result-item'),
+        transitions: this.#transitions,
+      })
+      state = executed.state
+      if (executed.terminal) return { state, events }
     }
 
     return yield* failRun(state, control, events, 'model-turn-limit', this.#transitions)

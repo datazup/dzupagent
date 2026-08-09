@@ -60,16 +60,23 @@ const reviewTool = agent.asTool({ description: 'Run code review' })
 
 ### Experimental cohesive runner
 
-`@dzupagent/agent/runner` exposes the provider-free R3 runner foundation:
-`InMemoryAgentRunner`, `RunControl`, `InMemoryAgentRunStore`, and
-`InMemoryAgentEventJournal`. It accepts only the bounded runner model port and
-read-only tool port exported from the same subpath. `run()` and `stream()` use
-one scheduler and return canonical `@dzupagent/agent-types/run` state/events.
+`@dzupagent/agent/runner` exposes the provider-free R4 runner slice:
+`InMemoryAgentRunner`, `RunControl`, and `InMemoryAgentRunnerPersistence`. It
+accepts only the bounded runner model port and read-only tool port exported from
+the same subpath. One scheduler drives new and resumed `run()`/`stream()`
+projections and returns canonical `@dzupagent/agent-types/run` state/events.
 
-This subpath is experimental. Persistence is memory-only, state CAS and event
-append are not yet one durable transaction, exact process-restart resume is not
-implemented, and it does not replace or control legacy `DzupAgent.generate()`,
-`stream()`, or `launch()`.
+The in-memory persistence seam commits each successor state and event together.
+Approval-required read tools suspend before dispatch, and `resume()` or
+`resumeStream()` can continue the same invocation in a new runner instance after
+a digest-, revision-, generation-, policy-, and actor-bound decision. The legacy
+`InMemoryAgentRunStore` and `InMemoryAgentEventJournal` remain lower-level
+experimental primitives; the exact-resume runner does not compose them
+sequentially.
+
+This subpath remains experimental and memory-only. It does not qualify a durable
+adapter, mutation-capable tool, live provider, or production host, and it does
+not replace or control legacy `DzupAgent.generate()`, `stream()`, or `launch()`.
 
 ### Agent
 

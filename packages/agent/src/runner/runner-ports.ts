@@ -1,10 +1,13 @@
 import type {
   AgentItem,
   AgentBudgetState,
+  AgentInteractionDecisionInput,
   AgentMessageItem,
+  AgentPrincipalReference,
   AgentRunEventEnvelope,
   AgentRunJsonValue,
   AgentRunStateV2,
+  AgentSessionSnapshot,
   AgentPersistableContext,
   AgentToolCallItem,
 } from '@dzupagent/agent-types/run'
@@ -13,14 +16,18 @@ export interface AgentRunnerInput {
   readonly agentId: string
   readonly behaviorDigest: string
   readonly items: readonly AgentItem[]
+  readonly sessionId?: string
   readonly context?: AgentPersistableContext
   readonly budget?: AgentBudgetState
 }
 
-/**
- * Experimental compare-and-swap persistence for one canonical framework run
- * state. Target ownership is adapter-types, pending a layer-safe contract edge.
- */
+export interface AgentRunnerResumeInput {
+  readonly runId: string
+  readonly behaviorDigest: string
+  readonly decision: AgentInteractionDecisionInput
+}
+
+/** Experimental CAS run-state store */
 export interface AgentRunStore {
   load(runId: string): Promise<AgentRunStateV2 | undefined>
   create(state: AgentRunStateV2): Promise<AgentRunStoreCreateResult>
@@ -54,7 +61,7 @@ export type AgentRunStoreCompareAndSwapResult =
       readonly reason: 'revision-not-successor' | 'run-id-mismatch'
     }
 
-/** Experimental ordered append-only evidence for canonical framework events. */
+/** Experimental append-only event journal */
 export interface AgentEventJournal {
   append(event: AgentRunEventEnvelope): Promise<AgentEventJournalAppendResult>
   read(runId: string): Promise<readonly AgentRunEventEnvelope[]>
@@ -74,6 +81,147 @@ export type AgentEventJournalAppendResult =
       readonly existingRunId: string
       readonly existingSequence: number
     }
+
+/**
+ * Experimental atomic state-and-event seam used by exact in-memory resume.
+ * Durable adapters must provide equivalent atomicity or recoverable idempotency.
+ * @internal
+ */
+export interface AgentRunnerPersistence {
+  createRun(state: AgentRunStateV2): Promise<AgentRunStoreCreateResult>
+  loadRun(runId: string): Promise<AgentRunStateV2 | undefined>
+  readEvents(runId: string): Promise<readonly AgentRunEventEnvelope[]>
+  beginSessionTransaction(
+    input: AgentRunnerSessionBeginInput,
+  ): Promise<AgentRunnerSessionBeginResult>
+  loadSessionTransaction(
+    transactionId: string,
+  ): Promise<AgentRunnerSessionTransaction | undefined>
+  commitSessionTransaction(
+    input: AgentRunnerSessionCommitInput,
+  ): Promise<AgentRunnerSessionCommitResult>
+  abortSessionTransaction(
+    transactionId: string,
+  ): Promise<AgentRunnerSessionAbortResult>
+  commitTransition(
+    transition: AgentRunnerPersistenceTransition,
+  ): Promise<AgentRunnerPersistenceCommitResult>
+}
+
+/** @internal */
+export interface AgentRunnerPersistenceTransition {
+  readonly runId: string
+  readonly expectedRevision: number
+  readonly nextState: AgentRunStateV2
+  readonly event: AgentRunEventEnvelope
+}
+
+/** @internal */
+export type AgentRunnerPersistenceCommitResult =
+  | {
+      readonly status: 'committed'
+      readonly state: AgentRunStateV2
+      readonly event: AgentRunEventEnvelope
+    }
+  | { readonly status: 'run-not-found'; readonly runId: string }
+  | {
+      readonly status: 'revision-conflict'
+      readonly runId: string
+      readonly expectedRevision: number
+      readonly actualRevision: number
+    }
+  | {
+      readonly status: 'invalid-transition'
+      readonly reason:
+        | 'run-id-mismatch'
+        | 'revision-not-successor'
+        | 'state-event-revision-mismatch'
+        | 'state-event-sequence-mismatch'
+    }
+  | {
+      readonly status: 'event-sequence-conflict'
+      readonly attemptedSequence: number
+      readonly expectedSequence: number
+    }
+  | {
+      readonly status: 'event-id-conflict'
+      readonly eventId: string
+      readonly existingRunId: string
+      readonly existingSequence: number
+    }
+  | { readonly status: 'injected-failure'; readonly phase: 'state' | 'journal' }
+
+/** @internal */
+export type AgentRunnerSessionErrorCode =
+  | 'injected-failure'
+  | 'invalid-session'
+  | 'revision-conflict'
+  | 'session-not-found'
+  | 'transaction-closed'
+  | 'transaction-content-conflict'
+  | 'transaction-id-conflict'
+  | 'transaction-not-found'
+
+/** @internal */
+export interface AgentRunnerSessionTransaction {
+  readonly sessionId: string
+  readonly transactionId: string
+  readonly baseRevision: string
+  readonly stagedInput: readonly AgentItem[]
+  readonly status: 'open' | 'committed' | 'aborted'
+  readonly baseSnapshot: AgentSessionSnapshot
+  readonly finalDigest?: string
+  readonly committedRevision?: string
+  readonly committedSnapshot?: AgentSessionSnapshot
+}
+
+/** @internal */
+export interface AgentRunnerSessionBeginInput {
+  readonly sessionId: string
+  readonly transactionId: string
+  readonly stagedInput: readonly AgentItem[]
+}
+
+/** @internal */
+export type AgentRunnerSessionBeginResult =
+  | {
+      readonly status: 'opened' | 'already-open'
+      readonly snapshot: AgentSessionSnapshot
+      readonly transaction: AgentRunnerSessionTransaction
+    }
+  | { readonly status: 'rejected'; readonly code: AgentRunnerSessionErrorCode }
+
+/** @internal */
+export interface AgentRunnerSessionCommitInput {
+  readonly sessionId: string
+  readonly transactionId: string
+  readonly baseRevision: string
+  readonly items: readonly AgentItem[]
+}
+
+/** @internal */
+export type AgentRunnerSessionCommitResult =
+  | {
+      readonly status: 'committed' | 'already-committed'
+      readonly snapshot: AgentSessionSnapshot
+    }
+  | {
+      readonly status: 'rejected'
+      readonly code: AgentRunnerSessionErrorCode
+      readonly actualRevision?: string
+    }
+
+/** @internal */
+export type AgentRunnerSessionAbortResult =
+  | { readonly status: 'aborted' | 'already-aborted' }
+  | { readonly status: 'rejected'; readonly code: AgentRunnerSessionErrorCode }
+
+export interface AgentRunnerToolApprovalRequirement {
+  readonly requestedBy: AgentPrincipalReference
+  readonly decisionPolicyRef: string
+  readonly decisionPolicyRevision: string
+  readonly expiresAt?: string
+}
 
 export interface AgentRunnerModelToolDescriptor {
   readonly toolId: string
@@ -105,10 +253,7 @@ export interface AgentRunnerModelResult {
   readonly usage?: AgentRunnerModelUsage
 }
 
-/**
- * One low-level model invocation. Queueing, leases, durable host status, and
- * provider credentials remain outside this framework port.
- */
+/** Low-level model invocation; host lifecycle and credentials stay outside. */
 export interface AgentRunnerModelPort {
   readonly adapterId: string
   invoke(request: AgentRunnerModelRequest): Promise<AgentRunnerModelResult>
@@ -134,10 +279,11 @@ export type AgentRunnerReadOnlyToolResult =
       readonly retryable: boolean
     }
 
-/** Bounded R3 tool port: the executable slice admits read-only effects only. */
+/** Bounded read-only tool port. */
 export interface AgentRunnerReadOnlyToolPort {
   readonly toolId: string
   readonly toolRevision: string
   readonly effectClass: 'read'
+  readonly approval?: AgentRunnerToolApprovalRequirement | undefined
   execute(request: AgentRunnerReadOnlyToolRequest): Promise<AgentRunnerReadOnlyToolResult>
 }

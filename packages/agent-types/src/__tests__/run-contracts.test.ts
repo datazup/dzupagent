@@ -1,6 +1,7 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import {
   AGENT_RUN_EVENT_SCHEMA,
+  AGENT_SESSION_SCHEMA,
   AGENT_RUN_STATE_SCHEMA,
   AGENT_RUN_STATE_STABILITY,
   type AgentRunEventEnvelope,
@@ -59,6 +60,7 @@ const state = {
       decisionPolicyRevision: '4',
     },
   ],
+  interactionDecisions: [],
   handoffs: [
     {
       handoffId: 'handoff-1',
@@ -114,6 +116,7 @@ function migrationStatus(result: AgentRunStateMigrationResult): string {
 describe('draft AgentRunner data contracts', () => {
   it('publishes explicit version and stability markers', () => {
     expect(AGENT_RUN_EVENT_SCHEMA).toBe('dzupagent.run-event/v1')
+    expect(AGENT_SESSION_SCHEMA).toBe('dzupagent.agentSession/v1')
     expect(AGENT_RUN_STATE_SCHEMA).toBe('dzupagent.agentRunState/v2')
     expect(AGENT_RUN_STATE_STABILITY).toBe('draft')
   })
@@ -163,5 +166,17 @@ describe('draft AgentRunner data contracts', () => {
     }
 
     expect(JSON.parse(JSON.stringify(extension))).toEqual(extension)
+  })
+
+  it('keeps reusable conversation history distinct from run state', () => {
+    const session = {
+      schema: AGENT_SESSION_SCHEMA,
+      sessionId: 'session-1',
+      revision: '0',
+      items: state.input,
+    }
+
+    expect(JSON.parse(JSON.stringify(session))).toEqual(session)
+    expect(session.schema).not.toBe(state.schema)
   })
 })

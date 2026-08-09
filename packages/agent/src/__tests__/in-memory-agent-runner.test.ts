@@ -11,9 +11,8 @@ import type { AgentRunEventEnvelope } from '@dzupagent/agent-types/run'
 
 import {
   AgentRunnerSerializationError,
-  InMemoryAgentEventJournal,
   InMemoryAgentRunner,
-  InMemoryAgentRunStore,
+  InMemoryAgentRunnerPersistence,
   RunControl,
   assertDurableJson,
   type AgentRunnerIdentityKind,
@@ -121,18 +120,17 @@ function deterministicIds(): (kind: AgentRunnerIdentityKind) => string {
 function createRunner(
   model: AgentRunnerModelPort,
   tool: AgentRunnerReadOnlyToolPort,
-  store = new InMemoryAgentRunStore(),
-): { runner: InMemoryAgentRunner; store: InMemoryAgentRunStore } {
+  persistence = new InMemoryAgentRunnerPersistence(),
+): { runner: InMemoryAgentRunner; persistence: InMemoryAgentRunnerPersistence } {
   return {
     runner: new InMemoryAgentRunner({
       model,
       tools: [tool],
-      store,
-      journal: new InMemoryAgentEventJournal(),
+      persistence,
       createId: deterministicIds(),
       now: () => '2026-08-09T12:00:00.000Z',
     }),
-    store,
+    persistence,
   }
 }
 
@@ -152,7 +150,7 @@ describe('in-memory AgentRunner', () => {
   it('observes pause before model dispatch and resumes without an early provider call', async () => {
     const model = new ScriptedModel([finalResult])
     const tool = new ScriptedReadTool([])
-    const { runner, store } = createRunner(model, tool)
+    const { runner, persistence } = createRunner(model, tool)
     const control = new RunControl()
     const acknowledgement = control.requestPause()
     expect(acknowledgement).toMatchObject({ accepted: true, state: 'requested' })
@@ -164,7 +162,7 @@ describe('in-memory AgentRunner', () => {
       safePoint: 'before-model-dispatch',
     })
     expect(model.calls).toHaveLength(0)
-    expect((await store.load('run-1'))?.status).toBe('suspended')
+    expect((await persistence.loadRun('run-1'))?.status).toBe('suspended')
 
     expect(control.resume()).toBe(true)
     const result = await resultPromise
@@ -208,7 +206,7 @@ describe('in-memory AgentRunner', () => {
       },
     }
     const tool = new ScriptedReadTool([{ status: 'completed', output: { value: 'fixture' } }])
-    const { runner, store } = createRunner(model, tool)
+    const { runner, persistence } = createRunner(model, tool)
     const control = new RunControl()
     const resultPromise = runner.run(input, { control })
     await modelStarted.promise
@@ -220,7 +218,7 @@ describe('in-memory AgentRunner', () => {
       safePoint: 'before-tool-dispatch',
     })
     expect(tool.calls).toHaveLength(0)
-    expect((await store.load('run-1'))?.status).toBe('suspended')
+    expect((await persistence.loadRun('run-1'))?.status).toBe('suspended')
 
     control.resume()
     expect((await resultPromise).state.status).toBe('completed')
@@ -258,14 +256,14 @@ describe('in-memory AgentRunner', () => {
       },
     }
     const model = new ScriptedModel([toolCallResult])
-    const { runner, store } = createRunner(model, tool)
+    const { runner, persistence } = createRunner(model, tool)
     const control = new RunControl()
     const resultPromise = runner.run(input, { control })
     await toolStarted.promise
 
     const acknowledgement = control.requestCancel()
     if (!acknowledgement.accepted) throw new Error('Expected accepted cancel')
-    expect((await store.load('run-1'))?.status).toBe('running')
+    expect((await persistence.loadRun('run-1'))?.status).toBe('running')
     toolGate.resolve({ status: 'completed', output: { value: 'fixture' } })
 
     const result = await resultPromise

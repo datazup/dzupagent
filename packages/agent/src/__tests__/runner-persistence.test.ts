@@ -6,7 +6,11 @@ import {
   type AgentRunStateV2,
 } from '@dzupagent/agent-types/run'
 
-import { InMemoryAgentEventJournal, InMemoryAgentRunStore } from '../runner.js'
+import {
+  InMemoryAgentEventJournal,
+  InMemoryAgentRunnerPersistence,
+  InMemoryAgentRunStore,
+} from '../runner.js'
 
 const now = '2026-08-09T12:00:00.000Z'
 
@@ -27,6 +31,7 @@ function createState(revision = 0): AgentRunStateV2 {
     nextEventSeq: revision,
     invocations: [],
     interactions: [],
+    interactionDecisions: [],
     handoffs: [],
     usage: { records: [] },
     budget: {
@@ -57,6 +62,41 @@ function createEvent(eventId: string, sequence: number): AgentRunEventEnvelope {
 }
 
 describe('in-memory AgentRunner persistence', () => {
+  it('atomically commits one successor state with its corresponding event', async () => {
+    const persistence = new InMemoryAgentRunnerPersistence()
+    expect(await persistence.createRun(createState())).toMatchObject({ status: 'created' })
+
+    expect(
+      await persistence.commitTransition({
+        runId: 'run-cas',
+        expectedRevision: 0,
+        nextState: createState(1),
+        event: createEvent('event-0', 0),
+      }),
+    ).toMatchObject({ status: 'committed', state: { revision: 1 }, event: { sequence: 0 } })
+    expect((await persistence.loadRun('run-cas'))?.revision).toBe(1)
+    expect(await persistence.readEvents('run-cas')).toHaveLength(1)
+  })
+
+  it.each(['state', 'journal'] as const)(
+    'does not expose a successor revision after an injected %s failure',
+    async (phase) => {
+      const persistence = new InMemoryAgentRunnerPersistence({ failCommit: () => phase })
+      expect(await persistence.createRun(createState())).toMatchObject({ status: 'created' })
+
+      expect(
+        await persistence.commitTransition({
+          runId: 'run-cas',
+          expectedRevision: 0,
+          nextState: createState(1),
+          event: createEvent('event-0', 0),
+        }),
+      ).toEqual({ status: 'injected-failure', phase })
+      expect((await persistence.loadRun('run-cas'))?.revision).toBe(0)
+      expect(await persistence.readEvents('run-cas')).toEqual([])
+    },
+  )
+
   it('advances state with compare-and-swap and rejects a stale writer deterministically', async () => {
     const store = new InMemoryAgentRunStore()
     expect(await store.create(createState())).toMatchObject({ status: 'created' })
