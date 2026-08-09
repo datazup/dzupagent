@@ -9,6 +9,10 @@ import type {
   MCPResourceTemplate,
 } from "@dzupagent/core/pipeline";
 
+export interface MCPRequestProtocolContext {
+  protocolVersion?: string;
+}
+
 /** A single streamed event from a compatible DzupAgent runtime. */
 export interface AgentStreamEvent {
   type:
@@ -172,10 +176,33 @@ export interface AgentRouterConfig {
  * Minimal MCP server surface expected by the shared Express MCP router.
  */
 export interface MCPRequestHandler {
-  handleRequest(request: MCPRequest): Promise<MCPResponse | null>;
+  handleRequest(
+    request: MCPRequest,
+    context?: MCPRequestProtocolContext
+  ): Promise<MCPResponse | null>;
   listTools(): MCPToolDescriptor[];
   listResources?(): MCPResource[];
   listResourceTemplates?(): MCPResourceTemplate[];
+}
+
+export interface MCPRouterCurrentProtocolConfig {
+  /** Current stateless revision. Defaults to 2026-07-28. */
+  version?: string;
+  /** Server identity attached to current results. */
+  serverInfo: { name: string; version: string };
+  /** Capabilities returned by server/discover. */
+  capabilities?: Record<string, unknown>;
+  /** Optional model-facing guidance returned by server/discover. */
+  instructions?: string;
+  /** Safe cache hints for current cacheable results. */
+  cache?: { ttlMs?: number; cacheScope?: "private" | "public" };
+}
+
+export interface MCPRouterProtocolConfig {
+  /** Legacy revisions accepted without stateless metadata validation. */
+  legacyVersions?: string[];
+  /** Enables the stateless current-protocol boundary. */
+  current?: MCPRouterCurrentProtocolConfig;
 }
 
 export type MCPRequestHandlerResolver =
@@ -233,6 +260,8 @@ export interface MCPRouterConfig {
    * Defaults to `defaultLogger` from `@dzupagent/core`.
    */
   logger?: FrameworkLogger;
+  /** Explicit revision-aware HTTP protocol handling. Omit for legacy behavior. */
+  protocol?: MCPRouterProtocolConfig;
   /** Optional route toggles for metadata/listing endpoints */
   expose?: {
     tools?: boolean;

@@ -9,7 +9,16 @@ export {
 export type { MCPTransportCapabilityDescriptor } from './mcp-transport-capabilities.js'
 export { mcpToolToLangChain, mcpToolsToLangChain, langChainToolToMcp } from './mcp-tool-bridge.js'
 export { DeferredToolLoader } from './deferred-loader.js'
-export { DzupAgentMCPServer, isMCPRequest } from './mcp-server.js'
+export {
+  CURRENT_MCP_PROTOCOL_VERSION,
+  DzupAgentMCPServer,
+  LEGACY_MCP_PROTOCOL_VERSION,
+  isMCPRequest,
+} from './mcp-server.js'
+export type {
+  MCPCurrentProtocolOptions,
+  MCPRequestProtocolContext,
+} from './mcp-server.js'
 export type {
   MCPServerOptions,
   MCPExposedTool,

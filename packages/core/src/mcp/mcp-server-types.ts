@@ -26,6 +26,27 @@ export interface MCPRequest {
   params?: Record<string, unknown>
 }
 
+export const LEGACY_MCP_PROTOCOL_VERSION = '2025-11-25'
+export const CURRENT_MCP_PROTOCOL_VERSION = '2026-07-28'
+
+export interface MCPRequestProtocolContext {
+  protocolVersion?: string
+}
+
+export interface MCPCurrentProtocolOptions {
+  /** Enable the stateless 2026-07-28 request/result contract. */
+  enabled?: boolean
+  /** Versions advertised by server/discover. Defaults to 2026-07-28 only. */
+  supportedVersions?: string[]
+  /** Optional model-facing guidance returned by server/discover. */
+  instructions?: string
+  /** Safe cache defaults for cacheable results. */
+  cache?: {
+    ttlMs?: number
+    cacheScope?: 'private' | 'public'
+  }
+}
+
 export interface MCPResponse {
   jsonrpc: '2.0'
   id: MCPRequestId
@@ -97,6 +118,8 @@ export interface MCPServerOptions {
   version: string
   /** MCP protocol version to advertise. Default: 2024-11-05 */
   protocolVersion?: string
+  /** Optional stateless current-protocol support. Disabled by default. */
+  currentProtocol?: MCPCurrentProtocolOptions
   /** Initial set of tools to expose */
   tools?: MCPExposedTool[]
   /** Initial set of resources to expose */

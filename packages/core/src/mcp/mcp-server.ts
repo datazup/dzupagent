@@ -25,11 +25,17 @@ export type {
   MCPExposedResourceTemplate,
   MCPExposedTool,
   MCPInitializeResult,
+  MCPCurrentProtocolOptions,
   MCPRequest,
+  MCPRequestProtocolContext,
   MCPRequestId,
   MCPResponse,
   MCPServerCapabilities,
   MCPServerOptions,
 } from './mcp-server-types.js'
 
+export {
+  CURRENT_MCP_PROTOCOL_VERSION,
+  LEGACY_MCP_PROTOCOL_VERSION,
+} from './mcp-server-types.js'
 export { isMCPRequest } from './mcp-server-utils.js'

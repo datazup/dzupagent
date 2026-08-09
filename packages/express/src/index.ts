@@ -11,7 +11,10 @@ export type {
   MCPRequestContextFailureHandler,
   MCPRequestContextResolver,
   MCPRequestHandlerResolver,
+  MCPRequestProtocolContext,
   MCPRouterConfig,
+  MCPRouterCurrentProtocolConfig,
+  MCPRouterProtocolConfig,
 } from "./types.js";
 export { SSEHandler, SSEWriter } from "./sse-handler.js";
 export { SSEProjectionRouter, withProjection } from "./sse-projections.js";
@@ -32,3 +35,7 @@ export {
   setMcpRequestContext,
 } from "./mcp-context.js";
 export { createMcpRouter } from "./mcp-router.js";
+export {
+  classifyMcpHttpRequest,
+  decorateCurrentMcpResponse,
+} from "./mcp-protocol.js";

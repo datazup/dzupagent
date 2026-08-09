@@ -21,12 +21,14 @@ import type {
   MCPExposedResourceTemplate,
   MCPExposedTool,
   MCPInitializeResult,
+  MCPRequestProtocolContext,
   MCPRequest,
   MCPResponse,
   MCPServerCapabilities,
   MCPServerOptions,
 } from "./mcp-server-types.js";
 import {
+  CURRENT_MCP_PROTOCOL_VERSION,
   DEFAULT_PROTOCOL_VERSION,
   JSON_RPC_INVALID_REQUEST,
   JSON_RPC_METHOD_NOT_FOUND,
@@ -60,6 +62,10 @@ export class DzupAgentMCPServer {
   private readonly prompts: Map<string, MCPExposedPrompt> = new Map();
   private readonly capabilityOverrides: MCPServerCapabilities | undefined;
   private readonly samplingHandler: SamplingHandler | undefined;
+  private readonly currentProtocol:
+    | Required<Pick<NonNullable<MCPServerOptions["currentProtocol"]>, "enabled">> &
+        NonNullable<MCPServerOptions["currentProtocol"]>
+    | undefined;
 
   constructor(options: MCPServerOptions) {
     this.serverName = options.name;
@@ -67,6 +73,9 @@ export class DzupAgentMCPServer {
     this.protocolVersion = options.protocolVersion ?? DEFAULT_PROTOCOL_VERSION;
     this.capabilityOverrides = options.capabilities;
     this.samplingHandler = options.samplingHandler;
+    this.currentProtocol = options.currentProtocol
+      ? { enabled: options.currentProtocol.enabled ?? true, ...options.currentProtocol }
+      : undefined;
 
     for (const tool of options.tools ?? []) {
       this.tools.set(tool.name, tool);
@@ -209,7 +218,10 @@ export class DzupAgentMCPServer {
   }
 
   /** Handle a JSON-RPC request implementing the MCP server protocol surface. */
-  async handleRequest(request: MCPRequest): Promise<MCPResponse | null> {
+  async handleRequest(
+    request: MCPRequest,
+    context: MCPRequestProtocolContext = {}
+  ): Promise<MCPResponse | null> {
     if (!isMCPRequest(request)) {
       return buildError(null, JSON_RPC_INVALID_REQUEST, "Invalid MCP request");
     }
@@ -217,11 +229,34 @@ export class DzupAgentMCPServer {
     const hasId = Object.prototype.hasOwnProperty.call(request, "id");
     const { id, method, params } = request;
     const responseId = hasId ? id ?? null : null;
+    const isCurrent =
+      context.protocolVersion === CURRENT_MCP_PROTOCOL_VERSION &&
+      this.currentProtocol?.enabled === true;
 
     let response: MCPResponse;
     switch (method) {
       case "initialize":
+        if (isCurrent) {
+          response = buildError(
+            responseId,
+            JSON_RPC_METHOD_NOT_FOUND,
+            "Unknown method: initialize"
+          );
+          break;
+        }
         response = buildResult(responseId, this.buildInitializeResult());
+        break;
+
+      case "server/discover":
+        if (!isCurrent) {
+          response = buildError(
+            responseId,
+            JSON_RPC_METHOD_NOT_FOUND,
+            "Unknown method: server/discover"
+          );
+          break;
+        }
+        response = buildResult(responseId, this.buildDiscoverResult());
         break;
 
       // MCP utility: a sender MAY issue `ping` to check liveness; the receiver
@@ -277,7 +312,8 @@ export class DzupAgentMCPServer {
         );
     }
 
-    return hasId ? response : null;
+    if (!hasId) return null;
+    return isCurrent ? this.applyCurrentResultContract(method, response) : response;
   }
 
   private buildInitializeResult(): MCPInitializeResult {
@@ -290,4 +326,57 @@ export class DzupAgentMCPServer {
       capabilities: this.getCapabilities(),
     };
   }
+
+  private buildDiscoverResult(): Record<string, unknown> {
+    const current = this.currentProtocol;
+    return {
+      supportedVersions: current?.supportedVersions ?? [CURRENT_MCP_PROTOCOL_VERSION],
+      capabilities: this.getCapabilities(),
+      ...(current?.instructions !== undefined && {
+        instructions: current.instructions,
+      }),
+    };
+  }
+
+  private applyCurrentResultContract(
+    method: string,
+    response: MCPResponse
+  ): MCPResponse {
+    if (!response.result || typeof response.result !== "object" || Array.isArray(response.result)) {
+      return response;
+    }
+
+    const result = response.result as Record<string, unknown>;
+    const cacheable = new Set([
+      "server/discover",
+      "tools/list",
+      "resources/list",
+      "resources/templates/list",
+      "resources/read",
+      "prompts/list",
+    ]).has(method);
+
+    return {
+      ...response,
+      result: {
+        ...result,
+        ...(cacheable && {
+          ttlMs: this.currentProtocol?.cache?.ttlMs ?? 0,
+          cacheScope: this.currentProtocol?.cache?.cacheScope ?? "private",
+        }),
+        resultType: "complete",
+        _meta: {
+          ...(isRecord(result["_meta"]) ? result["_meta"] : {}),
+          "io.modelcontextprotocol/serverInfo": {
+            name: this.serverName,
+            version: this.serverVersion,
+          },
+        },
+      },
+    };
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

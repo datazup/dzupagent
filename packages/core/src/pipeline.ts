@@ -130,8 +130,14 @@ export {
   langChainToolToMcp,
 } from "./mcp/mcp-tool-bridge.js";
 export { DeferredToolLoader } from "./mcp/deferred-loader.js";
-export { DzupAgentMCPServer, isMCPRequest } from "./mcp/mcp-server.js";
+export {
+  CURRENT_MCP_PROTOCOL_VERSION,
+  DzupAgentMCPServer,
+  LEGACY_MCP_PROTOCOL_VERSION,
+  isMCPRequest,
+} from "./mcp/mcp-server.js";
 export type {
+  MCPCurrentProtocolOptions,
   MCPServerOptions,
   MCPExposedTool,
   MCPExposedResource,
@@ -140,6 +146,7 @@ export type {
   MCPServerCapabilities,
   MCPInitializeResult,
   MCPRequest,
+  MCPRequestProtocolContext,
   MCPRequestId,
   MCPResponse,
 } from "./mcp/mcp-server.js";

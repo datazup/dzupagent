@@ -5,6 +5,11 @@ import type { MCPRequest, MCPRequestId } from "@dzupagent/core/pipeline";
 import { defaultLogger } from "@dzupagent/core/utils";
 import { routeError } from "./route-error.js";
 import type { MCPRequestHandler, MCPRouterConfig } from "./types.js";
+import {
+  buildCurrentMcpDiscoverResponse,
+  classifyMcpHttpRequest,
+  decorateCurrentMcpResponse,
+} from "./mcp-protocol.js";
 
 const JSON_RPC_INVALID_REQUEST = -32600;
 const JSON_RPC_INTERNAL_ERROR = -32603;
@@ -55,11 +60,32 @@ export function createMcpRouter(config: MCPRouterConfig): Router {
         return;
       }
 
+      const classification = classifyMcpHttpRequest(
+        req,
+        body,
+        config.protocol
+      );
+      if (!classification.ok) {
+        res.status(classification.status).json(classification.response);
+        return;
+      }
+
       try {
         const server = await resolveServer(config, req);
         await config.hooks?.beforeRequest?.(req, body);
 
-        const response = await server.handleRequest(body);
+        let response =
+          classification.current && body.method === "server/discover"
+            ? buildCurrentMcpDiscoverResponse(body, config.protocol!)
+            : await server.handleRequest(body, classification.context);
+
+        if (classification.current && response !== null) {
+          response = decorateCurrentMcpResponse(
+            body.method,
+            response,
+            config.protocol!
+          );
+        }
 
         await config.hooks?.afterRequest?.(req, body, response);
 
@@ -68,7 +94,9 @@ export function createMcpRouter(config: MCPRouterConfig): Router {
           return;
         }
 
-        res.json(response);
+        const status =
+          classification.current && response.error?.code === -32601 ? 404 : 200;
+        res.status(status).json(response);
       } catch (err: unknown) {
         const requestId = extractRequestId(body);
         // Logs unconditionally via the configured logger: the `onError` hook is

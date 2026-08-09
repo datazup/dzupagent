@@ -2,6 +2,94 @@ import { describe, expect, it, vi } from "vitest";
 import { DzupAgentMCPServer, isMCPRequest } from "../mcp-server.js";
 
 describe("DzupAgentMCPServer", () => {
+  it("supports the stateless current discovery and result contract without changing legacy initialize", async () => {
+    const server = new DzupAgentMCPServer({
+      name: "dual-stack-server",
+      version: "2.0.0",
+      protocolVersion: "2025-11-25",
+      currentProtocol: { enabled: true },
+      tools: [
+        {
+          name: "zeta",
+          description: "Zeta tool",
+          inputSchema: { type: "object", properties: {} },
+          handler: async () => "ok",
+        },
+      ],
+    });
+
+    const legacy = await server.handleRequest({
+      jsonrpc: "2.0",
+      id: "legacy",
+      method: "initialize",
+    });
+    expect(legacy).toEqual({
+      jsonrpc: "2.0",
+      id: "legacy",
+      result: {
+        protocolVersion: "2025-11-25",
+        serverInfo: { name: "dual-stack-server", version: "2.0.0" },
+        capabilities: { tools: {} },
+      },
+    });
+
+    const currentContext = { protocolVersion: "2026-07-28" };
+    const discovery = await server.handleRequest(
+      {
+        jsonrpc: "2.0",
+        id: "discover",
+        method: "server/discover",
+        params: {},
+      },
+      currentContext
+    );
+    expect(discovery).toEqual({
+      jsonrpc: "2.0",
+      id: "discover",
+      result: {
+        supportedVersions: ["2026-07-28"],
+        capabilities: { tools: {} },
+        ttlMs: 0,
+        cacheScope: "private",
+        resultType: "complete",
+        _meta: {
+          "io.modelcontextprotocol/serverInfo": {
+            name: "dual-stack-server",
+            version: "2.0.0",
+          },
+        },
+      },
+    });
+
+    const tools = await server.handleRequest(
+      { jsonrpc: "2.0", id: "tools", method: "tools/list", params: {} },
+      currentContext
+    );
+    expect(tools).toEqual(
+      expect.objectContaining({
+        result: expect.objectContaining({
+          ttlMs: 0,
+          cacheScope: "private",
+          resultType: "complete",
+        }),
+      })
+    );
+
+    const initialize = await server.handleRequest(
+      { jsonrpc: "2.0", id: "no-init", method: "initialize", params: {} },
+      currentContext
+    );
+    expect(initialize).toEqual({
+      jsonrpc: "2.0",
+      id: "no-init",
+      error: {
+        code: -32601,
+        message: "Unknown method: initialize",
+        data: undefined,
+      },
+    });
+  });
+
   it("advertises initialize capabilities for tools, resources, prompts, and sampling", async () => {
     const server = new DzupAgentMCPServer({
       name: "tooling-server",
