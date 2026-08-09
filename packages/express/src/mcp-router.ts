@@ -94,8 +94,7 @@ export function createMcpRouter(config: MCPRouterConfig): Router {
           return;
         }
 
-        const status =
-          classification.current && response.error?.code === -32601 ? 404 : 200;
+        const status = currentResponseStatus(classification.current, response);
         res.status(status).json(response);
       } catch (err: unknown) {
         const requestId = extractRequestId(body);
@@ -152,6 +151,13 @@ export function createMcpRouter(config: MCPRouterConfig): Router {
   }
 
   return router;
+}
+
+function currentResponseStatus(current: boolean, response: { error?: { code: number } }): number {
+  if (!current || !response.error) return 200;
+  if (response.error.code === -32601) return 404;
+  if ([-32602, -32020, -32021, -32022].includes(response.error.code)) return 400;
+  return 200;
 }
 
 async function resolveServer(

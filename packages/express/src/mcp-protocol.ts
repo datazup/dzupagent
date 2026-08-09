@@ -40,7 +40,20 @@ export function classifyMcpHttpRequest(
 
   if (currentIntent) {
     if (!config.current) {
-      return unsupported(id, String(headerVersion ?? metaVersion));
+      return unsupported(
+        id,
+        String(headerVersion ?? metaVersion),
+        [...legacyVersions]
+      );
+    }
+    if (!meta) {
+      return invalidParams(id, "request params must include _meta");
+    }
+    if (typeof metaVersion !== "string") {
+      return invalidParams(
+        id,
+        "request _meta must include io.modelcontextprotocol/protocolVersion"
+      );
     }
     if (headerVersion !== currentVersion || metaVersion !== currentVersion) {
       return mismatch(
@@ -49,19 +62,18 @@ export function classifyMcpHttpRequest(
       );
     }
 
-    const currentMeta = meta ?? {};
     const clientCapabilities =
-      currentMeta["io.modelcontextprotocol/clientCapabilities"];
+      meta["io.modelcontextprotocol/clientCapabilities"];
     if (!isRecord(clientCapabilities)) {
-      return mismatch(
+      return invalidParams(
         id,
         "request _meta must include object io.modelcontextprotocol/clientCapabilities"
       );
     }
 
-    const clientInfo = currentMeta["io.modelcontextprotocol/clientInfo"];
+    const clientInfo = meta["io.modelcontextprotocol/clientInfo"];
     if (clientInfo !== undefined && !isImplementation(clientInfo)) {
-      return mismatch(
+      return invalidParams(
         id,
         "io.modelcontextprotocol/clientInfo must contain string name and version"
       );
@@ -92,10 +104,10 @@ export function classifyMcpHttpRequest(
   }
 
   if (headerVersion && !legacyVersions.has(headerVersion)) {
-    return unsupported(id, headerVersion);
+    return unsupported(id, headerVersion, [currentVersion]);
   }
   if (typeof metaVersion === "string" && !legacyVersions.has(metaVersion)) {
-    return unsupported(id, metaVersion);
+    return unsupported(id, metaVersion, [currentVersion]);
   }
 
   return {
@@ -240,7 +252,8 @@ function mismatch(id: MCPRequestId, message: string): MCPHttpClassification {
 
 function unsupported(
   id: MCPRequestId,
-  requested: string
+  requested: string,
+  supported: string[]
 ): MCPHttpClassification {
   return {
     ok: false,
@@ -252,13 +265,25 @@ function unsupported(
         code: MCP_UNSUPPORTED_PROTOCOL_VERSION,
         message: `Unsupported MCP protocol version: ${requested}`,
         data: {
-          supported: [
-            LEGACY_MCP_PROTOCOL_VERSION,
-            CURRENT_MCP_PROTOCOL_VERSION,
-          ],
+          supported,
           requested,
         },
       },
+    },
+  };
+}
+
+function invalidParams(
+  id: MCPRequestId,
+  message: string
+): MCPHttpClassification {
+  return {
+    ok: false,
+    status: 400,
+    response: {
+      jsonrpc: "2.0",
+      id,
+      error: { code: -32602, message: `Invalid params: ${message}` },
     },
   };
 }

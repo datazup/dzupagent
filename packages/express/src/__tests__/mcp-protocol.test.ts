@@ -81,7 +81,7 @@ describe("current MCP HTTP protocol boundary", () => {
     expect(missing).toMatchObject({
       ok: false,
       status: 400,
-      response: { error: { code: -32020 } },
+      response: { error: { code: -32602 } },
     });
 
     const mismatch = classifyMcpHttpRequest(

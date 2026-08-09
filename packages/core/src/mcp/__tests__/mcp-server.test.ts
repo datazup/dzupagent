@@ -88,6 +88,20 @@ describe("DzupAgentMCPServer", () => {
         data: undefined,
       },
     });
+
+    const removedPing = await server.handleRequest(
+      { jsonrpc: "2.0", id: "no-ping", method: "ping" },
+      currentContext
+    );
+    expect(removedPing).toEqual({
+      jsonrpc: "2.0",
+      id: "no-ping",
+      error: {
+        code: -32601,
+        message: "Unknown method: ping",
+        data: undefined,
+      },
+    });
   });
 
   it("advertises initialize capabilities for tools, resources, prompts, and sampling", async () => {

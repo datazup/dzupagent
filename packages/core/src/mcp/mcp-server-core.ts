@@ -263,7 +263,13 @@ export class DzupAgentMCPServer {
       // MUST respond promptly with an empty result. See
       // https://modelcontextprotocol.io/specification/2025-06-18/basic/utilities/ping
       case "ping":
-        response = buildResult(responseId, {});
+        response = isCurrent
+          ? buildError(
+              responseId,
+              JSON_RPC_METHOD_NOT_FOUND,
+              "Unknown method: ping"
+            )
+          : buildResult(responseId, {});
         break;
 
       case "tools/list":
@@ -298,11 +304,17 @@ export class DzupAgentMCPServer {
         break;
 
       case "sampling/createMessage":
-        response = await handleSamplingRequest(
-          this.samplingHandler,
-          responseId,
-          params
-        );
+        response = isCurrent
+          ? buildError(
+              responseId,
+              JSON_RPC_METHOD_NOT_FOUND,
+              "Unknown method: sampling/createMessage"
+            )
+          : await handleSamplingRequest(
+              this.samplingHandler,
+              responseId,
+              params
+            );
         break;
       default:
         response = buildError(
