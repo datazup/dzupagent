@@ -18,7 +18,7 @@
     "packages/agent-adapters/scripts/dashboard-projection-benchmark.mjs": "0a3fcd074daeeff69c5a5ba4f2ff2e30d986aefdfb6d58dd715b43d16127e908"
   },
   "builtArtifactBindings": {
-    "packages/agent-adapters/dist/.dzup-build-artifacts.json": "7ebfa3f32f5b35792caed8ee5f31825bd4c9a19e7eb61a75836a9f9b05c519ae",
+    "packages/agent-adapters/dist/.dzup-build-artifacts.json": "def1c979a6c96e94da67a4e55fc720c3ee016f1078b963c78d506468edeafb42",
     "packages/agent-adapters/dist/observability/dashboard.js": "8fae9272586454bc3320c482e3e4c8753b13f2d28e621f5e6b7d4febf8fc85ba",
     "packages/agent-adapters/dist/runs/index.js": "5e2f561f71e3f757b9411b730b7d51c6d74be903a987076b8eec671a67998c6b"
   },
@@ -26,27 +26,27 @@
   "warmUp": 5,
   "repetitions": 25,
   "baseline": {
-    "medianMs": 0.615568,
-    "p95Ms": 0.92655,
-    "varianceMs2": 0.0139309598216256
+    "medianMs": 0.806238,
+    "p95Ms": 1.350407,
+    "varianceMs2": 0.07613051958387838
   },
   "dashboard": {
-    "medianMs": 4.615624,
-    "p95Ms": 7.816669,
-    "varianceMs2": 4.46248163595281
+    "medianMs": 5.001855,
+    "p95Ms": 12.647949,
+    "varianceMs2": 14.604846533367109
   },
   "delta": {
-    "absoluteMedianMs": 4.000056000000001,
-    "relativeMedian": 6.498154549944117,
-    "relativeMedianPercent": 649.8154549944118
+    "absoluteMedianMs": 4.195617,
+    "relativeMedian": 5.203943500554427,
+    "relativeMedianPercent": 520.3943500554427
   },
   "runtime": {
     "node": "v22.17.0",
     "platform": "linux",
     "architecture": "x64",
     "cpu": {
-      "user": 1081958,
-      "system": 118653
+      "user": 1702328,
+      "system": 171133
     }
   },
   "nfr": {
