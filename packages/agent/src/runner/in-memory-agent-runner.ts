@@ -55,7 +55,7 @@ export type AgentRunnerIdentityKind =
 export interface InMemoryAgentRunnerConfig {
   readonly model: AgentRunnerModelPort
   readonly tools?: readonly AgentRunnerReadOnlyToolPort[]
-  readonly persistence?: InMemoryAgentRunnerPersistence
+  readonly persistence?: AgentRunnerPersistence
   readonly createId?: (kind: AgentRunnerIdentityKind) => string
   readonly now?: () => string
   readonly maxModelTurns?: number

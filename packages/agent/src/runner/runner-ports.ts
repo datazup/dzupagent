@@ -27,6 +27,8 @@ export interface AgentRunnerResumeInput {
   readonly decision: AgentInteractionDecisionInput
 }
 
+export const AGENT_RUNNER_PERSISTENCE_PORT_VERSION = '0.1.0' as const
+
 /** Experimental CAS run-state store */
 export interface AgentRunStore {
   load(runId: string): Promise<AgentRunStateV2 | undefined>
@@ -85,7 +87,6 @@ export type AgentEventJournalAppendResult =
 /**
  * Experimental atomic state-and-event seam used by exact in-memory resume.
  * Durable adapters must provide equivalent atomicity or recoverable idempotency.
- * @internal
  */
 export interface AgentRunnerPersistence {
   createRun(state: AgentRunStateV2): Promise<AgentRunStoreCreateResult>
@@ -108,7 +109,6 @@ export interface AgentRunnerPersistence {
   ): Promise<AgentRunnerPersistenceCommitResult>
 }
 
-/** @internal */
 export interface AgentRunnerPersistenceTransition {
   readonly runId: string
   readonly expectedRevision: number
@@ -116,7 +116,6 @@ export interface AgentRunnerPersistenceTransition {
   readonly event: AgentRunEventEnvelope
 }
 
-/** @internal */
 export type AgentRunnerPersistenceCommitResult =
   | {
       readonly status: 'committed'
@@ -151,7 +150,6 @@ export type AgentRunnerPersistenceCommitResult =
     }
   | { readonly status: 'injected-failure'; readonly phase: 'state' | 'journal' }
 
-/** @internal */
 export type AgentRunnerSessionErrorCode =
   | 'injected-failure'
   | 'invalid-session'
@@ -162,7 +160,6 @@ export type AgentRunnerSessionErrorCode =
   | 'transaction-id-conflict'
   | 'transaction-not-found'
 
-/** @internal */
 export interface AgentRunnerSessionTransaction {
   readonly sessionId: string
   readonly transactionId: string
@@ -175,14 +172,12 @@ export interface AgentRunnerSessionTransaction {
   readonly committedSnapshot?: AgentSessionSnapshot
 }
 
-/** @internal */
 export interface AgentRunnerSessionBeginInput {
   readonly sessionId: string
   readonly transactionId: string
   readonly stagedInput: readonly AgentItem[]
 }
 
-/** @internal */
 export type AgentRunnerSessionBeginResult =
   | {
       readonly status: 'opened' | 'already-open'
@@ -191,7 +186,6 @@ export type AgentRunnerSessionBeginResult =
     }
   | { readonly status: 'rejected'; readonly code: AgentRunnerSessionErrorCode }
 
-/** @internal */
 export interface AgentRunnerSessionCommitInput {
   readonly sessionId: string
   readonly transactionId: string
@@ -199,7 +193,6 @@ export interface AgentRunnerSessionCommitInput {
   readonly items: readonly AgentItem[]
 }
 
-/** @internal */
 export type AgentRunnerSessionCommitResult =
   | {
       readonly status: 'committed' | 'already-committed'
@@ -211,7 +204,6 @@ export type AgentRunnerSessionCommitResult =
       readonly actualRevision?: string
     }
 
-/** @internal */
 export type AgentRunnerSessionAbortResult =
   | { readonly status: 'aborted' | 'already-aborted' }
   | { readonly status: 'rejected'; readonly code: AgentRunnerSessionErrorCode }

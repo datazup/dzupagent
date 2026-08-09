@@ -7,9 +7,17 @@ import {
 } from '@dzupagent/agent-types/run'
 
 import {
+  AGENT_RUNNER_PERSISTENCE_PORT_VERSION,
   InMemoryAgentEventJournal,
+  InMemoryAgentRunner,
   InMemoryAgentRunnerPersistence,
   InMemoryAgentRunStore,
+  type AgentRunnerModelPort,
+  type AgentRunnerPersistence,
+  type AgentRunnerPersistenceCommitResult,
+  type AgentRunnerSessionAbortResult,
+  type AgentRunnerSessionBeginResult,
+  type AgentRunnerSessionCommitResult,
 } from '../runner.js'
 
 const now = '2026-08-09T12:00:00.000Z'
@@ -61,7 +69,70 @@ function createEvent(eventId: string, sequence: number): AgentRunEventEnvelope {
   }
 }
 
+const structuralPersistence = {
+  async createRun(state: AgentRunStateV2) {
+    return { status: 'created' as const, state }
+  },
+  async loadRun() {
+    return undefined
+  },
+  async readEvents() {
+    return []
+  },
+  async beginSessionTransaction(): Promise<AgentRunnerSessionBeginResult> {
+    return { status: 'rejected', code: 'session-not-found' }
+  },
+  async loadSessionTransaction() {
+    return undefined
+  },
+  async commitSessionTransaction(): Promise<AgentRunnerSessionCommitResult> {
+    return { status: 'rejected', code: 'transaction-not-found' }
+  },
+  async abortSessionTransaction(): Promise<AgentRunnerSessionAbortResult> {
+    return { status: 'rejected', code: 'transaction-not-found' }
+  },
+  async commitTransition(transition): Promise<AgentRunnerPersistenceCommitResult> {
+    return { status: 'run-not-found', runId: transition.runId }
+  },
+} satisfies AgentRunnerPersistence
+
+const structuralModel = {
+  adapterId: 'structural-fixture',
+  async invoke() {
+    return {
+      item: {
+        type: 'message' as const,
+        itemId: 'structural-result',
+        role: 'assistant' as const,
+        content: [{ type: 'text' as const, text: 'ok' }],
+      },
+    }
+  },
+} satisfies AgentRunnerModelPort
+
 describe('in-memory AgentRunner persistence', () => {
+  it('publishes the versioned structural persistence port without requiring the in-memory class', async () => {
+    expect(AGENT_RUNNER_PERSISTENCE_PORT_VERSION).toBe('0.1.0')
+    expect(
+      new InMemoryAgentRunner({
+        model: structuralModel,
+        persistence: structuralPersistence,
+      }),
+    ).toBeInstanceOf(InMemoryAgentRunner)
+    await expect(structuralPersistence.beginSessionTransaction()).resolves.toEqual({
+      status: 'rejected',
+      code: 'session-not-found',
+    })
+    await expect(structuralPersistence.commitSessionTransaction()).resolves.toEqual({
+      status: 'rejected',
+      code: 'transaction-not-found',
+    })
+    await expect(structuralPersistence.abortSessionTransaction()).resolves.toEqual({
+      status: 'rejected',
+      code: 'transaction-not-found',
+    })
+  })
+
   it('atomically commits one successor state with its corresponding event', async () => {
     const persistence = new InMemoryAgentRunnerPersistence()
     expect(await persistence.createRun(createState())).toMatchObject({ status: 'created' })
