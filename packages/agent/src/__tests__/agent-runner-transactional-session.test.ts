@@ -10,6 +10,7 @@ import type {
 import type {
   AgentInteractionDecisionInput,
   AgentItem,
+  AgentMessageItem,
   AgentRunStateV2,
 } from '@dzupagent/agent-types/run'
 import { AGENT_SESSION_SCHEMA } from '@dzupagent/agent-types/run'
@@ -36,7 +37,7 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve: resolveValue }
 }
 
-function message(itemId: string, role: 'user' | 'assistant', text: string): AgentItem {
+function message(itemId: string, role: 'user' | 'assistant', text: string): AgentMessageItem {
   return {
     type: 'message',
     itemId,

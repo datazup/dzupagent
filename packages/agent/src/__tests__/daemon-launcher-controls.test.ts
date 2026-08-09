@@ -22,7 +22,7 @@ function result(content: string): GenerateResult {
       totalOutputTokens: 1,
       llmCalls: 1,
     },
-    iterations: 1,
+    hitIterationLimit: false,
     stopReason: 'complete',
     toolStats: [],
   }

@@ -377,6 +377,12 @@ describe('AgentRunner exact suspended resume', () => {
         return { ...state, interactionDecisions: undefined } as unknown as AgentRunStateV2
       },
       readEvents: (runId) => fixture.persistence.readEvents(runId),
+      beginSessionTransaction: (input) => fixture.persistence.beginSessionTransaction(input),
+      loadSessionTransaction: (transactionId) =>
+        fixture.persistence.loadSessionTransaction(transactionId),
+      commitSessionTransaction: (input) => fixture.persistence.commitSessionTransaction(input),
+      abortSessionTransaction: (transactionId) =>
+        fixture.persistence.abortSessionTransaction(transactionId),
       commitTransition: (transition) => fixture.persistence.commitTransition(transition),
     }
     const model = new ScriptedModel([finalResult])

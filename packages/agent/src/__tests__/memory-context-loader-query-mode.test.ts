@@ -70,7 +70,13 @@ describe('AgentMemoryContextLoader — memoryContextMode', () => {
     return {
       get: vi.fn(async () => [{ text: 'whole namespace record' }]),
       search: vi.fn(async () => [{ text: 'query matched record' }]),
-      searchWithStatus: vi.fn(async () => ({
+      searchWithStatus: vi.fn(async (
+        _namespace: string,
+        _scope: Record<string, string>,
+        _query: string,
+        _limit: number,
+        _readContext?: unknown,
+      ) => ({
         results: [{ text: 'query matched record' }],
         searchFailed: false,
       })),
