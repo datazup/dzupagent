@@ -58,6 +58,19 @@ const reviewTool = agent.asTool({ description: 'Run code review' })
 
 ## API Reference
 
+### Experimental cohesive runner
+
+`@dzupagent/agent/runner` exposes the provider-free R3 runner foundation:
+`InMemoryAgentRunner`, `RunControl`, `InMemoryAgentRunStore`, and
+`InMemoryAgentEventJournal`. It accepts only the bounded runner model port and
+read-only tool port exported from the same subpath. `run()` and `stream()` use
+one scheduler and return canonical `@dzupagent/agent-types/run` state/events.
+
+This subpath is experimental. Persistence is memory-only, state CAS and event
+append are not yet one durable transaction, exact process-restart resume is not
+implemented, and it does not replace or control legacy `DzupAgent.generate()`,
+`stream()`, or `launch()`.
+
 ### Agent
 
 - `DzupAgent` -- main agent class with `generate()`, `stream()`, and `asTool()` methods

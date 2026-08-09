@@ -358,7 +358,7 @@ export class DzupAgent {
   }
 
   /**
-   * Launch an agent run in the background and return a RunHandle immediately.
+   * Launch in the background; controls are handle-only (see `controlCapabilities`).
    *
    * Thin wrapper over {@link launchDaemon} — see `daemon-launcher.ts`.
    */

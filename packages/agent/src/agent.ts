@@ -77,6 +77,11 @@ export type {
   LaunchOptions,
   Unsubscribe,
   CheckpointInfo,
+  RunHandleControlCapabilities,
+} from './agent/run-handle-types.js'
+export {
+  RUN_HANDLE_CONTROL_CAPABILITIES_SCHEMA,
+  LEGACY_RUN_HANDLE_CONTROL_CAPABILITIES,
 } from './agent/run-handle-types.js'
 export { ConcreteRunHandle } from './agent/run-handle.js'
 

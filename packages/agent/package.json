@@ -68,6 +68,10 @@
     "./fleet": {
       "types": "./dist/fleet.d.ts",
       "import": "./dist/fleet.js"
+    },
+    "./runner": {
+      "types": "./dist/runner.d.ts",
+      "import": "./dist/runner.js"
     }
   },
   "scripts": {

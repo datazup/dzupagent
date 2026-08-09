@@ -385,6 +385,12 @@ describe('AgentMemoryContextLoader — vector fusion reaches the prompt', () => 
       'memory_facts',
       'what is the retry budget?',
       expect.any(Number),
+      {
+        and: [
+          { field: '_ns', op: 'eq', value: 'facts' },
+          { field: 'project', op: 'eq', value: 'demo' },
+        ],
+      },
     )
     expect(context).toContain('the retry budget was raised to five')
   })

@@ -185,7 +185,7 @@ describe('DzupAgent run-state snapshot wiring', () => {
     expect(failingStore.save).toHaveBeenCalled()
   })
 
-  it('synthesises a runId from the agent id when none is supplied', async () => {
+  it('allocates a unique runId when none is supplied', async () => {
     const store = new InMemoryRunStateStore()
 
     const agent = new DzupAgent(
@@ -199,7 +199,26 @@ describe('DzupAgent run-state snapshot wiring', () => {
     await new Promise((resolve) => setImmediate(resolve))
 
     const ids = await store.listRunIds()
-    expect(ids).toContain('agent:auto-id-agent')
+    expect(ids).toHaveLength(1)
+    expect(ids[0]).toMatch(/^run:auto-id-agent:[0-9a-f-]{36}$/)
+  })
+
+  it('keeps snapshots from separate implicit-id runs distinct', async () => {
+    const store = new InMemoryRunStateStore()
+    const agent = new DzupAgent(
+      makeConfig(store, {
+        id: 'concurrent-id-agent',
+        model: createSequencedModel([new AIMessage('one'), new AIMessage('two')]),
+      }),
+    )
+
+    await agent.generate([new HumanMessage('first')])
+    await agent.generate([new HumanMessage('second')])
+    await new Promise((resolve) => setImmediate(resolve))
+
+    const ids = await store.listRunIds()
+    expect(ids).toHaveLength(2)
+    expect(new Set(ids).size).toBe(2)
   })
 
   it('threads tenantId from memoryScope into the snapshot', async () => {

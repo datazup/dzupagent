@@ -15,6 +15,7 @@
  */
 
 import type { BaseMessage } from '@langchain/core/messages'
+import { randomUUID } from 'node:crypto'
 import type { TokenUsage } from '@dzupagent/core/llm'
 import type { DzupRunState, DzupRunStateStore } from '@dzupagent/core/persistence'
 import { secureLogger } from '@dzupagent/core/utils'
@@ -100,8 +101,9 @@ export function createRunStateSnapshotWriter(
 /**
  * Resolve the durable run id used for snapshot keys. Prefers the
  * caller-provided `options.runId`, then `toolExecution.runId`, and
- * finally synthesises a stable id keyed by agent for runs that did not
- * supply one (so single-process replays still locate their snapshot).
+ * finally allocates a unique id for runs that did not supply one. A shared
+ * agent-keyed fallback would let concurrent or sequential runs overwrite one
+ * another's inspection snapshots.
  */
 export function resolveRunStateRunId(
   agentId: string,
@@ -111,6 +113,6 @@ export function resolveRunStateRunId(
   return (
     options?.runId
     ?? toolExecutionRunId
-    ?? `agent:${agentId}`
+    ?? `run:${agentId}:${randomUUID()}`
   )
 }

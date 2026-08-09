@@ -18,6 +18,7 @@ export default defineConfig({
     "src/presets.ts",
     "src/streaming.ts",
     "src/fleet.ts",
+    "src/runner.ts",
   ],
   format: ["esm"],
   dts: false,

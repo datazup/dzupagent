@@ -57,6 +57,8 @@ export {
   isToolTimeoutError,
 } from "./agent/tool-timeout-error.js";
 export {
+  RUN_HANDLE_CONTROL_CAPABILITIES_SCHEMA,
+  LEGACY_RUN_HANDLE_CONTROL_CAPABILITIES,
   InvalidRunStateError,
   CheckpointExpiredError,
   ForkLimitExceededError,
@@ -68,6 +70,7 @@ export type {
   LaunchOptions,
   Unsubscribe,
   CheckpointInfo,
+  RunHandleControlCapabilities,
 } from "./agent/run-handle-types.js";
 export { ConcreteRunHandle } from "./agent/run-handle.js";
 export { executeToolsParallel } from "./agent/parallel-executor.js";

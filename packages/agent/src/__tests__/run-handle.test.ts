@@ -4,6 +4,7 @@ import {
   InvalidRunStateError,
   CheckpointExpiredError,
   ForkLimitExceededError,
+  LEGACY_RUN_HANDLE_CONTROL_CAPABILITIES,
 } from '../agent/run-handle-types.js'
 import { InMemoryRunJournal } from '@dzupagent/core'
 
@@ -15,6 +16,12 @@ describe('ConcreteRunHandle', () => {
   })
 
   // ── pause ──────────────────────────────────────────────────────────────────
+
+  it('reports that legacy lifecycle controls are experimental and handle-only', () => {
+    const handle = new ConcreteRunHandle('run-1', 'running', journal)
+    expect(handle.controlCapabilities).toEqual(LEGACY_RUN_HANDLE_CONTROL_CAPABILITIES)
+    expect(handle.controlCapabilities.backgroundExecution).toBe('uncontrolled')
+  })
 
   it('pause on running run transitions status to paused', async () => {
     const handle = new ConcreteRunHandle('run-1', 'running', journal)
@@ -94,6 +101,19 @@ describe('ConcreteRunHandle', () => {
     const handle = new ConcreteRunHandle('run-1', 'completed', journal)
     await handle.cancel() // should not throw
     expect(handle.currentStatus).toBe('completed') // unchanged
+  })
+
+  it('cancel remains terminal when background completion arrives later', async () => {
+    const handle = new ConcreteRunHandle<string>('run-1', 'running', journal)
+    await handle.cancel('stop')
+
+    handle._complete('late output')
+
+    expect(handle.currentStatus).toBe('cancelled')
+    await expect(handle.result()).resolves.toMatchObject({
+      status: 'cancelled',
+      error: 'stop',
+    })
   })
 
   // ── result ─────────────────────────────────────────────────────────────────

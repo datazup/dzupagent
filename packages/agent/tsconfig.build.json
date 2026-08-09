@@ -1,7 +1,8 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "composite": false
+    "composite": false,
+    "stripInternal": true
   },
   "files": [
     "src/index.ts",
@@ -19,7 +20,8 @@
     "src/reflection.ts",
     "src/presets.ts",
     "src/streaming.ts",
-    "src/fleet.ts"
+    "src/fleet.ts",
+    "src/runner.ts"
   ],
   "include": [],
   "exclude": ["node_modules", "dist", "**/*.test.ts", "**/__tests__/**"]

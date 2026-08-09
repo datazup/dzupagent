@@ -62,14 +62,15 @@ describe('resolveRunStateRunId', () => {
     expect(result).toBe('run-from-exec')
   })
 
-  it('synthesises agent-keyed id when both runId sources are absent', () => {
+  it('allocates a unique id when both runId sources are absent', () => {
     const result = resolveRunStateRunId('my-agent', undefined, undefined)
-    expect(result).toBe('agent:my-agent')
+    expect(result).toMatch(/^run:my-agent:[0-9a-f-]{36}$/)
   })
 
-  it('synthesises agent-keyed id from options without runId and no toolExec runId', () => {
-    const result = resolveRunStateRunId('my-agent', {}, undefined)
-    expect(result).toBe('agent:my-agent')
+  it('does not reuse an agent-keyed id across runs without explicit ids', () => {
+    const first = resolveRunStateRunId('my-agent', {}, undefined)
+    const second = resolveRunStateRunId('my-agent', {}, undefined)
+    expect(first).not.toBe(second)
   })
 
   it('options.runId takes priority over toolExecution.runId', () => {

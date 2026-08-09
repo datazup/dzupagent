@@ -3,8 +3,9 @@
  *
  * `launchDaemon()` starts an agent run in the background and returns a
  * {@link RunHandle} that resolves within milliseconds, before the run
- * completes. The handle provides cooperative pause/resume, cancellation,
- * and result awaiting.
+ * completes. The handle provides status/journal controls and result awaiting.
+ * Its capability marker explicitly reports that it does not yet pause or abort
+ * the background execution.
  *
  * The extraction keeps the DzupAgent class slim and allows the launch
  * lifecycle (runId allocation, journal setup, background execution) to

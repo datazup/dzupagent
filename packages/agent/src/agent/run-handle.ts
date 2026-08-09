@@ -1,8 +1,9 @@
 /**
  * ConcreteRunHandle — production implementation of RunHandle.
  *
- * Lifecycle control for a running agent: cooperative pause/resume,
- * cancellation, result awaiting, event subscription, and fork-from-checkpoint.
+ * Status/journal projection for a background agent run. The public capability
+ * marker describes that pause/resume/cancel are not yet authoritative over the
+ * execution itself.
  *
  * Internal `_complete`, `_fail`, `_updateStatus` methods are called by
  * the agent runner; they are not part of the public RunHandle interface.
@@ -20,6 +21,7 @@ import {
   InvalidRunStateError,
   CheckpointExpiredError,
   ForkLimitExceededError,
+  LEGACY_RUN_HANDLE_CONTROL_CAPABILITIES,
 } from './run-handle-types.js'
 import type { RunJournal, RunJournalEntry } from '@dzupagent/core/persistence'
 import type { RunStatus } from '@dzupagent/core/persistence'
@@ -38,6 +40,7 @@ export class ConcreteRunHandle<TOutput = unknown, TState = Record<string, unknow
   private resultResolvers: Array<(result: RunResult<TOutput, TState>) => void> = []
   private resultRejecters: Array<(err: Error) => void> = []
   private _resultPromise: Promise<RunResult<TOutput, TState>> | null = null
+  private _terminalResult: RunResult<TOutput, TState> | null = null
   private readonly forkCount: Map<string, number>
   private readonly maxForks: number
   private readonly checkpointTtlMs: number
@@ -61,6 +64,8 @@ export class ConcreteRunHandle<TOutput = unknown, TState = Record<string, unknow
   get currentStatus(): RunStatus {
     return this._currentStatus
   }
+
+  readonly controlCapabilities = LEGACY_RUN_HANDLE_CONTROL_CAPABILITIES
 
   async pause(_options?: { timeoutMs?: number }): Promise<void> {
     if (TERMINAL_STATUSES.includes(this._currentStatus)) {
@@ -188,6 +193,10 @@ export class ConcreteRunHandle<TOutput = unknown, TState = Record<string, unknow
   async result(): Promise<RunResult<TOutput, TState>> {
     if (!this._resultPromise) {
       this._resultPromise = new Promise<RunResult<TOutput, TState>>((resolve, reject) => {
+        if (this._terminalResult) {
+          resolve(this._terminalResult)
+          return
+        }
         // If already terminal, resolve immediately
         if (this._currentStatus === 'completed') {
           resolve({ runId: this.runId, status: 'completed' })
@@ -294,6 +303,9 @@ export class ConcreteRunHandle<TOutput = unknown, TState = Record<string, unknow
 
   /** Called by the agent runner when the run completes successfully. */
   _complete(output: TOutput, meta?: Partial<RunResult<TOutput, TState>>): void {
+    if (TERMINAL_STATUSES.includes(this._currentStatus)) {
+      return
+    }
     this._currentStatus = 'completed'
     const result: RunResult<TOutput, TState> = {
       runId: this.runId,
@@ -307,6 +319,9 @@ export class ConcreteRunHandle<TOutput = unknown, TState = Record<string, unknow
 
   /** Called by the agent runner when the run fails. */
   _fail(error: string, meta?: Partial<RunResult<TOutput, TState>>): void {
+    if (TERMINAL_STATUSES.includes(this._currentStatus)) {
+      return
+    }
     this._currentStatus = 'failed'
     const result: RunResult<TOutput, TState> = {
       runId: this.runId,
@@ -328,6 +343,7 @@ export class ConcreteRunHandle<TOutput = unknown, TState = Record<string, unknow
   // ---------------------------------------------------------------------------
 
   private resolveResult(result: RunResult<TOutput, TState>): void {
+    this._terminalResult = result
     for (const resolve of this.resultResolvers) {
       resolve(result)
     }

@@ -36,6 +36,7 @@ describe('agent export map', () => {
         import(pathToFileURL(join(packageRoot, 'dist/pipeline.js')).href),
         import(pathToFileURL(join(packageRoot, 'dist/runtime.js')).href),
         import(pathToFileURL(join(packageRoot, 'dist/workflow.js')).href),
+        import(pathToFileURL(join(packageRoot, 'dist/runner.js')).href),
       ])
 
       expect(imports[0]).toEqual(expect.objectContaining({
@@ -58,6 +59,12 @@ describe('agent export map', () => {
         CompiledWorkflow: expect.any(Function),
         WorkflowBuilder: expect.any(Function),
         createWorkflow: expect.any(Function),
+      }))
+      expect(imports[4]).toEqual(expect.objectContaining({
+        InMemoryAgentRunner: expect.any(Function),
+        InMemoryAgentRunStore: expect.any(Function),
+        InMemoryAgentEventJournal: expect.any(Function),
+        RunControl: expect.any(Function),
       }))
     } finally {
       await rm(tempDir, { recursive: true, force: true })

@@ -1,13 +1,15 @@
 /**
  * RunHandle — the public API for managing a running agent execution.
  *
- * Obtained by calling `agent.launch(input)`. Provides cooperative pause/resume,
- * cancellation, result awaiting, and event subscription.
+ * Obtained by calling `agent.launch(input)`. The current implementation
+ * provides status/journal controls, result awaiting, and event subscription.
+ * Its pause/resume/cancel methods do not yet control the background execution;
+ * inspect `controlCapabilities` before relying on them for side-effect safety.
  *
  * Key design decisions (from spec-panel review):
- * - Pause is COOPERATIVE: waits for current tool call to complete before suspending
+ * - Pause currently changes handle/journal state only
  * - Resume is IDEMPOTENT: duplicate resumeToken is silently ignored
- * - Cross-process resume: use RunHandle.fromRunId(runId, journal) to reconstruct
+ * - Journal reconstruction is an inspection projection, not execution restart
  * - fork() creates a new run from a checkpoint (does not mutate the original)
  */
 
@@ -15,6 +17,37 @@ import type { RunStatus } from '@dzupagent/core/persistence'
 import type { RunJournalEntry } from '@dzupagent/core/persistence'
 
 export type { RunStatus }
+
+export const RUN_HANDLE_CONTROL_CAPABILITIES_SCHEMA =
+  'dzupagent.runHandleControlCapabilities/v1' as const
+
+/**
+ * Truthful capability marker for the legacy `launch()` handle.
+ *
+ * `handle-state-only` means the method changes the handle and its journal but
+ * does not signal or fence model/tool execution. `inspection-only` means a
+ * journal can reconstruct status, not restart-safe execution state.
+ */
+export interface RunHandleControlCapabilities {
+  readonly schema: typeof RUN_HANDLE_CONTROL_CAPABILITIES_SCHEMA
+  readonly stability: 'experimental'
+  readonly backgroundExecution: 'uncontrolled' | 'cooperative-safe-points'
+  readonly pause: 'handle-state-only' | 'execution-authoritative'
+  readonly resume: 'handle-state-only' | 'execution-authoritative'
+  readonly cancel: 'handle-state-only' | 'execution-authoritative'
+  readonly crossProcessResume: 'inspection-only' | 'restart-safe'
+}
+
+export const LEGACY_RUN_HANDLE_CONTROL_CAPABILITIES: RunHandleControlCapabilities =
+  Object.freeze({
+    schema: RUN_HANDLE_CONTROL_CAPABILITIES_SCHEMA,
+    stability: 'experimental',
+    backgroundExecution: 'uncontrolled',
+    pause: 'handle-state-only',
+    resume: 'handle-state-only',
+    cancel: 'handle-state-only',
+    crossProcessResume: 'inspection-only',
+  })
 
 // ─── Result Types ─────────────────────────────────────────────────────────────
 
@@ -103,10 +136,10 @@ export type Unsubscribe = () => void
 // ─── RunHandle Interface ──────────────────────────────────────────────────────
 
 /**
- * RunHandle — lifecycle manager for a single agent run.
+ * RunHandle — status and journal projection for a single agent run.
  *
- * Serializable: a RunHandle can be reconstructed from its runId using
- * `RunHandle.fromRunId(runId, journal)` for cross-process resume.
+ * A handle can be reconstructed from a run journal for inspection. The legacy
+ * handle is not restart-safe execution state.
  */
 export interface RunHandle<
   TOutput = unknown,
@@ -115,13 +148,16 @@ export interface RunHandle<
   /** The unique identifier for this run */
   readonly runId: string
 
+  /** Explicit semantics of the lifecycle controls exposed by this handle. */
+  readonly controlCapabilities: RunHandleControlCapabilities
+
   /** Current status of the run (may be stale — call status() for live state) */
   readonly currentStatus: RunStatus
 
   /**
-   * Cooperatively pause the run.
-   * Waits for the current tool call to complete before suspending.
-   * Returns after the run_paused journal entry is written.
+   * Mark the handle paused and write a journal entry.
+   *
+   * @experimental This does not currently pause background model/tool work.
    *
    * @throws {InvalidRunStateError} if the run is already terminal
    * @param options.timeoutMs — max ms to wait for current tool call (default: 30_000)
@@ -129,7 +165,9 @@ export interface RunHandle<
   pause(options?: { timeoutMs?: number }): Promise<void>
 
   /**
-   * Resume a paused run.
+   * Mark a paused handle running and write a journal entry.
+   *
+   * @experimental This does not restart execution in another process.
    * Idempotent: duplicate resumeToken is silently ignored.
    *
    * @throws {InvalidRunStateError} if the run is not paused
@@ -139,7 +177,9 @@ export interface RunHandle<
   resume(input?: unknown, resumeToken?: string): Promise<void>
 
   /**
-   * Cancel the run.
+   * Mark the handle cancelled and resolve its result.
+   *
+   * @experimental This does not currently abort background model/tool work.
    * @param reason — optional cancellation reason stored in journal
    */
   cancel(reason?: string): Promise<void>

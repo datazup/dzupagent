@@ -17,6 +17,10 @@
     "./implementation": {
       "types": "./dist/implementation.d.ts",
       "import": "./dist/implementation.js"
+    },
+    "./run": {
+      "types": "./dist/run.d.ts",
+      "import": "./dist/run.js"
     }
   },
   "files": [
