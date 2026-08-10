@@ -39,6 +39,35 @@ describe('AgentRunner R5K execution capability profile', () => {
       })
   })
 
+  it('admits the separately named R5M projection without reinterpreting direct-runner profiles', () => {
+    const candidate = buildRunnerProviderFreeExecutionProfile({
+      behaviorDigest,
+      maxModelTurns: 4,
+      maxToolAttempts: 2,
+      observedMessageCount: 3,
+      observedMessageTokens: 128,
+      structuredOutputRequested: false,
+      legacyResultProjection: 'no-tool-generate-result/v1',
+    })
+    expect(evaluateRunnerProviderFreeExecutionProfile(candidate, behaviorDigest)).toEqual({
+      status: 'eligible',
+      profileId: 'runner-provider-free/v1',
+      profileDigest: candidate.profileDigest,
+    })
+    expect(candidate.claims.find((claim) => claim.obligation === 'legacy-result-projection'))
+      .toMatchObject({
+        disposition: 'supported',
+        owner: 'host',
+        evidence: ['r5m-no-tool-generate-result'],
+        binding: {
+          entrypoint: 'not-delegated',
+          projection: 'no-tool-generate-result/v1',
+        },
+      })
+    expect(profile().claims.find((claim) => claim.obligation === 'legacy-result-projection'))
+      .toMatchObject({ disposition: 'disabled', evidence: ['runner-direct-only'] })
+  })
+
   it.each(profile().claims.filter((claim) => claim.disposition === 'disabled').map(
     (claim) => claim.obligation,
   ))('rejects independently enabled unresolved obligation %s', (obligation) => {

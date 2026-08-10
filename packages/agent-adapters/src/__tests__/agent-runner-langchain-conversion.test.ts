@@ -9,6 +9,7 @@ import {
   type AgentRunnerModelInvocationResult,
   type AgentRunnerModelPort,
   type AgentRunnerModelRequest,
+  type AgentRunnerPersistence,
 } from '@dzupagent/agent/runner'
 import { describe, expect, it } from 'vitest'
 
@@ -81,7 +82,7 @@ function createRunner(
   return new InMemoryAgentRunner({
     model,
     tools: [tool],
-    persistence: new InMemoryAgentRunnerPersistence(),
+    persistence: new InMemoryAgentRunnerPersistence() as unknown as AgentRunnerPersistence,
     createId: deterministicIds(),
     now: () => '2026-08-09T22:00:00.000Z',
   })
@@ -420,7 +421,7 @@ describe('AgentRunner loss-aware LangChain conversion', () => {
     }
     const result = await new InMemoryAgentRunner({
       model,
-      persistence: new InMemoryAgentRunnerPersistence(),
+      persistence: new InMemoryAgentRunnerPersistence() as unknown as AgentRunnerPersistence,
       createId: deterministicIds(),
       now: () => '2026-08-09T22:00:00.000Z',
     }).run(input)
