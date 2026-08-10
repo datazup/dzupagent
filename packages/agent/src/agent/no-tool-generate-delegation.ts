@@ -167,9 +167,10 @@ function createAdmission(input: {
     preparedEntries.push(captured)
   }
 
-  const preparedMessages = Object.freeze(
-    preparedEntries.map((entry) => reconstructLegacyMessage(entry)),
+  const preparedMessages: PreparedRunState['preparedMessages'] = preparedEntries.map(
+    (entry) => reconstructLegacyMessage(entry),
   )
+  Object.freeze(preparedMessages)
   const observedMessageTokens = estimateConversationTokensForMessages(preparedMessages)
   const behaviorDigest = digestRunnerJson({
     schema: R5N_BEHAVIOR_SCHEMA,
