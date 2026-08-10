@@ -219,6 +219,8 @@ export interface AgentRunnerModelToolDescriptor {
   readonly toolId: string
   readonly toolRevision: string
   readonly effectClass: 'read'
+  readonly description?: string
+  readonly inputSchema?: AgentRunJsonValue
 }
 
 export interface AgentRunnerModelRequest {
@@ -236,19 +238,64 @@ export interface AgentRunnerModelUsage {
   readonly accountingSource: string
   readonly inputTokens?: number
   readonly outputTokens?: number
+  readonly totalTokens?: number
   readonly cacheReadTokens?: number
   readonly cacheWriteTokens?: number
+  readonly reasoningTokens?: number
 }
 
+export type AgentRunnerModelFinishReason =
+  | 'stop'
+  | 'tool-calls'
+  | 'length'
+  | 'content-filter'
+  | 'cancelled'
+  | 'error'
+  | 'unknown'
+
+export type AgentRunnerProviderErrorCategory =
+  | 'authentication'
+  | 'authorization'
+  | 'rate-limit'
+  | 'timeout'
+  | 'invalid-request'
+  | 'unavailable'
+  | 'content-filter'
+  | 'cancelled'
+  | 'internal'
+  | 'unknown'
+
+export type AgentRunnerRetryClassification =
+  | 'retryable'
+  | 'non-retryable'
+  | 'reconciliation-required'
+
 export interface AgentRunnerModelResult {
+  readonly status?: 'completed'
   readonly item: AgentMessageItem | AgentToolCallItem
+  /**
+   * Additional ordered items emitted by the same assistant turn. The current
+   * scheduler fails closed if this is non-empty until multi-call execution is
+   * separately admitted; conversion adapters may still retain the full turn.
+   */
+  readonly additionalItems?: readonly (AgentMessageItem | AgentToolCallItem)[]
   readonly usage?: AgentRunnerModelUsage
+  readonly finishReason?: AgentRunnerModelFinishReason
 }
+
+export interface AgentRunnerModelFailure {
+  readonly status: 'failed-before-dispatch' | 'outcome-unknown'
+  readonly code: string
+  readonly category: AgentRunnerProviderErrorCategory
+  readonly retryClassification: AgentRunnerRetryClassification
+}
+
+export type AgentRunnerModelInvocationResult = AgentRunnerModelResult | AgentRunnerModelFailure
 
 /** Low-level model invocation; host lifecycle and credentials stay outside. */
 export interface AgentRunnerModelPort {
   readonly adapterId: string
-  invoke(request: AgentRunnerModelRequest): Promise<AgentRunnerModelResult>
+  invoke(request: AgentRunnerModelRequest): Promise<AgentRunnerModelInvocationResult>
 }
 
 export interface AgentRunnerReadOnlyToolRequest {
@@ -275,6 +322,8 @@ export interface AgentRunnerReadOnlyToolPort {
   readonly toolId: string
   readonly toolRevision: string
   readonly effectClass: 'read'
+  readonly description?: string
+  readonly inputSchema?: AgentRunJsonValue
   readonly approval?: AgentRunnerToolApprovalRequirement | undefined
   execute(request: AgentRunnerReadOnlyToolRequest): Promise<AgentRunnerReadOnlyToolResult>
 }

@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto'
-
 import type {
   AgentRunnerModelPort,
   AgentRunnerModelResult,
@@ -14,10 +13,8 @@ import {
   type AgentRunStateV2,
   type AgentToolCallItem,
   type AgentToolInvocationState,
-  type AgentUsageRecord,
 } from '@dzupagent/agent-types/run'
-
-import { assertDurableJson, digestRunnerJson } from './runner-values.js'
+import { digestRunnerJson } from './runner-values.js'
 import {
   InMemoryAgentRunnerPersistence,
   isToolCall,
@@ -41,7 +38,11 @@ import {
 } from './runner-lifecycle.js'
 import { RunControl } from './run-control.js'
 import { AgentRunnerSessionError, AgentRunnerTransitionCommitter, startAgentRun } from './runner-transition-committer.js'
-
+import {
+  AgentRunnerModelInvocationError,
+  createAgentRunnerModelUsageRecord,
+  invokeAgentRunnerModel,
+} from './model-port-values.js'
 export type AgentRunnerIdentityKind =
   | 'event'
   | 'interaction'
@@ -51,7 +52,6 @@ export type AgentRunnerIdentityKind =
   | 'run'
   | 'tool-result-item'
   | 'usage'
-
 export interface InMemoryAgentRunnerConfig {
   readonly model: AgentRunnerModelPort
   readonly tools?: readonly AgentRunnerReadOnlyToolPort[]
@@ -61,16 +61,13 @@ export interface InMemoryAgentRunnerConfig {
   readonly maxModelTurns?: number
   readonly maxToolAttempts?: number
 }
-
 export interface AgentRunnerOptions {
   readonly control?: RunControl
 }
-
 export interface AgentRunnerResult {
   readonly state: AgentRunStateV2
   readonly events: readonly AgentRunEventEnvelope[]
 }
-
 export class InMemoryAgentRunner {
   readonly #model: AgentRunnerModelPort
   readonly #tools: ReadonlyMap<string, AgentRunnerReadOnlyToolPort>
@@ -312,7 +309,7 @@ export class InMemoryAgentRunner {
 
       let modelResult: AgentRunnerModelResult
       try {
-        modelResult = await this.#model.invoke({
+        modelResult = await invokeAgentRunnerModel(this.#model, {
           runId: state.runId,
           requestId,
           attempt: state.attempt.number,
@@ -324,14 +321,23 @@ export class InMemoryAgentRunner {
             toolId: tool.toolId,
             toolRevision: tool.toolRevision,
             effectClass: tool.effectClass,
+            ...(tool.description === undefined ? {} : { description: tool.description }),
+            ...(tool.inputSchema === undefined ? {} : { inputSchema: tool.inputSchema }),
           })),
         })
-        assertDurableJson(modelResult)
-      } catch {
+      } catch (error) {
+        const failure =
+          error instanceof AgentRunnerModelInvocationError ? error.failure : undefined
         committed = await this.#transitions.commit(
           state,
           'model.failed',
-          { requestId, code: 'model-invocation-failed' },
+          {
+            requestId,
+            code: failure?.code ?? 'model-invocation-failed',
+            category: failure?.category ?? 'unknown',
+            outcome: failure?.status ?? 'outcome-unknown',
+            retryClassification: failure?.retryClassification ?? 'reconciliation-required',
+          },
           (current) => current,
         )
         state = committed.state
@@ -341,7 +347,7 @@ export class InMemoryAgentRunner {
           state,
           control,
           events,
-          'model-invocation-failed',
+          failure?.code ?? 'model-invocation-failed',
           this.#transitions,
         )
       }
@@ -349,7 +355,14 @@ export class InMemoryAgentRunner {
       committed = await this.#transitions.commit(
         state,
         'model.completed',
-        { requestId, turn, itemType: modelResult.item.type },
+        {
+          requestId,
+          turn,
+          itemType: modelResult.item.type,
+          ...(modelResult.finishReason === undefined
+            ? {}
+            : { finishReason: modelResult.finishReason }),
+        },
         (current) => current,
       )
       state = committed.state
@@ -357,24 +370,11 @@ export class InMemoryAgentRunner {
       yield committed.event
 
       if (modelResult.usage !== undefined) {
-        const usage: AgentUsageRecord = {
-          usageId: this.#createId('usage'),
-          source: 'model',
-          accountingSource: modelResult.usage.accountingSource,
-          recordedAt: this.#now(),
-          ...(modelResult.usage.inputTokens === undefined
-            ? {}
-            : { inputTokens: modelResult.usage.inputTokens }),
-          ...(modelResult.usage.outputTokens === undefined
-            ? {}
-            : { outputTokens: modelResult.usage.outputTokens }),
-          ...(modelResult.usage.cacheReadTokens === undefined
-            ? {}
-            : { cacheReadTokens: modelResult.usage.cacheReadTokens }),
-          ...(modelResult.usage.cacheWriteTokens === undefined
-            ? {}
-            : { cacheWriteTokens: modelResult.usage.cacheWriteTokens }),
-        }
+        const usage = createAgentRunnerModelUsageRecord(
+          modelResult.usage,
+          this.#createId('usage'),
+          this.#now(),
+        )
         committed = await this.#transitions.commit(
           state,
           'usage.recorded',

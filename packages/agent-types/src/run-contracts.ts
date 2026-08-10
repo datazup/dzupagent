@@ -223,8 +223,10 @@ export interface AgentUsageRecord {
   readonly invocationId?: string
   readonly inputTokens?: number
   readonly outputTokens?: number
+  readonly totalTokens?: number
   readonly cacheReadTokens?: number
   readonly cacheWriteTokens?: number
+  readonly reasoningTokens?: number
   readonly cost?: {
     readonly currency: string
     readonly minorUnits: string

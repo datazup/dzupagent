@@ -22,3 +22,27 @@ export type {
   RunPreparedAgentExecutionOptions,
   RunAgentExecutionOptions,
 } from './run-agent-execution.js'
+export {
+  ProviderFreeAgentRunnerModelAdapter,
+  ProviderFreeAgentRunnerReadToolAdapter,
+} from './agent-runner-provider-free.js'
+export type {
+  ProviderFreeAgentRunnerModelInvocation,
+  ProviderFreeAgentRunnerModelState,
+  ProviderFreeAgentRunnerModelStep,
+  ProviderFreeAgentRunnerReadToolState,
+  ProviderFreeAgentRunnerReadToolStep,
+  ProviderFreeAgentRunnerToolCall,
+} from './agent-runner-provider-free.js'
+export {
+  agentRunnerItemsToLangChainMessages,
+  langChainMessageToAgentRunnerModelResult,
+  normalizeAgentRunnerProviderFailure,
+} from './agent-runner-langchain-conversion.js'
+export type {
+  AgentRunnerConversionIssue,
+  AgentRunnerConversionIssueCode,
+  AgentRunnerConversionResult,
+  AgentRunnerLangChainModelResultOptions,
+  AgentRunnerProviderErrorInput,
+} from './agent-runner-langchain-conversion.js'
