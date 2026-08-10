@@ -1,4 +1,8 @@
-import type { AgentUsageRecord } from '@dzupagent/agent-types/run'
+import type {
+  AgentMessageItem,
+  AgentToolCallItem,
+  AgentUsageRecord,
+} from '@dzupagent/agent-types/run'
 
 import type {
   AgentRunnerModelFailure,
@@ -95,6 +99,114 @@ function assertFailure(failure: AgentRunnerModelFailure): void {
   }
 }
 
+function rejectModelResult(code: string): never {
+  throw new AgentRunnerModelInvocationError({
+    status: 'failed-before-dispatch',
+    code,
+    category: 'invalid-request',
+    retryClassification: 'non-retryable',
+  })
+}
+
+function isNonEmptyId(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+/** @internal */
+export function agentRunnerModelResultItems(
+  result: AgentRunnerModelResult,
+): readonly (AgentMessageItem | AgentToolCallItem)[] {
+  return [result.item, ...(result.additionalItems ?? [])]
+}
+
+function assertModelTurn(
+  result: AgentRunnerModelResult,
+  request: AgentRunnerModelRequest,
+): void {
+  if (result.status !== undefined && result.status !== 'completed') {
+    rejectModelResult('model-invalid-result-status')
+  }
+  if (result.item === undefined ||
+    (result.additionalItems !== undefined && !Array.isArray(result.additionalItems))) {
+    rejectModelResult('model-empty-turn')
+  }
+
+  const items = agentRunnerModelResultItems(result)
+  if (items.length === 0) rejectModelResult('model-empty-turn')
+
+  const existingItemIds = new Set(
+    [...request.input, ...request.committedItems].map((item) => item.itemId),
+  )
+  const existingCallIds = new Set(
+    [...request.input, ...request.committedItems]
+      .filter((item): item is AgentToolCallItem => item.type === 'tool-call')
+      .map((item) => item.callId),
+  )
+  const itemIds = new Set<string>()
+  const callIds = new Set<string>()
+  const toolDescriptors = new Map(request.tools.map((tool) => [tool.toolId, tool]))
+  if (
+    toolDescriptors.size !== request.tools.length ||
+    request.tools.some(
+      (tool) =>
+        !isNonEmptyId(tool.toolId) ||
+        !isNonEmptyId(tool.toolRevision) ||
+        tool.effectClass !== 'read',
+    )
+  ) {
+    rejectModelResult('model-tool-descriptor-mismatch')
+  }
+
+  let messageCount = 0
+  let toolCallCount = 0
+  for (const [index, item] of items.entries()) {
+    if (typeof item !== 'object' || item === null || !isNonEmptyId(item.itemId)) {
+      rejectModelResult('model-invalid-item-id')
+    }
+    if (itemIds.has(item.itemId) || existingItemIds.has(item.itemId)) {
+      rejectModelResult('model-duplicate-item-id')
+    }
+    itemIds.add(item.itemId)
+
+    if (item.type === 'message') {
+      messageCount += 1
+      if (
+        item.role !== 'assistant' ||
+        !Array.isArray(item.content) ||
+        messageCount > 1
+      ) {
+        rejectModelResult('model-invalid-assistant-message')
+      }
+      if (index !== 0 || toolCallCount > 0) {
+        rejectModelResult('model-invalid-turn-order')
+      }
+      continue
+    }
+    if (item.type !== 'tool-call') rejectModelResult('model-unsupported-item')
+    toolCallCount += 1
+    if (!isNonEmptyId(item.callId) || !isNonEmptyId(item.toolId)) {
+      rejectModelResult('model-invalid-call-id')
+    }
+    if (callIds.has(item.callId) || existingCallIds.has(item.callId)) {
+      rejectModelResult('model-duplicate-call-id')
+    }
+    callIds.add(item.callId)
+    if (!toolDescriptors.has(item.toolId)) rejectModelResult('model-unknown-tool')
+  }
+
+  if (messageCount === 0 && toolCallCount === 0) rejectModelResult('model-empty-turn')
+  if (toolCallCount > 0) {
+    if (result.finishReason !== undefined && result.finishReason !== 'tool-calls') {
+      rejectModelResult('model-conflicting-finish-reason')
+    }
+  } else if (
+    result.finishReason !== undefined &&
+    !['stop', 'length', 'content-filter'].includes(result.finishReason)
+  ) {
+    rejectModelResult('model-conflicting-finish-reason')
+  }
+}
+
 /** @internal */
 export async function invokeAgentRunnerModel(
   model: AgentRunnerModelPort,
@@ -106,15 +218,8 @@ export async function invokeAgentRunnerModel(
     assertFailure(result)
     throw new AgentRunnerModelInvocationError(result)
   }
-  if ((result.additionalItems?.length ?? 0) > 0) {
-    throw new AgentRunnerModelInvocationError({
-      status: 'failed-before-dispatch',
-      code: 'model-multiple-items-not-admitted',
-      category: 'invalid-request',
-      retryClassification: 'non-retryable',
-    })
-  }
   assertModelUsage(result.usage)
+  assertModelTurn(result, request)
   return result
 }
 

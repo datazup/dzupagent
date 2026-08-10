@@ -40,6 +40,7 @@ import { RunControl } from './run-control.js'
 import { AgentRunnerSessionError, AgentRunnerTransitionCommitter, startAgentRun } from './runner-transition-committer.js'
 import {
   AgentRunnerModelInvocationError,
+  agentRunnerModelResultItems,
   createAgentRunnerModelUsageRecord,
   invokeAgentRunnerModel,
 } from './model-port-values.js'
@@ -272,8 +273,72 @@ export class InMemoryAgentRunner {
     state = executed.state
     if (executed.terminal) return { state, events }
 
+    const remaining = yield* this.#executePlannedToolCalls(state, control, events)
+    state = remaining.state
+    if (remaining.halted) return { state, events }
+
     const completedModelTurns = events.filter((event) => event.type === 'model.requested').length
     return yield* this.#drive(state, control, events, completedModelTurns)
+  }
+
+  async *#executePlannedToolCalls(
+    initialState: AgentRunStateV2,
+    control: RunControl,
+    events: AgentRunEventEnvelope[],
+  ): AsyncGenerator<
+    AgentRunEventEnvelope,
+    { readonly state: AgentRunStateV2; readonly halted: boolean }
+  > {
+    let state = initialState
+    for (const toolCall of state.committedItems.filter(
+      (item): item is AgentToolCallItem => item.type === 'tool-call',
+    )) {
+      const invocation = state.invocations.find(
+        (entry) => entry.callId === toolCall.callId && entry.toolId === toolCall.toolId,
+      )
+      if (invocation?.state !== 'planned') continue
+
+      const tool = this.#tools.get(toolCall.toolId)
+      if (tool === undefined || tool.toolRevision !== invocation.toolRevision) {
+        const failed = yield* failRun(
+          state,
+          control,
+          events,
+          tool === undefined ? 'tool-not-found' : 'tool-revision-mismatch',
+          this.#transitions,
+        )
+        return { state: failed.state, halted: true }
+      }
+
+      if (tool.approval !== undefined) {
+        const suspended = yield* suspendAgentRunForApproval({
+          state,
+          events,
+          invocation,
+          toolCall,
+          tool,
+          interactionId: this.#createId('interaction'),
+          interactionItemId: this.#createId('interaction-item'),
+          transitions: this.#transitions,
+        })
+        return { state: suspended, halted: true }
+      }
+
+      const executed = yield* executeAgentRunnerTool({
+        state,
+        control,
+        events,
+        tool,
+        invocation,
+        input: toolCall.arguments,
+        maxToolAttempts: this.#maxToolAttempts,
+        createToolResultItemId: () => this.#createId('tool-result-item'),
+        transitions: this.#transitions,
+      })
+      state = executed.state
+      if (executed.terminal) return { state, halted: true }
+    }
+    return { state, halted: false }
   }
 
   async *#drive(
@@ -352,6 +417,39 @@ export class InMemoryAgentRunner {
         )
       }
 
+      const modelItems = agentRunnerModelResultItems(modelResult)
+      const toolCalls = modelItems.filter(isToolCall)
+      const plannedInvocations = toolCalls.map((toolCall) => {
+        const tool = this.#tools.get(toolCall.toolId)
+        if (tool === undefined) {
+          throw new AgentRunnerModelInvocationError({
+            status: 'failed-before-dispatch',
+            code: 'model-unknown-tool',
+            category: 'invalid-request',
+            retryClassification: 'non-retryable',
+          })
+        }
+        return {
+          invocationId: this.#createId('invocation'),
+          callId: toolCall.callId,
+          attempt: 1,
+          inputDigest: digestRunnerJson(toolCall.arguments),
+          toolId: tool.toolId,
+          toolRevision: tool.toolRevision,
+          effectClass: 'read' as const,
+          state: 'planned' as const,
+        }
+      })
+      const usage = modelResult.usage === undefined
+        ? undefined
+        : createAgentRunnerModelUsageRecord(
+            modelResult.usage,
+            this.#createId('usage'),
+            this.#now(),
+          )
+
+      // The complete turn, usage, and every stable invocation identity become
+      // durable in one state transition before any item projection or tool dispatch.
       committed = await this.#transitions.commit(
         state,
         'model.completed',
@@ -359,50 +457,70 @@ export class InMemoryAgentRunner {
           requestId,
           turn,
           itemType: modelResult.item.type,
+          itemCount: modelItems.length,
+          itemIds: modelItems.map((item) => item.itemId),
+          callIds: toolCalls.map((item) => item.callId),
+          ...(usage === undefined ? {} : { usageId: usage.usageId }),
           ...(modelResult.finishReason === undefined
             ? {}
             : { finishReason: modelResult.finishReason }),
         },
-        (current) => current,
-      )
-      state = committed.state
-      events.push(committed.event)
-      yield committed.event
-
-      if (modelResult.usage !== undefined) {
-        const usage = createAgentRunnerModelUsageRecord(
-          modelResult.usage,
-          this.#createId('usage'),
-          this.#now(),
-        )
-        committed = await this.#transitions.commit(
-          state,
-          'usage.recorded',
-          { usageId: usage.usageId, accountingSource: usage.accountingSource },
-          (current) => ({
-            ...current,
-            usage: { records: [...current.usage.records, usage] },
-          }),
-        )
-        state = committed.state
-        events.push(committed.event)
-        yield committed.event
-      }
-
-      committed = await this.#transitions.commit(
-        state,
-        'item.added',
-        { itemId: modelResult.item.itemId, itemType: modelResult.item.type },
         (current) => ({
           ...current,
-          committedItems: [...current.committedItems, modelResult.item],
+          committedItems: [...current.committedItems, ...modelItems],
+          invocations: [...current.invocations, ...plannedInvocations],
+          ...(usage === undefined
+            ? {}
+            : { usage: { records: [...current.usage.records, usage] } }),
         }),
       )
       state = committed.state
       events.push(committed.event)
       yield committed.event
 
-      if (!isToolCall(modelResult.item)) {
+      if (usage !== undefined) {
+        committed = await this.#transitions.commit(
+          state,
+          'usage.recorded',
+          { usageId: usage.usageId, accountingSource: usage.accountingSource },
+          (current) => current,
+        )
+        state = committed.state
+        events.push(committed.event)
+        yield committed.event
+      }
+
+      for (const item of modelItems) {
+        committed = await this.#transitions.commit(
+          state,
+          'item.added',
+          { itemId: item.itemId, itemType: item.type },
+          (current) => current,
+        )
+        state = committed.state
+        events.push(committed.event)
+        yield committed.event
+      }
+
+      for (const invocation of plannedInvocations) {
+        committed = await this.#transitions.commit(
+          state,
+          'tool.selected',
+          {
+            invocationId: invocation.invocationId,
+            callId: invocation.callId,
+            toolId: invocation.toolId,
+            toolRevision: invocation.toolRevision,
+            inputDigest: invocation.inputDigest,
+          },
+          (current) => current,
+        )
+        state = committed.state
+        events.push(committed.event)
+        yield committed.event
+      }
+
+      if (toolCalls.length === 0) {
         const afterModel = yield* checkpointRun(
           state,
           control,
@@ -434,64 +552,9 @@ export class InMemoryAgentRunner {
         return { state, events }
       }
 
-      const tool = this.#tools.get(modelResult.item.toolId)
-      if (tool === undefined) {
-        return yield* failRun(state, control, events, 'tool-not-found', this.#transitions)
-      }
-
-      const invocationId = this.#createId('invocation')
-      let invocation: AgentToolInvocationState = {
-        invocationId,
-        callId: modelResult.item.callId,
-        attempt: 1,
-        inputDigest: digestRunnerJson(modelResult.item.arguments),
-        toolId: tool.toolId,
-        toolRevision: tool.toolRevision,
-        effectClass: 'read',
-        state: 'planned',
-      }
-      committed = await this.#transitions.commit(
-        state,
-        'tool.selected',
-        {
-          invocationId,
-          callId: invocation.callId,
-          toolId: invocation.toolId,
-          inputDigest: invocation.inputDigest,
-        },
-        (current) => ({ ...current, invocations: [...current.invocations, invocation] }),
-      )
-      state = committed.state
-      events.push(committed.event)
-      yield committed.event
-
-      if (tool.approval !== undefined) {
-        const suspended = yield* suspendAgentRunForApproval({
-          state,
-          events,
-          invocation,
-          toolCall: modelResult.item,
-          tool,
-          interactionId: this.#createId('interaction'),
-          interactionItemId: this.#createId('interaction-item'),
-          transitions: this.#transitions,
-        })
-        return { state: suspended, events }
-      }
-
-      const executed = yield* executeAgentRunnerTool({
-        state,
-        control,
-        events,
-        tool,
-        invocation,
-        input: modelResult.item.arguments,
-        maxToolAttempts: this.#maxToolAttempts,
-        createToolResultItemId: () => this.#createId('tool-result-item'),
-        transitions: this.#transitions,
-      })
+      const executed = yield* this.#executePlannedToolCalls(state, control, events)
       state = executed.state
-      if (executed.terminal) return { state, events }
+      if (executed.halted) return { state, events }
     }
 
     return yield* failRun(state, control, events, 'model-turn-limit', this.#transitions)
