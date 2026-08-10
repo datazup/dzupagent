@@ -156,13 +156,13 @@ class DeterministicBridge implements AgentRunnerNoToolDelegationBridge {
 
     const retainedResult = clone(result)
     if (this.mode === 'session-state') {
-      retainedResult.state.sessionBinding = {
+      ;(retainedResult.state as unknown as Record<string, unknown>).sessionBinding = {
         sessionId: 'fixture-session',
         baseRevision: 'fixture-revision',
       }
     }
     if (this.mode === 'adapter-state') {
-      retainedResult.state.adapterState = {
+      ;(retainedResult.state as unknown as Record<string, unknown>).adapterState = {
         adapter: { adapterId: 'fixture-adapter', revision: '1' },
       }
     }
@@ -237,16 +237,19 @@ describe('AgentRunner R5N opt-in no-tool generate delegation', () => {
     _name,
     finalContent,
   ) => {
+    const delegatedContent: BaseMessage['content'] = typeof finalContent === 'string'
+      ? finalContent
+      : finalContent.map((block) => ({ ...block }))
     const input = [new HumanMessage(
-      typeof finalContent === 'string'
+      typeof delegatedContent === 'string'
         ? 'return a string'
         : [{ type: 'text', text: 'return a standard block' }],
     )]
-    const expectedModel = legacyModel(response(finalContent))
+    const expectedModel = legacyModel(response(delegatedContent))
     const expected = await new DzupAgent(agentConfig(expectedModel.model))
       .generate([...input], { runId: 'legacy-run' })
 
-    const bridge = new DeterministicBridge(finalContent)
+    const bridge = new DeterministicBridge(delegatedContent)
     const unusedLegacy = legacyModel(response('must not execute'))
     const actual = await new DzupAgent(agentConfig(unusedLegacy.model, bridge))
       .generate([...input], options())
@@ -306,7 +309,7 @@ describe('AgentRunner R5N opt-in no-tool generate delegation', () => {
           experimentalNoToolGenerateDelegation: {
             ...options().experimentalNoToolGenerateDelegation!,
             unsupported: true,
-          } as unknown as GenerateOptions['experimentalNoToolGenerateDelegation'],
+          } as unknown as NonNullable<GenerateOptions['experimentalNoToolGenerateDelegation']>,
         },
       },
       {

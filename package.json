@@ -20,6 +20,7 @@
     "lint": "turbo run lint",
     "test": "node scripts/run-with-build-custody.mjs turbo run test",
     "test:build-cache": "node scripts/run-with-build-custody.mjs node scripts/qualify-build-cache-artifacts.mjs",
+    "test:build-cache:root-input-drift": "node scripts/qualify-build-root-input-cache-drift.mjs",
     "test:build-cache:remote": "node scripts/run-with-build-custody.mjs node scripts/qualify-build-cache-artifacts.mjs --remote",
     "test:build-custody:concurrent": "node scripts/rehearse-concurrent-build-custody.mjs",
     "test:inventory:runtime": "node scripts/check-runtime-test-inventory.mjs",
