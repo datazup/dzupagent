@@ -8,6 +8,8 @@ import type {
   AgentRunJsonValue,
   AgentRunStateV2,
   AgentSessionSnapshot,
+  AgentStructuredOutputRequest,
+  AgentStructuredOutputStrategy,
   AgentPersistableContext,
   AgentToolCallItem,
 } from '@dzupagent/agent-types/run'
@@ -19,6 +21,7 @@ export interface AgentRunnerInput {
   readonly sessionId?: string
   readonly context?: AgentPersistableContext
   readonly budget?: AgentBudgetState
+  readonly structuredOutput?: AgentStructuredOutputRequest
 }
 
 export interface AgentRunnerResumeInput {
@@ -232,6 +235,50 @@ export interface AgentRunnerModelRequest {
   readonly input: readonly AgentItem[]
   readonly committedItems: readonly AgentItem[]
   readonly tools: readonly AgentRunnerModelToolDescriptor[]
+  readonly structuredOutput?: AgentRunnerStructuredOutputSelection
+}
+
+export const AGENT_RUNNER_STRUCTURED_OUTPUT_CAPABILITY_SCHEMA =
+  'dzupagent.runnerStructuredOutputCapability/v1' as const
+export const AGENT_RUNNER_STRUCTURED_OUTPUT_EVIDENCE_SCHEMA =
+  'dzupagent.runnerStructuredOutputEvidence/v1' as const
+export const AGENT_RUNNER_STRUCTURED_OUTPUT_BLOCK_NAMESPACE =
+  'dzupagent.structuredOutput/v1' as const
+
+export interface AgentRunnerStructuredOutputCapability {
+  readonly schema: typeof AGENT_RUNNER_STRUCTURED_OUTPUT_CAPABILITY_SCHEMA
+  readonly strategies: readonly AgentStructuredOutputStrategy[]
+}
+
+export interface AgentRunnerStructuredOutputSelection extends AgentStructuredOutputRequest {
+  readonly selectedStrategy: AgentStructuredOutputStrategy
+  readonly supportedStrategies: readonly AgentStructuredOutputStrategy[]
+}
+
+export interface AgentRunnerStructuredOutputSuccess {
+  readonly schema: typeof AGENT_RUNNER_STRUCTURED_OUTPUT_EVIDENCE_SCHEMA
+  readonly schemaName: string
+  readonly schemaDigest: string
+  readonly strategy: AgentStructuredOutputStrategy
+  readonly attempts: number
+  readonly fallbackFrom?: AgentStructuredOutputStrategy
+  readonly value: AgentRunJsonValue
+}
+
+export type AgentRunnerStructuredOutputFailureKind =
+  | 'malformed-json'
+  | 'schema-invalid'
+  | 'native-rejected'
+  | 'unsupported'
+
+export interface AgentRunnerStructuredOutputFailure {
+  readonly schema: typeof AGENT_RUNNER_STRUCTURED_OUTPUT_EVIDENCE_SCHEMA
+  readonly schemaName: string
+  readonly schemaDigest: string
+  readonly failure: AgentRunnerStructuredOutputFailureKind
+  readonly attempts: number
+  readonly strategy?: AgentStructuredOutputStrategy
+  readonly fallbackFrom?: AgentStructuredOutputStrategy
 }
 
 export interface AgentRunnerModelUsage {
@@ -259,6 +306,7 @@ export type AgentRunnerProviderErrorCategory =
   | 'rate-limit'
   | 'timeout'
   | 'invalid-request'
+  | 'invalid-response'
   | 'unavailable'
   | 'content-filter'
   | 'cancelled'
@@ -281,13 +329,15 @@ export interface AgentRunnerModelResult {
   readonly additionalItems?: readonly (AgentMessageItem | AgentToolCallItem)[]
   readonly usage?: AgentRunnerModelUsage
   readonly finishReason?: AgentRunnerModelFinishReason
+  readonly structuredOutput?: AgentRunnerStructuredOutputSuccess
 }
 
 export interface AgentRunnerModelFailure {
-  readonly status: 'failed-before-dispatch' | 'outcome-unknown'
+  readonly status: 'failed-before-dispatch' | 'failed-after-dispatch' | 'outcome-unknown'
   readonly code: string
   readonly category: AgentRunnerProviderErrorCategory
   readonly retryClassification: AgentRunnerRetryClassification
+  readonly structuredOutput?: AgentRunnerStructuredOutputFailure
 }
 
 export type AgentRunnerModelInvocationResult = AgentRunnerModelResult | AgentRunnerModelFailure
@@ -295,6 +345,7 @@ export type AgentRunnerModelInvocationResult = AgentRunnerModelResult | AgentRun
 /** Low-level model invocation; host lifecycle and credentials stay outside. */
 export interface AgentRunnerModelPort {
   readonly adapterId: string
+  readonly structuredOutputCapabilities?: AgentRunnerStructuredOutputCapability
   invoke(request: AgentRunnerModelRequest): Promise<AgentRunnerModelInvocationResult>
 }
 

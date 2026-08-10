@@ -13,9 +13,11 @@ import {
   type AgentRunEventType,
   type AgentRunJsonValue,
   type AgentRunStateV2,
+  type AgentStructuredOutputRequest,
 } from '@dzupagent/agent-types/run'
 
 import { assertDurableJson } from './runner-values.js'
+import { assertAgentRunnerStructuredOutputRequest } from './model-port-values.js'
 import {
   assertValidSessionSnapshot,
   createInitialAgentRunState,
@@ -160,6 +162,13 @@ export function assertValidResumeState(value: unknown): asserts value is AgentRu
         !isNonEmptyString(value.sessionBinding.baseRevision) ||
         !isNonEmptyString(value.sessionBinding.transactionId)))
   ) {
+    throw new AgentRunnerResumeError('malformed-state')
+  }
+  try {
+    assertAgentRunnerStructuredOutputRequest(
+      value.structuredOutput as AgentStructuredOutputRequest | undefined,
+    )
+  } catch {
     throw new AgentRunnerResumeError('malformed-state')
   }
 }

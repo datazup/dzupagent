@@ -10,6 +10,8 @@
 export const AGENT_RUN_EVENT_SCHEMA = 'dzupagent.run-event/v1' as const
 export const AGENT_RUN_STATE_SCHEMA = 'dzupagent.agentRunState/v2' as const
 export const AGENT_SESSION_SCHEMA = 'dzupagent.agentSession/v1' as const
+export const AGENT_STRUCTURED_OUTPUT_REQUEST_SCHEMA =
+  'dzupagent.structuredOutputRequest/v1' as const
 export const AGENT_RUN_STATE_STABILITY = 'draft' as const
 
 export type AgentRunJsonValue =
@@ -21,6 +23,18 @@ export type AgentRunJsonValue =
   | { readonly [key: string]: AgentRunJsonValue }
 
 export type AgentRunJsonObject = Readonly<Record<string, AgentRunJsonValue>>
+
+export type AgentStructuredOutputStrategy = 'native-json-schema' | 'json-text'
+
+/** Durable, provider-neutral structured-output obligation for one run. */
+export interface AgentStructuredOutputRequest {
+  readonly schema: typeof AGENT_STRUCTURED_OUTPUT_REQUEST_SCHEMA
+  readonly schemaName: string
+  readonly schemaDigest: string
+  readonly jsonSchema: AgentRunJsonObject
+  readonly allowedStrategies: readonly AgentStructuredOutputStrategy[]
+  readonly maxAttempts: number
+}
 
 /** Opaque durable artifact identity. Raw bytes and unrestricted host paths stay outside run state. */
 export interface AgentArtifactReference {
@@ -294,6 +308,7 @@ export interface AgentRunStateV2<TContext extends AgentRunJsonValue = AgentRunJs
   readonly usage: AgentUsageLedger
   readonly budget: AgentBudgetState
   readonly context: AgentPersistableContext<TContext>
+  readonly structuredOutput?: AgentStructuredOutputRequest
   readonly sessionBinding?: AgentSessionBinding
   readonly adapterState?: Readonly<Record<string, AgentAdapterReference>>
   readonly sandboxRef?: AgentSandboxSessionReference

@@ -1,4 +1,6 @@
 import type {
+  AgentStructuredOutputRequest,
+  AgentStructuredOutputStrategy,
   AgentMessageItem,
   AgentToolCallItem,
   AgentToolInvocationState,
@@ -12,7 +14,16 @@ import type {
   AgentRunnerModelResult,
   AgentRunnerModelUsage,
   AgentRunnerReadOnlyToolPort,
+  AgentRunnerStructuredOutputFailure,
+  AgentRunnerStructuredOutputSelection,
+  AgentRunnerStructuredOutputSuccess,
 } from './runner-ports.js'
+import {
+  AGENT_RUNNER_STRUCTURED_OUTPUT_BLOCK_NAMESPACE,
+  AGENT_RUNNER_STRUCTURED_OUTPUT_CAPABILITY_SCHEMA,
+  AGENT_RUNNER_STRUCTURED_OUTPUT_EVIDENCE_SCHEMA,
+} from './runner-ports.js'
+import { AGENT_STRUCTURED_OUTPUT_REQUEST_SCHEMA } from '@dzupagent/agent-types/run'
 import { assertDurableJson, digestRunnerJson } from './runner-values.js'
 
 const MODEL_ERROR_CATEGORIES = new Set([
@@ -21,6 +32,7 @@ const MODEL_ERROR_CATEGORIES = new Set([
   'rate-limit',
   'timeout',
   'invalid-request',
+  'invalid-response',
   'unavailable',
   'content-filter',
   'cancelled',
@@ -74,10 +86,136 @@ function assertModelUsage(usage: AgentRunnerModelUsage | undefined): void {
 
 function isFailure(value: unknown): value is AgentRunnerModelFailure {
   if (typeof value !== 'object' || value === null || !('status' in value)) return false
-  return value.status === 'failed-before-dispatch' || value.status === 'outcome-unknown'
+  return ['failed-before-dispatch', 'failed-after-dispatch', 'outcome-unknown'].includes(
+    String(value.status),
+  )
 }
 
-function assertFailure(failure: AgentRunnerModelFailure): void {
+const STRUCTURED_STRATEGIES = new Set<AgentStructuredOutputStrategy>([
+  'native-json-schema',
+  'json-text',
+])
+
+function structuredSchemaDigest(value: unknown): string {
+  return digestRunnerJson(value).slice('sha256:'.length, 'sha256:'.length + 16)
+}
+
+function assertUniqueStrategies(
+  value: readonly AgentStructuredOutputStrategy[],
+  allowEmpty = false,
+): void {
+  if ((!allowEmpty && value.length === 0) || new Set(value).size !== value.length ||
+      value.some((strategy) => !STRUCTURED_STRATEGIES.has(strategy))) {
+    throw new TypeError('AgentRunner structured-output strategies are invalid')
+  }
+}
+
+export function assertAgentRunnerStructuredOutputRequest(
+  request: AgentStructuredOutputRequest | undefined,
+): void {
+  if (request === undefined) return
+  assertDurableJson(request)
+  if (
+    request.schema !== AGENT_STRUCTURED_OUTPUT_REQUEST_SCHEMA ||
+    !isNonEmptyId(request.schemaName) ||
+    request.schemaDigest !== structuredSchemaDigest(request.jsonSchema) ||
+    !Number.isSafeInteger(request.maxAttempts) ||
+    request.maxAttempts < 1 ||
+    request.maxAttempts > 10
+  ) {
+    throw new TypeError('AgentRunner structured-output request is invalid')
+  }
+  assertUniqueStrategies(request.allowedStrategies)
+}
+
+export function selectAgentRunnerStructuredOutput(
+  model: AgentRunnerModelPort,
+  request: AgentStructuredOutputRequest,
+): AgentRunnerStructuredOutputSelection
+export function selectAgentRunnerStructuredOutput(
+  model: AgentRunnerModelPort,
+  request: undefined,
+): undefined
+export function selectAgentRunnerStructuredOutput(
+  model: AgentRunnerModelPort,
+  request: AgentStructuredOutputRequest | undefined,
+): AgentRunnerStructuredOutputSelection | undefined {
+  assertAgentRunnerStructuredOutputRequest(request)
+  if (request === undefined) return undefined
+  const capability = model.structuredOutputCapabilities
+  if (capability === undefined ||
+      capability.schema !== AGENT_RUNNER_STRUCTURED_OUTPUT_CAPABILITY_SCHEMA) {
+    rejectStructuredOutput(request, 'structured-output-unsupported')
+  }
+  assertUniqueStrategies(capability.strategies, true)
+  const selectedStrategy = request.allowedStrategies.find((strategy) =>
+    capability.strategies.includes(strategy))
+  if (selectedStrategy === undefined) {
+    rejectStructuredOutput(request, 'structured-output-unsupported')
+  }
+  return {
+    ...request,
+    selectedStrategy,
+    supportedStrategies: capability.strategies,
+  }
+}
+
+function structuredFailure(
+  request: AgentStructuredOutputRequest,
+  failure: AgentRunnerStructuredOutputFailure['failure'],
+): AgentRunnerStructuredOutputFailure {
+  return {
+    schema: AGENT_RUNNER_STRUCTURED_OUTPUT_EVIDENCE_SCHEMA,
+    schemaName: request.schemaName,
+    schemaDigest: request.schemaDigest,
+    failure,
+    attempts: 0,
+  }
+}
+
+function rejectStructuredOutput(request: AgentStructuredOutputRequest, code: string): never {
+  throw new AgentRunnerModelInvocationError({
+    status: 'failed-before-dispatch',
+    code,
+    category: 'invalid-request',
+    retryClassification: 'non-retryable',
+    structuredOutput: structuredFailure(request, 'unsupported'),
+  })
+}
+
+function assertStructuredEvidenceIdentity(
+  evidence: AgentRunnerStructuredOutputSuccess | AgentRunnerStructuredOutputFailure,
+  request: AgentRunnerStructuredOutputSelection,
+): void {
+  if (evidence.schema !== AGENT_RUNNER_STRUCTURED_OUTPUT_EVIDENCE_SCHEMA ||
+      evidence.schemaName !== request.schemaName ||
+      evidence.schemaDigest !== request.schemaDigest ||
+      !Number.isSafeInteger(evidence.attempts) || evidence.attempts < 0 ||
+      evidence.attempts > request.maxAttempts) {
+    rejectModelResult('model-structured-output-evidence-mismatch')
+  }
+  if (evidence.strategy !== undefined &&
+      (!request.allowedStrategies.includes(evidence.strategy) ||
+       !request.supportedStrategies.includes(evidence.strategy))) {
+    rejectModelResult('model-structured-output-strategy-mismatch')
+  }
+  if (evidence.fallbackFrom !== undefined &&
+      (evidence.fallbackFrom !== request.selectedStrategy ||
+       evidence.fallbackFrom !== 'native-json-schema' ||
+       evidence.strategy !== 'json-text')) {
+    rejectModelResult('model-structured-output-fallback-mismatch')
+  }
+  if (evidence.strategy !== undefined &&
+      evidence.strategy !== request.selectedStrategy &&
+      evidence.fallbackFrom !== request.selectedStrategy) {
+    rejectModelResult('model-structured-output-fallback-mismatch')
+  }
+}
+
+function assertFailure(
+  failure: AgentRunnerModelFailure,
+  request: AgentRunnerModelRequest,
+): void {
   if (!/^[a-z0-9][a-z0-9._-]{0,127}$/u.test(failure.code)) {
     throw new TypeError('AgentRunner model failure code must be normalized')
   }
@@ -99,11 +237,28 @@ function assertFailure(failure: AgentRunnerModelFailure): void {
   ) {
     throw new TypeError('AgentRunner undispatched model failure cannot require reconciliation')
   }
+  if (failure.status === 'failed-after-dispatch' &&
+      failure.retryClassification === 'reconciliation-required') {
+    throw new TypeError('AgentRunner known dispatched failure cannot require reconciliation')
+  }
+  if (failure.structuredOutput !== undefined) {
+    if (request.structuredOutput === undefined) {
+      throw new TypeError('AgentRunner unexpected structured-output failure evidence')
+    }
+    assertStructuredEvidenceIdentity(failure.structuredOutput, request.structuredOutput)
+    if ((failure.structuredOutput.failure === 'unsupported') !==
+        (failure.structuredOutput.attempts === 0)) {
+      throw new TypeError('AgentRunner structured-output failure attempt evidence is invalid')
+    }
+  } else if (failure.status === 'failed-after-dispatch' &&
+      request.structuredOutput !== undefined) {
+    throw new TypeError('AgentRunner known structured-output failure requires evidence')
+  }
 }
 
 function rejectModelResult(code: string): never {
   throw new AgentRunnerModelInvocationError({
-    status: 'failed-before-dispatch',
+    status: 'failed-after-dispatch',
     code,
     category: 'invalid-request',
     retryClassification: 'non-retryable',
@@ -250,6 +405,38 @@ function assertModelTurn(
   ) {
     rejectModelResult('model-conflicting-finish-reason')
   }
+
+  assertStructuredModelResult(result, request, items, toolCallCount)
+}
+
+function assertStructuredModelResult(
+  result: AgentRunnerModelResult,
+  request: AgentRunnerModelRequest,
+  items: readonly (AgentMessageItem | AgentToolCallItem)[],
+  toolCallCount: number,
+): void {
+  if (request.structuredOutput === undefined) {
+    if (result.structuredOutput !== undefined) {
+      rejectModelResult('model-unrequested-structured-output')
+    }
+    return
+  }
+  const evidence = result.structuredOutput
+  if (evidence === undefined || evidence.attempts < 1 || toolCallCount > 0 ||
+      result.finishReason !== 'stop' || items.length !== 1) {
+    rejectModelResult('model-invalid-structured-output')
+  }
+  assertStructuredEvidenceIdentity(evidence, request.structuredOutput)
+  const item = items[0]
+  if (item?.type !== 'message' || item.content.length !== 1) {
+    rejectModelResult('model-invalid-structured-output')
+  }
+  const block = item.content[0]
+  if (block?.type !== 'extension' ||
+      block.namespace !== AGENT_RUNNER_STRUCTURED_OUTPUT_BLOCK_NAMESPACE ||
+      digestRunnerJson(block.value) !== digestRunnerJson(evidence.value)) {
+    rejectModelResult('model-structured-output-value-mismatch')
+  }
 }
 
 /** @internal */
@@ -260,7 +447,7 @@ export async function invokeAgentRunnerModel(
   const result = await model.invoke(request)
   assertDurableJson(result)
   if (isFailure(result)) {
-    assertFailure(result)
+    assertFailure(result, request)
     throw new AgentRunnerModelInvocationError(result)
   }
   assertModelUsage(result.usage)

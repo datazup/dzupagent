@@ -51,6 +51,7 @@ import type {
   GenerateResult,
 } from './agent-types.js'
 import { omitUndefined } from '../utils/exact-optional.js'
+import { ModelCancellationError } from './model-timeout-error.js'
 
 /** Context the structured-generate routine needs from its owning agent. */
 export interface StructuredGenerateContext {
@@ -70,6 +71,7 @@ export async function generateStructured<T>(
   schema: ZodType<T>,
   options?: GenerateOptions,
 ): Promise<{ data: T; usage: GenerateResult['usage'] }> {
+  if (options?.signal?.aborted) throw new ModelCancellationError()
   const fallbackMaxRetries = 2
   const model = ctx.resolvedModel
   const structuredOutputCapabilities = ctx.resolveStructuredOutputCapabilities(model)

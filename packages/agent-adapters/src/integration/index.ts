@@ -30,6 +30,7 @@ export type {
   ProviderFreeAgentRunnerModelInvocation,
   ProviderFreeAgentRunnerModelState,
   ProviderFreeAgentRunnerModelStep,
+  ProviderFreeAgentRunnerStructuredAttempt,
   ProviderFreeAgentRunnerReadToolState,
   ProviderFreeAgentRunnerReadToolStep,
   ProviderFreeAgentRunnerToolCall,

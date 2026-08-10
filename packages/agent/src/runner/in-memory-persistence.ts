@@ -27,6 +27,7 @@ import {
 } from '@dzupagent/agent-types/run'
 
 import { assertDurableJson, cloneDurableJson, digestRunnerJson } from './runner-values.js'
+import { assertAgentRunnerStructuredOutputRequest } from './model-port-values.js'
 
 export class InMemoryAgentRunStore implements AgentRunStore {
   readonly #states = new Map<string, AgentRunStateV2>()
@@ -441,6 +442,7 @@ export function createInitialAgentRunState(
   now: string,
   sessionBinding?: AgentSessionBinding,
 ): AgentRunStateV2 {
+  assertAgentRunnerStructuredOutputRequest(input.structuredOutput)
   const state: AgentRunStateV2 = {
     schema: AGENT_RUN_STATE_SCHEMA,
     runId,
@@ -468,6 +470,9 @@ export function createInitialAgentRunState(
       consumed: {},
     },
     context: input.context ?? { state: 'absent' },
+    ...(input.structuredOutput === undefined
+      ? {}
+      : { structuredOutput: input.structuredOutput }),
     ...(sessionBinding === undefined ? {} : { sessionBinding }),
     createdAt: now,
     updatedAt: now,

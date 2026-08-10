@@ -39,6 +39,7 @@ import {
   AgentRunnerModelInvocationError,
   invokeAgentRunnerModel,
   prepareAgentRunnerModelTurn,
+  selectAgentRunnerStructuredOutput,
 } from './model-port-values.js'
 export type AgentRunnerIdentityKind =
   | 'event'
@@ -74,7 +75,6 @@ export class InMemoryAgentRunner {
   readonly #now: () => string
   readonly #maxModelTurns: number
   readonly #maxToolAttempts: number
-
   constructor(config: InMemoryAgentRunnerConfig) {
     this.#model = config.model
     this.#tools = new Map((config.tools ?? []).map((tool) => [tool.toolId, tool]))
@@ -90,7 +90,6 @@ export class InMemoryAgentRunner {
       createEventId: () => this.#createId('event'),
       now: this.#now,
     })
-
     if (
       !Number.isSafeInteger(this.#maxModelTurns) ||
       this.#maxModelTurns < 1 ||
@@ -99,7 +98,6 @@ export class InMemoryAgentRunner {
     ) {
       throw new RangeError('AgentRunner limits must be positive integers')
     }
-
     if (
       this.#tools.size !== (config.tools ?? []).length ||
       [...this.#tools.values()].some((tool) => tool.effectClass !== 'read')
@@ -107,11 +105,9 @@ export class InMemoryAgentRunner {
       throw new TypeError('AgentRunner tools must be unique read-only tools')
     }
   }
-
   async run(input: AgentRunnerInput, options: AgentRunnerOptions = {}): Promise<AgentRunnerResult> {
     return collectAgentRunnerExecution(this.stream(input, options))
   }
-
   stream(
     input: AgentRunnerInput,
     options: AgentRunnerOptions = {},
@@ -126,21 +122,18 @@ export class InMemoryAgentRunner {
       continueRun: (state, events) => this.#drive(state, control, events, 0),
     })
   }
-
   async resume(
     input: AgentRunnerResumeInput,
     options: AgentRunnerOptions = {},
   ): Promise<AgentRunnerResult> {
     return collectAgentRunnerExecution(this.resumeStream(input, options))
   }
-
   resumeStream(
     input: AgentRunnerResumeInput,
     options: AgentRunnerOptions = {},
   ): AsyncGenerator<AgentRunEventEnvelope, AgentRunnerResult> {
     return this.#executeResume(input, options.control ?? new RunControl())
   }
-
   async *#executeResume(
     input: AgentRunnerResumeInput,
     control: RunControl,
@@ -335,6 +328,9 @@ export class InMemoryAgentRunner {
             ...(tool.description === undefined ? {} : { description: tool.description }),
             ...(tool.inputSchema === undefined ? {} : { inputSchema: tool.inputSchema }),
           })),
+          ...(state.structuredOutput === undefined ? {} : {
+            structuredOutput: selectAgentRunnerStructuredOutput(this.#model, state.structuredOutput),
+          }),
         })
       } catch (error) {
         const failure =
@@ -348,6 +344,9 @@ export class InMemoryAgentRunner {
             category: failure?.category ?? 'unknown',
             outcome: failure?.status ?? 'outcome-unknown',
             retryClassification: failure?.retryClassification ?? 'reconciliation-required',
+            ...(failure?.structuredOutput === undefined
+              ? {}
+              : { structuredOutput: { ...failure.structuredOutput } }),
           },
           (current) => current,
         )
@@ -375,8 +374,6 @@ export class InMemoryAgentRunner {
         now: this.#now(),
       })
 
-      // The complete turn, usage, and every stable invocation identity become
-      // durable in one state transition before any item projection or tool dispatch.
       committed = await this.#transitions.commit(
         state,
         'model.completed',
@@ -391,6 +388,9 @@ export class InMemoryAgentRunner {
           ...(modelResult.finishReason === undefined
             ? {}
             : { finishReason: modelResult.finishReason }),
+          ...(modelResult.structuredOutput === undefined
+            ? {}
+            : { structuredOutput: { ...modelResult.structuredOutput } }),
         },
         (current) => ({
           ...current,
@@ -496,5 +496,4 @@ export class InMemoryAgentRunner {
 
     return yield* failRun(state, control, events, 'model-turn-limit', this.#transitions)
   }
-
 }

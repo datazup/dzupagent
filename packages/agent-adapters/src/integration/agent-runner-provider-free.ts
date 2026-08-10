@@ -1,6 +1,9 @@
 import { AIMessage, type ContentBlock, type UsageMetadata } from '@langchain/core/messages'
 import type { AgentContentBlock, AgentRunJsonValue } from '@dzupagent/agent-types/run'
+import { z } from 'zod'
 import {
+  AGENT_RUNNER_STRUCTURED_OUTPUT_BLOCK_NAMESPACE,
+  AGENT_RUNNER_STRUCTURED_OUTPUT_EVIDENCE_SCHEMA,
   cloneDurableJson,
   type AgentRunnerModelFailure,
   type AgentRunnerModelFinishReason,
@@ -11,6 +14,9 @@ import {
   type AgentRunnerReadOnlyToolPort,
   type AgentRunnerReadOnlyToolRequest,
   type AgentRunnerReadOnlyToolResult,
+  type AgentRunnerStructuredOutputCapability,
+  type AgentRunnerStructuredOutputFailure,
+  type AgentRunnerStructuredOutputSelection,
 } from '@dzupagent/agent/runner'
 
 import { langChainMessageToAgentRunnerModelResult } from './agent-runner-langchain-conversion.js'
@@ -21,6 +27,10 @@ export interface ProviderFreeAgentRunnerToolCall {
   readonly arguments: AgentRunJsonValue
 }
 
+export type ProviderFreeAgentRunnerStructuredAttempt =
+  | { readonly outcome: 'native-rejected' }
+  | { readonly outcome: 'output'; readonly text: string }
+
 export type ProviderFreeAgentRunnerModelStep =
   | {
       readonly status: 'completed'
@@ -28,6 +38,7 @@ export type ProviderFreeAgentRunnerModelStep =
       readonly toolCalls?: readonly ProviderFreeAgentRunnerToolCall[]
       readonly usage?: AgentRunnerModelUsage
       readonly finishReason: AgentRunnerModelFinishReason
+      readonly structuredAttempts?: readonly ProviderFreeAgentRunnerStructuredAttempt[]
     }
   | AgentRunnerModelFailure
 
@@ -35,6 +46,7 @@ export interface ProviderFreeAgentRunnerModelState {
   readonly schema: 'dzupagent.providerFreeAgentRunnerModel/v1'
   readonly cursor: number
   readonly steps: readonly ProviderFreeAgentRunnerModelStep[]
+  readonly structuredOutputCapabilities?: AgentRunnerStructuredOutputCapability
 }
 
 export interface ProviderFreeAgentRunnerModelInvocation {
@@ -44,6 +56,14 @@ export interface ProviderFreeAgentRunnerModelInvocation {
   readonly turn: number
   readonly agentId: string
   readonly toolCount: number
+  readonly structuredStrategy?: AgentRunnerStructuredOutputSelection['selectedStrategy']
+}
+
+function extractStructuredJsonText(text: string): string {
+  const trimmed = text.trim()
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/)
+  if (fenced?.[1]) return fenced[1].trim()
+  return trimmed
 }
 
 function langChainFinishReason(reason: AgentRunnerModelFinishReason): string | undefined {
@@ -115,10 +135,113 @@ function providerFreeUsage(usage: AgentRunnerModelUsage | undefined): AgentRunne
   return cloned
 }
 
+function structuredFailure(
+  request: AgentRunnerStructuredOutputSelection,
+  failure: AgentRunnerStructuredOutputFailure['failure'],
+  attempts: number,
+  strategy: AgentRunnerStructuredOutputSelection['selectedStrategy'],
+  fallbackFrom: AgentRunnerStructuredOutputSelection['selectedStrategy'] | undefined,
+): AgentRunnerModelFailure {
+  return {
+    status: attempts === 0 ? 'failed-before-dispatch' : 'failed-after-dispatch',
+    code: `structured-output-${failure}`,
+    category: 'invalid-response',
+    retryClassification: 'non-retryable',
+    structuredOutput: {
+      schema: AGENT_RUNNER_STRUCTURED_OUTPUT_EVIDENCE_SCHEMA,
+      schemaName: request.schemaName,
+      schemaDigest: request.schemaDigest,
+      failure,
+      attempts,
+      strategy,
+      ...(fallbackFrom === undefined ? {} : { fallbackFrom }),
+    },
+  }
+}
+
+function providerFreeStructuredResult(options: {
+  readonly request: AgentRunnerStructuredOutputSelection
+  readonly attempts: readonly ProviderFreeAgentRunnerStructuredAttempt[]
+  readonly itemId: string
+  readonly usage?: AgentRunnerModelUsage
+}): AgentRunnerModelInvocationResult {
+  let schema: z.ZodType
+  try {
+    schema = z.fromJSONSchema(options.request.jsonSchema as Record<string, unknown>)
+  } catch {
+    return structuredFailure(
+      options.request,
+      'unsupported',
+      0,
+      options.request.selectedStrategy,
+      undefined,
+    )
+  }
+  let strategy = options.request.selectedStrategy
+  let fallbackFrom: AgentRunnerStructuredOutputSelection['selectedStrategy'] | undefined
+  let lastFailure: AgentRunnerStructuredOutputFailure['failure'] = 'malformed-json'
+  let attemptCount = 0
+  for (const attempt of options.attempts.slice(0, options.request.maxAttempts)) {
+    attemptCount += 1
+    if (attempt.outcome === 'native-rejected') {
+      lastFailure = 'native-rejected'
+      const canFallback = strategy === 'native-json-schema' &&
+        options.request.allowedStrategies.includes('json-text') &&
+        options.request.supportedStrategies.includes('json-text')
+      if (!canFallback) {
+        return structuredFailure(options.request, lastFailure, attemptCount, strategy, fallbackFrom)
+      }
+      fallbackFrom = strategy
+      strategy = 'json-text'
+      continue
+    }
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(extractStructuredJsonText(attempt.text))
+    } catch {
+      lastFailure = 'malformed-json'
+      continue
+    }
+    const validated = schema.safeParse(parsed)
+    if (!validated.success) {
+      lastFailure = 'schema-invalid'
+      continue
+    }
+    const value = cloneDurableJson(validated.data as AgentRunJsonValue)
+    const structuredOutput = {
+      schema: AGENT_RUNNER_STRUCTURED_OUTPUT_EVIDENCE_SCHEMA,
+      schemaName: options.request.schemaName,
+      schemaDigest: options.request.schemaDigest,
+      strategy,
+      attempts: attemptCount,
+      ...(fallbackFrom === undefined ? {} : { fallbackFrom }),
+      value,
+    } as const
+    return {
+      status: 'completed',
+      item: {
+        type: 'message',
+        itemId: options.itemId,
+        role: 'assistant',
+        content: [{
+          type: 'extension',
+          namespace: AGENT_RUNNER_STRUCTURED_OUTPUT_BLOCK_NAMESPACE,
+          value,
+        }],
+      },
+      structuredOutput,
+      ...(options.usage === undefined ? {} : { usage: options.usage }),
+      finishReason: 'stop',
+    }
+  }
+  return structuredFailure(options.request, lastFailure, attemptCount, strategy, fallbackFrom)
+}
+
 /** Deterministic, credential-free model adapter for conformance only. */
 export class ProviderFreeAgentRunnerModelAdapter implements AgentRunnerModelPort {
   readonly adapterId = 'dzupagent-provider-free-runner-model/v1'
   readonly invocations: ProviderFreeAgentRunnerModelInvocation[] = []
+  readonly structuredOutputCapabilities?: AgentRunnerStructuredOutputCapability
   readonly #steps: readonly ProviderFreeAgentRunnerModelStep[]
   #cursor: number
 
@@ -128,6 +251,9 @@ export class ProviderFreeAgentRunnerModelAdapter implements AgentRunnerModelPort
     }
     this.#steps = cloneDurableJson(state.steps)
     this.#cursor = state.cursor
+    if (state.structuredOutputCapabilities !== undefined) {
+      this.structuredOutputCapabilities = cloneDurableJson(state.structuredOutputCapabilities)
+    }
     if (!Number.isSafeInteger(this.#cursor) || this.#cursor < 0 || this.#cursor > this.#steps.length) {
       throw new RangeError('Invalid provider-free model cursor')
     }
@@ -138,6 +264,9 @@ export class ProviderFreeAgentRunnerModelAdapter implements AgentRunnerModelPort
       schema: 'dzupagent.providerFreeAgentRunnerModel/v1' as const,
       cursor: this.#cursor,
       steps: this.#steps,
+      ...(this.structuredOutputCapabilities === undefined
+        ? {}
+        : { structuredOutputCapabilities: this.structuredOutputCapabilities }),
     })
   }
 
@@ -149,6 +278,9 @@ export class ProviderFreeAgentRunnerModelAdapter implements AgentRunnerModelPort
       turn: request.turn,
       agentId: request.agentId,
       toolCount: request.tools.length,
+      ...(request.structuredOutput === undefined
+        ? {}
+        : { structuredStrategy: request.structuredOutput.selectedStrategy }),
     })
     const step = this.#steps[this.#cursor]
     if (step === undefined) {
@@ -162,6 +294,14 @@ export class ProviderFreeAgentRunnerModelAdapter implements AgentRunnerModelPort
     this.#cursor += 1
     if (step.status !== 'completed') return cloneDurableJson(step)
     const usage = providerFreeUsage(step.usage)
+    if (request.structuredOutput !== undefined) {
+      return providerFreeStructuredResult({
+        request: request.structuredOutput,
+        attempts: step.structuredAttempts ?? [],
+        itemId: `${request.requestId}-turn-${request.turn}-message`,
+        ...(usage === undefined ? {} : { usage }),
+      })
+    }
     const usageMetadata = langChainUsage(usage)
     const finishReason = langChainFinishReason(step.finishReason)
     const message = new AIMessage({
