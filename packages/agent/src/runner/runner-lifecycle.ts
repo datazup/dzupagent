@@ -1,5 +1,4 @@
 import type {
-  AgentInteractionDecisionInput,
   AgentItem,
   AgentPendingInteraction,
   AgentRunEventEnvelope,
@@ -115,46 +114,6 @@ export async function* failRun(
   yield failed.event
   control.markTerminal()
   return { state: failed.state, events }
-}
-
-/** @internal */
-export async function collectAgentRunnerExecution<TResult>(
-  execution: AsyncGenerator<AgentRunEventEnvelope, TResult>,
-): Promise<TResult> {
-  let step = await execution.next()
-  while (!step.done) step = await execution.next()
-  return step.value
-}
-
-/** @internal */
-export function validateDecisionBinding(
-  state: AgentRunStateV2,
-  interaction: AgentPendingInteraction,
-  decision: AgentInteractionDecisionInput,
-  now: () => string,
-): void {
-  if (decision.stateRevision !== state.revision || decision.stateRevision !== interaction.stateRevision) {
-    throw new AgentRunnerResumeError('decision-state-revision-stale')
-  }
-  if (decision.generation !== interaction.generation) {
-    throw new AgentRunnerResumeError('decision-generation-mismatch')
-  }
-  if (decision.requestDigest !== interaction.requestDigest) {
-    throw new AgentRunnerResumeError('decision-request-mismatch')
-  }
-  if (
-    decision.decisionPolicyRef !== interaction.decisionPolicyRef ||
-    decision.decisionPolicyRevision !== interaction.decisionPolicyRevision
-  ) {
-    throw new AgentRunnerResumeError('decision-policy-mismatch')
-  }
-  if (interaction.expiresAt === undefined) return
-  const expiresAt = Date.parse(interaction.expiresAt)
-  const currentTime = Date.parse(now())
-  if (!Number.isFinite(expiresAt) || !Number.isFinite(currentTime)) {
-    throw new AgentRunnerResumeError('malformed-state')
-  }
-  if (expiresAt <= currentTime) throw new AgentRunnerResumeError('interaction-expired')
 }
 
 /** @internal */
@@ -465,4 +424,70 @@ export async function* continueApprovedAgentRun(options: {
     createToolResultItemId: options.createToolResultItemId,
     transitions,
   })
+}
+
+/** @internal */
+export async function* executePlannedAgentRunnerTools(options: {
+  readonly state: AgentRunStateV2
+  readonly control: RunControl
+  readonly events: AgentRunEventEnvelope[]
+  readonly tools: ReadonlyMap<string, AgentRunnerReadOnlyToolPort>
+  readonly maxToolAttempts: number
+  readonly createInteractionId: () => string
+  readonly createInteractionItemId: () => string
+  readonly createToolResultItemId: () => string
+  readonly transitions: AgentRunnerTransitionCommitter
+}): AsyncGenerator<
+  AgentRunEventEnvelope,
+  { readonly state: AgentRunStateV2; readonly halted: boolean }
+> {
+  const { control, events, tools, transitions } = options
+  let state = options.state
+  for (const toolCall of state.committedItems.filter(
+    (item): item is AgentToolCallItem => item.type === 'tool-call',
+  )) {
+    const invocation = state.invocations.find(
+      (entry) => entry.callId === toolCall.callId && entry.toolId === toolCall.toolId,
+    )
+    if (invocation?.state !== 'planned') continue
+
+    const tool = tools.get(toolCall.toolId)
+    if (tool === undefined || tool.toolRevision !== invocation.toolRevision) {
+      const failed = yield* failRun(
+        state,
+        control,
+        events,
+        tool === undefined ? 'tool-not-found' : 'tool-revision-mismatch',
+        transitions,
+      )
+      return { state: failed.state, halted: true }
+    }
+    if (tool.approval !== undefined) {
+      const suspended = yield* suspendAgentRunForApproval({
+        state,
+        events,
+        invocation,
+        toolCall,
+        tool,
+        interactionId: options.createInteractionId(),
+        interactionItemId: options.createInteractionItemId(),
+        transitions,
+      })
+      return { state: suspended, halted: true }
+    }
+    const executed = yield* executeAgentRunnerTool({
+      state,
+      control,
+      events,
+      tool,
+      invocation,
+      input: toolCall.arguments,
+      maxToolAttempts: options.maxToolAttempts,
+      createToolResultItemId: options.createToolResultItemId,
+      transitions,
+    })
+    state = executed.state
+    if (executed.terminal) return { state, halted: true }
+  }
+  return { state, halted: false }
 }

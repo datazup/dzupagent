@@ -1,6 +1,7 @@
 import type {
   AgentMessageItem,
   AgentToolCallItem,
+  AgentToolInvocationState,
   AgentUsageRecord,
 } from '@dzupagent/agent-types/run'
 
@@ -10,8 +11,9 @@ import type {
   AgentRunnerModelRequest,
   AgentRunnerModelResult,
   AgentRunnerModelUsage,
+  AgentRunnerReadOnlyToolPort,
 } from './runner-ports.js'
-import { assertDurableJson } from './runner-values.js'
+import { assertDurableJson, digestRunnerJson } from './runner-values.js'
 
 const MODEL_ERROR_CATEGORIES = new Set([
   'authentication',
@@ -117,6 +119,49 @@ export function agentRunnerModelResultItems(
   result: AgentRunnerModelResult,
 ): readonly (AgentMessageItem | AgentToolCallItem)[] {
   return [result.item, ...(result.additionalItems ?? [])]
+}
+
+/** @internal */
+export interface PreparedAgentRunnerModelTurn {
+  readonly items: readonly (AgentMessageItem | AgentToolCallItem)[]
+  readonly toolCalls: readonly AgentToolCallItem[]
+  readonly invocations: readonly AgentToolInvocationState[]
+  readonly usage?: AgentUsageRecord
+}
+
+/** @internal */
+export function prepareAgentRunnerModelTurn(options: {
+  readonly result: AgentRunnerModelResult
+  readonly tools: ReadonlyMap<string, AgentRunnerReadOnlyToolPort>
+  readonly createId: (kind: 'invocation' | 'usage') => string
+  readonly now: string
+}): PreparedAgentRunnerModelTurn {
+  const items = agentRunnerModelResultItems(options.result)
+  const toolCalls = items.filter(
+    (item): item is AgentToolCallItem => item.type === 'tool-call',
+  )
+  const invocations = toolCalls.map((toolCall): AgentToolInvocationState => {
+    const tool = options.tools.get(toolCall.toolId)
+    if (tool === undefined) rejectModelResult('model-unknown-tool')
+    return {
+      invocationId: options.createId('invocation'),
+      callId: toolCall.callId,
+      attempt: 1,
+      inputDigest: digestRunnerJson(toolCall.arguments),
+      toolId: tool.toolId,
+      toolRevision: tool.toolRevision,
+      effectClass: 'read',
+      state: 'planned',
+    }
+  })
+  const usage = options.result.usage === undefined
+    ? undefined
+    : createAgentRunnerModelUsageRecord(
+        options.result.usage,
+        options.createId('usage'),
+        options.now,
+      )
+  return { items, toolCalls, invocations, ...(usage === undefined ? {} : { usage }) }
 }
 
 function assertModelTurn(

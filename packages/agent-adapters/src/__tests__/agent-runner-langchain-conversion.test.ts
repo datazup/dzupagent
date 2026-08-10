@@ -517,23 +517,33 @@ describe('AgentRunner loss-aware LangChain conversion', () => {
     }))
   })
 
-  it('fails the current scheduler closed instead of dropping additional model items', async () => {
-    const model = new ProviderFreeAgentRunnerModelAdapter(modelState([{
-      status: 'completed',
-      content: [],
-      toolCalls: [
-        { callId: 'call-a', toolId: 'read-record', arguments: { id: 'a' } },
-        { callId: 'call-b', toolId: 'read-record', arguments: { id: 'b' } },
-      ],
-      finishReason: 'tool-calls',
-    }]))
-    const tool = new ProviderFreeAgentRunnerReadToolAdapter('read-record', '7', toolState([]))
+  it('executes every retained same-turn call without dropping provider-neutral identity', async () => {
+    const model = new ProviderFreeAgentRunnerModelAdapter(modelState([
+      {
+        status: 'completed',
+        content: [],
+        toolCalls: [
+          { callId: 'call-a', toolId: 'read-record', arguments: { id: 'a' } },
+          { callId: 'call-b', toolId: 'read-record', arguments: { id: 'b' } },
+        ],
+        finishReason: 'tool-calls',
+      },
+      { status: 'completed', content: [{ type: 'text', text: 'complete' }], finishReason: 'stop' },
+    ]))
+    const tool = new ProviderFreeAgentRunnerReadToolAdapter('read-record', '7', toolState([
+      { status: 'completed', output: { value: 'a' } },
+      { status: 'completed', output: { value: 'b' } },
+    ]))
     const result = await createRunner(model, tool).run(input)
-    expect(result.state.status).toBe('failed')
-    expect(tool.invocations).toBe(0)
+    expect(result.state.status).toBe('completed')
+    expect(tool.invocations).toBe(2)
+    expect(result.state.invocations).toMatchObject([
+      { callId: 'call-a', state: 'completed' },
+      { callId: 'call-b', state: 'completed' },
+    ])
     expect(result.events).toContainEqual(expect.objectContaining({
-      type: 'model.failed',
-      payload: expect.objectContaining({ code: 'model-multiple-items-not-admitted' }),
+      type: 'model.completed',
+      payload: expect.objectContaining({ callIds: ['call-a', 'call-b'] }),
     }))
   })
 })

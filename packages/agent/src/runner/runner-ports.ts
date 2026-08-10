@@ -274,9 +274,9 @@ export interface AgentRunnerModelResult {
   readonly status?: 'completed'
   readonly item: AgentMessageItem | AgentToolCallItem
   /**
-   * Additional ordered items emitted by the same assistant turn. The current
-   * scheduler fails closed if this is non-empty until multi-call execution is
-   * separately admitted; conversion adapters may still retain the full turn.
+   * Additional ordered items emitted by the same assistant turn. The runner
+   * validates and atomically commits the full turn before executing admitted
+   * read calls sequentially; adapters must not drop or reorder these items.
    */
   readonly additionalItems?: readonly (AgentMessageItem | AgentToolCallItem)[]
   readonly usage?: AgentRunnerModelUsage
