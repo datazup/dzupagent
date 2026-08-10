@@ -9,6 +9,7 @@ import type { CompressionDegradation } from "@dzupagent/context";
 import type { ToolStat, StopReason } from "./tool-loop.js";
 import type { StuckError } from "./stuck-error.js";
 import type { RunLearnings } from "./tool-loop-learning.js";
+import type { AgentRunnerNoToolPreDispatchPolicy } from "../runner/no-tool-generate-delegation.js";
 
 /** Options for a single generate/stream call */
 export interface GenerateOptions {
@@ -86,6 +87,16 @@ export interface GenerateOptions {
     checkpoint?: string;
     lastStateSeq?: number;
     input?: unknown;
+  };
+  /**
+   * Experimental, direct-call-only AgentRunner delegation for the exact
+   * provider-free no-tool result subset. Default is off. The caller must
+   * explicitly select the pre-dispatch failure policy on every opted-in call.
+   * Unknown and post-dispatch outcomes never replay through legacy execution.
+   */
+  experimentalNoToolGenerateDelegation?: {
+    readonly enabled: true;
+    readonly preDispatchPolicy: AgentRunnerNoToolPreDispatchPolicy;
   };
 }
 

@@ -8,8 +8,8 @@ import type {
 } from '@dzupagent/agent-types/run'
 import { AGENT_RUN_EVENT_SCHEMA, AGENT_RUN_STATE_SCHEMA } from '@dzupagent/agent-types/run'
 
-import type { AgentRunnerResult } from '../../runner/in-memory-agent-runner.js'
-import { assertDurableJson, digestRunnerJson } from '../../runner/runner-values.js'
+import type { AgentRunnerResult } from './in-memory-agent-runner.js'
+import { assertDurableJson, digestRunnerJson } from './runner-values.js'
 import {
   evaluateRunnerProviderFreeExecutionProfile,
   type LegacyRunnerExecutionProfile,

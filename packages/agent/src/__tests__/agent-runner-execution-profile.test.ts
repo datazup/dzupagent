@@ -4,7 +4,7 @@ import {
   buildRunnerProviderFreeExecutionProfile,
   evaluateRunnerProviderFreeExecutionProfile,
   type LegacyRunnerExecutionProfile,
-} from './support/legacy-runner-execution-profile.js'
+} from '../runner/legacy-runner-execution-profile.js'
 
 const behaviorDigest = 'sha256:r5k-runner-provider-free-behavior'
 

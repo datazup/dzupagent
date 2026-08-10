@@ -1,17 +1,12 @@
-import {
-  AIMessage,
-  HumanMessage,
-  SystemMessage,
-  type BaseMessage,
-} from '@langchain/core/messages'
+import type { BaseMessage } from '@langchain/core/messages'
 import type {
   AgentMessageItem,
   AgentRunJsonValue,
 } from '@dzupagent/agent-types/run'
 
-import type { GenerateResult } from '../../agent/agent-types.js'
-import type { AgentRunnerResult } from '../../runner/in-memory-agent-runner.js'
-import { assertDurableJson, digestRunnerJson } from '../../runner/runner-values.js'
+import type { GenerateResult } from '../agent/agent-types.js'
+import type { AgentRunnerResult } from './in-memory-agent-runner.js'
+import { assertDurableJson, digestRunnerJson } from './runner-values.js'
 import {
   projectLegacyCompletedRunnerResult,
   type LegacyCompletedResultProjectionReport,
@@ -20,33 +15,24 @@ import {
   evaluateRunnerProviderFreeExecutionProfile,
   type LegacyRunnerExecutionProfile,
 } from './legacy-runner-execution-profile.js'
+import {
+  boundMessageEnvelopeEntry,
+  captureMessageEnvelopeEntry,
+  reconstructLegacyMessage,
+  validMessageEnvelopeEntry,
+  type LegacyMessageEnvelopeEntry,
+} from './legacy-runner-message-envelope-codec.js'
+
+export type {
+  LegacyMessageContentEnvelope,
+  LegacyMessageEnvelopeEntry,
+  LegacyMessageRole,
+} from './legacy-runner-message-envelope-codec.js'
 
 export const LEGACY_NO_TOOL_RESULT_ENVELOPE_SCHEMA =
   'dzupagent.legacyNoToolResultEnvelope/v1' as const
 export const LEGACY_NO_TOOL_RESULT_PROJECTOR_ID =
   'legacy-no-tool-generate-result/v1' as const
-
-type LegacyMessageRole = 'system' | 'human' | 'ai'
-
-export type LegacyMessageContentEnvelope =
-  | { readonly encoding: 'string'; readonly value: string }
-  | {
-      readonly encoding: 'standard-text-blocks'
-      readonly value: readonly { readonly type: 'text'; readonly text: string }[]
-    }
-
-export interface LegacyMessageEnvelopeEntry {
-  readonly index: number
-  readonly role: LegacyMessageRole
-  readonly content: LegacyMessageContentEnvelope
-  readonly itemId: string
-  readonly itemDigest: string
-  readonly usageMetadata?: {
-    readonly input_tokens: number
-    readonly output_tokens: number
-    readonly total_tokens: number
-  }
-}
 
 export interface LegacyNoToolResultEnvelope {
   readonly schema: typeof LEGACY_NO_TOOL_RESULT_ENVELOPE_SCHEMA
@@ -88,6 +74,7 @@ export interface LegacyNoToolEnvelopeCaptureInput {
 
 export type LegacyNoToolResultProjectionRejectionCode =
   | 'input-not-json-safe'
+  | 'projection-input-malformed'
   | 'profile-ineligible'
   | 'projection-profile-required'
   | 'profile-digest-mismatch'
@@ -137,102 +124,39 @@ function object(value: unknown): value is Readonly<Record<string, unknown>> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
-function emptyObject(value: unknown): boolean {
-  return object(value) && Object.keys(value).length === 0
-}
-
 function projectionClaim(profile: LegacyRunnerExecutionProfile): boolean {
   const claim = profile.claims.find(
     (candidate) => candidate.obligation === 'legacy-result-projection',
   )
+  const supportedEntrypoint =
+    (claim?.evidence.length === 1
+      && claim.evidence[0] === 'r5m-no-tool-generate-result'
+      && claim.binding.entrypoint === 'not-delegated')
+    || (claim?.evidence.length === 1
+      && claim.evidence[0] === 'r5n-no-tool-generate-delegation'
+      && claim.binding.entrypoint === 'generate-opt-in')
   return claim?.owner === 'host'
     && claim.disposition === 'supported'
-    && claim.evidence.length === 1
-    && claim.evidence[0] === 'r5m-no-tool-generate-result'
-    && claim.binding.entrypoint === 'not-delegated'
+    && supportedEntrypoint
     && claim.binding.projection === 'no-tool-generate-result/v1'
 }
 
-function legacyRole(message: BaseMessage): LegacyMessageRole | undefined {
-  if (SystemMessage.isInstance(message)) return 'system'
-  if (HumanMessage.isInstance(message)) return 'human'
-  if (AIMessage.isInstance(message)) return 'ai'
-  return undefined
+function exactKeys(value: Readonly<Record<string, unknown>>, keys: readonly string[]): boolean {
+  return Object.keys(value).sort().join('|') === [...keys].sort().join('|')
 }
 
-function captureContent(content: BaseMessage['content']): LegacyMessageContentEnvelope | undefined {
-  if (typeof content === 'string') return { encoding: 'string', value: content }
-  if (!Array.isArray(content)) return undefined
-  const blocks: Array<{ readonly type: 'text'; readonly text: string }> = []
-  for (const block of content) {
-    if (!object(block)
-        || Object.keys(block).sort().join('|') !== 'text|type'
-        || block.type !== 'text'
-        || typeof block.text !== 'string') return undefined
-    blocks.push({ type: 'text', text: block.text })
-  }
-  return { encoding: 'standard-text-blocks', value: blocks }
-}
-
-function cleanMetadata(message: BaseMessage, allowUsage: boolean): boolean {
-  if (message.id !== undefined || message.name !== undefined
-      || !emptyObject(message.additional_kwargs)
-      || !emptyObject(message.response_metadata)) return false
-  if (!AIMessage.isInstance(message)) return true
-  if ((message.tool_calls?.length ?? 0) !== 0
-      || (message.invalid_tool_calls?.length ?? 0) !== 0) return false
-  if (message.usage_metadata === undefined) return true
-  const usage = message.usage_metadata
-  return allowUsage
-    && Object.keys(usage).sort().join('|') === 'input_tokens|output_tokens|total_tokens'
-    && Number.isSafeInteger(usage.input_tokens)
-    && Number.isSafeInteger(usage.output_tokens)
-    && usage.total_tokens === usage.input_tokens + usage.output_tokens
-}
-
-function runnerRole(role: LegacyMessageRole): AgentMessageItem['role'] {
-  return role === 'human' ? 'user' : role === 'ai' ? 'assistant' : 'system'
-}
-
-function runnerContent(content: LegacyMessageContentEnvelope) {
-  return content.encoding === 'string'
-    ? [{ type: 'text' as const, text: content.value }]
-    : content.value
+function validEnvelopeShape(envelope: LegacyNoToolResultEnvelope): boolean {
+  return object(envelope)
+    && exactKeys(envelope, [
+      'schema', 'behaviorDigest', 'profileDigest', 'source',
+      'preparedInput', 'finalAssistant', 'envelopeDigest',
+    ])
+    && object(envelope.source)
+    && exactKeys(envelope.source, ['runId', 'stateRevision', 'terminalEventSequence'])
 }
 
 function same(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right)
-}
-
-function captureEntry(
-  message: BaseMessage,
-  item: AgentMessageItem,
-  index: number,
-  allowUsage = false,
-): LegacyMessageEnvelopeEntry | LegacyNoToolEnvelopeRejectionCode {
-  const role = legacyRole(message)
-  if (role === undefined) return 'message-class-unsupported'
-  if (!cleanMetadata(message, allowUsage)) return 'message-metadata-unsupported'
-  const content = captureContent(message.content)
-  if (content === undefined) return 'message-content-unsupported'
-  if (item.providerRef !== undefined
-      || item.role !== runnerRole(role)
-      || !same(item.content, runnerContent(content))) return 'message-item-mismatch'
-  const usage = AIMessage.isInstance(message) ? message.usage_metadata : undefined
-  return {
-    index,
-    role,
-    content,
-    itemId: item.itemId,
-    itemDigest: digestRunnerJson(item),
-    ...(usage === undefined ? {} : {
-      usageMetadata: {
-        input_tokens: usage.input_tokens,
-        output_tokens: usage.output_tokens,
-        total_tokens: usage.total_tokens,
-      },
-    }),
-  }
 }
 
 function terminalFinalItem(result: AgentRunnerResult): AgentMessageItem | undefined {
@@ -296,7 +220,7 @@ export function captureLegacyNoToolResultEnvelope(
   for (const [index, message] of input.preparedInput.entries()) {
     const item = input.result.state.input[index]
     if (item?.type !== 'message') return rejectCapture('message-item-mismatch')
-    const entry = captureEntry(message, item, index)
+    const entry = captureMessageEnvelopeEntry(message, item, index)
     if (typeof entry === 'string') return rejectCapture(entry)
     preparedInput.push(entry)
   }
@@ -304,7 +228,7 @@ export function captureLegacyNoToolResultEnvelope(
   if (finalItem === undefined || input.result.state.committedItems.length !== 1) {
     return rejectCapture('final-item-invalid')
   }
-  const finalAssistant = captureEntry(
+  const finalAssistant = captureMessageEnvelopeEntry(
     input.finalAssistant,
     finalItem,
     preparedInput.length,
@@ -338,42 +262,6 @@ function rejectProjection(
   return { status: 'rejected', reasons: [...new Set(reasons)] }
 }
 
-function validEnvelopeEntry(value: unknown, index: number): value is LegacyMessageEnvelopeEntry {
-  if (!object(value)
-      || value.index !== index
-      || !['system', 'human', 'ai'].includes(String(value.role))
-      || typeof value.itemId !== 'string'
-      || typeof value.itemDigest !== 'string'
-      || !object(value.content)) return false
-  const usageValid = value.usageMetadata === undefined || (value.role === 'ai'
-    && object(value.usageMetadata)
-    && Object.keys(value.usageMetadata).sort().join('|') === 'input_tokens|output_tokens|total_tokens'
-    && Number.isSafeInteger(value.usageMetadata.input_tokens)
-    && Number.isSafeInteger(value.usageMetadata.output_tokens)
-    && value.usageMetadata.total_tokens
-      === value.usageMetadata.input_tokens + value.usageMetadata.output_tokens)
-  if (!usageValid) return false
-  if (value.content.encoding === 'string') return typeof value.content.value === 'string'
-  return value.content.encoding === 'standard-text-blocks'
-    && Array.isArray(value.content.value)
-    && value.content.value.every((block) => object(block)
-      && Object.keys(block).sort().join('|') === 'text|type'
-      && block.type === 'text'
-      && typeof block.text === 'string')
-}
-
-function reconstruct(entry: LegacyMessageEnvelopeEntry): BaseMessage {
-  const content = entry.content.encoding === 'string'
-    ? entry.content.value
-    : entry.content.value.map((block) => ({ ...block }))
-  if (entry.role === 'system') return new SystemMessage(content)
-  if (entry.role === 'human') return new HumanMessage(content)
-  return new AIMessage({
-    content,
-    ...(entry.usageMetadata === undefined ? {} : { usage_metadata: entry.usageMetadata }),
-  })
-}
-
 function exactField(
   report: LegacyCompletedResultProjectionReport,
   name: string,
@@ -388,14 +276,6 @@ function allOptionalAbsencesExact(report: LegacyCompletedResultProjectionReport)
   )
 }
 
-function boundEntry(entry: LegacyMessageEnvelopeEntry, item: AgentMessageItem): boolean {
-  return entry.itemId === item.itemId
-    && entry.itemDigest === digestRunnerJson(item)
-    && item.providerRef === undefined
-    && item.role === runnerRole(entry.role)
-    && same(item.content, runnerContent(entry.content))
-}
-
 export function projectLegacyNoToolGenerateResult(
   input: LegacyNoToolResultProjectionInput,
 ): LegacyNoToolResultProjection {
@@ -404,6 +284,10 @@ export function projectLegacyNoToolGenerateResult(
   } catch {
     return rejectProjection('input-not-json-safe')
   }
+  if (!object(input) || !exactKeys(input, [
+    'profile', 'expectedProfileDigest', 'expectedBehaviorDigest',
+    'expectedEnvelopeDigest', 'envelope', 'result',
+  ])) return rejectProjection('projection-input-malformed')
   const eligible = evaluateRunnerProviderFreeExecutionProfile(
     input.profile,
     input.expectedBehaviorDigest,
@@ -414,7 +298,8 @@ export function projectLegacyNoToolGenerateResult(
       || input.envelope.profileDigest !== input.expectedProfileDigest) {
     return rejectProjection('profile-digest-mismatch')
   }
-  if (input.envelope.schema !== LEGACY_NO_TOOL_RESULT_ENVELOPE_SCHEMA) {
+  if (!validEnvelopeShape(input.envelope)
+      || input.envelope.schema !== LEGACY_NO_TOOL_RESULT_ENVELOPE_SCHEMA) {
     return rejectProjection('message-envelope-malformed')
   }
   if (input.profile.behaviorDigest !== input.expectedBehaviorDigest
@@ -445,18 +330,18 @@ export function projectLegacyNoToolGenerateResult(
     return rejectProjection('message-count-mismatch')
   }
   const allEntries = [...input.envelope.preparedInput, input.envelope.finalAssistant]
-  if (allEntries.some((entry, index) => !validEnvelopeEntry(entry, index))
+  if (allEntries.some((entry, index) => !validMessageEnvelopeEntry(entry, index))
       || input.envelope.finalAssistant.role !== 'ai') {
     return rejectProjection('message-envelope-malformed')
   }
   const inputBound = input.envelope.preparedInput.every((entry, index) => {
     const item = input.result.state.input[index]
-    return item?.type === 'message' && boundEntry(entry, item)
+    return item?.type === 'message' && boundMessageEnvelopeEntry(entry, item)
   })
   const finalItem = terminalFinalItem(input.result)
   if (!inputBound || finalItem === undefined
       || input.result.state.committedItems.length !== 1
-      || !boundEntry(input.envelope.finalAssistant, finalItem)) {
+      || !boundMessageEnvelopeEntry(input.envelope.finalAssistant, finalItem)) {
     return rejectProjection('message-binding-mismatch')
   }
 
@@ -488,7 +373,7 @@ export function projectLegacyNoToolGenerateResult(
     return rejectProjection('completed-result-evidence-inexact')
   }
 
-  const messages = allEntries.map(reconstruct)
+  const messages = allEntries.map(reconstructLegacyMessage)
   const finalContent = input.envelope.finalAssistant.content
   const result: GenerateResult = {
     content: finalContent.encoding === 'string'

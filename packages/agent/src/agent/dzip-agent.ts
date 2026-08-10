@@ -107,6 +107,17 @@ import {
 // import `extractJsonFromText` from `dzip-agent.js`.
 export { extractJsonFromText };
 
+function withoutNoToolGenerateDelegation(
+  options: GenerateOptions | undefined
+): GenerateOptions | undefined {
+  if (options?.experimentalNoToolGenerateDelegation === undefined) return options;
+  const {
+    experimentalNoToolGenerateDelegation: _experimentalNoToolGenerateDelegation,
+    ...legacyOptions
+  } = options;
+  return legacyOptions;
+}
+
 export class DzupAgent {
   readonly id: string;
   readonly name: string;
@@ -272,7 +283,8 @@ export class DzupAgent {
             inputMessages,
             this.resolveMemoryReadContext(options)
           ),
-        generate: (msgs, opts) => this.generate(msgs, opts),
+        generate: (msgs, opts) =>
+          this.generate(msgs, withoutNoToolGenerateDelegation(opts)),
       },
       messages,
       schema,
@@ -369,7 +381,8 @@ export class DzupAgent {
     return launchDaemon(
       {
         agentId: this.id,
-        generate: (msgs, opts) => this.generate(msgs, opts),
+        generate: (msgs, opts) =>
+          this.generate(msgs, withoutNoToolGenerateDelegation(opts)),
       },
       messages,
       options

@@ -51,6 +51,7 @@ export type LegacyExecutionEvidenceCode =
   | 'host-explicit-disablement'
   | 'host-bounded-input'
   | 'r5m-no-tool-generate-result'
+  | 'r5n-no-tool-generate-delegation'
   | 'runner-direct-only'
 
 export interface LegacyExecutionCapabilityClaim {
@@ -76,7 +77,10 @@ export interface RunnerProviderFreeProfileInput {
   readonly observedMessageCount: number
   readonly observedMessageTokens: number
   readonly structuredOutputRequested: boolean
-  readonly legacyResultProjection?: 'runner-direct-only' | 'no-tool-generate-result/v1'
+  readonly legacyResultProjection?:
+    | 'runner-direct-only'
+    | 'no-tool-generate-result/v1'
+    | 'no-tool-generate-delegation/v1'
 }
 
 export type LegacyExecutionIneligibilityCode =
@@ -201,7 +205,12 @@ function expectations(input: RunnerProviderFreeProfileInput): Readonly<Record<Le
           entrypoint: 'not-delegated',
           projection: 'no-tool-generate-result/v1',
         })
-      : {
+      : input.legacyResultProjection === 'no-tool-generate-delegation/v1'
+        ? supported('host', 'r5n-no-tool-generate-delegation', {
+            entrypoint: 'generate-opt-in',
+            projection: 'no-tool-generate-result/v1',
+          })
+        : {
           owner: 'host',
           disposition: 'disabled',
           evidence: ['runner-direct-only'],
@@ -277,7 +286,8 @@ function validInput(input: RunnerProviderFreeProfileInput): boolean {
     && input.observedMessageTokens < 12_000
     && (input.legacyResultProjection === undefined
       || input.legacyResultProjection === 'runner-direct-only'
-      || input.legacyResultProjection === 'no-tool-generate-result/v1')
+      || input.legacyResultProjection === 'no-tool-generate-result/v1'
+      || input.legacyResultProjection === 'no-tool-generate-delegation/v1')
 }
 
 export function buildRunnerProviderFreeExecutionProfile(
@@ -336,7 +346,9 @@ export function evaluateRunnerProviderFreeExecutionProfile(
     (claim) => claim.obligation === 'legacy-result-projection',
   )?.binding as Record<string, AgentRunJsonValue> | undefined
   const legacyResultProjection = resultProjection?.projection === 'no-tool-generate-result/v1'
-    ? 'no-tool-generate-result/v1'
+    ? resultProjection.entrypoint === 'generate-opt-in'
+      ? 'no-tool-generate-delegation/v1'
+      : 'no-tool-generate-result/v1'
     : resultProjection?.entrypoint === 'runner-direct-only'
       ? 'runner-direct-only'
       : undefined

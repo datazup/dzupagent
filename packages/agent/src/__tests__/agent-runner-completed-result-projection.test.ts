@@ -22,10 +22,10 @@ import {
 import {
   projectLegacyCompletedRunnerResult,
   type LegacyCompletedResultProjectionInput,
-} from './support/legacy-runner-completed-result-projection.js'
+} from '../runner/legacy-runner-completed-result-projection.js'
 import {
   buildRunnerProviderFreeExecutionProfile,
-} from './support/legacy-runner-execution-profile.js'
+} from '../runner/legacy-runner-execution-profile.js'
 
 const behaviorDigest = 'sha256:r5l-provider-free-completed-result'
 const userText = 'Read the deterministic records.'
