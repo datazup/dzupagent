@@ -6,6 +6,8 @@ import {
   RunControl,
   type AgentRunnerIdentityKind,
   type AgentRunnerInput,
+  type AgentRunnerModelInvocationResult,
+  type AgentRunnerModelPort,
   type AgentRunnerModelRequest,
 } from '@dzupagent/agent/runner'
 import { describe, expect, it } from 'vitest'
@@ -320,6 +322,30 @@ describe('AgentRunner loss-aware LangChain conversion', () => {
       category: 'rate-limit',
       retryClassification: 'reconciliation-required',
     })
+    expect(normalizeAgentRunnerProviderFailure({ name: 'AuthorizationError' }, 'before-dispatch')).toMatchObject({
+      category: 'authorization',
+    })
+  })
+
+  it('preserves valid partial canonical usage instead of silently dropping it', async () => {
+    const model = new ProviderFreeAgentRunnerModelAdapter(modelState([{
+      status: 'completed',
+      content: [{ type: 'text', text: 'partial accounting' }],
+      usage: { accountingSource: 'provider-free', inputTokens: 7, cacheReadTokens: 3 },
+      finishReason: 'stop',
+    }]))
+    await expect(model.invoke(request)).resolves.toMatchObject({
+      status: 'completed',
+      usage: { accountingSource: 'provider-free', inputTokens: 7, cacheReadTokens: 3 },
+    })
+
+    const invalid = new ProviderFreeAgentRunnerModelAdapter(modelState([{
+      status: 'completed',
+      content: [{ type: 'text', text: 'invalid accounting' }],
+      usage: { accountingSource: 'provider-free', inputTokens: -1 },
+      finishReason: 'stop',
+    }]))
+    await expect(invalid.invoke(request)).rejects.toThrow('Provider-free model usage is invalid')
   })
 
   it('round-trips canonical model results and reconstructs the fake without identity drift', async () => {
@@ -353,7 +379,7 @@ describe('AgentRunner loss-aware LangChain conversion', () => {
     }])
   })
 
-  it('allows an explicitly undispatched model failure to be retried by its caller', async () => {
+  it('allows a caller to retry a runner after an explicitly undispatched model failure', async () => {
     const model = new ProviderFreeAgentRunnerModelAdapter(modelState([
       {
         status: 'failed-before-dispatch',
@@ -363,13 +389,53 @@ describe('AgentRunner loss-aware LangChain conversion', () => {
       },
       { status: 'completed', content: [{ type: 'text', text: 'retried' }], finishReason: 'stop' },
     ]))
-    await expect(model.invoke(request)).resolves.toMatchObject({
-      status: 'failed-before-dispatch', retryClassification: 'retryable',
+    const runner = createRunner(
+      model,
+      new ProviderFreeAgentRunnerReadToolAdapter('read-record', '7', toolState([])),
+    )
+    const first = await runner.run(input)
+    expect(first.state.status).toBe('failed')
+    expect(first.events).toContainEqual(expect.objectContaining({
+      type: 'model.failed',
+      payload: expect.objectContaining({
+        outcome: 'failed-before-dispatch', retryClassification: 'retryable',
+      }),
+    }))
+    await expect(runner.run(input)).resolves.toMatchObject({
+      state: { status: 'completed' },
     })
-    await expect(model.invoke(request)).resolves.toMatchObject({
-      status: 'completed', item: { type: 'message', content: [{ type: 'text', text: 'retried' }] },
-    })
-    expect(model.invocations.map((entry) => entry.requestId)).toEqual(['request-1', 'request-1'])
+    expect(model.invocations).toHaveLength(2)
+  })
+
+  it('rejects malformed model failure enums before they enter durable runner events', async () => {
+    const malformed = {
+      status: 'failed-before-dispatch',
+      code: 'provider-invalid-enums',
+      category: 'vendor-magic',
+      retryClassification: 'try-later',
+    } as unknown as AgentRunnerModelInvocationResult
+    const model: AgentRunnerModelPort = {
+      adapterId: 'malformed-provider-free-model/v1',
+      invoke: async () => malformed,
+    }
+    const result = await new InMemoryAgentRunner({
+      model,
+      persistence: new InMemoryAgentRunnerPersistence(),
+      createId: deterministicIds(),
+      now: () => '2026-08-09T22:00:00.000Z',
+    }).run(input)
+    expect(result.state.status).toBe('failed')
+    expect(result.events).toContainEqual(expect.objectContaining({
+      type: 'model.failed',
+      payload: expect.objectContaining({
+        code: 'model-invocation-failed',
+        category: 'unknown',
+        outcome: 'outcome-unknown',
+        retryClassification: 'reconciliation-required',
+      }),
+    }))
+    expect(JSON.stringify(result.events)).not.toContain('vendor-magic')
+    expect(JSON.stringify(result.events)).not.toContain('try-later')
   })
 
   it('retries only failed-before-effect read tools and never replays an unknown outcome', async () => {

@@ -9,6 +9,25 @@ import type {
 } from './runner-ports.js'
 import { assertDurableJson } from './runner-values.js'
 
+const MODEL_ERROR_CATEGORIES = new Set([
+  'authentication',
+  'authorization',
+  'rate-limit',
+  'timeout',
+  'invalid-request',
+  'unavailable',
+  'content-filter',
+  'cancelled',
+  'internal',
+  'unknown',
+])
+
+const MODEL_RETRY_CLASSIFICATIONS = new Set([
+  'retryable',
+  'non-retryable',
+  'reconciliation-required',
+])
+
 /** @internal */
 export class AgentRunnerModelInvocationError extends Error {
   readonly failure: AgentRunnerModelFailure
@@ -55,6 +74,12 @@ function isFailure(value: unknown): value is AgentRunnerModelFailure {
 function assertFailure(failure: AgentRunnerModelFailure): void {
   if (!/^[a-z0-9][a-z0-9._-]{0,127}$/u.test(failure.code)) {
     throw new TypeError('AgentRunner model failure code must be normalized')
+  }
+  if (!MODEL_ERROR_CATEGORIES.has(failure.category)) {
+    throw new TypeError('AgentRunner model failure category must be normalized')
+  }
+  if (!MODEL_RETRY_CLASSIFICATIONS.has(failure.retryClassification)) {
+    throw new TypeError('AgentRunner model retry classification must be normalized')
   }
   if (
     failure.status === 'outcome-unknown' &&
@@ -112,4 +137,3 @@ export function createAgentRunnerModelUsageRecord(
     ...(usage.reasoningTokens === undefined ? {} : { reasoningTokens: usage.reasoningTokens }),
   }
 }
-

@@ -429,14 +429,28 @@ export interface AgentRunnerProviderErrorInput {
 
 function errorCategory(input: AgentRunnerProviderErrorInput): AgentRunnerProviderErrorCategory {
   const marker = `${input.code ?? ''} ${input.name ?? ''}`.toLowerCase()
-  if (input.statusCode === 401 || marker.includes('auth')) return 'authentication'
-  if (input.statusCode === 403 || marker.includes('permission')) return 'authorization'
+  if (input.statusCode === 401) return 'authentication'
+  if (input.statusCode === 403) return 'authorization'
   if (input.statusCode === 429 || marker.includes('rate')) return 'rate-limit'
   if (input.statusCode === 408 || marker.includes('timeout')) return 'timeout'
   if (input.statusCode === 400 || input.statusCode === 422) return 'invalid-request'
   if (input.statusCode === 503 || marker.includes('unavailable')) return 'unavailable'
   if (marker.includes('content_filter')) return 'content-filter'
   if (marker.includes('cancel')) return 'cancelled'
+  if (
+    marker.includes('authorization') ||
+    marker.includes('authorisation') ||
+    marker.includes('permission') ||
+    marker.includes('forbidden')
+  ) return 'authorization'
+  if (
+    marker.includes('authentication') ||
+    marker.includes('unauthenticated') ||
+    marker.includes('unauthorized') ||
+    marker.includes('unauthorised') ||
+    marker.includes('api_key') ||
+    marker.includes('apikey')
+  ) return 'authentication'
   if (input.statusCode !== undefined && input.statusCode >= 500) return 'internal'
   return 'unknown'
 }

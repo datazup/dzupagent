@@ -91,6 +91,30 @@ function langChainUsage(usage: AgentRunnerModelUsage | undefined): UsageMetadata
   }
 }
 
+function providerFreeUsage(usage: AgentRunnerModelUsage | undefined): AgentRunnerModelUsage | undefined {
+  if (usage === undefined) return undefined
+  const cloned = cloneDurableJson(usage)
+  const counts = [
+    cloned.inputTokens,
+    cloned.outputTokens,
+    cloned.totalTokens,
+    cloned.cacheReadTokens,
+    cloned.cacheWriteTokens,
+    cloned.reasoningTokens,
+  ]
+  if (
+    cloned.accountingSource.length === 0 ||
+    counts.some((value) => value !== undefined && (!Number.isSafeInteger(value) || value < 0)) ||
+    (cloned.totalTokens !== undefined &&
+      cloned.inputTokens !== undefined &&
+      cloned.outputTokens !== undefined &&
+      cloned.totalTokens !== cloned.inputTokens + cloned.outputTokens)
+  ) {
+    throw new TypeError('Provider-free model usage is invalid')
+  }
+  return cloned
+}
+
 /** Deterministic, credential-free model adapter for conformance only. */
 export class ProviderFreeAgentRunnerModelAdapter implements AgentRunnerModelPort {
   readonly adapterId = 'dzupagent-provider-free-runner-model/v1'
@@ -137,6 +161,8 @@ export class ProviderFreeAgentRunnerModelAdapter implements AgentRunnerModelPort
     }
     this.#cursor += 1
     if (step.status !== 'completed') return cloneDurableJson(step)
+    const usage = providerFreeUsage(step.usage)
+    const usageMetadata = langChainUsage(usage)
     const finishReason = langChainFinishReason(step.finishReason)
     const message = new AIMessage({
       content: langChainContent(step.content),
@@ -146,9 +172,7 @@ export class ProviderFreeAgentRunnerModelAdapter implements AgentRunnerModelPort
         args: cloneDurableJson(call.arguments) as Record<string, AgentRunJsonValue>,
       })),
       ...(finishReason === undefined ? {} : { response_metadata: { finish_reason: finishReason } }),
-      ...(langChainUsage(step.usage) === undefined
-        ? {}
-        : { usage_metadata: langChainUsage(step.usage) }),
+      ...(usageMetadata === undefined ? {} : { usage_metadata: usageMetadata }),
     })
     const result = langChainMessageToAgentRunnerModelResult(message, {
       itemIdPrefix: `${request.requestId}-turn-${request.turn}`,
@@ -156,6 +180,9 @@ export class ProviderFreeAgentRunnerModelAdapter implements AgentRunnerModelPort
     })
     if (result.status === 'rejected' || result.losses.length > 0) {
       throw new TypeError('Provider-free model conversion failed closed')
+    }
+    if (usage !== undefined && result.value.usage === undefined) {
+      return { ...result.value, usage }
     }
     return result.value
   }
@@ -221,4 +248,3 @@ export class ProviderFreeAgentRunnerReadToolAdapter implements AgentRunnerReadOn
     return cloneDurableJson(step)
   }
 }
-
