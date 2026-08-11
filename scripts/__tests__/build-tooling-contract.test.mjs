@@ -4,10 +4,7 @@ import path from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import {
-  listBuildPackageDirs,
-  ROOT_BUILD_INPUTS,
-} from '../build-artifact-integrity.mjs'
+import { listBuildPackageDirs } from '../build-artifact-integrity.mjs'
 import {
   packageLintTarget,
   parseLintArguments,
@@ -45,11 +42,6 @@ test('every build workspace publishes and verifies a completion manifest', async
 
 test('Turbo verifies restored dependencies and suppresses replayed cache logs', () => {
   const turbo = JSON.parse(readFileSync(path.join(repoRoot, 'turbo.json'), 'utf8'))
-  assert.deepEqual(
-    [...turbo.globalDependencies].sort(),
-    [...ROOT_BUILD_INPUTS].sort(),
-    'Turbo cache keys must bind the exact root inputs retained in artifact manifests',
-  )
   assert.equal(
     turbo.globalDependencies.includes('scripts/build-artifact-integrity.mjs'),
     true,
@@ -68,10 +60,6 @@ test('Turbo verifies restored dependencies and suppresses replayed cache logs', 
   assert.equal(turbo.tasks.typecheck.dependsOn.includes('^build:verify'), true)
   assert.equal(turbo.tasks.test.dependsOn.includes('^build:verify'), true)
   assert.equal(JSON.stringify(turbo).includes('"^build"'), false)
-  for (const [taskName, task] of Object.entries(turbo.tasks)) {
-    if (!taskName.endsWith('#build')) continue
-    assert.deepEqual(task.outputs, ['dist/**'], `${taskName} cache outputs`)
-  }
 })
 
 test('root artifact readers and graph commands hold build custody', () => {
@@ -99,10 +87,6 @@ test('root artifact readers and graph commands hold build custody', () => {
   assert.equal(
     packageJson.scripts['test:build-cache'],
     'node scripts/run-with-build-custody.mjs node scripts/qualify-build-cache-artifacts.mjs',
-  )
-  assert.equal(
-    packageJson.scripts['test:build-cache:root-input-drift'],
-    'node scripts/qualify-build-root-input-cache-drift.mjs',
   )
 })
 

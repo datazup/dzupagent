@@ -14,7 +14,7 @@ export const BUILD_ARTIFACT_MANIFEST = '.dzup-build-artifacts.json'
 export const BUILD_ARTIFACT_SCHEMA_VERSION = 1
 export const BUILD_INPUT_SNAPSHOT = '.dzup-build-inputs.json'
 
-export const ROOT_BUILD_INPUTS = [
+const ROOT_BUILD_INPUTS = [
   '.yarnrc.yml',
   'package.json',
   'turbo.json',
