@@ -7,7 +7,7 @@
  * permission prompt is a control, never a security boundary. Only
  * worktree/container/VM scoping is a boundary.
  */
-import type { AdapterCoordinates } from './installation.js'
+import type { AdapterProviderId } from './provider.js'
 
 /**
  * Enforcement boundary a run executes within (FR-6.1).
@@ -68,7 +68,10 @@ export interface MinimumIsolationPolicy {
 export interface AdapterSecurityPosture {
   postureId: string
   version: number
-  coordinates: AdapterCoordinates
+  coordinates: {
+    providerId: AdapterProviderId
+    backend: 'cli' | 'sdk' | 'http'
+  }
   /**
    * Default approval behavior of a *fresh* install.
    *

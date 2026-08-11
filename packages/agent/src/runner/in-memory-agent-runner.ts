@@ -5,8 +5,10 @@ import type {
   AgentRunnerInput,
   AgentRunnerPersistence,
   AgentRunnerReadOnlyToolPort,
+  AgentRunnerResult,
   AgentRunnerResumeInput,
 } from './runner-ports.js'
+export type { AgentRunnerResult } from './runner-ports.js'
 import {
   type AgentInteractionDecisionRecord,
   type AgentRunEventEnvelope,
@@ -33,7 +35,7 @@ import {
   executePlannedAgentRunnerTools,
   failRun,
 } from './runner-lifecycle.js'
-import { RunControl } from './run-control.js'
+import { RunControl } from './runner-control-state.js'
 import { AgentRunnerSessionError, AgentRunnerTransitionCommitter, startAgentRun } from './runner-transition-committer.js'
 import {
   AgentRunnerModelInvocationError,
@@ -61,10 +63,6 @@ export interface InMemoryAgentRunnerConfig {
 }
 export interface AgentRunnerOptions {
   readonly control?: RunControl
-}
-export interface AgentRunnerResult {
-  readonly state: AgentRunStateV2
-  readonly events: readonly AgentRunEventEnvelope[]
 }
 export class InMemoryAgentRunner {
   readonly #model: AgentRunnerModelPort
