@@ -24,11 +24,6 @@ export interface AgentRunnerInput {
   readonly structuredOutput?: AgentStructuredOutputRequest
 }
 
-export interface AgentRunnerResult {
-  readonly state: AgentRunStateV2
-  readonly events: readonly AgentRunEventEnvelope[]
-}
-
 export interface AgentRunnerResumeInput {
   readonly runId: string
   readonly behaviorDigest: string
