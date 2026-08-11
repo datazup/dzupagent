@@ -301,11 +301,11 @@
     "@dzupagent/adapter-types": {
       "maxRootIndexLines": 28,
       "rootDebtPin": {
-        "maxRootIndexLines": 32,
-        "sourceSha256": "c725e3c235c8ef309367f56acaee649bd11eeb541a0783b3de07124713a59a77",
-        "sourceCommit": "d7a3dbb9978b4dc2b2b3ea5680fca664af42701f",
-        "reviewBy": "2026-09-11",
-        "rationale": "Freeze the consolidated provider-session compatibility export with zero slack while future contracts remain subpath-only."
+        "maxRootIndexLines": 31,
+        "sourceSha256": "92bc985547392f8bd65830f6381ed97760a55cf2d6eca40d7463df4022178a59",
+        "sourceCommit": "49921e7ec9b1987c53cebba5e8327266669903be",
+        "reviewBy": "2026-09-09",
+        "rationale": "Freeze existing compatibility exports while new monitoring contracts remain subpath-only."
       },
       "maxFileLines": 500,
       "fileLineAllowlist": []
@@ -327,13 +327,6 @@
     },
     "@dzupagent/express": {
       "maxRootIndexLines": 34,
-      "rootDebtPin": {
-        "maxRootIndexLines": 41,
-        "sourceSha256": "04fd88a7d4d1ca0e8cca03025d567bd24dc468e726a5e8c7e821efd10af99c43",
-        "sourceCommit": "2694577565a61591fa3549f2f6931d569e16bb34",
-        "reviewBy": "2026-09-11",
-        "rationale": "Freeze the consolidated current stateless MCP compatibility export with zero slack while future contracts remain subpath-only."
-      },
       "maxFileLines": 500,
       "fileLineAllowlist": []
     },
