@@ -3,11 +3,6 @@
   "globalEnv": ["YARN_IGNORE_PATH", "YARN_CACHE_FOLDER", "YARN_GLOBAL_FOLDER", "npm_config_prefix"],
   "globalPassThroughEnv": ["DZUP_BUILD_CUSTODY_TOKEN"],
   "globalDependencies": [
-    ".yarnrc.yml",
-    "package.json",
-    "turbo.json",
-    "tsconfig.json",
-    "yarn.lock",
     "scripts/build-artifact-integrity.mjs",
     "scripts/build-custody.mjs",
     "scripts/check-package-export-artifacts.mjs",
@@ -39,7 +34,6 @@
     },
     "@dzupagent/memory#build": {
       "dependsOn": ["^build:verify", "@dzupagent/memory-ipc#build:verify"],
-      "outputs": ["dist/**"],
       "outputLogs": "new-only"
     },
     "@dzupagent/app-tools#build": {
