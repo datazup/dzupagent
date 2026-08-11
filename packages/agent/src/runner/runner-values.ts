@@ -16,6 +16,7 @@ import {
   type AiExecutionReceipt,
   type AiExecutionRequest,
   type AiJsonValue,
+  type AiResolvedTargetSnapshot,
   type AiUsageTruth,
 } from '@dzupagent/runtime-contracts/ai-execution'
 import {
@@ -24,6 +25,7 @@ import {
 } from '@dzupagent/runtime-contracts/ai-execution/node'
 import {
   validateExecutionRouteDecision,
+  type ExecutionRouteDecision,
   type ExecutionResult,
 } from '@dzupagent/runtime-contracts'
 import type {
@@ -33,8 +35,13 @@ import type {
   AgentRunStateV2,
 } from '@dzupagent/agent-types/run'
 
-import type { AgentRunnerResult } from './in-memory-agent-runner.js'
-import type { AgentRunnerInlineProjection } from './run-control.js'
+import type { AgentRunnerInput, AgentRunnerResult } from './runner-ports.js'
+
+export interface AgentRunnerInlineProjection {
+  readonly input: AgentRunnerInput
+  readonly target: AiResolvedTargetSnapshot
+  readonly routeDecision: ExecutionRouteDecision
+}
 
 /** @internal */
 export type AgentRunnerHostEventPayload =
