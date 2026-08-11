@@ -286,6 +286,8 @@
         { "match": "exact", "pattern": "./memory-sanitizer.js" },
         { "match": "exact", "pattern": "./working-memory.js" },
         { "match": "exact", "pattern": "./session-search.js" },
+        { "match": "exact", "pattern": "./store-lifecycle.js" },
+        { "match": "exact", "pattern": "./memory-service-store.js" },
         { "match": "prefix", "pattern": "./retrieval/" },
         { "match": "exact", "pattern": "./temporal.js" },
         { "match": "exact", "pattern": "./scoped-memory.js" },
@@ -426,7 +428,8 @@
         { "match": "prefix", "pattern": "./integration/" },
         { "match": "exact", "pattern": "./provider-catalog.js" },
         { "match": "exact", "pattern": "./normalize.js" },
-        { "match": "prefix", "pattern": "./runs/" }
+        { "match": "prefix", "pattern": "./runs/" },
+        { "match": "prefix", "pattern": "./introspection/" }
       ],
       "transitionalRoot": [
         { "match": "prefix", "pattern": "./claude/" },
@@ -532,7 +535,8 @@
         { "match": "exact", "pattern": "./canonical-gates.js" },
         { "match": "exact", "pattern": "./local-model.js" },
         { "match": "exact", "pattern": "./idempotency.js" },
-        { "match": "exact", "pattern": "./ai-economics.js" }
+        { "match": "exact", "pattern": "./ai-economics.js" },
+        { "match": "exact", "pattern": "./flow-runtime-input.js" }
       ],
       "transitionalRoot": [],
       "subpaths": {
@@ -662,7 +666,8 @@
         { "match": "exact", "pattern": "./ai-execution-port.js" },
         { "match": "exact", "pattern": "./provider-execution-port.js" },
         { "match": "exact", "pattern": "./pipeline-executor-port.js" },
-        { "match": "exact", "pattern": "./utils/correlation.js" }
+        { "match": "exact", "pattern": "./utils/correlation.js" },
+        { "match": "exact", "pattern": "./provider-session.js" }
       ],
       "transitionalRoot": [],
       "subpaths": {},
@@ -696,7 +701,8 @@
         { "match": "exact", "pattern": "./validate.js" },
         { "match": "exact", "pattern": "./condition-expression.js" },
         { "match": "exact", "pattern": "./output-key-uniqueness.js" },
-        { "match": "exact", "pattern": "./policy-numbers.js" }
+        { "match": "exact", "pattern": "./policy-numbers.js" },
+        { "match": "exact", "pattern": "./unreachable-after-complete.js" }
       ],
       "transitionalRoot": [],
       "subpaths": {
