@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-08-11
+Date: 2026-08-05
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -216,7 +216,7 @@ Root index: `packages/agent/src/index.ts`
 - Stable root sources: `13`
 - Deprecated transitional root sources: `92`
 - Internal-only root candidates: `0`
-- Migration window: Root transitional exports remain available through 0.x with migration to runtime/workflow/tools/compat before a future 1.0 root contraction. The experimental ./runner subpath is provider-free and does not replace legacy execution paths until durable, host-composition, mutation-effect, and compatibility conformance are complete.
+- Migration window: Root transitional exports remain available through 0.x with migration to runtime/workflow/tools/compat before a future 1.0 root contraction.
 
 ### Stable Subpaths
 
@@ -231,7 +231,6 @@ Root index: `packages/agent/src/index.ts`
 | `@dzupagent/agent/reflection` | post-run reflection analysis and pattern storage |
 | `@dzupagent/agent/presets` | agent preset registry and built-in presets |
 | `@dzupagent/agent/streaming` | streaming run handles and stream event types |
-| `@dzupagent/agent/runner` | experimental cohesive AgentRunner, exact read-tool resume, and transactional in-memory sessions |
 
 ### Root Allowlist
 
@@ -466,7 +465,7 @@ Root index: `packages/codegen/src/index.ts`
 
 Root index: `packages/memory/src/index.ts`
 
-- Stable root sources: `27`
+- Stable root sources: `25`
 - Deprecated transitional root sources: `45`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x; new consumers should prefer future memory/retrieval/store subpaths as they are introduced.
@@ -480,14 +479,12 @@ No stable subpaths configured.
 | Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
 | --- | --- | ---: | --- | --- |
 | `stable` | `./store-factory.js` | 3 | `exact:./store-factory.js` | `createStore`, `StoreConfig`, `StoreIndexConfig` |
-| `stable` | `./store-lifecycle.js` | 1 | `exact:./store-lifecycle.js` | `closeMemoryStore` |
 | `stable` | `./store-capabilities.js` | 1 | `exact:./store-capabilities.js` | `MemoryStoreCapabilities` |
-| `stable` | `./memory-service.js` | 5 | `exact:./memory-service.js` | `MemoryService`, `MemoryServiceOptions`, `MemoryEventBus`, `MemoryPIIResult` |
+| `stable` | `./memory-service.js` | 1 | `exact:./memory-service.js` | `MemoryService` |
 | `deprecated-transitional` | `./in-memory-client.js` | 1 | `exact:./in-memory-client.js` | `InMemoryMemoryClient` |
 | `deprecated-transitional` | `./http-client.js` | 9 | `exact:./http-client.js` | `HttpMemoryClient`, `NotImplementedError`, `HttpMemoryError`, `HttpMemoryTimeoutError` |
 | `deprecated-transitional` | `./memory-service-adapter.js` | 2 | `exact:./memory-service-adapter.js` | `memoryServiceToClient`, `MemoryServiceLike` |
-| `stable` | `./memory-types.js` | 5 | `exact:./memory-types.js` | `NamespaceConfig`, `FormatOptions`, `DecayConfig`, `SemanticStoreAdapter` |
-| `stable` | `./memory-service-store.js` | 5 | `exact:./memory-service-store.js` | `buildNamespaceTuple`, `buildVectorCollectionName`, `buildVectorDocId`, `VECTOR_KEY_META_KEY` |
+| `stable` | `./memory-types.js` | 4 | `exact:./memory-types.js` | `NamespaceConfig`, `FormatOptions`, `DecayConfig`, `SemanticStoreAdapter` |
 | `deprecated-transitional` | `./decay-engine.js` | 6 | `exact:./decay-engine.js` | `calculateStrength`, `reinforceMemory`, `createDecayMetadata`, `scoreWithDecay` |
 | `stable` | `./memory-sanitizer.js` | 3 | `exact:./memory-sanitizer.js` | `sanitizeMemoryContent`, `stripInvisibleUnicode`, `SanitizeResult` |
 | `deprecated-transitional` | `./memory-consolidation.js` | 4 | `exact:./memory-consolidation.js` | `consolidateNamespace`, `consolidateAll`, `ConsolidationConfig`, `ConsolidationResult` |
@@ -651,8 +648,8 @@ Root index: `packages/connectors/src/index.ts`
 
 Root index: `packages/agent-adapters/src/index.ts`
 
-- Stable root sources: `25`
-- Deprecated transitional root sources: `98`
+- Stable root sources: `17`
+- Deprecated transitional root sources: `97`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x with new code expected to use providers/orchestration/workflow/http/persistence/rules/learning/recovery subpaths before a future 1.0 root contraction.
 
@@ -741,15 +738,6 @@ Root index: `packages/agent-adapters/src/index.ts`
 | `deprecated-transitional` | `./streaming/streaming-handler.js` | 6 | `prefix:./streaming/` | `StreamingHandler`, `StreamFormat`, `StreamingConfig`, `StreamOutputEvent` |
 | `deprecated-transitional` | `./observability/adapter-tracer.js` | 5 | `prefix:./observability/` | `AdapterTracer`, `TraceSpan`, `SpanEvent`, `AdapterTracerConfig` |
 | `deprecated-transitional` | `./observability/tracing-middleware.js` | 1 | `prefix:./observability/` | `createTracingMiddleware` |
-| `deprecated-transitional` | `./observability/dashboard-projection-subscriber.js` | 5 | `prefix:./observability/` | `DashboardProjectionSubscriber`, `createDashboardProjectionSubscriber`, `UNSOURCED_V1_FIELDS`, `DashboardProjectionStats` |
-| `stable` | `./introspection/adapter-installation-inspector.js` | 7 | `prefix:./introspection/` | `AdapterInstallationInspector`, `PROBE_TOOL_VERSION`, `observed`, `unspecified` |
-| `stable` | `./introspection/claude-inspector.js` | 1 | `prefix:./introspection/` | `ClaudeInstallationInspector` |
-| `stable` | `./introspection/gemini-inspector.js` | 1 | `prefix:./introspection/` | `GeminiInstallationInspector` |
-| `stable` | `./introspection/qwen-inspector.js` | 1 | `prefix:./introspection/` | `QwenInstallationInspector` |
-| `stable` | `./introspection/partial-inspector-gaps.js` | 1 | `prefix:./introspection/` | `PARTIAL_INSPECTOR_GAPS` |
-| `stable` | `./introspection/capability-manifest-builder.js` | 9 | `prefix:./introspection/` | `buildCapabilityManifest`, `computeManifestHash`, `detectCapabilityDrift`, `effectiveCapability` |
-| `stable` | `./introspection/codex-inspector.js` | 1 | `prefix:./introspection/` | `CodexInstallationInspector` |
-| `stable` | `./introspection/probe-runner.js` | 10 | `prefix:./introspection/` | `DEFAULT_PROBE_TIMEOUT_MS`, `PROBE_ENV_ALLOWLIST`, `buildProbeEnv`, `parseHelpFlags` |
 | `deprecated-transitional` | `./approval/adapter-approval.js` | 6 | `prefix:./approval/` | `AdapterApprovalGate`, `AdapterApprovalConfig`, `ApprovalContext`, `ApprovalRequest` |
 | `deprecated-transitional` | `./approval/approval-audit.js` | 4 | `prefix:./approval/` | `InMemoryApprovalAuditStore`, `ApprovalAuditEntry`, `AuditQueryFilters`, `ApprovalAuditStore` |
 | `deprecated-transitional` | `./approval/policy-driven-approval.js` | 3 | `prefix:./approval/` | `createPolicyCondition`, `compareBlastRadius`, `PolicyConditionConfig` |
@@ -796,7 +784,7 @@ Root index: `packages/agent-adapters/src/index.ts`
 | `stable` | `./runs/run-event-store.js` | 1 | `prefix:./runs/` | `RunEventStore` |
 | `stable` | `./runs/script-run-event-store.js` | 22 | `prefix:./runs/` | `ScriptRunEventStore`, `AppendManagedArtifactInput`, `AppendManagedRunEventInput`, `ManagedRunSummaryInput` |
 | `stable` | `./runs/run-log-root.js` | 1 | `prefix:./runs/` | `runLogRoot` |
-| `stable` | `./provider-catalog.js` | 10 | `exact:./provider-catalog.js` | `PROVIDER_CATALOG`, `HTTP_ROUTABLE_PROVIDER_IDS`, `assertProviderCatalogEntry`, `getDefaultMonitorStatus` |
+| `stable` | `./provider-catalog.js` | 8 | `exact:./provider-catalog.js` | `PROVIDER_CATALOG`, `HTTP_ROUTABLE_PROVIDER_IDS`, `getDefaultMonitorStatus`, `getMonitorableProviders` |
 | `stable` | `./normalize.js` | 2 | `exact:./normalize.js` | `normalizeEvent`, `Provider` |
 | `deprecated-transitional` | `./enrichment/enrichment-pipeline.js` | 3 | `prefix:./enrichment/` | `EnrichmentPipeline`, `EnrichmentContext`, `EnrichmentResult` |
 
@@ -837,7 +825,7 @@ Root index: `packages/otel/src/index.ts`
 
 Root index: `packages/runtime-contracts/src/index.ts`
 
-- Stable root sources: `6`
+- Stable root sources: `5`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
 - Migration window: Runtime contract root exports are stable neutral contracts; add allowlist rules before exposing new contract modules.
@@ -856,8 +844,7 @@ Root index: `packages/runtime-contracts/src/index.ts`
 | `stable` | `./canonical-execution.js` | 46 | `exact:./canonical-execution.js` | `validateExecutionRouteDecision`, `AdapterRunExecutionRequest`, `AgentExecutionRequest`, `ExecutionArtifactRef` |
 | `stable` | `./canonical-gates.js` | 16 | `exact:./canonical-gates.js` | `validateGateResult`, `GateActor`, `GateActorRequirement`, `GateCheck` |
 | `stable` | `./local-model.js` | 6 | `exact:./local-model.js` | `LocalModelCapabilityProfile`, `LocalModelEndpointDescriptor`, `LocalModelEndpointRejectionCode`, `LocalModelHealthSnapshot` |
-| `stable` | `./idempotency.js` | 4 | `exact:./idempotency.js` | `CANONICAL_JSON_VERSION`, `canonicalJson`, `canonicalInputDigest`, `materializeIdempotencyKey` |
-| `stable` | `./flow-runtime-input.js` | 16 | `exact:./flow-runtime-input.js` | `DEFAULT_FLOW_RUNTIME_INPUT_LIMITS`, `FLOW_CREDENTIAL_HANDLE_REF_SCHEMA`, `FLOW_RUNTIME_INPUT_CONTRACT`, `sha256Text` |
+| `stable` | `./idempotency.js` | 2 | `exact:./idempotency.js` | `canonicalInputDigest`, `materializeIdempotencyKey` |
 | `stable` | `./ai-economics.js` | 19 | `exact:./ai-economics.js` | `AI_COST_UNKNOWN_REASONS`, `AI_PRICE_SOURCE_KINDS`, `AI_QUOTA_SCHEMA`, `AI_QUOTA_UNITS` |
 
 ## @dzupagent/execution-contracts
@@ -949,14 +936,13 @@ Root index: `packages/agent-types/src/index.ts`
 - Stable root sources: `7`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
-- Migration window: Agent type root exports are stable Layer 0 contracts. The draft ./run subpath remains experimental until the AgentRunner, compare-and-swap store, and exact-resume conformance suite adopt it. Add allowlist rules before exposing new type modules.
+- Migration window: Agent type root exports are stable Layer 0 contracts; add allowlist rules before exposing new type modules.
 
 ### Stable Subpaths
 
 | Subpath | Purpose |
 | --- | --- |
 | `@dzupagent/agent-types/implementation` | implementation orchestration plan contracts and pure helpers |
-| `@dzupagent/agent-types/run` | draft JSON-safe AgentRunner item, invocation, interaction, event, and state contracts |
 
 ### Root Allowlist
 
