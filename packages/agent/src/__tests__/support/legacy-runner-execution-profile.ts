@@ -50,8 +50,6 @@ export type LegacyExecutionEvidenceCode =
   | 'runner-session-transaction'
   | 'host-explicit-disablement'
   | 'host-bounded-input'
-  | 'r5m-no-tool-generate-result'
-  | 'r5n-no-tool-generate-delegation'
   | 'runner-direct-only'
 
 export interface LegacyExecutionCapabilityClaim {
@@ -77,10 +75,6 @@ export interface RunnerProviderFreeProfileInput {
   readonly observedMessageCount: number
   readonly observedMessageTokens: number
   readonly structuredOutputRequested: boolean
-  readonly legacyResultProjection?:
-    | 'runner-direct-only'
-    | 'no-tool-generate-result/v1'
-    | 'no-tool-generate-delegation/v1'
 }
 
 export type LegacyExecutionIneligibilityCode =
@@ -200,22 +194,12 @@ function expectations(input: RunnerProviderFreeProfileInput): Readonly<Record<Le
       selfLearning: false,
       tokenLifecyclePlugin: false,
     }),
-    'legacy-result-projection': input.legacyResultProjection === 'no-tool-generate-result/v1'
-      ? supported('host', 'r5m-no-tool-generate-result', {
-          entrypoint: 'not-delegated',
-          projection: 'no-tool-generate-result/v1',
-        })
-      : input.legacyResultProjection === 'no-tool-generate-delegation/v1'
-        ? supported('host', 'r5n-no-tool-generate-delegation', {
-            entrypoint: 'generate-opt-in',
-            projection: 'no-tool-generate-result/v1',
-          })
-        : {
-          owner: 'host',
-          disposition: 'disabled',
-          evidence: ['runner-direct-only'],
-          binding: { entrypoint: 'runner-direct-only' },
-        },
+    'legacy-result-projection': {
+      owner: 'host',
+      disposition: 'disabled',
+      evidence: ['runner-direct-only'],
+      binding: { entrypoint: 'runner-direct-only' },
+    },
     'legacy-stream-events': disabled(off),
     'legacy-run-handle-control': disabled(off),
     'agent-as-tool-recursion': disabled(off),
@@ -284,10 +268,6 @@ function validInput(input: RunnerProviderFreeProfileInput): boolean {
     && Number.isSafeInteger(input.observedMessageTokens) && input.observedMessageTokens >= 0
     && input.observedMessageCount < 30
     && input.observedMessageTokens < 12_000
-    && (input.legacyResultProjection === undefined
-      || input.legacyResultProjection === 'runner-direct-only'
-      || input.legacyResultProjection === 'no-tool-generate-result/v1'
-      || input.legacyResultProjection === 'no-tool-generate-delegation/v1')
 }
 
 export function buildRunnerProviderFreeExecutionProfile(
@@ -342,16 +322,6 @@ export function evaluateRunnerProviderFreeExecutionProfile(
 
   const summary = claims.find((claim) => claim.obligation === 'summary-compression')
   const summaryBinding = summary?.binding as Record<string, AgentRunJsonValue> | undefined
-  const resultProjection = claims.find(
-    (claim) => claim.obligation === 'legacy-result-projection',
-  )?.binding as Record<string, AgentRunJsonValue> | undefined
-  const legacyResultProjection = resultProjection?.projection === 'no-tool-generate-result/v1'
-    ? resultProjection.entrypoint === 'generate-opt-in'
-      ? 'no-tool-generate-delegation/v1'
-      : 'no-tool-generate-result/v1'
-    : resultProjection?.entrypoint === 'runner-direct-only'
-      ? 'runner-direct-only'
-      : undefined
   const input: RunnerProviderFreeProfileInput = {
     behaviorDigest: profile.behaviorDigest,
     maxModelTurns: Number((claims.find((claim) => claim.obligation === 'bounded-model-turns')?.binding as Record<string, unknown> | undefined)?.maxModelTurns),
@@ -359,7 +329,6 @@ export function evaluateRunnerProviderFreeExecutionProfile(
     observedMessageCount: Number(summaryBinding?.observedMessageCount),
     observedMessageTokens: Number(summaryBinding?.observedMessageTokens),
     structuredOutputRequested: Boolean((claims.find((claim) => claim.obligation === 'structured-output-when-requested')?.binding as Record<string, unknown> | undefined)?.requested),
-    ...(legacyResultProjection === undefined ? {} : { legacyResultProjection }),
   }
   const expected = validInput(input) ? expectations(input) : undefined
   const byObligation = new Map<string, LegacyExecutionCapabilityClaim[]>()

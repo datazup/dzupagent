@@ -1,4 +1,4 @@
-import { AIMessage, HumanMessage } from '@langchain/core/messages'
+import { AIMessage, HumanMessage, type BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import {
   AGENT_RUNNER_STRUCTURED_OUTPUT_CAPABILITY_SCHEMA,
@@ -8,7 +8,6 @@ import {
   type AgentRunnerIdentityKind,
   type AgentRunnerInput,
   type AgentRunnerModelPort,
-  type AgentRunnerPersistence,
 } from '@dzupagent/agent/runner'
 import {
   AGENT_STRUCTURED_OUTPUT_REQUEST_SCHEMA,
@@ -91,7 +90,7 @@ function modelState(
 function runner(model: AgentRunnerModelPort): InMemoryAgentRunner {
   return new InMemoryAgentRunner({
     model,
-    persistence: new InMemoryAgentRunnerPersistence() as unknown as AgentRunnerPersistence,
+    persistence: new InMemoryAgentRunnerPersistence(),
     createId: ids(),
     now: () => '2026-08-10T12:00:00.000Z',
   })

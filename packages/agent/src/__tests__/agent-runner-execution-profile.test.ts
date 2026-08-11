@@ -4,7 +4,7 @@ import {
   buildRunnerProviderFreeExecutionProfile,
   evaluateRunnerProviderFreeExecutionProfile,
   type LegacyRunnerExecutionProfile,
-} from '../runner/legacy-runner-execution-profile.js'
+} from './support/legacy-runner-execution-profile.js'
 
 const behaviorDigest = 'sha256:r5k-runner-provider-free-behavior'
 
@@ -37,35 +37,6 @@ describe('AgentRunner R5K execution capability profile', () => {
         owner: 'host',
         binding: { entrypoint: 'runner-direct-only' },
       })
-  })
-
-  it('admits the separately named R5M projection without reinterpreting direct-runner profiles', () => {
-    const candidate = buildRunnerProviderFreeExecutionProfile({
-      behaviorDigest,
-      maxModelTurns: 4,
-      maxToolAttempts: 2,
-      observedMessageCount: 3,
-      observedMessageTokens: 128,
-      structuredOutputRequested: false,
-      legacyResultProjection: 'no-tool-generate-result/v1',
-    })
-    expect(evaluateRunnerProviderFreeExecutionProfile(candidate, behaviorDigest)).toEqual({
-      status: 'eligible',
-      profileId: 'runner-provider-free/v1',
-      profileDigest: candidate.profileDigest,
-    })
-    expect(candidate.claims.find((claim) => claim.obligation === 'legacy-result-projection'))
-      .toMatchObject({
-        disposition: 'supported',
-        owner: 'host',
-        evidence: ['r5m-no-tool-generate-result'],
-        binding: {
-          entrypoint: 'not-delegated',
-          projection: 'no-tool-generate-result/v1',
-        },
-      })
-    expect(profile().claims.find((claim) => claim.obligation === 'legacy-result-projection'))
-      .toMatchObject({ disposition: 'disabled', evidence: ['runner-direct-only'] })
   })
 
   it.each(profile().claims.filter((claim) => claim.disposition === 'disabled').map(

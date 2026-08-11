@@ -41,7 +41,6 @@ import {
 import { generateStructured as generateStructuredRun } from "./structured-generate.js";
 import { omitUndefined } from "../utils/exact-optional.js";
 import { bindTools as bindToolsHelper } from "./provider-selection.js";
-import { maybeDelegateNoToolGenerate } from "./no-tool-generate-delegation.js";
 
 /**
  * Read the optional per-model structured-output capability descriptor.
@@ -106,14 +105,6 @@ export async function runGenerate(
       runBeforeAgentHooks: () => deps.middlewareRuntime.runBeforeAgentHooks(),
     })
   );
-
-  const delegated = await maybeDelegateNoToolGenerate({
-    agentId: deps.agentId,
-    config: deps.config,
-    options,
-    runState,
-  });
-  if (delegated !== undefined) return delegated;
 
   const result = await executeGenerateRun(
     omitUndefined<ExecuteGenerateRunParams>({
