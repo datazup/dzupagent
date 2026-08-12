@@ -260,7 +260,7 @@ function validateConfig(root, config, current) {
     assert(!plannedKeys.has(key), `duplicate planned surface ${key}`)
     plannedKeys.add(key)
     assert(dispositions.has(planned.disposition), `${key} has invalid disposition`)
-    assert(/^MEM-P\d{3}$/.test(planned.packet), `${key} has invalid packet ${planned.packet}`)
+    assert(/^MEM-P\d{3}(?:-[A-Z])?$/.test(planned.packet), `${key} has invalid packet ${planned.packet}`)
     assert(Array.isArray(planned.overlaps), `${key} overlaps must be an array`)
     if (planned.disposition === 'extend' || planned.disposition === 'deprecate' || planned.disposition === 'reuse') {
       assert(planned.overlaps.length > 0, `${key} disposition ${planned.disposition} requires an existing overlap`)

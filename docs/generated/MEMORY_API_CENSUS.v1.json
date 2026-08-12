@@ -3,11 +3,15 @@
   "packet": "MEM-P000",
   "sourceIdentity": {
     "kind": "content-digest-set",
-    "digest": "sha256:a9c2ad3913a367679d5bfe4d967abe987930ec32147a66819bc0a8a4137a9bac",
+    "digest": "sha256:864e2a645041d8265a91ecc2045cb6517e2eae3f2034390de09e7acda32a545b",
     "inputs": [
       {
         "path": "config/memory-api-census.v1.json",
-        "sha256": "sha256:492fe554d828511e7a36161bbb073097ed52ae415e0651c74cb3c880c13b93c5"
+        "sha256": "sha256:42ab773132141869d5036fc7e23849b655296d18f870c88c64478b346030929f"
+      },
+      {
+        "path": "config/memory-conformance-baseline.v1.json",
+        "sha256": "sha256:55f4858fd5d6e73cfc2f57988f8e8f5995e6009a0f6aa229799dfff5510e231a"
       },
       {
         "path": "config/public-api-allowlists.json",
@@ -20,7 +24,7 @@
             "@dzupagent/memory-ipc"
           ]
         },
-        "sha256": "sha256:2964539980ac6dcc4ede9bd90cef573fcf337196c0fe579565f7d6b1eb822dab"
+        "sha256": "sha256:02264ce166c92b0710de03bf90d3b00da1107a1c409093a6c3c7e4395fd25bce"
       },
       {
         "path": "packages/agent-types/package.json",
@@ -45,6 +49,10 @@
       {
         "path": "packages/agent/src/__tests__/memory-context-loader-branches.test.ts",
         "sha256": "sha256:580cc31ad6eabf5073612ac6da25f232446c96d38db5eb8424031c0d3b219478"
+      },
+      {
+        "path": "packages/agent/src/__tests__/memory-context-loader-lifecycle.test.ts",
+        "sha256": "sha256:091247b60c016e2e85ff5f5af55dcb41efe50ceb509fee8c3e58d62cf492afb2"
       },
       {
         "path": "packages/agent/src/__tests__/memory-context-loader-query-mode.test.ts",
@@ -107,6 +115,34 @@
         "sha256": "sha256:0e25fe9b44f015fde94f5fdb68c446b54d599237f928117fc98804f64c18cce2"
       },
       {
+        "path": "packages/context/src/tool-results/__tests__/compact-completed-tool-results.test.ts",
+        "sha256": "sha256:369c3e980ba7b26c43b295429aee05cd68f7df64f085c67db3cfbe0697532b1a"
+      },
+      {
+        "path": "packages/context/src/tool-results/__tests__/memory-compaction-conformance-port.ts",
+        "sha256": "sha256:da13398343d01f5e1a4a713b405c4f76cbe23c87ee0a2445f777e95444cbd76f"
+      },
+      {
+        "path": "packages/context/src/tool-results/__tests__/memory-compaction-conformance.test.ts",
+        "sha256": "sha256:d8c31672716ee74217d6dbf02e398498102a92d93cc3063ec9aaa6dfd4e6ee3b"
+      },
+      {
+        "path": "packages/context/src/tool-results/compact-completed-tool-results.ts",
+        "sha256": "sha256:b048dcc327bfb664891fb10b8bcae22cc14f8cbe354c920595266dc0572b809f"
+      },
+      {
+        "path": "packages/context/src/tool-results/compaction-internals.ts",
+        "sha256": "sha256:58b88ba84a5698908122f7ffe0a01797d99c72ac1e75b7bcccf43203c8cb8996"
+      },
+      {
+        "path": "packages/context/src/tool-results/index.ts",
+        "sha256": "sha256:0d1889757d33218ca787e015e392a6df128a3625e01bbb1aeceae287086a40e1"
+      },
+      {
+        "path": "packages/context/src/tool-results/types.ts",
+        "sha256": "sha256:ccbd0670468a332d5a72fda1e10b0387640cd5a809ee4f6cb94273658d8962c6"
+      },
+      {
         "path": "packages/memory-ipc/package.json",
         "sha256": "sha256:29836d3779d36d84a65f8c9fa8699aa0c720593c52d27c0e272938a8b27a723b"
       },
@@ -140,7 +176,7 @@
       },
       {
         "path": "packages/memory/package.json",
-        "sha256": "sha256:70674a609a78e2b3c3e9336057fd0c1d405f6aead83a7aa8e289890ee00fe6cf"
+        "sha256": "sha256:a8d450dd8b07b4b95fe6cca1e51902519b723bef62d69fa8050aa6e3af747b05"
       },
       {
         "path": "packages/memory/src/__tests__/in-memory-client.test.ts",
@@ -167,12 +203,24 @@
         "sha256": "sha256:fe97c2a7fd392db6a2b43ad72dc8a87a4d6a3c7dd03834998b6f90e4bda1ad40"
       },
       {
+        "path": "packages/memory/src/__tests__/projections-export-map.test.ts",
+        "sha256": "sha256:7cf0f8d4c3ded885b09f0c5dcfcdf7667e76d2095ef48d3e0d1caa902dfe8a2e"
+      },
+      {
+        "path": "packages/memory/src/__tests__/records-export-map.test.ts",
+        "sha256": "sha256:b763bcb567365e8b5a5e2a46db5e7c6eabe4111bc7ccd7e430182e5a850d5ab2"
+      },
+      {
         "path": "packages/memory/src/__tests__/rrf-fusion.test.ts",
         "sha256": "sha256:9d44cdd84f4a8d5eae62bfc16e8d84aeac28e3cc55c82abf18cb505688436416"
       },
       {
         "path": "packages/memory/src/__tests__/search-retrieval.test.ts",
         "sha256": "sha256:6d0566560320a309f6976201e22c0141c219507438391bfd5d4bd8af908656fe"
+      },
+      {
+        "path": "packages/memory/src/__tests__/service-export-map.test.ts",
+        "sha256": "sha256:9aa43395524a80f7fe5ae50cf48614bf63ecc6442c6af669bc02ca75c11a11e6"
       },
       {
         "path": "packages/memory/src/__tests__/staged-writer.test.ts",
@@ -183,12 +231,72 @@
         "sha256": "sha256:39679e0f5a777ceff62ce5d1e5784557bc105b41b410e8230e8b112b9f0a63f2"
       },
       {
+        "path": "packages/memory/src/__tests__/testing-export-map.test.ts",
+        "sha256": "sha256:22175630cc87647ef869008a0bf0898d859bc1df56a6614aaa911e36f9d2a4d6"
+      },
+      {
+        "path": "packages/memory/src/__tests__/workers-export-map.test.ts",
+        "sha256": "sha256:ff2ede623ec774e78ced348ec1da94a09fe7b17a17b9cb9783a146f8166eab21"
+      },
+      {
         "path": "packages/memory/src/index.ts",
         "sha256": "sha256:a5895f8063650b07eaacdcfb11ae307b5bcb6b2cf4f4a614b176df909febcda3"
       },
       {
         "path": "packages/memory/src/knowledge/index.ts",
         "sha256": "sha256:eb4540377d15d5637a413742a107388608277c3e46219fea27f1cd00c1b99377"
+      },
+      {
+        "path": "packages/memory/src/lifecycle/__tests__/projection.test.ts",
+        "sha256": "sha256:e64bbcdc316760d7a82e9c8f9947c0de231e28b3e2358266201e54b6c694dcc7"
+      },
+      {
+        "path": "packages/memory/src/lifecycle/__tests__/purge-and-compatibility.test.ts",
+        "sha256": "sha256:66b8d8e3f086bd3654e73b47e5359baa17e5eaac81e020d221e29b70ca0c50cb"
+      },
+      {
+        "path": "packages/memory/src/lifecycle/__tests__/replay-and-adversarial.test.ts",
+        "sha256": "sha256:90dfb4eeb3e0a894f7fa02676cd8a6b5ea42faa23c83918c008e306db88b9c8e"
+      },
+      {
+        "path": "packages/memory/src/lifecycle/__tests__/transition-matrix.test.ts",
+        "sha256": "sha256:e4ff948e9a9929549f2684fc20b079f8dcb26dd9752dbd83d2ebb44e5026feae"
+      },
+      {
+        "path": "packages/memory/src/lifecycle/__tests__/transitions.test.ts",
+        "sha256": "sha256:29b8dc8eb76e5ac07145594c4724843531498b384d687841f68fdf611088a478"
+      },
+      {
+        "path": "packages/memory/src/lifecycle/errors.ts",
+        "sha256": "sha256:8999f3dd06232f02026c7ef8df1c3523c52d14d3728c7c5a07be84b24553e14e"
+      },
+      {
+        "path": "packages/memory/src/lifecycle/index.ts",
+        "sha256": "sha256:ccfa05e242afaeba9197be60b98db909bbbbf16bb4980bd8184285d59d4680ac"
+      },
+      {
+        "path": "packages/memory/src/lifecycle/ledger.ts",
+        "sha256": "sha256:0fb9917231d34b1ccd37bbf42fb7d2bf90aac4cfca15b5091be219a9234dc3ec"
+      },
+      {
+        "path": "packages/memory/src/lifecycle/projection.ts",
+        "sha256": "sha256:902cf516e94f00f5a54e1457a0e0200c81f11f42135ca23cdf0533007b78fb1f"
+      },
+      {
+        "path": "packages/memory/src/lifecycle/record-transitions.ts",
+        "sha256": "sha256:23b4d0d8ef68cd723a66b89b84c296185427de37326ffb66f3a3cbefd64b27af"
+      },
+      {
+        "path": "packages/memory/src/lifecycle/reducer.ts",
+        "sha256": "sha256:beb7cf1a46308c5c64f869e899bee572a30fe3c0be3734c60d9c13b560f79a0b"
+      },
+      {
+        "path": "packages/memory/src/lifecycle/types.ts",
+        "sha256": "sha256:696270bb9fb1d0b79ba2a65bf3611587a65d55b99a95bccfab896d1f8b05d1e3"
+      },
+      {
+        "path": "packages/memory/src/lifecycle/validation.ts",
+        "sha256": "sha256:9e2aaed9e076e8023cd15423ade07d4fff095386e7c30885af5b8cdf4971431b"
       },
       {
         "path": "packages/memory/src/memory-service-store.ts",
@@ -207,6 +315,50 @@
         "sha256": "sha256:c35c19b1178742b5dd6d56271ec30ee6289bcc621072022106dde8dc24f88ba1"
       },
       {
+        "path": "packages/memory/src/projections/__tests__/adversarial.test.ts",
+        "sha256": "sha256:0b87c4511b7a21d59ba51b9e373d556350b41a50ccf3f7a566841a7435639391"
+      },
+      {
+        "path": "packages/memory/src/projections/__tests__/diff.test.ts",
+        "sha256": "sha256:6a5476653c0457c3412fb24ec225f05bbf3b656ddf1c484e5ed995c2d2233637"
+      },
+      {
+        "path": "packages/memory/src/projections/__tests__/projection.test.ts",
+        "sha256": "sha256:16a7bbbdf76e3db58b8ecb60f723f1b2be4ded8b727e7cd6e1f74bd9d818d67b"
+      },
+      {
+        "path": "packages/memory/src/projections/diff.ts",
+        "sha256": "sha256:bc43c756955459eaa6c9e91736e3f749ea40be39edee582cc9b9f09b5cb6d64d"
+      },
+      {
+        "path": "packages/memory/src/projections/errors.ts",
+        "sha256": "sha256:4b88719e876a903656e644f27aea1177ac8d6c3e85762065bd767bb59fe39630"
+      },
+      {
+        "path": "packages/memory/src/projections/index.ts",
+        "sha256": "sha256:3678221b565e3d236bd61bb0f8c396d3300b96245cebce5fc705b55a0e33207a"
+      },
+      {
+        "path": "packages/memory/src/projections/json.ts",
+        "sha256": "sha256:0e47ff08e691e1e0ec834fb7f660a123b8991d2da947548f6b7cbb1a9f535d9c"
+      },
+      {
+        "path": "packages/memory/src/projections/markdown.ts",
+        "sha256": "sha256:ea817bb19ebf9db680b4fab2d66be709208cb137059cbdaa4bc0f424b995989c"
+      },
+      {
+        "path": "packages/memory/src/projections/project.ts",
+        "sha256": "sha256:71dc0105e801b579f7ff9948331c3a8ede1f32ebdbf9389bcf9d76ac10e3227c"
+      },
+      {
+        "path": "packages/memory/src/projections/types.ts",
+        "sha256": "sha256:8bb6385a1890c2afe25617d3288a37bf10fd99a12e56be822ae843804f8bc8c4"
+      },
+      {
+        "path": "packages/memory/src/projections/validation.ts",
+        "sha256": "sha256:87c0114d98c8266e2f99134d2a7dffd4d872b83f8c656127053333977af215e3"
+      },
+      {
         "path": "packages/memory/src/provenance/__tests__/provenance.test.ts",
         "sha256": "sha256:162b4aefb478b9b8d30b55fdede9cacbc0e0cc1e1d8709503716eb85bd5ed041"
       },
@@ -219,6 +371,50 @@
         "sha256": "sha256:71fe5fad5d8d0f9a2bb47fc2761ce2319e035232ad4e79a664d597a2bd9db283"
       },
       {
+        "path": "packages/memory/src/records/__tests__/adapters.test.ts",
+        "sha256": "sha256:a096e50171d3fa7781f61bc63727c955423cb41acf26ef2720ef3fe9f0590599"
+      },
+      {
+        "path": "packages/memory/src/records/__tests__/adversarial.test.ts",
+        "sha256": "sha256:7cb652dfcc0e1c55a8d471a5fc5091fb8c6a47ab71b055f3744a93e469b54c9a"
+      },
+      {
+        "path": "packages/memory/src/records/__tests__/records.test.ts",
+        "sha256": "sha256:2b51526f01f999b4ad33726a5cd42cdb764acb9b75e580263a18ac196b84d6fc"
+      },
+      {
+        "path": "packages/memory/src/records/adapters.ts",
+        "sha256": "sha256:032a59caaf3c5fd269b7489a3db8e660a5e2bc48bd1c9e018eb5a330ec4db762"
+      },
+      {
+        "path": "packages/memory/src/records/canonical.ts",
+        "sha256": "sha256:ec22bc5729908b0a9c2634cddcb9708c24bb48d708df8b2f4c2ac23b45f94df2"
+      },
+      {
+        "path": "packages/memory/src/records/decoder-primitives.ts",
+        "sha256": "sha256:28d72780b11527d0e718dfc3d3ad65b71b3be46c6e546f37c27b34909f280b69"
+      },
+      {
+        "path": "packages/memory/src/records/decoder.ts",
+        "sha256": "sha256:e141485320a2f5e1bb6ef50f855a4bef16813f7af7f2ca6479a9a138f002bdc4"
+      },
+      {
+        "path": "packages/memory/src/records/errors.ts",
+        "sha256": "sha256:f575533dea979a707912d8ce5567f4ce3d44d532666665fa06ff46901e662850"
+      },
+      {
+        "path": "packages/memory/src/records/index.ts",
+        "sha256": "sha256:ed0b218812b5046defc639f43b6e6905c9ce0e68a3b0c94c739db0f66f924eaa"
+      },
+      {
+        "path": "packages/memory/src/records/safe-json.ts",
+        "sha256": "sha256:d3a9041e00ec4e423d1c3bbbe26cc30c6d616aa71e3b5df90de2f7206211e200"
+      },
+      {
+        "path": "packages/memory/src/records/types.ts",
+        "sha256": "sha256:feaea5d2c5065a08cc20545d2587dbc458b95d3a2744ad59bc72969512a19091"
+      },
+      {
         "path": "packages/memory/src/retrieval/fts-search.ts",
         "sha256": "sha256:f6718b4521d4311141660c6e28d2a3de833e7ba6c9b15fba9d896a0ad73bd061"
       },
@@ -227,12 +423,100 @@
         "sha256": "sha256:6d446e27e18b78ad5b7a864af51646223a587d796fc3905282bbad2c7ff53612"
       },
       {
+        "path": "packages/memory/src/retrieval/index.ts",
+        "sha256": "sha256:214d7e31f5109833efee881ac3d85c4c9eba7bc1f648a6fcb59b3f2df232f35e"
+      },
+      {
+        "path": "packages/memory/src/retrieval/provider-stages.ts",
+        "sha256": "sha256:f8555cea7a7c23f5a57d2abf1f373349f8909f79c90da33b6cdd228f0bfcdf54"
+      },
+      {
+        "path": "packages/memory/src/retrieval/retrieve-memory-v1.ts",
+        "sha256": "sha256:0139ac576bf2bfb508e933e609ac495b448e58501ee83551c19689068920fb7d"
+      },
+      {
         "path": "packages/memory/src/retrieval/rrf-fusion.ts",
         "sha256": "sha256:d7f74fbbada9d7f2373c1bfbd085d0fd3b788137bd11548ba37e598c4f364dc6"
       },
       {
+        "path": "packages/memory/src/retrieval/stage-runtime.ts",
+        "sha256": "sha256:efc351079ba1c5c8a40ba9d5ed112e90a7312d1a1184c1620d717126f2334886"
+      },
+      {
+        "path": "packages/memory/src/retrieval/v1-types.ts",
+        "sha256": "sha256:22a4db75ed4b2bbbd1ccb39748d623bbc4bf68297d804a463e5502f4da5ffb60"
+      },
+      {
+        "path": "packages/memory/src/retrieval/v1-validation.ts",
+        "sha256": "sha256:342705d57ec368307293c2a200ce2e9ff369f66d65661c3295e7a5307d2cad3f"
+      },
+      {
         "path": "packages/memory/src/retrieval/vector-search.ts",
         "sha256": "sha256:1349b750424fd9cf973e09f245904ef4cfde11e4cfe5b6d25e5d41d124a079c6"
+      },
+      {
+        "path": "packages/memory/src/service/__tests__/adversarial.test.ts",
+        "sha256": "sha256:0d5edcd72635708c4be565f91e6c80e119a1a006cba250e487b00679bafffb5c"
+      },
+      {
+        "path": "packages/memory/src/service/__tests__/checkpoint-and-restart.test.ts",
+        "sha256": "sha256:1a1766d959535808955a0be8e324e2f3f0c9519d91bf01a63347bbb7a69a253d"
+      },
+      {
+        "path": "packages/memory/src/service/__tests__/compatibility.test.ts",
+        "sha256": "sha256:2fcc8918826aa1e1f8426900156546e677d6a8dbdc2e579f617b88523760d5f4"
+      },
+      {
+        "path": "packages/memory/src/service/__tests__/service-facade.test.ts",
+        "sha256": "sha256:523591424f38f19fd9ceb1df39edf404cbd838f8bac5a98d5b1f8dd6d4e6b45d"
+      },
+      {
+        "path": "packages/memory/src/service/compatibility.ts",
+        "sha256": "sha256:c397008d7a875bb1b4d9c61016572c277a3b1a9eb1a46fcb493096229f7fc636"
+      },
+      {
+        "path": "packages/memory/src/service/history-reducer.ts",
+        "sha256": "sha256:3f3a656618a521819e8490f5322ea447f2a051d17f8d2702349fc87a95977073"
+      },
+      {
+        "path": "packages/memory/src/service/history.ts",
+        "sha256": "sha256:40c9adb4f66cccfeb0ef7b5bbc65fc415f96f72960d54c9c6e74dc26e3ad080a"
+      },
+      {
+        "path": "packages/memory/src/service/in-memory-adapter.ts",
+        "sha256": "sha256:31b717ccee0db672d79bbdc2ce16d5064e29442cae4695899cd64871c92df796"
+      },
+      {
+        "path": "packages/memory/src/service/index.ts",
+        "sha256": "sha256:66806af0b959ea018cbd99088645a68147120dabb88e1673721bb5c4b2e4c317"
+      },
+      {
+        "path": "packages/memory/src/service/memory-lifecycle-service.ts",
+        "sha256": "sha256:e622c81b7c6d49fa38da3964424b94db478b9a6e3f4c1f56d344e2de2a1a6cd6"
+      },
+      {
+        "path": "packages/memory/src/service/read-operations.ts",
+        "sha256": "sha256:eb04fac7569febcdd9cf1707a5a1272ffdcb79fb9b8e3cfba1be01dc5f869fe7"
+      },
+      {
+        "path": "packages/memory/src/service/service-runtime.ts",
+        "sha256": "sha256:02d06b9176636598f70174659e92189b21b029a8167bfd201c2d809ca9e3196d"
+      },
+      {
+        "path": "packages/memory/src/service/snapshot.ts",
+        "sha256": "sha256:dd16c7388e6cd4be3fd85e5d749b066d4175220de835f318b2f1066832a05584"
+      },
+      {
+        "path": "packages/memory/src/service/types.ts",
+        "sha256": "sha256:43b9e6965a6e8a8befeda411a23470cf270cfe48992a0f026fc13c0b660f805b"
+      },
+      {
+        "path": "packages/memory/src/service/validation.ts",
+        "sha256": "sha256:c749a9c5a368dc867081bd59638667407e46ee5e204146015e2e75d5c2a710df"
+      },
+      {
+        "path": "packages/memory/src/service/write-operation.ts",
+        "sha256": "sha256:0facbe2af97241078cd59bb7dd318c2ed8f15f18a980eaae50e52ed4aec73acc"
       },
       {
         "path": "packages/memory/src/staged-writer.ts",
@@ -247,29 +531,190 @@
         "sha256": "sha256:0abb025ab361e7635f4d1a6049c01f38036258c27644bc042ded67bb3fea1948"
       },
       {
+        "path": "packages/memory/src/testing/__tests__/compaction-conformance-v1.test.ts",
+        "sha256": "sha256:ece2944f097895c17ad743f7883489d32b6812bc844c30c0b72db3d4be8dcee3"
+      },
+      {
+        "path": "packages/memory/src/testing/__tests__/conformance-core-v1.test.ts",
+        "sha256": "sha256:df755768ccd93ad4f82499db8a81256b3dace904b2f0b133faf32b53418c72cd"
+      },
+      {
+        "path": "packages/memory/src/testing/__tests__/record-lifecycle-conformance-v1.test.ts",
+        "sha256": "sha256:8df0e2a9402d1fd02011d2a31938de23b18e402dfebc1d694a636e91c4ae15ee"
+      },
+      {
+        "path": "packages/memory/src/testing/__tests__/retrieval-conformance-v1.test.ts",
+        "sha256": "sha256:41224888cc468ffb3b983963ba94c751f5b402a49d6409a6386606a50a4a27f3"
+      },
+      {
+        "path": "packages/memory/src/testing/__tests__/store-deletion-conformance-v1.test.ts",
+        "sha256": "sha256:2a1f516d02f3e87db87229af0dea22898533ef3f0a5bda3d1106770dc760d940"
+      },
+      {
+        "path": "packages/memory/src/testing/__tests__/worker-conformance-v1.test.ts",
+        "sha256": "sha256:454c7e90455c94192bcdbe4a3063a4255b277151d8a3074102ef9d238232fb45"
+      },
+      {
+        "path": "packages/memory/src/testing/benchmark-profile-v1.ts",
+        "sha256": "sha256:a2c33e47d07b542126e76119f0bf696aa955494f99d06481761c466d5773a9c6"
+      },
+      {
+        "path": "packages/memory/src/testing/compaction-conformance-v1.ts",
+        "sha256": "sha256:941f792bea6161b2903b636eb9e09c35934f5d528ee63720426218e8ad17421f"
+      },
+      {
+        "path": "packages/memory/src/testing/conformance-core-v1.ts",
+        "sha256": "sha256:edc96806860cddd84d982a53f9659c8efd9de1c1f3678d438d9c179b56945908"
+      },
+      {
+        "path": "packages/memory/src/testing/deletion-conformance-v1.ts",
+        "sha256": "sha256:c9099f4190495b08fe82e89e13e9f3a8e1e2032f6373640d183544202313b83f"
+      },
+      {
+        "path": "packages/memory/src/testing/fixtures-v1.ts",
+        "sha256": "sha256:1fea56eb41309005ea0dd760101d4bf94bad06536a0f638884fd33bce6f26253"
+      },
+      {
         "path": "packages/memory/src/testing/index.ts",
         "sha256": "sha256:ad25bf43f4fef68949b632705f33674c77d9f96267baf9e6057ea36acd606cc0"
       },
       {
+        "path": "packages/memory/src/testing/lifecycle-conformance-v1.ts",
+        "sha256": "sha256:a6da6e31b5b240d4709e2c1ae68d36bbc73130a1d6b1e5d9358019e0a944b6db"
+      },
+      {
+        "path": "packages/memory/src/testing/record-conformance-v1.ts",
+        "sha256": "sha256:a0940c595d15110401c19ec0bf84429e24d503b8e2814e80fe3458f093fee679"
+      },
+      {
+        "path": "packages/memory/src/testing/retrieval-conformance-v1.ts",
+        "sha256": "sha256:2e7c4a97db68cc6ff2b918db79e0d4af7abbddd3c25cbd4d5d7739204f0190a8"
+      },
+      {
+        "path": "packages/memory/src/testing/retrieval-fixtures-v1.ts",
+        "sha256": "sha256:a2856f0773e27c2b4951f5f2755c3a268b874e57110bf7d9e59ead572d1a2024"
+      },
+      {
+        "path": "packages/memory/src/testing/retrieval-metrics-v1.ts",
+        "sha256": "sha256:5d5fc532c87aa9f5e59cced6bd224a4ab6e04a560f4457ea47dfbff5d3188d49"
+      },
+      {
+        "path": "packages/memory/src/testing/retrieval-security-conformance-v1.ts",
+        "sha256": "sha256:dfef789ba9ba776db5bdb5ab0bd04bdd3565f127a1da75d7b0b7bfa154a8f86f"
+      },
+      {
+        "path": "packages/memory/src/testing/service-fixtures-v1.ts",
+        "sha256": "sha256:8f1cd083e54d245af848687bb2abe671dd86b4fa6111791ec87c88b89504827b"
+      },
+      {
+        "path": "packages/memory/src/testing/store-conformance-v1.ts",
+        "sha256": "sha256:17b8b742bd2f7b575e81c4132ad802a4fb58236f475f55c17f93f942bb5fd828"
+      },
+      {
+        "path": "packages/memory/src/testing/worker-conformance-fixtures-v1.ts",
+        "sha256": "sha256:aa867c45118d93cac7f3c1b9b812e3d7445eb23fe53ed5cacc1b8641d148e3e0"
+      },
+      {
+        "path": "packages/memory/src/testing/worker-conformance-v1.ts",
+        "sha256": "sha256:f672560d7d06e651da11da6bc6958729955063bff5068e861de0b4f8dfee4726"
+      },
+      {
+        "path": "packages/memory/src/workers/__tests__/outbox-core.test.ts",
+        "sha256": "sha256:b7b1b2e4d8d64546162226e1096bc0b968812f4e812d62567916e180f56135d1"
+      },
+      {
+        "path": "packages/memory/src/workers/__tests__/outbox-reconciliation.test.ts",
+        "sha256": "sha256:d2bf7dfdaa1c971dda6ce54879dd0573f9850138464d6279e4761fd64709f09f"
+      },
+      {
+        "path": "packages/memory/src/workers/__tests__/outbox-state.test.ts",
+        "sha256": "sha256:c54479c3b4e217e764476125ea29bfb6c48c987eb33f067d67acd02107761b85"
+      },
+      {
+        "path": "packages/memory/src/workers/in-memory-outbox.ts",
+        "sha256": "sha256:096c6ef48fcc0b0327bdbe926c084891856acea1de23d38fe9d966a4221b5303"
+      },
+      {
+        "path": "packages/memory/src/workers/index.ts",
+        "sha256": "sha256:ca4db56ae878caa8d16e5ea0cb4c821301f222101290cf77e3dcc56b00dfacdc"
+      },
+      {
+        "path": "packages/memory/src/workers/outbox-observation.ts",
+        "sha256": "sha256:e3a55249c7e2c441ad4dd8cf3df177ede35e0c830484c58797df6e1ace723236"
+      },
+      {
+        "path": "packages/memory/src/workers/outbox-state.ts",
+        "sha256": "sha256:4f3c01600eb983b24097160b5230e4318cbc6c311ad429c2e203b7ba4412b918"
+      },
+      {
+        "path": "packages/memory/src/workers/outcome-factory.ts",
+        "sha256": "sha256:b4b61f9991a4d5efd9570fc80fd91dbfce02511d7a664d31bd604a9c700b0b19"
+      },
+      {
+        "path": "packages/memory/src/workers/requests.ts",
+        "sha256": "sha256:82091821138db5b2ad82e764dddaf36064fb259dd7ea19c38a2b9a200835ce00"
+      },
+      {
+        "path": "packages/memory/src/workers/snapshot.ts",
+        "sha256": "sha256:1a9b34767bcd20534747bd4883ba8b4602312f0c14e11773862e91d03a986dd0"
+      },
+      {
+        "path": "packages/memory/src/workers/state-validation.ts",
+        "sha256": "sha256:788c732d9c9aa5baaee6e6c88e66a8aac78a1efdaaf02351c5af89fdd81f8d88"
+      },
+      {
+        "path": "packages/memory/src/workers/types.ts",
+        "sha256": "sha256:df5faddc6c4540c86e469324caf5df241041756e8355d1b65bfdcf4cf09ff85e"
+      },
+      {
+        "path": "packages/memory/src/workers/validation-contracts.ts",
+        "sha256": "sha256:383385744d6d17b40a152ab591a2ab9790b275b717d51b32c45f4b7c18269c01"
+      },
+      {
+        "path": "packages/memory/src/workers/validation-core.ts",
+        "sha256": "sha256:7eac0aa170beacd0be018ef431a3d4d0c5bdabd01dedf098abdea3cc8b6d9174"
+      },
+      {
+        "path": "packages/memory/src/workers/validation-results.ts",
+        "sha256": "sha256:8172cfa852cc691b07bedfb215a614e188b448d861dd7dca052f71e1c9fa7b35"
+      },
+      {
+        "path": "packages/memory/src/workers/worker-identity.ts",
+        "sha256": "sha256:5022cafd9bf44a3684849d6dec199b0a250c144d8587a1ad198584954a0830c2"
+      },
+      {
+        "path": "packages/memory/src/workers/worker-runtime.ts",
+        "sha256": "sha256:2fcdf6e5247871fceef52270f7b97be25b9b93059d350dd57d3ce7f289d08764"
+      },
+      {
+        "path": "scripts/__tests__/generate-memory-conformance-baseline.test.mjs",
+        "sha256": "sha256:f4d6aa427ba6c19f06e4ddca5801746b82a9a847cce5fe60562f485f1def8355"
+      },
+      {
         "path": "scripts/generate-memory-api-census.mjs",
-        "sha256": "sha256:37804263bd2242e528546c8e75c2dfd27befb4bcc1f2c2dec69d88b2af0c8a28"
+        "sha256": "sha256:987844f09d2281e843ccb86ef5afad80b3748c74536cd853cab34a5f67fe8310"
+      },
+      {
+        "path": "scripts/generate-memory-conformance-baseline.ts",
+        "sha256": "sha256:dcfc33d7e0b207d0921d0de8d021142dc51d6657306e5a9d0fe2f9ec7267915d"
       }
     ]
   },
   "summary": {
-    "currentExportCount": 671,
-    "currentSurfaceCount": 9,
-    "currentDecisionCount": 46,
-    "plannedSurfaceCount": 81,
-    "capabilityCount": 8,
+    "currentExportCount": 736,
+    "currentSurfaceCount": 16,
+    "currentDecisionCount": 63,
+    "plannedSurfaceCount": 86,
+    "capabilityCount": 14,
     "currentByDisposition": {
       "deprecate": 1,
       "extend": 45,
-      "reuse": 625
+      "new": 17,
+      "reuse": 673
     },
     "plannedByDisposition": {
       "extend": 20,
-      "new": 61
+      "new": 66
     },
     "plannedByPacket": {
       "MEM-P001": 23,
@@ -278,12 +723,13 @@
       "MEM-P004": 12,
       "MEM-P005": 7,
       "MEM-P006": 9,
-      "MEM-P007": 4,
+      "MEM-P007-A": 8,
+      "MEM-P007-B": 1,
       "MEM-P008": 6,
       "MEM-P009": 1
     },
     "apiClassCounts": {
-      "declared-subpath": 22,
+      "declared-subpath": 87,
       "internal": 25,
       "stable-root": 351,
       "transitional-root": 273
@@ -2179,6 +2625,51 @@
       "sourceModule": "./message-manager.js",
       "sourceSymbol": "validateSummaryAgainstProfile",
       "apiClass": "stable-root",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "context-tool-results",
+      "owner": "@dzupagent/context",
+      "specifier": "@dzupagent/context/tool-results",
+      "visibility": "public",
+      "sourceFile": "packages/context/src/tool-results/index.ts",
+      "symbol": "compactCompletedToolResults",
+      "kind": "value",
+      "sourceModule": "./compact-completed-tool-results.js",
+      "sourceSymbol": "compactCompletedToolResults",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "context-tool-results",
+      "owner": "@dzupagent/context",
+      "specifier": "@dzupagent/context/tool-results",
+      "visibility": "public",
+      "sourceFile": "packages/context/src/tool-results/index.ts",
+      "symbol": "CompletedToolCompactionProfileV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "CompletedToolCompactionProfileV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "context-tool-results",
+      "owner": "@dzupagent/context",
+      "specifier": "@dzupagent/context/tool-results",
+      "visibility": "public",
+      "sourceFile": "packages/context/src/tool-results/index.ts",
+      "symbol": "CompletedToolCompactionResultV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "CompletedToolCompactionResultV1",
+      "apiClass": "declared-subpath",
       "disposition": "reuse",
       "target": null,
       "rationale": "Retain current behavior and compatibility unless an explicit override applies."
@@ -4113,6 +4604,726 @@
       "kind": "value",
       "sourceModule": "./knowledge-snapshot-rebuilder.js",
       "sourceSymbol": "rebuildSnapshots",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-lifecycle",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/lifecycle",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/lifecycle/index.ts",
+      "symbol": "MemoryCommandV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryCommandV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-lifecycle",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/lifecycle",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/lifecycle/index.ts",
+      "symbol": "MemoryEventV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryEventV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-lifecycle",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/lifecycle",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/lifecycle/index.ts",
+      "symbol": "MemoryLifecycleStateV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryLifecycleStateV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-lifecycle",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/lifecycle",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/lifecycle/index.ts",
+      "symbol": "MemoryTransitionError",
+      "kind": "value",
+      "sourceModule": "./errors.js",
+      "sourceSymbol": "MemoryTransitionError",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-lifecycle",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/lifecycle",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/lifecycle/index.ts",
+      "symbol": "MemoryTransitionReceiptV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryTransitionReceiptV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-lifecycle",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/lifecycle",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/lifecycle/index.ts",
+      "symbol": "MemoryVersionChainV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryVersionChainV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-lifecycle",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/lifecycle",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/lifecycle/index.ts",
+      "symbol": "projectMemoryVersionChainV1",
+      "kind": "value",
+      "sourceModule": "./projection.js",
+      "sourceSymbol": "projectMemoryVersionChainV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-lifecycle",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/lifecycle",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/lifecycle/index.ts",
+      "symbol": "reduceMemoryCommandV1",
+      "kind": "value",
+      "sourceModule": "./reducer.js",
+      "sourceSymbol": "reduceMemoryCommandV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-projections",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/projections/index.ts",
+      "symbol": "diffMemoryProjections",
+      "kind": "value",
+      "sourceModule": "./diff.js",
+      "sourceSymbol": "diffMemoryProjections",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-projections",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/projections/index.ts",
+      "symbol": "MemoryProjectionDiffV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryProjectionDiffV1",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-projections",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/projections/index.ts",
+      "symbol": "MemoryProjectionProfileV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryProjectionProfileV1",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-projections",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/projections/index.ts",
+      "symbol": "MemoryProjectionRequestV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryProjectionRequestV1",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-projections",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/projections/index.ts",
+      "symbol": "MemoryProjectionV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryProjectionV1",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-projections",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/projections/index.ts",
+      "symbol": "projectMemoryRecordToJson",
+      "kind": "value",
+      "sourceModule": "./json.js",
+      "sourceSymbol": "projectMemoryRecordToJson",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-projections",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/projections/index.ts",
+      "symbol": "projectMemoryRecordToMarkdown",
+      "kind": "value",
+      "sourceModule": "./markdown.js",
+      "sourceSymbol": "projectMemoryRecordToMarkdown",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-projections",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/projections/index.ts",
+      "symbol": "projectMemoryRecordV1",
+      "kind": "value",
+      "sourceModule": "./project.js",
+      "sourceSymbol": "projectMemoryRecordV1",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-records",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/records/index.ts",
+      "symbol": "adaptMemoryRecordToV1",
+      "kind": "value",
+      "sourceModule": "./adapters.js",
+      "sourceSymbol": "adaptMemoryRecordToV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-records",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/records/index.ts",
+      "symbol": "adaptStagedRecordToV1",
+      "kind": "value",
+      "sourceModule": "./adapters.js",
+      "sourceSymbol": "adaptStagedRecordToV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-records",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/records/index.ts",
+      "symbol": "canonicalizeMemoryRecordV1",
+      "kind": "value",
+      "sourceModule": "./canonical.js",
+      "sourceSymbol": "canonicalizeMemoryRecordV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-records",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/records/index.ts",
+      "symbol": "cloneMemoryRecordV1",
+      "kind": "value",
+      "sourceModule": "./canonical.js",
+      "sourceSymbol": "cloneMemoryRecordV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-records",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/records/index.ts",
+      "symbol": "decodeMemoryRecordV1",
+      "kind": "value",
+      "sourceModule": "./decoder.js",
+      "sourceSymbol": "decodeMemoryRecordV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-records",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/records/index.ts",
+      "symbol": "digestMemoryRecordV1",
+      "kind": "value",
+      "sourceModule": "./canonical.js",
+      "sourceSymbol": "digestMemoryRecordV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-records",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/records/index.ts",
+      "symbol": "freezeMemoryRecordV1",
+      "kind": "value",
+      "sourceModule": "./canonical.js",
+      "sourceSymbol": "freezeMemoryRecordV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-records",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/records/index.ts",
+      "symbol": "MemoryContentRefV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryContentRefV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-records",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/records/index.ts",
+      "symbol": "MemoryContradictionStateV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryContradictionStateV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-records",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/records/index.ts",
+      "symbol": "MemoryEvidenceRefV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryEvidenceRefV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-records",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/records/index.ts",
+      "symbol": "MemoryGovernanceV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryGovernanceV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-records",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/records/index.ts",
+      "symbol": "MemoryKindV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryKindV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-records",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/records/index.ts",
+      "symbol": "MemoryLifecycleV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryLifecycleV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-records",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/records/index.ts",
+      "symbol": "MemoryProvenanceV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryProvenanceV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-records",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/records/index.ts",
+      "symbol": "MemoryQualityV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryQualityV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-records",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/records/index.ts",
+      "symbol": "MemoryRecordDecodeError",
+      "kind": "value",
+      "sourceModule": "./errors.js",
+      "sourceSymbol": "MemoryRecordDecodeError",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-records",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/records/index.ts",
+      "symbol": "MemoryRecordV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryRecordV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-records",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/records/index.ts",
+      "symbol": "MemoryRetentionProfileRefV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryRetentionProfileRefV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-records",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/records/index.ts",
+      "symbol": "MemoryScopeV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryScopeV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-records",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/records/index.ts",
+      "symbol": "MemorySensitivityClassV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemorySensitivityClassV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-records",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/records/index.ts",
+      "symbol": "MemoryStatusV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryStatusV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-records",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/records/index.ts",
+      "symbol": "MemoryTemporalV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryTemporalV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-records",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/records/index.ts",
+      "symbol": "MemoryVerificationStateV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryVerificationStateV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-retrieval",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/retrieval",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/retrieval/index.ts",
+      "symbol": "MemoryCandidateV1",
+      "kind": "type",
+      "sourceModule": "./v1-types.js",
+      "sourceSymbol": "MemoryCandidateV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-retrieval",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/retrieval",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/retrieval/index.ts",
+      "symbol": "MemoryQueryRewriterPort",
+      "kind": "type",
+      "sourceModule": "./v1-types.js",
+      "sourceSymbol": "MemoryQueryRewriterPort",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-retrieval",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/retrieval",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/retrieval/index.ts",
+      "symbol": "MemoryQueryV1",
+      "kind": "type",
+      "sourceModule": "./v1-types.js",
+      "sourceSymbol": "MemoryQueryV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-retrieval",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/retrieval",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/retrieval/index.ts",
+      "symbol": "MemoryRerankerPort",
+      "kind": "type",
+      "sourceModule": "./v1-types.js",
+      "sourceSymbol": "MemoryRerankerPort",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-retrieval",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/retrieval",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/retrieval/index.ts",
+      "symbol": "MemoryResultV1",
+      "kind": "type",
+      "sourceModule": "./v1-types.js",
+      "sourceSymbol": "MemoryResultV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-retrieval",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/retrieval",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/retrieval/index.ts",
+      "symbol": "MemoryRetrievalProfileV1",
+      "kind": "type",
+      "sourceModule": "./v1-types.js",
+      "sourceSymbol": "MemoryRetrievalProfileV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-retrieval",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/retrieval",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/retrieval/index.ts",
+      "symbol": "MemoryRetrieverPort",
+      "kind": "type",
+      "sourceModule": "./v1-types.js",
+      "sourceSymbol": "MemoryRetrieverPort",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-retrieval",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/retrieval",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/retrieval/index.ts",
+      "symbol": "MemorySelectionExplanationV1",
+      "kind": "type",
+      "sourceModule": "./v1-types.js",
+      "sourceSymbol": "MemorySelectionExplanationV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-retrieval",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/retrieval",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/retrieval/index.ts",
+      "symbol": "retrieveMemoryV1",
+      "kind": "value",
+      "sourceModule": "./retrieve-memory-v1.js",
+      "sourceSymbol": "retrieveMemoryV1",
       "apiClass": "declared-subpath",
       "disposition": "reuse",
       "target": null,
@@ -10089,6 +11300,81 @@
       "rationale": "Retain current behavior and compatibility unless an explicit override applies."
     },
     {
+      "surfaceId": "memory-service-lifecycle",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/service",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/service/index.ts",
+      "symbol": "InMemoryMemoryLifecycleAdapter",
+      "kind": "value",
+      "sourceModule": "./in-memory-adapter.js",
+      "sourceSymbol": "InMemoryMemoryLifecycleAdapter",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-service-lifecycle",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/service",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/service/index.ts",
+      "symbol": "MemoryAdapterCapabilitiesV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryAdapterCapabilitiesV1",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-service-lifecycle",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/service",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/service/index.ts",
+      "symbol": "MemoryInvalidationPort",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryInvalidationPort",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-service-lifecycle",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/service",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/service/index.ts",
+      "symbol": "MemoryLifecycleService",
+      "kind": "value",
+      "sourceModule": "./memory-lifecycle-service.js",
+      "sourceSymbol": "MemoryLifecycleService",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-service-lifecycle",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/service",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/service/index.ts",
+      "symbol": "MemoryLifecycleStorePort",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryLifecycleStorePort",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
       "surfaceId": "memory-testing",
       "owner": "@dzupagent/memory",
       "specifier": "@dzupagent/memory/testing",
@@ -10370,6 +11656,141 @@
       "sourceSymbol": "TruthfulnessTarget",
       "apiClass": "declared-subpath",
       "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-workers",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/workers",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/workers/index.ts",
+      "symbol": "createInMemoryMemoryOutbox",
+      "kind": "value",
+      "sourceModule": "./in-memory-outbox.js",
+      "sourceSymbol": "createInMemoryMemoryOutbox",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-workers",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/workers",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/workers/index.ts",
+      "symbol": "MemoryConsolidationJobV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryConsolidationJobV1",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-workers",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/workers",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/workers/index.ts",
+      "symbol": "MemoryConsolidationPort",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryConsolidationPort",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-workers",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/workers",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/workers/index.ts",
+      "symbol": "MemoryDeadLetterV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryDeadLetterV1",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-workers",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/workers",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/workers/index.ts",
+      "symbol": "MemoryOutboxEnvelopeV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryOutboxEnvelopeV1",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-workers",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/workers",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/workers/index.ts",
+      "symbol": "MemoryRetryPolicyV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryRetryPolicyV1",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-workers",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/workers",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/workers/index.ts",
+      "symbol": "MemoryWorkerCheckpointV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryWorkerCheckpointV1",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-workers",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/workers",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/workers/index.ts",
+      "symbol": "MemoryWorkerLeaseV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryWorkerLeaseV1",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-workers",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/workers",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/workers/index.ts",
+      "symbol": "MemoryWorkerOutcomeV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryWorkerOutcomeV1",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
       "target": null,
       "rationale": "Retain current behavior and compatibility unless an explicit override applies."
     }
@@ -10901,6 +12322,126 @@
       "rationale": "Reuse bounded selection after lifecycle, scope, and temporal eligibility filtering."
     },
     {
+      "surfaceId": "memory-projections",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/projections/index.ts",
+      "symbol": "diffMemoryProjections",
+      "kind": "value",
+      "sourceModule": "./diff.js",
+      "sourceSymbol": "diffMemoryProjections",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-projections",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/projections/index.ts",
+      "symbol": "MemoryProjectionDiffV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryProjectionDiffV1",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-projections",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/projections/index.ts",
+      "symbol": "MemoryProjectionProfileV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryProjectionProfileV1",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-projections",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/projections/index.ts",
+      "symbol": "MemoryProjectionRequestV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryProjectionRequestV1",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-projections",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/projections/index.ts",
+      "symbol": "MemoryProjectionV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryProjectionV1",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-projections",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/projections/index.ts",
+      "symbol": "projectMemoryRecordToJson",
+      "kind": "value",
+      "sourceModule": "./json.js",
+      "sourceSymbol": "projectMemoryRecordToJson",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-projections",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/projections/index.ts",
+      "symbol": "projectMemoryRecordToMarkdown",
+      "kind": "value",
+      "sourceModule": "./markdown.js",
+      "sourceSymbol": "projectMemoryRecordToMarkdown",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-projections",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/projections/index.ts",
+      "symbol": "projectMemoryRecordV1",
+      "kind": "value",
+      "sourceModule": "./project.js",
+      "sourceSymbol": "projectMemoryRecordV1",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
       "surfaceId": "memory-root",
       "owner": "@dzupagent/memory",
       "specifier": "@dzupagent/memory",
@@ -11064,6 +12605,141 @@
       "disposition": "extend",
       "target": "MEM-P004 query adapter",
       "rationale": "Reuse temporal filtering semantics inside the strict versioned query."
+    },
+    {
+      "surfaceId": "memory-workers",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/workers",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/workers/index.ts",
+      "symbol": "createInMemoryMemoryOutbox",
+      "kind": "value",
+      "sourceModule": "./in-memory-outbox.js",
+      "sourceSymbol": "createInMemoryMemoryOutbox",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-workers",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/workers",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/workers/index.ts",
+      "symbol": "MemoryConsolidationJobV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryConsolidationJobV1",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-workers",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/workers",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/workers/index.ts",
+      "symbol": "MemoryConsolidationPort",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryConsolidationPort",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-workers",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/workers",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/workers/index.ts",
+      "symbol": "MemoryDeadLetterV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryDeadLetterV1",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-workers",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/workers",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/workers/index.ts",
+      "symbol": "MemoryOutboxEnvelopeV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryOutboxEnvelopeV1",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-workers",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/workers",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/workers/index.ts",
+      "symbol": "MemoryRetryPolicyV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryRetryPolicyV1",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-workers",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/workers",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/workers/index.ts",
+      "symbol": "MemoryWorkerCheckpointV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryWorkerCheckpointV1",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-workers",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/workers",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/workers/index.ts",
+      "symbol": "MemoryWorkerLeaseV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryWorkerLeaseV1",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-workers",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/workers",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/workers/index.ts",
+      "symbol": "MemoryWorkerOutcomeV1",
+      "kind": "type",
+      "sourceModule": "./types.js",
+      "sourceSymbol": "MemoryWorkerOutcomeV1",
+      "apiClass": "declared-subpath",
+      "disposition": "new",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
     }
   ],
   "collisions": [
@@ -11978,9 +13654,36 @@
     {
       "owner": "@dzupagent/memory",
       "specifier": "@dzupagent/memory/projections",
-      "symbol": "GitMemoryProjectionAdapter",
-      "kind": "class",
-      "packet": "MEM-P007",
+      "symbol": "diffMemoryProjections",
+      "kind": "function",
+      "packet": "MEM-P007-A",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "symbol": "MemoryProjectionDiffV1",
+      "kind": "type",
+      "packet": "MEM-P007-A",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "symbol": "MemoryProjectionProfileV1",
+      "kind": "type",
+      "packet": "MEM-P007-A",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "symbol": "MemoryProjectionRequestV1",
+      "kind": "type",
+      "packet": "MEM-P007-A",
       "disposition": "new",
       "overlaps": []
     },
@@ -11989,7 +13692,7 @@
       "specifier": "@dzupagent/memory/projections",
       "symbol": "MemoryProjectionV1",
       "kind": "type",
-      "packet": "MEM-P007",
+      "packet": "MEM-P007-A",
       "disposition": "new",
       "overlaps": []
     },
@@ -11998,7 +13701,7 @@
       "specifier": "@dzupagent/memory/projections",
       "symbol": "projectMemoryRecordToJson",
       "kind": "function",
-      "packet": "MEM-P007",
+      "packet": "MEM-P007-A",
       "disposition": "new",
       "overlaps": []
     },
@@ -12007,7 +13710,25 @@
       "specifier": "@dzupagent/memory/projections",
       "symbol": "projectMemoryRecordToMarkdown",
       "kind": "function",
-      "packet": "MEM-P007",
+      "packet": "MEM-P007-A",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "symbol": "projectMemoryRecordV1",
+      "kind": "function",
+      "packet": "MEM-P007-A",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "symbol": "GitMemoryProjectionAdapter",
+      "kind": "class",
+      "packet": "MEM-P007-B",
       "disposition": "new",
       "overlaps": []
     },
@@ -12088,7 +13809,8 @@
       "characterizationTests": [
         "packages/agent/src/__tests__/memory-context-loader.test.ts",
         "packages/agent/src/__tests__/memory-context-loader-query-mode.test.ts",
-        "packages/agent/src/__tests__/memory-context-loader-branches.test.ts"
+        "packages/agent/src/__tests__/memory-context-loader-branches.test.ts",
+        "packages/agent/src/__tests__/memory-context-loader-lifecycle.test.ts"
       ]
     },
     {
@@ -12104,6 +13826,36 @@
         "packages/memory-ipc/src/__tests__/round-trip.test.ts",
         "packages/memory-ipc/src/__tests__/token-budget.test.ts",
         "packages/memory-ipc/src/__tests__/memory-service-ext.test.ts"
+      ]
+    },
+    {
+      "id": "background-consolidation-reliable-delivery",
+      "owner": "@dzupagent/memory",
+      "disposition": "extend",
+      "sourceFiles": [
+        "packages/memory/src/workers/in-memory-outbox.ts",
+        "packages/memory/src/workers/index.ts",
+        "packages/memory/src/workers/outbox-observation.ts",
+        "packages/memory/src/workers/outbox-state.ts",
+        "packages/memory/src/workers/outcome-factory.ts",
+        "packages/memory/src/workers/requests.ts",
+        "packages/memory/src/workers/snapshot.ts",
+        "packages/memory/src/workers/state-validation.ts",
+        "packages/memory/src/workers/types.ts",
+        "packages/memory/src/workers/validation-contracts.ts",
+        "packages/memory/src/workers/validation-core.ts",
+        "packages/memory/src/workers/validation-results.ts",
+        "packages/memory/src/workers/worker-identity.ts",
+        "packages/memory/src/workers/worker-runtime.ts",
+        "packages/memory/src/testing/worker-conformance-fixtures-v1.ts",
+        "packages/memory/src/testing/worker-conformance-v1.ts"
+      ],
+      "characterizationTests": [
+        "packages/memory/src/__tests__/workers-export-map.test.ts",
+        "packages/memory/src/testing/__tests__/worker-conformance-v1.test.ts",
+        "packages/memory/src/workers/__tests__/outbox-core.test.ts",
+        "packages/memory/src/workers/__tests__/outbox-reconciliation.test.ts",
+        "packages/memory/src/workers/__tests__/outbox-state.test.ts"
       ]
     },
     {
@@ -12123,18 +13875,113 @@
       ]
     },
     {
+      "id": "canonical-memory-lifecycle",
+      "owner": "@dzupagent/memory",
+      "disposition": "extend",
+      "sourceFiles": [
+        "packages/memory/src/lifecycle/errors.ts",
+        "packages/memory/src/lifecycle/ledger.ts",
+        "packages/memory/src/lifecycle/projection.ts",
+        "packages/memory/src/lifecycle/record-transitions.ts",
+        "packages/memory/src/lifecycle/reducer.ts",
+        "packages/memory/src/lifecycle/types.ts",
+        "packages/memory/src/lifecycle/validation.ts"
+      ],
+      "characterizationTests": [
+        "packages/memory/src/lifecycle/__tests__/projection.test.ts",
+        "packages/memory/src/lifecycle/__tests__/purge-and-compatibility.test.ts",
+        "packages/memory/src/lifecycle/__tests__/replay-and-adversarial.test.ts",
+        "packages/memory/src/lifecycle/__tests__/transition-matrix.test.ts",
+        "packages/memory/src/lifecycle/__tests__/transitions.test.ts"
+      ]
+    },
+    {
+      "id": "canonical-memory-lifecycle-service",
+      "owner": "@dzupagent/memory",
+      "disposition": "extend",
+      "sourceFiles": [
+        "packages/memory/src/service/compatibility.ts",
+        "packages/memory/src/service/history-reducer.ts",
+        "packages/memory/src/service/history.ts",
+        "packages/memory/src/service/in-memory-adapter.ts",
+        "packages/memory/src/service/index.ts",
+        "packages/memory/src/service/memory-lifecycle-service.ts",
+        "packages/memory/src/service/read-operations.ts",
+        "packages/memory/src/service/service-runtime.ts",
+        "packages/memory/src/service/snapshot.ts",
+        "packages/memory/src/service/types.ts",
+        "packages/memory/src/service/validation.ts",
+        "packages/memory/src/service/write-operation.ts"
+      ],
+      "characterizationTests": [
+        "packages/memory/src/__tests__/service-export-map.test.ts",
+        "packages/memory/src/service/__tests__/adversarial.test.ts",
+        "packages/memory/src/service/__tests__/checkpoint-and-restart.test.ts",
+        "packages/memory/src/service/__tests__/compatibility.test.ts",
+        "packages/memory/src/service/__tests__/service-facade.test.ts"
+      ]
+    },
+    {
+      "id": "canonical-memory-record-contract",
+      "owner": "@dzupagent/memory",
+      "disposition": "new",
+      "sourceFiles": [
+        "packages/memory/src/records/types.ts",
+        "packages/memory/src/records/errors.ts",
+        "packages/memory/src/records/safe-json.ts",
+        "packages/memory/src/records/decoder-primitives.ts",
+        "packages/memory/src/records/decoder.ts",
+        "packages/memory/src/records/canonical.ts",
+        "packages/memory/src/records/adapters.ts",
+        "packages/memory/src/records/index.ts"
+      ],
+      "characterizationTests": [
+        "packages/memory/src/records/__tests__/records.test.ts",
+        "packages/memory/src/records/__tests__/adversarial.test.ts",
+        "packages/memory/src/records/__tests__/adapters.test.ts",
+        "packages/memory/src/__tests__/records-export-map.test.ts"
+      ]
+    },
+    {
       "id": "context-compaction-and-budget",
       "owner": "@dzupagent/context",
       "disposition": "extend",
       "sourceFiles": [
         "packages/context/src/auto-compress.ts",
         "packages/context/src/context-eviction.ts",
-        "packages/context/src/token-lifecycle.ts"
+        "packages/context/src/token-lifecycle.ts",
+        "packages/context/src/tool-results/__tests__/memory-compaction-conformance-port.ts",
+        "packages/context/src/tool-results/compact-completed-tool-results.ts",
+        "packages/context/src/tool-results/compaction-internals.ts",
+        "packages/context/src/tool-results/types.ts"
       ],
       "characterizationTests": [
         "packages/context/src/__tests__/auto-compress-offload.test.ts",
         "packages/context/src/__tests__/context-eviction.test.ts",
-        "packages/context/src/__tests__/token-lifecycle.test.ts"
+        "packages/context/src/__tests__/token-lifecycle.test.ts",
+        "packages/context/src/tool-results/__tests__/compact-completed-tool-results.test.ts",
+        "packages/context/src/tool-results/__tests__/memory-compaction-conformance.test.ts"
+      ]
+    },
+    {
+      "id": "deterministic-memory-projections",
+      "owner": "@dzupagent/memory",
+      "disposition": "new",
+      "sourceFiles": [
+        "packages/memory/src/projections/diff.ts",
+        "packages/memory/src/projections/errors.ts",
+        "packages/memory/src/projections/index.ts",
+        "packages/memory/src/projections/json.ts",
+        "packages/memory/src/projections/markdown.ts",
+        "packages/memory/src/projections/project.ts",
+        "packages/memory/src/projections/types.ts",
+        "packages/memory/src/projections/validation.ts"
+      ],
+      "characterizationTests": [
+        "packages/memory/src/__tests__/projections-export-map.test.ts",
+        "packages/memory/src/projections/__tests__/adversarial.test.ts",
+        "packages/memory/src/projections/__tests__/diff.test.ts",
+        "packages/memory/src/projections/__tests__/projection.test.ts"
       ]
     },
     {
@@ -12150,6 +13997,42 @@
       "characterizationTests": [
         "packages/memory/src/__tests__/search-retrieval.test.ts",
         "packages/memory/src/__tests__/rrf-fusion.test.ts"
+      ]
+    },
+    {
+      "id": "memory-conformance-and-benchmarks",
+      "owner": "@dzupagent/memory",
+      "disposition": "extend",
+      "sourceFiles": [
+        "packages/memory/src/retrieval/provider-stages.ts",
+        "packages/memory/src/retrieval/retrieve-memory-v1.ts",
+        "packages/memory/src/retrieval/stage-runtime.ts",
+        "packages/memory/src/retrieval/v1-types.ts",
+        "packages/memory/src/retrieval/v1-validation.ts",
+        "packages/memory/src/testing/benchmark-profile-v1.ts",
+        "packages/memory/src/testing/compaction-conformance-v1.ts",
+        "packages/memory/src/testing/conformance-core-v1.ts",
+        "packages/memory/src/testing/deletion-conformance-v1.ts",
+        "packages/memory/src/testing/fixtures-v1.ts",
+        "packages/memory/src/testing/lifecycle-conformance-v1.ts",
+        "packages/memory/src/testing/record-conformance-v1.ts",
+        "packages/memory/src/testing/retrieval-conformance-v1.ts",
+        "packages/memory/src/testing/retrieval-fixtures-v1.ts",
+        "packages/memory/src/testing/retrieval-metrics-v1.ts",
+        "packages/memory/src/testing/retrieval-security-conformance-v1.ts",
+        "packages/memory/src/testing/service-fixtures-v1.ts",
+        "packages/memory/src/testing/store-conformance-v1.ts",
+        "config/memory-conformance-baseline.v1.json",
+        "scripts/generate-memory-conformance-baseline.ts"
+      ],
+      "characterizationTests": [
+        "packages/memory/src/__tests__/testing-export-map.test.ts",
+        "packages/memory/src/testing/__tests__/compaction-conformance-v1.test.ts",
+        "packages/memory/src/testing/__tests__/conformance-core-v1.test.ts",
+        "packages/memory/src/testing/__tests__/record-lifecycle-conformance-v1.test.ts",
+        "packages/memory/src/testing/__tests__/retrieval-conformance-v1.test.ts",
+        "packages/memory/src/testing/__tests__/store-deletion-conformance-v1.test.ts",
+        "scripts/__tests__/generate-memory-conformance-baseline.test.mjs"
       ]
     },
     {

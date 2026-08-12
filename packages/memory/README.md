@@ -32,10 +32,25 @@ The generated report lives at
 `yarn docs:memory-api-census` and verify drift with
 `yarn check:memory-api-census` from the DzupAgent repository root.
 
-The current root API remains compatible during the 0.x migration window. New
-record, lifecycle, service, retrieval, worker, and projection contracts must
-land on the narrow subpaths admitted by their implementation packets; this
-package README does not claim those later packets are implemented.
+The current root API remains compatible during the 0.x migration window.
+Canonical records, lifecycle, service, retrieval, workers, and deterministic
+projections live on separately gated narrow subpaths and do not widen the root
+barrel.
+
+## Deterministic Projections
+
+`@dzupagent/memory/projections` derives bounded structured, canonical JSON,
+injection-safe Markdown, and semantic diffs from exact canonical record,
+lifecycle-event, and receipt inputs. Every request binds scope, record/history
+digests, lifecycle generation/sequence, redaction policy, caller-supplied time,
+and hard output limits. Restricted, non-exportable, excluded, or oversized
+content is reference-only.
+
+Projection outputs are immutable and state `authority: none`. They preserve
+supersession, dispute, revocation, governance, provenance, receipt, and
+incomplete-purge truth; they do not write files, invoke Git, mutate lifecycle,
+or grant permission. Filesystem/Git adapters and product controls remain
+MEM-P007-B work under separate authority and host admission.
 
 ## Features
 
