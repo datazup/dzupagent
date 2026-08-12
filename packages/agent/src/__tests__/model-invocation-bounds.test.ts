@@ -211,7 +211,7 @@ describe("run deadline (ORCH-DSL-L1-H-02)", () => {
     // timer, which fake timers do not model, and this test asserts a
     // *wall-clock* deadline. Bounded to 120ms against a 40ms deadline, with an
     // explicit 5s test timeout.
-    // eslint-disable-next-line no-restricted-syntax -- see above
+    // eslint-disable-next-line no-restricted-syntax -- sleep-ok: load-bearing wall-clock deadline assertion; fake timers do not model unref
     await new Promise((resolve) => setTimeout(resolve, 120));
 
     // This is the property maxIterations/maxTokens/maxCostCents cannot give:

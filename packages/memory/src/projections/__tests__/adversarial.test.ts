@@ -61,10 +61,20 @@ describe('memory projection hostile boundaries', () => {
     ;(nested.records[0]!.governance as unknown as Record<string, unknown>).permission = true
     expect(() => diffMemoryProjections(projection, nested)).toThrow(/unknown-field/)
 
+    const missing = JSON.parse(JSON.stringify(projection)) as MemoryProjectionV1
+    delete (missing.records[0]!.governance as unknown as Record<string, unknown>).exportable
+    expect(() => diffMemoryProjections(projection, missing)).toThrow(/invalid-input/)
+
     const otherProfile = projectMemoryRecordV1({
       ...fixture.request,
       profile: { ...fixture.request.profile, maxRecords: fixture.request.profile.maxRecords + 1 },
     })
     expect(() => diffMemoryProjections(projection, otherProfile)).toThrow(/profile-mismatch/)
+
+    const otherPolicy = projectMemoryRecordV1({
+      ...fixture.request,
+      redactionPolicyRef: { ...fixture.request.redactionPolicyRef, version: 'v2' },
+    })
+    expect(() => diffMemoryProjections(projection, otherPolicy)).toThrow(/profile-mismatch/)
   })
 })
