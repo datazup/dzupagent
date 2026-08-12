@@ -62,20 +62,8 @@ export type StandardMemoryBudgetConfig = Required<
   >
 >
 
-/**
- * How the standard (non-Arrow) memory path selects records (MC-QR).
- *
- * - `'namespace'` — read the whole namespace via `memory.get()` and let the
- *   ranker + token budget decide what survives. The historical behaviour and
- *   the default; nothing about it changes when the mode is left unset.
- * - `'query'` — derive a retrieval query from the most recent user message in
- *   the windowed conversation and ask the memory service for the matching
- *   records. This is the only path that reaches a configured vector /
- *   semantic store, because fusion happens inside `MemoryService.search`.
- *   Falls back to the namespace read when no query can be derived or the
- *   search reports failure.
- */
-export type MemoryContextMode = 'namespace' | 'query'
+/** Namespace (default), query with legacy fallback, or strict lifecycle retrieval. */
+export type MemoryContextMode = 'namespace' | 'query' | 'lifecycle'
 
 export const DEFAULT_MEMORY_CONTEXT_MODE: MemoryContextMode = 'namespace'
 
@@ -187,6 +175,8 @@ export interface AgentMemoryContextLoaderConfig {
    * See {@link MemoryContextMode}.
    */
   memoryContextMode?: MemoryContextMode
+  /** Dependencies for the opt-in canonical lifecycle retrieval path. */
+  lifecycleMemoryRetrieval?: DzupAgentConfig['lifecycleMemoryRetrieval']
   /**
    * Character cap on the query derived in `'query'` mode.
    * Defaults to {@link DEFAULT_MEMORY_QUERY_MAX_CHARS} (512).

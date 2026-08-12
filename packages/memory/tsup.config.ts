@@ -1,7 +1,16 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-  entry: ["src/index.ts", "src/knowledge/index.ts", "src/testing/index.ts"],
+  entry: [
+    "src/index.ts",
+    "src/knowledge/index.ts",
+    "src/lifecycle/index.ts",
+    "src/records/index.ts",
+    "src/retrieval/index.ts",
+    "src/service/index.ts",
+    "src/testing/index.ts",
+    "src/workers/index.ts",
+  ],
   format: ["esm"],
   dts: false,
   clean: true,
