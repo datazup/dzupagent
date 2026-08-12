@@ -469,11 +469,19 @@ Root index: `packages/memory/src/index.ts`
 - Stable root sources: `27`
 - Deprecated transitional root sources: `45`
 - Internal-only root candidates: `0`
-- Migration window: Root transitional exports remain available through 0.x; new consumers should prefer future memory/retrieval/store subpaths as they are introduced.
+- Migration window: Root transitional exports remain available through 0.x; new consumers should prefer narrow subpaths. The records, lifecycle, opt-in service, retrieval, test-only conformance, and inert worker surfaces are the accepted MEM-P001 through MEM-P006 provider-neutral contracts; knowledge remains experimental and testing remains test-only.
 
 ### Stable Subpaths
 
-No stable subpaths configured.
+| Subpath | Purpose |
+| --- | --- |
+| `@dzupagent/memory/knowledge` | experimental filesystem-backed knowledge projection and snapshot rebuilding |
+| `@dzupagent/memory/lifecycle` | stable provider-neutral memory lifecycle commands, reducers, receipts, and version-chain projection |
+| `@dzupagent/memory/records` | stable provider-neutral canonical memory record contracts and compatibility adapters |
+| `@dzupagent/memory/retrieval` | stable provider-neutral lifecycle-aware retrieval, fusion, and selection contracts |
+| `@dzupagent/memory/service` | stable opt-in lifecycle service, custody ports, and provider-free conformance adapter |
+| `@dzupagent/memory/testing` | test-only memory harness, conformance suites, benchmark profiles, and truthfulness reporting contracts |
+| `@dzupagent/memory/workers` | stable provider-neutral reference-only consolidation jobs and reliable-delivery contracts |
 
 ### Root Allowlist
 
@@ -559,11 +567,13 @@ Root index: `packages/context/src/index.ts`
 - Stable root sources: `17`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
-- Migration window: Context root exports are currently the contracted package surface; add allowlist rules before exposing new root modules.
+- Migration window: Context root exports remain compatible; MEM-P004 completed-tool compaction is available only from the narrow tool-results subpath.
 
 ### Stable Subpaths
 
-No stable subpaths configured.
+| Subpath | Purpose |
+| --- | --- |
+| `@dzupagent/context/tool-results` | stable opt-in pairing-safe completed tool-result compaction |
 
 ### Root Allowlist
 
