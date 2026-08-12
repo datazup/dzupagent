@@ -239,12 +239,20 @@
       "packageDir": "packages/codegen",
       "rootIndex": "packages/codegen/src/index.ts",
       "stableRoot": [
-        { "match": "prefix", "pattern": "./vfs/" },
+        { "match": "exact", "pattern": "./vfs/virtual-fs.js" },
+        { "match": "exact", "pattern": "./vfs/vfs-snapshot.js" },
+        { "match": "exact", "pattern": "./vfs/cow-vfs.js" },
+        { "match": "exact", "pattern": "./vfs/vfs-types.js" },
+        { "match": "exact", "pattern": "./vfs/parallel-sampling.js" },
+        { "match": "exact", "pattern": "./vfs/patch-engine.js" },
+        { "match": "exact", "pattern": "./vfs/workspace-runner.js" },
+        { "match": "exact", "pattern": "./vfs/workspace-fs.js" },
         { "match": "prefix", "pattern": "./generation/" },
         { "match": "prefix", "pattern": "./git/" },
         { "match": "exact", "pattern": "<local>:dzupagent_CODEGEN_VERSION" }
       ],
       "transitionalRoot": [
+        { "match": "exact", "pattern": "./vfs/checkpoint-manager.js" },
         { "match": "prefix", "pattern": "./sandbox/" },
         { "match": "prefix", "pattern": "./quality/" },
         { "match": "prefix", "pattern": "./adaptation/" },
@@ -272,7 +280,7 @@
         "./runtime": "generation, sandbox, pipeline, guardrails, and quality runtime",
         "./compat": "preview and transitional subsystems"
       },
-      "migrationWindow": "Root transitional exports remain available through 0.x with migration to vfs/tools/runtime/compat before a future 1.0 root contraction."
+      "migrationWindow": "Root transitional exports remain available through 0.x with migration to vfs/tools/runtime/compat before a future 1.0 root contraction. CheckpointManager remains experimental until the configured hosted Ubuntu/Git matrix and a real product adopter are both qualified."
     },
     {
       "packageName": "@dzupagent/memory",
@@ -340,8 +348,11 @@
         { "match": "prefix", "pattern": "./shared/" },
         { "match": "prefix", "pattern": "./graph/" }
       ],
-      "subpaths": {},
-      "migrationWindow": "Root transitional exports remain available through 0.x; new consumers should prefer future memory/retrieval/store subpaths as they are introduced."
+      "subpaths": {
+        "./knowledge": "experimental filesystem-backed knowledge projection and snapshot rebuilding",
+        "./testing": "test-only memory harness and truthfulness reporting contracts"
+      },
+      "migrationWindow": "Root transitional exports remain available through 0.x; new consumers should prefer future memory/retrieval/store subpaths as they are introduced. The existing knowledge and testing subpaths remain experimental and test-only respectively; MEM-P001 and later contract subpaths require separate acceptance."
     },
     {
       "packageName": "@dzupagent/context",

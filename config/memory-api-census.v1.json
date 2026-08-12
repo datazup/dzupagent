@@ -1,0 +1,1109 @@
+{
+  "schema": "datazup.memory.api-census-config/v1",
+  "surfaceDispositionValues": [
+    "reuse",
+    "extend",
+    "deprecate",
+    "new"
+  ],
+  "currentSurfaces": [
+    {
+      "id": "agent-types-root",
+      "owner": "@dzupagent/agent-types",
+      "specifier": "@dzupagent/agent-types",
+      "entry": "packages/agent-types/src/index.ts",
+      "visibility": "public",
+      "defaultDisposition": "reuse",
+      "includeSymbols": [
+        "MemoryClient",
+        "MemoryScope",
+        "MemoryQuery",
+        "MemoryRecord",
+        "MemoryChangeEvent",
+        "MemoryStats",
+        "ReadContext",
+        "WriteContext"
+      ]
+    },
+    {
+      "id": "memory-root",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory",
+      "entry": "packages/memory/src/index.ts",
+      "visibility": "public",
+      "defaultDisposition": "reuse"
+    },
+    {
+      "id": "memory-knowledge",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/knowledge",
+      "entry": "packages/memory/src/knowledge/index.ts",
+      "visibility": "public-experimental",
+      "defaultDisposition": "reuse"
+    },
+    {
+      "id": "memory-testing",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/testing",
+      "entry": "packages/memory/src/testing/index.ts",
+      "visibility": "public-testing",
+      "defaultDisposition": "reuse"
+    },
+    {
+      "id": "context-root",
+      "owner": "@dzupagent/context",
+      "specifier": "@dzupagent/context",
+      "entry": "packages/context/src/index.ts",
+      "visibility": "public",
+      "defaultDisposition": "reuse"
+    },
+    {
+      "id": "memory-ipc-root",
+      "owner": "@dzupagent/memory-ipc",
+      "specifier": "@dzupagent/memory-ipc",
+      "entry": "packages/memory-ipc/src/index.ts",
+      "visibility": "public",
+      "defaultDisposition": "reuse"
+    },
+    {
+      "id": "agent-memory-profile-root",
+      "owner": "@dzupagent/agent",
+      "specifier": "@dzupagent/agent",
+      "entry": "packages/agent/src/index.ts",
+      "visibility": "public-transitional",
+      "defaultDisposition": "extend",
+      "includeSymbols": [
+        "MemoryProfile",
+        "MemoryProfilePreset",
+        "getMemoryProfilePreset",
+        "resolveArrowMemoryConfig"
+      ]
+    },
+    {
+      "id": "agent-memory-loader-internal",
+      "owner": "@dzupagent/agent",
+      "specifier": "@dzupagent/agent#internal/memory-context-loader",
+      "entry": "packages/agent/src/agent/memory-context-loader.ts",
+      "visibility": "internal",
+      "defaultDisposition": "extend"
+    },
+    {
+      "id": "agent-memory-loader-types-internal",
+      "owner": "@dzupagent/agent",
+      "specifier": "@dzupagent/agent#internal/memory-context-loader-types",
+      "entry": "packages/agent/src/agent/memory-context-loader-types.ts",
+      "visibility": "internal",
+      "defaultDisposition": "extend"
+    }
+  ],
+  "currentOverrides": [
+    {
+      "surfaceId": "agent-types-root",
+      "symbol": "MemoryScope",
+      "disposition": "extend",
+      "target": "MEM-P001 compatibility adapter",
+      "rationale": "Keep the Layer-0 transport scope stable while MemoryScopeV1 adds namespace and finer optional dimensions."
+    },
+    {
+      "surfaceId": "agent-types-root",
+      "symbol": "MemoryQuery",
+      "disposition": "extend",
+      "target": "MEM-P004 compatibility adapter",
+      "rationale": "Preserve the advisory transport query while the strict lifecycle-aware query uses a versioned memory subpath."
+    },
+    {
+      "surfaceId": "agent-types-root",
+      "symbol": "MemoryRecord",
+      "disposition": "extend",
+      "target": "MEM-P001 compatibility adapter",
+      "rationale": "Preserve CRUD transport compatibility; do not mutate the Layer-0 shape into the semantic lifecycle record."
+    },
+    {
+      "surfaceId": "memory-root",
+      "symbol": "MemoryService",
+      "disposition": "extend",
+      "target": "MEM-P003 opt-in service facade",
+      "rationale": "Reuse namespace storage and add lifecycle operations behind an opt-in narrow facade."
+    },
+    {
+      "surfaceId": "memory-root",
+      "symbol": "StagedWriter",
+      "disposition": "deprecate",
+      "target": "MEM-P002 lifecycle reducer",
+      "rationale": "Keep compatibility during 0.x, but numeric confidence thresholds must not become the canonical promotion contract."
+    },
+    {
+      "surfaceId": "memory-root",
+      "symbol": "PolicyAwareStagedWriter",
+      "disposition": "extend",
+      "target": "MEM-P002 policy decision adapter",
+      "rationale": "Reuse its sensitive-write guard and adapt admitted decisions to canonical commands and receipts."
+    },
+    {
+      "surfaceId": "memory-root",
+      "symbol": "StagedRecord",
+      "disposition": "extend",
+      "target": "MEM-P001 staged-record adapter",
+      "rationale": "Translate staged records into MemoryRecordV1 without rewriting stored legacy values."
+    },
+    {
+      "surfaceId": "memory-root",
+      "symbol": "ObservationConfirmationReceipt",
+      "disposition": "extend",
+      "target": "MEM-P002 transition receipt adapter",
+      "rationale": "Preserve digest-bound idempotency while adopting the canonical transition receipt envelope."
+    },
+    {
+      "surfaceId": "memory-root",
+      "symbol": "MemoryServiceObservationCandidateStore",
+      "disposition": "extend",
+      "target": "MEM-P003 canonical candidate-store adapter",
+      "rationale": "Reuse restart-safe candidate custody and map values and receipts through the canonical contract."
+    },
+    {
+      "surfaceId": "memory-root",
+      "symbol": "MemoryProvenance",
+      "disposition": "extend",
+      "target": "MEM-P001 provenance adapter",
+      "rationale": "Retain current source lineage and add bounded evidence, review, and extraction-profile references."
+    },
+    {
+      "surfaceId": "memory-root",
+      "symbol": "TemporalMetadata",
+      "disposition": "extend",
+      "target": "MEM-P001 temporal adapter",
+      "rationale": "Separate observation, domain validity, verification, and expiry time in the canonical record."
+    },
+    {
+      "surfaceId": "memory-root",
+      "symbol": "TemporalQuery",
+      "disposition": "extend",
+      "target": "MEM-P004 query adapter",
+      "rationale": "Reuse temporal filtering semantics inside the strict versioned query."
+    },
+    {
+      "surfaceId": "memory-root",
+      "symbol": "RetentionPolicy",
+      "disposition": "extend",
+      "target": "MEM-P001 retention profile reference",
+      "rationale": "Keep existing shared-space retention behavior and move product durations behind policy references."
+    },
+    {
+      "surfaceId": "memory-root",
+      "symbol": "FrozenMemorySnapshot",
+      "disposition": "extend",
+      "target": "MEM-P004 lifecycle-aware snapshot selection",
+      "rationale": "Reuse snapshot stability while binding selected active versions and invalidation inputs."
+    },
+    {
+      "surfaceId": "context-root",
+      "symbol": "autoCompress",
+      "disposition": "extend",
+      "target": "MEM-P004 completed-tool compaction",
+      "rationale": "Retain current context compression and add pairing-aware completed-tool compaction."
+    },
+    {
+      "surfaceId": "context-root",
+      "symbol": "FrozenSnapshot",
+      "disposition": "extend",
+      "target": "MEM-P004 prompt-cache-stable compaction",
+      "rationale": "Reuse immutable snapshot semantics and record actual token reclamation."
+    },
+    {
+      "surfaceId": "memory-ipc-root",
+      "symbol": "selectMemoriesByBudget",
+      "disposition": "extend",
+      "target": "MEM-P004 retrieval selection adapter",
+      "rationale": "Reuse bounded selection after lifecycle, scope, and temporal eligibility filtering."
+    }
+  ],
+  "plannedSurfaces": [
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "symbol": "MemoryRecordV1",
+      "kind": "type",
+      "packet": "MEM-P001",
+      "disposition": "new",
+      "overlaps": ["agent-types-root:MemoryRecord"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "symbol": "MemoryScopeV1",
+      "kind": "type",
+      "packet": "MEM-P001",
+      "disposition": "new",
+      "overlaps": ["agent-types-root:MemoryScope"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "symbol": "MemoryKindV1",
+      "kind": "type",
+      "packet": "MEM-P001",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "symbol": "MemoryStatusV1",
+      "kind": "type",
+      "packet": "MEM-P001",
+      "disposition": "new",
+      "overlaps": ["memory-root:MemoryStage"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "symbol": "MemorySensitivityClassV1",
+      "kind": "type",
+      "packet": "MEM-P001",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "symbol": "MemoryLifecycleV1",
+      "kind": "type",
+      "packet": "MEM-P001",
+      "disposition": "new",
+      "overlaps": ["memory-root:StagedRecord"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "symbol": "MemoryTemporalV1",
+      "kind": "type",
+      "packet": "MEM-P001",
+      "disposition": "new",
+      "overlaps": ["memory-root:TemporalMetadata"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "symbol": "MemoryProvenanceV1",
+      "kind": "type",
+      "packet": "MEM-P001",
+      "disposition": "new",
+      "overlaps": ["memory-root:MemoryProvenance"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "symbol": "MemoryGovernanceV1",
+      "kind": "type",
+      "packet": "MEM-P001",
+      "disposition": "new",
+      "overlaps": ["memory-root:RetentionPolicy"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "symbol": "MemoryRetentionProfileRefV1",
+      "kind": "type",
+      "packet": "MEM-P001",
+      "disposition": "extend",
+      "overlaps": ["memory-root:RetentionPolicy"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "symbol": "MemoryQualityV1",
+      "kind": "type",
+      "packet": "MEM-P001",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "symbol": "MemoryContradictionStateV1",
+      "kind": "type",
+      "packet": "MEM-P001",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "symbol": "MemoryVerificationStateV1",
+      "kind": "type",
+      "packet": "MEM-P001",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "symbol": "MemoryEvidenceRefV1",
+      "kind": "type",
+      "packet": "MEM-P001",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "symbol": "MemoryContentRefV1",
+      "kind": "type",
+      "packet": "MEM-P001",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "symbol": "MemoryRecordDecodeError",
+      "kind": "class",
+      "packet": "MEM-P001",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "symbol": "decodeMemoryRecordV1",
+      "kind": "function",
+      "packet": "MEM-P001",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "symbol": "canonicalizeMemoryRecordV1",
+      "kind": "function",
+      "packet": "MEM-P001",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "symbol": "digestMemoryRecordV1",
+      "kind": "function",
+      "packet": "MEM-P001",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "symbol": "cloneMemoryRecordV1",
+      "kind": "function",
+      "packet": "MEM-P001",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "symbol": "freezeMemoryRecordV1",
+      "kind": "function",
+      "packet": "MEM-P001",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "symbol": "adaptMemoryRecordToV1",
+      "kind": "function",
+      "packet": "MEM-P001",
+      "disposition": "new",
+      "overlaps": ["agent-types-root:MemoryRecord"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "symbol": "adaptStagedRecordToV1",
+      "kind": "function",
+      "packet": "MEM-P001",
+      "disposition": "new",
+      "overlaps": ["memory-root:StagedRecord"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/lifecycle",
+      "symbol": "MemoryCommandV1",
+      "kind": "type",
+      "packet": "MEM-P002",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/lifecycle",
+      "symbol": "MemoryEventV1",
+      "kind": "type",
+      "packet": "MEM-P002",
+      "disposition": "new",
+      "overlaps": ["agent-types-root:MemoryChangeEvent"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/lifecycle",
+      "symbol": "MemoryTransitionReceiptV1",
+      "kind": "type",
+      "packet": "MEM-P002",
+      "disposition": "new",
+      "overlaps": ["memory-root:ObservationConfirmationReceipt"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/lifecycle",
+      "symbol": "MemoryLifecycleStateV1",
+      "kind": "type",
+      "packet": "MEM-P002",
+      "disposition": "new",
+      "overlaps": ["memory-root:StagedRecord"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/lifecycle",
+      "symbol": "MemoryVersionChainV1",
+      "kind": "type",
+      "packet": "MEM-P002",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/lifecycle",
+      "symbol": "MemoryTransitionError",
+      "kind": "class",
+      "packet": "MEM-P002",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/lifecycle",
+      "symbol": "reduceMemoryCommandV1",
+      "kind": "function",
+      "packet": "MEM-P002",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/lifecycle",
+      "symbol": "projectMemoryVersionChainV1",
+      "kind": "function",
+      "packet": "MEM-P002",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/service",
+      "symbol": "MemoryLifecycleService",
+      "kind": "class",
+      "packet": "MEM-P003",
+      "disposition": "extend",
+      "overlaps": ["memory-root:MemoryService"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/service",
+      "symbol": "MemoryLifecycleService.remember",
+      "kind": "method",
+      "packet": "MEM-P003",
+      "disposition": "extend",
+      "overlaps": ["memory-root:MemoryService"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/service",
+      "symbol": "MemoryLifecycleService.correct",
+      "kind": "method",
+      "packet": "MEM-P003",
+      "disposition": "extend",
+      "overlaps": ["memory-root:MemoryService"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/service",
+      "symbol": "MemoryLifecycleService.forget",
+      "kind": "method",
+      "packet": "MEM-P003",
+      "disposition": "extend",
+      "overlaps": ["memory-root:MemoryService"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/service",
+      "symbol": "MemoryLifecycleService.revoke",
+      "kind": "method",
+      "packet": "MEM-P003",
+      "disposition": "extend",
+      "overlaps": ["memory-root:MemoryService"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/service",
+      "symbol": "MemoryLifecycleService.explain",
+      "kind": "method",
+      "packet": "MEM-P003",
+      "disposition": "extend",
+      "overlaps": ["memory-root:MemoryService"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/service",
+      "symbol": "MemoryLifecycleService.queryLifecycle",
+      "kind": "method",
+      "packet": "MEM-P003",
+      "disposition": "extend",
+      "overlaps": ["memory-root:MemoryService"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/service",
+      "symbol": "MemoryLifecycleStorePort",
+      "kind": "type",
+      "packet": "MEM-P003",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/service",
+      "symbol": "MemoryAdapterCapabilitiesV1",
+      "kind": "type",
+      "packet": "MEM-P003",
+      "disposition": "extend",
+      "overlaps": ["memory-root:MemoryStoreCapabilities"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/service",
+      "symbol": "MemoryInvalidationPort",
+      "kind": "type",
+      "packet": "MEM-P003",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/service",
+      "symbol": "InMemoryMemoryLifecycleAdapter",
+      "kind": "class",
+      "packet": "MEM-P003",
+      "disposition": "extend",
+      "overlaps": ["memory-root:InMemoryMemoryClient"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/retrieval",
+      "symbol": "MemoryQueryV1",
+      "kind": "type",
+      "packet": "MEM-P004",
+      "disposition": "new",
+      "overlaps": ["agent-types-root:MemoryQuery", "memory-root:TemporalQuery"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/retrieval",
+      "symbol": "MemoryCandidateV1",
+      "kind": "type",
+      "packet": "MEM-P004",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/retrieval",
+      "symbol": "MemoryResultV1",
+      "kind": "type",
+      "packet": "MEM-P004",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/retrieval",
+      "symbol": "MemorySelectionExplanationV1",
+      "kind": "type",
+      "packet": "MEM-P004",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/retrieval",
+      "symbol": "MemoryRetrievalProfileV1",
+      "kind": "type",
+      "packet": "MEM-P004",
+      "disposition": "extend",
+      "overlaps": ["agent-memory-profile-root:MemoryProfilePreset"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/retrieval",
+      "symbol": "MemoryQueryRewriterPort",
+      "kind": "type",
+      "packet": "MEM-P004",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/retrieval",
+      "symbol": "MemoryRerankerPort",
+      "kind": "type",
+      "packet": "MEM-P004",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/context",
+      "specifier": "@dzupagent/context/tool-results",
+      "symbol": "CompletedToolCompactionProfileV1",
+      "kind": "type",
+      "packet": "MEM-P004",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/context",
+      "specifier": "@dzupagent/context/tool-results",
+      "symbol": "CompletedToolCompactionResultV1",
+      "kind": "type",
+      "packet": "MEM-P004",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/retrieval",
+      "symbol": "MemoryRetrieverPort",
+      "kind": "type",
+      "packet": "MEM-P004",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/retrieval",
+      "symbol": "retrieveMemoryV1",
+      "kind": "function",
+      "packet": "MEM-P004",
+      "disposition": "extend",
+      "overlaps": ["memory-root:fusionSearch"]
+    },
+    {
+      "owner": "@dzupagent/context",
+      "specifier": "@dzupagent/context/tool-results",
+      "symbol": "compactCompletedToolResults",
+      "kind": "function",
+      "packet": "MEM-P004",
+      "disposition": "extend",
+      "overlaps": ["context-root:autoCompress"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/testing",
+      "symbol": "createMemoryStoreConformanceSuite",
+      "kind": "function",
+      "packet": "MEM-P005",
+      "disposition": "extend",
+      "overlaps": ["memory-testing:createMemoryHarness"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/testing",
+      "symbol": "createMemoryCompactionConformanceSuite",
+      "kind": "function",
+      "packet": "MEM-P005",
+      "disposition": "extend",
+      "overlaps": ["memory-testing:createMemoryHarness"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/testing",
+      "symbol": "createMemoryDeletionConformanceSuite",
+      "kind": "function",
+      "packet": "MEM-P005",
+      "disposition": "extend",
+      "overlaps": ["memory-testing:createMemoryHarness"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/testing",
+      "symbol": "createMemoryRecordConformanceSuite",
+      "kind": "function",
+      "packet": "MEM-P005",
+      "disposition": "extend",
+      "overlaps": ["memory-testing:createMemoryHarness"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/testing",
+      "symbol": "createMemoryLifecycleConformanceSuite",
+      "kind": "function",
+      "packet": "MEM-P005",
+      "disposition": "extend",
+      "overlaps": ["memory-testing:createMemoryHarness"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/testing",
+      "symbol": "createMemoryRetrievalConformanceSuite",
+      "kind": "function",
+      "packet": "MEM-P005",
+      "disposition": "extend",
+      "overlaps": ["memory-testing:createMemoryHarness"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/testing",
+      "symbol": "MemoryBenchmarkProfileV1",
+      "kind": "type",
+      "packet": "MEM-P005",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/workers",
+      "symbol": "MemoryConsolidationJobV1",
+      "kind": "type",
+      "packet": "MEM-P006",
+      "disposition": "extend",
+      "overlaps": ["memory-root:SleepConsolidationConfig"]
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/workers",
+      "symbol": "MemoryOutboxEnvelopeV1",
+      "kind": "type",
+      "packet": "MEM-P006",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/workers",
+      "symbol": "MemoryDeadLetterV1",
+      "kind": "type",
+      "packet": "MEM-P006",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/workers",
+      "symbol": "MemoryWorkerLeaseV1",
+      "kind": "type",
+      "packet": "MEM-P006",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/workers",
+      "symbol": "MemoryWorkerCheckpointV1",
+      "kind": "type",
+      "packet": "MEM-P006",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/workers",
+      "symbol": "MemoryRetryPolicyV1",
+      "kind": "type",
+      "packet": "MEM-P006",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/workers",
+      "symbol": "MemoryWorkerOutcomeV1",
+      "kind": "type",
+      "packet": "MEM-P006",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/workers",
+      "symbol": "createInMemoryMemoryOutbox",
+      "kind": "function",
+      "packet": "MEM-P006",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/workers",
+      "symbol": "MemoryConsolidationPort",
+      "kind": "type",
+      "packet": "MEM-P006",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "symbol": "MemoryProjectionV1",
+      "kind": "type",
+      "packet": "MEM-P007",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "symbol": "GitMemoryProjectionAdapter",
+      "kind": "class",
+      "packet": "MEM-P007",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "symbol": "projectMemoryRecordToJson",
+      "kind": "function",
+      "packet": "MEM-P007",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "symbol": "projectMemoryRecordToMarkdown",
+      "kind": "function",
+      "packet": "MEM-P007",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "dzupagent-orchestration",
+      "specifier": "@datazup/agent-orchestration-contracts/memory",
+      "symbol": "MemoryIntentV1",
+      "kind": "type",
+      "packet": "MEM-P008",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "dzupagent-orchestration",
+      "specifier": "@datazup/agent-orchestration-contracts/memory",
+      "symbol": "MemoryPolicyDecisionV1",
+      "kind": "type",
+      "packet": "MEM-P008",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "dzupagent-orchestration",
+      "specifier": "@datazup/agent-orchestration-contracts/memory",
+      "symbol": "MemoryEffectOutcomeV1",
+      "kind": "type",
+      "packet": "MEM-P008",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "dzupagent-orchestration",
+      "specifier": "@datazup/agent-orchestration-contracts/memory",
+      "symbol": "MemoryObservationRefV1",
+      "kind": "type",
+      "packet": "MEM-P008",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "dzupagent-orchestration",
+      "specifier": "@datazup/agent-orchestration-contracts/memory",
+      "symbol": "reduceMemoryIntentV1",
+      "kind": "function",
+      "packet": "MEM-P008",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "dzupagent-orchestration",
+      "specifier": "@datazup/agent-orchestration-contracts/memory",
+      "symbol": "MemoryReceiptRefV1",
+      "kind": "type",
+      "packet": "MEM-P008",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "scripts",
+      "specifier": "flow-lab#host-local/terminal-lesson-adapter",
+      "symbol": "FlowLabTerminalLessonAdapter",
+      "kind": "host-local",
+      "packet": "MEM-P009",
+      "disposition": "new",
+      "overlaps": []
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "transport-contract",
+      "owner": "@dzupagent/agent-types",
+      "disposition": "extend",
+      "sourceFiles": [
+        "packages/agent-types/src/memory-client.ts"
+      ],
+      "characterizationTests": [
+        "packages/agent/src/__tests__/boundary/memory-client-boundary.test.ts",
+        "packages/memory/src/__tests__/in-memory-client.test.ts"
+      ]
+    },
+    {
+      "id": "scoped-store-and-service",
+      "owner": "@dzupagent/memory",
+      "disposition": "extend",
+      "sourceFiles": [
+        "packages/memory/src/memory-service.ts",
+        "packages/memory/src/memory-service-store.ts",
+        "packages/memory/src/tenant-scoped-store.ts"
+      ],
+      "characterizationTests": [
+        "packages/memory/src/__tests__/namespace-isolation.test.ts",
+        "packages/memory/src/__tests__/memory-service.test.ts"
+      ]
+    },
+    {
+      "id": "candidate-first-write-lifecycle",
+      "owner": "@dzupagent/memory",
+      "disposition": "extend",
+      "sourceFiles": [
+        "packages/memory/src/staged-writer.ts",
+        "packages/memory/src/policy-aware-staged-writer.ts",
+        "packages/memory/src/observation-candidate-store.ts"
+      ],
+      "characterizationTests": [
+        "packages/memory/src/__tests__/staged-writer.test.ts",
+        "packages/memory/src/__tests__/policy-aware-staged-writer.test.ts",
+        "packages/memory/src/__tests__/observation-candidate-store.test.ts",
+        "packages/memory/src/__tests__/observation-candidate-store-truthfulness.test.ts"
+      ]
+    },
+    {
+      "id": "temporal-and-provenance",
+      "owner": "@dzupagent/memory",
+      "disposition": "extend",
+      "sourceFiles": [
+        "packages/memory/src/temporal.ts",
+        "packages/memory/src/provenance/types.ts",
+        "packages/memory/src/provenance/provenance-writer.ts"
+      ],
+      "characterizationTests": [
+        "packages/memory/src/__tests__/temporal.test.ts",
+        "packages/memory/src/provenance/__tests__/provenance.test.ts"
+      ]
+    },
+    {
+      "id": "hybrid-retrieval-primitives",
+      "owner": "@dzupagent/memory",
+      "disposition": "extend",
+      "sourceFiles": [
+        "packages/memory/src/retrieval/vector-search.ts",
+        "packages/memory/src/retrieval/fts-search.ts",
+        "packages/memory/src/retrieval/graph-search.ts",
+        "packages/memory/src/retrieval/rrf-fusion.ts"
+      ],
+      "characterizationTests": [
+        "packages/memory/src/__tests__/search-retrieval.test.ts",
+        "packages/memory/src/__tests__/rrf-fusion.test.ts"
+      ]
+    },
+    {
+      "id": "context-compaction-and-budget",
+      "owner": "@dzupagent/context",
+      "disposition": "extend",
+      "sourceFiles": [
+        "packages/context/src/auto-compress.ts",
+        "packages/context/src/context-eviction.ts",
+        "packages/context/src/token-lifecycle.ts"
+      ],
+      "characterizationTests": [
+        "packages/context/src/__tests__/auto-compress-offload.test.ts",
+        "packages/context/src/__tests__/context-eviction.test.ts",
+        "packages/context/src/__tests__/token-lifecycle.test.ts"
+      ]
+    },
+    {
+      "id": "arrow-ipc-and-selection",
+      "owner": "@dzupagent/memory-ipc",
+      "disposition": "reuse",
+      "sourceFiles": [
+        "packages/memory-ipc/src/ipc-serializer.ts",
+        "packages/memory-ipc/src/token-budget.ts",
+        "packages/memory-ipc/src/memory-service-ext.ts"
+      ],
+      "characterizationTests": [
+        "packages/memory-ipc/src/__tests__/round-trip.test.ts",
+        "packages/memory-ipc/src/__tests__/token-budget.test.ts",
+        "packages/memory-ipc/src/__tests__/memory-service-ext.test.ts"
+      ]
+    },
+    {
+      "id": "agent-memory-context-loader",
+      "owner": "@dzupagent/agent",
+      "disposition": "extend",
+      "sourceFiles": [
+        "packages/agent/src/agent/memory-context-loader.ts",
+        "packages/agent/src/agent/memory-context-loader-standard.ts",
+        "packages/agent/src/agent/memory-context-loader-arrow.ts"
+      ],
+      "characterizationTests": [
+        "packages/agent/src/__tests__/memory-context-loader.test.ts",
+        "packages/agent/src/__tests__/memory-context-loader-query-mode.test.ts",
+        "packages/agent/src/__tests__/memory-context-loader-branches.test.ts"
+      ]
+    }
+  ],
+  "consumerScan": {
+    "roots": [
+      "apps",
+      "shared-kit"
+    ],
+    "packagePrefixes": [
+      "@dzupagent/agent-types",
+      "@dzupagent/memory",
+      "@dzupagent/context",
+      "@dzupagent/memory-ipc"
+    ],
+    "packageSymbolAllowlist": {
+      "@dzupagent/agent-types": [
+        "MemoryChangeEvent",
+        "MemoryClient",
+        "MemoryQuery",
+        "MemoryRecord",
+        "MemoryScope",
+        "MemoryStats",
+        "ReadContext",
+        "WriteContext"
+      ]
+    },
+    "excludedDirectoryNames": [
+      ".git",
+      ".tmp",
+      ".turbo",
+      ".worktrees",
+      ".yarn",
+      "audit",
+      "build",
+      "coverage",
+      "dist",
+      "docs",
+      "node_modules",
+      "out",
+      "tmp",
+      "vendor"
+    ]
+  }
+}
