@@ -508,6 +508,11 @@
         "src/__tests__/wizard.test.ts": 1
       }
     },
+    "dialogue-core-replay": {
+      "maxErrors": 0,
+      "perCode": {},
+      "perFile": {}
+    },
     "evals": {
       "maxErrors": 188,
       "perCode": {
