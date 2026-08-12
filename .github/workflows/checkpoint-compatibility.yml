@@ -1,0 +1,73 @@
+name: Checkpoint Compatibility
+
+on:
+  pull_request:
+    paths:
+      - "packages/codegen/src/vfs/checkpoint-manager.ts"
+      - "packages/codegen/src/vfs/checkpoint/**"
+      - "packages/codegen/src/__tests__/checkpoint-manager*.test.ts"
+      - "packages/codegen/src/__tests__/fixtures/checkpoint-*.ts"
+      - "packages/codegen/src/index.ts"
+      - "packages/codegen/src/vfs.ts"
+      - "packages/codegen/package.json"
+      - "yarn.lock"
+      - ".github/workflows/checkpoint-compatibility.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "packages/codegen/src/vfs/checkpoint-manager.ts"
+      - "packages/codegen/src/vfs/checkpoint/**"
+      - "packages/codegen/src/__tests__/checkpoint-manager*.test.ts"
+      - "packages/codegen/src/__tests__/fixtures/checkpoint-*.ts"
+      - "packages/codegen/src/index.ts"
+      - "packages/codegen/src/vfs.ts"
+      - "packages/codegen/package.json"
+      - "yarn.lock"
+      - ".github/workflows/checkpoint-compatibility.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checkpoint-compatibility-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checkpoint-matrix:
+    name: Node ${{ matrix.node }} / ${{ matrix.os }} Git
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]
+        os: [ubuntu-22.04, ubuntu-24.04]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: yarn
+          cache-dependency-path: yarn.lock
+
+      - name: Enable checked-in Yarn toolchain
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Record runtime matrix cell
+        run: |
+          node --version
+          git --version
+
+      - name: Run checkpoint real-Git and process matrix
+        run: yarn workspace @dzupagent/codegen test src/__tests__/checkpoint-manager.test.ts src/__tests__/checkpoint-manager-p002b.test.ts src/__tests__/checkpoint-manager-process.test.ts
+
+      - name: Typecheck Codegen
+        run: yarn workspace @dzupagent/codegen typecheck
