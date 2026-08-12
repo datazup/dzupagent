@@ -95,6 +95,42 @@ control legacy `DzupAgent.generate()`, `stream()`, or `launch()`.
 
 **Types:** `DzupAgentConfig`, `ArrowMemoryConfig`, `GenerateOptions`, `GenerateResult`, `AgentStreamEvent`, `ToolLoopConfig`, `ToolLoopResult`, `ToolRegistryEvent`
 
+#### Lifecycle-aware memory context
+
+Set `memoryContextMode: 'lifecycle'` to use the canonical
+`@dzupagent/memory/retrieval` contract without configuring the legacy
+`MemoryService` namespace path:
+
+```ts
+const agent = new DzupAgent({
+  id: 'reviewer',
+  instructions: 'Review the current change.',
+  model: chatModel,
+  memoryContextMode: 'lifecycle',
+  lifecycleMemoryRetrieval: {
+    scope,
+    profile,
+    retriever,
+    asOf: () => new Date().toISOString(),
+  },
+})
+```
+
+The host owns the scope, clock, candidate/lifecycle resolver, and any optional
+query-rewriter or reranker. Identical concurrent reads are coalesced in a
+bounded per-agent map, but settled results are not cached, so subsequent turns
+re-resolve corrections and revocations. Retryable, rejected, or degraded
+canonical retrieval never falls back to the legacy namespace service. This is
+a read-only context path; it grants no memory mutation, provider spending, or
+operational authority.
+
+The injected prompt section labels lifecycle memory as untrusted data and
+states that remembered instructions, credentials, consent, or authority grant
+no permission to act. Each underlying retrieval stage is hard-deadline bounded;
+the single-flight key includes the host-provided `asOf` instant, and only
+concurrent identical reads coalesce. Settled corrections and revocations are
+therefore re-resolved on the next load.
+
 ### Guardrails
 
 - `IterationBudget` -- enforces iteration and token limits on agent loops

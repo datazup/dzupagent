@@ -49,6 +49,7 @@ export type CompressionDegradationStage =
   | 'summary-validation'
   | 'offload'
   | 'token-measurement'
+  | 'completed-tool-compaction'
   | 'hard-budget-marker'
 
 /**

@@ -7,6 +7,13 @@
 import type { FrozenSnapshot } from '@dzupagent/context'
 import type { MemoryClient } from '@dzupagent/agent-types'
 import type { MemoryService } from '@dzupagent/memory'
+import type { MemoryScopeV1 } from '@dzupagent/memory/records'
+import type {
+  MemoryQueryRewriterPort,
+  MemoryRerankerPort,
+  MemoryRetrievalProfileV1,
+  MemoryRetrieverPort,
+} from '@dzupagent/memory/retrieval'
 import type { ArrowMemoryConfig } from './arrow-memory-types.js'
 import type { MemoryProfile } from './memory-profiles.js'
 
@@ -82,23 +89,17 @@ export interface MemoryConfigSlice {
   memoryScope?: Record<string, string>
   /** Memory namespace to use */
   memoryNamespace?: string
-  /**
-   * How the standard (non-Arrow) memory context loader selects records.
-   *
-   * - `'namespace'` (default) — read the whole namespace and let the ranker
-   *   and token budget decide what reaches the prompt. Unchanged historical
-   *   behaviour.
-   * - `'query'` — derive a retrieval query from the newest user message in
-   *   the windowed conversation and ask `MemoryService.search()` for the
-   *   matching records. This is what makes a configured semantic/vector
-   *   store observable in the prompt: RRF fusion with the vector results
-   *   happens inside the memory service's search path, so a namespace-mode
-   *   agent never reaches it no matter how the store is wired.
-   *
-   * Degrades to the namespace read when no query can be derived or the
-   * search reports the store as unreadable; memory failures stay non-fatal.
-   */
-  memoryContextMode?: 'namespace' | 'query'
+  /** Namespace (default), query with legacy fallback, or strict lifecycle retrieval. */
+  memoryContextMode?: 'namespace' | 'query' | 'lifecycle'
+  /** Host-owned scope, clock, profile, and ports for strict lifecycle reads. */
+  lifecycleMemoryRetrieval?: {
+    readonly scope: MemoryScopeV1
+    readonly profile: MemoryRetrievalProfileV1
+    readonly retriever: MemoryRetrieverPort
+    readonly queryRewriter?: MemoryQueryRewriterPort
+    readonly reranker?: MemoryRerankerPort
+    readonly asOf: () => string
+  }
   /**
    * Character cap on the query derived in `memoryContextMode: 'query'`.
    * Defaults to 512.

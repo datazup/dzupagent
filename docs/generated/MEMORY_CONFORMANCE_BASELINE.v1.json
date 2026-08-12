@@ -1,0 +1,2412 @@
+{
+  "schema": "datazup.memory.conformance-baseline/v1",
+  "harnessVersion": "mem-p006-v1",
+  "fixturePolicy": "invented-provider-free-only",
+  "historySemantics": "lifecycle-history-evaluated-at-query-as-of",
+  "baseCommit": "b13276bf8d20615f3010a1f5814256dd9e3096bc",
+  "baseTree": "325dd0cbcb05e929ac397c2b3842b59b549493ff",
+  "configDigest": "sha256:55f4858fd5d6e73cfc2f57988f8e8f5995e6009a0f6aa229799dfff5510e231a",
+  "source": {
+    "digest": "sha256:78fb9441d226b9c5fc0404afae7b91c46aac0181d29ef2bf3158da5cadaaaf5b",
+    "files": [
+      {
+        "path": "config/memory-api-census.v1.json",
+        "digest": "sha256:58ab0c7bb99c296324848b2bfd0b0ad090e2a641a7c8280badef0a4db24c473f"
+      },
+      {
+        "path": "config/public-api-allowlists.json",
+        "digest": "sha256:bf2fd72d8c9868bf85a54c9a4854c908cf81414b499ea54f34302874bfad516d"
+      },
+      {
+        "path": "package.json",
+        "digest": "sha256:c481c71d410e4a1189f1141966cc78e0217cdcf25fdcc6f1e6c5413d098d152d"
+      },
+      {
+        "path": "packages/agent/src/__tests__/memory-context-loader-lifecycle.test.ts",
+        "digest": "sha256:091247b60c016e2e85ff5f5af55dcb41efe50ceb509fee8c3e58d62cf492afb2"
+      },
+      {
+        "path": "packages/agent/src/agent/memory-context-loader-types.ts",
+        "digest": "sha256:d6e3a18da75fe39b5b4204770ffa01a0881b1db7e8c7c44fdb3430b4a58a0e92"
+      },
+      {
+        "path": "packages/agent/src/agent/memory-context-loader.ts",
+        "digest": "sha256:51d6cf20803767ad0c817dd9bd69ede2041eec6333dfc34fb3e559d180043c5c"
+      },
+      {
+        "path": "packages/context/package.json",
+        "digest": "sha256:1390b955f9af1c6c65ef42d0a0df73829ab878fe6963b790abc5412e31a67818"
+      },
+      {
+        "path": "packages/context/src/__tests__/auto-compress-tool-results.test.ts",
+        "digest": "sha256:b2b6ec165865393cded1e35dc33e9ed84624ff78291e4cd899f62eb5c86f8b5b"
+      },
+      {
+        "path": "packages/context/src/tool-results/__tests__/compact-completed-tool-results.test.ts",
+        "digest": "sha256:369c3e980ba7b26c43b295429aee05cd68f7df64f085c67db3cfbe0697532b1a"
+      },
+      {
+        "path": "packages/context/src/tool-results/__tests__/memory-compaction-conformance-port.ts",
+        "digest": "sha256:da13398343d01f5e1a4a713b405c4f76cbe23c87ee0a2445f777e95444cbd76f"
+      },
+      {
+        "path": "packages/context/src/tool-results/__tests__/memory-compaction-conformance.test.ts",
+        "digest": "sha256:d8c31672716ee74217d6dbf02e398498102a92d93cc3063ec9aaa6dfd4e6ee3b"
+      },
+      {
+        "path": "packages/context/src/tool-results/compact-completed-tool-results.ts",
+        "digest": "sha256:b048dcc327bfb664891fb10b8bcae22cc14f8cbe354c920595266dc0572b809f"
+      },
+      {
+        "path": "packages/context/src/tool-results/compaction-internals.ts",
+        "digest": "sha256:58b88ba84a5698908122f7ffe0a01797d99c72ac1e75b7bcccf43203c8cb8996"
+      },
+      {
+        "path": "packages/context/src/tool-results/index.ts",
+        "digest": "sha256:0d1889757d33218ca787e015e392a6df128a3625e01bbb1aeceae287086a40e1"
+      },
+      {
+        "path": "packages/context/src/tool-results/types.ts",
+        "digest": "sha256:ccbd0670468a332d5a72fda1e10b0387640cd5a809ee4f6cb94273658d8962c6"
+      },
+      {
+        "path": "packages/memory/package.json",
+        "digest": "sha256:70674a609a78e2b3c3e9336057fd0c1d405f6aead83a7aa8e289890ee00fe6cf"
+      },
+      {
+        "path": "packages/memory/src/lifecycle/__tests__/fixtures.ts",
+        "digest": "sha256:c32e2176c75c040c9914a605b146c3f8e24e034aae82bb6c9947cafe302c2680"
+      },
+      {
+        "path": "packages/memory/src/lifecycle/__tests__/projection.test.ts",
+        "digest": "sha256:e64bbcdc316760d7a82e9c8f9947c0de231e28b3e2358266201e54b6c694dcc7"
+      },
+      {
+        "path": "packages/memory/src/lifecycle/__tests__/purge-and-compatibility.test.ts",
+        "digest": "sha256:66b8d8e3f086bd3654e73b47e5359baa17e5eaac81e020d221e29b70ca0c50cb"
+      },
+      {
+        "path": "packages/memory/src/lifecycle/__tests__/replay-and-adversarial.test.ts",
+        "digest": "sha256:90dfb4eeb3e0a894f7fa02676cd8a6b5ea42faa23c83918c008e306db88b9c8e"
+      },
+      {
+        "path": "packages/memory/src/lifecycle/__tests__/transition-matrix.test.ts",
+        "digest": "sha256:e4ff948e9a9929549f2684fc20b079f8dcb26dd9752dbd83d2ebb44e5026feae"
+      },
+      {
+        "path": "packages/memory/src/lifecycle/__tests__/transitions.test.ts",
+        "digest": "sha256:29b8dc8eb76e5ac07145594c4724843531498b384d687841f68fdf611088a478"
+      },
+      {
+        "path": "packages/memory/src/lifecycle/errors.ts",
+        "digest": "sha256:8999f3dd06232f02026c7ef8df1c3523c52d14d3728c7c5a07be84b24553e14e"
+      },
+      {
+        "path": "packages/memory/src/lifecycle/index.ts",
+        "digest": "sha256:ccfa05e242afaeba9197be60b98db909bbbbf16bb4980bd8184285d59d4680ac"
+      },
+      {
+        "path": "packages/memory/src/lifecycle/ledger.ts",
+        "digest": "sha256:0fb9917231d34b1ccd37bbf42fb7d2bf90aac4cfca15b5091be219a9234dc3ec"
+      },
+      {
+        "path": "packages/memory/src/lifecycle/projection.ts",
+        "digest": "sha256:902cf516e94f00f5a54e1457a0e0200c81f11f42135ca23cdf0533007b78fb1f"
+      },
+      {
+        "path": "packages/memory/src/lifecycle/record-transitions.ts",
+        "digest": "sha256:23b4d0d8ef68cd723a66b89b84c296185427de37326ffb66f3a3cbefd64b27af"
+      },
+      {
+        "path": "packages/memory/src/lifecycle/reducer.ts",
+        "digest": "sha256:beb7cf1a46308c5c64f869e899bee572a30fe3c0be3734c60d9c13b560f79a0b"
+      },
+      {
+        "path": "packages/memory/src/lifecycle/types.ts",
+        "digest": "sha256:696270bb9fb1d0b79ba2a65bf3611587a65d55b99a95bccfab896d1f8b05d1e3"
+      },
+      {
+        "path": "packages/memory/src/lifecycle/validation.ts",
+        "digest": "sha256:9e2aaed9e076e8023cd15423ade07d4fff095386e7c30885af5b8cdf4971431b"
+      },
+      {
+        "path": "packages/memory/src/records/__tests__/adapters.test.ts",
+        "digest": "sha256:a096e50171d3fa7781f61bc63727c955423cb41acf26ef2720ef3fe9f0590599"
+      },
+      {
+        "path": "packages/memory/src/records/__tests__/adversarial.test.ts",
+        "digest": "sha256:7cb652dfcc0e1c55a8d471a5fc5091fb8c6a47ab71b055f3744a93e469b54c9a"
+      },
+      {
+        "path": "packages/memory/src/records/__tests__/fixtures.ts",
+        "digest": "sha256:bcaa833b4410eebabaa1ca969b98bca9fc5abd795804c86024205c650f412bb7"
+      },
+      {
+        "path": "packages/memory/src/records/__tests__/records.test.ts",
+        "digest": "sha256:2b51526f01f999b4ad33726a5cd42cdb764acb9b75e580263a18ac196b84d6fc"
+      },
+      {
+        "path": "packages/memory/src/records/adapters.ts",
+        "digest": "sha256:032a59caaf3c5fd269b7489a3db8e660a5e2bc48bd1c9e018eb5a330ec4db762"
+      },
+      {
+        "path": "packages/memory/src/records/canonical.ts",
+        "digest": "sha256:ec22bc5729908b0a9c2634cddcb9708c24bb48d708df8b2f4c2ac23b45f94df2"
+      },
+      {
+        "path": "packages/memory/src/records/decoder-primitives.ts",
+        "digest": "sha256:28d72780b11527d0e718dfc3d3ad65b71b3be46c6e546f37c27b34909f280b69"
+      },
+      {
+        "path": "packages/memory/src/records/decoder.ts",
+        "digest": "sha256:e141485320a2f5e1bb6ef50f855a4bef16813f7af7f2ca6479a9a138f002bdc4"
+      },
+      {
+        "path": "packages/memory/src/records/errors.ts",
+        "digest": "sha256:f575533dea979a707912d8ce5567f4ce3d44d532666665fa06ff46901e662850"
+      },
+      {
+        "path": "packages/memory/src/records/index.ts",
+        "digest": "sha256:ed0b218812b5046defc639f43b6e6905c9ce0e68a3b0c94c739db0f66f924eaa"
+      },
+      {
+        "path": "packages/memory/src/records/safe-json.ts",
+        "digest": "sha256:d3a9041e00ec4e423d1c3bbbe26cc30c6d616aa71e3b5df90de2f7206211e200"
+      },
+      {
+        "path": "packages/memory/src/records/types.ts",
+        "digest": "sha256:feaea5d2c5065a08cc20545d2587dbc458b95d3a2744ad59bc72969512a19091"
+      },
+      {
+        "path": "packages/memory/src/retrieval/__tests__/adversarial-v1.test.ts",
+        "digest": "sha256:23f2bf4f9a7fb806ab5162d2a6fc1fc5c26c69f32999002208550fd8a32ee7a6"
+      },
+      {
+        "path": "packages/memory/src/retrieval/__tests__/fixtures.ts",
+        "digest": "sha256:63bdab3bd2aac7cc73473c5d2884080b68bc26b2b036294707480ded91eac0a3"
+      },
+      {
+        "path": "packages/memory/src/retrieval/__tests__/provider-stages.test.ts",
+        "digest": "sha256:b42e8deb52e93fc55dfe2c2d472b78ed7ce357a09d643278103c07ebefb53adb"
+      },
+      {
+        "path": "packages/memory/src/retrieval/__tests__/retrieval.test.ts",
+        "digest": "sha256:41e0371af124b6043a8525849fe856111ffdedfb0da32568973ce2b1a1caf5bb"
+      },
+      {
+        "path": "packages/memory/src/retrieval/adaptive-retriever-fusion.ts",
+        "digest": "sha256:4e8242de0713b22b2208953c559f426a72cd8ac8cd3754e1023b7e83352eead3"
+      },
+      {
+        "path": "packages/memory/src/retrieval/adaptive-retriever-health.ts",
+        "digest": "sha256:d90864683ded221d90d4e0b6864e7936321b27228f43e43f8bd1ca199b906080"
+      },
+      {
+        "path": "packages/memory/src/retrieval/adaptive-retriever-search.ts",
+        "digest": "sha256:e2f53aa12c5f755ac0369a277067b5151f8e2b6e1b5ac159fb91eb308433a0df"
+      },
+      {
+        "path": "packages/memory/src/retrieval/adaptive-retriever-types.ts",
+        "digest": "sha256:595efc55ad716a04151481a702106a807a6f2ff235649c6f95f98e715856e9f1"
+      },
+      {
+        "path": "packages/memory/src/retrieval/adaptive-retriever-weight-learner.ts",
+        "digest": "sha256:37f6a576aaf9238332055e28a644ae1d5d4b27c285dea8b3c836090a1bd8e95d"
+      },
+      {
+        "path": "packages/memory/src/retrieval/adaptive-retriever.ts",
+        "digest": "sha256:39d377c6485eef8b6212ddb24fc09ca4e644da89e97595e04ce37e44015c4f0e"
+      },
+      {
+        "path": "packages/memory/src/retrieval/community-detector.ts",
+        "digest": "sha256:1efc08f5728eddbecd14ecae5e5323b73314df27b357a3d0cd32ec2bf16b41a1"
+      },
+      {
+        "path": "packages/memory/src/retrieval/cross-encoder-rerank.ts",
+        "digest": "sha256:62254290ac250222102a8d47d5caae477be8e9b250e38e910a391184ac362be2"
+      },
+      {
+        "path": "packages/memory/src/retrieval/fts-search.ts",
+        "digest": "sha256:f6718b4521d4311141660c6e28d2a3de833e7ba6c9b15fba9d896a0ad73bd061"
+      },
+      {
+        "path": "packages/memory/src/retrieval/fusion-v1.ts",
+        "digest": "sha256:dbc29f5baeb985bfad935a798c86fe9de40c439ba048496d4190796e79cf6998"
+      },
+      {
+        "path": "packages/memory/src/retrieval/graph-search.ts",
+        "digest": "sha256:6d446e27e18b78ad5b7a864af51646223a587d796fc3905282bbad2c7ff53612"
+      },
+      {
+        "path": "packages/memory/src/retrieval/hub-dampening.ts",
+        "digest": "sha256:e9e0755b98020f1cdf8056667a6afb1b9a6fcddff82fee62d7bbab73a46dd145"
+      },
+      {
+        "path": "packages/memory/src/retrieval/index.ts",
+        "digest": "sha256:214d7e31f5109833efee881ac3d85c4c9eba7bc1f648a6fcb59b3f2df232f35e"
+      },
+      {
+        "path": "packages/memory/src/retrieval/pagerank.ts",
+        "digest": "sha256:dd37db77f624feca724e6fae49739047965cf4ba67613c5b169c9e2b0c0ecb2d"
+      },
+      {
+        "path": "packages/memory/src/retrieval/persistent-graph.ts",
+        "digest": "sha256:cecd1e4b17ae23fe1611e6905ece296e475b296b576765713c7f43525367badb"
+      },
+      {
+        "path": "packages/memory/src/retrieval/provider-stages.ts",
+        "digest": "sha256:f8555cea7a7c23f5a57d2abf1f373349f8909f79c90da33b6cdd228f0bfcdf54"
+      },
+      {
+        "path": "packages/memory/src/retrieval/relationship-store.ts",
+        "digest": "sha256:6bbded30332c89df3f7102b2551f7df2ac301f7b30706e46c3b661c79d82d32b"
+      },
+      {
+        "path": "packages/memory/src/retrieval/retrieval-error.ts",
+        "digest": "sha256:5dd49089e2a95a9efb5dd2e4edf8d7f096c2d4ec3ab7f7d6b00c9758bab01b04"
+      },
+      {
+        "path": "packages/memory/src/retrieval/retrieve-memory-v1.ts",
+        "digest": "sha256:0139ac576bf2bfb508e933e609ac495b448e58501ee83551c19689068920fb7d"
+      },
+      {
+        "path": "packages/memory/src/retrieval/rrf-fusion.ts",
+        "digest": "sha256:d7f74fbbada9d7f2373c1bfbd085d0fd3b788137bd11548ba37e598c4f364dc6"
+      },
+      {
+        "path": "packages/memory/src/retrieval/stage-runtime.ts",
+        "digest": "sha256:efc351079ba1c5c8a40ba9d5ed112e90a7312d1a1184c1620d717126f2334886"
+      },
+      {
+        "path": "packages/memory/src/retrieval/v1-types.ts",
+        "digest": "sha256:22a4db75ed4b2bbbd1ccb39748d623bbc4bf68297d804a463e5502f4da5ffb60"
+      },
+      {
+        "path": "packages/memory/src/retrieval/v1-validation.ts",
+        "digest": "sha256:342705d57ec368307293c2a200ce2e9ff369f66d65661c3295e7a5307d2cad3f"
+      },
+      {
+        "path": "packages/memory/src/retrieval/vector-search.ts",
+        "digest": "sha256:1349b750424fd9cf973e09f245904ef4cfde11e4cfe5b6d25e5d41d124a079c6"
+      },
+      {
+        "path": "packages/memory/src/retrieval/vector-store-search.ts",
+        "digest": "sha256:fa8de97920fe8e741e9c41896d0a23206c7bd2e190e110b602f6e37bc9a12a16"
+      },
+      {
+        "path": "packages/memory/src/retrieval/void-filter.ts",
+        "digest": "sha256:b6b80a61a91151dd1dd3ea243c8b7d15aa3a58b885a6820b06ac93792ced21b5"
+      },
+      {
+        "path": "packages/memory/src/service/__tests__/adversarial.test.ts",
+        "digest": "sha256:0d5edcd72635708c4be565f91e6c80e119a1a006cba250e487b00679bafffb5c"
+      },
+      {
+        "path": "packages/memory/src/service/__tests__/checkpoint-and-restart.test.ts",
+        "digest": "sha256:1a1766d959535808955a0be8e324e2f3f0c9519d91bf01a63347bbb7a69a253d"
+      },
+      {
+        "path": "packages/memory/src/service/__tests__/compatibility.test.ts",
+        "digest": "sha256:2fcc8918826aa1e1f8426900156546e677d6a8dbdc2e579f617b88523760d5f4"
+      },
+      {
+        "path": "packages/memory/src/service/__tests__/fixtures.ts",
+        "digest": "sha256:a5d0a834d4e909f5dd48579efec3ead93faa587a7eb2fb7fc6aac8f513a222b5"
+      },
+      {
+        "path": "packages/memory/src/service/__tests__/service-facade.test.ts",
+        "digest": "sha256:523591424f38f19fd9ceb1df39edf404cbd838f8bac5a98d5b1f8dd6d4e6b45d"
+      },
+      {
+        "path": "packages/memory/src/service/compatibility.ts",
+        "digest": "sha256:c397008d7a875bb1b4d9c61016572c277a3b1a9eb1a46fcb493096229f7fc636"
+      },
+      {
+        "path": "packages/memory/src/service/history-reducer.ts",
+        "digest": "sha256:3f3a656618a521819e8490f5322ea447f2a051d17f8d2702349fc87a95977073"
+      },
+      {
+        "path": "packages/memory/src/service/history.ts",
+        "digest": "sha256:40c9adb4f66cccfeb0ef7b5bbc65fc415f96f72960d54c9c6e74dc26e3ad080a"
+      },
+      {
+        "path": "packages/memory/src/service/in-memory-adapter.ts",
+        "digest": "sha256:31b717ccee0db672d79bbdc2ce16d5064e29442cae4695899cd64871c92df796"
+      },
+      {
+        "path": "packages/memory/src/service/index.ts",
+        "digest": "sha256:66806af0b959ea018cbd99088645a68147120dabb88e1673721bb5c4b2e4c317"
+      },
+      {
+        "path": "packages/memory/src/service/memory-lifecycle-service.ts",
+        "digest": "sha256:e622c81b7c6d49fa38da3964424b94db478b9a6e3f4c1f56d344e2de2a1a6cd6"
+      },
+      {
+        "path": "packages/memory/src/service/read-operations.ts",
+        "digest": "sha256:eb04fac7569febcdd9cf1707a5a1272ffdcb79fb9b8e3cfba1be01dc5f869fe7"
+      },
+      {
+        "path": "packages/memory/src/service/service-runtime.ts",
+        "digest": "sha256:02d06b9176636598f70174659e92189b21b029a8167bfd201c2d809ca9e3196d"
+      },
+      {
+        "path": "packages/memory/src/service/snapshot.ts",
+        "digest": "sha256:dd16c7388e6cd4be3fd85e5d749b066d4175220de835f318b2f1066832a05584"
+      },
+      {
+        "path": "packages/memory/src/service/types.ts",
+        "digest": "sha256:43b9e6965a6e8a8befeda411a23470cf270cfe48992a0f026fc13c0b660f805b"
+      },
+      {
+        "path": "packages/memory/src/service/validation.ts",
+        "digest": "sha256:c749a9c5a368dc867081bd59638667407e46ee5e204146015e2e75d5c2a710df"
+      },
+      {
+        "path": "packages/memory/src/service/write-operation.ts",
+        "digest": "sha256:0facbe2af97241078cd59bb7dd318c2ed8f15f18a980eaae50e52ed4aec73acc"
+      },
+      {
+        "path": "packages/memory/src/testing/__tests__/compaction-conformance-v1.test.ts",
+        "digest": "sha256:ece2944f097895c17ad743f7883489d32b6812bc844c30c0b72db3d4be8dcee3"
+      },
+      {
+        "path": "packages/memory/src/testing/__tests__/conformance-core-v1.test.ts",
+        "digest": "sha256:df755768ccd93ad4f82499db8a81256b3dace904b2f0b133faf32b53418c72cd"
+      },
+      {
+        "path": "packages/memory/src/testing/__tests__/profile-fixture.ts",
+        "digest": "sha256:e66340f54da9940777b2140af2f8f093a11672edd12539f6ca1f005e5d95ccac"
+      },
+      {
+        "path": "packages/memory/src/testing/__tests__/record-lifecycle-conformance-v1.test.ts",
+        "digest": "sha256:8df0e2a9402d1fd02011d2a31938de23b18e402dfebc1d694a636e91c4ae15ee"
+      },
+      {
+        "path": "packages/memory/src/testing/__tests__/report-truthfulness.test.ts",
+        "digest": "sha256:17bfc21f70efe6c1594ec64c663eb8bf90ccd2544e32bfb3c95077279e9808aa"
+      },
+      {
+        "path": "packages/memory/src/testing/__tests__/retrieval-conformance-v1.test.ts",
+        "digest": "sha256:41224888cc468ffb3b983963ba94c751f5b402a49d6409a6386606a50a4a27f3"
+      },
+      {
+        "path": "packages/memory/src/testing/__tests__/store-deletion-conformance-v1.test.ts",
+        "digest": "sha256:2a1f516d02f3e87db87229af0dea22898533ef3f0a5bda3d1106770dc760d940"
+      },
+      {
+        "path": "packages/memory/src/testing/__tests__/worker-conformance-v1.test.ts",
+        "digest": "sha256:454c7e90455c94192bcdbe4a3063a4255b277151d8a3074102ef9d238232fb45"
+      },
+      {
+        "path": "packages/memory/src/testing/benchmark-profile-v1.ts",
+        "digest": "sha256:a2c33e47d07b542126e76119f0bf696aa955494f99d06481761c466d5773a9c6"
+      },
+      {
+        "path": "packages/memory/src/testing/compaction-conformance-v1.ts",
+        "digest": "sha256:941f792bea6161b2903b636eb9e09c35934f5d528ee63720426218e8ad17421f"
+      },
+      {
+        "path": "packages/memory/src/testing/conformance-core-v1.ts",
+        "digest": "sha256:edc96806860cddd84d982a53f9659c8efd9de1c1f3678d438d9c179b56945908"
+      },
+      {
+        "path": "packages/memory/src/testing/deletion-conformance-v1.ts",
+        "digest": "sha256:c9099f4190495b08fe82e89e13e9f3a8e1e2032f6373640d183544202313b83f"
+      },
+      {
+        "path": "packages/memory/src/testing/fixtures-v1.ts",
+        "digest": "sha256:1fea56eb41309005ea0dd760101d4bf94bad06536a0f638884fd33bce6f26253"
+      },
+      {
+        "path": "packages/memory/src/testing/index.ts",
+        "digest": "sha256:ad25bf43f4fef68949b632705f33674c77d9f96267baf9e6057ea36acd606cc0"
+      },
+      {
+        "path": "packages/memory/src/testing/lifecycle-conformance-v1.ts",
+        "digest": "sha256:a6da6e31b5b240d4709e2c1ae68d36bbc73130a1d6b1e5d9358019e0a944b6db"
+      },
+      {
+        "path": "packages/memory/src/testing/memory-harness.ts",
+        "digest": "sha256:0fa68f196cc20a943ce0cbe19702a7e3b3e0c6e1ca148844c807f0b64525d153"
+      },
+      {
+        "path": "packages/memory/src/testing/record-conformance-v1.ts",
+        "digest": "sha256:a0940c595d15110401c19ec0bf84429e24d503b8e2814e80fe3458f093fee679"
+      },
+      {
+        "path": "packages/memory/src/testing/report-truthfulness.ts",
+        "digest": "sha256:6b3a62264eb9ba0e66aa0051e3d243e7663ade5830be7330533beee47bbfa80c"
+      },
+      {
+        "path": "packages/memory/src/testing/retrieval-conformance-v1.ts",
+        "digest": "sha256:2e7c4a97db68cc6ff2b918db79e0d4af7abbddd3c25cbd4d5d7739204f0190a8"
+      },
+      {
+        "path": "packages/memory/src/testing/retrieval-fixtures-v1.ts",
+        "digest": "sha256:a2856f0773e27c2b4951f5f2755c3a268b874e57110bf7d9e59ead572d1a2024"
+      },
+      {
+        "path": "packages/memory/src/testing/retrieval-metrics-v1.ts",
+        "digest": "sha256:5d5fc532c87aa9f5e59cced6bd224a4ab6e04a560f4457ea47dfbff5d3188d49"
+      },
+      {
+        "path": "packages/memory/src/testing/retrieval-security-conformance-v1.ts",
+        "digest": "sha256:dfef789ba9ba776db5bdb5ab0bd04bdd3565f127a1da75d7b0b7bfa154a8f86f"
+      },
+      {
+        "path": "packages/memory/src/testing/service-fixtures-v1.ts",
+        "digest": "sha256:8f1cd083e54d245af848687bb2abe671dd86b4fa6111791ec87c88b89504827b"
+      },
+      {
+        "path": "packages/memory/src/testing/store-conformance-v1.ts",
+        "digest": "sha256:17b8b742bd2f7b575e81c4132ad802a4fb58236f475f55c17f93f942bb5fd828"
+      },
+      {
+        "path": "packages/memory/src/testing/worker-conformance-fixtures-v1.ts",
+        "digest": "sha256:aa867c45118d93cac7f3c1b9b812e3d7445eb23fe53ed5cacc1b8641d148e3e0"
+      },
+      {
+        "path": "packages/memory/src/testing/worker-conformance-v1.ts",
+        "digest": "sha256:f672560d7d06e651da11da6bc6958729955063bff5068e861de0b4f8dfee4726"
+      },
+      {
+        "path": "packages/memory/src/workers/__tests__/fixtures.ts",
+        "digest": "sha256:6082612f19ea7fda3e85ac4f349f4ea62490bfca34641b95668ad5a84bee631a"
+      },
+      {
+        "path": "packages/memory/src/workers/__tests__/outbox-core.test.ts",
+        "digest": "sha256:b7b1b2e4d8d64546162226e1096bc0b968812f4e812d62567916e180f56135d1"
+      },
+      {
+        "path": "packages/memory/src/workers/__tests__/outbox-reconciliation.test.ts",
+        "digest": "sha256:d2bf7dfdaa1c971dda6ce54879dd0573f9850138464d6279e4761fd64709f09f"
+      },
+      {
+        "path": "packages/memory/src/workers/__tests__/outbox-state.test.ts",
+        "digest": "sha256:c54479c3b4e217e764476125ea29bfb6c48c987eb33f067d67acd02107761b85"
+      },
+      {
+        "path": "packages/memory/src/workers/in-memory-outbox.ts",
+        "digest": "sha256:096c6ef48fcc0b0327bdbe926c084891856acea1de23d38fe9d966a4221b5303"
+      },
+      {
+        "path": "packages/memory/src/workers/index.ts",
+        "digest": "sha256:ca4db56ae878caa8d16e5ea0cb4c821301f222101290cf77e3dcc56b00dfacdc"
+      },
+      {
+        "path": "packages/memory/src/workers/outbox-capacity.ts",
+        "digest": "sha256:d61a1d4f806cd6ece476647daafa9292893d6d12d2ca5a40a3db4d571c3fea59"
+      },
+      {
+        "path": "packages/memory/src/workers/outbox-commit.ts",
+        "digest": "sha256:c62bca96b0048d8c2b30083137ca88e49623cf6c78b0a110dc629c420a80bec3"
+      },
+      {
+        "path": "packages/memory/src/workers/outbox-observation.ts",
+        "digest": "sha256:e3a55249c7e2c441ad4dd8cf3df177ede35e0c830484c58797df6e1ace723236"
+      },
+      {
+        "path": "packages/memory/src/workers/outbox-state.ts",
+        "digest": "sha256:4f3c01600eb983b24097160b5230e4318cbc6c311ad429c2e203b7ba4412b918"
+      },
+      {
+        "path": "packages/memory/src/workers/outcome-factory.ts",
+        "digest": "sha256:b4b61f9991a4d5efd9570fc80fd91dbfce02511d7a664d31bd604a9c700b0b19"
+      },
+      {
+        "path": "packages/memory/src/workers/provider-cost.ts",
+        "digest": "sha256:79d9d690476a5881eeed421f0ba9a46519ed7b56d82fbee8c7e9dcd92576c185"
+      },
+      {
+        "path": "packages/memory/src/workers/requests.ts",
+        "digest": "sha256:82091821138db5b2ad82e764dddaf36064fb259dd7ea19c38a2b9a200835ce00"
+      },
+      {
+        "path": "packages/memory/src/workers/snapshot.ts",
+        "digest": "sha256:1a9b34767bcd20534747bd4883ba8b4602312f0c14e11773862e91d03a986dd0"
+      },
+      {
+        "path": "packages/memory/src/workers/state-validation.ts",
+        "digest": "sha256:788c732d9c9aa5baaee6e6c88e66a8aac78a1efdaaf02351c5af89fdd81f8d88"
+      },
+      {
+        "path": "packages/memory/src/workers/types.ts",
+        "digest": "sha256:df5faddc6c4540c86e469324caf5df241041756e8355d1b65bfdcf4cf09ff85e"
+      },
+      {
+        "path": "packages/memory/src/workers/validation-contracts.ts",
+        "digest": "sha256:383385744d6d17b40a152ab591a2ab9790b275b717d51b32c45f4b7c18269c01"
+      },
+      {
+        "path": "packages/memory/src/workers/validation-core.ts",
+        "digest": "sha256:7eac0aa170beacd0be018ef431a3d4d0c5bdabd01dedf098abdea3cc8b6d9174"
+      },
+      {
+        "path": "packages/memory/src/workers/validation-results.ts",
+        "digest": "sha256:8172cfa852cc691b07bedfb215a614e188b448d861dd7dca052f71e1c9fa7b35"
+      },
+      {
+        "path": "packages/memory/src/workers/worker-identity.ts",
+        "digest": "sha256:5022cafd9bf44a3684849d6dec199b0a250c144d8587a1ad198584954a0830c2"
+      },
+      {
+        "path": "packages/memory/src/workers/worker-runtime.ts",
+        "digest": "sha256:2fcdf6e5247871fceef52270f7b97be25b9b93059d350dd57d3ce7f289d08764"
+      },
+      {
+        "path": "scripts/__tests__/generate-memory-conformance-baseline.test.mjs",
+        "digest": "sha256:f4d6aa427ba6c19f06e4ddca5801746b82a9a847cce5fe60562f485f1def8355"
+      },
+      {
+        "path": "scripts/generate-memory-conformance-baseline.ts",
+        "digest": "sha256:dcfc33d7e0b207d0921d0de8d021142dc51d6657306e5a9d0fe2f9ec7267915d"
+      },
+      {
+        "path": "yarn.lock",
+        "digest": "sha256:80e70f647eddc39cfe1446bfb538c4757197938c3689a406964c502f22fe34ab"
+      }
+    ]
+  },
+  "profileDigest": "sha256:76932cfd14a182bce62dbebe0b1d58461590e43e983f0b3bbd9faa485ea615c6",
+  "status": "passed",
+  "counts": {
+    "total": 57,
+    "passed": 57,
+    "failed": 0,
+    "expectedRed": 0,
+    "unexpectedPass": 0
+  },
+  "expectedRedCaseIds": [],
+  "metricDistributions": [
+    {
+      "name": "abstention-accuracy",
+      "unit": "ratio",
+      "comparison": "at-least",
+      "threshold": 1,
+      "count": 1,
+      "minimum": 1,
+      "maximum": 1,
+      "mean": 1
+    },
+    {
+      "name": "active-version-accuracy",
+      "unit": "ratio",
+      "comparison": "at-least",
+      "threshold": 1,
+      "count": 2,
+      "minimum": 1,
+      "maximum": 1,
+      "mean": 1
+    },
+    {
+      "name": "correction-accuracy",
+      "unit": "ratio",
+      "comparison": "at-least",
+      "threshold": 1,
+      "count": 1,
+      "minimum": 1,
+      "maximum": 1,
+      "mean": 1
+    },
+    {
+      "name": "deterministic-latency-ms",
+      "unit": "milliseconds",
+      "comparison": "at-most",
+      "threshold": 250,
+      "count": 1,
+      "minimum": 2,
+      "maximum": 2,
+      "mean": 2
+    },
+    {
+      "name": "grounded-selection-rate",
+      "unit": "ratio",
+      "comparison": "at-least",
+      "threshold": 1,
+      "count": 2,
+      "minimum": 1,
+      "maximum": 1,
+      "mean": 1
+    },
+    {
+      "name": "leakage-rate",
+      "unit": "ratio",
+      "comparison": "at-most",
+      "threshold": 0,
+      "count": 2,
+      "minimum": 0,
+      "maximum": 0,
+      "mean": 0
+    },
+    {
+      "name": "mrr",
+      "unit": "ratio",
+      "comparison": "at-least",
+      "threshold": 1,
+      "count": 2,
+      "minimum": 1,
+      "maximum": 1,
+      "mean": 1
+    },
+    {
+      "name": "ndcg",
+      "unit": "ratio",
+      "comparison": "at-least",
+      "threshold": 1,
+      "count": 2,
+      "minimum": 1,
+      "maximum": 1,
+      "mean": 1
+    },
+    {
+      "name": "precision-at-k",
+      "unit": "ratio",
+      "comparison": "at-least",
+      "threshold": 1,
+      "count": 2,
+      "minimum": 1,
+      "maximum": 1,
+      "mean": 1
+    },
+    {
+      "name": "provider-cost-microusd",
+      "unit": "microusd",
+      "comparison": "at-most",
+      "threshold": 0,
+      "count": 1,
+      "minimum": 0,
+      "maximum": 0,
+      "mean": 0
+    },
+    {
+      "name": "recall-at-k",
+      "unit": "ratio",
+      "comparison": "at-least",
+      "threshold": 1,
+      "count": 2,
+      "minimum": 1,
+      "maximum": 1,
+      "mean": 1
+    },
+    {
+      "name": "reclaimed-tokens",
+      "unit": "tokens",
+      "comparison": "at-least",
+      "threshold": 1,
+      "count": 5,
+      "minimum": 159,
+      "maximum": 312,
+      "mean": 281.2
+    },
+    {
+      "name": "revoked-retrieval-rate",
+      "unit": "ratio",
+      "comparison": "at-most",
+      "threshold": 0,
+      "count": 1,
+      "minimum": 0,
+      "maximum": 0,
+      "mean": 0
+    },
+    {
+      "name": "selected-tokens",
+      "unit": "tokens",
+      "comparison": "at-most",
+      "threshold": 20000,
+      "count": 1,
+      "minimum": 34,
+      "maximum": 34,
+      "mean": 34
+    },
+    {
+      "name": "stale-retrieval-rate",
+      "unit": "ratio",
+      "comparison": "at-most",
+      "threshold": 0,
+      "count": 1,
+      "minimum": 0,
+      "maximum": 0,
+      "mean": 0
+    },
+    {
+      "name": "temporal-accuracy",
+      "unit": "ratio",
+      "comparison": "at-least",
+      "threshold": 1,
+      "count": 1,
+      "minimum": 1,
+      "maximum": 1,
+      "mean": 1
+    },
+    {
+      "name": "worker-accepted-count",
+      "unit": "count",
+      "comparison": "exact",
+      "threshold": 0,
+      "count": 5,
+      "minimum": 0,
+      "maximum": 0,
+      "mean": 0
+    },
+    {
+      "name": "worker-accepted-count",
+      "unit": "count",
+      "comparison": "exact",
+      "threshold": 1,
+      "count": 1,
+      "minimum": 1,
+      "maximum": 1,
+      "mean": 1
+    },
+    {
+      "name": "worker-dead-letter-count",
+      "unit": "count",
+      "comparison": "exact",
+      "threshold": 0,
+      "count": 5,
+      "minimum": 0,
+      "maximum": 0,
+      "mean": 0
+    },
+    {
+      "name": "worker-dead-letter-count",
+      "unit": "count",
+      "comparison": "exact",
+      "threshold": 1,
+      "count": 1,
+      "minimum": 1,
+      "maximum": 1,
+      "mean": 1
+    },
+    {
+      "name": "worker-maximum-queue-depth",
+      "unit": "count",
+      "comparison": "exact",
+      "threshold": 1,
+      "count": 4,
+      "minimum": 1,
+      "maximum": 1,
+      "mean": 1
+    },
+    {
+      "name": "worker-maximum-queue-depth",
+      "unit": "count",
+      "comparison": "exact",
+      "threshold": 0,
+      "count": 2,
+      "minimum": 0,
+      "maximum": 0,
+      "mean": 0
+    },
+    {
+      "name": "worker-provider-cost",
+      "unit": "microusd",
+      "comparison": "exact",
+      "threshold": 0,
+      "count": 6,
+      "minimum": 0,
+      "maximum": 0,
+      "mean": 0
+    },
+    {
+      "name": "worker-reconciliation-count",
+      "unit": "count",
+      "comparison": "exact",
+      "threshold": 0,
+      "count": 5,
+      "minimum": 0,
+      "maximum": 0,
+      "mean": 0
+    },
+    {
+      "name": "worker-reconciliation-count",
+      "unit": "count",
+      "comparison": "exact",
+      "threshold": 1,
+      "count": 1,
+      "minimum": 1,
+      "maximum": 1,
+      "mean": 1
+    },
+    {
+      "name": "worker-rejected-count",
+      "unit": "count",
+      "comparison": "exact",
+      "threshold": 1,
+      "count": 3,
+      "minimum": 1,
+      "maximum": 1,
+      "mean": 1
+    },
+    {
+      "name": "worker-rejected-count",
+      "unit": "count",
+      "comparison": "exact",
+      "threshold": 0,
+      "count": 3,
+      "minimum": 0,
+      "maximum": 0,
+      "mean": 0
+    },
+    {
+      "name": "worker-retry-count",
+      "unit": "count",
+      "comparison": "exact",
+      "threshold": 0,
+      "count": 4,
+      "minimum": 0,
+      "maximum": 0,
+      "mean": 0
+    },
+    {
+      "name": "worker-retry-count",
+      "unit": "count",
+      "comparison": "exact",
+      "threshold": 1,
+      "count": 2,
+      "minimum": 1,
+      "maximum": 1,
+      "mean": 1
+    },
+    {
+      "name": "worker-stale-writer-rejection-count",
+      "unit": "count",
+      "comparison": "exact",
+      "threshold": 0,
+      "count": 5,
+      "minimum": 0,
+      "maximum": 0,
+      "mean": 0
+    },
+    {
+      "name": "worker-stale-writer-rejection-count",
+      "unit": "count",
+      "comparison": "exact",
+      "threshold": 1,
+      "count": 1,
+      "minimum": 1,
+      "maximum": 1,
+      "mean": 1
+    }
+  ],
+  "supplementalGates": [
+    {
+      "id": "agent-memory-context-loader-conformance",
+      "testFile": "packages/agent/src/__tests__/memory-context-loader-lifecycle.test.ts",
+      "expectedTests": 10
+    }
+  ],
+  "qualification": {
+    "providerFree": "passed",
+    "aggregate": "not-evaluated-by-this-artifact",
+    "liveProvider": "not-run",
+    "productionEnablement": "not-enabled"
+  },
+  "reports": [
+    {
+      "schema": "datazup.memory.conformance-report/v1",
+      "suiteId": "memory-record-conformance",
+      "suiteVersion": "v1",
+      "domain": "record",
+      "harnessVersion": "mem-p006-v1",
+      "fixtureSetId": "invented-record-contracts",
+      "fixtureVersion": "mem-p005-invented-v1",
+      "fixtureDigest": "sha256:001a4b89e1a5c0c36b409cfb37517e784df4e447aae24d2326153b1a34c43f18",
+      "profileId": "mem-p006-provider-free-baseline",
+      "profileVersion": "v1",
+      "profileDigest": "sha256:76932cfd14a182bce62dbebe0b1d58461590e43e983f0b3bbd9faa485ea615c6",
+      "sourceDigest": "sha256:78fb9441d226b9c5fc0404afae7b91c46aac0181d29ef2bf3158da5cadaaaf5b",
+      "environment": {
+        "schema": "datazup.memory.conformance-environment/v1",
+        "network": "disabled",
+        "clock": "injected",
+        "provider": "none",
+        "seed": "invented-mem-p006-seed"
+      },
+      "status": "passed",
+      "counts": {
+        "total": 5,
+        "passed": 5,
+        "failed": 0,
+        "expectedRed": 0,
+        "unexpectedPass": 0
+      },
+      "cases": [
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "record.canonical-round-trip",
+          "capability": "canonical-digest",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "canonical-round-trip",
+          "metrics": [],
+          "evidenceDigests": [
+            "sha256:230b6810b86bcc91a90b5d35a72c9609d0a4c4149f79619d7c591b1e82e1d984"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "record.hostile-object-boundary",
+          "capability": "hostile-decoding",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "hostile-input-rejected",
+          "metrics": [],
+          "evidenceDigests": []
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "record.metadata-cannot-grant-authority",
+          "capability": "authority-separation",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "authority-and-secret-rejected",
+          "metrics": [],
+          "evidenceDigests": []
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "record.restricted-content-by-reference",
+          "capability": "sensitive-content-custody",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "restricted-reference-only",
+          "metrics": [],
+          "evidenceDigests": [
+            "sha256:76665878f8690ae8fcc69b4c12467ea510f01d9f254ed244ccb59ee296536c01"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "record.scope-required",
+          "capability": "scope-isolation",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "scope-required",
+          "metrics": [],
+          "evidenceDigests": []
+        }
+      ],
+      "reportDigest": "sha256:1f259c819fd8b2234eef2b639b05be520b2acd79343f5818f415a82369704baa"
+    },
+    {
+      "schema": "datazup.memory.conformance-report/v1",
+      "suiteId": "memory-lifecycle-conformance",
+      "suiteVersion": "v1",
+      "domain": "lifecycle",
+      "harnessVersion": "mem-p006-v1",
+      "fixtureSetId": "invented-lifecycle-contracts",
+      "fixtureVersion": "mem-p005-invented-v1",
+      "fixtureDigest": "sha256:426592bdba1ee8eac3607587a53b487eb1d01b2af4fdacd2892f9da26004190c",
+      "profileId": "mem-p006-provider-free-baseline",
+      "profileVersion": "v1",
+      "profileDigest": "sha256:76932cfd14a182bce62dbebe0b1d58461590e43e983f0b3bbd9faa485ea615c6",
+      "sourceDigest": "sha256:78fb9441d226b9c5fc0404afae7b91c46aac0181d29ef2bf3158da5cadaaaf5b",
+      "environment": {
+        "schema": "datazup.memory.conformance-environment/v1",
+        "network": "disabled",
+        "clock": "injected",
+        "provider": "none",
+        "seed": "invented-mem-p006-seed"
+      },
+      "status": "passed",
+      "counts": {
+        "total": 8,
+        "passed": 8,
+        "failed": 0,
+        "expectedRed": 0,
+        "unexpectedPass": 0
+      },
+      "cases": [
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "lifecycle.archive-preserves-custody",
+          "capability": "archive-truthfulness",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "archive-custody-recorded",
+          "metrics": [],
+          "evidenceDigests": [
+            "sha256:df788517162a6bb997eebc4897b9c6664f8fd583055e40040dac2f2a4e42db02"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "lifecycle.bounded-generated-sequences",
+          "capability": "bounded-transition-generation",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "bounded-sequences-continuous",
+          "metrics": [],
+          "evidenceDigests": [
+            "sha256:13f9f8a8ba4fc161b6afe1225dd0944502b943e731a7598c9405deabcf13fc5c",
+            "sha256:1eb3958e22cc07121bd76b4d3c8822a7933cae557184f52980fdea6d3c625ad6",
+            "sha256:27e5154f9196ada1a59a6d01003a65507f393e4971c5c5bfc9e29d61162d3219",
+            "sha256:32f65ea6468f989de188aca86466f7e8415fe803c46928816cd88fe326003c8d",
+            "sha256:6ab0028cac9020475c2709a9e95483e6180ed2379b4895cc1ada43a06cf85d9f",
+            "sha256:d54fe3000cab3f832a1f801c58619aa8f9085fb1a6798f8f5949c29c9f1fdfe9",
+            "sha256:d8ee7674a37793148c690fb53dec510b790aab42e181d3af1de573a8a6b42472",
+            "sha256:eed982d7999027ad7adece655272bac98a99af212fb78901195ba05ef84c7da8"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "lifecycle.conflicting-replay-rejected",
+          "capability": "idempotency-conflict",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "conflicting-replay-rejected",
+          "metrics": [],
+          "evidenceDigests": []
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "lifecycle.correction-preserves-branches",
+          "capability": "branch-preservation",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "correction-branches-preserved",
+          "metrics": [],
+          "evidenceDigests": [
+            "sha256:4b91d0761b4c9ea5da752c042e7716806eac5d23190f63a7de9f524e7d38e36f",
+            "sha256:925e673dfdccc5c7ddcba2158fd8ee7451dea89d5dd758dba8f002fe14fa976f"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "lifecycle.legal-sequence-and-replay",
+          "capability": "idempotent-transitions",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "legal-sequence-replayed",
+          "metrics": [],
+          "evidenceDigests": [
+            "sha256:47bda265bfda3b607e8718654c5efcff3b53523165f1af6661de9452efaa7f28"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "lifecycle.purge-remains-proposal",
+          "capability": "purge-truthfulness",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "purge-remains-proposed",
+          "metrics": [],
+          "evidenceDigests": [
+            "sha256:f40e35d6c22e3e6767e12d3208706d0d6ee25b978185df795d4d78b7d7712e17"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "lifecycle.reorder-gap-and-time-reversal",
+          "capability": "ordered-replay",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "invalid-ordering-rejected",
+          "metrics": [],
+          "evidenceDigests": []
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "lifecycle.revoke-excludes-immediately",
+          "capability": "logical-revocation",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "revocation-immediate",
+          "metrics": [],
+          "evidenceDigests": [
+            "sha256:95264714769ec64d324cb0ead9cc074623d730c2a4856d198d6c9009fbee746e"
+          ]
+        }
+      ],
+      "reportDigest": "sha256:8caee5e45fe84cf8c35fe40e42004edbe7865edc37e2ad497066e750dabe8c6b"
+    },
+    {
+      "schema": "datazup.memory.conformance-report/v1",
+      "suiteId": "memory-store-conformance",
+      "suiteVersion": "v1",
+      "domain": "store",
+      "harnessVersion": "mem-p006-v1",
+      "fixtureSetId": "invented-store-contracts",
+      "fixtureVersion": "mem-p005-invented-v1",
+      "fixtureDigest": "sha256:0fe1d3b258ec6c2747729c6deb6419013f26882dc906e5cc26289440f650407e",
+      "profileId": "mem-p006-provider-free-baseline",
+      "profileVersion": "v1",
+      "profileDigest": "sha256:76932cfd14a182bce62dbebe0b1d58461590e43e983f0b3bbd9faa485ea615c6",
+      "sourceDigest": "sha256:78fb9441d226b9c5fc0404afae7b91c46aac0181d29ef2bf3158da5cadaaaf5b",
+      "environment": {
+        "schema": "datazup.memory.conformance-environment/v1",
+        "network": "disabled",
+        "clock": "injected",
+        "provider": "none",
+        "seed": "invented-mem-p006-seed"
+      },
+      "status": "passed",
+      "counts": {
+        "total": 8,
+        "passed": 8,
+        "failed": 0,
+        "expectedRed": 0,
+        "unexpectedPass": 0
+      },
+      "cases": [
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "store.ambiguous-outcome-reconciliation",
+          "capability": "ambiguous-outcome-reconciliation",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "ambiguous-outcomes-reconciled",
+          "metrics": [],
+          "evidenceDigests": [
+            "sha256:c4a6a608ebbeca6d761047edc4a42f00d07e38924e27ccb4704a02f8dac1c57a"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "store.concurrent-cas",
+          "capability": "atomic-compare-and-swap",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "single-writer-won",
+          "metrics": [],
+          "evidenceDigests": [
+            "sha256:9407283bc1d4f63865506d7c746db8062bb8364ec20990537a1ea978ec3f3d47"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "store.correction-branches-after-restart",
+          "capability": "persistent-correction-branches",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "correction-branches-durable",
+          "metrics": [],
+          "evidenceDigests": [
+            "sha256:2a85cb957a321b373288b9495550a696a9e331f98c0004d9f1825d50177c561b",
+            "sha256:d00077749449ccfb690c8f8fd304ca59e98f4212f8c8dc22be36ed9136a49672"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "store.generation-rollover",
+          "capability": "bounded-checkpoint-rollover",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "rollover-bounded",
+          "metrics": [],
+          "evidenceDigests": [
+            "sha256:34f0ef271c9b3d7b2c92dd12a1cedb9077e0dbea0ba53917052f331e53307c8e"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "store.hostile-adapter-output",
+          "capability": "hostile-adapter-boundary",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "hostile-adapter-contained",
+          "metrics": [],
+          "evidenceDigests": []
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "store.restart-and-replay",
+          "capability": "durable-idempotency",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "restart-replay-preserved",
+          "metrics": [],
+          "evidenceDigests": [
+            "sha256:92b0e4ac36ef8a27815859e0b336aedcba3e004af361f7fbe32a273ff6d1865a"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "store.scope-isolation",
+          "capability": "scope-isolation",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "scope-isolated",
+          "metrics": [],
+          "evidenceDigests": []
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "store.unsupported-capability",
+          "capability": "fail-closed-capabilities",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "unsupported-failed-closed",
+          "metrics": [],
+          "evidenceDigests": []
+        }
+      ],
+      "reportDigest": "sha256:7fbbb73fadb907e2eb4020a0de346f5b06a685baae9f473c539f8b7a3ce5a0ab"
+    },
+    {
+      "schema": "datazup.memory.conformance-report/v1",
+      "suiteId": "memory-retrieval-conformance",
+      "suiteVersion": "v1",
+      "domain": "retrieval",
+      "harnessVersion": "mem-p006-v1",
+      "fixtureSetId": "invented-long-horizon-retrieval-contracts",
+      "fixtureVersion": "mem-p005-invented-v1",
+      "fixtureDigest": "sha256:c055599e6e578f4c13744aca230ab53c087ee756429f690d975a84f4dfd5b58e",
+      "profileId": "mem-p006-provider-free-baseline",
+      "profileVersion": "v1",
+      "profileDigest": "sha256:76932cfd14a182bce62dbebe0b1d58461590e43e983f0b3bbd9faa485ea615c6",
+      "sourceDigest": "sha256:78fb9441d226b9c5fc0404afae7b91c46aac0181d29ef2bf3158da5cadaaaf5b",
+      "environment": {
+        "schema": "datazup.memory.conformance-environment/v1",
+        "network": "disabled",
+        "clock": "injected",
+        "provider": "none",
+        "seed": "invented-mem-p006-seed"
+      },
+      "status": "passed",
+      "counts": {
+        "total": 9,
+        "passed": 9,
+        "failed": 0,
+        "expectedRed": 0,
+        "unexpectedPass": 0
+      },
+      "cases": [
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "retrieval.abstention",
+          "capability": "explicit-abstention",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "abstention-explicit",
+          "metrics": [
+            {
+              "name": "abstention-accuracy",
+              "value": 1,
+              "unit": "ratio",
+              "threshold": 1,
+              "comparison": "at-least",
+              "passed": true
+            }
+          ],
+          "evidenceDigests": []
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "retrieval.correction-and-stale-candidates",
+          "capability": "active-version-correctness",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "correction-re-resolved",
+          "metrics": [
+            {
+              "name": "active-version-accuracy",
+              "value": 1,
+              "unit": "ratio",
+              "threshold": 1,
+              "comparison": "at-least",
+              "passed": true
+            },
+            {
+              "name": "correction-accuracy",
+              "value": 1,
+              "unit": "ratio",
+              "threshold": 1,
+              "comparison": "at-least",
+              "passed": true
+            },
+            {
+              "name": "stale-retrieval-rate",
+              "value": 0,
+              "unit": "ratio",
+              "threshold": 0,
+              "comparison": "at-most",
+              "passed": true
+            }
+          ],
+          "evidenceDigests": [
+            "sha256:f067223ebd30d17846777c2bd5a7aa04d5d6eec676e64d82a00d851acfd13cff"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "retrieval.external-provider-admission",
+          "capability": "provider-disclosure-policy",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "provider-ineligible-blocked",
+          "metrics": [
+            {
+              "name": "leakage-rate",
+              "value": 0,
+              "unit": "ratio",
+              "threshold": 0,
+              "comparison": "at-most",
+              "passed": true
+            }
+          ],
+          "evidenceDigests": []
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "retrieval.lifecycle-modes",
+          "capability": "explicit-history-semantics",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "history-as-of-semantics-explicit",
+          "metrics": [
+            {
+              "name": "active-version-accuracy",
+              "value": 1,
+              "unit": "ratio",
+              "threshold": 1,
+              "comparison": "at-least",
+              "passed": true
+            },
+            {
+              "name": "revoked-retrieval-rate",
+              "value": 0,
+              "unit": "ratio",
+              "threshold": 0,
+              "comparison": "at-most",
+              "passed": true
+            }
+          ],
+          "evidenceDigests": [
+            "sha256:10be12dca13ec028347493375b30785d41173d17f35e81cf2519b6b070e79297",
+            "sha256:33f936911bc8818abf7138a01dc0737522bc721fec06db9e592c4c67893d44c2",
+            "sha256:8c5393177046c8ee52abadcaeb99db805d378286eb76d2587eb66a47812529f5",
+            "sha256:a87cb5b94db92a82fddcc9f0962d0aaceb8158f3be2f80792753a0a4f7ef3c82",
+            "sha256:b280eb6f6bc82969929d9293e34f4d45a3c5d76e87a7be520468fd2a414add43",
+            "sha256:d87fcb8a2e78dc315ba898d0ca58c032d537ac6ca40bedc431515ef91b2766ea"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "retrieval.long-horizon-causal",
+          "capability": "causal-recall",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "causal-record-grounded",
+          "metrics": [
+            {
+              "name": "precision-at-k",
+              "value": 1,
+              "unit": "ratio",
+              "threshold": 1,
+              "comparison": "at-least",
+              "passed": true
+            },
+            {
+              "name": "recall-at-k",
+              "value": 1,
+              "unit": "ratio",
+              "threshold": 1,
+              "comparison": "at-least",
+              "passed": true
+            },
+            {
+              "name": "mrr",
+              "value": 1,
+              "unit": "ratio",
+              "threshold": 1,
+              "comparison": "at-least",
+              "passed": true
+            },
+            {
+              "name": "ndcg",
+              "value": 1,
+              "unit": "ratio",
+              "threshold": 1,
+              "comparison": "at-least",
+              "passed": true
+            },
+            {
+              "name": "grounded-selection-rate",
+              "value": 1,
+              "unit": "ratio",
+              "threshold": 1,
+              "comparison": "at-least",
+              "passed": true
+            }
+          ],
+          "evidenceDigests": [
+            "sha256:6c7a9e69a2d96457af7e73a28d79fcb6cdbedb46e8a94e34d3ee957ee7e67775"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "retrieval.multi-session-ranking",
+          "capability": "multi-session-recall",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "multi-session-ranked",
+          "metrics": [
+            {
+              "name": "precision-at-k",
+              "value": 1,
+              "unit": "ratio",
+              "threshold": 1,
+              "comparison": "at-least",
+              "passed": true
+            },
+            {
+              "name": "recall-at-k",
+              "value": 1,
+              "unit": "ratio",
+              "threshold": 1,
+              "comparison": "at-least",
+              "passed": true
+            },
+            {
+              "name": "mrr",
+              "value": 1,
+              "unit": "ratio",
+              "threshold": 1,
+              "comparison": "at-least",
+              "passed": true
+            },
+            {
+              "name": "ndcg",
+              "value": 1,
+              "unit": "ratio",
+              "threshold": 1,
+              "comparison": "at-least",
+              "passed": true
+            },
+            {
+              "name": "grounded-selection-rate",
+              "value": 1,
+              "unit": "ratio",
+              "threshold": 1,
+              "comparison": "at-least",
+              "passed": true
+            },
+            {
+              "name": "deterministic-latency-ms",
+              "value": 2,
+              "unit": "milliseconds",
+              "threshold": 250,
+              "comparison": "at-most",
+              "passed": true
+            },
+            {
+              "name": "selected-tokens",
+              "value": 34,
+              "unit": "tokens",
+              "threshold": 20000,
+              "comparison": "at-most",
+              "passed": true
+            },
+            {
+              "name": "provider-cost-microusd",
+              "value": 0,
+              "unit": "microusd",
+              "threshold": 0,
+              "comparison": "at-most",
+              "passed": true
+            }
+          ],
+          "evidenceDigests": [
+            "sha256:b204c274dca22da4ab7792c1de28471eb574572a6bd554203c82db2db254efff",
+            "sha256:c3e1a1d1cc89bc20b80d99a721b608f64eabc91010f4fe28f3eb11a793bb361a"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "retrieval.scope-and-content-leakage",
+          "capability": "privacy-boundary",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "scope-and-content-contained",
+          "metrics": [
+            {
+              "name": "leakage-rate",
+              "value": 0,
+              "unit": "ratio",
+              "threshold": 0,
+              "comparison": "at-most",
+              "passed": true
+            }
+          ],
+          "evidenceDigests": [
+            "sha256:3b621a40c66d40fbe572d0bd1755d125bc08b324ebccadbbf6a102cd8686c7dd"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "retrieval.stage-deadlines",
+          "capability": "bounded-cancellation",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "stage-deadlines-enforced",
+          "metrics": [],
+          "evidenceDigests": []
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "retrieval.temporal-boundaries",
+          "capability": "as-of-validity",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "temporal-boundaries-exact",
+          "metrics": [
+            {
+              "name": "temporal-accuracy",
+              "value": 1,
+              "unit": "ratio",
+              "threshold": 1,
+              "comparison": "at-least",
+              "passed": true
+            }
+          ],
+          "evidenceDigests": [
+            "sha256:517495d841db518ffc6e758d390222b3a40ee2b0fb007884b888eb31cafaeaab"
+          ]
+        }
+      ],
+      "reportDigest": "sha256:6f29adc2ec6d0012e74171e21afd9a849d5895e63064b7188dbfe2bdab60b5fb"
+    },
+    {
+      "schema": "datazup.memory.conformance-report/v1",
+      "suiteId": "memory-compaction-conformance",
+      "suiteVersion": "v1",
+      "domain": "compaction",
+      "harnessVersion": "mem-p006-v1",
+      "fixtureSetId": "invented-completed-tool-transcripts",
+      "fixtureVersion": "mem-p005-invented-v1",
+      "fixtureDigest": "sha256:742ca18553e99b7639c57bef0b1f0bb8c92b4972d1f71172992d97ff0e2456bb",
+      "profileId": "mem-p006-provider-free-baseline",
+      "profileVersion": "v1",
+      "profileDigest": "sha256:76932cfd14a182bce62dbebe0b1d58461590e43e983f0b3bbd9faa485ea615c6",
+      "sourceDigest": "sha256:78fb9441d226b9c5fc0404afae7b91c46aac0181d29ef2bf3158da5cadaaaf5b",
+      "environment": {
+        "schema": "datazup.memory.conformance-environment/v1",
+        "network": "disabled",
+        "clock": "injected",
+        "provider": "none",
+        "seed": "invented-mem-p006-seed"
+      },
+      "status": "passed",
+      "counts": {
+        "total": 8,
+        "passed": 8,
+        "failed": 0,
+        "expectedRed": 0,
+        "unexpectedPass": 0
+      },
+      "cases": [
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "compaction.bounded-target",
+          "capability": "bounded-target-reclamation",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "target-remained-bounded",
+          "metrics": [
+            {
+              "name": "reclaimed-tokens",
+              "value": 312,
+              "unit": "tokens",
+              "threshold": 1,
+              "comparison": "at-least",
+              "passed": true
+            }
+          ],
+          "evidenceDigests": []
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "compaction.complete-pairs",
+          "capability": "complete-pair-rewrite",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "complete-pairs-compacted",
+          "metrics": [
+            {
+              "name": "reclaimed-tokens",
+              "value": 311,
+              "unit": "tokens",
+              "threshold": 1,
+              "comparison": "at-least",
+              "passed": true
+            }
+          ],
+          "evidenceDigests": []
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "compaction.hostile-input",
+          "capability": "hostile-boundary",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "hostile-input-rejected",
+          "metrics": [],
+          "evidenceDigests": []
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "compaction.idempotence",
+          "capability": "idempotent-rewrite",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "compaction-idempotent",
+          "metrics": [
+            {
+              "name": "reclaimed-tokens",
+              "value": 312,
+              "unit": "tokens",
+              "threshold": 1,
+              "comparison": "at-least",
+              "passed": true
+            }
+          ],
+          "evidenceDigests": []
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "compaction.incomplete-pairs",
+          "capability": "incomplete-pair-preservation",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "incomplete-pairs-preserved",
+          "metrics": [],
+          "evidenceDigests": []
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "compaction.malformed-pairs",
+          "capability": "atomic-pairing-rejection",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "malformed-pairs-rejected",
+          "metrics": [],
+          "evidenceDigests": []
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "compaction.measurement-provenance",
+          "capability": "tokenizer-truthfulness",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "measurement-provenance-truthful",
+          "metrics": [
+            {
+              "name": "reclaimed-tokens",
+              "value": 312,
+              "unit": "tokens",
+              "threshold": 1,
+              "comparison": "at-least",
+              "passed": true
+            }
+          ],
+          "evidenceDigests": []
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "compaction.metadata-and-canary",
+          "capability": "metadata-and-content-custody",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "metadata-preserved-canary-removed",
+          "metrics": [
+            {
+              "name": "reclaimed-tokens",
+              "value": 159,
+              "unit": "tokens",
+              "threshold": 1,
+              "comparison": "at-least",
+              "passed": true
+            }
+          ],
+          "evidenceDigests": []
+        }
+      ],
+      "reportDigest": "sha256:0b8642c4c927df2d8305461b7d4227ca7982c23d6e81dc7f3ee8efbfb933266e"
+    },
+    {
+      "schema": "datazup.memory.conformance-report/v1",
+      "suiteId": "memory-deletion-conformance",
+      "suiteVersion": "v1",
+      "domain": "deletion",
+      "harnessVersion": "mem-p006-v1",
+      "fixtureSetId": "invented-deletion-contracts",
+      "fixtureVersion": "mem-p005-invented-v1",
+      "fixtureDigest": "sha256:1674fb14b238cb9ce744b6a3009a939564089b96e2cf9ef39064b7cbd2d2890b",
+      "profileId": "mem-p006-provider-free-baseline",
+      "profileVersion": "v1",
+      "profileDigest": "sha256:76932cfd14a182bce62dbebe0b1d58461590e43e983f0b3bbd9faa485ea615c6",
+      "sourceDigest": "sha256:78fb9441d226b9c5fc0404afae7b91c46aac0181d29ef2bf3158da5cadaaaf5b",
+      "environment": {
+        "schema": "datazup.memory.conformance-environment/v1",
+        "network": "disabled",
+        "clock": "injected",
+        "provider": "none",
+        "seed": "invented-mem-p006-seed"
+      },
+      "status": "passed",
+      "counts": {
+        "total": 4,
+        "passed": 4,
+        "failed": 0,
+        "expectedRed": 0,
+        "unexpectedPass": 0
+      },
+      "cases": [
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "deletion.invalidation-outcome-truth",
+          "capability": "invalidation-truthfulness",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "invalidation-outcomes-reported",
+          "metrics": [],
+          "evidenceDigests": [
+            "sha256:630e1e5a3393e52188d2c446be125357ab5c434265f36d94e22f29d45e3d878c",
+            "sha256:8fd0cfe837b685dd17cae9dadabca0f5d156882e79eecb5927f5d9ced04af56d",
+            "sha256:e0ac4b0f4ca31630f6ba17ff862bbe88b0baf01e310f01c00b57c68a95cf31cf"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "deletion.legal-hold-blocks-purge",
+          "capability": "legal-hold",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "legal-hold-enforced",
+          "metrics": [],
+          "evidenceDigests": []
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "deletion.purge-is-proposal",
+          "capability": "physical-purge-separation",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "purge-proposal-retained",
+          "metrics": [],
+          "evidenceDigests": [
+            "sha256:b410b58da5cbc5a5f1879da4c1d55b7d3f2ef78b81302aee82e396b38bb5f3a3"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "deletion.revoke-excludes-query",
+          "capability": "logical-deletion",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "revoked-query-empty",
+          "metrics": [],
+          "evidenceDigests": [
+            "sha256:d06e9065b25cf5237841cd504f08d5edf5da4e5f46687d73b50408bbb0bae2de"
+          ]
+        }
+      ],
+      "reportDigest": "sha256:cb23e7cd3c6657ebc161afe7e76f0b61312a1d0e572843cba5e3ac958c452e69"
+    },
+    {
+      "schema": "datazup.memory.conformance-report/v1",
+      "suiteId": "memory-worker-conformance",
+      "suiteVersion": "v1",
+      "domain": "worker",
+      "harnessVersion": "mem-p006-v1",
+      "fixtureSetId": "invented-memory-worker-fixtures",
+      "fixtureVersion": "v1",
+      "fixtureDigest": "sha256:2f4ddb0045e61a574d09f20ce30af0cc4016ebf6c5b9f7e038122a35cdaad741",
+      "profileId": "mem-p006-provider-free-baseline",
+      "profileVersion": "v1",
+      "profileDigest": "sha256:76932cfd14a182bce62dbebe0b1d58461590e43e983f0b3bbd9faa485ea615c6",
+      "sourceDigest": "sha256:78fb9441d226b9c5fc0404afae7b91c46aac0181d29ef2bf3158da5cadaaaf5b",
+      "environment": {
+        "schema": "datazup.memory.conformance-environment/v1",
+        "network": "disabled",
+        "clock": "injected",
+        "provider": "none",
+        "seed": "invented-mem-p006-seed"
+      },
+      "status": "passed",
+      "counts": {
+        "total": 15,
+        "passed": 15,
+        "failed": 0,
+        "expectedRed": 0,
+        "unexpectedPass": 0
+      },
+      "cases": [
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "worker-bounded-capacity",
+          "capability": "bounded-retention",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "worker-contract-satisfied",
+          "metrics": [
+            {
+              "name": "worker-accepted-count",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-rejected-count",
+              "value": 1,
+              "unit": "count",
+              "threshold": 1,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-retry-count",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-reconciliation-count",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-dead-letter-count",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-stale-writer-rejection-count",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-maximum-queue-depth",
+              "value": 1,
+              "unit": "count",
+              "threshold": 1,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-provider-cost",
+              "value": 0,
+              "unit": "microusd",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            }
+          ],
+          "evidenceDigests": [
+            "sha256:11c11db30f4b3f6c758722ba3e27eea08145b7d212f6a157451e364b48475280"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "worker-candidate-only-output",
+          "capability": "candidate-review-boundary",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "worker-contract-satisfied",
+          "metrics": [
+            {
+              "name": "worker-accepted-count",
+              "value": 1,
+              "unit": "count",
+              "threshold": 1,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-rejected-count",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-retry-count",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-reconciliation-count",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-dead-letter-count",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-stale-writer-rejection-count",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-maximum-queue-depth",
+              "value": 1,
+              "unit": "count",
+              "threshold": 1,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-provider-cost",
+              "value": 0,
+              "unit": "microusd",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            }
+          ],
+          "evidenceDigests": [
+            "sha256:11c11db30f4b3f6c758722ba3e27eea08145b7d212f6a157451e364b48475280"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "worker-checkpoint-precondition",
+          "capability": "checkpoint-integrity",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "worker-contract-satisfied",
+          "metrics": [],
+          "evidenceDigests": [
+            "sha256:11c11db30f4b3f6c758722ba3e27eea08145b7d212f6a157451e364b48475280"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "worker-current-admission-required",
+          "capability": "current-admission",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "worker-contract-satisfied",
+          "metrics": [],
+          "evidenceDigests": [
+            "sha256:11c11db30f4b3f6c758722ba3e27eea08145b7d212f6a157451e364b48475280"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "worker-deterministic-retry",
+          "capability": "finite-retry",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "worker-contract-satisfied",
+          "metrics": [
+            {
+              "name": "worker-accepted-count",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-rejected-count",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-retry-count",
+              "value": 1,
+              "unit": "count",
+              "threshold": 1,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-reconciliation-count",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-dead-letter-count",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-stale-writer-rejection-count",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-maximum-queue-depth",
+              "value": 1,
+              "unit": "count",
+              "threshold": 1,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-provider-cost",
+              "value": 0,
+              "unit": "microusd",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            }
+          ],
+          "evidenceDigests": [
+            "sha256:11c11db30f4b3f6c758722ba3e27eea08145b7d212f6a157451e364b48475280"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "worker-duplicate-envelope-identity-conflict",
+          "capability": "envelope-identity",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "worker-contract-satisfied",
+          "metrics": [],
+          "evidenceDigests": [
+            "sha256:11c11db30f4b3f6c758722ba3e27eea08145b7d212f6a157451e364b48475280"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "worker-reconcile-before-retry",
+          "capability": "reconciliation-gate",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "worker-contract-satisfied",
+          "metrics": [
+            {
+              "name": "worker-accepted-count",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-rejected-count",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-retry-count",
+              "value": 1,
+              "unit": "count",
+              "threshold": 1,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-reconciliation-count",
+              "value": 1,
+              "unit": "count",
+              "threshold": 1,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-dead-letter-count",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-stale-writer-rejection-count",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-maximum-queue-depth",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-provider-cost",
+              "value": 0,
+              "unit": "microusd",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            }
+          ],
+          "evidenceDigests": [
+            "sha256:11c11db30f4b3f6c758722ba3e27eea08145b7d212f6a157451e364b48475280"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "worker-reconciliation-generation-fence",
+          "capability": "lease-fencing",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "worker-contract-satisfied",
+          "metrics": [
+            {
+              "name": "worker-accepted-count",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-rejected-count",
+              "value": 1,
+              "unit": "count",
+              "threshold": 1,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-retry-count",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-reconciliation-count",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-dead-letter-count",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-stale-writer-rejection-count",
+              "value": 1,
+              "unit": "count",
+              "threshold": 1,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-maximum-queue-depth",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-provider-cost",
+              "value": 0,
+              "unit": "microusd",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            }
+          ],
+          "evidenceDigests": [
+            "sha256:11c11db30f4b3f6c758722ba3e27eea08145b7d212f6a157451e364b48475280"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "worker-reference-only-envelope",
+          "capability": "reference-only-contract",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "worker-contract-satisfied",
+          "metrics": [],
+          "evidenceDigests": [
+            "sha256:11c11db30f4b3f6c758722ba3e27eea08145b7d212f6a157451e364b48475280"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "worker-scoped-idempotency",
+          "capability": "scoped-idempotency",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "worker-contract-satisfied",
+          "metrics": [],
+          "evidenceDigests": [
+            "sha256:11c11db30f4b3f6c758722ba3e27eea08145b7d212f6a157451e364b48475280"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "worker-state-roundtrip",
+          "capability": "durable-state-contract",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "worker-contract-satisfied",
+          "metrics": [],
+          "evidenceDigests": [
+            "sha256:11c11db30f4b3f6c758722ba3e27eea08145b7d212f6a157451e364b48475280"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "worker-state-tamper-rejected",
+          "capability": "state-integrity",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "worker-contract-satisfied",
+          "metrics": [],
+          "evidenceDigests": [
+            "sha256:11c11db30f4b3f6c758722ba3e27eea08145b7d212f6a157451e364b48475280"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "worker-terminal-dead-letter",
+          "capability": "dead-letter-retention",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "worker-contract-satisfied",
+          "metrics": [
+            {
+              "name": "worker-accepted-count",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-rejected-count",
+              "value": 1,
+              "unit": "count",
+              "threshold": 1,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-retry-count",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-reconciliation-count",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-dead-letter-count",
+              "value": 1,
+              "unit": "count",
+              "threshold": 1,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-stale-writer-rejection-count",
+              "value": 0,
+              "unit": "count",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-maximum-queue-depth",
+              "value": 1,
+              "unit": "count",
+              "threshold": 1,
+              "comparison": "exact",
+              "passed": true
+            },
+            {
+              "name": "worker-provider-cost",
+              "value": 0,
+              "unit": "microusd",
+              "threshold": 0,
+              "comparison": "exact",
+              "passed": true
+            }
+          ],
+          "evidenceDigests": [
+            "sha256:11c11db30f4b3f6c758722ba3e27eea08145b7d212f6a157451e364b48475280"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "worker-timeout-is-ambiguous",
+          "capability": "ambiguous-delivery",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "worker-contract-satisfied",
+          "metrics": [],
+          "evidenceDigests": [
+            "sha256:11c11db30f4b3f6c758722ba3e27eea08145b7d212f6a157451e364b48475280"
+          ]
+        },
+        {
+          "schema": "datazup.memory.conformance-case-result/v1",
+          "caseId": "worker-unknown-cost-survives-dead-letter",
+          "capability": "cost-truthfulness",
+          "expectation": "pass",
+          "status": "passed",
+          "reasonCode": "worker-contract-satisfied",
+          "metrics": [],
+          "evidenceDigests": [
+            "sha256:11c11db30f4b3f6c758722ba3e27eea08145b7d212f6a157451e364b48475280"
+          ]
+        }
+      ],
+      "reportDigest": "sha256:196d51ed58c8bf45f60d549c6bf051081cb13579b4b7cbec27c058de54ab6ea7"
+    }
+  ],
+  "resultDigest": "sha256:6ca23c1ec7823f3bf48446ae196095949e78b908f45a0c7583aa2e8f68b18f0b"
+}

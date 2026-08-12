@@ -8,6 +8,10 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./tool-results": {
+      "import": "./dist/tool-results/index.js",
+      "types": "./dist/tool-results/index.d.ts"
     }
   },
   "scripts": {
@@ -36,6 +40,7 @@
     }
   },
   "devDependencies": {
+    "@dzupagent/memory": "0.2.0",
     "@langchain/core": "^1.1.39",
     "apache-arrow": "19",
     "tsup": "*",

@@ -13,9 +13,29 @@
       "import": "./dist/knowledge/index.js",
       "types": "./dist/knowledge/index.d.ts"
     },
+    "./lifecycle": {
+      "import": "./dist/lifecycle/index.js",
+      "types": "./dist/lifecycle/index.d.ts"
+    },
+    "./records": {
+      "import": "./dist/records/index.js",
+      "types": "./dist/records/index.d.ts"
+    },
+    "./retrieval": {
+      "import": "./dist/retrieval/index.js",
+      "types": "./dist/retrieval/index.d.ts"
+    },
+    "./service": {
+      "import": "./dist/service/index.js",
+      "types": "./dist/service/index.d.ts"
+    },
     "./testing": {
       "import": "./dist/testing/index.js",
       "types": "./dist/testing/index.d.ts"
+    },
+    "./workers": {
+      "import": "./dist/workers/index.js",
+      "types": "./dist/workers/index.d.ts"
     }
   },
   "scripts": {

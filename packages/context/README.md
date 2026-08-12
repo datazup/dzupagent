@@ -33,6 +33,7 @@ Context window engineering for LLM conversations built on LangChain message type
 - **Completeness Scorer** -- Heuristic evaluation of input description quality (0-1)
 - **Prompt Cache** -- Anthropic cache_control breakpoint optimization (75% cost reduction)
 - **Frozen Snapshot** -- Freeze context at session start to maximize cache hits
+- **Completed Tool Compaction** -- Opt-in pairing-safe replacement of old completed tool outputs with truthful token-reclamation evidence
 
 ## Install
 
@@ -89,6 +90,34 @@ const messageConfig = {
 
 Treat the model-written rolling summary as short-term context. Promote durable
 facts through an explicit memory write or candidate workflow.
+
+For a provider-free pass that reclaims completed tool output before model
+summarization, use the narrow subpath:
+
+```typescript
+import { compactCompletedToolResults } from '@dzupagent/context/tool-results'
+
+const result = compactCompletedToolResults(messages, {
+  schema: 'datazup.context.completed-tool-compaction-profile/v1',
+  preserveRecentCompletedPairs: 4,
+  minimumResultTokens: 128,
+  maxCompactedResults: 16,
+  measurement: 'require-tokenizer',
+}, { tokenCounter, model: 'gpt-5' })
+```
+
+Only contiguous, uniquely paired, fully completed call/result groups are
+eligible. Incomplete groups remain intact; orphaned, duplicate, or reordered
+results reject the operation without changing the transcript. Replacement
+messages preserve tool identity and metadata, remove all output previews, and
+report measured before, after, and reclaimed token counts. The default context
+root remains unchanged.
+
+The context package also runs the reusable provider-free memory compaction
+conformance suite against this concrete implementation. Its adapter and
+invented transcripts are test-only: they do not add a context runtime export,
+transfer transcript custody to the memory package, or imply live-provider or
+production qualification.
 
 For hosts that require the versioned structured-summary contract, enable
 fail-closed section validation:

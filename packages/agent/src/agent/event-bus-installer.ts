@@ -134,6 +134,7 @@ export function installEventBus(
       ? { runId: config.toolExecution.runId }
       : undefined,
     memoryContextMode: config.memoryContextMode,
+    lifecycleMemoryRetrieval: config.lifecycleMemoryRetrieval,
     memoryQueryMaxChars: config.memoryQueryMaxChars,
     arrowMemory: config.arrowMemory,
     memoryProfile: config.memoryProfile,

@@ -1,7 +1,7 @@
 /**
  * Auto-compression pipeline for agent conversations.
  *
- * 4-phase compression integrated into the agent loop:
+ * Optional completed-tool compaction followed by the legacy 4-phase pipeline:
  * 1. Tool result pruning (cheap, no LLM)
  * 2. Orphaned pair repair
  * 3. Boundary-aware split + LLM summarization
@@ -22,7 +22,12 @@ import {
   type MessageManagerConfig,
 } from "./message-manager.js";
 import type { OffloadSink } from "./context-eviction.js";
-import type { TokenMeasurementResult } from "./token-lifecycle.js";
+import type { TokenCounter, TokenMeasurementResult } from "./token-lifecycle.js";
+import { compactCompletedToolResults } from './tool-results/compact-completed-tool-results.js'
+import type {
+  CompletedToolCompactionProfileV1,
+  CompletedToolCompactionResultV1,
+} from './tool-results/types.js'
 
 /**
  * Minimal structural tokenizer surface used by auto-compress (MC-08).
@@ -84,6 +89,13 @@ export interface AutoCompressConfig extends MessageManagerConfig {
   tokenizer?: AutoCompressTokenizer;
 
   /**
+   * Opt-in, provider-free compaction of old fully paired tool results before
+   * threshold evaluation or model summarization. Omitted by default so the
+   * legacy pipeline remains byte-for-byte unchanged.
+   */
+  completedToolCompaction?: CompletedToolCompactionProfileV1;
+
+  /**
    * When set, messages destroyed by summarization are appended (role-tagged,
    * newline-delimited) to `offload.path` via the sink before compression, and
    * the summary gains a final line naming that path so the agent can
@@ -102,6 +114,24 @@ export interface CompressResult {
   degradations?: CompressionDegradation[];
   /** Final measurement, or the rejected preflight measurement on failure. */
   tokenMeasurement?: TokenMeasurementResult;
+  /** Standalone result from the opt-in completed-tool compaction stage. */
+  completedToolCompaction?: CompletedToolCompactionResultV1;
+}
+
+function asTokenCounter(tokenizer?: AutoCompressTokenizer): TokenCounter | undefined {
+  if (tokenizer === undefined) return undefined
+  return {
+    count(text: string): number {
+      return tokenizer.countTokens(text)
+    },
+    ...(tokenizer.countDetailed
+      ? {
+          countDetailed(text: string): TokenMeasurementResult {
+            return tokenizer.countDetailed!(text)
+          },
+        }
+      : {}),
+  }
 }
 
 /**
@@ -186,9 +216,38 @@ export async function autoCompress(
   model: BaseChatModel,
   config?: AutoCompressConfig
 ): Promise<CompressResult> {
+  let messagesAfterToolCompaction = messages;
+  let completedToolCompaction: CompletedToolCompactionResultV1 | undefined;
+  const degradations: CompressionDegradation[] = [];
+  if (config?.completedToolCompaction !== undefined) {
+    completedToolCompaction = compactCompletedToolResults(
+      messages,
+      config.completedToolCompaction,
+      {
+        tokenCounter: asTokenCounter(config.tokenizer),
+        ...(config.tokenizer?.model ? { model: config.tokenizer.model } : {}),
+      },
+    );
+    if (
+      completedToolCompaction.status === 'completed' ||
+      completedToolCompaction.status === 'partial'
+    ) {
+      messagesAfterToolCompaction = completedToolCompaction.messages;
+    } else if (completedToolCompaction.status === 'rejected') {
+      degradations.push({
+        stage: 'completed-tool-compaction',
+        reason: completedToolCompaction.reason,
+        adoptionSafe: true,
+      });
+    }
+  }
+
   let hardBudgetMeasurement: TokenMeasurementResult | undefined;
   if (config?.budget !== undefined) {
-    hardBudgetMeasurement = measureMessageTokens(messages, config.tokenizer);
+    hardBudgetMeasurement = measureMessageTokens(
+      messagesAfterToolCompaction,
+      config.tokenizer,
+    );
     if (hardBudgetMeasurement.method === 'heuristic') {
       const reason = hardBudgetMeasurement.reason ?? 'heuristic token measurement';
       const degradation: CompressionDegradation = {
@@ -206,8 +265,9 @@ export async function autoCompress(
         summary: existingSummary,
         compressed: false,
         fallbackReason: `token-measurement: ${reason}`,
-        degradations: [degradation],
+        degradations: [...degradations, degradation],
         tokenMeasurement: hardBudgetMeasurement,
+        ...(completedToolCompaction ? { completedToolCompaction } : {}),
       };
     }
   }
@@ -216,14 +276,17 @@ export async function autoCompress(
     config?.budget !== undefined &&
     hardBudgetMeasurement !== undefined &&
     hardBudgetMeasurement.tokens > config.budget;
-  if (!exceedsHardBudget && !shouldSummarize(messages, config)) {
+  if (!exceedsHardBudget && !shouldSummarize(messagesAfterToolCompaction, config)) {
+    const toolCompacted = messagesAfterToolCompaction !== messages;
     return {
-      messages,
+      messages: messagesAfterToolCompaction,
       summary: existingSummary,
-      compressed: false,
+      compressed: toolCompacted,
       ...(hardBudgetMeasurement
         ? { tokenMeasurement: hardBudgetMeasurement }
         : {}),
+      ...(degradations.length > 0 ? { degradations } : {}),
+      ...(completedToolCompaction ? { completedToolCompaction } : {}),
     };
   }
 
@@ -232,11 +295,12 @@ export async function autoCompress(
   // safe boundary alignment, so all summarization call paths share one seam.
   const keep = config?.keepRecentMessages ?? 10;
   const willBeLost =
-    messages.length > keep ? messages.slice(0, messages.length - keep) : [];
+    messagesAfterToolCompaction.length > keep
+      ? messagesAfterToolCompaction.slice(0, messagesAfterToolCompaction.length - keep)
+      : [];
 
   let offloadPath: string | undefined;
   let offloadFailure: string | undefined;
-  const degradations: CompressionDegradation[] = [];
   if (willBeLost.length > 0 && config?.offload) {
     offloadPath = config.offload.path ?? ".dzup/history/conversation.log";
     try {
@@ -267,10 +331,10 @@ export async function autoCompress(
 
   // Arrow-aware overlap filtering: drop messages that duplicate memory content.
   // Only runs when config.memoryFrame is set — zero-impact otherwise.
-  let messagesToCompress = messages;
+  let messagesToCompress = messagesAfterToolCompaction;
   if (config?.memoryFrame) {
     try {
-      const messageTexts = messages.map((m) =>
+      const messageTexts = messagesAfterToolCompaction.map((m) =>
         typeof m.content === "string" ? m.content : JSON.stringify(m.content)
       );
       const analysis = batchOverlapAnalysis(
@@ -279,8 +343,9 @@ export async function autoCompress(
       );
       // Drop duplicate messages (keep novel ones + recent messages unconditionally)
       const duplicateIndices = new Set(analysis.duplicate.map((d) => d.index));
-      messagesToCompress = messages.filter(
-        (_, i) => !duplicateIndices.has(i) || i >= messages.length - keep
+      messagesToCompress = messagesAfterToolCompaction.filter(
+        (_, i) => !duplicateIndices.has(i) ||
+          i >= messagesAfterToolCompaction.length - keep
       );
     } catch {
       // Non-fatal: Arrow analysis failure falls back to full message list
@@ -313,6 +378,7 @@ export async function autoCompress(
       compressed: false,
       fallbackReason: `${summaryDegradation.stage}: ${summaryDegradation.reason}`,
       degradations,
+      ...(completedToolCompaction ? { completedToolCompaction } : {}),
     };
   }
 
@@ -351,6 +417,7 @@ export async function autoCompress(
             ? `truncation; ${offloadFailure}`
             : "truncation",
         ...(degradations.length > 0 ? { degradations } : {}),
+        ...(completedToolCompaction ? { completedToolCompaction } : {}),
       };
     }
 
@@ -363,6 +430,7 @@ export async function autoCompress(
         ? { fallbackReason: offloadFailure }
         : {}),
       ...(degradations.length > 0 ? { degradations } : {}),
+      ...(completedToolCompaction ? { completedToolCompaction } : {}),
     };
   }
 
@@ -374,6 +442,7 @@ export async function autoCompress(
       ? { fallbackReason: offloadFailure }
       : {}),
     ...(degradations.length > 0 ? { degradations } : {}),
+    ...(completedToolCompaction ? { completedToolCompaction } : {}),
   };
 }
 

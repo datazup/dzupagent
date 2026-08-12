@@ -378,8 +378,10 @@
         { "match": "exact", "pattern": "./tiktoken-counter.js" }
       ],
       "transitionalRoot": [],
-      "subpaths": {},
-      "migrationWindow": "Context root exports are currently the contracted package surface; add allowlist rules before exposing new root modules."
+      "subpaths": {
+        "./tool-results": "stable opt-in pairing-safe completed tool-result compaction"
+      },
+      "migrationWindow": "Context root exports remain compatible; MEM-P004 completed-tool compaction is available only from the narrow tool-results subpath."
     },
     {
       "packageName": "@dzupagent/rag",

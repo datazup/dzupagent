@@ -562,11 +562,13 @@ Root index: `packages/context/src/index.ts`
 - Stable root sources: `17`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
-- Migration window: Context root exports are currently the contracted package surface; add allowlist rules before exposing new root modules.
+- Migration window: Context root exports remain compatible; MEM-P004 completed-tool compaction is available only from the narrow tool-results subpath.
 
 ### Stable Subpaths
 
-No stable subpaths configured.
+| Subpath | Purpose |
+| --- | --- |
+| `@dzupagent/context/tool-results` | stable opt-in pairing-safe completed tool-result compaction |
 
 ### Root Allowlist
 
