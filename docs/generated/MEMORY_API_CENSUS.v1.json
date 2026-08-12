@@ -3,7 +3,7 @@
   "packet": "MEM-P000",
   "sourceIdentity": {
     "kind": "content-digest-set",
-    "digest": "sha256:637c907a5f168b1fe0f997696214263a8a8c80dffb13d5ef8aa823ba1c077756",
+    "digest": "sha256:a9c2ad3913a367679d5bfe4d967abe987930ec32147a66819bc0a8a4137a9bac",
     "inputs": [
       {
         "path": "config/memory-api-census.v1.json",
@@ -20,7 +20,7 @@
             "@dzupagent/memory-ipc"
           ]
         },
-        "sha256": "sha256:8bcae32f2ce2610d1801037f4e9161fc184d8cbe5aa552a1074902d26e302a54"
+        "sha256": "sha256:2964539980ac6dcc4ede9bd90cef573fcf337196c0fe579565f7d6b1eb822dab"
       },
       {
         "path": "packages/agent-types/package.json",
@@ -64,11 +64,11 @@
       },
       {
         "path": "packages/agent/src/agent/memory-context-loader-types.ts",
-        "sha256": "sha256:37d4e6050635763243446aa6026d909f8f215f77900beb44e34fee77c6f8ebd2"
+        "sha256": "sha256:d6e3a18da75fe39b5b4204770ffa01a0881b1db7e8c7c44fdb3430b4a58a0e92"
       },
       {
         "path": "packages/agent/src/agent/memory-context-loader.ts",
-        "sha256": "sha256:24d26a68c0a20738884de9dacf8b11031d31f3507fa679a1ebbf0bc304150c1c"
+        "sha256": "sha256:51d6cf20803767ad0c817dd9bd69ede2041eec6333dfc34fb3e559d180043c5c"
       },
       {
         "path": "packages/agent/src/index.ts",
@@ -76,7 +76,7 @@
       },
       {
         "path": "packages/context/package.json",
-        "sha256": "sha256:ef337cf946d740f389ab286c694ecc1f376fec10dbef5b73a0449ad25d85d6e2"
+        "sha256": "sha256:1390b955f9af1c6c65ef42d0a0df73829ab878fe6963b790abc5412e31a67818"
       },
       {
         "path": "packages/context/src/__tests__/auto-compress-offload.test.ts",
@@ -92,7 +92,7 @@
       },
       {
         "path": "packages/context/src/auto-compress.ts",
-        "sha256": "sha256:23f0e68eef2962e76c3aa7a5eb732259cee343c0adec998a2a20c48c034d111f"
+        "sha256": "sha256:b1e7a926d60b54b3e3d760d5f65c7c255a1781459f55c2b2ee7b34e474109b34"
       },
       {
         "path": "packages/context/src/context-eviction.ts",
@@ -140,7 +140,7 @@
       },
       {
         "path": "packages/memory/package.json",
-        "sha256": "sha256:d23da53d3f77dde6fa31f8416d33b2842e0980f2ac2e987dc24849548112fe1d"
+        "sha256": "sha256:70674a609a78e2b3c3e9336057fd0c1d405f6aead83a7aa8e289890ee00fe6cf"
       },
       {
         "path": "packages/memory/src/__tests__/in-memory-client.test.ts",
@@ -248,7 +248,7 @@
       },
       {
         "path": "packages/memory/src/testing/index.ts",
-        "sha256": "sha256:1cb9b1e5a83e4cd336b01a213fba2df0da3c5a31b33e13beb1ecaee419134771"
+        "sha256": "sha256:ad25bf43f4fef68949b632705f33674c77d9f96267baf9e6057ea36acd606cc0"
       },
       {
         "path": "scripts/generate-memory-api-census.mjs",
@@ -257,7 +257,7 @@
     ]
   },
   "summary": {
-    "currentExportCount": 663,
+    "currentExportCount": 671,
     "currentSurfaceCount": 9,
     "currentDecisionCount": 46,
     "plannedSurfaceCount": 81,
@@ -265,7 +265,7 @@
     "currentByDisposition": {
       "deprecate": 1,
       "extend": 45,
-      "reuse": 617
+      "reuse": 625
     },
     "plannedByDisposition": {
       "extend": 20,
@@ -283,7 +283,7 @@
       "MEM-P009": 1
     },
     "apiClassCounts": {
-      "declared-subpath": 14,
+      "declared-subpath": 22,
       "internal": 25,
       "stable-root": 351,
       "transitional-root": 273
@@ -10109,10 +10109,115 @@
       "specifier": "@dzupagent/memory/testing",
       "visibility": "public-testing",
       "sourceFile": "packages/memory/src/testing/index.ts",
+      "symbol": "createMemoryCompactionConformanceSuite",
+      "kind": "value",
+      "sourceModule": "./compaction-conformance-v1.js",
+      "sourceSymbol": "createMemoryCompactionConformanceSuite",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-testing",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/testing",
+      "visibility": "public-testing",
+      "sourceFile": "packages/memory/src/testing/index.ts",
+      "symbol": "createMemoryDeletionConformanceSuite",
+      "kind": "value",
+      "sourceModule": "./deletion-conformance-v1.js",
+      "sourceSymbol": "createMemoryDeletionConformanceSuite",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-testing",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/testing",
+      "visibility": "public-testing",
+      "sourceFile": "packages/memory/src/testing/index.ts",
       "symbol": "createMemoryHarness",
       "kind": "value",
       "sourceModule": "./memory-harness.js",
       "sourceSymbol": "createMemoryHarness",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-testing",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/testing",
+      "visibility": "public-testing",
+      "sourceFile": "packages/memory/src/testing/index.ts",
+      "symbol": "createMemoryLifecycleConformanceSuite",
+      "kind": "value",
+      "sourceModule": "./lifecycle-conformance-v1.js",
+      "sourceSymbol": "createMemoryLifecycleConformanceSuite",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-testing",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/testing",
+      "visibility": "public-testing",
+      "sourceFile": "packages/memory/src/testing/index.ts",
+      "symbol": "createMemoryRecordConformanceSuite",
+      "kind": "value",
+      "sourceModule": "./record-conformance-v1.js",
+      "sourceSymbol": "createMemoryRecordConformanceSuite",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-testing",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/testing",
+      "visibility": "public-testing",
+      "sourceFile": "packages/memory/src/testing/index.ts",
+      "symbol": "createMemoryRetrievalConformanceSuite",
+      "kind": "value",
+      "sourceModule": "./retrieval-conformance-v1.js",
+      "sourceSymbol": "createMemoryRetrievalConformanceSuite",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-testing",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/testing",
+      "visibility": "public-testing",
+      "sourceFile": "packages/memory/src/testing/index.ts",
+      "symbol": "createMemoryStoreConformanceSuite",
+      "kind": "value",
+      "sourceModule": "./store-conformance-v1.js",
+      "sourceSymbol": "createMemoryStoreConformanceSuite",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-testing",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/testing",
+      "visibility": "public-testing",
+      "sourceFile": "packages/memory/src/testing/index.ts",
+      "symbol": "createMemoryWorkerConformanceSuite",
+      "kind": "value",
+      "sourceModule": "./worker-conformance-v1.js",
+      "sourceSymbol": "createMemoryWorkerConformanceSuite",
       "apiClass": "declared-subpath",
       "disposition": "reuse",
       "target": null,
@@ -10188,6 +10293,21 @@
       "kind": "value",
       "sourceModule": "./report-truthfulness.js",
       "sourceSymbol": "expectScopeIsPopulated",
+      "apiClass": "declared-subpath",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-testing",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/testing",
+      "visibility": "public-testing",
+      "sourceFile": "packages/memory/src/testing/index.ts",
+      "symbol": "MemoryBenchmarkProfileV1",
+      "kind": "type",
+      "sourceModule": "./benchmark-profile-v1.js",
+      "sourceSymbol": "MemoryBenchmarkProfileV1",
       "apiClass": "declared-subpath",
       "disposition": "reuse",
       "target": null,
