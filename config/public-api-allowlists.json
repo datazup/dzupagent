@@ -350,9 +350,15 @@
       ],
       "subpaths": {
         "./knowledge": "experimental filesystem-backed knowledge projection and snapshot rebuilding",
-        "./testing": "test-only memory harness and truthfulness reporting contracts"
+        "./lifecycle": "stable canonical lifecycle commands events receipts reducers and version-chain projection",
+        "./projections": "pure bounded non-authoritative structured JSON Markdown and semantic diff projections",
+        "./records": "stable canonical memory record decoding canonicalization and compatibility adapters",
+        "./retrieval": "stable lifecycle-aware provider-neutral retrieval facade",
+        "./service": "stable opt-in lifecycle service and store capability ports",
+        "./testing": "test-only memory harness and truthfulness reporting contracts",
+        "./workers": "stable provider-neutral reliable-delivery job outbox lease retry and outcome contracts"
       },
-      "migrationWindow": "Root transitional exports remain available through 0.x; new consumers should prefer future memory/retrieval/store subpaths as they are introduced. The existing knowledge and testing subpaths remain experimental and test-only respectively; MEM-P001 and later contract subpaths require separate acceptance."
+      "migrationWindow": "Root transitional exports remain available through 0.x; accepted records, lifecycle, service, retrieval, workers, and pure projections use narrow subpaths. Knowledge and testing remain experimental and test-only. Effectful projection hosts remain a separately admitted MEM-P007-B concern."
     },
     {
       "packageName": "@dzupagent/context",

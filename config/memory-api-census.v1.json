@@ -47,7 +47,150 @@
       "specifier": "@dzupagent/memory/testing",
       "entry": "packages/memory/src/testing/index.ts",
       "visibility": "public-testing",
-      "defaultDisposition": "reuse"
+      "defaultDisposition": "reuse",
+      "includeSymbols": [
+        "MemoryBenchmarkProfileV1",
+        "MemoryHarness",
+        "MemoryHarnessOptions",
+        "StoreCensus",
+        "TruthfulnessTarget",
+        "censusOf",
+        "createMemoryCompactionConformanceSuite",
+        "createMemoryDeletionConformanceSuite",
+        "createMemoryHarness",
+        "createMemoryLifecycleConformanceSuite",
+        "createMemoryRecordConformanceSuite",
+        "createMemoryRetrievalConformanceSuite",
+        "createMemoryStoreConformanceSuite",
+        "createMemoryWorkerConformanceSuite",
+        "expectCompactedCountIsTruthful",
+        "expectNoDuplicateAfterRewrite",
+        "expectPrunedCountIsTruthful",
+        "expectRepeatedPassesDoNotGrow",
+        "expectScopeIsPopulated"
+      ]
+    },
+    {
+      "id": "memory-workers",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/workers",
+      "entry": "packages/memory/src/workers/index.ts",
+      "visibility": "public",
+      "defaultDisposition": "new",
+      "includeSymbols": [
+        "MemoryConsolidationJobV1",
+        "MemoryConsolidationPort",
+        "MemoryDeadLetterV1",
+        "MemoryOutboxEnvelopeV1",
+        "MemoryRetryPolicyV1",
+        "MemoryWorkerCheckpointV1",
+        "MemoryWorkerLeaseV1",
+        "MemoryWorkerOutcomeV1",
+        "createInMemoryMemoryOutbox"
+      ]
+    },
+    {
+      "id": "memory-records",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/records",
+      "entry": "packages/memory/src/records/index.ts",
+      "visibility": "public",
+      "defaultDisposition": "reuse",
+      "includeSymbols": [
+        "MemoryRecordV1",
+        "MemoryScopeV1",
+        "MemoryKindV1",
+        "MemoryStatusV1",
+        "MemorySensitivityClassV1",
+        "MemoryLifecycleV1",
+        "MemoryTemporalV1",
+        "MemoryProvenanceV1",
+        "MemoryGovernanceV1",
+        "MemoryRetentionProfileRefV1",
+        "MemoryQualityV1",
+        "MemoryContradictionStateV1",
+        "MemoryVerificationStateV1",
+        "MemoryEvidenceRefV1",
+        "MemoryContentRefV1",
+        "MemoryRecordDecodeError",
+        "decodeMemoryRecordV1",
+        "canonicalizeMemoryRecordV1",
+        "digestMemoryRecordV1",
+        "cloneMemoryRecordV1",
+        "freezeMemoryRecordV1",
+        "adaptMemoryRecordToV1",
+        "adaptStagedRecordToV1"
+      ]
+    },
+    {
+      "id": "memory-lifecycle",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/lifecycle",
+      "entry": "packages/memory/src/lifecycle/index.ts",
+      "visibility": "public",
+      "defaultDisposition": "reuse",
+      "includeSymbols": [
+        "MemoryCommandV1",
+        "MemoryEventV1",
+        "MemoryTransitionReceiptV1",
+        "MemoryLifecycleStateV1",
+        "MemoryVersionChainV1",
+        "MemoryTransitionError",
+        "reduceMemoryCommandV1",
+        "projectMemoryVersionChainV1"
+      ]
+    },
+    {
+      "id": "memory-service-lifecycle",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/service",
+      "entry": "packages/memory/src/service/index.ts",
+      "visibility": "public",
+      "defaultDisposition": "reuse",
+      "includeSymbols": [
+        "InMemoryMemoryLifecycleAdapter",
+        "MemoryAdapterCapabilitiesV1",
+        "MemoryInvalidationPort",
+        "MemoryLifecycleService",
+        "MemoryLifecycleStorePort"
+      ]
+    },
+    {
+      "id": "memory-retrieval",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/retrieval",
+      "entry": "packages/memory/src/retrieval/index.ts",
+      "visibility": "public",
+      "defaultDisposition": "reuse",
+      "includeSymbols": [
+        "MemoryCandidateV1",
+        "MemoryQueryRewriterPort",
+        "MemoryQueryV1",
+        "MemoryRerankerPort",
+        "MemoryResultV1",
+        "MemoryRetrievalProfileV1",
+        "MemoryRetrieverPort",
+        "MemorySelectionExplanationV1",
+        "retrieveMemoryV1"
+      ]
+    },
+    {
+      "id": "memory-projections",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "entry": "packages/memory/src/projections/index.ts",
+      "visibility": "public",
+      "defaultDisposition": "new",
+      "includeSymbols": [
+        "MemoryProjectionDiffV1",
+        "MemoryProjectionProfileV1",
+        "MemoryProjectionRequestV1",
+        "MemoryProjectionV1",
+        "diffMemoryProjections",
+        "projectMemoryRecordToJson",
+        "projectMemoryRecordToMarkdown",
+        "projectMemoryRecordV1"
+      ]
     },
     {
       "id": "context-root",
@@ -56,6 +199,19 @@
       "entry": "packages/context/src/index.ts",
       "visibility": "public",
       "defaultDisposition": "reuse"
+    },
+    {
+      "id": "context-tool-results",
+      "owner": "@dzupagent/context",
+      "specifier": "@dzupagent/context/tool-results",
+      "entry": "packages/context/src/tool-results/index.ts",
+      "visibility": "public",
+      "defaultDisposition": "reuse",
+      "includeSymbols": [
+        "CompletedToolCompactionProfileV1",
+        "CompletedToolCompactionResultV1",
+        "compactCompletedToolResults"
+      ]
     },
     {
       "id": "memory-ipc-root",
@@ -851,9 +1007,36 @@
     {
       "owner": "@dzupagent/memory",
       "specifier": "@dzupagent/memory/projections",
+      "symbol": "MemoryProjectionRequestV1",
+      "kind": "type",
+      "packet": "MEM-P007-A",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "symbol": "MemoryProjectionProfileV1",
+      "kind": "type",
+      "packet": "MEM-P007-A",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
       "symbol": "MemoryProjectionV1",
       "kind": "type",
-      "packet": "MEM-P007",
+      "packet": "MEM-P007-A",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "symbol": "MemoryProjectionDiffV1",
+      "kind": "type",
+      "packet": "MEM-P007-A",
       "disposition": "new",
       "overlaps": []
     },
@@ -862,7 +1045,16 @@
       "specifier": "@dzupagent/memory/projections",
       "symbol": "GitMemoryProjectionAdapter",
       "kind": "class",
-      "packet": "MEM-P007",
+      "packet": "MEM-P007-B",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "symbol": "projectMemoryRecordV1",
+      "kind": "function",
+      "packet": "MEM-P007-A",
       "disposition": "new",
       "overlaps": []
     },
@@ -871,7 +1063,7 @@
       "specifier": "@dzupagent/memory/projections",
       "symbol": "projectMemoryRecordToJson",
       "kind": "function",
-      "packet": "MEM-P007",
+      "packet": "MEM-P007-A",
       "disposition": "new",
       "overlaps": []
     },
@@ -880,7 +1072,16 @@
       "specifier": "@dzupagent/memory/projections",
       "symbol": "projectMemoryRecordToMarkdown",
       "kind": "function",
-      "packet": "MEM-P007",
+      "packet": "MEM-P007-A",
+      "disposition": "new",
+      "overlaps": []
+    },
+    {
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory/projections",
+      "symbol": "diffMemoryProjections",
+      "kind": "function",
+      "packet": "MEM-P007-A",
       "disposition": "new",
       "overlaps": []
     },
@@ -992,6 +1193,53 @@
       ]
     },
     {
+      "id": "canonical-memory-lifecycle",
+      "owner": "@dzupagent/memory",
+      "disposition": "extend",
+      "sourceFiles": [
+        "packages/memory/src/lifecycle/errors.ts",
+        "packages/memory/src/lifecycle/ledger.ts",
+        "packages/memory/src/lifecycle/projection.ts",
+        "packages/memory/src/lifecycle/record-transitions.ts",
+        "packages/memory/src/lifecycle/reducer.ts",
+        "packages/memory/src/lifecycle/types.ts",
+        "packages/memory/src/lifecycle/validation.ts"
+      ],
+      "characterizationTests": [
+        "packages/memory/src/lifecycle/__tests__/projection.test.ts",
+        "packages/memory/src/lifecycle/__tests__/purge-and-compatibility.test.ts",
+        "packages/memory/src/lifecycle/__tests__/replay-and-adversarial.test.ts",
+        "packages/memory/src/lifecycle/__tests__/transition-matrix.test.ts",
+        "packages/memory/src/lifecycle/__tests__/transitions.test.ts"
+      ]
+    },
+    {
+      "id": "canonical-memory-lifecycle-service",
+      "owner": "@dzupagent/memory",
+      "disposition": "extend",
+      "sourceFiles": [
+        "packages/memory/src/service/compatibility.ts",
+        "packages/memory/src/service/history-reducer.ts",
+        "packages/memory/src/service/history.ts",
+        "packages/memory/src/service/in-memory-adapter.ts",
+        "packages/memory/src/service/index.ts",
+        "packages/memory/src/service/memory-lifecycle-service.ts",
+        "packages/memory/src/service/read-operations.ts",
+        "packages/memory/src/service/service-runtime.ts",
+        "packages/memory/src/service/snapshot.ts",
+        "packages/memory/src/service/types.ts",
+        "packages/memory/src/service/validation.ts",
+        "packages/memory/src/service/write-operation.ts"
+      ],
+      "characterizationTests": [
+        "packages/memory/src/__tests__/service-export-map.test.ts",
+        "packages/memory/src/service/__tests__/adversarial.test.ts",
+        "packages/memory/src/service/__tests__/checkpoint-and-restart.test.ts",
+        "packages/memory/src/service/__tests__/compatibility.test.ts",
+        "packages/memory/src/service/__tests__/service-facade.test.ts"
+      ]
+    },
+    {
       "id": "temporal-and-provenance",
       "owner": "@dzupagent/memory",
       "disposition": "extend",
@@ -1027,12 +1275,18 @@
       "sourceFiles": [
         "packages/context/src/auto-compress.ts",
         "packages/context/src/context-eviction.ts",
-        "packages/context/src/token-lifecycle.ts"
+        "packages/context/src/token-lifecycle.ts",
+        "packages/context/src/tool-results/__tests__/memory-compaction-conformance-port.ts",
+        "packages/context/src/tool-results/compact-completed-tool-results.ts",
+        "packages/context/src/tool-results/compaction-internals.ts",
+        "packages/context/src/tool-results/types.ts"
       ],
       "characterizationTests": [
         "packages/context/src/__tests__/auto-compress-offload.test.ts",
         "packages/context/src/__tests__/context-eviction.test.ts",
-        "packages/context/src/__tests__/token-lifecycle.test.ts"
+        "packages/context/src/__tests__/token-lifecycle.test.ts",
+        "packages/context/src/tool-results/__tests__/compact-completed-tool-results.test.ts",
+        "packages/context/src/tool-results/__tests__/memory-compaction-conformance.test.ts"
       ]
     },
     {
@@ -1062,7 +1316,116 @@
       "characterizationTests": [
         "packages/agent/src/__tests__/memory-context-loader.test.ts",
         "packages/agent/src/__tests__/memory-context-loader-query-mode.test.ts",
-        "packages/agent/src/__tests__/memory-context-loader-branches.test.ts"
+        "packages/agent/src/__tests__/memory-context-loader-branches.test.ts",
+        "packages/agent/src/__tests__/memory-context-loader-lifecycle.test.ts"
+      ]
+    },
+    {
+      "id": "canonical-memory-record-contract",
+      "owner": "@dzupagent/memory",
+      "disposition": "new",
+      "sourceFiles": [
+        "packages/memory/src/records/types.ts",
+        "packages/memory/src/records/errors.ts",
+        "packages/memory/src/records/safe-json.ts",
+        "packages/memory/src/records/decoder-primitives.ts",
+        "packages/memory/src/records/decoder.ts",
+        "packages/memory/src/records/canonical.ts",
+        "packages/memory/src/records/adapters.ts",
+        "packages/memory/src/records/index.ts"
+      ],
+      "characterizationTests": [
+        "packages/memory/src/records/__tests__/records.test.ts",
+        "packages/memory/src/records/__tests__/adversarial.test.ts",
+        "packages/memory/src/records/__tests__/adapters.test.ts",
+        "packages/memory/src/__tests__/records-export-map.test.ts"
+      ]
+    },
+    {
+      "id": "memory-conformance-and-benchmarks",
+      "owner": "@dzupagent/memory",
+      "disposition": "extend",
+      "sourceFiles": [
+        "packages/memory/src/retrieval/provider-stages.ts",
+        "packages/memory/src/retrieval/retrieve-memory-v1.ts",
+        "packages/memory/src/retrieval/stage-runtime.ts",
+        "packages/memory/src/retrieval/v1-types.ts",
+        "packages/memory/src/retrieval/v1-validation.ts",
+        "packages/memory/src/testing/benchmark-profile-v1.ts",
+        "packages/memory/src/testing/compaction-conformance-v1.ts",
+        "packages/memory/src/testing/conformance-core-v1.ts",
+        "packages/memory/src/testing/deletion-conformance-v1.ts",
+        "packages/memory/src/testing/fixtures-v1.ts",
+        "packages/memory/src/testing/lifecycle-conformance-v1.ts",
+        "packages/memory/src/testing/record-conformance-v1.ts",
+        "packages/memory/src/testing/retrieval-conformance-v1.ts",
+        "packages/memory/src/testing/retrieval-fixtures-v1.ts",
+        "packages/memory/src/testing/retrieval-metrics-v1.ts",
+        "packages/memory/src/testing/retrieval-security-conformance-v1.ts",
+        "packages/memory/src/testing/service-fixtures-v1.ts",
+        "packages/memory/src/testing/store-conformance-v1.ts",
+        "config/memory-conformance-baseline.v1.json",
+        "scripts/generate-memory-conformance-baseline.ts"
+      ],
+      "characterizationTests": [
+        "packages/memory/src/__tests__/testing-export-map.test.ts",
+        "packages/memory/src/testing/__tests__/compaction-conformance-v1.test.ts",
+        "packages/memory/src/testing/__tests__/conformance-core-v1.test.ts",
+        "packages/memory/src/testing/__tests__/record-lifecycle-conformance-v1.test.ts",
+        "packages/memory/src/testing/__tests__/retrieval-conformance-v1.test.ts",
+        "packages/memory/src/testing/__tests__/store-deletion-conformance-v1.test.ts",
+        "scripts/__tests__/generate-memory-conformance-baseline.test.mjs"
+      ]
+    },
+    {
+      "id": "background-consolidation-reliable-delivery",
+      "owner": "@dzupagent/memory",
+      "disposition": "extend",
+      "sourceFiles": [
+        "packages/memory/src/workers/in-memory-outbox.ts",
+        "packages/memory/src/workers/index.ts",
+        "packages/memory/src/workers/outbox-observation.ts",
+        "packages/memory/src/workers/outbox-state.ts",
+        "packages/memory/src/workers/outcome-factory.ts",
+        "packages/memory/src/workers/requests.ts",
+        "packages/memory/src/workers/snapshot.ts",
+        "packages/memory/src/workers/state-validation.ts",
+        "packages/memory/src/workers/types.ts",
+        "packages/memory/src/workers/validation-contracts.ts",
+        "packages/memory/src/workers/validation-core.ts",
+        "packages/memory/src/workers/validation-results.ts",
+        "packages/memory/src/workers/worker-identity.ts",
+        "packages/memory/src/workers/worker-runtime.ts",
+        "packages/memory/src/testing/worker-conformance-fixtures-v1.ts",
+        "packages/memory/src/testing/worker-conformance-v1.ts"
+      ],
+      "characterizationTests": [
+        "packages/memory/src/__tests__/workers-export-map.test.ts",
+        "packages/memory/src/testing/__tests__/worker-conformance-v1.test.ts",
+        "packages/memory/src/workers/__tests__/outbox-core.test.ts",
+        "packages/memory/src/workers/__tests__/outbox-reconciliation.test.ts",
+        "packages/memory/src/workers/__tests__/outbox-state.test.ts"
+      ]
+    },
+    {
+      "id": "deterministic-memory-projections",
+      "owner": "@dzupagent/memory",
+      "disposition": "new",
+      "sourceFiles": [
+        "packages/memory/src/projections/diff.ts",
+        "packages/memory/src/projections/errors.ts",
+        "packages/memory/src/projections/index.ts",
+        "packages/memory/src/projections/json.ts",
+        "packages/memory/src/projections/markdown.ts",
+        "packages/memory/src/projections/project.ts",
+        "packages/memory/src/projections/types.ts",
+        "packages/memory/src/projections/validation.ts"
+      ],
+      "characterizationTests": [
+        "packages/memory/src/__tests__/projections-export-map.test.ts",
+        "packages/memory/src/projections/__tests__/adversarial.test.ts",
+        "packages/memory/src/projections/__tests__/diff.test.ts",
+        "packages/memory/src/projections/__tests__/projection.test.ts"
       ]
     }
   ],
