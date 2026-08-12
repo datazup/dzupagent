@@ -340,8 +340,16 @@
         { "match": "prefix", "pattern": "./shared/" },
         { "match": "prefix", "pattern": "./graph/" }
       ],
-      "subpaths": {},
-      "migrationWindow": "Root transitional exports remain available through 0.x; new consumers should prefer future memory/retrieval/store subpaths as they are introduced."
+      "subpaths": {
+        "./knowledge": "experimental filesystem-backed knowledge projection and snapshot rebuilding",
+        "./lifecycle": "stable provider-neutral memory lifecycle commands, reducers, receipts, and version-chain projection",
+        "./records": "stable provider-neutral canonical memory record contracts and compatibility adapters",
+        "./retrieval": "stable provider-neutral lifecycle-aware retrieval, fusion, and selection contracts",
+        "./service": "stable opt-in lifecycle service, custody ports, and provider-free conformance adapter",
+        "./testing": "test-only memory harness, conformance suites, benchmark profiles, and truthfulness reporting contracts",
+        "./workers": "stable provider-neutral reference-only consolidation jobs and reliable-delivery contracts"
+      },
+      "migrationWindow": "Root transitional exports remain available through 0.x; new consumers should prefer narrow subpaths. The records, lifecycle, opt-in service, retrieval, test-only conformance, and inert worker surfaces are the accepted MEM-P001 through MEM-P006 provider-neutral contracts; knowledge remains experimental and testing remains test-only."
     },
     {
       "packageName": "@dzupagent/context",
@@ -367,8 +375,10 @@
         { "match": "exact", "pattern": "./tiktoken-counter.js" }
       ],
       "transitionalRoot": [],
-      "subpaths": {},
-      "migrationWindow": "Context root exports are currently the contracted package surface; add allowlist rules before exposing new root modules."
+      "subpaths": {
+        "./tool-results": "stable opt-in pairing-safe completed tool-result compaction"
+      },
+      "migrationWindow": "Context root exports remain compatible; MEM-P004 completed-tool compaction is available only from the narrow tool-results subpath."
     },
     {
       "packageName": "@dzupagent/rag",

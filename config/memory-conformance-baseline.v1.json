@@ -1,0 +1,95 @@
+{
+  "schema": "datazup.memory.conformance-baseline-config/v1",
+  "harnessVersion": "mem-p006-v1",
+  "fixturePolicy": "invented-provider-free-only",
+  "historySemantics": "lifecycle-history-evaluated-at-query-as-of",
+  "sourceRoots": [
+    "packages/memory/src/lifecycle",
+    "packages/memory/src/records",
+    "packages/memory/src/retrieval",
+    "packages/memory/src/service",
+    "packages/memory/src/testing",
+    "packages/memory/src/workers"
+  ],
+  "sourceFiles": [
+    "config/memory-api-census.v1.json",
+    "config/public-api-allowlists.json",
+    "package.json",
+    "packages/agent/src/__tests__/memory-context-loader-lifecycle.test.ts",
+    "packages/agent/src/agent/memory-context-loader-types.ts",
+    "packages/agent/src/agent/memory-context-loader.ts",
+    "packages/context/package.json",
+    "packages/context/src/__tests__/auto-compress-tool-results.test.ts",
+    "packages/context/src/tool-results/__tests__/compact-completed-tool-results.test.ts",
+    "packages/context/src/tool-results/__tests__/memory-compaction-conformance-port.ts",
+    "packages/context/src/tool-results/__tests__/memory-compaction-conformance.test.ts",
+    "packages/context/src/tool-results/compact-completed-tool-results.ts",
+    "packages/context/src/tool-results/compaction-internals.ts",
+    "packages/context/src/tool-results/index.ts",
+    "packages/context/src/tool-results/types.ts",
+    "packages/memory/package.json",
+    "scripts/__tests__/generate-memory-conformance-baseline.test.mjs",
+    "scripts/generate-memory-conformance-baseline.ts",
+    "yarn.lock"
+  ],
+  "profile": {
+    "schema": "datazup.memory.benchmark-profile/v1",
+    "profileId": "mem-p006-provider-free-baseline",
+    "profileVersion": "v1",
+    "seed": "invented-mem-p006-seed",
+    "tokenizer": {
+      "id": "invented-exact-character-counter",
+      "version": "v1",
+      "measurement": "exact"
+    },
+    "provider": {
+      "mode": "none",
+      "deadlineMs": 250,
+      "retainsInput": false,
+      "allowQueryText": false,
+      "allowedInlineSensitivities": []
+    },
+    "limits": {
+      "maxCases": 64,
+      "maxRecords": 256,
+      "maxResults": 32,
+      "maxTokens": 20000,
+      "maxCostMicrousd": 0
+    },
+    "thresholds": {
+      "precisionAtK": 1,
+      "recallAtK": 1,
+      "mrr": 1,
+      "ndcg": 1,
+      "activeVersionAccuracy": 1,
+      "temporalAccuracy": 1,
+      "correctionAccuracy": 1,
+      "abstentionAccuracy": 1,
+      "groundedSelectionRate": 1,
+      "minimumReclaimedTokens": 1,
+      "maxLeakageRate": 0,
+      "maxStaleRetrievalRate": 0,
+      "maxRevokedRetrievalRate": 0,
+      "maxLatencyMs": 250,
+      "maxTokens": 20000,
+      "maxCostMicrousd": 0
+    }
+  },
+  "suites": [
+    { "id": "memory-record-conformance", "expectedCases": 5 },
+    { "id": "memory-lifecycle-conformance", "expectedCases": 8 },
+    { "id": "memory-store-conformance", "expectedCases": 8 },
+    { "id": "memory-retrieval-conformance", "expectedCases": 9 },
+    { "id": "memory-compaction-conformance", "expectedCases": 8 },
+    { "id": "memory-deletion-conformance", "expectedCases": 4 },
+    { "id": "memory-worker-conformance", "expectedCases": 15 }
+  ],
+  "expectedRedCaseIds": [],
+  "supplementalGates": [
+    {
+      "id": "agent-memory-context-loader-conformance",
+      "testFile": "packages/agent/src/__tests__/memory-context-loader-lifecycle.test.ts",
+      "expectedTests": 10
+    }
+  ]
+}
