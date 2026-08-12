@@ -347,10 +347,10 @@ Root index: `packages/agent/src/index.ts`
 
 Root index: `packages/codegen/src/index.ts`
 
-- Stable root sources: `21`
-- Deprecated transitional root sources: `75`
+- Stable root sources: `20`
+- Deprecated transitional root sources: `76`
 - Internal-only root candidates: `0`
-- Migration window: Root transitional exports remain available through 0.x with migration to vfs/tools/runtime/compat before a future 1.0 root contraction.
+- Migration window: Root transitional exports remain available through 0.x with migration to vfs/tools/runtime/compat before a future 1.0 root contraction. CheckpointManager remains experimental until the configured hosted Ubuntu/Git matrix and a real product adopter are both qualified.
 
 ### Stable Subpaths
 
@@ -365,15 +365,15 @@ Root index: `packages/codegen/src/index.ts`
 
 | Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
 | --- | --- | ---: | --- | --- |
-| `stable` | `./vfs/virtual-fs.js` | 2 | `prefix:./vfs/` | `VirtualFS`, `FileDiff` |
-| `stable` | `./vfs/vfs-snapshot.js` | 5 | `prefix:./vfs/` | `saveSnapshot`, `loadSnapshot`, `SnapshotStore`, `SnapshotSaveResult` |
-| `stable` | `./vfs/checkpoint-manager.js` | 5 | `prefix:./vfs/` | `CheckpointManager`, `CheckpointManagerConfig`, `CheckpointEntry`, `CheckpointDiff` |
-| `stable` | `./vfs/cow-vfs.js` | 1 | `prefix:./vfs/` | `CopyOnWriteVFS` |
-| `stable` | `./vfs/vfs-types.js` | 5 | `prefix:./vfs/` | `MergeStrategy`, `MergeConflict`, `MergeResult`, `VFSDiff` |
-| `stable` | `./vfs/parallel-sampling.js` | 4 | `prefix:./vfs/` | `sample`, `selectBest`, `commitBest`, `sampleAndCommitBest` |
-| `stable` | `./vfs/patch-engine.js` | 11 | `prefix:./vfs/` | `parseUnifiedDiff`, `applyPatch`, `applyPatchSet`, `PatchParseError` |
-| `stable` | `./vfs/workspace-runner.js` | 3 | `prefix:./vfs/` | `WorkspaceRunner`, `WorkspaceRunResult`, `WorkspaceRunOptions` |
-| `stable` | `./vfs/workspace-fs.js` | 6 | `prefix:./vfs/` | `InMemoryWorkspaceFS`, `DiskWorkspaceFS`, `GitWorktreeWorkspaceFS`, `WorkspaceFS` |
+| `stable` | `./vfs/virtual-fs.js` | 2 | `exact:./vfs/virtual-fs.js` | `VirtualFS`, `FileDiff` |
+| `stable` | `./vfs/vfs-snapshot.js` | 5 | `exact:./vfs/vfs-snapshot.js` | `saveSnapshot`, `loadSnapshot`, `SnapshotStore`, `SnapshotSaveResult` |
+| `deprecated-transitional` | `./vfs/checkpoint-manager.js` | 17 | `exact:./vfs/checkpoint-manager.js` | `CheckpointManager`, `CheckpointManagerConfig`, `CheckpointErrorCode`, `CheckpointFailure` |
+| `stable` | `./vfs/cow-vfs.js` | 1 | `exact:./vfs/cow-vfs.js` | `CopyOnWriteVFS` |
+| `stable` | `./vfs/vfs-types.js` | 5 | `exact:./vfs/vfs-types.js` | `MergeStrategy`, `MergeConflict`, `MergeResult`, `VFSDiff` |
+| `stable` | `./vfs/parallel-sampling.js` | 4 | `exact:./vfs/parallel-sampling.js` | `sample`, `selectBest`, `commitBest`, `sampleAndCommitBest` |
+| `stable` | `./vfs/patch-engine.js` | 11 | `exact:./vfs/patch-engine.js` | `parseUnifiedDiff`, `applyPatch`, `applyPatchSet`, `PatchParseError` |
+| `stable` | `./vfs/workspace-runner.js` | 3 | `exact:./vfs/workspace-runner.js` | `WorkspaceRunner`, `WorkspaceRunResult`, `WorkspaceRunOptions` |
+| `stable` | `./vfs/workspace-fs.js` | 6 | `exact:./vfs/workspace-fs.js` | `InMemoryWorkspaceFS`, `DiskWorkspaceFS`, `GitWorktreeWorkspaceFS`, `WorkspaceFS` |
 | `stable` | `./generation/code-gen-service.js` | 3 | `prefix:./generation/` | `CodeGenService`, `GenerateFileParams`, `GenerateFileResult` |
 | `stable` | `./generation/codegen-run-engine.js` | 2 | `prefix:./generation/` | `CodegenRunEngine`, `CodegenRunEngineConfig` |
 | `stable` | `./generation/code-block-parser.js` | 4 | `prefix:./generation/` | `parseCodeBlocks`, `extractLargestCodeBlock`, `detectLanguage`, `CodeBlock` |
@@ -469,11 +469,14 @@ Root index: `packages/memory/src/index.ts`
 - Stable root sources: `27`
 - Deprecated transitional root sources: `45`
 - Internal-only root candidates: `0`
-- Migration window: Root transitional exports remain available through 0.x; new consumers should prefer future memory/retrieval/store subpaths as they are introduced.
+- Migration window: Root transitional exports remain available through 0.x; new consumers should prefer future memory/retrieval/store subpaths as they are introduced. The existing knowledge and testing subpaths remain experimental and test-only respectively; MEM-P001 and later contract subpaths require separate acceptance.
 
 ### Stable Subpaths
 
-No stable subpaths configured.
+| Subpath | Purpose |
+| --- | --- |
+| `@dzupagent/memory/knowledge` | experimental filesystem-backed knowledge projection and snapshot rebuilding |
+| `@dzupagent/memory/testing` | test-only memory harness and truthfulness reporting contracts |
 
 ### Root Allowlist
 
@@ -936,7 +939,7 @@ No stable subpaths configured.
 | `stable` | `./recorded-agent-port.js` | 2 | `exact:./recorded-agent-port.js` | `RecordedAgentPort`, `RecordedAgentCall` |
 | `stable` | `./recorded-validator-port.js` | 2 | `exact:./recorded-validator-port.js` | `RecordedValidatorPort`, `RecordedValidatorCall` |
 | `stable` | `./recorded-workspace-port.js` | 3 | `exact:./recorded-workspace-port.js` | `RecordedWorkspacePort`, `RecordedWorkspaceEffectCapture`, `RecordedWorkspacePortOptions` |
-| `stable` | `./golden-trace.js` | 5 | `exact:./golden-trace.js` | `GoldenTraceValidationError`, `loadGoldenTrace`, `validateGoldenTrace`, `GoldenTrace` |
+| `stable` | `./golden-trace.js` | 20 | `exact:./golden-trace.js` | `GOLDEN_TRACE_FIXTURE_CONTRACT_V1`, `GoldenTraceFixtureValidationError`, `GoldenTraceValidationError`, `loadGoldenTrace` |
 | `stable` | `./replay-dialogue.js` | 4 | `exact:./replay-dialogue.js` | `ReplayAssertionError`, `replayDialogue`, `ReplayDialogueResult`, `SchedulerFactory` |
 | `stable` | `./continuation-conformance.js` | 10 | `exact:./continuation-conformance.js` | `CONTINUATION_CONFORMANCE_FIXTURE_SET_SCHEMA_V1`, `CONTINUATION_DIVERGENCE_LEDGER_SCHEMA_V1`, `ContinuationComparisonClassificationV1`, `ContinuationConformanceCaseV1` |
 | `stable` | `./continuation-conformance-validation.js` | 3 | `exact:./continuation-conformance-validation.js` | `ContinuationConformanceValidationError`, `loadContinuationConformanceFixtureSetV1`, `validateContinuationConformanceFixtureSetV1` |
