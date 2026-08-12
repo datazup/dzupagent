@@ -3,7 +3,7 @@
   "packet": "MEM-P000",
   "sourceIdentity": {
     "kind": "content-digest-set",
-    "digest": "sha256:864e2a645041d8265a91ecc2045cb6517e2eae3f2034390de09e7acda32a545b",
+    "digest": "sha256:983dc7b70407cbedd9e7e94f3f4cbab3cd9ce9fdf7ab76613b413f5ca0d25ee3",
     "inputs": [
       {
         "path": "config/memory-api-census.v1.json",
@@ -11,7 +11,7 @@
       },
       {
         "path": "config/memory-conformance-baseline.v1.json",
-        "sha256": "sha256:55f4858fd5d6e73cfc2f57988f8e8f5995e6009a0f6aa229799dfff5510e231a"
+        "sha256": "sha256:936c9124f40283f5aef5793e2b3c641c6d28c95aeb26c0e08a84245756be0e4c"
       },
       {
         "path": "config/public-api-allowlists.json",
