@@ -2,6 +2,7 @@ import fs from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { CONTINUATION_TRANSITION_SCHEMA_V1 } from "../../dialogue-core/src/continuation/v1/index.ts";
 import {
   classifyContinuationComparisonV1,
   CONTINUATION_CONFORMANCE_FIXTURE_SET_SCHEMA_V1,
@@ -78,20 +79,49 @@ describe("continuation conformance contract", () => {
   it("classifies safety dominance independently from exact parity", () => {
     expect(
       classifyContinuationComparisonV1(
-        { admittedTransition: "continue" },
-        { action: "reject", reason: "invalid_proposal" },
+        {
+          normalizedDecision: "continue",
+          admittedTransition: "continue",
+          diagnosticCodes: [],
+        },
+        {
+          schema: CONTINUATION_TRANSITION_SCHEMA_V1,
+          action: "reject",
+          reason: "invalid_proposal",
+          diagnostics: [],
+        },
       ),
     ).toBe("safer_kernel");
     expect(
       classifyContinuationComparisonV1(
-        { admittedTransition: "blocked" },
-        { action: "continue", reason: "accepted", nextTask: "next" },
+        {
+          normalizedDecision: "blocked",
+          admittedTransition: "blocked",
+          diagnosticCodes: [],
+        },
+        {
+          schema: CONTINUATION_TRANSITION_SCHEMA_V1,
+          action: "continue",
+          nextTask: "next",
+          taskKey:
+            "task-key/v1:sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          diagnostics: [],
+        },
       ),
     ).toBe("unsafe_kernel");
     expect(
       classifyContinuationComparisonV1(
-        { admittedTransition: "complete" },
-        { action: "stop", reason: "complete" },
+        {
+          normalizedDecision: "complete",
+          admittedTransition: "complete",
+          diagnosticCodes: [],
+        },
+        {
+          schema: CONTINUATION_TRANSITION_SCHEMA_V1,
+          action: "stop",
+          reason: "complete",
+          diagnostics: [],
+        },
       ),
     ).toBe("match");
   });

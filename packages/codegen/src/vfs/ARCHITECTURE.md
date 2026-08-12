@@ -12,6 +12,17 @@ This document describes the current implementation under `packages/codegen/src/v
 - `workspace-runner.ts`
 - `vfs-snapshot.ts`
 - `checkpoint-manager.ts`
+- `checkpoint/checkpoint-types.ts`
+- `checkpoint/checkpoint-errors.ts`
+- `checkpoint/checkpoint-policy.ts`
+- `checkpoint/checkpoint-git.ts`
+- `checkpoint/checkpoint-tree.ts`
+- `checkpoint/checkpoint-control-files.ts`
+- `checkpoint/checkpoint-ownership.ts`
+- `checkpoint/checkpoint-journal.ts`
+- `checkpoint/checkpoint-repository.ts`
+- `checkpoint/checkpoint-store.ts`
+- `checkpoint/checkpoint-test-hooks.ts`
 - `path-security-error.ts`
 
 It also covers how this surface is exposed through `src/index.ts` and `src/vfs.ts`, and where it is consumed in the surrounding `@dzupagent/codegen` package.
@@ -26,7 +37,7 @@ The VFS layer is the file-state and patch/execution substrate for codegen workfl
 - Providing a backend-neutral file workspace interface (`WorkspaceFS`) with in-memory, disk, and worktree-backed implementations.
 - Bridging a `VirtualFS` snapshot into sandbox command execution (`WorkspaceRunner`).
 - Persisting snapshots through a caller-provided store contract (`SnapshotStore`).
-- Creating rollback checkpoints on real directories using isolated shadow git repositories (`CheckpointManager`).
+- Creating experimental, fail-closed rollback checkpoints on real directories using root-bound shadow Git repositories (`CheckpointManager`).
 - Enforcing workspace root confinement for disk operations (`PathSecurityError` in `DiskWorkspaceFS.resolveSafe`).
 
 ## Structure
@@ -53,7 +64,14 @@ The VFS layer is the file-state and patch/execution substrate for codegen workfl
 - `vfs-snapshot.ts`
   - Snapshot persistence contract (`SnapshotStore`) and non-throwing save/load wrappers.
 - `checkpoint-manager.ts`
-  - Checkpoint creation/list/diff/restore against a shadow git repo keyed by target directory hash.
+  - Experimental public facade for checkpoint creation, list/diff/restore,
+    recovery inspection, explicitly authorized recovery, compaction, and
+    compatibility wrappers.
+- `checkpoint/*`
+  - Internal checkpoint types/settings, fail-closed errors, root/tree admission
+    policy, sanitized Git process boundary, durable control-file primitives,
+    cross-process ownership, structural recovery journaling, tree validation,
+    repository mechanics, orchestration, and deterministic test hooks.
 - `path-security-error.ts`
   - Dedicated traversal error class carrying attempted path and workspace root.
 
@@ -90,9 +108,25 @@ The VFS layer is the file-state and patch/execution substrate for codegen workfl
 - If `syncBack` is enabled, it downloads selected paths and writes changed content back into `VirtualFS`.
 
 7. Checkpoint flow
-- `CheckpointManager.ensureCheckpoint` performs per-turn dedup, safety checks, and size checks before snapshotting.
-- Snapshots are git commits in a shadow repo using `GIT_DIR` and `GIT_WORK_TREE`.
-- `list` reads commit history, `diff` compares checkpoint to current state, and `restore` snapshots current state then checks out target checkpoint content.
+- `CheckpointManager.ensureCheckpoint` canonicalizes the root, validates recursive resource and file-type ceilings, and records per-turn deduplication only after a snapshot succeeds or the current admitted tree is proven unchanged.
+- Each full-SHA-256 store carries an exact canonical-root and policy identity. Snapshots are independent commits under explicit `refs/dzupagent/checkpoints/*` references.
+- Initialization, staging, ref mutation, restore, retention, recovery, and
+  compaction share one atomic root-local ownership directory. Its random nonce
+  and monotonic generation reject cross-process overlap and ABA; age or PID is
+  never sufficient to steal an owner.
+- Durable journals contain only structural phases and object identities.
+  `inspectRecoveryDetailed` classifies interruption state, while
+  `recoverDetailed` requires an exact state token and an external custodian's
+  explicit abandoned-owner confirmation.
+- Retention deletes excess refs, expires their reflogs, and proves removed commits are unreachable. Automatic Git GC is disabled; `compactDetailed` performs physical cleanup only under the same exclusive ownership and revalidates every retained checkpoint.
+- Every stage/diff/restore operation uses an isolated `GIT_INDEX_FILE`; Git pathspec exclusions preserve sensitive, generated, and nested-repository material outside checkpoint objects.
+- A staged tree is revalidated against current file, byte, depth, path, type,
+  and exclusion policy before it is trusted, including after the initial
+  recursive scan.
+- `diffDetailed` compares a checkpoint tree with the explicitly staged current tree. `restoreDetailed` requires a safety snapshot, reconciles create/edit/delete state with `read-tree`, verifies the resulting tree, and attempts safety recovery on failure.
+- Legacy 16-hex stores are never imported or trusted; their presence blocks the
+  root until an external operator explicitly quarantines or retires them.
+- `ensureCheckpoint`, `list`, `diff`, and `restore` remain compatibility wrappers; detailed APIs expose typed proof, absence, unsafe-input, resource-limit, corruption, ownership, recovery, compaction, timeout, Git, and filesystem outcomes.
 
 ## Key APIs and Types
 Core state:
@@ -126,6 +160,8 @@ Execution and persistence:
 - `WorkspaceRunner`, `WorkspaceRunOptions`, `WorkspaceRunResult`
 - `SnapshotStore`, `saveSnapshot`, `loadSnapshot`, `SnapshotSaveResult`, `SnapshotLoadResult`
 - `CheckpointManager`, `CheckpointManagerConfig`, `CheckpointResult`, `CheckpointEntry`, `CheckpointDiff`
+- `CheckpointErrorCode`, `CheckpointFailure`, `CheckpointProof`, `CheckpointDetailedResult`, `CheckpointListResult`, `CheckpointDiffResult`, `CheckpointRestoreResult`
+- `CheckpointRecoveryState`, `CheckpointRecoveryInspectionResult`, `CheckpointRecoveryAuthorization`, `CheckpointRecoveryResult`, `CheckpointCompactionResult`
 
 ## Dependencies
 Internal module dependencies:
@@ -173,6 +209,10 @@ VFS-focused coverage is implemented in:
 - `src/__tests__/workspace-fs.test.ts`
 - `src/__tests__/workspace-runner.test.ts`
 - `src/__tests__/checkpoint-manager.test.ts`
+- `src/__tests__/checkpoint-manager-p002b.test.ts`
+- `src/__tests__/checkpoint-manager-process.test.ts`
+- `src/__tests__/fixtures/checkpoint-process-child.ts`
+- `src/__tests__/fixtures/checkpoint-protected-mutation.ts`
 
 VFS-adjacent behavior tests:
 - `src/__tests__/atomic-apply.test.ts` for patch rollback behavior.
@@ -182,7 +222,7 @@ VFS-adjacent behavior tests:
 Observability characteristics in code:
 - Sampling returns timing and captured errors per attempt (`SampleResult.durationMs`, optional `error`).
 - `WorkspaceRunner.run` returns structured execution telemetry (`success`, `exitCode`, `stdout`, `stderr`, `timedOut`, `durationMs`, optional `modifiedFiles`).
-- Checkpoint operations return discriminated result objects (`created`, `deduplicated`, `skipped`, `failed`) rather than throwing for most expected failures.
+- Checkpoint operations return discriminated result objects rather than throwing for runtime failures. Detailed checkpoint, list/diff/restore, recovery, and compaction APIs preserve typed failure identity while compatibility wrappers retain the prior surface.
 - The module has no dedicated logger or metrics sink; returned result payloads are the primary runtime signal surface.
 
 ## Risks and TODOs
@@ -190,11 +230,16 @@ Observability characteristics in code:
 - `InMemoryWorkspaceFS.applyPatch` does not set a default `rollbackOnFailure`; behavior comes from `applyPatchSet` default (`false`), while `DiskWorkspaceFS` defaults to `true`.
 - `WorkspaceRunner.syncBack` only downloads `syncPaths` or original snapshot keys; files created during sandbox execution are not synced unless explicitly listed.
 - `DiskWorkspaceFS.read` and `DiskWorkspaceFS.delete` swallow all errors and return `null`/`false`, which simplifies callers but hides specific IO failures.
-- `CheckpointManager.ensureCheckpoint` uses shallow `readdir` entry count for `maxFiles`; this is not a recursive size guard.
-- `CheckpointManager.pruneOldSnapshots` uses a `rebase --onto` strategy and treats pruning failures as non-fatal, so retention enforcement can silently drift.
-- Checkpoint tests heavily mock git and filesystem calls; there is no end-to-end suite here that validates real git process behavior on disk.
+- `CheckpointManager` remains experimental. Provider-free package and local Node 20/22/24 qualification is current, but the configured Ubuntu/Git matrix has not run remotely and no real product adopter has qualified the detailed proof contract.
+- Local disposable-process tests cover cross-process ownership and normalized hard interruption. Windows, network filesystems, abrupt machine/power loss, and Git versions outside the configured matrix are not qualified.
+- A checkpoint proof is exact only at its validation instant. An unrelated process can still mutate the worktree before the protected caller mutates it; adopters must provide their own workspace lease/fence and bind the returned proof in the mutation receipt.
+- The recovery token detects record drift but does not itself fence a live process. `operatorConfirmedAbandoned` is valid only after an external custodian has established abandonment.
+- Legacy 16-hex shadow-store directories are not silently trusted or migrated. Quarantine/retirement is intentionally an external operator action.
+- Retention proves refs unreachable but leaves physical unreachable objects until explicit exclusive compaction.
+- Restore reproduces Git-tracked content, symlinks, deletions, and executable-bit state. Process umask details and explicitly excluded paths remain outside Git's tree contract.
 
 ## Changelog
+- 2026-08-11: added root-bound cross-process ownership, monotonic generations, durable interruption classification/recovery, explicit physical compaction, proof-bearing detailed checkpoints, a fail-closed adopter fixture, and deterministic child-process qualification.
+- 2026-08-11: replaced the mocked shared-index checkpoint path with root-bound stores, isolated indexes, bounded admission, explicit refs/retention, typed detailed outcomes, and real-Git qualification.
 - 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
 - 2026-05-17: rewrote document against current `packages/codegen/src/vfs` source, exports, and test surface.
-

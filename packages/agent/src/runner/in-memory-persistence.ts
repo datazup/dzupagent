@@ -6,6 +6,7 @@ import type {
   AgentRunStoreCreateResult,
   AgentRunnerInput,
   AgentRunnerModelResult,
+  AgentRunnerPersistence,
   AgentRunnerPersistenceCommitResult,
   AgentRunnerPersistenceTransition,
   AgentRunnerSessionAbortResult,
@@ -136,7 +137,11 @@ export interface InMemoryAgentRunnerPersistenceOptions {
   readonly failSession?: (operation: 'begin' | 'commit' | 'abort', transactionId: string) => boolean
 }
 
-export class InMemoryAgentRunnerPersistence {
+// Keep the public instance contract declaration-visible when the concrete
+// method implementations below are stripped from generated declarations.
+export interface InMemoryAgentRunnerPersistence extends AgentRunnerPersistence {}
+
+export class InMemoryAgentRunnerPersistence implements AgentRunnerPersistence {
   readonly #states = new Map<string, AgentRunStateV2>()
   readonly #eventsByRun = new Map<string, AgentRunEventEnvelope[]>()
   readonly #eventIds = new Map<string, AgentRunEventEnvelope>()

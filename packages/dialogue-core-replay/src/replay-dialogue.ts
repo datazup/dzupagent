@@ -13,21 +13,15 @@ import type {
 import { hashRunSpec } from "@dzupagent/dialogue-core";
 
 import { validateGoldenTrace } from "./golden-trace.js";
-import { RecordedAgentPort } from "./recorded-agent-port.js";
-import { RecordedValidatorPort } from "./recorded-validator-port.js";
-import { RecordedWorkspacePort } from "./recorded-workspace-port.js";
+import { GroupedReplayCoordinator } from "./grouped-replay-coordinator.js";
+import { ReplayAssertionError } from "./replay-assertion-error.js";
+
+export { ReplayAssertionError } from "./replay-assertion-error.js";
 
 export interface ReplayDialogueResult {
   readonly schedulerResult: DialogueSchedulerResult;
   readonly actualVerbSequence: readonly TurnVerb[];
   readonly actualRunSpecHash: RunSpecHash;
-}
-
-export class ReplayAssertionError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ReplayAssertionError";
-  }
 }
 
 export type SchedulerFactory = (
@@ -40,26 +34,18 @@ export async function replayDialogue(
   schedulerFactory: SchedulerFactory
 ): Promise<ReplayDialogueResult> {
   const trace = validateGoldenTrace(goldenTrace);
+  const actualRunSpecHash = hashRunSpec(trace.runSpec);
+  if (actualRunSpecHash !== trace.runSpecHash) {
+    throw new ReplayAssertionError("runSpecHash mismatch.", {
+      code: "RUN_SPEC_HASH_MISMATCH",
+    });
+  }
 
-  const agentCalls = trace.turns.flatMap((t) => [...t.agentCalls]);
-  const validatorCalls = trace.turns.flatMap((t) => [...t.validatorCalls]);
-  const snapshots = trace.turns.flatMap((t) => [...t.workspaceSnapshots]);
-  const effects = trace.turns.flatMap((t) => [...t.workspaceEffects]);
-
-  const agentPort = new RecordedAgentPort(agentCalls);
-  const validatorPort = new RecordedValidatorPort(validatorCalls);
-  const workspacePort = new RecordedWorkspacePort({ snapshots, effects });
-
-  const capturedVerbs: TurnVerb[] = [];
-  const tracePort = {
-    async emit(event: PersistedTurnEvent | StreamTurnEvent): Promise<void> {
-      // Capture only persisted events to avoid double-counting (each turn
-      // emits both persisted + stream via redactAndEmitTurnEvent).
-      if (event.visibility === "persisted" && event.status === "completed") {
-        capturedVerbs.push(event.turnType);
-      }
-    },
-  };
+  const coordinator = new GroupedReplayCoordinator(
+    trace.turns,
+    trace.runId,
+    actualRunSpecHash,
+  );
 
   const redactionPolicy = {
     redact(event: RawTurnEvent): RedactedEvents {
@@ -110,10 +96,10 @@ export async function replayDialogue(
   };
 
   const scheduler = schedulerFactory({
-    agentPort,
-    validatorPort,
-    workspacePort,
-    tracePort,
+    agentPort: coordinator.agentPort,
+    validatorPort: coordinator.validatorPort,
+    workspacePort: coordinator.workspacePort,
+    tracePort: coordinator.tracePort,
     redactionPolicy,
   });
 
@@ -122,14 +108,9 @@ export async function replayDialogue(
     runSpec: trace.runSpec,
   });
 
-  const actualRunSpecHash = hashRunSpec(trace.runSpec);
-  const actualVerbSequence: readonly TurnVerb[] = capturedVerbs;
-
-  if (actualRunSpecHash !== trace.runSpecHash) {
-    throw new ReplayAssertionError(
-      `runSpecHash mismatch: expected ${trace.runSpecHash}, got ${actualRunSpecHash}.`
-    );
-  }
+  coordinator.assertComplete();
+  const actualVerbSequence: readonly TurnVerb[] =
+    coordinator.actualVerbSequence;
 
   const goldenVerbs = trace.verbSequence;
   const maxLen = Math.max(actualVerbSequence.length, goldenVerbs.length);
@@ -138,9 +119,8 @@ export async function replayDialogue(
     const expected = goldenVerbs[i];
     if (actual !== expected) {
       throw new ReplayAssertionError(
-        `verbSequence diverged at turn index ${i}: expected "${String(
-          expected
-        )}", got "${String(actual)}".`
+        `verbSequence diverged at turn index ${i}.`,
+        { code: "VERB_SEQUENCE_MISMATCH", groupIndex: i },
       );
     }
   }

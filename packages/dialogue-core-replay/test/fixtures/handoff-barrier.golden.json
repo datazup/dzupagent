@@ -1,0 +1,99 @@
+{
+  "runId": "golden-handoff-barrier-001",
+  "runSpecHash": "sha256:54084a7d5e034fa142fb52590d53920681df172874464f017dcb9466b0f006e6",
+  "verbSequence": ["deliberate", "handoff", "deliberate"],
+  "runSpec": {
+    "mode": "deliberate",
+    "participants": [
+      { "id": "planner", "provider": "test", "model": "test-model" },
+      { "id": "builder", "provider": "test", "model": "test-model" }
+    ],
+    "turns": [
+      {
+        "id": "initial-turn",
+        "verb": "deliberate",
+        "participantId": "planner",
+        "prompt": "Prepare a synthetic handoff."
+      },
+      {
+        "id": "handoff-turn",
+        "verb": "handoff",
+        "participantId": "planner",
+        "handoff": {
+          "fromParticipantId": "planner",
+          "toParticipantId": "builder",
+          "reason": "synthetic ownership transfer"
+        }
+      },
+      {
+        "id": "post-handoff-turn",
+        "verb": "deliberate",
+        "prompt": "Continue after the synthetic handoff."
+      }
+    ]
+  },
+  "turns": [
+    {
+      "turnId": "initial-turn",
+      "verb": "deliberate",
+      "agentCalls": [
+        {
+          "request": {
+            "runId": "golden-handoff-barrier-001",
+            "runSpecHash": "sha256:54084a7d5e034fa142fb52590d53920681df172874464f017dcb9466b0f006e6",
+            "turnIndex": 0,
+            "turnType": "deliberate",
+            "participantId": "planner",
+            "provider": "test",
+            "model": "test-model",
+            "mode": "deliberate",
+            "input": { "prompt": "Prepare a synthetic handoff." },
+            "escape": false
+          },
+          "result": {
+            "raw": "Synthetic handoff prepared.",
+            "usage": { "inputTokens": 5, "outputTokens": 4, "totalTokens": 9 }
+          }
+        }
+      ],
+      "validatorCalls": [],
+      "workspaceSnapshots": [],
+      "workspaceEffects": []
+    },
+    {
+      "turnId": "handoff-turn",
+      "verb": "handoff",
+      "agentCalls": [],
+      "validatorCalls": [],
+      "workspaceSnapshots": [],
+      "workspaceEffects": []
+    },
+    {
+      "turnId": "post-handoff-turn",
+      "verb": "deliberate",
+      "agentCalls": [
+        {
+          "request": {
+            "runId": "golden-handoff-barrier-001",
+            "runSpecHash": "sha256:54084a7d5e034fa142fb52590d53920681df172874464f017dcb9466b0f006e6",
+            "turnIndex": 2,
+            "turnType": "deliberate",
+            "participantId": "builder",
+            "provider": "test",
+            "model": "test-model",
+            "mode": "deliberate",
+            "input": { "prompt": "Continue after the synthetic handoff." },
+            "escape": false
+          },
+          "result": {
+            "raw": "Synthetic work continued after handoff.",
+            "usage": { "inputTokens": 6, "outputTokens": 6, "totalTokens": 12 }
+          }
+        }
+      ],
+      "validatorCalls": [],
+      "workspaceSnapshots": [],
+      "workspaceEffects": []
+    }
+  ]
+}

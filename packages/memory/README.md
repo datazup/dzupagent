@@ -23,6 +23,20 @@ npm install @dzupagent/memory
 
 Reusable memory management for LLM agents built on LangGraph Store.
 
+## Memory Contract Baseline
+
+MEM-P000 freezes the current memory/context/IPC/agent-loader surface and the
+accepted compatibility decisions before versioned lifecycle exports are added.
+The generated report lives at
+`docs/generated/MEMORY_API_CENSUS.v1.md`; refresh it with
+`yarn docs:memory-api-census` and verify drift with
+`yarn check:memory-api-census` from the DzupAgent repository root.
+
+The current root API remains compatible during the 0.x migration window. New
+record, lifecycle, service, retrieval, worker, and projection contracts must
+land on the narrow subpaths admitted by their implementation packets; this
+package README does not claim those later packets are implemented.
+
 ## Features
 
 - **MemoryService** -- Namespace-scoped put/get/search with non-fatal error handling

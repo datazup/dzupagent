@@ -1,0 +1,40 @@
+{
+  "schema": "datazup.dialogue-core-replay.golden-trace-fixture-manifest/v1",
+  "fixtureId": "handoff-barrier",
+  "custody": {
+    "manifestBytes": "external-receipt-required",
+    "fileTableScope": "payloads-only"
+  },
+  "bindings": {
+    "traceSchema": "datazup.dialogue-core.golden-trace/v1",
+    "dialogueCoreVersion": "0.2.0",
+    "replayVersion": "0.2.0",
+    "runtimeTarget": "node20-esm",
+    "compilerContract": "typescript@5.9.3+nodenext+es2022+exact-optional-property-types",
+    "source": {
+      "baseCommit": "b13276bf8d20615f3010a1f5814256dd9e3096bc",
+      "predecessorSourceManifestSha256": "sha256:4c995523edcd994425f11cb6ba2944d2fd378237ebefe8cbae114af87772b28b"
+    }
+  },
+  "privacy": {
+    "classification": "synthetic",
+    "authorship": "datazup",
+    "privacyPolicy": "datazup.dialogue-core-replay.fixture-privacy/v1",
+    "sanitizerPolicy": "not-applicable",
+    "rawProviderOutput": false,
+    "credentialsOrSecrets": false,
+    "tenantOrPrivateContent": false,
+    "absolutePaths": false,
+    "productionCapture": false,
+    "publicationStatus": "local-only-unreviewed"
+  },
+  "files": [
+    {
+      "path": "handoff-barrier.golden.json",
+      "role": "golden-trace",
+      "mediaType": "application/json; charset=utf-8",
+      "byteLength": 2966,
+      "sha256": "sha256:2db7412a83e247a7acec2244a30f5fe0b8b0579a2492c568b921f7915de381fd"
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-import { AIMessage, HumanMessage, type BaseMessage } from '@langchain/core/messages'
+import { AIMessage, HumanMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import {
   AGENT_RUNNER_STRUCTURED_OUTPUT_CAPABILITY_SCHEMA,

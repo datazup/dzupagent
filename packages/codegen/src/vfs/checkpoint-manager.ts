@@ -1,353 +1,231 @@
 /**
- * Filesystem checkpoint manager using shadow git repositories.
+ * Filesystem checkpoint manager using root-bound shadow Git repositories.
  *
- * Creates transparent snapshots of working directories before file-mutating
- * operations, enabling rollback without exposing git internals to the user's
- * project. Inspired by Hermes Agent's checkpoint_manager.py.
- *
- * Shadow repos live at `{baseDir}/{hash(absPath)}/` with GIT_DIR/GIT_WORK_TREE
- * isolation so no git state leaks into the working directory.
+ * Checkpoints are independent commits referenced below
+ * `refs/dzupagent/checkpoints/`. Each operation uses an isolated Git index so
+ * checkpointing never mutates the user's repository index or a shared shadow
+ * index. Sensitive and generated paths are excluded before Git object creation.
  */
-import { execFile } from 'node:child_process'
-import { createHash } from 'node:crypto'
-import { mkdir, readdir } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
-import { promisify } from 'node:util'
+import {
+  createCheckpointSettings,
+  failureFrom,
+  normalizeReason,
+  serializeRoot,
+  skippedOrFailed,
+} from './checkpoint/checkpoint-errors.js'
+import { CheckpointPolicy } from './checkpoint/checkpoint-policy.js'
+import { CheckpointStoreController } from './checkpoint/checkpoint-store.js'
+import type {
+  CheckpointDiff,
+  CheckpointDiffResult,
+  CheckpointCompactionResult,
+  CheckpointDetailedResult,
+  CheckpointEntry,
+  CheckpointListResult,
+  CheckpointManagerConfig,
+  CheckpointProof,
+  CheckpointRecoveryAuthorization,
+  CheckpointRecoveryInspectionResult,
+  CheckpointRecoveryResult,
+  CheckpointRestoreResult,
+  CheckpointResult,
+} from './checkpoint/checkpoint-types.js'
 
-const execFileAsync = promisify(execFile)
+export type {
+  CheckpointManagerConfig,
+  CheckpointErrorCode,
+  CheckpointFailure,
+  CheckpointEntry,
+  CheckpointDiff,
+  CheckpointResult,
+  CheckpointProof,
+  CheckpointDetailedResult,
+  CheckpointListResult,
+  CheckpointDiffResult,
+  CheckpointRestoreResult,
+  CheckpointRecoveryState,
+  CheckpointRecoveryInspectionResult,
+  CheckpointRecoveryAuthorization,
+  CheckpointRecoveryResult,
+  CheckpointCompactionResult,
+} from './checkpoint/checkpoint-types.js'
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export interface CheckpointManagerConfig {
-  /** Base directory for shadow repos (default ~/.dzupagent/checkpoints) */
-  baseDir?: string
-  /** Maximum number of snapshots to keep per directory (default 50) */
-  maxSnapshots?: number
-  /** Git command timeout in milliseconds (default 30_000) */
-  timeoutMs?: number
-  /** Maximum files in a directory before skipping (default 50_000) */
-  maxFiles?: number
-}
-
-export type CheckpointResult =
-  | { status: 'created'; checkpointId: string }
-  | { status: 'deduplicated'; checkpointId: string }
-  | { status: 'skipped'; reason: string }
-  | { status: 'failed'; error: string }
-
-export interface CheckpointEntry {
-  hash: string
-  timestamp: string
-  reason: string
-  summary: string
-}
-
-export interface CheckpointDiff {
-  added: string[]
-  modified: string[]
-  deleted: string[]
-  stats: { filesChanged: number; insertions: number; deletions: number }
-}
-
-// ---------------------------------------------------------------------------
-// Defaults & constants
-// ---------------------------------------------------------------------------
-
-const DEFAULTS = {
-  baseDir: join(process.env['HOME'] ?? '/tmp', '.dzupagent', 'checkpoints'),
-  maxSnapshots: 50,
-  timeoutMs: 30_000,
-  maxFiles: 50_000,
-}
-
-/** Directories and patterns to exclude from snapshots */
-const EXCLUDES = [
-  'node_modules',
-  '.git',
-  '.env',
-  '.env.*',
-  '__pycache__',
-  '.next',
-  '.nuxt',
-  'dist',
-  'build',
-  'coverage',
-  '.turbo',
-  '.cache',
-]
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function shadowDirName(workDir: string): string {
-  return createHash('sha256').update(resolve(workDir)).digest('hex').slice(0, 16)
-}
-
-function buildExcludeArgs(): string[] {
-  const args: string[] = []
-  for (const pattern of EXCLUDES) {
-    args.push('--exclude', pattern)
-  }
-  return args
-}
-
-// ---------------------------------------------------------------------------
-// Manager
-// ---------------------------------------------------------------------------
-
+/**
+ * Root-bound shadow-Git checkpoint manager.
+ *
+ * @experimental Operational rollback readiness requires package and adopter
+ * qualification. Callers must treat every non-success result as a hard stop
+ * before protected mutation.
+ */
 export class CheckpointManager {
-  private readonly baseDir: string
-  private readonly maxSnapshots: number
-  private readonly timeoutMs: number
-  private readonly maxFiles: number
-
-  /** Tracks which directories have been snapshotted this turn (dedup) */
-  private turnSnapshots = new Set<string>()
+  private readonly policy: CheckpointPolicy
+  private readonly store: CheckpointStoreController
+  /** Tracks successful snapshots for per-turn deduplication. */
+  private turnSnapshots = new Map<string, CheckpointProof>()
 
   constructor(config?: CheckpointManagerConfig) {
-    this.baseDir = config?.baseDir ?? DEFAULTS.baseDir
-    this.maxSnapshots = config?.maxSnapshots ?? DEFAULTS.maxSnapshots
-    this.timeoutMs = config?.timeoutMs ?? DEFAULTS.timeoutMs
-    this.maxFiles = config?.maxFiles ?? DEFAULTS.maxFiles
+    const settings = createCheckpointSettings(config)
+    this.policy = new CheckpointPolicy(settings)
+    this.store = new CheckpointStoreController(settings, this.policy)
   }
 
-  /**
-   * Reset per-turn deduplication. Call this at the start of each agent turn
-   * so that a new snapshot can be taken for each directory.
-   */
+  /** Allow a new successful checkpoint for each canonical root. */
   newTurn(): void {
     this.turnSnapshots.clear()
   }
 
   /**
    * Ensure a checkpoint exists for this directory in the current turn.
-   * No-op if already snapshotted this turn. Safe to call before every
-   * file-mutating operation — at most one snapshot per dir per turn.
    *
-   * Non-fatal: never throws. Returns a discriminated result.
+   * This method never throws for runtime failures. A failed or skipped result
+   * is not permission to continue a protected mutation.
    */
   async ensureCheckpoint(workDir: string, reason: string): Promise<CheckpointResult> {
-    const absDir = resolve(workDir)
-
-    // Per-turn dedup
-    if (this.turnSnapshots.has(absDir)) {
-      return { status: 'deduplicated', checkpointId: absDir }
+    const result = await this.ensureCheckpointDetailed(workDir, reason)
+    if (result.status === 'created' || result.status === 'deduplicated') {
+      return { status: result.status, checkpointId: result.checkpointId }
     }
-
-    // Safety: skip dangerous directories
-    if (absDir === '/' || absDir === (process.env['HOME'] ?? '')) {
-      return { status: 'skipped', reason: `unsafe directory: ${absDir}` }
-    }
-
-    // Check directory exists and isn't too large
-    try {
-      const entries = await readdir(absDir)
-      if (entries.length > this.maxFiles) {
-        return { status: 'skipped', reason: `directory exceeds maxFiles (${entries.length} > ${this.maxFiles})` }
-      }
-    } catch (err: unknown) {
-      return { status: 'failed', error: err instanceof Error ? err.message : String(err) }
-    }
-
-    this.turnSnapshots.add(absDir)
-
-    try {
-      const shadowDir = await this.getShadowDir(absDir)
-      await this.initShadowRepo(shadowDir, absDir)
-
-      const hash = await this.createSnapshot(shadowDir, absDir, reason)
-      if (hash) {
-        await this.pruneOldSnapshots(shadowDir, absDir)
-        return { status: 'created', checkpointId: hash }
-      }
-      return { status: 'deduplicated', checkpointId: absDir }
-    } catch (err: unknown) {
-      return { status: 'failed', error: err instanceof Error ? err.message : String(err) }
-    }
+    return result
   }
 
-  /**
-   * List checkpoints for a directory, most recent first.
-   */
-  async list(workDir: string): Promise<CheckpointEntry[]> {
-    const absDir = resolve(workDir)
-    const shadowDir = await this.getShadowDir(absDir)
-
-    try {
-      const { stdout } = await this.git(
-        shadowDir, absDir,
-        ['log', '--format=%H|%aI|%s', '--max-count', String(this.maxSnapshots)],
-      )
-
-      return stdout.trim().split('\n').filter(Boolean).map(line => {
-        const parts = line.split('|')
-        const hash = parts[0] ?? ''
-        const timestamp = parts[1] ?? ''
-        const reason = parts.slice(2).join('|')
-        return { hash, timestamp, reason, summary: '' }
-      })
-    } catch {
-      return []
-    }
-  }
-
-  /**
-   * Show diff between a checkpoint and the current working directory state.
-   */
-  async diff(workDir: string, checkpointHash: string): Promise<CheckpointDiff | null> {
-    const absDir = resolve(workDir)
-    const shadowDir = await this.getShadowDir(absDir)
-
-    try {
-      // Stage current state to compare
-      await this.git(shadowDir, absDir, ['add', '-A', ...buildExcludeArgs()])
-
-      const { stdout } = await this.git(
-        shadowDir, absDir,
-        ['diff', '--name-status', checkpointHash, 'HEAD'],
-      )
-
-      const added: string[] = []
-      const modified: string[] = []
-      const deleted: string[] = []
-
-      for (const line of stdout.trim().split('\n').filter(Boolean)) {
-        const status = line[0]
-        const file = line.slice(1).trim()
-        if (!file) continue
-        if (status === 'A') added.push(file)
-        else if (status === 'M') modified.push(file)
-        else if (status === 'D') deleted.push(file)
-      }
-
-      // Get diffstat
-      const { stdout: statOut } = await this.git(
-        shadowDir, absDir,
-        ['diff', '--shortstat', checkpointHash, 'HEAD'],
-      )
-
-      const insertMatch = /(\d+) insertion/.exec(statOut)
-      const deleteMatch = /(\d+) deletion/.exec(statOut)
-
-      return {
-        added,
-        modified,
-        deleted,
-        stats: {
-          filesChanged: added.length + modified.length + deleted.length,
-          insertions: insertMatch ? Number(insertMatch[1]) : 0,
-          deletions: deleteMatch ? Number(deleteMatch[1]) : 0,
-        },
-      }
-    } catch {
-      return null
-    }
-  }
-
-  /**
-   * Restore a directory to a checkpoint state.
-   * Creates a pre-rollback snapshot first for safety.
-   */
-  async restore(workDir: string, checkpointHash: string): Promise<boolean> {
-    const absDir = resolve(workDir)
-    const shadowDir = await this.getShadowDir(absDir)
-
-    try {
-      // Safety: snapshot current state before rollback
-      await this.createSnapshot(shadowDir, absDir, `pre-rollback to ${checkpointHash.slice(0, 8)}`)
-
-      // Restore files from checkpoint
-      await this.git(shadowDir, absDir, ['checkout', checkpointHash, '--', '.'])
-      return true
-    } catch {
-      return false
-    }
-  }
-
-  // -------------------------------------------------------------------------
-  // Internals
-  // -------------------------------------------------------------------------
-
-  private async getShadowDir(absDir: string): Promise<string> {
-    const dirName = shadowDirName(absDir)
-    const shadowDir = join(this.baseDir, dirName)
-    await mkdir(shadowDir, { recursive: true })
-    return shadowDir
-  }
-
-  private async initShadowRepo(shadowDir: string, workDir: string): Promise<void> {
-    try {
-      await this.git(shadowDir, workDir, ['rev-parse', '--git-dir'])
-    } catch {
-      // Not initialized yet
-      await this.git(shadowDir, workDir, ['init'])
-
-      // Configure for checkpoint use
-      await this.git(shadowDir, workDir, ['config', 'user.email', 'checkpoint@dzupagent'])
-      await this.git(shadowDir, workDir, ['config', 'user.name', 'DzupAgent Checkpoint'])
-    }
-  }
-
-  private async createSnapshot(
-    shadowDir: string,
+  /** Create or reuse a checkpoint with a source/root/generation proof. */
+  async ensureCheckpointDetailed(
     workDir: string,
     reason: string,
-  ): Promise<string | null> {
-    // Stage all files (respecting excludes)
-    await this.git(shadowDir, workDir, ['add', '-A', ...buildExcludeArgs()])
-
-    // Check if there are changes to commit
+  ): Promise<CheckpointDetailedResult> {
     try {
-      await this.git(shadowDir, workDir, ['diff', '--cached', '--quiet'])
-      // No changes — nothing to snapshot
-      return null
-    } catch {
-      // diff --quiet exits non-zero when there ARE changes — expected
-    }
-
-    await this.git(shadowDir, workDir, ['commit', '-m', reason, '--allow-empty-message'])
-
-    const { stdout } = await this.git(shadowDir, workDir, ['rev-parse', 'HEAD'])
-    return stdout.trim()
-  }
-
-  private async pruneOldSnapshots(shadowDir: string, workDir: string): Promise<void> {
-    try {
-      const { stdout } = await this.git(shadowDir, workDir, ['rev-list', '--count', 'HEAD'])
-      const count = Number(stdout.trim())
-
-      if (count > this.maxSnapshots) {
-        // Keep only the last N commits via a shallow operation
-        // We use reflog expire + gc to remove old objects
-        const keepFrom = `HEAD~${this.maxSnapshots}`
-        await this.git(shadowDir, workDir, [
-          'rebase', '--onto', keepFrom, keepFrom, 'HEAD',
-        ]).catch(() => {
-          // Prune failure is non-fatal
-        })
-      }
-    } catch {
-      // Prune failure is non-fatal
+      const canonicalRoot = await this.policy.canonicalizeRoot(workDir)
+      return await serializeRoot(canonicalRoot, async () => {
+        const prior = this.turnSnapshots.get(canonicalRoot)
+        if (prior) {
+          const verified = await this.store.verifyProof(canonicalRoot, prior)
+          if (!verified) this.turnSnapshots.delete(canonicalRoot)
+          else {
+            this.turnSnapshots.set(canonicalRoot, verified)
+            return {
+              status: 'deduplicated',
+              checkpointId: verified.checkpointId,
+              proof: verified,
+            }
+          }
+        }
+        const snapshot = await this.store.snapshot(canonicalRoot, normalizeReason(reason))
+        this.turnSnapshots.set(canonicalRoot, snapshot.proof)
+        return snapshot.created
+          ? { status: 'created', checkpointId: snapshot.checkpointId, proof: snapshot.proof }
+          : { status: 'deduplicated', checkpointId: snapshot.checkpointId, proof: snapshot.proof }
+      })
+    } catch (error: unknown) {
+      return skippedOrFailed(error)
     }
   }
 
-  private async git(
-    shadowDir: string,
+  /** List checkpoints with a typed failure outcome. */
+  async listDetailed(workDir: string): Promise<CheckpointListResult> {
+    try {
+      const canonicalRoot = await this.policy.canonicalizeRoot(workDir)
+      const checkpoints = await serializeRoot(
+        canonicalRoot,
+        () => this.store.list(canonicalRoot),
+      )
+      return { status: 'ok', checkpoints }
+    } catch (error: unknown) {
+      return failureFrom(error)
+    }
+  }
+
+  /** Compatibility wrapper. Prefer listDetailed when failure identity matters. */
+  async list(workDir: string): Promise<CheckpointEntry[]> {
+    const result = await this.listDetailed(workDir)
+    return result.status === 'ok' ? result.checkpoints : []
+  }
+
+  /** Compare a checkpoint with the explicitly staged current admitted tree. */
+  async diffDetailed(
     workDir: string,
-    args: string[],
-  ): Promise<{ stdout: string; stderr: string }> {
-    const result = await execFileAsync('git', args, {
-      cwd: workDir,
-      timeout: this.timeoutMs,
-      env: {
-        ...process.env,
-        GIT_DIR: shadowDir,
-        GIT_WORK_TREE: workDir,
-      },
-    })
-    return { stdout: result.stdout, stderr: result.stderr }
+    checkpointHash: string,
+  ): Promise<CheckpointDiffResult> {
+    try {
+      const canonicalRoot = await this.policy.canonicalizeRoot(workDir)
+      const diff = await serializeRoot(
+        canonicalRoot,
+        () => this.store.diff(canonicalRoot, checkpointHash),
+      )
+      return { status: 'ok', diff }
+    } catch (error: unknown) {
+      return failureFrom(error)
+    }
+  }
+
+  /** Compatibility wrapper. Prefer diffDetailed when failure identity matters. */
+  async diff(workDir: string, checkpointHash: string): Promise<CheckpointDiff | null> {
+    const result = await this.diffDetailed(workDir, checkpointHash)
+    return result.status === 'ok' ? result.diff : null
+  }
+
+  /** Restore exactly the admitted target tree after a successful safety snapshot. */
+  async restoreDetailed(
+    workDir: string,
+    checkpointHash: string,
+  ): Promise<CheckpointRestoreResult> {
+    try {
+      const canonicalRoot = await this.policy.canonicalizeRoot(workDir)
+      const restored = await serializeRoot(
+        canonicalRoot,
+        () => this.store.restore(canonicalRoot, checkpointHash),
+      )
+      return { status: 'restored', ...restored }
+    } catch (error: unknown) {
+      return failureFrom(error)
+    }
+  }
+
+  /** Compatibility wrapper. Prefer restoreDetailed for fail-closed callers. */
+  async restore(workDir: string, checkpointHash: string): Promise<boolean> {
+    return (await this.restoreDetailed(workDir, checkpointHash)).status === 'restored'
+  }
+
+  /** Inspect bounded structural state left by an interrupted operation. */
+  async inspectRecoveryDetailed(
+    workDir: string,
+  ): Promise<CheckpointRecoveryInspectionResult> {
+    try {
+      const canonicalRoot = await this.policy.canonicalizeRoot(workDir)
+      return await serializeRoot(
+        canonicalRoot,
+        () => this.store.inspectRecovery(canonicalRoot),
+      )
+    } catch (error: unknown) {
+      return failureFrom(error)
+    }
+  }
+
+  /** Recover only after an external custodian has fenced the abandoned owner. */
+  async recoverDetailed(
+    workDir: string,
+    authorization: CheckpointRecoveryAuthorization,
+  ): Promise<CheckpointRecoveryResult> {
+    try {
+      const canonicalRoot = await this.policy.canonicalizeRoot(workDir)
+      return await serializeRoot(
+        canonicalRoot,
+        () => this.store.recover(canonicalRoot, authorization),
+      )
+    } catch (error: unknown) {
+      return failureFrom(error)
+    }
+  }
+
+  /** Run explicit, exclusively owned physical object compaction. */
+  async compactDetailed(workDir: string): Promise<CheckpointCompactionResult> {
+    try {
+      const canonicalRoot = await this.policy.canonicalizeRoot(workDir)
+      return await serializeRoot(
+        canonicalRoot,
+        () => this.store.compact(canonicalRoot),
+      )
+    } catch (error: unknown) {
+      return failureFrom(error)
+    }
   }
 }
