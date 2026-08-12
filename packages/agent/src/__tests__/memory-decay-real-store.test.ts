@@ -6,7 +6,7 @@
  * nothing. A spy-based `MemoryService` could not detect this: it only observes
  * that `get` was called, never that the resulting prune actually happened.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { InMemoryStore } from "@langchain/langgraph";
 import { MemoryService } from "@dzupagent/memory";
 import { maybeWriteBackMemory } from "../agent/agent-finalizers.js";
@@ -49,10 +49,9 @@ describe("memory decay sweep (real store)", () => {
       },
     } as never);
 
-    // Give the fire-and-forget sweep a turn to settle.
-    await new Promise((r) => setTimeout(r, 50));
-
-    const after = await memory.getKeyed(NS, SCOPE);
-    expect(after.length).toBeLessThan(before.length);
+    await vi.waitFor(async () => {
+      const after = await memory.getKeyed(NS, SCOPE);
+      expect(after.length).toBeLessThan(before.length);
+    });
   });
 });

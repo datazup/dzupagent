@@ -3,7 +3,7 @@
   "packet": "MEM-P000",
   "sourceIdentity": {
     "kind": "content-digest-set",
-    "digest": "sha256:983dc7b70407cbedd9e7e94f3f4cbab3cd9ce9fdf7ab76613b413f5ca0d25ee3",
+    "digest": "sha256:9def515e82e87f54dcfd8531e34a208cb64759cdaf21c07ce69a5f697c0fb717",
     "inputs": [
       {
         "path": "config/memory-api-census.v1.json",
@@ -316,7 +316,7 @@
       },
       {
         "path": "packages/memory/src/projections/__tests__/adversarial.test.ts",
-        "sha256": "sha256:0b87c4511b7a21d59ba51b9e373d556350b41a50ccf3f7a566841a7435639391"
+        "sha256": "sha256:731d348d2aae9bce931336dbc7edc9509e4d83bd9b99183ef7a5afdf93dbbc45"
       },
       {
         "path": "packages/memory/src/projections/__tests__/diff.test.ts",
@@ -328,7 +328,7 @@
       },
       {
         "path": "packages/memory/src/projections/diff.ts",
-        "sha256": "sha256:bc43c756955459eaa6c9e91736e3f749ea40be39edee582cc9b9f09b5cb6d64d"
+        "sha256": "sha256:8b2b8cedac539ea5a0408d5c2383a801e67e871838857c0621a566c21702f78e"
       },
       {
         "path": "packages/memory/src/projections/errors.ts",
@@ -688,7 +688,7 @@
       },
       {
         "path": "scripts/__tests__/generate-memory-conformance-baseline.test.mjs",
-        "sha256": "sha256:f4d6aa427ba6c19f06e4ddca5801746b82a9a847cce5fe60562f485f1def8355"
+        "sha256": "sha256:a52cfd40746a6560a9047d56bf209e2f09aa1b9f413b06f78397e951ac951c9e"
       },
       {
         "path": "scripts/generate-memory-api-census.mjs",

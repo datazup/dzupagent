@@ -48,7 +48,8 @@ export function diffMemoryProjections(
   const target = decodeProjection(targetInput, 'target')
   if (base.formatVersion !== target.formatVersion
     || base.profileDigest !== target.profileDigest
-    || base.redactionPolicyRef.digest !== target.redactionPolicyRef.digest) {
+    || canonicalizeSafeJson(snapshotSafeJson(base.redactionPolicyRef))
+      !== canonicalizeSafeJson(snapshotSafeJson(target.redactionPolicyRef))) {
     projectionFail('profile-mismatch')
   }
   if (base.scopeDigest !== target.scopeDigest) projectionFail('scope-mismatch')
@@ -246,7 +247,8 @@ function validateRecord(value: SafeJson, path: readonly string[]): void {
   for (const key of ['memoryId', 'versionId', 'kind', 'status'] as const) text(record[key], [...path, key])
   if (!STATUS_VALUES.includes(record.status as MemoryStatusV1)) projectionFail('invalid-input', [...path, 'status'])
   digest(record.recordDigest, [...path, 'recordDigest'])
-  validateLifecycle(record.lifecycle, [...path, 'lifecycle'])
+  const lifecycle = validateLifecycle(record.lifecycle, [...path, 'lifecycle'])
+  if (lifecycle.status !== record.status) projectionFail('projection-tampered', [...path, 'status'])
   validateTemporal(record.temporal, [...path, 'temporal'])
   validateProvenance(record.provenance, [...path, 'provenance'])
   validateGovernance(record.governance, [...path, 'governance'])
@@ -255,34 +257,36 @@ function validateRecord(value: SafeJson, path: readonly string[]): void {
   validateContent(record.content, [...path, 'content'])
 }
 
-function validateLifecycle(value: SafeJson | undefined, path: readonly string[]): void {
+function validateLifecycle(value: SafeJson | undefined, path: readonly string[]): JsonObject {
   const object = asObject(value, path)
   exactKeys(object, [
     'status', 'priorVersionId', 'supersedesVersionId', 'supersededByVersionId',
     'revokesVersionId', 'reasonCode', 'transitionSequence', 'lastTransitionAt',
   ], path, true)
+  requireKeys(object, ['status', 'reasonCode', 'transitionSequence', 'lastTransitionAt'], path)
   for (const key of Object.keys(object)) {
     if (key === 'transitionSequence') safeInteger(object[key], [...path, key])
     else if (key === 'lastTransitionAt') timestamp(object[key], [...path, key])
     else text(object[key], [...path, key])
   }
+  return object
 }
-
 function validateTemporal(value: SafeJson | undefined, path: readonly string[]): void {
   const object = asObject(value, path)
   exactKeys(object, [
     'observedAt', 'recordedAt', 'updatedAt', 'validFrom', 'validTo', 'lastVerifiedAt',
     'expiresAt', 'sourceEventTime',
   ], path, true)
+  requireKeys(object, ['observedAt', 'recordedAt', 'updatedAt'], path)
   for (const [key, child] of Object.entries(object)) timestamp(child, [...path, key])
 }
-
 function validateProvenance(value: SafeJson | undefined, path: readonly string[]): void {
   const object = asObject(value, path)
   exactKeys(object, [
     'sourceKind', 'sourceId', 'sourceDigest', 'evidenceRefs', 'createdByRef',
     'reviewedByRef', 'extractionProfileId', 'extractionProfileVersion',
   ], path, true)
+  requireKeys(object, ['sourceKind', 'sourceId', 'sourceDigest', 'evidenceRefs', 'createdByRef'], path)
   for (const key of ['sourceKind', 'sourceId', 'createdByRef'] as const) text(object[key], [...path, key])
   digest(object.sourceDigest, [...path, 'sourceDigest'])
   for (const [index, evidence] of arrayValue(object.evidenceRefs, [...path, 'evidenceRefs']).entries()) {
@@ -293,34 +297,39 @@ function validateProvenance(value: SafeJson | undefined, path: readonly string[]
     timestamp(item.observedAt, [...path, 'observedAt'])
   }
 }
-
 function validateGovernance(value: SafeJson | undefined, path: readonly string[]): void {
   const object = asObject(value, path)
   exactKeys(object, [
     'sensitivity', 'consentRef', 'accessPolicyRef', 'writePolicyRef', 'legalHold',
     'exportable', 'userVisible', 'retentionPolicyId', 'retentionPolicyVersion',
   ], path, true)
+  requireKeys(object, [
+    'sensitivity', 'accessPolicyRef', 'writePolicyRef', 'legalHold', 'exportable',
+    'userVisible', 'retentionPolicyId', 'retentionPolicyVersion',
+  ], path)
   for (const [key, child] of Object.entries(object)) {
     if (['legalHold', 'exportable', 'userVisible'].includes(key)) boolean(child, [...path, key])
     else text(child, [...path, key])
   }
 }
-
 function validateQuality(value: SafeJson | undefined, path: readonly string[]): void {
   const object = asObject(value, path)
   exactKeys(object, [
     'confidence', 'sourceTrust', 'extractionQuality', 'freshnessState',
     'contradictionState', 'verificationState',
   ], path, true)
+  requireKeys(object, [
+    'confidence', 'sourceTrust', 'freshnessState', 'contradictionState', 'verificationState',
+  ], path)
   for (const [key, child] of Object.entries(object)) {
     if (['confidence', 'sourceTrust', 'extractionQuality'].includes(key)) finiteNumber(child, [...path, key])
     else text(child, [...path, key])
   }
 }
-
 function validateContent(value: SafeJson | undefined, path: readonly string[]): void {
   const object = asObject(value, path)
   exactKeys(object, ['mode', 'reason', 'digest', 'byteLength', 'value', 'contentRef', 'searchTextRef'], path, true)
+  requireKeys(object, ['mode', 'reason', 'digest', 'byteLength'], path)
   const mode = text(object.mode, [...path, 'mode'])
   text(object.reason, [...path, 'reason'])
   digest(object.digest, [...path, 'digest'])
@@ -332,7 +341,6 @@ function validateContent(value: SafeJson | undefined, path: readonly string[]): 
     if (object[key] !== undefined) validateContentRef(object[key], [...path, key])
   }
 }
-
 function validateContentRef(value: SafeJson | undefined, path: readonly string[]): void {
   const object = asObject(value, path)
   exactKeys(object, ['schema', 'owner', 'id', 'digest', 'mediaType', 'byteLength'], path)
@@ -340,7 +348,6 @@ function validateContentRef(value: SafeJson | undefined, path: readonly string[]
   digest(object.digest, [...path, 'digest'])
   safeInteger(object.byteLength, [...path, 'byteLength'])
 }
-
 function validateSummary(
   value: SafeJson | undefined,
   records: readonly SafeJson[],
@@ -354,7 +361,10 @@ function validateSummary(
     'memoryId', 'recordCount', 'eventCount', 'receiptCount', 'statuses',
     'activeVersionIds', 'purgeState',
   ], path)
-  text(summary.memoryId, [...path, 'memoryId'])
+  const memoryId = text(summary.memoryId, [...path, 'memoryId'])
+  if (records.some(record => asObject(record, []).memoryId !== memoryId)) {
+    projectionFail('projection-tampered', [...path, 'memoryId'])
+  }
   if (summary.recordCount !== records.length || summary.eventCount !== eventCount
     || summary.receiptCount !== receiptCount) projectionFail('projection-tampered', path)
   const statuses = asObject(summary.statuses, [...path, 'statuses'])
@@ -369,7 +379,6 @@ function validateSummary(
   }
   text(summary.purgeState, [...path, 'purgeState'])
 }
-
 function validateProjectionSource(
   value: SafeJson | undefined,
   events: readonly object[],
@@ -391,7 +400,6 @@ function validateProjectionSource(
   }))
   if (source.sourceDigest !== expectedSourceDigest) projectionFail('source-mismatch', path)
 }
-
 function validateSource(value: SafeJson | undefined, scopeDigest: Sha256, path: readonly string[]): void {
   const source = asObject(value, path)
   exactKeys(source, ['recordSetDigest', 'historyDigest', 'generation', 'sequence', 'sourceDigest'], path)
@@ -400,7 +408,6 @@ function validateSource(value: SafeJson | undefined, scopeDigest: Sha256, path: 
   safeInteger(source.sequence, [...path, 'sequence'])
   void scopeDigest
 }
-
 function validatePolicyRef(value: SafeJson | undefined, path: readonly string[]): void {
   const policy = asObject(value, path)
   exactKeys(policy, ['id', 'version', 'digest'], path)
@@ -408,7 +415,6 @@ function validatePolicyRef(value: SafeJson | undefined, path: readonly string[])
   text(policy.version, [...path, 'version'])
   digest(policy.digest, [...path, 'digest'])
 }
-
 function validateScope(value: SafeJson | undefined, path: readonly string[]): JsonObject {
   const scope = asObject(value, path)
   exactKeys(scope, [
@@ -419,14 +425,12 @@ function validateScope(value: SafeJson | undefined, path: readonly string[]): Js
   if (scope.tenantId === undefined || scope.namespace === undefined) projectionFail('invalid-input', path)
   return scope
 }
-
 function asObject(value: SafeJson | undefined, path: readonly string[]): JsonObject {
   if (value === null || value === undefined || typeof value !== 'object' || Array.isArray(value)) {
     projectionFail('invalid-input', path)
   }
   return value as JsonObject
 }
-
 function exactKeys(
   object: JsonObject,
   allowed: readonly string[],
@@ -437,18 +441,18 @@ function exactKeys(
   if (keys.some(key => !allowed.includes(key))) projectionFail('unknown-field', path)
   if (!optional && allowed.some(key => !keys.includes(key))) projectionFail('invalid-input', path)
 }
-
+function requireKeys(object: JsonObject, keys: readonly string[], path: readonly string[]): void {
+  if (keys.some(key => object[key] === undefined)) projectionFail('invalid-input', path)
+}
 function arrayValue(value: SafeJson | undefined, path: readonly string[]): readonly SafeJson[] {
   if (!Array.isArray(value)) projectionFail('invalid-input', path)
   return value
 }
-
 function validateStringArray(value: SafeJson | undefined, path: readonly string[]): void {
   const array = arrayValue(value, path)
   array.forEach((child, index) => text(child, [...path, String(index)]))
   assertSortedUnique(array, child => String(child), path)
 }
-
 function assertSortedUnique<T>(
   values: readonly T[],
   identity: (value: T) => string,
@@ -461,39 +465,32 @@ function assertSortedUnique<T>(
     projectionFail('identity-conflict', path)
   }
 }
-
 function expectString(object: JsonObject, key: string, expected: string, path: readonly string[]): void {
   if (text(object[key], [...path, key]) !== expected) projectionFail('invalid-input', [...path, key])
 }
-
 function text(value: SafeJson | undefined, path: readonly string[]): string {
   if (typeof value !== 'string' || value.length === 0) projectionFail('invalid-input', path)
   return value
 }
-
 function digest(value: SafeJson | undefined, path: readonly string[]): Sha256 {
   const result = text(value, path)
   if (!/^sha256:[a-f0-9]{64}$/.test(result)) projectionFail('invalid-input', path)
   return result as Sha256
 }
-
 function timestamp(value: SafeJson | undefined, path: readonly string[]): void {
   const result = text(value, path)
   if (!Number.isFinite(Date.parse(result)) || new Date(result).toISOString() !== result) {
     projectionFail('invalid-input', path)
   }
 }
-
 function safeInteger(value: SafeJson | undefined, path: readonly string[]): void {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
     projectionFail('invalid-input', path)
   }
 }
-
 function finiteNumber(value: SafeJson | undefined, path: readonly string[]): void {
   if (typeof value !== 'number' || !Number.isFinite(value)) projectionFail('invalid-input', path)
 }
-
 function boolean(value: SafeJson | undefined, path: readonly string[]): void {
   if (typeof value !== 'boolean') projectionFail('invalid-input', path)
 }

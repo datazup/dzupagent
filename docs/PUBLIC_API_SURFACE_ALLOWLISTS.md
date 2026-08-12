@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-08-11
+Date: 2026-08-12
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -469,14 +469,20 @@ Root index: `packages/memory/src/index.ts`
 - Stable root sources: `27`
 - Deprecated transitional root sources: `45`
 - Internal-only root candidates: `0`
-- Migration window: Root transitional exports remain available through 0.x; new consumers should prefer future memory/retrieval/store subpaths as they are introduced. The existing knowledge and testing subpaths remain experimental and test-only respectively; MEM-P001 and later contract subpaths require separate acceptance.
+- Migration window: Root transitional exports remain available through 0.x; accepted records, lifecycle, service, retrieval, workers, and pure projections use narrow subpaths. Knowledge and testing remain experimental and test-only. Effectful projection hosts remain a separately admitted MEM-P007-B concern.
 
 ### Stable Subpaths
 
 | Subpath | Purpose |
 | --- | --- |
 | `@dzupagent/memory/knowledge` | experimental filesystem-backed knowledge projection and snapshot rebuilding |
+| `@dzupagent/memory/lifecycle` | stable canonical lifecycle commands events receipts reducers and version-chain projection |
+| `@dzupagent/memory/projections` | pure bounded non-authoritative structured JSON Markdown and semantic diff projections |
+| `@dzupagent/memory/records` | stable canonical memory record decoding canonicalization and compatibility adapters |
+| `@dzupagent/memory/retrieval` | stable lifecycle-aware provider-neutral retrieval facade |
+| `@dzupagent/memory/service` | stable opt-in lifecycle service and store capability ports |
 | `@dzupagent/memory/testing` | test-only memory harness and truthfulness reporting contracts |
+| `@dzupagent/memory/workers` | stable provider-neutral reliable-delivery job outbox lease retry and outcome contracts |
 
 ### Root Allowlist
 
