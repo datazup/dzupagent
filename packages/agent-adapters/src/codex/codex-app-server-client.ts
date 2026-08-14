@@ -7,6 +7,10 @@ import { performance } from 'node:perf_hooks'
 import { StringDecoder } from 'node:string_decoder'
 
 import type { ResolvedProbeExecutable } from '../introspection/index.js'
+import {
+  digestExecutableArtifact,
+  validExecutableArtifactDigest,
+} from '../introspection/executable-artifact.js'
 
 export type CodexAppServerSpawn = (
   command: string,
@@ -50,6 +54,7 @@ export interface CodexAppServerClientDependencies {
   readonly realpath?: ((path: string) => Promise<string>) | undefined
   readonly stat?: ((path: string) => Promise<{ isFile(): boolean }>) | undefined
   readonly access?: ((path: string, mode?: number) => Promise<void>) | undefined
+  readonly digestArtifact?: ((path: string) => Promise<string>) | undefined
   readonly monotonicNow?: (() => number) | undefined
 }
 
@@ -67,6 +72,7 @@ export type CodexAppServerClientErrorCode =
   | 'CODEX_APP_SERVER_DUPLICATE_RESPONSE'
   | 'CODEX_APP_SERVER_EXECUTABLE_INVALID'
   | 'CODEX_APP_SERVER_FRAME_LIMIT'
+  | 'CODEX_APP_SERVER_INITIALIZE_INVALID'
   | 'CODEX_APP_SERVER_LATE_RESPONSE'
   | 'CODEX_APP_SERVER_LINE_LIMIT'
   | 'CODEX_APP_SERVER_MALFORMED_FRAME'
@@ -169,10 +175,12 @@ export class CodexAppServerStdioClient {
       version: '0.2.0',
     }
     try {
-      await client.sendRequest('initialize', {
+      await qualifyArtifactDigest(options, executablePath, deadline, monotonicNow, signal)
+      const initializeResult = await client.sendRequest('initialize', {
         clientInfo,
         capabilities: { experimentalApi: true },
       }, { timeoutMs: remainingTimeout(deadline, monotonicNow) })
+      assertInitializeResponse(initializeResult)
       if (client.terminalError) throw client.terminalError
       await client.writeFrame({
         method: 'initialized',
@@ -646,6 +654,7 @@ async function qualifyExecutable(
     || identity.name !== 'codex'
     || !isAbsolute(identity.path)
     || !isAbsolute(identity.realPath)
+    || !validExecutableArtifactDigest(identity.artifactDigest)
   ) throw executableInvalid()
 
   const resolveRealPath = options.dependencies?.realpath ?? realpath
@@ -696,9 +705,45 @@ async function qualifyExecutable(
     }
     throw executableInvalid()
   }
+  await qualifyArtifactDigest(options, actualRealPath, deadline, monotonicNow, signal)
   ensureNotCancelled(signal)
   remainingTimeout(deadline, monotonicNow)
   return actualRealPath
+}
+
+async function qualifyArtifactDigest(
+  options: CodexAppServerClientOptions,
+  executablePath: string,
+  deadline: number,
+  monotonicNow: () => number,
+  signal?: AbortSignal,
+): Promise<void> {
+  try {
+    const digestArtifact = options.dependencies?.digestArtifact ?? digestExecutableArtifact
+    const actualDigest = await withinTimeout(
+      digestArtifact(executablePath),
+      remainingTimeout(deadline, monotonicNow),
+      signal,
+    )
+    if (actualDigest !== options.executable.artifactDigest) throw executableInvalid()
+  } catch (error) {
+    if (error instanceof CodexAppServerClientError) throw error
+    throw executableInvalid()
+  }
+}
+
+function assertInitializeResponse(value: unknown): void {
+  if (!isRecord(value)
+    || !boundedString(value['codexHome'], 4_096)
+    || !isAbsolute(value['codexHome'])
+    || !boundedString(value['platformFamily'], 256)
+    || !boundedString(value['platformOs'], 256)
+    || !boundedString(value['userAgent'], 1_024)) {
+    throw new CodexAppServerClientError(
+      'CODEX_APP_SERVER_INITIALIZE_INVALID',
+      'Codex app-server returned an invalid initialize response',
+    )
+  }
 }
 
 function withinTimeout<T>(
@@ -843,4 +888,8 @@ function asClientError(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function boundedString(value: unknown, maxLength: number): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= maxLength
 }

@@ -89,6 +89,30 @@ describe('validateDocument', () => {
     const result = validateDocument(doc)
     expect(result.valid).toBe(false)
   })
+
+  it('returns valid=false for same-path output collisions', () => {
+    const doc = makeValidDoc({
+      root: {
+        type: 'sequence',
+        id: 'root',
+        nodes: [
+          { type: 'prompt', id: 'first', userPrompt: 'first', outputKey: 'result' },
+          { type: 'prompt', id: 'second', userPrompt: 'second', outputKey: 'result' },
+        ],
+      },
+    })
+
+    const result = validateDocument(doc)
+
+    expect(result.valid).toBe(false)
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        phase: 'validate',
+        code: 'output_key_collision',
+        path: 'root.nodes[1]',
+      }),
+    ])
+  })
 })
 
 // ---------------------------------------------------------------------------

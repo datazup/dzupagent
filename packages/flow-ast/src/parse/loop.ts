@@ -86,6 +86,32 @@ export function parseLoop(
   };
   if (typeof obj.maxIterations === "number")
     node.maxIterations = obj.maxIterations;
+  if (obj.onExhausted === "fail" || obj.onExhausted === "continue") {
+    node.onExhausted = obj.onExhausted;
+  } else if (obj.onExhausted !== undefined) {
+    ctx.errors.push({
+      code: "INVALID_ENUM_VALUE",
+      message: `loop.onExhausted must be "fail" or "continue" when present, received ${describeJsType(
+        obj.onExhausted
+      )}`,
+      pointer: joinPointer(pointer, "onExhausted"),
+    });
+  }
+  if (
+    typeof obj.iterationTimeoutMs === "number" &&
+    Number.isInteger(obj.iterationTimeoutMs) &&
+    obj.iterationTimeoutMs > 0
+  ) {
+    node.iterationTimeoutMs = obj.iterationTimeoutMs;
+  } else if (obj.iterationTimeoutMs !== undefined) {
+    ctx.errors.push({
+      code: "INVALID_FIELD_TYPE",
+      message: `loop.iterationTimeoutMs must be a positive integer when present, received ${describeJsType(
+        obj.iterationTimeoutMs
+      )}`,
+      pointer: joinPointer(pointer, "iterationTimeoutMs"),
+    });
+  }
   if (typeof obj.progressKey === "string" && obj.progressKey.length > 0)
     node.progressKey = obj.progressKey;
   return node;

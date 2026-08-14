@@ -913,23 +913,21 @@ Snapshot and resume points for long-running flows.
 
 ## Output-key uniqueness
 
-The flow-ast pass `checkOutputKeyUniqueness` flags two `agent` nodes that share
-the same `output.key` within the same sequence-scope. Scopes are:
+The flow-ast pass `checkOutputKeyUniqueness` checks every explicit/default output
+destination and returns structured diagnostics with code
+`output_key_collision` and severity `error`. `validateDocument`,
+`parseDslToDocument`, `compileDocument`, `compileDsl`, and direct root
+compilation all enforce the same hard gate.
 
-- the root sequence
-- each persona / for_each / route body
-- each branch `then` / `else`
-- each approval `onApprove` / `onReject`
-- each `try_catch` body and `catch`
-- each parallel branch
-
-Cross-scope duplicates are allowed because they cannot both execute on the same
-path.
-
-Today these are surfaced by `checkOutputKeyUniqueness(root)` as structured
-diagnostics with code `output_key_collision` and severity `warning`. They do
-not block DSL parsing or document validation. Promotion to errors is planned for
-a follow-up milestone.
+Collisions are path-aware. Nested sequences and wrappers remain in their
+parent's collision domain, and parallel branches share one domain. Reuse is
+allowed only between explicit mutually exclusive branch then/else, approval
+approve/reject, or successful try-body/recovery outcomes. The try/catch error
+destination belongs to the recovery path. A later writer still collides with
+every possible output from those alternatives. Explicit `set.assign` entries
+remain the intentional state-mutation surface and are not result outputs. A
+`for_each` body is an iteration-local state scope; its internal collisions fail,
+and only declared collection/accumulator destinations join outer state.
 
 ## Validation
 

@@ -1045,6 +1045,7 @@ export type {
   PipelineValidationWarning,
   PipelineValidationResult,
   PipelineCheckpoint,
+  PipelineLoopCheckpointState,
   PipelineCheckpointEventRecord,
   PipelineCheckpointExecutionLog,
   PipelineCheckpointProviderSessionRef,

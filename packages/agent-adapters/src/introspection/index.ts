@@ -60,7 +60,10 @@ export type {
   ProbeResult,
   SafeProbeCommandRunner,
 } from './probe-runner.js'
-export { createNodeProbeRunner } from './node-probe-runner.js'
+export {
+  createNodeProbeRunner,
+  resolveNodeProbeExecutable,
+} from './node-probe-runner.js'
 export type {
   NodeProbeRunnerOptions,
   ProbeRunnerLimits,

@@ -134,6 +134,12 @@ export function formatStructuralNode(
       }
       if (node.maxIterations !== undefined)
         lines.push(`${childIndent}max_iterations: ${node.maxIterations}`);
+      if (node.onExhausted !== undefined)
+        lines.push(`${childIndent}onExhausted: ${node.onExhausted}`);
+      if (node.iterationTimeoutMs !== undefined)
+        lines.push(
+          `${childIndent}iterationTimeoutMs: ${node.iterationTimeoutMs}`
+        );
       if (node.progressKey !== undefined)
         lines.push(`${childIndent}progressKey: ${quote(node.progressKey)}`);
       lines.push(`${childIndent}body:`);

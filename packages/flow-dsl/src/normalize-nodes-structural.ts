@@ -138,6 +138,9 @@ const LOOP_KEYS = new Set<string>([
   "body",
   "maxIterations",
   "max_iterations",
+  "onExhausted",
+  "iterationTimeoutMs",
+  "iteration_timeout_ms",
   "progressKey",
 ]);
 
@@ -218,6 +221,34 @@ export function normalizeLoop(
 
   if (typeof raw.progressKey === "string" && raw.progressKey.length > 0) {
     node.progressKey = raw.progressKey;
+  }
+
+  const iterationTimeoutRaw =
+    raw.iterationTimeoutMs ?? raw.iteration_timeout_ms;
+  if (
+    typeof iterationTimeoutRaw === "number" &&
+    Number.isInteger(iterationTimeoutRaw) &&
+    iterationTimeoutRaw > 0
+  ) {
+    node.iterationTimeoutMs = iterationTimeoutRaw;
+  } else if (iterationTimeoutRaw !== undefined) {
+    diagnostics.push({
+      phase: "normalize",
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: "loop.iterationTimeoutMs must be a positive integer",
+      path: `${path}.iterationTimeoutMs`,
+    });
+  }
+
+  if (raw.onExhausted === "fail" || raw.onExhausted === "continue") {
+    node.onExhausted = raw.onExhausted;
+  } else if (raw.onExhausted !== undefined) {
+    diagnostics.push({
+      phase: "normalize",
+      code: DSL_ERROR.INVALID_ENUM_VALUE,
+      message: 'loop.onExhausted must be "fail" or "continue"',
+      path: `${path}.onExhausted`,
+    });
   }
 
   return node;

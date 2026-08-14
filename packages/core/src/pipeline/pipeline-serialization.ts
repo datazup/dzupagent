@@ -106,6 +106,7 @@ export const LoopNodeSchema = PipelineNodeBaseSchema.extend({
       conditionSchema: z.literal("dzupagent.flowTypedCondition/v1"),
       condition: z.record(z.string(), z.unknown()),
       onExhausted: z.enum(["fail", "continue"]),
+      iterationTimeoutMs: z.number().int().positive().optional(),
       progressKey: z.string().min(1).optional(),
     })
     .optional(),
@@ -167,6 +168,31 @@ export const PipelineCheckpointSchema = z.object({
   version: z.number().int().nonnegative(),
   schemaVersion: z.enum(PIPELINE_SCHEMA_VERSIONS),
   completedNodeIds: z.array(z.string()),
+  loopState: z
+    .record(
+      z.string(),
+      z
+        .object({
+          iteration: z.number().int().nonnegative(),
+          nextBodyNodeIndex: z.number().int().nonnegative().optional(),
+          bodyResults: z.record(z.string(), z.unknown()).optional(),
+          previousOutput: z.unknown().optional(),
+          progressDigest: z
+            .string()
+            .regex(/^sha256:[a-f0-9]{64}$/)
+            .optional(),
+        })
+        .refine(
+          (cursor) =>
+            (cursor.nextBodyNodeIndex === undefined) ===
+            (cursor.bodyResults === undefined),
+          {
+            message:
+              "nextBodyNodeIndex and bodyResults must be present or absent together",
+          }
+        )
+    )
+    .optional(),
   state: z.record(z.string(), z.unknown()),
   suspendedAtNodeId: z.string().optional(),
   budgetState: z

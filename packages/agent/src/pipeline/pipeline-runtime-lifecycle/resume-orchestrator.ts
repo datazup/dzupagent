@@ -29,6 +29,7 @@ import type {
   PipelineRunResult,
   PipelineRuntimeConfig,
 } from "../pipeline-runtime-types.js";
+import type { LoopState } from "../pipeline-runtime/executor-state-types.js";
 
 /**
  * Facade the resume/redeliver paths use over the owning runtime. Kept narrow
@@ -42,6 +43,7 @@ export interface ResumeHost {
   assertRuntimeToolReadiness(): void;
   setState(next: "running" | "completed" | "failed"): void;
   setRecoveryAttemptsUsed(count: number): void;
+  setBudgetCostCents(costCents: number): void;
 
   emitStarted(runId: string): void;
   emitCompleted(runId: string, durationMs: number): void;
@@ -56,7 +58,7 @@ export interface ResumeHost {
   getNextNodeIds(nodeId: string, runState: Record<string, unknown>): string[];
 
   findMidFlightLoopNodeId(
-    loopState: Record<string, { iteration: number }>,
+    loopState: LoopState,
     completedNodeIds: string[]
   ): string | undefined;
   findMidFlightForkNodeId(
@@ -79,7 +81,7 @@ interface RestoredContext {
   nodeResults: Map<string, NodeResult>;
   completedNodeIds: string[];
   nodeIdempotencyKeys: Record<string, string>;
-  loopState: Record<string, { iteration: number }>;
+  loopState: LoopState;
   forkState: ForkRuntimeState;
 }
 
@@ -107,9 +109,7 @@ export function restoreRunContextFromCheckpoint(
     const completedNodeIds = [...checkpoint.completedNodeIds];
     // Restore the loop iteration cursor so a mid-loop crash resumes from the
     // next iteration rather than restarting the loop (W3).
-    const loopState: Record<string, { iteration: number }> = {
-      ...checkpoint.loopState,
-    };
+    const loopState = structuredClone(checkpoint.loopState ?? {}) as LoopState;
     // Restore per-fork branch progress so a mid-fork crash re-runs only
     // unfinished branches rather than the whole fork (W4).
     const forkState: ForkRuntimeState = structuredClone(
@@ -191,6 +191,7 @@ export async function resumeFromCheckpoint(
   host.setState("running");
   // Restore recovery budget so limits are enforced across process restarts
   host.setRecoveryAttemptsUsed(checkpoint.recoveryAttemptsUsed ?? 0);
+  host.setBudgetCostCents(checkpoint.budgetState?.costCents ?? 0);
   host.emitStarted(runId);
 
   const startTime = Date.now();
@@ -338,6 +339,7 @@ export async function redeliverFromCheckpoint(
 
   host.setState("running");
   host.setRecoveryAttemptsUsed(checkpoint.recoveryAttemptsUsed ?? 0);
+  host.setBudgetCostCents(checkpoint.budgetState?.costCents ?? 0);
   host.emitStarted(runId);
 
   return host.runFromNode({

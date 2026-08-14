@@ -217,6 +217,7 @@ export function lowerTypedLoop(
     lowerOne
   );
   const bodyNodeIds = bodyResult.nodes.map((n) => n.id);
+  const onExhausted = node.onExhausted ?? "fail";
 
   const loopNode: LoopNode = {
     id: freshId(ctx),
@@ -225,18 +226,20 @@ export function lowerTypedLoop(
     bodyNodeIds,
     maxIterations: node.maxIterations ?? 100,
     continuePredicateName: `loopTyped__${node.id ?? path}__predicate`,
-    // Exhaustion is fail-closed: a typed while-loop hitting maxIterations
-    // means its condition never released — silently continuing would commit
-    // downstream effects on a state the author declared not-ready. An
-    // author-facing onExhausted override is R4-remainder for the R4+R6 join.
-    failOnMaxIterations: true,
+    // Exhaustion defaults fail-closed. The authored override is retained in
+    // typedWhile (the semantic source of truth) and mirrored into the legacy
+    // boolean so older artifact readers see a coherent value.
+    failOnMaxIterations: onExhausted === "fail",
     typedWhile: {
       conditionSchema: typedCondition.schema,
       condition: typedCondition.expression as unknown as Record<
         string,
         unknown
       >,
-      onExhausted: "fail",
+      onExhausted,
+      ...(node.iterationTimeoutMs !== undefined
+        ? { iterationTimeoutMs: node.iterationTimeoutMs }
+        : {}),
       ...(node.progressKey !== undefined
         ? { progressKey: node.progressKey }
         : {}),

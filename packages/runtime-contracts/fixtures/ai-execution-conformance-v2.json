@@ -1,0 +1,444 @@
+{
+  "schema": "dzupagent.aiExecutionConformanceCorpus/v2",
+  "description": "Provider-free V2 execution corpus binding route, offer, target, tariff, prompt, rendered payload, persona, model, attempt, and aggregate charge identity.",
+  "cases": [
+    {
+      "id": "text-generate-inline-priced-v2",
+      "request": {
+        "schema": "dzupagent.aiExecutionRequest/v1",
+        "execution": {
+          "schema": "dzupagent.executionRequest/v1",
+          "kind": "prompt",
+          "requestId": "request-1",
+          "correlationId": "correlation-1",
+          "attempt": 1,
+          "source": { "nodeId": "node-1", "nodePath": "node-1" },
+          "prompt": {
+            "layers": [{ "kind": "task", "content": "Summarize" }],
+            "bindings": {}
+          },
+          "tools": { "mode": "none", "grants": [] },
+          "output": { "key": "answer", "format": "text" },
+          "route": {
+            "id": "route-request-1",
+            "requestId": "request-1",
+            "strategy": "fixed",
+            "candidates": [{ "id": "model-default", "provider": "provider" }],
+            "hardConstraints": [],
+            "preferenceOrder": [],
+            "fallback": "none",
+            "maxSelectionLatencyMs": 100
+          },
+          "policy": {},
+          "effects": { "effectClass": "llm" },
+          "cancellation": { "mode": "cooperative" },
+          "evidenceRequirements": []
+        },
+        "operation": {
+          "kind": "text.generate",
+          "input": { "text": "Summarize" },
+          "output": { "modality": "text" }
+        },
+        "target": { "kind": "target-id", "targetId": "docs.summary.default" }
+      },
+      "publicTarget": {
+        "schema": "dzupagent.aiPublicTarget/v1",
+        "targetId": "docs.summary.default",
+        "revision": "target-revision-1",
+        "displayName": "Docs summary",
+        "operations": ["text.generate"],
+        "capabilities": ["text/v1"],
+        "placement": "server",
+        "executionStyle": "inline",
+        "locality": "remote",
+        "health": {
+          "status": "healthy",
+          "checkedAt": "2026-08-14T00:00:00.000Z"
+        }
+      },
+      "events": [
+        {
+          "schema": "dzupagent.aiExecutionEvent/v1",
+          "requestId": "request-1",
+          "correlationId": "correlation-1",
+          "sequence": 1,
+          "cursor": "1",
+          "attempt": 1,
+          "emittedAt": "2026-08-14T00:00:00.000Z",
+          "type": "started"
+        },
+        {
+          "schema": "dzupagent.aiExecutionEvent/v1",
+          "requestId": "request-1",
+          "correlationId": "correlation-1",
+          "sequence": 2,
+          "cursor": "2",
+          "attempt": 1,
+          "emittedAt": "2026-08-14T00:00:00.500Z",
+          "type": "usage",
+          "usage": {
+            "measurement": "known",
+            "tokens": { "input": 10, "output": 5 },
+            "cost": {
+              "status": "reconciled",
+              "currency": "USD",
+              "amountMicros": 25,
+              "charges": [
+                {
+                  "attempt": 1,
+                  "offerRef": "model-default",
+                  "tariffRef": "tariff/model-default/2026-08",
+                  "amountMicros": 25,
+                  "provenance": {
+                    "sourceKind": "provider-published",
+                    "authorityId": "provider/prices",
+                    "revision": "2026-08-01",
+                    "effectiveAt": "2026-08-01T00:00:00.000Z",
+                    "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "schema": "dzupagent.aiExecutionEvent/v1",
+          "requestId": "request-1",
+          "correlationId": "correlation-1",
+          "sequence": 3,
+          "cursor": "3",
+          "attempt": 1,
+          "emittedAt": "2026-08-14T00:00:01.000Z",
+          "type": "completed",
+          "status": "succeeded"
+        }
+      ],
+      "receipt": {
+        "schema": "dzupagent.aiExecutionReceipt/v2",
+        "requestId": "request-1",
+        "correlationId": "correlation-1",
+        "operation": "text.generate",
+        "requestedTarget": {
+          "kind": "target-id",
+          "targetId": "docs.summary.default"
+        },
+        "binding": {
+          "schema": "dzupagent.aiExecutionBinding/v1",
+          "routeDecision": {
+            "decisionId": "decision-1",
+            "policyId": "route-request-1",
+            "selectedCandidateId": "model-default",
+            "decisionDigest": "sha256:1066d51e4dcb1f4d3fbbc614cb6b487534a3cc8c7cac2531074a501f0ff5d4f4"
+          },
+          "offer": {
+            "schema": "dzupagent.aiExecutionOffer/v1",
+            "offerId": "model-default",
+            "offerRevision": "offer-revision-1",
+            "model": {
+              "modelRef": "model/summary",
+              "revision": "2026-08-01",
+              "providerModelId": "provider-model-1",
+              "catalogDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "provider": "provider",
+            "backend": "sdk",
+            "locality": "remote",
+            "privacyClass": "provider",
+            "capabilities": ["text/v1"],
+            "cacheBehavior": "provider",
+            "sessionBehavior": "stateless",
+            "tariffRef": "tariff/model-default/2026-08",
+            "health": {
+              "status": "healthy",
+              "checkedAt": "2026-08-14T00:00:00.000Z"
+            },
+            "effectiveAt": "2026-08-01T00:00:00.000Z",
+            "catalogDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "snapshotDigest": "sha256:178151e7ef90e8a2dfcd7c1cac6a16011f46eeec4861448e98523bab44984c30"
+          },
+          "target": {
+            "schema": "dzupagent.aiResolvedTarget/v1",
+            "targetId": "docs.summary.default",
+            "targetRevision": "target-revision-1",
+            "policyRevision": "policy-revision-1",
+            "operation": "text.generate",
+            "placement": "server",
+            "executionStyle": "inline",
+            "routeCandidateId": "model-default",
+            "backend": "sdk",
+            "provider": "provider",
+            "model": "provider-model-1",
+            "resolvedAt": "2026-08-14T00:00:00.000Z",
+            "snapshotDigest": "sha256:5cedf15edda395a53043445a320e93b92651f3b9d4ee41681b03789520e8fc16"
+          },
+          "prompt": {
+            "blueprintRef": "prompt/summary",
+            "blueprintRevision": "3",
+            "blueprintDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "renderedPayloadDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          },
+          "persona": {
+            "status": "bound",
+            "personaId": "persona/researcher",
+            "revision": "2",
+            "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+          },
+          "model": {
+            "modelRef": "model/summary",
+            "revision": "2026-08-01",
+            "providerModelId": "provider-model-1",
+            "catalogDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "bindingDigest": "sha256:61a0e28daa0cfa52954b43aa0163f3ee8afea3a237a7ab84e69f2b67243de77a"
+        },
+        "target": {
+          "schema": "dzupagent.aiResolvedTarget/v1",
+          "targetId": "docs.summary.default",
+          "targetRevision": "target-revision-1",
+          "policyRevision": "policy-revision-1",
+          "operation": "text.generate",
+          "placement": "server",
+          "executionStyle": "inline",
+          "routeCandidateId": "model-default",
+          "backend": "sdk",
+          "provider": "provider",
+          "model": "provider-model-1",
+          "resolvedAt": "2026-08-14T00:00:00.000Z",
+          "snapshotDigest": "sha256:5cedf15edda395a53043445a320e93b92651f3b9d4ee41681b03789520e8fc16"
+        },
+        "attempts": [
+          {
+            "attempt": 1,
+            "binding": {
+              "schema": "dzupagent.aiExecutionBinding/v1",
+              "routeDecision": {
+                "decisionId": "decision-1",
+                "policyId": "route-request-1",
+                "selectedCandidateId": "model-default",
+                "decisionDigest": "sha256:1066d51e4dcb1f4d3fbbc614cb6b487534a3cc8c7cac2531074a501f0ff5d4f4"
+              },
+              "offer": {
+                "schema": "dzupagent.aiExecutionOffer/v1",
+                "offerId": "model-default",
+                "offerRevision": "offer-revision-1",
+                "model": {
+                  "modelRef": "model/summary",
+                  "revision": "2026-08-01",
+                  "providerModelId": "provider-model-1",
+                  "catalogDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                },
+                "provider": "provider",
+                "backend": "sdk",
+                "locality": "remote",
+                "privacyClass": "provider",
+                "capabilities": ["text/v1"],
+                "cacheBehavior": "provider",
+                "sessionBehavior": "stateless",
+                "tariffRef": "tariff/model-default/2026-08",
+                "health": {
+                  "status": "healthy",
+                  "checkedAt": "2026-08-14T00:00:00.000Z"
+                },
+                "effectiveAt": "2026-08-01T00:00:00.000Z",
+                "catalogDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "snapshotDigest": "sha256:178151e7ef90e8a2dfcd7c1cac6a16011f46eeec4861448e98523bab44984c30"
+              },
+              "target": {
+                "schema": "dzupagent.aiResolvedTarget/v1",
+                "targetId": "docs.summary.default",
+                "targetRevision": "target-revision-1",
+                "policyRevision": "policy-revision-1",
+                "operation": "text.generate",
+                "placement": "server",
+                "executionStyle": "inline",
+                "routeCandidateId": "model-default",
+                "backend": "sdk",
+                "provider": "provider",
+                "model": "provider-model-1",
+                "resolvedAt": "2026-08-14T00:00:00.000Z",
+                "snapshotDigest": "sha256:5cedf15edda395a53043445a320e93b92651f3b9d4ee41681b03789520e8fc16"
+              },
+              "prompt": {
+                "blueprintRef": "prompt/summary",
+                "blueprintRevision": "3",
+                "blueprintDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                "renderedPayloadDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+              },
+              "persona": {
+                "status": "bound",
+                "personaId": "persona/researcher",
+                "revision": "2",
+                "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+              },
+              "model": {
+                "modelRef": "model/summary",
+                "revision": "2026-08-01",
+                "providerModelId": "provider-model-1",
+                "catalogDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              "bindingDigest": "sha256:61a0e28daa0cfa52954b43aa0163f3ee8afea3a237a7ab84e69f2b67243de77a"
+            },
+            "target": {
+              "schema": "dzupagent.aiResolvedTarget/v1",
+              "targetId": "docs.summary.default",
+              "targetRevision": "target-revision-1",
+              "policyRevision": "policy-revision-1",
+              "operation": "text.generate",
+              "placement": "server",
+              "executionStyle": "inline",
+              "routeCandidateId": "model-default",
+              "backend": "sdk",
+              "provider": "provider",
+              "model": "provider-model-1",
+              "resolvedAt": "2026-08-14T00:00:00.000Z",
+              "snapshotDigest": "sha256:5cedf15edda395a53043445a320e93b92651f3b9d4ee41681b03789520e8fc16"
+            },
+            "dispatch": { "status": "terminal" },
+            "usage": {
+              "measurement": "known",
+              "tokens": { "input": 10, "output": 5 },
+              "cost": {
+                "status": "reconciled",
+                "currency": "USD",
+                "amountMicros": 25,
+                "charges": [
+                  {
+                    "attempt": 1,
+                    "offerRef": "model-default",
+                    "tariffRef": "tariff/model-default/2026-08",
+                    "amountMicros": 25,
+                    "provenance": {
+                      "sourceKind": "provider-published",
+                      "authorityId": "provider/prices",
+                      "revision": "2026-08-01",
+                      "effectiveAt": "2026-08-01T00:00:00.000Z",
+                      "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                    }
+                  }
+                ]
+              }
+            },
+            "startedAt": "2026-08-14T00:00:00.000Z",
+            "completedAt": "2026-08-14T00:00:01.000Z"
+          }
+        ],
+        "result": {
+          "schema": "dzupagent.executionResult/v1",
+          "requestId": "request-1",
+          "correlationId": "correlation-1",
+          "routeDecision": {
+            "id": "decision-1",
+            "policyId": "route-request-1",
+            "requestId": "request-1",
+            "eligibleCandidateIds": ["model-default"],
+            "rejected": [],
+            "selectedCandidateId": "model-default",
+            "fallbackCandidateIds": [],
+            "strategy": "fixed",
+            "decidedAt": "2026-08-14T00:00:00.000Z"
+          },
+          "evidence": [],
+          "artifacts": [],
+          "status": "succeeded",
+          "output": "summary"
+        },
+        "usage": {
+          "measurement": "known",
+          "tokens": { "input": 10, "output": 5 },
+          "cost": {
+            "status": "reconciled",
+            "currency": "USD",
+            "amountMicros": 25,
+            "charges": [
+              {
+                "attempt": 1,
+                "offerRef": "model-default",
+                "tariffRef": "tariff/model-default/2026-08",
+                "amountMicros": 25,
+                "provenance": {
+                  "sourceKind": "provider-published",
+                  "authorityId": "provider/prices",
+                  "revision": "2026-08-01",
+                  "effectiveAt": "2026-08-01T00:00:00.000Z",
+                  "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                }
+              }
+            ]
+          }
+        },
+        "terminalEventSequence": 3,
+        "completedAt": "2026-08-14T00:00:01.000Z"
+      },
+      "expected": { "valid": true }
+    }
+  ],
+  "negativeCases": [
+    {
+      "id": "route-decision-drift",
+      "path": ["receipt", "result", "routeDecision", "decidedAt"],
+      "value": "2026-08-14T00:00:00.500Z",
+      "expectedCode": "AI_EXECUTION_BINDING_INVALID"
+    },
+    {
+      "id": "route-candidate-drift",
+      "path": ["receipt", "binding", "routeDecision", "selectedCandidateId"],
+      "value": "model-other",
+      "expectedCode": "AI_EXECUTION_BINDING_MISMATCH"
+    },
+    {
+      "id": "offer-revision-drift",
+      "path": ["receipt", "binding", "offer", "offerRevision"],
+      "value": "offer-revision-other",
+      "expectedCode": "AI_EXECUTION_BINDING_INVALID"
+    },
+    {
+      "id": "target-revision-drift",
+      "path": ["receipt", "binding", "target", "targetRevision"],
+      "value": "target-revision-other",
+      "expectedCode": "AI_EXECUTION_BINDING_INVALID"
+    },
+    {
+      "id": "tariff-reference-drift",
+      "path": ["receipt", "attempts", 0, "usage", "cost", "charges", 0, "tariffRef"],
+      "value": "tariff/other",
+      "expectedCode": "AI_CHARGE_BINDING_MISMATCH"
+    },
+    {
+      "id": "prompt-blueprint-drift",
+      "path": ["receipt", "binding", "prompt", "blueprintRevision"],
+      "value": "4",
+      "expectedCode": "AI_EXECUTION_BINDING_INVALID"
+    },
+    {
+      "id": "rendered-payload-drift",
+      "path": ["receipt", "binding", "prompt", "renderedPayloadDigest"],
+      "value": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "expectedCode": "AI_EXECUTION_BINDING_INVALID"
+    },
+    {
+      "id": "persona-revision-drift",
+      "path": ["receipt", "binding", "persona", "revision"],
+      "value": "3",
+      "expectedCode": "AI_EXECUTION_BINDING_INVALID"
+    },
+    {
+      "id": "model-revision-drift",
+      "path": ["receipt", "binding", "model", "revision"],
+      "value": "2026-08-02",
+      "expectedCode": "AI_EXECUTION_BINDING_MISMATCH"
+    },
+    {
+      "id": "attempt-binding-drift",
+      "path": ["receipt", "attempts", 0, "binding", "prompt", "blueprintRevision"],
+      "value": "4",
+      "expectedCode": "AI_EXECUTION_BINDING_INVALID"
+    }
+  ],
+  "boundaries": {
+    "providerCalls": 0,
+    "executionAuthorized": false,
+    "mutationAuthorized": false,
+    "publicationAuthorized": false,
+    "authorityEffect": "none"
+  }
+}

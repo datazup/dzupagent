@@ -1,4 +1,8 @@
-import type { FlowNode, ValidationError } from "@dzupagent/flow-ast";
+import {
+  checkOutputKeyUniqueness,
+  type FlowNode,
+  type ValidationError,
+} from "@dzupagent/flow-ast";
 
 import { routeTarget } from "../route-target.js";
 import { controlAndLeafValidators } from "./shape-validate-rules.js";
@@ -36,6 +40,16 @@ const nodeValidators: ShapeRuleTable = {
 export function validateShape(ast: FlowNode): ValidationError[] {
   const errors: ValidationError[] = [];
   visit(ast, "root", errors);
+
+  errors.push(
+    ...checkOutputKeyUniqueness(ast).map((diagnostic) => ({
+      nodeType: ast.type,
+      nodePath: diagnostic.scopePath,
+      code: diagnostic.code,
+      message: diagnostic.message,
+      category: "control" as const,
+    }))
+  );
 
   // OI-4: skill-chain-routed flows reject on_error anywhere.
   const { target } = routeTarget(ast);

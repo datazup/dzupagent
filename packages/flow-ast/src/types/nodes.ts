@@ -250,6 +250,10 @@ export type LoopNode = FlowNodeBase & {
   body: FlowNode[];
   /** Maximum iterations (default 100, prevents infinite loops). */
   maxIterations?: number;
+  /** Behavior when maxIterations is reached (default: fail). */
+  onExhausted?: "fail" | "continue";
+  /** Maximum wall time for one body iteration in milliseconds. */
+  iterationTimeoutMs?: number;
   /** Step ID to track for no-progress detection across iterations. */
   progressKey?: string;
 };

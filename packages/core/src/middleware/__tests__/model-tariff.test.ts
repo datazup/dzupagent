@@ -15,12 +15,24 @@ import {
   hasKnownModelRate,
 } from "../model-rates.js";
 import {
-  buildKnownModelTariff,
-  buildModelTariff,
+  buildKnownModelTariff as buildKnownModelTariffContract,
+  buildModelTariff as buildModelTariffContract,
   centsPer1MToMicrosPerToken,
   modelRatesProvenance,
   toAiTokenRates,
 } from "../model-tariff.js";
+
+const bindingFor = (id: string) => ({
+  offerRef: `offer/${id}`,
+  modelRef: `model/${id}`,
+  modelRevision: "catalog-2026-08",
+});
+
+const buildModelTariff = (id: string) =>
+  buildModelTariffContract(id, bindingFor(id));
+
+const buildKnownModelTariff = (id: string) =>
+  buildKnownModelTariffContract(id, bindingFor(id));
 
 describe("centsPer1MToMicrosPerToken", () => {
   it("converts cents per 1M tokens to micros per token", () => {
@@ -74,6 +86,7 @@ describe("modelRatesProvenance", () => {
       authorityId: MODEL_RATES_AUTHORITY_ID,
       revision: MODEL_RATES_REVISION,
       effectiveAt: MODEL_RATES_EFFECTIVE_AT,
+      digest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
     });
   });
 
@@ -111,13 +124,17 @@ describe("buildModelTariff", () => {
     expect(tariff.baseRates.inputMicrosPerToken).toBeCloseTo(0.1, 10);
   });
 
-  it("defaults the provider to the key and allows an override", () => {
-    expect(buildModelTariff("claude-sonnet-4-6").provider).toBe(
-      "claude-sonnet-4-6"
-    );
-    expect(
-      buildModelTariff("claude-sonnet-4-6", { provider: "anthropic" }).provider
-    ).toBe("anthropic");
+  it("requires the caller's exact offer and model catalog identity", () => {
+    const tariff = buildModelTariffContract("claude-sonnet-4-6", {
+      offerRef: "offer/anthropic/sonnet/api",
+      modelRef: "model/claude-sonnet-4-6",
+      modelRevision: "catalog-42",
+    });
+    expect(tariff).toMatchObject({
+      offerRef: "offer/anthropic/sonnet/api",
+      modelRef: "model/claude-sonnet-4-6",
+      modelRevision: "catalog-42",
+    });
   });
 
   it("falls back to the default rate for an unknown model", () => {
@@ -129,7 +146,7 @@ describe("buildModelTariff", () => {
   it("pins the revision into the tariff id so two revisions never collide", () => {
     const tariff = buildModelTariff("gpt-5");
     expect(tariff.tariffId).toBe(
-      `${MODEL_RATES_AUTHORITY_ID}@${MODEL_RATES_REVISION}:gpt-5`
+      `${MODEL_RATES_AUTHORITY_ID}@${MODEL_RATES_REVISION}:offer/gpt-5`
     );
   });
 

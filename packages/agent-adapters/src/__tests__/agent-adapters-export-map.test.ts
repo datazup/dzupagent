@@ -84,7 +84,7 @@ describe('agent-adapters export map', () => {
     try {
       const fixture = join(fixtureDir, 'consumer.ts')
       await writeFile(fixture, [
-        "import { AdapterInstallationInspector, createNodeProbeRunner } from '@dzupagent/agent-adapters/introspection'",
+        "import { AdapterInstallationInspector, createNodeProbeRunner, resolveNodeProbeExecutable } from '@dzupagent/agent-adapters/introspection'",
         "import type { InspectorContext } from '@dzupagent/agent-adapters/introspection'",
         "import { DashboardProjectionSubscriber } from '@dzupagent/agent-adapters/observability/dashboard'",
         'const inspector: typeof AdapterInstallationInspector = AdapterInstallationInspector',
@@ -96,6 +96,7 @@ describe('agent-adapters export map', () => {
         'const rejected: InspectorContext = { ...accepted, runProbe: arbitrary }',
         'void inspector',
         'void subscriber',
+        'void resolveNodeProbeExecutable',
         'void rejected',
       ].join('\n'), 'utf8')
 

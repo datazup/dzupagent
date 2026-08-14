@@ -18,6 +18,18 @@
       "import": "./dist/ai-execution-node.js",
       "types": "./dist/ai-execution-node.d.ts"
     },
+    "./ai-budget-reservation": {
+      "import": "./dist/ai-budget-reservation.js",
+      "types": "./dist/ai-budget-reservation.d.ts"
+    },
+    "./effect-receipt": {
+      "import": "./dist/effect-receipt.js",
+      "types": "./dist/effect-receipt.d.ts"
+    },
+    "./canonical-execution": {
+      "import": "./dist/canonical-execution.js",
+      "types": "./dist/canonical-execution.d.ts"
+    },
     "./orchestration": {
       "import": "./dist/orchestration.js",
       "types": "./dist/orchestration.d.ts"
@@ -45,6 +57,10 @@
     "./fixtures/ai-execution-conformance-v1.json": {
       "types": "./fixtures/ai-execution-conformance-v1.d.ts",
       "default": "./fixtures/ai-execution-conformance-v1.json"
+    },
+    "./fixtures/ai-execution-conformance-v2.json": {
+      "types": "./fixtures/ai-execution-conformance-v2.d.ts",
+      "default": "./fixtures/ai-execution-conformance-v2.json"
     },
     "./fixtures/provider-session-conformance-v2.json": {
       "types": "./fixtures/provider-session-conformance-v2.d.ts",

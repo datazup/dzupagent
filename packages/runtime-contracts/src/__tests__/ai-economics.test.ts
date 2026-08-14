@@ -15,14 +15,16 @@ const provenance: AiPriceProvenance = {
   authorityId: "dzupagent.core/model-rates",
   revision: "ARCH-M-08",
   effectiveAt: "2026-08-01T00:00:00.000Z",
+  digest: `sha256:${"a".repeat(64)}`,
 };
 
 function tariff(overrides: Partial<AiTariff> = {}): AiTariff {
   return {
     schema: AI_TARIFF_SCHEMA,
     tariffId: "anthropic/opus-5",
-    provider: "anthropic",
-    model: "claude-opus-5",
+    offerRef: "anthropic/opus-5/api",
+    modelRef: "model/claude-opus-5",
+    modelRevision: "2026-08-01",
     currency: "USD",
     baseRates: { inputMicrosPerToken: 110, outputMicrosPerToken: 440 },
     provenance,
@@ -168,6 +170,7 @@ describe("AiTariff", () => {
         authorityId: "dzupagent.agent-adapters/cost-models",
         revision: "2026-08-01",
         effectiveAt: "2026-08-01T00:00:00.000Z",
+        digest: `sha256:${"b".repeat(64)}`,
       },
     });
     expect(validateAiTariff(handMaintained)).toEqual([]);

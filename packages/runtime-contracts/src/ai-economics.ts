@@ -12,7 +12,7 @@
  * never inside a contract value.
  */
 
-export const AI_TARIFF_SCHEMA = "dzupagent.aiTariff/v1" as const;
+export const AI_TARIFF_SCHEMA = "dzupagent.aiTariff/v2" as const;
 export const AI_QUOTA_SCHEMA = "dzupagent.aiQuota/v1" as const;
 
 /** Micro-units per cent, for boundary conversion at legacy float-cent call sites. */
@@ -44,7 +44,8 @@ export interface AiPriceProvenance {
   readonly effectiveAt: string;
   /** Absent means the rate does not self-expire. */
   readonly expiresAt?: string;
-  readonly digest?: `sha256:${string}`;
+  /** Digest of the exact price-authority snapshot used for this rate. */
+  readonly digest: `sha256:${string}`;
 }
 
 /**
@@ -72,7 +73,9 @@ export interface AiTariffTier {
 }
 
 /**
- * The complete price of one model at one point in time.
+ * The complete price of one execution offer and canonical model revision at
+ * one point in time. Provider/backend identity belongs to the offer snapshot;
+ * a tariff never infers it from free-form provider/model strings.
  *
  * `tiers` must be sorted ascending by `fromInputTokens` and must not repeat a
  * threshold; a request selects the highest tier whose bound it meets, falling
@@ -81,8 +84,9 @@ export interface AiTariffTier {
 export interface AiTariff {
   readonly schema: typeof AI_TARIFF_SCHEMA;
   readonly tariffId: string;
-  readonly provider: string;
-  readonly model: string;
+  readonly offerRef: string;
+  readonly modelRef: string;
+  readonly modelRevision: string;
   readonly currency: string;
   readonly baseRates: AiTokenRates;
   readonly tiers?: readonly AiTariffTier[];
@@ -164,7 +168,10 @@ function add(
   diagnostics.push({ code, path, message });
 }
 
-/** Rates must be non-negative finite numbers; zero is legitimate (free tiers). */
+/**
+ * Rates must be non-negative finite micros. Fractional micros per token are
+ * required for low-cost models; reservation rounds the final class charge up.
+ */
 function validateTokenRates(
   value: unknown,
   path: string,
@@ -181,7 +188,7 @@ function validateTokenRates(
         diagnostics,
         "AI_TARIFF_INVALID",
         `${path}.${key}`,
-        "Required rate must be a non-negative finite number."
+        "Required rate must be a non-negative finite number of micro-units."
       );
     }
   }
@@ -197,7 +204,7 @@ function validateTokenRates(
         diagnostics,
         "AI_TARIFF_INVALID",
         `${path}.${key}`,
-        "Optional rate must be a non-negative finite number when present."
+        "Optional rate must be a non-negative finite number of micro-units when present."
       );
     }
   }
@@ -235,12 +242,36 @@ function validateProvenance(
       );
     }
   }
+  if (!isIsoInstant(value.effectiveAt)) {
+    add(
+      diagnostics,
+      "AI_PRICE_PROVENANCE_INVALID",
+      `${path}.effectiveAt`,
+      "Effective time must be an ISO-8601 instant."
+    );
+  }
+  if (!/^sha256:[a-f0-9]{64}$/.test(stringValue(value.digest) ?? "")) {
+    add(
+      diagnostics,
+      "AI_PRICE_PROVENANCE_INVALID",
+      `${path}.digest`,
+      "Price provenance must bind a lowercase SHA-256 snapshot digest."
+    );
+  }
   const effectiveAt = stringValue(value.effectiveAt);
   const expiresAt = stringValue(value.expiresAt);
+  if (value.expiresAt !== undefined && !isIsoInstant(value.expiresAt)) {
+    add(
+      diagnostics,
+      "AI_PRICE_PROVENANCE_INVALID",
+      `${path}.expiresAt`,
+      "Expiry must be an ISO-8601 instant when present."
+    );
+  }
   if (
     effectiveAt !== undefined &&
     expiresAt !== undefined &&
-    expiresAt <= effectiveAt
+    Date.parse(expiresAt) <= Date.parse(effectiveAt)
   ) {
     add(
       diagnostics,
@@ -249,6 +280,16 @@ function validateProvenance(
       "Expiry must be after the effective time."
     );
   }
+}
+
+/** Validates one price-authority snapshot binding independently of a tariff. */
+export function validateAiPriceProvenance(
+  value: unknown,
+  path = "provenance"
+): readonly AiEconomicsDiagnostic[] {
+  const diagnostics: AiEconomicsDiagnostic[] = [];
+  validateProvenance(value, path, diagnostics);
+  return diagnostics;
 }
 
 /**
@@ -278,7 +319,12 @@ export function validateAiTariff(
       `Tariff schema must be ${AI_TARIFF_SCHEMA}.`
     );
   }
-  for (const key of ["tariffId", "provider", "model"] as const) {
+  for (const key of [
+    "tariffId",
+    "offerRef",
+    "modelRef",
+    "modelRevision",
+  ] as const) {
     if (stringValue(value[key]) === undefined) {
       add(
         diagnostics,
@@ -347,7 +393,21 @@ export function validateAiTariff(
   const expiresAt = isRecord(value.provenance)
     ? stringValue(value.provenance.expiresAt)
     : undefined;
-  if (at !== undefined && expiresAt !== undefined && expiresAt <= at) {
+  if (options.at !== undefined && !isIsoInstant(options.at)) {
+    add(
+      diagnostics,
+      "AI_TARIFF_INVALID",
+      "at",
+      "Tariff evaluation time must be an ISO-8601 instant."
+    );
+  }
+  if (
+    at !== undefined &&
+    expiresAt !== undefined &&
+    isIsoInstant(at) &&
+    isIsoInstant(expiresAt) &&
+    Date.parse(expiresAt) <= Date.parse(at)
+  ) {
     add(
       diagnostics,
       "AI_TARIFF_EXPIRED",
@@ -356,6 +416,12 @@ export function validateAiTariff(
     );
   }
   return diagnostics;
+}
+
+function isIsoInstant(value: unknown): value is string {
+  if (typeof value !== "string" || value.length === 0) return false;
+  const time = Date.parse(value);
+  return Number.isFinite(time) && new Date(time).toISOString() === value;
 }
 
 export function validateAiQuotaTruth(

@@ -20,18 +20,25 @@ interface RpcCall {
   params: Record<string, unknown>
 }
 
+const ARTIFACT_DIGEST = `sha256:${'b'.repeat(64)}`
+
 const EXECUTABLE = {
   name: 'codex',
   path: '/fixture/codex',
   realPath: '/fixture/codex',
+  artifactDigest: ARTIFACT_DIGEST,
 } as const
 
-function appServerDependencies(spawn: () => ChildProcess) {
+function appServerDependencies(
+  spawn: () => ChildProcess,
+  digestArtifact: (path: string) => Promise<string> = async () => ARTIFACT_DIGEST,
+) {
   return {
     spawn,
     realpath: async (path: string) => path,
     stat: async () => ({ isFile: () => true }),
     access: async () => undefined,
+    digestArtifact,
   }
 }
 
@@ -45,7 +52,14 @@ function binding(nativeGoalControl = true): ProviderSessionAttemptBinding {
       schema: PROVIDER_SESSION_CAPABILITY_DESCRIPTOR_SCHEMA,
       descriptorId: 'descriptor-goal-control',
       providerId: 'codex',
-      backend: { id: 'codex-app-server', kind: 'app-server', version: 'test' },
+      backend: {
+        id: 'codex-app-server',
+        kind: 'app-server',
+        version: '0.147.0',
+        protocolSchemaRef: 'codex-app-server://generated-json-schema/0.147.0',
+        protocolSchemaDigest: `sha256:${'a'.repeat(64)}`,
+        artifactDigest: ARTIFACT_DIGEST,
+      },
       capabilities: Object.fromEntries(PROVIDER_SESSION_CAPABILITIES.map((capability) => [
         capability,
         capability === 'goal-control' && nativeGoalControl
@@ -119,7 +133,12 @@ function createAppServer(
         stdout.write(`${JSON.stringify({
           jsonrpc: '2.0',
           id: message.id,
-          result: {},
+          result: {
+            codexHome: '/fixture/codex-home',
+            platformFamily: 'unix',
+            platformOs: 'linux',
+            userAgent: 'codex_cli_rs/0.147.0',
+          },
         })}\n`)
       } else if (message.id !== undefined && message.method) {
         const call = { method: message.method, params: message.params ?? {} }
@@ -149,6 +168,122 @@ function goal(objective = 'Implement the admitted plan') {
 }
 
 describe('Codex App Server goal control', () => {
+  it('rejects non-Codex, non-App-Server, and unqualified protocol bindings before RPC', () => {
+    const spawn = vi.fn(() => createAppServer([], () => ({})))
+    const accepted = binding()
+    const backend = accepted.descriptor.backend
+    const cases: readonly ProviderSessionAttemptBinding[] = [
+      {
+        ...accepted,
+        descriptor: { ...accepted.descriptor, providerId: 'not-codex' },
+      },
+      {
+        ...accepted,
+        descriptor: {
+          ...accepted.descriptor,
+          backend: { ...backend, id: 'codex-sdk', kind: 'sdk' },
+        },
+      },
+      {
+        ...accepted,
+        descriptor: {
+          ...accepted.descriptor,
+          backend: {
+            id: backend.id,
+            kind: backend.kind,
+            protocolSchemaRef: backend.protocolSchemaRef,
+            protocolSchemaDigest: backend.protocolSchemaDigest,
+          },
+        },
+      },
+      {
+        ...accepted,
+        descriptor: {
+          ...accepted.descriptor,
+          backend: {
+            id: backend.id,
+            kind: backend.kind,
+            version: backend.version,
+            protocolSchemaDigest: backend.protocolSchemaDigest,
+          },
+        },
+      },
+      {
+        ...accepted,
+        descriptor: {
+          ...accepted.descriptor,
+          backend: {
+            id: backend.id,
+            kind: backend.kind,
+            version: backend.version,
+            protocolSchemaRef: backend.protocolSchemaRef,
+          },
+        },
+      },
+      {
+        ...accepted,
+        descriptor: {
+          ...accepted.descriptor,
+          backend: { ...backend, version: 'x'.repeat(129) },
+        },
+      },
+      {
+        ...accepted,
+        descriptor: {
+          ...accepted.descriptor,
+          backend: { ...backend, protocolSchemaRef: ' ' },
+        },
+      },
+      {
+        ...accepted,
+        descriptor: {
+          ...accepted.descriptor,
+          backend: { ...backend, protocolSchemaDigest: 'sha256:not-a-digest' },
+        },
+      },
+    ]
+
+    for (const attemptBinding of cases) {
+      expect(() => createCodexGoalControlAdapter({
+        attemptBinding,
+        executable: EXECUTABLE,
+        dependencies: appServerDependencies(spawn),
+      })).toThrow(/admitted exact goal-control binding/u)
+    }
+    expect(spawn).not.toHaveBeenCalled()
+  })
+
+  it('rejects a descriptor/executable artifact mismatch before constructing control', () => {
+    const spawn = vi.fn(() => createAppServer([], () => ({})))
+
+    expect(() => createCodexGoalControlAdapter({
+      attemptBinding: binding(),
+      executable: {
+        ...EXECUTABLE,
+        artifactDigest: `sha256:${'c'.repeat(64)}`,
+      },
+      dependencies: appServerDependencies(spawn),
+    })).toThrow(/resolved qualified executable identity/u)
+    expect(spawn).not.toHaveBeenCalled()
+  })
+
+  it('rejects changed artifact bytes before a goal-control process spawn', async () => {
+    const spawn = vi.fn(() => createAppServer([], () => ({})))
+    const adapter = createCodexGoalControlAdapter({
+      attemptBinding: binding(),
+      executable: EXECUTABLE,
+      dependencies: appServerDependencies(
+        spawn,
+        async () => `sha256:${'c'.repeat(64)}`,
+      ),
+    })
+
+    await expect(adapter.getGoal(requestBase('goal-get'))).rejects.toMatchObject({
+      code: 'CODEX_APP_SERVER_EXECUTABLE_INVALID',
+    })
+    expect(spawn).not.toHaveBeenCalled()
+  })
+
   it('reads a sanitized durable-goal projection without exposing its objective', async () => {
     const calls: RpcCall[] = []
     const adapter = createCodexGoalControlAdapter({
@@ -233,7 +368,7 @@ describe('Codex App Server goal control', () => {
     expect(() => createCodexGoalControlAdapter({
       attemptBinding: binding(false),
       executable: EXECUTABLE,
-    })).toThrow(/admitted native goal-control binding/u)
+    })).toThrow(/admitted exact goal-control binding/u)
 
     expect(() => createCodexGoalControlAdapter({
       attemptBinding: binding(),

@@ -28,6 +28,7 @@ import {
   applyCheckpointRetention,
 } from "./checkpoint-serialization.js";
 import type { ForkState, LoopState } from "./executor-state-types.js";
+import type { BudgetTrackerState } from "./iteration-budget-tracker.js";
 
 /**
  * State bag threaded into a checkpoint write. Mirrors the arguments the
@@ -47,6 +48,8 @@ export interface CheckpointWriteInput {
   versionTracker: { version: number };
   /** Current cumulative recovery-attempt counter to persist. */
   recoveryAttemptsUsed: number;
+  /** Current cumulative iteration-budget accounting state. */
+  budgetTracker: BudgetTrackerState;
   /** Node id the run is suspended at, when writing a suspend checkpoint. */
   suspendedAtNodeId?: string;
   /** Emit a runtime event (typically `config.onEvent`). */
@@ -74,6 +77,7 @@ export async function writeCheckpoint(
     eventLog,
     versionTracker,
     recoveryAttemptsUsed,
+    budgetTracker,
     suspendedAtNodeId,
     emit,
   } = input;
@@ -96,6 +100,14 @@ export async function writeCheckpoint(
     executionLog,
     providerSessionRefs: checkpointProviderSessionRefs(config, nodeResults),
     state: runState,
+    ...(config.iterationBudget !== undefined
+      ? {
+          budgetState: {
+            tokensUsed: 0,
+            costCents: budgetTracker.cumulativeCostCents,
+          },
+        }
+      : {}),
     ...(suspendedAtNodeId !== undefined ? { suspendedAtNodeId } : {}),
     recoveryAttemptsUsed,
   });

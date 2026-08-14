@@ -14,23 +14,32 @@ import {
   InMemoryAgentRunner,
   InMemoryAgentRunnerPersistence,
   createInlineAgentRunnerExecutionPort,
+  digestRunnerJson,
 } from '../runner.js'
 import { AGENT_SESSION_SCHEMA } from '@dzupagent/agent-types/run'
 import {
   AI_EXECUTION_EVENT_SCHEMA,
+  AI_EXECUTION_BINDING_SCHEMA,
+  AI_EXECUTION_OFFER_SCHEMA,
+  AI_EXECUTION_RECEIPT_V2_SCHEMA,
   AI_EXECUTION_REQUEST_SCHEMA,
   AI_RESOLVED_TARGET_SCHEMA,
   validateAiExecutionTranscript,
+  type AiExecutionBinding,
   type AiExecutionEvent,
   type AiExecutionRequest,
 } from '@dzupagent/runtime-contracts/ai-execution'
 import {
+  materializeAiExecutionBinding,
+  materializeAiExecutionOfferSnapshot,
   materializeAiResolvedTargetSnapshot,
+  materializeAiRouteDecisionBinding,
   validateAiExecutionReceiptCustody,
 } from '@dzupagent/runtime-contracts/ai-execution/node'
 
 const runnerNow = '2026-08-09T12:00:00.000Z'
-const behaviorDigest = 'sha256:inline-host-behavior'
+const digest = (character: string) => `sha256:${character.repeat(64)}` as const
+const behaviorDigest = digest('a')
 const route = {
   id: 'route-inline-1', requestId: 'execution-1', strategy: 'fixed',
   candidates: [{ id: 'runner-local', backend: 'local-model' }],
@@ -101,6 +110,51 @@ const runnerInput = {
     content: [{ type: 'text' as const, text: 'Read the approved fixture.' }],
   }],
 }
+
+const modelIdentity = {
+  modelRef: 'model/provider-free-runner',
+  revision: '1',
+  catalogDigest: digest('b'),
+} as const
+
+const offer = materializeAiExecutionOfferSnapshot({
+  schema: AI_EXECUTION_OFFER_SCHEMA,
+  offerId: 'runner-local',
+  offerRevision: '1',
+  model: modelIdentity,
+  provider: 'provider-free-runner',
+  backend: 'local-model',
+  authMode: 'local_model',
+  locality: 'local',
+  privacyClass: 'device',
+  capabilities: ['agent.run/v1'],
+  cacheBehavior: 'none',
+  sessionBehavior: 'stateful',
+  health: { status: 'healthy', checkedAt: runnerNow },
+  effectiveAt: runnerNow,
+  catalogDigest: digest('c'),
+})
+
+const { reasoningSummary: _reasoningSummary, ...retainedRouteDecision } = routeDecision
+const binding: AiExecutionBinding = materializeAiExecutionBinding({
+  schema: AI_EXECUTION_BINDING_SCHEMA,
+  routeDecision: materializeAiRouteDecisionBinding(retainedRouteDecision),
+  offer,
+  target,
+  prompt: {
+    blueprintRef: 'agent/researcher/behavior',
+    blueprintRevision: '1',
+    blueprintDigest: behaviorDigest,
+    renderedPayloadDigest: digestRunnerJson(runnerInput) as `sha256:${string}`,
+  },
+  persona: {
+    status: 'bound',
+    personaId: 'persona/researcher',
+    revision: '1',
+    digest: digest('d'),
+  },
+  model: modelIdentity,
+})
 
 const finalResult: AgentRunnerModelResult = {
   item: {
@@ -180,6 +234,7 @@ function createFixture(
     readonly input?: AgentRunnerInput
     readonly persistence?: InMemoryAgentRunnerPersistence
     readonly idPrefix?: string
+    readonly binding?: AiExecutionBinding
   } = {},
 ) {
   const model = new ScriptedModel(responses)
@@ -193,9 +248,21 @@ function createFixture(
   const runner = new InMemoryAgentRunner({
     model, tools, persistence, createId: deterministicIds(options.idPrefix), now: () => runnerNow,
   })
+  const projectionBinding = (() => {
+    if (options.binding !== undefined) return options.binding
+    if (input === runnerInput) return binding
+    const { bindingDigest: _bindingDigest, ...bindingInput } = binding
+    return materializeAiExecutionBinding({
+      ...bindingInput,
+      prompt: {
+        ...binding.prompt,
+        renderedPayloadDigest: digestRunnerJson(input) as `sha256:${string}`,
+      },
+    })
+  })()
   const port = createInlineAgentRunnerExecutionPort(
     runner,
-    () => ({ input, target, routeDecision }),
+    () => ({ input, target, routeDecision, binding: projectionBinding }),
     clock(),
   )
   return { model, persistence, port }
@@ -239,6 +306,8 @@ describe('inline AgentRunner host composition', () => {
     expect(events.map(({ sequence }) => sequence)).toEqual([1, 2, 3])
     expect(new Set(events.map(({ cursor }) => cursor).values()).size).toBe(3)
     expect(receipt.result).toMatchObject({ status: 'succeeded', output: 'Approved fixture read.' })
+    expect(receipt.schema).toBe(AI_EXECUTION_RECEIPT_V2_SCHEMA)
+    expect(receipt).toMatchObject({ binding: { bindingDigest: binding.bindingDigest } })
     expect(receipt.result.routeDecision).not.toHaveProperty('reasoningSummary')
     expect(receipt.usage).toMatchObject({ measurement: 'known', tokens: { input: 8, output: 3 } })
     expect(validateAiExecutionTranscript(receipt, events)).toEqual({ valid: true, diagnostics: [] })
@@ -250,6 +319,57 @@ describe('inline AgentRunner host composition', () => {
     expect(handle.executionId).not.toBe(state?.runId)
     expect(receipt.requestId).toBe(request.execution.requestId)
     expect(receipt.correlationId).toBe(request.execution.correlationId)
+  })
+
+  it('rejects route, target, payload, and capability drift before model dispatch', () => {
+    const { bindingDigest: _bindingDigest, ...bindingInput } = binding
+    const { snapshotDigest: _targetDigest, ...targetInput } = target
+    const { snapshotDigest: _offerDigest, ...offerInput } = offer
+    const changedTarget = materializeAiResolvedTargetSnapshot({
+      ...targetInput,
+      targetRevision: '2',
+    })
+    const changedOffer = materializeAiExecutionOfferSnapshot({
+      ...offerInput,
+      capabilities: [],
+    })
+    const cases: Array<{ readonly label: string; readonly value: AiExecutionBinding }> = [
+      {
+        label: 'route',
+        value: materializeAiExecutionBinding({
+          ...bindingInput,
+          routeDecision: materializeAiRouteDecisionBinding({
+            ...retainedRouteDecision,
+            id: 'decision-other',
+          }),
+        }),
+      },
+      {
+        label: 'target',
+        value: materializeAiExecutionBinding({ ...bindingInput, target: changedTarget }),
+      },
+      {
+        label: 'payload',
+        value: materializeAiExecutionBinding({
+          ...bindingInput,
+          prompt: { ...binding.prompt, renderedPayloadDigest: digest('0') },
+        }),
+      },
+      {
+        label: 'capability',
+        value: materializeAiExecutionBinding({ ...bindingInput, offer: changedOffer }),
+      },
+    ]
+
+    for (const candidate of cases) {
+      const { model, port } = createFixture(
+        [finalResult],
+        [new ApprovalReadTool()],
+        { idPrefix: `${candidate.label}-drift-`, binding: candidate.value },
+      )
+      expect(() => port.start(request), candidate.label).toThrow(AgentRunnerInlineError)
+      expect(model.calls, candidate.label).toHaveLength(0)
+    }
   })
 
   it('runs without a session binding when the projection omits session identity', async () => {
@@ -495,6 +615,7 @@ describe('inline AgentRunner host composition', () => {
         },
         target,
         routeDecision,
+        binding,
       }
     })
     const incompatible = {

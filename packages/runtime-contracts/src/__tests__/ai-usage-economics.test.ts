@@ -113,6 +113,7 @@ describe("usage truth with economics", () => {
             authorityId: "dzupagent.core/model-rates",
             revision: "ARCH-M-08",
             effectiveAt: "2026-08-01T00:00:00.000Z",
+            digest: `sha256:${"a".repeat(64)}`,
           },
         },
       })

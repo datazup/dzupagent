@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyCost,
   createBudgetTrackerState,
+  restoreBudgetTrackerState,
 } from "../pipeline/pipeline-runtime/iteration-budget-tracker.js";
 
 describe("iteration-budget-tracker", () => {
@@ -10,6 +11,26 @@ describe("iteration-budget-tracker", () => {
     expect(state.cumulativeCostCents).toBe(0);
     expect(state.warnings.warn70).toBe(false);
     expect(state.warnings.warn90).toBe(false);
+  });
+
+  it("restores cumulative cost and suppresses thresholds already crossed", () => {
+    expect(restoreBudgetTrackerState(75, 100)).toEqual({
+      cumulativeCostCents: 75,
+      warnings: { warn70: true, warn90: false },
+    });
+    expect(restoreBudgetTrackerState(95, 100)).toEqual({
+      cumulativeCostCents: 95,
+      warnings: { warn70: true, warn90: true },
+    });
+  });
+
+  it("rejects an invalid durable cumulative cost", () => {
+    expect(() => restoreBudgetTrackerState(-1, 100)).toThrow(
+      /finite non-negative number/
+    );
+    expect(() => restoreBudgetTrackerState(Number.NaN, 100)).toThrow(
+      /finite non-negative number/
+    );
   });
 
   it("ignores zero or negative cost contributions without advancing the budget", () => {

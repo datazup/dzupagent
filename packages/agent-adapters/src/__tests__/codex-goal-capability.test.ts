@@ -20,6 +20,7 @@ import {
 const OBSERVED_AT = '2026-08-13T00:00:00.000Z'
 const VERSION = '0.147.0'
 const DIGEST = `sha256:${'a'.repeat(64)}`
+const ARTIFACT_DIGEST = `sha256:${'b'.repeat(64)}`
 const STATUSES = [
   'active',
   'paused',
@@ -459,6 +460,7 @@ function descriptor(
   return materializeCodexGoalCapabilityDescriptor({
     backendKind: 'app-server',
     installedVersion: VERSION,
+    executableArtifactDigest: ARTIFACT_DIGEST,
     protocol: protocol(),
     observedAt: OBSERVED_AT,
     ...overrides,
@@ -505,6 +507,7 @@ function observationOptions() {
       name: 'codex',
       path: '/fixture/codex',
       realPath: '/fixture/codex',
+      artifactDigest: ARTIFACT_DIGEST,
     },
     cwd: '/fixture/repository',
     observedAt: OBSERVED_AT,
@@ -523,6 +526,7 @@ describe('Codex App Server capability descriptor materialization', () => {
         version: VERSION,
         protocolSchemaRef: protocol().schemaRef,
         protocolSchemaDigest: DIGEST,
+        artifactDigest: ARTIFACT_DIGEST,
       }),
       observedAt: OBSERVED_AT,
       evidenceRef: `codex-app-server-schema/${DIGEST}`,
@@ -709,6 +713,13 @@ describe('Codex App Server capability descriptor materialization', () => {
       reason: 'installed-version-schema-version-drift',
     }))
   })
+
+  it('withholds native capability when executable artifact identity is absent or invalid', () => {
+    expect(descriptor({ executableArtifactDigest: undefined }).capabilities['execute'])
+      .toEqual(expect.objectContaining({ reason: 'executable-artifact-digest-missing' }))
+    expect(descriptor({ executableArtifactDigest: 'sha256:not-a-digest' }).capabilities['execute'])
+      .toEqual(expect.objectContaining({ reason: 'executable-artifact-digest-invalid' }))
+  })
 })
 
 describe('installed Codex App Server capability observation', () => {
@@ -740,6 +751,7 @@ describe('installed Codex App Server capability observation', () => {
       version: VERSION,
       protocolSchemaRef: `codex-app-server://generated-json-schema/${VERSION}?experimental=1&files=${Object.keys(protocolDocuments()).length}`,
       protocolSchemaDigest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+      artifactDigest: ARTIFACT_DIGEST,
     }))
     expect(generatedOutput).toBeDefined()
     await expect(access(generatedOutput!)).rejects.toThrow()

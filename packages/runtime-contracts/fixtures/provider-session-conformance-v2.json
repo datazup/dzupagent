@@ -47,6 +47,7 @@
         "id": "codex-app-server-mock",
         "kind": "app-server",
         "version": "fixture",
+        "artifactDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         "protocolSchemaRef": "generated-schema://codex-app-server/fixture",
         "protocolSchemaDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       },

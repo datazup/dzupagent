@@ -29,20 +29,44 @@ export interface DeterministicRouteSelectionOptions {
   decidedAt: string
 }
 
-/** Pure candidate selector. Input order never decides ties. */
+/** Strategies whose selection semantics are implemented by this selector. */
+export const IMPLEMENTED_DETERMINISTIC_ROUTE_STRATEGIES = ['rule'] as const
+
+export type DeterministicRouteSelectionAdmissionCode =
+  | 'UNSUPPORTED_ROUTE_STRATEGY'
+  | 'DUPLICATE_ROUTE_CANDIDATE'
+
+/** Fail-closed policy-admission error raised before any candidate is evaluated. */
+export class DeterministicRouteSelectionAdmissionError extends Error {
+  readonly code: DeterministicRouteSelectionAdmissionCode
+
+  constructor(code: DeterministicRouteSelectionAdmissionCode, message: string) {
+    super(message)
+    this.name = 'DeterministicRouteSelectionAdmissionError'
+    this.code = code
+  }
+}
+
+/**
+ * Pure ordered-rule candidate selector. Input order never decides ties.
+ *
+ * The broader route-policy vocabulary is intentionally not treated as
+ * metadata: strategies without an implementation fail before selection.
+ */
 export function selectExecutionRoute(
   policy: ExecutionRoutePolicy,
   options: DeterministicRouteSelectionOptions,
 ): ExecutionRouteDecision {
-  const unique = uniqueCandidates(policy.candidates)
-  const byId = new Map(unique.map((candidate) => [candidate.id, candidate]))
+  assertRoutePolicyAdmission(policy)
+  const candidates = [...policy.candidates]
+  const byId = new Map(candidates.map((candidate) => [candidate.id, candidate]))
   const origin = policy.originCandidateId ? byId.get(policy.originCandidateId) : undefined
   const approved = new Set(policy.approvedTransitions ?? [])
   const rejected: ExecutionRouteRejection[] = []
   const transitions: ExecutionRouteTransitionDecision[] = []
   const eligible: ExecutionRouteCandidate[] = []
 
-  for (const candidate of unique) {
+  for (const candidate of candidates) {
     const failures = evaluateCandidate(candidate, policy)
     const transitionKinds = origin && origin.id !== candidate.id
       ? classifyRouteTransition(origin, candidate)
@@ -97,8 +121,8 @@ export function selectExecutionRoute(
     transitions,
     strategy: policy.strategy,
     reasoningSummary: selected
-      ? `Selected ${selected.id}; ${rejected.length} candidate(s) rejected`
-      : `No eligible candidate; ${rejected.length} candidate(s) rejected`,
+      ? `Ordered rule selected ${selected.id}; ${rejected.length} candidate(s) rejected`
+      : `Ordered rule found no eligible candidate; ${rejected.length} candidate(s) rejected`,
     decidedAt: options.decidedAt,
   }
 }
@@ -185,10 +209,24 @@ function evaluateCandidate(
   return deduplicateFailures(failures)
 }
 
-function uniqueCandidates(candidates: readonly ExecutionRouteCandidate[]): ExecutionRouteCandidate[] {
-  const byId = new Map<string, ExecutionRouteCandidate>()
-  for (const candidate of candidates) if (!byId.has(candidate.id)) byId.set(candidate.id, candidate)
-  return [...byId.values()]
+function assertRoutePolicyAdmission(policy: ExecutionRoutePolicy): void {
+  if (policy.strategy !== 'rule') {
+    throw new DeterministicRouteSelectionAdmissionError(
+      'UNSUPPORTED_ROUTE_STRATEGY',
+      `Route strategy "${policy.strategy}" is not implemented by the deterministic selector; supported strategies: ${IMPLEMENTED_DETERMINISTIC_ROUTE_STRATEGIES.join(', ')}`,
+    )
+  }
+
+  const candidateIds = new Set<string>()
+  for (const candidate of policy.candidates) {
+    if (candidateIds.has(candidate.id)) {
+      throw new DeterministicRouteSelectionAdmissionError(
+        'DUPLICATE_ROUTE_CANDIDATE',
+        `Duplicate route candidate: ${candidate.id}`,
+      )
+    }
+    candidateIds.add(candidate.id)
+  }
 }
 
 function includes(values: readonly string[], value: string | undefined): boolean {

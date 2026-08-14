@@ -92,6 +92,8 @@ export interface ProviderSessionBackendIdentity {
   readonly id: string;
   readonly kind: ProviderSessionBackendKind;
   readonly version?: string;
+  /** Sanitized digest of the observed executable artifact; never a host path. */
+  readonly artifactDigest?: string;
   /** Reference/digest only. Generated provider protocol objects stay runtime-local. */
   readonly protocolSchemaRef?: string;
   readonly protocolSchemaDigest?: string;
@@ -436,6 +438,16 @@ function inspectDescriptor(
     || !["cli", "local-model", "sdk", "api", "remote", "app-server"].includes(String(backend.kind))
   ) {
     add(diagnostics, "BACKEND_IDENTITY_INVALID", "descriptor.backend", "Backend id and kind are required.");
+  } else if (
+    backend.artifactDigest !== undefined
+    && !/^sha256:[a-f0-9]{64}$/u.test(String(backend.artifactDigest))
+  ) {
+    add(
+      diagnostics,
+      "BACKEND_IDENTITY_INVALID",
+      "descriptor.backend.artifactDigest",
+      "Artifact digest must be a lowercase SHA-256 reference.",
+    );
   }
 
   const capabilities = descriptor.capabilities;

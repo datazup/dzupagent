@@ -8,6 +8,7 @@ import type {
 import type { AgentCLIAdapter, RoutingDecision } from '../types.js'
 import {
   classifyRouteTransition,
+  DeterministicRouteSelectionAdmissionError,
   planCandidateRecovery,
   selectExecutionRoute,
 } from '../registry/deterministic-candidate-selector.js'
@@ -48,7 +49,7 @@ function policy(
   return {
     id: 'route-policy',
     requestId: 'request-1',
-    strategy: 'fixed',
+    strategy: 'rule',
     candidates,
     hardConstraints: [],
     preferenceOrder: candidates.map((item) => item.id),
@@ -59,6 +60,32 @@ function policy(
 }
 
 describe('deterministic candidate routing', () => {
+  it.each(['fixed', 'weighted', 'hash', 'round-robin', 'llm-rank'] as const)(
+    'fails closed before selection for unsupported %s strategy metadata',
+    (strategy) => {
+      expect(() => selectExecutionRoute(
+        policy([candidate('one')], { strategy }),
+        { decidedAt: DECIDED_AT },
+      )).toThrow(expect.objectContaining({
+        name: 'DeterministicRouteSelectionAdmissionError',
+        code: 'UNSUPPORTED_ROUTE_STRATEGY',
+      }))
+    },
+  )
+
+  it('rejects duplicate candidate identities instead of silently collapsing them', () => {
+    const duplicate = candidate('same', { provider: 'openai' })
+
+    expect(() => selectExecutionRoute(
+      policy([candidate('same'), duplicate]),
+      { decidedAt: DECIDED_AT },
+    )).toThrow(expect.objectContaining({
+      name: 'DeterministicRouteSelectionAdmissionError',
+      code: 'DUPLICATE_ROUTE_CANDIDATE',
+    }))
+    expect(DeterministicRouteSelectionAdmissionError).toBeTypeOf('function')
+  })
+
   it('does not widen legacy fallback to unapproved healthy providers', () => {
     const decision = {
       provider: 'claude',

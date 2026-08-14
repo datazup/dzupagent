@@ -501,6 +501,37 @@ describe("createFlowCompiler — stage 2 errors", () => {
     expect(failure.errors[0]?.code).toBe("EMPTY_BODY");
   });
 
+  it("compileDocument() rejects same-path output collisions at stage 2", async () => {
+    const resolver = makeResolver([]);
+    const compiler = createFlowCompiler({ toolResolver: resolver });
+
+    const result = await compiler.compileDocument({
+      dsl: "dzupflow/v1",
+      id: "duplicate_outputs",
+      version: 1,
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          { type: "prompt", id: "first", userPrompt: "first", outputKey: "result" },
+          { type: "prompt", id: "second", userPrompt: "second", outputKey: "result" },
+        ],
+      },
+    });
+
+    expect("errors" in result).toBe(true);
+    const failure = result as {
+      errors: Array<{ stage: number; code: string; nodePath?: string }>;
+    };
+    expect(failure.errors).toEqual([
+      expect.objectContaining({
+        stage: 2,
+        code: "output_key_collision",
+        nodePath: "root.nodes[1]",
+      }),
+    ]);
+  });
+
   it("compileDsl() returns normalized diagnostics for invalid DSL text", async () => {
     const resolver = makeResolver([]);
     const compiler = createFlowCompiler({ toolResolver: resolver });

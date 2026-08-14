@@ -67,7 +67,9 @@ Top-level source layout:
 
 `./codex-goal-control` exposes three separate layers:
 
-1. `observeInstalledCodexAppServerCapability` runs only provider-free Codex
+1. Trusted discovery first resolves the canonical executable and records a
+   bounded SHA-256 digest of its bytes. `observeInstalledCodexAppServerCapability`
+   binds that artifact digest to the returned descriptor and runs only provider-free Codex
    version, schema-help, and version-specific schema-generation probes through
    the existing absolute-path, credential-scrubbed probe boundary. It uses a
    unique managed home and schema directory, finite
@@ -81,11 +83,18 @@ Top-level source layout:
    other unobserved controls remain unsupported with emulation forbidden.
 3. `CodexAppServerAdapter` requires an admitted descriptor-bound attempt before
    process creation. Runtime construction also requires the private resolved
-   executable identity used by observation; immediately before spawn the client
-   rechecks its canonical path, regular-file type, and execute access, then
-   spawns that canonical path without PATH lookup. Its private shared stdio
+   executable identity used by observation; before every observation probe and
+   runtime spawn the process boundary rechecks the canonical path and artifact
+   digest. Runtime also checks regular-file type and execute access, spawns that
+   canonical path without PATH lookup, then rechecks the digest before sending
+   `initialize`. Its private shared stdio
    client initializes once,
-   uses monotonic request ids, correlates responses, applies finite line,
+  uses monotonic request ids, correlates responses, validates and discards the
+  complete observed initialize result, validates complete thread and turn
+  results/notifications, and compares the admitted CLI version plus requested
+  cwd, model, and sandbox against the provider's effective thread response.
+  It requires the exact observed
+  empty-object interrupt acknowledgement before returning `accepted: true`, and applies finite line,
    aggregate, queue, pending-request, frame, request, execution, and cleanup
    limits, and fails closed on malformed/duplicate/late frames, overflow,
    timeout, process death, stale turns, executable drift, or cleanup failure.
@@ -93,9 +102,12 @@ Top-level source layout:
    remaining budget to executable qualification, initialize, thread
    start/resume, turn start, and stream observation. Once local timeout or
    cancellation wins, later deltas, interactions, usage, or successful terminal
-   frames cannot restore completion. Supplied-signal cancellation is carried
-   through executable qualification and the initialize/initialized handshake so
-   stalled setup enters bounded cleanup immediately. Exact interrupt callers
+   frames cannot restore completion. Supplied-signal cancellation and the
+   adapter-wide emergency interrupt are registered before executable
+   qualification and cover initialize/initialized, thread start/resume, and
+   turn start. Before an exact turn identity exists they abort setup and close
+   any created client; afterward they enter the exact-turn interrupt path, so a
+   stalled setup cannot wait for the execution deadline. Exact interrupt callers
    share one provider acknowledgement promise and return `accepted: true` only
    after it succeeds.
    Interrupt acknowledgement has a separate at-most-250 ms grace; cleanup then

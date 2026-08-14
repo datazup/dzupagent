@@ -2,6 +2,7 @@ import {
   FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW,
   isFlowTypedCondition,
 } from "@dzupagent/flow-ast/expressions";
+import type { FlowNode } from "@dzupagent/flow-ast";
 
 import {
   emptyBody,
@@ -298,6 +299,57 @@ export const controlFlowValidators: ShapeRulePartial<ControlFlowKind> = {
         emptyBody(node.type, path, "loop.body must contain at least one node")
       );
     }
+    if (node.typedCondition !== undefined) {
+      const unsupported = findStructuredTypedLoopBodyNode(
+        node.body,
+        `${path}.body`
+      );
+      if (unsupported !== undefined) {
+        errors.push({
+          nodeType: node.type,
+          nodePath: unsupported.path,
+          code: "STRUCTURED_TYPED_LOOP_BODY_UNSUPPORTED",
+          category: "control",
+          message:
+            `typed loop body contains ${unsupported.node.type}, whose control-flow ` +
+            "semantics require graph-scheduler execution; only flat body nodes are admitted",
+        });
+      }
+    }
     node.body.forEach((child, idx) => visit(child, `${path}.body[${idx}]`));
   },
 };
+
+const STRUCTURED_TYPED_LOOP_BODY_TYPES = new Set<FlowNode["type"]>([
+  "approval",
+  "branch",
+  "clarification",
+  "complete",
+  "for_each",
+  "loop",
+  "parallel",
+  "persona",
+  "return_to",
+  "route",
+  "subflow",
+  "try_catch",
+]);
+
+function findStructuredTypedLoopBodyNode(
+  nodes: readonly FlowNode[],
+  parentPath: string
+): { node: FlowNode; path: string } | undefined {
+  for (let index = 0; index < nodes.length; index += 1) {
+    const node = nodes[index];
+    if (node === undefined) continue;
+    const path = `${parentPath}[${index}]`;
+    if (STRUCTURED_TYPED_LOOP_BODY_TYPES.has(node.type)) {
+      return { node, path };
+    }
+    if (node.type === "sequence") {
+      const nested = findStructuredTypedLoopBodyNode(node.nodes, `${path}.nodes`);
+      if (nested !== undefined) return nested;
+    }
+  }
+  return undefined;
+}

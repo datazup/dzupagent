@@ -37,6 +37,7 @@ import {
 import { getNextNodeIds } from "./pipeline-runtime/edge-resolution.js";
 import {
   createBudgetTrackerState,
+  restoreBudgetTrackerState,
   type BudgetTrackerState,
 } from "./pipeline-runtime/iteration-budget-tracker.js";
 import {
@@ -51,6 +52,7 @@ import {
   normalizeRuntimeConfig,
   buildNodeIndex,
 } from "./pipeline-runtime-lifecycle/runtime-init.js";
+import type { LoopState } from "./pipeline-runtime/executor-state-types.js";
 import {
   countReplayNodesFrom,
   findMidFlightForkNodeId,
@@ -142,6 +144,12 @@ export class PipelineRuntime {
       setRecoveryAttemptsUsed: (count) => {
         this.recoveryAttemptsUsed = count;
       },
+      setBudgetCostCents: (costCents) => {
+        this.budgetTracker = restoreBudgetTrackerState(
+          costCents,
+          this.config.iterationBudget?.maxCostCents ?? 0
+        );
+      },
       emitStarted: (runId) =>
         this.emit(pipelineStartedEvent(this.config.definition.id, runId)),
       emitCompleted: (runId, durationMs) =>
@@ -181,7 +189,7 @@ export class PipelineRuntime {
     const nodeResults = new Map<string, NodeResult>();
     const completedNodeIds: string[] = [];
     const nodeIdempotencyKeys: Record<string, string> = {};
-    const loopState: Record<string, { iteration: number }> = {};
+    const loopState: LoopState = {};
     const forkState: ForkRuntimeState = {};
     const versionTracker = { version: 0 };
 
@@ -272,7 +280,7 @@ export class PipelineRuntime {
   }
 
   private findMidFlightLoopNodeId(
-    loopState: Record<string, { iteration: number }>,
+    loopState: LoopState,
     completedNodeIds: string[]
   ): string | undefined {
     return findMidFlightLoopNodeId(

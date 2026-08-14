@@ -16,6 +16,7 @@
 
 import type { PipelineNode } from "@dzupagent/core/pipeline";
 import type { PipelineRuntimeConfig } from "../pipeline-runtime-types.js";
+import type { LoopState } from "../pipeline-runtime/executor-state-types.js";
 
 /**
  * Read-only view the resume planners need over the owning runtime. Kept
@@ -41,7 +42,7 @@ export interface ResumePlannerCtx {
  */
 export function findMidFlightLoopNodeId(
   ctx: ResumePlannerCtx,
-  loopState: Record<string, { iteration: number }>,
+  loopState: LoopState,
   completedNodeIds: string[]
 ): string | undefined {
   const completed = new Set(completedNodeIds);

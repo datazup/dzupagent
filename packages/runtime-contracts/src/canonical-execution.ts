@@ -69,16 +69,20 @@ export interface ExecutionPolicy {
   readonly extensions?: Readonly<Record<string, unknown>>;
 }
 
-export type ExecutionEffectClass =
-  | "read"
-  | "compute"
-  | "llm"
-  | "file_write"
-  | "code_change"
-  | "network_write"
-  | "db_write"
-  | "human_decision"
-  | "queue_publish";
+/** Canonical fine-grained effect vocabulary for execution policy and receipts. */
+export const EXECUTION_EFFECT_CLASSES = [
+  "read",
+  "compute",
+  "llm",
+  "file_write",
+  "code_change",
+  "network_write",
+  "db_write",
+  "human_decision",
+  "queue_publish",
+] as const;
+
+export type ExecutionEffectClass = (typeof EXECUTION_EFFECT_CLASSES)[number];
 
 export interface ExecutionEffectPolicy {
   readonly effectClass?: ExecutionEffectClass;

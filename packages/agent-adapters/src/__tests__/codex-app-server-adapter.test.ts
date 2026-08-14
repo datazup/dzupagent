@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events'
 import { mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { PassThrough } from 'node:stream'
+import { PassThrough, Transform } from 'node:stream'
 
 import {
   PROVIDER_SESSION_ATTEMPT_BINDING_SCHEMA,
@@ -34,17 +34,25 @@ interface FakeServer {
   readonly child: ChildProcess
   readonly stdout: PassThrough
   readonly calls: RpcFrame[]
+  readonly stalledWrites: RpcFrame[]
 }
 
 type TurnScenario = (server: FakeServer, frame: RpcFrame) => void
 
 interface FakeServerOptions {
   readonly stallMethod?: 'initialize' | 'thread/start' | 'thread/resume' | 'turn/start' | undefined
+  readonly stallInitializedWrite?: boolean | undefined
   readonly onInterrupt?: TurnScenario | undefined
+  readonly results?: Readonly<Partial<Record<
+    'initialize' | 'thread/start' | 'thread/resume' | 'turn/start',
+    unknown
+  >>> | undefined
 }
 
+const ARTIFACT_DIGEST = `sha256:${'b'.repeat(64)}`
+
 function executableIdentity(path = '/fixture/codex', realPath = path) {
-  return { name: 'codex', path, realPath }
+  return { name: 'codex', path, realPath, artifactDigest: ARTIFACT_DIGEST }
 }
 
 function runtimeDependencies(
@@ -55,6 +63,7 @@ function runtimeDependencies(
     readonly realpath?: ((path: string) => Promise<string>) | undefined
     readonly stat?: ((path: string) => Promise<{ isFile(): boolean }>) | undefined
     readonly access?: ((path: string, mode?: number) => Promise<void>) | undefined
+    readonly digestArtifact?: ((path: string) => Promise<string>) | undefined
   } = {},
 ) {
   return {
@@ -62,6 +71,7 @@ function runtimeDependencies(
     realpath: extras.realpath ?? (async (path: string) => path),
     stat: extras.stat ?? (async () => ({ isFile: () => true })),
     access: extras.access ?? (async () => undefined),
+    digestArtifact: extras.digestArtifact ?? (async () => ARTIFACT_DIGEST),
     ...(extras.now ? { now: extras.now } : {}),
     ...(extras.monotonicNow ? { monotonicNow: extras.monotonicNow } : {}),
   }
@@ -94,6 +104,7 @@ function binding(
         version: '0.147.0',
         protocolSchemaRef: 'codex-app-server://generated-json-schema/0.147.0',
         protocolSchemaDigest: `sha256:${'a'.repeat(64)}`,
+        artifactDigest: ARTIFACT_DIGEST,
       },
       capabilities: Object.fromEntries(PROVIDER_SESSION_CAPABILITIES.map((capability) => [
         capability,
@@ -127,11 +138,21 @@ function fakeServer(
   options: FakeServerOptions = {},
 ): FakeServer {
   const child = new EventEmitter() as ChildProcess
-  const stdin = new PassThrough()
+  const stalledWrites: RpcFrame[] = []
+  const stdin = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      const frame = JSON.parse(chunk.toString('utf8')) as RpcFrame
+      if (options.stallInitializedWrite && frame.method === 'initialized') {
+        stalledWrites.push(frame)
+        return
+      }
+      callback(null, chunk)
+    },
+  })
   const stdout = new PassThrough()
   const stderr = new PassThrough()
   const calls: RpcFrame[] = []
-  const server: FakeServer = { child, stdout, calls }
+  const server: FakeServer = { child, stdout, calls, stalledWrites }
   Object.assign(child, {
     stdin,
     stdout,
@@ -154,13 +175,15 @@ function fakeServer(
       if (frame.method === options.stallMethod) {
         continue
       } else if (frame.method === 'initialize') {
-        respond(server, frame.id, {})
+        respond(server, frame.id, resultFor(options, 'initialize', initializeResponse()))
       } else if (frame.method === 'thread/start') {
-        respond(server, frame.id, { thread: { id: 'thread-1' } })
+        respond(server, frame.id, resultFor(options, 'thread/start', threadResponse('thread-1')))
       } else if (frame.method === 'thread/resume') {
-        respond(server, frame.id, { thread: { id: resumeThreadId } })
+        respond(server, frame.id, resultFor(options, 'thread/resume', threadResponse(resumeThreadId)))
       } else if (frame.method === 'turn/start') {
-        respond(server, frame.id, { turn: { id: 'turn-1', status: 'inProgress' } })
+        respond(server, frame.id, resultFor(options, 'turn/start', {
+          turn: turnPayload('turn-1', 'inProgress'),
+        }))
         scenario(server, frame)
       } else if (frame.method === 'turn/interrupt') {
         if (options.onInterrupt) options.onInterrupt(server, frame)
@@ -168,13 +191,68 @@ function fakeServer(
           respond(server, frame.id, {})
           notify(server, 'turn/completed', {
             threadId: resumeThreadId,
-            turn: { id: 'turn-1', status: 'interrupted' },
+            turn: turnPayload('turn-1', 'interrupted'),
           })
         }
       }
     }
   })
   return server
+}
+
+function resultFor(
+  options: FakeServerOptions,
+  method: 'initialize' | 'thread/start' | 'thread/resume' | 'turn/start',
+  fallback: unknown,
+): unknown {
+  return options.results && Object.hasOwn(options.results, method)
+    ? options.results[method]
+    : fallback
+}
+
+function initializeResponse(): Record<string, unknown> {
+  return {
+    codexHome: '/fixture/codex-home',
+    platformFamily: 'unix',
+    platformOs: 'linux',
+    userAgent: 'codex_cli_rs/0.147.0',
+  }
+}
+
+function threadPayload(id: string): Record<string, unknown> {
+  return {
+    cliVersion: '0.147.0',
+    createdAt: 1,
+    cwd: '/fixture/workspace',
+    ephemeral: false,
+    id,
+    modelProvider: 'openai',
+    preview: '',
+    sessionId: id,
+    source: 'appServer',
+    status: { type: 'idle' },
+    turns: [],
+    updatedAt: 1,
+  }
+}
+
+function threadResponse(id: string): Record<string, unknown> {
+  return {
+    approvalPolicy: 'never',
+    approvalsReviewer: 'user',
+    cwd: '/fixture/workspace',
+    model: 'gpt-5.6',
+    modelProvider: 'openai',
+    sandbox: { type: 'readOnly' },
+    thread: threadPayload(id),
+  }
+}
+
+function turnPayload(
+  id: string,
+  status: 'completed' | 'failed' | 'inProgress' | 'interrupted',
+): Record<string, unknown> {
+  return { id, items: [], status }
 }
 
 function respond(server: FakeServer, id: RpcFrame['id'], result: unknown): void {
@@ -204,10 +282,10 @@ function notify(
 }
 
 function completedScenario(server: FakeServer): void {
-  notify(server, 'thread/started', { thread: { id: 'thread-1' } })
+  notify(server, 'thread/started', { thread: threadPayload('thread-1') })
   notify(server, 'turn/started', {
     threadId: 'thread-1',
-    turn: { id: 'turn-1', status: 'inProgress' },
+    turn: turnPayload('turn-1', 'inProgress'),
   })
   notify(server, 'item/agentMessage/delta', {
     threadId: 'thread-1',
@@ -224,7 +302,7 @@ function completedScenario(server: FakeServer): void {
   }, 'approval-1')
   notify(server, 'turn/completed', {
     threadId: 'thread-1',
-    turn: { id: 'turn-1', status: 'completed' },
+    turn: turnPayload('turn-1', 'completed'),
   })
 }
 
@@ -381,6 +459,24 @@ describe('Codex App Server provider-session adapter', () => {
       code: 'CODEX_APP_SERVER_EXECUTABLE_INVALID',
     }))
     expect(nonExecutableSpawn).not.toHaveBeenCalled()
+
+    const changedArtifactSpawn = vi.fn(() => server.child)
+    const changedArtifact = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      dependencies: {
+        ...runtimeDependencies(server.child, {
+          digestArtifact: async () => `sha256:${'c'.repeat(64)}`,
+        }),
+        spawn: changedArtifactSpawn,
+      },
+    })
+    const changedArtifactEvents = await collect(changedArtifact.execute(input()))
+    expect(changedArtifactEvents.at(-1)).toEqual(expect.objectContaining({
+      type: 'adapter:failed',
+      code: 'CODEX_APP_SERVER_EXECUTABLE_INVALID',
+    }))
+    expect(changedArtifactSpawn).not.toHaveBeenCalled()
     expect(JSON.stringify([...driftedEvents, ...nonExecutableEvents])).not.toContain('/fixture/')
   })
 
@@ -442,16 +538,139 @@ describe('Codex App Server provider-session adapter', () => {
     expect(server.calls.some((frame) => frame.id === 'approval-1' && !frame.method)).toBe(false)
   })
 
+  it.each([
+    [
+      'cwd',
+      { workingDirectory: '/requested/workspace' },
+      threadResponse('thread-1'),
+    ],
+    [
+      'model',
+      { model: 'requested-model' },
+      threadResponse('thread-1'),
+    ],
+    [
+      'sandbox',
+      { sandboxMode: 'workspace-write' as const },
+      threadResponse('thread-1'),
+    ],
+  ] as const)('rejects a mismatched effective %s before turn/start', async (
+    _field,
+    config,
+    result,
+  ) => {
+    const server = fakeServer(completedScenario, 'thread-1', {
+      results: { 'thread/start': result },
+    })
+    const adapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      ...config,
+      dependencies: runtimeDependencies(server.child),
+    })
+
+    const events = await collect(adapter.execute(input()))
+
+    expect(events.at(-1)).toEqual(expect.objectContaining({
+      type: 'adapter:failed',
+      code: 'CODEX_APP_SERVER_THREAD_INVALID',
+    }))
+    expect(server.calls.some((frame) => frame.method === 'turn/start')).toBe(false)
+  })
+
+  it('rejects an incomplete thread response before turn/start', async () => {
+    const complete = threadResponse('thread-1')
+    const { model: _model, ...incomplete } = complete
+    const server = fakeServer(completedScenario, 'thread-1', {
+      results: { 'thread/start': incomplete },
+    })
+    const adapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      dependencies: runtimeDependencies(server.child),
+    })
+
+    const events = await collect(adapter.execute(input()))
+
+    expect(events.at(-1)).toEqual(expect.objectContaining({
+      type: 'adapter:failed',
+      code: 'CODEX_APP_SERVER_THREAD_INVALID',
+    }))
+    expect(server.calls.some((frame) => frame.method === 'turn/start')).toBe(false)
+  })
+
+  it('rejects an incomplete turn/start response before adapter start', async () => {
+    const server = fakeServer(completedScenario, 'thread-1', {
+      results: { 'turn/start': { turn: { id: 'turn-1', status: 'inProgress' } } },
+    })
+    const adapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      dependencies: runtimeDependencies(server.child),
+    })
+
+    const events = await collect(adapter.execute(input()))
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: 'adapter:failed',
+        code: 'CODEX_APP_SERVER_TURN_INVALID',
+      }),
+    ])
+  })
+
+  it.each([
+    ['thread/started', (server: FakeServer) => {
+      notify(server, 'thread/started', { thread: { id: 'thread-1' } })
+    }],
+    ['turn/started', (server: FakeServer) => {
+      notify(server, 'turn/started', {
+        threadId: 'thread-1',
+        turn: { id: 'turn-1', status: 'inProgress' },
+      })
+    }],
+    ['turn/completed', (server: FakeServer) => undefined],
+  ] as const)('rejects an incomplete %s notification without completion', async (
+    method,
+    prefix,
+  ) => {
+    const server = fakeServer((current) => {
+      prefix(current)
+      notifyUsage(current)
+      notify(current, 'turn/completed', {
+        threadId: 'thread-1',
+        turn: method === 'turn/completed'
+          ? { id: 'turn-1', status: 'completed' }
+          : turnPayload('turn-1', 'completed'),
+      })
+    })
+    const adapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      dependencies: runtimeDependencies(server.child),
+    })
+
+    const events = await collect(adapter.execute(input()))
+
+    expect(events.at(-1)).toEqual(expect.objectContaining({
+      type: 'adapter:failed',
+      code: method === 'thread/started'
+        ? 'CODEX_APP_SERVER_THREAD_INVALID'
+        : 'CODEX_APP_SERVER_TURN_INVALID',
+    }))
+    expect(events.some((event) => event.type === 'adapter:completed')).toBe(false)
+  })
+
   it('resumes the exact thread and completes one turn without synthesizing a new session', async () => {
     const server = fakeServer((current) => {
       notify(current, 'turn/started', {
         threadId: 'thread-9',
-        turn: { id: 'turn-1', status: 'inProgress' },
+        turn: turnPayload('turn-1', 'inProgress'),
       })
       notifyUsage(current, 'thread-9')
       notify(current, 'turn/completed', {
         threadId: 'thread-9',
-        turn: { id: 'turn-1', status: 'completed' },
+        turn: turnPayload('turn-1', 'completed'),
       })
     }, 'thread-9')
     const adapter = createCodexAppServerAdapter({
@@ -565,7 +784,7 @@ describe('Codex App Server provider-session adapter', () => {
             notifyUsage(current)
             notify(current, 'turn/completed', {
               threadId: 'thread-1',
-              turn: { id: 'turn-1', status: 'completed' },
+              turn: turnPayload('turn-1', 'completed'),
             })
             respond(current, frame.id, {})
           },
@@ -620,7 +839,7 @@ describe('Codex App Server provider-session adapter', () => {
           notifyUsage(current)
           notify(current, 'turn/completed', {
             threadId: 'thread-1',
-            turn: { id: 'turn-1', status: 'completed' },
+            turn: turnPayload('turn-1', 'completed'),
           })
           respond(current, frame.id, {})
         },
@@ -738,46 +957,116 @@ describe('Codex App Server provider-session adapter', () => {
     }
   })
 
-  it('interrupts stalled initialization within cleanup grace', async () => {
+  it('interrupts every stalled setup stage within cleanup grace', async () => {
     vi.useFakeTimers()
     try {
-      const server = fakeServer(
-        () => undefined,
-        'thread-1',
-        { stallMethod: 'initialize' },
-      )
-      const adapter = createCodexAppServerAdapter({
-        attemptBinding: binding(),
-        executable: executableIdentity(),
-        timeoutMs: 1_000,
-        clientLimits: {
-          requestTimeoutMs: 1_000,
-          cleanupTimeoutMs: 5,
-        },
-        dependencies: runtimeDependencies(server.child),
-      })
-      let settled = false
-      const result = collect(adapter.execute(input())).then((events) => {
-        settled = true
-        return events
-      })
+      for (const stage of [
+        'realpath',
+        'stat',
+        'access',
+        'digest',
+        'post-spawn-digest',
+        'initialize',
+        'initialized',
+        'thread/start',
+        'thread/resume',
+        'turn/start',
+      ] as const) {
+        const stalledOperation = vi.fn(() => new Promise<never>(() => undefined))
+        let digestCalls = 0
+        const server = fakeServer(
+          () => undefined,
+          'thread-1',
+          {
+            ...(stage === 'initialized' ? { stallInitializedWrite: true } : {}),
+            ...(stage === 'initialize'
+              || stage === 'thread/start'
+              || stage === 'thread/resume'
+              || stage === 'turn/start'
+              ? { stallMethod: stage }
+              : {}),
+          },
+        )
+        const spawn = vi.fn(() => server.child)
+        const adapter = createCodexAppServerAdapter({
+          attemptBinding: binding(),
+          executable: executableIdentity(),
+          timeoutMs: 1_000,
+          clientLimits: {
+            requestTimeoutMs: 1_000,
+            cleanupTimeoutMs: 5,
+          },
+          dependencies: {
+            ...runtimeDependencies(server.child, {
+              ...(stage === 'realpath' ? { realpath: stalledOperation } : {}),
+              ...(stage === 'stat' ? { stat: stalledOperation } : {}),
+              ...(stage === 'access' ? { access: stalledOperation } : {}),
+              ...(stage === 'digest' ? { digestArtifact: stalledOperation } : {}),
+              ...(stage === 'post-spawn-digest'
+                ? {
+                    digestArtifact: async () => {
+                      digestCalls += 1
+                      return digestCalls === 1
+                        ? ARTIFACT_DIGEST
+                        : stalledOperation()
+                    },
+                  }
+                : {}),
+            }),
+            spawn,
+          },
+        })
+        let settled = false
+        const execution = stage === 'thread/resume'
+          ? adapter.resumeSession('thread-1', input())
+          : adapter.execute(input())
+        const result = collect(execution).then((events) => {
+          settled = true
+          return events
+        })
 
-      await vi.advanceTimersByTimeAsync(0)
-      expect(server.calls.some((frame) => frame.method === 'initialize')).toBe(true)
-      adapter.interrupt()
-      await vi.advanceTimersByTimeAsync(10)
-      const settledWithinCleanupGrace = settled
-      await vi.advanceTimersByTimeAsync(1_000)
-      const events = await result
+        await vi.advanceTimersByTimeAsync(1)
+        if (stage === 'realpath' || stage === 'stat' || stage === 'access' || stage === 'digest') {
+          expect(stalledOperation, stage).toHaveBeenCalledTimes(1)
+        } else if (stage === 'post-spawn-digest') {
+          expect(digestCalls, stage).toBe(2)
+          expect(stalledOperation, stage).toHaveBeenCalledTimes(1)
+          expect(server.calls.some((frame) => frame.method === 'initialize'), stage).toBe(false)
+        } else if (stage === 'initialized') {
+          expect(server.stalledWrites, stage).toEqual([
+            expect.objectContaining({ method: 'initialized' }),
+          ])
+        } else {
+          expect(server.calls.some((frame) => frame.method === stage), stage).toBe(true)
+        }
 
-      expect(settledWithinCleanupGrace).toBe(true)
-      expect(events.at(-1)).toEqual(expect.objectContaining({
-        type: 'adapter:failed',
-        code: 'CODEX_APP_SERVER_CANCELLED',
-      }))
-      expect(server.child.kill).toHaveBeenCalledTimes(1)
-      expect(server.child.kill).toHaveBeenCalledWith('SIGTERM')
-      expect(server.calls.some((frame) => frame.method === 'thread/start')).toBe(false)
+        adapter.interrupt()
+        await vi.advanceTimersByTimeAsync(10)
+        const settledWithinCleanupGrace = settled
+        await vi.advanceTimersByTimeAsync(1_000)
+        const events = await result
+
+        expect(settledWithinCleanupGrace, stage).toBe(true)
+        expect(events.at(-1), stage).toEqual(expect.objectContaining({
+          type: 'adapter:failed',
+          code: 'CODEX_APP_SERVER_CANCELLED',
+        }))
+        if (stage === 'realpath' || stage === 'stat' || stage === 'access' || stage === 'digest') {
+          expect(spawn, stage).not.toHaveBeenCalled()
+          expect(server.child.kill, stage).not.toHaveBeenCalled()
+        } else {
+          expect(spawn, stage).toHaveBeenCalledTimes(1)
+          expect(server.child.kill, stage).toHaveBeenCalledTimes(1)
+          expect(server.child.kill, stage).toHaveBeenCalledWith('SIGTERM')
+        }
+        if (stage === 'initialize' || stage === 'initialized') {
+          expect(server.calls.some((frame) => frame.method === 'thread/start'), stage).toBe(false)
+        }
+        if (stage === 'thread/start' || stage === 'thread/resume') {
+          expect(server.calls.some((frame) => frame.method === 'turn/start'), stage).toBe(false)
+        }
+        expect(vi.getTimerCount(), stage).toBe(0)
+      }
     } finally {
       vi.useRealTimers()
     }
@@ -850,7 +1139,7 @@ describe('Codex App Server provider-session adapter', () => {
     respond(server, interruptFrame?.id, {})
     notify(server, 'turn/completed', {
       threadId: 'thread-1',
-      turn: { id: 'turn-1', status: 'interrupted' },
+      turn: turnPayload('turn-1', 'interrupted'),
     })
 
     await expect(Promise.all([first, second])).resolves.toEqual([
@@ -884,7 +1173,7 @@ describe('Codex App Server provider-session adapter', () => {
     rejectResponse(server, interruptFrame?.id)
     notify(server, 'turn/completed', {
       threadId: 'thread-1',
-      turn: { id: 'turn-1', status: 'interrupted' },
+      turn: turnPayload('turn-1', 'interrupted'),
     })
     const results = await Promise.allSettled([first, second])
     await collect(stream)
@@ -902,11 +1191,65 @@ describe('Codex App Server provider-session adapter', () => {
     expect(server.calls.filter((frame) => frame.method === 'turn/interrupt')).toHaveLength(1)
   })
 
+  it.each([
+    ['null', null],
+    ['boolean', false],
+    ['number', 0],
+    ['string', 'accepted'],
+    ['array', []],
+    ['nonempty object', { accepted: false }],
+  ] as const)('rejects a schema-invalid %s interrupt acknowledgement for every caller', async (
+    _shape,
+    result,
+  ) => {
+    let interruptFrame: RpcFrame | undefined
+    const server = fakeServer(
+      () => undefined,
+      'thread-1',
+      { onInterrupt: (_current, frame) => { interruptFrame = frame } },
+    )
+    const adapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      dependencies: runtimeDependencies(server.child),
+    })
+    const stream = adapter.execute(input())
+    await stream.next()
+    const first = adapter.interruptTurn(interruptRequest())
+    const second = adapter.interruptTurn(interruptRequest())
+
+    await Promise.resolve()
+    expect(interruptFrame?.id).toBeDefined()
+    respond(server, interruptFrame?.id, result)
+    notify(server, 'turn/completed', {
+      threadId: 'thread-1',
+      turn: turnPayload('turn-1', 'interrupted'),
+    })
+    const results = await Promise.allSettled([first, second])
+    await collect(stream)
+
+    expect(results).toEqual([
+      expect.objectContaining({
+        status: 'rejected',
+        reason: expect.objectContaining({
+          code: 'CODEX_APP_SERVER_INTERRUPT_RESPONSE_INVALID',
+        }),
+      }),
+      expect.objectContaining({
+        status: 'rejected',
+        reason: expect.objectContaining({
+          code: 'CODEX_APP_SERVER_INTERRUPT_RESPONSE_INVALID',
+        }),
+      }),
+    ])
+    expect(server.calls.filter((frame) => frame.method === 'turn/interrupt')).toHaveLength(1)
+  })
+
   it('fails closed when terminal usage evidence is absent or malformed', async () => {
     const missingServer = fakeServer((current) => {
       notify(current, 'turn/completed', {
         threadId: 'thread-1',
-        turn: { id: 'turn-1', status: 'completed' },
+        turn: turnPayload('turn-1', 'completed'),
       })
     })
     const missingAdapter = createCodexAppServerAdapter({

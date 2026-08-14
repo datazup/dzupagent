@@ -5,7 +5,6 @@ import type { ProviderSessionAdapter } from '@dzupagent/adapter-types/provider-s
 import {
   PROVIDER_SESSION_OPERATION_SCHEMA,
   PROVIDER_SESSION_REFERENCE_SCHEMA,
-  validateProviderSessionAttemptBinding,
   type ProviderSessionAttemptBinding,
   type ProviderSessionGoalClearRequest,
   type ProviderSessionGoalGetRequest,
@@ -36,6 +35,13 @@ import {
   createCodexGoalControlAdapter,
   type CodexGoalControlAdapter,
 } from './codex-goal-control.js'
+import { assertExactCodexAppServerAdmission } from './codex-app-server-admission.js'
+import {
+  assertThreadResponse,
+  assertThreadStartedNotification,
+  assertTurnNotification,
+  assertTurnResponse,
+} from './codex-app-server-protocol.js'
 import { toCodexSandboxMode } from './codex-helpers.js'
 import type { ResolvedProbeExecutable } from '../introspection/index.js'
 
@@ -57,6 +63,7 @@ export interface CodexAppServerAdapterOptions extends AdapterConfig {
     readonly realpath?: CodexAppServerClientDependencies['realpath']
     readonly stat?: CodexAppServerClientDependencies['stat']
     readonly access?: CodexAppServerClientDependencies['access']
+    readonly digestArtifact?: CodexAppServerClientDependencies['digestArtifact']
   } | undefined
 }
 
@@ -312,38 +319,33 @@ export class CodexAppServerAdapter implements AgentCLIAdapter, ProviderSessionAd
       })
       requireRemaining()
 
-      const threadResult = objectValue(await client.request(
+      const requestedCwd = effectiveWorkingDirectory(input, this.config)
+      const requestedModel = effectiveModel(input, this.config)
+      const requestedSandboxMode = this.config.sandboxMode
+      const admittedVersion = this.attemptBinding.descriptor.backend.version!
+      const threadResult = await client.request(
         resumeThreadId ? 'thread/resume' : 'thread/start',
         resumeThreadId
           ? threadResumeParams(resumeThreadId, input, this.config)
           : threadStartParams(input, this.config),
         { timeoutMs: requireRemaining() },
-      ))
+      )
       requireRemaining()
-      const thread = objectValue(threadResult['thread'])
-      const threadId = stringValue(thread['id'])
-      if (!boundedText(threadId, MAX_REFERENCE_LENGTH)
-        || (resumeThreadId !== undefined && threadId !== resumeThreadId)) {
-        throw adapterError(
-          'CODEX_APP_SERVER_THREAD_INVALID',
-          'Codex app-server returned an invalid thread reference',
-        )
-      }
+      const { threadId } = assertThreadResponse(threadResult, {
+        version: admittedVersion,
+        ...(resumeThreadId !== undefined ? { threadId: resumeThreadId } : {}),
+        ...(requestedCwd !== undefined ? { cwd: requestedCwd } : {}),
+        ...(requestedModel !== undefined ? { model: requestedModel } : {}),
+        ...(requestedSandboxMode !== undefined ? { sandboxMode: requestedSandboxMode } : {}),
+      })
 
-      const turnResult = objectValue(await client.request(
+      const turnResult = await client.request(
         'turn/start',
         turnStartParams(threadId, input, this.config),
         { timeoutMs: requireRemaining() },
-      ))
+      )
       requireRemaining()
-      const turn = objectValue(turnResult['turn'])
-      const turnId = stringValue(turn['id'])
-      if (!boundedText(turnId, MAX_REFERENCE_LENGTH) || turn['status'] !== 'inProgress') {
-        throw adapterError(
-          'CODEX_APP_SERVER_TURN_INVALID',
-          'Codex app-server returned an invalid turn reference',
-        )
-      }
+      const { turnId } = assertTurnResponse(turnResult)
 
       activeRun = {
         client,
@@ -382,11 +384,15 @@ export class CodexAppServerAdapter implements AgentCLIAdapter, ProviderSessionAd
           continue
         }
         if (event.method === 'thread/started') {
-          const observedThread = objectValue(event.params['thread'])
-          if (stringValue(observedThread['id']) !== run.threadId) throw staleTurnError()
+          const observedThreadId = assertThreadStartedNotification(
+            event.params,
+            admittedVersion,
+          )
+          if (observedThreadId !== run.threadId) throw staleTurnError()
           continue
         }
         if (event.method === 'turn/started') {
+          assertTurnNotification(event.params, 'started')
           assertRunEventIdentity(event.params, run, true)
           if (sawTurnStarted) throw adapterError(
             'CODEX_APP_SERVER_DUPLICATE_EVENT',
@@ -423,9 +429,9 @@ export class CodexAppServerAdapter implements AgentCLIAdapter, ProviderSessionAd
           continue
         }
         if (event.method === 'turn/completed') {
+          const completedTurn = assertTurnNotification(event.params, 'completed')
           assertRunEventIdentity(event.params, run, true)
-          const completedTurn = objectValue(event.params['turn'])
-          const status = stringValue(completedTurn['status'])
+          const status = completedTurn.status
           if (status === 'completed') {
             terminal = usage
               ? withCorrelation({
@@ -483,6 +489,10 @@ export class CodexAppServerAdapter implements AgentCLIAdapter, ProviderSessionAd
     } catch (error) {
       if (!lifecycle.terminalDecision) {
         if (signal?.aborted) decide(cancellationDecision())
+        else if (
+          error instanceof CodexAppServerClientError
+          && error.code === 'CODEX_APP_SERVER_TIMEOUT'
+        ) decide(timeoutDecision())
         else if (this.monotonicNow() >= lifecycle.deadline) decide(timeoutDecision())
       }
       const normalized = lifecycle.terminalDecision
@@ -551,7 +561,9 @@ export class CodexAppServerAdapter implements AgentCLIAdapter, ProviderSessionAd
       run.interruptPromise = run.client.request('turn/interrupt', {
         threadId: run.threadId,
         turnId: run.turnId,
-      }, { timeoutMs: this.interruptGraceMs }).then(() => undefined)
+      }, { timeoutMs: this.interruptGraceMs }).then((result) => {
+        assertExactInterruptResponse(result)
+      })
     }
     return run.interruptPromise
   }
@@ -564,29 +576,27 @@ export function createCodexAppServerAdapter(
 }
 
 function assertAppServerAdmission(options: CodexAppServerAdapterOptions): void {
-  const admission = validateProviderSessionAttemptBinding(
-    options.attemptBinding,
+  assertExactCodexAppServerAdmission(
+    options,
     REQUIRED_BASE_CAPABILITIES,
+    {
+      binding: 'Codex app-server requires an admitted exact base-capability binding',
+      executable: 'Codex app-server requires a resolved qualified executable identity',
+    },
   )
-  const descriptor = options.attemptBinding.descriptor
+}
+
+function assertExactInterruptResponse(value: unknown): void {
   if (
-    !admission.valid
-    || descriptor.providerId !== 'codex'
-    || descriptor.backend.kind !== 'app-server'
-    || !boundedText(descriptor.backend.version, 128)
-    || !boundedText(descriptor.backend.protocolSchemaRef, 512)
-    || !/^sha256:[a-f0-9]{64}$/u.test(descriptor.backend.protocolSchemaDigest ?? '')
+    value === null
+    || typeof value !== 'object'
+    || Array.isArray(value)
+    || Object.keys(value).length !== 0
   ) {
-    throw new Error('Codex app-server requires an admitted exact base-capability binding')
-  }
-  const executable = options.executable
-  if (
-    !executable
-    || executable.name !== 'codex'
-    || !isAbsolute(executable.path)
-    || !isAbsolute(executable.realPath)
-  ) {
-    throw new Error('Codex app-server requires a resolved qualified executable identity')
+    throw adapterError(
+      'CODEX_APP_SERVER_INTERRUPT_RESPONSE_INVALID',
+      'Codex app-server returned an invalid turn/interrupt response',
+    )
   }
 }
 
@@ -612,6 +622,7 @@ function clientDependencies(
     ...(dependencies.realpath ? { realpath: dependencies.realpath } : {}),
     ...(dependencies.stat ? { stat: dependencies.stat } : {}),
     ...(dependencies.access ? { access: dependencies.access } : {}),
+    ...(dependencies.digestArtifact ? { digestArtifact: dependencies.digestArtifact } : {}),
     ...(dependencies.monotonicNow ? { monotonicNow: dependencies.monotonicNow } : {}),
   }
   return Object.keys(selected).length > 0 ? selected : undefined

@@ -1,11 +1,11 @@
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { realpath } from "node:fs/promises";
 import { PassThrough } from "node:stream";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
   createNodeProbeRunner,
   createNodeProbeRunnerForTesting,
+  resolveNodeProbeExecutable,
   type ProbeCapture,
   type ResolvedProbeExecutable,
 } from "../node-probe-runner.js";
@@ -21,10 +21,15 @@ import { ok, recordingRunner } from "./fixtures/probe-fixtures.js";
 const MANAGED_HOME = "/managed/probe-home";
 const HELP = `Usage: cli [command]\n\nCommands:\n  mcp       Safe metadata\n  auth      Authenticate\n  install   Install extension\n  update    Update CLI\n  remove    Remove extension\n  login     Log in\n  exec      Run a metered task\n\nOptions:\n  --version\n`;
 let nodeIdentity: ResolvedProbeExecutable;
+const ARTIFACT_DIGEST = `sha256:${"a".repeat(64)}`;
 
 beforeAll(async () => {
-  nodeIdentity = { name: "fixture-node", path: process.execPath, realPath: await realpath(process.execPath) };
+  nodeIdentity = await resolveNodeProbeExecutable("fixture-node", process.execPath);
 });
+
+function fakeIdentity(name: string, path: string, realPath = path): ResolvedProbeExecutable {
+  return { name, path, realPath, artifactDigest: ARTIFACT_DIGEST };
+}
 
 function nodeRunner(
   overrides: Partial<Parameters<typeof createNodeProbeRunnerForTesting>[0]> = {},
@@ -125,7 +130,7 @@ describe("framework-owned Node probe runner", () => {
 
   it("classifies a missing binary without exposing a host error", async () => {
     const runner = nodeRunner({
-      executables: [{ name: "missing", path: "/missing/bin", realPath: "/missing/bin" }],
+      executables: [fakeIdentity("missing", "/missing/bin")],
       managedHome: MANAGED_HOME,
       cwd: process.cwd(),
       ports: {
@@ -147,7 +152,7 @@ describe("framework-owned Node probe runner", () => {
 
   it("rejects an executable whose canonical identity changed", async () => {
     const runner = nodeRunner({
-      executables: [{ name: "cli", path: "/trusted/cli", realPath: "/trusted/cli" }],
+      executables: [fakeIdentity("cli", "/trusted/cli")],
       managedHome: MANAGED_HOME,
       cwd: process.cwd(),
       ports: { realpath: async () => "/replaced/cli" },
@@ -157,6 +162,26 @@ describe("framework-owned Node probe runner", () => {
       failure: "executable-identity-mismatch",
       stderr: "[probe:executable-identity-mismatch]",
     });
+  });
+
+  it("rejects changed executable bytes before probe spawn", async () => {
+    const spawn = vi.fn(() => fakeChild());
+    const runner = nodeRunner({
+      executables: [fakeIdentity("cli", "/trusted/cli")],
+      managedHome: MANAGED_HOME,
+      cwd: process.cwd(),
+      ports: {
+        realpath: async (path) => path,
+        digestArtifact: async () => `sha256:${"b".repeat(64)}`,
+        spawn,
+      },
+    });
+
+    await expect(runner({ command: "cli", args: ["--help"] })).resolves.toMatchObject({
+      failure: "executable-identity-mismatch",
+      stderr: "[probe:executable-identity-mismatch]",
+    });
+    expect(spawn).not.toHaveBeenCalled();
   });
 
   it("bounds output, redacts captures, and never leaks planted secrets", async () => {
@@ -189,11 +214,12 @@ describe("framework-owned Node probe runner", () => {
   it("strictly rejects invalid UTF-8 without leaking replacement text or raw bytes", async () => {
     const child = fakeChild();
     const runner = nodeRunner({
-      executables: [{ name: "cli", path: "/trusted/cli", realPath: "/trusted/cli" }],
+      executables: [fakeIdentity("cli", "/trusted/cli")],
       managedHome: MANAGED_HOME,
       cwd: process.cwd(),
       ports: {
         realpath: async (path) => path,
+        digestArtifact: async () => ARTIFACT_DIGEST,
         statDirectory: async () => true,
         spawn: () => {
           queueMicrotask(() => {
@@ -219,12 +245,13 @@ describe("framework-owned Node probe runner", () => {
     const child = fakeChild();
     const signals: NodeJS.Signals[] = [];
     const runner = nodeRunner({
-      executables: [{ name: "cli", path: "/trusted/cli", realPath: "/trusted/cli" }],
+      executables: [fakeIdentity("cli", "/trusted/cli")],
       managedHome: MANAGED_HOME,
       cwd: process.cwd(),
       limits: { maxDurationMs: 40, killGraceMs: 5 },
       ports: {
         realpath: async (path) => path,
+        digestArtifact: async () => ARTIFACT_DIGEST,
         statDirectory: async () => true,
         spawn: () => child,
         killProcessTree: (_child, signal) => signals.push(signal),

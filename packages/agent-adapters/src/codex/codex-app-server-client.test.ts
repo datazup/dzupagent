@@ -24,8 +24,20 @@ interface FakeProcess {
 
 interface FakeProcessOptions {
   readonly autoInitialize?: boolean | undefined
+  readonly initializeResult?: unknown
   readonly killExits?: boolean | undefined
   readonly onKill?: ((signal: NodeJS.Signals | number | undefined, process: FakeProcess) => void) | undefined
+}
+
+const ARTIFACT_DIGEST = `sha256:${'b'.repeat(64)}`
+
+function initializeResponse(): Record<string, unknown> {
+  return {
+    codexHome: '/fixture/codex-home',
+    platformFamily: 'unix',
+    platformOs: 'linux',
+    userAgent: 'codex_cli_rs/0.147.0',
+  }
 }
 
 function fakeProcess(
@@ -59,7 +71,13 @@ function fakeProcess(
       buffer = buffer.slice(boundary + 1)
       frames.push(frame)
       if (frame.method === 'initialize' && options.autoInitialize !== false) {
-        respond(process, frame.id, {})
+        respond(
+          process,
+          frame.id,
+          Object.hasOwn(options, 'initializeResult')
+            ? options.initializeResult
+            : initializeResponse(),
+        )
       } else {
         onFrame?.(frame, process)
       }
@@ -75,12 +93,16 @@ function respond(process: FakeProcess, id: RpcFrame['id'], result: unknown): voi
 async function connect(
   process: FakeProcess,
   limits: Parameters<typeof CodexAppServerStdioClient.connect>[0]['limits'] = {},
+  dependencyOverrides: Partial<NonNullable<
+    Parameters<typeof CodexAppServerStdioClient.connect>[0]['dependencies']
+  >> = {},
 ): Promise<CodexAppServerStdioClient> {
   return CodexAppServerStdioClient.connect({
     executable: {
       name: 'codex',
       path: '/fixture/codex',
       realPath: '/fixture/codex',
+      artifactDigest: ARTIFACT_DIGEST,
     },
     limits,
     dependencies: {
@@ -88,11 +110,50 @@ async function connect(
       realpath: async (path) => path,
       stat: async () => ({ isFile: () => true }),
       access: async () => undefined,
+      digestArtifact: async () => ARTIFACT_DIGEST,
+      ...dependencyOverrides,
     },
   })
 }
 
 describe('Codex App Server bounded stdio client', () => {
+  it.each([
+    ['null', null],
+    ['empty object', {}],
+    ['missing platform field', {
+      codexHome: '/fixture/codex-home',
+      platformOs: 'linux',
+      userAgent: 'codex_cli_rs/0.147.0',
+    }],
+  ] as const)('rejects a schema-invalid %s initialize result before initialized', async (
+    _shape,
+    initializeResult,
+  ) => {
+    const process = fakeProcess(undefined, { initializeResult })
+
+    await expect(connect(process)).rejects.toMatchObject({
+      code: 'CODEX_APP_SERVER_INITIALIZE_INVALID',
+    })
+    expect(process.frames.some((frame) => frame.method === 'initialized')).toBe(false)
+  })
+
+  it('rechecks artifact identity after spawn and before initialize', async () => {
+    const process = fakeProcess()
+    let digestCalls = 0
+
+    await expect(connect(process, {}, {
+      digestArtifact: async () => {
+        digestCalls += 1
+        return digestCalls === 1
+          ? ARTIFACT_DIGEST
+          : `sha256:${'c'.repeat(64)}`
+      },
+    })).rejects.toMatchObject({ code: 'CODEX_APP_SERVER_EXECUTABLE_INVALID' })
+    expect(digestCalls).toBe(2)
+    expect(process.frames).toEqual([])
+    expect(process.child.kill).toHaveBeenCalledWith('SIGTERM')
+  })
+
   it('initializes once and correlates monotonic request ids', async () => {
     const process = fakeProcess((frame, current) => {
       if (frame.id !== undefined) respond(current, frame.id, { method: frame.method })
@@ -175,10 +236,10 @@ describe('Codex App Server bounded stdio client', () => {
     })
 
     const overflow = fakeProcess((frame, current) => {
-      if (frame.method === 'thread/start') current.stderr.write('x'.repeat(101))
+      if (frame.method === 'thread/start') current.stderr.write('x'.repeat(1_001))
     })
     const overflowClient = await connect(overflow, {
-      maxAggregateOutputBytes: 100,
+      maxAggregateOutputBytes: 1_000,
     })
     await expect(overflowClient.request('thread/start', {})).rejects.toMatchObject({
       code: 'CODEX_APP_SERVER_OUTPUT_LIMIT',

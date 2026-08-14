@@ -15,6 +15,7 @@ import type {
   PipelineCheckpointStore,
   PipelineCheckpointSummary,
 } from "@dzupagent/core/pipeline";
+import type { LoopState } from "./pipeline-runtime/executor-state-types.js";
 
 // ---------------------------------------------------------------------------
 // Adapter interface
@@ -42,7 +43,7 @@ interface CheckpointRow {
   schema_version: string;
   completed_node_ids: string[];
   node_idempotency_keys: Record<string, string> | null;
-  loop_state: Record<string, { iteration: number }> | null;
+  loop_state: LoopState | null;
   fork_state: Record<
     string,
     {

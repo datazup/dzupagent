@@ -49,7 +49,8 @@ pre-filled by the package.
 ## Codex App Server capability and backend
 
 The goal-control subpath keeps observation separate from execution. A
-provider-free observer reads the installed Codex version and generates the
+provider-free observer consumes a canonical executable identity with a bounded
+SHA-256 artifact digest, verifies that digest before every probe, reads the installed Codex version, and generates the
 version-specific App Server JSON Schema into a bounded temporary directory. It
 hashes sorted relative paths plus exact bytes; verifies initialize, base
 execution, resume, interrupt, stream, usage, approval/input-request, and goal
@@ -62,27 +63,36 @@ The explicit App Server backend requires an admitted exact attempt binding. Its
 private stdio client is shared with goal control and bounds request time,
 execution time, cleanup, line and aggregate bytes, frames, pending requests,
 and queued events. Runtime construction requires the private resolved
-executable identity used by observation. The client rechecks its canonical path
-regular-file type, and execute access immediately before spawning the canonical
-path; goal control has no PATH fallback. The durable descriptor and normalized
-events never expose that path or process identity.
+executable identity used by observation, including the artifact digest bound to
+the durable descriptor without a host path. The client rechecks canonical path,
+regular-file type, execute access, and digest before spawning the canonical
+path, then rechecks the digest before `initialize`; goal control has no PATH
+fallback. The durable descriptor and normalized events never expose the path.
+The client validates and discards the complete initialize response. Execution
+validates complete thread and turn results/notifications and compares the
+admitted CLI version plus requested cwd, model, and sandbox against the
+provider's effective response before `turn/start` or terminal authority.
 
 One monotonic deadline begins at execution entry and supplies only its remaining
 budget to executable qualification, initialize, thread start/resume, turn start,
 and stream observation. Timeout and cancellation are local terminal decisions:
 later deltas, interaction requests, usage, or successful terminal frames are
-discarded and cannot restore completion. Supplied-signal cancellation also
-crosses executable qualification and the initialize/initialized handshake, so
-stalled setup enters bounded cleanup immediately. Every exact interrupt caller
-awaits one shared provider acknowledgement; `accepted: true` means that RPC
-succeeded.
+discarded and cannot restore completion. Supplied-signal cancellation and the
+adapter-wide emergency interrupt are registered before executable qualification
+and cover initialize/initialized, thread start/resume, and turn start. Before an
+exact turn identity exists they abort setup and close any created client;
+afterward they enter the exact-turn interrupt path, so stalled setup cannot wait
+for the execution deadline. Every exact interrupt caller awaits one shared
+provider acknowledgement; `accepted: true` means that RPC returned the exact
+observed empty-object acknowledgement. Schema-invalid acknowledgements reject
+every shared caller.
 Interrupt acknowledgement has a separate at-most-250 ms grace. Normal or failed
 handshake cleanup shares one idempotent two-stage promise: at most one SIGTERM
 wait followed by at most one SIGKILL wait, each one second by default and only
 tighten-able. Cleanup failure is reduced to a stable sanitized code.
 
-The client rejects malformed, duplicate, late, overflowing, stale, drifted-
-executable, and post-death protocol activity. One thread/turn can start or
+The client rejects malformed, duplicate, late, overflowing, stale, artifact-
+drifted, schema-invalid, and post-death protocol activity. One thread/turn can start or
 resume, stream normalized message deltas, report per-turn usage, and interrupt
 the exact active turn. Approval and input requests are surfaced without a
 response before a local terminal decision; interaction resolution therefore

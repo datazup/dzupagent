@@ -53,6 +53,8 @@ export type CodexAppServerProtocolObservation = CodexGoalProtocolObservation
 export interface CodexGoalCapabilityMaterializationInput {
   readonly backendKind: CodexGoalCapabilityBackendKind
   readonly installedVersion?: string | undefined
+  /** SHA-256 of the observed executable bytes; no host path enters the descriptor. */
+  readonly executableArtifactDigest?: string | undefined
   readonly protocol?: CodexGoalProtocolObservation | undefined
   readonly observedAt: string
   readonly providerId?: string | undefined
@@ -165,6 +167,10 @@ export function materializeCodexAppServerCapabilityDescriptor(
     sharedReason = input.observationFailure
   } else if (!input.installedVersion) {
     sharedReason = 'installed-version-missing'
+  } else if (input.executableArtifactDigest === undefined) {
+    sharedReason = 'executable-artifact-digest-missing'
+  } else if (!validSchemaDigest(input.executableArtifactDigest)) {
+    sharedReason = 'executable-artifact-digest-invalid'
   } else if (!protocol) {
     sharedReason = 'generated-protocol-schema-missing'
   } else if (!validSchemaDigest(protocol.schemaDigest)) {
@@ -191,13 +197,21 @@ export function materializeCodexAppServerCapabilityDescriptor(
 
   const providerId = input.providerId ?? PROVIDER_ID
   const digest = protocol?.schemaDigest
+  const artifactDigest = input.executableArtifactDigest
   const version = input.installedVersion
-  const descriptorSeed = [providerId, input.backendKind, version ?? '', digest ?? ''].join('\0')
+  const descriptorSeed = [
+    providerId,
+    input.backendKind,
+    version ?? '',
+    digest ?? '',
+    artifactDigest ?? '',
+  ].join('\0')
   const descriptorDigest = createHash('sha256').update(descriptorSeed).digest('hex')
   const backendId = [
     `codex-${input.backendKind}`,
     version ?? 'unknown',
     digest?.slice('sha256:'.length, 'sha256:'.length + 16) ?? 'unqualified',
+    artifactDigest?.slice('sha256:'.length, 'sha256:'.length + 16) ?? 'unqualified',
   ].join('@')
 
   return {
@@ -213,6 +227,9 @@ export function materializeCodexAppServerCapabilityDescriptor(
         : {}),
       ...(digest && validSchemaDigest(digest)
         ? { protocolSchemaDigest: digest }
+        : {}),
+      ...(artifactDigest && validSchemaDigest(artifactDigest)
+        ? { artifactDigest }
         : {}),
     },
     capabilities: buildCapabilityMap(capabilityReasons),
@@ -361,6 +378,7 @@ async function observeInstalledCodexAppServerCapabilityWithRunner(
     descriptor = materializeCodexAppServerCapabilityDescriptor({
       backendKind: 'app-server',
       installedVersion,
+      executableArtifactDigest: options.executable.artifactDigest,
       observedAt,
       expectedVersion: options.expectedVersion,
       expectedSchemaDigest: options.expectedSchemaDigest,
@@ -395,6 +413,7 @@ function materializeFailure(
   return materializeCodexGoalCapabilityDescriptor({
     backendKind: 'app-server',
     installedVersion,
+    executableArtifactDigest: options.executable.artifactDigest,
     observedAt,
     expectedVersion: options.expectedVersion,
     expectedSchemaDigest: options.expectedSchemaDigest,

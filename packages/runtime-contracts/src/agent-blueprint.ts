@@ -1,3 +1,8 @@
+import {
+  EXECUTION_EFFECT_CLASSES,
+  type ExecutionEffectClass,
+} from "./canonical-execution.js";
+
 export const AGENT_BLUEPRINT_SCHEMA = "dzupagent.agentBlueprint/v1" as const;
 export const COMPILED_AGENT_DESCRIPTOR_SCHEMA =
   "dzupagent.compiledAgentDescriptor/v1" as const;
@@ -38,6 +43,90 @@ export const AGENT_HANDLER_EFFECT_CLASSES = [
 ] as const;
 export type AgentHandlerEffectClass =
   (typeof AGENT_HANDLER_EFFECT_CLASSES)[number];
+
+export type AgentHandlerEffectMappingErrorCode =
+  | "HANDLER_EFFECT_ENRICHMENT_REQUIRED"
+  | "HANDLER_EFFECT_ENRICHMENT_INCOMPATIBLE";
+
+/**
+ * The handler vocabulary is intentionally coarse. This result records the
+ * exact canonical execution effect selected for policy/receipt comparison.
+ */
+export interface AgentHandlerEffectMapping {
+  readonly handlerEffectClass: AgentHandlerEffectClass;
+  readonly executionEffectClass: ExecutionEffectClass;
+}
+
+export class AgentHandlerEffectMappingError extends Error {
+  constructor(
+    readonly code: AgentHandlerEffectMappingErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "AgentHandlerEffectMappingError";
+  }
+}
+
+const MUTATING_EXECUTION_EFFECT_CLASSES = new Set<ExecutionEffectClass>([
+  "file_write",
+  "code_change",
+  "network_write",
+  "db_write",
+  "queue_publish",
+]);
+
+/**
+ * Resolve a coarse handler effect to the canonical execution vocabulary.
+ * `none` and `read` have exact mappings. `write` and `external` are ambiguous
+ * and fail closed unless the caller supplies an explicit enriched class.
+ */
+export function resolveAgentHandlerEffectClass(
+  handlerEffectClass: AgentHandlerEffectClass,
+  enrichedEffectClass?: ExecutionEffectClass,
+): AgentHandlerEffectMapping {
+  if (handlerEffectClass === "none") {
+    return exactHandlerEffect(handlerEffectClass, "compute", enrichedEffectClass);
+  }
+  if (handlerEffectClass === "read") {
+    return exactHandlerEffect(handlerEffectClass, "read", enrichedEffectClass);
+  }
+  if (enrichedEffectClass === undefined) {
+    throw new AgentHandlerEffectMappingError(
+      "HANDLER_EFFECT_ENRICHMENT_REQUIRED",
+      `Handler effect ${handlerEffectClass} requires an explicit canonical execution effect class.`,
+    );
+  }
+  if (!EXECUTION_EFFECT_CLASSES.includes(enrichedEffectClass)) {
+    throw new AgentHandlerEffectMappingError(
+      "HANDLER_EFFECT_ENRICHMENT_INCOMPATIBLE",
+      `Unknown canonical execution effect class: ${String(enrichedEffectClass)}`,
+    );
+  }
+  if (
+    handlerEffectClass === "write" &&
+    !MUTATING_EXECUTION_EFFECT_CLASSES.has(enrichedEffectClass)
+  ) {
+    throw new AgentHandlerEffectMappingError(
+      "HANDLER_EFFECT_ENRICHMENT_INCOMPATIBLE",
+      `Handler effect write cannot map to non-mutating execution effect ${enrichedEffectClass}.`,
+    );
+  }
+  return { handlerEffectClass, executionEffectClass: enrichedEffectClass };
+}
+
+function exactHandlerEffect(
+  handlerEffectClass: "none" | "read",
+  expected: ExecutionEffectClass,
+  enriched: ExecutionEffectClass | undefined,
+): AgentHandlerEffectMapping {
+  if (enriched !== undefined && enriched !== expected) {
+    throw new AgentHandlerEffectMappingError(
+      "HANDLER_EFFECT_ENRICHMENT_INCOMPATIBLE",
+      `Handler effect ${handlerEffectClass} maps exactly to ${expected}, not ${enriched}.`,
+    );
+  }
+  return { handlerEffectClass, executionEffectClass: expected };
+}
 
 export type AgentJsonValue =
   | null

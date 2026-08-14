@@ -148,6 +148,24 @@ describe("F-R4 — typed loop lowering", () => {
     expect(loopNode?.maxIterations).toBe(100);
   });
 
+  it("plumbs an authored continue exhaustion policy into a coherent artifact", () => {
+    const { artifact } = lowerLoop({
+      typedCondition: {
+        schema: "dzupagent.flowTypedCondition/v1",
+        expression: EXPRESSION,
+      },
+      maxIterations: 2,
+      onExhausted: "continue",
+    });
+
+    const loopNode = artifact.nodes.find(
+      (node): node is LoopNode => node.type === "loop"
+    );
+    expect(loopNode?.typedWhile?.onExhausted).toBe("continue");
+    expect(loopNode?.failOnMaxIterations).toBe(false);
+    expect(PipelineDefinitionSchema.safeParse(artifact).success).toBe(true);
+  });
+
   it("keeps the legacy flattened lowering for string-condition loops (negative control)", () => {
     const { artifact } = lowerLoop({ condition: "{{ state.retry }}" });
 

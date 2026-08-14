@@ -16,17 +16,20 @@ import {
 
 ## Output-Key Uniqueness
 
-`checkOutputKeyUniqueness(root)` flags duplicate `agent.output.key` values
-within the same sequence scope. Diagnostics use code `output_key_collision` and
-severity `warning` in the current contract. They are surfaced so production
-callers can count, record, and review possible overwrites without failing
-existing authored flows.
+`checkOutputKeyUniqueness(root)` returns hard `output_key_collision` errors when
+two output-producing declarations can write the same state key on one execution
+path. It covers `output.key`, `outputKey`, `output`, `outputVar`, default prompt /
+HTTP / subflow destinations, try/catch error destinations, SPDD outputs, and
+`for_each` aggregate destinations. Explicit `set.assign` entries are intentional
+state mutation rather than result-output declarations and remain outside this gate.
 
-The pass intentionally does not reject duplicate keys across fresh execution
-scopes such as `parallel` branches, `try_catch` branches, nested `sequence`
-nodes, or loop/persona bodies. It also does not inspect non-agent output fields
-such as `prompt.outputKey`. Promoting these warnings to hard validation errors
-requires a breaking migration after surveying real flows.
+Nested sequences, loops, personas, and routes do not create artificial fresh
+scopes. Parallel branches share a collision domain. The cross-branch exceptions
+are explicit mutually exclusive alternatives: branch then/else, approval
+approve/reject, and successful try-body/recovery completion. Outputs from any
+alternative still collide with a later same-path writer. A `for_each` body has
+iteration-local state: collisions inside the body fail, while only declared
+collection/accumulator destinations join the outer collision domain.
 
 ## Credential and redaction contracts
 

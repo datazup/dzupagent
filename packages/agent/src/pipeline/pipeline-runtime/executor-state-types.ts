@@ -7,8 +7,17 @@
  * @module pipeline/pipeline-runtime/executor-state-types
  */
 
-/** Per-loop-node iteration cursor for durable loop resume (W3). */
-export type LoopState = Record<string, { iteration: number }>;
+/** One predicate-loop's iteration and optional mid-body resume cursor. */
+export interface LoopCheckpointState {
+  iteration: number;
+  nextBodyNodeIndex?: number;
+  bodyResults?: Record<string, unknown>;
+  previousOutput?: unknown;
+  progressDigest?: `sha256:${string}`;
+}
+
+/** Per-loop-node cursor for durable loop resume (W3). */
+export type LoopState = Record<string, LoopCheckpointState>;
 
 /** Per-fork branch progress for durable fork/branch resume (W4). */
 export type ForkState = Record<

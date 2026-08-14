@@ -288,6 +288,8 @@ function lowerLoop(
     "condition",
     "body",
     "maxIterations",
+    "onExhausted",
+    "iterationTimeoutMs",
     "progressKey",
   ]);
   for (const key of Object.keys(input)) {
@@ -299,6 +301,19 @@ function lowerLoop(
         )
       );
     }
+  }
+  if (
+    input.onExhausted !== undefined &&
+    input.onExhausted !== "fail" &&
+    input.onExhausted !== "continue"
+  ) {
+    context.diagnostics.push({
+      phase: "normalize",
+      code: "INVALID_ENUM_VALUE",
+      message:
+        'core.loop@1 with.onExhausted must be "fail" or "continue"',
+      path: `${authoredPath}.with.onExhausted`,
+    });
   }
   context.lineage.push({
     authoredPath,
@@ -319,6 +334,12 @@ function lowerLoop(
         body: bodySteps,
         ...(typeof input.maxIterations === "number"
           ? { maxIterations: input.maxIterations }
+          : {}),
+        ...(input.onExhausted === "fail" || input.onExhausted === "continue"
+          ? { onExhausted: input.onExhausted }
+          : {}),
+        ...(typeof input.iterationTimeoutMs === "number"
+          ? { iterationTimeoutMs: input.iterationTimeoutMs }
           : {}),
         ...(typeof input.progressKey === "string"
           ? { progressKey: input.progressKey }

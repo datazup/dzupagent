@@ -190,6 +190,8 @@ export interface LoopNode extends PipelineNodeBase {
     condition: Record<string, unknown>;
     /** Exhaustion policy: `fail` throws when maxIterations is reached. */
     onExhausted: "fail" | "continue";
+    /** Maximum wall time for one body iteration in milliseconds. */
+    iterationTimeoutMs?: number;
     /** Step ID tracked for no-progress detection across iterations. */
     progressKey?: string;
   };

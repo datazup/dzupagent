@@ -214,6 +214,7 @@ export class PipelineExecutor {
         this.recordIdempotencyKey(keys, runId, node),
       errorEdgeFor: (nodeId, error) => this.errorEdgeFor(nodeId, error),
       forkDeps: (runId) => this.forkDeps(runId),
+      budgetTracker: this.coordinator.getBudgetTracker(),
       emit: this.emit.bind(this),
       setState: (next) => this.coordinator.setState(next),
       runResult: (runId, state, nodeResults, totalDurationMs) =>
@@ -279,6 +280,7 @@ export class PipelineExecutor {
         eventLog: frame.eventLog,
         versionTracker: frame.versionTracker,
         recoveryAttemptsUsed: this.coordinator.getRecoveryAttemptsUsed(),
+        budgetTracker: this.coordinator.getBudgetTracker(),
         suspendedAtNodeId: nodeId,
         emit: this.emit.bind(this),
       });
@@ -365,6 +367,7 @@ export class PipelineExecutor {
         eventLog: frame.eventLog,
         versionTracker: frame.versionTracker,
         recoveryAttemptsUsed: this.coordinator.getRecoveryAttemptsUsed(),
+        budgetTracker: this.coordinator.getBudgetTracker(),
         emit: this.emit.bind(this),
       });
     }

@@ -120,6 +120,23 @@ describe("provider-session capability contracts", () => {
     expect(PROVIDER_SESSION_OPERATION_SCHEMA).toBe("dzupagent.providerSessionOperation/v2");
   });
 
+  it("rejects a malformed executable artifact digest", () => {
+    const appServer = corpus.profiles.find(({ id }) => id === "mock-app-server")!;
+    const admitted = binding(appServer);
+    const result = validateProviderSessionAttemptBinding({
+      ...admitted,
+      descriptor: {
+        ...admitted.descriptor,
+        backend: { ...admitted.descriptor.backend, artifactDigest: "sha256:not-a-digest" },
+      },
+    });
+
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({
+      code: "BACKEND_IDENTITY_INVALID",
+      path: "descriptor.backend.artifactDigest",
+    }));
+  });
+
   it("retains v1 binding verification without allowing v2 goal control", () => {
     const current = binding(corpus.profiles[0]);
     const legacy = {

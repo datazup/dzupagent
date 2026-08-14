@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto'
-import { isAbsolute } from 'node:path'
 
 import type {
   ProviderSessionAdapter,
@@ -8,7 +7,6 @@ import {
   PROVIDER_SESSION_GOAL_STATUSES,
   PROVIDER_SESSION_OPERATION_SCHEMA,
   PROVIDER_SESSION_REFERENCE_SCHEMA,
-  validateProviderSessionAttemptBinding,
   type ProviderSessionAttemptBinding,
   type ProviderSessionGoalClearRequest,
   type ProviderSessionGoalGetRequest,
@@ -22,6 +20,7 @@ import {
   type CodexAppServerClientDependencies,
   type CodexAppServerClientOptions,
 } from './codex-app-server-client.js'
+import { assertExactCodexAppServerAdmission } from './codex-app-server-admission.js'
 import type { ResolvedProbeExecutable } from '../introspection/index.js'
 
 type GoalControlMethods = Required<
@@ -68,21 +67,10 @@ const CODEX_GOAL_STATUSES = new Set([
 export function createCodexGoalControlAdapter(
   options: CodexGoalControlOptions,
 ): CodexGoalControlAdapter {
-  const admission = validateProviderSessionAttemptBinding(
-    options.attemptBinding,
-    ['goal-control'],
-  )
-  if (!admission.valid) {
-    throw new Error('Codex goal control requires an admitted native goal-control binding')
-  }
-  if (
-    !options.executable
-    || options.executable.name !== 'codex'
-    || !isAbsolute(options.executable.path)
-    || !isAbsolute(options.executable.realPath)
-  ) {
-    throw new Error('Codex goal control requires a resolved qualified executable identity')
-  }
+  assertExactCodexAppServerAdmission(options, ['goal-control'], {
+    binding: 'Codex goal control requires an admitted exact goal-control binding',
+    executable: 'Codex goal control requires a resolved qualified executable identity',
+  })
 
   const context: GoalControlContext = {
     attemptBindingId: options.attemptBinding.bindingId,
