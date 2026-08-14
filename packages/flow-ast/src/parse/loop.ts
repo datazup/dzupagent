@@ -105,7 +105,7 @@ export function parseLoop(
     node.iterationTimeoutMs = obj.iterationTimeoutMs;
   } else if (obj.iterationTimeoutMs !== undefined) {
     ctx.errors.push({
-      code: "INVALID_FIELD_TYPE",
+      code: "WRONG_FIELD_TYPE",
       message: `loop.iterationTimeoutMs must be a positive integer when present, received ${describeJsType(
         obj.iterationTimeoutMs
       )}`,

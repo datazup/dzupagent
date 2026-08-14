@@ -85,7 +85,7 @@ export function validateLoop(
   } else if (iterationTimeoutMs !== undefined) {
     issues.push({
       path: joinPath(path, "iterationTimeoutMs"),
-      code: "INVALID_FIELD_TYPE",
+      code: "WRONG_FIELD_TYPE",
       message: `loop.iterationTimeoutMs must be a positive integer when present, received ${describeJsType(
         iterationTimeoutMs
       )}`,

@@ -49,4 +49,27 @@ describe("F-R4 — loop.onExhausted AST admission", () => {
     expect(parsed.ast).toEqual(withoutPolicy);
     expect(flowNodeSchema.safeParse(withoutPolicy).success).toBe(true);
   });
+
+  it("uses the public wrong-field diagnostic for invalid iteration timeouts", () => {
+    const invalid = { ...loop, iterationTimeoutMs: 0 };
+    const parsed = parseFlow(invalid);
+
+    expect(parsed.errors).toContainEqual(
+      expect.objectContaining({
+        code: "WRONG_FIELD_TYPE",
+        pointer: "/iterationTimeoutMs",
+      })
+    );
+
+    const validated = flowNodeSchema.safeParse(invalid);
+    expect(validated.success).toBe(false);
+    if (!validated.success) {
+      expect(validated.error.issues).toContainEqual(
+        expect.objectContaining({
+          code: "WRONG_FIELD_TYPE",
+          path: "root.iterationTimeoutMs",
+        })
+      );
+    }
+  });
 });
