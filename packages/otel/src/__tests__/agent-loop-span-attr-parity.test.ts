@@ -1,4 +1,7 @@
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
@@ -22,14 +25,36 @@ import { ForgeSpanAttr } from "../span-attributes.js";
  * failure mode this kind of test is most prone to.
  */
 
-const LAB_ADAPTER_URL = new URL(
-  "../../../../../scripts/flow-prompt-lab/lib/agent-loop-otel-adapter.js",
-  import.meta.url,
-);
+const HERE = dirname(fileURLToPath(import.meta.url));
+
+function findLabAdapter(): string {
+  const relative = join(
+    "scripts",
+    "flow-prompt-lab",
+    "lib",
+    "agent-loop-otel-adapter.js",
+  );
+  let dir = HERE;
+
+  for (let i = 0; i < 10; i += 1) {
+    const candidate = join(dir, relative);
+    if (existsSync(candidate)) return candidate;
+
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  throw new Error(
+    "Flow Lab agent-loop OTel adapter not found by walking up from the otel package",
+  );
+}
+
+const LAB_ADAPTER_PATH = findLabAdapter();
 
 /** Parse the lab's private `ATTR = Object.freeze({...})` table. */
 async function readLabAttributes(): Promise<Record<string, string>> {
-  const source = await readFile(LAB_ADAPTER_URL, "utf8");
+  const source = await readFile(LAB_ADAPTER_PATH, "utf8");
   const start = source.indexOf("const ATTR = Object.freeze({");
   if (start === -1) {
     throw new Error(
@@ -99,7 +124,7 @@ describe("agent-loop span attribute parity with the lab emitter", () => {
   });
 
   it("shares one span-projection schema string across both stacks", async () => {
-    const source = await readFile(LAB_ADAPTER_URL, "utf8");
+    const source = await readFile(LAB_ADAPTER_PATH, "utf8");
     const { AGENT_LOOP_SPAN_PROJECTION_SCHEMA } =
       await import("../agent-loop-trace-contracts.js");
 
