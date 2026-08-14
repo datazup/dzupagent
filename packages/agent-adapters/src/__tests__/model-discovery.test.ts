@@ -3,8 +3,16 @@ import {
   assessModelAvailability,
   discoverClaudeModels,
   discoverCodexModels,
+  discoverGeminiModels,
+  discoverProviderModels,
+  discoverQwenModels,
+  parseAcpModelCatalogObservation,
   parseClaudeCliModelAliases,
 } from "../model-discovery.js";
+import {
+  GEMINI_0_35_3_ACP_MODEL_RECORDING,
+  QWEN_0_21_9_ACP_MODEL_RECORDING,
+} from "./fixtures/model-discovery-acp-recordings.js";
 
 const fixedNow = () => new Date("2026-07-24T00:00:00.000Z");
 
@@ -332,6 +340,201 @@ describe("provider model discovery", () => {
     expect(
       assessModelAvailability(catalog, "claude-model-not-in-help").status,
     ).toBe("unverified");
+  });
+
+  it("discovers a scoped Gemini runtime catalog from a recorded ACP observation", async () => {
+    const loadCliCatalog = vi.fn(async () => ({
+      stdout: GEMINI_0_35_3_ACP_MODEL_RECORDING,
+      stderr: "",
+      authenticated: true,
+      sourceRevision: "0.35.3",
+    }));
+
+    const catalog = await discoverProviderModels("gemini", {
+      sourceEvidence: {
+        installationId: "installation-gemini-a",
+        backendId: "gemini-cli",
+      },
+      dependencies: { loadCliCatalog, now: fixedNow },
+    });
+
+    expect(loadCliCatalog).toHaveBeenCalledWith({
+      providerId: "gemini",
+      cliPath: "gemini",
+      timeoutMs: 10_000,
+      sourceEvidence: {
+        installationId: "installation-gemini-a",
+        backendId: "gemini-cli",
+      },
+    });
+    expect(catalog).toMatchObject({
+      providerId: "gemini",
+      source: "gemini-cli-acp",
+      completeness: "runtime-catalog",
+      authenticated: true,
+      installationId: "installation-gemini-a",
+      backendId: "gemini-cli",
+      sourceRevision: "0.35.3",
+    });
+    expect(catalog.models.map((model) => model.id)).toEqual([
+      "auto-gemini-2.5",
+      "gemini-2.5-flash",
+      "gemini-2.5-flash-lite",
+      "gemini-2.5-pro",
+    ]);
+    expect(catalog.models.every((model) => model.isDefault !== true)).toBe(true);
+    const defaultAssessment = assessModelAvailability(catalog);
+    expect(defaultAssessment.status).toBe("provider-default");
+    expect(defaultAssessment).not.toHaveProperty("matchedModel");
+  });
+
+  it("discovers Qwen ACP model identity and observed token limits without static fallback", async () => {
+    const catalog = await discoverQwenModels({
+      sourceEvidence: {
+        installationId: "installation-qwen-a",
+        backendId: "qwen-cli",
+        sourceRevision: "0.21.9",
+      },
+      dependencies: {
+        loadCliCatalog: async () => ({
+          stdout: QWEN_0_21_9_ACP_MODEL_RECORDING,
+          stderr: "",
+          authenticated: null,
+          sourceRevision: "0.21.9",
+        }),
+        now: fixedNow,
+      },
+    });
+
+    expect(catalog).toMatchObject({
+      providerId: "qwen",
+      source: "qwen-cli-acp",
+      authenticated: null,
+      installationId: "installation-qwen-a",
+      backendId: "qwen-cli",
+      sourceRevision: "0.21.9",
+    });
+    expect(catalog.models).toEqual([
+      expect.objectContaining({
+        id: "qwen3-coder-plus(qwen-oauth)",
+        maxInputTokens: 1_000_000,
+      }),
+      expect.objectContaining({
+        id: "qwen3-max-preview(qwen-oauth)",
+        maxInputTokens: 262_144,
+      }),
+    ]);
+    expect(
+      assessModelAvailability(catalog, "static-registry-default").status,
+    ).toBe("unavailable");
+  });
+
+  it("deduplicates identical ACP models and reasoning efforts", () => {
+    const repeatedModel = {
+      modelId: "observed-reasoning-model",
+      name: "Observed Reasoning Model",
+      _meta: {
+        supportedReasoningEfforts: ["low", "high", "low"],
+        defaultReasoningEffort: "low",
+      },
+    };
+    const output = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        models: {
+          currentModelId: "observed-reasoning-model",
+          availableModels: [repeatedModel, repeatedModel],
+        },
+      },
+    });
+
+    expect(parseAcpModelCatalogObservation("gemini", output)).toEqual([
+      expect.objectContaining({
+        id: "observed-reasoning-model",
+        defaultReasoningEffort: "low",
+        supportedReasoningEfforts: ["low", "high"],
+      }),
+    ]);
+  });
+
+  it("rejects malformed, ambiguous, and conflicting ACP catalog output", () => {
+    expect(() => parseAcpModelCatalogObservation("gemini", "not-json")).toThrow(
+      /malformed JSON/u,
+    );
+    expect(() =>
+      parseAcpModelCatalogObservation(
+        "gemini",
+        `${GEMINI_0_35_3_ACP_MODEL_RECORDING}\n${GEMINI_0_35_3_ACP_MODEL_RECORDING}`,
+      ),
+    ).toThrow(/ambiguous model catalogs/u);
+    expect(() =>
+      parseAcpModelCatalogObservation(
+        "qwen",
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          result: {
+            models: {
+              currentModelId: "same-model",
+              availableModels: [
+                { modelId: "same-model", name: "First" },
+                { modelId: "same-model", name: "Conflicting" },
+              ],
+            },
+          },
+        }),
+      ),
+    ).toThrow(/conflicting duplicate model IDs/u);
+  });
+
+  it("fails closed when Gemini and Qwen have no injected catalog observation", async () => {
+    await expect(discoverGeminiModels()).rejects.toThrow(
+      "Gemini CLI catalog discovery requires an injected ACP catalog loader",
+    );
+    await expect(discoverQwenModels()).rejects.toThrow(
+      "Qwen CLI catalog discovery requires an injected ACP catalog loader",
+    );
+  });
+
+  it("fingerprints installation/backend scope and rejects revision conflicts", async () => {
+    const discover = (installationId: string, sourceRevision = "0.35.3") =>
+      discoverGeminiModels({
+        sourceEvidence: {
+          installationId,
+          backendId: "gemini-cli",
+          sourceRevision,
+        },
+        dependencies: {
+          loadCliCatalog: async () => ({
+            stdout: GEMINI_0_35_3_ACP_MODEL_RECORDING,
+            stderr: "",
+            sourceRevision: "0.35.3",
+          }),
+          now: fixedNow,
+        },
+      });
+
+    const first = await discover("installation-gemini-a");
+    const second = await discover("installation-gemini-b");
+    expect(first.fingerprint).not.toBe(second.fingerprint);
+    await expect(discover("installation-gemini-a", "0.34.0")).rejects.toThrow(
+      "Configured and observed CLI source revisions do not match",
+    );
+  });
+
+  it("rejects paths and endpoints as catalog source identity", async () => {
+    const loadCliCatalog = vi.fn();
+    await expect(
+      discoverGeminiModels({
+        sourceEvidence: {
+          installationId: "https://catalog.invalid/installation",
+          backendId: "gemini-cli",
+        },
+        dependencies: { loadCliCatalog },
+      }),
+    ).rejects.toThrow("catalog source installationId must be a safe opaque identifier");
+    expect(loadCliCatalog).not.toHaveBeenCalled();
   });
 
   it("parses only the Claude --model help section", () => {

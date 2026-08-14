@@ -5,12 +5,15 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-export type DiscoverableProviderId = "codex" | "claude";
+export type DiscoverableProviderId = "codex" | "claude" | "gemini" | "qwen";
+export type AcpCatalogProviderId = "gemini" | "qwen";
 export type ProviderModelCatalogSource =
   | "codex-app-server"
   | "openai-models-api"
   | "anthropic-models-api"
-  | "claude-cli";
+  | "claude-cli"
+  | "gemini-cli-acp"
+  | "qwen-cli-acp";
 export type ProviderModelCatalogCompleteness =
   | "account-catalog"
   | "runtime-catalog"
@@ -42,9 +45,22 @@ export interface ProviderModelCatalog {
   completeness: ProviderModelCatalogCompleteness;
   discoveredAt: string;
   authenticated: boolean | null;
+  installationId?: string | undefined;
+  backendId?: string | undefined;
+  sourceRevision?: string | undefined;
   models: readonly ProviderModelCatalogEntry[];
   warnings: readonly string[];
   fingerprint: string;
+}
+
+/**
+ * Safe identity for the provider installation/backend that produced a catalog.
+ * Raw executable paths, environment values, and CLI output never belong here.
+ */
+export interface ProviderModelCatalogSourceEvidence {
+  installationId: string;
+  backendId: string;
+  sourceRevision?: string | undefined;
 }
 
 export interface ModelAvailabilityAssessment {
@@ -57,6 +73,11 @@ export interface ModelAvailabilityAssessment {
 interface CommandResult {
   stdout: string;
   stderr: string;
+}
+
+export interface ProviderCliCatalogObservation extends CommandResult {
+  authenticated?: boolean | null | undefined;
+  sourceRevision?: string | undefined;
 }
 
 interface CodexPageResult {
@@ -77,10 +98,26 @@ export interface ModelDiscoveryDependencies {
     includeHidden: boolean;
     timeoutMs: number;
   }) => Promise<CodexPageResult>;
+  /**
+   * Loads a bounded ACP catalog observation from an already-qualified CLI
+   * connector. There is deliberately no implicit subprocess fallback: Gemini
+   * and Qwen ACP catalog reads currently require session-oriented execution,
+   * so callers must inject a connector that owns those lifecycle effects.
+   */
+  loadCliCatalog?: (input: {
+    providerId: AcpCatalogProviderId;
+    cliPath: string;
+    timeoutMs: number;
+    sourceEvidence?: ProviderModelCatalogSourceEvidence | undefined;
+  }) => Promise<ProviderCliCatalogObservation>;
   now?: (() => Date) | undefined;
 }
 
-export interface CodexModelDiscoveryOptions {
+interface SourceScopedModelDiscoveryOptions {
+  sourceEvidence?: ProviderModelCatalogSourceEvidence | undefined;
+}
+
+export interface CodexModelDiscoveryOptions extends SourceScopedModelDiscoveryOptions {
   source?: "auto" | "app-server" | "openai-api" | undefined;
   cliPath?: string | undefined;
   apiKey?: string | undefined;
@@ -91,7 +128,7 @@ export interface CodexModelDiscoveryOptions {
   dependencies?: ModelDiscoveryDependencies | undefined;
 }
 
-export interface ClaudeModelDiscoveryOptions {
+export interface ClaudeModelDiscoveryOptions extends SourceScopedModelDiscoveryOptions {
   source?: "auto" | "anthropic-api" | "cli" | undefined;
   cliPath?: string | undefined;
   apiKey?: string | undefined;
@@ -103,9 +140,25 @@ export interface ClaudeModelDiscoveryOptions {
   dependencies?: ModelDiscoveryDependencies | undefined;
 }
 
+export interface GeminiModelDiscoveryOptions extends SourceScopedModelDiscoveryOptions {
+  source?: "acp" | undefined;
+  cliPath?: string | undefined;
+  timeoutMs?: number | undefined;
+  dependencies?: ModelDiscoveryDependencies | undefined;
+}
+
+export interface QwenModelDiscoveryOptions extends SourceScopedModelDiscoveryOptions {
+  source?: "acp" | undefined;
+  cliPath?: string | undefined;
+  timeoutMs?: number | undefined;
+  dependencies?: ModelDiscoveryDependencies | undefined;
+}
+
 export type ProviderModelDiscoveryOptions =
   | CodexModelDiscoveryOptions
-  | ClaudeModelDiscoveryOptions;
+  | ClaudeModelDiscoveryOptions
+  | GeminiModelDiscoveryOptions
+  | QwenModelDiscoveryOptions;
 
 export async function discoverProviderModels(
   providerId: "codex",
@@ -116,12 +169,27 @@ export async function discoverProviderModels(
   options?: ClaudeModelDiscoveryOptions,
 ): Promise<ProviderModelCatalog>;
 export async function discoverProviderModels(
+  providerId: "gemini",
+  options?: GeminiModelDiscoveryOptions,
+): Promise<ProviderModelCatalog>;
+export async function discoverProviderModels(
+  providerId: "qwen",
+  options?: QwenModelDiscoveryOptions,
+): Promise<ProviderModelCatalog>;
+export async function discoverProviderModels(
   providerId: DiscoverableProviderId,
   options: ProviderModelDiscoveryOptions = {},
 ): Promise<ProviderModelCatalog> {
-  return providerId === "codex"
-    ? discoverCodexModels(options as CodexModelDiscoveryOptions)
-    : discoverClaudeModels(options as ClaudeModelDiscoveryOptions);
+  switch (providerId) {
+    case "codex":
+      return discoverCodexModels(options as CodexModelDiscoveryOptions);
+    case "claude":
+      return discoverClaudeModels(options as ClaudeModelDiscoveryOptions);
+    case "gemini":
+      return discoverGeminiModels(options as GeminiModelDiscoveryOptions);
+    case "qwen":
+      return discoverQwenModels(options as QwenModelDiscoveryOptions);
+  }
 }
 
 export async function discoverCodexModels(
@@ -132,6 +200,7 @@ export async function discoverCodexModels(
   // host; a timeout here fails provider preflight for otherwise-healthy runs.
   const timeoutMs = options.timeoutMs ?? 30_000;
   const dependencies = options.dependencies ?? {};
+  const sourceEvidence = normalizeSourceEvidence(options.sourceEvidence);
   const warnings: string[] = [];
 
   if (source === "auto" || source === "app-server") {
@@ -147,6 +216,7 @@ export async function discoverCodexModels(
         source: "codex-app-server",
         completeness: "runtime-catalog",
         authenticated: true,
+        sourceEvidence,
         models,
         warnings,
         now: dependencies.now,
@@ -171,6 +241,7 @@ export async function discoverCodexModels(
       source: "openai-models-api",
       completeness: "account-catalog",
       authenticated: true,
+      sourceEvidence,
       models,
       warnings: [
         ...warnings,
@@ -195,6 +266,7 @@ export async function discoverClaudeModels(
   const source = options.source ?? "auto";
   const timeoutMs = options.timeoutMs ?? 10_000;
   const dependencies = options.dependencies ?? {};
+  const sourceEvidence = normalizeSourceEvidence(options.sourceEvidence);
   const env = options.env ?? process.env;
   const apiKey = options.apiKey ?? env["ANTHROPIC_API_KEY"];
   const warnings: string[] = [];
@@ -228,6 +300,7 @@ export async function discoverClaudeModels(
         source: "anthropic-models-api",
         completeness: "account-catalog",
         authenticated: true,
+        sourceEvidence,
         models: resolvedModels,
         warnings,
         now: dependencies.now,
@@ -262,6 +335,95 @@ export async function discoverClaudeModels(
     source: "claude-cli",
     completeness: "aliases-only",
     authenticated,
+    sourceEvidence,
+    models,
+    warnings,
+    now: dependencies.now,
+  });
+}
+
+export async function discoverGeminiModels(
+  options: GeminiModelDiscoveryOptions = {},
+): Promise<ProviderModelCatalog> {
+  return discoverAcpCliModels("gemini", options);
+}
+
+export async function discoverQwenModels(
+  options: QwenModelDiscoveryOptions = {},
+): Promise<ProviderModelCatalog> {
+  return discoverAcpCliModels("qwen", options);
+}
+
+async function discoverAcpCliModels(
+  providerId: AcpCatalogProviderId,
+  options: GeminiModelDiscoveryOptions | QwenModelDiscoveryOptions,
+): Promise<ProviderModelCatalog> {
+  if (options.source !== undefined && options.source !== "acp") {
+    throw new Error(
+      `${providerDisplayName(providerId)} model discovery supports ACP observations only`,
+    );
+  }
+  const dependencies = options.dependencies ?? {};
+  const loadCliCatalog = dependencies.loadCliCatalog;
+  if (!loadCliCatalog) {
+    throw new Error(
+      `${providerDisplayName(providerId)} CLI catalog discovery requires an injected ACP catalog loader`,
+    );
+  }
+  const configuredSourceEvidence = normalizeSourceEvidence(
+    options.sourceEvidence,
+  );
+  const timeoutMs = positiveInteger(
+    options.timeoutMs ?? 10_000,
+    `${providerDisplayName(providerId)} catalog timeoutMs`,
+  );
+  const observation = await loadCliCatalog({
+    providerId,
+    cliPath: options.cliPath ?? providerId,
+    timeoutMs: timeoutMs ?? 10_000,
+    ...(configuredSourceEvidence
+      ? { sourceEvidence: configuredSourceEvidence }
+      : {}),
+  });
+  if (
+    typeof observation.stdout !== "string" ||
+    typeof observation.stderr !== "string"
+  ) {
+    throw new Error(
+      `${providerDisplayName(providerId)} CLI catalog loader returned an invalid observation`,
+    );
+  }
+  if (
+    observation.authenticated !== undefined &&
+    observation.authenticated !== null &&
+    typeof observation.authenticated !== "boolean"
+  ) {
+    throw new Error(
+      `${providerDisplayName(providerId)} CLI catalog loader returned invalid authentication evidence`,
+    );
+  }
+  const models = parseAcpModelCatalogObservation(providerId, observation.stdout);
+  const warnings: string[] = [];
+  if (observation.stderr.trim()) {
+    warnings.push(
+      `${providerDisplayName(providerId)} CLI catalog observation emitted diagnostics; raw diagnostics were not retained.`,
+    );
+  }
+  const sourceEvidence = mergeObservedSourceRevision(
+    configuredSourceEvidence,
+    observation.sourceRevision,
+  );
+  if (observation.sourceRevision && !sourceEvidence) {
+    warnings.push(
+      `${providerDisplayName(providerId)} CLI source revision was observed without installation/backend scope and was not retained.`,
+    );
+  }
+  return createCatalog({
+    providerId,
+    source: providerId === "gemini" ? "gemini-cli-acp" : "qwen-cli-acp",
+    completeness: "runtime-catalog",
+    authenticated: observation.authenticated ?? null,
+    sourceEvidence,
     models,
     warnings,
     now: dependencies.now,
@@ -337,23 +499,183 @@ export function parseClaudeCliModelAliases(
   }));
 }
 
+/**
+ * Parses the JSON-RPC/NDJSON session model projection emitted by Gemini and
+ * Qwen ACP connectors. The current model is intentionally not promoted to a
+ * provider default: it is mutable session state, not catalog-default evidence.
+ */
+export function parseAcpModelCatalogObservation(
+  providerId: AcpCatalogProviderId,
+  output: string,
+): ProviderModelCatalogEntry[] {
+  if (Buffer.byteLength(output, "utf8") > 1024 * 1024) {
+    throw new Error(`${providerDisplayName(providerId)} ACP catalog output exceeded 1 MiB`);
+  }
+  const lines = output
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) {
+    throw new Error(`${providerDisplayName(providerId)} ACP catalog output was empty`);
+  }
+
+  const candidates: Record<string, unknown>[] = [];
+  for (const line of lines) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      throw new Error(
+        `${providerDisplayName(providerId)} ACP catalog output contained malformed JSON`,
+      );
+    }
+    const message = strictObjectValue(
+      parsed,
+      `${providerDisplayName(providerId)} ACP message`,
+    );
+    if (message["jsonrpc"] !== "2.0") {
+      throw new Error(
+        `${providerDisplayName(providerId)} ACP catalog output contained a non-JSON-RPC message`,
+      );
+    }
+    if (message["error"] !== undefined) {
+      throw new Error(
+        `${providerDisplayName(providerId)} ACP catalog observation reported an error`,
+      );
+    }
+    if (message["result"] === undefined) continue;
+    if (
+      (typeof message["id"] !== "string" &&
+        typeof message["id"] !== "number") ||
+      (typeof message["id"] === "number" && !Number.isSafeInteger(message["id"]))
+    ) {
+      throw new Error(
+        `${providerDisplayName(providerId)} ACP result omitted a valid response id`,
+      );
+    }
+    const result = strictObjectValue(
+      message["result"],
+      `${providerDisplayName(providerId)} ACP result`,
+    );
+    if (result["models"] === undefined || result["models"] === null) continue;
+    candidates.push(
+      strictObjectValue(
+        result["models"],
+        `${providerDisplayName(providerId)} ACP models result`,
+      ),
+    );
+  }
+  if (candidates.length !== 1) {
+    throw new Error(
+      candidates.length === 0
+        ? `${providerDisplayName(providerId)} ACP output did not contain a model catalog`
+        : `${providerDisplayName(providerId)} ACP output contained ambiguous model catalogs`,
+    );
+  }
+
+  const catalog = candidates[0] ?? {};
+  const currentModelId = modelIdentifier(
+    catalog["currentModelId"],
+    `${providerDisplayName(providerId)} ACP currentModelId`,
+  );
+  if (!currentModelId) {
+    throw new Error(
+      `${providerDisplayName(providerId)} ACP model catalog omitted currentModelId`,
+    );
+  }
+  if (!Array.isArray(catalog["availableModels"])) {
+    throw new Error(
+      `${providerDisplayName(providerId)} ACP model catalog omitted availableModels`,
+    );
+  }
+  const entries = catalog["availableModels"].map((raw, index) =>
+    acpModelEntry(providerId, raw, index),
+  );
+  return normalizeCatalogModels(providerId, entries);
+}
+
+function acpModelEntry(
+  providerId: AcpCatalogProviderId,
+  raw: unknown,
+  index: number,
+): ProviderModelCatalogEntry {
+  const label = `${providerDisplayName(providerId)} ACP model at index ${index}`;
+  const model = strictObjectValue(raw, label);
+  const id = modelIdentifier(model["modelId"], `${label}.modelId`);
+  if (!id) throw new Error(`${label} omitted modelId`);
+  const displayName = boundedText(model["name"], `${label}.name`, 256);
+  if (!displayName) throw new Error(`${label} omitted name`);
+  const meta =
+    model["_meta"] === undefined || model["_meta"] === null
+      ? {}
+      : strictObjectValue(model["_meta"], `${label}._meta`);
+  const supportedReasoningEfforts = normalizeIdentifierList(
+    meta["supportedReasoningEfforts"],
+    `${label}._meta.supportedReasoningEfforts`,
+  );
+  const defaultReasoningEffort = modelIdentifier(
+    meta["defaultReasoningEffort"],
+    `${label}._meta.defaultReasoningEffort`,
+    true,
+  );
+  if (
+    defaultReasoningEffort &&
+    !supportedReasoningEfforts.some(
+      (effort) => effort.toLowerCase() === defaultReasoningEffort.toLowerCase(),
+    )
+  ) {
+    throw new Error(
+      `${label} advertised a default reasoning effort outside its supported efforts`,
+    );
+  }
+  const inputModalities = normalizeIdentifierList(
+    meta["inputModalities"],
+    `${label}._meta.inputModalities`,
+  );
+  const maxInputTokens = positiveInteger(
+    meta["contextLimit"] ?? meta["maxInputTokens"],
+    `${label}._meta.contextLimit`,
+  );
+  const maxOutputTokens = positiveInteger(
+    meta["maxOutputTokens"],
+    `${label}._meta.maxOutputTokens`,
+  );
+  const isDefault = optionalBoolean(meta["isDefault"], `${label}._meta.isDefault`);
+  const hidden = optionalBoolean(meta["hidden"], `${label}._meta.hidden`);
+  return {
+    providerId,
+    id,
+    displayName,
+    ...(isDefault !== undefined ? { isDefault } : {}),
+    ...(hidden !== undefined ? { hidden } : {}),
+    ...(defaultReasoningEffort ? { defaultReasoningEffort } : {}),
+    ...(supportedReasoningEfforts.length
+      ? { supportedReasoningEfforts }
+      : {}),
+    ...(inputModalities.length ? { inputModalities } : {}),
+    ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
+    ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+  };
+}
+
 function createCatalog(input: {
   providerId: DiscoverableProviderId;
   source: ProviderModelCatalogSource;
   completeness: ProviderModelCatalogCompleteness;
   authenticated: boolean | null;
+  sourceEvidence?: ProviderModelCatalogSourceEvidence | undefined;
   models: readonly ProviderModelCatalogEntry[];
   warnings: readonly string[];
   now?: (() => Date) | undefined;
 }): ProviderModelCatalog {
-  const models = [...input.models].sort((left, right) =>
-    left.id.localeCompare(right.id),
-  );
+  const sourceEvidence = normalizeSourceEvidence(input.sourceEvidence);
+  const models = normalizeCatalogModels(input.providerId, input.models);
   const identity = {
     schemaVersion: "dzupagent/provider-model-catalog/v1" as const,
     providerId: input.providerId,
     source: input.source,
     completeness: input.completeness,
+    ...(sourceEvidence ?? {}),
     models,
   };
   return {
@@ -723,6 +1045,260 @@ function assertOk(response: Response, label: string): void {
   if (!response.ok) {
     throw new Error(`${label} request failed with HTTP ${response.status}`);
   }
+}
+
+function normalizeCatalogModels(
+  providerId: DiscoverableProviderId,
+  entries: readonly ProviderModelCatalogEntry[],
+): ProviderModelCatalogEntry[] {
+  const byId = new Map<string, ProviderModelCatalogEntry>();
+  for (const [index, entry] of entries.entries()) {
+    const label = `${providerDisplayName(providerId)} catalog model at index ${index}`;
+    if (entry.providerId !== providerId) {
+      throw new Error(`${label} has a mismatched providerId`);
+    }
+    const id = modelIdentifier(entry.id, `${label}.id`);
+    if (!id) throw new Error(`${label} omitted id`);
+    const displayName = boundedText(entry.displayName, `${label}.displayName`, 256);
+    if (!displayName) throw new Error(`${label} omitted displayName`);
+    const supportedReasoningEfforts = normalizeIdentifierList(
+      entry.supportedReasoningEfforts,
+      `${label}.supportedReasoningEfforts`,
+    );
+    const defaultReasoningEffort = modelIdentifier(
+      entry.defaultReasoningEffort,
+      `${label}.defaultReasoningEffort`,
+      true,
+    );
+    if (
+      defaultReasoningEffort &&
+      supportedReasoningEfforts.length > 0 &&
+      !supportedReasoningEfforts.some(
+        (effort) => effort.toLowerCase() === defaultReasoningEffort.toLowerCase(),
+      )
+    ) {
+      throw new Error(
+        `${label} has a default reasoning effort outside its supported efforts`,
+      );
+    }
+    const inputModalities = normalizeIdentifierList(
+      entry.inputModalities,
+      `${label}.inputModalities`,
+    );
+    const canonicalId = modelIdentifier(
+      entry.canonicalId,
+      `${label}.canonicalId`,
+      true,
+    );
+    const upgrade = modelIdentifier(entry.upgrade, `${label}.upgrade`, true);
+    const maxInputTokens = positiveInteger(
+      entry.maxInputTokens,
+      `${label}.maxInputTokens`,
+    );
+    const maxOutputTokens = positiveInteger(
+      entry.maxOutputTokens,
+      `${label}.maxOutputTokens`,
+    );
+    const normalized: ProviderModelCatalogEntry = {
+      ...entry,
+      providerId,
+      id,
+      displayName,
+    };
+    if (canonicalId) normalized.canonicalId = canonicalId;
+    else delete normalized.canonicalId;
+    if (upgrade) normalized.upgrade = upgrade;
+    else delete normalized.upgrade;
+    if (defaultReasoningEffort) {
+      normalized.defaultReasoningEffort = defaultReasoningEffort;
+    } else delete normalized.defaultReasoningEffort;
+    if (supportedReasoningEfforts.length) {
+      normalized.supportedReasoningEfforts = supportedReasoningEfforts;
+    } else delete normalized.supportedReasoningEfforts;
+    if (inputModalities.length) normalized.inputModalities = inputModalities;
+    else delete normalized.inputModalities;
+    if (maxInputTokens !== undefined) normalized.maxInputTokens = maxInputTokens;
+    else delete normalized.maxInputTokens;
+    if (maxOutputTokens !== undefined) normalized.maxOutputTokens = maxOutputTokens;
+    else delete normalized.maxOutputTokens;
+    const key = id.toLowerCase();
+    const prior = byId.get(key);
+    if (!prior) {
+      byId.set(key, normalized);
+      continue;
+    }
+    if (stableJson(prior) !== stableJson(normalized)) {
+      throw new Error(
+        `${providerDisplayName(providerId)} catalog contains conflicting duplicate model IDs`,
+      );
+    }
+  }
+  if (byId.size === 0) {
+    throw new Error(`${providerDisplayName(providerId)} catalog contained no models`);
+  }
+  const models = [...byId.values()].sort((left, right) =>
+    left.id < right.id ? -1 : left.id > right.id ? 1 : 0,
+  );
+  if (models.filter((model) => model.isDefault === true).length > 1) {
+    throw new Error(
+      `${providerDisplayName(providerId)} catalog advertised multiple default models`,
+    );
+  }
+  return models;
+}
+
+function normalizeIdentifierList(value: unknown, label: string): string[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
+  const result: string[] = [];
+  const seen = new Map<string, string>();
+  for (const [index, item] of value.entries()) {
+    const id = modelIdentifier(item, `${label}[${index}]`);
+    if (!id) throw new Error(`${label}[${index}] must not be empty`);
+    const key = id.toLowerCase();
+    const prior = seen.get(key);
+    if (prior && prior !== id) {
+      throw new Error(`${label} contains ambiguous case-variant identifiers`);
+    }
+    if (!prior) {
+      seen.set(key, id);
+      result.push(id);
+    }
+  }
+  return result;
+}
+
+function normalizeSourceEvidence(
+  evidence?: ProviderModelCatalogSourceEvidence,
+): ProviderModelCatalogSourceEvidence | undefined {
+  if (!evidence) return undefined;
+  return {
+    installationId: sourceIdentity(
+      evidence.installationId,
+      "catalog source installationId",
+    ),
+    backendId: sourceIdentity(evidence.backendId, "catalog source backendId"),
+    ...(evidence.sourceRevision
+      ? {
+          sourceRevision: sourceRevisionValue(
+            evidence.sourceRevision,
+            "catalog sourceRevision",
+          ),
+        }
+      : {}),
+  };
+}
+
+function mergeObservedSourceRevision(
+  evidence: ProviderModelCatalogSourceEvidence | undefined,
+  observedRevision: string | undefined,
+): ProviderModelCatalogSourceEvidence | undefined {
+  const normalizedObservedRevision = observedRevision
+    ? sourceRevisionValue(observedRevision, "observed CLI sourceRevision")
+    : undefined;
+  if (!evidence) return undefined;
+  const normalized = normalizeSourceEvidence(evidence);
+  if (
+    normalized?.sourceRevision &&
+    normalizedObservedRevision &&
+    normalized.sourceRevision !== normalizedObservedRevision
+  ) {
+    throw new Error("Configured and observed CLI source revisions do not match");
+  }
+  return {
+    ...normalized,
+    ...(normalizedObservedRevision
+      ? { sourceRevision: normalizedObservedRevision }
+      : {}),
+  } as ProviderModelCatalogSourceEvidence;
+}
+
+function providerDisplayName(providerId: DiscoverableProviderId): string {
+  return providerId === "codex"
+    ? "Codex"
+    : providerId === "claude"
+      ? "Claude"
+      : providerId === "gemini"
+        ? "Gemini"
+        : "Qwen";
+}
+
+function strictObjectValue(
+  value: unknown,
+  label: string,
+): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function modelIdentifier(
+  value: unknown,
+  label: string,
+  optional = false,
+): string | undefined {
+  if (value === undefined || value === null) {
+    if (optional) return undefined;
+    throw new Error(`${label} must be a non-empty identifier`);
+  }
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (
+    !/^[A-Za-z0-9][A-Za-z0-9._:/()+@=-]{0,255}$/u.test(normalized) ||
+    normalized.includes("://") ||
+    /^[A-Za-z]:\//u.test(normalized)
+  ) {
+    throw new Error(`${label} must be a safe provider identifier`);
+  }
+  return normalized;
+}
+
+function boundedText(
+  value: unknown,
+  label: string,
+  maxLength: number,
+): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") throw new Error(`${label} must be text`);
+  const normalized = value.trim();
+  if (
+    !normalized ||
+    normalized.length > maxLength ||
+    /[\u0000-\u001f\u007f-\u009f]/u.test(normalized)
+  ) {
+    throw new Error(`${label} must be bounded printable text`);
+  }
+  return normalized;
+}
+
+function positiveInteger(value: unknown, label: string): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Number.isSafeInteger(value) || (value as number) <= 0) {
+    throw new Error(`${label} must be a positive safe integer`);
+  }
+  return value as number;
+}
+
+function optionalBoolean(value: unknown, label: string): boolean | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "boolean") throw new Error(`${label} must be boolean`);
+  return value;
+}
+
+function sourceIdentity(value: unknown, label: string): string {
+  const id = typeof value === "string" ? value.trim() : "";
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(id)) {
+    throw new Error(`${label} must be a safe opaque identifier`);
+  }
+  return id;
+}
+
+function sourceRevisionValue(value: unknown, label: string): string {
+  const revision = typeof value === "string" ? value.trim() : "";
+  if (!/^[A-Za-z0-9][A-Za-z0-9._+@=-]{0,127}$/u.test(revision)) {
+    throw new Error(`${label} must be a safe bounded revision`);
+  }
+  return revision;
 }
 
 function stableJson(value: unknown): string {

@@ -101,7 +101,10 @@ export {
   assessModelAvailability,
   discoverClaudeModels,
   discoverCodexModels,
+  discoverGeminiModels,
   discoverProviderModels,
+  discoverQwenModels,
+  parseAcpModelCatalogObservation,
   parseClaudeCliModelAliases,
 } from "./model-discovery.js";
 export { inspectProviderRequestCapabilities } from "./provider-request-capability-inspection.js";
@@ -112,16 +115,21 @@ export type {
   ProviderRequestCapabilityRequirements,
 } from "./provider-request-capability-inspection.js";
 export type {
+  AcpCatalogProviderId,
   ClaudeModelDiscoveryOptions,
   CodexModelDiscoveryOptions,
   DiscoverableProviderId,
+  GeminiModelDiscoveryOptions,
   ModelAvailabilityAssessment,
   ModelDiscoveryDependencies,
+  ProviderCliCatalogObservation,
   ProviderModelCatalog,
   ProviderModelCatalogCompleteness,
   ProviderModelCatalogEntry,
   ProviderModelCatalogSource,
+  ProviderModelCatalogSourceEvidence,
   ProviderModelDiscoveryOptions,
+  QwenModelDiscoveryOptions,
 } from "./model-discovery.js";
 
 // --- Prompts ---
