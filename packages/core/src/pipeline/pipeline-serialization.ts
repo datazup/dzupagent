@@ -189,18 +189,52 @@ const PipelineLoopBodyGraphCheckpointStateSchema = z
   .object({
     completed: z.boolean(),
     nextNodeId: z.string().min(1).optional(),
+    outcome: z
+      .discriminatedUnion("kind", [
+        z.object({
+          kind: z.literal("normal"),
+          exitNodeId: z.string().min(1),
+        }),
+        z.object({
+          kind: z.literal("suspended"),
+          exitNodeId: z.string().min(1),
+        }),
+        z.object({
+          kind: z.literal("terminal"),
+          exitNodeId: z.string().min(1),
+        }),
+      ])
+      .optional(),
     completedNodeIds: z.array(z.string().min(1)),
     nodeResults: z.record(z.string(), z.unknown()),
     nodeIdempotencyKeys: z.record(z.string(), z.string()),
     forkState: PipelineForkCheckpointStateSchema.optional(),
   })
   .superRefine((graph, context) => {
-    if (graph.completed === (graph.nextNodeId !== undefined)) {
+    const isSuspended = graph.outcome?.kind === "suspended";
+    const isCompletedOutcome =
+      graph.outcome?.kind === "normal" || graph.outcome?.kind === "terminal";
+    const legacyCursorInvalid =
+      graph.outcome === undefined &&
+      graph.completed === (graph.nextNodeId !== undefined);
+    const suspendedCursorInvalid =
+      isSuspended && (graph.completed || graph.nextNodeId !== undefined);
+    const completedOutcomeInvalid =
+      isCompletedOutcome && (!graph.completed || graph.nextNodeId !== undefined);
+    if (legacyCursorInvalid) {
       context.addIssue({
         code: "custom",
         path: ["nextNodeId"],
         message:
           "completed graph cursors omit nextNodeId; incomplete cursors require it",
+      });
+    }
+    if (suspendedCursorInvalid || completedOutcomeInvalid) {
+      context.addIssue({
+        code: "custom",
+        path: ["outcome"],
+        message:
+          "normal/terminal outcomes require completed=true; suspended outcomes require completed=false; classified outcomes omit nextNodeId",
       });
     }
 

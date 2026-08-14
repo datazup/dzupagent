@@ -41,6 +41,7 @@ import {
   type HeartbeatHandle,
 } from "./node-ledger-integration.js";
 import type { NodeLeaseLike } from "../pipeline-runtime-types.js";
+import { isPipelineCheckpointIntegrityError } from "./checkpoint-integrity-error.js";
 
 export interface ForkBranchExecutorDeps {
   config: PipelineRuntimeConfig;
@@ -123,13 +124,13 @@ export async function handleFork(
         branchBaseState,
         branchBaseResults
       );
-      if (branchSpan) config.tracer?.endSpanOk(branchSpan);
       // Persist only successful branches (W4 design §4): a branch whose node
       // returned an error is NOT recorded in forkState, so it re-runs on resume
       // rather than being restored.
       if (resume && result.state === "completed") {
         await resume.onBranchComplete(startId, result);
       }
+      if (branchSpan) config.tracer?.endSpanOk(branchSpan);
       return result;
     } catch (err) {
       if (branchSpan) config.tracer?.endSpanWithError(branchSpan, err);
@@ -138,6 +139,21 @@ export async function handleFork(
   });
 
   const settled = await Promise.allSettled(branchPromises);
+
+  // Branch execution failures remain isolated by fork policy, but checkpoint
+  // transport is runtime integrity, not authored branch work. Wait for every
+  // sibling to settle, then fail the fork closed before merging or joining.
+  const checkpointFailure = settled.find(
+    (outcome): outcome is PromiseRejectedResult =>
+      outcome.status === "rejected" &&
+      isPipelineCheckpointIntegrityError(outcome.reason)
+  );
+  if (checkpointFailure !== undefined) {
+    if (forkSpan) {
+      config.tracer?.endSpanWithError(forkSpan, checkpointFailure.reason);
+    }
+    throw checkpointFailure.reason;
+  }
 
   // Merge branch outputs deterministically in outgoing edge order.
   // Failed branches emit an error event but do not abort surviving branches.

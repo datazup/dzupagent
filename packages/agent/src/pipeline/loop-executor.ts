@@ -17,7 +17,11 @@
 
 export type {
   LoopBodyGraphScheduleInput,
+  LoopBodyGraphCheckpointState,
+  LoopBodyGraphControlOutcome,
+  LoopBodyGraphScheduleOutcome,
   LoopBodyGraphScheduleResult,
+  LoopExecutionResult,
   LoopResumeOptions,
 } from "./loop-executor/types.js";
 export { executeLoop } from "./loop-executor/predicate-loop.js";

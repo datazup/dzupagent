@@ -52,12 +52,13 @@ async function qualify(
   if (capabilityError !== undefined) return fail(capabilityError);
   if (
     request.compilerOptions.referencePolicy !== "strict" ||
-    request.compilerOptions.target !== undefined
+    request.compilerOptions.target !== undefined ||
+    request.compilerOptions.targetCapabilities !== undefined
   ) {
     return fail({
       code: "V2_LOCAL_TARGET_STRICT_COMPILER_REQUIRED",
       message:
-        "inactive local target qualification requires strict reference validation and no external target-resolution hint",
+        "inactive local target qualification requires strict reference validation with no external target-resolution hint or artifact-emission capability advertisement",
       path: "compilerOptions",
     });
   }

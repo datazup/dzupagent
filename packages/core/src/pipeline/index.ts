@@ -37,6 +37,7 @@ export type {
 // --- Checkpoint store types ---
 export type {
   PipelineCheckpoint,
+  PipelineLoopBodyGraphCheckpointOutcome,
   PipelineLoopBodyGraphCheckpointState,
   PipelineLoopCheckpointState,
   PipelineCheckpointEventRecord,

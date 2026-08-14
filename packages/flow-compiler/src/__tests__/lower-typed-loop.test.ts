@@ -262,4 +262,69 @@ describe("F-R4 — typed loop lowering", () => {
     expect(artifact.edges.length).toBeGreaterThan(0);
     expect(PipelineDefinitionSchema.safeParse(artifact).success).toBe(true);
   });
+
+  it("lowers complete as a terminal-only structured loop exit", () => {
+    const { artifact } = lowerStructuredBody([
+      { type: "complete", id: "complete", result: "done" },
+    ]);
+    const loop = artifact.nodes.find(
+      (node): node is LoopNode => node.type === "loop"
+    );
+    expect(loop?.bodyGraph).toBeDefined();
+    if (loop?.bodyGraph === undefined) return;
+
+    expect(loop.bodyGraph.normalExitNodeIds).toEqual([]);
+    expect(loop.bodyGraph.suspendedExitNodeIds).toEqual([]);
+    expect(loop.bodyGraph.terminalExitNodeIds).toHaveLength(1);
+    expect(loop.bodyGraph.terminalExitNodeIds[0]).toBe(
+      loop.bodyGraph.entryNodeId
+    );
+    expect(PipelineDefinitionSchema.safeParse(artifact).success).toBe(true);
+  });
+
+  it("retains a terminal complete exit beside a normal conditional branch", () => {
+    const { artifact } = lowerStructuredBody([
+      {
+        type: "branch",
+        id: "decision",
+        condition: "true",
+        then: [{ type: "complete", id: "complete", result: "done" }],
+        else: [{ type: "set", id: "continue", assign: { done: false } }],
+      },
+    ]);
+    const loop = artifact.nodes.find(
+      (node): node is LoopNode => node.type === "loop"
+    );
+    expect(loop?.bodyGraph).toBeDefined();
+    if (loop?.bodyGraph === undefined) return;
+
+    expect(loop.bodyGraph.normalExitNodeIds).not.toEqual([]);
+    expect(loop.bodyGraph.terminalExitNodeIds).toHaveLength(1);
+    expect(loop.bodyGraph.normalExitNodeIds).not.toContain(
+      loop.bodyGraph.terminalExitNodeIds[0]
+    );
+    expect(PipelineDefinitionSchema.safeParse(artifact).success).toBe(true);
+  });
+
+  it("retains a terminal complete exit inside a try body", () => {
+    const { artifact } = lowerStructuredBody([
+      {
+        type: "try_catch",
+        id: "attempt",
+        body: [{ type: "complete", id: "complete", result: "done" }],
+        catch: [{ type: "set", id: "recover", assign: { caught: true } }],
+      },
+    ]);
+    const loop = artifact.nodes.find(
+      (node): node is LoopNode => node.type === "loop"
+    );
+    expect(loop?.bodyGraph).toBeDefined();
+    if (loop?.bodyGraph === undefined) return;
+
+    expect(loop.bodyGraph.terminalExitNodeIds).toHaveLength(1);
+    expect(loop.bodyGraph.normalExitNodeIds).not.toContain(
+      loop.bodyGraph.terminalExitNodeIds[0]
+    );
+    expect(PipelineDefinitionSchema.safeParse(artifact).success).toBe(true);
+  });
 });

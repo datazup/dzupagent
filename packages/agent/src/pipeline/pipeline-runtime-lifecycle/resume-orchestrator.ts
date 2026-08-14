@@ -30,6 +30,9 @@ import type {
   PipelineRuntimeConfig,
 } from "../pipeline-runtime-types.js";
 import type { LoopState } from "../pipeline-runtime/executor-state-types.js";
+import {
+  validateRetainedLoopBodyGraphCheckpointState,
+} from "../loop-body-graph-checkpoint-validator.js";
 
 /**
  * Facade the resume/redeliver paths use over the owning runtime. Kept narrow
@@ -168,6 +171,25 @@ export function failReplayBudgetExceeded(
   };
 }
 
+function failRetainedLoopControl(
+  host: ResumeHost,
+  runId: string,
+  nodeResults: Map<string, NodeResult>,
+  startTime: number,
+  detail: string
+): PipelineRunResult {
+  const message = `Corrupt retained nested loop control: ${detail}`;
+  host.setState("failed");
+  host.emitFailed(runId, message);
+  return {
+    pipelineId: host.config.definition.id,
+    runId,
+    state: "failed",
+    nodeResults,
+    totalDurationMs: Date.now() - startTime,
+  };
+}
+
 /** Resume execution from a checkpoint (the full re-entry cascade). */
 export async function resumeFromCheckpoint(
   host: ResumeHost,
@@ -209,6 +231,115 @@ export async function resumeFromCheckpoint(
     versionTracker: { version: checkpoint.version },
     startTime,
   });
+
+  const retainedOutcomes = Object.entries(loopState).filter(
+    ([, cursor]) => cursor.bodyGraphState?.outcome !== undefined
+  );
+  if (retainedOutcomes.length > 1) {
+    return failRetainedLoopControl(
+      host,
+      runId,
+      nodeResults,
+      startTime,
+      "multiple nested loop outcomes are retained"
+    );
+  }
+  const retainedOutcome = retainedOutcomes[0];
+  if (retainedOutcome !== undefined) {
+    const [loopNodeId, cursor] = retainedOutcome;
+    const graphState = cursor.bodyGraphState!;
+    try {
+      validateRetainedLoopBodyGraphCheckpointState(
+        host.config.definition,
+        loopNodeId,
+        graphState
+      );
+    } catch (error) {
+      return failRetainedLoopControl(
+        host,
+        runId,
+        nodeResults,
+        startTime,
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+    const outcome = graphState.outcome!;
+    if (outcome.kind === "normal") {
+      if (
+        checkpoint.suspendedAtNodeId !== undefined ||
+        completedNodeIds.includes(loopNodeId)
+      ) {
+        return failRetainedLoopControl(
+          host,
+          runId,
+          nodeResults,
+          startTime,
+          `nested normal outcome for loop "${loopNodeId}" has an invalid outer checkpoint marker`
+        );
+      }
+      // The scoped executor saved its normal exit immediately before the loop
+      // iteration boundary. The ordinary mid-flight-loop path below re-enters
+      // the loop and consumes this already-completed body without redispatch.
+    } else if (outcome.kind === "suspended") {
+      if (
+        checkpoint.suspendedAtNodeId !== loopNodeId ||
+        completedNodeIds.includes(loopNodeId)
+      ) {
+        return failRetainedLoopControl(
+          host,
+          runId,
+          nodeResults,
+          startTime,
+          `nested suspended outcome for loop "${loopNodeId}" has an invalid outer checkpoint marker`
+        );
+      }
+      const budgetResult = enforceReplayBudget(host, {
+        startNodeId: loopNodeId,
+        runId,
+        runState,
+        completedNodeIds,
+        nodeResults,
+        startTime,
+      });
+      if (budgetResult) return budgetResult;
+      return host.runFromNode(runCtx(loopNodeId));
+    } else if (
+      checkpoint.suspendedAtNodeId !== outcome.exitNodeId ||
+      !completedNodeIds.includes(loopNodeId)
+    ) {
+      return failRetainedLoopControl(
+        host,
+        runId,
+        nodeResults,
+        startTime,
+        `nested terminal outcome for loop "${loopNodeId}" has an invalid outer checkpoint marker`
+      );
+    } else {
+      host.setState("completed");
+      const totalMs = Date.now() - startTime;
+      host.emitCompleted(runId, totalMs);
+      return {
+        pipelineId: host.config.definition.id,
+        runId,
+        state: "completed",
+        nodeResults,
+        totalDurationMs: totalMs,
+      };
+    }
+  }
+
+  if (
+    checkpoint.suspendedAtNodeId !== undefined &&
+    loopState[checkpoint.suspendedAtNodeId]?.bodyGraphState !== undefined
+  ) {
+    return failRetainedLoopControl(
+      host,
+      runId,
+      nodeResults,
+      startTime,
+      `loop "${checkpoint.suspendedAtNodeId}" is marked suspended without a suspended outcome`
+    );
+  }
 
   // Mid-loop crash (W3): no suspend point, but a loop cursor is in flight.
   // Re-enter at that loop node; `dispatchLoop` reads the cursor and resumes

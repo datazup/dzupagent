@@ -40,6 +40,7 @@
     "@dzupagent/memory#build": {
       "dependsOn": ["^build:verify", "@dzupagent/memory-ipc#build:verify"],
       "outputs": ["dist/**"],
+      "cache": false,
       "outputLogs": "new-only"
     },
     "@dzupagent/app-tools#build": {

@@ -323,7 +323,6 @@ export const controlFlowValidators: ShapeRulePartial<ControlFlowKind> = {
 const STRUCTURED_TYPED_LOOP_BODY_TYPES = new Set<FlowNode["type"]>([
   "approval",
   "clarification",
-  "complete",
   "for_each",
   "loop",
   "persona",
@@ -342,6 +341,9 @@ function findStructuredTypedLoopBodyNode(
     if (node === undefined) continue;
     const path = `${parentPath}[${index}]`;
     if (STRUCTURED_TYPED_LOOP_BODY_TYPES.has(node.type)) {
+      return { node, path };
+    }
+    if (insideParallel && node.type === "complete") {
       return { node, path };
     }
     if (

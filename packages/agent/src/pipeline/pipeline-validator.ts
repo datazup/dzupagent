@@ -142,6 +142,83 @@ export function validatePipeline(definition: PipelineDefinition): PipelineValida
         }
       }
       if (node.bodyGraph !== undefined) {
+        const exitInventories = [
+          ['normal', node.bodyGraph.normalExitNodeIds],
+          ['suspended', node.bodyGraph.suspendedExitNodeIds],
+          ['terminal', node.bodyGraph.terminalExitNodeIds],
+          ['error', node.bodyGraph.errorExitNodeIds],
+        ] as const
+        const classifiedExitIds = new Map<string, string>()
+        for (const [kind, exitIds] of exitInventories) {
+          for (const exitId of exitIds) {
+            const previousKind = classifiedExitIds.get(exitId)
+            if (previousKind !== undefined) {
+              errors.push({
+                code: 'INVALID_LOOP_BODY_GRAPH',
+                message: `LoopNode "${node.id}" bodyGraph exit "${exitId}" is classified as both ${previousKind} and ${kind}`,
+                nodeId: node.id,
+              })
+            } else {
+              classifiedExitIds.set(exitId, kind)
+            }
+          }
+        }
+        for (const exitId of node.bodyGraph.suspendedExitNodeIds) {
+          const exitNode = nodeMap.get(exitId)
+          if (
+            exitNode !== undefined &&
+            exitNode.type !== 'suspend' &&
+            !(exitNode.type === 'gate' && exitNode.gateType === 'approval')
+          ) {
+            errors.push({
+              code: 'INVALID_LOOP_BODY_GRAPH',
+              message: `LoopNode "${node.id}" bodyGraph suspended exit "${exitId}" is not suspend-capable`,
+              nodeId: node.id,
+            })
+          }
+          const bodyContinuationEdges = definition.edges.filter(
+            edge =>
+              edge.type !== 'error' &&
+              edge.sourceNodeId === exitId &&
+              getEdgeTargets(edge).some(targetId => bodyIds.has(targetId)),
+          )
+          if (bodyContinuationEdges.length === 0) {
+            errors.push({
+              code: 'INVALID_LOOP_BODY_GRAPH',
+              message: `LoopNode "${node.id}" bodyGraph suspended exit "${exitId}" has no resumable body continuation`,
+              nodeId: node.id,
+            })
+          } else if (bodyContinuationEdges.length !== 1) {
+            errors.push({
+              code: 'INVALID_LOOP_BODY_GRAPH',
+              message: `LoopNode "${node.id}" bodyGraph suspended exit "${exitId}" has multiple body continuations`,
+              nodeId: node.id,
+            })
+          }
+        }
+        for (const exitId of node.bodyGraph.terminalExitNodeIds) {
+          const exitNode = nodeMap.get(exitId)
+          if (exitNode !== undefined && exitNode.type !== 'suspend') {
+            errors.push({
+              code: 'INVALID_LOOP_BODY_GRAPH',
+              message: `LoopNode "${node.id}" bodyGraph terminal exit "${exitId}" is not a suspend node`,
+              nodeId: node.id,
+            })
+          }
+          const hasBodyContinuation = definition.edges.some(
+            edge =>
+              edge.type !== 'error' &&
+              edge.sourceNodeId === exitId &&
+              getEdgeTargets(edge).some(targetId => bodyIds.has(targetId)),
+          )
+          if (hasBodyContinuation) {
+            errors.push({
+              code: 'INVALID_LOOP_BODY_GRAPH',
+              message: `LoopNode "${node.id}" bodyGraph terminal exit "${exitId}" has an outgoing body continuation`,
+              nodeId: node.id,
+            })
+          }
+        }
         const boundaryIds = [
           node.bodyGraph.entryNodeId,
           ...node.bodyGraph.normalExitNodeIds,
