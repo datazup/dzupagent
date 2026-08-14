@@ -1,4 +1,7 @@
+import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
@@ -22,14 +25,32 @@ import { ForgeSpanAttr } from "../span-attributes.js";
  * failure mode this kind of test is most prone to.
  */
 
-const LAB_ADAPTER_URL = new URL(
-  "../../../../../scripts/flow-prompt-lab/lib/agent-loop-otel-adapter.js",
-  import.meta.url,
+function resolveWorkspaceRoot(): string {
+  const testDirectory = dirname(fileURLToPath(import.meta.url));
+  const repositoryRoot = execFileSync(
+    "git",
+    ["rev-parse", "--show-toplevel"],
+    { cwd: testDirectory, encoding: "utf8" },
+  ).trim();
+  const commonGitDirectory = resolve(
+    repositoryRoot,
+    execFileSync("git", ["rev-parse", "--git-common-dir"], {
+      cwd: testDirectory,
+      encoding: "utf8",
+    }).trim(),
+  );
+
+  return dirname(dirname(commonGitDirectory));
+}
+
+const LAB_ADAPTER_PATH = resolve(
+  resolveWorkspaceRoot(),
+  "scripts/flow-prompt-lab/lib/agent-loop-otel-adapter.js",
 );
 
 /** Parse the lab's private `ATTR = Object.freeze({...})` table. */
 async function readLabAttributes(): Promise<Record<string, string>> {
-  const source = await readFile(LAB_ADAPTER_URL, "utf8");
+  const source = await readFile(LAB_ADAPTER_PATH, "utf8");
   const start = source.indexOf("const ATTR = Object.freeze({");
   if (start === -1) {
     throw new Error(
@@ -99,7 +120,7 @@ describe("agent-loop span attribute parity with the lab emitter", () => {
   });
 
   it("shares one span-projection schema string across both stacks", async () => {
-    const source = await readFile(LAB_ADAPTER_URL, "utf8");
+    const source = await readFile(LAB_ADAPTER_PATH, "utf8");
     const { AGENT_LOOP_SPAN_PROJECTION_SCHEMA } =
       await import("../agent-loop-trace-contracts.js");
 

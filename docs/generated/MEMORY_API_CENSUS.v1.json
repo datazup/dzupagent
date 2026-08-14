@@ -3,7 +3,7 @@
   "packet": "MEM-P000",
   "sourceIdentity": {
     "kind": "content-digest-set",
-    "digest": "sha256:9def515e82e87f54dcfd8531e34a208cb64759cdaf21c07ce69a5f697c0fb717",
+    "digest": "sha256:be81086c2072c61d5476ded618052b387c140e2ea517b61cdd4764570cb333bf",
     "inputs": [
       {
         "path": "config/memory-api-census.v1.json",
@@ -40,7 +40,7 @@
       },
       {
         "path": "packages/agent/package.json",
-        "sha256": "sha256:2288b802321b37b437af5819e8af8c46438fcd7771f8e7b269fd97fedbee68a7"
+        "sha256": "sha256:562af661a6ea85601099dee9e74a71d16e3c56ba0306087ab91f2d1970c8167a"
       },
       {
         "path": "packages/agent/src/__tests__/boundary/memory-client-boundary.test.ts",
@@ -696,7 +696,7 @@
       },
       {
         "path": "scripts/generate-memory-conformance-baseline.ts",
-        "sha256": "sha256:dcfc33d7e0b207d0921d0de8d021142dc51d6657306e5a9d0fe2f9ec7267915d"
+        "sha256": "sha256:edef09c4dcd801504fec75bd2b20fba0912a1b859daff8c8b9b4993d9e1ee12c"
       }
     ]
   },

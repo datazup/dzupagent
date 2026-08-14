@@ -50,6 +50,55 @@ function sha256(value: string | Buffer): `sha256:${string}` {
   return `sha256:${createHash('sha256').update(value).digest('hex')}`
 }
 
+function sourceBaseIdentity(): { baseCommit: string; baseTree: string } {
+  if (!CHECK) {
+    return {
+      baseCommit: execFileSync('git', ['rev-parse', 'HEAD'], {
+        cwd: ROOT,
+        encoding: 'utf8',
+      }).trim(),
+      baseTree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], {
+        cwd: ROOT,
+        encoding: 'utf8',
+      }).trim(),
+    }
+  }
+
+  let retained: { baseCommit?: unknown; baseTree?: unknown }
+  try {
+    retained = JSON.parse(readFileSync(join(ROOT, JSON_PATH), 'utf8'))
+  } catch {
+    throw new Error('memory conformance source binding is unavailable')
+  }
+  if (
+    typeof retained.baseCommit !== 'string'
+    || !/^[a-f0-9]{40}$/u.test(retained.baseCommit)
+    || typeof retained.baseTree !== 'string'
+    || !/^[a-f0-9]{40}$/u.test(retained.baseTree)
+  ) {
+    throw new Error('memory conformance source binding is malformed')
+  }
+  let resolvedTree: string
+  try {
+    resolvedTree = execFileSync(
+      'git',
+      ['rev-parse', `${retained.baseCommit}^{tree}`],
+      { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    ).trim()
+    execFileSync(
+      'git',
+      ['merge-base', '--is-ancestor', retained.baseCommit, 'HEAD'],
+      { cwd: ROOT, stdio: 'ignore' },
+    )
+  } catch {
+    throw new Error('memory conformance source commit is not retained in current history')
+  }
+  if (resolvedTree !== retained.baseTree) {
+    throw new Error('memory conformance source tree does not match its retained commit')
+  }
+  return { baseCommit: retained.baseCommit, baseTree: retained.baseTree }
+}
+
 function portable(path: string): string {
   return path.split(sep).join('/')
 }
@@ -199,6 +248,7 @@ function buildResult(
   configDigest: `sha256:${string}`,
   source: ReturnType<typeof sourceIdentity>,
   reports: readonly MemoryConformanceReportV1[],
+  baseIdentity: ReturnType<typeof sourceBaseIdentity>,
 ) {
   const counts = {
     total: reports.reduce((sum, report) => sum + report.counts.total, 0),
@@ -213,11 +263,7 @@ function buildResult(
     harnessVersion: config.harnessVersion,
     fixturePolicy: config.fixturePolicy,
     historySemantics: config.historySemantics,
-    baseCommit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim(),
-    baseTree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], {
-      cwd: ROOT,
-      encoding: 'utf8',
-    }).trim(),
+    ...baseIdentity,
     configDigest,
     source,
     profileDigest: reports[0]?.profileDigest ?? sha256('missing-profile'),
@@ -258,7 +304,13 @@ const profile: MemoryBenchmarkProfileV1 = {
 }
 const reports = await runSuites(profile)
 validatePredeclared(config, reports)
-const result = buildResult(config, sha256(configBytes), source, reports)
+const result = buildResult(
+  config,
+  sha256(configBytes),
+  source,
+  reports,
+  sourceBaseIdentity(),
+)
 const json = `${JSON.stringify(result, null, 2)}\n`
 const md = markdown(result)
 if (json.includes('INVENTED_CANARY_') || md.includes('INVENTED_CANARY_')) {
