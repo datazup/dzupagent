@@ -101,7 +101,10 @@ export {
   assessModelAvailability,
   discoverClaudeModels,
   discoverCodexModels,
+  discoverGeminiModels,
   discoverProviderModels,
+  discoverQwenModels,
+  parseAcpModelCatalogObservation,
   parseClaudeCliModelAliases,
 } from "./model-discovery.js";
 export { inspectProviderRequestCapabilities } from "./provider-request-capability-inspection.js";
@@ -112,16 +115,21 @@ export type {
   ProviderRequestCapabilityRequirements,
 } from "./provider-request-capability-inspection.js";
 export type {
+  AcpCatalogProviderId,
   ClaudeModelDiscoveryOptions,
   CodexModelDiscoveryOptions,
   DiscoverableProviderId,
+  GeminiModelDiscoveryOptions,
   ModelAvailabilityAssessment,
   ModelDiscoveryDependencies,
+  ProviderCliCatalogObservation,
   ProviderModelCatalog,
   ProviderModelCatalogCompleteness,
   ProviderModelCatalogEntry,
   ProviderModelCatalogSource,
+  ProviderModelCatalogSourceEvidence,
   ProviderModelDiscoveryOptions,
+  QwenModelDiscoveryOptions,
 } from "./model-discovery.js";
 
 // --- Prompts ---
@@ -154,6 +162,8 @@ export {
 export type { WeightedStrategy } from "./registry/task-router.js";
 export {
   classifyRouteTransition,
+  DeterministicRouteSelectionAdmissionError,
+  IMPLEMENTED_DETERMINISTIC_ROUTE_STRATEGIES,
   planCandidateRecovery,
   selectExecutionRoute,
 } from "./registry/deterministic-candidate-selector.js";
@@ -161,6 +171,7 @@ export type {
   CandidateRecoveryAction,
   CandidateRecoveryInput,
   DeterministicRouteSelectionOptions,
+  DeterministicRouteSelectionAdmissionCode,
 } from "./registry/deterministic-candidate-selector.js";
 export { materializeRoutingCandidates } from "./registry/candidate-materializer.js";
 export type { CandidateMaterializationDescriptor } from "./registry/candidate-materializer.js";

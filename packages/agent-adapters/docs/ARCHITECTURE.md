@@ -7,6 +7,7 @@ This document supplements the root `ARCHITECTURE.md` with package-specific detai
 | Subpath             | Purpose                                                                         |
 | ------------------- | ------------------------------------------------------------------------------- |
 | `.`                 | Root compatibility barrel — broad export surface for legacy consumers           |
+| `./codex-goal-control` | Source-observed Codex App Server goal capability and admitted lifecycle companion |
 | `./providers`       | Provider adapter contracts, concrete adapters, registry primitives, and helpers |
 | `./orchestration`   | Multi-agent orchestration, sessions, context routing, and integration bridge    |
 | `./workflow`        | Workflow DSL builder, resolver, and validator                                   |
@@ -44,6 +45,64 @@ share `buildOpenAIResponsesInputRequest`; generation stays closed when the
 snapshot, binding, proof, or final input limit is invalid. Terminal input usage
 is reconciled through prompt-free telemetry. No provider/model limits are
 pre-filled by the package.
+
+## Codex App Server capability and backend
+
+The goal-control subpath keeps observation separate from execution. A
+provider-free observer consumes a canonical executable identity with a bounded
+SHA-256 artifact digest, verifies that digest before every probe, reads the installed Codex version, and generates the
+version-specific App Server JSON Schema into a bounded temporary directory. It
+hashes sorted relative paths plus exact bytes; verifies initialize, base
+execution, resume, interrupt, stream, usage, approval/input-request, and goal
+RPC shapes; deletes the raw corpus; and returns only a provider-session
+capability descriptor. Missing methods, shape drift, version/digest drift,
+SDK/CLI backends, timeouts, output limits, and process or schema failures are
+all unsupported with emulation forbidden.
+
+The explicit App Server backend requires an admitted exact attempt binding. Its
+private stdio client is shared with goal control and bounds request time,
+execution time, cleanup, line and aggregate bytes, frames, pending requests,
+and queued events. Runtime construction requires the private resolved
+executable identity used by observation, including the artifact digest bound to
+the durable descriptor without a host path. The client rechecks canonical path,
+regular-file type, execute access, and digest before spawning the canonical
+path, then rechecks the digest before `initialize`; goal control has no PATH
+fallback. The durable descriptor and normalized events never expose the path.
+The client validates and discards the complete initialize response. Execution
+validates complete thread and turn results/notifications and compares the
+admitted CLI version plus requested cwd, model, and sandbox against the
+provider's effective response before `turn/start` or terminal authority.
+
+One monotonic deadline begins at execution entry and supplies only its remaining
+budget to executable qualification, initialize, thread start/resume, turn start,
+and stream observation. Timeout and cancellation are local terminal decisions:
+later deltas, interaction requests, usage, or successful terminal frames are
+discarded and cannot restore completion. Supplied-signal cancellation and the
+adapter-wide emergency interrupt are registered before executable qualification
+and cover initialize/initialized, thread start/resume, and turn start. Before an
+exact turn identity exists they abort setup and close any created client;
+afterward they enter the exact-turn interrupt path, so stalled setup cannot wait
+for the execution deadline. Every exact interrupt caller awaits one shared
+provider acknowledgement; `accepted: true` means that RPC returned the exact
+observed empty-object acknowledgement. Schema-invalid acknowledgements reject
+every shared caller.
+Interrupt acknowledgement has a separate at-most-250 ms grace. Normal or failed
+handshake cleanup shares one idempotent two-stage promise: at most one SIGTERM
+wait followed by at most one SIGKILL wait, each one second by default and only
+tighten-able. Cleanup failure is reduced to a stable sanitized code.
+
+The client rejects malformed, duplicate, late, overflowing, stale, artifact-
+drifted, schema-invalid, and post-death protocol activity. One thread/turn can start or
+resume, stream normalized message deltas, report per-turn usage, and interrupt
+the exact active turn. Approval and input requests are surfaced without a
+response before a local terminal decision; interaction resolution therefore
+remains unsupported. SDK remains the default Codex backend, CLI remains an
+explicit fallback, and App Server has no production profile.
+
+The descriptor grants no auth, attempt, effect, retry, fallback, repository,
+provider-spend, or completion authority. A host such as IO must separately bind
+an accepted descriptor to an execution attempt and independently verify all
+repository effects.
 
 ## Key Runtime Components
 

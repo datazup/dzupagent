@@ -12,6 +12,14 @@ export type {
   PostgresClientLike,
   PostgresPipelineCheckpointStoreOptions,
 } from './postgres-checkpoint-store.js'
+export {
+  PostgresEffectJournalError,
+  PostgresEffectJournalStore,
+} from './postgres-effect-journal-store.js'
+export type {
+  PostgresEffectJournalErrorCode,
+  PostgresEffectJournalStoreOptions,
+} from './postgres-effect-journal-store.js'
 export { RedisPipelineCheckpointStore } from './redis-checkpoint-store.js'
 export type {
   RedisClientLike,

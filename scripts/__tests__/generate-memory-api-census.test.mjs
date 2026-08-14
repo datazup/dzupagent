@@ -69,6 +69,24 @@ test('MEM-P000 census is deterministic and dispositions every current and planne
     first.currentDecisions.some(item => item.symbol === 'StagedWriter' && item.disposition === 'deprecate'),
     true,
   )
+  const p007 = first.plannedSurfaces.filter(item => item.packet.startsWith('MEM-P007'))
+  assert.deepEqual(
+    p007.filter(item => item.packet === 'MEM-P007-A').map(item => item.symbol).sort(),
+    [
+      'MemoryProjectionDiffV1',
+      'MemoryProjectionProfileV1',
+      'MemoryProjectionRequestV1',
+      'MemoryProjectionV1',
+      'diffMemoryProjections',
+      'projectMemoryRecordToJson',
+      'projectMemoryRecordToMarkdown',
+      'projectMemoryRecordV1',
+    ],
+  )
+  assert.deepEqual(
+    p007.filter(item => item.packet === 'MEM-P007-B').map(item => item.symbol),
+    ['GitMemoryProjectionAdapter'],
+  )
   assert.deepEqual(
     first.sourceIdentity.inputs.find(item => item.path === 'config/public-api-allowlists.json')?.selection,
     {

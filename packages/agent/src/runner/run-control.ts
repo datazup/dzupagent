@@ -1,10 +1,11 @@
 import type {
   AiExecutionCancellationAcknowledgement, AiExecutionCancellationRequest,
   AiExecutionInteractionAcknowledgement, AiExecutionInteractionSubmission,
-  AiExecutionStartOptions, InlineAiExecutionHandle, InlineAiExecutionPort,
+  AiExecutionStartOptions, AiExecutionTerminalReceipt,
+  InlineAiExecutionHandle, InlineAiExecutionPort,
 } from '@dzupagent/adapter-types'
 import {
-  AI_EXECUTION_EVENT_SCHEMA, type AiExecutionEvent, type AiExecutionReceipt,
+  AI_EXECUTION_EVENT_SCHEMA, type AiExecutionEvent, type AiExecutionReceiptV2,
   type AiExecutionRequest,
 } from '@dzupagent/runtime-contracts/ai-execution'
 import type {
@@ -49,7 +50,7 @@ interface AgentRunnerRuntime {
 class AgentRunnerInlineHandle implements InlineAiExecutionHandle {
   readonly executionId: string
   readonly events: AsyncIterable<AiExecutionEvent>
-  readonly completion: Promise<AiExecutionReceipt>
+  readonly completion: Promise<AiExecutionTerminalReceipt>
   readonly #queue = new BoundedAgentRunnerEventQueue()
   readonly #request: AiExecutionRequest
   readonly #projection: AgentRunnerInlineProjection
@@ -58,7 +59,7 @@ class AgentRunnerInlineHandle implements InlineAiExecutionHandle {
   readonly #hostEvents: AiExecutionEvent[] = []
   readonly #submissions = new Map<string, AgentRunnerInteractionSubmissionRecord>()
   readonly #cancellations = new Map<string, AiExecutionCancellationAcknowledgement>()
-  readonly #resolveCompletion: (receipt: AiExecutionReceipt) => void
+  readonly #resolveCompletion: (receipt: AiExecutionReceiptV2) => void
   readonly #rejectCompletion: (error: unknown) => void
   #control = new RunControl()
   #phase: AgentRunnerInlinePhase = 'active'
@@ -84,7 +85,7 @@ class AgentRunnerInlineHandle implements InlineAiExecutionHandle {
     this.#projection = projection
     this.#runner = runner
     this.#now = now
-    let resolveCompletion = (_receipt: AiExecutionReceipt): void => undefined
+    let resolveCompletion = (_receipt: AiExecutionReceiptV2): void => undefined
     let rejectCompletion = (_error: unknown): void => undefined
     this.completion = new Promise((resolve, reject) => {
       resolveCompletion = resolve
@@ -282,7 +283,7 @@ class AgentRunnerInlineHandle implements InlineAiExecutionHandle {
 
   #finish(
     terminal: AiExecutionEvent,
-    receipt: AiExecutionReceipt,
+    receipt: AiExecutionReceiptV2,
     status: 'succeeded' | 'failed' | 'cancelled',
   ): void {
     this.#commitEvent(terminal)

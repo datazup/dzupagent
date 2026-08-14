@@ -397,6 +397,54 @@ describe("PipelineCheckpoint", () => {
     expect(result.success).toBe(true);
   });
 
+  it("round-trips a mid-iteration predicate-loop cursor", () => {
+    const result = PipelineCheckpointSchema.safeParse(
+      JSON.parse(
+        JSON.stringify(
+          makeCheckpoint({
+            loopState: {
+              poll: {
+                iteration: 2,
+                nextBodyNodeIndex: 1,
+                bodyResults: {
+                  fetch: {
+                    nodeId: "fetch",
+                    output: { status: "pending" },
+                    durationMs: 3,
+                  },
+                },
+                previousOutput: { status: "previous" },
+                progressDigest: `sha256:${"a".repeat(64)}`,
+              },
+            },
+          })
+        )
+      )
+    );
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.loopState?.["poll"]).toMatchObject({
+        iteration: 2,
+        nextBodyNodeIndex: 1,
+        previousOutput: { status: "previous" },
+        progressDigest: `sha256:${"a".repeat(64)}`,
+      });
+    }
+  });
+
+  it("rejects a body cursor without retained results", () => {
+    const result = PipelineCheckpointSchema.safeParse(
+      makeCheckpoint({
+        loopState: {
+          poll: { iteration: 2, nextBodyNodeIndex: 1 },
+        },
+      })
+    );
+
+    expect(result.success).toBe(false);
+  });
+
   it("round-trips checkpoint fields through JSON", () => {
     const cp = makeCheckpoint({
       suspendedAtNodeId: "n-suspend",

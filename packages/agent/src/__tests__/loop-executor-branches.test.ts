@@ -49,6 +49,271 @@ describe('loop-executor — branch coverage', () => {
     ).rejects.toThrow(/predicate "unknown" not found/)
   })
 
+  it('rejects a mid-body cursor without its retained results', async () => {
+    const node = makeLoopNode({ bodyNodeIds: ['b1', 'b2'] })
+    const exec = vi.fn<NodeExecutor>(async (id) => ({
+      nodeId: id, output: null, durationMs: 1,
+    }))
+
+    await expect(
+      executeLoop(
+        node,
+        [makeBody('b1'), makeBody('b2')],
+        exec,
+        makeCtx(),
+        { keepGoing: () => true },
+        undefined,
+        { startIteration: 1, startBodyNodeIndex: 1 },
+      ),
+    ).rejects.toThrow(/missing or invalid retained result for body node "b1"/)
+    expect(exec).not.toHaveBeenCalled()
+  })
+
+  it('binds deterministic loop metadata and restores an outer loop binding', async () => {
+    const node = makeLoopNode({ maxIterations: 3 })
+    const seen: unknown[] = []
+    let calls = 0
+    const exec: NodeExecutor = async (id, _node, context) => {
+      calls++
+      seen.push(structuredClone(context.state['loop']))
+      return { nodeId: id, output: { attempt: calls }, durationMs: 1 }
+    }
+    const context = makeCtx({ state: { loop: { owner: 'outer' } } })
+
+    const { result } = await executeLoop(
+      node,
+      [makeBody('body1')],
+      exec,
+      context,
+      { keepGoing: () => calls < 2 },
+    )
+
+    expect(result.error).toBeUndefined()
+    expect(seen).toEqual([
+      { index: 0, iteration: 1, isFirst: true },
+      {
+        index: 1,
+        iteration: 2,
+        isFirst: false,
+        previous: { attempt: 1 },
+      },
+    ])
+    expect(context.state['loop']).toEqual({ owner: 'outer' })
+  })
+
+  it('halts when progressKey output repeats canonically', async () => {
+    const node = makeLoopNode({
+      maxIterations: 5,
+      typedWhile: {
+        conditionSchema: 'dzupagent.flowTypedCondition/v1',
+        condition: { op: 'literal', value: true },
+        onExhausted: 'continue',
+        progressKey: 'body1',
+      },
+    })
+    const exec = vi.fn<NodeExecutor>(async (id) => ({
+      nodeId: id,
+      output: { stable: true, nested: { b: 2, a: 1 } },
+      durationMs: 1,
+    }))
+
+    const { result, metrics } = await executeLoop(
+      node,
+      [makeBody('body1')],
+      exec,
+      makeCtx(),
+      { keepGoing: () => true },
+    )
+
+    expect(result.error).toMatch(/made no progress/)
+    expect(metrics.iterationCount).toBe(2)
+    expect(metrics.terminationReason).toBe('no_progress')
+    expect(exec).toHaveBeenCalledTimes(2)
+  })
+
+  it('fails closed before dispatch when an authored iteration budget is unknown', async () => {
+    const node = makeLoopNode({
+      typedWhile: {
+        conditionSchema: 'dzupagent.flowTypedCondition/v1',
+        condition: { op: 'literal', value: true },
+        onExhausted: 'continue',
+        iterationBudgetCents: 10,
+      },
+    })
+    const exec = vi.fn<NodeExecutor>(async (id) => ({
+      nodeId: id, output: null, durationMs: 1,
+    }))
+
+    const { result, metrics } = await executeLoop(
+      node,
+      [makeBody('body1')],
+      exec,
+      makeCtx(),
+      { keepGoing: () => true },
+    )
+
+    expect(result.error).toMatch(/budget is unknown/)
+    expect(metrics.terminationReason).toBe('budget_unknown')
+    expect(exec).not.toHaveBeenCalled()
+  })
+
+  it('admits a conservative iteration reservation at or below the ceiling', async () => {
+    const node = makeLoopNode({
+      maxIterations: 1,
+      typedWhile: {
+        conditionSchema: 'dzupagent.flowTypedCondition/v1',
+        condition: { op: 'literal', value: true },
+        onExhausted: 'continue',
+        iterationBudgetCents: 10,
+      },
+    })
+    const exec = vi.fn<NodeExecutor>(async (id) => ({
+      nodeId: id, output: 'ok', durationMs: 1,
+    }))
+
+    const { result } = await executeLoop(
+      node,
+      [makeBody('body1')],
+      exec,
+      makeCtx(),
+      { keepGoing: () => true },
+      undefined,
+      {
+        reserveIterationBudget: async (input) => {
+          expect(input).toMatchObject({
+            loopNodeId: 'L', iteration: 1, budgetCents: 10,
+            bodyNodeIds: ['body1'],
+          })
+          return { status: 'reserved', reservedCostCents: 8 }
+        },
+      },
+    )
+
+    expect(result.error).toBeUndefined()
+    expect(exec).toHaveBeenCalledOnce()
+  })
+
+  it('rejects an iteration reservation above the authored ceiling', async () => {
+    const node = makeLoopNode({
+      typedWhile: {
+        conditionSchema: 'dzupagent.flowTypedCondition/v1',
+        condition: { op: 'literal', value: true },
+        onExhausted: 'continue',
+        iterationBudgetCents: 10,
+      },
+    })
+    const exec = vi.fn<NodeExecutor>(async (id) => ({
+      nodeId: id, output: null, durationMs: 1,
+    }))
+
+    const { result, metrics } = await executeLoop(
+      node,
+      [makeBody('body1')],
+      exec,
+      makeCtx(),
+      { keepGoing: () => true },
+      undefined,
+      {
+        reserveIterationBudget: () => ({
+          status: 'reserved', reservedCostCents: 11,
+        }),
+      },
+    )
+
+    expect(result.error).toMatch(/reservation 11 cents exceeds/)
+    expect(metrics.terminationReason).toBe('budget_exceeded')
+    expect(exec).not.toHaveBeenCalled()
+  })
+
+  it('aborts one iteration at its authored timeout and signals the body executor', async () => {
+    const node = makeLoopNode({
+      typedWhile: {
+        conditionSchema: 'dzupagent.flowTypedCondition/v1',
+        condition: { op: 'literal', value: true },
+        onExhausted: 'continue',
+        iterationTimeoutMs: 5,
+      },
+    })
+    let observedAbort = false
+    const exec: NodeExecutor = async (id, _node, context) => {
+      await new Promise<void>((_resolve, reject) => {
+        context.signal?.addEventListener(
+          'abort',
+          () => {
+            observedAbort = true
+            reject(new Error('aborted'))
+          },
+          { once: true },
+        )
+      })
+      return { nodeId: id, output: null, durationMs: 1 }
+    }
+
+    const { result, metrics } = await executeLoop(
+      node,
+      [makeBody('body1')],
+      exec,
+      makeCtx(),
+      { keepGoing: () => true },
+    )
+
+    expect(result.error).toMatch(/iteration 1 exceeded timeout \(5 ms\)/)
+    expect(metrics.terminationReason).toBe('timed_out')
+    expect(metrics.iterationCount).toBe(1)
+    expect(observedAbort).toBe(true)
+  })
+
+  it('allows progressKey output to change across iterations', async () => {
+    const node = makeLoopNode({
+      maxIterations: 3,
+      typedWhile: {
+        conditionSchema: 'dzupagent.flowTypedCondition/v1',
+        condition: { op: 'literal', value: true },
+        onExhausted: 'continue',
+        progressKey: 'body1',
+      },
+    })
+    let calls = 0
+    const exec: NodeExecutor = async (id) => ({
+      nodeId: id, output: { revision: ++calls }, durationMs: 1,
+    })
+
+    const { result, metrics } = await executeLoop(
+      node,
+      [makeBody('body1')],
+      exec,
+      makeCtx(),
+      { keepGoing: () => calls < 3 },
+    )
+
+    expect(result.error).toBeUndefined()
+    expect(metrics.iterationCount).toBe(3)
+    expect(metrics.converged).toBe(true)
+  })
+
+  it('rejects a progressKey that is not a loop body node', async () => {
+    const node = makeLoopNode({
+      typedWhile: {
+        conditionSchema: 'dzupagent.flowTypedCondition/v1',
+        condition: { op: 'literal', value: true },
+        onExhausted: 'fail',
+        progressKey: 'missing',
+      },
+    })
+    const exec = vi.fn<NodeExecutor>()
+
+    await expect(
+      executeLoop(
+        node,
+        [makeBody('body1')],
+        exec,
+        makeCtx(),
+        { keepGoing: () => true },
+      ),
+    ).rejects.toThrow(/progressKey "missing" is not a body node/)
+    expect(exec).not.toHaveBeenCalled()
+  })
+
   it('stops immediately when signal is aborted before loop starts', async () => {
     const controller = new AbortController()
     controller.abort()

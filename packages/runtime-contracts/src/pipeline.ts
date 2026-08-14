@@ -273,5 +273,8 @@ export interface LoopMetrics {
     | "condition_met"
     | "max_iterations"
     | "budget_exceeded"
+    | "budget_unknown"
+    | "no_progress"
+    | "timed_out"
     | "cancelled";
 }

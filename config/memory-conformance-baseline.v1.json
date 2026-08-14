@@ -1,10 +1,11 @@
 {
   "schema": "datazup.memory.conformance-baseline-config/v1",
-  "harnessVersion": "mem-p006-v1",
+  "harnessVersion": "mem-p007a-v1",
   "fixturePolicy": "invented-provider-free-only",
   "historySemantics": "lifecycle-history-evaluated-at-query-as-of",
   "sourceRoots": [
     "packages/memory/src/lifecycle",
+    "packages/memory/src/projections",
     "packages/memory/src/records",
     "packages/memory/src/retrieval",
     "packages/memory/src/service",
@@ -34,9 +35,9 @@
   ],
   "profile": {
     "schema": "datazup.memory.benchmark-profile/v1",
-    "profileId": "mem-p006-provider-free-baseline",
+    "profileId": "mem-p007a-provider-free-baseline",
     "profileVersion": "v1",
-    "seed": "invented-mem-p006-seed",
+    "seed": "invented-mem-p007a-seed",
     "tokenizer": {
       "id": "invented-exact-character-counter",
       "version": "v1",
@@ -90,6 +91,26 @@
       "id": "agent-memory-context-loader-conformance",
       "testFile": "packages/agent/src/__tests__/memory-context-loader-lifecycle.test.ts",
       "expectedTests": 10
+    },
+    {
+      "id": "memory-projection-conformance",
+      "testFile": "packages/memory/src/projections/__tests__/projection.test.ts",
+      "expectedTests": 4
+    },
+    {
+      "id": "memory-projection-diff-conformance",
+      "testFile": "packages/memory/src/projections/__tests__/diff.test.ts",
+      "expectedTests": 3
+    },
+    {
+      "id": "memory-projection-adversarial-conformance",
+      "testFile": "packages/memory/src/projections/__tests__/adversarial.test.ts",
+      "expectedTests": 3
+    },
+    {
+      "id": "memory-projection-export-map-conformance",
+      "testFile": "packages/memory/src/__tests__/projections-export-map.test.ts",
+      "expectedTests": 3
     }
   ]
 }

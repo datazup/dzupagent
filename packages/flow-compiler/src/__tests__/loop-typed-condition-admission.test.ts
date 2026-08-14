@@ -53,9 +53,10 @@ function typedLoopDsl(typedCondition: string): string {
     `      typedCondition: ${typedCondition}`,
     "      max_iterations: 3",
     "      body:",
-    "        - complete:",
-    "            id: done",
-    "            result: complete",
+    "        - set:",
+    "            id: mark",
+    "            assign:",
+    "              observed: true",
   ].join("\n");
 }
 
@@ -178,5 +179,86 @@ describe("F-R4 — loop typed-condition admission", () => {
     expect("errors" in result ? JSON.stringify(result.errors) : "ok").toBe(
       "ok"
     );
+  });
+
+  it.each([
+    [
+      "branch",
+      {
+        type: "branch",
+        id: "branch",
+        condition: "true",
+        then: [{ type: "set", id: "then", assign: { result: "then" } }],
+      },
+    ],
+    [
+      "parallel",
+      {
+        type: "parallel",
+        id: "parallel",
+        branches: [[{ type: "set", id: "left", assign: { left: true } }]],
+      },
+    ],
+    [
+      "try_catch",
+      {
+        type: "try_catch",
+        id: "try",
+        body: [{ type: "set", id: "body", assign: { body: true } }],
+        catch: [{ type: "set", id: "catch", assign: { caught: true } }],
+      },
+    ],
+  ])(
+    "admits structured %s bodies at the bounded graph-scheduler shape gate",
+    async (_kind, bodyNode) => {
+      const result = await createFlowCompiler({
+        toolResolver,
+      }).compileDocument(
+        loopDoc({
+          condition: "false",
+          typedCondition: JSON.parse(TYPED_JSON),
+          maxIterations: 3,
+          body: [bodyNode],
+        })
+      );
+
+      if (!("errors" in result)) return;
+      expect(
+        result.errors.some(
+          (error) => error.code === "STRUCTURED_TYPED_LOOP_BODY_UNSUPPORTED"
+        ),
+        JSON.stringify(result.errors)
+      ).toBe(false);
+    }
+  );
+
+  it("keeps suspend-capable bodies outside the admitted scheduler matrix", async () => {
+    const result = await createFlowCompiler({ toolResolver }).compileDocument(
+      loopDoc({
+        condition: "false",
+        typedCondition: JSON.parse(TYPED_JSON),
+        maxIterations: 3,
+        body: [
+          {
+            type: "approval",
+            id: "approval",
+            question: "Proceed?",
+            onApprove: [
+              { type: "set", id: "approved", assign: { approved: true } },
+            ],
+          },
+        ],
+      })
+    );
+
+    expect("errors" in result).toBe(true);
+    if (!("errors" in result)) return;
+    expect(result.errors).toEqual([
+      expect.objectContaining({
+        stage: 2,
+        code: "STRUCTURED_TYPED_LOOP_BODY_UNSUPPORTED",
+        nodePath: `root.nodes[0].body[0]`,
+      }),
+    ]);
   });
 });

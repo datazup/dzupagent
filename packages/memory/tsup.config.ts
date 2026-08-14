@@ -5,6 +5,7 @@ export default defineConfig({
     "src/index.ts",
     "src/knowledge/index.ts",
     "src/lifecycle/index.ts",
+    "src/projections/index.ts",
     "src/records/index.ts",
     "src/retrieval/index.ts",
     "src/service/index.ts",

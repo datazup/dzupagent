@@ -3,6 +3,7 @@ import { defineConfig } from "tsup";
 export default defineConfig({
   entry: [
     "src/index.ts",
+    "src/codex-goal-control.ts",
     "src/providers.ts",
     "src/orchestration.ts",
     "src/workflow.ts",

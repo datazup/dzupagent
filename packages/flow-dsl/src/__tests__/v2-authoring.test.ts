@@ -734,6 +734,7 @@ steps:
     expect(v1).toMatchObject({ ok: true });
     expect(v2).toMatchObject({ ok: true });
     if (v1.ok && v2.ok) expect(v2.document).toEqual(v1.document);
+
   });
 
   it("migrates a bounded loop and recurses into its body", () => {
@@ -747,6 +748,9 @@ steps:
       id: reviewLoop
       condition: "{{ state.shouldContinue }}"
       maxIterations: 5
+      onExhausted: continue
+      iterationTimeoutMs: 2500
+      iterationBudgetCents: 12.5
       body:
         - action:
             id: implement
@@ -775,12 +779,56 @@ steps:
     });
     // The loop body must be migrated, not carried through as raw V1 nodes.
     expect(report.candidateSource).not.toContain("type: action");
+    expect(report.candidateSource).toContain("onExhausted: continue");
+    expect(report.candidateSource).toContain("iterationTimeoutMs: 2500");
+    expect(report.candidateSource).toContain("iterationBudgetCents: 12.5");
 
     const v1 = parseDslToDocument(source);
     const v2 = parseDslToDocument(report.candidateSource!);
     expect(v1).toMatchObject({ ok: true });
     expect(v2).toMatchObject({ ok: true });
     if (v1.ok && v2.ok) expect(v2.document).toEqual(v1.document);
+
+    const invalidV2 = parseDslToDocument(
+      report.candidateSource!.replace(
+        "onExhausted: continue",
+        "onExhausted: branch"
+      )
+    );
+    expect(invalidV2.ok).toBe(false);
+    expect(
+      invalidV2.diagnostics.some(
+        (diagnostic) =>
+          diagnostic.code === "INVALID_ENUM_VALUE" &&
+          diagnostic.path?.endsWith(".with.onExhausted")
+      )
+    ).toBe(true);
+
+    const invalidTimeout = parseDslToDocument(
+      report.candidateSource!.replace(
+        "iterationTimeoutMs: 2500",
+        "iterationTimeoutMs: 0"
+      )
+    );
+    expect(invalidTimeout.ok).toBe(false);
+    expect(
+      invalidTimeout.diagnostics.some((diagnostic) =>
+        diagnostic.path?.endsWith(".with.iterationTimeoutMs")
+      )
+    ).toBe(true);
+
+    const invalidBudget = parseDslToDocument(
+      report.candidateSource!.replace(
+        "iterationBudgetCents: 12.5",
+        "iterationBudgetCents: 0"
+      )
+    );
+    expect(invalidBudget.ok).toBe(false);
+    expect(
+      invalidBudget.diagnostics.some((diagnostic) =>
+        diagnostic.path?.endsWith(".with.iterationBudgetCents")
+      )
+    ).toBe(true);
   });
 
   it("migrates a lab-shaped flow whose loop body dispatches an agent", () => {

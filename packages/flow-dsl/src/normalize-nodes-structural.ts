@@ -138,6 +138,11 @@ const LOOP_KEYS = new Set<string>([
   "body",
   "maxIterations",
   "max_iterations",
+  "onExhausted",
+  "iterationTimeoutMs",
+  "iteration_timeout_ms",
+  "iterationBudgetCents",
+  "iteration_budget_cents",
   "progressKey",
 ]);
 
@@ -218,6 +223,51 @@ export function normalizeLoop(
 
   if (typeof raw.progressKey === "string" && raw.progressKey.length > 0) {
     node.progressKey = raw.progressKey;
+  }
+
+  const iterationTimeoutRaw =
+    raw.iterationTimeoutMs ?? raw.iteration_timeout_ms;
+  if (
+    typeof iterationTimeoutRaw === "number" &&
+    Number.isInteger(iterationTimeoutRaw) &&
+    iterationTimeoutRaw > 0
+  ) {
+    node.iterationTimeoutMs = iterationTimeoutRaw;
+  } else if (iterationTimeoutRaw !== undefined) {
+    diagnostics.push({
+      phase: "normalize",
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: "loop.iterationTimeoutMs must be a positive integer",
+      path: `${path}.iterationTimeoutMs`,
+    });
+  }
+
+  const iterationBudgetRaw =
+    raw.iterationBudgetCents ?? raw.iteration_budget_cents;
+  if (
+    typeof iterationBudgetRaw === "number" &&
+    Number.isFinite(iterationBudgetRaw) &&
+    iterationBudgetRaw > 0
+  ) {
+    node.iterationBudgetCents = iterationBudgetRaw;
+  } else if (iterationBudgetRaw !== undefined) {
+    diagnostics.push({
+      phase: "normalize",
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: "loop.iterationBudgetCents must be a positive finite number",
+      path: `${path}.iterationBudgetCents`,
+    });
+  }
+
+  if (raw.onExhausted === "fail" || raw.onExhausted === "continue") {
+    node.onExhausted = raw.onExhausted;
+  } else if (raw.onExhausted !== undefined) {
+    diagnostics.push({
+      phase: "normalize",
+      code: DSL_ERROR.INVALID_ENUM_VALUE,
+      message: 'loop.onExhausted must be "fail" or "continue"',
+      path: `${path}.onExhausted`,
+    });
   }
 
   return node;

@@ -7,6 +7,7 @@ import type {
 } from "./canonical-execution.js";
 import {
   AI_COST_UNKNOWN_REASONS,
+  validateAiPriceProvenance,
   validateAiQuotaTruth,
   type AiCostUnknownReason,
   type AiPriceProvenance,
@@ -32,6 +33,12 @@ export const AI_EXECUTION_EVENT_SCHEMA =
   "dzupagent.aiExecutionEvent/v1" as const;
 export const AI_EXECUTION_RECEIPT_SCHEMA =
   "dzupagent.aiExecutionReceipt/v1" as const;
+export const AI_EXECUTION_RECEIPT_V2_SCHEMA =
+  "dzupagent.aiExecutionReceipt/v2" as const;
+export const AI_EXECUTION_OFFER_SCHEMA =
+  "dzupagent.aiExecutionOffer/v1" as const;
+export const AI_EXECUTION_BINDING_SCHEMA =
+  "dzupagent.aiExecutionBinding/v1" as const;
 
 export const AI_EXECUTION_OPERATION_KINDS = [
   "text.generate",
@@ -251,6 +258,78 @@ export interface AiResolvedTargetSnapshot {
   readonly snapshotDigest: `sha256:${string}`;
 }
 
+/** Canonical model identity pinned independently from a provider's display id. */
+export interface AiModelIdentity {
+  readonly modelRef: string;
+  readonly revision: string;
+  readonly providerModelId?: string;
+  readonly catalogDigest: `sha256:${string}`;
+}
+
+/**
+ * Immutable route offer as admitted for one attempt. The digest covers every
+ * field except itself; a mutable catalog row or provider/model string is never
+ * accepted as execution-time identity.
+ */
+export interface AiExecutionOfferSnapshot {
+  readonly schema: typeof AI_EXECUTION_OFFER_SCHEMA;
+  readonly offerId: string;
+  readonly offerRevision: string;
+  readonly model: AiModelIdentity;
+  readonly provider: string;
+  readonly backend: ProviderExecutionBackend;
+  readonly authMode?: ProviderAuthenticationMode;
+  readonly agentHost?: string;
+  readonly profileRef?: string;
+  readonly locality: "local" | "remote";
+  readonly privacyClass: "device" | "private-network" | "provider" | "public";
+  readonly capabilities: readonly string[];
+  readonly cacheBehavior: "none" | "provider" | "host" | "unknown";
+  readonly sessionBehavior: "stateless" | "stateful" | "unknown";
+  readonly tariffRef?: string;
+  readonly quotaPolicyRef?: string;
+  readonly health: AiTargetHealth;
+  readonly effectiveAt: string;
+  readonly expiresAt?: string;
+  readonly catalogDigest: `sha256:${string}`;
+  readonly snapshotDigest: `sha256:${string}`;
+}
+
+export interface AiRouteDecisionBinding {
+  readonly decisionId: string;
+  readonly policyId: string;
+  readonly selectedCandidateId: string;
+  readonly decisionDigest: `sha256:${string}`;
+}
+
+export interface AiPromptExecutionBinding {
+  readonly blueprintRef: string;
+  readonly blueprintRevision: string;
+  readonly blueprintDigest: `sha256:${string}`;
+  readonly renderedPayloadDigest: `sha256:${string}`;
+}
+
+export type AiPersonaExecutionBinding =
+  | { readonly status: "none" }
+  | {
+      readonly status: "bound";
+      readonly personaId: string;
+      readonly revision: string;
+      readonly digest: `sha256:${string}`;
+    };
+
+/** Complete immutable identity of what one execution attempt actually ran. */
+export interface AiExecutionBinding {
+  readonly schema: typeof AI_EXECUTION_BINDING_SCHEMA;
+  readonly routeDecision: AiRouteDecisionBinding;
+  readonly offer: AiExecutionOfferSnapshot;
+  readonly target: AiResolvedTargetSnapshot;
+  readonly prompt: AiPromptExecutionBinding;
+  readonly persona: AiPersonaExecutionBinding;
+  readonly model: AiModelIdentity;
+  readonly bindingDigest: `sha256:${string}`;
+}
+
 export interface AiTokenUsage {
   readonly input: number;
   readonly output: number;
@@ -259,11 +338,16 @@ export interface AiTokenUsage {
   readonly reasoning?: number;
 }
 
-/**
- * Monetary truth. `reason` explains an unknown amount and `tariffRef`/`provenance`
- * record which rate produced an estimate — all optional, so every value written
- * against the pre-economics contract stays valid.
- */
+/** One attempt's immutable price attribution. */
+export interface AiChargeAttribution {
+  readonly attempt: number;
+  readonly offerRef: string;
+  readonly tariffRef: string;
+  readonly amountMicros: number;
+  readonly provenance: AiPriceProvenance;
+}
+
+/** Monetary truth with mandatory offer/tariff provenance for priced values. */
 export type AiCostTruth =
   | {
       readonly status: "unknown";
@@ -273,9 +357,20 @@ export type AiCostTruth =
       readonly status: "estimated" | "reconciled";
       readonly currency: string;
       readonly amountMicros: number;
+      /** @deprecated V1-only; V2 uses per-attempt `charges`. */
       readonly tariffRef?: string;
+      /** @deprecated V1-only; V2 uses per-attempt `charges`. */
       readonly provenance?: AiPriceProvenance;
+      /** Required by V2 receipts; optional only while reading legacy V1 data. */
+      readonly charges?: readonly AiChargeAttribution[];
     };
+
+export type AiCostTruthV2 =
+  | Extract<AiCostTruth, { readonly status: "unknown" }>
+  | (Omit<
+      Extract<AiCostTruth, { readonly status: "estimated" | "reconciled" }>,
+      "charges" | "tariffRef" | "provenance"
+    > & { readonly charges: readonly AiChargeAttribution[] });
 
 /**
  * Unknown and partial usage are explicit states and are never interpreted as zero.
@@ -305,6 +400,15 @@ export type AiUsageTruth =
       readonly cost: AiCostTruth;
       readonly quota?: AiQuotaTruth;
     };
+
+export type AiUsageTruthV2 =
+  | Extract<AiUsageTruth, { readonly measurement: "unknown" }>
+  | (Omit<Extract<AiUsageTruth, { readonly measurement: "partial" }>, "cost"> & {
+      readonly cost: AiCostTruthV2;
+    })
+  | (Omit<Extract<AiUsageTruth, { readonly measurement: "known" }>, "cost"> & {
+      readonly cost: AiCostTruthV2;
+    });
 
 interface AiExecutionEventBase {
   readonly schema: typeof AI_EXECUTION_EVENT_SCHEMA;
@@ -370,6 +474,27 @@ export interface AiExecutionReceipt {
   readonly completedAt: string;
 }
 
+export interface AiExecutionAttemptReceiptV2
+  extends Omit<AiExecutionAttemptReceipt, "target" | "usage"> {
+  readonly binding: AiExecutionBinding;
+  /** Alias retained for query compatibility; must equal `binding.target`. */
+  readonly target: AiResolvedTargetSnapshot;
+  readonly usage: AiUsageTruthV2;
+}
+
+/**
+ * Production-grade receipt identity. V1 remains readable for existing hosts;
+ * new hosts use V2 so every attempt and every priced charge is immutable and
+ * independently attributable.
+ */
+export interface AiExecutionReceiptV2
+  extends Omit<AiExecutionReceipt, "schema" | "attempts" | "usage"> {
+  readonly schema: typeof AI_EXECUTION_RECEIPT_V2_SCHEMA;
+  readonly binding: AiExecutionBinding;
+  readonly attempts: readonly AiExecutionAttemptReceiptV2[];
+  readonly usage: AiUsageTruthV2;
+}
+
 export type AiExecutionDiagnosticCode =
   | "AI_INVALID_SCHEMA"
   | "AI_INVALID_VALUE"
@@ -380,6 +505,10 @@ export type AiExecutionDiagnosticCode =
   | "AI_CAPABILITY_ID_INVALID"
   | "AI_PUBLIC_TARGET_LEAK"
   | "AI_TARGET_SNAPSHOT_INVALID"
+  | "AI_EXECUTION_OFFER_INVALID"
+  | "AI_EXECUTION_BINDING_INVALID"
+  | "AI_EXECUTION_BINDING_MISMATCH"
+  | "AI_CHARGE_BINDING_MISMATCH"
   | "AI_IDENTITY_MISMATCH"
   | "AI_ROUTE_TARGET_MISMATCH"
   | "AI_ATTEMPT_SEQUENCE_INVALID"
@@ -760,7 +889,8 @@ export function validateAiExecutionReceipt(
     );
     return validation(diagnostics);
   }
-  if (value.schema !== AI_EXECUTION_RECEIPT_SCHEMA) {
+  const isV2 = value.schema === AI_EXECUTION_RECEIPT_V2_SCHEMA;
+  if (value.schema !== AI_EXECUTION_RECEIPT_SCHEMA && !isV2) {
     add(
       diagnostics,
       "AI_INVALID_SCHEMA",
@@ -778,6 +908,10 @@ export function validateAiExecutionReceipt(
   );
   validateTargetSelector(value.requestedTarget, "requestedTarget", diagnostics);
   validateTargetSnapshot(value.target, "target", diagnostics);
+  if (isV2) {
+    validateExecutionBinding(value.binding, "binding", diagnostics);
+    validateBindingTargetAlias(value.binding, value.target, "binding", diagnostics);
+  }
   const requestedTarget = isRecord(value.requestedTarget)
     ? value.requestedTarget
     : undefined;
@@ -834,6 +968,19 @@ export function validateAiExecutionReceipt(
       `attempts[${index}].target`,
       diagnostics
     );
+    if (isV2) {
+      validateExecutionBinding(
+        attempt.binding,
+        `attempts[${index}].binding`,
+        diagnostics
+      );
+      validateBindingTargetAlias(
+        attempt.binding,
+        attempt.target,
+        `attempts[${index}].binding`,
+        diagnostics
+      );
+    }
     const attemptTarget = isRecord(attempt.target) ? attempt.target : undefined;
     if (attemptTarget?.operation !== value.operation) {
       add(
@@ -844,6 +991,13 @@ export function validateAiExecutionReceipt(
       );
     }
     validateUsage(attempt.usage, `attempts[${index}].usage`, diagnostics);
+    if (isV2) {
+      requirePricedChargeAttributions(
+        attempt.usage,
+        `attempts[${index}].usage`,
+        diagnostics
+      );
+    }
     validateOptionalTime(
       stringValue(attempt.startedAt),
       `attempts[${index}].startedAt`,
@@ -876,6 +1030,23 @@ export function validateAiExecutionReceipt(
       "Receipt target must be the final attempt target snapshot."
     );
   }
+  if (isV2) {
+    const receiptBinding = isRecord(value.binding) ? value.binding : undefined;
+    const lastBinding =
+      isRecord(lastAttempt) && isRecord(lastAttempt.binding)
+        ? lastAttempt.binding
+        : undefined;
+    if (
+      lastBinding?.bindingDigest !== receiptBinding?.bindingDigest
+    ) {
+      add(
+        diagnostics,
+        "AI_EXECUTION_BINDING_MISMATCH",
+        "binding.bindingDigest",
+        "Receipt binding must be the final attempt binding."
+      );
+    }
+  }
   const result = isRecord(value.result) ? value.result : undefined;
   if (result?.requestId !== value.requestId) {
     add(
@@ -904,7 +1075,14 @@ export function validateAiExecutionReceipt(
       "Receipt target must match the canonical route decision."
     );
   }
+  if (isV2) {
+    validateResultBinding(value.binding, routeDecision, diagnostics);
+    validateAttemptChargeBindings(attempts, diagnostics);
+  }
   validateUsage(value.usage, "usage", diagnostics);
+  if (isV2) {
+    requirePricedChargeAttributions(value.usage, "usage", diagnostics);
+  }
   validateCanonicalUsageAlignment(result?.usage, value.usage, diagnostics);
   validateAttemptUsageAlignment(attempts, value.usage, diagnostics);
   positiveInteger(
@@ -1270,6 +1448,314 @@ function validateTargetSnapshot(
   }
 }
 
+/** Validates the browser-neutral structure and cross-fields of one binding. */
+export function validateAiExecutionBinding(
+  value: unknown
+): AiExecutionValidation {
+  const diagnostics: AiExecutionDiagnostic[] = [];
+  validateExecutionBinding(value, "binding", diagnostics);
+  return validation(diagnostics);
+}
+
+function validateExecutionBinding(
+  value: unknown,
+  path: string,
+  diagnostics: AiExecutionDiagnostic[]
+): void {
+  if (!isRecord(value) || value.schema !== AI_EXECUTION_BINDING_SCHEMA) {
+    add(
+      diagnostics,
+      "AI_EXECUTION_BINDING_INVALID",
+      `${path}.schema`,
+      "Unsupported AI execution binding schema."
+    );
+    return;
+  }
+  validateRouteDecisionBinding(value.routeDecision, `${path}.routeDecision`, diagnostics);
+  validateExecutionOffer(value.offer, `${path}.offer`, diagnostics);
+  validateTargetSnapshot(value.target, `${path}.target`, diagnostics);
+  validatePromptBinding(value.prompt, `${path}.prompt`, diagnostics);
+  validatePersonaBinding(value.persona, `${path}.persona`, diagnostics);
+  validateModelIdentity(value.model, `${path}.model`, diagnostics);
+  digestValue(value.bindingDigest, `${path}.bindingDigest`, diagnostics, "binding");
+
+  const route = isRecord(value.routeDecision) ? value.routeDecision : undefined;
+  const offer = isRecord(value.offer) ? value.offer : undefined;
+  const target = isRecord(value.target) ? value.target : undefined;
+  if (
+    route?.selectedCandidateId !== offer?.offerId ||
+    route?.selectedCandidateId !== target?.routeCandidateId
+  ) {
+    add(
+      diagnostics,
+      "AI_EXECUTION_BINDING_MISMATCH",
+      path,
+      "Route decision, execution offer, and resolved target must name one candidate."
+    );
+  }
+  if (!jsonEqual(value.model, offer?.model)) {
+    add(
+      diagnostics,
+      "AI_EXECUTION_BINDING_MISMATCH",
+      `${path}.model`,
+      "Binding model identity must equal the offer model identity."
+    );
+  }
+  if (
+    offer !== undefined &&
+    target !== undefined &&
+    (offer.backend !== target.backend ||
+      (target.provider !== undefined && offer.provider !== target.provider) ||
+      (target.authMode !== undefined && offer.authMode !== target.authMode) ||
+      (target.profileRef !== undefined && offer.profileRef !== target.profileRef) ||
+      (target.model !== undefined &&
+        isRecord(offer.model) &&
+        offer.model.providerModelId !== target.model))
+  ) {
+    add(
+      diagnostics,
+      "AI_EXECUTION_BINDING_MISMATCH",
+      `${path}.offer`,
+      "Execution offer identity must agree with the resolved target."
+    );
+  }
+}
+
+function validateExecutionOffer(
+  value: unknown,
+  path: string,
+  diagnostics: AiExecutionDiagnostic[]
+): void {
+  if (!isRecord(value) || value.schema !== AI_EXECUTION_OFFER_SCHEMA) {
+    add(
+      diagnostics,
+      "AI_EXECUTION_OFFER_INVALID",
+      `${path}.schema`,
+      "Unsupported AI execution offer schema."
+    );
+    return;
+  }
+  for (const key of ["offerId", "offerRevision", "provider"] as const) {
+    nonEmpty(stringValue(value[key]), `${path}.${key}`, diagnostics);
+  }
+  validateModelIdentity(value.model, `${path}.model`, diagnostics);
+  enumValue(
+    stringValue(value.backend),
+    ["cli", "local-model", "sdk", "api", "remote"] as const,
+    `${path}.backend`,
+    diagnostics
+  );
+  if (value.authMode !== undefined) {
+    enumValue(
+      stringValue(value.authMode),
+      ["subscription_cli", "api_key", "workload_identity", "local_model"] as const,
+      `${path}.authMode`,
+      diagnostics
+    );
+  }
+  enumValue(
+    stringValue(value.locality),
+    ["local", "remote"] as const,
+    `${path}.locality`,
+    diagnostics
+  );
+  enumValue(
+    stringValue(value.privacyClass),
+    ["device", "private-network", "provider", "public"] as const,
+    `${path}.privacyClass`,
+    diagnostics
+  );
+  uniqueStrings(value.capabilities, `${path}.capabilities`, diagnostics);
+  enumValue(
+    stringValue(value.cacheBehavior),
+    ["none", "provider", "host", "unknown"] as const,
+    `${path}.cacheBehavior`,
+    diagnostics
+  );
+  enumValue(
+    stringValue(value.sessionBehavior),
+    ["stateless", "stateful", "unknown"] as const,
+    `${path}.sessionBehavior`,
+    diagnostics
+  );
+  const health = isRecord(value.health) ? value.health : undefined;
+  enumValue(
+    stringValue(health?.status),
+    ["healthy", "degraded", "unhealthy", "unknown"] as const,
+    `${path}.health.status`,
+    diagnostics
+  );
+  if (health?.checkedAt !== undefined && !isIsoDate(health.checkedAt)) {
+    add(diagnostics, "AI_EXECUTION_OFFER_INVALID", `${path}.health.checkedAt`, "Offer health time must be ISO-8601.");
+  }
+  if (!isIsoDate(value.effectiveAt)) {
+    add(diagnostics, "AI_EXECUTION_OFFER_INVALID", `${path}.effectiveAt`, "Offer effective time must be ISO-8601.");
+  }
+  if (value.expiresAt !== undefined && !isIsoDate(value.expiresAt)) {
+    add(diagnostics, "AI_EXECUTION_OFFER_INVALID", `${path}.expiresAt`, "Offer expiry must be ISO-8601 when present.");
+  }
+  const effectiveAt = stringValue(value.effectiveAt);
+  const expiresAt = stringValue(value.expiresAt);
+  if (
+    effectiveAt !== undefined &&
+    expiresAt !== undefined &&
+    isIsoDate(effectiveAt) &&
+    isIsoDate(expiresAt) &&
+    Date.parse(expiresAt) <= Date.parse(effectiveAt)
+  ) {
+    add(diagnostics, "AI_EXECUTION_OFFER_INVALID", `${path}.expiresAt`, "Offer expiry must be after its effective time.");
+  }
+  digestValue(value.catalogDigest, `${path}.catalogDigest`, diagnostics, "catalog");
+  digestValue(value.snapshotDigest, `${path}.snapshotDigest`, diagnostics, "offer snapshot");
+}
+
+function validateRouteDecisionBinding(
+  value: unknown,
+  path: string,
+  diagnostics: AiExecutionDiagnostic[]
+): void {
+  if (!isRecord(value)) {
+    add(diagnostics, "AI_EXECUTION_BINDING_INVALID", path, "Route decision binding is required.");
+    return;
+  }
+  for (const key of ["decisionId", "policyId", "selectedCandidateId"] as const) {
+    nonEmpty(stringValue(value[key]), `${path}.${key}`, diagnostics);
+  }
+  digestValue(value.decisionDigest, `${path}.decisionDigest`, diagnostics, "route decision");
+}
+
+function validatePromptBinding(
+  value: unknown,
+  path: string,
+  diagnostics: AiExecutionDiagnostic[]
+): void {
+  if (!isRecord(value)) {
+    add(diagnostics, "AI_EXECUTION_BINDING_INVALID", path, "Prompt binding is required.");
+    return;
+  }
+  nonEmpty(stringValue(value.blueprintRef), `${path}.blueprintRef`, diagnostics);
+  nonEmpty(stringValue(value.blueprintRevision), `${path}.blueprintRevision`, diagnostics);
+  digestValue(value.blueprintDigest, `${path}.blueprintDigest`, diagnostics, "prompt blueprint");
+  digestValue(value.renderedPayloadDigest, `${path}.renderedPayloadDigest`, diagnostics, "rendered payload");
+}
+
+function validatePersonaBinding(
+  value: unknown,
+  path: string,
+  diagnostics: AiExecutionDiagnostic[]
+): void {
+  if (!isRecord(value) || (value.status !== "none" && value.status !== "bound")) {
+    add(diagnostics, "AI_EXECUTION_BINDING_INVALID", `${path}.status`, "Persona binding must be none or bound.");
+    return;
+  }
+  if (value.status === "bound") {
+    nonEmpty(stringValue(value.personaId), `${path}.personaId`, diagnostics);
+    nonEmpty(stringValue(value.revision), `${path}.revision`, diagnostics);
+    digestValue(value.digest, `${path}.digest`, diagnostics, "persona");
+  }
+}
+
+function validateModelIdentity(
+  value: unknown,
+  path: string,
+  diagnostics: AiExecutionDiagnostic[]
+): void {
+  if (!isRecord(value)) {
+    add(diagnostics, "AI_EXECUTION_BINDING_INVALID", path, "Model identity is required.");
+    return;
+  }
+  nonEmpty(stringValue(value.modelRef), `${path}.modelRef`, diagnostics);
+  nonEmpty(stringValue(value.revision), `${path}.revision`, diagnostics);
+  digestValue(value.catalogDigest, `${path}.catalogDigest`, diagnostics, "model catalog");
+}
+
+function digestValue(
+  value: unknown,
+  path: string,
+  diagnostics: AiExecutionDiagnostic[],
+  label: string
+): void {
+  if (!/^sha256:[a-f0-9]{64}$/.test(stringValue(value) ?? "")) {
+    add(
+      diagnostics,
+      "AI_EXECUTION_BINDING_INVALID",
+      path,
+      `${label} identity must be a lowercase SHA-256 digest.`
+    );
+  }
+}
+
+function validateBindingTargetAlias(
+  binding: unknown,
+  target: unknown,
+  path: string,
+  diagnostics: AiExecutionDiagnostic[]
+): void {
+  if (!isRecord(binding) || !jsonEqual(binding.target, target)) {
+    add(
+      diagnostics,
+      "AI_EXECUTION_BINDING_MISMATCH",
+      `${path}.target`,
+      "Binding target and receipt target alias must be identical."
+    );
+  }
+}
+
+function validateResultBinding(
+  binding: unknown,
+  routeDecision: Record<string, unknown> | undefined,
+  diagnostics: AiExecutionDiagnostic[]
+): void {
+  const route = isRecord(binding) && isRecord(binding.routeDecision)
+    ? binding.routeDecision
+    : undefined;
+  if (
+    route === undefined ||
+    routeDecision === undefined ||
+    route.decisionId !== routeDecision.id ||
+    route.policyId !== routeDecision.policyId ||
+    route.selectedCandidateId !== routeDecision.selectedCandidateId
+  ) {
+    add(
+      diagnostics,
+      "AI_EXECUTION_BINDING_MISMATCH",
+      "binding.routeDecision",
+      "Receipt binding must identify the canonical result route decision."
+    );
+  }
+}
+
+function validateAttemptChargeBindings(
+  attempts: readonly unknown[],
+  diagnostics: AiExecutionDiagnostic[]
+): void {
+  attempts.forEach((candidate, index) => {
+    if (!isRecord(candidate) || !isRecord(candidate.binding)) return;
+    const offer = isRecord(candidate.binding.offer)
+      ? candidate.binding.offer
+      : undefined;
+    const usage = isRecord(candidate.usage) ? candidate.usage : undefined;
+    const cost = isRecord(usage?.cost) ? usage.cost : undefined;
+    if (cost?.status === "unknown" || !Array.isArray(cost?.charges)) return;
+    cost.charges.forEach((charge, chargeIndex) => {
+      if (!isRecord(charge)) return;
+      if (
+        charge.attempt !== candidate.attempt ||
+        charge.offerRef !== offer?.offerId ||
+        offer?.tariffRef === undefined ||
+        charge.tariffRef !== offer.tariffRef
+      ) {
+        add(
+          diagnostics,
+          "AI_CHARGE_BINDING_MISMATCH",
+          `attempts[${index}].usage.cost.charges[${chargeIndex}]`,
+          "Charge attribution must match its attempt, admitted offer, and offer tariff."
+        );
+      }
+    });
+  });
+}
+
 function collectPublicTargetLeakPaths(
   value: unknown,
   path = "$",
@@ -1400,6 +1886,21 @@ function validateUsage(
         "Cost must use non-negative integer micro-units."
       );
     }
+    if (value.cost.charges !== undefined) {
+      validateChargeAttributions(
+        value.cost.charges,
+        `${path}.cost.charges`,
+        amountMicros,
+        diagnostics
+      );
+    }
+  } else if (Object.hasOwn(value.cost, "charges")) {
+    add(
+      diagnostics,
+      "AI_USAGE_TRUTH_INVALID",
+      `${path}.cost.charges`,
+      "Unknown cost cannot carry priced charge attributions."
+    );
   }
   if (
     value.measurement === "partial" &&
@@ -1412,6 +1913,95 @@ function validateUsage(
       "AI_USAGE_TRUTH_INVALID",
       path,
       "Partial usage requires at least one measured token, monetary, or quota value."
+    );
+  }
+}
+
+function requirePricedChargeAttributions(
+  usage: unknown,
+  path: string,
+  diagnostics: AiExecutionDiagnostic[]
+): void {
+  const cost = isRecord(usage) && isRecord(usage.cost) ? usage.cost : undefined;
+  if (
+    cost !== undefined &&
+    cost.status !== "unknown" &&
+    (!Array.isArray(cost.charges) || cost.charges.length === 0)
+  ) {
+    add(
+      diagnostics,
+      "AI_USAGE_TRUTH_INVALID",
+      `${path}.cost.charges`,
+      "V2 priced usage requires offer/tariff charge attribution."
+    );
+  }
+  if (
+    cost !== undefined &&
+    (Object.hasOwn(cost, "tariffRef") || Object.hasOwn(cost, "provenance"))
+  ) {
+    add(
+      diagnostics,
+      "AI_USAGE_TRUTH_INVALID",
+      `${path}.cost`,
+      "V2 cost cannot use legacy unscoped tariffRef or provenance fields."
+    );
+  }
+}
+
+function validateChargeAttributions(
+  value: unknown,
+  path: string,
+  expectedAmount: number | undefined,
+  diagnostics: AiExecutionDiagnostic[]
+): void {
+  if (!Array.isArray(value) || value.length === 0) {
+    add(
+      diagnostics,
+      "AI_USAGE_TRUTH_INVALID",
+      path,
+      "Priced cost requires at least one offer/tariff charge attribution."
+    );
+    return;
+  }
+  let total = 0;
+  value.forEach((candidate, index) => {
+    const chargePath = `${path}[${index}]`;
+    if (!isRecord(candidate)) {
+      add(diagnostics, "AI_USAGE_TRUTH_INVALID", chargePath, "Charge attribution must be an object.");
+      return;
+    }
+    positiveInteger(numberValue(candidate.attempt), `${chargePath}.attempt`, diagnostics);
+    nonEmpty(stringValue(candidate.offerRef), `${chargePath}.offerRef`, diagnostics);
+    nonEmpty(stringValue(candidate.tariffRef), `${chargePath}.tariffRef`, diagnostics);
+    const amount = numberValue(candidate.amountMicros);
+    if (amount === undefined || !Number.isSafeInteger(amount) || amount < 0) {
+      add(
+        diagnostics,
+        "AI_USAGE_TRUTH_INVALID",
+        `${chargePath}.amountMicros`,
+        "Charge attribution must use non-negative safe-integer micro-units."
+      );
+    } else {
+      total += amount;
+    }
+    for (const diagnostic of validateAiPriceProvenance(
+      candidate.provenance,
+      `${chargePath}.provenance`
+    )) {
+      add(
+        diagnostics,
+        "AI_USAGE_TRUTH_INVALID",
+        diagnostic.path,
+        diagnostic.message
+      );
+    }
+  });
+  if (!Number.isSafeInteger(total) || total !== expectedAmount) {
+    add(
+      diagnostics,
+      "AI_USAGE_TRUTH_INVALID",
+      path,
+      "Charge attributions must sum exactly to the priced amount."
     );
   }
 }
@@ -1628,6 +2218,20 @@ function validateAttemptUsageAlignment(
       "Aggregate cost must equal the sum of attempt costs."
     );
   }
+  const expectedCharges = attemptCosts.flatMap((cost) =>
+    Array.isArray(cost.charges) ? cost.charges : []
+  );
+  if (
+    (expectedCharges.length > 0 || Array.isArray(aggregate.cost.charges)) &&
+    !jsonEqual(expectedCharges, aggregate.cost.charges)
+  ) {
+    add(
+      diagnostics,
+      "AI_ATTEMPT_USAGE_MISMATCH",
+      "usage.cost.charges",
+      "Aggregate charge attributions must equal the ordered attempt charges."
+    );
+  }
 }
 
 /**
@@ -1666,7 +2270,11 @@ function sumTokens(values: readonly unknown[]): Record<string, number> {
 }
 
 function jsonEqual(left: unknown, right: unknown): boolean {
-  return canonicalJson(left) === canonicalJson(right);
+  try {
+    return canonicalJson(left) === canonicalJson(right);
+  } catch {
+    return false;
+  }
 }
 
 function canonicalJson(value: unknown): string {

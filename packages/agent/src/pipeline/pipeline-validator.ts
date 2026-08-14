@@ -131,6 +131,7 @@ export function validatePipeline(definition: PipelineDefinition): PipelineValida
   // --- Invalid loop body ---
   for (const node of definition.nodes) {
     if (node.type === 'loop') {
+      const bodyIds = new Set(node.bodyNodeIds)
       for (const bodyId of node.bodyNodeIds) {
         if (!nodeMap.has(bodyId)) {
           errors.push({
@@ -138,6 +139,35 @@ export function validatePipeline(definition: PipelineDefinition): PipelineValida
             message: `LoopNode "${node.id}" references nonexistent body node "${bodyId}"`,
             nodeId: node.id,
           })
+        }
+      }
+      if (node.bodyGraph !== undefined) {
+        const boundaryIds = [
+          node.bodyGraph.entryNodeId,
+          ...node.bodyGraph.normalExitNodeIds,
+          ...node.bodyGraph.suspendedExitNodeIds,
+          ...node.bodyGraph.terminalExitNodeIds,
+          ...node.bodyGraph.errorExitNodeIds,
+        ]
+        for (const boundaryId of boundaryIds) {
+          if (!bodyIds.has(boundaryId)) {
+            errors.push({
+              code: 'INVALID_LOOP_BODY_GRAPH',
+              message: `LoopNode "${node.id}" bodyGraph references node "${boundaryId}" outside bodyNodeIds`,
+              nodeId: node.id,
+            })
+          }
+        }
+        for (const edge of definition.edges) {
+          if (!bodyIds.has(edge.sourceNodeId)) continue
+          for (const targetId of getEdgeTargets(edge)) {
+            if (bodyIds.has(targetId)) continue
+            errors.push({
+              code: 'INVALID_LOOP_BODY_GRAPH',
+              message: `LoopNode "${node.id}" body edge escapes to node "${targetId}" outside bodyNodeIds`,
+              nodeId: node.id,
+            })
+          }
         }
       }
     }

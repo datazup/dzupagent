@@ -142,6 +142,21 @@ export interface LoopNode extends PipelineNodeBase {
   type: "loop";
   /** Node IDs that form the loop body */
   bodyNodeIds: string[];
+  /**
+   * Explicit boundary for a compiler-lowered graph-shaped loop body.
+   *
+   * Legacy hand-authored artifacts omit this field and retain ordered
+   * `bodyNodeIds` execution. When present, the runtime enters the body at
+   * `entryNodeId` and executes the body nodes through the bounded pipeline
+   * graph instead of treating the flattened node inventory as an order.
+   */
+  bodyGraph?: {
+    entryNodeId: string;
+    normalExitNodeIds: string[];
+    suspendedExitNodeIds: string[];
+    terminalExitNodeIds: string[];
+    errorExitNodeIds: string[];
+  };
   /** Maximum number of iterations before stopping */
   maxIterations: number;
   /** Registered predicate function name evaluated after each iteration */
@@ -190,6 +205,10 @@ export interface LoopNode extends PipelineNodeBase {
     condition: Record<string, unknown>;
     /** Exhaustion policy: `fail` throws when maxIterations is reached. */
     onExhausted: "fail" | "continue";
+    /** Maximum wall time for one body iteration in milliseconds. */
+    iterationTimeoutMs?: number;
+    /** Hard monetary ceiling for one iteration, admitted before dispatch. */
+    iterationBudgetCents?: number;
     /** Step ID tracked for no-progress detection across iterations. */
     progressKey?: string;
   };

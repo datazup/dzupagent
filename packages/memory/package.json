@@ -21,6 +21,10 @@
       "import": "./dist/records/index.js",
       "types": "./dist/records/index.d.ts"
     },
+    "./projections": {
+      "import": "./dist/projections/index.js",
+      "types": "./dist/projections/index.d.ts"
+    },
     "./retrieval": {
       "import": "./dist/retrieval/index.js",
       "types": "./dist/retrieval/index.d.ts"

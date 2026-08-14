@@ -14,7 +14,7 @@ const MARKDOWN_PATH = resolve(
   'docs/generated/MEMORY_CONFORMANCE_BASELINE.v1.md',
 )
 
-test('MEM-P006 baseline is current, content-free, and qualification-bounded', () => {
+test('MEM-P007-A baseline is current, content-free, and qualification-bounded', () => {
   execFileSync(
     'yarn',
     ['tsx', 'scripts/generate-memory-conformance-baseline.ts', '--check'],
@@ -27,7 +27,7 @@ test('MEM-P006 baseline is current, content-free, and qualification-bounded', ()
 
   assert.equal(result.schema, 'datazup.memory.conformance-baseline/v1')
   assert.equal(result.status, 'passed')
-  assert.equal(result.harnessVersion, 'mem-p006-v1')
+  assert.equal(result.harnessVersion, 'mem-p007a-v1')
   assert.deepEqual(result.counts, {
     total: 57,
     passed: 57,
@@ -49,6 +49,11 @@ test('MEM-P006 baseline is current, content-free, and qualification-bounded', ()
       report.suiteId === 'memory-worker-conformance'
       && report.domain === 'worker'
       && report.counts.passed === 15),
+    true,
+  )
+  assert.equal(
+    result.supplementalGates.some(gate =>
+      gate.id === 'memory-projection-conformance' && gate.expectedTests === 4),
     true,
   )
   assert.equal(

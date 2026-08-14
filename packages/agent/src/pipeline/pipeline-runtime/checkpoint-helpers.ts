@@ -5,6 +5,7 @@ import type {
   PipelineCheckpointProviderSessionRef,
 } from "@dzupagent/core/pipeline";
 import { omitUndefined } from "../../utils/exact-optional.js";
+import type { LoopState } from "./executor-state-types.js";
 
 export function createPipelineCheckpoint(options: {
   pipelineRunId: string;
@@ -13,11 +14,13 @@ export function createPipelineCheckpoint(options: {
   completedNodeIds: string[];
   state: Record<string, unknown>;
   suspendedAtNodeId?: string;
+  /** Canonical cumulative runtime budget snapshot. */
+  budgetState?: PipelineCheckpoint["budgetState"];
   recoveryAttemptsUsed?: number;
   /** Stable `nodeId` → idempotency key map for completed nodes (W5). */
   nodeIdempotencyKeys?: Record<string, string>;
   /** Per-loop-node iteration cursor for durable loop resume (W3). */
-  loopState?: Record<string, { iteration: number }>;
+  loopState?: LoopState;
   /** Per-fork branch progress for durable fork/branch resume (W4). */
   forkState?: Record<
     string,
@@ -57,6 +60,9 @@ export function createPipelineCheckpoint(options: {
         : undefined,
     state: structuredClone(options.state),
     suspendedAtNodeId: options.suspendedAtNodeId,
+    budgetState: options.budgetState
+      ? structuredClone(options.budgetState)
+      : undefined,
     recoveryAttemptsUsed: options.recoveryAttemptsUsed,
     events:
       options.events && options.events.length > 0

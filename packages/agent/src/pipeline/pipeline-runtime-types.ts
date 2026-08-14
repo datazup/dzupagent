@@ -39,6 +39,7 @@ import type { PipelineStuckDetector } from "../self-correction/pipeline-stuck-de
 import type { TrajectoryCalibrator } from "../self-correction/trajectory-calibrator.js";
 import type { RedisClientLike } from "./redis-checkpoint-store.js";
 import type { PostgresClientLike } from "./postgres-checkpoint-store.js";
+import type { LoopState } from "./pipeline-runtime/executor-state-types.js";
 
 // ---------------------------------------------------------------------------
 // Re-exported pure runtime contracts (REC-H-10 BC shim)
@@ -293,6 +294,26 @@ export interface PipelineRuntimeConfig {
     extractCost: (nodeId: string, result: NodeResult) => number;
   };
   /**
+   * Host-authoritative conservative reservation used by loops that author a
+   * hard `iterationBudgetCents` ceiling. Missing or unknown reservation fails
+   * before the first body node dispatches.
+   */
+  loopIterationBudgetReservation?: {
+    reserve(input: {
+      loopNodeId: string;
+      iteration: number;
+      budgetCents: number;
+      bodyNodeIds: readonly string[];
+      state: Readonly<Record<string, unknown>>;
+    }):
+      | { status: "reserved"; reservedCostCents: number }
+      | { status: "unknown" }
+      | Promise<
+          | { status: "reserved"; reservedCostCents: number }
+          | { status: "unknown" }
+        >;
+  };
+  /**
    * P2: Optional durable node ledger for crash-safe, effectively-once node
    * execution. When provided, each standard node is leased before execution,
    * a completed node replays its prior result instead of re-running, and the
@@ -393,7 +414,7 @@ export interface PipelineRunContext {
   nodeResults: Map<string, NodeResult>;
   completedNodeIds: string[];
   nodeIdempotencyKeys: Record<string, string>;
-  loopState: Record<string, { iteration: number }>;
+  loopState: LoopState;
   forkState: ForkRuntimeState;
   eventLog: PipelineRuntimeEvent[];
   versionTracker: { version: number };

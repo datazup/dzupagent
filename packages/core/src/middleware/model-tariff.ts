@@ -18,6 +18,7 @@
 import {
   AI_TARIFF_SCHEMA,
   MICROS_PER_CENT,
+  canonicalInputDigest,
   type AiPriceProvenance,
   type AiTariff,
   type AiTokenRates,
@@ -27,6 +28,8 @@ import {
   MODEL_RATES_AUTHORITY_ID,
   MODEL_RATES_EFFECTIVE_AT,
   MODEL_RATES_REVISION,
+  MODEL_RATE_TABLE,
+  PROVIDER_RATE_TABLE,
   getModelRate,
   hasKnownModelRate,
   type ModelRate,
@@ -56,6 +59,13 @@ export function modelRatesProvenance(): AiPriceProvenance {
     authorityId: MODEL_RATES_AUTHORITY_ID,
     revision: MODEL_RATES_REVISION,
     effectiveAt: MODEL_RATES_EFFECTIVE_AT,
+    digest: `sha256:${canonicalInputDigest({
+      authorityId: MODEL_RATES_AUTHORITY_ID,
+      revision: MODEL_RATES_REVISION,
+      effectiveAt: MODEL_RATES_EFFECTIVE_AT,
+      providerRates: PROVIDER_RATE_TABLE,
+      modelRates: MODEL_RATE_TABLE,
+    })}`,
   };
 }
 
@@ -94,22 +104,31 @@ export function toAiTokenRates(rate: ModelRate): AiTokenRates {
  *
  * @param providerOrModel - a provider family (`'claude'`) or model id
  *   (`'claude-sonnet-4-6'`). Unknown ids resolve to the table's default rate.
- * @param options.provider - provider recorded on the tariff; defaults to
- *   `providerOrModel`, which is correct when a family key was passed.
+ * The exact execution offer and model revision are required from the caller;
+ * this price authority cannot safely invent catalog identity from a model id.
  *
  * @example
- * buildModelTariff('claude-sonnet-4-6').baseRates.inputMicrosPerToken // 3
+ * buildModelTariff('claude-sonnet-4-6', {
+ *   offerRef: 'offer/anthropic/sonnet/api',
+ *   modelRef: 'model/claude-sonnet-4-6',
+ *   modelRevision: 'catalog-42',
+ * }).baseRates.inputMicrosPerToken // 3
  */
 export function buildModelTariff(
   providerOrModel: string,
-  options: { readonly provider?: string } = {}
+  options: {
+    readonly offerRef: string;
+    readonly modelRef: string;
+    readonly modelRevision: string;
+  }
 ): AiTariff {
   const rate = getModelRate(providerOrModel);
   return {
     schema: AI_TARIFF_SCHEMA,
-    tariffId: `${MODEL_RATES_AUTHORITY_ID}@${MODEL_RATES_REVISION}:${providerOrModel}`,
-    provider: options.provider ?? providerOrModel,
-    model: providerOrModel,
+    tariffId: `${MODEL_RATES_AUTHORITY_ID}@${MODEL_RATES_REVISION}:${options.offerRef}`,
+    offerRef: options.offerRef,
+    modelRef: options.modelRef,
+    modelRevision: options.modelRevision,
     currency: MODEL_RATES_CURRENCY,
     baseRates: toAiTokenRates(rate),
     provenance: modelRatesProvenance(),
@@ -127,12 +146,16 @@ export function buildModelTariff(
  * is not distinguishable after the fact.
  *
  * @example
- * buildKnownModelTariff('claude-sonnet-4-6') // AiTariff
- * buildKnownModelTariff('some-unlisted-model') // undefined
+ * buildKnownModelTariff('claude-sonnet-4-6', binding) // AiTariff
+ * buildKnownModelTariff('some-unlisted-model', binding) // undefined
  */
 export function buildKnownModelTariff(
   providerOrModel: string,
-  options: { readonly provider?: string } = {}
+  options: {
+    readonly offerRef: string;
+    readonly modelRef: string;
+    readonly modelRevision: string;
+  }
 ): AiTariff | undefined {
   if (!hasKnownModelRate(providerOrModel)) return undefined;
   // The one safe call site: the guard above has already established the table

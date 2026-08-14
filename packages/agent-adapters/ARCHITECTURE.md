@@ -33,12 +33,17 @@ Current responsibilities:
 - Enforce opt-in provider input budgets with revision-bound local reservation
   counters and, for OpenAI Responses, authoritative provider preflight plus
   terminal usage reconciliation.
+- Expose source-bound Codex App Server capability observation, a bounded
+  optional base execution backend, and durable-goal lifecycle operations as a
+  narrow provider-session companion. Provider completion and goal state are
+  not repository completion authority.
 
 ## Structure
 
 Top-level source layout:
 
 - `src/index.ts`: compatibility root barrel; broad export surface.
+- `src/codex-goal-control.ts`: narrow Codex App Server durable-goal companion.
 - `src/types.ts`: re-export bridge for `@dzupagent/adapter-types`.
 - Plane barrels: `src/providers.ts`, `src/orchestration.ts`, `src/workflow.ts`, `src/http.ts`, `src/persistence.ts`, `src/learning.ts`, `src/recovery.ts`, `src/skills.ts`, `src/enrichment.ts`, `src/hard-budget.ts`.
 - Monitoring barrels: `src/introspection/index.ts` for installation probing,
@@ -58,9 +63,75 @@ Top-level source layout:
 - Observability/streaming/utilities: `src/observability/*`, `src/streaming/*`, `src/utils/*`, `src/base/*`.
 - Tests: `src/**/*.test.ts` (including `src/__tests__` and module-local tests).
 
+### Codex App Server capability admission
+
+`./codex-goal-control` exposes three separate layers:
+
+1. Trusted discovery first resolves the canonical executable and records a
+   bounded SHA-256 digest of its bytes. `observeInstalledCodexAppServerCapability`
+   binds that artifact digest to the returned descriptor and runs only provider-free Codex
+   version, schema-help, and version-specific schema-generation probes through
+   the existing absolute-path, credential-scrubbed probe boundary. It uses a
+   unique managed home and schema directory, finite
+   process/output/file/count/size/depth ceilings, and removes the entire raw
+   generated corpus before returning.
+2. `materializeCodexAppServerCapabilityDescriptor` validates the exact
+   initialize, thread start/resume, turn start/interrupt, stream, terminal
+   usage, approval/input-request, and thread goal request/result/event shapes.
+   It advertises only the observed base execution, stream, usage, interrupt,
+   and goal-control capabilities as native. Interaction resolution and all
+   other unobserved controls remain unsupported with emulation forbidden.
+3. `CodexAppServerAdapter` requires an admitted descriptor-bound attempt before
+   process creation. Runtime construction also requires the private resolved
+   executable identity used by observation; before every observation probe and
+   runtime spawn the process boundary rechecks the canonical path and artifact
+   digest. Runtime also checks regular-file type and execute access, spawns that
+   canonical path without PATH lookup, then rechecks the digest before sending
+   `initialize`. Its private shared stdio
+   client initializes once,
+  uses monotonic request ids, correlates responses, validates and discards the
+  complete observed initialize result, validates complete thread and turn
+  results/notifications, and compares the admitted CLI version plus requested
+  cwd, model, and sandbox against the provider's effective thread response.
+  It requires the exact observed
+  empty-object interrupt acknowledgement before returning `accepted: true`, and applies finite line,
+   aggregate, queue, pending-request, frame, request, execution, and cleanup
+   limits, and fails closed on malformed/duplicate/late frames, overflow,
+   timeout, process death, stale turns, executable drift, or cleanup failure.
+   One monotonic deadline starts at execution entry and supplies only its
+   remaining budget to executable qualification, initialize, thread
+   start/resume, turn start, and stream observation. Once local timeout or
+   cancellation wins, later deltas, interactions, usage, or successful terminal
+   frames cannot restore completion. Supplied-signal cancellation and the
+   adapter-wide emergency interrupt are registered before executable
+   qualification and cover initialize/initialized, thread start/resume, and
+   turn start. Before an exact turn identity exists they abort setup and close
+   any created client; afterward they enter the exact-turn interrupt path, so a
+   stalled setup cannot wait for the execution deadline. Exact interrupt callers
+   share one provider acknowledgement promise and return `accepted: true` only
+   after it succeeds.
+   Interrupt acknowledgement has a separate at-most-250 ms grace; cleanup then
+   performs at most one SIGTERM wait and one SIGKILL wait, each at most one
+   second by default and only tighten-able. Initialize/initialized failure awaits
+   that same cleanup promise. Provider approval/input requests are surfaced but
+   never answered before a local terminal decision.
+
+The returned durable object is only a
+`ProviderSessionCapabilityDescriptor`. It contains the sanitized installed
+version, logical schema reference, exact SHA-256, and capability facts. It does
+not contain generated schema objects, raw probe output, credentials, objectives,
+thread ids, an attempt binding, effect authority, retry/fallback authority, or
+repository completion authority. It also never contains the private executable
+path or process identity. The existing Codex factory keeps SDK as the
+default, CLI as an explicit fallback, and App Server as an explicit
+binding-required option; the goal-control factory requires the same resolved
+identity and has no PATH fallback. The App Server backend retains no raw
+provider frames and has no production profile.
+
 Published package subpaths (`package.json` `exports`):
 
 - `.`
+- `./codex-goal-control`
 - `./providers`
 - `./orchestration`
 - `./workflow`

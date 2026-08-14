@@ -70,6 +70,15 @@ export const JoinNodeSchema = PipelineNodeBaseSchema.extend({
 export const LoopNodeSchema = PipelineNodeBaseSchema.extend({
   type: z.literal("loop"),
   bodyNodeIds: z.array(z.string().min(1)).min(1),
+  bodyGraph: z
+    .object({
+      entryNodeId: z.string().min(1),
+      normalExitNodeIds: z.array(z.string().min(1)),
+      suspendedExitNodeIds: z.array(z.string().min(1)),
+      terminalExitNodeIds: z.array(z.string().min(1)),
+      errorExitNodeIds: z.array(z.string().min(1)),
+    })
+    .optional(),
   maxIterations: z.number().int().positive(),
   continuePredicateName: z.string().min(1),
   failOnMaxIterations: z.boolean().optional(),
@@ -106,6 +115,8 @@ export const LoopNodeSchema = PipelineNodeBaseSchema.extend({
       conditionSchema: z.literal("dzupagent.flowTypedCondition/v1"),
       condition: z.record(z.string(), z.unknown()),
       onExhausted: z.enum(["fail", "continue"]),
+      iterationTimeoutMs: z.number().int().positive().optional(),
+      iterationBudgetCents: z.number().positive().finite().optional(),
       progressKey: z.string().min(1).optional(),
     })
     .optional(),
@@ -167,6 +178,71 @@ export const PipelineCheckpointSchema = z.object({
   version: z.number().int().nonnegative(),
   schemaVersion: z.enum(PIPELINE_SCHEMA_VERSIONS),
   completedNodeIds: z.array(z.string()),
+  loopState: z
+    .record(
+      z.string(),
+      z
+        .object({
+          iteration: z.number().int().nonnegative(),
+          nextBodyNodeIndex: z.number().int().nonnegative().optional(),
+          bodyResults: z.record(z.string(), z.unknown()).optional(),
+          bodyGraphState: z
+            .object({
+              completed: z.boolean(),
+              nextNodeId: z.string().min(1).optional(),
+              completedNodeIds: z.array(z.string().min(1)),
+              nodeResults: z.record(z.string(), z.unknown()),
+              nodeIdempotencyKeys: z.record(z.string(), z.string()),
+              forkState: z
+                .record(
+                  z.string(),
+                  z.object({
+                    branches: z.record(
+                      z.string(),
+                      z.object({
+                        stateDelta: z.record(z.string(), z.unknown()),
+                        nodeResults: z.record(z.string(), z.unknown()),
+                      })
+                    ),
+                  })
+                )
+                .optional(),
+            })
+            .refine(
+              (graph) => graph.completed !== (graph.nextNodeId !== undefined),
+              {
+                message:
+                  "completed graph cursors omit nextNodeId; incomplete cursors require it",
+              }
+            )
+            .optional(),
+          previousOutput: z.unknown().optional(),
+          progressDigest: z
+            .string()
+            .regex(/^sha256:[a-f0-9]{64}$/)
+            .optional(),
+        })
+        .refine(
+          (cursor) =>
+            (cursor.nextBodyNodeIndex === undefined) ===
+            (cursor.bodyResults === undefined),
+          {
+            message:
+              "nextBodyNodeIndex and bodyResults must be present or absent together",
+          }
+        )
+        .refine(
+          (cursor) =>
+            cursor.bodyGraphState === undefined ||
+            (cursor.nextBodyNodeIndex === undefined &&
+              cursor.bodyResults === undefined),
+          {
+            message:
+              "bodyGraphState is mutually exclusive with the flat body cursor",
+          }
+        )
+    )
+    .optional(),
   state: z.record(z.string(), z.unknown()),
   suspendedAtNodeId: z.string().optional(),
   budgetState: z

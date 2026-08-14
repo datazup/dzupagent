@@ -19,6 +19,7 @@ import type {
 import type {
   AgentNode,
   LoopNode,
+  PipelineNode,
   PipelineNodeSource,
   SuspendNode,
   ToolNode,
@@ -217,28 +218,52 @@ export function lowerTypedLoop(
     lowerOne
   );
   const bodyNodeIds = bodyResult.nodes.map((n) => n.id);
+  const onExhausted = node.onExhausted ?? "fail";
+  const bodyPorts = portsOf(bodyResult);
+  const bodyEntryNodeId = bodyPorts.entryNodeIds[0];
+  if (bodyEntryNodeId === undefined) {
+    throw new Error(
+      `lowerTypedLoop: loop body at ${path} produced no executable entry node`
+    );
+  }
+  const progressNodeId =
+    node.progressKey === undefined
+      ? undefined
+      : resolveLoopProgressNodeId(node.progressKey, bodyResult.nodes, path);
 
   const loopNode: LoopNode = {
     id: freshId(ctx),
     type: "loop",
     name: `loop:${node.id ?? path}`,
     bodyNodeIds,
+    bodyGraph: {
+      entryNodeId: bodyEntryNodeId,
+      normalExitNodeIds: bodyPorts.normalExits,
+      suspendedExitNodeIds: bodyPorts.suspendedExits,
+      terminalExitNodeIds: bodyPorts.terminalExits,
+      errorExitNodeIds: bodyPorts.errorExits,
+    },
     maxIterations: node.maxIterations ?? 100,
     continuePredicateName: `loopTyped__${node.id ?? path}__predicate`,
-    // Exhaustion is fail-closed: a typed while-loop hitting maxIterations
-    // means its condition never released — silently continuing would commit
-    // downstream effects on a state the author declared not-ready. An
-    // author-facing onExhausted override is R4-remainder for the R4+R6 join.
-    failOnMaxIterations: true,
+    // Exhaustion defaults fail-closed. The authored override is retained in
+    // typedWhile (the semantic source of truth) and mirrored into the legacy
+    // boolean so older artifact readers see a coherent value.
+    failOnMaxIterations: onExhausted === "fail",
     typedWhile: {
       conditionSchema: typedCondition.schema,
       condition: typedCondition.expression as unknown as Record<
         string,
         unknown
       >,
-      onExhausted: "fail",
-      ...(node.progressKey !== undefined
-        ? { progressKey: node.progressKey }
+      onExhausted,
+      ...(node.iterationTimeoutMs !== undefined
+        ? { iterationTimeoutMs: node.iterationTimeoutMs }
+        : {}),
+      ...(node.iterationBudgetCents !== undefined
+        ? { iterationBudgetCents: node.iterationBudgetCents }
+        : {}),
+      ...(progressNodeId !== undefined
+        ? { progressKey: progressNodeId }
         : {}),
     },
     ...nodeDurabilityFields(node),
@@ -247,7 +272,6 @@ export function lowerTypedLoop(
   // Same port contract as lowerForEach: iteration control returns to the
   // loop node (body NORMAL tails are discarded) while suspended/terminal
   // exits of the body remain real outcomes of the fragment.
-  const bodyPorts = portsOf(bodyResult);
   return {
     nodes: [loopNode, ...bodyResult.nodes],
     edges: bodyResult.edges,
@@ -261,6 +285,23 @@ export function lowerTypedLoop(
       errorExits: bodyPorts.errorExits,
     },
   };
+}
+
+function resolveLoopProgressNodeId(
+  authoredNodeId: string,
+  bodyNodes: readonly PipelineNode[],
+  path: string
+): string {
+  const matches = bodyNodes.filter(
+    (bodyNode) => bodyNode.source?.nodeId === authoredNodeId
+  );
+  if (matches.length !== 1) {
+    throw new Error(
+      `lowerTypedLoop: progressKey ${JSON.stringify(authoredNodeId)} at ${path} ` +
+        `must resolve to exactly one executable body node; resolved ${matches.length}`
+    );
+  }
+  return matches[0]!.id;
 }
 
 function forEachContract(node: ForEachNode): NonNullable<LoopNode["forEach"]> {

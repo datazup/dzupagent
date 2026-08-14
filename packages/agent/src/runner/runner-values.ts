@@ -7,19 +7,23 @@ import type {
   AiExecutionInteractionSubmission,
 } from '@dzupagent/adapter-types'
 import {
-  AI_EXECUTION_RECEIPT_SCHEMA,
+  AI_EXECUTION_RECEIPT_V2_SCHEMA,
   AI_RESOLVED_TARGET_SCHEMA,
+  validateAiExecutionBinding,
   validateAiExecutionRequest,
   validateAiExecutionTranscript,
+  type AiExecutionBinding,
   type AiExecutionDiagnostic,
   type AiExecutionEvent,
-  type AiExecutionReceipt,
+  type AiExecutionReceiptV2,
   type AiExecutionRequest,
   type AiJsonValue,
   type AiResolvedTargetSnapshot,
-  type AiUsageTruth,
+  type AiUsageTruthV2,
 } from '@dzupagent/runtime-contracts/ai-execution'
 import {
+  materializeAiRouteDecisionBinding,
+  validateAiExecutionBindingDigest,
   validateAiExecutionReceiptCustody,
   validateAiResolvedTargetSnapshotDigest,
 } from '@dzupagent/runtime-contracts/ai-execution/node'
@@ -41,12 +45,14 @@ export interface AgentRunnerInlineProjection {
   readonly input: AgentRunnerInput
   readonly target: AiResolvedTargetSnapshot
   readonly routeDecision: ExecutionRouteDecision
+  /** Immutable catalog, route, prompt, persona, model, and target admission. */
+  readonly binding: AiExecutionBinding
 }
 
 /** @internal */
 export type AgentRunnerHostEventPayload =
   | { readonly type: 'started' }
-  | { readonly type: 'usage'; readonly usage: AiUsageTruth }
+  | { readonly type: 'usage'; readonly usage: AiUsageTruthV2 }
   | { readonly type: 'interaction.required'; readonly interactionRef: string }
   | { readonly type: 'completed'; readonly status: 'succeeded' | 'failed' | 'cancelled' }
 
@@ -236,6 +242,7 @@ export function validateAgentRunnerInlineProjection(
     assertDurableJson(projection.input)
     assertDurableJson(projection.target)
     assertDurableJson(projection.routeDecision)
+    assertDurableJson(projection.binding)
   } catch {
     projectionDiagnostics.push(diagnostic('AI_INVALID_VALUE', 'projection',
       'Host projection must be credential-free durable JSON.'))
@@ -256,11 +263,26 @@ export function validateAgentRunnerInlineProjection(
       'Resolved inline target must match the host route decision and requested operation.'))
   }
   projectionDiagnostics.push(...validateAiResolvedTargetSnapshotDigest(projection.target).diagnostics)
+  projectionDiagnostics.push(
+    ...validateAiExecutionBinding(projection.binding).diagnostics,
+    ...validateAiExecutionBindingDigest(projection.binding).diagnostics,
+  )
+  const { reasoningSummary, ...routeDecision } = projection.routeDecision
+  void reasoningSummary
+  const routeBinding = routeDecision.selectedCandidateId === null
+    ? undefined
+    : materializeAiRouteDecisionBinding({ ...routeDecision, selectedCandidateId: routeDecision.selectedCandidateId })
+  if (routeBinding === undefined ||
+      digestRunnerJson(routeBinding) !== digestRunnerJson(projection.binding.routeDecision) ||
+      projection.binding.target.snapshotDigest !== projection.target.snapshotDigest ||
+      projection.binding.prompt.renderedPayloadDigest !== digestRunnerJson(projection.input) ||
+      !projection.binding.offer.capabilities.includes('agent.run/v1')) {
+    projectionDiagnostics.push(diagnostic('AI_EXECUTION_BINDING_MISMATCH', 'projection.binding',
+      'Binding must match the exact route, target, rendered runner payload, and agent.run capability.'))
+  }
   if (projectionDiagnostics.length > 0) {
     throw new AgentRunnerInlineError('invalid-projection', projectionDiagnostics)
   }
-  const { reasoningSummary, ...routeDecision } = projection.routeDecision
-  void reasoningSummary
   return cloneDurableJson({ ...projection, routeDecision })
 }
 
@@ -396,7 +418,7 @@ export function createAgentRunnerInteractionRef(
 }
 
 /** @internal */
-export function projectAgentRunnerUsage(state: AgentRunStateV2 | undefined): AiUsageTruth {
+export function projectAgentRunnerUsage(state: AgentRunStateV2 | undefined): AiUsageTruthV2 {
   const records = state?.usage.records ?? []
   if (records.length === 0 || records.some((record) =>
     record.inputTokens === undefined || record.outputTokens === undefined)) {
@@ -442,7 +464,7 @@ export function createAgentRunnerInlineReceipt(input: {
   readonly startedAt: string
   readonly completedAt: string
   readonly frameworkStarted: boolean
-}): AiExecutionReceipt {
+}): AiExecutionReceiptV2 {
   const usage = projectAgentRunnerUsage(input.result?.state)
   const canonicalUsage = usage.measurement === 'known'
     ? { inputTokens: usage.tokens.input, outputTokens: usage.tokens.output } : undefined
@@ -462,14 +484,15 @@ export function createAgentRunnerInlineReceipt(input: {
     result = { ...base, status: input.status, errorCode: input.errorCode ?? 'inline-runner-failed',
       errorMessage: `Inline AgentRunner ${input.status}` }
   }
-  const receipt: AiExecutionReceipt = {
-    schema: AI_EXECUTION_RECEIPT_SCHEMA,
+  const receipt: AiExecutionReceiptV2 = {
+    schema: AI_EXECUTION_RECEIPT_V2_SCHEMA,
     requestId: input.request.execution.requestId,
     correlationId: input.request.execution.correlationId,
     operation: 'agent.run', requestedTarget: input.request.target,
+    binding: input.projection.binding,
     target: input.projection.target,
     attempts: [{
-      attempt: 1, target: input.projection.target,
+      attempt: 1, binding: input.projection.binding, target: input.projection.target,
       dispatch: { status: input.frameworkStarted ? 'terminal' : 'not-dispatched' },
       usage, startedAt: input.startedAt, completedAt: input.completedAt,
     }],

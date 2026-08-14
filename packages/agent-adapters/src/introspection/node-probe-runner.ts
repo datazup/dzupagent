@@ -3,6 +3,10 @@ import { realpath as nodeRealpath, stat as nodeStat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { TextDecoder } from "node:util";
 import {
+  digestExecutableArtifact,
+  validExecutableArtifactDigest,
+} from "./executable-artifact.js";
+import {
   DEFAULT_PROBE_KILL_GRACE_MS,
   DEFAULT_PROBE_OUTPUT_BYTES,
   DEFAULT_PROBE_TIMEOUT_MS,
@@ -25,6 +29,8 @@ export interface ResolvedProbeExecutable {
   path: string;
   /** Canonical path captured during discovery and checked before every spawn. */
   realPath: string;
+  /** SHA-256 of the executable bytes captured by trusted discovery. */
+  artifactDigest: string;
 }
 
 export interface ProbeRunnerLimits {
@@ -46,6 +52,7 @@ export interface NodeProbeRunnerPorts {
   spawn?: (command: string, args: readonly string[], options: SpawnOptions) => ChildProcess;
   realpath?: (path: string) => Promise<string>;
   statDirectory?: (path: string) => Promise<boolean>;
+  digestArtifact?: (path: string) => Promise<string>;
   killProcessTree?: (child: ChildProcess, signal: NodeJS.Signals) => void;
   nowMs?: () => number;
   setTimer?: typeof setTimeout;
@@ -91,6 +98,25 @@ export function createNodeProbeRunner(
   return createNodeProbeRunnerWithPorts(options, {});
 }
 
+/** Establish a canonical, byte-bound executable identity for probe callers. */
+export async function resolveNodeProbeExecutable(
+  name: string,
+  path: string,
+): Promise<ResolvedProbeExecutable> {
+  if (!name.trim() || !isAbsolute(path)) {
+    throw new Error("Probe executable name and absolute path are required");
+  }
+  const realPath = await nodeRealpath(path);
+  const executableStat = await nodeStat(realPath);
+  if (!executableStat.isFile()) throw new Error("Probe executable must be a regular file");
+  return {
+    name,
+    path,
+    realPath,
+    artifactDigest: await digestExecutableArtifact(realPath),
+  };
+}
+
 /** @internal Fixture-only construction port; absent from public package exports. */
 export function createNodeProbeRunnerForTesting(
   options: NodeProbeRunnerOptions & { ports?: NodeProbeRunnerPorts },
@@ -112,6 +138,7 @@ function createNodeProbeRunnerWithPorts(
   const spawn = ports.spawn ?? ((command, args, spawnOptions) => nodeSpawn(command, [...args], spawnOptions));
   const resolveRealPath = ports.realpath ?? nodeRealpath;
   const statDirectory = ports.statDirectory ?? (async (path) => (await nodeStat(path)).isDirectory());
+  const digestArtifact = ports.digestArtifact ?? digestExecutableArtifact;
   const nowMs = ports.nowMs ?? Date.now;
   const setTimer = ports.setTimer ?? setTimeout;
   const clearTimer = ports.clearTimer ?? clearTimeout;
@@ -142,6 +169,15 @@ function createNodeProbeRunnerWithPorts(
       return finishWithoutProcess(code === "ENOENT" ? "missing-binary" : "executable-identity-mismatch", startedAt, request);
     }
     if (actualRealPath !== identity.realPath) {
+      return finishWithoutProcess("executable-identity-mismatch", startedAt, request);
+    }
+    try {
+      const actualDigest = await withinBudget(digestArtifact(actualRealPath), startedAt);
+      if (actualDigest !== identity.artifactDigest) {
+        return finishWithoutProcess("executable-identity-mismatch", startedAt, request);
+      }
+    } catch (error) {
+      if (error === deadlineExceeded) return finishWithoutProcess("timeout", startedAt, request);
       return finishWithoutProcess("executable-identity-mismatch", startedAt, request);
     }
 
@@ -355,7 +391,10 @@ function createNodeProbeRunnerWithPorts(
 }
 
 function validIdentity(identity: ResolvedProbeExecutable): boolean {
-  return Boolean(identity.name.trim()) && isAbsolute(identity.path) && isAbsolute(identity.realPath);
+  return Boolean(identity.name.trim())
+    && isAbsolute(identity.path)
+    && isAbsolute(identity.realPath)
+    && validExecutableArtifactDigest(identity.artifactDigest);
 }
 
 function validLimits(limits: ProbeRunnerLimits): boolean {

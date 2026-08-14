@@ -269,6 +269,15 @@ function migrateNode(
         ...(node.maxIterations === undefined
           ? {}
           : { maxIterations: node.maxIterations }),
+        ...(node.onExhausted === undefined
+          ? {}
+          : { onExhausted: node.onExhausted }),
+        ...(node.iterationTimeoutMs === undefined
+          ? {}
+          : { iterationTimeoutMs: node.iterationTimeoutMs }),
+        ...(node.iterationBudgetCents === undefined
+          ? {}
+          : { iterationBudgetCents: node.iterationBudgetCents }),
         ...(node.progressKey === undefined
           ? {}
           : { progressKey: node.progressKey }),

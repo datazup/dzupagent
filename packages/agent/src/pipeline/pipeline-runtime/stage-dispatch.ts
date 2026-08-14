@@ -30,7 +30,12 @@ import type { BranchExecutionResult } from "./branch-merge.js";
 import { handleFork as handleForkNode } from "./fork-branch-executor.js";
 import { handleLoop as handleLoopNode } from "./loop-node-handler.js";
 import type { LoopResumeOptions } from "../loop-executor.js";
+import type {
+  LoopBodyGraphScheduleInput,
+  LoopBodyGraphScheduleResult,
+} from "../loop-executor/types.js";
 import type { ForkState, LoopState } from "./executor-state-types.js";
+import type { BudgetTrackerState } from "./iteration-budget-tracker.js";
 
 /** Dependency bag exposing the executor's helpers to the stage functions. */
 export interface StageContext {
@@ -53,6 +58,8 @@ export interface StageContext {
   errorEdgeFor: (nodeId: string, error: unknown) => string | undefined;
   /** Build the dependency bag for fork/branch fan-out. */
   forkDeps: (runId: string) => Parameters<typeof handleForkNode>[0];
+  /** Mutable global cost accumulator shared with standard-node dispatch. */
+  budgetTracker: BudgetTrackerState;
   emit: (event: PipelineRuntimeEvent) => void;
   setState: (next: PipelineState) => void;
   runResult: (
@@ -61,6 +68,12 @@ export interface StageContext {
     nodeResults: Map<string, NodeResult>,
     totalDurationMs: number
   ) => PipelineRunResult;
+  /** Execute one bounded compiler-lowered loop body through the graph walker. */
+  scheduleLoopBodyGraph: (
+    loopNode: LoopNode,
+    frame: RunFrame,
+    input: LoopBodyGraphScheduleInput
+  ) => Promise<LoopBodyGraphScheduleResult>;
 }
 
 /** Per-run mutable state threaded through a single stage dispatch. */
@@ -165,10 +178,77 @@ export async function dispatchLoopStage(
   // checkpoint the cursor + accumulated state after every iteration so a
   // crash resumes mid-loop instead of restarting at iteration 0.
   const resumeFrom = frame.loopState[loopNode.id]?.iteration ?? 0;
+  const savedLoopState = frame.loopState[loopNode.id];
   const loopResume: LoopResumeOptions = {
     startIteration: resumeFrom,
-    onIterationComplete: async (completedIterations) => {
-      frame.loopState[loopNode.id] = { iteration: completedIterations };
+    ...(savedLoopState?.nextBodyNodeIndex !== undefined
+      ? { startBodyNodeIndex: savedLoopState.nextBodyNodeIndex }
+      : {}),
+    ...(savedLoopState?.bodyResults !== undefined
+      ? {
+          bodyResults: savedLoopState.bodyResults as Record<
+            string,
+            NodeResult
+          >,
+        }
+      : {}),
+    ...(savedLoopState?.bodyGraphState === undefined
+      ? {}
+      : { bodyGraphState: savedLoopState.bodyGraphState }),
+    ...(savedLoopState?.previousOutput !== undefined
+      ? { previousOutput: savedLoopState.previousOutput }
+      : {}),
+    ...(savedLoopState?.progressDigest !== undefined
+      ? { progressDigest: savedLoopState.progressDigest }
+      : {}),
+    ...(loopNode.bodyGraph === undefined
+      ? {}
+      : {
+          scheduleBodyGraph: (input: LoopBodyGraphScheduleInput) =>
+            ctx.scheduleLoopBodyGraph(loopNode, frame, input),
+        }),
+    onBodyNodeComplete: async (progress) => {
+      const previousBoundary = frame.loopState[loopNode.id];
+      frame.loopState[loopNode.id] = {
+        iteration: progress.completedIterations,
+        nextBodyNodeIndex: progress.nextBodyNodeIndex,
+        bodyResults: loopBodyResultsForCheckpoint(
+          progress.bodyResults,
+          ctx.config.definition.checkpoint?.includeProviderSessionRefs === true
+        ),
+        ...(previousBoundary?.previousOutput !== undefined
+          ? { previousOutput: previousBoundary.previousOutput }
+          : {}),
+        ...(previousBoundary?.progressDigest !== undefined
+          ? { progressDigest: previousBoundary.progressDigest }
+          : {}),
+      };
+      await ctx.saveCheckpoint(frame);
+    },
+    onBodyGraphCheckpoint: async (progress) => {
+      const previousBoundary = frame.loopState[loopNode.id];
+      frame.loopState[loopNode.id] = {
+        iteration: progress.completedIterations,
+        bodyGraphState: progress.state,
+        ...(previousBoundary?.previousOutput !== undefined
+          ? { previousOutput: previousBoundary.previousOutput }
+          : {}),
+        ...(previousBoundary?.progressDigest !== undefined
+          ? { progressDigest: previousBoundary.progressDigest }
+          : {}),
+      };
+      await ctx.saveCheckpoint(frame);
+    },
+    onIterationComplete: async (completedIterations, progress) => {
+      frame.loopState[loopNode.id] = {
+        iteration: completedIterations,
+        ...(progress?.previousOutput !== undefined
+          ? { previousOutput: progress.previousOutput }
+          : {}),
+        ...(progress?.progressDigest !== undefined
+          ? { progressDigest: progress.progressDigest }
+          : {}),
+      };
       await ctx.saveCheckpoint(frame);
     },
   };
@@ -178,6 +258,7 @@ export async function dispatchLoopStage(
       config: ctx.config,
       nodeMap: ctx.nodeMap,
       emit: ctx.emit,
+      budgetTracker: ctx.budgetTracker,
     },
     loopNode,
     runState,
@@ -211,4 +292,28 @@ export async function dispatchLoopStage(
   ctx.recordIdempotencyKey(nodeIdempotencyKeys, runId, loopNode);
   await ctx.saveCheckpoint(frame);
   return { kind: "continue", nextNodeId: ctx.next(loopNode.id, runState) };
+}
+
+function loopBodyResultsForCheckpoint(
+  results: Readonly<Record<string, NodeResult>>,
+  includeProviderSessionRefs: boolean
+): Record<string, NodeResult> {
+  return Object.fromEntries(
+    Object.entries(results).map(([nodeId, result]) => [
+      nodeId,
+      {
+        nodeId: result.nodeId,
+        output: result.output,
+        durationMs: result.durationMs,
+        ...(result.error !== undefined ? { error: result.error } : {}),
+        ...(result.errorMetadata !== undefined
+          ? { errorMetadata: result.errorMetadata }
+          : {}),
+        ...(includeProviderSessionRefs &&
+        result.providerSessionRefs !== undefined
+          ? { providerSessionRefs: result.providerSessionRefs }
+          : {}),
+      },
+    ])
+  );
 }

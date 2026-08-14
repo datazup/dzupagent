@@ -81,7 +81,7 @@
     "typecheck:tests": "tsc -p tsconfig.flipcheck.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:integration": "vitest run src/__tests__/pipeline-for-each-runtime.test.ts",
+    "test:integration": "vitest run src/__tests__/pipeline-for-each-runtime.test.ts src/pipeline/__tests__/postgres-effect-journal-store.integration.test.ts",
     "lint": "node ../../scripts/run-package-lint.mjs",
     "test:coverage": "vitest run --coverage"
   },

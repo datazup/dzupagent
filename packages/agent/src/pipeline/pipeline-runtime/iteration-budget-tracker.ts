@@ -59,6 +59,35 @@ export function createBudgetTrackerState(): BudgetTrackerState {
 }
 
 /**
+ * Restore the cost accumulator from a durable checkpoint.
+ *
+ * Warning flags are derived from the restored percentage so a resumed run
+ * never re-emits advisory thresholds that were already crossed before the
+ * checkpoint. The canonical checkpoint stores the cumulative cost, not the
+ * runtime-only one-shot flags.
+ */
+export function restoreBudgetTrackerState(
+  cumulativeCostCents: number,
+  maxCostCents: number
+): BudgetTrackerState {
+  if (!Number.isFinite(cumulativeCostCents) || cumulativeCostCents < 0) {
+    throw new Error(
+      `Cannot restore iteration budget: costCents must be a finite non-negative number, received ${String(cumulativeCostCents)}`
+    );
+  }
+
+  const percentage =
+    maxCostCents > 0 ? cumulativeCostCents / maxCostCents : 0;
+  return {
+    cumulativeCostCents,
+    warnings: {
+      warn70: percentage >= 0.7,
+      warn90: percentage >= 0.9,
+    },
+  };
+}
+
+/**
  * Accumulate `costCents` into `state` and decide whether a single warning
  * threshold has just been crossed.
  *

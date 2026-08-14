@@ -41,6 +41,29 @@ describe('agent-adapters export map', () => {
       import: './dist/observability/dashboard.js',
       types: './dist/observability/dashboard.d.ts',
     })
+    expect(packageJson.exports['./codex-goal-control']).toEqual({
+      import: './dist/codex-goal-control.js',
+      types: './dist/codex-goal-control.d.ts',
+    })
+  })
+
+  it('keeps Codex goal control and capability observation on the narrow built subpath', async () => {
+    try {
+      await access(join(process.cwd(), 'dist/codex-goal-control.js'))
+    } catch {
+      return
+    }
+
+    const mod = await import('@dzupagent/agent-adapters/codex-goal-control')
+    expect(mod).toEqual(expect.objectContaining({
+      CodexAppServerAdapter: expect.any(Function),
+      createCodexAppServerAdapter: expect.any(Function),
+      createCodexGoalControlAdapter: expect.any(Function),
+      materializeCodexAppServerCapabilityDescriptor: expect.any(Function),
+      materializeCodexGoalCapabilityDescriptor: expect.any(Function),
+      observeInstalledCodexAppServerCapability: expect.any(Function),
+      observeInstalledCodexGoalCapability: expect.any(Function),
+    }))
   })
 
   it('resolves monitoring ESM and declarations through built package exports', async () => {
@@ -61,7 +84,7 @@ describe('agent-adapters export map', () => {
     try {
       const fixture = join(fixtureDir, 'consumer.ts')
       await writeFile(fixture, [
-        "import { AdapterInstallationInspector, createNodeProbeRunner } from '@dzupagent/agent-adapters/introspection'",
+        "import { AdapterInstallationInspector, createNodeProbeRunner, resolveNodeProbeExecutable } from '@dzupagent/agent-adapters/introspection'",
         "import type { InspectorContext } from '@dzupagent/agent-adapters/introspection'",
         "import { DashboardProjectionSubscriber } from '@dzupagent/agent-adapters/observability/dashboard'",
         'const inspector: typeof AdapterInstallationInspector = AdapterInstallationInspector',
@@ -73,6 +96,7 @@ describe('agent-adapters export map', () => {
         'const rejected: InspectorContext = { ...accepted, runProbe: arbitrary }',
         'void inspector',
         'void subscriber',
+        'void resolveNodeProbeExecutable',
         'void rejected',
       ].join('\n'), 'utf8')
 

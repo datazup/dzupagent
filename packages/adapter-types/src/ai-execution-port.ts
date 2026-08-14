@@ -3,9 +3,13 @@ import {
   validateAiExecutionTranscript,
   type AiExecutionEvent,
   type AiExecutionReceipt,
+  type AiExecutionReceiptV2,
   type AiExecutionRequest,
   type AiJsonValue,
 } from "@dzupagent/runtime-contracts/ai-execution";
+
+/** Read-compatible terminal receipt during the explicit V1-to-V2 migration. */
+export type AiExecutionTerminalReceipt = AiExecutionReceipt | AiExecutionReceiptV2;
 
 export type AiExecutionTerminalStatus = Extract<
   AiExecutionEvent,
@@ -75,7 +79,7 @@ export interface InlineAiExecutionHandle {
   readonly executionId: string;
   readonly events: AsyncIterable<AiExecutionEvent>;
   /** The only terminal completion authority for this inline execution. */
-  readonly completion: Promise<AiExecutionReceipt>;
+  readonly completion: Promise<AiExecutionTerminalReceipt>;
   cancel(
     request: AiExecutionCancellationRequest,
   ): Promise<AiExecutionCancellationAcknowledgement>;
@@ -115,7 +119,7 @@ export type AiDurableExecutionStatus =
       readonly status: AiExecutionTerminalStatus;
       readonly observedAt: string;
       /** The only terminal completion authority for this durable execution. */
-      readonly receipt: AiExecutionReceipt;
+      readonly receipt: AiExecutionTerminalReceipt;
     };
 
 export interface AiExecutionEventPage {

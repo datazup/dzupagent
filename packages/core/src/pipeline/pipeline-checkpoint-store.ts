@@ -11,6 +11,61 @@
 // ---------------------------------------------------------------------------
 
 /**
+ * Durable cursor for one predicate-loop node.
+ *
+ * `iteration` is the number of fully completed iterations. When
+ * `nextBodyNodeIndex` is present, the loop is part-way through the next
+ * iteration and resumes at that zero-based body-node index. `bodyResults`
+ * retains the already-completed body results needed by downstream body nodes
+ * and the loop predicate without coupling core to the runtime `NodeResult`
+ * type.
+ *
+ * The optional fields are backward-compatible with iteration-only W3
+ * checkpoints. They are omitted for for-each loops, whose ordered-prefix
+ * cursor remains iteration-based.
+ */
+export interface PipelineLoopCheckpointState {
+  iteration: number;
+  nextBodyNodeIndex?: number;
+  bodyResults?: Record<string, unknown>;
+  /**
+   * Scoped canonical-executor frame for a compiler-lowered graph body.
+   * Mutually exclusive with the legacy flat-list cursor above.
+   */
+  bodyGraphState?: PipelineLoopBodyGraphCheckpointState;
+  /** Previous completed iteration's final body output (`loop.previous`). */
+  previousOutput?: unknown;
+  /** Canonical digest of the previous iteration's progress-node output. */
+  progressDigest?: `sha256:${string}`;
+}
+
+export interface PipelineLoopBodyGraphCheckpointState {
+  /** True when the body graph reached a normal exit before iteration advance. */
+  completed: boolean;
+  /** Next body node to dispatch when `completed` is false. */
+  nextNodeId?: string;
+  /** Scoped nodes already completed in this body iteration. */
+  completedNodeIds: string[];
+  /** Body-only node results required by downstream graph nodes. */
+  nodeResults: Record<string, unknown>;
+  /** Stable keys already assigned inside the scoped executor. */
+  nodeIdempotencyKeys: Record<string, string>;
+  /** Mid-fork progress retained by the canonical fork scheduler. */
+  forkState?: Record<
+    string,
+    {
+      branches: Record<
+        string,
+        {
+          stateDelta: Record<string, unknown>;
+          nodeResults: Record<string, unknown>;
+        }
+      >;
+    }
+  >;
+}
+
+/**
  * Snapshot of a pipeline run's state at a point in time.
  *
  * Checkpoints are versioned — each save increments the version number
@@ -46,7 +101,7 @@ export interface PipelineCheckpoint {
    * iterations. An entry is removed once its loop completes. Optional for
    * backward compatibility; absence means "no loop is mid-flight".
    */
-  loopState?: Record<string, { iteration: number }>;
+  loopState?: Record<string, PipelineLoopCheckpointState>;
   /**
    * Per-fork branch progress for durable fork/branch resume (W4).
    *
