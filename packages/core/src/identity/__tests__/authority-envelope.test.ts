@@ -6,6 +6,14 @@ import {
   type AuthorityEnvelope,
 } from "../authority-envelope.js";
 import type { AuthorityClass } from "../authority-classes.js";
+import { resolveWorkspaceSiblingUrl } from "./workspace-sibling.js";
+
+const G01_AUTHORITY_ENVELOPE_URL = resolveWorkspaceSiblingUrl(
+  "scripts",
+  "flow-prompt-lab",
+  "lib",
+  "g01-authority-envelope.js",
+);
 
 /** A minimally well-formed envelope; individual tests spoil one field. */
 function envelopeInput(
@@ -214,7 +222,7 @@ describe("readAuthorityEnvelope", () => {
       // silently accepting the old one as though nothing changed.
       const lab = await import(
         /* @vite-ignore */
-        "../../../../../../scripts/flow-prompt-lab/lib/g01-authority-envelope.js"
+        G01_AUTHORITY_ENVELOPE_URL.href
       ).then(
         (m) => (m.default ?? m) as { G01_AUTHORITY_ENVELOPE_SCHEMA: string }
       );
@@ -230,13 +238,7 @@ describe("readAuthorityEnvelope", () => {
       // type. Provenance and receipts are intentionally excluded — they are
       // operator-side adjudication evidence, not framework-read claims.
       const source = await import("node:fs/promises").then((fs) =>
-        fs.readFile(
-          new URL(
-            "../../../../../../scripts/flow-prompt-lab/lib/g01-authority-envelope.js",
-            import.meta.url
-          ),
-          "utf8"
-        )
+        fs.readFile(G01_AUTHORITY_ENVELOPE_URL, "utf8")
       );
 
       // Start one line above the first field so the line-anchored match sees
