@@ -27,13 +27,8 @@ import { ForgeSpanAttr } from "../span-attributes.js";
 
 function resolveWorkspaceRoot(): string {
   const testDirectory = dirname(fileURLToPath(import.meta.url));
-  const repositoryRoot = execFileSync(
-    "git",
-    ["rev-parse", "--show-toplevel"],
-    { cwd: testDirectory, encoding: "utf8" },
-  ).trim();
   const commonGitDirectory = resolve(
-    repositoryRoot,
+    testDirectory,
     execFileSync("git", ["rev-parse", "--git-common-dir"], {
       cwd: testDirectory,
       encoding: "utf8",
