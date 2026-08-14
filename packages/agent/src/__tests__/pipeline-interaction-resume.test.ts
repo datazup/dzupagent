@@ -295,6 +295,51 @@ describe("PipelineRuntime checkpoint-bound interactions", () => {
       expect(calls).toEqual(["approved"]);
     },
   );
+
+  it("rejects cursor corruption and same-id definition drift before dispatch", async () => {
+    const calls: string[] = [];
+    const store = new InteractionCommitFailureStore("save-then-throw");
+    const definition = approvalDefinition();
+    const runtime = new PipelineRuntime({
+      definition,
+      checkpointStore: store,
+      interaction: { now: () => new Date("2026-08-14T20:00:00.000Z") },
+      nodeExecutor: async (nodeId) => {
+        calls.push(nodeId);
+        return { nodeId, output: nodeId, durationMs: 1 };
+      },
+    });
+    await runtime.execute({}, { runId: "corrupt-cursor" });
+    const suspended = (await store.load("corrupt-cursor"))!;
+    const receipt = receiptFor(suspended.pendingInteraction!, "approved");
+    await expect(runtime.resumeInteraction(suspended, receipt)).rejects.toThrow(
+      "injected interaction commit failure",
+    );
+    const committed = (await store.load("corrupt-cursor"))!;
+    expect(committed.interactionResumeCursor).toBeDefined();
+
+    const corruptCursor = structuredClone(committed);
+    corruptCursor.interactionResumeCursor = {
+      ...corruptCursor.interactionResumeCursor!,
+      nextNodeId: "rejected",
+    };
+    await expect(runtime.resume(corruptCursor)).rejects.toMatchObject({
+      code: "INTERACTION_BINDING_MISMATCH",
+    });
+
+    const driftedRuntime = new PipelineRuntime({
+      definition: { ...definition, version: "2" },
+      checkpointStore: store,
+      nodeExecutor: async (nodeId) => {
+        calls.push(nodeId);
+        return { nodeId, output: nodeId, durationMs: 1 };
+      },
+    });
+    await expect(
+      driftedRuntime.resumeInteraction(suspended, receipt),
+    ).rejects.toMatchObject({ code: "INTERACTION_BINDING_MISMATCH" });
+    expect(calls).toEqual([]);
+  });
 });
 
 class InteractionCommitFailureStore extends InMemoryPipelineCheckpointStore {
