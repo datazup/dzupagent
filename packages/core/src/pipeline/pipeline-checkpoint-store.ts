@@ -40,10 +40,20 @@ export interface PipelineLoopCheckpointState {
 }
 
 export interface PipelineLoopBodyGraphCheckpointState {
-  /** True when the body graph reached a normal exit before iteration advance. */
+  /** True when the body graph reached a normal or terminal exit. */
   completed: boolean;
-  /** Next body node to dispatch when `completed` is false. */
+  /** Next body node to dispatch for an in-progress traversal. */
   nextNodeId?: string;
+  /**
+   * Durable classified boundary reached by the scoped traversal.
+   *
+   * Optional for backward compatibility with graph checkpoints written before
+   * nested control outcomes were retained. A suspended outcome deliberately
+   * keeps `completed=false` and omits `nextNodeId`: the owning outer checkpoint
+   * carries the loop suspension marker, and resume first persists the exact
+   * post-suspension cursor before dispatching it.
+   */
+  outcome?: PipelineLoopBodyGraphCheckpointOutcome;
   /** Scoped nodes already completed in this body iteration. */
   completedNodeIds: string[];
   /** Body-only node results required by downstream graph nodes. */
@@ -64,6 +74,12 @@ export interface PipelineLoopBodyGraphCheckpointState {
     }
   >;
 }
+
+/** Durable control boundary for a compiler-bounded loop-body traversal. */
+export type PipelineLoopBodyGraphCheckpointOutcome =
+  | { kind: "normal"; exitNodeId: string }
+  | { kind: "suspended"; exitNodeId: string }
+  | { kind: "terminal"; exitNodeId: string };
 
 /**
  * Snapshot of a pipeline run's state at a point in time.

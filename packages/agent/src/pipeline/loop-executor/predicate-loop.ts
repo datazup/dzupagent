@@ -16,6 +16,7 @@ import type {
   LoopMetrics,
 } from "../pipeline-runtime-types.js";
 import type {
+  LoopExecutionResult,
   LoopBodyGraphScheduleResult,
   LoopResumeOptions,
 } from "./types.js";
@@ -38,7 +39,7 @@ export async function executeLoop(
   predicates: Record<string, (state: Record<string, unknown>) => boolean>,
   onEvent?: (event: PipelineRuntimeEvent) => void,
   resume?: LoopResumeOptions
-): Promise<{ result: NodeResult; metrics: LoopMetrics }> {
+): Promise<LoopExecutionResult> {
   if (loopNode.forEach !== undefined) {
     return executeForEachLoop(
       loopNode,
@@ -76,7 +77,7 @@ async function executePredicateLoop(
   onEvent: ((event: PipelineRuntimeEvent) => void) | undefined,
   resume: LoopResumeOptions | undefined,
   outerLoopBinding: LoopBindingSnapshot
-): Promise<{ result: NodeResult; metrics: LoopMetrics }> {
+): Promise<LoopExecutionResult> {
   const startTime = Date.now();
   const iterationDurations: number[] = [];
   // Resume cursor: iterations already completed before this call (W3).
@@ -264,7 +265,7 @@ async function executePredicateLoop(
               ...(resume?.onBodyGraphCheckpoint === undefined
                 ? {}
                 : {
-                    onCheckpoint: (state) =>
+                    onCheckpoint: (state, options) =>
                       withoutLoopBinding(
                         context.state,
                         outerLoopBinding,
@@ -272,6 +273,9 @@ async function executePredicateLoop(
                           resume.onBodyGraphCheckpoint!({
                             completedIterations: i,
                             state,
+                            ...(options?.mandatory === true
+                              ? { mandatory: true }
+                              : {}),
                           })
                       ),
                   }),
@@ -281,6 +285,7 @@ async function executePredicateLoop(
           if (isLoopIterationCancelled(error)) {
             terminationReason = "cancelled";
             scheduled = {
+              outcome: { kind: "cancelled" },
               state: "cancelled",
               bodyResults: new Map(),
             };
@@ -311,12 +316,38 @@ async function executePredicateLoop(
         }
         lastBodyResult = scheduled.lastResult ?? lastBodyResult;
 
-        if (scheduled.state === "cancelled") {
+        if (scheduled.outcome.kind === "cancelled") {
           terminationReason = "cancelled";
-        } else if (scheduled.state !== "completed") {
-          const error =
-            scheduled.error ??
-            `graph body ended in unexpected state "${scheduled.state}"`;
+        } else if (
+          scheduled.outcome.kind === "suspended" ||
+          scheduled.outcome.kind === "terminal"
+        ) {
+          if (scheduled.checkpointState === undefined) {
+            throw new Error(
+              `Loop node "${loopNode.id}": ${scheduled.outcome.kind} body outcome omitted its durable graph frame`
+            );
+          }
+          iterationDurations.push(Date.now() - iterStart);
+          return {
+            result: {
+              nodeId: loopNode.id,
+              output: scheduled.lastResult?.output ?? null,
+              durationMs: Date.now() - startTime,
+            },
+            metrics: {
+              iterationCount,
+              iterationDurations,
+              converged: false,
+              terminationReason: scheduled.outcome.kind,
+            },
+            control: {
+              outcome: scheduled.outcome,
+              checkpointState: scheduled.checkpointState,
+              completedIterations: i,
+            },
+          };
+        } else if (scheduled.outcome.kind !== "normal") {
+          const error = scheduled.outcome.error;
           iterationDurations.push(Date.now() - iterStart);
           return loopBodyFailure(
             loopNode,

@@ -5,10 +5,11 @@
  */
 
 import type {
+  LoopMetrics,
   NodeExecutionContext,
   NodeResult,
   PipelineState,
-} from "../pipeline-runtime-types.js";
+} from "@dzupagent/runtime-contracts";
 
 /** A predicate loop's durable position after one body node completes. */
 export interface LoopBodyCheckpointProgress {
@@ -52,11 +53,17 @@ export interface LoopBodyGraphScheduleInput {
   iteration: number;
   context: NodeExecutionContext;
   resumeState?: LoopBodyGraphCheckpointState;
-  onCheckpoint?: (state: LoopBodyGraphCheckpointState) => Promise<void>;
+  onCheckpoint?: (
+    state: LoopBodyGraphCheckpointState,
+    options?: { mandatory?: boolean }
+  ) => Promise<void>;
 }
 
 /** Result returned by the bounded graph scheduler for one iteration. */
 export interface LoopBodyGraphScheduleResult {
+  /** Boundary-classified result; callers must not infer semantics from state. */
+  outcome: LoopBodyGraphScheduleOutcome;
+  /** Underlying scoped executor state retained for diagnostics/compatibility. */
   state: PipelineState;
   /** Results produced by body nodes during this iteration only. */
   bodyResults: ReadonlyMap<string, NodeResult>;
@@ -64,12 +71,47 @@ export interface LoopBodyGraphScheduleResult {
   lastResult?: NodeResult;
   /** Canonical failure detail when the scoped run did not complete. */
   error?: string;
+  /**
+   * Complete retained frame for a suspended or terminal control outcome.
+   * The owning loop stage persists this together with the outer marker so a
+   * scoped control node can never publish a partial/private checkpoint.
+   */
+  checkpointState?: LoopBodyGraphCheckpointState;
+}
+
+/** Explicit outcome of one bounded structured loop-body traversal. */
+export type LoopBodyGraphScheduleOutcome =
+  | { kind: "normal"; exitNodeId: string }
+  | { kind: "suspended"; exitNodeId: string }
+  | { kind: "terminal"; exitNodeId: string }
+  | { kind: "cancelled" }
+  | { kind: "error"; error: string; exitNodeId?: string };
+
+/** Control outcome that transfers ownership from the body graph to its loop. */
+export type LoopBodyGraphControlOutcome = Extract<
+  LoopBodyGraphScheduleOutcome,
+  { kind: "suspended" | "terminal" }
+>;
+
+/** Result of executing a loop, including an optional nested control transfer. */
+export interface LoopExecutionResult {
+  result: NodeResult;
+  metrics: LoopMetrics;
+  control?: {
+    outcome: LoopBodyGraphControlOutcome;
+    checkpointState: LoopBodyGraphCheckpointState;
+    completedIterations: number;
+  };
 }
 
 /** Durable scoped-executor frame retained inside one loop iteration. */
 export interface LoopBodyGraphCheckpointState {
   completed: boolean;
   nextNodeId?: string;
+  outcome?:
+    | { kind: "normal"; exitNodeId: string }
+    | { kind: "suspended"; exitNodeId: string }
+    | { kind: "terminal"; exitNodeId: string };
   completedNodeIds: string[];
   nodeResults: Record<string, NodeResult>;
   nodeIdempotencyKeys: Record<string, string>;
@@ -132,6 +174,7 @@ export interface LoopResumeOptions {
   onBodyGraphCheckpoint?: (input: {
     completedIterations: number;
     state: LoopBodyGraphCheckpointState;
+    mandatory?: boolean;
   }) => Promise<void>;
   /**
    * Invoked after each successful predicate-loop body node. The runtime uses

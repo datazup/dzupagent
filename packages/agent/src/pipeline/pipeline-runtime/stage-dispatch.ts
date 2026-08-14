@@ -24,7 +24,11 @@ import type {
   PipelineRuntimeConfig,
   PipelineRuntimeEvent,
 } from "../pipeline-runtime-types.js";
-import { pipelineFailedEvent } from "./runtime-events.js";
+import {
+  pipelineCompletedEvent,
+  pipelineFailedEvent,
+  pipelineSuspendedEvent,
+} from "./runtime-events.js";
 import { findJoinNode } from "./edge-resolution.js";
 import type { BranchExecutionResult } from "./branch-merge.js";
 import { handleFork as handleForkNode } from "./fork-branch-executor.js";
@@ -36,6 +40,7 @@ import type {
 } from "../loop-executor/types.js";
 import type { ForkState, LoopState } from "./executor-state-types.js";
 import type { BudgetTrackerState } from "./iteration-budget-tracker.js";
+import { persistCheckpointWithIntegrityBoundary } from "./checkpoint-integrity-error.js";
 
 /** Dependency bag exposing the executor's helpers to the stage functions. */
 export interface StageContext {
@@ -43,6 +48,11 @@ export interface StageContext {
   nodeMap: Map<string, PipelineNode>;
   /** Persist a checkpoint per the configured strategy. */
   saveCheckpoint: (frame: RunFrame) => Promise<void>;
+  /** Persist an outer control boundary regardless of the periodic strategy. */
+  saveControlCheckpoint: (
+    frame: RunFrame,
+    suspendedAtNodeId?: string
+  ) => Promise<void>;
   /** First next-node id for `nodeId`, evaluated against current state. */
   next: (
     nodeId: string,
@@ -138,7 +148,11 @@ export async function dispatchForkStage(
           stateDelta: result.stateDelta,
           nodeResults: Object.fromEntries(result.nodeResults),
         };
-        await ctx.saveCheckpoint(frame);
+        await persistCheckpointWithIntegrityBoundary({
+          nodeId: branchStartId,
+          boundary: "fork_branch_completion",
+          save: () => ctx.saveCheckpoint(frame),
+        });
       },
     }
   );
@@ -148,7 +162,11 @@ export async function dispatchForkStage(
   if (joinNode) {
     completedNodeIds.push(joinNode.id);
     ctx.recordIdempotencyKey(nodeIdempotencyKeys, runId, joinNode);
-    await ctx.saveCheckpoint(frame);
+    await persistCheckpointWithIntegrityBoundary({
+      nodeId: joinNode.id,
+      boundary: "fork_join_completion",
+      save: () => ctx.saveCheckpoint(frame),
+    });
     return { nextNodeId: ctx.next(joinNode.id, runState) };
   }
   return { nextNodeId: undefined };
@@ -226,18 +244,21 @@ export async function dispatchLoopStage(
       await ctx.saveCheckpoint(frame);
     },
     onBodyGraphCheckpoint: async (progress) => {
-      const previousBoundary = frame.loopState[loopNode.id];
-      frame.loopState[loopNode.id] = {
-        iteration: progress.completedIterations,
-        bodyGraphState: progress.state,
-        ...(previousBoundary?.previousOutput !== undefined
-          ? { previousOutput: previousBoundary.previousOutput }
-          : {}),
-        ...(previousBoundary?.progressDigest !== undefined
-          ? { progressDigest: previousBoundary.progressDigest }
-          : {}),
-      };
-      await ctx.saveCheckpoint(frame);
+      retainBodyGraphState(
+        frame,
+        loopNode.id,
+        progress.completedIterations,
+        progress.state
+      );
+      if (progress.mandatory === true) {
+        await persistCheckpointWithIntegrityBoundary({
+          nodeId: loopNode.id,
+          boundary: "loop_resume_cursor",
+          save: () => ctx.saveControlCheckpoint(frame),
+        });
+      } else {
+        await ctx.saveCheckpoint(frame);
+      }
     },
     onIterationComplete: async (completedIterations, progress) => {
       frame.loopState[loopNode.id] = {
@@ -253,7 +274,7 @@ export async function dispatchLoopStage(
     },
   };
 
-  const loopResult = await handleLoopNode(
+  const handledLoop = await handleLoopNode(
     {
       config: ctx.config,
       nodeMap: ctx.nodeMap,
@@ -265,6 +286,53 @@ export async function dispatchLoopStage(
     nodeResults,
     loopResume
   );
+  const loopResult = handledLoop.result;
+
+  if (handledLoop.control !== undefined) {
+    const { outcome, checkpointState, completedIterations } =
+      handledLoop.control;
+    retainBodyGraphState(
+      frame,
+      loopNode.id,
+      completedIterations,
+      checkpointState
+    );
+    nodeResults.set(loopNode.id, loopResult);
+
+    if (outcome.kind === "suspended") {
+      await persistCheckpointWithIntegrityBoundary({
+        nodeId: loopNode.id,
+        boundary: "loop_suspension",
+        save: () => ctx.saveControlCheckpoint(frame, loopNode.id),
+      });
+      ctx.setState("suspended");
+      ctx.emit(pipelineSuspendedEvent(loopNode.id));
+      return {
+        kind: "return",
+        value: ctx.runResult(
+          runId,
+          "suspended",
+          nodeResults,
+          Date.now() - frame.startTime
+        ),
+      };
+    }
+
+    completedNodeIds.push(loopNode.id);
+    ctx.recordIdempotencyKey(nodeIdempotencyKeys, runId, loopNode);
+    await persistCheckpointWithIntegrityBoundary({
+      nodeId: loopNode.id,
+      boundary: "loop_terminal",
+      save: () => ctx.saveControlCheckpoint(frame, outcome.exitNodeId),
+    });
+    const totalMs = Date.now() - frame.startTime;
+    ctx.setState("completed");
+    ctx.emit(pipelineCompletedEvent(runId, totalMs));
+    return {
+      kind: "return",
+      value: ctx.runResult(runId, "completed", nodeResults, totalMs),
+    };
+  }
 
   if (loopResult.error) {
     const errorNext = ctx.errorEdgeFor(loopNode.id, loopResult.error);
@@ -292,6 +360,25 @@ export async function dispatchLoopStage(
   ctx.recordIdempotencyKey(nodeIdempotencyKeys, runId, loopNode);
   await ctx.saveCheckpoint(frame);
   return { kind: "continue", nextNodeId: ctx.next(loopNode.id, runState) };
+}
+
+function retainBodyGraphState(
+  frame: RunFrame,
+  loopNodeId: string,
+  completedIterations: number,
+  state: NonNullable<LoopState[string]["bodyGraphState"]>
+): void {
+  const previousBoundary = frame.loopState[loopNodeId];
+  frame.loopState[loopNodeId] = {
+    iteration: completedIterations,
+    bodyGraphState: state,
+    ...(previousBoundary?.previousOutput !== undefined
+      ? { previousOutput: previousBoundary.previousOutput }
+      : {}),
+    ...(previousBoundary?.progressDigest !== undefined
+      ? { progressDigest: previousBoundary.progressDigest }
+      : {}),
+  };
 }
 
 function loopBodyResultsForCheckpoint(

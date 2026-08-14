@@ -263,6 +263,157 @@ describe('validatePipeline', () => {
     )
   })
 
+  it('rejects an ambiguously classified structured loop outcome', () => {
+    const result = validatePipeline(
+      makePipeline({
+        entryNodeId: 'loop1',
+        nodes: [
+          {
+            id: 'loop1',
+            type: 'loop',
+            bodyNodeIds: ['boundary'],
+            bodyGraph: {
+              entryNodeId: 'boundary',
+              normalExitNodeIds: ['boundary'],
+              suspendedExitNodeIds: ['boundary'],
+              terminalExitNodeIds: [],
+              errorExitNodeIds: [],
+            },
+            maxIterations: 5,
+            continuePredicateName: 'check',
+            timeoutMs: 10000,
+          },
+          {
+            id: 'boundary',
+            type: 'suspend',
+            resumeCondition: 'approved',
+            timeoutMs: 1000,
+          },
+        ],
+        edges: [],
+      }),
+    )
+
+    expect(result.valid).toBe(false)
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({
+        code: 'INVALID_LOOP_BODY_GRAPH',
+        nodeId: 'loop1',
+      }),
+    )
+    expect(result.errors).not.toHaveLength(0)
+    expect(
+      result.errors.filter(error => error.code === 'INVALID_LOOP_BODY_GRAPH'),
+    ).toHaveLength(result.errors.length)
+  })
+
+  it('rejects a suspended exit with multiple continuation edges', () => {
+    const result = validatePipeline(
+      makePipeline({
+        entryNodeId: 'loop1',
+        nodes: [
+          {
+            id: 'loop1',
+            type: 'loop',
+            bodyNodeIds: ['approval', 'left', 'right'],
+            bodyGraph: {
+              entryNodeId: 'approval',
+              normalExitNodeIds: ['left', 'right'],
+              suspendedExitNodeIds: ['approval'],
+              terminalExitNodeIds: [],
+              errorExitNodeIds: [],
+            },
+            maxIterations: 5,
+            continuePredicateName: 'check',
+          },
+          { id: 'approval', type: 'gate', gateType: 'approval' },
+          { id: 'left', type: 'agent', agentId: 'left' },
+          { id: 'right', type: 'agent', agentId: 'right' },
+        ],
+        edges: [
+          {
+            type: 'sequential',
+            sourceNodeId: 'approval',
+            targetNodeId: 'left',
+          },
+          {
+            type: 'sequential',
+            sourceNodeId: 'approval',
+            targetNodeId: 'right',
+          },
+        ],
+      }),
+    )
+
+    expect(result.valid).toBe(false)
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({
+        code: 'INVALID_LOOP_BODY_GRAPH',
+        message: expect.stringContaining('multiple body continuations'),
+        nodeId: 'loop1',
+      }),
+    )
+  })
+
+  it.each([
+    {
+      name: 'suspended',
+      bodyNodeIds: ['approval', 'work'],
+      bodyGraph: {
+        entryNodeId: 'approval',
+        normalExitNodeIds: ['work'],
+        suspendedExitNodeIds: ['approval'],
+        terminalExitNodeIds: [],
+        errorExitNodeIds: [],
+      },
+      bodyNodes: [
+        { id: 'approval', type: 'gate', gateType: 'approval' } as const,
+        { id: 'work', type: 'agent', agentId: 'work' } as const,
+      ],
+      edges: [
+        {
+          type: 'sequential',
+          sourceNodeId: 'approval',
+          targetNodeId: 'work',
+        } as const,
+      ],
+    },
+    {
+      name: 'terminal',
+      bodyNodeIds: ['complete'],
+      bodyGraph: {
+        entryNodeId: 'complete',
+        normalExitNodeIds: [],
+        suspendedExitNodeIds: [],
+        terminalExitNodeIds: ['complete'],
+        errorExitNodeIds: [],
+      },
+      bodyNodes: [{ id: 'complete', type: 'suspend' } as const],
+      edges: [],
+    },
+  ])('accepts a well-classified $name loop outcome', ({ bodyNodeIds, bodyGraph, bodyNodes, edges }) => {
+    const result = validatePipeline(
+      makePipeline({
+        entryNodeId: 'loop1',
+        nodes: [
+          {
+            id: 'loop1',
+            type: 'loop',
+            bodyNodeIds,
+            bodyGraph,
+            maxIterations: 5,
+            continuePredicateName: 'check',
+          },
+          ...bodyNodes,
+        ],
+        edges,
+      }),
+    )
+
+    expect(result.errors).toEqual([])
+    expect(result.valid).toBe(true)
+  })
+
   it('warns on unreachable node (connected but not reachable from entry)', () => {
     const result = validatePipeline(
       makePipeline({

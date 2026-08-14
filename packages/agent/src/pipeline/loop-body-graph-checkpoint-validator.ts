@@ -3,6 +3,7 @@
 import type {
   ForkNode,
   LoopNode,
+  PipelineDefinition,
   PipelineEdge,
   PipelineNode,
 } from "@dzupagent/core/pipeline";
@@ -19,6 +20,53 @@ export interface LoopBodyGraphCheckpointDefinition {
   nodes: readonly PipelineNode[];
   outgoingEdges: ReadonlyMap<string, PipelineEdge[]>;
   errorEdges: ReadonlyMap<string, PipelineEdge[]>;
+}
+
+/** Validate a retained loop frame directly against its owning definition. */
+export function validateRetainedLoopBodyGraphCheckpointState(
+  pipeline: PipelineDefinition,
+  loopNodeId: string,
+  state: LoopBodyGraphCheckpointState
+): void {
+  const loopNode = pipeline.nodes.find(
+    (node): node is LoopNode => node.id === loopNodeId && node.type === "loop"
+  );
+  if (loopNode?.bodyGraph === undefined) {
+    corrupt(loopNodeId, "retained graph outcome does not belong to a graph loop");
+  }
+  const bodyIds = new Set(loopNode.bodyNodeIds);
+  const nodes = pipeline.nodes.filter((node) => bodyIds.has(node.id));
+  if (nodes.length !== bodyIds.size) {
+    corrupt(loopNodeId, "bodyNodeIds contains a missing node");
+  }
+  const outgoingEdges = new Map<string, PipelineEdge[]>();
+  const errorEdges = new Map<string, PipelineEdge[]>();
+  for (const node of nodes) {
+    outgoingEdges.set(node.id, []);
+    errorEdges.set(node.id, []);
+  }
+  for (const edge of pipeline.edges) {
+    if (!bodyIds.has(edge.sourceNodeId)) continue;
+    const targets =
+      edge.type === "conditional"
+        ? Object.values(edge.branches)
+        : [edge.targetNodeId];
+    const escapingTarget = targets.find(
+      (targetId) => !bodyIds.has(targetId)
+    );
+    if (escapingTarget !== undefined) {
+      corrupt(
+        loopNodeId,
+        `body edge escapes to node "${escapingTarget}" outside bodyNodeIds`
+      );
+    }
+    const index = edge.type === "error" ? errorEdges : outgoingEdges;
+    index.get(edge.sourceNodeId)?.push(edge);
+  }
+  validateLoopBodyGraphCheckpointState(
+    { loopNode, nodes, outgoingEdges, errorEdges },
+    state
+  );
 }
 
 /**
@@ -46,8 +94,23 @@ export function validateLoopBodyGraphCheckpointState(
   if (!isRecord(state.nodeIdempotencyKeys)) {
     corrupt(loopNode.id, "nodeIdempotencyKeys must be an object");
   }
+  const outcome = validateOutcome(loopNode.id, state.outcome);
 
-  if (state.completed) {
+  if (outcome?.kind === "suspended") {
+    if (state.completed || state.nextNodeId !== undefined) {
+      corrupt(
+        loopNode.id,
+        "suspended outcome requires completed=false and must omit nextNodeId"
+      );
+    }
+  } else if (outcome !== undefined) {
+    if (!state.completed || state.nextNodeId !== undefined) {
+      corrupt(
+        loopNode.id,
+        `${outcome.kind} outcome requires completed=true and must omit nextNodeId`
+      );
+    }
+  } else if (state.completed) {
     if (state.nextNodeId !== undefined) {
       corrupt(loopNode.id, "completed cursor must omit nextNodeId");
     }
@@ -152,6 +215,105 @@ export function validateLoopBodyGraphCheckpointState(
     bodyIds,
     completed
   );
+
+  if (outcome !== undefined) {
+    if (activeFork !== undefined) {
+      corrupt(loopNode.id, `${outcome.kind} outcome cannot retain forkState`);
+    }
+    const classifications = ([
+      ["normal", loopNode.bodyGraph?.normalExitNodeIds ?? []],
+      ["suspended", loopNode.bodyGraph?.suspendedExitNodeIds ?? []],
+      ["terminal", loopNode.bodyGraph?.terminalExitNodeIds ?? []],
+      ["error", loopNode.bodyGraph?.errorExitNodeIds ?? []],
+    ] as const)
+      .filter(([, exitIds]) => exitIds.includes(outcome.exitNodeId))
+      .map(([kind]) => kind);
+    if (classifications.length !== 1 || classifications[0] !== outcome.kind) {
+      corrupt(
+        loopNode.id,
+        `${outcome.kind} outcome exit "${outcome.exitNodeId}" must have exactly one matching declared classification`
+      );
+    }
+
+    const outcomeNode = nodeMap.get(outcome.exitNodeId);
+    if (outcomeNode === undefined) {
+      corrupt(
+        loopNode.id,
+        `${outcome.kind} outcome exit "${outcome.exitNodeId}" is outside bodyNodeIds`
+      );
+    }
+    const lastCompletedNodeId = state.completedNodeIds.at(-1);
+    const reachableTargets =
+      lastCompletedNodeId === undefined
+        ? new Set([loopNode.bodyGraph!.entryNodeId])
+        : new Set(
+            (outgoingEdges.get(lastCompletedNodeId) ?? []).flatMap(edgeTargets)
+          );
+    if (
+      outcome.kind !== "normal" &&
+      !reachableTargets.has(outcome.exitNodeId) &&
+      !handledErrorTargets.has(outcome.exitNodeId)
+    ) {
+      corrupt(
+        loopNode.id,
+        `${outcome.kind} outcome exit "${outcome.exitNodeId}" does not follow the retained graph position`
+      );
+    }
+
+    if (outcome.kind === "normal") {
+      if (lastCompletedNodeId !== outcome.exitNodeId) {
+        corrupt(
+          loopNode.id,
+          `normal outcome exit "${outcome.exitNodeId}" is not the last completed node`
+        );
+      }
+    } else if (outcome.kind === "terminal") {
+      if (outcomeNode.type !== "suspend") {
+        corrupt(
+          loopNode.id,
+          `terminal outcome exit "${outcome.exitNodeId}" is not a suspend node`
+        );
+      }
+      const terminalTargets = (outgoingEdges.get(outcome.exitNodeId) ?? [])
+        .flatMap(edgeTargets);
+      if (terminalTargets.length !== 0) {
+        corrupt(
+          loopNode.id,
+          `terminal outcome exit "${outcome.exitNodeId}" has an outgoing body continuation`
+        );
+      }
+    } else {
+      if (completed.has(outcome.exitNodeId)) {
+        corrupt(
+          loopNode.id,
+          `suspended outcome exit "${outcome.exitNodeId}" is already completed`
+        );
+      }
+      const suspendCapable =
+        outcomeNode.type === "suspend" ||
+        (outcomeNode.type === "gate" && outcomeNode.gateType === "approval");
+      if (!suspendCapable) {
+        corrupt(
+          loopNode.id,
+          `suspended outcome exit "${outcome.exitNodeId}" is not suspend-capable`
+        );
+      }
+      const resumeEdges = outgoingEdges.get(outcome.exitNodeId) ?? [];
+      if (resumeEdges.length === 0) {
+        corrupt(
+          loopNode.id,
+          `suspended outcome exit "${outcome.exitNodeId}" has no resumable body continuation`
+        );
+      }
+      if (resumeEdges.length !== 1) {
+        corrupt(
+          loopNode.id,
+          `suspended outcome exit "${outcome.exitNodeId}" has multiple body continuations`
+        );
+      }
+    }
+    return;
+  }
 
   if (state.completed) {
     if (activeFork !== undefined) {
@@ -286,6 +448,27 @@ function validateResultRecord(
     results.set(nodeId, value as unknown as NodeResult);
   }
   return results;
+}
+
+function validateOutcome(
+  loopNodeId: string,
+  value: unknown
+): LoopBodyGraphCheckpointState["outcome"] {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) {
+    corrupt(loopNodeId, "outcome must be an object");
+  }
+  if (
+    value.kind !== "normal" &&
+    value.kind !== "suspended" &&
+    value.kind !== "terminal"
+  ) {
+    corrupt(loopNodeId, `outcome kind "${String(value.kind)}" is invalid`);
+  }
+  if (typeof value.exitNodeId !== "string" || value.exitNodeId.length === 0) {
+    corrupt(loopNodeId, "outcome exitNodeId must be a non-empty string");
+  }
+  return value as NonNullable<LoopBodyGraphCheckpointState["outcome"]>;
 }
 
 function edgeTargets(edge: PipelineEdge): string[] {

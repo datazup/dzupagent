@@ -276,5 +276,7 @@ export interface LoopMetrics {
     | "budget_unknown"
     | "no_progress"
     | "timed_out"
-    | "cancelled";
+    | "cancelled"
+    | "suspended"
+    | "terminal";
 }

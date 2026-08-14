@@ -22,6 +22,9 @@ function definition(input: {
   bodyEdges?: PipelineEdge[];
   entryNodeId: string;
   normalExitNodeIds: string[];
+  suspendedExitNodeIds?: string[];
+  terminalExitNodeIds?: string[];
+  errorExitNodeIds?: string[];
   trailingNode?: PipelineNode;
 }): PipelineDefinition {
   const loop: LoopNode = {
@@ -31,9 +34,9 @@ function definition(input: {
     bodyGraph: {
       entryNodeId: input.entryNodeId,
       normalExitNodeIds: input.normalExitNodeIds,
-      suspendedExitNodeIds: [],
-      terminalExitNodeIds: [],
-      errorExitNodeIds: [],
+      suspendedExitNodeIds: input.suspendedExitNodeIds ?? [],
+      terminalExitNodeIds: input.terminalExitNodeIds ?? [],
+      errorExitNodeIds: input.errorExitNodeIds ?? [],
     },
     maxIterations: 3,
     continuePredicateName: "continue-loop",
@@ -59,6 +62,28 @@ function definition(input: {
         : []),
     ],
   };
+}
+
+function terminalDefinition(): PipelineDefinition {
+  const graphDefinition = definition({
+    bodyNodes: [
+      { id: "prepare", type: "agent", agentId: "prepare" },
+      { id: "complete", type: "suspend", description: "done" },
+    ],
+    bodyEdges: [
+      {
+        type: "sequential",
+        sourceNodeId: "prepare",
+        targetNodeId: "complete",
+      },
+    ],
+    entryNodeId: "prepare",
+    normalExitNodeIds: [],
+    terminalExitNodeIds: ["complete"],
+    trailingNode: { id: "after", type: "agent", agentId: "after" },
+  });
+  graphDefinition.checkpointStrategy = "after_each_node";
+  return graphDefinition;
 }
 
 describe("pipeline structured loop-body scheduler", () => {
@@ -243,6 +268,42 @@ describe("pipeline structured loop-body scheduler", () => {
 
     expect(result.state).toBe("completed");
     expect({ attempts, recoveries }).toEqual({ attempts: 2, recoveries: 2 });
+  });
+
+  it("requires scoped completion to end at a declared normal exit", async () => {
+    const calls: string[] = [];
+    const errors: string[] = [];
+    const result = await new PipelineRuntime({
+      definition: definition({
+        bodyNodes: [
+          { id: "declared", type: "agent", agentId: "declared" },
+          { id: "actual", type: "agent", agentId: "actual" },
+        ],
+        bodyEdges: [
+          {
+            type: "sequential",
+            sourceNodeId: "declared",
+            targetNodeId: "actual",
+          },
+        ],
+        entryNodeId: "declared",
+        normalExitNodeIds: ["declared"],
+      }),
+      predicates: { "continue-loop": () => true },
+      onEvent: (event) => {
+        if (event.type === "pipeline:failed") errors.push(event.error);
+      },
+      nodeExecutor: async (nodeId) => {
+        calls.push(nodeId);
+        return { nodeId, output: nodeId, durationMs: 1 };
+      },
+    }).execute();
+
+    expect(result.state).toBe("failed");
+    expect(calls).toEqual(["declared", "actual"]);
+    expect(errors).toContainEqual(
+      expect.stringContaining("outside a declared normal exit")
+    );
   });
 
   it("resumes at catch after process loss before catch dispatch", async () => {
@@ -688,6 +749,524 @@ describe("pipeline structured loop-body scheduler", () => {
     expect(resumedCalls).toEqual([]);
   });
 
+  it("suspends the outer run at its loop and resumes the exact body cursor", async () => {
+    const store = new InMemoryPipelineCheckpointStore();
+    const graphDefinition = definition({
+      bodyNodes: [
+        { id: "prepare", type: "agent", agentId: "prepare" },
+        { id: "approval", type: "gate", gateType: "approval" },
+        { id: "work", type: "agent", agentId: "work" },
+      ],
+      bodyEdges: [
+        {
+          type: "sequential",
+          sourceNodeId: "prepare",
+          targetNodeId: "approval",
+        },
+        {
+          type: "sequential",
+          sourceNodeId: "approval",
+          targetNodeId: "work",
+        },
+      ],
+      entryNodeId: "prepare",
+      normalExitNodeIds: ["work"],
+      suspendedExitNodeIds: ["approval"],
+      trailingNode: { id: "after", type: "agent", agentId: "after" },
+    });
+    graphDefinition.checkpointStrategy = "after_each_node";
+
+    const firstCalls: string[] = [];
+    const suspended = await new PipelineRuntime({
+      definition: graphDefinition,
+      checkpointStore: store,
+      predicates: { "continue-loop": (state) => state["done"] !== true },
+      nodeExecutor: async (nodeId) => {
+        firstCalls.push(nodeId);
+        return {
+          nodeId,
+          output: nodeId,
+          durationMs: 1,
+          providerSessionRefs: [{ provider: "private", sessionId: "hidden" }],
+        };
+      },
+    }).execute(undefined, { runId: "nested-suspension" });
+
+    expect(
+      suspended.state,
+      JSON.stringify([...suspended.nodeResults.entries()])
+    ).toBe("suspended");
+    expect(firstCalls).toEqual(["prepare"]);
+    const checkpoint = await store.load(suspended.runId);
+    expect(PipelineCheckpointSchema.safeParse(checkpoint).success).toBe(true);
+    expect(checkpoint).toMatchObject({
+      suspendedAtNodeId: "loop",
+      completedNodeIds: [],
+      loopState: {
+        loop: {
+          iteration: 0,
+          bodyGraphState: {
+            completed: false,
+            outcome: { kind: "suspended", exitNodeId: "approval" },
+            completedNodeIds: ["prepare"],
+          },
+        },
+      },
+    });
+    expect(
+      checkpoint?.loopState?.["loop"]?.bodyGraphState?.nodeResults["prepare"]
+    ).not.toHaveProperty("providerSessionRefs");
+
+    const resumedCalls: string[] = [];
+    const resumed = await new PipelineRuntime({
+      definition: graphDefinition,
+      checkpointStore: store,
+      predicates: { "continue-loop": (state) => state["done"] !== true },
+      nodeExecutor: async (nodeId, _node, context) => {
+        resumedCalls.push(nodeId);
+        if (nodeId === "prepare") throw new Error("prepare was redispatched");
+        if (nodeId === "work") context.state["done"] = true;
+        return { nodeId, output: nodeId, durationMs: 1 };
+      },
+    }).resume(checkpoint!);
+
+    expect(resumed.state).toBe("completed");
+    expect(resumedCalls).toEqual(["work", "after"]);
+  });
+
+  it.each(["before-save", "save-then-throw"] as const)(
+    "keeps a nested suspension fail-closed after a %s checkpoint failure",
+    async (failureMode) => {
+      class SuspensionCheckpointFailureStore extends InMemoryPipelineCheckpointStore {
+        private failed = false;
+
+        override async save(checkpoint: PipelineCheckpoint): Promise<void> {
+          const suspended =
+            checkpoint.loopState?.["loop"]?.bodyGraphState?.outcome?.kind ===
+            "suspended";
+          if (!this.failed && suspended) {
+            this.failed = true;
+            if (failureMode === "save-then-throw") {
+              await super.save(checkpoint);
+            }
+            throw new Error(`simulated suspension ${failureMode}`);
+          }
+          await super.save(checkpoint);
+        }
+      }
+
+      const store = new SuspensionCheckpointFailureStore();
+      const graphDefinition = definition({
+        bodyNodes: [
+          { id: "approval", type: "gate", gateType: "approval" },
+          { id: "work", type: "agent", agentId: "work" },
+        ],
+        bodyEdges: [
+          {
+            type: "sequential",
+            sourceNodeId: "approval",
+            targetNodeId: "work",
+          },
+        ],
+        entryNodeId: "approval",
+        normalExitNodeIds: ["work"],
+        suspendedExitNodeIds: ["approval"],
+        trailingNode: { id: "after", type: "agent", agentId: "after" },
+      });
+      graphDefinition.checkpointStrategy = "after_each_node";
+
+      const firstCalls: string[] = [];
+      const failed = await new PipelineRuntime({
+        definition: graphDefinition,
+        checkpointStore: store,
+        predicates: { "continue-loop": () => true },
+        nodeExecutor: async (nodeId) => {
+          firstCalls.push(nodeId);
+          return { nodeId, output: nodeId, durationMs: 1 };
+        },
+      }).execute(undefined, { runId: `nested-suspension-${failureMode}` });
+
+      expect(failed.state).toBe("failed");
+      expect(firstCalls).toEqual([]);
+      const checkpoint = await store.load(failed.runId);
+      if (failureMode === "before-save") {
+        expect(checkpoint).toBeUndefined();
+        return;
+      }
+
+      expect(checkpoint).toMatchObject({
+        suspendedAtNodeId: "loop",
+        completedNodeIds: [],
+      });
+      const resumedCalls: string[] = [];
+      const resumed = await new PipelineRuntime({
+        definition: graphDefinition,
+        checkpointStore: store,
+        predicates: { "continue-loop": (state) => state["done"] !== true },
+        nodeExecutor: async (nodeId, _node, context) => {
+          resumedCalls.push(nodeId);
+          if (nodeId === "work") context.state["done"] = true;
+          return { nodeId, output: nodeId, durationMs: 1 };
+        },
+      }).resume(checkpoint!);
+      expect(resumed.state).toBe("completed");
+      expect(resumedCalls).toEqual(["work", "after"]);
+    }
+  );
+
+  it("persists the post-suspension cursor before dispatch and survives acknowledgement loss", async () => {
+    class ResumeCursorAckLossStore extends InMemoryPipelineCheckpointStore {
+      private sawSuspension = false;
+      private failed = false;
+
+      override async save(checkpoint: PipelineCheckpoint): Promise<void> {
+        await super.save(checkpoint);
+        const graph = checkpoint.loopState?.["loop"]?.bodyGraphState;
+        if (graph?.outcome?.kind === "suspended") this.sawSuspension = true;
+        if (
+          this.sawSuspension &&
+          !this.failed &&
+          checkpoint.suspendedAtNodeId === undefined &&
+          graph?.nextNodeId === "work"
+        ) {
+          this.failed = true;
+          throw new Error("simulated acknowledgement loss for resume cursor");
+        }
+      }
+    }
+
+    const store = new ResumeCursorAckLossStore();
+    const graphDefinition = definition({
+      bodyNodes: [
+        { id: "approval", type: "gate", gateType: "approval" },
+        { id: "work", type: "agent", agentId: "work" },
+      ],
+      bodyEdges: [
+        {
+          type: "sequential",
+          sourceNodeId: "approval",
+          targetNodeId: "work",
+        },
+      ],
+      entryNodeId: "approval",
+      normalExitNodeIds: ["work"],
+      suspendedExitNodeIds: ["approval"],
+    });
+    graphDefinition.checkpointStrategy = "after_each_node";
+
+    const first = await new PipelineRuntime({
+      definition: graphDefinition,
+      checkpointStore: store,
+      predicates: { "continue-loop": (state) => state["done"] !== true },
+      nodeExecutor: async (nodeId) => ({ nodeId, output: nodeId, durationMs: 1 }),
+    }).execute(undefined, { runId: "nested-suspension-resume-cursor" });
+    expect(first.state, JSON.stringify([...first.nodeResults.entries()])).toBe(
+      "suspended"
+    );
+
+    const suspendedCheckpoint = await store.load(first.runId);
+    const failedResumeCalls: string[] = [];
+    const failedResume = await new PipelineRuntime({
+      definition: graphDefinition,
+      checkpointStore: store,
+      predicates: { "continue-loop": () => true },
+      nodeExecutor: async (nodeId) => {
+        failedResumeCalls.push(nodeId);
+        return { nodeId, output: nodeId, durationMs: 1 };
+      },
+    }).resume(suspendedCheckpoint!);
+    expect(failedResume.state).toBe("failed");
+    expect(failedResumeCalls).toEqual([]);
+
+    const exactCursor = await store.load(first.runId);
+    expect(exactCursor?.suspendedAtNodeId).toBeUndefined();
+    expect(exactCursor?.loopState?.["loop"]?.bodyGraphState).toMatchObject({
+      completed: false,
+      nextNodeId: "work",
+    });
+    expect(
+      exactCursor?.loopState?.["loop"]?.bodyGraphState?.outcome
+    ).toBeUndefined();
+
+    const finalCalls: string[] = [];
+    const completed = await new PipelineRuntime({
+      definition: graphDefinition,
+      checkpointStore: store,
+      predicates: { "continue-loop": (state) => state["done"] !== true },
+      nodeExecutor: async (nodeId, _node, context) => {
+        finalCalls.push(nodeId);
+        context.state["done"] = true;
+        return { nodeId, output: nodeId, durationMs: 1 };
+      },
+    }).resume(exactCursor!);
+    expect(
+      completed.state,
+      JSON.stringify([...completed.nodeResults.entries()])
+    ).toBe("completed");
+    expect(finalCalls).toEqual(["work"]);
+  });
+
+  it("completes at a terminal body outcome and suppresses every outer continuation", async () => {
+    const store = new InMemoryPipelineCheckpointStore();
+    const graphDefinition = terminalDefinition();
+    const calls: string[] = [];
+    const completed = await new PipelineRuntime({
+      definition: graphDefinition,
+      checkpointStore: store,
+      predicates: { "continue-loop": () => true },
+      nodeExecutor: async (nodeId) => {
+        calls.push(nodeId);
+        return { nodeId, output: nodeId, durationMs: 1 };
+      },
+    }).execute(undefined, { runId: "nested-terminal" });
+
+    expect(completed.state).toBe("completed");
+    expect(calls).toEqual(["prepare"]);
+    expect(completed.nodeResults.get("loop")?.output).toMatchObject({
+      loopOutput: "done",
+      metrics: { terminationReason: "terminal" },
+    });
+    const checkpoint = await store.load(completed.runId);
+    expect(PipelineCheckpointSchema.safeParse(checkpoint).success).toBe(true);
+    expect(checkpoint).toMatchObject({
+      suspendedAtNodeId: "complete",
+      completedNodeIds: ["loop"],
+      loopState: {
+        loop: {
+          bodyGraphState: {
+            completed: true,
+            outcome: { kind: "terminal", exitNodeId: "complete" },
+          },
+        },
+      },
+    });
+
+    const resumedCalls: string[] = [];
+    const resumed = await new PipelineRuntime({
+      definition: graphDefinition,
+      checkpointStore: store,
+      predicates: { "continue-loop": () => true },
+      nodeExecutor: async (nodeId) => {
+        resumedCalls.push(nodeId);
+        return { nodeId, output: nodeId, durationMs: 1 };
+      },
+    }).resume(checkpoint!);
+    expect(resumed.state).toBe("completed");
+    expect(resumedCalls).toEqual([]);
+  });
+
+  it("propagates a terminal outcome selected by a conditional body path", async () => {
+    const graphDefinition = definition({
+      bodyNodes: [
+        { id: "choose", type: "gate", gateType: "quality" },
+        { id: "complete", type: "suspend", description: "branch done" },
+        { id: "normal", type: "agent", agentId: "normal" },
+      ],
+      bodyEdges: [
+        {
+          type: "conditional",
+          sourceNodeId: "choose",
+          predicateName: "choose-terminal",
+          branches: { true: "complete", false: "normal" },
+        },
+      ],
+      entryNodeId: "choose",
+      normalExitNodeIds: ["normal"],
+      terminalExitNodeIds: ["complete"],
+      trailingNode: { id: "after", type: "agent", agentId: "after" },
+    });
+    const calls: string[] = [];
+    const result = await new PipelineRuntime({
+      definition: graphDefinition,
+      predicates: {
+        "choose-terminal": () => true,
+        "continue-loop": () => true,
+      },
+      nodeExecutor: async (nodeId) => {
+        calls.push(nodeId);
+        return { nodeId, output: nodeId, durationMs: 1 };
+      },
+    }).execute();
+
+    expect(result.state).toBe("completed");
+    expect(calls).toEqual(["choose"]);
+    expect(result.nodeResults.get("loop")?.output).toMatchObject({
+      loopOutput: "branch done",
+      metrics: { terminationReason: "terminal" },
+    });
+  });
+
+  it("rejects nested control outcomes whose outer marker was corrupted", async () => {
+    const suspendedDefinition = definition({
+      bodyNodes: [
+        { id: "approval", type: "gate", gateType: "approval" },
+        { id: "work", type: "agent", agentId: "work" },
+      ],
+      bodyEdges: [
+        {
+          type: "sequential",
+          sourceNodeId: "approval",
+          targetNodeId: "work",
+        },
+      ],
+      entryNodeId: "approval",
+      normalExitNodeIds: ["work"],
+      suspendedExitNodeIds: ["approval"],
+    });
+    const cases: Array<{
+      name: string;
+      definition: PipelineDefinition;
+      checkpoint: PipelineCheckpoint;
+    }> = [
+      {
+        name: "suspended",
+        definition: suspendedDefinition,
+        checkpoint: {
+          pipelineRunId: "corrupt-suspended-marker",
+          pipelineId: suspendedDefinition.id,
+          version: 1,
+          schemaVersion: "1.0.0",
+          completedNodeIds: [],
+          suspendedAtNodeId: "approval",
+          loopState: {
+            loop: {
+              iteration: 0,
+              bodyGraphState: {
+                completed: false,
+                outcome: { kind: "suspended", exitNodeId: "approval" },
+                completedNodeIds: [],
+                nodeResults: {},
+                nodeIdempotencyKeys: {},
+              },
+            },
+          },
+          state: {},
+          createdAt: "2026-08-14T00:00:00.000Z",
+        },
+      },
+      {
+        name: "terminal",
+        definition: terminalDefinition(),
+        checkpoint: {
+          pipelineRunId: "corrupt-terminal-marker",
+          pipelineId: "structured-loop",
+          version: 1,
+          schemaVersion: "1.0.0",
+          completedNodeIds: ["loop"],
+          suspendedAtNodeId: "loop",
+          loopState: {
+            loop: {
+              iteration: 0,
+              bodyGraphState: {
+                completed: true,
+                outcome: { kind: "terminal", exitNodeId: "complete" },
+                completedNodeIds: ["prepare"],
+                nodeResults: {
+                  prepare: {
+                    nodeId: "prepare",
+                    output: "prepare",
+                    durationMs: 1,
+                  },
+                },
+                nodeIdempotencyKeys: {},
+              },
+            },
+          },
+          state: {},
+          createdAt: "2026-08-14T00:00:00.000Z",
+        },
+      },
+    ];
+
+    for (const testCase of cases) {
+      const calls: string[] = [];
+      const errors: string[] = [];
+      const result = await new PipelineRuntime({
+        definition: testCase.definition,
+        predicates: { "continue-loop": () => true },
+        onEvent: (event) => {
+          if (event.type === "pipeline:failed") errors.push(event.error);
+        },
+        nodeExecutor: async (nodeId) => {
+          calls.push(nodeId);
+          return { nodeId, output: nodeId, durationMs: 1 };
+        },
+      }).resume(testCase.checkpoint);
+
+      expect(result.state, testCase.name).toBe("failed");
+      expect(calls, testCase.name).toEqual([]);
+      expect(errors, testCase.name).toContainEqual(
+        expect.stringContaining("invalid outer checkpoint marker")
+      );
+    }
+  });
+
+  it.each(["before-save", "save-then-throw"] as const)(
+    "recovers a terminal outcome after a %s checkpoint failure",
+    async (failureMode) => {
+      class TerminalCheckpointFailureStore extends InMemoryPipelineCheckpointStore {
+        private failed = false;
+
+        override async save(checkpoint: PipelineCheckpoint): Promise<void> {
+          const terminal =
+            checkpoint.loopState?.["loop"]?.bodyGraphState?.outcome?.kind ===
+            "terminal";
+          if (!this.failed && terminal) {
+            this.failed = true;
+            if (failureMode === "save-then-throw") {
+              await super.save(checkpoint);
+            }
+            throw new Error(`simulated terminal ${failureMode}`);
+          }
+          await super.save(checkpoint);
+        }
+      }
+
+      const store = new TerminalCheckpointFailureStore();
+      const graphDefinition = terminalDefinition();
+      const firstCalls: string[] = [];
+      const failed = await new PipelineRuntime({
+        definition: graphDefinition,
+        checkpointStore: store,
+        predicates: { "continue-loop": () => true },
+        nodeExecutor: async (nodeId) => {
+          firstCalls.push(nodeId);
+          return { nodeId, output: nodeId, durationMs: 1 };
+        },
+      }).execute(undefined, { runId: `nested-terminal-${failureMode}` });
+
+      expect(failed.state).toBe("failed");
+      expect(firstCalls).toEqual(["prepare"]);
+      const checkpoint = await store.load(failed.runId);
+      expect(checkpoint).toBeDefined();
+      if (failureMode === "save-then-throw") {
+        expect(checkpoint).toMatchObject({
+          suspendedAtNodeId: "complete",
+          completedNodeIds: ["loop"],
+        });
+      } else {
+        expect(checkpoint?.suspendedAtNodeId).toBeUndefined();
+        expect(checkpoint?.loopState?.["loop"]?.bodyGraphState).toMatchObject({
+          completed: false,
+          nextNodeId: "complete",
+        });
+      }
+
+      const resumedCalls: string[] = [];
+      const resumed = await new PipelineRuntime({
+        definition: graphDefinition,
+        checkpointStore: store,
+        predicates: { "continue-loop": () => true },
+        nodeExecutor: async (nodeId) => {
+          resumedCalls.push(nodeId);
+          return { nodeId, output: nodeId, durationMs: 1 };
+        },
+      }).resume(checkpoint!);
+      expect(resumed.state).toBe("completed");
+      expect(resumedCalls).toEqual([]);
+    }
+  );
+
   const corruptDefinition = definition({
     bodyNodes: [
       { id: "fork", type: "fork", forkId: "parallel" },
@@ -720,6 +1299,36 @@ describe("pipeline structured loop-body scheduler", () => {
   });
 
   it.each([
+    {
+      name: "unknown outcome kind",
+      fragment: 'outcome kind "paused" is invalid',
+      state: () => ({
+        ...incompleteCursor(),
+        nextNodeId: undefined,
+        outcome: { kind: "paused", exitNodeId: "fork" },
+      }),
+    },
+    {
+      name: "outcome classified in the wrong inventory",
+      fragment:
+        'terminal outcome exit "join" must have exactly one matching declared classification',
+      state: () => ({
+        completed: true,
+        outcome: { kind: "terminal", exitNodeId: "join" },
+        completedNodeIds: ["fork", "join"],
+        nodeResults: {},
+        nodeIdempotencyKeys: {},
+      }),
+    },
+    {
+      name: "suspended outcome with a dispatch cursor",
+      fragment:
+        "suspended outcome requires completed=false and must omit nextNodeId",
+      state: () => ({
+        ...incompleteCursor(),
+        outcome: { kind: "suspended", exitNodeId: "fork" },
+      }),
+    },
     {
       name: "unknown next node",
       fragment: 'next node "ghost" is outside bodyNodeIds',

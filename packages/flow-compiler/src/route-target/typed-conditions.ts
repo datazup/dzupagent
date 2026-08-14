@@ -2,12 +2,10 @@ import type { FlowNode } from "@dzupagent/flow-ast";
 
 export interface UnsupportedTypedCondition {
   readonly path: string;
+  readonly nodeType: "branch" | "loop";
 }
 
-/**
- * Current generic targets preserve only string predicates. Typed conditions
- * are validated before this pass, then blocked before artifact emission.
- */
+/** Collect typed-condition sites for node/target-specific emission admission. */
 export function collectUnsupportedTypedConditions(
   root: FlowNode,
 ): UnsupportedTypedCondition[] {
@@ -25,7 +23,10 @@ function visit(
     (node.type === "branch" || node.type === "loop") &&
     node.typedCondition !== undefined
   ) {
-    unsupported.push({ path: `${path}.typedCondition` });
+    unsupported.push({
+      path: `${path}.typedCondition`,
+      nodeType: node.type,
+    });
   }
   for (const [child, childPath] of childNodes(node, path)) {
     visit(child, childPath, unsupported);

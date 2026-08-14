@@ -34,9 +34,10 @@ export function collectUnsupportedV2TargetErrors(
   ast: FlowNode,
   target: CompilationTarget,
   source: SourceReferenceSnapshot,
+  targetCapabilities: readonly string[] = [],
 ): CompilationError[] {
   return [
-    ...typedConditionErrors(ast, target, source),
+    ...typedConditionErrors(ast, target, source, targetCapabilities),
     ...policyNarrowingErrors(target, source),
     ...retryPolicyErrors(target, source),
     ...terminalCatchErrors(target, source),
@@ -105,17 +106,26 @@ function typedConditionErrors(
   ast: FlowNode,
   target: CompilationTarget,
   source: SourceReferenceSnapshot,
+  targetCapabilities: readonly string[],
 ): CompilationError[] {
-  return collectUnsupportedTypedConditions(ast).map((condition) => ({
-    stage: 4 as const,
-    code: "TYPED_CONDITION_TARGET_UNSUPPORTED",
-    message:
-      `Typed condition at "${condition.path}" is valid, but the selected "${target}" target has no reviewed ` +
-      `${FLOW_TYPED_CONDITION_CAPABILITY} evaluator. Artifact emission is blocked.`,
-    nodePath: condition.path,
-    category: "lowering" as const,
-    ...sourceSpan(source, condition.path),
-  }));
+  const typedLoopEvaluatorAdmitted = targetCapabilities.includes(
+    FLOW_TYPED_CONDITION_CAPABILITY,
+  ) && target === "pipeline";
+  return collectUnsupportedTypedConditions(ast)
+    .filter(
+      (condition) =>
+        condition.nodeType !== "loop" || !typedLoopEvaluatorAdmitted,
+    )
+    .map((condition) => ({
+      stage: 4 as const,
+      code: "TYPED_CONDITION_TARGET_UNSUPPORTED",
+      message:
+        `Typed condition at "${condition.path}" is valid, but the selected "${target}" target has no reviewed ` +
+        `${FLOW_TYPED_CONDITION_CAPABILITY} evaluator. Artifact emission is blocked.`,
+      nodePath: condition.path,
+      category: "lowering" as const,
+      ...sourceSpan(source, condition.path),
+    }));
 }
 
 function policyNarrowingErrors(
