@@ -319,9 +319,9 @@ describe('F-R2 trace agreement: terminal exits end the run', () => {
 })
 
 /**
- * action → try_catch(body: action / catch: action), try_catch last so the
- * catch tail is both a normal tail of the root fragment and its one pinned
- * error exit (F-R2c).
+ * action → try_catch(body: action / catch: action), try_catch last. A
+ * handled body error resumes through the catch tail, so the catch tail is a
+ * normal exit and never remains classified as an unhandled error exit.
  */
 const ERROR_FLOW = {
   type: 'sequence',
@@ -336,14 +336,12 @@ const ERROR_FLOW = {
 }
 
 describe('F-R2c trace agreement: error exits land the error path', () => {
-  it('a failing body node routes the live run into the catch and ends at the pinned error exit', async () => {
+  it('a failing body node routes the live run into the catch and ends at a normal-only catch exit', async () => {
     const { definition, ports } = await compileToPipeline(ERROR_FLOW)
 
-    // Compiled claims: one error exit (the catch tail), which — sitting at
-    // the fragment boundary — is also among the normal tails.
-    expect(ports.errorExits).toHaveLength(1)
-    const errorExitId = ports.errorExits[0] as string
-    expect(ports.normalExits).toContain(errorExitId)
+    // The catch handles the body failure. Its tail must not remain in the
+    // unhandled-error inventory, which is pairwise disjoint from normal exits.
+    expect(ports.errorExits).toEqual([])
 
     const harness = makeTraceHarness(definition)
     // Only the try body fails; everything else executes normally.
@@ -367,9 +365,9 @@ describe('F-R2c trace agreement: error exits land the error path', () => {
     // A handled error resumes: the run COMPLETES through the catch.
     expect(result.state).toBe('completed')
     expect(harness.executedNames).toContain('topics.list')
-    expect(harness.executedIds[harness.executedIds.length - 1]).toBe(
-      errorExitId,
-    )
+    const catchExitId = harness.executedIds[harness.executedIds.length - 1]
+    expect(ports.normalExits).toContain(catchExitId)
+    expect(ports.errorExits).not.toContain(catchExitId)
   })
 
   it('without a failure the catch never runs and the run ends at a non-error normal exit', async () => {
