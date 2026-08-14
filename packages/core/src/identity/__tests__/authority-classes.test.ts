@@ -11,6 +11,14 @@ import {
   isGovernedEffect,
   type AuthorityClass,
 } from "../authority-classes.js";
+import { resolveWorkspaceSiblingUrl } from "./workspace-sibling.js";
+
+const G01_AUTHORITY_CLASSES_URL = resolveWorkspaceSiblingUrl(
+  "scripts",
+  "flow-prompt-lab",
+  "lib",
+  "g01-authority-classes.js",
+);
 
 describe("authority-classes (ADR-0001 L2)", () => {
   describe("vocabulary", () => {
@@ -145,7 +153,7 @@ describe("authority-classes (ADR-0001 L2)", () => {
       // Any divergence means the two stacks would disagree about authority.
       const g01 = await import(
         /* @vite-ignore */
-        "../../../../../../scripts/flow-prompt-lab/lib/g01-authority-classes.js"
+        G01_AUTHORITY_CLASSES_URL.href
       ).then(
         (m) =>
           (m.default ?? m) as {

@@ -207,10 +207,11 @@ describe("inactive V2 durable checkpoint store", () => {
           "contended-run",
           `worker-${index}`,
           String(startAt),
-          "300",
         ]);
         return JSON.parse(stdout) as {
-          claim: { ok: boolean; fencingToken?: number };
+          claim:
+            | { ok: false }
+            | { ok: true; leaseToken: string; fencingToken: number };
         };
       })
     );
@@ -219,6 +220,17 @@ describe("inactive V2 durable checkpoint store", () => {
     expect(workerResults.find((result) => result.claim.ok)).toMatchObject({
       claim: { fencingToken: 1 },
     });
+
+    const winner = workerResults.find((result) => result.claim.ok);
+    if (!winner?.claim.ok) throw new Error("expected one winning claim");
+    const cleanupStore = createFileV2InactiveLocalHostStore({ rootDirectory });
+    await expect(
+      cleanupStore.release({
+        runId: "contended-run",
+        leaseToken: winner.claim.leaseToken,
+        fencingToken: winner.claim.fencingToken,
+      })
+    ).resolves.toBe(true);
 
     const nextStore = createFileV2InactiveLocalHostStore({
       rootDirectory,

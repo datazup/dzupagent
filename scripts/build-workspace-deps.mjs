@@ -40,6 +40,10 @@ export function buildTurboBuildArgs(filters) {
   ];
 }
 
+export function dependencyBuildOwnedByOuterTurbo(env = process.env) {
+  return typeof env.TURBO_HASH === 'string' && env.TURBO_HASH.length > 0;
+}
+
 function readWorkspacePackages(root) {
   const packagesRoot = path.join(root, 'packages');
   const packages = new Map();
@@ -71,6 +75,12 @@ function packageNameFromCwd() {
 
 function main() {
   const packageName = process.argv[2] ?? packageNameFromCwd();
+  if (dependencyBuildOwnedByOuterTurbo()) {
+    console.log(
+      `OK: outer Turbo task graph owns local dependency builds for ${packageName}`,
+    );
+    return;
+  }
   const filters = collectWorkspaceDependencyBuildFilters(repoRoot, packageName);
   if (filters.length === 0) {
     console.log(`OK: ${packageName} has no local workspace dependencies to build`);
