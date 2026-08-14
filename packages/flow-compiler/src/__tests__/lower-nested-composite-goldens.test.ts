@@ -81,7 +81,7 @@ function lowerGolden(node: FlowNode): GraphGolden {
 }
 
 describe("nested-composite lowering goldens", () => {
-  it("approval (no onReject) inside an else-less branch arm", () => {
+  it("approval inside an else-less branch arm", () => {
     const golden = lowerGolden({
       type: "sequence",
       nodes: [
@@ -93,6 +93,7 @@ describe("nested-composite lowering goldens", () => {
               type: "approval",
               question: "ship it?",
               onApprove: [makeAction("ship")],
+              onReject: [makeAction("revise")],
             },
           ],
         },
@@ -104,18 +105,20 @@ describe("nested-composite lowering goldens", () => {
         "gate:approval:root.nodes[0].then[0]",
         "gate:branch:root.nodes[0]",
         "tool:after",
+        "tool:revise",
         "tool:ship",
       ],
       edges: [
-        "approval:root.nodes[0].then[0] ?(approved=ship)",
+        "approval:root.nodes[0].then[0] ?(approved=ship, rejected=revise)",
         "branch:root.nodes[0] -> after",
         "branch:root.nodes[0] ?(true=approval:root.nodes[0].then[0])",
+        "revise -> after",
         "ship -> after",
       ],
       ports: {
         entry: ["branch:root.nodes[0]"],
         normal: ["after"],
-        suspended: ["approval:root.nodes[0].then[0]"],
+        suspended: [],
         terminal: [],
         error: [],
       },
@@ -251,8 +254,8 @@ describe("nested-composite lowering goldens", () => {
     });
   });
 
-  it("for_each whose body ends in an approval (suspended exit escapes the loop)", () => {
-    const golden = lowerGolden({
+  it("rejects for_each whose body contains an interaction", () => {
+    expect(() => lowerGolden({
       type: "for_each",
       source: "items",
       as: "item",
@@ -261,23 +264,9 @@ describe("nested-composite lowering goldens", () => {
           type: "approval",
           question: "keep going?",
           onApprove: [makeAction("proceed")],
+          onReject: [makeAction("stop")],
         },
       ],
-    });
-    expect(golden).toEqual({
-      nodes: [
-        "gate:approval:root.body[0]",
-        "loop:forEach:item",
-        "tool:proceed",
-      ],
-      edges: ["approval:root.body[0] ?(approved=proceed)"],
-      ports: {
-        entry: ["forEach:item"],
-        normal: ["forEach:item"],
-        suspended: ["approval:root.body[0]"],
-        terminal: [],
-        error: [],
-      },
-    });
+    })).toThrow("requires a durable per-item bodyGraph");
   });
 });

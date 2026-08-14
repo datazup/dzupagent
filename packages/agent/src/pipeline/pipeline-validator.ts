@@ -197,6 +197,13 @@ export function validatePipeline(definition: PipelineDefinition): PipelineValida
   for (const node of definition.nodes) {
     if (node.type === 'loop') {
       const bodyIds = new Set(node.bodyNodeIds)
+      const interactionBodyIds = node.bodyNodeIds.filter(bodyId => {
+        const bodyNode = nodeMap.get(bodyId)
+        return (
+          (bodyNode?.type === 'suspend' || bodyNode?.type === 'gate') &&
+          bodyNode.interaction !== undefined
+        )
+      })
       for (const bodyId of node.bodyNodeIds) {
         if (!nodeMap.has(bodyId)) {
           errors.push({
@@ -214,13 +221,6 @@ export function validatePipeline(definition: PipelineDefinition): PipelineValida
           ['error', node.bodyGraph.errorExitNodeIds],
         ] as const
         const suspensionSites = node.bodyGraph.suspensionSiteNodeIds ?? []
-        const interactionBodyIds = node.bodyNodeIds.filter(bodyId => {
-          const bodyNode = nodeMap.get(bodyId)
-          return (
-            (bodyNode?.type === 'suspend' || bodyNode?.type === 'gate') &&
-            bodyNode.interaction !== undefined
-          )
-        })
         if (
           new Set(suspensionSites).size !== suspensionSites.length ||
           interactionBodyIds.some(siteId => !suspensionSites.includes(siteId))
@@ -235,9 +235,7 @@ export function validatePipeline(definition: PipelineDefinition): PipelineValida
         for (const [kind, exitIds] of exitInventories) {
           for (const exitId of exitIds) {
             const previousKind = classifiedExitIds.get(exitId)
-            const isContinuingErrorExit =
-              previousKind === 'normal' && kind === 'error'
-            if (previousKind !== undefined && !isContinuingErrorExit) {
+            if (previousKind !== undefined) {
               errors.push({
                 code: 'INVALID_LOOP_BODY_GRAPH',
                 message: `LoopNode "${node.id}" bodyGraph exit "${exitId}" is classified as both ${previousKind} and ${kind}`,
@@ -351,6 +349,12 @@ export function validatePipeline(definition: PipelineDefinition): PipelineValida
             })
           }
         }
+      } else if (interactionBodyIds.length > 0) {
+        errors.push({
+          code: 'INVALID_LOOP_BODY_GRAPH',
+          message: `LoopNode "${node.id}" cannot contain interaction nodes without a checkpoint-bound bodyGraph`,
+          nodeId: node.id,
+        })
       }
     }
   }

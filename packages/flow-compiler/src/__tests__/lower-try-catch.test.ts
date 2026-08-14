@@ -6,11 +6,8 @@
  * fragment instead of failing the run.
  *
  * Port semantics pinned here:
- *  - `errorExits` = the catch fragment's continuing tails — exits reachable
- *    only via the error path. A handled error RESUMES: catch tails are also
- *    wired into the continuation, so `normalExits === effectiveTails` (the
- *    R2 invariant) still holds and `errorExits` refines WHICH of those tails
- *    are error-path ones.
+ *  - a handled error RESUMES through the catch tail, which is therefore a
+ *    normal exit only; public exit inventories remain pairwise disjoint.
  *  - suspended/terminal exits inside body or catch compose upward unchanged;
  *    a catch ending in `complete` contributes a terminal exit, not an error
  *    exit (it does not continue).
@@ -111,9 +108,9 @@ describe("try_catch lowers the catch branch onto the error path", () => {
     ]);
   });
 
-  it("classifies exactly the catch tails as errorExits, preserving the normalExits invariant", () => {
+  it("classifies handled catch tails only as normal exits", () => {
     const result = lower(TRY_CATCH);
-    expect(result.ports?.errorExits).toEqual([idOfName(result, "recover")]);
+    expect(result.ports?.errorExits).toEqual([]);
     expect(result.ports?.normalExits).toEqual(effectiveTails(result));
     expect(result.ports?.entryNodeIds).toEqual([idOfName(result, "attempt")]);
     expect(result.ports?.suspendedExits).toEqual([]);
@@ -158,7 +155,7 @@ describe("try_catch port composition through the catch fragment", () => {
     expect(result.tailNodeIds).toEqual([idOfName(result, "attempt")]);
   });
 
-  it("suspended exits inside the catch compose upward", () => {
+  it("interaction sites inside the catch compose upward without a suspended dead-end", () => {
     const result = lower({
       type: "try_catch",
       body: [makeAction("attempt")],
@@ -167,12 +164,14 @@ describe("try_catch port composition through the catch fragment", () => {
           type: "approval",
           question: "retry manually?",
           onApprove: [makeAction("manual")],
+          onReject: [makeAction("decline")],
         },
       ],
     });
     const gate = result.nodes.find((n) => n.name?.startsWith("approval:"));
     expect(gate).toBeDefined();
-    expect(result.ports?.suspendedExits).toEqual([gate?.id]);
+    expect(result.ports?.suspendedExits).toEqual([]);
+    expect(result.ports?.suspensionSites).toEqual([gate?.id]);
   });
 
   it("nested try_catch: the inner error edge precedes the outer one so the inner catch wins", () => {

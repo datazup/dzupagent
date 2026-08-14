@@ -109,7 +109,7 @@ describe('approval tails (DSL-02)', () => {
     expect(hasSeqEdge(artifact, gate.id, next.id)).toBe(false)
   })
 
-  it('keeps the rejected path terminal when onReject is absent (no fail-open continuation)', () => {
+  it('fails closed when onReject is absent', () => {
     const resolved = new Map<string, ResolvedTool>()
     resolved.set('root.nodes[0].onApprove[0]', makeSkillRt('skill:approve-work'))
     resolved.set('root.nodes[1]', makeSkillRt('skill:next'))
@@ -126,21 +126,12 @@ describe('approval tails (DSL-02)', () => {
       ],
     }
 
-    const { artifact } = lowerPipelineFlat({
+    expect(() => lowerPipelineFlat({
       ast,
       resolved,
       resolvedPersonas: new Map(),
       _idGen: makeIdGen('appr-noreject'),
-    })
-
-    const approveTail = nodeByName(artifact, 'skill:approve-work')
-    const next = nodeByName(artifact, 'skill:next')
-    const gate = nodeByNamePrefix(artifact, 'approval:')
-
-    // The approve path continues; rejection deliberately dead-ends at the
-    // gate — an approval must not continue into the next sibling on reject.
-    expect(hasSeqEdge(artifact, approveTail.id, next.id)).toBe(true)
-    expect(hasSeqEdge(artifact, gate.id, next.id)).toBe(false)
+    })).toThrow('requires executable successors')
   })
 })
 

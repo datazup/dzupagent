@@ -310,6 +310,7 @@ describe('lowerNodeToPipeline — clarification', () => {
       type: 'clarification',
       id: 'q1',
       question: 'What is your name?',
+      outputKey: 'name',
     }
     const result = lowerNodeToPipeline(node, ctx, 'root')
     expect(result.nodes).toHaveLength(1)
@@ -324,6 +325,7 @@ describe('lowerNodeToPipeline — clarification', () => {
       question: 'Pick one',
       expected: 'choice',
       choices: ['A', 'B'],
+      outputKey: 'selection',
     }
     const result = lowerNodeToPipeline(node, ctx, 'root')
     const suspend = result.nodes[0] as { resumeCondition?: string }
@@ -438,10 +440,12 @@ describe('lowerNodeToPipeline — approval', () => {
   it('produces a GateNode of gateType approval', () => {
     const ctx = makeCtx()
     ctx.resolved.set('root.onApprove[0]', makeSkillRt('skill:proceed'))
+    ctx.resolved.set('root.onReject[0]', makeSkillRt('skill:abort'))
     const node: FlowNode = {
       type: 'approval',
       question: 'Proceed?',
       onApprove: [makeAction('skill:proceed')],
+      onReject: [makeAction('skill:abort')],
     }
     const result = lowerNodeToPipeline(node, ctx, 'root')
     const gate = result.nodes.find((n) => n.type === 'gate') as { gateType?: string } | undefined

@@ -109,6 +109,30 @@ describe("pipeline interaction artifact and checkpoint schemas", () => {
     ).toThrow(/outcome mapping must agree/);
   });
 
+  it("rejects duplicate or extra approval decision edges", () => {
+    expect(() =>
+      serializePipeline({
+        ...definition,
+        edges: [...definition.edges, ...definition.edges],
+      }),
+    ).toThrow(/exactly one conditional graph edge/);
+    expect(() =>
+      serializePipeline({
+        ...definition,
+        edges: [{
+          ...definition.edges[0]!,
+          type: "conditional",
+          branches: {
+            approved: "yes",
+            rejected: "no",
+            true: "yes",
+            false: "no",
+          },
+        }],
+      }),
+    ).toThrow(/exact approved\/rejected keys/);
+  });
+
   it("rejects unknown interaction and checkpoint fields", () => {
     expect(
       PipelineCheckpointSchema.safeParse({

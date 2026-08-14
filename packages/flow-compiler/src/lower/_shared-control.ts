@@ -272,9 +272,9 @@ export function lowerParallel(
  * reachable only via the error path.
  *
  * A handled error RESUMES: the fragment's tails are body tails + catch
- * tails, and the catch tails are also published as `ports.errorExits`. The
- * error set refines WHICH continuations are error-path ones without
- * breaking the `normalExits === effectiveTails` invariant. Suspended and
+ * tails. Once the catch completes, its tail is a normal continuation; it is
+ * not also an error exit. Public exit inventories stay pairwise disjoint.
+ * Suspended and
  * terminal exits from both sub-graphs compose upward unchanged, so a catch
  * that deliberately ends the flow (`complete`) contributes a terminal exit
  * and no error exit.
@@ -361,9 +361,7 @@ export function lowerTryCatch(
         ...catchPorts.suspensionSites,
       ],
       terminalExits: [...bodyPorts.terminalExits, ...catchPorts.terminalExits],
-      // Every continuing exit of the catch fragment is an error-path exit of
-      // this fragment; body-side error exits (nested try_catch) propagate.
-      errorExits: [...bodyPorts.errorExits, ...catchTails],
+      errorExits: [...bodyPorts.errorExits, ...catchPorts.errorExits],
     },
   };
 }

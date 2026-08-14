@@ -855,11 +855,13 @@ describe("lowerPipelineFlat — W1 durability wiring (T5, T7)", () => {
     const resolver = makeResolver(["tools.write"]);
     const resolved = buildResolved(resolver, [
       { nodePath: "root.onApprove[0]", toolRef: "tools.write" },
+      { nodePath: "root.onReject[0]", toolRef: "tools.write" },
     ]);
     const ast: ApprovalNode = {
       type: "approval",
       question: "Approve write?",
       onApprove: [action("tools.write")],
+      onReject: [action("tools.write")],
       idempotency: "exactly-once-required",
       effectClass: "network_write",
       meta: {

@@ -29,6 +29,11 @@ type NormalizeSteps = (
   diagnostics: DslDiagnostic[],
 ) => FlowNode[]
 
+const MAX_INTERACTION_CHOICES = 32
+const MAX_INTERACTION_CHOICE_LENGTH = 256
+const MAX_INTERACTION_QUESTION_LENGTH = 4096
+const MAX_INTERACTION_OUTPUT_KEY_LENGTH = 512
+
 const ACTION_KEYS = new Set<string>([
   ...COMMON_NODE_KEYS,
   'ref',
@@ -404,6 +409,13 @@ export function normalizeApproval(
       message: 'approval.question is required',
       path: `${path}.question`,
     })
+  } else if (node.question.length > MAX_INTERACTION_QUESTION_LENGTH) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: `approval.question must contain at most ${MAX_INTERACTION_QUESTION_LENGTH} characters`,
+      path: `${path}.question`,
+    })
   }
   if (node.onApprove.length === 0) {
     diagnostics.push({
@@ -423,6 +435,13 @@ export function normalizeApproval(
         path: `${path}.on_reject`,
       })
     }
+  } else {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.MISSING_REQUIRED_FIELD,
+      message: 'approval.on_reject is required for checkpoint-bound interaction admission',
+      path: `${path}.on_reject`,
+    })
   }
   return node
 }
@@ -449,13 +468,24 @@ export function normalizeClarify(
     question: typeof raw.question === 'string' ? raw.question : '',
   }
   const outputKey = raw.output ?? raw.outputKey
-  if (typeof outputKey === 'string' && outputKey.length > 0) {
+  if (
+    typeof outputKey === 'string'
+    && outputKey.length > 0
+    && outputKey.length <= MAX_INTERACTION_OUTPUT_KEY_LENGTH
+  ) {
     node.outputKey = outputKey
   } else if (outputKey !== undefined) {
     diagnostics.push({
       phase: 'normalize',
       code: DSL_ERROR.INVALID_NODE_SHAPE,
-      message: 'clarify.output must be a non-empty string when present',
+      message: `clarify.output must be a non-empty string of at most ${MAX_INTERACTION_OUTPUT_KEY_LENGTH} characters`,
+      path: `${path}.output`,
+    })
+  } else {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.MISSING_REQUIRED_FIELD,
+      message: 'clarify.output is required for checkpoint-bound interaction admission',
       path: `${path}.output`,
     })
   }
@@ -464,6 +494,13 @@ export function normalizeClarify(
       phase: 'normalize',
       code: DSL_ERROR.MISSING_REQUIRED_FIELD,
       message: 'clarify.question is required',
+      path: `${path}.question`,
+    })
+  } else if (node.question.length > MAX_INTERACTION_QUESTION_LENGTH) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: `clarify.question must contain at most ${MAX_INTERACTION_QUESTION_LENGTH} characters`,
       path: `${path}.question`,
     })
   }
@@ -480,6 +517,9 @@ export function normalizeClarify(
   const choices = normalizeStringArray(raw.choices, `${path}.choices`, diagnostics)
   validateInteractionChoices(choices, 'clarify.choices', `${path}.choices`, diagnostics)
   if (choices !== undefined) node.choices = choices
+  if (node.expected === undefined && choices !== undefined && choices.length > 0) {
+    node.expected = 'choice'
+  }
   if (node.expected === 'choice' && (choices === undefined || choices.length === 0)) {
     diagnostics.push({
       phase: 'normalize',
@@ -506,22 +546,28 @@ function validateInteractionChoices(
   diagnostics: DslDiagnostic[],
 ): void {
   if (values === undefined) return
-  if (values.length > 32) {
+  if (values.length > MAX_INTERACTION_CHOICES) {
     diagnostics.push({
       phase: 'normalize',
       code: DSL_ERROR.INVALID_NODE_SHAPE,
-      message: `${label} must contain at most 32 values`,
+      message: `${label} must contain at most ${MAX_INTERACTION_CHOICES} values`,
       path,
     })
   }
   const seen = new Set<string>()
   values.forEach((value, index) => {
-    if (value.length === 0 || seen.has(value)) {
+    if (
+      value.length === 0
+      || value.length > MAX_INTERACTION_CHOICE_LENGTH
+      || seen.has(value)
+    ) {
       diagnostics.push({
         phase: 'normalize',
         code: DSL_ERROR.INVALID_NODE_SHAPE,
         message: value.length === 0
           ? `${label} values must be non-empty strings`
+          : value.length > MAX_INTERACTION_CHOICE_LENGTH
+            ? `${label} values must contain at most ${MAX_INTERACTION_CHOICE_LENGTH} characters`
           : `${label} contains duplicate value "${value}"`,
         path: `${path}.${index}`,
       })

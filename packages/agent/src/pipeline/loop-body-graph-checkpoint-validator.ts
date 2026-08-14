@@ -234,10 +234,8 @@ export function validateLoopBodyGraphCheckpointState(
         ] as const)
           .filter(([, exitIds]) => exitIds.includes(outcome.exitNodeId))
           .map(([kind]) => kind);
-    const classificationMatches = outcome.kind === "normal"
-      ? classifications.includes("normal") &&
-        classifications.every((kind) => kind === "normal" || kind === "error")
-      : classifications.length === 1 && classifications[0] === outcome.kind;
+    const classificationMatches =
+      classifications.length === 1 && classifications[0] === outcome.kind;
     if (!classificationMatches) {
       corrupt(
         loopNode.id,

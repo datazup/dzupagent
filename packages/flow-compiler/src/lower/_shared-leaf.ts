@@ -24,7 +24,10 @@ import type {
   SuspendNode,
   ToolNode,
 } from "@dzupagent/core/orchestration";
-import { createPipelineInteractionSpecV1 } from "@dzupagent/runtime-contracts";
+import {
+  createPipelineInteractionSpecV1,
+  validatePipelineInteractionSpecV1,
+} from "@dzupagent/runtime-contracts";
 
 import type {
   LowerPipelineContext,
@@ -144,6 +147,12 @@ export function lowerForEach(
     (idx) => `${path}.body[${idx}]`,
     lowerOne
   );
+  const bodyPorts = portsOf(bodyResult);
+  if (bodyPorts.suspensionSites.length > 0) {
+    throw new Error(
+      `lowerForEach: interaction at ${path} requires a durable per-item bodyGraph and is not admitted`,
+    );
+  }
   const bodyNodeIds = bodyResult.nodes.map((n) => n.id);
 
   const loopNode: LoopNode = {
@@ -164,7 +173,6 @@ export function lowerForEach(
   // returns to the loop node), but the body's suspended/terminal exits are
   // real outcomes of the fragment — a `complete` inside the body ends the
   // whole flow — so the ports propagate them instead of swallowing them.
-  const bodyPorts = portsOf(bodyResult);
   return {
     nodes: [loopNode, ...bodyResult.nodes],
     edges: bodyResult.edges,
@@ -338,6 +346,36 @@ export function lowerClarification(
   ctx: LowerPipelineContext,
   path: string
 ): LowerPipelineResult {
+  if (node.outputKey === undefined || node.outputKey.length === 0) {
+    throw new Error(
+      `lowerClarification: clarification at ${path} requires outputKey`,
+    );
+  }
+  const responseKind =
+    node.expected ??
+    (node.choices !== undefined && node.choices.length > 0 ? "choice" : "text");
+  const interaction = createPipelineInteractionSpecV1({
+    kind: "clarification",
+    authoredNodeId: node.id ?? path,
+    authoredPath: path,
+    question: node.question,
+    choices: node.choices ?? [],
+    outputKey: node.outputKey,
+    requestSchema: {
+      kind: "clarification",
+      response: responseKind,
+      minLength: 1,
+      maxLength: responseKind === "choice" ? 256 : 16_384,
+    },
+  });
+  const interactionValidation = validatePipelineInteractionSpecV1(interaction);
+  if (!interactionValidation.valid) {
+    throw new Error(
+      `lowerClarification: invalid interaction at ${path}: ${interactionValidation.issues
+        .map((issue) => `${issue.path}: ${issue.message}`)
+        .join("; ")}`,
+    );
+  }
   const suspendNode: SuspendNode = {
     id: freshId(ctx),
     type: "suspend",
@@ -347,24 +385,7 @@ export function lowerClarification(
       node.expected === "choice"
         ? `clarification__choice__${node.choices?.join("|") ?? ""}`
         : undefined,
-    ...(node.outputKey !== undefined && node.outputKey.length > 0
-      ? {
-          interaction: createPipelineInteractionSpecV1({
-            kind: "clarification",
-            authoredNodeId: node.id ?? path,
-            authoredPath: path,
-            question: node.question,
-            choices: node.choices ?? [],
-            outputKey: node.outputKey,
-            requestSchema: {
-              kind: "clarification",
-              response: node.expected ?? "text",
-              minLength: 1,
-              maxLength: node.expected === "choice" ? 256 : 16_384,
-            },
-          }),
-        }
-      : {}),
+    interaction,
     ...nodeDurabilityFields(node),
   };
   return {

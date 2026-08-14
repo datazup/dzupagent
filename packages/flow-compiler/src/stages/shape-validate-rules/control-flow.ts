@@ -68,6 +68,18 @@ export const controlFlowValidators: ShapeRulePartial<ControlFlowKind> = {
         )
       );
     }
+    const interaction = findParallelInteraction(node.body, `${path}.body`);
+    if (interaction !== undefined) {
+      errors.push({
+        nodeType: interaction.node.type,
+        nodePath: interaction.path,
+        code: "FOR_EACH_INTERACTION_UNSUPPORTED",
+        category: "control",
+        message:
+          `${interaction.node.type} cannot be nested under for_each until ` +
+          "the per-item executor has a durable checkpoint-bound interaction frame",
+      });
+    }
     node.body.forEach((child, idx) => visit(child, `${path}.body[${idx}]`));
   },
   branch: (node, { path, errors, visit }) => {

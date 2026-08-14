@@ -621,19 +621,27 @@ export const PipelineDefinitionSchema = z.object({
         });
         continue;
       }
-      const edge = definition.edges.find(
+      const edges = definition.edges.filter(
         (candidate) => candidate.type === "conditional" && candidate.sourceNodeId === node.id,
       );
+      const edge = edges[0];
+      const branchKeys = edge?.type === "conditional"
+        ? Object.keys(edge.branches).sort()
+        : [];
       if (
+        edges.length !== 1 ||
         edge === undefined ||
         edge.type !== "conditional" ||
+        branchKeys.length !== 2 ||
+        branchKeys[0] !== "approved" ||
+        branchKeys[1] !== "rejected" ||
         edge.branches.approved !== node.interaction?.outcomeToSuccessor.approved ||
         edge.branches.rejected !== node.interaction?.outcomeToSuccessor.rejected
       ) {
         context.addIssue({
           code: "custom",
           path: ["nodes", definition.nodes.indexOf(node), "interaction"],
-          message: "approval interaction outcome mapping must agree with the conditional graph edge",
+          message: "approval interaction outcome mapping must agree with exactly one conditional graph edge containing exact approved/rejected keys",
         });
       }
     }

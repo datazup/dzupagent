@@ -172,4 +172,103 @@ describe("pipeline interaction lowering", () => {
       ]),
     );
   });
+
+  it.each(["onApprove", "onReject"] as const)(
+    "fails closed when %s lowers to no executable successor",
+    async (emptyArm) => {
+      const candidate = approval("zeroLoweredArm");
+      candidate[emptyArm] = [
+        { type: "http", id: `${emptyArm}-metadata`, url: "https://example.test" },
+      ];
+      const result = await createFlowCompiler({ toolResolver }).compileDocument({
+        dsl: "dzupflow/v1",
+        id: "zero-lowered-approval-arm",
+        version: 1,
+        root: { type: "sequence", id: "root", nodes: [candidate] },
+      });
+
+      expect("errors" in result).toBe(true);
+      if (!("errors" in result)) return;
+      expect(result.errors).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          stage: 4,
+          code: "LOWERING_FAILED",
+          message: expect.stringContaining("requires executable successors"),
+        }),
+      ]));
+    },
+  );
+
+  it("infers a choice response when bounded clarification choices are authored", async () => {
+    const { artifact } = await compile({
+      type: "sequence",
+      nodes: [{
+        type: "clarification",
+        id: "choiceQuestion",
+        question: "Which path?",
+        choices: ["safe", "fast"],
+        outputKey: "selectedPath",
+      }],
+    });
+    const interaction = artifact.nodes.find(
+      (node) => node.type === "suspend",
+    )?.interaction;
+    expect(interaction).toMatchObject({
+      kind: "clarification",
+      choices: ["safe", "fast"],
+      requestSchema: { response: "choice" },
+    });
+  });
+
+  it.each([
+    ["direct", approval("directReview"), "root.nodes[0].body[0]"],
+    [
+      "branch",
+      {
+        type: "branch",
+        id: "itemBranch",
+        condition: "true",
+        then: [approval("branchReview")],
+        else: [{ type: "set", id: "itemSkipped", assign: { skipped: true } }],
+      },
+      "root.nodes[0].body[0].then[0]",
+    ],
+    [
+      "try/catch",
+      {
+        type: "try_catch",
+        id: "itemTry",
+        body: [clarification("tryQuestion")],
+        catch: [{ type: "set", id: "itemRecovered", assign: { recovered: true } }],
+      },
+      "root.nodes[0].body[0].body[0]",
+    ],
+  ])("denies %s interaction nesting under for_each", async (_shape, nested, path) => {
+    const result = await createFlowCompiler({ toolResolver }).compileDocument({
+      dsl: "dzupflow/v1",
+      id: "for-each-interaction-denied",
+      version: 1,
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [{
+          type: "for_each",
+          id: "itemsLoop",
+          source: "items",
+          as: "item",
+          body: [nested],
+        }],
+      },
+    });
+
+    expect("errors" in result).toBe(true);
+    if (!("errors" in result)) return;
+    expect(result.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        stage: 2,
+        code: "FOR_EACH_INTERACTION_UNSUPPORTED",
+        nodePath: path,
+      }),
+    ]));
+  });
 });

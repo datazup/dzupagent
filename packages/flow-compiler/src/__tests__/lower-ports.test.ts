@@ -71,8 +71,13 @@ describe("ports refine the tails contract (invariant)", () => {
       { type: "branch", condition: "x", then: [makeAction("a")] },
     ],
     [
-      "approval without onReject",
-      { type: "approval", question: "ok?", onApprove: [makeAction("a")] },
+      "approval",
+      {
+        type: "approval",
+        question: "ok?",
+        onApprove: [makeAction("a")],
+        onReject: [makeAction("b")],
+      },
     ],
     [
       "approval with onReject",
@@ -145,17 +150,13 @@ describe("ports refine the tails contract (invariant)", () => {
   });
 });
 
-describe("suspended exits (approval gate without onReject)", () => {
-  it("classifies the rejected dead-end as a suspended exit, not a normal one", () => {
-    const result = lower({
+describe("approval interaction admission", () => {
+  it("rejects a missing reject continuation before emitting a partial graph", () => {
+    expect(() => lower({
       type: "approval",
       question: "deploy?",
       onApprove: [makeAction("ship")],
-    });
-    const gateId = idOfNamePrefix(result, "approval:");
-    expect(result.ports?.suspendedExits).toEqual([gateId]);
-    expect(result.ports?.normalExits).not.toContain(gateId);
-    expect(result.ports?.normalExits).toHaveLength(1);
+    })).toThrow("requires executable successors");
   });
 
   it("clears the suspended exit when onReject exists (one-dimension control)", () => {
@@ -245,11 +246,8 @@ describe("entry ports", () => {
   });
 });
 
-describe("error exits are produced by try_catch (F-R2c, deliberate)", () => {
-  // This block previously pinned errorExits as reserved-empty and the catch
-  // list as never-lowered; error-path lowering shipped, so the pin is now the
-  // positive claim. Full behaviour lives in lower-try-catch.test.ts.
-  it("lowers the catch list and classifies its tail as the error exit", () => {
+describe("try_catch keeps handled tails disjoint from error exits", () => {
+  it("lowers the catch list and keeps its handled tail normal", () => {
     const result = lower({
       type: "try_catch",
       body: [makeAction("attempt")],
@@ -257,7 +255,8 @@ describe("error exits are produced by try_catch (F-R2c, deliberate)", () => {
     });
     const recover = result.nodes.find((n) => n.name === "recover");
     expect(recover).toBeDefined();
-    expect(result.ports?.errorExits).toEqual([recover?.id]);
+    expect(result.ports?.normalExits).toContain(recover?.id);
+    expect(result.ports?.errorExits).toEqual([]);
     expect(result.edges.some((e) => e.type === "error")).toBe(true);
   });
 });

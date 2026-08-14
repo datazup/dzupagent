@@ -656,6 +656,7 @@ describe("normalizeSteps — approval", () => {
         approval: {
           question: "Proceed?",
           on_approve: [{ action: { ref: "skill:proceed", input: {} } }],
+          on_reject: [{ action: { ref: "skill:stop", input: {} } }],
         },
       },
     ];
@@ -754,6 +755,7 @@ describe("normalizeSteps — approval", () => {
           question: "Proceed?",
           options: ["yes", "no"],
           on_approve: [{ action: { ref: "skill:proceed", input: {} } }],
+          on_reject: [{ action: { ref: "skill:stop", input: {} } }],
         },
       },
     ];
@@ -785,6 +787,7 @@ describe("normalizeSteps — approval", () => {
             question: "Proceed?",
             options,
             on_approve: [{ action: { ref: "skill:proceed", input: {} } }],
+            on_reject: [{ action: { ref: "skill:stop", input: {} } }],
           },
         },
       ],
@@ -813,6 +816,7 @@ describe("normalizeSteps — approval", () => {
               (_, index) => `option-${index + 1}`,
             ),
             on_approve: [{ action: { ref: "skill:proceed", input: {} } }],
+            on_reject: [{ action: { ref: "skill:stop", input: {} } }],
           },
         },
       ],
@@ -836,6 +840,7 @@ describe("normalizeSteps — approval", () => {
           question: "Proceed?",
           approval_class: "network_egress",
           on_approve: [{ action: { ref: "skill:proceed", input: {} } }],
+          on_reject: [{ action: { ref: "skill:stop", input: {} } }],
         },
       },
     ];
@@ -872,6 +877,7 @@ describe("normalizeSteps — approval", () => {
         approval: {
           question: "Proceed?",
           onApprove: [{ action: { ref: "skill:x", input: {} } }],
+          onReject: [{ action: { ref: "skill:stop", input: {} } }],
         },
       },
     ];
@@ -879,6 +885,42 @@ describe("normalizeSteps — approval", () => {
     const nodes = normalizeSteps(raw, "root.steps", diagnostics);
     expect(nodes[0]?.type).toBe("approval");
     expect(diagnostics).toHaveLength(0);
+  });
+
+  it("requires on_reject and enforces authored interaction bounds", () => {
+    const missingReject: Parameters<typeof normalizeSteps>[2] = [];
+    normalizeSteps(
+      [{ approval: {
+        question: "Proceed?",
+        on_approve: [{ action: { ref: "skill:x", input: {} } }],
+      } }],
+      "root.steps",
+      missingReject,
+    );
+    expect(missingReject).toContainEqual(expect.objectContaining({
+      code: "MISSING_REQUIRED_FIELD",
+      path: "root.steps[0].on_reject",
+    }));
+
+    for (const approval of [
+      {
+        question: "q".repeat(4097),
+        on_approve: [{ action: { ref: "skill:x", input: {} } }],
+        on_reject: [{ action: { ref: "skill:stop", input: {} } }],
+      },
+      {
+        question: "Proceed?",
+        options: ["x".repeat(257)],
+        on_approve: [{ action: { ref: "skill:x", input: {} } }],
+        on_reject: [{ action: { ref: "skill:stop", input: {} } }],
+      },
+    ]) {
+      const diagnostics: Parameters<typeof normalizeSteps>[2] = [];
+      normalizeSteps([{ approval }], "root.steps", diagnostics);
+      expect(diagnostics).toContainEqual(expect.objectContaining({
+        code: "INVALID_NODE_SHAPE",
+      }));
+    }
   });
 });
 
@@ -927,6 +969,21 @@ describe("normalizeSteps — clarify", () => {
     const nodes = normalizeSteps(raw, "root.steps", diagnostics);
     const clarify = nodes[0] as { choices?: string[] };
     expect(clarify.choices).toEqual(["A", "B"]);
+  });
+
+  it("infers expected=choice for non-empty choices", () => {
+    const diagnostics: Parameters<typeof normalizeSteps>[2] = [];
+    const nodes = normalizeSteps(
+      [{ clarify: {
+        question: "Which?",
+        choices: ["A", "B"],
+        output: "selection",
+      } }],
+      "root.steps",
+      diagnostics,
+    );
+    expect(nodes[0]).toMatchObject({ expected: "choice" });
+    expect(diagnostics).toEqual([]);
   });
 
   it("accepts outputKey as a compatibility alias", () => {
@@ -994,6 +1051,31 @@ describe("normalizeSteps — clarify", () => {
         path: "root.steps[0].choices",
       },
     ]);
+  });
+
+  it("requires output and enforces clarification authored bounds", () => {
+    const missingOutput: Parameters<typeof normalizeSteps>[2] = [];
+    normalizeSteps(
+      [{ clarify: { question: "Answer?" } }],
+      "root.steps",
+      missingOutput,
+    );
+    expect(missingOutput).toContainEqual(expect.objectContaining({
+      code: "MISSING_REQUIRED_FIELD",
+      path: "root.steps[0].output",
+    }));
+
+    for (const clarify of [
+      { question: "q".repeat(4097), output: "answer" },
+      { question: "Pick?", choices: ["x".repeat(257)], output: "answer" },
+      { question: "Answer?", output: "x".repeat(513) },
+    ]) {
+      const diagnostics: Parameters<typeof normalizeSteps>[2] = [];
+      normalizeSteps([{ clarify }], "root.steps", diagnostics);
+      expect(diagnostics).toContainEqual(expect.objectContaining({
+        code: "INVALID_NODE_SHAPE",
+      }));
+    }
   });
 });
 

@@ -4,6 +4,8 @@ import { validateCommonNodeFields } from './shared.js'
 import type { SchemaIssue, ValidateNodeArray } from './shared.js'
 
 const MAX_INTERACTION_CHOICES = 32
+const MAX_INTERACTION_CHOICE_LENGTH = 256
+const MAX_INTERACTION_QUESTION_LENGTH = 4096
 
 function validateOptions(options: string[], path: string, issues: SchemaIssue[]): void {
   if (options.length > MAX_INTERACTION_CHOICES) {
@@ -20,6 +22,13 @@ function validateOptions(options: string[], path: string, issues: SchemaIssue[])
         path: joinPath(path, String(index)),
         code: 'INVALID_ENUM_VALUE',
         message: 'approval.options values must be non-empty strings',
+      })
+    }
+    if (option.length > MAX_INTERACTION_CHOICE_LENGTH) {
+      issues.push({
+        path: joinPath(path, String(index)),
+        code: 'INVALID_ENUM_VALUE',
+        message: `approval.options values must contain at most ${MAX_INTERACTION_CHOICE_LENGTH} characters`,
       })
     }
     if (seen.has(option)) {
@@ -47,6 +56,13 @@ export function validateApproval(
       path: joinPath(path, 'question'),
       code: 'MISSING_REQUIRED_FIELD',
       message: 'approval.question is required (non-empty string)',
+    })
+    ok = false
+  } else if (question.length > MAX_INTERACTION_QUESTION_LENGTH) {
+    issues.push({
+      path: joinPath(path, 'question'),
+      code: 'INVALID_ENUM_VALUE',
+      message: `approval.question must contain at most ${MAX_INTERACTION_QUESTION_LENGTH} characters`,
     })
     ok = false
   }
@@ -90,7 +106,22 @@ export function validateApproval(
   let onReject: FlowNode[] | undefined
   if ('onReject' in obj && obj['onReject'] !== undefined) {
     const rej = validateNodeArray(obj['onReject'], joinPath(path, 'onReject'), issues)
-    if (rej !== null) onReject = rej
+    if (rej !== null) {
+      onReject = rej
+      if (rej.length === 0) {
+        issues.push({
+          path,
+          code: 'EMPTY_BODY',
+          message: 'approval.onReject must contain at least one node',
+        })
+      }
+    }
+  } else {
+    issues.push({
+      path: joinPath(path, 'onReject'),
+      code: 'MISSING_REQUIRED_FIELD',
+      message: 'approval.onReject is required for checkpoint-bound interaction admission',
+    })
   }
   if (!ok) return null
   const node: FlowNode = {

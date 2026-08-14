@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { validatePipeline } from '../pipeline/pipeline-validator.js'
 import type { PipelineDefinition, PipelineNode, PipelineEdge } from '@dzupagent/core'
+import { createPipelineInteractionSpecV1 } from '@dzupagent/runtime-contracts'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -483,6 +484,47 @@ describe('validatePipeline', () => {
     )
     expect(result.warnings).toContainEqual(
       expect.objectContaining({ code: 'HIGH_MAX_ITERATIONS', nodeId: 'bigLoop' }),
+    )
+  })
+
+  it('rejects interaction nodes in a legacy loop without a bodyGraph', () => {
+    const interaction = createPipelineInteractionSpecV1({
+      kind: 'clarification',
+      authoredNodeId: 'clarify',
+      authoredPath: 'root.body[0]',
+      question: 'Which item value?',
+      choices: [],
+      outputKey: 'itemValue',
+      requestSchema: {
+        kind: 'clarification',
+        response: 'text',
+        minLength: 1,
+        maxLength: 16_384,
+      },
+    })
+    const result = validatePipeline(
+      makePipeline({
+        schemaVersion: '1.1.0',
+        entryNodeId: 'loop',
+        nodes: [
+          {
+            id: 'loop',
+            type: 'loop',
+            bodyNodeIds: ['clarify'],
+            maxIterations: 1,
+            continuePredicateName: 'stop',
+          },
+          { id: 'clarify', type: 'suspend', interaction },
+        ],
+        edges: [],
+      }),
+    )
+
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({
+        code: 'INVALID_LOOP_BODY_GRAPH',
+        nodeId: 'loop',
+      }),
     )
   })
 

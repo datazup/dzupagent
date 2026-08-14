@@ -10,6 +10,7 @@
 
 import { parseFlow } from "@dzupagent/flow-ast";
 import type { ParseInput } from "@dzupagent/flow-ast";
+import { PipelineDefinitionSchema } from "@dzupagent/core/orchestration";
 
 import { validateShape } from "../stages/shape-validate.js";
 import { semanticResolve } from "../stages/semantic.js";
@@ -421,6 +422,35 @@ export async function runCompile(
       compileId,
       diagnosticCountsByCategory: countDiagnosticsByCategory([stage4Error]),
     };
+  }
+
+  if (target !== "skill-chain") {
+    const parsedArtifact = PipelineDefinitionSchema.safeParse(artifact);
+    if (!parsedArtifact.success) {
+      const stage4Error: CompilationError = {
+        stage: 4,
+        code: "LOWERING_FAILED",
+        message:
+          `The "${target}" target produced an invalid pipeline artifact: ` +
+          parsedArtifact.error.issues
+            .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+            .join("; "),
+        nodePath: "root",
+        category: "lowering",
+      };
+      emit({
+        type: "flow:compile_failed",
+        compileId,
+        stage: 4,
+        errorCount: 1,
+        durationMs: Date.now() - startedAt,
+      });
+      return {
+        errors: [stage4Error],
+        compileId,
+        diagnosticCountsByCategory: countDiagnosticsByCategory([stage4Error]),
+      };
+    }
   }
 
   // F-R2 port consumer: the suspended-exit set carries admission authority.

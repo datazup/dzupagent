@@ -4,6 +4,9 @@ import { validateCommonNodeFields } from './shared.js'
 import type { SchemaIssue } from './shared.js'
 
 const MAX_INTERACTION_CHOICES = 32
+const MAX_INTERACTION_CHOICE_LENGTH = 256
+const MAX_INTERACTION_QUESTION_LENGTH = 4096
+const MAX_INTERACTION_OUTPUT_KEY_LENGTH = 512
 
 function validateChoices(
   choices: string[],
@@ -24,6 +27,13 @@ function validateChoices(
         path: joinPath(path, String(index)),
         code: 'INVALID_ENUM_VALUE',
         message: 'clarification.choices values must be non-empty strings',
+      })
+    }
+    if (choice.length > MAX_INTERACTION_CHOICE_LENGTH) {
+      issues.push({
+        path: joinPath(path, String(index)),
+        code: 'INVALID_ENUM_VALUE',
+        message: `clarification.choices values must contain at most ${MAX_INTERACTION_CHOICE_LENGTH} characters`,
       })
     }
     if (seen.has(choice)) {
@@ -51,6 +61,13 @@ export function validateClarification(
       message: 'clarification.question is required (non-empty string)',
     })
     return null
+  }
+  if (question.length > MAX_INTERACTION_QUESTION_LENGTH) {
+    issues.push({
+      path: joinPath(path, 'question'),
+      code: 'INVALID_ENUM_VALUE',
+      message: `clarification.question must contain at most ${MAX_INTERACTION_QUESTION_LENGTH} characters`,
+    })
   }
   let expected: 'text' | 'choice' | undefined
   if ('expected' in obj && obj['expected'] !== undefined) {
@@ -81,14 +98,25 @@ export function validateClarification(
   let outputKey: string | undefined
   if ('outputKey' in obj && obj['outputKey'] !== undefined) {
     const raw = obj['outputKey']
-    if (typeof raw === 'string' && raw.length > 0) outputKey = raw
+    if (typeof raw === 'string' && raw.length > 0 && raw.length <= MAX_INTERACTION_OUTPUT_KEY_LENGTH) {
+      outputKey = raw
+    }
     else {
       issues.push({
         path: joinPath(path, 'outputKey'),
         code: 'MISSING_REQUIRED_FIELD',
-        message: 'clarification.outputKey must be a non-empty string when present',
+        message: `clarification.outputKey must be a non-empty string of at most ${MAX_INTERACTION_OUTPUT_KEY_LENGTH} characters`,
       })
     }
+  } else {
+    issues.push({
+      path: joinPath(path, 'outputKey'),
+      code: 'MISSING_REQUIRED_FIELD',
+      message: 'clarification.outputKey is required for checkpoint-bound interaction admission',
+    })
+  }
+  if (expected === undefined && choices !== undefined && choices.length > 0) {
+    expected = 'choice'
   }
   if (expected === 'choice' && (choices === undefined || choices.length === 0)) {
     issues.push({

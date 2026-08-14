@@ -19,7 +19,10 @@ import type {
   PipelineEdge,
   SuspendNode,
 } from "@dzupagent/core/orchestration";
-import { createPipelineInteractionSpecV1 } from "@dzupagent/runtime-contracts";
+import {
+  createPipelineInteractionSpecV1,
+  validatePipelineInteractionSpecV1,
+} from "@dzupagent/runtime-contracts";
 
 import type {
   LowerPipelineContext,
@@ -71,27 +74,40 @@ export function lowerApproval(
 
   const approveFirst = approveResult.nodes[0];
   const rejectFirst = rejectResult.nodes[0];
-  if (approveFirst !== undefined && rejectFirst !== undefined) {
-    gateNode.interaction = createPipelineInteractionSpecV1({
-      kind: "approval",
-      authoredNodeId: node.id ?? path,
-      authoredPath: path,
-      question: node.question,
-      choices: node.options ?? [],
-      outcomeToSuccessor: {
-        approved: approveFirst.id,
-        rejected: rejectFirst.id,
-      },
-      requestSchema: {
-        kind: "approval",
-        decisions: ["approved", "rejected"],
-      },
-    });
+  if (approveFirst === undefined || rejectFirst === undefined) {
+    throw new Error(
+      `lowerApproval: approval at ${path} requires executable successors in both onApprove and onReject`,
+    );
   }
+  const interaction = createPipelineInteractionSpecV1({
+    kind: "approval",
+    authoredNodeId: node.id ?? path,
+    authoredPath: path,
+    question: node.question,
+    choices: node.options ?? [],
+    outcomeToSuccessor: {
+      approved: approveFirst.id,
+      rejected: rejectFirst.id,
+    },
+    requestSchema: {
+      kind: "approval",
+      decisions: ["approved", "rejected"],
+    },
+  });
+  const interactionValidation = validatePipelineInteractionSpecV1(interaction);
+  if (!interactionValidation.valid) {
+    throw new Error(
+      `lowerApproval: invalid interaction at ${path}: ${interactionValidation.issues
+        .map((issue) => `${issue.path}: ${issue.message}`)
+        .join("; ")}`,
+    );
+  }
+  gateNode.interaction = interaction;
 
-  const branchMap: Record<string, string> = {};
-  if (approveFirst !== undefined) branchMap["approved"] = approveFirst.id;
-  if (rejectFirst !== undefined) branchMap["rejected"] = rejectFirst.id;
+  const branchMap: Record<string, string> = {
+    approved: approveFirst.id,
+    rejected: rejectFirst.id,
+  };
 
   const conditionalEdge: PipelineEdge = {
     type: "conditional",

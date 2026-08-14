@@ -408,6 +408,20 @@ describe("flowNodeSchema — clarification", () => {
     expect(result.success).toBe(true);
   });
 
+  it("infers expected=choice when non-empty choices are present", () => {
+    const result = flowNodeSchema.safeParse({
+      type: "clarification",
+      id: "ask_user",
+      question: "Pick one",
+      choices: ["a", "b"],
+      outputKey: "selection",
+    });
+    expect(result.success).toBe(true);
+    if (result.success && result.data.type === "clarification") {
+      expect(result.data.expected).toBe("choice");
+    }
+  });
+
   it("rejects duplicate, empty, and over-bounded choices", () => {
     for (const choices of [
       ["a", "a"],
@@ -430,6 +444,29 @@ describe("flowNodeSchema — clarification", () => {
   it("rejects a missing question", () => {
     const result = flowNodeSchema.safeParse({ type: "clarification", id: "ask_user" });
     expect(result.success).toBe(false);
+  });
+
+  it("rejects a missing outputKey and over-bounded authored strings", () => {
+    expect(flowNodeSchema.safeParse({
+      type: "clarification",
+      question: "Answer?",
+    }).success).toBe(false);
+    expect(flowNodeSchema.safeParse({
+      type: "clarification",
+      question: "q".repeat(4097),
+      outputKey: "answer",
+    }).success).toBe(false);
+    expect(flowNodeSchema.safeParse({
+      type: "clarification",
+      question: "Pick one",
+      choices: ["x".repeat(257)],
+      outputKey: "answer",
+    }).success).toBe(false);
+    expect(flowNodeSchema.safeParse({
+      type: "clarification",
+      question: "Answer?",
+      outputKey: "x".repeat(513),
+    }).success).toBe(false);
   });
 
   it("rejects an invalid expected value", () => {
@@ -590,6 +627,27 @@ describe("flowNodeSchema — approval", () => {
       onApprove: [{ type: "complete", id: "shipped" }],
     });
     expect(result.success).toBe(false);
+  });
+
+  it("rejects a missing onReject and over-bounded authored strings", () => {
+    expect(flowNodeSchema.safeParse({
+      type: "approval",
+      question: "Proceed?",
+      onApprove: [{ type: "complete" }],
+    }).success).toBe(false);
+    expect(flowNodeSchema.safeParse({
+      type: "approval",
+      question: "q".repeat(4097),
+      onApprove: [{ type: "complete" }],
+      onReject: [{ type: "complete" }],
+    }).success).toBe(false);
+    expect(flowNodeSchema.safeParse({
+      type: "approval",
+      question: "Proceed?",
+      options: ["x".repeat(257)],
+      onApprove: [{ type: "complete" }],
+      onReject: [{ type: "complete" }],
+    }).success).toBe(false);
   });
 
   it("rejects an empty onApprove array", () => {
