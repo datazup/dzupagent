@@ -1302,6 +1302,7 @@ describe("pipeline structured loop-body scheduler", () => {
     {
       name: "unknown outcome kind",
       fragment: 'outcome kind "paused" is invalid',
+      schemaFragment: "Invalid discriminator value",
       state: () => ({
         ...incompleteCursor(),
         nextNodeId: undefined,
@@ -1324,6 +1325,7 @@ describe("pipeline structured loop-body scheduler", () => {
       name: "suspended outcome with a dispatch cursor",
       fragment:
         "suspended outcome requires completed=false and must omit nextNodeId",
+      schemaFragment: "classified outcomes omit nextNodeId",
       state: () => ({
         ...incompleteCursor(),
         outcome: { kind: "suspended", exitNodeId: "fork" },
@@ -1383,6 +1385,7 @@ describe("pipeline structured loop-body scheduler", () => {
     {
       name: "duplicate completion",
       fragment: 'completedNodeIds contains duplicate "fork"',
+      schemaFragment: 'completedNodeIds contains duplicate node ID "fork"',
       state: () => ({
         ...incompleteCursor(),
         completedNodeIds: ["fork", "fork"],
@@ -1411,6 +1414,7 @@ describe("pipeline structured loop-body scheduler", () => {
     {
       name: "completed cursor with next node",
       fragment: "completed cursor must omit nextNodeId",
+      schemaFragment: "completed graph cursors omit nextNodeId",
       state: () => ({
         ...incompleteCursor(),
         completed: true,
@@ -1426,11 +1430,15 @@ describe("pipeline structured loop-body scheduler", () => {
         nodeIdempotencyKeys: {},
       }),
     },
-  ])("rejects a corrupt graph cursor with $name", async ({ fragment, state }) => {
+  ])("rejects a corrupt graph cursor with $name", async (testCase) => {
+    const { fragment, state } = testCase;
+    const schemaFragment = "schemaFragment" in testCase
+      ? testCase.schemaFragment
+      : undefined;
     const errors: string[] = [];
     const calls: string[] = [];
     const checkpoint = corruptGraphCheckpoint(state());
-    const resumed = await new PipelineRuntime({
+    const runtime = new PipelineRuntime({
       definition: corruptDefinition,
       predicates: { "continue-loop": () => true },
       onEvent: (event) => {
@@ -1440,7 +1448,19 @@ describe("pipeline structured loop-body scheduler", () => {
         calls.push(nodeId);
         return result(nodeId);
       },
-    }).resume(checkpoint);
+    });
+
+    if (schemaFragment !== undefined) {
+      await expect(runtime.resume(checkpoint)).rejects.toMatchObject({
+        code: "INTERACTION_BINDING_MISMATCH",
+        message: expect.stringContaining(schemaFragment),
+      });
+      expect(calls).toEqual([]);
+      expect(errors).toEqual([]);
+      return;
+    }
+
+    const resumed = await runtime.resume(checkpoint);
 
     expect(resumed.state).toBe("failed");
     expect(calls).toEqual([]);
@@ -1469,5 +1489,6 @@ function corruptGraphCheckpoint(bodyGraphState: unknown): PipelineCheckpoint {
       },
     },
     state: {},
+    createdAt: "2026-08-14T00:00:00.000Z",
   } as PipelineCheckpoint;
 }
