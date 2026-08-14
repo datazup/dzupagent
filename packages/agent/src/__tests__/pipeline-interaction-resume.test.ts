@@ -46,6 +46,68 @@ function approvalDefinition(): PipelineDefinition {
   };
 }
 
+function sequentialApprovalDefinition(): PipelineDefinition {
+  const first = createPipelineInteractionSpecV1({
+    kind: "approval",
+    authoredNodeId: "first-approval",
+    authoredPath: "root.nodes[0]",
+    question: "Proceed to the second review?",
+    choices: [],
+    outcomeToSuccessor: {
+      approved: "second-gate",
+      rejected: "first-rejected",
+    },
+    requestSchema: { kind: "approval", decisions: ["approved", "rejected"] },
+  });
+  const second = createPipelineInteractionSpecV1({
+    kind: "approval",
+    authoredNodeId: "second-approval",
+    authoredPath: "root.nodes[1]",
+    question: "Complete?",
+    choices: [],
+    outcomeToSuccessor: {
+      approved: "second-approved",
+      rejected: "second-rejected",
+    },
+    requestSchema: { kind: "approval", decisions: ["approved", "rejected"] },
+  });
+  return {
+    id: "sequential-approval-pipeline",
+    name: "sequential approval",
+    version: "1",
+    schemaVersion: "1.1.0",
+    entryNodeId: "first-gate",
+    checkpointStrategy: "on_suspend",
+    nodes: [
+      { id: "first-gate", type: "gate", gateType: "approval", interaction: first },
+      { id: "second-gate", type: "gate", gateType: "approval", interaction: second },
+      { id: "first-rejected", type: "agent", agentId: "first-rejected" },
+      { id: "second-approved", type: "agent", agentId: "second-approved" },
+      { id: "second-rejected", type: "agent", agentId: "second-rejected" },
+    ],
+    edges: [
+      {
+        type: "conditional",
+        sourceNodeId: "first-gate",
+        predicateName: "first-must-not-run",
+        branches: {
+          approved: "second-gate",
+          rejected: "first-rejected",
+        },
+      },
+      {
+        type: "conditional",
+        sourceNodeId: "second-gate",
+        predicateName: "second-must-not-run",
+        branches: {
+          approved: "second-approved",
+          rejected: "second-rejected",
+        },
+      },
+    ],
+  };
+}
+
 function receiptFor(
   pending: PipelinePendingInteractionV1,
   decision: "approved" | "rejected",
@@ -245,6 +307,56 @@ describe("PipelineRuntime checkpoint-bound interactions", () => {
     await expect(
       runtime.resumeInteraction(checkpoint, receipt),
     ).resolves.toMatchObject({ state: "completed" });
+  });
+
+  it("replaying an older receipt preserves a newer pending interaction", async () => {
+    const calls: string[] = [];
+    const store = new InMemoryPipelineCheckpointStore();
+    const runtime = new PipelineRuntime({
+      definition: sequentialApprovalDefinition(),
+      checkpointStore: store,
+      interaction: { now: () => new Date("2026-08-14T20:00:00.000Z") },
+      predicates: {
+        "first-must-not-run": () => {
+          throw new Error("first approval predicate must not run");
+        },
+        "second-must-not-run": () => {
+          throw new Error("second approval predicate must not run");
+        },
+      },
+      nodeExecutor: async (nodeId) => {
+        calls.push(nodeId);
+        return { nodeId, output: nodeId, durationMs: 1 };
+      },
+    });
+
+    await runtime.execute({}, { runId: "sequential-approval-run" });
+    const firstCheckpoint = (await store.load("sequential-approval-run"))!;
+    const firstReceipt = receiptFor(
+      firstCheckpoint.pendingInteraction!,
+      "approved",
+      "first-approved-receipt",
+    );
+    const secondSuspension = await runtime.resumeInteraction(
+      firstCheckpoint,
+      firstReceipt,
+    );
+    expect(secondSuspension.state).toBe("suspended");
+    const secondCheckpoint = (await store.load("sequential-approval-run"))!;
+    expect(secondCheckpoint.pendingInteraction?.nodeId).toBe("second-gate");
+    expect(secondCheckpoint.interactionResumeCursor).toBeUndefined();
+
+    const replayed = await runtime.resumeInteraction(
+      firstCheckpoint,
+      firstReceipt,
+    );
+    expect(replayed).toMatchObject({
+      state: "suspended",
+      pendingInteraction: secondCheckpoint.pendingInteraction,
+    });
+    expect(calls).toEqual([]);
+    expect((await store.load("sequential-approval-run"))?.pendingInteraction)
+      .toEqual(secondCheckpoint.pendingInteraction);
   });
 
   it("rejects expired and mismatched receipts before dispatch", async () => {

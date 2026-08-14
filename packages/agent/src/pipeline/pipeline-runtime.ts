@@ -318,6 +318,9 @@ export class PipelineRuntime {
         this.assertInteractionResumeCursorValid(latest);
         return resumeFromCheckpoint(this.resumeHost, latest);
       }
+      if (latest.pendingInteraction !== undefined) {
+        return resumeFromCheckpoint(this.resumeHost, latest);
+      }
       if (existing.scope.kind === "pipeline") {
         return this.completedInteractionResult(
           latest.pipelineRunId,
