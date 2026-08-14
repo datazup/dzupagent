@@ -57,7 +57,7 @@ describe("checkpoint-bound interaction admission", () => {
       stage: 2,
       category: "shape",
     });
-    expect(diagnostic?.message).toMatch(/approval\.onReject/);
+    expect(diagnostic?.message).toMatch(/approval\.on_reject/);
   });
 
   it("admits the same document when the rejected path lowers a continuation (one-dimension control)", async () => {
