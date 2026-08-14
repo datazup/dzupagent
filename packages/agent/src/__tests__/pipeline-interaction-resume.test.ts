@@ -346,7 +346,25 @@ describe("PipelineRuntime checkpoint-bound interactions", () => {
     expect(secondCheckpoint.pendingInteraction?.nodeId).toBe("second-gate");
     expect(secondCheckpoint.interactionResumeCursor).toBeUndefined();
 
-    const replayed = await runtime.resumeInteraction(
+    const restarted = new PipelineRuntime({
+      definition: sequentialApprovalDefinition(),
+      checkpointStore: store,
+      interaction: { now: () => new Date("2026-08-14T20:00:00.000Z") },
+      predicates: {
+        "first-must-not-run": () => {
+          throw new Error("first approval predicate must not run");
+        },
+        "second-must-not-run": () => {
+          throw new Error("second approval predicate must not run");
+        },
+      },
+      nodeExecutor: async (nodeId) => {
+        calls.push(nodeId);
+        return { nodeId, output: nodeId, durationMs: 1 };
+      },
+    });
+    expect(restarted.getRunState()).toBe("idle");
+    const replayed = await restarted.resumeInteraction(
       firstCheckpoint,
       firstReceipt,
     );
@@ -354,6 +372,7 @@ describe("PipelineRuntime checkpoint-bound interactions", () => {
       state: "suspended",
       pendingInteraction: secondCheckpoint.pendingInteraction,
     });
+    expect(restarted.getRunState()).toBe("suspended");
     expect(calls).toEqual([]);
     expect((await store.load("sequential-approval-run"))?.pendingInteraction)
       .toEqual(secondCheckpoint.pendingInteraction);

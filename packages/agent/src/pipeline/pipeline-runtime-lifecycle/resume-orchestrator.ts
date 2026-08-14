@@ -49,7 +49,7 @@ export interface ResumeHost {
   readonly eventLog: PipelineRunContext["eventLog"];
 
   assertRuntimeToolReadiness(): void;
-  setState(next: "running" | "completed" | "failed"): void;
+  setState(next: "running" | "suspended" | "completed" | "failed"): void;
   setRecoveryAttemptsUsed(count: number): void;
   setBudgetCostCents(costCents: number): void;
 
@@ -227,6 +227,7 @@ export async function resumeFromCheckpoint(
       host.config.definition,
       checkpoint,
     );
+    host.setState("suspended");
     const nodeResults = new Map<string, NodeResult>();
     for (const nodeId of checkpoint.completedNodeIds) {
       nodeResults.set(nodeId, { nodeId, output: null, durationMs: 0 });
