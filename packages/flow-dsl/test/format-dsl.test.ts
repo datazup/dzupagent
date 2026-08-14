@@ -214,11 +214,15 @@ describe("formatDocumentToDsl round-trip", () => {
             onApprove: [
               { type: "complete", id: "approved", result: "approved" },
             ],
+            onReject: [
+              { type: "complete", id: "rejected", result: "rejected" },
+            ],
           },
           {
             type: "clarification",
             id: "clarify",
             question: "Clarify line one?\nClarify line two?",
+            outputKey: "clarificationAnswer",
           },
           {
             type: "classify",

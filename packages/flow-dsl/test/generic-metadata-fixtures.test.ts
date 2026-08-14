@@ -33,6 +33,10 @@ steps:
               sourceDocumentId: doc-001
             input:
               planId: "{{ input.planId }}"
+      on_reject:
+        - complete:
+            id: rejected
+            result: rejected
   - complete:
       id: done
       result: done

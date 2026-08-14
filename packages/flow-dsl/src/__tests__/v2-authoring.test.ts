@@ -681,6 +681,10 @@ steps:
         - complete:
             id: done
             result: accepted
+      onReject:
+        - complete:
+            id: stopped
+            result: stopped
 `);
     expect(unsupported).toMatchObject({
       classification: "unsupported",

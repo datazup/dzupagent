@@ -39,8 +39,13 @@ const MATRIX_NODE_FIXTURES: Record<FlowNode["type"], FlowNode> = {
     type: "approval",
     question: "go?",
     onApprove: [{ type: "complete" }],
+    onReject: [{ type: "complete" }],
   },
-  clarification: { type: "clarification", question: "need input?" },
+  clarification: {
+    type: "clarification",
+    question: "need input?",
+    outputKey: "answer",
+  },
   persona: {
     type: "persona",
     personaId: "reviewer",

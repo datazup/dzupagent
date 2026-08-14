@@ -39,6 +39,7 @@ describe('formatter field-omission round-trips (DSL-01)', () => {
           question: 'run the destructive step?',
           approvalClass: 'destructive_shell',
           onApprove: [{ type: 'complete', id: 'done', result: 'ok' }],
+          onReject: [{ type: 'complete', id: 'stopped', result: 'stopped' }],
         },
       ]),
     )
