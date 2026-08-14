@@ -665,6 +665,59 @@ describe("normalizeSteps — approval", () => {
     expect(diagnostics).toHaveLength(0);
   });
 
+  it("normalizes on_reject into the rejected routing branch", () => {
+    const raw = [
+      {
+        approval: {
+          id: "approval1",
+          question: "Proceed?",
+          on_approve: [
+            {
+              action: {
+                id: "approved",
+                ref: "skill:proceed",
+                input: {},
+              },
+            },
+          ],
+          on_reject: [
+            {
+              action: {
+                id: "rejected",
+                ref: "skill:revise",
+                input: { reason: "feedback" },
+              },
+            },
+          ],
+        },
+      },
+    ];
+    const diagnostics: Parameters<typeof normalizeSteps>[2] = [];
+    const nodes = normalizeSteps(raw, "root.steps", diagnostics);
+    expect(nodes[0]).toMatchObject({
+      type: "approval",
+      id: "approval1",
+      question: "Proceed?",
+      onApprove: [
+        {
+          type: "action",
+          id: "approved",
+          toolRef: "skill:proceed",
+          input: {},
+        },
+      ],
+      onReject: [
+        {
+          type: "action",
+          id: "rejected",
+          toolRef: "skill:revise",
+          input: { reason: "feedback" },
+        },
+      ],
+    });
+    expect(diagnostics).toEqual([]);
+  });
+
   it("errors when approval.question is missing", () => {
     const raw = [
       {
@@ -708,6 +761,72 @@ describe("normalizeSteps — approval", () => {
     const nodes = normalizeSteps(raw, "root.steps", diagnostics);
     const approval = nodes[0] as { options?: string[] };
     expect(approval.options).toEqual(["yes", "no"]);
+  });
+
+  it.each([
+    {
+      label: "duplicate",
+      options: ["yes", "yes"],
+      message: 'approval.options contains duplicate value "yes"',
+      path: "root.steps[0].options.1",
+    },
+    {
+      label: "empty",
+      options: [""],
+      message: "approval.options values must be non-empty strings",
+      path: "root.steps[0].options.0",
+    },
+  ])("rejects $label approval options", ({ options, message, path }) => {
+    const diagnostics: Parameters<typeof normalizeSteps>[2] = [];
+    normalizeSteps(
+      [
+        {
+          approval: {
+            question: "Proceed?",
+            options,
+            on_approve: [{ action: { ref: "skill:proceed", input: {} } }],
+          },
+        },
+      ],
+      "root.steps",
+      diagnostics,
+    );
+    expect(diagnostics).toEqual([
+      {
+        phase: "normalize",
+        code: "INVALID_NODE_SHAPE",
+        message,
+        path,
+      },
+    ]);
+  });
+
+  it("rejects approval options above the 32-value bound", () => {
+    const diagnostics: Parameters<typeof normalizeSteps>[2] = [];
+    normalizeSteps(
+      [
+        {
+          approval: {
+            question: "Proceed?",
+            options: Array.from(
+              { length: 33 },
+              (_, index) => `option-${index + 1}`,
+            ),
+            on_approve: [{ action: { ref: "skill:proceed", input: {} } }],
+          },
+        },
+      ],
+      "root.steps",
+      diagnostics,
+    );
+    expect(diagnostics).toEqual([
+      {
+        phase: "normalize",
+        code: "INVALID_NODE_SHAPE",
+        message: "approval.options must contain at most 32 values",
+        path: "root.steps[0].options",
+      },
+    ]);
   });
 
   it("normalizes typed approval_class", () => {
@@ -846,6 +965,35 @@ describe("normalizeSteps — clarify", () => {
         ),
       ).toBe(true);
     }
+  });
+
+  it("rejects clarify choices above the 32-value bound", () => {
+    const diagnostics: Parameters<typeof normalizeSteps>[2] = [];
+    normalizeSteps(
+      [
+        {
+          clarify: {
+            question: "Which?",
+            expected: "choice",
+            choices: Array.from(
+              { length: 33 },
+              (_, index) => `choice-${index + 1}`,
+            ),
+            output: "selection",
+          },
+        },
+      ],
+      "root.steps",
+      diagnostics,
+    );
+    expect(diagnostics).toEqual([
+      {
+        phase: "normalize",
+        code: "INVALID_NODE_SHAPE",
+        message: "clarify.choices must contain at most 32 values",
+        path: "root.steps[0].choices",
+      },
+    ]);
   });
 });
 
