@@ -275,6 +275,9 @@ function migrateNode(
         ...(node.iterationTimeoutMs === undefined
           ? {}
           : { iterationTimeoutMs: node.iterationTimeoutMs }),
+        ...(node.iterationBudgetCents === undefined
+          ? {}
+          : { iterationBudgetCents: node.iterationBudgetCents }),
         ...(node.progressKey === undefined
           ? {}
           : { progressKey: node.progressKey }),

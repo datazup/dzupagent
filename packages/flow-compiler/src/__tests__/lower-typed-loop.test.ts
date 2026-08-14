@@ -62,6 +62,7 @@ const EXPRESSION = {
 
 const action = (toolRef: string): ActionNode => ({
   type: "action",
+  id: "poll-step",
   toolRef,
   input: {},
 });
@@ -87,6 +88,26 @@ function lowerLoop(loopFields: Record<string, unknown>) {
   });
 }
 
+function lowerStructuredBody(body: FlowNode[]) {
+  const ast: FlowNode = {
+    type: "loop",
+    id: "poll",
+    condition: "false",
+    typedCondition: {
+      schema: "dzupagent.flowTypedCondition/v1",
+      expression: EXPRESSION,
+    },
+    body,
+  };
+  return lowerPipelineLoop({
+    ast,
+    resolved: new Map(),
+    resolvedPersonas: new Map(),
+    idGen: makeIdGen(),
+    id: "structured-pipeline",
+  });
+}
+
 describe("F-R4 — typed loop lowering", () => {
   it("lowers a typed-condition loop to a LoopNode carrying the typedWhile contract", () => {
     const { artifact, warnings } = lowerLoop({
@@ -95,6 +116,8 @@ describe("F-R4 — typed loop lowering", () => {
         expression: EXPRESSION,
       },
       maxIterations: 7,
+      iterationTimeoutMs: 2500,
+      iterationBudgetCents: 12.5,
       progressKey: "poll-step",
     });
 
@@ -107,11 +130,14 @@ describe("F-R4 — typed loop lowering", () => {
 
     // The typed condition rides the artifact verbatim — F-R5 byte-identity
     // and the runtime evaluator both read THIS form.
+    const bodyId = loopNode.bodyNodeIds[0];
     expect(loopNode.typedWhile).toEqual({
       conditionSchema: "dzupagent.flowTypedCondition/v1",
       condition: EXPRESSION,
       onExhausted: "fail",
-      progressKey: "poll-step",
+      iterationTimeoutMs: 2500,
+      iterationBudgetCents: 12.5,
+      progressKey: bodyId,
     });
     expect(loopNode.maxIterations).toBe(7);
     // Exhaustion is fail-closed for typed while-loops.
@@ -120,8 +146,14 @@ describe("F-R4 — typed loop lowering", () => {
     expect(loopNode.continuePredicateName).toBe("loopTyped__poll__predicate");
     // The lowered body action is wrapped, not lost.
     expect(loopNode.bodyNodeIds).toHaveLength(1);
-    const bodyId = loopNode.bodyNodeIds[0];
     expect(artifact.nodes.some((node) => node.id === bodyId)).toBe(true);
+    expect(loopNode.bodyGraph).toEqual({
+      entryNodeId: bodyId,
+      normalExitNodeIds: [bodyId],
+      suspendedExitNodeIds: [],
+      terminalExitNodeIds: [],
+      errorExitNodeIds: [],
+    });
 
     // The artifact must survive the core serialization schema.
     const parsed = PipelineDefinitionSchema.safeParse(artifact);
@@ -174,5 +206,60 @@ describe("F-R4 — typed loop lowering", () => {
     expect(artifact.nodes.some((node) => node.type === "loop")).toBe(false);
     expect(artifact.nodes).toHaveLength(1);
     expect(artifact.nodes[0]?.type).toBe("tool");
+  });
+
+  it.each([
+    [
+      "branch",
+      {
+        type: "branch",
+        condition: "true",
+        then: [{ type: "set", id: "then", assign: { value: "then" } }],
+        else: [{ type: "set", id: "else", assign: { value: "else" } }],
+      } satisfies FlowNode,
+      "gate",
+    ],
+    [
+      "parallel",
+      {
+        type: "parallel",
+        branches: [
+          [{ type: "set", id: "left", assign: { left: true } }],
+          [{ type: "set", id: "right", assign: { right: true } }],
+        ],
+      } satisfies FlowNode,
+      "fork",
+    ],
+    [
+      "try_catch",
+      {
+        type: "try_catch",
+        body: [{ type: "set", id: "risky", assign: { risky: true } }],
+        catch: [{ type: "set", id: "recover", assign: { caught: true } }],
+      } satisfies FlowNode,
+      "tool",
+    ],
+  ])("emits a bounded bodyGraph for structured %s", (_kind, body, entryType) => {
+    const { artifact } = lowerStructuredBody([body]);
+    const loop = artifact.nodes.find(
+      (node): node is LoopNode => node.type === "loop"
+    );
+    expect(loop?.bodyGraph).toBeDefined();
+    if (loop?.bodyGraph === undefined) return;
+
+    expect(loop.bodyNodeIds).toContain(loop.bodyGraph.entryNodeId);
+    expect(
+      artifact.nodes.find(({ id }) => id === loop.bodyGraph?.entryNodeId)?.type
+    ).toBe(entryType);
+    for (const boundaryId of [
+      ...loop.bodyGraph.normalExitNodeIds,
+      ...loop.bodyGraph.suspendedExitNodeIds,
+      ...loop.bodyGraph.terminalExitNodeIds,
+      ...loop.bodyGraph.errorExitNodeIds,
+    ]) {
+      expect(loop.bodyNodeIds).toContain(boundaryId);
+    }
+    expect(artifact.edges.length).toBeGreaterThan(0);
+    expect(PipelineDefinitionSchema.safeParse(artifact).success).toBe(true);
   });
 });

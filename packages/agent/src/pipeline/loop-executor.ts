@@ -15,7 +15,11 @@
  * @module pipeline/loop-executor
  */
 
-export type { LoopResumeOptions } from "./loop-executor/types.js";
+export type {
+  LoopBodyGraphScheduleInput,
+  LoopBodyGraphScheduleResult,
+  LoopResumeOptions,
+} from "./loop-executor/types.js";
 export { executeLoop } from "./loop-executor/predicate-loop.js";
 export {
   stateFieldTruthy,

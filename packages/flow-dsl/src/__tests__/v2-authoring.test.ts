@@ -749,6 +749,8 @@ steps:
       condition: "{{ state.shouldContinue }}"
       maxIterations: 5
       onExhausted: continue
+      iterationTimeoutMs: 2500
+      iterationBudgetCents: 12.5
       body:
         - action:
             id: implement
@@ -778,6 +780,8 @@ steps:
     // The loop body must be migrated, not carried through as raw V1 nodes.
     expect(report.candidateSource).not.toContain("type: action");
     expect(report.candidateSource).toContain("onExhausted: continue");
+    expect(report.candidateSource).toContain("iterationTimeoutMs: 2500");
+    expect(report.candidateSource).toContain("iterationBudgetCents: 12.5");
 
     const v1 = parseDslToDocument(source);
     const v2 = parseDslToDocument(report.candidateSource!);
@@ -797,6 +801,32 @@ steps:
         (diagnostic) =>
           diagnostic.code === "INVALID_ENUM_VALUE" &&
           diagnostic.path?.endsWith(".with.onExhausted")
+      )
+    ).toBe(true);
+
+    const invalidTimeout = parseDslToDocument(
+      report.candidateSource!.replace(
+        "iterationTimeoutMs: 2500",
+        "iterationTimeoutMs: 0"
+      )
+    );
+    expect(invalidTimeout.ok).toBe(false);
+    expect(
+      invalidTimeout.diagnostics.some((diagnostic) =>
+        diagnostic.path?.endsWith(".with.iterationTimeoutMs")
+      )
+    ).toBe(true);
+
+    const invalidBudget = parseDslToDocument(
+      report.candidateSource!.replace(
+        "iterationBudgetCents: 12.5",
+        "iterationBudgetCents: 0"
+      )
+    );
+    expect(invalidBudget.ok).toBe(false);
+    expect(
+      invalidBudget.diagnostics.some((diagnostic) =>
+        diagnostic.path?.endsWith(".with.iterationBudgetCents")
       )
     ).toBe(true);
   });

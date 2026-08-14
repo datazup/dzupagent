@@ -12,6 +12,8 @@ const loop: LoopNode = {
   condition: "${running}",
   maxIterations: 5,
   onExhausted: "continue",
+  iterationTimeoutMs: 2500,
+  iterationBudgetCents: 12.5,
   body: [{ type: "complete", id: "done" }],
 };
 
@@ -53,6 +55,56 @@ describe("F-R4 — loop.onExhausted DSL codec", () => {
         (diagnostic) =>
           diagnostic.code === "INVALID_ENUM_VALUE" &&
           diagnostic.path?.endsWith(".onExhausted")
+      ),
+      JSON.stringify(result.diagnostics)
+    ).toBe(true);
+  });
+
+  it("normalizer reports an invalid per-iteration timeout", () => {
+    const result = normalizeDslDocument({
+      dsl: "dzupflow/v1",
+      id: "loop-timeout",
+      version: 1,
+      steps: [
+        {
+          loop: {
+            id: "poll",
+            condition: "${running}",
+            iterationTimeoutMs: 0,
+            body: [{ complete: { id: "done" } }],
+          },
+        },
+      ],
+    });
+
+    expect(
+      result.diagnostics.some((diagnostic) =>
+        diagnostic.path?.endsWith(".iterationTimeoutMs")
+      ),
+      JSON.stringify(result.diagnostics)
+    ).toBe(true);
+  });
+
+  it("normalizer reports an invalid per-iteration budget", () => {
+    const result = normalizeDslDocument({
+      dsl: "dzupflow/v1",
+      id: "loop-budget",
+      version: 1,
+      steps: [
+        {
+          loop: {
+            id: "poll",
+            condition: "${running}",
+            iterationBudgetCents: 0,
+            body: [{ complete: { id: "done" } }],
+          },
+        },
+      ],
+    });
+
+    expect(
+      result.diagnostics.some((diagnostic) =>
+        diagnostic.path?.endsWith(".iterationBudgetCents")
       ),
       JSON.stringify(result.diagnostics)
     ).toBe(true);

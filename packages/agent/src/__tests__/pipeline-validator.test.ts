@@ -227,6 +227,42 @@ describe('validatePipeline', () => {
     )
   })
 
+  it('reports a bodyGraph boundary outside the loop body inventory', () => {
+    const result = validatePipeline(
+      makePipeline({
+        entryNodeId: 'loop1',
+        nodes: [
+          {
+            id: 'loop1',
+            type: 'loop',
+            bodyNodeIds: ['body'],
+            bodyGraph: {
+              entryNodeId: 'outside',
+              normalExitNodeIds: ['body'],
+              suspendedExitNodeIds: [],
+              terminalExitNodeIds: [],
+              errorExitNodeIds: [],
+            },
+            maxIterations: 5,
+            continuePredicateName: 'check',
+            timeoutMs: 10000,
+          },
+          { id: 'body', type: 'agent', agentId: 'body', timeoutMs: 1000 },
+          { id: 'outside', type: 'agent', agentId: 'outside', timeoutMs: 1000 },
+        ],
+        edges: [],
+      }),
+    )
+
+    expect(result.valid).toBe(false)
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({
+        code: 'INVALID_LOOP_BODY_GRAPH',
+        nodeId: 'loop1',
+      }),
+    )
+  })
+
   it('warns on unreachable node (connected but not reachable from entry)', () => {
     const result = validatePipeline(
       makePipeline({

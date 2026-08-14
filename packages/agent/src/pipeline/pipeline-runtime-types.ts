@@ -294,6 +294,26 @@ export interface PipelineRuntimeConfig {
     extractCost: (nodeId: string, result: NodeResult) => number;
   };
   /**
+   * Host-authoritative conservative reservation used by loops that author a
+   * hard `iterationBudgetCents` ceiling. Missing or unknown reservation fails
+   * before the first body node dispatches.
+   */
+  loopIterationBudgetReservation?: {
+    reserve(input: {
+      loopNodeId: string;
+      iteration: number;
+      budgetCents: number;
+      bodyNodeIds: readonly string[];
+      state: Readonly<Record<string, unknown>>;
+    }):
+      | { status: "reserved"; reservedCostCents: number }
+      | { status: "unknown" }
+      | Promise<
+          | { status: "reserved"; reservedCostCents: number }
+          | { status: "unknown" }
+        >;
+  };
+  /**
    * P2: Optional durable node ledger for crash-safe, effectively-once node
    * execution. When provided, each standard node is leased before execution,
    * a completed node replays its prior result instead of re-running, and the

@@ -10,6 +10,8 @@ const loop = {
   body: [{ type: "complete" }],
   maxIterations: 5,
   onExhausted: "continue",
+  iterationTimeoutMs: 2500,
+  iterationBudgetCents: 12.5,
 } as const;
 
 describe("F-R4 — loop.onExhausted AST admission", () => {
@@ -36,6 +38,30 @@ describe("F-R4 — loop.onExhausted AST admission", () => {
     expect(
       parsed.errors.some((error) =>
         error.pointer?.endsWith("/onExhausted")
+      )
+    ).toBe(true);
+    expect(flowNodeSchema.safeParse(invalid).success).toBe(false);
+  });
+
+  it("both boundaries reject a non-positive iteration timeout", () => {
+    const invalid = { ...loop, iterationTimeoutMs: 0 };
+    const parsed = parseFlow(invalid);
+
+    expect(
+      parsed.errors.some((error) =>
+        error.pointer?.endsWith("/iterationTimeoutMs")
+      )
+    ).toBe(true);
+    expect(flowNodeSchema.safeParse(invalid).success).toBe(false);
+  });
+
+  it("both boundaries reject a non-positive iteration budget", () => {
+    const invalid = { ...loop, iterationBudgetCents: 0 };
+    const parsed = parseFlow(invalid);
+
+    expect(
+      parsed.errors.some((error) =>
+        error.pointer?.endsWith("/iterationBudgetCents")
       )
     ).toBe(true);
     expect(flowNodeSchema.safeParse(invalid).success).toBe(false);

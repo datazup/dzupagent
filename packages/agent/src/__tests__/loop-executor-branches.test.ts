@@ -127,7 +127,140 @@ describe('loop-executor — branch coverage', () => {
 
     expect(result.error).toMatch(/made no progress/)
     expect(metrics.iterationCount).toBe(2)
+    expect(metrics.terminationReason).toBe('no_progress')
     expect(exec).toHaveBeenCalledTimes(2)
+  })
+
+  it('fails closed before dispatch when an authored iteration budget is unknown', async () => {
+    const node = makeLoopNode({
+      typedWhile: {
+        conditionSchema: 'dzupagent.flowTypedCondition/v1',
+        condition: { op: 'literal', value: true },
+        onExhausted: 'continue',
+        iterationBudgetCents: 10,
+      },
+    })
+    const exec = vi.fn<NodeExecutor>(async (id) => ({
+      nodeId: id, output: null, durationMs: 1,
+    }))
+
+    const { result, metrics } = await executeLoop(
+      node,
+      [makeBody('body1')],
+      exec,
+      makeCtx(),
+      { keepGoing: () => true },
+    )
+
+    expect(result.error).toMatch(/budget is unknown/)
+    expect(metrics.terminationReason).toBe('budget_unknown')
+    expect(exec).not.toHaveBeenCalled()
+  })
+
+  it('admits a conservative iteration reservation at or below the ceiling', async () => {
+    const node = makeLoopNode({
+      maxIterations: 1,
+      typedWhile: {
+        conditionSchema: 'dzupagent.flowTypedCondition/v1',
+        condition: { op: 'literal', value: true },
+        onExhausted: 'continue',
+        iterationBudgetCents: 10,
+      },
+    })
+    const exec = vi.fn<NodeExecutor>(async (id) => ({
+      nodeId: id, output: 'ok', durationMs: 1,
+    }))
+
+    const { result } = await executeLoop(
+      node,
+      [makeBody('body1')],
+      exec,
+      makeCtx(),
+      { keepGoing: () => true },
+      undefined,
+      {
+        reserveIterationBudget: async (input) => {
+          expect(input).toMatchObject({
+            loopNodeId: 'L', iteration: 1, budgetCents: 10,
+            bodyNodeIds: ['body1'],
+          })
+          return { status: 'reserved', reservedCostCents: 8 }
+        },
+      },
+    )
+
+    expect(result.error).toBeUndefined()
+    expect(exec).toHaveBeenCalledOnce()
+  })
+
+  it('rejects an iteration reservation above the authored ceiling', async () => {
+    const node = makeLoopNode({
+      typedWhile: {
+        conditionSchema: 'dzupagent.flowTypedCondition/v1',
+        condition: { op: 'literal', value: true },
+        onExhausted: 'continue',
+        iterationBudgetCents: 10,
+      },
+    })
+    const exec = vi.fn<NodeExecutor>(async (id) => ({
+      nodeId: id, output: null, durationMs: 1,
+    }))
+
+    const { result, metrics } = await executeLoop(
+      node,
+      [makeBody('body1')],
+      exec,
+      makeCtx(),
+      { keepGoing: () => true },
+      undefined,
+      {
+        reserveIterationBudget: () => ({
+          status: 'reserved', reservedCostCents: 11,
+        }),
+      },
+    )
+
+    expect(result.error).toMatch(/reservation 11 cents exceeds/)
+    expect(metrics.terminationReason).toBe('budget_exceeded')
+    expect(exec).not.toHaveBeenCalled()
+  })
+
+  it('aborts one iteration at its authored timeout and signals the body executor', async () => {
+    const node = makeLoopNode({
+      typedWhile: {
+        conditionSchema: 'dzupagent.flowTypedCondition/v1',
+        condition: { op: 'literal', value: true },
+        onExhausted: 'continue',
+        iterationTimeoutMs: 5,
+      },
+    })
+    let observedAbort = false
+    const exec: NodeExecutor = async (id, _node, context) => {
+      await new Promise<void>((_resolve, reject) => {
+        context.signal?.addEventListener(
+          'abort',
+          () => {
+            observedAbort = true
+            reject(new Error('aborted'))
+          },
+          { once: true },
+        )
+      })
+      return { nodeId: id, output: null, durationMs: 1 }
+    }
+
+    const { result, metrics } = await executeLoop(
+      node,
+      [makeBody('body1')],
+      exec,
+      makeCtx(),
+      { keepGoing: () => true },
+    )
+
+    expect(result.error).toMatch(/iteration 1 exceeded timeout \(5 ms\)/)
+    expect(metrics.terminationReason).toBe('timed_out')
+    expect(metrics.iterationCount).toBe(1)
+    expect(observedAbort).toBe(true)
   })
 
   it('allows progressKey output to change across iterations', async () => {

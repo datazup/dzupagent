@@ -290,6 +290,7 @@ function lowerLoop(
     "maxIterations",
     "onExhausted",
     "iterationTimeoutMs",
+    "iterationBudgetCents",
     "progressKey",
   ]);
   for (const key of Object.keys(input)) {
@@ -315,6 +316,38 @@ function lowerLoop(
       path: `${authoredPath}.with.onExhausted`,
     });
   }
+  if (
+    input.iterationTimeoutMs !== undefined &&
+    !(
+      typeof input.iterationTimeoutMs === "number" &&
+      Number.isInteger(input.iterationTimeoutMs) &&
+      input.iterationTimeoutMs > 0
+    )
+  ) {
+    context.diagnostics.push({
+      phase: "normalize",
+      code: "INVALID_NODE_SHAPE",
+      message:
+        "core.loop@1 with.iterationTimeoutMs must be a positive integer",
+      path: `${authoredPath}.with.iterationTimeoutMs`,
+    });
+  }
+  if (
+    input.iterationBudgetCents !== undefined &&
+    !(
+      typeof input.iterationBudgetCents === "number" &&
+      Number.isFinite(input.iterationBudgetCents) &&
+      input.iterationBudgetCents > 0
+    )
+  ) {
+    context.diagnostics.push({
+      phase: "normalize",
+      code: "INVALID_NODE_SHAPE",
+      message:
+        "core.loop@1 with.iterationBudgetCents must be a positive finite number",
+      path: `${authoredPath}.with.iterationBudgetCents`,
+    });
+  }
   context.lineage.push({
     authoredPath,
     loweredPath,
@@ -338,8 +371,15 @@ function lowerLoop(
         ...(input.onExhausted === "fail" || input.onExhausted === "continue"
           ? { onExhausted: input.onExhausted }
           : {}),
-        ...(typeof input.iterationTimeoutMs === "number"
+        ...(typeof input.iterationTimeoutMs === "number" &&
+        Number.isInteger(input.iterationTimeoutMs) &&
+        input.iterationTimeoutMs > 0
           ? { iterationTimeoutMs: input.iterationTimeoutMs }
+          : {}),
+        ...(typeof input.iterationBudgetCents === "number" &&
+        Number.isFinite(input.iterationBudgetCents) &&
+        input.iterationBudgetCents > 0
+          ? { iterationBudgetCents: input.iterationBudgetCents }
           : {}),
         ...(typeof input.progressKey === "string"
           ? { progressKey: input.progressKey }

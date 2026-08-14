@@ -116,9 +116,12 @@ const definition: PipelineDefinition = {
   edges: [{ type: "sequential", sourceNodeId: "seed", targetNodeId: "L" }],
 };
 
-function effectIntent(runId: string): EffectIntent {
+function effectIntent(
+  runId: string,
+  idempotencyKey = `${runId}:effect`
+): EffectIntent {
   return materializeEffectIntent({
-    idempotencyKey: `${runId}:effect`,
+    idempotencyKey,
     sourceHash:
       "sha256:1111111111111111111111111111111111111111111111111111111111111111",
     runId,
@@ -150,7 +153,10 @@ function executor(input: {
 
     const outcome = await executeEffectOnce({
       store: input.journal,
-      intent: effectIntent(input.runId),
+      intent: effectIntent(
+        input.runId,
+        context.idempotencyKey ?? `${input.runId}:effect`
+      ),
       execute: async () => {
         input.externalDispatches.push(input.runId);
         return "record-1";
@@ -254,5 +260,114 @@ describe("pipeline loop + effect receipt restart join", () => {
     const negativeResult = await negative.resume(negativeCheckpoint);
     expect(negativeResult.state).toBe("completed");
     expect(emptyDispatches).toEqual([negativeRunId]);
+  });
+
+  it("replays a committed effect at an exact conditional-body graph cursor", async () => {
+    const runId = "structured-effect-restart";
+    const checkpointStore = new InMemoryPipelineCheckpointStore();
+    const journal = new SharedEffectJournal();
+    const externalDispatches: string[] = [];
+    const firstCalls: string[] = [];
+    const structuredDefinition: PipelineDefinition = {
+      id: "structured-loop-effect-restart",
+      name: "StructuredLoopEffectRestart",
+      version: "1.0.0",
+      schemaVersion: "1.0.0",
+      entryNodeId: "seed",
+      checkpointStrategy: "after_each_node",
+      resume: { onProcessRestart: "resume_from_checkpoint" },
+      nodes: [
+        { id: "seed", type: "agent", agentId: "seed" },
+        {
+          id: "L",
+          type: "loop",
+          bodyNodeIds: ["choose", "effect", "finish"],
+          bodyGraph: {
+            entryNodeId: "choose",
+            normalExitNodeIds: ["finish"],
+            suspendedExitNodeIds: [],
+            terminalExitNodeIds: [],
+            errorExitNodeIds: [],
+          },
+          maxIterations: 2,
+          continuePredicateName: "notDone",
+        },
+        { id: "choose", type: "gate", gateType: "quality" },
+        { id: "effect", type: "agent", agentId: "effect" },
+        { id: "finish", type: "agent", agentId: "finish" },
+      ],
+      edges: [
+        { type: "sequential", sourceNodeId: "seed", targetNodeId: "L" },
+        {
+          type: "conditional",
+          sourceNodeId: "choose",
+          predicateName: "take-effect",
+          branches: { true: "effect", false: "finish" },
+        },
+        {
+          type: "sequential",
+          sourceNodeId: "effect",
+          targetNodeId: "finish",
+        },
+      ],
+    };
+
+    const first = await new PipelineRuntime({
+      definition: structuredDefinition,
+      checkpointStore,
+      predicates: {
+        "take-effect": () => true,
+        notDone: (state) => state["done"] !== true,
+      },
+      nodeExecutor: async (nodeId, node, context) => {
+        firstCalls.push(nodeId);
+        if (nodeId === "choose") {
+          return { nodeId, output: true, durationMs: 1 };
+        }
+        return executor({
+          journal,
+          runId,
+          externalDispatches,
+          crashAfterFirstCommit: true,
+        })(nodeId, node, context);
+      },
+    }).execute(undefined, { runId });
+
+    expect(first.state).toBe("failed");
+    expect(firstCalls).toEqual(["seed", "choose", "effect"]);
+    expect(externalDispatches).toEqual([runId]);
+    const checkpoint = await checkpointStore.load(runId);
+    expect(checkpoint?.loopState?.["L"]?.bodyGraphState).toMatchObject({
+      completed: false,
+      nextNodeId: "effect",
+      completedNodeIds: ["choose"],
+    });
+
+    const resumedCalls: string[] = [];
+    const resumed = await new PipelineRuntime({
+      definition: structuredDefinition,
+      checkpointStore,
+      predicates: {
+        "take-effect": () => true,
+        notDone: (state) => state["done"] !== true,
+      },
+      nodeExecutor: async (nodeId, node, context) => {
+        resumedCalls.push(nodeId);
+        if (nodeId === "choose") {
+          throw new Error("completed branch gate must not be re-dispatched");
+        }
+        return executor({
+          journal,
+          runId,
+          externalDispatches,
+          crashAfterFirstCommit: false,
+        })(nodeId, node, context);
+      },
+    }).resume(checkpoint!);
+
+    expect(resumed.state).toBe("completed");
+    expect(resumedCalls).toEqual(["effect", "finish"]);
+    expect(externalDispatches).toEqual([runId]);
+    expect(journal.records).toHaveLength(1);
   });
 });

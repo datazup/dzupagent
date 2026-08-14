@@ -92,6 +92,23 @@ export function validateLoop(
     });
     return null;
   }
+  const iterationBudgetCents = obj["iterationBudgetCents"];
+  if (
+    typeof iterationBudgetCents === "number" &&
+    Number.isFinite(iterationBudgetCents) &&
+    iterationBudgetCents > 0
+  ) {
+    node.iterationBudgetCents = iterationBudgetCents;
+  } else if (iterationBudgetCents !== undefined) {
+    issues.push({
+      path: joinPath(path, "iterationBudgetCents"),
+      code: "WRONG_FIELD_TYPE",
+      message: `loop.iterationBudgetCents must be a positive finite number when present, received ${describeJsType(
+        iterationBudgetCents
+      )}`,
+    });
+    return null;
+  }
   const progressKey = obj["progressKey"];
   if (typeof progressKey === "string" && progressKey.length > 0)
     node.progressKey = progressKey;

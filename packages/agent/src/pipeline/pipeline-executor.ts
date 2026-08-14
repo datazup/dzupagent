@@ -60,6 +60,10 @@ import {
   dispatchStandardNode,
   type StandardNodeOutcome,
 } from "./pipeline-runtime/standard-node-dispatch.js";
+import type {
+  LoopBodyGraphScheduleInput,
+  LoopBodyGraphScheduleResult,
+} from "./loop-executor/types.js";
 
 /**
  * Coordinator hooks the executor uses to read/update lifecycle state on
@@ -98,7 +102,8 @@ export class PipelineExecutor {
     private readonly nodeMap: Map<string, PipelineNode>,
     private readonly outgoingEdges: Map<string, PipelineEdge[]>,
     private readonly errorEdges: Map<string, PipelineEdge[]>,
-    private readonly coordinator: PipelineExecutorCoordinator
+    private readonly coordinator: PipelineExecutorCoordinator,
+    private readonly checkpointOverride?: (frame: RunFrame) => Promise<void>
   ) {
     this.recoveryCounter = {
       get: () => this.coordinator.getRecoveryAttemptsUsed(),
@@ -219,6 +224,239 @@ export class PipelineExecutor {
       setState: (next) => this.coordinator.setState(next),
       runResult: (runId, state, nodeResults, totalDurationMs) =>
         this.runResult(runId, state, nodeResults, totalDurationMs),
+      scheduleLoopBodyGraph: (loopNode, frame, input) =>
+        this.scheduleLoopBodyGraph(loopNode, frame, input),
+    };
+  }
+
+  /**
+   * Execute one compiler-bounded loop-body graph through the canonical
+   * pipeline executor. The scoped definition contains only body nodes and
+   * internal edges, so traversal cannot escape into the outer pipeline.
+   */
+  private async scheduleLoopBodyGraph(
+    loopNode: LoopNode,
+    outerFrame: RunFrame,
+    input: LoopBodyGraphScheduleInput
+  ): Promise<LoopBodyGraphScheduleResult> {
+    const boundary = loopNode.bodyGraph;
+    if (boundary === undefined) {
+      throw new Error(
+        `Loop node "${loopNode.id}": cannot schedule a graph body without bodyGraph metadata`
+      );
+    }
+
+    const bodyIds = new Set(loopNode.bodyNodeIds);
+    const nodes = this.config.definition.nodes.filter((node) =>
+      bodyIds.has(node.id)
+    );
+    if (nodes.length !== bodyIds.size) {
+      throw new Error(
+        `Loop node "${loopNode.id}": graph body references a missing node`
+      );
+    }
+    const edges = this.config.definition.edges.filter(
+      (edge) =>
+        bodyIds.has(edge.sourceNodeId) &&
+        edgeTargets(edge).every((targetId) => bodyIds.has(targetId))
+    );
+    const definition = {
+      ...this.config.definition,
+      id: `${this.config.definition.id}::loop-body:${loopNode.id}`,
+      entryNodeId: boundary.entryNodeId,
+      nodes,
+      edges,
+      checkpointStrategy: "after_each_node" as const,
+    };
+
+    // Suppress scoped lifecycle events; node/fork/loop events remain visible
+    // on the owning run, while the outer loop emits the one authoritative
+    // pipeline-level terminal event.
+    const onEvent = this.config.onEvent;
+    const config: PipelineRuntimeConfig = {
+      ...this.config,
+      definition,
+      ...(input.context.signal === undefined
+        ? {}
+        : {
+            // The loop handler originates this context from the runtime's
+            // AbortSignal and the iteration-deadline helper preserves that
+            // concrete signal. The public node context intentionally exposes
+            // only the smaller CancellationSignal structural contract.
+            signal: input.context.signal as AbortSignal,
+          }),
+      onEvent: (event) => {
+        if (
+          event.type !== "pipeline:completed" &&
+          event.type !== "pipeline:failed" &&
+          event.type !== "pipeline:suspended"
+        ) {
+          onEvent?.(event);
+        }
+      },
+    };
+
+    let state: PipelineState = "running";
+    const scopedCoordinator: PipelineExecutorCoordinator = {
+      getState: () => state,
+      setState: (next) => {
+        state = next;
+      },
+      getRecoveryAttemptsUsed: () =>
+        this.coordinator.getRecoveryAttemptsUsed(),
+      incrementRecoveryAttempts: () =>
+        this.coordinator.incrementRecoveryAttempts(),
+      getBudgetTracker: () => this.coordinator.getBudgetTracker(),
+    };
+    const nodeMap = new Map(nodes.map((node) => [node.id, node]));
+    const outgoingEdges = new Map<string, PipelineEdge[]>();
+    const errorEdges = new Map<string, PipelineEdge[]>();
+    for (const node of nodes) {
+      outgoingEdges.set(node.id, []);
+      errorEdges.set(node.id, []);
+    }
+    for (const edge of edges) {
+      const index = edge.type === "error" ? errorEdges : outgoingEdges;
+      index.get(edge.sourceNodeId)?.push(edge);
+    }
+
+    const nodeResults = new Map(input.context.previousResults);
+    const priorBodyResults = new Map<string, NodeResult>();
+    for (const nodeId of bodyIds) {
+      const prior = nodeResults.get(nodeId);
+      if (prior !== undefined) priorBodyResults.set(nodeId, prior);
+    }
+    const restored = input.resumeState;
+    if (restored !== undefined) {
+      for (const [nodeId, result] of Object.entries(restored.nodeResults)) {
+        if (!bodyIds.has(nodeId)) {
+          throw new Error(
+            `Loop node "${loopNode.id}": retained graph result "${nodeId}" is outside bodyNodeIds`
+          );
+        }
+        nodeResults.set(nodeId, result);
+      }
+    }
+    const completedNodeIds = [...(restored?.completedNodeIds ?? [])];
+    const nodeIdempotencyKeys = {
+      ...(restored?.nodeIdempotencyKeys ?? {}),
+    };
+    const forkState = structuredClone(restored?.forkState ?? {});
+    const scopedRunId = `${outerFrame.runId}::loop:${loopNode.id}:iteration:${input.iteration}`;
+
+    if (restored?.completed === true) {
+      const bodyResults = bodyResultsFor(
+        completedNodeIds,
+        nodeResults,
+        bodyIds,
+        priorBodyResults
+      );
+      const lastResult = lastCompletedResult(completedNodeIds, nodeResults);
+      return {
+        state: "completed",
+        bodyResults,
+        ...(lastResult === undefined ? {} : { lastResult }),
+      };
+    }
+
+    const startNodeId = restored?.nextNodeId ?? boundary.entryNodeId;
+    if (!bodyIds.has(startNodeId)) {
+      throw new Error(
+        `Loop node "${loopNode.id}": retained graph cursor "${startNodeId}" is outside bodyNodeIds`
+      );
+    }
+
+    const scopedExecutor = new PipelineExecutor(
+      config,
+      nodeMap,
+      outgoingEdges,
+      errorEdges,
+      scopedCoordinator,
+      async (scopedFrame) => {
+        if (input.onCheckpoint === undefined) return;
+        const nextNodeId = nextScopedNodeId(
+          scopedFrame,
+          nodes,
+          outgoingEdges,
+          config.predicates,
+          boundary.entryNodeId
+        );
+        const checkpointResults = bodyResultsFor(
+          scopedFrame.completedNodeIds,
+          scopedFrame.nodeResults,
+          bodyIds,
+          priorBodyResults
+        );
+        await input.onCheckpoint({
+          completed: nextNodeId === undefined,
+          ...(nextNodeId === undefined ? {} : { nextNodeId }),
+          completedNodeIds: [...scopedFrame.completedNodeIds],
+          nodeResults: checkpointBodyResults(
+            checkpointResults,
+            config.definition.checkpoint?.includeProviderSessionRefs === true
+          ),
+          nodeIdempotencyKeys: { ...scopedFrame.nodeIdempotencyKeys },
+          ...(Object.keys(scopedFrame.forkState).length === 0
+            ? {}
+            : { forkState: structuredClone(scopedFrame.forkState) }),
+        });
+      }
+    );
+
+    let runResult: PipelineRunResult;
+    try {
+      runResult = await scopedExecutor.executeFromNode({
+        startNodeId,
+        runId: scopedRunId,
+        runState: input.context.state,
+        nodeResults,
+        completedNodeIds,
+        nodeIdempotencyKeys,
+        loopState: {},
+        forkState,
+        eventLog: [],
+        versionTracker: { version: 0 },
+        startTime: Date.now(),
+      });
+    } catch (error) {
+      return {
+        state: "failed",
+        bodyResults: bodyResultsFor(
+          completedNodeIds,
+          nodeResults,
+          bodyIds,
+          priorBodyResults
+        ),
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+
+    const bodyResults = bodyResultsFor(
+      completedNodeIds,
+      runResult.nodeResults,
+      bodyIds,
+      priorBodyResults
+    );
+    const completedResult = lastCompletedResult(
+      completedNodeIds,
+      runResult.nodeResults
+    );
+    const failedResult = [...bodyResults.values()]
+      .reverse()
+      .find((result) => result.error !== undefined);
+    const lastResult = completedResult ?? failedResult;
+
+    return {
+      state: runResult.state,
+      bodyResults,
+      ...(lastResult === undefined ? {} : { lastResult }),
+      ...(runResult.state === "completed"
+        ? {}
+        : {
+            error:
+              failedResult?.error ??
+              `scoped loop body ended in state "${runResult.state}"`,
+          }),
     };
   }
 
@@ -344,6 +582,10 @@ export class PipelineExecutor {
   }
 
   private async saveCheckpoint(frame: RunFrame): Promise<void> {
+    if (this.checkpointOverride !== undefined) {
+      await this.checkpointOverride(frame);
+      return;
+    }
     const strategy = this.config.definition.checkpointStrategy;
     if (
       !this.config.checkpointStore ||
@@ -403,4 +645,90 @@ export class PipelineExecutor {
   private emit(event: PipelineRuntimeEvent): void {
     this.config.onEvent?.(event);
   }
+}
+
+function edgeTargets(edge: PipelineEdge): string[] {
+  return edge.type === "conditional"
+    ? Object.values(edge.branches)
+    : [edge.targetNodeId];
+}
+
+function nextScopedNodeId(
+  frame: RunFrame,
+  nodes: readonly PipelineNode[],
+  outgoingEdges: Map<string, PipelineEdge[]>,
+  predicates: PipelineRuntimeConfig["predicates"],
+  entryNodeId: string
+): string | undefined {
+  const midFlightForkId = Object.keys(frame.forkState)[0];
+  if (midFlightForkId !== undefined) {
+    return nodes.find(
+      (node) => node.type === "fork" && node.forkId === midFlightForkId
+    )?.id;
+  }
+  const lastCompletedNodeId = frame.completedNodeIds.at(-1);
+  if (lastCompletedNodeId === undefined) return entryNodeId;
+  return getNextNodeIds(
+    lastCompletedNodeId,
+    outgoingEdges,
+    predicates,
+    frame.runState
+  )[0];
+}
+
+function bodyResultsFor(
+  completedNodeIds: readonly string[],
+  nodeResults: ReadonlyMap<string, NodeResult>,
+  bodyIds: ReadonlySet<string>,
+  priorBodyResults: ReadonlyMap<string, NodeResult>
+): Map<string, NodeResult> {
+  const results = new Map<string, NodeResult>();
+  const completed = new Set(completedNodeIds);
+  for (const nodeId of bodyIds) {
+    const result = nodeResults.get(nodeId);
+    if (
+      result !== undefined &&
+      (completed.has(nodeId) || result !== priorBodyResults.get(nodeId))
+    ) {
+      results.set(nodeId, result);
+    }
+  }
+  return results;
+}
+
+function lastCompletedResult(
+  completedNodeIds: readonly string[],
+  nodeResults: ReadonlyMap<string, NodeResult>
+): NodeResult | undefined {
+  for (let index = completedNodeIds.length - 1; index >= 0; index -= 1) {
+    const nodeId = completedNodeIds[index];
+    if (nodeId === undefined) continue;
+    const result = nodeResults.get(nodeId);
+    if (result !== undefined) return result;
+  }
+  return undefined;
+}
+
+function checkpointBodyResults(
+  results: ReadonlyMap<string, NodeResult>,
+  includeProviderSessionRefs: boolean
+): Record<string, NodeResult> {
+  return Object.fromEntries(
+    [...results].map(([nodeId, result]) => [
+      nodeId,
+      {
+        nodeId: result.nodeId,
+        output: result.output,
+        durationMs: result.durationMs,
+        ...(result.error === undefined ? {} : { error: result.error }),
+        ...(result.errorMetadata === undefined
+          ? {}
+          : { errorMetadata: result.errorMetadata }),
+        ...(includeProviderSessionRefs &&
+        result.providerSessionRefs !== undefined
+          ? { providerSessionRefs: result.providerSessionRefs }
+          : {}),
+      },
+    ])
+  );
 }

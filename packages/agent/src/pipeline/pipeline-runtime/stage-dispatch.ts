@@ -30,6 +30,10 @@ import type { BranchExecutionResult } from "./branch-merge.js";
 import { handleFork as handleForkNode } from "./fork-branch-executor.js";
 import { handleLoop as handleLoopNode } from "./loop-node-handler.js";
 import type { LoopResumeOptions } from "../loop-executor.js";
+import type {
+  LoopBodyGraphScheduleInput,
+  LoopBodyGraphScheduleResult,
+} from "../loop-executor/types.js";
 import type { ForkState, LoopState } from "./executor-state-types.js";
 import type { BudgetTrackerState } from "./iteration-budget-tracker.js";
 
@@ -64,6 +68,12 @@ export interface StageContext {
     nodeResults: Map<string, NodeResult>,
     totalDurationMs: number
   ) => PipelineRunResult;
+  /** Execute one bounded compiler-lowered loop body through the graph walker. */
+  scheduleLoopBodyGraph: (
+    loopNode: LoopNode,
+    frame: RunFrame,
+    input: LoopBodyGraphScheduleInput
+  ) => Promise<LoopBodyGraphScheduleResult>;
 }
 
 /** Per-run mutable state threaded through a single stage dispatch. */
@@ -182,12 +192,21 @@ export async function dispatchLoopStage(
           >,
         }
       : {}),
+    ...(savedLoopState?.bodyGraphState === undefined
+      ? {}
+      : { bodyGraphState: savedLoopState.bodyGraphState }),
     ...(savedLoopState?.previousOutput !== undefined
       ? { previousOutput: savedLoopState.previousOutput }
       : {}),
     ...(savedLoopState?.progressDigest !== undefined
       ? { progressDigest: savedLoopState.progressDigest }
       : {}),
+    ...(loopNode.bodyGraph === undefined
+      ? {}
+      : {
+          scheduleBodyGraph: (input: LoopBodyGraphScheduleInput) =>
+            ctx.scheduleLoopBodyGraph(loopNode, frame, input),
+        }),
     onBodyNodeComplete: async (progress) => {
       const previousBoundary = frame.loopState[loopNode.id];
       frame.loopState[loopNode.id] = {
@@ -197,6 +216,20 @@ export async function dispatchLoopStage(
           progress.bodyResults,
           ctx.config.definition.checkpoint?.includeProviderSessionRefs === true
         ),
+        ...(previousBoundary?.previousOutput !== undefined
+          ? { previousOutput: previousBoundary.previousOutput }
+          : {}),
+        ...(previousBoundary?.progressDigest !== undefined
+          ? { progressDigest: previousBoundary.progressDigest }
+          : {}),
+      };
+      await ctx.saveCheckpoint(frame);
+    },
+    onBodyGraphCheckpoint: async (progress) => {
+      const previousBoundary = frame.loopState[loopNode.id];
+      frame.loopState[loopNode.id] = {
+        iteration: progress.completedIterations,
+        bodyGraphState: progress.state,
         ...(previousBoundary?.previousOutput !== undefined
           ? { previousOutput: previousBoundary.previousOutput }
           : {}),

@@ -3,6 +3,7 @@ import type { LoopNode, PipelineNode } from "@dzupagent/core/pipeline";
 import { describe, expect, it } from "vitest";
 
 import { executeLoop } from "../pipeline/loop-executor.js";
+import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
 import type {
   NodeExecutionContext,
   NodeExecutor,
@@ -77,5 +78,49 @@ describe("F-R4 — typed loop onExhausted runtime branch", () => {
     );
 
     expect(result.error).toContain("maxIterations");
+  });
+
+  it("plumbs a host-authoritative iteration reservation before body dispatch", async () => {
+    const bodyRuns: string[] = [];
+    const reservations: unknown[] = [];
+    const budgetedLoop = loop("continue", false);
+    budgetedLoop.typedWhile = {
+      ...budgetedLoop.typedWhile!,
+      iterationBudgetCents: 10,
+    };
+    const runtime = new PipelineRuntime({
+      definition: {
+        id: "loop-budget-admission",
+        name: "LoopBudgetAdmission",
+        version: "1.0.0",
+        schemaVersion: "1.0.0",
+        entryNodeId: "loop",
+        nodes: [budgetedLoop, ...bodyNodes],
+        edges: [],
+      },
+      predicates: { always: () => true },
+      loopIterationBudgetReservation: {
+        reserve: (input) => {
+          reservations.push(input);
+          return { status: "reserved", reservedCostCents: 8 };
+        },
+      },
+      nodeExecutor: async (nodeId) => {
+        bodyRuns.push(nodeId);
+        return { nodeId, output: "ok", durationMs: 1 };
+      },
+    });
+
+    const result = await runtime.execute();
+
+    expect(result.state).toBe("completed");
+    expect(bodyRuns).toEqual(["body"]);
+    expect(reservations).toHaveLength(1);
+    expect(reservations[0]).toMatchObject({
+      loopNodeId: "loop",
+      iteration: 1,
+      budgetCents: 10,
+      bodyNodeIds: ["body"],
+    });
   });
 });

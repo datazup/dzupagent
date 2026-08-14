@@ -254,6 +254,8 @@ export type LoopNode = FlowNodeBase & {
   onExhausted?: "fail" | "continue";
   /** Maximum wall time for one body iteration in milliseconds. */
   iterationTimeoutMs?: number;
+  /** Hard monetary ceiling for one iteration, admitted before body dispatch. */
+  iterationBudgetCents?: number;
   /** Step ID to track for no-progress detection across iterations. */
   progressKey?: string;
 };

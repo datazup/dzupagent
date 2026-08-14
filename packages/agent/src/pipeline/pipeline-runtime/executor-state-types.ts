@@ -7,11 +7,14 @@
  * @module pipeline/pipeline-runtime/executor-state-types
  */
 
+import type { LoopBodyGraphCheckpointState } from "../loop-executor/types.js";
+
 /** One predicate-loop's iteration and optional mid-body resume cursor. */
 export interface LoopCheckpointState {
   iteration: number;
   nextBodyNodeIndex?: number;
   bodyResults?: Record<string, unknown>;
+  bodyGraphState?: LoopBodyGraphCheckpointState;
   previousOutput?: unknown;
   progressDigest?: `sha256:${string}`;
 }

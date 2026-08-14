@@ -112,6 +112,21 @@ export function parseLoop(
       pointer: joinPointer(pointer, "iterationTimeoutMs"),
     });
   }
+  if (
+    typeof obj.iterationBudgetCents === "number" &&
+    Number.isFinite(obj.iterationBudgetCents) &&
+    obj.iterationBudgetCents > 0
+  ) {
+    node.iterationBudgetCents = obj.iterationBudgetCents;
+  } else if (obj.iterationBudgetCents !== undefined) {
+    ctx.errors.push({
+      code: "WRONG_FIELD_TYPE",
+      message: `loop.iterationBudgetCents must be a positive finite number when present, received ${describeJsType(
+        obj.iterationBudgetCents
+      )}`,
+      pointer: joinPointer(pointer, "iterationBudgetCents"),
+    });
+  }
   if (typeof obj.progressKey === "string" && obj.progressKey.length > 0)
     node.progressKey = obj.progressKey;
   return node;

@@ -312,7 +312,7 @@ export const controlFlowValidators: ShapeRulePartial<ControlFlowKind> = {
           category: "control",
           message:
             `typed loop body contains ${unsupported.node.type}, whose control-flow ` +
-            "semantics require graph-scheduler execution; only flat body nodes are admitted",
+            "semantics are outside the admitted bounded graph-scheduler matrix",
         });
       }
     }
@@ -322,22 +322,20 @@ export const controlFlowValidators: ShapeRulePartial<ControlFlowKind> = {
 
 const STRUCTURED_TYPED_LOOP_BODY_TYPES = new Set<FlowNode["type"]>([
   "approval",
-  "branch",
   "clarification",
   "complete",
   "for_each",
   "loop",
-  "parallel",
   "persona",
   "return_to",
   "route",
   "subflow",
-  "try_catch",
 ]);
 
 function findStructuredTypedLoopBodyNode(
   nodes: readonly FlowNode[],
-  parentPath: string
+  parentPath: string,
+  insideParallel = false
 ): { node: FlowNode; path: string } | undefined {
   for (let index = 0; index < nodes.length; index += 1) {
     const node = nodes[index];
@@ -346,8 +344,49 @@ function findStructuredTypedLoopBodyNode(
     if (STRUCTURED_TYPED_LOOP_BODY_TYPES.has(node.type)) {
       return { node, path };
     }
+    if (
+      insideParallel &&
+      (node.type === "branch" ||
+        node.type === "parallel" ||
+        node.type === "try_catch")
+    ) {
+      return { node, path };
+    }
+
+    const childGroups: Array<readonly FlowNode[]> = [];
+    const childPaths: string[] = [];
     if (node.type === "sequence") {
-      const nested = findStructuredTypedLoopBodyNode(node.nodes, `${path}.nodes`);
+      childGroups.push(node.nodes);
+      childPaths.push(`${path}.nodes`);
+    } else if (node.type === "branch") {
+      childGroups.push(node.then);
+      childPaths.push(`${path}.then`);
+      if (node.else !== undefined) {
+        childGroups.push(node.else);
+        childPaths.push(`${path}.else`);
+      }
+    } else if (node.type === "parallel") {
+      for (let branch = 0; branch < node.branches.length; branch += 1) {
+        const branchNodes = node.branches[branch];
+        if (branchNodes === undefined) continue;
+        const nested = findStructuredTypedLoopBodyNode(
+          branchNodes,
+          `${path}.branches[${branch}]`,
+          true
+        );
+        if (nested !== undefined) return nested;
+      }
+    } else if (node.type === "try_catch") {
+      childGroups.push(node.body, node.catch);
+      childPaths.push(`${path}.body`, `${path}.catch`);
+    }
+
+    for (let group = 0; group < childGroups.length; group += 1) {
+      const nested = findStructuredTypedLoopBodyNode(
+        childGroups[group]!,
+        childPaths[group]!,
+        insideParallel
+      );
       if (nested !== undefined) return nested;
     }
   }

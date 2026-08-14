@@ -19,6 +19,7 @@ import type {
 import type {
   AgentNode,
   LoopNode,
+  PipelineNode,
   PipelineNodeSource,
   SuspendNode,
   ToolNode,
@@ -218,12 +219,30 @@ export function lowerTypedLoop(
   );
   const bodyNodeIds = bodyResult.nodes.map((n) => n.id);
   const onExhausted = node.onExhausted ?? "fail";
+  const bodyPorts = portsOf(bodyResult);
+  const bodyEntryNodeId = bodyPorts.entryNodeIds[0];
+  if (bodyEntryNodeId === undefined) {
+    throw new Error(
+      `lowerTypedLoop: loop body at ${path} produced no executable entry node`
+    );
+  }
+  const progressNodeId =
+    node.progressKey === undefined
+      ? undefined
+      : resolveLoopProgressNodeId(node.progressKey, bodyResult.nodes, path);
 
   const loopNode: LoopNode = {
     id: freshId(ctx),
     type: "loop",
     name: `loop:${node.id ?? path}`,
     bodyNodeIds,
+    bodyGraph: {
+      entryNodeId: bodyEntryNodeId,
+      normalExitNodeIds: bodyPorts.normalExits,
+      suspendedExitNodeIds: bodyPorts.suspendedExits,
+      terminalExitNodeIds: bodyPorts.terminalExits,
+      errorExitNodeIds: bodyPorts.errorExits,
+    },
     maxIterations: node.maxIterations ?? 100,
     continuePredicateName: `loopTyped__${node.id ?? path}__predicate`,
     // Exhaustion defaults fail-closed. The authored override is retained in
@@ -240,8 +259,11 @@ export function lowerTypedLoop(
       ...(node.iterationTimeoutMs !== undefined
         ? { iterationTimeoutMs: node.iterationTimeoutMs }
         : {}),
-      ...(node.progressKey !== undefined
-        ? { progressKey: node.progressKey }
+      ...(node.iterationBudgetCents !== undefined
+        ? { iterationBudgetCents: node.iterationBudgetCents }
+        : {}),
+      ...(progressNodeId !== undefined
+        ? { progressKey: progressNodeId }
         : {}),
     },
     ...nodeDurabilityFields(node),
@@ -250,7 +272,6 @@ export function lowerTypedLoop(
   // Same port contract as lowerForEach: iteration control returns to the
   // loop node (body NORMAL tails are discarded) while suspended/terminal
   // exits of the body remain real outcomes of the fragment.
-  const bodyPorts = portsOf(bodyResult);
   return {
     nodes: [loopNode, ...bodyResult.nodes],
     edges: bodyResult.edges,
@@ -264,6 +285,23 @@ export function lowerTypedLoop(
       errorExits: bodyPorts.errorExits,
     },
   };
+}
+
+function resolveLoopProgressNodeId(
+  authoredNodeId: string,
+  bodyNodes: readonly PipelineNode[],
+  path: string
+): string {
+  const matches = bodyNodes.filter(
+    (bodyNode) => bodyNode.source?.nodeId === authoredNodeId
+  );
+  if (matches.length !== 1) {
+    throw new Error(
+      `lowerTypedLoop: progressKey ${JSON.stringify(authoredNodeId)} at ${path} ` +
+        `must resolve to exactly one executable body node; resolved ${matches.length}`
+    );
+  }
+  return matches[0]!.id;
 }
 
 function forEachContract(node: ForEachNode): NonNullable<LoopNode["forEach"]> {

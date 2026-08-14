@@ -141,6 +141,8 @@ const LOOP_KEYS = new Set<string>([
   "onExhausted",
   "iterationTimeoutMs",
   "iteration_timeout_ms",
+  "iterationBudgetCents",
+  "iteration_budget_cents",
   "progressKey",
 ]);
 
@@ -237,6 +239,23 @@ export function normalizeLoop(
       code: DSL_ERROR.INVALID_NODE_SHAPE,
       message: "loop.iterationTimeoutMs must be a positive integer",
       path: `${path}.iterationTimeoutMs`,
+    });
+  }
+
+  const iterationBudgetRaw =
+    raw.iterationBudgetCents ?? raw.iteration_budget_cents;
+  if (
+    typeof iterationBudgetRaw === "number" &&
+    Number.isFinite(iterationBudgetRaw) &&
+    iterationBudgetRaw > 0
+  ) {
+    node.iterationBudgetCents = iterationBudgetRaw;
+  } else if (iterationBudgetRaw !== undefined) {
+    diagnostics.push({
+      phase: "normalize",
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: "loop.iterationBudgetCents must be a positive finite number",
+      path: `${path}.iterationBudgetCents`,
     });
   }
 

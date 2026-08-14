@@ -75,6 +75,15 @@ export async function handleLoop(
   });
 
   const predicates = config.predicates ?? {};
+  const executionResume: LoopResumeOptions = {
+    ...resume,
+    ...(config.loopIterationBudgetReservation === undefined
+      ? {}
+      : {
+          reserveIterationBudget: (input) =>
+            config.loopIterationBudgetReservation!.reserve(input),
+        }),
+  };
 
   // Sequential predicate loops dispatch body nodes outside the executor's
   // standard-node path, so account their successful paid work here. A body
@@ -113,7 +122,7 @@ export async function handleLoop(
     context,
     predicates,
     config.onEvent,
-    resume
+    executionResume
   );
 
   if (result.error) {

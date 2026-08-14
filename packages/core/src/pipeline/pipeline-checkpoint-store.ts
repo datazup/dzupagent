@@ -28,10 +28,41 @@ export interface PipelineLoopCheckpointState {
   iteration: number;
   nextBodyNodeIndex?: number;
   bodyResults?: Record<string, unknown>;
+  /**
+   * Scoped canonical-executor frame for a compiler-lowered graph body.
+   * Mutually exclusive with the legacy flat-list cursor above.
+   */
+  bodyGraphState?: PipelineLoopBodyGraphCheckpointState;
   /** Previous completed iteration's final body output (`loop.previous`). */
   previousOutput?: unknown;
   /** Canonical digest of the previous iteration's progress-node output. */
   progressDigest?: `sha256:${string}`;
+}
+
+export interface PipelineLoopBodyGraphCheckpointState {
+  /** True when the body graph reached a normal exit before iteration advance. */
+  completed: boolean;
+  /** Next body node to dispatch when `completed` is false. */
+  nextNodeId?: string;
+  /** Scoped nodes already completed in this body iteration. */
+  completedNodeIds: string[];
+  /** Body-only node results required by downstream graph nodes. */
+  nodeResults: Record<string, unknown>;
+  /** Stable keys already assigned inside the scoped executor. */
+  nodeIdempotencyKeys: Record<string, string>;
+  /** Mid-fork progress retained by the canonical fork scheduler. */
+  forkState?: Record<
+    string,
+    {
+      branches: Record<
+        string,
+        {
+          stateDelta: Record<string, unknown>;
+          nodeResults: Record<string, unknown>;
+        }
+      >;
+    }
+  >;
 }
 
 /**

@@ -140,6 +140,10 @@ export function formatStructuralNode(
         lines.push(
           `${childIndent}iterationTimeoutMs: ${node.iterationTimeoutMs}`
         );
+      if (node.iterationBudgetCents !== undefined)
+        lines.push(
+          `${childIndent}iterationBudgetCents: ${node.iterationBudgetCents}`
+        );
       if (node.progressKey !== undefined)
         lines.push(`${childIndent}progressKey: ${quote(node.progressKey)}`);
       lines.push(`${childIndent}body:`);
