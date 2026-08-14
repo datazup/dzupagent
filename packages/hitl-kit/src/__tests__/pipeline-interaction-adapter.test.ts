@@ -91,24 +91,66 @@ describe("InMemoryPipelineInteractionStatePort", () => {
     });
   });
 
-  it("keeps stored pending and receipt records immutable across caller mutation", async () => {
+  it("isolates authoritative records from caller, return, and lookup mutation", async () => {
     const store = new InMemoryPipelineInteractionStatePort({
       now: () => new Date("2026-08-14"),
     });
     const { spec, pending, receipt } = fixture();
+    const expectedSpec = structuredClone(spec);
+    const expectedPending = structuredClone(pending);
+    const expectedReceipt = structuredClone(receipt);
     const pendingResult = await store.ensurePending(spec, pending);
+
+    (spec as unknown as { question: string }).question = "Mutated caller spec";
+    (pending as unknown as { expiresAt: string }).expiresAt =
+      "2021-01-01T00:00:00.000Z";
+    (pendingResult.spec as unknown as { question: string }).question =
+      "Mutated returned spec";
     (pendingResult.pending as { expiresAt: string }).expiresAt =
       "2020-01-01T00:00:00.000Z";
 
-    expect((await store.get(pending.interactionId))?.pending.expiresAt).toBe(
-      pending.expiresAt,
-    );
+    const pendingLookup = await store.get(expectedPending.interactionId);
+    expect(pendingLookup).toMatchObject({
+      spec: expectedSpec,
+      pending: expectedPending,
+    });
+    (pendingLookup!.pending as { expiresAt: string }).expiresAt =
+      "2022-01-01T00:00:00.000Z";
+    expect(await store.get(expectedPending.interactionId)).toMatchObject({
+      spec: expectedSpec,
+      pending: expectedPending,
+    });
+    await expect(
+      store.ensurePending(expectedSpec, {
+        ...expectedPending,
+        expiresAt: "2029-01-01T00:00:00.000Z",
+      }),
+    ).rejects.toMatchObject({
+      code: "PENDING_PAYLOAD_DRIFT",
+    });
 
     const terminalResult = await store.recordReceipt(receipt);
+    (receipt.response as { decision: string }).decision = "rejected";
+    (terminalResult.pending as { expiresAt: string }).expiresAt =
+      "2023-01-01T00:00:00.000Z";
     (terminalResult.receipt!.response as { decision: string }).decision =
       "rejected";
 
-    expect((await store.get(pending.interactionId))?.receipt).toEqual(receipt);
-    expect((await store.recordReceipt(receipt)).receipt).toEqual(receipt);
+    const terminalLookup = await store.get(expectedPending.interactionId);
+    expect(terminalLookup).toMatchObject({
+      spec: expectedSpec,
+      pending: expectedPending,
+      receipt: expectedReceipt,
+    });
+    (terminalLookup!.receipt!.response as { decision: string }).decision =
+      "rejected";
+    expect(await store.get(expectedPending.interactionId)).toMatchObject({
+      spec: expectedSpec,
+      pending: expectedPending,
+      receipt: expectedReceipt,
+    });
+    expect((await store.recordReceipt(expectedReceipt)).receipt).toEqual(
+      expectedReceipt,
+    );
   });
 });
