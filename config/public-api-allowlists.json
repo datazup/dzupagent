@@ -550,6 +550,7 @@
         { "match": "exact", "pattern": "./schedule.js" },
         { "match": "exact", "pattern": "./script-runs.js" },
         { "match": "exact", "pattern": "./pipeline.js" },
+        { "match": "exact", "pattern": "./pipeline-interaction.js" },
         { "match": "exact", "pattern": "./canonical-execution.js" },
         { "match": "exact", "pattern": "./canonical-gates.js" },
         { "match": "exact", "pattern": "./local-model.js" },
@@ -771,7 +772,8 @@
         { "match": "exact", "pattern": "./approval-state-store.js" },
         { "match": "exact", "pattern": "./postgres-approval-store.js" },
         { "match": "exact", "pattern": "./approval-gate.js" },
-        { "match": "exact", "pattern": "./runtime-approval-bridge.js" }
+        { "match": "exact", "pattern": "./runtime-approval-bridge.js" },
+        { "match": "exact", "pattern": "./pipeline-interaction-adapter.js" }
       ],
       "transitionalRoot": [],
       "subpaths": {},
