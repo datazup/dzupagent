@@ -203,7 +203,7 @@ test('honors waivers for packages with test but no test:coverage', () => {
   }
 })
 
-test('reports staged baselines for packages without coverage scripts', () => {
+test('fails packages without coverage scripts even when a staged baseline is configured', () => {
   const { root, configPath } = makeWorkspace({
     packages: {
       alpha: {
@@ -234,12 +234,15 @@ test('reports staged baselines for packages without coverage scripts', () => {
   })
 
   try {
+    // DZUPAGENT-CODE-H-08: a staged baseline concedes a threshold, not the absence
+    // of a coverage mechanism. Only an explicit waiver may excuse a package that
+    // publishes no `test:coverage` script.
     const report = runCoverageGate({ repoRoot: root, configPath })
-    assert.equal(report.exitCode, 0)
-    assert.equal(report.totals.baseline, 1)
-    assert.equal(report.rows[0].status, 'baseline')
-    assert.match(report.rows[0].message, /test script lacks test:coverage; staged baseline/)
-    assert.match(report.rows[0].message, /publish test:coverage/)
+    assert.equal(report.exitCode, 1)
+    assert.equal(report.totals.baseline, 0)
+    assert.equal(report.totals.missing, 1)
+    assert.equal(report.rows[0].status, 'missing')
+    assert.match(report.rows[0].message, /no test:coverage script/)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

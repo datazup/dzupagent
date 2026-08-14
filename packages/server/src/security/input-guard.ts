@@ -50,14 +50,12 @@ export interface InputGuardConfig {
    * Controls behaviour when the safety scanner itself throws an unexpected
    * error.
    *
-   * - `'fail-open'` (default) — scanner errors are silently swallowed and the
-   *   input is treated as clean. Preserves backward compatibility.
-   * - `'fail-closed'` — scanner errors cause the input to be rejected with
-   *   `{ allowed: false, reason: 'Input safety scanner unavailable' }`.
-   *   Use this in high-security contexts where an unavailable scanner must
-   *   not silently pass untrusted input through.
+   * - `'fail-closed'` (default) — scanner errors cause the input to be
+   *   rejected with `{ allowed: false, reason: 'Input safety scanner unavailable' }`.
+   * - `'fail-open'` — scanner errors allow the input to proceed, but the result
+   *   is explicitly marked with `scanStatus: 'unknown'`.
    *
-   * @default 'fail-open'
+   * @default 'fail-closed'
    */
   scanFailureMode?: 'fail-open' | 'fail-closed'
 }
@@ -75,13 +73,16 @@ export interface InputGuardResult {
   redactedInput?: unknown
   /** All safety violations observed during the scan (block + log tiers). */
   violations?: SafetyViolation[]
+  /** Set to `'unknown'` when the safety scanner did not produce a verdict. */
+  scanStatus?: 'unknown'
 }
 
 export interface InputGuard {
   /**
    * Scan an incoming run input. Returns a decision plus optional redacted
    * payload. This method never throws — any internal failure surfaces as
-   * `{ allowed: true }` so misconfiguration never blocks the fleet.
+   * a blocked result by default. Explicit fail-open results are marked with
+   * `scanStatus: 'unknown'` and never claim an empty violation set.
    */
   scan(input: unknown): Promise<InputGuardResult>
 }
@@ -137,7 +138,7 @@ function mapStrings(
 export function createInputGuard(config?: InputGuardConfig): InputGuard {
   const maxInputLength = config?.maxInputLength ?? DEFAULT_MAX_INPUT_LENGTH
   const redactPii = config?.redactPii ?? true
-  const scanFailureMode = config?.scanFailureMode ?? 'fail-open'
+  const scanFailureMode = config?.scanFailureMode ?? 'fail-closed'
   // A dedicated monitor — not attached to any event bus so scans don't emit
   // events into the runtime. Hosts can inject a shared monitor via config.
   const monitor = config?.safetyMonitor ?? createSafetyMonitor()
@@ -156,15 +157,23 @@ export function createInputGuard(config?: InputGuardConfig): InputGuard {
 
       // --- 2. Injection / secret / escalation scan ---
       // Scan the serialized form so nested string fields are covered.
-      let violations: SafetyViolation[] = []
+      let violations: SafetyViolation[]
       try {
         violations = monitor.scanContent(serialized, { source: 'input-guard' })
       } catch {
-        if (scanFailureMode === 'fail-closed') {
-          return { allowed: false, reason: 'Input safety scanner unavailable' }
+        if (scanFailureMode === 'fail-open') {
+          return {
+            allowed: true,
+            scanStatus: 'unknown',
+            violations: undefined,
+          }
         }
-        // fail-open: scanner failure must not take down the pipeline — fall through.
-        violations = []
+        return {
+          allowed: false,
+          reason: 'Input safety scanner unavailable',
+          scanStatus: 'unknown',
+          violations: undefined,
+        }
       }
 
       const blocking = violations.find(

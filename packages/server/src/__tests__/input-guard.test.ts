@@ -1,10 +1,11 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { createInputGuard, DEFAULT_MAX_INPUT_LENGTH } from '../security/input-guard.js'
 import {
   InMemoryRunStore,
   InMemoryAgentStore,
   ModelRegistry,
   createEventBus,
+  createSafetyMonitor,
 } from '@dzupagent/core'
 import type { Run } from '@dzupagent/core'
 import { InMemoryRunQueue } from '../queue/run-queue.js'
@@ -173,6 +174,39 @@ describe('createInputGuard', () => {
       // Falls back to String(input); should not throw.
       expect(result).toBeDefined()
       expect(typeof result.allowed).toBe('boolean')
+    })
+
+    it('fails closed with an unknown scan status when the scanner throws', async () => {
+      const safetyMonitor = createSafetyMonitor()
+      vi.spyOn(safetyMonitor, 'scanContent').mockImplementation(() => {
+        throw new Error('scanner unavailable')
+      })
+      const guard = createInputGuard({ safetyMonitor, redactPii: false })
+
+      const result = await guard.scan('untrusted input')
+
+      expect(result.allowed).toBe(false)
+      expect(result.reason).toBe('Input safety scanner unavailable')
+      expect(result.scanStatus).toBe('unknown')
+      expect(result.violations).toBeUndefined()
+    })
+
+    it('does not forge a clean scan when explicitly configured to fail open', async () => {
+      const safetyMonitor = createSafetyMonitor()
+      vi.spyOn(safetyMonitor, 'scanContent').mockImplementation(() => {
+        throw new Error('scanner unavailable')
+      })
+      const guard = createInputGuard({
+        safetyMonitor,
+        redactPii: false,
+        scanFailureMode: 'fail-open',
+      })
+
+      const result = await guard.scan('untrusted input')
+
+      expect(result.allowed).toBe(true)
+      expect(result.scanStatus).toBe('unknown')
+      expect(result.violations).toBeUndefined()
     })
   })
 })

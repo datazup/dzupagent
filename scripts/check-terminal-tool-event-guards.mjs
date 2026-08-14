@@ -10,7 +10,7 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { join, relative } from 'node:path'
 
 const DEFAULT_SEARCH_ROOT = 'packages'
@@ -20,6 +20,23 @@ const DEFAULT_IGNORED_FILES = new Set([
 ])
 
 const EVENT_MATCH_REGEX = /type:\s*['"]tool:(result|error)['"]/
+
+function probeRipgrep() {
+  try {
+    execFileSync('rg', ['--version'], { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+const ripgrepAvailable = probeRipgrep()
+if (!ripgrepAvailable) {
+  console.warn(
+    '[check-terminal-tool-event-guards] `rg` (ripgrep) is not installed on this host; ' +
+      'falling back to a pure-Node source scan.',
+  )
+}
 
 function rg(args, cwd) {
   try {
@@ -34,6 +51,54 @@ function rg(args, cwd) {
     }
     throw error
   }
+}
+
+function walkSourceFiles(dir, out = []) {
+  let entries
+  try {
+    entries = readdirSync(dir, { withFileTypes: true })
+  } catch {
+    return out
+  }
+
+  for (const entry of entries) {
+    if (entry.name === '__tests__' || entry.name === 'dist' || entry.name === 'node_modules') continue
+
+    const fullPath = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      walkSourceFiles(fullPath, out)
+    } else if (entry.isFile() && !/\.test\.[^/]+$/.test(entry.name)) {
+      out.push(fullPath)
+    }
+  }
+
+  return out
+}
+
+function findEventOccurrences(repoRoot, searchRoot) {
+  if (ripgrepAvailable) {
+    return parseRgLines(rg([
+      '--line-number',
+      '--no-heading',
+      '--glob', '!**/__tests__/**',
+      '--glob', '!**/*.test.*',
+      '--glob', '!**/dist/**',
+      '-e', "type:\\s*['\"]tool:(result|error)['\"]",
+      searchRoot,
+    ], repoRoot))
+  }
+
+  const occurrences = []
+  for (const file of walkSourceFiles(join(repoRoot, searchRoot))) {
+    const relFile = relative(repoRoot, file).replace(/\\/g, '/')
+    const lines = readFileSync(file, 'utf8').split('\n')
+    for (const [index, text] of lines.entries()) {
+      if (EVENT_MATCH_REGEX.test(text)) {
+        occurrences.push({ file: relFile, line: index + 1, text })
+      }
+    }
+  }
+  return occurrences
 }
 
 function parseRgLines(output) {
@@ -83,17 +148,7 @@ export function collectTerminalToolEventGuardViolations(options = {}) {
   const searchRoot = options.searchRoot ?? DEFAULT_SEARCH_ROOT
   const ignoredFiles = options.ignoredFiles ?? DEFAULT_IGNORED_FILES
 
-  const rgOutput = rg([
-    '--line-number',
-    '--no-heading',
-    '--glob', '!**/__tests__/**',
-    '--glob', '!**/*.test.*',
-    '--glob', '!**/dist/**',
-    '-e', "type:\\s*['\"]tool:(result|error)['\"]",
-    searchRoot,
-  ], repoRoot)
-
-  const occurrences = parseRgLines(rgOutput)
+  const occurrences = findEventOccurrences(repoRoot, searchRoot)
   const violations = []
   const fileCache = new Map()
 

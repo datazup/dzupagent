@@ -10,26 +10,23 @@ function makeContext(headers: Record<string, string | undefined>) {
 }
 
 describe('extractDefaultRateLimitKey', () => {
-  it('extracts bearer token from Authorization header', () => {
-    const key = extractDefaultRateLimitKey(makeContext({
+  it('does not use bearer token material', () => {
+    const first = extractDefaultRateLimitKey(makeContext({
       Authorization: 'Bearer my-token',
-      'X-Forwarded-For': '1.2.3.4',
     }))
-    expect(key).toBe('my-token')
-  })
-
-  it('supports case-insensitive bearer scheme and trims token', () => {
-    const key = extractDefaultRateLimitKey(makeContext({
-      Authorization: '  bearer   token-123  ',
+    const rotated = extractDefaultRateLimitKey(makeContext({
+      Authorization: 'bearer token-123',
     }))
-    expect(key).toBe('token-123')
+    expect(first).toBe(rotated)
+    expect(first).toMatch(/^ip:[a-f0-9]{64}$/)
+    expect(first).not.toContain('my-token')
   })
 
   it('does not trust X-Forwarded-For by default', () => {
     const key = extractDefaultRateLimitKey(makeContext({
       'X-Forwarded-For': '10.0.0.1, 10.0.0.2',
     }))
-    expect(key).toBe('anonymous')
+    expect(key).toMatch(/^ip:[a-f0-9]{64}$/)
   })
 
   it('uses X-Forwarded-For when explicitly trusted', () => {
@@ -39,11 +36,20 @@ describe('extractDefaultRateLimitKey', () => {
       }),
       { trustForwardedFor: true },
     )
-    expect(key).toBe('10.0.0.1')
+    expect(key).toMatch(/^ip:[a-f0-9]{64}$/)
+    expect(key).not.toContain('10.0.0.1')
   })
 
-  it('falls back to anonymous when no key headers are present', () => {
+  it('falls back to a hashed anonymous bucket when no key headers are present', () => {
     const key = extractDefaultRateLimitKey(makeContext({}))
-    expect(key).toBe('anonymous')
+    expect(key).toMatch(/^ip:[a-f0-9]{64}$/)
+  })
+
+  it('uses a resolved principal when available', () => {
+    const key = extractDefaultRateLimitKey({
+      ...makeContext({ Authorization: 'Bearer raw-token' }),
+      get: () => ({ id: 'api-key-record' }),
+    })
+    expect(key).toBe('principal:api-key-record')
   })
 })

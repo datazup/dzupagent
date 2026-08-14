@@ -13,6 +13,17 @@ const BLOCKED_ENV_VARS = new Set([
   "PATH",
 ]);
 
+/** Host environment variables safe for stdio MCP child processes to inherit. */
+const MCP_ENV_ALLOWLIST: readonly string[] = [
+  "PATH",
+  "HOME",
+  "TMPDIR",
+  "TMP",
+  "LANG",
+  "LC_ALL",
+  "TZ",
+];
+
 /** Characters that should not appear in executable paths */
 const UNSAFE_PATH_CHARS = /[;&|`$(){}[\]<>!#~]/;
 
@@ -208,13 +219,21 @@ function throwForbidden(basename: string, reason: string): never {
 
 /**
  * Sanitize environment variables for MCP child processes.
- * Removes dangerous variables that could be used for code injection.
+ * Inherits only runtime essentials, then adds explicitly declared variables
+ * after applying the existing process-injection blocklist.
  */
 export function sanitizeMcpEnv(
   baseEnv: Record<string, string | undefined>,
   serverEnv?: Record<string, string>
 ): Record<string, string | undefined> {
-  const result = { ...baseEnv };
+  const result: Record<string, string | undefined> = {};
+
+  for (const key of MCP_ENV_ALLOWLIST) {
+    const value = baseEnv[key];
+    if (typeof value === "string") {
+      result[key] = value;
+    }
+  }
 
   if (serverEnv) {
     for (const [key, value] of Object.entries(serverEnv)) {

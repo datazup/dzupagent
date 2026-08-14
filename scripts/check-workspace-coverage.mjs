@@ -340,15 +340,6 @@ export function runCoverageGate({
     }
 
     if (!fileExists(summaryPath)) {
-      if (rule.baseline) {
-        rows.push({
-          packageName,
-          status: 'baseline',
-          message: formatBaselineMessage(rule.baseline, `missing coverage summary at ${summaryPath}; staged baseline`),
-        })
-        continue
-      }
-
       rows.push({
         packageName,
         status: 'missing',
@@ -438,15 +429,9 @@ export function runCoverageGate({
         continue
       }
 
-      if (rule.baseline) {
-        rows.push({
-          packageName,
-          status: 'baseline',
-          message: formatBaselineMessage(rule.baseline, 'test script lacks test:coverage; staged baseline'),
-        })
-        continue
-      }
-
+      // A staged baseline concedes a *threshold*, not the absence of a coverage
+      // mechanism. A package with no `test:coverage` script produces no summary to
+      // measure, so a baseline cannot excuse it — only an explicit waiver can.
       rows.push({
         packageName,
         status: 'missing',

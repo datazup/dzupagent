@@ -8,8 +8,8 @@ const rootDir = dirname(dirname(fileURLToPath(import.meta.url)))
 const auditPath = join(rootDir, 'docs', 'SECURITY-AUDIT.md')
 
 if (!existsSync(auditPath)) {
-  console.log('Security audit file not present (retired) — skipping status check')
-  process.exit(0)
+  console.error(`Security audit status check failed: required input is missing at ${auditPath}`)
+  process.exit(1)
 }
 
 const audit = readFileSync(auditPath, 'utf8')

@@ -1,7 +1,7 @@
 /**
  * Branch coverage tests for TokenBucketLimiter and rate limiter middleware.
  *
- * Covers: bearer token edge cases (missing value, empty, whitespace, non-Bearer prefix),
+ * Covers: authorization-header variants never influencing the key,
  * forwarded-for with leading whitespace and empty values, token refill behavior,
  * cleanup timer behavior, bucket eviction.
  */
@@ -12,46 +12,52 @@ import {
 } from '../middleware/rate-limiter.js'
 
 describe('extractDefaultRateLimitKey branch coverage', () => {
-  it('returns "anonymous" when Authorization is only whitespace', () => {
+  const expectHashedIpKey = (key: string) => {
+    expect(key).toMatch(/^ip:[a-f0-9]{64}$/)
+  }
+
+  it('ignores Authorization when it is only whitespace', () => {
     const key = extractDefaultRateLimitKey({
       req: { header: (n: string) => (n === 'Authorization' ? '   ' : undefined) },
     })
-    expect(key).toBe('anonymous')
+    expectHashedIpKey(key)
   })
 
   it('treats "Bearer " with empty token as no bearer', () => {
     const key = extractDefaultRateLimitKey({
       req: { header: (n: string) => (n === 'Authorization' ? 'Bearer ' : undefined) },
     })
-    expect(key).toBe('anonymous')
+    expectHashedIpKey(key)
   })
 
   it('treats "Bearer   " with whitespace-only token as no bearer', () => {
     const key = extractDefaultRateLimitKey({
       req: { header: (n: string) => (n === 'Authorization' ? 'Bearer    ' : undefined) },
     })
-    expect(key).toBe('anonymous')
+    expectHashedIpKey(key)
   })
 
-  it('is case-insensitive for bearer prefix', () => {
+  it('does not key on a lowercase bearer token', () => {
     const key = extractDefaultRateLimitKey({
       req: { header: (n: string) => (n === 'Authorization' ? 'bearer my-token' : undefined) },
     })
-    expect(key).toBe('my-token')
+    expectHashedIpKey(key)
+    expect(key).not.toContain('my-token')
   })
 
   it('returns "anonymous" when Authorization is "Basic ..."', () => {
     const key = extractDefaultRateLimitKey({
       req: { header: (n: string) => (n === 'Authorization' ? 'Basic xyz' : undefined) },
     })
-    expect(key).toBe('anonymous')
+    expectHashedIpKey(key)
   })
 
-  it('trims bearer token whitespace', () => {
+  it('does not key on a whitespace-padded bearer token', () => {
     const key = extractDefaultRateLimitKey({
       req: { header: (n: string) => (n === 'Authorization' ? 'Bearer   spaced-token   ' : undefined) },
     })
-    expect(key).toBe('spaced-token')
+    expectHashedIpKey(key)
+    expect(key).not.toContain('spaced-token')
   })
 
   it('splits on first comma when forwarded-for has multiple entries', () => {
@@ -64,7 +70,8 @@ describe('extractDefaultRateLimitKey branch coverage', () => {
       },
       { trustForwardedFor: true },
     )
-    expect(key).toBe('10.0.0.1')
+    expectHashedIpKey(key)
+    expect(key).not.toContain('10.0.0.1')
   })
 
   it('returns "anonymous" when forwarded-for is empty string', () => {
@@ -76,7 +83,7 @@ describe('extractDefaultRateLimitKey branch coverage', () => {
       },
       { trustForwardedFor: true },
     )
-    expect(key).toBe('anonymous')
+    expectHashedIpKey(key)
   })
 
   it('returns "anonymous" when forwarded-for first entry is whitespace', () => {
@@ -88,7 +95,7 @@ describe('extractDefaultRateLimitKey branch coverage', () => {
       },
       { trustForwardedFor: true },
     )
-    expect(key).toBe('anonymous')
+    expectHashedIpKey(key)
   })
 })
 

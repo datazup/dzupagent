@@ -230,11 +230,22 @@ describe("mcp-security — existing helpers unaffected", () => {
     expect(() => validateMcpExecutablePath("/usr/bin/node")).not.toThrow();
   });
 
-  it("sanitizeMcpEnv strips blocked vars", () => {
+  it("sanitizeMcpEnv allowlists parent vars and keeps safe declared vars", () => {
     const result = sanitizeMcpEnv(
-      { HOME: "/home/x" },
+      {
+        PATH: "/usr/bin",
+        HOME: "/home/x",
+        AWS_SECRET_ACCESS_KEY: "parent-secret",
+        ANTHROPIC_API_KEY: "parent-secret",
+        DATABASE_URL: "postgres://parent-secret",
+      },
       { LD_PRELOAD: "/evil.so", FOO: "bar" }
     );
+    expect(result.PATH).toBe("/usr/bin");
+    expect(result.HOME).toBe("/home/x");
+    expect(result.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+    expect(result.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(result.DATABASE_URL).toBeUndefined();
     expect(result.LD_PRELOAD).toBeUndefined();
     expect(result.FOO).toBe("bar");
   });

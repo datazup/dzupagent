@@ -10,6 +10,11 @@ export const BUILD_CUSTODY_TOKEN_ENV = 'DZUP_BUILD_CUSTODY_TOKEN'
 
 const LOCK_TARGET = 'build-custody'
 const OWNER_FILE = 'build-custody-owner.json'
+const CUSTODY_LOCK_OPTIONS = {
+  realpath: false,
+  stale: 30_000,
+  update: 5_000,
+}
 
 function custodyPaths(root) {
   const turboDir = path.join(root, '.turbo')
@@ -83,7 +88,7 @@ export async function validateBuildCustody({ root, token }) {
   }
   const { lockTarget, ownerFile } = custodyPaths(root)
   const owner = await readOwner(ownerFile)
-  const locked = await lockfile.check(lockTarget, { realpath: false })
+  const locked = await lockfile.check(lockTarget, CUSTODY_LOCK_OPTIONS)
   if (!locked || !validOwner(owner) || !sameToken(owner.token, token)) {
     throw new Error('inherited build custody is not owned by this build graph')
   }
@@ -114,7 +119,7 @@ export async function acquireBuildCustody({
   if (
     validOwner(activeOwner)
     && await processDescendsFrom(activeOwner.pid)
-    && await lockfile.check(lockTarget, { realpath: false })
+    && await lockfile.check(lockTarget, CUSTODY_LOCK_OPTIONS)
   ) {
     return {
       inherited: true,
@@ -123,15 +128,13 @@ export async function acquireBuildCustody({
       release: async () => {},
     }
   }
-  const alreadyLocked = await lockfile.check(lockTarget, { realpath: false })
+  const alreadyLocked = await lockfile.check(lockTarget, CUSTODY_LOCK_OPTIONS)
   if (alreadyLocked) {
     process.stderr.write('build-custody: waiting for the active build graph\n')
   }
 
   const releaseLock = await lockfile.lock(lockTarget, {
-    realpath: false,
-    stale: 30_000,
-    update: 10_000,
+    ...CUSTODY_LOCK_OPTIONS,
     retries: {
       retries,
       factor: 1,
