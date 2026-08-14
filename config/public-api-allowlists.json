@@ -560,7 +560,10 @@
       "transitionalRoot": [],
       "subpaths": {
         "./orchestration": "primitive invocation, durable runtime task, continuation, and execution-leaf catalog contracts",
-        "./agent-blueprint": "provider-neutral agent blueprint, catalog, compiled descriptor, and validation contracts"
+        "./agent-blueprint": "provider-neutral agent blueprint, catalog, compiled descriptor, and validation contracts",
+        "./canonical-execution": "canonical execution route decisions, runtime requests, gate decisions, and effect vocabulary",
+        "./ai-budget-reservation": "conservative offer-bound AI money reservation and hard-ceiling admission",
+        "./effect-receipt": "canonical effect intent, receipt, journal, and fail-closed replay contracts"
       },
       "migrationWindow": "Runtime contract root exports are stable neutral contracts; add allowlist rules before exposing new contract modules."
     },
