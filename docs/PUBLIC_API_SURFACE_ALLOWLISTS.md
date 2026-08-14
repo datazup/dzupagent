@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-08-12
+Date: 2026-08-14
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -187,7 +187,7 @@ Root index: `packages/core/src/index.ts`
 | `deprecated-transitional` | `./protocol/index.js` | 62 | `prefix:./protocol/` | `ForgeMessageUriSchema`, `ForgeMessageMetadataSchema`, `ForgePayloadSchema`, `ForgeMessageSchema` |
 | `deprecated-transitional` | `./registry/index.js` | 31 | `prefix:./registry/` | `InMemoryRegistry`, `CapabilityMatcher`, `compareSemver`, `STANDARD_CAPABILITIES` |
 | `deprecated-transitional` | `./flow/index.js` | 10 | `prefix:./flow/` | `SkillHandle`, `McpToolHandle`, `WorkflowHandle`, `ResolvedAgentHandle` |
-| `deprecated-transitional` | `./pipeline/index.js` | 52 | `prefix:./pipeline/` | `NodeRetryPolicy`, `PipelineNodeSource`, `PipelineNodeBase`, `AgentNode` |
+| `deprecated-transitional` | `./pipeline/index.js` | 53 | `prefix:./pipeline/` | `NodeRetryPolicy`, `PipelineNodeSource`, `PipelineNodeBase`, `AgentNode` |
 | `deprecated-transitional` | `./formats/index.js` | 62 | `prefix:./formats/` | `// Agent Card V2
   AgentCardV2Schema`, `validateAgentCard`, `// Tool Format Adapters
   zodToJsonSchema`, `jsonSchemaToZod` |
@@ -703,13 +703,13 @@ Root index: `packages/agent-adapters/src/index.ts`
 | `deprecated-transitional` | `./ollama/ollama-adapter.js` | 5 | `exact:./ollama/ollama-adapter.js` | `OllamaAdapter`, `createOllamaAdapter`, `resolveLocalModelEndpoint`, `OllamaAdapterConfig` |
 | `deprecated-transitional` | `./openrouter/openrouter-adapter.js` | 2 | `prefix:./openrouter/` | `OpenRouterAdapter`, `OpenRouterConfig` |
 | `deprecated-transitional` | `./openai/openai-adapter.js` | 3 | `prefix:./openai/` | `OpenAIAdapter`, `OpenAIConfig`, `OpenAIRunResult` |
-| `deprecated-transitional` | `./model-discovery.js` | 15 | `exact:./model-discovery.js` | `assessModelAvailability`, `discoverClaudeModels`, `discoverCodexModels`, `discoverProviderModels` |
+| `deprecated-transitional` | `./model-discovery.js` | 23 | `exact:./model-discovery.js` | `assessModelAvailability`, `discoverClaudeModels`, `discoverCodexModels`, `discoverGeminiModels` |
 | `deprecated-transitional` | `./provider-request-capability-inspection.js` | 5 | `exact:./provider-request-capability-inspection.js` | `inspectProviderRequestCapabilities`, `ProviderRequestCapabilityBlocker`, `ProviderRequestCapabilityInspection`, `ProviderRequestCapabilityInspectionInput` |
 | `deprecated-transitional` | `./prompts/system-prompt-builder.js` | 9 | `prefix:./prompts/` | `SystemPromptBuilder`, `SystemPromptPayload`, `ClaudeAppendPayload`, `ClaudeReplacePayload` |
 | `deprecated-transitional` | `./prompts/thinking-history.js` | 1 | `prefix:./prompts/` | `stripThinkingBlocks` |
 | `stable` | `./registry/adapter-registry.js` | 4 | `prefix:./registry/` | `ProviderAdapterRegistry`, `ProviderAdapterRegistryConfig`, `ProviderAdapterRegistryHealthStatus`, `ProviderAdapterHealthDetail` |
 | `stable` | `./registry/task-router.js` | 5 | `prefix:./registry/` | `TagBasedRouter`, `CostOptimizedRouter`, `RoundRobinRouter`, `CompositeRouter` |
-| `stable` | `./registry/deterministic-candidate-selector.js` | 6 | `prefix:./registry/` | `classifyRouteTransition`, `planCandidateRecovery`, `selectExecutionRoute`, `CandidateRecoveryAction` |
+| `stable` | `./registry/deterministic-candidate-selector.js` | 9 | `prefix:./registry/` | `classifyRouteTransition`, `DeterministicRouteSelectionAdmissionError`, `IMPLEMENTED_DETERMINISTIC_ROUTE_STRATEGIES`, `planCandidateRecovery` |
 | `stable` | `./registry/candidate-materializer.js` | 2 | `prefix:./registry/` | `materializeRoutingCandidates`, `CandidateMaterializationDescriptor` |
 | `stable` | `./registry/learning-router.js` | 2 | `prefix:./registry/` | `LearningRouter`, `LearningRouterConfig` |
 | `stable` | `./registry/event-bus-bridge.js` | 1 | `prefix:./registry/` | `EventBusBridge` |
@@ -859,6 +859,9 @@ Root index: `packages/runtime-contracts/src/index.ts`
 | --- | --- |
 | `@dzupagent/runtime-contracts/orchestration` | primitive invocation, durable runtime task, continuation, and execution-leaf catalog contracts |
 | `@dzupagent/runtime-contracts/agent-blueprint` | provider-neutral agent blueprint, catalog, compiled descriptor, and validation contracts |
+| `@dzupagent/runtime-contracts/canonical-execution` | canonical execution route decisions, runtime requests, gate decisions, and effect vocabulary |
+| `@dzupagent/runtime-contracts/ai-budget-reservation` | conservative offer-bound AI money reservation and hard-ceiling admission |
+| `@dzupagent/runtime-contracts/effect-receipt` | canonical effect intent, receipt, journal, and fail-closed replay contracts |
 
 ### Root Allowlist
 
