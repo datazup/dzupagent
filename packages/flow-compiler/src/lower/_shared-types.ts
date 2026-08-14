@@ -106,10 +106,10 @@ export interface LoweredPorts {
    */
   normalExits: string[];
   /**
-   * Exits where a path stops awaiting an external decision WITH NO lowered
-   * continuation, e.g. an approval gate without `onReject`: the rejected
-   * outcome dead-ends at the gate by design. (A suspend that resumes into a
-   * continuation is a normal exit, not a suspended one.)
+   * Exits where a path stops awaiting an external decision with no lowered
+   * continuation. Packet 24-A approval and clarification nodes always resume
+   * through authored continuations, so they are recorded in `suspensionSites`
+   * while their executable successors determine the exit classes.
    */
   suspendedExits: string[];
   /** Every approval/clarification suspension point, regardless of exit class. */
@@ -121,14 +121,10 @@ export interface LoweredPorts {
    */
   terminalExits: string[];
   /**
-   * Error-path landings (F-R2c): the continuing tails of lowered
-   * `try_catch.catch` fragments — the nodes where control rejoins the flow
-   * after a handled error. Accumulated upward through composites exactly
-   * like suspended/terminal exits; unlike those, an error exit CONTINUES (a
-   * handled error resumes), so at the fragment whose boundary the catch
-   * reaches these ids also appear among the normal tails. A catch that ends
-   * terminally (`complete`) or suspends contributes to
-   * `terminalExits`/`suspendedExits` instead.
+   * Unhandled error-path exits propagated upward from nested fragments.
+   * A `try_catch.catch` tail that handles an error is a normal exit only and
+   * is not retained here. A catch that ends terminally (`complete`) or
+   * suspends contributes to `terminalExits`/`suspendedExits` instead.
    */
   errorExits: string[];
 }
