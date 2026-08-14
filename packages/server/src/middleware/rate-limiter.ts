@@ -11,8 +11,15 @@
  */
 import type { MiddlewareHandler } from 'hono'
 import { KeyedTokenBucketRateLimiter } from '@dzupagent/security'
+import { createHash } from 'node:crypto'
 
-import type { AppEnv } from '../types.js'
+import type { ApiKeyContext, AppEnv } from '../types.js'
+
+type RateLimitKeyContext = {
+  req: { header: (name: string) => string | undefined }
+  env?: unknown
+  get?: (key: 'apiKey') => ApiKeyContext | undefined
+}
 
 export interface RateLimiterTierConfig {
   /** Max requests per window for this tier */
@@ -31,13 +38,13 @@ export interface RateLimiterConfig {
   /**
    * Function to extract the rate limit key from a request.
    *
-   * If omitted, the middleware uses the built-in extractor, which keys on the
-   * bearer token when present and otherwise falls back to anonymous unless
-   * `trustForwardedFor` is explicitly enabled.
+   * If omitted, the middleware uses the resolved API-key principal when one is
+   * available. Pre-auth requests use a hashed client-IP bucket and never use
+   * attacker-supplied bearer-token material.
    */
-  keyExtractor?: (c: { req: { header: (name: string) => string | undefined }; env?: unknown }) => string
+  keyExtractor?: (c: RateLimitKeyContext) => string
   /**
-   * Trust the left-most X-Forwarded-For entry when no bearer token is present.
+   * Trust the left-most X-Forwarded-For entry for the client-IP bucket.
    *
    * Disabled by default because raw forwarded headers are trivially spoofed.
    */
@@ -57,34 +64,35 @@ const DEFAULT_CONFIG: RateLimiterConfig = {
   headerPrefix: 'X-RateLimit',
 }
 
-function extractBearerToken(value: string | undefined): string | undefined {
-  if (!value) return undefined
-  const trimmed = value.trim()
-  if (!trimmed) return undefined
-  const match = /^Bearer\s+(.+)$/i.exec(trimmed)
-  if (!match) return undefined
-  const token = match[1]?.trim()
-  return token && token.length > 0 ? token : undefined
-}
-
 function extractClientIp(forwardedFor: string | undefined): string | undefined {
   if (!forwardedFor) return undefined
   const first = forwardedFor.split(',', 1)[0]?.trim()
   return first && first.length > 0 ? first : undefined
 }
 
+function extractPrincipalId(apiKey: ApiKeyContext | undefined): string | undefined {
+  if (!apiKey) return undefined
+  for (const candidate of [apiKey.id, apiKey.globalUserId, apiKey.ownerId]) {
+    if (typeof candidate === 'string' && candidate.length > 0) return candidate
+  }
+  return undefined
+}
+
+function hashClientIp(clientIp: string): string {
+  return createHash('sha256').update(clientIp).digest('hex')
+}
+
 export function extractDefaultRateLimitKey(
-  c: { req: { header: (name: string) => string | undefined } },
+  c: RateLimitKeyContext,
   options?: Pick<RateLimiterConfig, 'trustForwardedFor'>,
 ): string {
-  const bearerToken = extractBearerToken(c.req.header('Authorization'))
-  if (bearerToken) return bearerToken
+  const principalId = extractPrincipalId(c.get?.('apiKey'))
+  if (principalId) return `principal:${principalId}`
 
-  if (options?.trustForwardedFor) {
-    return extractClientIp(c.req.header('X-Forwarded-For')) ?? 'anonymous'
-  }
-
-  return 'anonymous'
+  const clientIp = options?.trustForwardedFor
+    ? extractClientIp(c.req.header('X-Forwarded-For')) ?? 'anonymous'
+    : 'anonymous'
+  return `ip:${hashClientIp(clientIp)}`
 }
 
 export class TokenBucketLimiter {

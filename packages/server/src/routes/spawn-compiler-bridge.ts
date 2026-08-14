@@ -25,7 +25,7 @@ import type {
 import type { DzupEvent } from '@dzupagent/core/events'
 import type { EventGateway } from '../events/event-gateway.js'
 import { buildCompileResultEvent } from './compile-result-event.js'
-import { sanitizeError } from './route-error.js'
+import { logRouteError } from './route-error.js'
 
 /** Every line emitted by `dzupagent-compile` stdout. */
 type NdjsonLine =
@@ -83,9 +83,20 @@ interface SpawnBridgeOptions {
   signal?: AbortSignal
 }
 
-/** Async generator that yields parsed NDJSON lines from the child process. */
-async function* spawnAndStream(opts: SpawnBridgeOptions): AsyncGenerator<NdjsonLine> {
-  const { flowJson, signal } = opts
+interface SpawnSession {
+  child: ReturnType<typeof spawn>
+  getProcessError: () => Error | undefined
+  recordProcessError: (error: Error) => void
+  exitState: {
+    code: number | null
+    signal: NodeJS.Signals | null
+    exited: boolean
+  }
+  exitPromise: Promise<void>
+}
+
+/** Spawn the compiler and prove startup succeeded before committing an SSE response. */
+async function createSpawnSession(): Promise<SpawnSession> {
   const [cmd, args] = isJsScript(BINARY_PATH)
     ? ['node', [BINARY_PATH]]
     : [BINARY_PATH, []]
@@ -93,6 +104,68 @@ async function* spawnAndStream(opts: SpawnBridgeOptions): AsyncGenerator<NdjsonL
   const child = spawn(cmd, args, {
     stdio: ['pipe', 'pipe', 'pipe'],
   })
+
+  // DZUPAGENT-ERR-C-26: Node treats an unhandled ChildProcess/stream 'error'
+  // as an uncaught exception. Keep both listeners for the full process lifetime
+  // and attach them before stdin or any other child I/O is touched.
+  let processError: Error | undefined
+  const recordProcessError = (error: Error): void => {
+    processError ??= error
+  }
+  child.on('error', recordProcessError)
+  child.stdin?.on('error', recordProcessError)
+
+  // Capture close from the same early setup window. A very short-lived child
+  // can exit before the generator begins consuming stdout.
+  const exitState = {
+    code: null as number | null,
+    signal: null as NodeJS.Signals | null,
+    exited: false,
+  }
+  const exitPromise = new Promise<void>((resolve) => {
+    child.once('close', (code: number | null, signal: NodeJS.Signals | null | undefined) => {
+      exitState.code = code
+      exitState.signal = signal ?? null
+      exitState.exited = true
+      resolve()
+    })
+  })
+
+  await new Promise<void>((resolve, reject) => {
+    const onSpawn = (): void => {
+      child.off('error', onInitialError)
+      resolve()
+    }
+    const onInitialError = (error: Error): void => {
+      child.off('spawn', onSpawn)
+      reject(error)
+    }
+    child.once('spawn', onSpawn)
+    child.once('error', onInitialError)
+  })
+
+  return {
+    child,
+    getProcessError: () => processError,
+    recordProcessError,
+    exitState,
+    exitPromise,
+  }
+}
+
+/** Async generator that yields parsed NDJSON lines from the child process. */
+async function* spawnAndStream(
+  opts: SpawnBridgeOptions,
+  session: SpawnSession,
+): AsyncGenerator<NdjsonLine> {
+  const { flowJson, signal } = opts
+  const {
+    child,
+    getProcessError,
+    recordProcessError,
+    exitState,
+    exitPromise,
+  } = session
 
   // Propagate abort: kill the child when the HTTP connection drops.
   let aborted = false
@@ -102,31 +175,23 @@ async function* spawnAndStream(opts: SpawnBridgeOptions): AsyncGenerator<NdjsonL
   }
   signal?.addEventListener('abort', onAbort, { once: true })
 
-  // Write flow JSON to stdin then close it so the child knows input is complete.
-  child.stdin.write(flowJson, 'utf8')
-  child.stdin.end()
-
   // Drain stderr so it doesn't block the child's output pipe and so we can
   // surface diagnostics when the child exits non-zero.
   const stderrChunks: string[] = []
   child.stderr?.setEncoding('utf8')
   child.stderr?.on('data', (chunk: string) => stderrChunks.push(chunk))
 
-  // Capture the child's exit code/signal so we can gate success on it. The
-  // protocol delivers a terminal `result` or `error` frame on stdout, but
-  // partial NDJSON cannot be trusted as success — we MUST observe a clean
-  // exit (code === 0) before treating any earlier `result` frame as final.
-  let exitCode: number | null = null
-  let exitSignal: NodeJS.Signals | null = null
-  let exited = false
-  const exitPromise = new Promise<void>((resolve) => {
-    child.once('close', (code: number | null, sig: NodeJS.Signals | null | undefined) => {
-      exitCode = code
-      exitSignal = sig ?? null
-      exited = true
-      resolve()
-    })
+  // Exit code/signal capture was installed in createSpawnSession. The protocol
+  // delivers a terminal `result` or `error` frame on stdout, but partial NDJSON
+  // cannot be trusted as success — we MUST observe a clean exit (code === 0)
+  // before treating any earlier `result` frame as final.
+  // Write flow JSON to stdin then close it so the child knows input is complete.
+  // The callback captures immediate write failures in addition to the persistent
+  // stream listener installed by createSpawnSession.
+  child.stdin?.write(flowJson, 'utf8', (error) => {
+    if (error) recordProcessError(error)
   })
+  child.stdin?.end()
 
   const readable = child.stdout as Readable
   readable.setEncoding('utf8')
@@ -189,18 +254,21 @@ async function* spawnAndStream(opts: SpawnBridgeOptions): AsyncGenerator<NdjsonL
     // termination signal MUST be surfaced as a protocol error — partial
     // protocol frames cannot mask a crashing child.
     if (!aborted) {
-      if (!exited) {
+      if (!exitState.exited) {
         await Promise.race([
           exitPromise,
           new Promise<void>((resolve) => setTimeout(resolve, 5000)),
         ])
       }
 
-      if (exitCode === 0 && exitSignal === null && bufferedResult !== null) {
+      const processError = getProcessError()
+      if (processError) {
+        throw processError
+      } else if (exitState.code === 0 && exitState.signal === null && bufferedResult !== null) {
         yield bufferedResult
-      } else if (exitCode !== 0 || exitSignal !== null) {
-        const codeStr = exitCode === null ? 'null' : String(exitCode)
-        const sigStr = exitSignal === null ? '' : ` signal=${exitSignal}`
+      } else if (exitState.code !== 0 || exitState.signal !== null) {
+        const codeStr = exitState.code === null ? 'null' : String(exitState.code)
+        const sigStr = exitState.signal === null ? '' : ` signal=${exitState.signal}`
         const stderrText = stderrChunks.join('').trim()
         const stderrSummary = stderrText.length > 0 ? stderrText : '(no stderr)'
         const partialNote = bufferedResult !== null
@@ -218,7 +286,7 @@ async function* spawnAndStream(opts: SpawnBridgeOptions): AsyncGenerator<NdjsonL
     // Destroy stdout so the child doesn't linger when we exit early.
     if (!readable.destroyed) readable.destroy()
     // Wait for the child to exit, with a safety timeout so tests never hang.
-    if (!exited) {
+    if (!exitState.exited) {
       await Promise.race([
         exitPromise,
         new Promise<void>((resolve) => setTimeout(resolve, 5000)),
@@ -251,11 +319,19 @@ export async function handleSubprocessCompile(
   // Build a per-request AbortSignal tied to the HTTP connection lifetime.
   const ac = new AbortController()
 
+  let session: SpawnSession
+  try {
+    session = await createSpawnSession()
+  } catch (err) {
+    const { safe } = logRouteError(c, 'compile.subprocess.spawn', err, 503)
+    return c.json({ error: safe }, 503)
+  }
+
   return streamSSE(c, async (stream) => {
     stream.onAbort(() => ac.abort())
 
     try {
-      for await (const line of spawnAndStream({ flowJson, signal: ac.signal })) {
+      for await (const line of spawnAndStream({ flowJson, signal: ac.signal }, session)) {
         if (ac.signal.aborted) break
 
         if (line.type === 'result') {
@@ -281,7 +357,7 @@ export async function handleSubprocessCompile(
       }
     } catch (err) {
       if (!ac.signal.aborted) {
-        const { safe } = sanitizeError(err)
+        const { safe } = logRouteError(c, 'compile.subprocess.spawn', err)
         await stream.writeSSE({
           event: 'error',
           data: JSON.stringify({ error: safe }),

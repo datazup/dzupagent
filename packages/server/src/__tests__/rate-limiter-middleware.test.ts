@@ -87,21 +87,25 @@ describe('TokenBucketLimiter', () => {
 })
 
 describe('extractDefaultRateLimitKey', () => {
-  it('returns bearer token when Authorization header has Bearer prefix', () => {
-    const key = extractDefaultRateLimitKey({
+  it('ignores bearer token material', () => {
+    const first = extractDefaultRateLimitKey({
       req: { header: (name: string) => (name === 'Authorization' ? 'Bearer my-token' : undefined) },
     })
-    expect(key).toBe('my-token')
+    const rotated = extractDefaultRateLimitKey({
+      req: { header: (name: string) => (name === 'Authorization' ? 'Bearer rotated-token' : undefined) },
+    })
+    expect(first).toBe(rotated)
+    expect(first).not.toContain('my-token')
   })
 
-  it('returns "anonymous" when no Authorization header', () => {
+  it('returns a hashed anonymous bucket when no client IP is available', () => {
     const key = extractDefaultRateLimitKey({
       req: { header: () => undefined },
     })
-    expect(key).toBe('anonymous')
+    expect(key).toMatch(/^ip:[a-f0-9]{64}$/)
   })
 
-  it('returns X-Forwarded-For IP when trustForwardedFor is true and no auth', () => {
+  it('returns a hashed X-Forwarded-For IP when explicitly trusted', () => {
     const key = extractDefaultRateLimitKey(
       {
         req: {
@@ -111,18 +115,19 @@ describe('extractDefaultRateLimitKey', () => {
       },
       { trustForwardedFor: true },
     )
-    expect(key).toBe('10.0.0.1')
+    expect(key).toMatch(/^ip:[a-f0-9]{64}$/)
+    expect(key).not.toContain('10.0.0.1')
   })
 
-  it('returns "anonymous" when trustForwardedFor is true but no forwarded header', () => {
+  it('returns a hashed anonymous bucket when trusted forwarding has no header', () => {
     const key = extractDefaultRateLimitKey(
       { req: { header: () => undefined } },
       { trustForwardedFor: true },
     )
-    expect(key).toBe('anonymous')
+    expect(key).toMatch(/^ip:[a-f0-9]{64}$/)
   })
 
-  it('prefers bearer token over X-Forwarded-For', () => {
+  it('uses the client IP rather than a presented bearer token pre-auth', () => {
     const key = extractDefaultRateLimitKey(
       {
         req: {
@@ -135,7 +140,16 @@ describe('extractDefaultRateLimitKey', () => {
       },
       { trustForwardedFor: true },
     )
-    expect(key).toBe('token-123')
+    const withoutToken = extractDefaultRateLimitKey(
+      {
+        req: {
+          header: (name: string) => name === 'X-Forwarded-For' ? '10.0.0.1' : undefined,
+        },
+      },
+      { trustForwardedFor: true },
+    )
+    expect(key).toBe(withoutToken)
+    expect(key).not.toContain('token-123')
   })
 })
 

@@ -4,9 +4,9 @@
  *
  *   1. CORS (only when explicitly configured)
  *   2. Security headers (all paths) — unless explicitly disabled
- *   3. Auth (`/api/*`) — when `config.auth` is provided
- *   4. RBAC  (`/api/*`) — chained after auth unless explicitly disabled
- *   5. Rate limiter (`/api/*`) — when `config.rateLimit` is provided
+ *   3. Rate limiter (`/api/*`) — before auth, so failed auth is throttled
+ *   4. Auth (`/api/*`) — when `config.auth` is provided
+ *   5. RBAC  (`/api/*`) — chained after auth unless explicitly disabled
  *   6. JSON body size guard (all paths) — unless explicitly disabled
  *   7. Shutdown guard for `POST /api/runs` — when `config.shutdown` is provided
  *   8. Request metrics (all paths) — when `config.metrics` is provided
@@ -54,8 +54,8 @@ export function applyMiddleware(
 ): ComposedMiddleware {
   applyCors(app, config);
   applySecurityHeaders(app, config);
-  const effectiveAuth = applyAuthAndRbac(app, config);
   applyRateLimit(app, config);
+  const effectiveAuth = applyAuthAndRbac(app, config);
   applyJsonBodySizeLimit(app, config);
   applyShutdownGuard(app, config);
   applyRequestMetrics(app, config);

@@ -27,10 +27,14 @@ describe('validateMcpExecutablePath', () => {
 })
 
 describe('sanitizeMcpEnv', () => {
-  it('merges server env into base env', () => {
-    const result = sanitizeMcpEnv({ HOME: '/home/user' }, { MY_KEY: 'value' })
+  it('allowlists base env and merges server env', () => {
+    const result = sanitizeMcpEnv(
+      { HOME: '/home/user', AWS_SECRET_ACCESS_KEY: 'parent-secret' },
+      { MY_KEY: 'value' },
+    )
     expect(result['MY_KEY']).toBe('value')
     expect(result['HOME']).toBe('/home/user')
+    expect(result['AWS_SECRET_ACCESS_KEY']).toBeUndefined()
   })
 
   it('blocks LD_PRELOAD', () => {

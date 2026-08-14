@@ -18,6 +18,7 @@ import type {
   McpServerDefinition,
 } from "@dzupagent/core/pipeline";
 import { ForgeError } from "@dzupagent/core/events";
+import { secureLogger } from "@dzupagent/core/utils";
 import { getSerializedJsonSizeBytes } from "../validation/route-validator.js";
 
 // ---------------------------------------------------------------------------
@@ -115,13 +116,18 @@ export async function validateHttpServerInput(
   );
   if (result.ok) return undefined;
 
+  secureLogger.error({
+    event: "mcp_url_policy_rejection",
+    transport: server.transport,
+    endpoint: server.endpoint,
+    reason: result.reason,
+  });
+
   return Response.json(
     {
       error: {
         code: "FORBIDDEN",
-        message: `MCP ${server.transport.toUpperCase()} endpoint rejected by URL policy: ${
-          result.reason
-        }`,
+        message: "MCP endpoint rejected by URL policy.",
       },
     },
     { status: 403 }

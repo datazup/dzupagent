@@ -11,7 +11,10 @@ import { buildCompileResultEvent } from '../routes/compile-result-event.js'
 
 // ---- child_process mock ----------------------------------------------------
 
-type StdinMock = { write: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn> }
+type StdinMock = EventEmitter & {
+  write: ReturnType<typeof vi.fn>
+  end: ReturnType<typeof vi.fn>
+}
 type ChildMock = EventEmitter & {
   stdout: Readable
   stderr: Readable
@@ -19,12 +22,19 @@ type ChildMock = EventEmitter & {
   kill: ReturnType<typeof vi.fn>
 }
 
+function makeStdin(): StdinMock {
+  const stdin = new EventEmitter() as StdinMock
+  stdin.write = vi.fn()
+  stdin.end = vi.fn()
+  return stdin
+}
+
 function makeChild(lines: string[]): ChildMock {
   const child = new EventEmitter() as ChildMock
   const content = lines.map((l) => `${l}\n`).join('')
   child.stdout = Readable.from(content)
   child.stderr = Readable.from('')
-  child.stdin = { write: vi.fn(), end: vi.fn() }
+  child.stdin = makeStdin()
   child.kill = vi.fn(() => {
     setImmediate(() => child.emit('close', 0))
   })
@@ -32,6 +42,7 @@ function makeChild(lines: string[]): ChildMock {
   const fireClose = (): void => setImmediate(() => child.emit('close', 0))
   child.stdout.on('end', fireClose)
   child.stdout.on('close', fireClose)
+  setImmediate(() => child.emit('spawn'))
   return child
 }
 
@@ -67,11 +78,25 @@ function makeStream(): { stream: { writeSSE: (e: SseEvent) => Promise<void>; onA
 function makeCtx(
   stream: ReturnType<typeof makeStream>['stream'],
   query: Record<string, string> = {},
-): { _mockStream: ReturnType<typeof makeStream>['stream']; req: { query: (k: string) => string | undefined }; header: ReturnType<typeof vi.fn> } {
+): {
+  _mockStream: ReturnType<typeof makeStream>['stream']
+  req: {
+    query: (k: string) => string | undefined
+    method: string
+    path: string
+  }
+  header: ReturnType<typeof vi.fn>
+  json: (body: unknown, status: number) => Response
+} {
   return {
     _mockStream: stream,
-    req: { query: (k: string) => query[k] },
+    req: {
+      query: (k: string) => query[k],
+      method: 'POST',
+      path: '/compile',
+    },
     header: vi.fn(),
+    json: (body: unknown, status: number) => Response.json(body, { status }),
   }
 }
 
@@ -110,6 +135,64 @@ const successLines = [
 
 describe('SpawnCompilerBridge', () => {
   beforeEach(() => { spawnMock.mockClear() })
+
+  it('returns a sanitized 503 and logs one structured error when spawn fails', async () => {
+    const child = new EventEmitter() as ChildMock
+    child.stdout = new PassThrough()
+    child.stderr = new PassThrough()
+    child.stdin = makeStdin()
+    child.kill = vi.fn()
+    spawnMock.mockReturnValueOnce(child)
+    const spawnError = Object.assign(new Error('spawn node ENOENT: /private/compiler'), {
+      code: 'ENOENT',
+    })
+    setImmediate(() => child.emit('error', spawnError))
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    try {
+      const { stream, events } = makeStream()
+      const response = await handleSubprocessCompile(
+        makeCtx(stream) as Parameters<typeof handleSubprocessCompile>[0],
+        { type: 'action' },
+      )
+
+      expect(response.status).toBe(503)
+      await expect(response.json()).resolves.toEqual({ error: 'Internal server error' })
+      expect(events).toEqual([])
+      expect(child.stdin.write).not.toHaveBeenCalled()
+      expect(child.listenerCount('error')).toBeGreaterThan(0)
+      expect(child.stdin.listenerCount('error')).toBeGreaterThan(0)
+      expect(log).toHaveBeenCalledTimes(1)
+      expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toMatchObject({
+        level: 'error',
+        operation: 'compile.subprocess.spawn',
+        method: 'POST',
+        path: '/compile',
+        statusCode: 503,
+        error: {
+          message: spawnError.message,
+          name: 'Error',
+          stack: expect.stringContaining('spawn node ENOENT'),
+        },
+      })
+    } finally {
+      log.mockRestore()
+    }
+  })
+
+  it("keeps persistent child and stdin 'error' listeners after spawn succeeds", async () => {
+    const child = makeChild(successLines)
+    spawnMock.mockReturnValueOnce(child)
+
+    const { stream } = makeStream()
+    await handleSubprocessCompile(
+      makeCtx(stream) as Parameters<typeof handleSubprocessCompile>[0],
+      { type: 'action', tool: 't' },
+    )
+
+    expect(child.listenerCount('error')).toBeGreaterThan(0)
+    expect(child.stdin.listenerCount('error')).toBeGreaterThan(0)
+  })
 
   it('forwards lifecycle events and emits flow:compile_result for the final payload', async () => {
     const child = makeChild(successLines)
@@ -164,6 +247,7 @@ describe('SpawnCompilerBridge', () => {
     expect(child.stdin.write).toHaveBeenCalledWith(
       JSON.stringify({ type: 'action', tool: 't' }),
       'utf8',
+      expect.any(Function),
     )
     expect(child.stdin.end).toHaveBeenCalled()
   })
@@ -191,7 +275,7 @@ describe('SpawnCompilerBridge', () => {
     const { stream } = makeStream()
     await handleSubprocessCompile(makeCtx(stream) as Parameters<typeof handleSubprocessCompile>[0], rawJson)
 
-    expect(child.stdin.write).toHaveBeenCalledWith(rawJson, 'utf8')
+    expect(child.stdin.write).toHaveBeenCalledWith(rawJson, 'utf8', expect.any(Function))
   })
 
   it('kills the child when the stream is aborted', async () => {
@@ -250,13 +334,14 @@ describe('SpawnCompilerBridge', () => {
     const content = lines.map((l) => `${l}\n`).join('')
     child.stdout = Readable.from(content)
     child.stderr = Readable.from(stderr)
-    child.stdin = { write: vi.fn(), end: vi.fn() }
+    child.stdin = makeStdin()
     child.kill = vi.fn(() => {
       setImmediate(() => child.emit('close', code, signal))
     })
     const fireClose = (): void => setImmediate(() => child.emit('close', code, signal))
     child.stdout.on('end', fireClose)
     child.stdout.on('close', fireClose)
+    setImmediate(() => child.emit('spawn'))
     return child
   }
 

@@ -7,15 +7,24 @@
  */
 
 import { fetchWithOutboundUrlPolicy } from '@dzupagent/core/security'
+import { defaultLogger } from '@dzupagent/core/utils'
 
 import type {
   AgentInteractionResolvedEvent,
   InteractionPolicy,
+  InteractionPolicyMode,
 } from '../types.js'
 import type { InteractionKind } from './interaction-detector.js'
 
 const ANTHROPIC_MESSAGES_HOST = 'api.anthropic.com'
 const ANTHROPIC_MESSAGES_URL = 'https://api.anthropic.com/v1/messages'
+const INTERACTION_POLICY_MODES = new Set<InteractionPolicyMode>([
+  'auto-approve',
+  'auto-deny',
+  'default-answers',
+  'ai-autonomous',
+  'ask-caller',
+])
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -48,6 +57,9 @@ export class InteractionResolver {
   private readonly pending = new Map<string, DeferredInteraction>()
 
   constructor(policy: InteractionPolicy = { mode: 'auto-approve' }) {
+    if (!INTERACTION_POLICY_MODES.has(policy.mode)) {
+      throw new TypeError(`Unrecognised interaction policy mode: ${String(policy.mode)}`)
+    }
     this.policy = policy
   }
 
@@ -77,8 +89,10 @@ export class InteractionResolver {
         return this.resolveAskCaller(req)
 
       default:
-        // Exhaustive fallback — treat unknown modes as auto-approve
-        return { answer: 'yes', resolvedBy: 'auto-approve' }
+        defaultLogger.error(
+          `[InteractionResolver] Unrecognised interaction policy mode: ${String(this.policy.mode)}; denying prompt`,
+        )
+        return { answer: 'no', resolvedBy: 'auto-deny' }
     }
   }
 
