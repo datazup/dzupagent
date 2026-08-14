@@ -4,13 +4,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 export function resolveWorkspaceSiblingUrl(...segments: string[]): URL {
   const testDirectory = dirname(fileURLToPath(import.meta.url));
-  const repositoryRoot = execFileSync(
-    "git",
-    ["rev-parse", "--show-toplevel"],
-    { cwd: testDirectory, encoding: "utf8" },
-  ).trim();
   const commonGitDirectory = resolve(
-    repositoryRoot,
+    testDirectory,
     execFileSync("git", ["rev-parse", "--git-common-dir"], {
       cwd: testDirectory,
       encoding: "utf8",
