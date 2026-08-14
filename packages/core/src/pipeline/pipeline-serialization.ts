@@ -172,77 +172,101 @@ export const PipelineEdgeSchema = z.discriminatedUnion("type", [
 // Checkpoint schema
 // ---------------------------------------------------------------------------
 
+const PipelineForkCheckpointStateSchema = z.record(
+  z.string(),
+  z.object({
+    branches: z.record(
+      z.string(),
+      z.object({
+        stateDelta: z.record(z.string(), z.unknown()),
+        nodeResults: z.record(z.string(), z.unknown()),
+      })
+    ),
+  })
+);
+
+const PipelineLoopBodyGraphCheckpointStateSchema = z
+  .object({
+    completed: z.boolean(),
+    nextNodeId: z.string().min(1).optional(),
+    completedNodeIds: z.array(z.string().min(1)),
+    nodeResults: z.record(z.string(), z.unknown()),
+    nodeIdempotencyKeys: z.record(z.string(), z.string()),
+    forkState: PipelineForkCheckpointStateSchema.optional(),
+  })
+  .superRefine((graph, context) => {
+    if (graph.completed === (graph.nextNodeId !== undefined)) {
+      context.addIssue({
+        code: "custom",
+        path: ["nextNodeId"],
+        message:
+          "completed graph cursors omit nextNodeId; incomplete cursors require it",
+      });
+    }
+
+    const seenNodeIds = new Set<string>();
+    graph.completedNodeIds.forEach((nodeId, index) => {
+      if (seenNodeIds.has(nodeId)) {
+        context.addIssue({
+          code: "custom",
+          path: ["completedNodeIds", index],
+          message: `completedNodeIds contains duplicate node ID "${nodeId}"`,
+        });
+      }
+      seenNodeIds.add(nodeId);
+    });
+  });
+
+const PipelineLoopCheckpointStateSchema = z
+  .object({
+    iteration: z.number().int().nonnegative(),
+    nextBodyNodeIndex: z.number().int().nonnegative().optional(),
+    bodyResults: z.record(z.string(), z.unknown()).optional(),
+    bodyGraphState: PipelineLoopBodyGraphCheckpointStateSchema.optional(),
+    previousOutput: z.unknown().optional(),
+    progressDigest: z
+      .string()
+      .regex(/^sha256:[a-f0-9]{64}$/)
+      .optional(),
+  })
+  .superRefine((cursor, context) => {
+    const hasNextBodyNodeIndex = cursor.nextBodyNodeIndex !== undefined;
+    const hasBodyResults = cursor.bodyResults !== undefined;
+
+    if (hasNextBodyNodeIndex !== hasBodyResults) {
+      context.addIssue({
+        code: "custom",
+        path: hasNextBodyNodeIndex
+          ? ["bodyResults"]
+          : ["nextBodyNodeIndex"],
+        message:
+          "nextBodyNodeIndex and bodyResults must be present or absent together",
+      });
+    }
+
+    if (
+      cursor.bodyGraphState !== undefined &&
+      (hasNextBodyNodeIndex || hasBodyResults)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["bodyGraphState"],
+        message: "bodyGraphState is mutually exclusive with the flat body cursor",
+      });
+    }
+  });
+
 export const PipelineCheckpointSchema = z.object({
   pipelineRunId: z.string().min(1),
   pipelineId: z.string().min(1),
   version: z.number().int().nonnegative(),
   schemaVersion: z.enum(PIPELINE_SCHEMA_VERSIONS),
   completedNodeIds: z.array(z.string()),
+  nodeIdempotencyKeys: z.record(z.string(), z.string()).optional(),
   loopState: z
-    .record(
-      z.string(),
-      z
-        .object({
-          iteration: z.number().int().nonnegative(),
-          nextBodyNodeIndex: z.number().int().nonnegative().optional(),
-          bodyResults: z.record(z.string(), z.unknown()).optional(),
-          bodyGraphState: z
-            .object({
-              completed: z.boolean(),
-              nextNodeId: z.string().min(1).optional(),
-              completedNodeIds: z.array(z.string().min(1)),
-              nodeResults: z.record(z.string(), z.unknown()),
-              nodeIdempotencyKeys: z.record(z.string(), z.string()),
-              forkState: z
-                .record(
-                  z.string(),
-                  z.object({
-                    branches: z.record(
-                      z.string(),
-                      z.object({
-                        stateDelta: z.record(z.string(), z.unknown()),
-                        nodeResults: z.record(z.string(), z.unknown()),
-                      })
-                    ),
-                  })
-                )
-                .optional(),
-            })
-            .refine(
-              (graph) => graph.completed !== (graph.nextNodeId !== undefined),
-              {
-                message:
-                  "completed graph cursors omit nextNodeId; incomplete cursors require it",
-              }
-            )
-            .optional(),
-          previousOutput: z.unknown().optional(),
-          progressDigest: z
-            .string()
-            .regex(/^sha256:[a-f0-9]{64}$/)
-            .optional(),
-        })
-        .refine(
-          (cursor) =>
-            (cursor.nextBodyNodeIndex === undefined) ===
-            (cursor.bodyResults === undefined),
-          {
-            message:
-              "nextBodyNodeIndex and bodyResults must be present or absent together",
-          }
-        )
-        .refine(
-          (cursor) =>
-            cursor.bodyGraphState === undefined ||
-            (cursor.nextBodyNodeIndex === undefined &&
-              cursor.bodyResults === undefined),
-          {
-            message:
-              "bodyGraphState is mutually exclusive with the flat body cursor",
-          }
-        )
-    )
+    .record(z.string(), PipelineLoopCheckpointStateSchema)
     .optional(),
+  forkState: PipelineForkCheckpointStateSchema.optional(),
   state: z.record(z.string(), z.unknown()),
   suspendedAtNodeId: z.string().optional(),
   budgetState: z
@@ -251,6 +275,7 @@ export const PipelineCheckpointSchema = z.object({
       costCents: z.number().nonnegative(),
     })
     .optional(),
+  recoveryAttemptsUsed: z.number().int().nonnegative().optional(),
   events: z.array(z.record(z.string(), z.unknown()).and(z.object({
     type: z.string().min(1),
   }))).optional(),

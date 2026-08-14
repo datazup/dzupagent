@@ -11,9 +11,15 @@ import type {
   PipelineNode,
   PipelineEdge,
   PipelineDefinition,
-  PipelineCheckpoint,
   PipelineValidationResult,
 } from "../pipeline-definition.js";
+import type { PipelineCheckpoint } from "../pipeline-checkpoint-store.js";
+import type {
+  PipelineLoopBodyGraphCheckpointState as NestedPipelineLoopBodyGraphCheckpointState,
+} from "../index.js";
+import type {
+  PipelineLoopBodyGraphCheckpointState as PublicPipelineLoopBodyGraphCheckpointState,
+} from "../../pipeline.js";
 import {
   PipelineDefinitionSchema,
   PipelineNodeSchema,
@@ -382,6 +388,34 @@ describe("PipelineCheckpoint", () => {
     };
   }
 
+  function makeBodyGraphCheckpointState(
+    overrides: Partial<NestedPipelineLoopBodyGraphCheckpointState> = {}
+  ): NestedPipelineLoopBodyGraphCheckpointState {
+    return {
+      completed: false,
+      nextNodeId: "publish",
+      completedNodeIds: ["prepare"],
+      nodeResults: {},
+      nodeIdempotencyKeys: {},
+      ...overrides,
+    };
+  }
+
+  function expectCheckpointIssues(
+    checkpoint: unknown,
+    expectedIssues: Array<{
+      code: "custom";
+      path: Array<string | number>;
+      message: string;
+    }>
+  ): void {
+    const result = PipelineCheckpointSchema.safeParse(checkpoint);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues).toEqual(expectedIssues);
+    }
+  }
+
   it("validates a minimal checkpoint", () => {
     const cp = makeCheckpoint();
     const result = PipelineCheckpointSchema.safeParse(cp);
@@ -395,6 +429,75 @@ describe("PipelineCheckpoint", () => {
     });
     const result = PipelineCheckpointSchema.safeParse(cp);
     expect(result.success).toBe(true);
+  });
+
+  it("round-trips the full public durability surface without inventing provider session refs", () => {
+    const graphState = makeBodyGraphCheckpointState({
+      nodeResults: {
+        prepare: {
+          nodeId: "prepare",
+          output: { status: "ready" },
+          durationMs: 3,
+        },
+      },
+      nodeIdempotencyKeys: { prepare: "prepare-key" },
+      forkState: {
+        parallel: {
+          branches: {
+            left: {
+              stateDelta: { left: true },
+              nodeResults: { left: { output: "left-result" } },
+            },
+          },
+        },
+      },
+    });
+    const publicGraphState: PublicPipelineLoopBodyGraphCheckpointState =
+      graphState;
+    const checkpoint = makeCheckpoint({
+      nodeIdempotencyKeys: { prepare: "top-level-prepare-key" },
+      loopState: {
+        poll: {
+          iteration: 2,
+          bodyGraphState: publicGraphState,
+        },
+      },
+      forkState: {
+        outerParallel: {
+          branches: {
+            right: {
+              stateDelta: { right: true },
+              nodeResults: { right: { output: "right-result" } },
+            },
+          },
+        },
+      },
+      recoveryAttemptsUsed: 2,
+    });
+
+    const result = PipelineCheckpointSchema.safeParse(checkpoint);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toEqual(checkpoint);
+      expect(result.data.providerSessionRefs).toBeUndefined();
+    }
+  });
+
+  it("accepts an older iteration-only checkpoint without new durability fields", () => {
+    const checkpoint = makeCheckpoint({
+      loopState: { poll: { iteration: 2 } },
+    });
+
+    const result = PipelineCheckpointSchema.safeParse(checkpoint);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toEqual(checkpoint);
+      expect(result.data.nodeIdempotencyKeys).toBeUndefined();
+      expect(result.data.forkState).toBeUndefined();
+      expect(result.data.recoveryAttemptsUsed).toBeUndefined();
+    }
   });
 
   it("round-trips a mid-iteration predicate-loop cursor", () => {
@@ -434,15 +537,129 @@ describe("PipelineCheckpoint", () => {
   });
 
   it("rejects a body cursor without retained results", () => {
-    const result = PipelineCheckpointSchema.safeParse(
+    expectCheckpointIssues(
       makeCheckpoint({
         loopState: {
           poll: { iteration: 2, nextBodyNodeIndex: 1 },
         },
-      })
+      }),
+      [
+        {
+          code: "custom",
+          path: ["loopState", "poll", "bodyResults"],
+          message:
+            "nextBodyNodeIndex and bodyResults must be present or absent together",
+        },
+      ]
     );
+  });
 
-    expect(result.success).toBe(false);
+  it("rejects a completed graph cursor that also names a next node", () => {
+    expectCheckpointIssues(
+      makeCheckpoint({
+        loopState: {
+          poll: {
+            iteration: 2,
+            bodyGraphState: makeBodyGraphCheckpointState({ completed: true }),
+          },
+        },
+      }),
+      [
+        {
+          code: "custom",
+          path: [
+            "loopState",
+            "poll",
+            "bodyGraphState",
+            "nextNodeId",
+          ],
+          message:
+            "completed graph cursors omit nextNodeId; incomplete cursors require it",
+        },
+      ]
+    );
+  });
+
+  it("rejects an incomplete graph cursor without a next node", () => {
+    expectCheckpointIssues(
+      makeCheckpoint({
+        loopState: {
+          poll: {
+            iteration: 2,
+            bodyGraphState: {
+              completed: false,
+              completedNodeIds: ["prepare"],
+              nodeResults: {},
+              nodeIdempotencyKeys: {},
+            },
+          },
+        },
+      }),
+      [
+        {
+          code: "custom",
+          path: [
+            "loopState",
+            "poll",
+            "bodyGraphState",
+            "nextNodeId",
+          ],
+          message:
+            "completed graph cursors omit nextNodeId; incomplete cursors require it",
+        },
+      ]
+    );
+  });
+
+  it("rejects duplicate completed node IDs in a graph cursor", () => {
+    expectCheckpointIssues(
+      makeCheckpoint({
+        loopState: {
+          poll: {
+            iteration: 2,
+            bodyGraphState: makeBodyGraphCheckpointState({
+              completedNodeIds: ["prepare", "prepare"],
+            }),
+          },
+        },
+      }),
+      [
+        {
+          code: "custom",
+          path: [
+            "loopState",
+            "poll",
+            "bodyGraphState",
+            "completedNodeIds",
+            1,
+          ],
+          message: 'completedNodeIds contains duplicate node ID "prepare"',
+        },
+      ]
+    );
+  });
+
+  it("rejects a graph cursor combined with the legacy flat cursor", () => {
+    expectCheckpointIssues(
+      makeCheckpoint({
+        loopState: {
+          poll: {
+            iteration: 2,
+            nextBodyNodeIndex: 1,
+            bodyResults: {},
+            bodyGraphState: makeBodyGraphCheckpointState(),
+          },
+        },
+      }),
+      [
+        {
+          code: "custom",
+          path: ["loopState", "poll", "bodyGraphState"],
+          message:
+            "bodyGraphState is mutually exclusive with the flat body cursor",
+        },
+      ]
+    );
   });
 
   it("round-trips checkpoint fields through JSON", () => {

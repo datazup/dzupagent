@@ -46,6 +46,10 @@ import {
   type HeartbeatHandle,
 } from "./node-ledger-integration.js";
 import type { NodeLeaseLike } from "../pipeline-runtime-types.js";
+import {
+  isPipelineCheckpointIntegrityError,
+  persistCheckpointWithIntegrityBoundary,
+} from "./checkpoint-integrity-error.js";
 
 export type StandardNodeOutcome =
   | { kind: "continue"; nextNodeId: string | undefined }
@@ -72,6 +76,8 @@ export interface StandardNodeDispatchInput {
   onCompleted?: () => void;
   startTime: number;
   saveCheckpoint: () => Promise<void>;
+  /** Persist an explicitly selected error-edge cursor before catch dispatch. */
+  saveErrorEdgeCheckpoint?: (nextNodeId: string) => Promise<void>;
 }
 
 export async function dispatchStandardNode(
@@ -95,6 +101,7 @@ export async function dispatchStandardNode(
     onCompleted,
     startTime,
     saveCheckpoint,
+    saveErrorEdgeCheckpoint,
   } = input;
 
   emit(nodeStartedEvent(node.id, node.type));
@@ -165,7 +172,11 @@ export async function dispatchStandardNode(
       nodeResults.set(node.id, replayResult);
       completedNodeIds.push(node.id);
       onCompleted?.();
-      await saveCheckpoint();
+      await persistCheckpointWithIntegrityBoundary({
+        nodeId: node.id,
+        boundary: "node_completion",
+        save: saveCheckpoint,
+      });
       const nextIds = getNextNodeIds(
         node.id,
         outgoingEdges,
@@ -244,7 +255,16 @@ export async function dispatchStandardNode(
         errorEdges,
         extractErrorCode(finalResult.error)
       );
-      if (errorNext) return { kind: "continue", nextNodeId: errorNext };
+      if (errorNext) {
+        if (saveErrorEdgeCheckpoint !== undefined) {
+          await persistCheckpointWithIntegrityBoundary({
+            nodeId: node.id,
+            boundary: "error_edge_cursor",
+            save: () => saveErrorEdgeCheckpoint(errorNext),
+          });
+        }
+        return { kind: "continue", nextNodeId: errorNext };
+      }
 
       const recovered = await attemptRecovery(
         config,
@@ -326,7 +346,11 @@ export async function dispatchStandardNode(
 
     completedNodeIds.push(node.id);
     onCompleted?.();
-    await saveCheckpoint();
+    await persistCheckpointWithIntegrityBoundary({
+      nodeId: node.id,
+      boundary: "node_completion",
+      save: saveCheckpoint,
+    });
 
     const nextIds = getNextNodeIds(
       node.id,
@@ -336,6 +360,11 @@ export async function dispatchStandardNode(
     );
     return { kind: "continue", nextNodeId: nextIds[0] };
   } catch (err) {
+    // Checkpoint transport is not authored workflow work. Never convert its
+    // failure into this node's result, recovery path, or workflow error edge.
+    if (isPipelineCheckpointIntegrityError(err)) {
+      return { kind: "rethrow", error: err };
+    }
     if (span) config.tracer?.endSpanWithError(span, err);
 
     const errorMessage = err instanceof Error ? err.message : String(err);
@@ -352,7 +381,16 @@ export async function dispatchStandardNode(
       errorEdges,
       extractErrorCode(err)
     );
-    if (errorNext) return { kind: "continue", nextNodeId: errorNext };
+    if (errorNext) {
+      if (saveErrorEdgeCheckpoint !== undefined) {
+        await persistCheckpointWithIntegrityBoundary({
+          nodeId: node.id,
+          boundary: "error_edge_cursor",
+          save: () => saveErrorEdgeCheckpoint(errorNext),
+        });
+      }
+      return { kind: "continue", nextNodeId: errorNext };
+    }
 
     const recovered = await attemptRecovery(
       config,

@@ -22,7 +22,7 @@ import {
   type EffectJournalStore,
   type EffectReceipt,
 } from "@dzupagent/runtime-contracts/effect-receipt";
-import type { PipelineDefinition } from "@dzupagent/core";
+import type { PipelineCheckpoint, PipelineDefinition } from "@dzupagent/core";
 import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
 import { InMemoryPipelineCheckpointStore } from "../pipeline/in-memory-checkpoint-store.js";
 import type { NodeExecutor } from "../pipeline/pipeline-runtime-types.js";
@@ -141,6 +141,8 @@ function executor(input: {
   runId: string;
   externalDispatches: string[];
   crashAfterFirstCommit: boolean;
+  onFirstCommit?: () => void;
+  pauseAfterFirstCommit?: boolean;
 }): NodeExecutor {
   return async (nodeId, _node, context) => {
     if (nodeId === "seed") {
@@ -165,6 +167,10 @@ function executor(input: {
     });
     if (outcome.status === "blocked") {
       throw new Error(`effect blocked: ${outcome.reason}`);
+    }
+    if (outcome.status === "executed") input.onFirstCommit?.();
+    if (input.pauseAfterFirstCommit && outcome.status === "executed") {
+      await new Promise<never>(() => undefined);
     }
     if (input.crashAfterFirstCommit && outcome.status === "executed") {
       throw new Error("simulated process loss after effect commit");
@@ -369,5 +375,173 @@ describe("pipeline loop + effect receipt restart join", () => {
     expect(resumedCalls).toEqual(["effect", "finish"]);
     expect(externalDispatches).toEqual([runId]);
     expect(journal.records).toHaveLength(1);
+  });
+
+  it("replays a committed effect while restoring a parallel sibling at the join", async () => {
+    class RetainSiblingBranchStore extends InMemoryPipelineCheckpointStore {
+      private readyResolve!: () => void;
+      readonly ready = new Promise<void>((resolve) => {
+        this.readyResolve = resolve;
+      });
+
+      override async save(checkpoint: PipelineCheckpoint): Promise<void> {
+        await super.save(checkpoint);
+        const branches =
+          checkpoint.loopState?.["L"]?.bodyGraphState?.forkState?.["parallel"]
+            ?.branches ?? {};
+        if (branches["sibling"] !== undefined) this.readyResolve();
+      }
+    }
+
+    const parallelDefinition: PipelineDefinition = {
+      id: "structured-parallel-effect-restart",
+      name: "StructuredParallelEffectRestart",
+      version: "1.0.0",
+      schemaVersion: "1.0.0",
+      entryNodeId: "L",
+      checkpointStrategy: "after_each_node",
+      resume: { onProcessRestart: "resume_from_checkpoint" },
+      nodes: [
+        {
+          id: "L",
+          type: "loop",
+          bodyNodeIds: ["fork", "effect", "sibling", "join"],
+          bodyGraph: {
+            entryNodeId: "fork",
+            normalExitNodeIds: ["join"],
+            suspendedExitNodeIds: [],
+            terminalExitNodeIds: [],
+            errorExitNodeIds: [],
+          },
+          maxIterations: 2,
+          continuePredicateName: "notDone",
+        },
+        { id: "fork", type: "fork", forkId: "parallel" },
+        { id: "effect", type: "agent", agentId: "effect" },
+        { id: "sibling", type: "agent", agentId: "sibling" },
+        { id: "join", type: "join", forkId: "parallel" },
+      ],
+      edges: [
+        { type: "sequential", sourceNodeId: "fork", targetNodeId: "effect" },
+        { type: "sequential", sourceNodeId: "fork", targetNodeId: "sibling" },
+        { type: "sequential", sourceNodeId: "effect", targetNodeId: "join" },
+        { type: "sequential", sourceNodeId: "sibling", targetNodeId: "join" },
+      ],
+    };
+
+    const store = new RetainSiblingBranchStore();
+    const journal = new SharedEffectJournal();
+    const runId = "parallel-effect-restart";
+    const externalDispatches: string[] = [];
+    const idempotencyKeys: string[] = [];
+    let effectCommittedResolve!: () => void;
+    const effectCommitted = new Promise<void>((resolve) => {
+      effectCommittedResolve = resolve;
+    });
+
+    const firstRun = new PipelineRuntime({
+      definition: parallelDefinition,
+      checkpointStore: store,
+      predicates: { notDone: (state) => state["done"] !== true },
+      nodeExecutor: async (nodeId, node, context) => {
+        if (nodeId === "sibling") {
+          context.state["winner"] = "sibling";
+          context.state["done"] = true;
+          return { nodeId, output: "sibling", durationMs: 1 };
+        }
+        idempotencyKeys.push(context.idempotencyKey!);
+        context.state["winner"] = "effect";
+        return executor({
+          journal,
+          runId,
+          externalDispatches,
+          crashAfterFirstCommit: false,
+          onFirstCommit: effectCommittedResolve,
+          pauseAfterFirstCommit: true,
+        })(nodeId, node, context);
+      },
+    }).execute(undefined, { runId });
+    void firstRun.catch(() => undefined);
+
+    await Promise.all([effectCommitted, store.ready]);
+    const checkpoint = await store.load(runId);
+    expect(externalDispatches).toEqual([runId]);
+    expect(
+      Object.keys(
+        checkpoint?.loopState?.["L"]?.bodyGraphState?.forkState?.["parallel"]
+          ?.branches ?? {}
+      )
+    ).toEqual(["sibling"]);
+
+    const resumedCalls: string[] = [];
+    let resumedConflictWinner: unknown;
+    const resumed = await new PipelineRuntime({
+      definition: parallelDefinition,
+      checkpointStore: store,
+      predicates: {
+        notDone: (state) => {
+          resumedConflictWinner = state["winner"];
+          return state["done"] !== true;
+        },
+      },
+      nodeExecutor: async (nodeId, node, context) => {
+        resumedCalls.push(nodeId);
+        if (nodeId === "sibling") {
+          throw new Error("completed sibling branch must not be re-dispatched");
+        }
+        idempotencyKeys.push(context.idempotencyKey!);
+        context.state["winner"] = "effect";
+        return executor({
+          journal,
+          runId,
+          externalDispatches,
+          crashAfterFirstCommit: false,
+        })(nodeId, node, context);
+      },
+    }).resume(checkpoint!);
+
+    expect(resumed.state).toBe("completed");
+    expect(resumedCalls).toEqual(["effect"]);
+    expect(externalDispatches).toEqual([runId]);
+    expect(idempotencyKeys).toHaveLength(2);
+    expect(idempotencyKeys[1]).toBe(idempotencyKeys[0]);
+    // Existing policy: merge fulfilled branches in outgoing-edge order, so the
+    // later sibling branch deterministically wins a same-key state conflict.
+    expect(resumedConflictWinner).toBe("sibling");
+
+    const emptyJournal = new SharedEffectJournal();
+    const emptyDispatches: string[] = [];
+    const controlRunId = "parallel-effect-empty-control";
+    const controlCheckpoint = {
+      ...structuredClone(checkpoint!),
+      pipelineRunId: controlRunId,
+    };
+    let controlConflictWinner: unknown;
+    const control = await new PipelineRuntime({
+      definition: parallelDefinition,
+      checkpointStore: new InMemoryPipelineCheckpointStore(),
+      predicates: {
+        notDone: (state) => {
+          controlConflictWinner = state["winner"];
+          return state["done"] !== true;
+        },
+      },
+      nodeExecutor: async (nodeId, node, context) => {
+        if (nodeId === "sibling") {
+          throw new Error("control must restore the sibling branch");
+        }
+        context.state["winner"] = "effect";
+        return executor({
+          journal: emptyJournal,
+          runId: controlRunId,
+          externalDispatches: emptyDispatches,
+          crashAfterFirstCommit: false,
+        })(nodeId, node, context);
+      },
+    }).resume(controlCheckpoint);
+
+    expect(control.state).toBe("completed");
+    expect(emptyDispatches).toEqual([controlRunId]);
+    expect(controlConflictWinner).toBe("sibling");
   });
 });

@@ -222,6 +222,7 @@ describe("F-R4 — loop typed-condition admission", () => {
         })
       );
 
+      expect("errors" in result).toBe(true);
       if (!("errors" in result)) return;
       expect(
         result.errors.some(
@@ -229,6 +230,129 @@ describe("F-R4 — loop typed-condition admission", () => {
         ),
         JSON.stringify(result.errors)
       ).toBe(false);
+      expect(result.errors).toEqual([
+        expect.objectContaining({
+          stage: 4,
+          code: "TYPED_CONDITION_TARGET_UNSUPPORTED",
+          nodePath: "root.nodes[0].typedCondition",
+        }),
+      ]);
+    }
+  );
+
+  it.each([
+    [
+      "branch",
+      {
+        type: "branch",
+        id: "nested-branch",
+        condition: "true",
+        then: [{ type: "set", id: "then", assign: { value: "then" } }],
+      },
+    ],
+    [
+      "parallel",
+      {
+        type: "parallel",
+        id: "nested-parallel",
+        branches: [
+          [{ type: "set", id: "nested-left", assign: { left: true } }],
+        ],
+      },
+    ],
+    [
+      "try_catch",
+      {
+        type: "try_catch",
+        id: "nested-try",
+        body: [{ type: "set", id: "risky", assign: { risky: true } }],
+        catch: [{ type: "set", id: "recover", assign: { caught: true } }],
+      },
+    ],
+  ])(
+    "rejects structured %s nested inside a parallel branch",
+    async (_kind, nestedNode) => {
+      const result = await createFlowCompiler({
+        toolResolver,
+      }).compileDocument(
+        loopDoc({
+          condition: "false",
+          typedCondition: JSON.parse(TYPED_JSON),
+          maxIterations: 3,
+          body: [
+            {
+              type: "parallel",
+              id: "outer-parallel",
+              branches: [[nestedNode]],
+            },
+          ],
+        })
+      );
+
+      expect("errors" in result).toBe(true);
+      if (!("errors" in result)) return;
+      expect(result.errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            stage: 2,
+            code: "STRUCTURED_TYPED_LOOP_BODY_UNSUPPORTED",
+            nodePath: "root.nodes[0].body[0].branches[0][0]",
+          }),
+        ])
+      );
+    }
+  );
+
+  it.each([
+    [
+      "nested loop",
+      {
+        type: "loop",
+        id: "nested-loop",
+        condition: "false",
+        maxIterations: 1,
+        body: [{ type: "set", id: "nested-work", assign: { done: true } }],
+      },
+    ],
+    [
+      "for_each",
+      {
+        type: "for_each",
+        id: "nested-for-each",
+        source: "items",
+        as: "item",
+        body: [{ type: "set", id: "collect", assign: { seen: true } }],
+      },
+    ],
+    [
+      "terminal complete",
+      { type: "complete", id: "terminal", result: "done" },
+    ],
+  ])(
+    "keeps %s outside the admitted typed-loop body matrix",
+    async (_name, bodyNode) => {
+      const result = await createFlowCompiler({
+        toolResolver,
+      }).compileDocument(
+        loopDoc({
+          condition: "false",
+          typedCondition: JSON.parse(TYPED_JSON),
+          maxIterations: 3,
+          body: [bodyNode],
+        })
+      );
+
+      expect("errors" in result).toBe(true);
+      if (!("errors" in result)) return;
+      expect(result.errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            stage: 2,
+            code: "STRUCTURED_TYPED_LOOP_BODY_UNSUPPORTED",
+            nodePath: "root.nodes[0].body[0]",
+          }),
+        ])
+      );
     }
   );
 

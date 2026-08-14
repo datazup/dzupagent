@@ -138,6 +138,81 @@ describe("pipeline structured loop-body scheduler", () => {
     expect(calls.filter((id) => id === "right")).toHaveLength(2);
   });
 
+  it.each(["branch", "join"] as const)(
+    "fails closed when a fork %s checkpoint cannot be acknowledged",
+    async (failureBoundary) => {
+      class ForkCheckpointFailureStore extends InMemoryPipelineCheckpointStore {
+        private failed = false;
+
+        override async save(checkpoint: PipelineCheckpoint): Promise<void> {
+          await super.save(checkpoint);
+          const graph = checkpoint.loopState?.["loop"]?.bodyGraphState;
+          const shouldFail =
+            failureBoundary === "branch"
+              ? graph?.forkState?.["parallel"] !== undefined
+              : graph?.completed === true &&
+                graph.completedNodeIds.includes("join");
+          if (!this.failed && shouldFail) {
+            this.failed = true;
+            throw new Error(`simulated ${failureBoundary} checkpoint loss`);
+          }
+        }
+      }
+
+      const graphDefinition = definition({
+        bodyNodes: [
+          { id: "fork", type: "fork", forkId: "parallel" },
+          { id: "left", type: "agent", agentId: "left" },
+          { id: "right", type: "agent", agentId: "right" },
+          { id: "join", type: "join", forkId: "parallel" },
+        ],
+        bodyEdges: [
+          { type: "sequential", sourceNodeId: "fork", targetNodeId: "left" },
+          { type: "sequential", sourceNodeId: "fork", targetNodeId: "right" },
+          { type: "sequential", sourceNodeId: "left", targetNodeId: "join" },
+          { type: "sequential", sourceNodeId: "right", targetNodeId: "join" },
+        ],
+        entryNodeId: "fork",
+        normalExitNodeIds: ["join"],
+      });
+      graphDefinition.checkpointStrategy = "after_each_node";
+      graphDefinition.nodes.push({
+        id: "transport-catch",
+        type: "agent",
+        agentId: "transport-catch",
+      });
+      graphDefinition.edges.push({
+        type: "error",
+        sourceNodeId: "loop",
+        targetNodeId: "transport-catch",
+      });
+
+      const calls: string[] = [];
+      const errors: string[] = [];
+      const failed = await new PipelineRuntime({
+        definition: graphDefinition,
+        checkpointStore: new ForkCheckpointFailureStore(),
+        predicates: { "continue-loop": () => true },
+        onEvent: (event) => {
+          if (event.type === "pipeline:failed") errors.push(event.error);
+        },
+        nodeExecutor: async (nodeId) => {
+          calls.push(nodeId);
+          return { nodeId, output: nodeId, durationMs: 1 };
+        },
+      }).execute(undefined, { runId: `fork-${failureBoundary}-transport` });
+
+      expect(failed.state).toBe("failed");
+      expect(calls).not.toContain("transport-catch");
+      expect(errors).toContainEqual(
+        expect.stringContaining("checkpoint integrity failure")
+      );
+      expect(errors).toContainEqual(
+        expect.stringContaining(`fork_${failureBoundary}_completion`)
+      );
+    }
+  );
+
   it("routes a body failure through a try/catch error edge", async () => {
     let attempts = 0;
     let recoveries = 0;
@@ -168,6 +243,218 @@ describe("pipeline structured loop-body scheduler", () => {
 
     expect(result.state).toBe("completed");
     expect({ attempts, recoveries }).toEqual({ attempts: 2, recoveries: 2 });
+  });
+
+  it("resumes at catch after process loss before catch dispatch", async () => {
+    class CrashAfterErrorCursorStore extends InMemoryPipelineCheckpointStore {
+      private crashed = false;
+
+      override async save(checkpoint: PipelineCheckpoint): Promise<void> {
+        await super.save(checkpoint);
+        const graph = checkpoint.loopState?.["loop"]?.bodyGraphState;
+        if (!this.crashed && graph?.nextNodeId === "recover") {
+          this.crashed = true;
+          throw new Error("simulated process loss before catch dispatch");
+        }
+      }
+    }
+
+    const store = new CrashAfterErrorCursorStore();
+    const graphDefinition = definition({
+      bodyNodes: [
+        { id: "risky", type: "agent", agentId: "risky" },
+        { id: "recover", type: "agent", agentId: "recover" },
+      ],
+      bodyEdges: [
+        { type: "error", sourceNodeId: "risky", targetNodeId: "recover" },
+      ],
+      entryNodeId: "risky",
+      normalExitNodeIds: ["recover"],
+    });
+    graphDefinition.checkpointStrategy = "after_each_node";
+    graphDefinition.resume = { onProcessRestart: "resume_from_checkpoint" };
+
+    const firstCalls: string[] = [];
+    const firstErrors: string[] = [];
+    const failed = await new PipelineRuntime({
+      definition: graphDefinition,
+      checkpointStore: store,
+      predicates: { "continue-loop": (state) => state["done"] !== true },
+      onEvent: (event) => {
+        if (event.type === "pipeline:failed") firstErrors.push(event.error);
+      },
+      nodeExecutor: async (nodeId) => {
+        firstCalls.push(nodeId);
+        if (nodeId === "risky") {
+          return { nodeId, output: null, durationMs: 1, error: "expected" };
+        }
+        throw new Error("catch must not run after checkpoint transport loss");
+      },
+    }).execute(undefined, { runId: "try-before-catch-restart" });
+
+    expect(failed.state).toBe("failed");
+    expect(firstCalls).toEqual(["risky"]);
+    expect(firstErrors).toContainEqual(
+      expect.stringContaining("checkpoint integrity failure")
+    );
+    const checkpoint = await store.load(failed.runId);
+    expect(checkpoint?.loopState?.["loop"]?.bodyGraphState).toMatchObject({
+      completed: false,
+      nextNodeId: "recover",
+      completedNodeIds: [],
+      nodeResults: {
+        risky: { nodeId: "risky", error: "expected" },
+      },
+    });
+
+    const resumedCalls: string[] = [];
+    const resumed = await new PipelineRuntime({
+      definition: graphDefinition,
+      checkpointStore: store,
+      predicates: { "continue-loop": (state) => state["done"] !== true },
+      nodeExecutor: async (nodeId, _node, context) => {
+        resumedCalls.push(nodeId);
+        if (nodeId !== "recover") {
+          throw new Error(`${nodeId} must not be re-dispatched`);
+        }
+        context.state["done"] = true;
+        return { nodeId, output: "recovered", durationMs: 1 };
+      },
+    }).resume(checkpoint!);
+
+    expect(resumed.state).toBe("completed");
+    expect(resumedCalls).toEqual(["recover"]);
+  });
+
+  it("resumes a completed catch body after process loss at its checkpoint", async () => {
+    class CrashAfterCatchCheckpointStore extends InMemoryPipelineCheckpointStore {
+      private crashed = false;
+
+      override async save(checkpoint: PipelineCheckpoint): Promise<void> {
+        await super.save(checkpoint);
+        const graph = checkpoint.loopState?.["loop"]?.bodyGraphState;
+        if (
+          !this.crashed &&
+          graph?.completed === true &&
+          graph.completedNodeIds.includes("recover")
+        ) {
+          this.crashed = true;
+          throw new Error("simulated process loss after catch checkpoint");
+        }
+      }
+    }
+
+    const store = new CrashAfterCatchCheckpointStore();
+    const graphDefinition = definition({
+      bodyNodes: [
+        { id: "risky", type: "agent", agentId: "risky" },
+        { id: "recover", type: "agent", agentId: "recover" },
+      ],
+      bodyEdges: [
+        { type: "error", sourceNodeId: "risky", targetNodeId: "recover" },
+      ],
+      entryNodeId: "risky",
+      normalExitNodeIds: ["recover"],
+    });
+    graphDefinition.checkpointStrategy = "after_each_node";
+    graphDefinition.resume = { onProcessRestart: "resume_from_checkpoint" };
+
+    const firstCalls: string[] = [];
+    const failed = await new PipelineRuntime({
+      definition: graphDefinition,
+      checkpointStore: store,
+      predicates: { "continue-loop": (state) => state["done"] !== true },
+      nodeExecutor: async (nodeId, _node, context) => {
+        firstCalls.push(nodeId);
+        if (nodeId === "risky") {
+          return { nodeId, output: null, durationMs: 1, error: "expected" };
+        }
+        context.state["done"] = true;
+        return { nodeId, output: "recovered", durationMs: 1 };
+      },
+    }).execute(undefined, { runId: "try-after-catch-restart" });
+
+    expect(failed.state).toBe("failed");
+    expect(firstCalls).toEqual(["risky", "recover"]);
+    const checkpoint = await store.load(failed.runId);
+    expect(checkpoint?.loopState?.["loop"]?.bodyGraphState).toMatchObject({
+      completed: true,
+      completedNodeIds: ["recover"],
+    });
+
+    const resumedCalls: string[] = [];
+    const resumed = await new PipelineRuntime({
+      definition: graphDefinition,
+      checkpointStore: store,
+      predicates: { "continue-loop": (state) => state["done"] !== true },
+      nodeExecutor: async (nodeId) => {
+        resumedCalls.push(nodeId);
+        throw new Error(`${nodeId} must be restored, not re-dispatched`);
+      },
+    }).resume(checkpoint!);
+
+    expect(resumed.state).toBe("completed");
+    expect(resumedCalls).toEqual([]);
+  });
+
+  it("never routes a successful-node checkpoint failure into its catch edge", async () => {
+    class CrashAfterSuccessCursorStore extends InMemoryPipelineCheckpointStore {
+      private crashed = false;
+
+      override async save(checkpoint: PipelineCheckpoint): Promise<void> {
+        await super.save(checkpoint);
+        const graph = checkpoint.loopState?.["loop"]?.bodyGraphState;
+        if (
+          !this.crashed &&
+          graph?.nextNodeId === "finish" &&
+          graph.completedNodeIds.includes("risky")
+        ) {
+          this.crashed = true;
+          throw new Error("checkpoint transport unavailable");
+        }
+      }
+    }
+
+    const store = new CrashAfterSuccessCursorStore();
+    const graphDefinition = definition({
+      bodyNodes: [
+        { id: "risky", type: "agent", agentId: "risky" },
+        { id: "recover", type: "agent", agentId: "recover" },
+        { id: "finish", type: "agent", agentId: "finish" },
+      ],
+      bodyEdges: [
+        { type: "sequential", sourceNodeId: "risky", targetNodeId: "finish" },
+        { type: "error", sourceNodeId: "risky", targetNodeId: "recover" },
+        { type: "sequential", sourceNodeId: "recover", targetNodeId: "finish" },
+      ],
+      entryNodeId: "risky",
+      normalExitNodeIds: ["finish"],
+    });
+    graphDefinition.checkpointStrategy = "after_each_node";
+
+    const calls: string[] = [];
+    const errors: string[] = [];
+    const failed = await new PipelineRuntime({
+      definition: graphDefinition,
+      checkpointStore: store,
+      predicates: { "continue-loop": () => true },
+      onEvent: (event) => {
+        if (event.type === "pipeline:failed") errors.push(event.error);
+      },
+      nodeExecutor: async (nodeId) => {
+        calls.push(nodeId);
+        if (nodeId === "recover") {
+          throw new Error("checkpoint failure was falsely caught");
+        }
+        return { nodeId, output: nodeId, durationMs: 1 };
+      },
+    }).execute(undefined, { runId: "checkpoint-not-workflow-error" });
+
+    expect(failed.state).toBe("failed");
+    expect(calls).toEqual(["risky"]);
+    expect(errors).toContainEqual(
+      expect.stringContaining("checkpoint integrity failure")
+    );
   });
 
   it("propagates cancellation without dispatching the outer continuation", async () => {
@@ -400,4 +687,178 @@ describe("pipeline structured loop-body scheduler", () => {
     expect(resumed.state).toBe("completed");
     expect(resumedCalls).toEqual([]);
   });
+
+  const corruptDefinition = definition({
+    bodyNodes: [
+      { id: "fork", type: "fork", forkId: "parallel" },
+      { id: "left", type: "agent", agentId: "left" },
+      { id: "right", type: "agent", agentId: "right" },
+      { id: "join", type: "join", forkId: "parallel" },
+    ],
+    bodyEdges: [
+      { type: "sequential", sourceNodeId: "fork", targetNodeId: "left" },
+      { type: "sequential", sourceNodeId: "fork", targetNodeId: "right" },
+      { type: "sequential", sourceNodeId: "left", targetNodeId: "join" },
+      { type: "sequential", sourceNodeId: "right", targetNodeId: "join" },
+    ],
+    entryNodeId: "fork",
+    normalExitNodeIds: ["join"],
+  });
+
+  const result = (nodeId: string) => ({
+    nodeId,
+    output: nodeId,
+    durationMs: 1,
+  });
+
+  const incompleteCursor = () => ({
+    completed: false,
+    nextNodeId: "fork",
+    completedNodeIds: [] as string[],
+    nodeResults: {} as Record<string, unknown>,
+    nodeIdempotencyKeys: {} as Record<string, string>,
+  });
+
+  it.each([
+    {
+      name: "unknown next node",
+      fragment: 'next node "ghost" is outside bodyNodeIds',
+      state: () => ({ ...incompleteCursor(), nextNodeId: "ghost" }),
+    },
+    {
+      name: "unknown completed node",
+      fragment: 'completed node "ghost" is outside bodyNodeIds',
+      state: () => ({ ...incompleteCursor(), completedNodeIds: ["ghost"] }),
+    },
+    {
+      name: "unknown result node",
+      fragment: 'result "ghost" is outside bodyNodeIds',
+      state: () => ({
+        ...incompleteCursor(),
+        nodeResults: { ghost: result("ghost") },
+      }),
+    },
+    {
+      name: "unknown idempotency node",
+      fragment: 'idempotency node "ghost" is outside bodyNodeIds',
+      state: () => ({
+        ...incompleteCursor(),
+        nodeIdempotencyKeys: { ghost: "key" },
+      }),
+    },
+    {
+      name: "unknown fork ID",
+      fragment: 'fork ID "ghost" is not a unique body fork',
+      state: () => ({
+        ...incompleteCursor(),
+        forkState: { ghost: { branches: { left: branch("left") } } },
+      }),
+    },
+    {
+      name: "unknown branch ID",
+      fragment: 'branch ID "ghost" is not a branch of fork "parallel"',
+      state: () => ({
+        ...incompleteCursor(),
+        completedNodeIds: ["fork"],
+        forkState: { parallel: { branches: { ghost: branch("left") } } },
+      }),
+    },
+    {
+      name: "result key and node ID drift",
+      fragment: 'result key/nodeId mismatch for "left"',
+      state: () => ({
+        ...incompleteCursor(),
+        nodeResults: { left: result("right") },
+      }),
+    },
+    {
+      name: "duplicate completion",
+      fragment: 'completedNodeIds contains duplicate "fork"',
+      state: () => ({
+        ...incompleteCursor(),
+        completedNodeIds: ["fork", "fork"],
+      }),
+    },
+    {
+      name: "next node already completed",
+      fragment: 'next node "left" is already completed',
+      state: () => ({
+        ...incompleteCursor(),
+        nextNodeId: "left",
+        completedNodeIds: ["left"],
+        nodeResults: { left: result("left") },
+      }),
+    },
+    {
+      name: "completed node missing result",
+      fragment: 'completed node "left" is missing its result',
+      state: () => ({
+        completed: true,
+        completedNodeIds: ["left"],
+        nodeResults: {},
+        nodeIdempotencyKeys: {},
+      }),
+    },
+    {
+      name: "completed cursor with next node",
+      fragment: "completed cursor must omit nextNodeId",
+      state: () => ({
+        ...incompleteCursor(),
+        completed: true,
+      }),
+    },
+    {
+      name: "completed cursor without a normal exit",
+      fragment: 'completed cursor did not reach a valid normal exit: "left"',
+      state: () => ({
+        completed: true,
+        completedNodeIds: ["left"],
+        nodeResults: { left: result("left") },
+        nodeIdempotencyKeys: {},
+      }),
+    },
+  ])("rejects a corrupt graph cursor with $name", async ({ fragment, state }) => {
+    const errors: string[] = [];
+    const calls: string[] = [];
+    const checkpoint = corruptGraphCheckpoint(state());
+    const resumed = await new PipelineRuntime({
+      definition: corruptDefinition,
+      predicates: { "continue-loop": () => true },
+      onEvent: (event) => {
+        if (event.type === "pipeline:failed") errors.push(event.error);
+      },
+      nodeExecutor: async (nodeId) => {
+        calls.push(nodeId);
+        return result(nodeId);
+      },
+    }).resume(checkpoint);
+
+    expect(resumed.state).toBe("failed");
+    expect(calls).toEqual([]);
+    expect(errors).toContainEqual(expect.stringContaining(fragment));
+  });
 });
+
+function branch(nodeId: string) {
+  return {
+    stateDelta: {},
+    nodeResults: { [nodeId]: { nodeId, output: nodeId, durationMs: 1 } },
+  };
+}
+
+function corruptGraphCheckpoint(bodyGraphState: unknown): PipelineCheckpoint {
+  return {
+    pipelineRunId: "corrupt-structured-loop-cursor",
+    pipelineId: "structured-loop",
+    version: 1,
+    schemaVersion: "1.0.0",
+    completedNodeIds: [],
+    loopState: {
+      loop: {
+        iteration: 0,
+        bodyGraphState,
+      },
+    },
+    state: {},
+  } as PipelineCheckpoint;
+}

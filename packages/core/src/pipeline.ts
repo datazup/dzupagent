@@ -313,6 +313,7 @@ export type {
   PipelineValidationWarning,
   PipelineValidationResult,
   PipelineCheckpoint,
+  PipelineLoopBodyGraphCheckpointState,
   PipelineCheckpointEventRecord,
   PipelineCheckpointExecutionLog,
   PipelineCheckpointProviderSessionRef,

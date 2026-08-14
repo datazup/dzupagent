@@ -64,6 +64,8 @@ import type {
   LoopBodyGraphScheduleInput,
   LoopBodyGraphScheduleResult,
 } from "./loop-executor/types.js";
+import { validateLoopBodyGraphCheckpointState } from "./loop-body-graph-checkpoint-validator.js";
+import { isPipelineCheckpointIntegrityError } from "./pipeline-runtime/checkpoint-integrity-error.js";
 
 /**
  * Coordinator hooks the executor uses to read/update lifecycle state on
@@ -103,7 +105,10 @@ export class PipelineExecutor {
     private readonly outgoingEdges: Map<string, PipelineEdge[]>,
     private readonly errorEdges: Map<string, PipelineEdge[]>,
     private readonly coordinator: PipelineExecutorCoordinator,
-    private readonly checkpointOverride?: (frame: RunFrame) => Promise<void>
+    private readonly checkpointOverride?: (
+      frame: RunFrame,
+      selectedNextNodeId?: string
+    ) => Promise<void>
   ) {
     this.recoveryCounter = {
       get: () => this.coordinator.getRecoveryAttemptsUsed(),
@@ -328,12 +333,13 @@ export class PipelineExecutor {
     }
     const restored = input.resumeState;
     if (restored !== undefined) {
+      validateLoopBodyGraphCheckpointState(
+        { loopNode, nodes, outgoingEdges, errorEdges },
+        restored
+      );
+    }
+    if (restored !== undefined) {
       for (const [nodeId, result] of Object.entries(restored.nodeResults)) {
-        if (!bodyIds.has(nodeId)) {
-          throw new Error(
-            `Loop node "${loopNode.id}": retained graph result "${nodeId}" is outside bodyNodeIds`
-          );
-        }
         nodeResults.set(nodeId, result);
       }
     }
@@ -360,11 +366,6 @@ export class PipelineExecutor {
     }
 
     const startNodeId = restored?.nextNodeId ?? boundary.entryNodeId;
-    if (!bodyIds.has(startNodeId)) {
-      throw new Error(
-        `Loop node "${loopNode.id}": retained graph cursor "${startNodeId}" is outside bodyNodeIds`
-      );
-    }
 
     const scopedExecutor = new PipelineExecutor(
       config,
@@ -372,15 +373,17 @@ export class PipelineExecutor {
       outgoingEdges,
       errorEdges,
       scopedCoordinator,
-      async (scopedFrame) => {
+      async (scopedFrame, selectedNextNodeId) => {
         if (input.onCheckpoint === undefined) return;
-        const nextNodeId = nextScopedNodeId(
-          scopedFrame,
-          nodes,
-          outgoingEdges,
-          config.predicates,
-          boundary.entryNodeId
-        );
+        const nextNodeId =
+          selectedNextNodeId ??
+          nextScopedNodeId(
+            scopedFrame,
+            nodes,
+            outgoingEdges,
+            config.predicates,
+            boundary.entryNodeId
+          );
         const checkpointResults = bodyResultsFor(
           scopedFrame.completedNodeIds,
           scopedFrame.nodeResults,
@@ -419,6 +422,7 @@ export class PipelineExecutor {
         startTime: Date.now(),
       });
     } catch (error) {
+      if (isPipelineCheckpointIntegrityError(error)) throw error;
       return {
         state: "failed",
         bodyResults: bodyResultsFor(
@@ -491,6 +495,12 @@ export class PipelineExecutor {
       },
       startTime: frame.startTime,
       saveCheckpoint: () => this.saveCheckpoint(frame),
+      ...(this.checkpointOverride === undefined
+        ? {}
+        : {
+            saveErrorEdgeCheckpoint: (nextNodeId: string) =>
+              this.checkpointOverride!(frame, nextNodeId),
+          }),
     });
   }
 
