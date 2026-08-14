@@ -11,6 +11,12 @@ import {
   type RedisClientLike,
 } from '../pipeline/redis-checkpoint-store.js'
 import type { PipelineCheckpoint } from '@dzupagent/core'
+import {
+  createPipelineInteractionResumeV1,
+  createPipelineInteractionSpecV1,
+  createPipelinePendingInteractionV1,
+  digestPipelineDefinition,
+} from '@dzupagent/runtime-contracts'
 
 // ---------------------------------------------------------------------------
 // In-memory mock client
@@ -141,6 +147,47 @@ function makeCheckpoint(overrides: Partial<PipelineCheckpoint> = {}): PipelineCh
   }
 }
 
+function makeInteractionState(runId = 'run-1') {
+  const spec = createPipelineInteractionSpecV1({
+    kind: 'approval',
+    authoredNodeId: 'gate',
+    authoredPath: 'root.nodes[0]',
+    question: 'Deploy?',
+    choices: [],
+    outcomeToSuccessor: { approved: 'deploy', rejected: 'stop' },
+    requestSchema: { kind: 'approval', decisions: ['approved', 'rejected'] },
+  })
+  const definitionDigest = digestPipelineDefinition({ id: 'pipeline-1' })
+  const pending = createPipelinePendingInteractionV1({
+    kind: 'approval',
+    definitionDigest,
+    pipelineId: 'pipeline-1',
+    runId,
+    nodeId: 'gate',
+    scope: { kind: 'pipeline' },
+    occurrence: 0,
+    expectedCheckpointVersion: 1,
+    requestDigest: spec.requestDigest,
+    expiresAt: '2026-08-14T21:00:00.000Z',
+  })
+  const receipt = createPipelineInteractionResumeV1({
+    ...pending,
+    receiptId: 'receipt-approved',
+    submittedAt: '2026-08-14T20:00:01.000Z',
+    response: { kind: 'approval', decision: 'approved' },
+  })
+  const cursor = {
+    interactionId: receipt.interactionId,
+    receiptHash: receipt.receiptHash,
+    definitionDigest: receipt.definitionDigest,
+    nodeId: receipt.nodeId,
+    scope: receipt.scope,
+    selectedSuccessorNodeId: 'deploy',
+    nextNodeId: 'deploy',
+  } as const
+  return { pending, receipt, cursor }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -161,6 +208,43 @@ describe('RedisPipelineCheckpointStore', () => {
     expect(loaded).toBeDefined()
     expect(loaded!.state).toEqual({ foo: 'bar' })
     expect(loaded!.version).toBe(1)
+  })
+
+  it('round-trips pending and committed interaction checkpoints exactly', async () => {
+    const { pending, receipt, cursor } = makeInteractionState()
+    await store.save(makeCheckpoint({
+      schemaVersion: '1.1.0',
+      pendingInteraction: pending,
+    }))
+    expect((await store.loadVersion('run-1', 1))?.pendingInteraction).toEqual(pending)
+
+    await store.save(makeCheckpoint({
+      version: 2,
+      schemaVersion: '1.1.0',
+      completedNodeIds: ['start', 'gate'],
+      interactionReceipts: { [receipt.interactionId]: receipt },
+      interactionResumeCursor: cursor,
+    }))
+
+    expect(await store.load('run-1')).toMatchObject({
+      version: 2,
+      interactionReceipts: { [receipt.interactionId]: receipt },
+      interactionResumeCursor: cursor,
+    })
+  })
+
+  it('rejects malformed and schema-invalid stored interaction payloads', async () => {
+    await store.save(makeCheckpoint())
+    client.strings.set('checkpoint:run-1:1', '{not-json')
+    await expect(store.load('run-1')).rejects.toThrow(
+      'Invalid pipeline checkpoint payload: malformed JSON',
+    )
+
+    client.strings.set('checkpoint:run-1:1', JSON.stringify({
+      ...makeCheckpoint({ schemaVersion: '1.1.0' }),
+      pendingInteraction: { state: 'pending' },
+    }))
+    await expect(store.load('run-1')).rejects.toThrow('Invalid pipeline checkpoint payload')
   })
 
   it('load() returns the highest version', async () => {

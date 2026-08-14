@@ -523,6 +523,7 @@ export function validatePipelinePendingInteractionV1(
   binding(value.nodeId, "$.nodeId", issues);
   validateScope(value.scope, "$.scope", issues);
   nonNegativeInteger(value.occurrence, "$.occurrence", issues);
+  validateCanonicalOccurrence(value.scope, value.occurrence, issues);
   binding(value.interactionId, "$.interactionId", issues);
   nonNegativeInteger(
     value.expectedCheckpointVersion,
@@ -605,6 +606,7 @@ export function validatePipelineInteractionResumeV1(
   binding(value.nodeId, "$.nodeId", issues);
   validateScope(value.scope, "$.scope", issues);
   nonNegativeInteger(value.occurrence, "$.occurrence", issues);
+  validateCanonicalOccurrence(value.scope, value.occurrence, issues);
   binding(value.interactionId, "$.interactionId", issues);
   nonNegativeInteger(
     value.expectedCheckpointVersion,
@@ -878,6 +880,27 @@ function validateScope(
     return;
   }
   issue(issues, `${path}.kind`, "INVALID_VALUE", "Interaction scope is invalid.");
+}
+
+function validateCanonicalOccurrence(
+  scope: unknown,
+  occurrence: unknown,
+  issues: PipelineInteractionValidationIssue[],
+): void {
+  if (!record(scope) || !Number.isInteger(occurrence)) return;
+  const expected = scope.kind === "pipeline"
+    ? 0
+    : scope.kind === "loop" && Number.isInteger(scope.iteration)
+      ? scope.iteration
+      : undefined;
+  if (expected !== undefined && occurrence !== expected) {
+    issue(
+      issues,
+      "$.occurrence",
+      "BINDING_MISMATCH",
+      "Interaction occurrence does not match its canonical scope occurrence.",
+    );
+  }
 }
 
 function interactionKind(

@@ -5,6 +5,7 @@ import {
   createPipelineInteractionSpecV1,
   createPipelinePendingInteractionV1,
   digestPipelineDefinition,
+  type PipelineInteractionScopeV1,
   type PipelinePendingInteractionV1,
 } from "@dzupagent/runtime-contracts";
 import {
@@ -56,18 +57,34 @@ const definition: PipelineDefinition = {
 
 const definitionDigest = digestPipelineDefinition(definition);
 
-const pending: PipelinePendingInteractionV1 = createPipelinePendingInteractionV1({
-  kind: "approval",
-  definitionDigest,
-  pipelineId: "pipeline",
-  runId: "run",
-  nodeId: "gate",
-  scope: { kind: "pipeline" },
-  occurrence: 0,
-  expectedCheckpointVersion: 3,
-  requestDigest: approval.requestDigest,
-  expiresAt: "2030-01-01T00:00:00.000Z",
-});
+function pendingForOccurrence(
+  scope: PipelineInteractionScopeV1,
+  occurrence: number,
+): PipelinePendingInteractionV1 {
+  return createPipelinePendingInteractionV1({
+    kind: "approval",
+    definitionDigest,
+    pipelineId: "pipeline",
+    runId: "run",
+    nodeId: "gate",
+    scope,
+    occurrence,
+    expectedCheckpointVersion: 3,
+    requestDigest: approval.requestDigest,
+    expiresAt: "2030-01-01T00:00:00.000Z",
+  });
+}
+
+const pending = pendingForOccurrence({ kind: "pipeline" }, 0);
+
+const noncanonicalOccurrences: readonly [
+  name: string,
+  scope: PipelineInteractionScopeV1,
+  occurrence: number,
+][] = [
+  ["pipeline", { kind: "pipeline" }, 1],
+  ["loop", { kind: "loop", loopNodeId: "loop", iteration: 2 }, 3],
+];
 
 function checkpoint(overrides: Partial<PipelineCheckpoint> = {}): PipelineCheckpoint {
   return {
@@ -79,6 +96,26 @@ function checkpoint(overrides: Partial<PipelineCheckpoint> = {}): PipelineCheckp
     state: {},
     createdAt: "2029-01-01T00:00:00.000Z",
     ...overrides,
+  };
+}
+
+function retainedScopeState(
+  scope: PipelineInteractionScopeV1,
+): Partial<PipelineCheckpoint> {
+  if (scope.kind === "pipeline") return {};
+  return {
+    loopState: {
+      [scope.loopNodeId]: {
+        iteration: scope.iteration,
+        bodyGraphState: {
+          completed: false,
+          outcome: { kind: "suspended", exitNodeId: "gate" },
+          completedNodeIds: [],
+          nodeResults: {},
+          nodeIdempotencyKeys: {},
+        },
+      },
+    },
   };
 }
 
@@ -176,6 +213,22 @@ describe("pipeline interaction artifact and checkpoint schemas", () => {
     expect(result.success).toBe(false);
   });
 
+  it.each(noncanonicalOccurrences)(
+    "rejects a coherently re-identified noncanonical %s pending occurrence",
+    (_name, scope, occurrence) => {
+      const forgedPending = pendingForOccurrence(scope, occurrence);
+      expect(forgedPending.interactionId).not.toBe(pending.interactionId);
+      expect(
+        PipelineCheckpointSchema.safeParse(
+          checkpoint({
+            ...retainedScopeState(scope),
+            pendingInteraction: forgedPending,
+          }),
+        ).success,
+      ).toBe(false);
+    },
+  );
+
   it("accepts a committed receipt and exact post-consumption cursor", () => {
     const receipt = createPipelineInteractionResumeV1({
       definitionDigest,
@@ -210,6 +263,38 @@ describe("pipeline interaction artifact and checkpoint schemas", () => {
       ).success,
     ).toBe(true);
   });
+
+  it.each(noncanonicalOccurrences)(
+    "rejects a coherently re-identified noncanonical %s receipt and cursor occurrence",
+    (_name, scope, occurrence) => {
+      const forgedPending = pendingForOccurrence(scope, occurrence);
+      const receipt = createPipelineInteractionResumeV1({
+        ...forgedPending,
+        receiptId: `forged-${scope.kind}-occurrence-receipt`,
+        submittedAt: "2029-01-01T00:00:01.000Z",
+        response: { kind: "approval", decision: "approved" },
+      });
+      expect(
+        PipelineCheckpointSchema.safeParse(
+          checkpoint({
+            ...retainedScopeState(scope),
+            version: 4,
+            completedNodeIds: ["gate"],
+            interactionReceipts: { [receipt.interactionId]: receipt },
+            interactionResumeCursor: {
+              interactionId: receipt.interactionId,
+              receiptHash: receipt.receiptHash,
+              definitionDigest: receipt.definitionDigest,
+              nodeId: receipt.nodeId,
+              scope: receipt.scope,
+              selectedSuccessorNodeId: "yes",
+              nextNodeId: scope.kind === "pipeline" ? "yes" : scope.loopNodeId,
+            },
+          }),
+        ).success,
+      ).toBe(false);
+    },
+  );
 
   it("rejects a cursor without its immutable receipt", () => {
     expect(

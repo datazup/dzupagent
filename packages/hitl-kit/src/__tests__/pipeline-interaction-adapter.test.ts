@@ -90,4 +90,25 @@ describe("InMemoryPipelineInteractionStatePort", () => {
       code: "INTERACTION_EXPIRED",
     });
   });
+
+  it("keeps stored pending and receipt records immutable across caller mutation", async () => {
+    const store = new InMemoryPipelineInteractionStatePort({
+      now: () => new Date("2026-08-14"),
+    });
+    const { spec, pending, receipt } = fixture();
+    const pendingResult = await store.ensurePending(spec, pending);
+    (pendingResult.pending as { expiresAt: string }).expiresAt =
+      "2020-01-01T00:00:00.000Z";
+
+    expect((await store.get(pending.interactionId))?.pending.expiresAt).toBe(
+      pending.expiresAt,
+    );
+
+    const terminalResult = await store.recordReceipt(receipt);
+    (terminalResult.receipt!.response as { decision: string }).decision =
+      "rejected";
+
+    expect((await store.get(pending.interactionId))?.receipt).toEqual(receipt);
+    expect((await store.recordReceipt(receipt)).receipt).toEqual(receipt);
+  });
 });

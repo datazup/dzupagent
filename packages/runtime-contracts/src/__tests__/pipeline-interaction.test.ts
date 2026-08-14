@@ -226,6 +226,32 @@ describe("pipeline interaction contracts", () => {
     ).toContain("BINDING_MISMATCH");
   });
 
+  it.each([
+    [{ kind: "pipeline" }, 1],
+    [{ kind: "loop", loopNodeId: "loop-1", iteration: 3 }, 4],
+  ] as const)(
+    "rejects a coherently re-identified noncanonical occurrence for scope %#",
+    (scope, occurrence) => {
+      const forgedPending = createPipelinePendingInteractionV1({
+        ...pending,
+        scope,
+        occurrence,
+      });
+      const forgedReceipt = createPipelineInteractionResumeV1({
+        ...forgedPending,
+        receiptId: "forged-occurrence",
+        submittedAt: "2029-01-02T03:04:05.000Z",
+        response: { kind: "approval", decision: "approved" },
+      });
+      expect(codes(validatePipelinePendingInteractionV1(forgedPending))).toContain(
+        "BINDING_MISMATCH",
+      );
+      expect(codes(validatePipelineInteractionResumeV1(forgedReceipt))).toContain(
+        "BINDING_MISMATCH",
+      );
+    },
+  );
+
   it("rejects over-limit clarification schemas and reasons", () => {
     expect(
       codes(

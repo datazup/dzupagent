@@ -74,12 +74,12 @@ export class InMemoryPipelineInteractionStatePort
           "An interaction with the same ID has different pending payload.",
         );
       }
-      return existing;
+      return cloneRecord(existing);
     }
 
-    const record = { spec, pending } satisfies PipelineInteractionRecordV1;
+    const record = structuredClone({ spec, pending }) satisfies PipelineInteractionRecordV1;
     this.records.set(pending.interactionId, record);
-    return record;
+    return cloneRecord(record);
   }
 
   async recordReceipt(
@@ -105,7 +105,9 @@ export class InMemoryPipelineInteractionStatePort
       );
     }
     if (existing.receipt !== undefined) {
-      if (existing.receipt.receiptHash === receipt.receiptHash) return existing;
+      if (existing.receipt.receiptHash === receipt.receiptHash) {
+        return cloneRecord(existing);
+      }
       throw new PipelineInteractionStoreError(
         "TERMINAL_RECEIPT_CONFLICT",
         receipt.interactionId,
@@ -119,12 +121,22 @@ export class InMemoryPipelineInteractionStatePort
         "The pending interaction has expired.",
       );
     }
-    const terminal = { ...existing, receipt } satisfies PipelineInteractionRecordV1;
+    const terminal = structuredClone({
+      ...existing,
+      receipt,
+    }) satisfies PipelineInteractionRecordV1;
     this.records.set(receipt.interactionId, terminal);
-    return terminal;
+    return cloneRecord(terminal);
   }
 
   async get(interactionId: string): Promise<PipelineInteractionRecordV1 | null> {
-    return this.records.get(interactionId) ?? null;
+    const record = this.records.get(interactionId);
+    return record === undefined ? null : cloneRecord(record);
   }
+}
+
+function cloneRecord(
+  record: PipelineInteractionRecordV1,
+): PipelineInteractionRecordV1 {
+  return structuredClone(record);
 }

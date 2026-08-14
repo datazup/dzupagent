@@ -12,6 +12,7 @@ import {
 } from "../pipeline/postgres-checkpoint-store.js";
 import type { PipelineCheckpoint } from "@dzupagent/core";
 import {
+  createPipelineInteractionResumeV1,
   createPipelineInteractionSpecV1,
   createPipelinePendingInteractionV1,
   digestPipelineDefinition,
@@ -204,6 +205,26 @@ function makePendingInteraction(runId: string) {
   });
 }
 
+function makeCommittedInteraction(runId: string) {
+  const pending = makePendingInteraction(runId);
+  const receipt = createPipelineInteractionResumeV1({
+    ...pending,
+    receiptId: "receipt-environment",
+    submittedAt: "2026-08-14T20:00:01.000Z",
+    response: { kind: "clarification", value: "staging" },
+  });
+  const cursor = {
+    interactionId: receipt.interactionId,
+    receiptHash: receipt.receiptHash,
+    definitionDigest: receipt.definitionDigest,
+    nodeId: receipt.nodeId,
+    scope: receipt.scope,
+    selectedSuccessorNodeId: "after-clarification",
+    nextNodeId: "after-clarification",
+  } as const;
+  return { receipt, cursor };
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -316,6 +337,28 @@ describe("PostgresPipelineCheckpointStore", () => {
         },
       ]);
       expect(migrated?.pendingInteraction).toEqual(pendingInteraction);
+    });
+
+    it("round-trips a committed interaction receipt and exact successor cursor", async () => {
+      const { client } =
+        createStatefulCompatibilityClient("pipeline_checkpoints");
+      const store = new PostgresPipelineCheckpointStore({ client });
+      const { receipt, cursor } = makeCommittedInteraction("committed-run");
+
+      await store.setup();
+      await store.save(makeCheckpoint({
+        pipelineRunId: "committed-run",
+        version: 2,
+        schemaVersion: "1.1.0",
+        completedNodeIds: ["start", "clarify"],
+        interactionReceipts: { [receipt.interactionId]: receipt },
+        interactionResumeCursor: cursor,
+      }));
+
+      expect(await store.load("committed-run")).toMatchObject({
+        interactionReceipts: { [receipt.interactionId]: receipt },
+        interactionResumeCursor: cursor,
+      });
     });
   });
 
@@ -465,6 +508,35 @@ describe("PostgresPipelineCheckpointStore", () => {
       const store = new PostgresPipelineCheckpointStore({ client });
       const result = await store.load("missing");
       expect(result).toBeUndefined();
+    });
+
+    it("rejects a schema-invalid stored interaction row", async () => {
+      const { client } = createMockClient([
+        () => ({
+          rows: [
+            {
+              pipeline_run_id: "run-1",
+              pipeline_id: "pipeline-1",
+              version: 1,
+              schema_version: "1.1.0",
+              completed_node_ids: [],
+              state: {},
+              suspended_at_node_id: "clarify",
+              budget_state: null,
+              created_at: "2026-04-24T00:00:00.000Z",
+              expires_at: null,
+              interaction_state: {
+                pendingInteraction: { state: "pending" },
+              },
+            },
+          ],
+        }),
+      ]);
+      const store = new PostgresPipelineCheckpointStore({ client });
+
+      await expect(store.load("run-1")).rejects.toThrow(
+        "Invalid pipeline checkpoint row",
+      );
     });
 
     it("re-hydrates suspendedAtNodeId and budgetState when present", async () => {

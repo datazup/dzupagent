@@ -8,9 +8,30 @@ import type {
 import {
   createPipelineInteractionResumeV1,
   createPipelineInteractionSpecV1,
+  createPipelinePendingInteractionV1,
+  type PipelinePendingInteractionV1,
 } from "@dzupagent/runtime-contracts";
 import { InMemoryPipelineCheckpointStore } from "../pipeline/in-memory-checkpoint-store.js";
 import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
+
+function pendingWithOccurrence(
+  pending: PipelinePendingInteractionV1,
+  occurrence: number,
+  expectedCheckpointVersion = pending.expectedCheckpointVersion,
+): PipelinePendingInteractionV1 {
+  return createPipelinePendingInteractionV1({
+    kind: pending.kind,
+    definitionDigest: pending.definitionDigest,
+    pipelineId: pending.pipelineId,
+    runId: pending.runId,
+    nodeId: pending.nodeId,
+    scope: pending.scope,
+    occurrence,
+    expectedCheckpointVersion,
+    requestDigest: pending.requestDigest,
+    expiresAt: pending.expiresAt,
+  });
+}
 
 function loopDefinition(): PipelineDefinition {
   const interaction = createPipelineInteractionSpecV1({
@@ -544,6 +565,51 @@ describe("structured loop interaction resume", () => {
     await expect(
       runtime.resumeInteraction(checkpoint, receipt),
     ).rejects.toMatchObject({ code: "INVALID_PENDING_INTERACTION" });
+    expect(calls).toEqual(["prefix"]);
+  });
+
+  it("rejects a coherently re-identified occurrence outside the retained loop iteration", async () => {
+    const calls: string[] = [];
+    const store = new InMemoryPipelineCheckpointStore();
+    const runtime = new PipelineRuntime({
+      definition: loopDefinition(),
+      checkpointStore: store,
+      interaction: { now: () => new Date("2026-08-14T20:00:00.000Z") },
+      predicates: { "continue-loop": () => false },
+      nodeExecutor: async (nodeId) => {
+        calls.push(nodeId);
+        return { nodeId, output: nodeId, durationMs: 1 };
+      },
+    });
+    await runtime.execute({}, { runId: "loop-occurrence-drift" });
+    const checkpoint = (await store.load("loop-occurrence-drift"))!;
+    const pending = checkpoint.pendingInteraction!;
+    if (pending.scope.kind !== "loop") {
+      throw new Error("expected loop interaction scope");
+    }
+    const forgedVersion = checkpoint.version + 1;
+    const forgedPending = pendingWithOccurrence(
+      pending,
+      pending.scope.iteration + 1,
+      forgedVersion,
+    );
+    const forgedCheckpoint = {
+      ...checkpoint,
+      version: forgedVersion,
+      pendingInteraction: forgedPending,
+    };
+    await store.save(forgedCheckpoint);
+    const receipt = createPipelineInteractionResumeV1({
+      ...forgedPending,
+      receiptId: "forged-loop-occurrence-receipt",
+      submittedAt: "2026-08-14T20:00:01.000Z",
+      response: { kind: "approval", decision: "approved" },
+    });
+
+    expect(forgedPending.interactionId).not.toBe(pending.interactionId);
+    await expect(
+      runtime.resumeInteraction(forgedCheckpoint, receipt),
+    ).rejects.toMatchObject({ code: "INTERACTION_BINDING_MISMATCH" });
     expect(calls).toEqual(["prefix"]);
   });
 

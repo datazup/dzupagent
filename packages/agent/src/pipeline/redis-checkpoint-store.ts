@@ -136,21 +136,21 @@ export class RedisPipelineCheckpointStore implements PipelineCheckpointStore {
       await this.client.zrem(this.versionsKey(pipelineRunId), String(version))
       return undefined
     }
+    let decoded: unknown
     try {
-      const parsed = PipelineCheckpointSchema.safeParse(JSON.parse(raw))
-      if (!parsed.success) {
-        throw new Error(
-          `Invalid pipeline checkpoint payload: ${parsed.error.issues
-            .map((issue) => issue.message)
-            .join('; ')}`,
-        )
-      }
-      return parsed.data as PipelineCheckpoint
-    } catch (error) {
-      throw error instanceof Error
-        ? error
-        : new Error('Invalid pipeline checkpoint payload')
+      decoded = JSON.parse(raw)
+    } catch {
+      throw new Error('Invalid pipeline checkpoint payload: malformed JSON')
     }
+    const parsed = PipelineCheckpointSchema.safeParse(decoded)
+    if (!parsed.success) {
+      throw new Error(
+        `Invalid pipeline checkpoint payload: ${parsed.error.issues
+          .map((issue) => issue.message)
+          .join('; ')}`,
+      )
+    }
+    return parsed.data as PipelineCheckpoint
   }
 
   async listVersions(pipelineRunId: string): Promise<PipelineCheckpointSummary[]> {

@@ -7,6 +7,7 @@ import type {
 import {
   createPipelineInteractionResumeV1,
   createPipelineInteractionSpecV1,
+  createPipelinePendingInteractionV1,
   type PipelinePendingInteractionV1,
 } from "@dzupagent/runtime-contracts";
 import { InMemoryPipelineCheckpointStore } from "../pipeline/in-memory-checkpoint-store.js";
@@ -55,6 +56,25 @@ function receiptFor(
     receiptId,
     submittedAt: "2026-08-14T20:00:01.000Z",
     response: { kind: "approval", decision },
+  });
+}
+
+function pendingWithOccurrence(
+  pending: PipelinePendingInteractionV1,
+  occurrence: number,
+  expectedCheckpointVersion = pending.expectedCheckpointVersion,
+): PipelinePendingInteractionV1 {
+  return createPipelinePendingInteractionV1({
+    kind: pending.kind,
+    definitionDigest: pending.definitionDigest,
+    pipelineId: pending.pipelineId,
+    runId: pending.runId,
+    nodeId: pending.nodeId,
+    scope: pending.scope,
+    occurrence,
+    expectedCheckpointVersion,
+    requestDigest: pending.requestDigest,
+    expiresAt: pending.expiresAt,
   });
 }
 
@@ -257,6 +277,45 @@ describe("PipelineRuntime checkpoint-bound interactions", () => {
     await expect(
       runtime.resumeInteraction(checkpoint, receiptFor(pending, "approved")),
     ).rejects.toMatchObject({ code: "INTERACTION_EXPIRED" });
+    expect(calls).toEqual([]);
+  });
+
+  it("rejects a coherently re-identified nonzero pipeline occurrence before dispatch", async () => {
+    const calls: string[] = [];
+    const store = new InMemoryPipelineCheckpointStore();
+    const runtime = new PipelineRuntime({
+      definition: approvalDefinition(),
+      checkpointStore: store,
+      interaction: { now: () => new Date("2026-08-14T20:00:00.000Z") },
+      nodeExecutor: async (nodeId) => {
+        calls.push(nodeId);
+        return { nodeId, output: nodeId, durationMs: 1 };
+      },
+    });
+    await runtime.execute({}, { runId: "pipeline-occurrence-drift" });
+    const checkpoint = (await store.load("pipeline-occurrence-drift"))!;
+    const forgedVersion = checkpoint.version + 1;
+    const forgedPending = pendingWithOccurrence(
+      checkpoint.pendingInteraction!,
+      1,
+      forgedVersion,
+    );
+    const forgedCheckpoint = {
+      ...checkpoint,
+      version: forgedVersion,
+      pendingInteraction: forgedPending,
+    };
+    await store.save(forgedCheckpoint);
+
+    expect(forgedPending.interactionId).not.toBe(
+      checkpoint.pendingInteraction!.interactionId,
+    );
+    await expect(
+      runtime.resumeInteraction(
+        forgedCheckpoint,
+        receiptFor(forgedPending, "approved", "forged-occurrence-receipt"),
+      ),
+    ).rejects.toMatchObject({ code: "INTERACTION_BINDING_MISMATCH" });
     expect(calls).toEqual([]);
   });
 
