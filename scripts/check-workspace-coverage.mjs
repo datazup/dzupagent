@@ -169,8 +169,38 @@ function resolvePackageRule(config, packageName) {
     : null
 
   const baseline = normalizeBaseline(rule.baseline)
+  const noCoverage = normalizeNoCoverage(rule.noCoverage)
 
-  return { thresholds, waiver, baseline }
+  return { thresholds, waiver, baseline, noCoverage }
+}
+
+// DZUPAGENT-CODE-H-08 / DZUPAGENT-TEST-M-14: a staged `baseline` concedes a
+// *threshold*, so it must not also excuse the absence of any measurement. The
+// only thing that may excuse "no coverage summary was produced" is this
+// explicit, expiring `noCoverage` concession.
+function normalizeNoCoverage(input) {
+  if (!input || typeof input !== 'object') return null
+  return {
+    reason: typeof input.reason === 'string' ? input.reason : '',
+    reviewBy: typeof input.reviewBy === 'string' ? input.reviewBy : null,
+  }
+}
+
+function getNoCoverageMessage(noCoverage) {
+  if (!noCoverage) return null
+  if (!noCoverage.reason) {
+    throw new Error('noCoverage entries must include a reason')
+  }
+  if (!noCoverage.reviewBy) {
+    throw new Error('noCoverage entries must include a reviewBy date')
+  }
+  const reviewByTime = Date.parse(noCoverage.reviewBy)
+  if (Number.isNaN(reviewByTime)) {
+    throw new Error(`Invalid noCoverage reviewBy date: ${noCoverage.reviewBy}`)
+  }
+  return reviewByTime < Date.now()
+    ? { expired: true, message: `noCoverage concession expired ${noCoverage.reviewBy}: ${noCoverage.reason}` }
+    : { expired: false, message: `no coverage measured; conceded until ${noCoverage.reviewBy}: ${noCoverage.reason}` }
 }
 
 function isActiveWaiver(waiver) {
@@ -340,6 +370,16 @@ export function runCoverageGate({
     }
 
     if (!fileExists(summaryPath)) {
+      const conceded = getNoCoverageMessage(rule.noCoverage)
+      if (conceded) {
+        rows.push({
+          packageName,
+          status: conceded.expired ? 'expired' : 'waived',
+          message: conceded.message,
+        })
+        continue
+      }
+
       rows.push({
         packageName,
         status: 'missing',
@@ -431,7 +471,18 @@ export function runCoverageGate({
 
       // A staged baseline concedes a *threshold*, not the absence of a coverage
       // mechanism. A package with no `test:coverage` script produces no summary to
-      // measure, so a baseline cannot excuse it — only an explicit waiver can.
+      // measure, so a baseline cannot excuse it — only an explicit waiver or an
+      // expiring `noCoverage` concession can.
+      const conceded = getNoCoverageMessage(rule.noCoverage)
+      if (conceded) {
+        rows.push({
+          packageName,
+          status: conceded.expired ? 'expired' : 'waived',
+          message: `test script lacks test:coverage; ${conceded.message}`,
+        })
+        continue
+      }
+
       rows.push({
         packageName,
         status: 'missing',

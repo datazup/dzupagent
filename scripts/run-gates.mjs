@@ -61,7 +61,6 @@ const STATIC_CHECKS = [
   "check:turbo:typecheck-order",
   "test:inventory:runtime:strict",
   "check:improvements:drift",
-  "check:security-audit-status",
   "check:gitleaks-allowlist",
   "check:waiver-expiry",
   "check:capability-matrix",

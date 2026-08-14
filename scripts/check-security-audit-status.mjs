@@ -4,11 +4,18 @@ import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
+// DZUPAGENT-SEC-M-45: this gate used to exit 0 with a "retired — skipping" line
+// when its input was absent, so it sat green in `verify:strict` while asserting
+// nothing. It now fails closed. `docs/SECURITY-AUDIT.md` was retired on purpose,
+// so the gate is deliberately NOT registered in `scripts/run-gates.mjs` or the
+// composed `verify*` chains — a check whose input no longer exists is a false
+// red there. Re-register it in both places the moment the document comes back.
 const rootDir = dirname(dirname(fileURLToPath(import.meta.url)))
 const auditPath = join(rootDir, 'docs', 'SECURITY-AUDIT.md')
 
 if (!existsSync(auditPath)) {
   console.error(`Security audit status check failed: required input is missing at ${auditPath}`)
+  console.error('Either restore the document, or retire this gate — do not make it pass vacuously.')
   process.exit(1)
 }
 

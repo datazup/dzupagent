@@ -300,3 +300,127 @@ test('self-check mode passes without repo coverage artifacts', async () => {
   assert.equal(report.totals.pass, 1)
   assert.equal(report.totals.waived, 1)
 })
+
+test('fails a missing coverage summary even when a staged baseline is configured', () => {
+  // DZUPAGENT-CODE-H-08 / DZUPAGENT-TEST-M-14: the gate used to grade an absent
+  // summary as `baseline` — a pass — so it exited 0 having measured nothing.
+  const { root, configPath } = makeWorkspace({
+    packages: {
+      alpha: { summary: null },
+    },
+    config: {
+      defaultThresholds: DEFAULT_THRESHOLDS,
+      trackedPackages: [],
+      packages: {
+        alpha: {
+          baseline: {
+            reason: 'floor pinned at measured coverage',
+            since: '2026-08-04',
+            reviewBy: '2099-01-01',
+            thresholds: { statements: 90, branches: 90, functions: 90, lines: 90 },
+          },
+        },
+      },
+    },
+  })
+
+  try {
+    const report = runCoverageGate({ repoRoot: root, configPath })
+    assert.equal(report.exitCode, 1)
+    assert.equal(report.totals.baseline, 0)
+    assert.equal(report.totals.missing, 1)
+    assert.equal(report.rows[0].status, 'missing')
+    assert.match(report.rows[0].message, /missing coverage summary/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('honors an unexpired noCoverage concession for a missing summary', () => {
+  const { root, configPath } = makeWorkspace({
+    packages: {
+      alpha: { summary: null },
+    },
+    config: {
+      defaultThresholds: DEFAULT_THRESHOLDS,
+      trackedPackages: [],
+      packages: {
+        alpha: {
+          noCoverage: {
+            reason: 'coverage runner not yet wired for this package',
+            reviewBy: '2099-01-01',
+          },
+        },
+      },
+    },
+  })
+
+  try {
+    const report = runCoverageGate({ repoRoot: root, configPath })
+    assert.equal(report.exitCode, 0)
+    assert.equal(report.totals.missing, 0)
+    assert.equal(report.rows[0].status, 'waived')
+    assert.match(report.rows[0].message, /no coverage measured; conceded until 2099-01-01/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('fails an expired noCoverage concession', () => {
+  const { root, configPath } = makeWorkspace({
+    packages: {
+      alpha: { summary: null },
+    },
+    config: {
+      defaultThresholds: DEFAULT_THRESHOLDS,
+      trackedPackages: [],
+      packages: {
+        alpha: {
+          noCoverage: {
+            reason: 'coverage runner not yet wired for this package',
+            reviewBy: '2020-01-01',
+          },
+        },
+      },
+    },
+  })
+
+  try {
+    const report = runCoverageGate({ repoRoot: root, configPath })
+    assert.equal(report.exitCode, 1)
+    assert.equal(report.totals.expired, 1)
+    assert.equal(report.rows[0].status, 'expired')
+    assert.match(report.rows[0].message, /noCoverage concession expired 2020-01-01/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a noCoverage concession also covers a package with no test:coverage script', () => {
+  const { root, configPath } = makeWorkspace({
+    packages: {
+      alpha: { scripts: { test: 'vitest run' }, summary: null },
+    },
+    config: {
+      defaultThresholds: DEFAULT_THRESHOLDS,
+      trackedPackages: [],
+      packages: {
+        alpha: {
+          noCoverage: {
+            reason: 'no coverage runner for this package yet',
+            reviewBy: '2099-01-01',
+          },
+        },
+      },
+    },
+  })
+
+  try {
+    const report = runCoverageGate({ repoRoot: root, configPath })
+    assert.equal(report.exitCode, 0)
+    assert.equal(report.rows[0].status, 'waived')
+    assert.match(report.rows[0].message, /test script lacks test:coverage/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
