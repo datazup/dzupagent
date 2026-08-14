@@ -139,14 +139,22 @@
     "2026-08-04 consolidation re-pin: origin/main had already published token-measurement, provider-capability, memory-outcome, authentication-mode, adapter-port, and task-lease surfaces after the 2026-07-31 snapshot. The coolify-codev merge also adds structured memory logging and subagent lease exports. Preserve those public contracts and pin the resulting root sizes with zero slack: core explicitExports 935 / maxRootIndexLines 1327; memory 643; agent-adapters 870; runtime-contracts 92; adapter-types 28; subagents 212. Added runtime-contracts/src/ai-execution.ts to the time-boxed file debt allowlist; decomposition remains required. reviewBy: 2026-10-31.",
     "2026-08-05 C3 ai-economics re-pin: @dzupagent/runtime-contracts root grew 92->115 lines when ffff6eb5 (C3 slice 2) published the AI economics contract cluster (AI_TARIFF_SCHEMA, AI_QUOTA_SCHEMA, selectTariffRates, validateAiTariff, validateAiQuotaTruth, MICROS_PER_CENT plus nine types) from src/ai-economics.js. Re-pinned rather than relocated to a subpath because this package is governed root-first: config/public-api-allowlists.json lists ./ai-economics.js under stableRoot (added in the same C3 pass by af370471) and its migrationWindow states runtime contract ROOT exports are the stable neutral contract surface, requiring only that an allowlist rule precede a new contract module -- which it did. runtime-contracts has an EMPTY transitionalRoot, so unlike @dzupagent/core (whose ./middleware/ IS transitional, so its duplicate pricing re-export was DELETED in this same pass, clearing all three core budgets with no bump) there is no migration obligation to move this off the root. Pinned with zero slack to the measured 115. reviewBy: 2026-10-31.",
     "2026-08-09 Q7 qualification repair: do not silently re-pin stale target budgets. rootDebtPin and fileLineDebtPins retain the lower architecture target while accepting only exact reviewed bytes at clean source 49921e7ec9b1987c53cebba5e8327266669903be. A changed digest, higher metric, malformed provenance, or expired review date fails closed. reviewBy: 2026-09-09.",
-    "The root pins cover shipped compatibility surfaces in memory, agent-adapters, runtime-contracts, adapter-types, and flow-ast. The file pins cover five post-baseline modules that require per-concern decomposition. These are visible finite debts, not general growth licenses; remove each pin when the matching decomposition or public-surface migration lands."
+    "The root pins cover shipped compatibility surfaces in memory, agent-adapters, runtime-contracts, adapter-types, and flow-ast. The file pins cover five post-baseline modules that require per-concern decomposition. These are visible finite debts, not general growth licenses; remove each pin when the matching decomposition or public-surface migration lands.",
+    "2026-08-14 lossless consolidation qualification: retained every lower architecture target and added exact source-bound debt pins only for merged published exports and newly oversized modules at clean source b71085145d8d17befaec852d3ad8db80e72b2b89. Root pins cover core handled-error compatibility, Agent interaction exports, Agent Adapters Codex goal control, Runtime Contracts interaction exports, and HITL interaction adapter compatibility. File pins cover consolidated pipeline interaction/replay, Codex app-server control, runtime interaction contracts, compiler interaction handling, and action normalization. Every pin has zero line/export slack, fails on byte drift, and expires 2026-09-14; decomposition or subpath migration remains required."
   ],
   "packages": {
     "@dzupagent/core": {
       "maxRootBarrelExplicitExports": 935,
       "maxRootBarrelStarExports": 0,
       "maxRootBarrelSourceCount": 143,
-      "maxRootIndexLines": 1327
+      "maxRootIndexLines": 1327,
+      "rootDebtPin": {
+        "maxRootBarrelExplicitExports": 936,
+        "sourceSha256": "c2b5489568e6878fffa978bfa8ef11bd10df0dc14736110f762049b656bdcfc1",
+        "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
+        "reviewBy": "2026-09-14",
+        "rationale": "Freeze the consolidated handled-error compatibility export with zero slack while future contracts remain subpath-only."
+      }
     },
     "@dzupagent/security": {
       "maxRootIndexLines": 78,
@@ -155,6 +163,13 @@
     },
     "@dzupagent/agent": {
       "maxRootIndexLines": 732,
+      "rootDebtPin": {
+        "maxRootIndexLines": 734,
+        "sourceSha256": "d3470a1d8639b00aa7734e423165e3c37044ac7861385e1179135f70a07c89ea",
+        "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
+        "reviewBy": "2026-09-14",
+        "rationale": "Freeze the consolidated pipeline interaction root exports with zero slack pending the next compatibility-surface review."
+      },
       "maxFileLines": 500,
       "fileLineAllowlist": [
         "src/index.ts",
@@ -164,7 +179,51 @@
         "src/orchestration/topology/topology-executor.ts",
         "src/self-correction/learning-dashboard.ts",
         "src/self-correction/performance-optimizer.ts"
-      ]
+      ],
+      "fileLineDebtPins": {
+        "src/pipeline/loop-executor/predicate-loop.ts": {
+          "maxLines": 703,
+          "sourceSha256": "141cab4cf827020b9c78968c118d5ae09d4faf832cfb421e3c53d09695f900eb",
+          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
+          "reviewBy": "2026-09-14",
+          "rationale": "Freeze consolidated loop interaction and replay logic pending a behavior-preserving per-concern extraction."
+        },
+        "src/pipeline/pipeline-executor.ts": {
+          "maxLines": 997,
+          "sourceSha256": "247decdf67fa608093e9171eddfebf932a2025268cdd7530fe5c63dd1ee15cbb",
+          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
+          "reviewBy": "2026-09-14",
+          "rationale": "Freeze consolidated checkpoint and interaction execution logic pending a behavior-preserving per-concern extraction."
+        },
+        "src/pipeline/pipeline-runtime-lifecycle/resume-orchestrator.ts": {
+          "maxLines": 617,
+          "sourceSha256": "b0376ba6847fde6b91cda2a00a4ab9223ee567dd8c982618cc342b59d212e43a",
+          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
+          "reviewBy": "2026-09-14",
+          "rationale": "Freeze consolidated replay restoration logic pending extraction of interaction and checkpoint planning concerns."
+        },
+        "src/pipeline/pipeline-runtime.ts": {
+          "maxLines": 848,
+          "sourceSha256": "7115fde297e884d498e00a9a15383cec3125d62f0c40472817e32288c392de3a",
+          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
+          "reviewBy": "2026-09-14",
+          "rationale": "Freeze consolidated interaction runtime coordination pending extraction of replay and checkpoint concerns."
+        },
+        "src/pipeline/pipeline-validator.ts": {
+          "maxLines": 535,
+          "sourceSha256": "ea75915e5a347e825c5eebc44d8c90e4793ac35c93a08fb63b20489443b3da9c",
+          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
+          "reviewBy": "2026-09-14",
+          "rationale": "Freeze consolidated pipeline interaction validation pending extraction of its graph and admission helpers."
+        },
+        "src/runner/runner-values.ts": {
+          "maxLines": 509,
+          "sourceSha256": "b4a419df7b8c1d638969ecfd424f8d9d5f32734cfbe7572b9abcdc4cd3c92301",
+          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
+          "reviewBy": "2026-09-14",
+          "rationale": "Freeze the consolidated structured runner value contracts pending a behavior-preserving type-family split."
+        }
+      }
     },
     "@dzupagent/memory": {
       "maxRootIndexLines": 643,
@@ -201,11 +260,11 @@
     "@dzupagent/agent-adapters": {
       "maxRootIndexLines": 870,
       "rootDebtPin": {
-        "maxRootIndexLines": 946,
-        "sourceSha256": "0e7852c41be629fdbef8ec3b911c094c42d01e153cfd0bcce2e8624af463341b",
-        "sourceCommit": "49921e7ec9b1987c53cebba5e8327266669903be",
-        "reviewBy": "2026-09-09",
-        "rationale": "Freeze the shipped adapter monitoring compatibility exports while subpath adoption is completed."
+        "maxRootIndexLines": 957,
+        "sourceSha256": "7770641cd2a8e5d13d79cde223f148e0dbad96af358fc0928e4031bdfa073983",
+        "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
+        "reviewBy": "2026-09-14",
+        "rationale": "Freeze the consolidated adapter monitoring and Codex goal-control compatibility exports while subpath adoption is completed."
       },
       "maxFileLines": 500,
       "fileLineAllowlist": [
@@ -226,6 +285,27 @@
           "sourceCommit": "49921e7ec9b1987c53cebba5e8327266669903be",
           "reviewBy": "2026-09-09",
           "rationale": "Freeze the execution bridge pending extraction of validation, transcript, and completion concerns."
+        },
+        "src/codex/codex-app-server-adapter.ts": {
+          "maxLines": 905,
+          "sourceSha256": "c0905cd20475de198eeca7b65ac8cea276bbe3b4ef8a2fd39f5cab3d602cd1c0",
+          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
+          "reviewBy": "2026-09-14",
+          "rationale": "Freeze the consolidated Codex app-server adapter pending extraction of lifecycle, approval, and event mapping concerns."
+        },
+        "src/codex/codex-app-server-client.ts": {
+          "maxLines": 895,
+          "sourceSha256": "201113e2d02a27981d4aa26dc12d679eca2c2f74edc676105e4f8326b1c1b95c",
+          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
+          "reviewBy": "2026-09-14",
+          "rationale": "Freeze the consolidated Codex app-server client pending extraction of transport, protocol, and request correlation concerns."
+        },
+        "src/codex/codex-goal-capability.ts": {
+          "maxLines": 1260,
+          "sourceSha256": "99243baf7b1f8bef04d60ded8af3d46a8aad228be1ce12bc8683e41ffe9a73b1",
+          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
+          "reviewBy": "2026-09-14",
+          "rationale": "Freeze the consolidated Codex goal capability pending extraction of discovery, admission, and execution-policy concerns."
         }
       }
     },
@@ -242,11 +322,11 @@
     "@dzupagent/runtime-contracts": {
       "maxRootIndexLines": 115,
       "rootDebtPin": {
-        "maxRootIndexLines": 137,
-        "sourceSha256": "42f807b6b2bc6295cb31043317bbd910105a4147b6545ddbca2b640b00673ccf",
-        "sourceCommit": "49921e7ec9b1987c53cebba5e8327266669903be",
-        "reviewBy": "2026-09-09",
-        "rationale": "Freeze the reviewed runtime contract compatibility surface while consumers move to package subpaths."
+        "maxRootIndexLines": 138,
+        "sourceSha256": "4c08803e6bae2de9c5bcc692b45bdd96c1f9802d5a629c9c169eb268488c9eb9",
+        "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
+        "reviewBy": "2026-09-14",
+        "rationale": "Freeze the consolidated runtime interaction contract compatibility surface while consumers move to package subpaths."
       },
       "maxFileLines": 500,
       "fileLineAllowlist": [
@@ -261,6 +341,20 @@
           "sourceCommit": "49921e7ec9b1987c53cebba5e8327266669903be",
           "reviewBy": "2026-09-09",
           "rationale": "Freeze the flow runtime input contract pending a behavior-preserving per-concern type split."
+        },
+        "src/pipeline-interaction.ts": {
+          "maxLines": 1114,
+          "sourceSha256": "206d4390086a8a142cea27187a953d1b01957f2586c3c182faa38172b5a911bb",
+          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
+          "reviewBy": "2026-09-14",
+          "rationale": "Freeze the consolidated pipeline interaction contracts pending a behavior-preserving split by request, record, and replay concern."
+        },
+        "src/provider-session.ts": {
+          "maxLines": 556,
+          "sourceSha256": "79af6e66530f7b1bd4757d1ba8a12579526c263697b19087ebce0cd2fba0a0c4",
+          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
+          "reviewBy": "2026-09-14",
+          "rationale": "Freeze the consolidated provider-session contracts pending a behavior-preserving split of lifecycle and persistence types."
         }
       }
     },
@@ -358,18 +452,25 @@
       "fileLineAllowlist": [],
       "fileLineDebtPins": {
         "src/compile-orchestrator/pipeline.ts": {
-          "maxLines": 529,
-          "sourceSha256": "4d5cb9802e79741eca64fe6270d5c206792a8cb13ebc011dc19a62aa40ddb643",
-          "sourceCommit": "49921e7ec9b1987c53cebba5e8327266669903be",
-          "reviewBy": "2026-09-09",
-          "rationale": "Freeze the compile pipeline pending extraction of its manifest and validation phase helpers."
+          "maxLines": 560,
+          "sourceSha256": "9c5f0e1a820a8e571ccdf3080f4363499deab6f4ec3d3d8d050b63aa9550e7d2",
+          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
+          "reviewBy": "2026-09-14",
+          "rationale": "Freeze the consolidated compile pipeline pending extraction of its interaction manifest and validation phase helpers."
         },
         "src/stages/semantic-walk/dispatch.ts": {
-          "maxLines": 501,
-          "sourceSha256": "3e8947983310704ea67f7a543da8528072071d435fa39d2278a40afb93ccfd28",
-          "sourceCommit": "49921e7ec9b1987c53cebba5e8327266669903be",
-          "reviewBy": "2026-09-09",
-          "rationale": "Freeze the one-line-over semantic dispatcher pending a behavior-preserving helper extraction."
+          "maxLines": 504,
+          "sourceSha256": "7672c47e34efbb028eb89b1fcfdb7e8525dfdc06e6804f5e6fcc19e6454a186f",
+          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
+          "reviewBy": "2026-09-14",
+          "rationale": "Freeze the consolidated semantic dispatcher pending a behavior-preserving interaction helper extraction."
+        },
+        "src/types.ts": {
+          "maxLines": 506,
+          "sourceSha256": "747d912269651a053d4d4ca18ed15b1bd629fe56c7828b18471c98a0cf2e8d11",
+          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
+          "reviewBy": "2026-09-14",
+          "rationale": "Freeze the consolidated compiler type surface pending a behavior-preserving split of interaction and diagnostic contracts."
         }
       }
     },
@@ -381,7 +482,16 @@
         "src/primitives/built-ins-v2.ts",
         "src/primitives/composite-expansion.ts",
         "src/v2-authoring/migration.ts"
-      ]
+      ],
+      "fileLineDebtPins": {
+        "src/normalize-nodes-action.ts": {
+          "maxLines": 577,
+          "sourceSha256": "1cf33c774aab0331006017a78cb60d4104d84d1c145f94c71c497a15e1282181",
+          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
+          "reviewBy": "2026-09-14",
+          "rationale": "Freeze the consolidated action normalization module pending extraction of interaction, retry, and approval normalization helpers."
+        }
+      }
     },
     "@dzupagent/memory-ipc": {
       "maxRootIndexLines": 207,
@@ -415,6 +525,13 @@
     },
     "@dzupagent/hitl-kit": {
       "maxRootIndexLines": 5,
+      "rootDebtPin": {
+        "maxRootIndexLines": 6,
+        "sourceSha256": "64378bd8c766804a1a750a0e50caf0745d84ae4b049c67ec091d9b12856e1794",
+        "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
+        "reviewBy": "2026-09-14",
+        "rationale": "Freeze the consolidated pipeline interaction adapter root export with zero slack pending compatibility review."
+      },
       "maxFileLines": 500,
       "fileLineAllowlist": []
     },
