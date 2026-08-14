@@ -138,9 +138,18 @@ export class RedisPipelineCheckpointStore implements PipelineCheckpointStore {
     }
     try {
       const parsed = PipelineCheckpointSchema.safeParse(JSON.parse(raw))
-      return parsed.success ? parsed.data as PipelineCheckpoint : undefined
-    } catch {
-      return undefined
+      if (!parsed.success) {
+        throw new Error(
+          `Invalid pipeline checkpoint payload: ${parsed.error.issues
+            .map((issue) => issue.message)
+            .join('; ')}`,
+        )
+      }
+      return parsed.data as PipelineCheckpoint
+    } catch (error) {
+      throw error instanceof Error
+        ? error
+        : new Error('Invalid pipeline checkpoint payload')
     }
   }
 

@@ -11,11 +11,12 @@
  * @module pipeline/pipeline-runtime
  */
 
-import type {
-  PipelineNode,
-  PipelineEdge,
-  PipelineCheckpoint,
-  PipelineCheckpointProviderSessionRef,
+import {
+  PipelineCheckpointSchema,
+  type PipelineNode,
+  type PipelineEdge,
+  type PipelineCheckpoint,
+  type PipelineCheckpointProviderSessionRef,
 } from "@dzupagent/core/pipeline";
 import {
   digestPipelineDefinition,
@@ -254,7 +255,20 @@ export class PipelineRuntime {
     checkpoint: PipelineCheckpoint,
     additionalState?: Record<string, unknown>
   ): Promise<PipelineRunResult> {
-    return resumeFromCheckpoint(this.resumeHost, checkpoint, additionalState);
+    const parsed = PipelineCheckpointSchema.safeParse(checkpoint);
+    if (!parsed.success) {
+      throw new PipelineInteractionRuntimeError(
+        "INTERACTION_BINDING_MISMATCH",
+        `Invalid pipeline checkpoint: ${parsed.error.issues
+          .map((issue) => issue.message)
+          .join("; ")}`,
+      );
+    }
+    return resumeFromCheckpoint(
+      this.resumeHost,
+      parsed.data as PipelineCheckpoint,
+      additionalState,
+    );
   }
 
   /** Consume one exact checkpoint-bound human interaction receipt. */
@@ -273,7 +287,14 @@ export class PipelineRuntime {
     }
 
     const store = this.config.checkpointStore;
-    const latest = (await store?.load(checkpoint.pipelineRunId)) ?? checkpoint;
+    const loaded = await store?.load(checkpoint.pipelineRunId);
+    if (store !== undefined && loaded === undefined) {
+      throw new PipelineInteractionRuntimeError(
+        "INTERACTION_BINDING_MISMATCH",
+        "The authoritative latest checkpoint is missing or corrupt.",
+      );
+    }
+    const latest = loaded ?? checkpoint;
     if (
       latest.pipelineRunId !== checkpoint.pipelineRunId ||
       latest.pipelineId !== this.config.definition.id
@@ -295,24 +316,18 @@ export class PipelineRuntime {
       this.assertCommittedInteractionReceiptValid(latest, existing);
       if (latest.interactionResumeCursor !== undefined) {
         this.assertInteractionResumeCursorValid(latest);
-      }
-      if (
-        latest.pendingInteraction !== undefined ||
-        latest.interactionResumeCursor !== undefined
-      ) {
         return resumeFromCheckpoint(this.resumeHost, latest);
       }
-      const nodeResults = new Map<string, NodeResult>();
-      for (const nodeId of latest.completedNodeIds) {
-        nodeResults.set(nodeId, { nodeId, output: null, durationMs: 0 });
+      if (existing.scope.kind === "pipeline") {
+        return this.completedInteractionResult(
+          latest.pipelineRunId,
+          restoreRunContextFromCheckpoint(latest, undefined, {
+            hydrateCompleted: true,
+          }).nodeResults,
+          Date.now(),
+        );
       }
-      return {
-        pipelineId: this.config.definition.id,
-        runId: latest.pipelineRunId,
-        state: "completed",
-        nodeResults,
-        totalDurationMs: 0,
-      };
+      return resumeFromCheckpoint(this.resumeHost, latest);
     }
 
     for (const committed of Object.values(latest.interactionReceipts ?? {})) {

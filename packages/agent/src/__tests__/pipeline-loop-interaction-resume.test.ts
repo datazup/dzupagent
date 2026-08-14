@@ -287,6 +287,59 @@ function tryBodyLoopDefinition(): PipelineDefinition {
   };
 }
 
+function erroringSuccessorLoopDefinition(): PipelineDefinition {
+  const interaction = createPipelineInteractionSpecV1({
+    kind: "approval",
+    authoredNodeId: "review",
+    authoredPath: "root.body[0]",
+    question: "Attempt the guarded action?",
+    choices: [],
+    outcomeToSuccessor: { approved: "selected", rejected: "rejected" },
+    requestSchema: { kind: "approval", decisions: ["approved", "rejected"] },
+  });
+  const loop: LoopNode = {
+    id: "loop",
+    type: "loop",
+    bodyNodeIds: ["review", "selected", "caught", "rejected"],
+    bodyGraph: {
+      entryNodeId: "review",
+      normalExitNodeIds: ["caught", "rejected"],
+      suspendedExitNodeIds: [],
+      suspensionSiteNodeIds: ["review"],
+      terminalExitNodeIds: [],
+      errorExitNodeIds: ["caught"],
+    },
+    maxIterations: 1,
+    continuePredicateName: "stop-loop",
+  };
+  return {
+    id: "loop-erroring-successor-interaction",
+    name: "loop erroring successor interaction",
+    version: "1",
+    schemaVersion: "1.1.0",
+    entryNodeId: "loop",
+    checkpointStrategy: "after_each_node",
+    nodes: [
+      loop,
+      { id: "review", type: "gate", gateType: "approval", interaction },
+      { id: "selected", type: "agent", agentId: "selected" },
+      { id: "caught", type: "agent", agentId: "caught" },
+      { id: "rejected", type: "agent", agentId: "rejected" },
+      { id: "after", type: "agent", agentId: "after" },
+    ],
+    edges: [
+      {
+        type: "conditional",
+        sourceNodeId: "review",
+        predicateName: "must-not-run",
+        branches: { approved: "selected", rejected: "rejected" },
+      },
+      { type: "error", sourceNodeId: "selected", targetNodeId: "caught" },
+      { type: "sequential", sourceNodeId: "loop", targetNodeId: "after" },
+    ],
+  };
+}
+
 describe("structured loop interaction resume", () => {
   it("binds each iteration uniquely and resumes from the exact successor without repeating its prefix", async () => {
     const calls: string[] = [];
@@ -579,6 +632,89 @@ describe("structured loop interaction resume", () => {
     },
   );
 
+  it("continues the loop and outer graph once after the selected-successor checkpoint saves then throws", async () => {
+    const calls: string[] = [];
+    const store = new SelectedSuccessorSaveThenThrowStore();
+    const runtime = new PipelineRuntime({
+      definition: loopDefinition(),
+      checkpointStore: store,
+      interaction: { now: () => new Date("2026-08-14T20:00:00.000Z") },
+      predicates: {
+        "continue-loop": (state) =>
+          ((state["accepted"] as number | undefined) ?? 0) < 1,
+      },
+      nodeExecutor: async (nodeId, _node: PipelineNode, context) => {
+        calls.push(nodeId);
+        if (nodeId === "approved") context.state["accepted"] = 1;
+        return { nodeId, output: nodeId, durationMs: 1 };
+      },
+    });
+    await runtime.execute({}, { runId: "selected-successor-save-then-throw" });
+    const suspended = (await store.load("selected-successor-save-then-throw"))!;
+    const receipt = createPipelineInteractionResumeV1({
+      ...suspended.pendingInteraction!,
+      receiptId: "selected-successor-receipt",
+      submittedAt: "2026-08-14T20:00:01.000Z",
+      response: { kind: "approval", decision: "approved" },
+    });
+
+    await expect(
+      runtime.resumeInteraction(suspended, receipt),
+    ).resolves.toMatchObject({ state: "failed" });
+    expect(calls).toEqual(["prefix", "approved"]);
+    const committed = (await store.load("selected-successor-save-then-throw"))!;
+    expect(committed.interactionResumeCursor).toBeUndefined();
+    expect(committed.completedNodeIds).not.toContain("loop");
+
+    await expect(
+      runtime.resumeInteraction(suspended, receipt),
+    ).resolves.toMatchObject({ state: "completed" });
+    expect(calls).toEqual(["prefix", "approved", "after"]);
+  });
+
+  it("continues from a durable selected-successor error edge without redispatch", async () => {
+    const calls: string[] = [];
+    const store = new SelectedErrorEdgeSaveThenThrowStore();
+    const runtime = new PipelineRuntime({
+      definition: erroringSuccessorLoopDefinition(),
+      checkpointStore: store,
+      interaction: { now: () => new Date("2026-08-14T20:00:00.000Z") },
+      predicates: { "stop-loop": () => false },
+      nodeExecutor: async (nodeId) => {
+        calls.push(nodeId);
+        return {
+          nodeId,
+          output: nodeId,
+          durationMs: 1,
+          ...(nodeId === "selected" ? { error: "expected failure" } : {}),
+        };
+      },
+    });
+    await runtime.execute({}, { runId: "selected-error-save-then-throw" });
+    const suspended = (await store.load("selected-error-save-then-throw"))!;
+    const receipt = createPipelineInteractionResumeV1({
+      ...suspended.pendingInteraction!,
+      receiptId: "selected-error-receipt",
+      submittedAt: "2026-08-14T20:00:01.000Z",
+      response: { kind: "approval", decision: "approved" },
+    });
+
+    await expect(
+      runtime.resumeInteraction(suspended, receipt),
+    ).resolves.toMatchObject({ state: "failed" });
+    expect(calls).toEqual(["selected"]);
+    const committed = (await store.load("selected-error-save-then-throw"))!;
+    expect(committed.interactionResumeCursor).toBeUndefined();
+    expect(
+      committed.loopState?.["loop"]?.bodyGraphState?.nextNodeId,
+    ).toBe("caught");
+
+    await expect(
+      runtime.resumeInteraction(suspended, receipt),
+    ).resolves.toMatchObject({ state: "completed" });
+    expect(calls).toEqual(["selected", "caught", "after"]);
+  });
+
   it("keeps a committed terminal outcome authoritative when its save then throws", async () => {
     const calls: string[] = [];
     const store = new TerminalLoopSaveThenThrowStore();
@@ -689,6 +825,47 @@ class TerminalLoopSaveThenThrowStore extends InMemoryPipelineCheckpointStore {
       this.failed = true;
       await super.save(checkpoint);
       throw new Error("injected committed terminal transport failure");
+    }
+    await super.save(checkpoint);
+  }
+}
+
+class SelectedSuccessorSaveThenThrowStore extends InMemoryPipelineCheckpointStore {
+  private failed = false;
+
+  override async save(checkpoint: PipelineCheckpoint): Promise<void> {
+    const graph = checkpoint.loopState?.["loop"]?.bodyGraphState;
+    if (
+      !this.failed &&
+      Object.keys(checkpoint.interactionReceipts ?? {}).length === 1 &&
+      checkpoint.interactionResumeCursor === undefined &&
+      !checkpoint.completedNodeIds.includes("loop") &&
+      graph?.completedNodeIds.includes("approved") === true
+    ) {
+      this.failed = true;
+      await super.save(checkpoint);
+      throw new Error("injected selected-successor transport failure");
+    }
+    await super.save(checkpoint);
+  }
+}
+
+class SelectedErrorEdgeSaveThenThrowStore extends InMemoryPipelineCheckpointStore {
+  private failed = false;
+
+  override async save(checkpoint: PipelineCheckpoint): Promise<void> {
+    const graph = checkpoint.loopState?.["loop"]?.bodyGraphState;
+    if (
+      !this.failed &&
+      Object.keys(checkpoint.interactionReceipts ?? {}).length === 1 &&
+      checkpoint.interactionResumeCursor === undefined &&
+      !checkpoint.completedNodeIds.includes("loop") &&
+      graph?.nodeResults["selected"]?.error !== undefined &&
+      graph.nextNodeId === "caught"
+    ) {
+      this.failed = true;
+      await super.save(checkpoint);
+      throw new Error("injected selected-error-edge transport failure");
     }
     await super.save(checkpoint);
   }

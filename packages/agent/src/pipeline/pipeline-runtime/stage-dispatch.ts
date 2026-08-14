@@ -262,7 +262,8 @@ export async function dispatchLoopStage(
       clearCommittedLoopInteractionCursor(
         frame,
         loopNode.id,
-        progress.state
+        progress.state,
+        (nodeId, error) => ctx.errorEdgeFor(nodeId, error)
       );
       if (progress.mandatory === true) {
         await persistCheckpointWithIntegrityBoundary({
@@ -433,19 +434,31 @@ function retainBodyGraphState(
 function clearCommittedLoopInteractionCursor(
   frame: RunFrame,
   loopNodeId: string,
-  state?: NonNullable<LoopState[string]["bodyGraphState"]>
+  state?: NonNullable<LoopState[string]["bodyGraphState"]>,
+  errorTarget?: (nodeId: string, error: string) => string | undefined
 ): void {
   const cursor = frame.interactionResumeCursor;
   if (cursor?.scope.kind !== "loop" || cursor.scope.loopNodeId !== loopNodeId) {
     return;
   }
   const selected = cursor.selectedSuccessorNodeId;
+  const selectedResult = selected === undefined
+    ? undefined
+    : state?.nodeResults[selected];
+  const selectedErrorTarget =
+    selected !== undefined && selectedResult?.error !== undefined
+      ? errorTarget?.(selected, selectedResult.error)
+      : undefined;
   const selectedCommitted = selected === undefined
     ? state === undefined ||
       (state.completed &&
         state.outcome?.kind === "normal" &&
         state.outcome.exitNodeId === cursor.nodeId)
-    : state === undefined || state.completedNodeIds.includes(selected);
+    : state === undefined ||
+      state.completedNodeIds.includes(selected) ||
+      (selectedResult?.error !== undefined &&
+        selectedErrorTarget !== undefined &&
+        state.nextNodeId === selectedErrorTarget);
   if (selectedCommitted) delete frame.interactionResumeCursor;
 }
 

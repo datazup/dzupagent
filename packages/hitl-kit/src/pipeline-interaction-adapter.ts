@@ -93,21 +93,6 @@ export class InMemoryPipelineInteractionStatePort
         "No pending interaction exists for this receipt.",
       );
     }
-    if (existing.receipt !== undefined) {
-      if (existing.receipt.receiptHash === receipt.receiptHash) return existing;
-      throw new PipelineInteractionStoreError(
-        "TERMINAL_RECEIPT_CONFLICT",
-        receipt.interactionId,
-        "A different terminal receipt is already committed.",
-      );
-    }
-    if (this.now().getTime() > Date.parse(existing.pending.expiresAt)) {
-      throw new PipelineInteractionStoreError(
-        "INTERACTION_EXPIRED",
-        receipt.interactionId,
-        "The pending interaction has expired.",
-      );
-    }
     const validation = validatePipelineInteractionResumeV1(receipt, {
       spec: existing.spec,
       pending: existing.pending,
@@ -117,6 +102,21 @@ export class InMemoryPipelineInteractionStatePort
         "INVALID_INTERACTION",
         receipt.interactionId,
         "Receipt does not match the pending interaction.",
+      );
+    }
+    if (existing.receipt !== undefined) {
+      if (existing.receipt.receiptHash === receipt.receiptHash) return existing;
+      throw new PipelineInteractionStoreError(
+        "TERMINAL_RECEIPT_CONFLICT",
+        receipt.interactionId,
+        "A different terminal receipt is already committed.",
+      );
+    }
+    if (this.now().getTime() >= Date.parse(existing.pending.expiresAt)) {
+      throw new PipelineInteractionStoreError(
+        "INTERACTION_EXPIRED",
+        receipt.interactionId,
+        "The pending interaction has expired.",
       );
     }
     const terminal = { ...existing, receipt } satisfies PipelineInteractionRecordV1;

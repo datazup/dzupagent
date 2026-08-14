@@ -141,7 +141,7 @@ export function assertInteractionNotExpired(
   pending: PipelinePendingInteractionV1,
   now: Date,
 ): void {
-  if (now.getTime() > Date.parse(pending.expiresAt)) {
+  if (now.getTime() >= Date.parse(pending.expiresAt)) {
     throw new PipelineInteractionRuntimeError(
       "INTERACTION_EXPIRED",
       `Interaction "${pending.interactionId}" has expired.`,

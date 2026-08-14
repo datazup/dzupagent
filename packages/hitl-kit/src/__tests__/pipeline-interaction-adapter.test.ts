@@ -59,6 +59,13 @@ describe("InMemoryPipelineInteractionStatePort", () => {
     await store.ensurePending(spec, pending);
     expect((await store.recordReceipt(receipt)).receipt).toEqual(receipt);
     expect((await store.recordReceipt(receipt)).receipt).toEqual(receipt);
+    const forgedReplay = {
+      ...receipt,
+      response: { kind: "approval", decision: "rejected" },
+    } as typeof receipt;
+    await expect(store.recordReceipt(forgedReplay)).rejects.toMatchObject({
+      code: "INVALID_INTERACTION",
+    });
     const conflict = createPipelineInteractionResumeV1({
       ...pending,
       receiptId: "receipt-2",
@@ -70,6 +77,17 @@ describe("InMemoryPipelineInteractionStatePort", () => {
     );
     await expect(store.recordReceipt(conflict)).rejects.toMatchObject({
       code: "TERMINAL_RECEIPT_CONFLICT",
+    });
+  });
+
+  it("treats the exact expiry instant as expired", async () => {
+    const { spec, pending, receipt } = fixture();
+    const store = new InMemoryPipelineInteractionStatePort({
+      now: () => new Date(pending.expiresAt),
+    });
+    await store.ensurePending(spec, pending);
+    await expect(store.recordReceipt(receipt)).rejects.toMatchObject({
+      code: "INTERACTION_EXPIRED",
     });
   });
 });
