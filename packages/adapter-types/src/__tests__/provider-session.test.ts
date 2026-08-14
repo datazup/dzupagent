@@ -3,9 +3,13 @@ import { join } from 'node:path'
 
 import {
   PROVIDER_SESSION_ATTEMPT_BINDING_SCHEMA,
+  PROVIDER_SESSION_ATTEMPT_BINDING_SCHEMA_V1,
   PROVIDER_SESSION_CAPABILITIES,
+  PROVIDER_SESSION_CAPABILITIES_V1,
   PROVIDER_SESSION_CAPABILITY_DESCRIPTOR_SCHEMA,
+  PROVIDER_SESSION_CAPABILITY_DESCRIPTOR_SCHEMA_V1,
   PROVIDER_SESSION_EFFECTS,
+  PROVIDER_SESSION_EFFECTS_V1,
   PROVIDER_SESSION_REFERENCE_SCHEMA,
   type ProviderSessionAttemptBinding,
   type ProviderSessionCapability,
@@ -29,7 +33,7 @@ interface FixtureProfile {
 
 const corpus = JSON.parse(
   readFileSync(
-    join(process.cwd(), '..', 'runtime-contracts', 'fixtures', 'provider-session-conformance-v1.json'),
+    join(process.cwd(), '..', 'runtime-contracts', 'fixtures', 'provider-session-conformance-v2.json'),
     'utf8',
   ),
 ) as {
@@ -99,6 +103,21 @@ function mockRichAdapter(attemptBinding: ProviderSessionAttemptBinding): Provide
     },
     async readHistory() { return { kind: 'history-read', items: [], hasMore: false } },
     async compact() { return { kind: 'compact', session } },
+    async getGoal() { return { kind: 'goal-get', goal: null } },
+    async setGoal(request) {
+      return {
+        kind: 'goal-set',
+        goal: {
+          thread: request.thread,
+          objectiveDigest: 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          status: request.status ?? 'active',
+          tokenBudget: request.tokenBudget ?? null,
+          tokensUsed: 0,
+          timeUsedSeconds: 0,
+        },
+      }
+    },
+    async clearGoal() { return { kind: 'goal-clear', cleared: true } },
   }
 }
 
@@ -114,6 +133,30 @@ describe('provider-session adapter companion contract', () => {
     }
   })
 
+  it('accepts a retained v1 adapter without requiring v2 goal methods', () => {
+    const profile = corpus.profiles.find(({ id }) => id === 'sdk-default')!
+    const current = binding(profile)
+    const legacy = {
+      ...current,
+      schema: PROVIDER_SESSION_ATTEMPT_BINDING_SCHEMA_V1,
+      descriptor: {
+        ...current.descriptor,
+        schema: PROVIDER_SESSION_CAPABILITY_DESCRIPTOR_SCHEMA_V1,
+        capabilities: Object.fromEntries(PROVIDER_SESSION_CAPABILITIES_V1.map((capability) => [
+          capability,
+          current.descriptor.capabilities[capability],
+        ])),
+      },
+      effectAuthorities: Object.fromEntries(PROVIDER_SESSION_EFFECTS_V1.map((effect) => [
+        effect,
+        current.effectAuthorities[effect],
+      ])),
+    } as unknown as ProviderSessionAttemptBinding
+    expect(validateProviderSessionAdapter({ attemptBinding: legacy }).valid).toBe(true)
+    expect(validateProviderSessionAdapter({ attemptBinding: legacy }, ['goal-control']).valid)
+      .toBe(false)
+  })
+
   it('requires every method advertised by a native rich-control backend', () => {
     const profile = corpus.profiles.find(({ id }) => id === 'mock-app-server')!
     const complete = mockRichAdapter(binding(profile))
@@ -127,6 +170,14 @@ describe('provider-session adapter companion contract', () => {
       expect.objectContaining({
         code: 'NATIVE_CAPABILITY_METHOD_MISSING',
         path: 'forkSession',
+      }),
+    )
+
+    const { clearGoal: _clearGoal, ...incompleteGoalControl } = complete
+    expect(validateProviderSessionAdapter(incompleteGoalControl).diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'NATIVE_CAPABILITY_METHOD_MISSING',
+        path: 'clearGoal',
       }),
     )
   })
@@ -166,7 +217,7 @@ describe('provider-session adapter companion contract', () => {
     const adapter = await import('@dzupagent/adapter-types/provider-session')
 
     expect(runtime.PROVIDER_SESSION_CAPABILITY_DESCRIPTOR_SCHEMA).toBe(
-      'dzupagent.providerSessionCapabilityDescriptor/v1',
+      'dzupagent.providerSessionCapabilityDescriptor/v2',
     )
     expect(adapter.validateProviderSessionAdapter).toBeTypeOf('function')
   })

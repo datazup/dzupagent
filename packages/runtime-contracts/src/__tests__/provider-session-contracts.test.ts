@@ -5,9 +5,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   PROVIDER_SESSION_ATTEMPT_BINDING_SCHEMA,
+  PROVIDER_SESSION_ATTEMPT_BINDING_SCHEMA_V1,
   PROVIDER_SESSION_CAPABILITIES,
+  PROVIDER_SESSION_CAPABILITIES_V1,
   PROVIDER_SESSION_CAPABILITY_DESCRIPTOR_SCHEMA,
+  PROVIDER_SESSION_CAPABILITY_DESCRIPTOR_SCHEMA_V1,
   PROVIDER_SESSION_EFFECTS,
+  PROVIDER_SESSION_EFFECTS_V1,
+  PROVIDER_SESSION_OPERATION_SCHEMA,
   PROVIDER_SESSION_REFERENCE_SCHEMA,
   validateProviderSessionAttemptBinding,
   type ProviderSessionAttemptBinding,
@@ -35,7 +40,7 @@ interface FixtureCorpus {
 }
 
 const corpus = JSON.parse(
-  readFileSync(join(process.cwd(), "fixtures", "provider-session-conformance-v1.json"), "utf8"),
+  readFileSync(join(process.cwd(), "fixtures", "provider-session-conformance-v2.json"), "utf8"),
 ) as FixtureCorpus;
 
 function binding(profile: FixtureProfile = corpus.profiles[0]!): ProviderSessionAttemptBinding {
@@ -77,7 +82,7 @@ function binding(profile: FixtureProfile = corpus.profiles[0]!): ProviderSession
 
 describe("provider-session capability contracts", () => {
   it("validates SDK, CLI, mock App Server, and unsupported fixtures", () => {
-    expect(corpus.schema).toBe("dzupagent.providerSessionConformanceCorpus/v1");
+    expect(corpus.schema).toBe("dzupagent.providerSessionConformanceCorpus/v2");
     expect(corpus.profiles.map(({ id }) => id)).toEqual([
       "sdk-default",
       "cli-default",
@@ -104,6 +109,45 @@ describe("provider-session capability contracts", () => {
         path: "descriptor.capabilities.fork-session",
       }),
     );
+  });
+
+  it("admits native goal control only with explicit mutation authorities", () => {
+    const appServer = corpus.profiles.find(({ id }) => id === "mock-app-server")!;
+    const admitted = binding(appServer);
+    expect(validateProviderSessionAttemptBinding(admitted, ["goal-control"]).valid).toBe(true);
+    expect(admitted.effectAuthorities["goal-set"].effect).toBe("goal-set");
+    expect(admitted.effectAuthorities["goal-clear"].effect).toBe("goal-clear");
+    expect(PROVIDER_SESSION_OPERATION_SCHEMA).toBe("dzupagent.providerSessionOperation/v2");
+  });
+
+  it("retains v1 binding verification without allowing v2 goal control", () => {
+    const current = binding(corpus.profiles[0]);
+    const legacy = {
+      ...current,
+      schema: PROVIDER_SESSION_ATTEMPT_BINDING_SCHEMA_V1,
+      descriptor: {
+        ...current.descriptor,
+        schema: PROVIDER_SESSION_CAPABILITY_DESCRIPTOR_SCHEMA_V1,
+        capabilities: Object.fromEntries(
+          PROVIDER_SESSION_CAPABILITIES_V1.map((capability) => [
+            capability,
+            current.descriptor.capabilities[capability],
+          ]),
+        ),
+      },
+      effectAuthorities: Object.fromEntries(
+        PROVIDER_SESSION_EFFECTS_V1.map((effect) => [
+          effect,
+          current.effectAuthorities[effect],
+        ]),
+      ),
+    };
+    expect(validateProviderSessionAttemptBinding(legacy, ["execute"]).valid).toBe(true);
+    expect(validateProviderSessionAttemptBinding(legacy, ["goal-control"]).diagnostics)
+      .toContainEqual(expect.objectContaining({
+        code: "CAPABILITY_REQUIRED_UNSUPPORTED",
+        path: "descriptor.capabilities.goal-control",
+      }));
   });
 
   it("rejects raw credentials, protocol objects, and incomplete effect authority", () => {

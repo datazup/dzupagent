@@ -1,0 +1,94 @@
+{
+  "schema": "dzupagent.providerSessionConformanceCorpus/v2",
+  "description": "Provider-free capability-admission fixtures for current SDK, CLI, mock App Server goal control, and unsupported provider-session backends.",
+  "authority": {
+    "retryAuthorityId": "implementation-orchestration/provider-effect-retry",
+    "fallbackAuthorityId": "implementation-orchestration/provider-route-fallback",
+    "maxRetries": 1,
+    "fallback": "ordered-compatible"
+  },
+  "profiles": [
+    {
+      "id": "sdk-default",
+      "providerId": "codex",
+      "backend": { "id": "codex-sdk", "kind": "sdk", "version": "fixture" },
+      "nativeCapabilities": [
+        "execute",
+        "stream",
+        "resume",
+        "cancel",
+        "interaction",
+        "usage",
+        "provider-request-lookup"
+      ],
+      "requiredCapabilities": ["execute", "resume"],
+      "expectedValid": true
+    },
+    {
+      "id": "cli-default",
+      "providerId": "codex",
+      "backend": { "id": "codex-cli", "kind": "cli", "version": "fixture" },
+      "nativeCapabilities": [
+        "execute",
+        "stream",
+        "resume",
+        "cancel",
+        "interaction",
+        "usage",
+        "provider-request-lookup"
+      ],
+      "requiredCapabilities": ["execute", "stream"],
+      "expectedValid": true
+    },
+    {
+      "id": "mock-app-server",
+      "providerId": "codex",
+      "backend": {
+        "id": "codex-app-server-mock",
+        "kind": "app-server",
+        "version": "fixture",
+        "protocolSchemaRef": "generated-schema://codex-app-server/fixture",
+        "protocolSchemaDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "nativeCapabilities": [
+        "execute",
+        "stream",
+        "resume",
+        "cancel",
+        "interaction",
+        "usage",
+        "provider-request-lookup",
+        "steer",
+        "interrupt-turn",
+        "fork-session",
+        "start-review",
+        "history-read",
+        "compact",
+        "goal-control"
+      ],
+      "requiredCapabilities": [
+        "execute",
+        "steer",
+        "fork-session",
+        "history-read",
+        "goal-control"
+      ],
+      "expectedValid": true
+    },
+    {
+      "id": "unsupported",
+      "providerId": "unavailable",
+      "backend": { "id": "unavailable-backend", "kind": "remote" },
+      "nativeCapabilities": [],
+      "requiredCapabilities": ["execute"],
+      "expectedValid": false
+    }
+  ],
+  "boundaries": {
+    "providerCalls": 0,
+    "executionAuthorized": false,
+    "credentialsIncluded": false,
+    "protocolObjectsIncluded": false,
+    "authorityEffect": "none"
+  }
+}

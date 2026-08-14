@@ -10,6 +10,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./codex-goal-control": {
+      "types": "./dist/codex-goal-control.d.ts",
+      "import": "./dist/codex-goal-control.js"
+    },
     "./providers": {
       "types": "./dist/providers.d.ts",
       "import": "./dist/providers.js"

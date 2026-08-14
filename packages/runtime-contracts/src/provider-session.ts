@@ -1,15 +1,21 @@
 import type { ProviderExecutionBackend } from "./canonical-execution.js";
 
-export const PROVIDER_SESSION_CAPABILITY_DESCRIPTOR_SCHEMA =
+export const PROVIDER_SESSION_CAPABILITY_DESCRIPTOR_SCHEMA_V1 =
   "dzupagent.providerSessionCapabilityDescriptor/v1" as const;
-export const PROVIDER_SESSION_ATTEMPT_BINDING_SCHEMA =
+export const PROVIDER_SESSION_CAPABILITY_DESCRIPTOR_SCHEMA =
+  "dzupagent.providerSessionCapabilityDescriptor/v2" as const;
+export const PROVIDER_SESSION_ATTEMPT_BINDING_SCHEMA_V1 =
   "dzupagent.providerSessionAttemptBinding/v1" as const;
+export const PROVIDER_SESSION_ATTEMPT_BINDING_SCHEMA =
+  "dzupagent.providerSessionAttemptBinding/v2" as const;
 export const PROVIDER_SESSION_REFERENCE_SCHEMA =
   "dzupagent.providerSessionReference/v1" as const;
-export const PROVIDER_SESSION_OPERATION_SCHEMA =
+export const PROVIDER_SESSION_OPERATION_SCHEMA_V1 =
   "dzupagent.providerSessionOperation/v1" as const;
+export const PROVIDER_SESSION_OPERATION_SCHEMA =
+  "dzupagent.providerSessionOperation/v2" as const;
 
-export const PROVIDER_SESSION_CAPABILITIES = [
+export const PROVIDER_SESSION_CAPABILITIES_V1 = [
   "execute",
   "stream",
   "resume",
@@ -25,6 +31,11 @@ export const PROVIDER_SESSION_CAPABILITIES = [
   "compact",
 ] as const;
 
+export const PROVIDER_SESSION_CAPABILITIES = [
+  ...PROVIDER_SESSION_CAPABILITIES_V1,
+  "goal-control",
+] as const;
+
 export type ProviderSessionCapability =
   (typeof PROVIDER_SESSION_CAPABILITIES)[number];
 
@@ -35,9 +46,10 @@ export const PROVIDER_SESSION_RICH_CONTROL_CAPABILITIES = [
   "start-review",
   "history-read",
   "compact",
+  "goal-control",
 ] as const satisfies readonly ProviderSessionCapability[];
 
-export const PROVIDER_SESSION_EFFECTS = [
+export const PROVIDER_SESSION_EFFECTS_V1 = [
   "execute",
   "resume",
   "cancel",
@@ -47,6 +59,12 @@ export const PROVIDER_SESSION_EFFECTS = [
   "fork-session",
   "start-review",
   "compact",
+] as const;
+
+export const PROVIDER_SESSION_EFFECTS = [
+  ...PROVIDER_SESSION_EFFECTS_V1,
+  "goal-set",
+  "goal-clear",
 ] as const;
 
 export type ProviderSessionEffect = (typeof PROVIDER_SESSION_EFFECTS)[number];
@@ -187,13 +205,60 @@ export interface ProviderSessionCompactRequest
   readonly throughTurn?: ProviderTurnRef;
 }
 
+export const PROVIDER_SESSION_GOAL_STATUSES = [
+  "active",
+  "paused",
+  "blocked",
+  "usage-limited",
+  "budget-limited",
+  "complete",
+] as const;
+
+export type ProviderSessionGoalStatus =
+  (typeof PROVIDER_SESSION_GOAL_STATUSES)[number];
+
+export interface ProviderSessionGoalGetRequest
+  extends ProviderSessionOperationBase {
+  readonly kind: "goal-get";
+  readonly thread: ProviderThreadRef;
+}
+
+export interface ProviderSessionGoalSetRequest
+  extends ProviderSessionOperationBase {
+  readonly kind: "goal-set";
+  readonly thread: ProviderThreadRef;
+  /** Ephemeral provider input. Adapters must not copy it into durable results. */
+  readonly objective?: string;
+  readonly status?: ProviderSessionGoalStatus;
+  readonly tokenBudget?: number | null;
+}
+
+export interface ProviderSessionGoalClearRequest
+  extends ProviderSessionOperationBase {
+  readonly kind: "goal-clear";
+  readonly thread: ProviderThreadRef;
+}
+
+/** Sanitized thread-goal state; the raw objective remains provider-local. */
+export interface ProviderSessionGoalSnapshot {
+  readonly thread: ProviderThreadRef;
+  readonly objectiveDigest: string;
+  readonly status: ProviderSessionGoalStatus;
+  readonly tokenBudget: number | null;
+  readonly tokensUsed: number;
+  readonly timeUsedSeconds: number;
+}
+
 export type ProviderSessionOperationRequest =
   | ProviderSessionSteerRequest
   | ProviderSessionInterruptTurnRequest
   | ProviderSessionForkRequest
   | ProviderSessionStartReviewRequest
   | ProviderSessionHistoryReadRequest
-  | ProviderSessionCompactRequest;
+  | ProviderSessionCompactRequest
+  | ProviderSessionGoalGetRequest
+  | ProviderSessionGoalSetRequest
+  | ProviderSessionGoalClearRequest;
 
 export interface ProviderSessionHistoryItem {
   readonly turn: ProviderTurnRef;
@@ -227,6 +292,18 @@ export type ProviderSessionOperationResult =
       readonly kind: "compact";
       readonly session: ProviderSessionRef;
       readonly throughTurn?: ProviderTurnRef;
+    }
+  | {
+      readonly kind: "goal-get";
+      readonly goal: ProviderSessionGoalSnapshot | null;
+    }
+  | {
+      readonly kind: "goal-set";
+      readonly goal: ProviderSessionGoalSnapshot;
+    }
+  | {
+      readonly kind: "goal-clear";
+      readonly cleared: boolean;
     };
 
 export type ProviderSessionAdmissionDiagnosticCode =
@@ -274,7 +351,9 @@ export function validateProviderSessionAttemptBinding(
   }
 
   inspectForbiddenState(candidate, "", diagnostics, new Set());
-  if (candidate.schema !== PROVIDER_SESSION_ATTEMPT_BINDING_SCHEMA) {
+  const legacyBinding = candidate.schema === PROVIDER_SESSION_ATTEMPT_BINDING_SCHEMA_V1;
+  const currentBinding = candidate.schema === PROVIDER_SESSION_ATTEMPT_BINDING_SCHEMA;
+  if (!legacyBinding && !currentBinding) {
     add(diagnostics, "BINDING_SCHEMA_INVALID", "schema", "Attempt binding schema is unsupported.");
   }
   for (const key of ["bindingId", "executionAttemptId", "authSourceRef", "boundAt"] as const) {
@@ -290,12 +369,28 @@ export function validateProviderSessionAttemptBinding(
   if (!isRecord(descriptor)) {
     add(diagnostics, "DESCRIPTOR_SCHEMA_INVALID", "descriptor", "Capability descriptor must be an object.");
   } else {
-    inspectDescriptor(descriptor, diagnostics);
+    const admittedCapabilities = legacyBinding
+      ? PROVIDER_SESSION_CAPABILITIES_V1
+      : PROVIDER_SESSION_CAPABILITIES;
+    const admittedCapabilitySet: ReadonlySet<ProviderSessionCapability> =
+      new Set(admittedCapabilities);
+    inspectDescriptor(
+      descriptor,
+      diagnostics,
+      legacyBinding
+        ? PROVIDER_SESSION_CAPABILITY_DESCRIPTOR_SCHEMA_V1
+        : PROVIDER_SESSION_CAPABILITY_DESCRIPTOR_SCHEMA,
+      admittedCapabilities,
+    );
     for (const capability of [...new Set(requiredCapabilities)]) {
       const support = isRecord(descriptor.capabilities)
         ? descriptor.capabilities[capability]
         : undefined;
-      if (!isRecord(support) || support.status !== "native") {
+      if (
+        !admittedCapabilitySet.has(capability)
+        || !isRecord(support)
+        || support.status !== "native"
+      ) {
         add(
           diagnostics,
           "CAPABILITY_REQUIRED_UNSUPPORTED",
@@ -306,15 +401,23 @@ export function validateProviderSessionAttemptBinding(
     }
   }
 
-  inspectEffectAuthorities(candidate.effectAuthorities, diagnostics);
+  inspectEffectAuthorities(
+    candidate.effectAuthorities,
+    diagnostics,
+    legacyBinding ? PROVIDER_SESSION_EFFECTS_V1 : PROVIDER_SESSION_EFFECTS,
+  );
   return { valid: diagnostics.length === 0, diagnostics };
 }
 
 function inspectDescriptor(
   descriptor: Record<string, unknown>,
   diagnostics: ProviderSessionAdmissionDiagnostic[],
+  expectedSchema:
+    | typeof PROVIDER_SESSION_CAPABILITY_DESCRIPTOR_SCHEMA_V1
+    | typeof PROVIDER_SESSION_CAPABILITY_DESCRIPTOR_SCHEMA,
+  admittedCapabilities: readonly ProviderSessionCapability[],
 ): void {
-  if (descriptor.schema !== PROVIDER_SESSION_CAPABILITY_DESCRIPTOR_SCHEMA) {
+  if (descriptor.schema !== expectedSchema) {
     add(diagnostics, "DESCRIPTOR_SCHEMA_INVALID", "descriptor.schema", "Capability descriptor schema is unsupported.");
   }
   for (const key of ["descriptorId", "providerId", "observedAt"] as const) {
@@ -340,7 +443,7 @@ function inspectDescriptor(
     add(diagnostics, "CAPABILITY_DECLARATION_INVALID", "descriptor.capabilities", "Capability map must be an object.");
     return;
   }
-  for (const capability of PROVIDER_SESSION_CAPABILITIES) {
+  for (const capability of admittedCapabilities) {
     const support = capabilities[capability];
     if (
       !isRecord(support)
@@ -361,12 +464,13 @@ function inspectDescriptor(
 function inspectEffectAuthorities(
   value: unknown,
   diagnostics: ProviderSessionAdmissionDiagnostic[],
+  admittedEffects: readonly ProviderSessionEffect[],
 ): void {
   if (!isRecord(value)) {
     add(diagnostics, "EFFECT_AUTHORITY_INVALID", "effectAuthorities", "Effect authority map must be an object.");
     return;
   }
-  for (const effect of PROVIDER_SESSION_EFFECTS) {
+  for (const effect of admittedEffects) {
     const authority = value[effect];
     if (
       !isRecord(authority)

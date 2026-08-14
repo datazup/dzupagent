@@ -1,0 +1,949 @@
+import type { ChildProcess } from 'node:child_process'
+import { EventEmitter } from 'node:events'
+import { mkdtemp, realpath, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { PassThrough } from 'node:stream'
+
+import {
+  PROVIDER_SESSION_ATTEMPT_BINDING_SCHEMA,
+  PROVIDER_SESSION_CAPABILITIES,
+  PROVIDER_SESSION_CAPABILITY_DESCRIPTOR_SCHEMA,
+  PROVIDER_SESSION_EFFECTS,
+  PROVIDER_SESSION_OPERATION_SCHEMA,
+  PROVIDER_SESSION_REFERENCE_SCHEMA,
+  type ProviderSessionAttemptBinding,
+} from '@dzupagent/runtime-contracts/provider-session'
+import { describe, expect, it, vi } from 'vitest'
+
+import {
+  CodexAppServerAdapter,
+  createCodexAppServerAdapter,
+} from '../codex/codex-app-server-adapter.js'
+import { CodexAdapter } from '../codex/codex-adapter.js'
+import { createCodexBackendAdapter } from '../codex/codex-backend.js'
+import type { AgentEvent, AgentInput } from '../types.js'
+
+interface RpcFrame {
+  readonly id?: number | string | undefined
+  readonly method?: string | undefined
+  readonly params?: Record<string, unknown> | undefined
+}
+
+interface FakeServer {
+  readonly child: ChildProcess
+  readonly stdout: PassThrough
+  readonly calls: RpcFrame[]
+}
+
+type TurnScenario = (server: FakeServer, frame: RpcFrame) => void
+
+interface FakeServerOptions {
+  readonly stallMethod?: 'initialize' | 'thread/start' | 'thread/resume' | 'turn/start' | undefined
+  readonly onInterrupt?: TurnScenario | undefined
+}
+
+function executableIdentity(path = '/fixture/codex', realPath = path) {
+  return { name: 'codex', path, realPath }
+}
+
+function runtimeDependencies(
+  child: ChildProcess,
+  extras: {
+    readonly now?: (() => number) | undefined
+    readonly monotonicNow?: (() => number) | undefined
+    readonly realpath?: ((path: string) => Promise<string>) | undefined
+    readonly stat?: ((path: string) => Promise<{ isFile(): boolean }>) | undefined
+    readonly access?: ((path: string, mode?: number) => Promise<void>) | undefined
+  } = {},
+) {
+  return {
+    spawn: () => child,
+    realpath: extras.realpath ?? (async (path: string) => path),
+    stat: extras.stat ?? (async () => ({ isFile: () => true })),
+    access: extras.access ?? (async () => undefined),
+    ...(extras.now ? { now: extras.now } : {}),
+    ...(extras.monotonicNow ? { monotonicNow: extras.monotonicNow } : {}),
+  }
+}
+
+function binding(
+  unsupported: readonly string[] = [],
+): ProviderSessionAttemptBinding {
+  const native = new Set([
+    'execute',
+    'stream',
+    'resume',
+    'cancel',
+    'usage',
+    'interrupt-turn',
+    'goal-control',
+  ])
+  return {
+    schema: PROVIDER_SESSION_ATTEMPT_BINDING_SCHEMA,
+    bindingId: 'binding-app-server',
+    executionAttemptId: 'attempt-app-server',
+    authSourceRef: 'auth-source://test/codex',
+    descriptor: {
+      schema: PROVIDER_SESSION_CAPABILITY_DESCRIPTOR_SCHEMA,
+      descriptorId: 'descriptor-app-server',
+      providerId: 'codex',
+      backend: {
+        id: 'codex-app-server@test',
+        kind: 'app-server',
+        version: '0.147.0',
+        protocolSchemaRef: 'codex-app-server://generated-json-schema/0.147.0',
+        protocolSchemaDigest: `sha256:${'a'.repeat(64)}`,
+      },
+      capabilities: Object.fromEntries(PROVIDER_SESSION_CAPABILITIES.map((capability) => [
+        capability,
+        !native.has(capability) || unsupported.includes(capability)
+          ? {
+              status: 'unsupported',
+              emulation: 'forbidden',
+              reason: 'fixture-unsupported',
+            }
+          : { status: 'native', emulation: 'forbidden' },
+      ])) as ProviderSessionAttemptBinding['descriptor']['capabilities'],
+      observedAt: '2026-08-13T00:00:00.000Z',
+    },
+    effectAuthorities: Object.fromEntries(PROVIDER_SESSION_EFFECTS.map((effect) => [
+      effect,
+      {
+        effect,
+        retryAuthorityId: 'io/provider-effect-retry',
+        fallbackAuthorityId: 'io/provider-route-fallback',
+        maxRetries: 0,
+        fallback: 'none',
+      },
+    ])) as ProviderSessionAttemptBinding['effectAuthorities'],
+    boundAt: '2026-08-13T00:00:00.000Z',
+  }
+}
+
+function fakeServer(
+  scenario: TurnScenario,
+  resumeThreadId = 'thread-1',
+  options: FakeServerOptions = {},
+): FakeServer {
+  const child = new EventEmitter() as ChildProcess
+  const stdin = new PassThrough()
+  const stdout = new PassThrough()
+  const stderr = new PassThrough()
+  const calls: RpcFrame[] = []
+  const server: FakeServer = { child, stdout, calls }
+  Object.assign(child, {
+    stdin,
+    stdout,
+    stderr,
+    kill: vi.fn(() => {
+      queueMicrotask(() => child.emit('exit', 0, null))
+      return true
+    }),
+  })
+
+  let buffer = ''
+  stdin.on('data', (chunk: Buffer) => {
+    buffer += chunk.toString('utf8')
+    for (;;) {
+      const boundary = buffer.indexOf('\n')
+      if (boundary < 0) break
+      const frame = JSON.parse(buffer.slice(0, boundary)) as RpcFrame
+      buffer = buffer.slice(boundary + 1)
+      calls.push(frame)
+      if (frame.method === options.stallMethod) {
+        continue
+      } else if (frame.method === 'initialize') {
+        respond(server, frame.id, {})
+      } else if (frame.method === 'thread/start') {
+        respond(server, frame.id, { thread: { id: 'thread-1' } })
+      } else if (frame.method === 'thread/resume') {
+        respond(server, frame.id, { thread: { id: resumeThreadId } })
+      } else if (frame.method === 'turn/start') {
+        respond(server, frame.id, { turn: { id: 'turn-1', status: 'inProgress' } })
+        scenario(server, frame)
+      } else if (frame.method === 'turn/interrupt') {
+        if (options.onInterrupt) options.onInterrupt(server, frame)
+        else {
+          respond(server, frame.id, {})
+          notify(server, 'turn/completed', {
+            threadId: resumeThreadId,
+            turn: { id: 'turn-1', status: 'interrupted' },
+          })
+        }
+      }
+    }
+  })
+  return server
+}
+
+function respond(server: FakeServer, id: RpcFrame['id'], result: unknown): void {
+  server.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id, result })}\n`)
+}
+
+function rejectResponse(server: FakeServer, id: RpcFrame['id']): void {
+  server.stdout.write(`${JSON.stringify({
+    jsonrpc: '2.0',
+    id,
+    error: { code: -32_000, message: 'provider-owned private failure' },
+  })}\n`)
+}
+
+function notify(
+  server: FakeServer,
+  method: string,
+  params: Record<string, unknown>,
+  id?: string,
+): void {
+  server.stdout.write(`${JSON.stringify({
+    jsonrpc: '2.0',
+    ...(id ? { id } : {}),
+    method,
+    params,
+  })}\n`)
+}
+
+function completedScenario(server: FakeServer): void {
+  notify(server, 'thread/started', { thread: { id: 'thread-1' } })
+  notify(server, 'turn/started', {
+    threadId: 'thread-1',
+    turn: { id: 'turn-1', status: 'inProgress' },
+  })
+  notify(server, 'item/agentMessage/delta', {
+    threadId: 'thread-1',
+    turnId: 'turn-1',
+    itemId: 'item-1',
+    delta: 'qualified',
+  })
+  notifyUsage(server)
+  notify(server, 'item/fileChange/requestApproval', {
+    threadId: 'thread-1',
+    turnId: 'turn-1',
+    itemId: 'item-approval',
+    reason: 'provider-owned private reason',
+  }, 'approval-1')
+  notify(server, 'turn/completed', {
+    threadId: 'thread-1',
+    turn: { id: 'turn-1', status: 'completed' },
+  })
+}
+
+function notifyUsage(server: FakeServer, threadId = 'thread-1'): void {
+  notify(server, 'thread/tokenUsage/updated', {
+    threadId,
+    turnId: 'turn-1',
+    tokenUsage: {
+      last: {
+        inputTokens: 11,
+        outputTokens: 7,
+        cachedInputTokens: 3,
+        reasoningOutputTokens: 2,
+        totalTokens: 18,
+      },
+      total: {
+        inputTokens: 11,
+        outputTokens: 7,
+        cachedInputTokens: 3,
+        reasoningOutputTokens: 2,
+        totalTokens: 18,
+      },
+    },
+  })
+}
+
+async function collect(
+  events: AsyncGenerator<AgentEvent, void, undefined>,
+): Promise<AgentEvent[]> {
+  const collected: AgentEvent[] = []
+  for await (const event of events) collected.push(event)
+  return collected
+}
+
+function input(overrides: Partial<AgentInput> = {}): AgentInput {
+  return {
+    prompt: 'Run the provider-free fixture',
+    correlationId: 'correlation-1',
+    ...overrides,
+  }
+}
+
+function interruptRequest() {
+  return {
+    schema: PROVIDER_SESSION_OPERATION_SCHEMA,
+    operationId: 'operation-interrupt-turn',
+    attemptBindingId: 'binding-app-server',
+    kind: 'interrupt-turn',
+    session: {
+      schema: PROVIDER_SESSION_REFERENCE_SCHEMA,
+      kind: 'session',
+      opaqueId: 'thread-1',
+    },
+    turn: {
+      schema: PROVIDER_SESSION_REFERENCE_SCHEMA,
+      kind: 'turn',
+      opaqueId: 'turn-1',
+    },
+  } as const
+}
+
+describe('Codex App Server provider-session adapter', () => {
+  it('keeps SDK default and admits app-server only with an exact complete binding', () => {
+    expect(createCodexBackendAdapter()).toBeInstanceOf(CodexAdapter)
+
+    const server = fakeServer(completedScenario)
+    expect(createCodexBackendAdapter({
+      backend: 'app-server',
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      dependencies: runtimeDependencies(server.child),
+    })).toBeInstanceOf(CodexAppServerAdapter)
+
+    const spawn = vi.fn(() => server.child)
+    expect(() => createCodexAppServerAdapter({
+      attemptBinding: binding(['usage']),
+      executable: executableIdentity(),
+      dependencies: {
+        ...runtimeDependencies(server.child),
+        spawn,
+      },
+    })).toThrow(/admitted exact base-capability binding/u)
+    expect(spawn).not.toHaveBeenCalled()
+
+    expect(() => createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity('codex', 'codex'),
+    })).toThrow(/resolved qualified executable identity/u)
+    expect(() => createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: { ...executableIdentity(), name: 'not-codex' },
+    })).toThrow(/resolved qualified executable identity/u)
+    expect(() => createCodexAppServerAdapter({
+      attemptBinding: binding(),
+    } as never)).toThrow(/resolved qualified executable identity/u)
+  })
+
+  it('reports an unavailable qualified executable without starting a process', async () => {
+    const server = fakeServer(completedScenario)
+    const spawn = vi.fn()
+    const adapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity('/fixture/missing-codex'),
+      dependencies: {
+        ...runtimeDependencies(server.child, {
+          access: async () => { throw new Error('missing') },
+        }),
+        spawn,
+      },
+    })
+
+    await expect(adapter.healthCheck()).resolves.toEqual(expect.objectContaining({
+      healthy: false,
+      cliAvailable: false,
+      lastError: 'Qualified Codex executable is unavailable',
+    }))
+    expect(spawn).not.toHaveBeenCalled()
+  })
+
+  it('rejects drifted and non-executable runtime identities before spawn', async () => {
+    const server = fakeServer(completedScenario)
+    const driftedSpawn = vi.fn(() => server.child)
+    const drifted = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      dependencies: {
+        ...runtimeDependencies(server.child, {
+          realpath: async () => '/fixture/replaced-codex',
+        }),
+        spawn: driftedSpawn,
+      },
+    })
+    const driftedEvents = await collect(drifted.execute(input()))
+    expect(driftedEvents.at(-1)).toEqual(expect.objectContaining({
+      type: 'adapter:failed',
+      code: 'CODEX_APP_SERVER_EXECUTABLE_INVALID',
+    }))
+    expect(driftedSpawn).not.toHaveBeenCalled()
+
+    const nonExecutableSpawn = vi.fn(() => server.child)
+    const nonExecutable = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      dependencies: {
+        ...runtimeDependencies(server.child, {
+          access: async () => { throw new Error('not executable') },
+        }),
+        spawn: nonExecutableSpawn,
+      },
+    })
+    const nonExecutableEvents = await collect(nonExecutable.execute(input()))
+    expect(nonExecutableEvents.at(-1)).toEqual(expect.objectContaining({
+      type: 'adapter:failed',
+      code: 'CODEX_APP_SERVER_EXECUTABLE_INVALID',
+    }))
+    expect(nonExecutableSpawn).not.toHaveBeenCalled()
+    expect(JSON.stringify([...driftedEvents, ...nonExecutableEvents])).not.toContain('/fixture/')
+  })
+
+  it('rejects a searchable directory identity before spawn', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dzupagent-app-server-executable-'))
+    try {
+      const server = fakeServer(completedScenario)
+      const spawn = vi.fn(() => server.child)
+      const adapter = createCodexAppServerAdapter({
+        attemptBinding: binding(),
+        executable: executableIdentity(directory, await realpath(directory)),
+        dependencies: { spawn },
+      })
+
+      const events = await collect(adapter.execute(input()))
+      expect(events.at(-1)).toEqual(expect.objectContaining({
+        type: 'adapter:failed',
+        code: 'CODEX_APP_SERVER_EXECUTABLE_INVALID',
+      }))
+      expect(spawn).not.toHaveBeenCalled()
+      expect(JSON.stringify(events)).not.toContain(directory)
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('starts one thread/turn and emits bounded normalized stream, usage, and passive interaction events', async () => {
+    const server = fakeServer(completedScenario)
+    let now = 100
+    const adapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      dependencies: runtimeDependencies(server.child, { now: () => now++ }),
+    })
+
+    const events = await collect(adapter.execute(input()))
+
+    expect(events.map((event) => event.type)).toEqual([
+      'adapter:started',
+      'adapter:stream_delta',
+      'adapter:interaction_required',
+      'adapter:completed',
+    ])
+    expect(events[1]).toEqual(expect.objectContaining({ content: 'qualified' }))
+    expect(events[2]).toEqual(expect.objectContaining({
+      kind: 'permission',
+      question: 'Codex requires an explicit approval decision.',
+    }))
+    expect(JSON.stringify(events[2])).not.toContain('private reason')
+    expect(events[3]).toEqual(expect.objectContaining({
+      result: 'qualified',
+      usage: {
+        inputTokens: 11,
+        outputTokens: 7,
+        cachedInputTokens: 3,
+      },
+    }))
+    expect(events.some((event) => event.type === 'adapter:provider_raw')).toBe(false)
+    expect(server.calls.some((frame) => frame.id === 'approval-1' && !frame.method)).toBe(false)
+  })
+
+  it('resumes the exact thread and completes one turn without synthesizing a new session', async () => {
+    const server = fakeServer((current) => {
+      notify(current, 'turn/started', {
+        threadId: 'thread-9',
+        turn: { id: 'turn-1', status: 'inProgress' },
+      })
+      notifyUsage(current, 'thread-9')
+      notify(current, 'turn/completed', {
+        threadId: 'thread-9',
+        turn: { id: 'turn-1', status: 'completed' },
+      })
+    }, 'thread-9')
+    const adapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      dependencies: runtimeDependencies(server.child),
+    })
+
+    const events = await collect(adapter.resumeSession('thread-9', input()))
+
+    expect(events.at(0)).toEqual(expect.objectContaining({
+      type: 'adapter:started',
+      sessionId: 'thread-9',
+      isResume: true,
+    }))
+    expect(server.calls.find((frame) => frame.method === 'thread/resume')?.params)
+      .toEqual(expect.objectContaining({ threadId: 'thread-9' }))
+    expect(server.calls.some((frame) => frame.method === 'thread/start')).toBe(false)
+  })
+
+  it('interrupts the exact active turn and rejects stale-turn notifications', async () => {
+    const interruptServer = fakeServer(() => undefined)
+    const adapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      dependencies: runtimeDependencies(interruptServer.child),
+    })
+    const stream = adapter.execute(input())
+    await expect(stream.next()).resolves.toEqual(expect.objectContaining({
+      value: expect.objectContaining({ type: 'adapter:started' }),
+      done: false,
+    }))
+    adapter.interrupt()
+    const interrupted = await collect(stream)
+    expect(interrupted.at(-1)).toEqual(expect.objectContaining({
+      type: 'adapter:failed',
+      code: 'CODEX_APP_SERVER_CANCELLED',
+    }))
+    expect(interruptServer.calls.find((frame) => frame.method === 'turn/interrupt')?.params)
+      .toEqual({ threadId: 'thread-1', turnId: 'turn-1' })
+
+    const staleServer = fakeServer((current) => {
+      notify(current, 'item/agentMessage/delta', {
+        threadId: 'thread-1',
+        turnId: 'stale-turn',
+        itemId: 'item-1',
+        delta: 'must not pass',
+      })
+    })
+    const staleAdapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      dependencies: runtimeDependencies(staleServer.child),
+    })
+    const stale = await collect(staleAdapter.execute(input()))
+    expect(stale.at(-1)).toEqual(expect.objectContaining({
+      type: 'adapter:failed',
+      code: 'CODEX_APP_SERVER_STALE_TURN',
+    }))
+  })
+
+  it('maps process death and execution timeout to stable terminal failures', async () => {
+    const deathServer = fakeServer((current) => {
+      current.child.emit('exit', 17, null)
+    })
+    const deathAdapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      dependencies: runtimeDependencies(deathServer.child),
+    })
+    const death = await collect(deathAdapter.execute(input()))
+    expect(death.at(-1)).toEqual(expect.objectContaining({
+      type: 'adapter:failed',
+      code: 'CODEX_APP_SERVER_PROCESS_DIED',
+    }))
+
+    const timeoutServer = fakeServer(() => undefined)
+    const timeoutAdapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      timeoutMs: 10,
+      dependencies: runtimeDependencies(timeoutServer.child),
+    })
+    const timeout = await collect(timeoutAdapter.execute(input()))
+    expect(timeout.at(-1)).toEqual(expect.objectContaining({
+      type: 'adapter:failed',
+      code: 'CODEX_APP_SERVER_EXECUTION_TIMEOUT',
+    }))
+    expect(timeoutServer.calls.some((frame) => frame.method === 'turn/interrupt')).toBe(true)
+  })
+
+  it('keeps timeout terminal-authoritative when success and late frames arrive before interrupt acknowledgement', async () => {
+    vi.useFakeTimers()
+    try {
+      const server = fakeServer(
+        () => undefined,
+        'thread-1',
+        {
+          onInterrupt: (current, frame) => {
+            notify(current, 'item/agentMessage/delta', {
+              threadId: 'thread-1',
+              turnId: 'turn-1',
+              itemId: 'late-item',
+              delta: 'must-not-leak',
+            })
+            notify(current, 'item/tool/requestUserInput', {
+              threadId: 'thread-1',
+              turnId: 'turn-1',
+              itemId: 'late-input',
+            }, 'late-request')
+            notifyUsage(current)
+            notify(current, 'turn/completed', {
+              threadId: 'thread-1',
+              turn: { id: 'turn-1', status: 'completed' },
+            })
+            respond(current, frame.id, {})
+          },
+        },
+      )
+      const adapter = createCodexAppServerAdapter({
+        attemptBinding: binding(),
+        executable: executableIdentity(),
+        timeoutMs: 10,
+        dependencies: runtimeDependencies(server.child),
+      })
+      const stream = adapter.execute(input())
+      await expect(stream.next()).resolves.toEqual(expect.objectContaining({
+        value: expect.objectContaining({ type: 'adapter:started' }),
+        done: false,
+      }))
+      const remaining = collect(stream)
+
+      await vi.advanceTimersByTimeAsync(10)
+
+      const events = await remaining
+      expect(events).toEqual([
+        expect.objectContaining({
+          type: 'adapter:failed',
+          code: 'CODEX_APP_SERVER_EXECUTION_TIMEOUT',
+        }),
+      ])
+      expect(JSON.stringify(events)).not.toContain('must-not-leak')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps cancellation terminal-authoritative when completion races interrupt acknowledgement', async () => {
+    const controller = new AbortController()
+    const server = fakeServer(
+      () => undefined,
+      'thread-1',
+      {
+        onInterrupt: (current, frame) => {
+          notify(current, 'item/agentMessage/delta', {
+            threadId: 'thread-1',
+            turnId: 'turn-1',
+            itemId: 'late-item',
+            delta: 'must-not-leak',
+          })
+          notify(current, 'item/fileChange/requestApproval', {
+            threadId: 'thread-1',
+            turnId: 'turn-1',
+            itemId: 'late-approval',
+          }, 'late-approval-request')
+          notifyUsage(current)
+          notify(current, 'turn/completed', {
+            threadId: 'thread-1',
+            turn: { id: 'turn-1', status: 'completed' },
+          })
+          respond(current, frame.id, {})
+        },
+      },
+    )
+    const adapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      dependencies: runtimeDependencies(server.child),
+    })
+    const stream = adapter.execute(input({ signal: controller.signal }))
+    await expect(stream.next()).resolves.toEqual(expect.objectContaining({
+      value: expect.objectContaining({ type: 'adapter:started' }),
+      done: false,
+    }))
+
+    controller.abort()
+    const events = await collect(stream)
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: 'adapter:failed',
+        code: 'CODEX_APP_SERVER_CANCELLED',
+      }),
+    ])
+    expect(JSON.stringify(events)).not.toContain('must-not-leak')
+  })
+
+  it('applies the execution deadline to initialize, thread start/resume, and turn setup', async () => {
+    vi.useFakeTimers()
+    try {
+      for (const stallMethod of [
+        'initialize',
+        'thread/start',
+        'thread/resume',
+        'turn/start',
+      ] as const) {
+        const server = fakeServer(() => undefined, 'thread-1', { stallMethod })
+        const adapter = createCodexAppServerAdapter({
+          attemptBinding: binding(),
+          executable: executableIdentity(),
+          timeoutMs: 10,
+          clientLimits: {
+            requestTimeoutMs: 50,
+            cleanupTimeoutMs: 5,
+          },
+          dependencies: runtimeDependencies(server.child),
+        })
+        let settled = false
+        const execution = stallMethod === 'thread/resume'
+          ? adapter.resumeSession('thread-1', input())
+          : adapter.execute(input())
+        const result = collect(execution).then((events) => {
+          settled = true
+          return events
+        })
+
+        await vi.advanceTimersByTimeAsync(15)
+        const settledWithinDeadlineAndGrace = settled
+        await vi.advanceTimersByTimeAsync(50)
+        const events = await result
+
+        expect(settledWithinDeadlineAndGrace, stallMethod).toBe(true)
+        expect(events.at(-1), stallMethod).toEqual(expect.objectContaining({
+          type: 'adapter:failed',
+          code: 'CODEX_APP_SERVER_EXECUTION_TIMEOUT',
+        }))
+      }
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('cancels stalled initialization within cleanup grace', async () => {
+    vi.useFakeTimers()
+    try {
+      const controller = new AbortController()
+      const server = fakeServer(
+        () => undefined,
+        'thread-1',
+        { stallMethod: 'initialize' },
+      )
+      const adapter = createCodexAppServerAdapter({
+        attemptBinding: binding(),
+        executable: executableIdentity(),
+        timeoutMs: 1_000,
+        clientLimits: {
+          requestTimeoutMs: 1_000,
+          cleanupTimeoutMs: 5,
+        },
+        dependencies: runtimeDependencies(server.child),
+      })
+      let settled = false
+      const result = collect(adapter.execute(input({ signal: controller.signal }))).then((events) => {
+        settled = true
+        return events
+      })
+
+      await vi.advanceTimersByTimeAsync(0)
+      controller.abort()
+      await vi.advanceTimersByTimeAsync(10)
+      const settledWithinCleanupGrace = settled
+      await vi.advanceTimersByTimeAsync(1_000)
+      const events = await result
+
+      expect(settledWithinCleanupGrace).toBe(true)
+      expect(events.at(-1)).toEqual(expect.objectContaining({
+        type: 'adapter:failed',
+        code: 'CODEX_APP_SERVER_CANCELLED',
+      }))
+      expect(server.child.kill).toHaveBeenCalledWith('SIGTERM')
+      expect(server.calls.some((frame) => frame.method === 'thread/start')).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('interrupts stalled initialization within cleanup grace', async () => {
+    vi.useFakeTimers()
+    try {
+      const server = fakeServer(
+        () => undefined,
+        'thread-1',
+        { stallMethod: 'initialize' },
+      )
+      const adapter = createCodexAppServerAdapter({
+        attemptBinding: binding(),
+        executable: executableIdentity(),
+        timeoutMs: 1_000,
+        clientLimits: {
+          requestTimeoutMs: 1_000,
+          cleanupTimeoutMs: 5,
+        },
+        dependencies: runtimeDependencies(server.child),
+      })
+      let settled = false
+      const result = collect(adapter.execute(input())).then((events) => {
+        settled = true
+        return events
+      })
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(server.calls.some((frame) => frame.method === 'initialize')).toBe(true)
+      adapter.interrupt()
+      await vi.advanceTimersByTimeAsync(10)
+      const settledWithinCleanupGrace = settled
+      await vi.advanceTimersByTimeAsync(1_000)
+      const events = await result
+
+      expect(settledWithinCleanupGrace).toBe(true)
+      expect(events.at(-1)).toEqual(expect.objectContaining({
+        type: 'adapter:failed',
+        code: 'CODEX_APP_SERVER_CANCELLED',
+      }))
+      expect(server.child.kill).toHaveBeenCalledTimes(1)
+      expect(server.child.kill).toHaveBeenCalledWith('SIGTERM')
+      expect(server.calls.some((frame) => frame.method === 'thread/start')).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('bounds a stalled timeout interrupt with a short cleanup grace', async () => {
+    vi.useFakeTimers()
+    try {
+      const server = fakeServer(
+        () => undefined,
+        'thread-1',
+        { onInterrupt: () => undefined },
+      )
+      const adapter = createCodexAppServerAdapter({
+        attemptBinding: binding(),
+        executable: executableIdentity(),
+        timeoutMs: 10,
+        interruptGraceMs: 5,
+        clientLimits: {
+          requestTimeoutMs: 1_000,
+          cleanupTimeoutMs: 5,
+        },
+        dependencies: runtimeDependencies(server.child),
+      })
+      const stream = adapter.execute(input())
+      await stream.next()
+      let settled = false
+      const result = collect(stream).then((events) => {
+        settled = true
+        return events
+      })
+
+      await vi.advanceTimersByTimeAsync(15)
+      const settledWithinGrace = settled
+      await vi.advanceTimersByTimeAsync(1_000)
+      const events = await result
+
+      expect(settledWithinGrace).toBe(true)
+      expect(events.at(-1)).toEqual(expect.objectContaining({
+        type: 'adapter:failed',
+        code: 'CODEX_APP_SERVER_EXECUTION_TIMEOUT',
+      }))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('shares one interrupt acknowledgement and never accepts before the provider response', async () => {
+    let interruptFrame: RpcFrame | undefined
+    const server = fakeServer(
+      () => undefined,
+      'thread-1',
+      { onInterrupt: (_current, frame) => { interruptFrame = frame } },
+    )
+    const adapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      dependencies: runtimeDependencies(server.child),
+    })
+    const stream = adapter.execute(input())
+    await stream.next()
+    let firstSettled = false
+    let secondSettled = false
+    const first = adapter.interruptTurn(interruptRequest()).finally(() => { firstSettled = true })
+    const second = adapter.interruptTurn(interruptRequest()).finally(() => { secondSettled = true })
+
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    const settledBeforeAcknowledgement = [firstSettled, secondSettled]
+    expect(interruptFrame?.id).toBeDefined()
+    respond(server, interruptFrame?.id, {})
+    notify(server, 'turn/completed', {
+      threadId: 'thread-1',
+      turn: { id: 'turn-1', status: 'interrupted' },
+    })
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { kind: 'interrupt-turn', accepted: true },
+      { kind: 'interrupt-turn', accepted: true },
+    ])
+    await collect(stream)
+    expect(settledBeforeAcknowledgement).toEqual([false, false])
+    expect(server.calls.filter((frame) => frame.method === 'turn/interrupt')).toHaveLength(1)
+  })
+
+  it('shares an interrupt failure across every concurrent acknowledgement caller', async () => {
+    let interruptFrame: RpcFrame | undefined
+    const server = fakeServer(
+      () => undefined,
+      'thread-1',
+      { onInterrupt: (_current, frame) => { interruptFrame = frame } },
+    )
+    const adapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      dependencies: runtimeDependencies(server.child),
+    })
+    const stream = adapter.execute(input())
+    await stream.next()
+    const first = adapter.interruptTurn(interruptRequest())
+    const second = adapter.interruptTurn(interruptRequest())
+
+    await Promise.resolve()
+    expect(interruptFrame?.id).toBeDefined()
+    rejectResponse(server, interruptFrame?.id)
+    notify(server, 'turn/completed', {
+      threadId: 'thread-1',
+      turn: { id: 'turn-1', status: 'interrupted' },
+    })
+    const results = await Promise.allSettled([first, second])
+    await collect(stream)
+
+    expect(results).toEqual([
+      expect.objectContaining({
+        status: 'rejected',
+        reason: expect.objectContaining({ code: 'CODEX_APP_SERVER_REQUEST_FAILED' }),
+      }),
+      expect.objectContaining({
+        status: 'rejected',
+        reason: expect.objectContaining({ code: 'CODEX_APP_SERVER_REQUEST_FAILED' }),
+      }),
+    ])
+    expect(server.calls.filter((frame) => frame.method === 'turn/interrupt')).toHaveLength(1)
+  })
+
+  it('fails closed when terminal usage evidence is absent or malformed', async () => {
+    const missingServer = fakeServer((current) => {
+      notify(current, 'turn/completed', {
+        threadId: 'thread-1',
+        turn: { id: 'turn-1', status: 'completed' },
+      })
+    })
+    const missingAdapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      dependencies: runtimeDependencies(missingServer.child),
+    })
+    const missing = await collect(missingAdapter.execute(input()))
+    expect(missing.at(-1)).toEqual(expect.objectContaining({
+      type: 'adapter:failed',
+      code: 'CODEX_APP_SERVER_USAGE_MISSING',
+    }))
+
+    const malformedServer = fakeServer((current) => {
+      notify(current, 'thread/tokenUsage/updated', {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        tokenUsage: {
+          last: {
+            inputTokens: 1,
+            outputTokens: 1,
+            cachedInputTokens: 0,
+            reasoningOutputTokens: 0,
+            totalTokens: 2,
+          },
+        },
+      })
+    })
+    const malformedAdapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      dependencies: runtimeDependencies(malformedServer.child),
+    })
+    const malformed = await collect(malformedAdapter.execute(input()))
+    expect(malformed.at(-1)).toEqual(expect.objectContaining({
+      type: 'adapter:failed',
+      code: 'CODEX_APP_SERVER_USAGE_INVALID',
+    }))
+  })
+})

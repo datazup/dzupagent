@@ -7,6 +7,9 @@ import {
   type ProviderSessionCapability,
   type ProviderSessionCompactRequest,
   type ProviderSessionForkRequest,
+  type ProviderSessionGoalClearRequest,
+  type ProviderSessionGoalGetRequest,
+  type ProviderSessionGoalSetRequest,
   type ProviderSessionHistoryReadRequest,
   type ProviderSessionInterruptTurnRequest,
   type ProviderSessionOperationResult,
@@ -36,6 +39,9 @@ export interface ProviderSessionAdapter {
     request: ProviderSessionHistoryReadRequest,
   ): Promise<Result<'history-read'>>
   compact?(request: ProviderSessionCompactRequest): Promise<Result<'compact'>>
+  getGoal?(request: ProviderSessionGoalGetRequest): Promise<Result<'goal-get'>>
+  setGoal?(request: ProviderSessionGoalSetRequest): Promise<Result<'goal-set'>>
+  clearGoal?(request: ProviderSessionGoalClearRequest): Promise<Result<'goal-clear'>>
 }
 
 export type ProviderSessionAdapterMethod =
@@ -45,6 +51,9 @@ export type ProviderSessionAdapterMethod =
   | 'startReview'
   | 'readHistory'
   | 'compact'
+  | 'getGoal'
+  | 'setGoal'
+  | 'clearGoal'
 
 export interface ProviderSessionAdapterDiagnostic {
   readonly code: 'NATIVE_CAPABILITY_METHOD_MISSING'
@@ -61,15 +70,16 @@ export interface ProviderSessionAdapterConformanceResult {
 }
 
 const RICH_METHODS = {
-  steer: 'steer',
-  'interrupt-turn': 'interruptTurn',
-  'fork-session': 'forkSession',
-  'start-review': 'startReview',
-  'history-read': 'readHistory',
-  compact: 'compact',
+  steer: ['steer'],
+  'interrupt-turn': ['interruptTurn'],
+  'fork-session': ['forkSession'],
+  'start-review': ['startReview'],
+  'history-read': ['readHistory'],
+  compact: ['compact'],
+  'goal-control': ['getGoal', 'setGoal', 'clearGoal'],
 } as const satisfies Record<
   (typeof PROVIDER_SESSION_RICH_CONTROL_CAPABILITIES)[number],
-  ProviderSessionAdapterMethod
+  readonly ProviderSessionAdapterMethod[]
 >
 
 /** Validates capability admission and method truth before provider dispatch. */
@@ -88,15 +98,16 @@ export function validateProviderSessionAdapter(
   )[] = [...bindingResult.diagnostics]
 
   for (const capability of PROVIDER_SESSION_RICH_CONTROL_CAPABILITIES) {
-    if (
-      adapter.attemptBinding.descriptor.capabilities[capability].status === 'native'
-      && typeof adapter[RICH_METHODS[capability]] !== 'function'
-    ) {
-      diagnostics.push({
-        code: 'NATIVE_CAPABILITY_METHOD_MISSING',
-        path: RICH_METHODS[capability],
-        message: `Native provider-session capability has no adapter method: ${capability}.`,
-      })
+    if (adapter.attemptBinding.descriptor.capabilities[capability]?.status === 'native') {
+      for (const method of RICH_METHODS[capability]) {
+        if (typeof adapter[method] !== 'function') {
+          diagnostics.push({
+            code: 'NATIVE_CAPABILITY_METHOD_MISSING',
+            path: method,
+            message: `Native provider-session capability has no adapter method: ${capability}.`,
+          })
+        }
+      }
     }
   }
 
@@ -112,6 +123,11 @@ export type {
   ProviderSessionCapabilityDescriptor,
   ProviderSessionCompactRequest,
   ProviderSessionForkRequest,
+  ProviderSessionGoalClearRequest,
+  ProviderSessionGoalGetRequest,
+  ProviderSessionGoalSetRequest,
+  ProviderSessionGoalSnapshot,
+  ProviderSessionGoalStatus,
   ProviderSessionHistoryItem,
   ProviderSessionHistoryReadRequest,
   ProviderSessionInterruptTurnRequest,
