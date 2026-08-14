@@ -44,21 +44,20 @@ function unattended(extra: Partial<CompilerOptions> = {}) {
   });
 }
 
-describe("suspended-exit admission (F-R2 port consumer)", () => {
-  it("denies unattended compilation while a suspended exit exists", async () => {
+describe("checkpoint-bound interaction admission", () => {
+  it("requires an explicit rejected continuation", async () => {
     const result = await unattended().compileDsl(SUSPENDED_DSL);
 
     expect("errors" in result).toBe(true);
     if (!("errors" in result)) return;
     const diagnostic = result.errors.find(
-      (item) => item.code === "SUSPENDED_EXIT_UNATTENDED",
+      (item) => item.code === "MISSING_REQUIRED_FIELD",
     );
     expect(diagnostic).toMatchObject({
-      stage: 4,
-      category: "policy",
+      stage: 2,
+      category: "shape",
     });
-    // The denial must name the suspended node so an operator can find it.
-    expect(diagnostic?.message).toMatch(/approval:/);
+    expect(diagnostic?.message).toMatch(/approval\.onReject/);
   });
 
   it("admits the same document when the rejected path lowers a continuation (one-dimension control)", async () => {
@@ -72,18 +71,21 @@ describe("suspended-exit admission (F-R2 port consumer)", () => {
     ).toBe(false);
   });
 
-  it("admits under an explicit operator acknowledgment, leaving a warning trace", async () => {
+  it("does not let a suspended-exit acknowledgment bypass the required branch", async () => {
     const result = await unattended({
       acknowledgeSuspendedExits: true,
     }).compileDsl(SUSPENDED_DSL);
 
-    expect("errors" in result).toBe(false);
-    if ("errors" in result) return;
-    const warning = result.warnings.find(
-      (w) => w.code === "SUSPENDED_EXIT_ACKNOWLEDGED",
+    expect("errors" in result).toBe(true);
+    if (!("errors" in result)) return;
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          stage: 2,
+          code: "MISSING_REQUIRED_FIELD",
+        }),
+      ]),
     );
-    expect(warning).toMatchObject({ stage: 4, category: "policy" });
-    expect(result.ports?.suspendedExits).toHaveLength(1);
   });
 
   it("does not consult the acknowledgment when no suspended exit exists (ack is not a blanket bypass)", async () => {
@@ -98,23 +100,23 @@ describe("suspended-exit admission (F-R2 port consumer)", () => {
     ).toBe(false);
   });
 
-  it("preserves interactive compilation byte-for-byte (no new diagnostics)", async () => {
+  it("requires the rejected continuation in interactive compilation too", async () => {
     const result = await createFlowCompiler({ toolResolver }).compileDsl(
       SUSPENDED_DSL,
     );
 
-    expect("errors" in result).toBe(false);
-    if ("errors" in result) return;
-    expect(
-      result.warnings.some((w) =>
-        String(w.code).startsWith("SUSPENDED_EXIT"),
-      ),
-    ).toBe(false);
+    expect("errors" in result).toBe(true);
+    if (!("errors" in result)) return;
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "MISSING_REQUIRED_FIELD" }),
+      ]),
+    );
   });
 
   it("surfaces the root fragment ports on interactive successes too", async () => {
     const result = await createFlowCompiler({ toolResolver }).compileDsl(
-      SUSPENDED_DSL,
+      RESOLVED_DSL,
     );
 
     expect("errors" in result).toBe(false);
@@ -124,7 +126,8 @@ describe("suspended-exit admission (F-R2 port consumer)", () => {
     };
     const gate = artifact.nodes.find((n) => n.name?.startsWith("approval:"));
     expect(gate).toBeDefined();
-    expect(result.ports?.suspendedExits).toEqual([gate?.id]);
+    expect(result.ports?.suspendedExits).toEqual([]);
+    expect(result.ports?.suspensionSites).toEqual([gate?.id]);
     expect(result.ports?.entryNodeIds).toEqual([gate?.id]);
   });
 });

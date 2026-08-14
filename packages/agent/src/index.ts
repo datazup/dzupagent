@@ -428,6 +428,8 @@ export { TemplateRegistry } from "./templates/template-registry.js";
 export { validatePipeline } from "./pipeline/pipeline-validator.js";
 export { InMemoryPipelineCheckpointStore } from "./pipeline/in-memory-checkpoint-store.js";
 export { PipelineRuntime } from "./pipeline/pipeline-runtime.js";
+export { PipelineInteractionRuntimeError } from "./pipeline/pipeline-interaction-runtime.js";
+export type { PipelineInteractionRuntimeErrorCode } from "./pipeline/pipeline-interaction-runtime.js";
 export {
   RUNTIME_TOOL_PREFIX,
   createRuntimeToolNodeExecutor,

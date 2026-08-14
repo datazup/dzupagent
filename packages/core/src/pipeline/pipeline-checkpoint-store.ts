@@ -6,6 +6,14 @@
  * @module pipeline/pipeline-checkpoint-store
  */
 
+import type {
+  PipelineInteractionResumeV1,
+  PipelineInteractionScopeV1,
+  PipelinePendingInteractionV1,
+  PipelineSha256Digest,
+} from "@dzupagent/runtime-contracts";
+import type { PipelineSchemaVersion } from "./pipeline-definition.js";
+
 // ---------------------------------------------------------------------------
 // Checkpoint types
 // ---------------------------------------------------------------------------
@@ -40,10 +48,20 @@ export interface PipelineLoopCheckpointState {
 }
 
 export interface PipelineLoopBodyGraphCheckpointState {
-  /** True when the body graph reached a normal exit before iteration advance. */
+  /** True when the body graph reached a normal or terminal exit. */
   completed: boolean;
-  /** Next body node to dispatch when `completed` is false. */
+  /** Next body node to dispatch for an in-progress traversal. */
   nextNodeId?: string;
+  /**
+   * Durable classified boundary reached by the scoped traversal.
+   *
+   * Optional for backward compatibility with graph checkpoints written before
+   * nested control outcomes were retained. A suspended outcome deliberately
+   * keeps `completed=false` and omits `nextNodeId`: the owning outer checkpoint
+   * carries the loop suspension marker, and resume first persists the exact
+   * post-suspension cursor before dispatching it.
+   */
+  outcome?: PipelineLoopBodyGraphCheckpointOutcome;
   /** Scoped nodes already completed in this body iteration. */
   completedNodeIds: string[];
   /** Body-only node results required by downstream graph nodes. */
@@ -65,6 +83,12 @@ export interface PipelineLoopBodyGraphCheckpointState {
   >;
 }
 
+/** Durable control boundary for a compiler-bounded loop-body traversal. */
+export type PipelineLoopBodyGraphCheckpointOutcome =
+  | { kind: "normal"; exitNodeId: string }
+  | { kind: "suspended"; exitNodeId: string }
+  | { kind: "terminal"; exitNodeId: string };
+
 /**
  * Snapshot of a pipeline run's state at a point in time.
  *
@@ -79,7 +103,7 @@ export interface PipelineCheckpoint {
   /** Monotonically increasing version number for this run */
   version: number;
   /** Schema version for forward compatibility */
-  schemaVersion: "1.0.0";
+  schemaVersion: PipelineSchemaVersion;
   /** IDs of nodes that have completed execution */
   completedNodeIds: string[];
   /**
@@ -132,6 +156,16 @@ export interface PipelineCheckpoint {
   state: Record<string, unknown>;
   /** If the pipeline is currently suspended, the node it suspended at */
   suspendedAtNodeId?: string;
+  /** Exact pending external decision. Ordinary resume cannot consume it. */
+  pendingInteraction?: PipelinePendingInteractionV1;
+  /** Immutable committed interaction receipts retained for replay/conflict checks. */
+  interactionReceipts?: Record<string, PipelineInteractionResumeV1>;
+  /**
+   * Post-consumption cursor committed atomically with the receipt and state
+   * update. It remains safe to replay because completed-node state suppresses
+   * an already committed successor prefix.
+   */
+  interactionResumeCursor?: PipelineInteractionResumeCursor;
   /** Budget tracking state */
   budgetState?: {
     tokensUsed: number;
@@ -147,6 +181,20 @@ export interface PipelineCheckpoint {
   providerSessionRefs?: PipelineCheckpointProviderSessionRef[];
   /** ISO-8601 timestamp of when this checkpoint was created */
   createdAt: string;
+}
+
+export interface PipelineInteractionResumeCursor {
+  interactionId: string;
+  /** Exact immutable receipt committed with this cursor. */
+  receiptHash: PipelineSha256Digest;
+  /** Exact pipeline artifact digest against which routing was selected. */
+  definitionDigest: PipelineSha256Digest;
+  nodeId: string;
+  scope: PipelineInteractionScopeV1;
+  /** Exact interaction successor selected by the response, if non-terminal. */
+  selectedSuccessorNodeId?: string;
+  /** Exact top-level node from which canonical execution resumes. */
+  nextNodeId?: string;
 }
 
 export type PipelineCheckpointEventRecord = Record<string, unknown> & {

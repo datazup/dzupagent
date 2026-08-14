@@ -8,7 +8,12 @@
  */
 
 import type { PipelineNode, LoopNode } from "@dzupagent/core/pipeline";
-import { executeLoop, type LoopResumeOptions } from "../loop-executor.js";
+import {
+  executeLoop,
+  type LoopBodyGraphControlOutcome,
+  type LoopBodyGraphCheckpointState,
+  type LoopResumeOptions,
+} from "../loop-executor.js";
 import type {
   NodeResult,
   NodeExecutionContext,
@@ -32,13 +37,22 @@ export interface LoopNodeHandlerDeps {
   budgetTracker: BudgetTrackerState;
 }
 
+export interface LoopNodeHandlerResult {
+  result: NodeResult;
+  control?: {
+    outcome: LoopBodyGraphControlOutcome;
+    checkpointState: LoopBodyGraphCheckpointState;
+    completedIterations: number;
+  };
+}
+
 export async function handleLoop(
   deps: LoopNodeHandlerDeps,
   loopNode: LoopNode,
   runState: Record<string, unknown>,
   nodeResults: Map<string, NodeResult>,
   resume?: LoopResumeOptions
-): Promise<NodeResult> {
+): Promise<LoopNodeHandlerResult> {
   const { config, nodeMap, emit, budgetTracker } = deps;
 
   emit(nodeStartedEvent(loopNode.id, "loop"));
@@ -63,7 +77,7 @@ export async function handleLoop(
       };
       if (loopSpan)
         config.tracer?.endSpanWithError(loopSpan, errorResult.error);
-      return errorResult;
+      return { result: errorResult };
     }
     bodyNodes.push(bodyNode);
   }
@@ -115,7 +129,7 @@ export async function handleLoop(
         }
       : config.nodeExecutor;
 
-  const { result, metrics } = await executeLoop(
+  const { result, metrics, control } = await executeLoop(
     loopNode,
     bodyNodes,
     bodyExecutor,
@@ -128,15 +142,20 @@ export async function handleLoop(
   if (result.error) {
     if (loopSpan) config.tracer?.endSpanWithError(loopSpan, result.error);
     emit(nodeFailedEvent(loopNode.id, result.error));
-  } else {
+  } else if (control === undefined) {
     if (loopSpan) config.tracer?.endSpanOk(loopSpan);
     emit(nodeCompletedEvent(loopNode.id, result.durationMs));
+  } else if (loopSpan) {
+    config.tracer?.endSpanOk(loopSpan);
   }
 
   // Attach metrics to output
   const output = { loopOutput: result.output, metrics };
 
-  return { ...result, output };
+  return {
+    result: { ...result, output },
+    ...(control === undefined ? {} : { control }),
+  };
 }
 
 function loopIteration(state: Record<string, unknown>): number {

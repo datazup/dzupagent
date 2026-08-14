@@ -121,6 +121,7 @@ describe("ports refine the tails contract (invariant)", () => {
       entryNodeIds: [result.nodes[0]?.id],
       normalExits: [result.nodes[0]?.id],
       suspendedExits: [],
+      suspensionSites: [],
       terminalExits: [],
       errorExits: [],
     });
@@ -137,6 +138,7 @@ describe("ports refine the tails contract (invariant)", () => {
       entryNodeIds: [],
       normalExits: [],
       suspendedExits: [],
+      suspensionSites: [],
       terminalExits: [],
       errorExits: [],
     });
@@ -176,6 +178,7 @@ describe("terminal exits propagate upward", () => {
       entryNodeIds: [completeId],
       normalExits: [],
       suspendedExits: [],
+      suspensionSites: [],
       terminalExits: [completeId],
       errorExits: [],
     });

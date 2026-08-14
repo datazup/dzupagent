@@ -17,6 +17,7 @@
  * @module pipeline/redis-checkpoint-store
  */
 
+import { PipelineCheckpointSchema } from '@dzupagent/core/pipeline'
 import type { PipelineCheckpoint, PipelineCheckpointStore, PipelineCheckpointSummary } from '@dzupagent/core/pipeline'
 
 // ---------------------------------------------------------------------------
@@ -136,7 +137,8 @@ export class RedisPipelineCheckpointStore implements PipelineCheckpointStore {
       return undefined
     }
     try {
-      return JSON.parse(raw) as PipelineCheckpoint
+      const parsed = PipelineCheckpointSchema.safeParse(JSON.parse(raw))
+      return parsed.success ? parsed.data as PipelineCheckpoint : undefined
     } catch {
       return undefined
     }

@@ -24,7 +24,12 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { createFlowCompiler } from "../index.js";
+import type { PipelineDefinition } from "@dzupagent/core/orchestration";
+
+import {
+  FLOW_TYPED_CONDITION_CAPABILITY,
+  createFlowCompiler,
+} from "../index.js";
 
 const toolResolver = {
   resolve: () => null,
@@ -118,6 +123,88 @@ describe("F-R4 — loop typed-condition admission", () => {
     );
   });
 
+  it("emits a typed loop only when the calling host explicitly advertises the reviewed evaluator", async () => {
+    const result = await createFlowCompiler({
+      toolResolver,
+      targetCapabilities: [FLOW_TYPED_CONDITION_CAPABILITY],
+    }).compileDocument(
+      loopDoc({
+        condition: "false",
+        typedCondition: JSON.parse(TYPED_JSON),
+        maxIterations: 3,
+        body: [{ type: "set", id: "body", assign: { visited: true } }],
+      })
+    );
+
+    expect("errors" in result ? JSON.stringify(result.errors) : "ok").toBe(
+      "ok"
+    );
+    if ("errors" in result) return;
+    expect(
+      (result.artifact as { nodes?: Array<{ type?: string }> }).nodes?.some(
+        (node) => node.type === "loop"
+      )
+    ).toBe(true);
+  });
+
+  it("does not admit a typed loop for an unrelated target capability", async () => {
+    const result = await createFlowCompiler({
+      toolResolver,
+      targetCapabilities: ["flow.control.unrelated@1"],
+    }).compileDocument(
+      loopDoc({
+        condition: "false",
+        typedCondition: JSON.parse(TYPED_JSON),
+        maxIterations: 3,
+        body: [{ type: "set", id: "body", assign: { visited: true } }],
+      })
+    );
+
+    expect("errors" in result).toBe(true);
+    if (!("errors" in result)) return;
+    expect(result.errors).toEqual([
+      expect.objectContaining({
+        stage: 4,
+        code: "TYPED_CONDITION_TARGET_UNSUPPORTED",
+        nodePath: "root.nodes[0].typedCondition",
+      }),
+    ]);
+  });
+
+  it("keeps typed branches blocked when only the loop runtime bridge is reviewed", async () => {
+    const result = await createFlowCompiler({
+      toolResolver,
+      targetCapabilities: [FLOW_TYPED_CONDITION_CAPABILITY],
+    }).compileDocument({
+      dsl: "dzupflow/v1",
+      id: "typed-branch",
+      version: 1,
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "branch",
+            id: "typed-branch",
+            condition: "false",
+            typedCondition: JSON.parse(TYPED_JSON),
+            then: [{ type: "set", id: "then", assign: { result: true } }],
+          },
+        ],
+      },
+    });
+
+    expect("errors" in result).toBe(true);
+    if (!("errors" in result)) return;
+    expect(result.errors).toEqual([
+      expect.objectContaining({
+        stage: 4,
+        code: "TYPED_CONDITION_TARGET_UNSUPPORTED",
+        nodePath: "root.nodes[0].typedCondition",
+      }),
+    ]);
+  });
+
   it("analyzes the typed form for loops: a non-boolean typed condition is rejected at stage 3", async () => {
     const result = await createFlowCompiler({
       toolResolver,
@@ -208,6 +295,10 @@ describe("F-R4 — loop typed-condition admission", () => {
         catch: [{ type: "set", id: "catch", assign: { caught: true } }],
       },
     ],
+    [
+      "terminal complete",
+      { type: "complete", id: "terminal", result: "done" },
+    ],
   ])(
     "admits structured %s bodies at the bounded graph-scheduler shape gate",
     async (_kind, bodyNode) => {
@@ -269,6 +360,10 @@ describe("F-R4 — loop typed-condition admission", () => {
         catch: [{ type: "set", id: "recover", assign: { caught: true } }],
       },
     ],
+    [
+      "terminal complete",
+      { type: "complete", id: "nested-complete", result: "done" },
+    ],
   ])(
     "rejects structured %s nested inside a parallel branch",
     async (_kind, nestedNode) => {
@@ -324,10 +419,6 @@ describe("F-R4 — loop typed-condition admission", () => {
         body: [{ type: "set", id: "collect", assign: { seen: true } }],
       },
     ],
-    [
-      "terminal complete",
-      { type: "complete", id: "terminal", result: "done" },
-    ],
   ])(
     "keeps %s outside the admitted typed-loop body matrix",
     async (_name, bodyNode) => {
@@ -356,8 +447,11 @@ describe("F-R4 — loop typed-condition admission", () => {
     }
   );
 
-  it("keeps suspend-capable bodies outside the admitted scheduler matrix", async () => {
-    const result = await createFlowCompiler({ toolResolver }).compileDocument(
+  it("admits checkpoint-bound approval inside the reviewed typed-loop scheduler", async () => {
+    const result = await createFlowCompiler({
+      toolResolver,
+      targetCapabilities: [FLOW_TYPED_CONDITION_CAPABILITY],
+    }).compileDocument(
       loopDoc({
         condition: "false",
         typedCondition: JSON.parse(TYPED_JSON),
@@ -370,19 +464,20 @@ describe("F-R4 — loop typed-condition admission", () => {
             onApprove: [
               { type: "set", id: "approved", assign: { approved: true } },
             ],
+            onReject: [
+              { type: "set", id: "rejected", assign: { rejected: true } },
+            ],
           },
         ],
       })
     );
 
-    expect("errors" in result).toBe(true);
-    if (!("errors" in result)) return;
-    expect(result.errors).toEqual([
-      expect.objectContaining({
-        stage: 2,
-        code: "STRUCTURED_TYPED_LOOP_BODY_UNSUPPORTED",
-        nodePath: `root.nodes[0].body[0]`,
-      }),
-    ]);
+    expect("errors" in result, JSON.stringify(result)).toBe(false);
+    if ("errors" in result) return;
+    const artifact = result.artifact as PipelineDefinition;
+    const loopNode = artifact.nodes.find((node) => node.type === "loop");
+    expect(loopNode?.type).toBe("loop");
+    if (loopNode?.type !== "loop") return;
+    expect(loopNode.bodyGraph?.suspensionSiteNodeIds).toHaveLength(1);
   });
 });

@@ -153,6 +153,8 @@ export type ApprovalNode = FlowNodeBase & {
 export type ClarificationNode = FlowNodeBase & {
   type: "clarification";
   question: string;
+  /** State destination for the validated response. Required by interaction-capable compilation. */
+  outputKey?: string;
   expected?: "text" | "choice";
   choices?: string[];
 };

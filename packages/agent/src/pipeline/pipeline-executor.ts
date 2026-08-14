@@ -61,11 +61,14 @@ import {
   type StandardNodeOutcome,
 } from "./pipeline-runtime/standard-node-dispatch.js";
 import type {
+  LoopBodyGraphCheckpointState,
   LoopBodyGraphScheduleInput,
+  LoopBodyGraphScheduleOutcome,
   LoopBodyGraphScheduleResult,
 } from "./loop-executor/types.js";
 import { validateLoopBodyGraphCheckpointState } from "./loop-body-graph-checkpoint-validator.js";
 import { isPipelineCheckpointIntegrityError } from "./pipeline-runtime/checkpoint-integrity-error.js";
+import { createRuntimePendingInteraction } from "./pipeline-interaction-runtime.js";
 
 /**
  * Coordinator hooks the executor uses to read/update lifecycle state on
@@ -166,7 +169,7 @@ export class PipelineExecutor {
         node.type === "suspend" ||
         (node.type === "gate" && node.gateType === "approval")
       ) {
-        return this.handleSuspend(node.id, frame);
+        return this.handleSuspend(node, frame);
       }
 
       // Fork: execute branches in parallel, then continue from join
@@ -219,6 +222,8 @@ export class PipelineExecutor {
       config: this.config,
       nodeMap: this.nodeMap,
       saveCheckpoint: (frame) => this.saveCheckpoint(frame),
+      saveControlCheckpoint: (frame, suspendedAtNodeId) =>
+        this.saveControlCheckpoint(frame, suspendedAtNodeId),
       next: (nodeId, runState) => this.next(nodeId, runState),
       recordIdempotencyKey: (keys, runId, node) =>
         this.recordIdempotencyKey(keys, runId, node),
@@ -278,6 +283,7 @@ export class PipelineExecutor {
     // on the owning run, while the outer loop emits the one authoritative
     // pipeline-level terminal event.
     const onEvent = this.config.onEvent;
+    let suspendedAtNodeId: string | undefined;
     const config: PipelineRuntimeConfig = {
       ...this.config,
       definition,
@@ -291,6 +297,9 @@ export class PipelineExecutor {
             signal: input.context.signal as AbortSignal,
           }),
       onEvent: (event) => {
+        if (event.type === "pipeline:suspended") {
+          suspendedAtNodeId = event.nodeId;
+        }
         if (
           event.type !== "pipeline:completed" &&
           event.type !== "pipeline:failed" &&
@@ -300,6 +309,11 @@ export class PipelineExecutor {
         }
       },
     };
+    // A scoped body must never write a private pipeline checkpoint. Standard
+    // node/fork progress is projected through `checkpointOverride`; control
+    // outcomes are returned to the owning loop and written atomically with its
+    // outer suspension/terminal marker.
+    delete config.checkpointStore;
 
     let state: PipelineState = "running";
     const scopedCoordinator: PipelineExecutorCoordinator = {
@@ -350,6 +364,50 @@ export class PipelineExecutor {
     const forkState = structuredClone(restored?.forkState ?? {});
     const scopedRunId = `${outerFrame.runId}::loop:${loopNode.id}:iteration:${input.iteration}`;
 
+    const checkpointStateFor = (
+      scopedFrame: Pick<
+        RunFrame,
+        | "completedNodeIds"
+        | "nodeResults"
+        | "nodeIdempotencyKeys"
+        | "forkState"
+      >,
+      options:
+        | { nextNodeId: string }
+        | {
+            outcome: NonNullable<LoopBodyGraphCheckpointState["outcome"]>;
+          }
+        | { completed: true }
+    ): LoopBodyGraphCheckpointState => {
+      const checkpointResults = bodyResultsFor(
+        scopedFrame.completedNodeIds,
+        scopedFrame.nodeResults,
+        bodyIds,
+        priorBodyResults
+      );
+      const outcome = "outcome" in options ? options.outcome : undefined;
+      const completed =
+        "completed" in options ||
+        outcome?.kind === "normal" ||
+        outcome?.kind === "terminal";
+      return {
+        completed,
+        ...(outcome === undefined ? {} : { outcome }),
+        ...(outcome === undefined && "nextNodeId" in options
+          ? { nextNodeId: options.nextNodeId }
+          : {}),
+        completedNodeIds: [...scopedFrame.completedNodeIds],
+        nodeResults: checkpointBodyResults(
+          checkpointResults,
+          config.definition.checkpoint?.includeProviderSessionRefs === true
+        ),
+        nodeIdempotencyKeys: { ...scopedFrame.nodeIdempotencyKeys },
+        ...(Object.keys(scopedFrame.forkState).length === 0
+          ? {}
+          : { forkState: structuredClone(scopedFrame.forkState) }),
+      };
+    };
+
     if (restored?.completed === true) {
       const bodyResults = bodyResultsFor(
         completedNodeIds,
@@ -358,14 +416,88 @@ export class PipelineExecutor {
         priorBodyResults
       );
       const lastResult = lastCompletedResult(completedNodeIds, nodeResults);
+      const retainedOutcome = restored.outcome;
+      if (retainedOutcome?.kind === "terminal") {
+        const terminalNode = nodeMap.get(retainedOutcome.exitNodeId);
+        return {
+          outcome: retainedOutcome,
+          state: "suspended",
+          bodyResults,
+          checkpointState: restored,
+          lastResult: {
+            nodeId: retainedOutcome.exitNodeId,
+            output: terminalNode?.description ?? null,
+            durationMs: 0,
+          },
+        };
+      }
+      const exitNodeId =
+        retainedOutcome?.kind === "normal"
+          ? retainedOutcome.exitNodeId
+          : completedNodeIds.at(-1)!;
       return {
+        outcome: { kind: "normal", exitNodeId },
         state: "completed",
         bodyResults,
         ...(lastResult === undefined ? {} : { lastResult }),
       };
     }
 
-    const startNodeId = restored?.nextNodeId ?? boundary.entryNodeId;
+    let startNodeId: string;
+    if (restored?.outcome?.kind === "suspended") {
+      const resumeTargets = getNextNodeIds(
+        restored.outcome.exitNodeId,
+        outgoingEdges,
+        config.predicates,
+        input.context.state
+      );
+      if (resumeTargets.length !== 1) {
+        const detail =
+          `scoped loop suspension at "${restored.outcome.exitNodeId}" ` +
+          `resolved ${resumeTargets.length} resume targets; exactly one is required`;
+        return {
+          outcome: {
+            kind: "error",
+            error: detail,
+            exitNodeId: restored.outcome.exitNodeId,
+          },
+          state: "failed",
+          bodyResults: bodyResultsFor(
+            completedNodeIds,
+            nodeResults,
+            bodyIds,
+            priorBodyResults
+          ),
+          error: detail,
+        };
+      }
+      startNodeId = resumeTargets[0]!;
+      // Consuming the outer resume signal completes the scoped control node.
+      // Retain that transition before dispatching its successor so an
+      // acknowledgement-lost checkpoint still has a definition-valid cursor.
+      completedNodeIds.push(restored.outcome.exitNodeId);
+      nodeResults.set(restored.outcome.exitNodeId, {
+        nodeId: restored.outcome.exitNodeId,
+        output: null,
+        durationMs: 0,
+      });
+      if (input.onCheckpoint !== undefined) {
+        await input.onCheckpoint(
+          checkpointStateFor(
+            {
+              completedNodeIds,
+              nodeResults,
+              nodeIdempotencyKeys,
+              forkState,
+            },
+            { nextNodeId: startNodeId }
+          ),
+          { mandatory: true }
+        );
+      }
+    } else {
+      startNodeId = restored?.nextNodeId ?? boundary.entryNodeId;
+    }
 
     const scopedExecutor = new PipelineExecutor(
       config,
@@ -384,25 +516,21 @@ export class PipelineExecutor {
             config.predicates,
             boundary.entryNodeId
           );
-        const checkpointResults = bodyResultsFor(
-          scopedFrame.completedNodeIds,
-          scopedFrame.nodeResults,
-          bodyIds,
-          priorBodyResults
+        const completedExitNodeId = scopedFrame.completedNodeIds.at(-1);
+        await input.onCheckpoint(
+          nextNodeId === undefined &&
+            completedExitNodeId !== undefined &&
+            boundary.normalExitNodeIds.includes(completedExitNodeId)
+            ? checkpointStateFor(scopedFrame, {
+                outcome: {
+                  kind: "normal",
+                  exitNodeId: completedExitNodeId,
+                },
+              })
+            : nextNodeId === undefined
+              ? checkpointStateFor(scopedFrame, { completed: true })
+              : checkpointStateFor(scopedFrame, { nextNodeId })
         );
-        await input.onCheckpoint({
-          completed: nextNodeId === undefined,
-          ...(nextNodeId === undefined ? {} : { nextNodeId }),
-          completedNodeIds: [...scopedFrame.completedNodeIds],
-          nodeResults: checkpointBodyResults(
-            checkpointResults,
-            config.definition.checkpoint?.includeProviderSessionRefs === true
-          ),
-          nodeIdempotencyKeys: { ...scopedFrame.nodeIdempotencyKeys },
-          ...(Object.keys(scopedFrame.forkState).length === 0
-            ? {}
-            : { forkState: structuredClone(scopedFrame.forkState) }),
-        });
       }
     );
 
@@ -419,11 +547,14 @@ export class PipelineExecutor {
         forkState,
         eventLog: [],
         versionTracker: { version: 0 },
+        interactionReceipts: outerFrame.interactionReceipts,
         startTime: Date.now(),
       });
     } catch (error) {
       if (isPipelineCheckpointIntegrityError(error)) throw error;
+      const detail = error instanceof Error ? error.message : String(error);
       return {
+        outcome: { kind: "error", error: detail },
         state: "failed",
         bodyResults: bodyResultsFor(
           completedNodeIds,
@@ -431,7 +562,7 @@ export class PipelineExecutor {
           bodyIds,
           priorBodyResults
         ),
-        error: error instanceof Error ? error.message : String(error),
+        error: detail,
       };
     }
 
@@ -448,19 +579,89 @@ export class PipelineExecutor {
     const failedResult = [...bodyResults.values()]
       .reverse()
       .find((result) => result.error !== undefined);
-    const lastResult = completedResult ?? failedResult;
+    let lastResult = completedResult ?? failedResult;
+
+    let outcome: LoopBodyGraphScheduleOutcome;
+    let outcomeState = runResult.state;
+    let outcomeError: string | undefined;
+    let controlCheckpointState: LoopBodyGraphCheckpointState | undefined;
+    if (runResult.state === "completed") {
+      const exitNodeId = completedNodeIds.at(-1);
+      if (
+        exitNodeId !== undefined &&
+        boundary.normalExitNodeIds.includes(exitNodeId)
+      ) {
+        outcome = { kind: "normal", exitNodeId };
+      } else {
+        outcomeError = `scoped loop body completed outside a declared normal exit${
+          exitNodeId === undefined ? "" : `: \"${exitNodeId}\"`
+        }`;
+        outcome = { kind: "error", error: outcomeError };
+        outcomeState = "failed";
+      }
+    } else if (runResult.state === "cancelled") {
+      outcome = { kind: "cancelled" };
+    } else if (
+      runResult.state === "suspended" &&
+      suspendedAtNodeId !== undefined &&
+      boundary.terminalExitNodeIds.includes(suspendedAtNodeId)
+    ) {
+      outcome = { kind: "terminal", exitNodeId: suspendedAtNodeId };
+      controlCheckpointState = checkpointStateFor(
+        {
+          completedNodeIds,
+          nodeResults: runResult.nodeResults,
+          nodeIdempotencyKeys,
+          forkState,
+        },
+        { outcome }
+      );
+      const terminalNode = nodeMap.get(suspendedAtNodeId);
+      lastResult = {
+        nodeId: suspendedAtNodeId,
+        output: terminalNode?.description ?? null,
+        durationMs: 0,
+      };
+    } else if (
+      runResult.state === "suspended" &&
+      suspendedAtNodeId !== undefined &&
+      (
+        boundary.suspendedExitNodeIds.includes(suspendedAtNodeId) ||
+        boundary.suspensionSiteNodeIds?.includes(suspendedAtNodeId) === true
+      )
+    ) {
+      outcome = { kind: "suspended", exitNodeId: suspendedAtNodeId };
+      controlCheckpointState = checkpointStateFor(
+        {
+          completedNodeIds,
+          nodeResults: runResult.nodeResults,
+          nodeIdempotencyKeys,
+          forkState,
+        },
+        { outcome }
+      );
+    } else {
+      outcomeError =
+        failedResult?.error ??
+        `scoped loop body ended in state \"${runResult.state}\"`;
+      outcome = {
+        kind: "error",
+        error: outcomeError,
+        ...(failedResult === undefined
+          ? {}
+          : { exitNodeId: failedResult.nodeId }),
+      };
+    }
 
     return {
-      state: runResult.state,
+      outcome,
+      state: outcomeState,
       bodyResults,
       ...(lastResult === undefined ? {} : { lastResult }),
-      ...(runResult.state === "completed"
+      ...(outcomeError === undefined ? {} : { error: outcomeError }),
+      ...(controlCheckpointState === undefined
         ? {}
-        : {
-            error:
-              failedResult?.error ??
-              `scoped loop body ended in state "${runResult.state}"`,
-          }),
+        : { checkpointState: controlCheckpointState }),
     };
   }
 
@@ -509,37 +710,48 @@ export class PipelineExecutor {
   // ---------------------------------------------------------------------------
 
   async handleSuspend(
-    nodeId: string,
+    node: PipelineNode,
     frame: RunFrame
   ): Promise<PipelineRunResult> {
+    const nodeId = node.id;
     this.coordinator.setState("suspended");
     this.emit(pipelineSuspendedEvent(nodeId));
 
-    if (this.config.checkpointStore) {
-      await writeCheckpoint({
-        config: this.config,
-        runId: frame.runId,
-        runState: frame.runState,
-        nodeResults: frame.nodeResults,
-        completedNodeIds: frame.completedNodeIds,
-        nodeIdempotencyKeys: frame.nodeIdempotencyKeys,
-        loopState: frame.loopState,
-        forkState: frame.forkState,
-        eventLog: frame.eventLog,
-        versionTracker: frame.versionTracker,
-        recoveryAttemptsUsed: this.coordinator.getRecoveryAttemptsUsed(),
-        budgetTracker: this.coordinator.getBudgetTracker(),
-        suspendedAtNodeId: nodeId,
-        emit: this.emit.bind(this),
-      });
+    // A bounded loop-body executor reports control to its owning loop. Only a
+    // top-level executor may persist the outer suspension marker.
+    if (this.checkpointOverride === undefined) {
+      if (
+        (node.type === "gate" || node.type === "suspend") &&
+        node.interaction !== undefined
+      ) {
+        frame.pendingInteraction = createRuntimePendingInteraction({
+          definition: this.config.definition,
+          runId: frame.runId,
+          node,
+          scope: { kind: "pipeline" },
+          occurrence: 0,
+          expectedCheckpointVersion: frame.versionTracker.version + 1,
+          ...(this.config.interaction?.ttlMs === undefined
+            ? {}
+            : { ttlMs: this.config.interaction.ttlMs }),
+          ...(this.config.interaction?.now === undefined
+            ? {}
+            : { now: this.config.interaction.now }),
+        });
+        delete frame.interactionResumeCursor;
+      }
+      await this.saveControlCheckpoint(frame, nodeId);
     }
-
-    return this.runResult(
+    const result = this.runResult(
       frame.runId,
       "suspended",
       frame.nodeResults,
       Date.now() - frame.startTime
     );
+    if (frame.pendingInteraction !== undefined) {
+      result.pendingInteraction = frame.pendingInteraction;
+    }
+    return result;
   }
 
   // ---------------------------------------------------------------------------
@@ -620,9 +832,50 @@ export class PipelineExecutor {
         versionTracker: frame.versionTracker,
         recoveryAttemptsUsed: this.coordinator.getRecoveryAttemptsUsed(),
         budgetTracker: this.coordinator.getBudgetTracker(),
+        pendingInteraction: frame.pendingInteraction,
+        interactionReceipts: frame.interactionReceipts,
+        interactionResumeCursor: frame.interactionResumeCursor,
         emit: this.emit.bind(this),
       });
     }
+  }
+
+  /**
+   * Persist a suspension/terminal/resume transition independently of the
+   * periodic checkpoint strategy. The outer marker and loop graph frame must
+   * be one checkpoint; a scoped executor is therefore never allowed to write
+   * this boundary through its private override.
+   */
+  private async saveControlCheckpoint(
+    frame: RunFrame,
+    suspendedAtNodeId?: string
+  ): Promise<void> {
+    if (this.checkpointOverride !== undefined) {
+      throw new Error(
+        "Nested scoped control checkpoints require ownership by the outer pipeline executor"
+      );
+    }
+    if (!this.config.checkpointStore) return;
+
+    await writeCheckpoint({
+      config: this.config,
+      runId: frame.runId,
+      runState: frame.runState,
+      nodeResults: frame.nodeResults,
+      completedNodeIds: frame.completedNodeIds,
+      nodeIdempotencyKeys: frame.nodeIdempotencyKeys,
+      loopState: frame.loopState,
+      forkState: frame.forkState,
+      eventLog: frame.eventLog,
+      versionTracker: frame.versionTracker,
+      recoveryAttemptsUsed: this.coordinator.getRecoveryAttemptsUsed(),
+      budgetTracker: this.coordinator.getBudgetTracker(),
+      pendingInteraction: frame.pendingInteraction,
+      interactionReceipts: frame.interactionReceipts,
+      interactionResumeCursor: frame.interactionResumeCursor,
+      ...(suspendedAtNodeId === undefined ? {} : { suspendedAtNodeId }),
+      emit: this.emit.bind(this),
+    });
   }
 
   /**

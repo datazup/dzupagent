@@ -9,6 +9,7 @@ export * from "./ledger.js";
 export * from "./schedule.js";
 export * from "./script-runs.js";
 export * from "./pipeline.js";
+export * from "./pipeline-interaction.js";
 // Canonical execution/gate/local-model contracts use explicit named
 // re-exports (not `export *`) so the reviewed public surface stays
 // enumerable for the package-tiers governance gate.

@@ -136,6 +136,15 @@ export function expandCollabReviewLoop(
                 },
               },
             ],
+            on_reject: [
+              {
+                complete: {
+                  id: `${raw.id}__rejected`,
+                  result: "rejected",
+                  meta,
+                },
+              },
+            ],
             meta,
           },
         },

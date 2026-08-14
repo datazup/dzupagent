@@ -391,6 +391,7 @@ describe("flowNodeSchema — clarification", () => {
       id: "ask_user",
       question: "What is the target repo?",
       expected: "text",
+      outputKey: "targetRepo",
     });
     expect(result.success).toBe(true);
   });
@@ -402,8 +403,28 @@ describe("flowNodeSchema — clarification", () => {
       question: "Pick one",
       expected: "choice",
       choices: ["a", "b"],
+      outputKey: "selection",
     });
     expect(result.success).toBe(true);
+  });
+
+  it("rejects duplicate, empty, and over-bounded choices", () => {
+    for (const choices of [
+      ["a", "a"],
+      [""],
+      Array.from({ length: 33 }, (_, index) => `choice-${index}`),
+    ]) {
+      expect(
+        flowNodeSchema.safeParse({
+          type: "clarification",
+          id: "ask_user",
+          question: "Pick one",
+          expected: "choice",
+          choices,
+          outputKey: "selection",
+        }).success,
+      ).toBe(false);
+    }
   });
 
   it("rejects a missing question", () => {
@@ -540,6 +561,25 @@ describe("flowNodeSchema — approval", () => {
     expect(result.success).toBe(true);
     if (result.success && result.data.type === "approval") {
       expect(result.data.approvalClass).toBe("destructive_shell");
+    }
+  });
+
+  it("rejects duplicate, empty, and over-bounded approval options", () => {
+    for (const options of [
+      ["yes", "yes"],
+      [""],
+      Array.from({ length: 33 }, (_, index) => `option-${index}`),
+    ]) {
+      expect(
+        flowNodeSchema.safeParse({
+          type: "approval",
+          id: "gate",
+          question: "Proceed?",
+          onApprove: [{ type: "complete", id: "yes" }],
+          onReject: [{ type: "complete", id: "no" }],
+          options,
+        }).success,
+      ).toBe(false);
     }
   });
 

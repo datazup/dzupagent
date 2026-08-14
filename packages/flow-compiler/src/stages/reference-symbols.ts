@@ -199,6 +199,9 @@ function collectNodeStateSymbols(
     case "spdd.agent_swarm":
       state.add(node.outputKey);
       return;
+    case "clarification":
+      addOptional(node.outputKey, state);
+      return;
     case "memory":
       addOptional(node.outputVar, state);
       return;
@@ -237,7 +240,6 @@ function collectNodeStateSymbols(
     case "branch":
     case "parallel":
     case "approval":
-    case "clarification":
     case "persona":
     case "route":
     case "complete":

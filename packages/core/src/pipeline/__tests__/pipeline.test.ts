@@ -500,6 +500,93 @@ describe("PipelineCheckpoint", () => {
     }
   });
 
+  it.each([
+    {
+      name: "normal",
+      state: makeBodyGraphCheckpointState({
+        completed: true,
+        nextNodeId: undefined,
+        outcome: { kind: "normal", exitNodeId: "prepare" },
+      }),
+    },
+    {
+      name: "suspended",
+      state: makeBodyGraphCheckpointState({
+        completed: false,
+        nextNodeId: undefined,
+        outcome: { kind: "suspended", exitNodeId: "approval" },
+      }),
+    },
+    {
+      name: "terminal",
+      state: makeBodyGraphCheckpointState({
+        completed: true,
+        nextNodeId: undefined,
+        outcome: { kind: "terminal", exitNodeId: "complete" },
+      }),
+    },
+  ])("round-trips a $name graph outcome", ({ state }) => {
+    const checkpoint = makeCheckpoint({
+      loopState: { poll: { iteration: 1, bodyGraphState: state } },
+    });
+
+    const result = PipelineCheckpointSchema.safeParse(checkpoint);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.loopState?.["poll"]?.bodyGraphState).toEqual(state);
+    }
+  });
+
+  it.each([
+    {
+      name: "normal outcome on an incomplete cursor",
+      state: makeBodyGraphCheckpointState({
+        outcome: { kind: "normal", exitNodeId: "prepare" },
+      }),
+    },
+    {
+      name: "terminal outcome with a next node",
+      state: makeBodyGraphCheckpointState({
+        completed: true,
+        outcome: { kind: "terminal", exitNodeId: "complete" },
+      }),
+    },
+    {
+      name: "suspended outcome marked completed",
+      state: makeBodyGraphCheckpointState({
+        completed: true,
+        nextNodeId: undefined,
+        outcome: { kind: "suspended", exitNodeId: "approval" },
+      }),
+    },
+  ])("rejects a $name", ({ state }) => {
+    const result = PipelineCheckpointSchema.safeParse(
+      makeCheckpoint({
+        loopState: { poll: { iteration: 1, bodyGraphState: state } },
+      })
+    );
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an unknown graph outcome discriminant", () => {
+    const state = {
+      ...makeBodyGraphCheckpointState(),
+      nextNodeId: undefined,
+      outcome: { kind: "paused", exitNodeId: "approval" },
+    };
+    const result = PipelineCheckpointSchema.safeParse(
+      makeCheckpoint({
+        loopState: {
+          poll: { iteration: 1, bodyGraphState: state as never },
+        },
+      })
+    );
+
+    expect(result.success).toBe(false);
+  });
+
   it("round-trips a mid-iteration predicate-loop cursor", () => {
     const result = PipelineCheckpointSchema.safeParse(
       JSON.parse(

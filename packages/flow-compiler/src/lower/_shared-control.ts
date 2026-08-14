@@ -151,6 +151,10 @@ export function lowerBranch(
         ...thenPorts.suspendedExits,
         ...elsePorts.suspendedExits,
       ],
+      suspensionSites: [
+        ...thenPorts.suspensionSites,
+        ...elsePorts.suspensionSites,
+      ],
       terminalExits: [...thenPorts.terminalExits, ...elsePorts.terminalExits],
       errorExits: [...thenPorts.errorExits, ...elsePorts.errorExits],
     },
@@ -190,6 +194,7 @@ export function lowerParallel(
   const allEdges: PipelineEdge[] = [];
   const warnings: string[] = [];
   const suspendedExits: string[] = [];
+  const suspensionSites: string[] = [];
   const terminalExits: string[] = [];
   const errorExits: string[] = [];
 
@@ -233,6 +238,7 @@ export function lowerParallel(
 
     const branchPorts = portsOf(branchResult);
     suspendedExits.push(...branchPorts.suspendedExits);
+    suspensionSites.push(...branchPorts.suspensionSites);
     terminalExits.push(...branchPorts.terminalExits);
     errorExits.push(...branchPorts.errorExits);
   }
@@ -250,6 +256,7 @@ export function lowerParallel(
       entryNodeIds: [forkId],
       normalExits: [joinId],
       suspendedExits,
+      suspensionSites,
       terminalExits,
       errorExits,
     },
@@ -348,6 +355,10 @@ export function lowerTryCatch(
       suspendedExits: [
         ...bodyPorts.suspendedExits,
         ...catchPorts.suspendedExits,
+      ],
+      suspensionSites: [
+        ...bodyPorts.suspensionSites,
+        ...catchPorts.suspensionSites,
       ],
       terminalExits: [...bodyPorts.terminalExits, ...catchPorts.terminalExits],
       // Every continuing exit of the catch fragment is an error-path exit of

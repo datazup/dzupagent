@@ -76,6 +76,7 @@ export function addNodeStateOutputs(
       for (const key of Object.keys(node.assign)) addState(key);
       return;
     case "classify":
+    case "clarification":
     case "worker.dispatch":
     case "spdd.import_sources":
     case "spdd.build_source_pack":

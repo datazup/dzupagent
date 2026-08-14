@@ -322,6 +322,7 @@ export async function runCompile(
     ast,
     target,
     sourceReferences,
+    opts.targetCapabilities,
   );
   if (unsupportedV2TargetErrors.length > 0) {
     emit({

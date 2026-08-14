@@ -64,6 +64,15 @@ export const leafValidators: ShapeRulePartial<LeafKind> = {
         )
       );
     }
+    if (!isNonEmptyString(node.outputKey)) {
+      errors.push(
+        missing(
+          node.type,
+          path,
+          "clarification.outputKey is required for checkpoint-bound interaction admission"
+        )
+      );
+    }
     if (node.expected === "choice") {
       if (!Array.isArray(node.choices) || node.choices.length === 0) {
         errors.push(

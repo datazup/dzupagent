@@ -55,6 +55,8 @@ function outputDeclarations(node: FlowNode): OutputDeclaration[] {
       return [{ key: node.output.key, field: 'output.key' }]
     case 'prompt':
       return [{ key: node.outputKey ?? node.id ?? 'promptResult', field: 'outputKey' }]
+    case 'clarification':
+      return node.outputKey === undefined ? [] : [{ key: node.outputKey, field: 'outputKey' }]
     case 'classify':
     case 'worker.dispatch':
     case 'spdd.import_sources':
@@ -106,7 +108,6 @@ function outputDeclarations(node: FlowNode): OutputDeclaration[] {
     case 'action':
     case 'branch':
     case 'approval':
-    case 'clarification':
     case 'persona':
     case 'route':
     case 'parallel':

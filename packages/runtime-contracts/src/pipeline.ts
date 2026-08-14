@@ -23,6 +23,8 @@
  * @module runtime-contracts/pipeline
  */
 
+import type { PipelinePendingInteractionV1 } from "./pipeline-interaction.js";
+
 // ---------------------------------------------------------------------------
 // Cancellation
 // ---------------------------------------------------------------------------
@@ -158,6 +160,8 @@ export interface PipelineRunResult {
   nodeResults: Map<string, NodeResult>;
   totalDurationMs: number;
   budgetUsed?: { tokens: number; costCents: number };
+  /** Exact external decision request when the run is suspended on interaction. */
+  pendingInteraction?: PipelinePendingInteractionV1;
 }
 
 // ---------------------------------------------------------------------------
@@ -276,5 +280,7 @@ export interface LoopMetrics {
     | "budget_unknown"
     | "no_progress"
     | "timed_out"
-    | "cancelled";
+    | "cancelled"
+    | "suspended"
+    | "terminal";
 }

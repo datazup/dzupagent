@@ -276,6 +276,11 @@ function collectNodeStateTypes(
     case "classify":
       recordType(state, node.outputKey, "string");
       return;
+    case "clarification":
+      if (node.outputKey !== undefined) {
+        recordType(state, node.outputKey, "string");
+      }
+      return;
     case "memory":
       if (node.outputVar !== undefined) {
         recordType(state, node.outputVar, "unknown");

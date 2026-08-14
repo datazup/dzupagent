@@ -46,6 +46,7 @@ export function portsOf(result: LowerPipelineResult): LoweredPorts {
     entryNodeIds: firstNode !== undefined ? [firstNode.id] : [],
     normalExits: effectiveTails(result),
     suspendedExits: [],
+    suspensionSites: [],
     terminalExits: [],
     errorExits: [],
   };
@@ -174,6 +175,7 @@ export function lowerChildren(
     // that produced nodes; suspended/terminal/error exits accumulate from
     // every child; normal exits are exactly the tails computed above.
     const suspendedExits: string[] = [];
+    const suspensionSites: string[] = [];
     const terminalExits: string[] = [];
     const errorExits: string[] = [];
     let entryNodeIds: string[] = [];
@@ -183,6 +185,7 @@ export function lowerChildren(
         entryNodeIds = ports.entryNodeIds;
       }
       suspendedExits.push(...ports.suspendedExits);
+      suspensionSites.push(...ports.suspensionSites);
       terminalExits.push(...ports.terminalExits);
       errorExits.push(...ports.errorExits);
     }
@@ -190,6 +193,7 @@ export function lowerChildren(
       entryNodeIds,
       normalExits: pendingTailNodeIds,
       suspendedExits,
+      suspensionSites,
       terminalExits,
       errorExits,
     };

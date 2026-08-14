@@ -26,6 +26,7 @@ import type {
   PipelineCheckpointStore,
   PipelineCheckpointExecutionLog,
   PipelineCheckpointProviderSessionRef,
+  PipelineInteractionResumeCursor,
 } from "@dzupagent/core/pipeline";
 import type {
   NodeExecutionContext,
@@ -33,6 +34,8 @@ import type {
   NodeResult,
   PipelineRuntimeEvent,
   ProviderSessionRef,
+  PipelineInteractionResumeV1,
+  PipelinePendingInteractionV1,
 } from "@dzupagent/runtime-contracts";
 import type { RecoveryCopilot } from "../recovery/recovery-copilot.js";
 import type { PipelineStuckDetector } from "../self-correction/pipeline-stuck-detector.js";
@@ -325,6 +328,11 @@ export interface PipelineRuntimeConfig {
    * `DurableNodeLedger`.
    */
   nodeLedger?: NodeLedgerLike;
+  /** Finite provider-free interaction policy and injectable clock for tests. */
+  interaction?: {
+    ttlMs?: number;
+    now?: () => Date;
+  };
 }
 
 /**
@@ -418,5 +426,8 @@ export interface PipelineRunContext {
   forkState: ForkRuntimeState;
   eventLog: PipelineRuntimeEvent[];
   versionTracker: { version: number };
+  pendingInteraction?: PipelinePendingInteractionV1;
+  interactionReceipts: Record<string, PipelineInteractionResumeV1>;
+  interactionResumeCursor?: PipelineInteractionResumeCursor;
   startTime: number;
 }

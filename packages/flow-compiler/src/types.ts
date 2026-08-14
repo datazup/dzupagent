@@ -87,6 +87,18 @@ export type FlowReferencePortClassificationBindings = Readonly<
 export interface CompilerOptions {
   toolResolver: ToolResolver | AsyncToolResolver;
   /**
+   * Capabilities explicitly owned by the host that will execute the emitted
+   * artifact. Capability declaration is opt-in and fail-closed: omitting this
+   * field preserves every target-emission gate, and declaring a capability
+   * does not install its runtime implementation.
+   *
+   * The compiler currently consumes `flow.control.typed-condition@1` only to
+   * admit typed `loop` lowering, for which it exports the reviewed
+   * `createTypedLoopPredicates` host bridge. Typed branches remain blocked
+   * until they have an equivalent lowering and runtime registration contract.
+   */
+  targetCapabilities?: readonly string[];
+  /**
    * Immutable V2 registry used for explicitly pinned external primitive
    * contracts. It must retain every built-in definition unchanged.
    */

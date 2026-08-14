@@ -40,6 +40,7 @@ export function parseClarification(
     const choicesRaw = obj.choices
     if (Array.isArray(choicesRaw) && choicesRaw.every((v) => typeof v === 'string')) {
       choices = choicesRaw as string[]
+      validateChoices(choices, pointer, ctx)
     } else if (Array.isArray(choicesRaw)) {
       ctx.errors.push({
         code: 'WRONG_FIELD_TYPE',
@@ -55,12 +56,65 @@ export function parseClarification(
     }
   }
 
+  let outputKey: string | undefined
+  if ('outputKey' in obj) {
+    const outputKeyRaw = obj.outputKey
+    if (typeof outputKeyRaw === 'string' && outputKeyRaw.length > 0) {
+      outputKey = outputKeyRaw
+    } else {
+      ctx.errors.push({
+        code: 'WRONG_FIELD_TYPE',
+        message: `clarification.outputKey must be a non-empty string when present, received ${describeJsType(outputKeyRaw)}`,
+        pointer: joinPointer(pointer, 'outputKey'),
+      })
+    }
+  }
+
+  if (expected === 'text' && choices !== undefined) {
+    ctx.errors.push({
+      code: 'INVALID_ENUM_VALUE',
+      message: "clarification.choices is not allowed when expected='text'",
+      pointer: joinPointer(pointer, 'choices'),
+    })
+  }
+  if (expected === 'choice' && (choices === undefined || choices.length === 0)) {
+    ctx.errors.push({
+      code: 'WRONG_FIELD_TYPE',
+      message: "clarification.choices must be non-empty when expected='choice'",
+      pointer: joinPointer(pointer, 'choices'),
+    })
+  }
+
   const node: ClarificationNode = {
     type: 'clarification',
     ...parseCommonNodeFields(obj, pointer, ctx),
     question: questionRaw,
   }
+  if (outputKey !== undefined) node.outputKey = outputKey
   if (expected !== undefined) node.expected = expected
   if (choices !== undefined) node.choices = choices
   return node
+}
+
+function validateChoices(choices: readonly string[], pointer: string, ctx: ParseContext): void {
+  if (choices.length > 32) {
+    ctx.errors.push({
+      code: 'INVALID_ENUM_VALUE',
+      message: 'clarification.choices must contain at most 32 values',
+      pointer: joinPointer(pointer, 'choices'),
+    })
+  }
+  const seen = new Set<string>()
+  choices.forEach((choice, index) => {
+    if (choice.length === 0 || seen.has(choice)) {
+      ctx.errors.push({
+        code: 'INVALID_ENUM_VALUE',
+        message: choice.length === 0
+          ? 'clarification.choices values must be non-empty strings'
+          : `clarification.choices contains duplicate value "${choice}"`,
+        pointer: joinPointer(joinPointer(pointer, 'choices'), String(index)),
+      })
+    }
+    seen.add(choice)
+  })
 }

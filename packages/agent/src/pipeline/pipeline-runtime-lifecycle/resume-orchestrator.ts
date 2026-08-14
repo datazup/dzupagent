@@ -23,6 +23,10 @@
 
 import type { PipelineCheckpoint } from "@dzupagent/core/pipeline";
 import type {
+  PipelineInteractionResumeV1,
+  PipelinePendingInteractionV1,
+} from "@dzupagent/runtime-contracts";
+import type {
   ForkRuntimeState,
   NodeResult,
   PipelineRunContext,
@@ -30,6 +34,10 @@ import type {
   PipelineRuntimeConfig,
 } from "../pipeline-runtime-types.js";
 import type { LoopState } from "../pipeline-runtime/executor-state-types.js";
+import {
+  validateRetainedLoopBodyGraphCheckpointState,
+} from "../loop-body-graph-checkpoint-validator.js";
+import { validatePendingInteractionForDefinition } from "../pipeline-interaction-runtime.js";
 
 /**
  * Facade the resume/redeliver paths use over the owning runtime. Kept narrow
@@ -51,6 +59,10 @@ export interface ResumeHost {
 
   /** Delegate the graph walk, translating thrown errors into a failed result. */
   runFromNode(ctx: PipelineRunContext): Promise<PipelineRunResult>;
+  /** Persist completion without the already-consumed interaction cursor. */
+  finalizeInteractionResume(ctx: PipelineRunContext): Promise<void>;
+  /** Fail closed unless a committed cursor still matches receipt and artifact. */
+  assertInteractionResumeCursorValid(checkpoint: PipelineCheckpoint): void;
 
   /** Look up a node id in the runtime's node map. */
   hasNode(nodeId: string): boolean;
@@ -83,6 +95,9 @@ interface RestoredContext {
   nodeIdempotencyKeys: Record<string, string>;
   loopState: LoopState;
   forkState: ForkRuntimeState;
+  pendingInteraction?: PipelinePendingInteractionV1;
+  interactionReceipts: Record<string, PipelineInteractionResumeV1>;
+  interactionResumeCursor: PipelineCheckpoint["interactionResumeCursor"];
 }
 
 /**
@@ -129,6 +144,13 @@ export function restoreRunContextFromCheckpoint(
       nodeIdempotencyKeys,
       loopState,
       forkState,
+      ...(checkpoint.pendingInteraction === undefined
+        ? {}
+        : { pendingInteraction: checkpoint.pendingInteraction }),
+      interactionReceipts: structuredClone(checkpoint.interactionReceipts ?? {}),
+      interactionResumeCursor: checkpoint.interactionResumeCursor === undefined
+        ? undefined
+        : structuredClone(checkpoint.interactionResumeCursor),
     };
   }
 
@@ -140,6 +162,13 @@ export function restoreRunContextFromCheckpoint(
     nodeIdempotencyKeys,
     loopState: {},
     forkState: {},
+    ...(checkpoint.pendingInteraction === undefined
+      ? {}
+      : { pendingInteraction: checkpoint.pendingInteraction }),
+    interactionReceipts: structuredClone(checkpoint.interactionReceipts ?? {}),
+    interactionResumeCursor: checkpoint.interactionResumeCursor === undefined
+      ? undefined
+      : structuredClone(checkpoint.interactionResumeCursor),
   };
 }
 
@@ -168,12 +197,52 @@ export function failReplayBudgetExceeded(
   };
 }
 
+function failRetainedLoopControl(
+  host: ResumeHost,
+  runId: string,
+  nodeResults: Map<string, NodeResult>,
+  startTime: number,
+  detail: string
+): PipelineRunResult {
+  const message = `Corrupt retained nested loop control: ${detail}`;
+  host.setState("failed");
+  host.emitFailed(runId, message);
+  return {
+    pipelineId: host.config.definition.id,
+    runId,
+    state: "failed",
+    nodeResults,
+    totalDurationMs: Date.now() - startTime,
+  };
+}
+
 /** Resume execution from a checkpoint (the full re-entry cascade). */
 export async function resumeFromCheckpoint(
   host: ResumeHost,
   checkpoint: PipelineCheckpoint,
   additionalState?: Record<string, unknown>
 ): Promise<PipelineRunResult> {
+  if (checkpoint.pendingInteraction !== undefined) {
+    const { pending } = validatePendingInteractionForDefinition(
+      host.config.definition,
+      checkpoint,
+    );
+    const nodeResults = new Map<string, NodeResult>();
+    for (const nodeId of checkpoint.completedNodeIds) {
+      nodeResults.set(nodeId, { nodeId, output: null, durationMs: 0 });
+    }
+    return {
+      pipelineId: host.config.definition.id,
+      runId: checkpoint.pipelineRunId,
+      state: "suspended",
+      nodeResults,
+      totalDurationMs: 0,
+      pendingInteraction: pending,
+    };
+  }
+  if (checkpoint.interactionResumeCursor !== undefined) {
+    host.assertInteractionResumeCursorValid(checkpoint);
+  }
   host.assertRuntimeToolReadiness();
 
   const {
@@ -184,6 +253,9 @@ export async function resumeFromCheckpoint(
     nodeIdempotencyKeys,
     loopState,
     forkState,
+    pendingInteraction,
+    interactionReceipts,
+    interactionResumeCursor,
   } = restoreRunContextFromCheckpoint(checkpoint, additionalState, {
     hydrateCompleted: true,
   });
@@ -195,6 +267,7 @@ export async function resumeFromCheckpoint(
   host.emitStarted(runId);
 
   const startTime = Date.now();
+  const versionTracker = { version: checkpoint.version };
 
   const runCtx = (startNodeId: string): PipelineRunContext => ({
     startNodeId,
@@ -206,9 +279,150 @@ export async function resumeFromCheckpoint(
     loopState,
     forkState,
     eventLog: host.eventLog,
-    versionTracker: { version: checkpoint.version },
+    versionTracker,
+    ...(pendingInteraction === undefined ? {} : { pendingInteraction }),
+    interactionReceipts,
+    ...(interactionResumeCursor === undefined
+      ? {}
+      : { interactionResumeCursor }),
     startTime,
   });
+
+  if (interactionResumeCursor !== undefined) {
+    const startNodeId = interactionResumeCursor.nextNodeId;
+    if (startNodeId === undefined) {
+      host.setState("completed");
+      host.emitCompleted(runId, 0);
+      await host.finalizeInteractionResume(
+        runCtx(interactionResumeCursor.nodeId),
+      );
+      return {
+        pipelineId: host.config.definition.id,
+        runId,
+        state: "completed",
+        nodeResults,
+        totalDurationMs: 0,
+      };
+    }
+    if (!host.hasNode(startNodeId)) {
+      throw new Error(`Interaction resume node "${startNodeId}" not found`);
+    }
+    const ctx = runCtx(startNodeId);
+    const result = await host.runFromNode(ctx);
+    if (result.state === "completed") {
+      await host.finalizeInteractionResume(ctx);
+    }
+    return result;
+  }
+
+  const retainedOutcomes = Object.entries(loopState).filter(
+    ([, cursor]) => cursor.bodyGraphState?.outcome !== undefined
+  );
+  if (retainedOutcomes.length > 1) {
+    return failRetainedLoopControl(
+      host,
+      runId,
+      nodeResults,
+      startTime,
+      "multiple nested loop outcomes are retained"
+    );
+  }
+  const retainedOutcome = retainedOutcomes[0];
+  if (retainedOutcome !== undefined) {
+    const [loopNodeId, cursor] = retainedOutcome;
+    const graphState = cursor.bodyGraphState!;
+    try {
+      validateRetainedLoopBodyGraphCheckpointState(
+        host.config.definition,
+        loopNodeId,
+        graphState
+      );
+    } catch (error) {
+      return failRetainedLoopControl(
+        host,
+        runId,
+        nodeResults,
+        startTime,
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+    const outcome = graphState.outcome!;
+    if (outcome.kind === "normal") {
+      if (
+        checkpoint.suspendedAtNodeId !== undefined ||
+        completedNodeIds.includes(loopNodeId)
+      ) {
+        return failRetainedLoopControl(
+          host,
+          runId,
+          nodeResults,
+          startTime,
+          `nested normal outcome for loop "${loopNodeId}" has an invalid outer checkpoint marker`
+        );
+      }
+      // The scoped executor saved its normal exit immediately before the loop
+      // iteration boundary. The ordinary mid-flight-loop path below re-enters
+      // the loop and consumes this already-completed body without redispatch.
+    } else if (outcome.kind === "suspended") {
+      if (
+        checkpoint.suspendedAtNodeId !== loopNodeId ||
+        completedNodeIds.includes(loopNodeId)
+      ) {
+        return failRetainedLoopControl(
+          host,
+          runId,
+          nodeResults,
+          startTime,
+          `nested suspended outcome for loop "${loopNodeId}" has an invalid outer checkpoint marker`
+        );
+      }
+      const budgetResult = enforceReplayBudget(host, {
+        startNodeId: loopNodeId,
+        runId,
+        runState,
+        completedNodeIds,
+        nodeResults,
+        startTime,
+      });
+      if (budgetResult) return budgetResult;
+      return host.runFromNode(runCtx(loopNodeId));
+    } else if (
+      checkpoint.suspendedAtNodeId !== outcome.exitNodeId ||
+      !completedNodeIds.includes(loopNodeId)
+    ) {
+      return failRetainedLoopControl(
+        host,
+        runId,
+        nodeResults,
+        startTime,
+        `nested terminal outcome for loop "${loopNodeId}" has an invalid outer checkpoint marker`
+      );
+    } else {
+      host.setState("completed");
+      const totalMs = Date.now() - startTime;
+      host.emitCompleted(runId, totalMs);
+      return {
+        pipelineId: host.config.definition.id,
+        runId,
+        state: "completed",
+        nodeResults,
+        totalDurationMs: totalMs,
+      };
+    }
+  }
+
+  if (
+    checkpoint.suspendedAtNodeId !== undefined &&
+    loopState[checkpoint.suspendedAtNodeId]?.bodyGraphState !== undefined
+  ) {
+    return failRetainedLoopControl(
+      host,
+      runId,
+      nodeResults,
+      startTime,
+      `loop "${checkpoint.suspendedAtNodeId}" is marked suspended without a suspended outcome`
+    );
+  }
 
   // Mid-loop crash (W3): no suspend point, but a loop cursor is in flight.
   // Re-enter at that loop node; `dispatchLoop` reads the cursor and resumes
@@ -311,6 +525,12 @@ export async function redeliverFromCheckpoint(
   checkpoint: PipelineCheckpoint,
   additionalState?: Record<string, unknown>
 ): Promise<PipelineRunResult> {
+  if (
+    checkpoint.pendingInteraction !== undefined ||
+    checkpoint.interactionResumeCursor !== undefined
+  ) {
+    return resumeFromCheckpoint(host, checkpoint);
+  }
   host.assertRuntimeToolReadiness();
 
   const {
@@ -321,6 +541,7 @@ export async function redeliverFromCheckpoint(
     nodeIdempotencyKeys,
     loopState,
     forkState,
+    interactionReceipts,
   } = restoreRunContextFromCheckpoint(checkpoint, additionalState, {
     hydrateCompleted: false,
   });
@@ -353,6 +574,7 @@ export async function redeliverFromCheckpoint(
     forkState,
     eventLog: host.eventLog,
     versionTracker: { version: checkpoint.version },
+    interactionReceipts,
     startTime,
   });
 }

@@ -238,6 +238,8 @@ export function stateOutputKeyForClassification(
   switch (node.type) {
     case "classify":
       return node.outputKey;
+    case "clarification":
+      return node.outputKey;
     case "http":
       return node.outputVar ?? node.id ?? "httpResponse";
     case "subflow":

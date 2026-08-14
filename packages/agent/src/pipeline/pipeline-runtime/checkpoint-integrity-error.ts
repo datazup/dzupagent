@@ -27,7 +27,10 @@ export type PipelineCheckpointIntegrityBoundary =
   | "node_completion"
   | "error_edge_cursor"
   | "fork_branch_completion"
-  | "fork_join_completion";
+  | "fork_join_completion"
+  | "loop_resume_cursor"
+  | "loop_suspension"
+  | "loop_terminal";
 
 export function isPipelineCheckpointIntegrityError(
   error: unknown

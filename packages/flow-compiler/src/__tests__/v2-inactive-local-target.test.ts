@@ -7,7 +7,10 @@ import {
 } from "@dzupagent/flow-dsl";
 import { describe, expect, it } from "vitest";
 
-import { createFlowCompiler } from "../index.js";
+import {
+  FLOW_TYPED_CONDITION_CAPABILITY,
+  createFlowCompiler,
+} from "../index.js";
 import {
   qualifyV2InactiveLocalTarget,
   V2_INACTIVE_LOCAL_TARGET_CAPABILITIES,
@@ -237,8 +240,22 @@ describe("inactive local V2 target qualification", () => {
       hostCapabilities: V2_INACTIVE_LOCAL_TARGET_CAPABILITIES,
       conditionBindings: { inputs: { ready: true } },
     });
+    const artifactEmissionAdvertised = await qualifyV2InactiveLocalTarget({
+      source,
+      compilerOptions: {
+        ...base,
+        referencePolicy: "strict",
+        targetCapabilities: [FLOW_TYPED_CONDITION_CAPABILITY],
+      },
+      hostCapabilities: V2_INACTIVE_LOCAL_TARGET_CAPABILITIES,
+      conditionBindings: { inputs: { ready: true } },
+    });
 
-    for (const result of [compatible, external]) {
+    for (const result of [
+      compatible,
+      external,
+      artifactEmissionAdvertised,
+    ]) {
       expect(result).toMatchObject({
         ok: false,
         errors: [

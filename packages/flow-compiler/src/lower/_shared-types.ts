@@ -112,6 +112,8 @@ export interface LoweredPorts {
    * continuation is a normal exit, not a suspended one.)
    */
   suspendedExits: string[];
+  /** Every approval/clarification suspension point, regardless of exit class. */
+  suspensionSites: string[];
   /**
    * Lowered `complete` nodes: the flow deliberately ends here. Propagated
    * upward through every composite — including `for_each`, whose body tails

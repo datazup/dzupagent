@@ -80,6 +80,8 @@ const CLARIFY_KEYS = new Set<string>([
   'question',
   'expected',
   'choices',
+  'output',
+  'outputKey',
 ])
 
 export function normalizeAction(
@@ -376,6 +378,7 @@ export function normalizeApproval(
   reportUnsupportedFields(raw, APPROVAL_KEYS, path, diagnostics)
   const base = normalizeCommonNodeFields(raw, path, diagnostics)
   const options = normalizeStringArray(raw.options, `${path}.options`, diagnostics)
+  validateInteractionChoices(options, 'approval.options', `${path}.options`, diagnostics)
   const node: ApprovalNode = {
     type: 'approval',
     ...base,
@@ -445,6 +448,17 @@ export function normalizeClarify(
     ...base,
     question: typeof raw.question === 'string' ? raw.question : '',
   }
+  const outputKey = raw.output ?? raw.outputKey
+  if (typeof outputKey === 'string' && outputKey.length > 0) {
+    node.outputKey = outputKey
+  } else if (outputKey !== undefined) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: 'clarify.output must be a non-empty string when present',
+      path: `${path}.output`,
+    })
+  }
   if (node.question.length === 0) {
     diagnostics.push({
       phase: 'normalize',
@@ -464,6 +478,54 @@ export function normalizeClarify(
     })
   }
   const choices = normalizeStringArray(raw.choices, `${path}.choices`, diagnostics)
+  validateInteractionChoices(choices, 'clarify.choices', `${path}.choices`, diagnostics)
   if (choices !== undefined) node.choices = choices
+  if (node.expected === 'choice' && (choices === undefined || choices.length === 0)) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.MISSING_REQUIRED_FIELD,
+      message: "clarify.choices must be non-empty when expected='choice'",
+      path: `${path}.choices`,
+    })
+  }
+  if (node.expected === 'text' && choices !== undefined) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: "clarify.choices is not allowed when expected='text'",
+      path: `${path}.choices`,
+    })
+  }
   return node
+}
+
+function validateInteractionChoices(
+  values: readonly string[] | undefined,
+  label: string,
+  path: string,
+  diagnostics: DslDiagnostic[],
+): void {
+  if (values === undefined) return
+  if (values.length > 32) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: `${label} must contain at most 32 values`,
+      path,
+    })
+  }
+  const seen = new Set<string>()
+  values.forEach((value, index) => {
+    if (value.length === 0 || seen.has(value)) {
+      diagnostics.push({
+        phase: 'normalize',
+        code: DSL_ERROR.INVALID_NODE_SHAPE,
+        message: value.length === 0
+          ? `${label} values must be non-empty strings`
+          : `${label} contains duplicate value "${value}"`,
+        path: `${path}.${index}`,
+      })
+    }
+    seen.add(value)
+  })
 }

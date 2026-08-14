@@ -19,6 +19,7 @@ import type {
   PipelineEdge,
   SuspendNode,
 } from "@dzupagent/core/orchestration";
+import { createPipelineInteractionSpecV1 } from "@dzupagent/runtime-contracts";
 
 import type {
   LowerPipelineContext,
@@ -70,14 +71,27 @@ export function lowerApproval(
 
   const approveFirst = approveResult.nodes[0];
   const rejectFirst = rejectResult.nodes[0];
+  if (approveFirst !== undefined && rejectFirst !== undefined) {
+    gateNode.interaction = createPipelineInteractionSpecV1({
+      kind: "approval",
+      authoredNodeId: node.id ?? path,
+      authoredPath: path,
+      question: node.question,
+      choices: node.options ?? [],
+      outcomeToSuccessor: {
+        approved: approveFirst.id,
+        rejected: rejectFirst.id,
+      },
+      requestSchema: {
+        kind: "approval",
+        decisions: ["approved", "rejected"],
+      },
+    });
+  }
 
   const branchMap: Record<string, string> = {};
-  if (approveFirst !== undefined) {
-    branchMap["approved"] = approveFirst.id;
-  }
-  if (rejectFirst !== undefined) {
-    branchMap["rejected"] = rejectFirst.id;
-  }
+  if (approveFirst !== undefined) branchMap["approved"] = approveFirst.id;
+  if (rejectFirst !== undefined) branchMap["rejected"] = rejectFirst.id;
 
   const conditionalEdge: PipelineEdge = {
     type: "conditional",
@@ -118,6 +132,11 @@ export function lowerApproval(
         ...(node.onReject === undefined ? [gateId] : []),
         ...approvePorts.suspendedExits,
         ...rejectPorts.suspendedExits,
+      ],
+      suspensionSites: [
+        gateId,
+        ...approvePorts.suspensionSites,
+        ...rejectPorts.suspensionSites,
       ],
       terminalExits: [
         ...approvePorts.terminalExits,
@@ -188,6 +207,7 @@ export function lowerPersona(
       entryNodeIds: [suspendId],
       normalExits: personaTails,
       suspendedExits: bodyPorts.suspendedExits,
+      suspensionSites: bodyPorts.suspensionSites,
       terminalExits: bodyPorts.terminalExits,
       errorExits: bodyPorts.errorExits,
     },
@@ -245,6 +265,7 @@ export function lowerRoute(
       entryNodeIds: [suspendId],
       normalExits: routeTails,
       suspendedExits: bodyPorts.suspendedExits,
+      suspensionSites: bodyPorts.suspensionSites,
       terminalExits: bodyPorts.terminalExits,
       errorExits: bodyPorts.errorExits,
     },

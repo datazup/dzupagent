@@ -1591,6 +1591,7 @@ __metadata:
   resolution: "@dzupagent/hitl-kit@workspace:packages/hitl-kit"
   dependencies:
     "@dzupagent/adapter-types": "npm:0.2.0"
+    "@dzupagent/runtime-contracts": "npm:0.2.0"
     tsup: "npm:*"
     typescript: "npm:^5.8.3"
     vitest: "npm:^3.2.4"
@@ -1756,6 +1757,7 @@ __metadata:
     "@dzupagent/memory": "npm:0.2.0"
     "@dzupagent/memory-ipc": "npm:0.2.0"
     "@dzupagent/otel": "npm:0.2.0"
+    "@dzupagent/runtime-contracts": "npm:0.2.0"
     "@dzupagent/security": "npm:0.2.0"
     "@dzupagent/test-utils": "npm:0.2.0"
     "@langchain/core": "npm:^1.1.39"

@@ -58,6 +58,8 @@ export function formatInteractionNode(
       lines.push(`${indent}- clarify:`);
       pushCommon(lines, node, indentLevel + 2);
       pushTextField(lines, indentLevel + 2, "question", node.question);
+      if (node.outputKey)
+        lines.push(`${childIndent}output: ${node.outputKey}`);
       if (node.expected) lines.push(`${childIndent}expected: ${node.expected}`);
       if (node.choices && node.choices.length > 0) {
         lines.push(

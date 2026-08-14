@@ -3,6 +3,36 @@ import { joinPath } from '../validation-helpers.js'
 import { validateCommonNodeFields } from './shared.js'
 import type { SchemaIssue, ValidateNodeArray } from './shared.js'
 
+const MAX_INTERACTION_CHOICES = 32
+
+function validateOptions(options: string[], path: string, issues: SchemaIssue[]): void {
+  if (options.length > MAX_INTERACTION_CHOICES) {
+    issues.push({
+      path,
+      code: 'INVALID_ENUM_VALUE',
+      message: `approval.options must contain at most ${MAX_INTERACTION_CHOICES} values`,
+    })
+  }
+  const seen = new Set<string>()
+  options.forEach((option, index) => {
+    if (option.length === 0) {
+      issues.push({
+        path: joinPath(path, String(index)),
+        code: 'INVALID_ENUM_VALUE',
+        message: 'approval.options values must be non-empty strings',
+      })
+    }
+    if (seen.has(option)) {
+      issues.push({
+        path: joinPath(path, String(index)),
+        code: 'INVALID_ENUM_VALUE',
+        message: `approval.options contains duplicate value "${option}"`,
+      })
+    }
+    seen.add(option)
+  })
+}
+
 export function validateApproval(
   obj: Record<string, unknown>,
   path: string,
@@ -34,6 +64,7 @@ export function validateApproval(
     const raw = obj['options']
     if (Array.isArray(raw) && raw.every((v): v is string => typeof v === 'string')) {
       options = raw
+      validateOptions(options, joinPath(path, 'options'), issues)
     } else {
       issues.push({
         path: joinPath(path, 'options'),

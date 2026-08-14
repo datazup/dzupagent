@@ -618,6 +618,7 @@ describe("parseFlow — node-specific behaviours", () => {
       question: "pick one",
       expected: "choice",
       choices: ["a", "b"],
+      outputKey: "selection",
     });
     expect(result.errors).toEqual([]);
     expect(result.ast).toEqual({
@@ -625,6 +626,7 @@ describe("parseFlow — node-specific behaviours", () => {
       question: "pick one",
       expected: "choice",
       choices: ["a", "b"],
+      outputKey: "selection",
     });
   });
 

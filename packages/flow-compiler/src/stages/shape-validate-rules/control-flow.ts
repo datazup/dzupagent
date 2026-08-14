@@ -134,6 +134,21 @@ export const controlFlowValidators: ShapeRulePartial<ControlFlowKind> = {
       );
     }
     node.branches.forEach((branch, bIdx) => {
+      const interaction = findParallelInteraction(
+        branch,
+        `${path}.branches[${bIdx}]`
+      );
+      if (interaction !== undefined) {
+        errors.push({
+          nodeType: interaction.node.type,
+          nodePath: interaction.path,
+          code: "PARALLEL_INTERACTION_UNSUPPORTED",
+          category: "control",
+          message:
+            `${interaction.node.type} cannot be nested under parallel until ` +
+            "the fork scheduler has a durable branch-local interaction frame",
+        });
+      }
       if (branch.length === 0) {
         errors.push(
           emptyBody(
@@ -182,6 +197,14 @@ export const controlFlowValidators: ShapeRulePartial<ControlFlowKind> = {
       }
       node.onReject.forEach((child, idx) =>
         visit(child, `${path}.onReject[${idx}]`)
+      );
+    } else {
+      errors.push(
+        missing(
+          node.type,
+          path,
+          "approval.onReject is required for checkpoint-bound interaction admission"
+        )
       );
     }
   },
@@ -320,10 +343,61 @@ export const controlFlowValidators: ShapeRulePartial<ControlFlowKind> = {
   },
 };
 
+function findParallelInteraction(
+  nodes: readonly FlowNode[],
+  parentPath: string
+): { node: Extract<FlowNode, { type: "approval" | "clarification" }>; path: string } | undefined {
+  for (let index = 0; index < nodes.length; index += 1) {
+    const node = nodes[index];
+    if (node === undefined) continue;
+    const path = `${parentPath}[${index}]`;
+    if (node.type === "approval" || node.type === "clarification") {
+      return { node, path };
+    }
+
+    let childGroups: Array<{ nodes: readonly FlowNode[]; path: string }> = [];
+    switch (node.type) {
+      case "sequence":
+        childGroups = [{ nodes: node.nodes, path: `${path}.nodes` }];
+        break;
+      case "for_each":
+      case "persona":
+      case "route":
+      case "loop":
+        childGroups = [{ nodes: node.body, path: `${path}.body` }];
+        break;
+      case "branch":
+        childGroups = [
+          { nodes: node.then, path: `${path}.then` },
+          ...(node.else === undefined
+            ? []
+            : [{ nodes: node.else, path: `${path}.else` }]),
+        ];
+        break;
+      case "try_catch":
+        childGroups = [
+          { nodes: node.body, path: `${path}.body` },
+          { nodes: node.catch, path: `${path}.catch` },
+        ];
+        break;
+      case "parallel":
+        // Its own validator owns the exact nested fork diagnostic.
+        continue;
+      default:
+        continue;
+    }
+    for (const childGroup of childGroups) {
+      const interaction = findParallelInteraction(
+        childGroup.nodes,
+        childGroup.path
+      );
+      if (interaction !== undefined) return interaction;
+    }
+  }
+  return undefined;
+}
+
 const STRUCTURED_TYPED_LOOP_BODY_TYPES = new Set<FlowNode["type"]>([
-  "approval",
-  "clarification",
-  "complete",
   "for_each",
   "loop",
   "persona",
@@ -342,6 +416,15 @@ function findStructuredTypedLoopBodyNode(
     if (node === undefined) continue;
     const path = `${parentPath}[${index}]`;
     if (STRUCTURED_TYPED_LOOP_BODY_TYPES.has(node.type)) {
+      return { node, path };
+    }
+    if (
+      insideParallel &&
+      (node.type === "approval" || node.type === "clarification")
+    ) {
+      return { node, path };
+    }
+    if (insideParallel && node.type === "complete") {
       return { node, path };
     }
     if (
@@ -379,6 +462,13 @@ function findStructuredTypedLoopBodyNode(
     } else if (node.type === "try_catch") {
       childGroups.push(node.body, node.catch);
       childPaths.push(`${path}.body`, `${path}.catch`);
+    } else if (node.type === "approval") {
+      childGroups.push(node.onApprove);
+      childPaths.push(`${path}.onApprove`);
+      if (node.onReject !== undefined) {
+        childGroups.push(node.onReject);
+        childPaths.push(`${path}.onReject`);
+      }
     }
 
     for (let group = 0; group < childGroups.length; group += 1) {

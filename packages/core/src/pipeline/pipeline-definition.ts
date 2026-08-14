@@ -7,6 +7,11 @@
  * @module pipeline/pipeline-definition
  */
 
+import type {
+  PipelineApprovalInteractionSpecV1,
+  PipelineClarificationInteractionSpecV1,
+} from "@dzupagent/runtime-contracts";
+
 // ---------------------------------------------------------------------------
 // Node types — discriminated union on `type`
 // ---------------------------------------------------------------------------
@@ -122,6 +127,8 @@ export interface GateNode extends PipelineNodeBase {
   gateType: "approval" | "budget" | "quality";
   /** Optional condition expression */
   condition?: string;
+  /** Strict checkpoint-bound protocol for compiler-lowered approval gates. */
+  interaction?: PipelineApprovalInteractionSpecV1;
 }
 
 export interface ForkNode extends PipelineNodeBase {
@@ -154,6 +161,8 @@ export interface LoopNode extends PipelineNodeBase {
     entryNodeId: string;
     normalExitNodeIds: string[];
     suspendedExitNodeIds: string[];
+    /** Every interaction-capable site, independent of exit classification. */
+    suspensionSiteNodeIds?: string[];
     terminalExitNodeIds: string[];
     errorExitNodeIds: string[];
   };
@@ -218,6 +227,8 @@ export interface SuspendNode extends PipelineNodeBase {
   type: "suspend";
   /** Optional condition that must be met for automatic resume */
   resumeCondition?: string;
+  /** Strict checkpoint-bound protocol for compiler-lowered clarification. */
+  interaction?: PipelineClarificationInteractionSpecV1;
 }
 
 /**
@@ -337,7 +348,7 @@ export interface PipelineExecutionLogPolicy {
  * producers/migrations fails typecheck instead of sliding through one
  * hand-written literal at a time. Exactly one version exists today.
  */
-export const PIPELINE_SCHEMA_VERSIONS = ["1.0.0"] as const;
+export const PIPELINE_SCHEMA_VERSIONS = ["1.0.0", "1.1.0"] as const;
 
 export type PipelineSchemaVersion = (typeof PIPELINE_SCHEMA_VERSIONS)[number];
 
@@ -372,6 +383,11 @@ export interface PipelineDefinition {
   executionLog?: PipelineExecutionLogPolicy;
   /** Arbitrary metadata */
   metadata?: Record<string, unknown>;
+  /**
+   * Compiler-owned immutable classification envelope. Core carries the JSON
+   * object losslessly without depending on the Flow Compiler's richer type.
+   */
+  classificationEnvelope?: Record<string, unknown>;
   /** Tags for categorization / filtering */
   tags?: string[];
 }

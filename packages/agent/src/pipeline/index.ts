@@ -27,6 +27,12 @@ export type {
 } from './redis-checkpoint-store.js'
 export { PipelineRuntime } from './pipeline-runtime.js'
 export {
+  PipelineInteractionRuntimeError,
+} from './pipeline-interaction-runtime.js'
+export type {
+  PipelineInteractionRuntimeErrorCode,
+} from './pipeline-interaction-runtime.js'
+export {
   RUNTIME_TOOL_PREFIX,
   RUNTIME_TOOL_NAMES,
   RUNTIME_TOOL_RESULT_MARKER,

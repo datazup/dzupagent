@@ -375,6 +375,10 @@ function collectScalarOutputPaths(
       }));
     case "classify":
       return [{ key: node.outputKey, path: `${path}.outputKey` }];
+    case "clarification":
+      return node.outputKey !== undefined
+        ? [{ key: node.outputKey, path: `${path}.outputKey` }]
+        : [];
     case "memory":
       return node.outputVar !== undefined
         ? [{ key: node.outputVar, path: `${path}.outputVar` }]
@@ -481,7 +485,6 @@ function collectScalarOutputPaths(
     case "for_each":
       return [];
     case "action":
-    case "clarification":
     case "complete":
     case "spawn":
     case "emit":

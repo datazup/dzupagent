@@ -48,6 +48,7 @@ const approval = (...onApprove: FlowNode[]): ApprovalNode => ({
   type: 'approval',
   question: 'Proceed?',
   onApprove,
+  onReject: [action('reject')],
 })
 
 const clarification = (
@@ -56,6 +57,7 @@ const clarification = (
 ): ClarificationNode => ({
   type: 'clarification',
   question: 'Which option?',
+  outputKey: 'answer',
   ...(expected !== undefined ? { expected } : {}),
   ...(choices !== undefined ? { choices } : {}),
 })

@@ -769,10 +769,13 @@ describe("normalizeSteps — approval", () => {
 
 describe("normalizeSteps — clarify", () => {
   it("normalizes a valid clarify node", () => {
-    const raw = [{ clarify: { question: "What is your name?" } }];
+    const raw = [
+      { clarify: { question: "What is your name?", output: "name" } },
+    ];
     const diagnostics: Parameters<typeof normalizeSteps>[2] = [];
     const nodes = normalizeSteps(raw, "root.steps", diagnostics);
     expect(nodes[0]?.type).toBe("clarification");
+    expect((nodes[0] as { outputKey?: string }).outputKey).toBe("name");
     expect(diagnostics).toHaveLength(0);
   });
 
@@ -797,6 +800,7 @@ describe("normalizeSteps — clarify", () => {
           question: "Which?",
           expected: "choice",
           choices: ["A", "B"],
+          output: "selection",
         },
       },
     ];
@@ -804,6 +808,44 @@ describe("normalizeSteps — clarify", () => {
     const nodes = normalizeSteps(raw, "root.steps", diagnostics);
     const clarify = nodes[0] as { choices?: string[] };
     expect(clarify.choices).toEqual(["A", "B"]);
+  });
+
+  it("accepts outputKey as a compatibility alias", () => {
+    const diagnostics: Parameters<typeof normalizeSteps>[2] = [];
+    const nodes = normalizeSteps(
+      [{ clarify: { question: "Which?", outputKey: "selection" } }],
+      "root.steps",
+      diagnostics,
+    );
+    expect((nodes[0] as { outputKey?: string }).outputKey).toBe("selection");
+    expect(diagnostics).toEqual([]);
+  });
+
+  it("rejects duplicate and empty clarify choices", () => {
+    for (const choices of [["A", "A"], [""]]) {
+      const diagnostics: Parameters<typeof normalizeSteps>[2] = [];
+      normalizeSteps(
+        [
+          {
+            clarify: {
+              question: "Which?",
+              expected: "choice",
+              choices,
+              output: "selection",
+            },
+          },
+        ],
+        "root.steps",
+        diagnostics,
+      );
+      expect(
+        diagnostics.some((diagnostic) =>
+          diagnostic.message.includes(
+            choices[0] === "" ? "non-empty" : "duplicate",
+          ),
+        ),
+      ).toBe(true);
+    }
   });
 });
 

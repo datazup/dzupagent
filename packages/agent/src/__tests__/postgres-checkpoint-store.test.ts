@@ -11,6 +11,11 @@ import {
   type PostgresClientLike,
 } from "../pipeline/postgres-checkpoint-store.js";
 import type { PipelineCheckpoint } from "@dzupagent/core";
+import {
+  createPipelineInteractionSpecV1,
+  createPipelinePendingInteractionV1,
+  digestPipelineDefinition,
+} from "@dzupagent/runtime-contracts";
 
 // ---------------------------------------------------------------------------
 // Mock client
@@ -128,6 +133,10 @@ function createStatefulCompatibilityClient(tableName: string) {
             typeof params[14] === "string"
               ? JSON.parse(params[14] as string)
               : null,
+          interaction_state:
+            typeof params[15] === "string"
+              ? JSON.parse(params[15] as string)
+              : null,
         });
         return { rows: [] as T[] };
       }
@@ -166,6 +175,35 @@ function makeCheckpoint(
   };
 }
 
+function makePendingInteraction(runId: string) {
+  const spec = createPipelineInteractionSpecV1({
+    kind: "clarification",
+    authoredNodeId: "clarify",
+    authoredPath: "root.nodes[0]",
+    question: "Environment?",
+    choices: [],
+    outputKey: "environment",
+    requestSchema: {
+      kind: "clarification",
+      response: "text",
+      minLength: 1,
+      maxLength: 256,
+    },
+  });
+  return createPipelinePendingInteractionV1({
+    kind: "clarification",
+    definitionDigest: digestPipelineDefinition({ id: "pipeline-1" }),
+    pipelineId: "pipeline-1",
+    runId,
+    nodeId: "clarify",
+    scope: { kind: "pipeline" },
+    occurrence: 0,
+    expectedCheckpointVersion: 1,
+    requestDigest: spec.requestDigest,
+    expiresAt: "2026-08-14T21:00:00.000Z",
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -182,6 +220,7 @@ describe("PostgresPipelineCheckpointStore", () => {
         () => ({ rows: [] }),
         () => ({ rows: [] }),
         () => ({ rows: [] }),
+        () => ({ rows: [] }),
       ]);
       const store = new PostgresPipelineCheckpointStore({
         client,
@@ -190,7 +229,7 @@ describe("PostgresPipelineCheckpointStore", () => {
 
       await store.setup();
 
-      expect(calls).toHaveLength(8);
+      expect(calls).toHaveLength(9);
       expect(calls[0]!.text).toContain(
         "CREATE TABLE IF NOT EXISTS my_checkpoints"
       );
@@ -214,9 +253,12 @@ describe("PostgresPipelineCheckpointStore", () => {
         "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS provider_session_refs"
       );
       expect(calls[6]!.text).toContain(
-        "CREATE INDEX IF NOT EXISTS my_checkpoints_run_idx"
+        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS interaction_state"
       );
       expect(calls[7]!.text).toContain(
+        "CREATE INDEX IF NOT EXISTS my_checkpoints_run_idx"
+      );
+      expect(calls[8]!.text).toContain(
         "CREATE INDEX IF NOT EXISTS my_checkpoints_expiry_idx"
       );
     });
@@ -238,12 +280,16 @@ describe("PostgresPipelineCheckpointStore", () => {
       const store = new PostgresPipelineCheckpointStore({ client });
 
       expect(table.columns.has("provider_session_refs")).toBe(false);
+      expect(table.columns.has("interaction_state")).toBe(false);
 
       await store.setup();
       const legacy = await store.load("legacy-run");
+      const pendingInteraction = makePendingInteraction("new-run");
       await store.save(
         makeCheckpoint({
           pipelineRunId: "new-run",
+          schemaVersion: "1.1.0",
+          pendingInteraction,
           providerSessionRefs: [
             {
               nodeId: "adapter_0",
@@ -256,6 +302,7 @@ describe("PostgresPipelineCheckpointStore", () => {
       const migrated = await store.load("new-run");
 
       expect(table.columns.has("provider_session_refs")).toBe(true);
+      expect(table.columns.has("interaction_state")).toBe(true);
       expect(legacy).toMatchObject({
         pipelineRunId: "legacy-run",
         state: { legacy: true },
@@ -268,6 +315,7 @@ describe("PostgresPipelineCheckpointStore", () => {
           sessionId: "sess-1",
         },
       ]);
+      expect(migrated?.pendingInteraction).toEqual(pendingInteraction);
     });
   });
 
@@ -358,6 +406,24 @@ describe("PostgresPipelineCheckpointStore", () => {
             metadata: { conversationId: "conv-1" },
           },
         ])
+      );
+    });
+
+    it("serialises checkpoint-bound interaction state into param $16", async () => {
+      const pendingInteraction = makePendingInteraction("run-1");
+      await store.save(
+        makeCheckpoint({
+          schemaVersion: "1.1.0",
+          pendingInteraction,
+        }),
+      );
+
+      expect(calls[0]!.params[15]).toBe(
+        JSON.stringify({
+          pendingInteraction,
+          interactionReceipts: undefined,
+          interactionResumeCursor: undefined,
+        }),
       );
     });
   });

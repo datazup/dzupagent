@@ -24,6 +24,7 @@ import type {
   SuspendNode,
   ToolNode,
 } from "@dzupagent/core/orchestration";
+import { createPipelineInteractionSpecV1 } from "@dzupagent/runtime-contracts";
 
 import type {
   LowerPipelineContext,
@@ -173,6 +174,7 @@ export function lowerForEach(
       entryNodeIds: [loopNode.id],
       normalExits: [loopNode.id],
       suspendedExits: bodyPorts.suspendedExits,
+      suspensionSites: bodyPorts.suspensionSites,
       terminalExits: bodyPorts.terminalExits,
       errorExits: bodyPorts.errorExits,
     },
@@ -240,6 +242,7 @@ export function lowerTypedLoop(
       entryNodeId: bodyEntryNodeId,
       normalExitNodeIds: bodyPorts.normalExits,
       suspendedExitNodeIds: bodyPorts.suspendedExits,
+      suspensionSiteNodeIds: bodyPorts.suspensionSites,
       terminalExitNodeIds: bodyPorts.terminalExits,
       errorExitNodeIds: bodyPorts.errorExits,
     },
@@ -281,6 +284,7 @@ export function lowerTypedLoop(
       entryNodeIds: [loopNode.id],
       normalExits: [loopNode.id],
       suspendedExits: bodyPorts.suspendedExits,
+      suspensionSites: bodyPorts.suspensionSites,
       terminalExits: bodyPorts.terminalExits,
       errorExits: bodyPorts.errorExits,
     },
@@ -343,9 +347,39 @@ export function lowerClarification(
       node.expected === "choice"
         ? `clarification__choice__${node.choices?.join("|") ?? ""}`
         : undefined,
+    ...(node.outputKey !== undefined && node.outputKey.length > 0
+      ? {
+          interaction: createPipelineInteractionSpecV1({
+            kind: "clarification",
+            authoredNodeId: node.id ?? path,
+            authoredPath: path,
+            question: node.question,
+            choices: node.choices ?? [],
+            outputKey: node.outputKey,
+            requestSchema: {
+              kind: "clarification",
+              response: node.expected ?? "text",
+              minLength: 1,
+              maxLength: node.expected === "choice" ? 256 : 16_384,
+            },
+          }),
+        }
+      : {}),
     ...nodeDurabilityFields(node),
   };
-  return { nodes: [suspendNode], edges: [], warnings: [] };
+  return {
+    nodes: [suspendNode],
+    edges: [],
+    warnings: [],
+    ports: {
+      entryNodeIds: [suspendNode.id],
+      normalExits: [suspendNode.id],
+      suspendedExits: [],
+      suspensionSites: [suspendNode.id],
+      terminalExits: [],
+      errorExits: [],
+    },
+  };
 }
 
 /**
@@ -376,6 +410,7 @@ export function lowerComplete(
       entryNodeIds: [suspendNode.id],
       normalExits: [],
       suspendedExits: [],
+      suspensionSites: [],
       terminalExits: [suspendNode.id],
       errorExits: [],
     },

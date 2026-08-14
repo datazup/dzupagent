@@ -76,6 +76,7 @@ const fixtures: CombinationFixture[] = [
           type: 'approval',
           question: 'Continue?',
           onApprove: [{ type: 'action', toolRef: 'tasks.run', input: {} }],
+          onReject: [{ type: 'action', toolRef: 'tasks.run', input: {} }],
         },
       ],
       else: [{ type: 'action', toolRef: 'tasks.run', input: {} }],
@@ -218,6 +219,13 @@ describe('cross-feature conformance combinations', () => {
                 id: 'deploy',
                 toolRef: 'tasks.run',
                 input: {},
+              },
+            ],
+            onReject: [
+              {
+                type: 'complete',
+                id: 'rejected',
+                result: 'rejected',
               },
             ],
           },

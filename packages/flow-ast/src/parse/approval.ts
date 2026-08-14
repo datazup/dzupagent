@@ -37,6 +37,7 @@ export function parseApproval(
     const optionsRaw = obj.options
     if (Array.isArray(optionsRaw) && optionsRaw.every((v) => typeof v === 'string')) {
       options = optionsRaw as string[]
+      validateOptions(options, pointer, ctx)
     } else if (Array.isArray(optionsRaw)) {
       ctx.errors.push({
         code: 'WRONG_FIELD_TYPE',
@@ -100,6 +101,29 @@ export function parseApproval(
   if (options !== undefined) node.options = options
   if (onReject !== undefined) node.onReject = onReject
   return node
+}
+
+function validateOptions(options: readonly string[], pointer: string, ctx: ParseContext): void {
+  if (options.length > 32) {
+    ctx.errors.push({
+      code: 'INVALID_ENUM_VALUE',
+      message: 'approval.options must contain at most 32 values',
+      pointer: joinPointer(pointer, 'options'),
+    })
+  }
+  const seen = new Set<string>()
+  options.forEach((option, index) => {
+    if (option.length === 0 || seen.has(option)) {
+      ctx.errors.push({
+        code: 'INVALID_ENUM_VALUE',
+        message: option.length === 0
+          ? 'approval.options values must be non-empty strings'
+          : `approval.options contains duplicate value "${option}"`,
+        pointer: joinPointer(joinPointer(pointer, 'options'), String(index)),
+      })
+    }
+    seen.add(option)
+  })
 }
 
 function isApprovalNodeClass(value: unknown): value is ApprovalNodeClass {

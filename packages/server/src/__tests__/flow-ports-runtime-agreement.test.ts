@@ -11,10 +11,9 @@
  * recording stub (no LLM/network), which is exactly the host seam.
  *
  * Agreement claims proven here:
- *  1. suspendedExits — the live run stops in state `suspended` at exactly the
- *     pinned node, and the REJECTED outcome of an approval without `onReject`
- *     dead-ends: resuming with a `rejected` decision must NOT fail open into
- *     the approve body or the next sibling.
+ *  1. suspensionSites — the live run stops in state `suspended` at exactly the
+ *     pinned node, and the REJECTED outcome follows only its explicit reject
+ *     branch: it must NOT fail open into the approve body.
  *  2. normalExits — an `approved` resume continues through the approve body
  *     and the next sibling, and the trace's final node IS the pinned normal
  *     exit of the root fragment.
@@ -22,11 +21,9 @@
  *     terminal node with no lowered continuation: resuming executes nothing
  *     further and the run completes.
  *
- * This file is also the first consumer of the approval-resume host contract:
- * the compiler names the gate's conditional-edge predicate
- * `approval__<gateId>__predicate` and keys its branches `approved`/`rejected`,
- * so the host predicate must return one of those branch keys for the decision
- * to route. An unmatched key is fail-closed (no continuation) by design.
+ * The compiler binds both approval outcomes to exact successors. Runtime
+ * continuation consumes a checkpoint-bound receipt and never evaluates the
+ * legacy conditional-edge predicate.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -37,6 +34,7 @@ import type { CompileSuccess, LoweredPorts } from '@dzupagent/flow-compiler'
 import { InMemoryPipelineCheckpointStore, PipelineRuntime } from '@dzupagent/agent'
 import type { PipelineRuntimeEvent } from '@dzupagent/agent'
 import type { PipelineDefinition, PipelineNode } from '@dzupagent/core/pipeline'
+import { createPipelineInteractionResumeV1 } from '@dzupagent/runtime-contracts'
 
 const TEST_TOPICS: TopicRecord[] = [
   {
@@ -126,26 +124,11 @@ function suspendedNodeId(events: PipelineRuntimeEvent[]): string {
   return suspended.nodeId
 }
 
-/**
- * The compiler names the approval gate's conditional-edge predicate after the
- * gate id; the branch taken is the STRING the predicate returns (`approved` /
- * `rejected`), threaded through the runtime's boolean-typed predicate slot.
- */
-function approvalDecision(
-  gateId: string,
-  decision: 'approved' | 'rejected',
-): Record<string, (state: Record<string, unknown>) => boolean> {
-  return {
-    [`approval__${gateId}__predicate`]: () =>
-      decision as unknown as boolean,
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Fixtures — suspend-bearing flows that route to the `pipeline` target
 // ---------------------------------------------------------------------------
 
-/** action → approval (no onReject) → action: one suspended exit at the gate. */
+/** action → approval (two explicit outcomes) → action: one suspension site. */
 const APPROVAL_FLOW = {
   type: 'sequence',
   nodes: [
@@ -154,8 +137,9 @@ const APPROVAL_FLOW = {
       type: 'approval',
       question: 'proceed?',
       onApprove: [{ type: 'action', toolRef: 'topics.list', input: {} }],
+      onReject: [{ type: 'action', toolRef: 'topics.get', input: { id: 'topic-ts' } }],
     },
-    { type: 'action', toolRef: 'topics.get', input: { id: 'topic-ts' } },
+    { type: 'action', toolRef: 'topics.search', input: { query: 'after' } },
   ],
 }
 
@@ -197,9 +181,9 @@ describe('F-R2 trace agreement: suspended exits', () => {
   it('the live run suspends at exactly the pinned suspended-exit node', async () => {
     const { definition, ports } = await compileToPipeline(APPROVAL_FLOW)
 
-    // Compiled claim: exactly one suspended exit (the approval gate).
-    expect(ports.suspendedExits).toHaveLength(1)
-    const gateId = ports.suspendedExits[0] as string
+    // Compiled claim: exactly one interaction suspension site (the gate).
+    expect(ports.suspensionSites).toHaveLength(1)
+    const gateId = ports.suspensionSites[0] as string
 
     const { runtime, executedNames, events } = makeTraceHarness(definition)
     const result = await runtime.execute()
@@ -214,57 +198,67 @@ describe('F-R2 trace agreement: suspended exits', () => {
     expect(executedNames).not.toContain('topics.get')
   })
 
-  it('rejected with no onReject dead-ends at the gate — no fail-open into the continuation', async () => {
+  it('a rejected receipt follows only the explicit reject branch', async () => {
     const { definition, ports } = await compileToPipeline(APPROVAL_FLOW)
-    const gateId = ports.suspendedExits[0] as string
-
-    const harness = makeTraceHarness(
-      definition,
-      approvalDecision(gateId, 'rejected'),
-    )
+    const gateId = ports.suspensionSites[0] as string
+    const harness = makeTraceHarness(definition)
     const first = await harness.runtime.execute()
     expect(first.state).toBe('suspended')
 
     const checkpoint = await harness.store.load(first.runId)
     expect(checkpoint).not.toBeNull()
-    const resumed = await harness.runtime.resume(checkpoint!)
+    const pending = checkpoint?.pendingInteraction
+    expect(pending?.nodeId).toBe(gateId)
+    const receipt = createPipelineInteractionResumeV1({
+      ...pending!,
+      receiptId: 'flow-ports-rejected',
+      submittedAt: new Date(Date.parse(pending!.expiresAt) - 1).toISOString(),
+      response: { kind: 'approval', decision: 'rejected' },
+    })
+    const resumed = await harness.runtime.resumeInteraction(checkpoint!, receipt)
 
-    // The rejected outcome has no lowered continuation: the run ends without
-    // ever executing the approve body or the sibling after the approval.
+    // The rejected outcome executes its branch and the shared continuation,
+    // but never dispatches the approval branch.
     expect(resumed.state).toBe('completed')
     expect(harness.executedNames).not.toContain('topics.list')
-    expect(harness.executedNames).not.toContain('topics.get')
+    expect(harness.executedNames).toContain('topics.get')
   })
 })
 
 describe('F-R2 trace agreement: normal exits continue', () => {
   it('approving resumes through the body and the run ends at the pinned normal exit', async () => {
     const { definition, ports } = await compileToPipeline(APPROVAL_FLOW)
-    const gateId = ports.suspendedExits[0] as string
+    const gateId = ports.suspensionSites[0] as string
 
     // Compiled claim: the root fragment's single normal exit is the sibling
     // after the approval.
     expect(ports.normalExits).toHaveLength(1)
 
-    const harness = makeTraceHarness(
-      definition,
-      approvalDecision(gateId, 'approved'),
-    )
+    const harness = makeTraceHarness(definition)
     const first = await harness.runtime.execute()
     expect(first.state).toBe('suspended')
     const executedBeforeResume = harness.executedIds.length
+    const prefixNodeId = harness.executedIds[0]
 
     const checkpoint = await harness.store.load(first.runId)
-    const resumed = await harness.runtime.resume(checkpoint!)
+    const pending = checkpoint?.pendingInteraction
+    expect(pending?.nodeId).toBe(gateId)
+    const receipt = createPipelineInteractionResumeV1({
+      ...pending!,
+      receiptId: 'flow-ports-approved',
+      submittedAt: new Date(Date.parse(pending!.expiresAt) - 1).toISOString(),
+      response: { kind: 'approval', decision: 'approved' },
+    })
+    const resumed = await harness.runtime.resumeInteraction(checkpoint!, receipt)
 
     expect(resumed.state).toBe('completed')
     // The approve body ran, then the sibling after the approval.
     expect(harness.executedNames).toContain('topics.list')
-    expect(harness.executedNames).toContain('topics.get')
+    expect(harness.executedNames).not.toContain('topics.get')
     // Resume did not replay the pre-suspend prefix.
     expect(
-      harness.executedNames.slice(executedBeforeResume),
-    ).not.toContain('topics.search')
+      harness.executedIds.slice(executedBeforeResume),
+    ).not.toContain(prefixNodeId)
     // The trace's final node IS the pinned normal exit of the root fragment.
     expect(harness.executedIds[harness.executedIds.length - 1]).toBe(
       ports.normalExits[0],
@@ -401,6 +395,7 @@ describe('F-R2 trace agreement: ports reference real artifact nodes', () => {
         ports.entryNodeIds,
         ports.normalExits,
         ports.suspendedExits,
+        ports.suspensionSites,
         ports.terminalExits,
         ports.errorExits,
       ]) {

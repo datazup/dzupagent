@@ -91,6 +91,13 @@ describe('generic host tool registry', () => {
               },
             },
           ],
+          onReject: [
+            {
+              type: 'complete',
+              id: 'rejected',
+              result: 'rejected',
+            },
+          ],
         },
       ],
     }

@@ -100,7 +100,11 @@ export function lowerPipelineLoop(input: LowerPipelineLoopInput): {
     // same document ships different artifact versions per target. Unifying
     // changes stored artifacts — deferred to a deliberate versioning slice.
     version: input.version ?? "0.0.0",
-    schemaVersion: "1.0.0",
+    schemaVersion: result.nodes.some(
+      (node) => (node.type === "gate" || node.type === "suspend") && node.interaction !== undefined
+    )
+      ? "1.1.0"
+      : "1.0.0",
     entryNodeId: entryNode.id,
     nodes: result.nodes,
     edges: result.edges,

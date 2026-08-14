@@ -103,7 +103,11 @@ export function lowerPipelineFlat(input: LowerPipelineFlatInput): {
     id: ctx.idGen !== undefined ? ctx.idGen() : crypto.randomUUID(),
     name: input.name ?? "flow-pipeline",
     version: input.version ?? "0.1.0",
-    schemaVersion: "1.0.0",
+    schemaVersion: result.nodes.some(
+      (node) => (node.type === "gate" || node.type === "suspend") && node.interaction !== undefined
+    )
+      ? "1.1.0"
+      : "1.0.0",
     entryNodeId: firstNode.id,
     nodes: result.nodes,
     edges: result.edges,

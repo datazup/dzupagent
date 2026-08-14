@@ -15,6 +15,7 @@ import type {
   PipelineCheckpointStore,
   PipelineCheckpointSummary,
 } from "@dzupagent/core/pipeline";
+import { PipelineCheckpointSchema } from "@dzupagent/core/pipeline";
 import type { LoopState } from "./pipeline-runtime/executor-state-types.js";
 
 // ---------------------------------------------------------------------------
@@ -63,6 +64,11 @@ interface CheckpointRow {
   expires_at: Date | string | null;
   recovery_attempts_used: number | null;
   provider_session_refs: PipelineCheckpoint["providerSessionRefs"] | null;
+  interaction_state: {
+    pendingInteraction?: PipelineCheckpoint["pendingInteraction"];
+    interactionReceipts?: PipelineCheckpoint["interactionReceipts"];
+    interactionResumeCursor?: PipelineCheckpoint["interactionResumeCursor"];
+  } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -124,6 +130,7 @@ export class PostgresPipelineCheckpointStore
         fork_state JSONB,
         recovery_attempts_used INTEGER DEFAULT 0,
         provider_session_refs JSONB,
+        interaction_state JSONB,
         state JSONB NOT NULL,
         suspended_at_node_id TEXT,
         budget_state JSONB,
@@ -142,6 +149,7 @@ export class PostgresPipelineCheckpointStore
     // enforced across process restarts, not just within a single run.
     const addRecoveryAttemptsCol = `ALTER TABLE ${this.tableName} ADD COLUMN IF NOT EXISTS recovery_attempts_used INTEGER DEFAULT 0`;
     const addProviderSessionRefsCol = `ALTER TABLE ${this.tableName} ADD COLUMN IF NOT EXISTS provider_session_refs JSONB`;
+    const addInteractionStateCol = `ALTER TABLE ${this.tableName} ADD COLUMN IF NOT EXISTS interaction_state JSONB`;
 
     await this.client.query(createTable);
     await this.client.query(addIdempotencyCol);
@@ -149,6 +157,7 @@ export class PostgresPipelineCheckpointStore
     await this.client.query(addForkStateCol);
     await this.client.query(addRecoveryAttemptsCol);
     await this.client.query(addProviderSessionRefsCol);
+    await this.client.query(addInteractionStateCol);
     await this.client.query(createRunIdx);
     await this.client.query(createExpiryIdx);
   }
@@ -163,9 +172,9 @@ export class PostgresPipelineCheckpointStore
         pipeline_run_id, pipeline_id, version, schema_version,
         completed_node_ids, state, suspended_at_node_id, budget_state,
         created_at, expires_at, node_idempotency_keys, loop_state, fork_state,
-        recovery_attempts_used, provider_session_refs
+        recovery_attempts_used, provider_session_refs, interaction_state
       )
-      VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb, $9, $10, $11::jsonb, $12::jsonb, $13::jsonb, $14, $15::jsonb)
+      VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb, $9, $10, $11::jsonb, $12::jsonb, $13::jsonb, $14, $15::jsonb, $16::jsonb)
       ON CONFLICT (pipeline_run_id, version) DO UPDATE SET
         pipeline_id = EXCLUDED.pipeline_id,
         schema_version = EXCLUDED.schema_version,
@@ -179,7 +188,8 @@ export class PostgresPipelineCheckpointStore
         loop_state = EXCLUDED.loop_state,
         fork_state = EXCLUDED.fork_state,
         recovery_attempts_used = EXCLUDED.recovery_attempts_used,
-        provider_session_refs = EXCLUDED.provider_session_refs
+        provider_session_refs = EXCLUDED.provider_session_refs,
+        interaction_state = EXCLUDED.interaction_state
     `;
 
     await this.client.query(sql, [
@@ -201,6 +211,15 @@ export class PostgresPipelineCheckpointStore
       checkpoint.recoveryAttemptsUsed ?? 0,
       checkpoint.providerSessionRefs
         ? JSON.stringify(checkpoint.providerSessionRefs)
+        : null,
+      checkpoint.pendingInteraction !== undefined ||
+      checkpoint.interactionReceipts !== undefined ||
+      checkpoint.interactionResumeCursor !== undefined
+        ? JSON.stringify({
+            pendingInteraction: checkpoint.pendingInteraction,
+            interactionReceipts: checkpoint.interactionReceipts,
+            interactionResumeCursor: checkpoint.interactionResumeCursor,
+          })
         : null,
     ]);
   }
@@ -319,7 +338,7 @@ function rowToCheckpoint(row: CheckpointRow): PipelineCheckpoint {
     pipelineRunId: row.pipeline_run_id,
     pipelineId: row.pipeline_id,
     version: row.version,
-    schemaVersion: row.schema_version as "1.0.0",
+    schemaVersion: row.schema_version as PipelineCheckpoint["schemaVersion"],
     completedNodeIds: Array.isArray(row.completed_node_ids)
       ? row.completed_node_ids
       : [],
@@ -349,7 +368,26 @@ function rowToCheckpoint(row: CheckpointRow): PipelineCheckpoint {
   if (Array.isArray(row.provider_session_refs)) {
     cp.providerSessionRefs = row.provider_session_refs;
   }
-  return cp;
+  if (row.interaction_state && typeof row.interaction_state === "object") {
+    if (row.interaction_state.pendingInteraction !== undefined) {
+      cp.pendingInteraction = row.interaction_state.pendingInteraction;
+    }
+    if (row.interaction_state.interactionReceipts !== undefined) {
+      cp.interactionReceipts = row.interaction_state.interactionReceipts;
+    }
+    if (row.interaction_state.interactionResumeCursor !== undefined) {
+      cp.interactionResumeCursor = row.interaction_state.interactionResumeCursor;
+    }
+  }
+  const parsed = PipelineCheckpointSchema.safeParse(cp);
+  if (!parsed.success) {
+    throw new Error(
+      `Invalid pipeline checkpoint row: ${parsed.error.issues
+        .map((issue) => issue.message)
+        .join("; ")}`,
+    );
+  }
+  return parsed.data as PipelineCheckpoint;
 }
 
 function toIsoString(value: Date | string): string {

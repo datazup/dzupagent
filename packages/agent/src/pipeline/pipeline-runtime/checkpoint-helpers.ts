@@ -3,7 +3,12 @@ import type {
   PipelineCheckpointEventRecord,
   PipelineCheckpointExecutionLog,
   PipelineCheckpointProviderSessionRef,
+  PipelineInteractionResumeCursor,
 } from "@dzupagent/core/pipeline";
+import type {
+  PipelineInteractionResumeV1,
+  PipelinePendingInteractionV1,
+} from "@dzupagent/runtime-contracts";
 import { omitUndefined } from "../../utils/exact-optional.js";
 import type { LoopState } from "./executor-state-types.js";
 
@@ -37,12 +42,20 @@ export function createPipelineCheckpoint(options: {
   events?: PipelineCheckpointEventRecord[] | undefined;
   executionLog?: PipelineCheckpointExecutionLog | undefined;
   providerSessionRefs?: PipelineCheckpointProviderSessionRef[] | undefined;
+  pendingInteraction?: PipelinePendingInteractionV1;
+  interactionReceipts?: Record<string, PipelineInteractionResumeV1>;
+  interactionResumeCursor?: PipelineInteractionResumeCursor;
 }): PipelineCheckpoint {
   return omitUndefined({
     pipelineRunId: options.pipelineRunId,
     pipelineId: options.pipelineId,
     version: options.version,
-    schemaVersion: "1.0.0",
+    schemaVersion:
+      options.pendingInteraction !== undefined ||
+      options.interactionResumeCursor !== undefined ||
+      Object.keys(options.interactionReceipts ?? {}).length > 0
+        ? "1.1.0"
+        : "1.0.0",
     completedNodeIds: [...options.completedNodeIds],
     // Snapshot the map so later mutations don't leak into a saved checkpoint.
     nodeIdempotencyKeys:
@@ -60,6 +73,17 @@ export function createPipelineCheckpoint(options: {
         : undefined,
     state: structuredClone(options.state),
     suspendedAtNodeId: options.suspendedAtNodeId,
+    pendingInteraction: options.pendingInteraction
+      ? structuredClone(options.pendingInteraction)
+      : undefined,
+    interactionReceipts:
+      options.interactionReceipts &&
+      Object.keys(options.interactionReceipts).length > 0
+        ? structuredClone(options.interactionReceipts)
+        : undefined,
+    interactionResumeCursor: options.interactionResumeCursor
+      ? structuredClone(options.interactionResumeCursor)
+      : undefined,
     budgetState: options.budgetState
       ? structuredClone(options.budgetState)
       : undefined,

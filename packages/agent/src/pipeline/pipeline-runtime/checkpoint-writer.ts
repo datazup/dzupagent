@@ -52,6 +52,9 @@ export interface CheckpointWriteInput {
   budgetTracker: BudgetTrackerState;
   /** Node id the run is suspended at, when writing a suspend checkpoint. */
   suspendedAtNodeId?: string;
+  pendingInteraction?: PipelineCheckpoint["pendingInteraction"];
+  interactionReceipts?: PipelineCheckpoint["interactionReceipts"];
+  interactionResumeCursor?: PipelineCheckpoint["interactionResumeCursor"];
   /** Emit a runtime event (typically `config.onEvent`). */
   emit: (event: PipelineRuntimeEvent) => void;
 }
@@ -64,7 +67,7 @@ export interface CheckpointWriteInput {
  */
 export async function writeCheckpoint(
   input: CheckpointWriteInput
-): Promise<void> {
+): Promise<PipelineCheckpoint | undefined> {
   const {
     config,
     runId,
@@ -79,11 +82,14 @@ export async function writeCheckpoint(
     recoveryAttemptsUsed,
     budgetTracker,
     suspendedAtNodeId,
+    pendingInteraction,
+    interactionReceipts,
+    interactionResumeCursor,
     emit,
   } = input;
 
   const store = config.checkpointStore;
-  if (!store) return;
+  if (!store) return undefined;
 
   versionTracker.version++;
   const savedEvent = checkpointSavedEvent(runId, versionTracker.version);
@@ -109,6 +115,11 @@ export async function writeCheckpoint(
         }
       : {}),
     ...(suspendedAtNodeId !== undefined ? { suspendedAtNodeId } : {}),
+    ...(pendingInteraction !== undefined ? { pendingInteraction } : {}),
+    ...(interactionReceipts !== undefined ? { interactionReceipts } : {}),
+    ...(interactionResumeCursor !== undefined
+      ? { interactionResumeCursor }
+      : {}),
     recoveryAttemptsUsed,
   });
   await store.save(checkpoint);
@@ -119,4 +130,5 @@ export async function writeCheckpoint(
     config.definition.checkpoint?.retention
   );
   emit(savedEvent);
+  return checkpoint;
 }
