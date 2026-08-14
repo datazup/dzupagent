@@ -235,13 +235,15 @@ export function validatePipeline(definition: PipelineDefinition): PipelineValida
         for (const [kind, exitIds] of exitInventories) {
           for (const exitId of exitIds) {
             const previousKind = classifiedExitIds.get(exitId)
-            if (previousKind !== undefined) {
+            const isContinuingErrorExit =
+              previousKind === 'normal' && kind === 'error'
+            if (previousKind !== undefined && !isContinuingErrorExit) {
               errors.push({
                 code: 'INVALID_LOOP_BODY_GRAPH',
                 message: `LoopNode "${node.id}" bodyGraph exit "${exitId}" is classified as both ${previousKind} and ${kind}`,
                 nodeId: node.id,
               })
-            } else {
+            } else if (previousKind === undefined) {
               classifiedExitIds.set(exitId, kind)
             }
           }

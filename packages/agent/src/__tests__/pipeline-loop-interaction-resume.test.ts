@@ -70,6 +70,59 @@ function loopDefinition(): PipelineDefinition {
   };
 }
 
+function terminalLoopDefinition(): PipelineDefinition {
+  const interaction = createPipelineInteractionSpecV1({
+    kind: "approval",
+    authoredNodeId: "review",
+    authoredPath: "root.body[1]",
+    question: "Finish the run?",
+    choices: [],
+    outcomeToSuccessor: { approved: "complete", rejected: "rejected" },
+    requestSchema: { kind: "approval", decisions: ["approved", "rejected"] },
+  });
+  const loop: LoopNode = {
+    id: "loop",
+    type: "loop",
+    bodyNodeIds: ["prefix", "review", "complete", "rejected"],
+    bodyGraph: {
+      entryNodeId: "prefix",
+      normalExitNodeIds: ["rejected"],
+      suspendedExitNodeIds: [],
+      suspensionSiteNodeIds: ["review"],
+      terminalExitNodeIds: ["complete"],
+      errorExitNodeIds: [],
+    },
+    maxIterations: 1,
+    continuePredicateName: "continue-loop",
+  };
+  return {
+    id: "terminal-loop-interaction",
+    name: "terminal loop interaction",
+    version: "1",
+    schemaVersion: "1.1.0",
+    entryNodeId: "loop",
+    checkpointStrategy: "after_each_node",
+    nodes: [
+      loop,
+      { id: "prefix", type: "agent", agentId: "prefix" },
+      { id: "review", type: "gate", gateType: "approval", interaction },
+      { id: "complete", type: "suspend", description: "done" },
+      { id: "rejected", type: "agent", agentId: "rejected" },
+      { id: "after", type: "agent", agentId: "after" },
+    ],
+    edges: [
+      { type: "sequential", sourceNodeId: "prefix", targetNodeId: "review" },
+      {
+        type: "conditional",
+        sourceNodeId: "review",
+        predicateName: "must-not-run",
+        branches: { approved: "complete", rejected: "rejected" },
+      },
+      { type: "sequential", sourceNodeId: "loop", targetNodeId: "after" },
+    ],
+  };
+}
+
 function compositeLoopDefinition(
   shape: "branch" | "catch",
 ): PipelineDefinition {
@@ -178,6 +231,59 @@ function compositeLoopDefinition(
           { type: "sequential", sourceNodeId: "clarify", targetNodeId: "handled" },
           { type: "sequential", sourceNodeId: "loop", targetNodeId: "after" },
         ],
+  };
+}
+
+function tryBodyLoopDefinition(): PipelineDefinition {
+  const interaction = createPipelineInteractionSpecV1({
+    kind: "clarification",
+    authoredNodeId: "clarify",
+    authoredPath: "root.body[0].body[0]",
+    question: "How should the try body continue?",
+    choices: [],
+    outputKey: "tryAnswer",
+    requestSchema: {
+      kind: "clarification",
+      response: "text",
+      minLength: 1,
+      maxLength: 256,
+    },
+  });
+  const loop: LoopNode = {
+    id: "loop",
+    type: "loop",
+    bodyNodeIds: ["clarify", "handled", "recovered"],
+    bodyGraph: {
+      entryNodeId: "clarify",
+      normalExitNodeIds: ["handled", "recovered"],
+      suspendedExitNodeIds: [],
+      suspensionSiteNodeIds: ["clarify"],
+      terminalExitNodeIds: [],
+      errorExitNodeIds: ["recovered"],
+    },
+    maxIterations: 1,
+    continuePredicateName: "stop-loop",
+  };
+  return {
+    id: "loop-try-interaction",
+    name: "loop try interaction",
+    version: "1",
+    schemaVersion: "1.1.0",
+    entryNodeId: "loop",
+    checkpointStrategy: "after_each_node",
+    nodes: [
+      loop,
+      { id: "clarify", type: "suspend", interaction },
+      { id: "handled", type: "agent", agentId: "handled" },
+      { id: "recovered", type: "agent", agentId: "recovered" },
+      { id: "after", type: "agent", agentId: "after" },
+    ],
+    edges: [
+      { type: "sequential", sourceNodeId: "clarify", targetNodeId: "handled" },
+      { type: "error", sourceNodeId: "clarify", targetNodeId: "recovered" },
+      { type: "error", sourceNodeId: "handled", targetNodeId: "recovered" },
+      { type: "sequential", sourceNodeId: "loop", targetNodeId: "after" },
+    ],
   };
 }
 
@@ -327,6 +433,37 @@ describe("structured loop interaction resume", () => {
     },
   );
 
+  it("resumes an interaction in a try body without entering its catch path", async () => {
+    const calls: string[] = [];
+    const store = new InMemoryPipelineCheckpointStore();
+    const runtime = new PipelineRuntime({
+      definition: tryBodyLoopDefinition(),
+      checkpointStore: store,
+      interaction: { now: () => new Date("2026-08-14T20:00:00.000Z") },
+      predicates: { "stop-loop": () => false },
+      nodeExecutor: async (nodeId) => {
+        calls.push(nodeId);
+        return { nodeId, output: nodeId, durationMs: 1 };
+      },
+    });
+    await runtime.execute({}, { runId: "loop-try-run" });
+    const checkpoint = (await store.load("loop-try-run"))!;
+    const receipt = createPipelineInteractionResumeV1({
+      ...checkpoint.pendingInteraction!,
+      receiptId: "try-receipt",
+      submittedAt: "2026-08-14T20:00:01.000Z",
+      response: { kind: "clarification", value: "continue normally" },
+    });
+
+    await expect(
+      runtime.resumeInteraction(checkpoint, receipt),
+    ).resolves.toMatchObject({ state: "completed" });
+    expect(calls).toEqual(["handled", "after"]);
+    expect((await store.load("loop-try-run"))?.state).toMatchObject({
+      tryAnswer: "continue normally",
+    });
+  });
+
   it("rejects a corrupt retained loop binding before successor dispatch", async () => {
     const calls: string[] = [];
     const store = new CorruptLoopInteractionStore();
@@ -354,6 +491,43 @@ describe("structured loop interaction resume", () => {
     await expect(
       runtime.resumeInteraction(checkpoint, receipt),
     ).rejects.toMatchObject({ code: "INVALID_PENDING_INTERACTION" });
+    expect(calls).toEqual(["prefix"]);
+  });
+
+  it("rejects nested successor-cursor drift from the committed decision", async () => {
+    const calls: string[] = [];
+    const store = new LoopInteractionCommitFailureStore("save-then-throw");
+    const runtime = new PipelineRuntime({
+      definition: loopDefinition(),
+      checkpointStore: store,
+      interaction: { now: () => new Date("2026-08-14T20:00:00.000Z") },
+      predicates: { "continue-loop": () => false },
+      nodeExecutor: async (nodeId) => {
+        calls.push(nodeId);
+        return { nodeId, output: nodeId, durationMs: 1 };
+      },
+    });
+    await runtime.execute({}, { runId: "nested-cursor-drift" });
+    const suspended = (await store.load("nested-cursor-drift"))!;
+    const receipt = createPipelineInteractionResumeV1({
+      ...suspended.pendingInteraction!,
+      receiptId: "nested-cursor-receipt",
+      submittedAt: "2026-08-14T20:00:01.000Z",
+      response: { kind: "approval", decision: "approved" },
+    });
+    await expect(
+      runtime.resumeInteraction(suspended, receipt),
+    ).rejects.toThrow("injected loop interaction commit failure");
+    const corrupt = structuredClone(
+      (await store.load("nested-cursor-drift"))!,
+    );
+    const graph = corrupt.loopState?.["loop"]?.bodyGraphState;
+    if (graph === undefined) throw new Error("expected retained loop graph");
+    graph.nextNodeId = "rejected";
+
+    await expect(runtime.resume(corrupt)).rejects.toMatchObject({
+      code: "INTERACTION_BINDING_MISMATCH",
+    });
     expect(calls).toEqual(["prefix"]);
   });
 
@@ -404,6 +578,63 @@ describe("structured loop interaction resume", () => {
       expect(calls).toEqual(["prefix", "approved", "after"]);
     },
   );
+
+  it("keeps a committed terminal outcome authoritative when its save then throws", async () => {
+    const calls: string[] = [];
+    const store = new TerminalLoopSaveThenThrowStore();
+    const definition = terminalLoopDefinition();
+    const runtime = new PipelineRuntime({
+      definition,
+      checkpointStore: store,
+      interaction: { now: () => new Date("2026-08-14T20:00:00.000Z") },
+      predicates: {
+        "continue-loop": () => true,
+        "must-not-run": () => {
+          throw new Error("approval predicate must not run");
+        },
+      },
+      nodeExecutor: async (nodeId) => {
+        calls.push(nodeId);
+        return { nodeId, output: nodeId, durationMs: 1 };
+      },
+    });
+    await runtime.execute({}, { runId: "terminal-save-then-throw" });
+    const suspended = (await store.load("terminal-save-then-throw"))!;
+    const receipt = createPipelineInteractionResumeV1({
+      ...suspended.pendingInteraction!,
+      receiptId: "terminal-receipt",
+      submittedAt: "2026-08-14T20:00:01.000Z",
+      response: { kind: "approval", decision: "approved" },
+    });
+
+    await expect(
+      runtime.resumeInteraction(suspended, receipt),
+    ).resolves.toMatchObject({ state: "failed" });
+    expect(calls).toEqual(["prefix"]);
+    const committedTerminal = (await store.load("terminal-save-then-throw"))!;
+    expect(committedTerminal.interactionResumeCursor).toBeUndefined();
+    expect(committedTerminal.completedNodeIds).toContain("loop");
+    expect(
+      committedTerminal.loopState?.["loop"]?.bodyGraphState?.outcome,
+    ).toEqual({ kind: "terminal", exitNodeId: "complete" });
+
+    const restarted = new PipelineRuntime({
+      definition,
+      checkpointStore: store,
+      predicates: { "continue-loop": () => true },
+      nodeExecutor: async (nodeId) => {
+        calls.push(nodeId);
+        return { nodeId, output: nodeId, durationMs: 1 };
+      },
+    });
+    await expect(restarted.resume(committedTerminal)).resolves.toMatchObject({
+      state: "completed",
+    });
+    await expect(
+      restarted.resumeInteraction(suspended, receipt),
+    ).resolves.toMatchObject({ state: "completed" });
+    expect(calls).toEqual(["prefix"]);
+  });
 });
 
 class LoopInteractionCommitFailureStore extends InMemoryPipelineCheckpointStore {
@@ -446,5 +677,19 @@ class CorruptLoopInteractionStore extends InMemoryPipelineCheckpointStore {
         },
       },
     };
+  }
+}
+
+class TerminalLoopSaveThenThrowStore extends InMemoryPipelineCheckpointStore {
+  private failed = false;
+
+  override async save(checkpoint: PipelineCheckpoint): Promise<void> {
+    const outcome = checkpoint.loopState?.["loop"]?.bodyGraphState?.outcome;
+    if (!this.failed && outcome?.kind === "terminal") {
+      this.failed = true;
+      await super.save(checkpoint);
+      throw new Error("injected committed terminal transport failure");
+    }
+    await super.save(checkpoint);
   }
 }

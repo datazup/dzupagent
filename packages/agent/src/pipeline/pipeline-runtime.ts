@@ -745,6 +745,22 @@ export class PipelineRuntime {
     const expectedNextNodeId = receipt.scope.kind === "pipeline"
       ? selectedSuccessorNodeId
       : receipt.scope.loopNodeId;
+    let exactLoopCursor = true;
+    if (receipt.scope.kind === "loop") {
+      const loop = checkpoint.loopState?.[receipt.scope.loopNodeId];
+      const graph = loop?.bodyGraphState;
+      exactLoopCursor =
+        loop?.iteration === receipt.scope.iteration &&
+        graph !== undefined &&
+        (selectedSuccessorNodeId === undefined
+          ? graph.completed &&
+            graph.outcome?.kind === "normal" &&
+            graph.outcome.exitNodeId === receipt.nodeId
+          : graph.completedNodeIds.includes(selectedSuccessorNodeId) ||
+            (!graph.completed &&
+              graph.outcome === undefined &&
+              graph.nextNodeId === selectedSuccessorNodeId));
+    }
     if (
       cursor.receiptHash !== receipt.receiptHash ||
       cursor.definitionDigest !== receipt.definitionDigest ||
@@ -752,6 +768,7 @@ export class PipelineRuntime {
       JSON.stringify(cursor.scope) !== JSON.stringify(receipt.scope) ||
       cursor.selectedSuccessorNodeId !== selectedSuccessorNodeId ||
       cursor.nextNodeId !== expectedNextNodeId ||
+      !exactLoopCursor ||
       (selectedSuccessorNodeId !== undefined &&
         !this.nodeMap.has(selectedSuccessorNodeId)) ||
       (expectedNextNodeId !== undefined && !this.nodeMap.has(expectedNextNodeId))

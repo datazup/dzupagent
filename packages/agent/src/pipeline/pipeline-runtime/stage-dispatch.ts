@@ -259,6 +259,11 @@ export async function dispatchLoopStage(
         progress.completedIterations,
         progress.state
       );
+      clearCommittedLoopInteractionCursor(
+        frame,
+        loopNode.id,
+        progress.state
+      );
       if (progress.mandatory === true) {
         await persistCheckpointWithIntegrityBoundary({
           nodeId: loopNode.id,
@@ -270,6 +275,7 @@ export async function dispatchLoopStage(
       }
     },
     onIterationComplete: async (completedIterations, progress) => {
+      clearCommittedLoopInteractionCursor(frame, loopNode.id);
       frame.loopState[loopNode.id] = {
         iteration: completedIterations,
         ...(progress?.previousOutput !== undefined
@@ -422,6 +428,25 @@ function retainBodyGraphState(
       ? { progressDigest: previousBoundary.progressDigest }
       : {}),
   };
+}
+
+function clearCommittedLoopInteractionCursor(
+  frame: RunFrame,
+  loopNodeId: string,
+  state?: NonNullable<LoopState[string]["bodyGraphState"]>
+): void {
+  const cursor = frame.interactionResumeCursor;
+  if (cursor?.scope.kind !== "loop" || cursor.scope.loopNodeId !== loopNodeId) {
+    return;
+  }
+  const selected = cursor.selectedSuccessorNodeId;
+  const selectedCommitted = selected === undefined
+    ? state === undefined ||
+      (state.completed &&
+        state.outcome?.kind === "normal" &&
+        state.outcome.exitNodeId === cursor.nodeId)
+    : state === undefined || state.completedNodeIds.includes(selected);
+  if (selectedCommitted) delete frame.interactionResumeCursor;
 }
 
 function loopBodyResultsForCheckpoint(

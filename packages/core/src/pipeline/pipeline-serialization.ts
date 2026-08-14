@@ -522,6 +522,30 @@ export const PipelineCheckpointSchema = z.object({
         message: "interaction resume cursor does not match its committed receipt",
       });
     }
+    if (
+      cursor.scope.kind === "pipeline" &&
+      cursor.nextNodeId !== cursor.selectedSuccessorNodeId
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["interactionResumeCursor", "nextNodeId"],
+        message: "pipeline interaction cursor must resume at its selected successor",
+      });
+    }
+    if (cursor.scope.kind === "loop") {
+      const loop = checkpoint.loopState?.[cursor.scope.loopNodeId];
+      if (
+        cursor.nextNodeId !== cursor.scope.loopNodeId ||
+        loop?.iteration !== cursor.scope.iteration ||
+        loop?.bodyGraphState === undefined
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["interactionResumeCursor", "scope"],
+          message: "loop interaction cursor must bind the exact retained loop iteration",
+        });
+      }
+    }
   }
 });
 
