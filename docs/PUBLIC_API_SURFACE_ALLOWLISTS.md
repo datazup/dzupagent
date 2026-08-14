@@ -214,7 +214,7 @@ Root index: `packages/core/src/index.ts`
 Root index: `packages/agent/src/index.ts`
 
 - Stable root sources: `13`
-- Deprecated transitional root sources: `92`
+- Deprecated transitional root sources: `93`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x with migration to runtime/workflow/tools/compat before a future 1.0 root contraction. The experimental ./runner subpath is provider-free and does not replace legacy execution paths until durable, host-composition, mutation-effect, and compatibility conformance are complete.
 
@@ -307,6 +307,7 @@ Root index: `packages/agent/src/index.ts`
 | `deprecated-transitional` | `./pipeline/pipeline-validator.js` | 1 | `prefix:./pipeline/` | `validatePipeline` |
 | `deprecated-transitional` | `./pipeline/in-memory-checkpoint-store.js` | 1 | `prefix:./pipeline/` | `InMemoryPipelineCheckpointStore` |
 | `deprecated-transitional` | `./pipeline/pipeline-runtime.js` | 1 | `prefix:./pipeline/` | `PipelineRuntime` |
+| `deprecated-transitional` | `./pipeline/pipeline-interaction-runtime.js` | 2 | `prefix:./pipeline/` | `PipelineInteractionRuntimeError`, `PipelineInteractionRuntimeErrorCode` |
 | `deprecated-transitional` | `./pipeline/runtime-tool-handlers.js` | 5 | `prefix:./pipeline/` | `RUNTIME_TOOL_PREFIX`, `createRuntimeToolNodeExecutor`, `isRuntimeToolNode`, `RuntimeToolHandler` |
 | `deprecated-transitional` | `./pipeline/loop-executor.js` | 4 | `prefix:./pipeline/` | `executeLoop`, `stateFieldTruthy`, `qualityBelow`, `hasErrors` |
 | `deprecated-transitional` | `./pipeline/pipeline-runtime-types.js` | 12 | `prefix:./pipeline/` | `PipelineState`, `NodeResult`, `PipelineRunResult`, `NodeExecutor` |
