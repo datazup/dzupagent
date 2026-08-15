@@ -31,6 +31,7 @@ function fixture(): { root: string; profile: AgentExecutionHarnessProfileV1; eve
     workRoot: root,
     visibleTools: ['fs.read', 'fs.write', 'process.spawn', 'agent.output', 'agent.progress', 'agent.compact'],
     allowedRelativePaths: ['seed.txt', 'src/**'],
+    allowedCommandRefs: ['fixture-child'],
     limits: { maxDurationMs: 60_000, maxIterations: 20, maxOutputBytes: 1_024, maxChildProcesses: 2 },
     progress: { heartbeatIntervalMs: 1_000, maxSilenceMs: 10_000 },
   })
@@ -77,6 +78,7 @@ describe('AgentExecutionHarnessProfileV1', () => {
     })
     expect(result.status).toBe('completed')
     expect(result.activeChildProcesses).toBe(0)
+    expect(result.childCleanupVerified).toBe(true)
     expect(result.rawPromptRetained).toBe(false)
     expect(result.rawToolArgumentsRetained).toBe(false)
     expect(readFileSync(path.join(f.root, 'seed.txt'), 'utf8')).toBe('updated\n')
@@ -90,6 +92,7 @@ describe('AgentExecutionHarnessProfileV1', () => {
     ['outside root', { kind: 'write', tool: 'fs.write', path: '../escape.txt', content: 'escape' } as const, 'HARNESS_PATH_OUTSIDE_ROOT'],
     ['forbidden ref', { kind: 'ref', tool: 'fs.write', operation: 'update-ref' } as const, 'HARNESS_REF_OPERATION_FORBIDDEN'],
     ['hidden tool', { kind: 'output', tool: 'not-visible', byteLength: 1 } as const, 'HARNESS_TOOL_HIDDEN'],
+    ['unsealed command', { kind: 'spawn', tool: 'process.spawn', commandRef: 'not-admitted' } as const, 'HARNESS_COMMAND_REF_FORBIDDEN'],
   ])('rejects hostile %s operations', async (_label, action, reason) => {
     const f = fixture()
     const result = await runAgentExecutionHarness({ profile: f.profile, ports: f.ports, actions: [action] })
@@ -124,6 +127,7 @@ describe('AgentExecutionHarnessProfileV1', () => {
     expect(readFileSync(path.join(f.root, 'seed.txt'), 'utf8')).toBe('seed\n')
   })
 
+  // PCC_FAULT_PROOF:agent_execution_validation:before
   it('terminates and waits for every child when cancellation arrives', async () => {
     const f = fixture()
     const controller = new AbortController()
@@ -152,6 +156,81 @@ describe('AgentExecutionHarnessProfileV1', () => {
     expect(result.reasonCodes).toEqual(['HARNESS_CANCELLED'])
     expect(result.activeChildProcesses).toBe(0)
     expect(lifecycle).toEqual(['terminate', 'wait'])
+  })
+
+  // PCC_FAULT_PROOF:agent_execution_validation:after
+  it('attempts both terminate and wait and reports failed cleanup without claiming success', async () => {
+    const f = fixture()
+    const lifecycle: string[] = []
+    const result = await runAgentExecutionHarness({
+      profile: f.profile,
+      ports: {
+        ...f.ports,
+        spawnChild: async () => ({
+          id: 'child-cleanup-failure',
+          terminate: () => { lifecycle.push('terminate'); throw new Error('terminate failed') },
+          wait: () => { lifecycle.push('wait') },
+        }),
+      },
+      actions: [{ kind: 'spawn', tool: 'process.spawn', commandRef: 'fixture-child' }],
+    })
+    expect(result.status).toBe('failed')
+    expect(result.reasonCodes).toEqual(['HARNESS_CHILD_CLEANUP_FAILED'])
+    expect(result.childCleanupVerified).toBe(false)
+    expect(result.activeChildProcesses).toBe(1)
+    expect(lifecycle).toEqual(['terminate', 'wait'])
+  })
+
+  it('rejects duplicate child identities, cleans the duplicate, and retains the original for final cleanup', async () => {
+    const f = fixture()
+    const lifecycle: string[] = []
+    const result = await runAgentExecutionHarness({
+      profile: f.profile,
+      ports: {
+        ...f.ports,
+        spawnChild: async () => ({
+          id: 'duplicate-child',
+          terminate: () => { lifecycle.push('terminate') },
+          wait: () => { lifecycle.push('wait') },
+        }),
+      },
+      actions: [
+        { kind: 'spawn', tool: 'process.spawn', commandRef: 'fixture-child' },
+        { kind: 'spawn', tool: 'process.spawn', commandRef: 'fixture-child' },
+      ],
+    })
+    expect(result.status).toBe('rejected')
+    expect(result.reasonCodes).toEqual(['HARNESS_PORT_FAILED'])
+    expect(result.childCleanupVerified).toBe(true)
+    expect(result.activeChildProcesses).toBe(0)
+    expect(lifecycle).toEqual(['terminate', 'wait', 'terminate', 'wait'])
+  })
+
+  it('rejects a write port that does not materialize the exact requested bytes', async () => {
+    const f = fixture()
+    const stamp = computeAgentExecutionReadStamp(readFileSync(path.join(f.root, 'seed.txt')))
+    const result = await runAgentExecutionHarness({
+      profile: f.profile,
+      ports: { ...f.ports, writeFile: () => {} },
+      actions: [
+        { kind: 'read', tool: 'fs.read', path: 'seed.txt' },
+        { kind: 'write', tool: 'fs.write', path: 'seed.txt', content: 'not-materialized', expectedReadStamp: stamp },
+      ],
+    })
+    expect(result.status).toBe('rejected')
+    expect(result.reasonCodes).toEqual(['HARNESS_PORT_FAILED'])
+    expect(readFileSync(path.join(f.root, 'seed.txt'), 'utf8')).toBe('seed\n')
+  })
+
+  it('rejects semantically duplicated profiles with non-canonical tool or command ordering', () => {
+    const f = fixture()
+    const tools = { ...f.profile, visibleTools: [...f.profile.visibleTools].reverse() }
+    expect(validateAgentExecutionHarnessProfileV1(tools).valid).toBe(false)
+    const commands = {
+      ...f.profile,
+      mutationPolicy: { ...f.profile.mutationPolicy, allowedCommandRefs: ['z-command', 'a-command'] },
+    }
+    expect(validateAgentExecutionHarnessProfileV1(commands).valid).toBe(false)
   })
 
   it('enforces output, iteration, duration, and progress-silence bounds', async () => {

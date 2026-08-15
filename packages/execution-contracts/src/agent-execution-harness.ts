@@ -24,6 +24,7 @@ export interface AgentExecutionHarnessProfileV1 {
   readonly visibleTools: readonly string[]
   readonly mutationPolicy: {
     readonly allowedRelativePaths: readonly string[]
+    readonly allowedCommandRefs: readonly string[]
     readonly denyOutsideWorkRoot: true
     readonly denySymlinkTraversal: true
     readonly refOperations: 'deny_all'
@@ -56,6 +57,7 @@ export interface AgentExecutionHarnessProfileInputV1 {
   readonly workRoot: string
   readonly visibleTools: readonly string[]
   readonly allowedRelativePaths: readonly string[]
+  readonly allowedCommandRefs?: readonly string[]
   readonly readBeforeWriteStamps?: 'required' | 'disabled'
   readonly limits: AgentExecutionHarnessProfileV1['limits']
   readonly progress: AgentExecutionHarnessProfileV1['progress']
@@ -75,6 +77,8 @@ export type AgentExecutionHarnessReasonCode =
   | 'HARNESS_READ_STAMP_REQUIRED'
   | 'HARNESS_READ_STAMP_STALE'
   | 'HARNESS_CHILD_LIMIT'
+  | 'HARNESS_COMMAND_REF_FORBIDDEN'
+  | 'HARNESS_CHILD_CLEANUP_FAILED'
   | 'HARNESS_PROGRESS_STALLED'
   | 'HARNESS_PORT_FAILED'
 
@@ -90,7 +94,9 @@ export interface AgentExecutionHarnessResultV1 {
   readonly outputBytes: number
   readonly observedPathHashes: readonly string[]
   readonly evidenceRefs: readonly string[]
-  readonly activeChildProcesses: 0
+  /** Conservative count of child processes whose termination could not be verified. */
+  readonly activeChildProcesses: number
+  readonly childCleanupVerified: boolean
   readonly rawPromptRetained: false
   readonly rawToolArgumentsRetained: false
   readonly secretScanPassed: true
@@ -166,6 +172,7 @@ export function createAgentExecutionHarnessProfileV1(
     visibleTools: uniqueSorted(input.visibleTools),
     mutationPolicy: {
       allowedRelativePaths: uniqueSorted(input.allowedRelativePaths),
+      allowedCommandRefs: uniqueSorted(input.allowedCommandRefs ?? []),
       denyOutsideWorkRoot: true as const,
       denySymlinkTraversal: true as const,
       refOperations: 'deny_all' as const,
@@ -197,15 +204,18 @@ export function validateAgentExecutionHarnessProfileV1(value: unknown): { readon
   for (const field of ['profileId', 'taskId', 'attemptId']) if (!ID.test(String(profile[field] ?? ''))) errors.push(`${field} is invalid`)
   if (typeof profile['workRoot'] !== 'string' || !path.isAbsolute(profile['workRoot']) || path.resolve(profile['workRoot']) !== profile['workRoot']) errors.push('workRoot must be an absolute normalized path')
   const tools = profile['visibleTools']
-  if (!Array.isArray(tools) || tools.length === 0 || tools.length > 64 || uniqueSorted(tools as string[]).length !== tools.length ||
-      tools.some((tool) => typeof tool !== 'string' || !TOOL.test(tool) || FORBIDDEN_REF_TOOLS.has(tool))) errors.push('visibleTools are invalid or expose a ref operation')
+  if (!Array.isArray(tools) || tools.length === 0 || tools.length > 64 || stableJson(tools) !== stableJson(uniqueSorted(tools as string[])) ||
+      tools.some((tool) => typeof tool !== 'string' || !TOOL.test(tool) || FORBIDDEN_REF_TOOLS.has(tool.toLowerCase()))) errors.push('visibleTools are invalid or expose a ref operation')
   const mutation = profile['mutationPolicy'] as Record<string, unknown> | undefined
-  if (!mutation || Object.keys(mutation).sort().join(',') !== ['allowedRelativePaths', 'clearReadStampsOnCompaction', 'denyOutsideWorkRoot', 'denySymlinkTraversal', 'readBeforeWriteStamps', 'refOperations'].sort().join(',') ||
+  if (!mutation || Object.keys(mutation).sort().join(',') !== ['allowedCommandRefs', 'allowedRelativePaths', 'clearReadStampsOnCompaction', 'denyOutsideWorkRoot', 'denySymlinkTraversal', 'readBeforeWriteStamps', 'refOperations'].sort().join(',') ||
       mutation['denyOutsideWorkRoot'] !== true || mutation['denySymlinkTraversal'] !== true || mutation['refOperations'] !== 'deny_all' ||
       mutation['clearReadStampsOnCompaction'] !== true || !['required', 'disabled'].includes(String(mutation['readBeforeWriteStamps'])) ||
       !Array.isArray(mutation['allowedRelativePaths']) || mutation['allowedRelativePaths'].length === 0 ||
-      uniqueSorted(mutation['allowedRelativePaths'] as string[]).length !== mutation['allowedRelativePaths'].length ||
-      (mutation['allowedRelativePaths'] as unknown[]).some((entry) => typeof entry !== 'string' || !isSafeRelativePattern(entry))) errors.push('mutationPolicy is invalid')
+      stableJson(mutation['allowedRelativePaths']) !== stableJson(uniqueSorted(mutation['allowedRelativePaths'] as string[])) ||
+      (mutation['allowedRelativePaths'] as unknown[]).some((entry) => typeof entry !== 'string' || !isSafeRelativePattern(entry)) ||
+      !Array.isArray(mutation['allowedCommandRefs']) || mutation['allowedCommandRefs'].length > 128 ||
+      stableJson(mutation['allowedCommandRefs']) !== stableJson(uniqueSorted(mutation['allowedCommandRefs'] as string[])) ||
+      (mutation['allowedCommandRefs'] as unknown[]).some((entry) => typeof entry !== 'string' || !ID.test(entry))) errors.push('mutationPolicy is invalid')
   const limits = profile['limits'] as Record<string, unknown> | undefined
   if (!limits || Object.keys(limits).sort().join(',') !== ['maxChildProcesses', 'maxDurationMs', 'maxIterations', 'maxOutputBytes'].sort().join(',') ||
       Object.values(limits).some((limit) => !Number.isSafeInteger(limit) || Number(limit) < 1) || Number(limits['maxDurationMs']) > 7_200_000 ||
@@ -288,6 +298,9 @@ export async function runAgentExecutionHarness(input: RunAgentExecutionHarnessIn
   const evidenceRefs = new Set<string>()
   const readStamps = new Map<string, string>()
   const children = new Map<string, AgentExecutionHarnessChild>()
+  const cleanupRuns: Array<Promise<number>> = []
+  let childCleanupVerified = true
+  let unverifiedChildProcesses = 0
   let cancelled = input.signal?.aborted === true
 
   const emit = (kind: string, data: Record<string, string | number | boolean> = {}): void => {
@@ -296,10 +309,19 @@ export async function runAgentExecutionHarness(input: RunAgentExecutionHarnessIn
     evidenceRefs.add(`evidence:harness:${eventHash}`)
     input.ports.emitEvidence?.(Object.freeze({ ...event, eventHash }))
   }
-  const terminateChildren = async (): Promise<void> => {
+  const cleanupChild = async (child: AgentExecutionHarnessChild): Promise<number> => {
+    let verified = true
+    if (!child || typeof child.terminate !== 'function' || typeof child.wait !== 'function') return 1
+    try { await child.terminate() } catch { verified = false }
+    try { await child.wait() } catch { verified = false }
+    return verified ? 0 : 1
+  }
+  const terminateChildren = async (): Promise<number> => {
     const active = [...children.values()]
     children.clear()
-    await Promise.allSettled(active.map(async (child) => { await child.terminate(); await child.wait() }))
+    const run = Promise.all(active.map(cleanupChild)).then((outcomes) => outcomes.reduce((sum, count) => sum + count, 0))
+    cleanupRuns.push(run)
+    return run
   }
   const cancelListener = (): void => { cancelled = true; void terminateChildren() }
   input.signal?.addEventListener('abort', cancelListener, { once: true })
@@ -339,14 +361,25 @@ export async function runAgentExecutionHarness(input: RunAgentExecutionHarnessIn
               if (current !== retained) { status = 'rejected'; reason = 'HARNESS_READ_STAMP_STALE'; emit('write_rejected', { pathHash }); break }
             }
             await input.ports.writeFile(guarded.absolute, action.content)
-            readStamps.set(guarded.absolute, computeAgentExecutionReadStamp(action.content))
+            const writtenStamp = computeAgentExecutionReadStamp(action.content)
+            if (computeAgentExecutionReadStamp(input.ports.readFile(guarded.absolute)) !== writtenStamp) throw new Error('HARNESS_PORT_FAILED')
+            readStamps.set(guarded.absolute, writtenStamp)
             emit('write_observed', { pathHash, byteLength: contentBytes(action.content).byteLength })
           }
           continue
         }
         if (action.kind === 'spawn') {
+          if (!input.profile.mutationPolicy.allowedCommandRefs.includes(action.commandRef)) {
+            status = 'rejected'; reason = 'HARNESS_COMMAND_REF_FORBIDDEN'; emit('child_rejected', { commandRefHash: digest(action.commandRef) }); break
+          }
           if (children.size >= input.profile.limits.maxChildProcesses) { status = 'rejected'; reason = 'HARNESS_CHILD_LIMIT'; break }
           const child = await input.ports.spawnChild(action.commandRef)
+          if (!child || !ID.test(child.id || '') || typeof child.terminate !== 'function' || typeof child.wait !== 'function' || children.has(child.id)) {
+            const cleanup = cleanupChild(child)
+            cleanupRuns.push(cleanup)
+            await cleanup
+            status = 'rejected'; reason = 'HARNESS_PORT_FAILED'; emit('child_rejected', { commandRefHash: digest(action.commandRef) }); break
+          }
           children.set(child.id, child)
           emit('child_started', { childIdHash: digest(child.id), commandRefHash: digest(action.commandRef) })
           continue
@@ -380,6 +413,13 @@ export async function runAgentExecutionHarness(input: RunAgentExecutionHarnessIn
   } finally {
     input.signal?.removeEventListener('abort', cancelListener)
     await terminateChildren()
+    unverifiedChildProcesses = (await Promise.all(cleanupRuns)).reduce((sum, count) => sum + count, 0)
+    childCleanupVerified = unverifiedChildProcesses === 0
+    if (!childCleanupVerified) {
+      status = 'failed'
+      reason = 'HARNESS_CHILD_CLEANUP_FAILED'
+      emit('child_cleanup_failed')
+    }
   }
   const content = {
     schemaVersion: AGENT_EXECUTION_HARNESS_RESULT_V1_SCHEMA,
@@ -393,7 +433,8 @@ export async function runAgentExecutionHarness(input: RunAgentExecutionHarnessIn
     outputBytes,
     observedPathHashes: Object.freeze([...pathHashes].sort()),
     evidenceRefs: Object.freeze([...evidenceRefs].sort()),
-    activeChildProcesses: 0 as const,
+    activeChildProcesses: unverifiedChildProcesses,
+    childCleanupVerified,
     rawPromptRetained: false as const,
     rawToolArgumentsRetained: false as const,
     secretScanPassed: true as const,
