@@ -117,7 +117,11 @@ export type ForEachNode = FlowNodeBase & {
     window?: number;
     initialValue?: unknown;
   };
-  /** Run up to N iterations in parallel. Default 1 (sequential). Hard cap: 8. */
+  /**
+   * Authored parallelism intent. Current executable compiler admission accepts
+   * only exact 1; larger values remain representable for fail-closed
+   * diagnostics and a future durable per-item frame.
+   */
   concurrency?: number;
   /** Stop scheduling new iterations after the first item failure. Default false. */
   failFast?: boolean;

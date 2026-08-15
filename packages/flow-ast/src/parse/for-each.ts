@@ -51,8 +51,16 @@ export function parseForEach(
   const body = ctx.parseNodeArray(bodyRaw as unknown[], joinPointer(pointer, 'body'), ctx)
 
   const attachAs = typeof obj.attachAs === 'string' ? obj.attachAs : undefined
-  const concurrency = typeof obj.concurrency === 'number' ? Math.min(Math.max(1, Math.floor(obj.concurrency)), 8) : undefined
+  const concurrency = typeof obj.concurrency === 'number' ? obj.concurrency : undefined
   const failFast = typeof obj.failFast === 'boolean' ? obj.failFast : undefined
+
+  if (obj.concurrency !== undefined && concurrency === undefined) {
+    ctx.errors.push({
+      code: 'WRONG_FIELD_TYPE',
+      message: `for_each.concurrency must be a number when present, received ${describeJsType(obj.concurrency)}`,
+      pointer: joinPointer(pointer, 'concurrency'),
+    })
+  }
 
   let collect: ForEachNode['collect'] | undefined
   if (obj.collect && typeof obj.collect === 'object' && !Array.isArray(obj.collect)) {

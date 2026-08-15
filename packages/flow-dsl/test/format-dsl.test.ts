@@ -121,7 +121,7 @@ describe("formatDocumentToDsl round-trip", () => {
             attachAs: "enriched",
             collect: { from: "result", into: "results" },
             accumulator: { key: "tally", window: 5, initialValue: 0 },
-            concurrency: 4,
+            concurrency: 1,
             failFast: true,
             body: [{ type: "set", id: "mark", assign: { seen: true } }],
           },
@@ -147,7 +147,7 @@ describe("formatDocumentToDsl round-trip", () => {
       attachAs: "enriched",
       collect: { from: "result", into: "results" },
       accumulator: { key: "tally", window: 5, initialValue: 0 },
-      concurrency: 4,
+      concurrency: 1,
       failFast: true,
     });
     const loop = reparsed.document?.root.nodes[1];

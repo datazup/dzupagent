@@ -7,6 +7,7 @@
 
 import type { PipelineDefinition, PipelineValidationResult, PipelineValidationError, PipelineValidationWarning, PipelineNode, PipelineEdge } from '@dzupagent/core/pipeline'
 import { validatePipelineInteractionSpecV1 } from '@dzupagent/runtime-contracts'
+import { validateForEachAdmission } from './for-each-admission.js'
 
 /**
  * Validate a pipeline definition for structural correctness.
@@ -229,16 +230,31 @@ export function validatePipeline(definition: PipelineDefinition): PipelineValida
         code: 'UNSUPPORTED_FORK_BRANCH_CONTROL',
         message:
           `ForkNode "${fork.id}" does not have an admitted leaf-only branch shape: ` +
-          `${unsupported.kind} at "${unsupported.nodeId}"; recursive or ambiguous fork ` +
-          'branches require a definition-bound durable branch frame and canonical recursive dispatcher',
+          `${unsupported.kind} at "${unsupported.nodeId}"; recursive fork branches require ` +
+          'a definition-bound durable branch frame and canonical recursive dispatcher, and ' +
+          'ambiguous fork shapes are denied',
         nodeId: unsupported.nodeId,
       })
     }
   }
 
   // --- Invalid loop body ---
-  for (const node of definition.nodes) {
-    if (node.type === 'loop') {
+  const loopNodes = definition.nodes.filter(
+    (node): node is Extract<PipelineNode, { type: 'loop' }> => node.type === 'loop',
+  )
+  for (const node of loopNodes) {
+    if (node.forEach !== undefined) {
+      errors.push(
+        ...validateForEachAdmission(
+          node,
+          definition.entryNodeId,
+          nodeMap,
+          definition.edges,
+          loopNodes,
+        ),
+      )
+    }
+    {
       const bodyIds = new Set(node.bodyNodeIds)
       const interactionBodyIds = node.bodyNodeIds.filter(bodyId => {
         const bodyNode = nodeMap.get(bodyId)
@@ -518,7 +534,9 @@ function findUnsupportedForkBranchShape(
     return { nodeId: forkNodeId, kind: 'fork uses conditional or error routing' }
   }
 
-  const branchStartIds = forkEdges.map(edge => edge.targetNodeId)
+  const branchStartIds = forkEdges.flatMap(edge =>
+    edge.type === 'sequential' ? [edge.targetNodeId] : [],
+  )
   if (
     new Set(branchStartIds).size !== branchStartIds.length ||
     branchStartIds.includes(owningJoinNodeId)

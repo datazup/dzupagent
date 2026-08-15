@@ -54,7 +54,7 @@ describe("flowNodeSchema.safeParse — valid inputs", () => {
       source: "validationItems",
       as: "validationItem",
       collect: { from: "validationStatus", into: "validationResults" },
-      concurrency: 2,
+      concurrency: 1,
       failFast: true,
       body: [
         {
@@ -71,6 +71,49 @@ describe("flowNodeSchema.safeParse — valid inputs", () => {
     if (result.success && result.data.type === "for_each") {
       expect(result.data.failFast).toBe(true);
     }
+  });
+
+  it.each([0, 1.5, 2, 8, Number.NaN, Number.POSITIVE_INFINITY])(
+    "rejects for_each concurrency %s without normalizing it",
+    (concurrency) => {
+      const result = flowNodeSchema.safeParse({
+        type: "for_each",
+        source: "items",
+        as: "item",
+        concurrency,
+        body: [{ type: "set", assign: { seen: true } }],
+      });
+
+      expect(result.success).toBe(false);
+      if (result.success) return;
+      expect(result.error.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: "FOR_EACH_CONCURRENCY_UNSUPPORTED",
+            path: "root.concurrency",
+          }),
+        ]),
+      );
+    },
+  );
+
+  it("rejects wrong-typed for_each concurrency instead of defaulting it", () => {
+    const errors = validateFlowNodeShape({
+      type: "for_each",
+      source: "items",
+      as: "item",
+      concurrency: "2",
+      body: [{ type: "set", assign: { seen: true } }],
+    });
+
+    expect(errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "WRONG_FIELD_TYPE",
+          nodePath: "root.concurrency",
+        }),
+      ]),
+    );
   });
 
   it("accepts a branch with then and else", () => {

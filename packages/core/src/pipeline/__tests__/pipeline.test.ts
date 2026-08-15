@@ -22,6 +22,7 @@ import type {
 } from "../../pipeline.js";
 import {
   PipelineDefinitionSchema,
+  LoopNodeSchema,
   PipelineNodeSchema,
   PipelineEdgeSchema,
   PipelineCheckpointSchema,
@@ -46,6 +47,42 @@ function makeMinimalPipeline(
     edges: [],
     ...overrides,
   };
+}
+
+function makeSequentialForEachPipeline(): PipelineDefinition {
+  return {
+    id: "for-each-pipeline",
+    name: "For Each Pipeline",
+    version: "1.0.0",
+    schemaVersion: "1.0.0",
+    entryNodeId: "items",
+    nodes: [
+      {
+        id: "items",
+        type: "loop",
+        bodyNodeIds: ["work"],
+        maxIterations: 100,
+        continuePredicateName: "forEach__item__predicate",
+        forEach: {
+          source: "items",
+          as: "item",
+          order: "input",
+          concurrency: 1,
+          empty: { body: "skip", aggregate: "empty-array" },
+        },
+      },
+      { id: "work", type: "agent", agentId: "worker" },
+    ],
+    edges: [],
+  };
+}
+
+function unsafeConcurrentForEachPipeline(): PipelineDefinition {
+  const definition = structuredClone(makeSequentialForEachPipeline()) as unknown as {
+    nodes: Array<{ forEach?: { concurrency: number } }>;
+  };
+  definition.nodes[0]!.forEach!.concurrency = 2;
+  return definition as unknown as PipelineDefinition;
 }
 
 function makeFullPipeline(): PipelineDefinition {
@@ -180,7 +217,7 @@ describe("PipelineNode discriminated union", () => {
     expect(result.success).toBe(true);
   });
 
-  it("accepts LoopNode for_each runtime metadata with failFast", () => {
+  it("accepts sequential LoopNode for_each runtime metadata with failFast", () => {
     const node: LoopNode = {
       type: "loop",
       id: "validate_each",
@@ -196,7 +233,7 @@ describe("PipelineNode discriminated union", () => {
           into: "validationResults",
           order: "input",
         },
-        concurrency: 2,
+        concurrency: 1,
         failFast: true,
         empty: {
           body: "skip",
@@ -208,6 +245,25 @@ describe("PipelineNode discriminated union", () => {
     const result = PipelineNodeSchema.safeParse(node);
 
     expect(result.success).toBe(true);
+  });
+
+  it("rejects concurrent LoopNode for_each runtime metadata", () => {
+    const result = LoopNodeSchema.safeParse({
+      type: "loop",
+      id: "unsafe_each",
+      bodyNodeIds: ["classify_validation"],
+      maxIterations: 1000,
+      continuePredicateName: "forEach__validationItem__predicate",
+      forEach: {
+        source: "validationItems",
+        as: "validationItem",
+        order: "input",
+        concurrency: 2,
+        empty: { body: "skip", aggregate: "empty-array" },
+      },
+    });
+
+    expect(result.success).toBe(false);
   });
 
   it("accepts SuspendNode", () => {
@@ -791,6 +847,36 @@ describe("serializePipeline / deserializePipeline", () => {
     const restored = deserializePipeline(json);
     expect(restored.id).toBe("pipe-1");
     expect(restored.nodes).toHaveLength(1);
+  });
+
+  it("round-trips the admitted sequential for_each artifact", () => {
+    const original = makeSequentialForEachPipeline();
+
+    expect(deserializePipeline(serializePipeline(original))).toEqual(original);
+  });
+
+  it("rejects concurrent for_each at definition, serialization, and deserialization boundaries", () => {
+    const invalid = unsafeConcurrentForEachPipeline();
+    const parsed = PipelineDefinitionSchema.safeParse(invalid);
+
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: ["nodes", 0, "forEach", "concurrency"],
+            message:
+              "for_each.concurrency must be 1 until a durable per-item frame and economic settlement protocol are admitted",
+          }),
+        ])
+      );
+    }
+    expect(() => serializePipeline(invalid)).toThrow(
+      "for_each.concurrency must be 1"
+    );
+    expect(() => deserializePipeline(JSON.stringify(invalid))).toThrow(
+      "for_each.concurrency must be 1"
+    );
   });
 
   it("round-trips W1 per-node durability fields", () => {

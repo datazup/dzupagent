@@ -99,7 +99,12 @@ const hostOnly = (
 export const FLOW_NODE_CAPABILITY_REGISTRY = {
   sequence: native("sequence", "skill-chain"),
   action: native("action", "skill-chain"),
-  for_each: native("for_each", "pipeline"),
+  for_each: native(
+    "for_each",
+    "pipeline",
+    "dzup.core@1",
+    "Executable admission is sequential-only (concurrency 1) until a durable per-item frame and economic settlement protocol exist."
+  ),
   branch: native("branch", "workflow-builder"),
   approval: native("approval", "workflow-builder"),
   clarification: native("clarification", "workflow-builder"),

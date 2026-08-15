@@ -133,7 +133,10 @@ export const LoopNodeSchema = PipelineNodeBaseSchema.extend({
           initialValue: z.unknown().optional(),
         })
         .optional(),
-      concurrency: z.number().int().min(1).max(8),
+      concurrency: z.literal(1, {
+        error:
+          "for_each.concurrency must be 1 until a durable per-item frame and economic settlement protocol are admitted",
+      }),
       failFast: z.boolean().optional(),
       empty: z.object({
         body: z.literal("skip"),

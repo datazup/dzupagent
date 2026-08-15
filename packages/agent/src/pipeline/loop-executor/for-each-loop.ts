@@ -29,6 +29,24 @@ export async function executeForEachLoop(
 ): Promise<{ result: NodeResult; metrics: LoopMetrics }> {
   const startTime = Date.now();
   const contract = loopNode.forEach as ForEachContract;
+  if (contract.concurrency !== 1) {
+    return {
+      result: {
+        nodeId: loopNode.id,
+        output: null,
+        durationMs: Date.now() - startTime,
+        error:
+          `Loop "${loopNode.id}" for_each concurrency must be 1 until ` +
+          "a durable per-item frame and economic settlement protocol are admitted",
+      },
+      metrics: {
+        iterationCount: 0,
+        iterationDurations: [],
+        converged: false,
+        terminationReason: "condition_met",
+      },
+    };
+  }
   const resolvedItems = resolveStatePath(context.state, contract.source);
   if (!Array.isArray(resolvedItems.value)) {
     const totalDuration = Date.now() - startTime;

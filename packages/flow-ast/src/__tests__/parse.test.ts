@@ -561,6 +561,39 @@ describe("parseFlow — node-specific behaviours", () => {
     expect(codes).toContain("UNKNOWN_NODE_TYPE");
   });
 
+  it.each([0, 1.5, 2, 8, Number.NaN, Number.POSITIVE_INFINITY])(
+    "preserves authored for_each concurrency %s for exact compiler admission",
+    (concurrency) => {
+      const result = parseFlow({
+        type: "for_each",
+        source: "items",
+        as: "item",
+        concurrency,
+        body: [{ type: "set", assign: { item: true } }],
+      });
+
+      expect(result.errors).toEqual([]);
+      expect(result.ast).toMatchObject({ concurrency });
+    },
+  );
+
+  it("reports wrong-typed for_each concurrency instead of dropping it", () => {
+    const result = parseFlow({
+      type: "for_each",
+      source: "items",
+      as: "item",
+      concurrency: "2",
+      body: [{ type: "set", assign: { item: true } }],
+    });
+
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({
+        code: "WRONG_FIELD_TYPE",
+        pointer: "/concurrency",
+      }),
+    );
+  });
+
   it("branch.else dropped when wrong type, then preserved", () => {
     const result = parseFlow({
       type: "branch",

@@ -112,7 +112,7 @@ steps:
   - sdlc.batch_validation:
       id: batch
       items: validationItems
-      concurrency: 2
+      concurrency: 1
       failFast: true
       output: validationStatuses
 `,
@@ -135,7 +135,7 @@ steps:
         from: "batch__validationStatus",
         into: "batch__validationStatuses",
       },
-      concurrency: 2,
+      concurrency: 1,
       failFast: true,
       body: [
         {

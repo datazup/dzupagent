@@ -1096,7 +1096,7 @@ describe("createFlowCompiler — stage 3 errors", () => {
             source: "{{ inputs.items }}",
             as: "item",
             collect: { from: "item", into: "itemsOut" },
-            body: [{ type: "wait", id: "pause", durationMs: 1 }],
+            body: [{ type: "set", id: "copy", assign: { item: true } }],
           },
         ],
       },

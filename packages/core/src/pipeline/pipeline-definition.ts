@@ -192,7 +192,8 @@ export interface LoopNode extends PipelineNodeBase {
       window?: number;
       initialValue?: unknown;
     };
-    concurrency: number;
+    /** Current executable artifact admission is sequential-only. */
+    concurrency: 1;
     failFast?: boolean;
     empty: {
       body: "skip";

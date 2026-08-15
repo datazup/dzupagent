@@ -139,6 +139,11 @@ export function lowerForEach(
       `router-contract violation: for_each in flat target at ${path}`
     );
   }
+  if (node.concurrency !== undefined && node.concurrency !== 1) {
+    throw new Error(
+      `lowerForEach: concurrency must be 1 at ${path} until a durable per-item frame and economic settlement protocol are admitted`
+    );
+  }
 
   // Lower the body nodes as a sequence
   const bodyResult = lowerChildren(
@@ -328,7 +333,7 @@ function forEachContract(node: ForEachNode): NonNullable<LoopNode["forEach"]> {
     ...(node.accumulator !== undefined
       ? { accumulator: node.accumulator }
       : {}),
-    concurrency: node.concurrency ?? 1,
+    concurrency: 1,
     failFast: node.failFast ?? false,
     empty: {
       body: "skip",

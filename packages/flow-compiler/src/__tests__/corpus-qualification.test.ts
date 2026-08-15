@@ -199,7 +199,7 @@ describe("flow corpus qualification", () => {
       "  - sdlc.batch_validation:",
       "      id: validation_batch",
       "      items: inputs.validationItems",
-      "      concurrency: 2",
+      "      concurrency: 1",
       "      failFast: false",
       "      output: validationStatuses",
     ].join("\n");

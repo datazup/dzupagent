@@ -10,6 +10,7 @@ import {
   missing,
   type ShapeRulePartial,
 } from "../shape-validate-shared.js";
+import { validateForEachAdmission } from "./for-each-admission.js";
 
 /**
  * Structural rules for the control-flow FlowNode kinds — the nodes that own
@@ -45,6 +46,7 @@ export const controlFlowValidators: ShapeRulePartial<ControlFlowKind> = {
     node.nodes.forEach((child, idx) => visit(child, `${path}.nodes[${idx}]`));
   },
   for_each: (node, { path, errors, visit }) => {
+    errors.push(...validateForEachAdmission(node, path));
     if (!isNonEmptyString(node.source)) {
       errors.push(
         missing(
@@ -67,18 +69,6 @@ export const controlFlowValidators: ShapeRulePartial<ControlFlowKind> = {
           "for_each.body must contain at least one node"
         )
       );
-    }
-    const interaction = findParallelInteraction(node.body, `${path}.body`);
-    if (interaction !== undefined) {
-      errors.push({
-        nodeType: interaction.node.type,
-        nodePath: interaction.path,
-        code: "FOR_EACH_INTERACTION_UNSUPPORTED",
-        category: "control",
-        message:
-          `${interaction.node.type} cannot be nested under for_each until ` +
-          "the per-item executor has a durable checkpoint-bound interaction frame",
-      });
     }
     node.body.forEach((child, idx) => visit(child, `${path}.body[${idx}]`));
   },

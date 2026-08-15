@@ -593,6 +593,27 @@ describe("normalizeSteps — for_each", () => {
     });
   });
 
+  it("preserves fractional concurrency for exact compiler admission", () => {
+    const diagnostics: Parameters<typeof normalizeSteps>[2] = [];
+    const nodes = normalizeSteps(
+      [
+        {
+          for_each: {
+            source: "items",
+            as: "item",
+            concurrency: 1.5,
+            body: [{ set: { assign: { item: true } } }],
+          },
+        },
+      ],
+      "root.steps",
+      diagnostics,
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(nodes[0]).toMatchObject({ type: "for_each", concurrency: 1.5 });
+  });
+
   it("errors when for_each.source is missing", () => {
     const raw = [
       {

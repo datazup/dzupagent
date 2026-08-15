@@ -253,7 +253,7 @@ export function normalizeForEach(
     ...(collect !== undefined ? { collect } : {}),
     ...(accumulator !== undefined ? { accumulator } : {}),
     ...(typeof raw.concurrency === 'number'
-      ? { concurrency: Math.min(Math.max(1, Math.floor(raw.concurrency)), 8) }
+      ? { concurrency: raw.concurrency }
       : {}),
     ...(typeof raw.failFast === 'boolean' ? { failFast: raw.failFast } : {}),
   }

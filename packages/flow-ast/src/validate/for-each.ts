@@ -157,12 +157,20 @@ function validateConcurrency(
   if (typeof value !== 'number') {
     issues.push({
       path,
-      code: 'MISSING_REQUIRED_FIELD',
+      code: 'WRONG_FIELD_TYPE',
       message: 'for_each.concurrency must be a number when present',
     })
     return undefined
   }
-  return Math.min(Math.max(1, Math.floor(value)), 8)
+  if (value !== 1) {
+    issues.push({
+      path,
+      code: 'FOR_EACH_CONCURRENCY_UNSUPPORTED',
+      message:
+        'for_each.concurrency must be exactly 1 until a durable per-item frame and economic settlement protocol are admitted',
+    })
+  }
+  return value
 }
 
 function validateFailFast(

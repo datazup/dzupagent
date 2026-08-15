@@ -20,7 +20,7 @@ import type {
 } from '@dzupagent/flow-ast'
 import type { LoopNode, PipelineDefinition, ToolNode } from '@dzupagent/core/pipeline'
 import { InMemoryDomainToolRegistry } from '@dzupagent/app-tools'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { lowerPipelineLoop } from '../lower/lower-pipeline-loop.js'
 
@@ -276,7 +276,7 @@ describe('lowerPipelineLoop', () => {
       collect: { from: 'itemStatus', into: 'itemStatuses' },
       attachAs: 'status',
       accumulator: { key: 'loopWindow', window: 5, initialValue: [] },
-      concurrency: 3,
+      concurrency: 1,
       body: [action('items.process')],
     }
     const resolved = buildResolved(resolver, [
@@ -304,7 +304,7 @@ describe('lowerPipelineLoop', () => {
         order: 'input',
       },
       accumulator: { key: 'loopWindow', window: 5, initialValue: [] },
-      concurrency: 3,
+      concurrency: 1,
       failFast: false,
       empty: {
         body: 'skip',
@@ -490,5 +490,30 @@ describe('lowerPipelineLoop', () => {
     expect(artifact.version).toBe('0.0.0')
     expect(typeof artifact.id).toBe('string')
     expect(artifact.id.length).toBeGreaterThan(0)
+  })
+
+  it('rejects direct lowering of concurrent for_each before body lowering', () => {
+    const resolver = makeResolver(['items.process'])
+    const idGen = vi.fn(() => 'unexpected')
+    const ast: ForEachNode = {
+      type: 'for_each',
+      source: '$.items',
+      as: 'item',
+      concurrency: 2,
+      body: [action('items.process')],
+    }
+
+    expect(() =>
+      lowerPipelineLoop({
+        ast,
+        resolved: buildResolved(resolver, [
+          { nodePath: 'root.body[0]', toolRef: 'items.process' },
+        ]),
+        resolvedPersonas: new Map(),
+        idGen,
+        name: 'unsafe-concurrent-loop',
+      }),
+    ).toThrow(/concurrency must be 1/)
+    expect(idGen).not.toHaveBeenCalled()
   })
 })

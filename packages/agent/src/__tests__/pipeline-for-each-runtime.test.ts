@@ -17,7 +17,7 @@ import type {
   PipelineRuntimeEvent,
 } from '../pipeline/pipeline-runtime-types.js'
 
-function forEachPipeline(concurrency = 1): PipelineDefinition {
+function forEachPipeline(): PipelineDefinition {
   return {
     id: 'for-each-runtime',
     name: 'ForEachRuntime',
@@ -40,7 +40,7 @@ function forEachPipeline(concurrency = 1): PipelineDefinition {
             into: 'itemStatuses',
             order: 'input',
           },
-          concurrency,
+          concurrency: 1,
           empty: {
             body: 'skip',
             aggregate: 'empty-array',
@@ -58,8 +58,17 @@ function forEachPipeline(concurrency = 1): PipelineDefinition {
   }
 }
 
-function forEachFailFastPipeline(concurrency = 1, failFast = true): PipelineDefinition {
-  const definition = forEachPipeline(concurrency)
+function unsafeConcurrentForEachPipeline(concurrency: number): PipelineDefinition {
+  const definition = structuredClone(forEachPipeline()) as unknown as {
+    nodes: Array<{ forEach?: { concurrency: number } }>
+  }
+  const loop = definition.nodes[0]
+  if (loop?.forEach !== undefined) loop.forEach.concurrency = concurrency
+  return definition as unknown as PipelineDefinition
+}
+
+function forEachFailFastPipeline(failFast = true): PipelineDefinition {
+  const definition = forEachPipeline()
   const loop = definition.nodes[0]
   if (loop?.type === 'loop' && loop.forEach !== undefined) {
     loop.forEach.failFast = failFast
@@ -67,7 +76,7 @@ function forEachFailFastPipeline(concurrency = 1, failFast = true): PipelineDefi
   return definition
 }
 
-function forEachAccumulatorPipeline(concurrency = 1): PipelineDefinition {
+function forEachAccumulatorPipeline(): PipelineDefinition {
   return {
     id: 'for-each-accumulator-runtime',
     name: 'ForEachAccumulatorRuntime',
@@ -91,7 +100,7 @@ function forEachAccumulatorPipeline(concurrency = 1): PipelineDefinition {
             window: 2,
             initialValue: [{ id: 'seed', processed: 'seed:ok' }],
           },
-          concurrency,
+          concurrency: 1,
           empty: {
             body: 'skip',
             aggregate: 'empty-array',
@@ -182,7 +191,7 @@ describe('PipelineRuntime — lowered for_each collect', () => {
     ])
   })
 
-  it('collects body state output in source order while running with bounded concurrency', async () => {
+  it('collects body state output in source order while running sequentially', async () => {
     const events: PipelineRuntimeEvent[] = []
     const started: string[] = []
     let active = 0
@@ -203,7 +212,7 @@ describe('PipelineRuntime — lowered for_each collect', () => {
       return { nodeId, output: ctx.state['itemStatus'], durationMs: 1 }
     }
     const runtime = new PipelineRuntime({
-      definition: forEachPipeline(2),
+      definition: forEachPipeline(),
       nodeExecutor: executor,
       onEvent: (event) => events.push(event),
     })
@@ -219,7 +228,7 @@ describe('PipelineRuntime — lowered for_each collect', () => {
 
     expect(result.state).toBe('completed')
     expect(started).toEqual(['a', 'b', 'c', 'd'])
-    expect(maxActive).toBe(2)
+    expect(maxActive).toBe(1)
     expect(result.nodeResults.get('loop-items')?.output).toEqual({
       loopOutput: ['a:ready', 'b:blocked', 'c:ready', 'd:blocked'],
       metrics: {
@@ -248,7 +257,7 @@ describe('PipelineRuntime — lowered for_each collect', () => {
     ])
   })
 
-  it('with failFast true stops scheduling new items after a failed iteration while settling started work', async () => {
+  it('with failFast true stops sequential scheduling after a failed iteration', async () => {
     const started: string[] = []
     const executor: NodeExecutor = async (
       nodeId: string,
@@ -266,7 +275,7 @@ describe('PipelineRuntime — lowered for_each collect', () => {
       return { nodeId, output: ctx.state['itemStatus'], durationMs: 1 }
     }
     const runtime = new PipelineRuntime({
-      definition: forEachFailFastPipeline(2, true),
+      definition: forEachFailFastPipeline(true),
       nodeExecutor: executor,
     })
 
@@ -275,11 +284,11 @@ describe('PipelineRuntime — lowered for_each collect', () => {
     })
 
     expect(result.state).toBe('failed')
-    expect(started).toEqual(['a', 'b'])
+    expect(started).toEqual(['a'])
     expect(
       (result.nodeResults.get('loop-items')?.output as { loopOutput?: unknown })
         ?.loopOutput,
-    ).toEqual(['b:passed'])
+    ).toEqual([])
   })
 
   it('enriches source items with attachAs and maintains a windowed accumulator', async () => {
@@ -458,86 +467,29 @@ describe('PipelineRuntime — lowered for_each collect', () => {
     })
   })
 
-  it('persists only the contiguous completed prefix when concurrent items finish out of order before failure', async () => {
+  it('rejects concurrent items before body dispatch or checkpoint persistence', async () => {
     const store = new InMemoryPipelineCheckpointStore()
     const bodyRuns: string[] = []
-    const delays: Record<string, number> = { a: 35, b: 5, c: 10, d: 1 }
-    const crashingExecutor: NodeExecutor = async (
-      nodeId: string,
-      _node: PipelineNode,
-      ctx,
-    ) => {
-      const item = ctx.state['item'] as { id: string; status: string }
-      bodyRuns.push(item.id)
-      await new Promise((resolve) => setTimeout(resolve, delays[item.id] ?? 0))
-      if (item.id === 'c') {
-        throw new Error('simulated out-of-order for_each failure')
-      }
-      ctx.state['itemStatus'] = `${item.id}:${item.status}`
-      return { nodeId, output: ctx.state['itemStatus'], durationMs: 1 }
-    }
-    const first = new PipelineRuntime({
-      definition: {
-        ...forEachPipeline(3),
-        checkpointStrategy: 'after_each_node',
+    const runtime = new PipelineRuntime({
+      definition: unsafeConcurrentForEachPipeline(3),
+      nodeExecutor: async (nodeId) => {
+        bodyRuns.push(nodeId)
+        return { nodeId, output: null, durationMs: 1 }
       },
-      nodeExecutor: crashingExecutor,
       checkpointStore: store,
     })
 
-    const firstResult = await first.execute({
+    await expect(runtime.execute({
       items: [
         { id: 'a', status: 'ready' },
         { id: 'b', status: 'blocked' },
-        { id: 'c', status: 'ready' },
-        { id: 'd', status: 'blocked' },
       ],
-    })
-
-    expect(firstResult.state).toBe('failed')
-    expect(bodyRuns).toEqual(['a', 'b', 'c', 'd'])
-    const checkpoint = await store.load(firstResult.runId)
-    expect(checkpoint?.loopState?.['loop-items']).toEqual({ iteration: 2 })
-    expect(checkpoint?.state['itemStatuses']).toEqual([
-      'a:ready',
-      'b:blocked',
-    ])
-
-    const resumeRuns: string[] = []
-    const healthyExecutor: NodeExecutor = async (
-      nodeId: string,
-      _node: PipelineNode,
-      ctx,
-    ) => {
-      const item = ctx.state['item'] as { id: string; status: string }
-      resumeRuns.push(item.id)
-      ctx.state['itemStatus'] = `${item.id}:${item.status}`
-      return { nodeId, output: ctx.state['itemStatus'], durationMs: 1 }
-    }
-    const second = new PipelineRuntime({
-      definition: {
-        ...forEachPipeline(3),
-        checkpointStrategy: 'after_each_node',
-      },
-      nodeExecutor: healthyExecutor,
-      checkpointStore: store,
-    })
-
-    const resumed = await second.resume(checkpoint!)
-
-    expect(resumed.state).toBe('completed')
-    expect(resumeRuns).toEqual(['c', 'd'])
-    expect(resumed.nodeResults.get('loop-items')?.output).toMatchObject({
-      loopOutput: ['a:ready', 'b:blocked', 'c:ready', 'd:blocked'],
-      metrics: {
-        iterationCount: 4,
-        converged: true,
-        terminationReason: 'condition_met',
-      },
-    })
+    })).rejects.toThrow('for_each concurrency must be 1')
+    expect(bodyRuns).toEqual([])
+    expect(await store.load('unused')).toBeUndefined()
   })
 
-  it('resumes a concurrent for_each failure from a Redis-backed checkpoint store', async () => {
+  it('resumes a sequential for_each failure from a Redis-backed checkpoint store', async () => {
     const store = new RedisPipelineCheckpointStore({
       client: new MockRedisClient(),
       keyPrefix: 'test:for-each',
@@ -560,7 +512,7 @@ describe('PipelineRuntime — lowered for_each collect', () => {
     }
     const first = new PipelineRuntime({
       definition: {
-        ...forEachPipeline(3),
+        ...forEachPipeline(),
         checkpointStrategy: 'after_each_node',
       },
       nodeExecutor: crashingExecutor,
@@ -598,7 +550,7 @@ describe('PipelineRuntime — lowered for_each collect', () => {
     }
     const second = new PipelineRuntime({
       definition: {
-        ...forEachPipeline(3),
+        ...forEachPipeline(),
         checkpointStrategy: 'after_each_node',
       },
       nodeExecutor: healthyExecutor,
@@ -636,7 +588,7 @@ describe('PipelineRuntime — lowered for_each collect', () => {
     : it
 
   maybeLiveRedisIt(
-    'resumes a concurrent for_each failure from a live Redis checkpoint store',
+    'resumes a sequential for_each failure from a live Redis checkpoint store',
     async () => {
       const client = await LiveRedisClient.connect(process.env.DZUPAGENT_REDIS_URL!)
       const keyPrefix = `test:for-each-live:${Date.now()}`
@@ -663,7 +615,7 @@ describe('PipelineRuntime — lowered for_each collect', () => {
         }
         const first = new PipelineRuntime({
           definition: {
-            ...forEachPipeline(3),
+            ...forEachPipeline(),
             checkpointStrategy: 'after_each_node',
           },
           nodeExecutor: crashingExecutor,
@@ -701,7 +653,7 @@ describe('PipelineRuntime — lowered for_each collect', () => {
         }
         const second = new PipelineRuntime({
           definition: {
-            ...forEachPipeline(3),
+            ...forEachPipeline(),
             checkpointStrategy: 'after_each_node',
           },
           nodeExecutor: healthyExecutor,
@@ -729,7 +681,7 @@ describe('PipelineRuntime — lowered for_each collect', () => {
   )
 
   maybeLiveRedisIt(
-    'recovers a concurrent for_each run after process restart from a live Redis checkpoint store',
+    'recovers a sequential for_each run after process restart from a live Redis checkpoint store',
     async () => {
       const client = await LiveRedisClient.connect(process.env.DZUPAGENT_REDIS_URL!)
       const keyPrefix = `test:for-each-live-restart:${Date.now()}`
@@ -756,7 +708,7 @@ describe('PipelineRuntime — lowered for_each collect', () => {
         }
         const first = new PipelineRuntime({
           definition: {
-            ...forEachPipeline(3),
+            ...forEachPipeline(),
             checkpointStrategy: 'after_each_node',
           },
           nodeExecutor: crashingExecutor,
@@ -788,7 +740,7 @@ describe('PipelineRuntime — lowered for_each collect', () => {
         }
         const restarted = new PipelineRuntime({
           definition: {
-            ...forEachPipeline(3),
+            ...forEachPipeline(),
             checkpointStrategy: 'after_each_node',
             resume: { onProcessRestart: 'resume_from_checkpoint' },
           },
@@ -817,7 +769,7 @@ describe('PipelineRuntime — lowered for_each collect', () => {
   )
 
   maybeLivePostgresIt(
-    'recovers a concurrent for_each run after process restart from a live Postgres checkpoint store',
+    'recovers a sequential for_each run after process restart from a live Postgres checkpoint store',
     async () => {
       const client = await LivePostgresClient.connect(
         process.env.DZUPAGENT_POSTGRES_URL!,
@@ -847,7 +799,7 @@ describe('PipelineRuntime — lowered for_each collect', () => {
         }
         const first = new PipelineRuntime({
           definition: {
-            ...forEachPipeline(3),
+            ...forEachPipeline(),
             checkpointStrategy: 'after_each_node',
           },
           nodeExecutor: crashingExecutor,
@@ -879,7 +831,7 @@ describe('PipelineRuntime — lowered for_each collect', () => {
         }
         const restarted = new PipelineRuntime({
           definition: {
-            ...forEachPipeline(3),
+            ...forEachPipeline(),
             checkpointStrategy: 'after_each_node',
             resume: { onProcessRestart: 'resume_from_checkpoint' },
           },
