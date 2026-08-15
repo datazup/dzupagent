@@ -146,9 +146,10 @@ export const controlFlowValidators: ShapeRulePartial<ControlFlowKind> = {
       );
     }
     node.branches.forEach((branch, bIdx) => {
+      const branchPath = `${path}.branches[${bIdx}]`;
       const interaction = findParallelInteraction(
         branch,
-        `${path}.branches[${bIdx}]`
+        branchPath
       );
       if (interaction !== undefined) {
         errors.push({
@@ -160,6 +161,38 @@ export const controlFlowValidators: ShapeRulePartial<ControlFlowKind> = {
             `${interaction.node.type} cannot be nested under parallel until ` +
             "the fork scheduler has a durable branch-local interaction frame",
         });
+      } else {
+        const boundary = findParallelControlBoundary(branch, branchPath);
+        if (boundary !== undefined) {
+          const isTerminal = boundary.node.type === "complete";
+          errors.push({
+            nodeType: boundary.node.type,
+            nodePath: boundary.path,
+            code: isTerminal
+              ? "PARALLEL_TERMINAL_UNSUPPORTED"
+              : "PARALLEL_SUSPENSION_UNSUPPORTED",
+            category: "control",
+            message: isTerminal
+              ? "complete cannot be nested under parallel until terminal branch ownership, sibling suppression, merge suppression, and outer-continuation suppression are durable"
+              : `${boundary.node.type} cannot be nested under parallel until the fork scheduler has an exact branch-owned suspension cursor`,
+          });
+        } else {
+          const recursiveControl = findParallelRecursiveControl(
+            branch,
+            branchPath
+          );
+          if (recursiveControl !== undefined) {
+            errors.push({
+              nodeType: recursiveControl.node.type,
+              nodePath: recursiveControl.path,
+              code: "PARALLEL_RECURSIVE_CONTROL_UNSUPPORTED",
+              category: "control",
+              message:
+                `${recursiveControl.node.type} cannot be nested under parallel while ` +
+                "fork branches use the leaf-only worker; admission requires a definition-bound durable branch frame and canonical recursive dispatcher",
+            });
+          }
+        }
       }
       if (branch.length === 0) {
         errors.push(
@@ -280,6 +313,17 @@ export const controlFlowValidators: ShapeRulePartial<ControlFlowKind> = {
         )
       );
     }
+    const parallel = findNestedParallel(node.body, `${path}.body`);
+    if (parallel !== undefined) {
+      errors.push({
+        nodeType: parallel.node.type,
+        nodePath: parallel.path,
+        code: "PARALLEL_ERROR_PROPAGATION_UNSUPPORTED",
+        category: "control",
+        message:
+          "parallel cannot be nested in a try_catch body until fork branch failures propagate through the authored catch instead of being isolated by the leaf-only fork worker",
+      });
+    }
     node.body.forEach((child, idx) => visit(child, `${path}.body[${idx}]`));
     node.catch.forEach((child, idx) => visit(child, `${path}.catch[${idx}]`));
   },
@@ -354,6 +398,139 @@ export const controlFlowValidators: ShapeRulePartial<ControlFlowKind> = {
     node.body.forEach((child, idx) => visit(child, `${path}.body[${idx}]`));
   },
 };
+
+function findNestedParallel(
+  nodes: readonly FlowNode[],
+  parentPath: string
+): { node: Extract<FlowNode, { type: "parallel" }>; path: string } | undefined {
+  for (let index = 0; index < nodes.length; index += 1) {
+    const node = nodes[index];
+    if (node === undefined) continue;
+    const path = `${parentPath}[${index}]`;
+    if (node.type === "parallel") return { node, path };
+    for (const childGroup of parallelChildGroups(node, path)) {
+      const parallel = findNestedParallel(childGroup.nodes, childGroup.path);
+      if (parallel !== undefined) return parallel;
+    }
+  }
+  return undefined;
+}
+
+type ParallelBoundaryNode = Extract<
+  FlowNode,
+  { type: "complete" | "persona" | "route" }
+>;
+
+/**
+ * Find control boundaries whose meaning cannot cross the current fork worker.
+ * Interactions are handled separately so they retain the Packet 24-A-specific
+ * diagnostic and exact nested path.
+ */
+function findParallelControlBoundary(
+  nodes: readonly FlowNode[],
+  parentPath: string
+): { node: ParallelBoundaryNode; path: string } | undefined {
+  for (let index = 0; index < nodes.length; index += 1) {
+    const node = nodes[index];
+    if (node === undefined) continue;
+    const path = `${parentPath}[${index}]`;
+    if (
+      node.type === "complete" ||
+      node.type === "persona" ||
+      node.type === "route"
+    ) {
+      return { node, path };
+    }
+
+    for (const childGroup of parallelChildGroups(node, path)) {
+      const boundary = findParallelControlBoundary(
+        childGroup.nodes,
+        childGroup.path
+      );
+      if (boundary !== undefined) return boundary;
+    }
+  }
+  return undefined;
+}
+
+type ParallelRecursiveControlNode = Extract<
+  FlowNode,
+  { type: "branch" | "parallel" | "try_catch" | "for_each" | "loop" }
+>;
+
+/**
+ * The current fork worker walks a flat branch and cannot recursively dispatch
+ * graph control. Keep those shapes out of every compiler entry point until a
+ * durable branch-local graph frame exists.
+ */
+function findParallelRecursiveControl(
+  nodes: readonly FlowNode[],
+  parentPath: string
+): { node: ParallelRecursiveControlNode; path: string } | undefined {
+  for (let index = 0; index < nodes.length; index += 1) {
+    const node = nodes[index];
+    if (node === undefined) continue;
+    const path = `${parentPath}[${index}]`;
+    if (
+      node.type === "branch" ||
+      node.type === "parallel" ||
+      node.type === "try_catch" ||
+      node.type === "for_each" ||
+      node.type === "loop"
+    ) {
+      return { node, path };
+    }
+    for (const childGroup of parallelChildGroups(node, path)) {
+      const control = findParallelRecursiveControl(
+        childGroup.nodes,
+        childGroup.path
+      );
+      if (control !== undefined) return control;
+    }
+  }
+  return undefined;
+}
+
+function parallelChildGroups(
+  node: FlowNode,
+  path: string
+): Array<{ nodes: readonly FlowNode[]; path: string }> {
+  switch (node.type) {
+    case "sequence":
+      return [{ nodes: node.nodes, path: `${path}.nodes` }];
+    case "for_each":
+    case "persona":
+    case "route":
+    case "loop":
+      return [{ nodes: node.body, path: `${path}.body` }];
+    case "branch":
+      return [
+        { nodes: node.then, path: `${path}.then` },
+        ...(node.else === undefined
+          ? []
+          : [{ nodes: node.else, path: `${path}.else` }]),
+      ];
+    case "parallel":
+      return node.branches.map((branch, branchIndex) => ({
+        nodes: branch,
+        path: `${path}.branches[${branchIndex}]`,
+      }));
+    case "try_catch":
+      return [
+        { nodes: node.body, path: `${path}.body` },
+        { nodes: node.catch, path: `${path}.catch` },
+      ];
+    case "approval":
+      return [
+        { nodes: node.onApprove, path: `${path}.onApprove` },
+        ...(node.onReject === undefined
+          ? []
+          : [{ nodes: node.onReject, path: `${path}.onReject` }]),
+      ];
+    default:
+      return [];
+  }
+}
 
 function findParallelInteraction(
   nodes: readonly FlowNode[],

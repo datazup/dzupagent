@@ -210,12 +210,7 @@ export class PipelineRuntime {
     initialState?: Record<string, unknown>,
     options: PipelineExecuteOptions = {},
   ): Promise<PipelineRunResult> {
-    // Validate first
-    const validation = validatePipeline(this.config.definition);
-    if (!validation.valid) {
-      const messages = validation.errors.map((e) => e.message).join("; ");
-      throw new Error(`Pipeline validation failed: ${messages}`);
-    }
+    this.assertDefinitionValid();
     this.assertRuntimeToolReadiness();
 
     const runId = resolveRunId(options.runId);
@@ -255,6 +250,7 @@ export class PipelineRuntime {
     checkpoint: PipelineCheckpoint,
     additionalState?: Record<string, unknown>
   ): Promise<PipelineRunResult> {
+    this.assertDefinitionValid();
     const parsed = PipelineCheckpointSchema.safeParse(checkpoint);
     if (!parsed.success) {
       throw new PipelineInteractionRuntimeError(
@@ -276,6 +272,7 @@ export class PipelineRuntime {
     checkpoint: PipelineCheckpoint,
     receipt: PipelineInteractionResumeV1,
   ): Promise<PipelineRunResult> {
+    this.assertDefinitionValid();
     const standalone = validatePipelineInteractionResumeV1(receipt);
     if (!standalone.valid) {
       throw new PipelineInteractionRuntimeError(
@@ -538,6 +535,7 @@ export class PipelineRuntime {
     pipelineRunId: string,
     additionalState?: Record<string, unknown>
   ): Promise<PipelineRunResult> {
+    this.assertDefinitionValid();
     const policy =
       this.config.definition.resume?.onProcessRestart ??
       "resume_from_checkpoint";
@@ -583,6 +581,7 @@ export class PipelineRuntime {
     checkpoint: PipelineCheckpoint,
     additionalState?: Record<string, unknown>
   ): Promise<PipelineRunResult> {
+    this.assertDefinitionValid();
     return redeliverFromCheckpointOrchestrator(
       this.resumeHost,
       checkpoint,
@@ -817,6 +816,16 @@ export class PipelineRuntime {
 
   private emit(event: PipelineRuntimeEvent): void {
     this.config.onEvent?.(event);
+  }
+
+  private assertDefinitionValid(): void {
+    const validation = validatePipeline(this.config.definition);
+    if (!validation.valid) {
+      const messages = validation.errors
+        .map((error) => error.message)
+        .join("; ");
+      throw new Error(`Pipeline validation failed: ${messages}`);
+    }
   }
 
   private assertRuntimeToolReadiness(): void {

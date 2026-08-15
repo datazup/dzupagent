@@ -201,6 +201,295 @@ describe('validatePipeline', () => {
     )
   })
 
+  it.each([
+    {
+      name: 'nested fork',
+      nodeId: 'innerFork',
+      definition: makePipeline({
+        entryNodeId: 'outerFork',
+        nodes: [
+          { id: 'outerFork', type: 'fork', forkId: 'outer' },
+          { id: 'innerFork', type: 'fork', forkId: 'inner' },
+          { id: 'innerLeft', type: 'agent', agentId: 'innerLeft' },
+          { id: 'innerRight', type: 'agent', agentId: 'innerRight' },
+          { id: 'innerJoin', type: 'join', forkId: 'inner' },
+          { id: 'sibling', type: 'agent', agentId: 'sibling' },
+          { id: 'outerJoin', type: 'join', forkId: 'outer' },
+        ],
+        edges: [
+          { type: 'sequential', sourceNodeId: 'outerFork', targetNodeId: 'innerFork' },
+          { type: 'sequential', sourceNodeId: 'outerFork', targetNodeId: 'sibling' },
+          { type: 'sequential', sourceNodeId: 'innerFork', targetNodeId: 'innerLeft' },
+          { type: 'sequential', sourceNodeId: 'innerFork', targetNodeId: 'innerRight' },
+          { type: 'sequential', sourceNodeId: 'innerLeft', targetNodeId: 'innerJoin' },
+          { type: 'sequential', sourceNodeId: 'innerRight', targetNodeId: 'innerJoin' },
+          { type: 'sequential', sourceNodeId: 'innerJoin', targetNodeId: 'outerJoin' },
+          { type: 'sequential', sourceNodeId: 'sibling', targetNodeId: 'outerJoin' },
+        ],
+      }),
+    },
+    {
+      name: 'loop',
+      nodeId: 'nestedLoop',
+      definition: makePipeline({
+        entryNodeId: 'fork',
+        nodes: [
+          { id: 'fork', type: 'fork', forkId: 'parallel' },
+          {
+            id: 'nestedLoop',
+            type: 'loop',
+            bodyNodeIds: ['body'],
+            maxIterations: 2,
+            continuePredicateName: 'continue',
+          },
+          { id: 'body', type: 'agent', agentId: 'body' },
+          { id: 'sibling', type: 'agent', agentId: 'sibling' },
+          { id: 'join', type: 'join', forkId: 'parallel' },
+        ],
+        edges: [
+          { type: 'sequential', sourceNodeId: 'fork', targetNodeId: 'nestedLoop' },
+          { type: 'sequential', sourceNodeId: 'fork', targetNodeId: 'sibling' },
+          { type: 'sequential', sourceNodeId: 'nestedLoop', targetNodeId: 'join' },
+          { type: 'sequential', sourceNodeId: 'sibling', targetNodeId: 'join' },
+        ],
+      }),
+    },
+    {
+      name: 'suspension',
+      nodeId: 'suspend',
+      definition: makePipeline({
+        entryNodeId: 'fork',
+        nodes: [
+          { id: 'fork', type: 'fork', forkId: 'parallel' },
+          { id: 'suspend', type: 'suspend', resumeCondition: 'resume' },
+          { id: 'sibling', type: 'agent', agentId: 'sibling' },
+          { id: 'join', type: 'join', forkId: 'parallel' },
+        ],
+        edges: [
+          { type: 'sequential', sourceNodeId: 'fork', targetNodeId: 'suspend' },
+          { type: 'sequential', sourceNodeId: 'fork', targetNodeId: 'sibling' },
+          { type: 'sequential', sourceNodeId: 'suspend', targetNodeId: 'join' },
+          { type: 'sequential', sourceNodeId: 'sibling', targetNodeId: 'join' },
+        ],
+      }),
+    },
+  ])('rejects $name inside a fork branch', ({ definition, nodeId }) => {
+    const result = validatePipeline(definition)
+
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({
+        code: 'UNSUPPORTED_FORK_BRANCH_CONTROL',
+        nodeId,
+      }),
+    )
+  })
+
+  it.each([
+    {
+      name: 'conditional branch',
+      nodeId: 'decision',
+      branchEdges: [
+        {
+          type: 'conditional' as const,
+          sourceNodeId: 'decision',
+          predicateName: 'choose',
+          branches: { true: 'left', false: 'right' },
+        },
+        { type: 'sequential' as const, sourceNodeId: 'left', targetNodeId: 'join' },
+        { type: 'sequential' as const, sourceNodeId: 'right', targetNodeId: 'join' },
+      ],
+      extraNodes: [
+        { id: 'decision', type: 'gate' as const, gateType: 'quality' as const },
+        { id: 'left', type: 'agent' as const, agentId: 'left' },
+        { id: 'right', type: 'agent' as const, agentId: 'right' },
+      ],
+    },
+    {
+      name: 'try/catch error edge',
+      nodeId: 'work',
+      branchEdges: [
+        { type: 'sequential' as const, sourceNodeId: 'work', targetNodeId: 'join' },
+        { type: 'error' as const, sourceNodeId: 'work', targetNodeId: 'catch' },
+        { type: 'sequential' as const, sourceNodeId: 'catch', targetNodeId: 'join' },
+      ],
+      extraNodes: [
+        { id: 'work', type: 'agent' as const, agentId: 'work' },
+        { id: 'catch', type: 'agent' as const, agentId: 'catch' },
+      ],
+    },
+  ])('rejects $name inside a fork branch', ({ nodeId, branchEdges, extraNodes }) => {
+    const result = validatePipeline(
+      makePipeline({
+        entryNodeId: 'fork',
+        nodes: [
+          { id: 'fork', type: 'fork', forkId: 'parallel' },
+          ...extraNodes,
+          { id: 'sibling', type: 'agent', agentId: 'sibling' },
+          { id: 'join', type: 'join', forkId: 'parallel' },
+        ],
+        edges: [
+          { type: 'sequential', sourceNodeId: 'fork', targetNodeId: nodeId },
+          { type: 'sequential', sourceNodeId: 'fork', targetNodeId: 'sibling' },
+          ...branchEdges,
+          { type: 'sequential', sourceNodeId: 'sibling', targetNodeId: 'join' },
+        ],
+      }),
+    )
+
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({
+        code: 'UNSUPPORTED_FORK_BRANCH_CONTROL',
+        nodeId,
+      }),
+    )
+  })
+
+  it('accepts disjoint leaf-only fork branches with sequential leaf chains', () => {
+    const result = validatePipeline(
+      makePipeline({
+        entryNodeId: 'fork',
+        nodes: [
+          { id: 'fork', type: 'fork', forkId: 'parallel' },
+          { id: 'leftA', type: 'agent', agentId: 'leftA' },
+          { id: 'leftB', type: 'transform', transformName: 'leftB' },
+          { id: 'rightA', type: 'agent', agentId: 'rightA' },
+          { id: 'rightB', type: 'gate', gateType: 'quality' },
+          { id: 'join', type: 'join', forkId: 'parallel' },
+          { id: 'done', type: 'agent', agentId: 'done' },
+        ],
+        edges: [
+          { type: 'sequential', sourceNodeId: 'fork', targetNodeId: 'leftA' },
+          { type: 'sequential', sourceNodeId: 'fork', targetNodeId: 'rightA' },
+          { type: 'sequential', sourceNodeId: 'leftA', targetNodeId: 'leftB' },
+          { type: 'sequential', sourceNodeId: 'leftB', targetNodeId: 'join' },
+          { type: 'sequential', sourceNodeId: 'rightA', targetNodeId: 'rightB' },
+          { type: 'sequential', sourceNodeId: 'rightB', targetNodeId: 'join' },
+          { type: 'sequential', sourceNodeId: 'join', targetNodeId: 'done' },
+        ],
+      }),
+    )
+
+    expect(result.errors).not.toContainEqual(
+      expect.objectContaining({ code: 'UNSUPPORTED_FORK_BRANCH_CONTROL' }),
+    )
+    expect(result.valid).toBe(true)
+  })
+
+  it('rejects conditional branch starts directly on a fork', () => {
+    const result = validatePipeline(
+      makePipeline({
+        entryNodeId: 'fork',
+        nodes: [
+          { id: 'fork', type: 'fork', forkId: 'parallel' },
+          { id: 'left', type: 'agent', agentId: 'left' },
+          { id: 'right', type: 'agent', agentId: 'right' },
+          { id: 'join', type: 'join', forkId: 'parallel' },
+        ],
+        edges: [
+          {
+            type: 'conditional',
+            sourceNodeId: 'fork',
+            predicateName: 'choose',
+            branches: { left: 'left', right: 'right' },
+          },
+          { type: 'sequential', sourceNodeId: 'left', targetNodeId: 'join' },
+          { type: 'sequential', sourceNodeId: 'right', targetNodeId: 'join' },
+        ],
+      }),
+    )
+
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({
+        code: 'UNSUPPORTED_FORK_BRANCH_CONTROL',
+        nodeId: 'fork',
+      }),
+    )
+  })
+
+  it('rejects multiple sequential successors inside one fork branch', () => {
+    const result = validatePipeline(
+      makePipeline({
+        entryNodeId: 'fork',
+        nodes: [
+          { id: 'fork', type: 'fork', forkId: 'parallel' },
+          { id: 'ambiguous', type: 'agent', agentId: 'ambiguous' },
+          { id: 'left', type: 'agent', agentId: 'left' },
+          { id: 'right', type: 'agent', agentId: 'right' },
+          { id: 'sibling', type: 'agent', agentId: 'sibling' },
+          { id: 'join', type: 'join', forkId: 'parallel' },
+        ],
+        edges: [
+          { type: 'sequential', sourceNodeId: 'fork', targetNodeId: 'ambiguous' },
+          { type: 'sequential', sourceNodeId: 'fork', targetNodeId: 'sibling' },
+          { type: 'sequential', sourceNodeId: 'ambiguous', targetNodeId: 'left' },
+          { type: 'sequential', sourceNodeId: 'ambiguous', targetNodeId: 'right' },
+          { type: 'sequential', sourceNodeId: 'left', targetNodeId: 'join' },
+          { type: 'sequential', sourceNodeId: 'right', targetNodeId: 'join' },
+          { type: 'sequential', sourceNodeId: 'sibling', targetNodeId: 'join' },
+        ],
+      }),
+    )
+
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({
+        code: 'UNSUPPORTED_FORK_BRANCH_CONTROL',
+        nodeId: 'ambiguous',
+      }),
+    )
+  })
+
+  it('rejects a fork branch that dead-ends before its owning join', () => {
+    const result = validatePipeline(
+      makePipeline({
+        entryNodeId: 'fork',
+        nodes: [
+          { id: 'fork', type: 'fork', forkId: 'parallel' },
+          { id: 'deadEnd', type: 'agent', agentId: 'deadEnd' },
+          { id: 'sibling', type: 'agent', agentId: 'sibling' },
+          { id: 'join', type: 'join', forkId: 'parallel' },
+        ],
+        edges: [
+          { type: 'sequential', sourceNodeId: 'fork', targetNodeId: 'deadEnd' },
+          { type: 'sequential', sourceNodeId: 'fork', targetNodeId: 'sibling' },
+          { type: 'sequential', sourceNodeId: 'sibling', targetNodeId: 'join' },
+        ],
+      }),
+    )
+
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({
+        code: 'UNSUPPORTED_FORK_BRANCH_CONTROL',
+        nodeId: 'deadEnd',
+      }),
+    )
+  })
+
+  it('rejects duplicate fork and join ownership identifiers', () => {
+    const result = validatePipeline(
+      makePipeline({
+        entryNodeId: 'forkA',
+        nodes: [
+          { id: 'forkA', type: 'fork', forkId: 'parallel' },
+          { id: 'forkB', type: 'fork', forkId: 'parallel' },
+          { id: 'left', type: 'agent', agentId: 'left' },
+          { id: 'right', type: 'agent', agentId: 'right' },
+          { id: 'joinA', type: 'join', forkId: 'parallel' },
+          { id: 'joinB', type: 'join', forkId: 'parallel' },
+        ],
+        edges: [
+          { type: 'sequential', sourceNodeId: 'forkA', targetNodeId: 'left' },
+          { type: 'sequential', sourceNodeId: 'left', targetNodeId: 'joinA' },
+          { type: 'sequential', sourceNodeId: 'forkB', targetNodeId: 'right' },
+          { type: 'sequential', sourceNodeId: 'right', targetNodeId: 'joinB' },
+        ],
+      }),
+    )
+
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({ code: 'UNBALANCED_FORK_JOIN' }),
+    )
+  })
+
   it('reports invalid loop body (missing node)', () => {
     const result = validatePipeline(
       makePipeline({
