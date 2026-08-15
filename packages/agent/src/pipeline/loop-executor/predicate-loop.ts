@@ -7,7 +7,6 @@
  */
 
 import type { LoopNode, PipelineNode } from "@dzupagent/core/pipeline";
-import { canonicalInputDigest } from "@dzupagent/runtime-contracts";
 import type {
   NodeExecutor,
   NodeExecutionContext,
@@ -21,11 +20,20 @@ import type {
   LoopResumeOptions,
 } from "./types.js";
 import { executeForEachLoop } from "./for-each-loop.js";
+import { createLoopIterationDeadline } from "./iteration-deadline.js";
 import {
-  createLoopIterationDeadline,
-  LoopIterationCancelledError,
-  LoopIterationTimeoutError,
-} from "./iteration-deadline.js";
+  captureLoopBinding,
+  completePredicateLoop,
+  digestProgressOutput,
+  enforceIterationReservation,
+  isLoopIterationCancelled,
+  isLoopIterationTimeout,
+  loopBodyFailure,
+  restoreLoopBinding,
+  validateBodyResumeCursor,
+  withoutLoopBinding,
+  type LoopBindingSnapshot,
+} from "./predicate-loop-helpers.js";
 
 /**
  * Execute a loop node: runs body nodes in sequence per iteration,
@@ -173,65 +181,18 @@ async function executePredicateLoop(
       maxIterations: loopNode.maxIterations,
     });
 
-    const iterationBudgetCents = loopNode.typedWhile?.iterationBudgetCents;
-    if (iterationBudgetCents !== undefined) {
-      const reserve = resume?.reserveIterationBudget;
-      let reservation:
-        | { status: "reserved"; reservedCostCents: number }
-        | { status: "unknown" };
-      try {
-        reservation =
-          reserve === undefined
-            ? { status: "unknown" }
-            : await reserve({
-                loopNodeId: loopNode.id,
-                iteration: iterationCount,
-                budgetCents: iterationBudgetCents,
-                bodyNodeIds: bodyNodes.map(({ id }) => id),
-                state: context.state,
-              });
-      } catch {
-        reservation = { status: "unknown" };
-      }
-      if (
-        reservation.status === "unknown" ||
-        !Number.isFinite(reservation.reservedCostCents) ||
-        reservation.reservedCostCents < 0
-      ) {
-        iterationDurations.push(Date.now() - iterStart);
-        return {
-          result: {
-            nodeId: loopNode.id,
-            output: lastBodyResult?.output ?? null,
-            durationMs: Date.now() - startTime,
-            error: `Loop "${loopNode.id}" iteration ${iterationCount} budget is unknown: no authoritative conservative reservation is available`,
-          },
-          metrics: {
-            iterationCount,
-            iterationDurations,
-            converged: false,
-            terminationReason: "budget_unknown",
-          },
-        };
-      }
-      if (reservation.reservedCostCents > iterationBudgetCents) {
-        iterationDurations.push(Date.now() - iterStart);
-        return {
-          result: {
-            nodeId: loopNode.id,
-            output: lastBodyResult?.output ?? null,
-            durationMs: Date.now() - startTime,
-            error: `Loop "${loopNode.id}" iteration ${iterationCount} reservation ${reservation.reservedCostCents} cents exceeds the ${iterationBudgetCents}-cent ceiling`,
-          },
-          metrics: {
-            iterationCount,
-            iterationDurations,
-            converged: false,
-            terminationReason: "budget_exceeded",
-          },
-        };
-      }
-    }
+    const reservationFailure = await enforceIterationReservation({
+      loopNode,
+      bodyNodes,
+      context,
+      resume,
+      iterationCount,
+      iterationDurations,
+      iterationStartedAt: iterStart,
+      loopStartedAt: startTime,
+      lastBodyResult,
+    });
+    if (reservationFailure !== undefined) return reservationFailure;
 
     const bodyStartIndex = i === startIteration ? startBodyNodeIndex : 0;
     const iterationBodyResults = new Map<string, NodeResult>();
@@ -514,190 +475,12 @@ async function executePredicateLoop(
     }
   }
 
-  // typedWhile is the semantic authority for typed-condition loops. Keep the
-  // legacy boolean honored only for loop artifacts that carry no typedWhile
-  // contract, so the two representations cannot disagree at runtime.
-  const failOnExhaustion =
-    loopNode.typedWhile !== undefined
-      ? loopNode.typedWhile.onExhausted === "fail"
-      : loopNode.failOnMaxIterations === true;
-  if (terminationReason === "max_iterations" && failOnExhaustion) {
-    const totalDuration = Date.now() - startTime;
-    return {
-      result: {
-        nodeId: loopNode.id,
-        output: lastBodyResult?.output ?? null,
-        durationMs: totalDuration,
-        error: `Loop "${loopNode.id}" reached maxIterations (${loopNode.maxIterations})`,
-      },
-      metrics: {
-        iterationCount,
-        iterationDurations,
-        converged: false,
-        terminationReason: "max_iterations",
-      },
-    };
-  }
-
-  const totalDuration = Date.now() - startTime;
-  return {
-    result: {
-      nodeId: loopNode.id,
-      output: lastBodyResult?.output ?? null,
-      durationMs: totalDuration,
-    },
-    metrics: {
-      iterationCount,
-      iterationDurations,
-      converged: terminationReason === "condition_met",
-      terminationReason,
-    },
-  };
-}
-
-function loopBodyFailure(
-  loopNode: LoopNode,
-  bodyResult: NodeResult | undefined,
-  error: string,
-  startTime: number,
-  iterationCount: number,
-  iterationDurations: number[]
-): { result: NodeResult; metrics: LoopMetrics } {
-  return {
-    result: {
-      nodeId: loopNode.id,
-      output: bodyResult?.output ?? null,
-      durationMs: Date.now() - startTime,
-      error: `Loop body${bodyResult === undefined ? "" : ` node "${bodyResult.nodeId}"`} failed: ${error}`,
-    },
-    metrics: {
-      iterationCount,
-      iterationDurations,
-      converged: false,
-      terminationReason: error.includes("iteration budget exceeded")
-        ? "budget_exceeded"
-        : "condition_met",
-    },
-  };
-}
-
-function isLoopIterationCancelled(
-  error: unknown
-): error is LoopIterationCancelledError {
-  return (
-    error instanceof LoopIterationCancelledError ||
-    (error instanceof Error &&
-      (error.name === "LoopIterationCancelledError" ||
-        error.message === "Loop iteration cancelled"))
-  );
-}
-
-function isLoopIterationTimeout(error: unknown): error is LoopIterationTimeoutError {
-  return (
-    error instanceof LoopIterationTimeoutError ||
-    (error instanceof Error && error.name === "LoopIterationTimeoutError")
-  );
-}
-
-interface LoopBindingSnapshot {
-  hadBinding: boolean;
-  value: unknown;
-}
-
-function captureLoopBinding(
-  state: Record<string, unknown>
-): LoopBindingSnapshot {
-  return {
-    hadBinding: Object.prototype.hasOwnProperty.call(state, "loop"),
-    value: state["loop"],
-  };
-}
-
-function restoreLoopBinding(
-  state: Record<string, unknown>,
-  snapshot: LoopBindingSnapshot
-): void {
-  if (snapshot.hadBinding) state["loop"] = snapshot.value;
-  else delete state["loop"];
-}
-
-async function withoutLoopBinding<T>(
-  state: Record<string, unknown>,
-  outer: LoopBindingSnapshot,
-  callback: () => Promise<T>
-): Promise<T> {
-  const active = captureLoopBinding(state);
-  restoreLoopBinding(state, outer);
-  try {
-    return await callback();
-  } finally {
-    restoreLoopBinding(state, active);
-  }
-}
-
-function digestProgressOutput(
-  loopNode: LoopNode,
-  progressKey: string,
-  bodyResults: ReadonlyMap<string, NodeResult>
-): `sha256:${string}` {
-  const progressResult = bodyResults.get(progressKey);
-  if (progressResult === undefined) {
-    throw new Error(
-      `Loop node "${loopNode.id}": progress result "${progressKey}" is unavailable at the iteration boundary`
-    );
-  }
-  try {
-    return `sha256:${canonicalInputDigest(progressResult.output)}`;
-  } catch (error) {
-    throw new Error(
-      `Loop node "${loopNode.id}": progress result "${progressKey}" is not canonically serializable`,
-      { cause: error }
-    );
-  }
-}
-
-function validateBodyResumeCursor(
-  loopNode: LoopNode,
-  bodyNodes: PipelineNode[],
-  startBodyNodeIndex: number,
-  bodyResults: Readonly<Record<string, NodeResult>> | undefined
-): NodeResult[] {
-  if (
-    !Number.isInteger(startBodyNodeIndex) ||
-    startBodyNodeIndex < 0 ||
-    startBodyNodeIndex > bodyNodes.length
-  ) {
-    throw new Error(
-      `Loop node "${loopNode.id}": invalid next body-node index ${startBodyNodeIndex}`
-    );
-  }
-
-  const retained = bodyResults ?? {};
-  const expectedIds = new Set(
-    bodyNodes.slice(0, startBodyNodeIndex).map((node) => node.id)
-  );
-  for (const retainedId of Object.keys(retained)) {
-    if (!expectedIds.has(retainedId)) {
-      throw new Error(
-        `Loop node "${loopNode.id}": retained result "${retainedId}" does not precede the body cursor`
-      );
-    }
-  }
-
-  const ordered: NodeResult[] = [];
-  for (let index = 0; index < startBodyNodeIndex; index++) {
-    const expectedNode = bodyNodes[index]!;
-    const result = retained[expectedNode.id];
-    if (
-      result === undefined ||
-      result.nodeId !== expectedNode.id ||
-      typeof result.durationMs !== "number"
-    ) {
-      throw new Error(
-        `Loop node "${loopNode.id}": missing or invalid retained result for body node "${expectedNode.id}"`
-      );
-    }
-    ordered.push(result);
-  }
-  return ordered;
+  return completePredicateLoop({
+    loopNode,
+    lastBodyResult,
+    loopStartedAt: startTime,
+    iterationCount,
+    iterationDurations,
+    terminationReason,
+  });
 }

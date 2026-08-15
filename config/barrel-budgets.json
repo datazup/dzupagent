@@ -181,41 +181,6 @@
         "src/self-correction/performance-optimizer.ts"
       ],
       "fileLineDebtPins": {
-        "src/pipeline/loop-executor/predicate-loop.ts": {
-          "maxLines": 703,
-          "sourceSha256": "141cab4cf827020b9c78968c118d5ae09d4faf832cfb421e3c53d09695f900eb",
-          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
-          "reviewBy": "2026-09-14",
-          "rationale": "Freeze consolidated loop interaction and replay logic pending a behavior-preserving per-concern extraction."
-        },
-        "src/pipeline/pipeline-executor.ts": {
-          "maxLines": 997,
-          "sourceSha256": "247decdf67fa608093e9171eddfebf932a2025268cdd7530fe5c63dd1ee15cbb",
-          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
-          "reviewBy": "2026-09-14",
-          "rationale": "Freeze consolidated checkpoint and interaction execution logic pending a behavior-preserving per-concern extraction."
-        },
-        "src/pipeline/pipeline-runtime-lifecycle/resume-orchestrator.ts": {
-          "maxLines": 617,
-          "sourceSha256": "b0376ba6847fde6b91cda2a00a4ab9223ee567dd8c982618cc342b59d212e43a",
-          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
-          "reviewBy": "2026-09-14",
-          "rationale": "Freeze consolidated replay restoration logic pending extraction of interaction and checkpoint planning concerns."
-        },
-        "src/pipeline/pipeline-runtime.ts": {
-          "maxLines": 848,
-          "sourceSha256": "7115fde297e884d498e00a9a15383cec3125d62f0c40472817e32288c392de3a",
-          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
-          "reviewBy": "2026-09-14",
-          "rationale": "Freeze consolidated interaction runtime coordination pending extraction of replay and checkpoint concerns."
-        },
-        "src/pipeline/pipeline-validator.ts": {
-          "maxLines": 535,
-          "sourceSha256": "ea75915e5a347e825c5eebc44d8c90e4793ac35c93a08fb63b20489443b3da9c",
-          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
-          "reviewBy": "2026-09-14",
-          "rationale": "Freeze consolidated pipeline interaction validation pending extraction of its graph and admission helpers."
-        },
         "src/runner/runner-values.ts": {
           "maxLines": 509,
           "sourceSha256": "b4a419df7b8c1d638969ecfd424f8d9d5f32734cfbe7572b9abcdc4cd3c92301",
@@ -341,13 +306,6 @@
           "sourceCommit": "49921e7ec9b1987c53cebba5e8327266669903be",
           "reviewBy": "2026-09-09",
           "rationale": "Freeze the flow runtime input contract pending a behavior-preserving per-concern type split."
-        },
-        "src/pipeline-interaction.ts": {
-          "maxLines": 1114,
-          "sourceSha256": "206d4390086a8a142cea27187a953d1b01957f2586c3c182faa38172b5a911bb",
-          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
-          "reviewBy": "2026-09-14",
-          "rationale": "Freeze the consolidated pipeline interaction contracts pending a behavior-preserving split by request, record, and replay concern."
         },
         "src/provider-session.ts": {
           "maxLines": 556,

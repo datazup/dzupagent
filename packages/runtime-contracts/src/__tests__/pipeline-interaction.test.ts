@@ -87,6 +87,76 @@ function codes(result: { valid: boolean; issues: readonly { code: string }[] }):
 }
 
 describe("pipeline interaction contracts", () => {
+  it("pins exact record bytes and digest identities", () => {
+    expect(approval.requestDigest).toBe(
+      "sha256:37105de6bbc9910610d618557006bd1988ffb972d7be3d7c1d23db17510411e8",
+    );
+    expect(pending.interactionId).toBe(
+      "interaction:6a3208f492b4ab26dfa10a3467b9aa121d24b4d9db0cfe842ec954382478af97",
+    );
+    expect(receipt.receiptHash).toBe(
+      "sha256:1c3506b027ec09534094fd1fce92a68a8d8bf8389abdf657fc17ec632f99652c",
+    );
+    expect(serializePipelineInteractionSpecV1(approval)).toBe(
+      '{"schema":"dzupagent.pipeline-interaction-spec/v1","kind":"approval","authoredNodeId":"approval-node","authoredPath":"root.nodes[0].body[1]","question":"Proceed?","choices":["safe","fast"],"requestSchema":{"kind":"approval","decisions":["approved","rejected"]},"outcomeToSuccessor":{"approved":"approved-node","rejected":"rejected-node"},"requestDigest":"sha256:37105de6bbc9910610d618557006bd1988ffb972d7be3d7c1d23db17510411e8"}',
+    );
+    expect(serializePipelinePendingInteractionV1(pending)).toBe(
+      '{"schema":"dzupagent.pipeline-pending-interaction/v1","state":"pending","kind":"approval","definitionDigest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pipelineId":"pipeline-1","runId":"run-1","nodeId":"approval-runtime-node","scope":{"kind":"loop","loopNodeId":"loop-1","iteration":3},"occurrence":3,"expectedCheckpointVersion":7,"requestDigest":"sha256:37105de6bbc9910610d618557006bd1988ffb972d7be3d7c1d23db17510411e8","expiresAt":"2030-01-02T03:04:05.000Z","interactionId":"interaction:6a3208f492b4ab26dfa10a3467b9aa121d24b4d9db0cfe842ec954382478af97"}',
+    );
+    expect(serializePipelineInteractionResumeV1(receipt)).toBe(
+      '{"schema":"dzupagent.pipeline-interaction-resume/v1","definitionDigest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pipelineId":"pipeline-1","runId":"run-1","nodeId":"approval-runtime-node","scope":{"kind":"loop","loopNodeId":"loop-1","iteration":3},"occurrence":3,"interactionId":"interaction:6a3208f492b4ab26dfa10a3467b9aa121d24b4d9db0cfe842ec954382478af97","expectedCheckpointVersion":7,"requestDigest":"sha256:37105de6bbc9910610d618557006bd1988ffb972d7be3d7c1d23db17510411e8","receiptId":"receipt-1","submittedAt":"2029-01-02T03:04:05.000Z","response":{"kind":"approval","decision":"approved","choice":"safe"},"receiptHash":"sha256:1c3506b027ec09534094fd1fce92a68a8d8bf8389abdf657fc17ec632f99652c"}',
+    );
+  });
+
+  it("pins the pipeline-interaction runtime import surface", async () => {
+    const interactionModule = await import("../pipeline-interaction.js");
+    expect(Object.keys(interactionModule).sort()).toEqual([
+      "PIPELINE_INTERACTION_LIMITS",
+      "PIPELINE_INTERACTION_RESUME_SCHEMA",
+      "PIPELINE_INTERACTION_SPEC_SCHEMA",
+      "PIPELINE_PENDING_INTERACTION_SCHEMA",
+      "createPipelineInteractionId",
+      "createPipelineInteractionResumeV1",
+      "createPipelineInteractionSpecV1",
+      "createPipelinePendingInteractionV1",
+      "deserializePipelineInteractionResumeV1",
+      "deserializePipelineInteractionSpecV1",
+      "deserializePipelinePendingInteractionV1",
+      "digestPipelineDefinition",
+      "serializePipelineInteractionResumeV1",
+      "serializePipelineInteractionSpecV1",
+      "serializePipelinePendingInteractionV1",
+      "validatePipelineInteractionResumeV1",
+      "validatePipelineInteractionSpecV1",
+      "validatePipelinePendingInteractionV1",
+    ]);
+  });
+
+  it("pins validation issue ordering and replay parse failures", () => {
+    expect(
+      validatePipelineInteractionResumeV1(
+        {
+          ...receipt,
+          schema: "dzupagent.pipeline-interaction-resume/v2",
+          runId: "different-run",
+          response: { kind: "clarification", value: "unknown" },
+          receiptHash: digest("0"),
+          unknown: true,
+        },
+        { spec: approval, pending },
+      ).issues.map(({ path, code }) => [path, code]),
+    ).toEqual([
+      ["$.unknown", "UNKNOWN_FIELD"],
+      ["$.schema", "UNKNOWN_VERSION"],
+      ["$.runId", "BINDING_MISMATCH"],
+      ["$.response.kind", "KIND_MISMATCH"],
+      ["$.response.kind", "KIND_MISMATCH"],
+    ]);
+    expect(() => deserializePipelineInteractionResumeV1("{")).toThrow(
+      "Pipeline interaction deserialization failed: invalid JSON.",
+    );
+  });
+
   it("round-trips approval and clarification specifications", () => {
     expect(
       deserializePipelineInteractionSpecV1(

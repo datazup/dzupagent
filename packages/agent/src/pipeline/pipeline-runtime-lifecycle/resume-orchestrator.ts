@@ -23,179 +23,23 @@
 
 import type { PipelineCheckpoint } from "@dzupagent/core/pipeline";
 import type {
-  PipelineInteractionResumeV1,
-  PipelinePendingInteractionV1,
-} from "@dzupagent/runtime-contracts";
-import type {
-  ForkRuntimeState,
   NodeResult,
   PipelineRunContext,
   PipelineRunResult,
-  PipelineRuntimeConfig,
 } from "../pipeline-runtime-types.js";
-import type { LoopState } from "../pipeline-runtime/executor-state-types.js";
+import {
+  restoreRunContextFromCheckpoint,
+  type ResumeHost,
+} from "./resume-context.js";
+import { enforceReplayBudget } from "./replay-budget.js";
+
+export { restoreRunContextFromCheckpoint } from "./resume-context.js";
+export type { ResumeHost } from "./resume-context.js";
+export { failReplayBudgetExceeded } from "./replay-budget.js";
 import {
   validateRetainedLoopBodyGraphCheckpointState,
 } from "../loop-body-graph-checkpoint-validator.js";
 import { validatePendingInteractionForDefinition } from "../pipeline-interaction-runtime.js";
-
-/**
- * Facade the resume/redeliver paths use over the owning runtime. Kept narrow
- * so the orchestration stays testable and free of the runtime's other
- * lifecycle concerns.
- */
-export interface ResumeHost {
-  readonly config: PipelineRuntimeConfig;
-  readonly eventLog: PipelineRunContext["eventLog"];
-
-  assertRuntimeToolReadiness(): void;
-  setState(next: "running" | "suspended" | "completed" | "failed"): void;
-  setRecoveryAttemptsUsed(count: number): void;
-  setBudgetCostCents(costCents: number): void;
-
-  emitStarted(runId: string): void;
-  emitCompleted(runId: string, durationMs: number): void;
-  emitFailed(runId: string, message: string): void;
-
-  /** Delegate the graph walk, translating thrown errors into a failed result. */
-  runFromNode(ctx: PipelineRunContext): Promise<PipelineRunResult>;
-  /** Persist completion without the already-consumed interaction cursor. */
-  finalizeInteractionResume(ctx: PipelineRunContext): Promise<void>;
-  /** Fail closed unless a committed cursor still matches receipt and artifact. */
-  assertInteractionResumeCursorValid(checkpoint: PipelineCheckpoint): void;
-
-  /** Look up a node id in the runtime's node map. */
-  hasNode(nodeId: string): boolean;
-  /** Resolve the node(s) after `nodeId` (traversal-time edge resolution). */
-  getNextNodeIds(nodeId: string, runState: Record<string, unknown>): string[];
-
-  findMidFlightLoopNodeId(
-    loopState: LoopState,
-    completedNodeIds: string[]
-  ): string | undefined;
-  findMidFlightForkNodeId(
-    forkState: Record<string, { branches: Record<string, unknown> }>
-  ): string | undefined;
-  findRestartNodeId(
-    completedNodeIds: string[],
-    runState: Record<string, unknown>
-  ): string | undefined;
-  countReplayNodesFrom(
-    startNodeId: string,
-    runState: Record<string, unknown>,
-    completedNodeIds: string[]
-  ): number;
-}
-
-interface RestoredContext {
-  runId: string;
-  runState: Record<string, unknown>;
-  nodeResults: Map<string, NodeResult>;
-  completedNodeIds: string[];
-  nodeIdempotencyKeys: Record<string, string>;
-  loopState: LoopState;
-  forkState: ForkRuntimeState;
-  pendingInteraction?: PipelinePendingInteractionV1;
-  interactionReceipts: Record<string, PipelineInteractionResumeV1>;
-  interactionResumeCursor: PipelineCheckpoint["interactionResumeCursor"];
-}
-
-/**
- * Rebuild the mutable run context from a checkpoint. `hydrateCompleted`
- * controls whether the restored `completedNodeIds` are pre-seeded with
- * placeholder node results (resume) or left empty for a from-entry redelivery.
- */
-export function restoreRunContextFromCheckpoint(
-  checkpoint: PipelineCheckpoint,
-  additionalState: Record<string, unknown> | undefined,
-  options: { hydrateCompleted: boolean }
-): RestoredContext {
-  const runState: Record<string, unknown> = {
-    ...checkpoint.state,
-    ...additionalState,
-  };
-  const nodeResults = new Map<string, NodeResult>();
-  // Restore recorded idempotency keys so resumed runs keep stable keys.
-  const nodeIdempotencyKeys: Record<string, string> = {
-    ...checkpoint.nodeIdempotencyKeys,
-  };
-
-  if (options.hydrateCompleted) {
-    const completedNodeIds = [...checkpoint.completedNodeIds];
-    // Restore the loop iteration cursor so a mid-loop crash resumes from the
-    // next iteration rather than restarting the loop (W3).
-    const loopState = structuredClone(checkpoint.loopState ?? {}) as LoopState;
-    // Restore per-fork branch progress so a mid-fork crash re-runs only
-    // unfinished branches rather than the whole fork (W4).
-    const forkState: ForkRuntimeState = structuredClone(
-      checkpoint.forkState ?? {}
-    );
-
-    // Mark completed nodes in results (with placeholder results)
-    for (const nodeId of completedNodeIds) {
-      nodeResults.set(nodeId, { nodeId, output: null, durationMs: 0 });
-    }
-
-    return {
-      runId: checkpoint.pipelineRunId,
-      runState,
-      nodeResults,
-      completedNodeIds,
-      nodeIdempotencyKeys,
-      loopState,
-      forkState,
-      ...(checkpoint.pendingInteraction === undefined
-        ? {}
-        : { pendingInteraction: checkpoint.pendingInteraction }),
-      interactionReceipts: structuredClone(checkpoint.interactionReceipts ?? {}),
-      interactionResumeCursor: checkpoint.interactionResumeCursor === undefined
-        ? undefined
-        : structuredClone(checkpoint.interactionResumeCursor),
-    };
-  }
-
-  return {
-    runId: checkpoint.pipelineRunId,
-    runState,
-    nodeResults,
-    completedNodeIds: [],
-    nodeIdempotencyKeys,
-    loopState: {},
-    forkState: {},
-    ...(checkpoint.pendingInteraction === undefined
-      ? {}
-      : { pendingInteraction: checkpoint.pendingInteraction }),
-    interactionReceipts: structuredClone(checkpoint.interactionReceipts ?? {}),
-    interactionResumeCursor: checkpoint.interactionResumeCursor === undefined
-      ? undefined
-      : structuredClone(checkpoint.interactionResumeCursor),
-  };
-}
-
-/** Shared terminal for a `resume.maxReplayNodes` budget breach. */
-export function failReplayBudgetExceeded(
-  host: ResumeHost,
-  args: {
-    runId: string;
-    nodeResults: Map<string, NodeResult>;
-    replayNodeCount: number;
-    maxReplayNodes: number;
-    startTime: number;
-  }
-): PipelineRunResult {
-  const errorMessage =
-    `Resume replay budget exceeded: ${args.replayNodeCount} nodes would replay, ` +
-    `maxReplayNodes is ${args.maxReplayNodes}.`;
-  host.setState("failed");
-  host.emitFailed(args.runId, errorMessage);
-  return {
-    pipelineId: host.config.definition.id,
-    runId: args.runId,
-    state: "failed",
-    nodeResults: args.nodeResults,
-    totalDurationMs: Date.now() - args.startTime,
-  };
-}
 
 function failRetainedLoopControl(
   host: ResumeHost,
@@ -578,40 +422,4 @@ export async function redeliverFromCheckpoint(
     interactionReceipts,
     startTime,
   });
-}
-
-/**
- * Enforce the `resume.maxReplayNodes` budget for a re-entry at `startNodeId`.
- * Returns a failed `PipelineRunResult` when the budget is exceeded, or
- * `undefined` when the resume may proceed (no budget set, or within it).
- */
-function enforceReplayBudget(
-  host: ResumeHost,
-  args: {
-    startNodeId: string;
-    runId: string;
-    runState: Record<string, unknown>;
-    completedNodeIds: string[];
-    nodeResults: Map<string, NodeResult>;
-    startTime: number;
-  }
-): PipelineRunResult | undefined {
-  const maxReplayNodes = host.config.definition.resume?.maxReplayNodes;
-  if (maxReplayNodes === undefined) return undefined;
-
-  const replayNodeCount = host.countReplayNodesFrom(
-    args.startNodeId,
-    args.runState,
-    args.completedNodeIds
-  );
-  if (replayNodeCount > maxReplayNodes) {
-    return failReplayBudgetExceeded(host, {
-      runId: args.runId,
-      nodeResults: args.nodeResults,
-      replayNodeCount,
-      maxReplayNodes,
-      startTime: args.startTime,
-    });
-  }
-  return undefined;
 }

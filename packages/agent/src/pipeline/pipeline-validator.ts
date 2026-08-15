@@ -5,9 +5,11 @@
  * @module pipeline/pipeline-validator
  */
 
-import type { PipelineDefinition, PipelineValidationResult, PipelineValidationError, PipelineValidationWarning, PipelineNode, PipelineEdge } from '@dzupagent/core/pipeline'
-import { validatePipelineInteractionSpecV1 } from '@dzupagent/runtime-contracts'
+import type { PipelineDefinition, PipelineValidationResult, PipelineValidationError, PipelineValidationWarning, PipelineNode } from '@dzupagent/core/pipeline'
 import { validateForEachAdmission } from './for-each-admission.js'
+import { projectValidationEdgeTargets } from './loop-executor/edge-target-projections.js'
+import { validateInteractionNodes } from './loop-executor/definition-validation/interaction-nodes.js'
+import { bfsReachable, detectCycles, findUnsupportedForkBranchShape } from './loop-executor/definition-validation/graph-helpers.js'
 
 /**
  * Validate a pipeline definition for structural correctness.
@@ -35,69 +37,7 @@ export function validatePipeline(definition: PipelineDefinition): PipelineValida
     }
   }
 
-  // --- Checkpoint-bound interaction protocol ---
-  for (const node of definition.nodes) {
-    if (
-      (node.type !== 'gate' && node.type !== 'suspend') ||
-      node.interaction === undefined
-    ) {
-      continue
-    }
-    if (definition.schemaVersion !== '1.1.0') {
-      errors.push({
-        code: 'INVALID_INTERACTION_SPEC',
-        message: `Interaction node "${node.id}" requires pipeline schemaVersion 1.1.0`,
-        nodeId: node.id,
-      })
-    }
-    const validated = validatePipelineInteractionSpecV1(node.interaction)
-    if (!validated.valid) {
-      errors.push({
-        code: 'INVALID_INTERACTION_SPEC',
-        message: `Interaction node "${node.id}" is invalid: ${validated.issues
-          .map(issue => `${issue.path}: ${issue.message}`)
-          .join('; ')}`,
-        nodeId: node.id,
-      })
-      continue
-    }
-    if (node.type === 'gate') {
-      if (node.gateType !== 'approval' || node.interaction.kind !== 'approval') {
-        errors.push({
-          code: 'INVALID_INTERACTION_SPEC',
-          message: `Interaction gate "${node.id}" must be an approval gate with an approval specification`,
-          nodeId: node.id,
-        })
-        continue
-      }
-      const decisionEdges = definition.edges.filter(
-        (edge): edge is Extract<PipelineEdge, { type: 'conditional' }> =>
-          edge.type === 'conditional' && edge.sourceNodeId === node.id,
-      )
-      const decisionEdge = decisionEdges[0]
-      if (
-        decisionEdges.length !== 1 ||
-        decisionEdge === undefined ||
-        Object.keys(decisionEdge.branches).length !== 2 ||
-        decisionEdge.branches.approved !==
-          node.interaction.outcomeToSuccessor.approved ||
-        decisionEdge.branches.rejected !==
-          node.interaction.outcomeToSuccessor.rejected
-      ) {
-        errors.push({
-          code: 'INVALID_INTERACTION_ROUTING',
-          message: `Approval interaction "${node.id}" must have one exact approved/rejected conditional edge`,
-          nodeId: node.id,
-        })
-      }
-    } else if (node.interaction.kind !== 'clarification') {
-      errors.push({
-        code: 'INVALID_INTERACTION_SPEC',
-        message: `Suspend interaction "${node.id}" must carry a clarification specification`,
-        nodeId: node.id,
-      })
-    }
-  }
+  validateInteractionNodes(definition, errors)
 
   // --- Missing entry node ---
   if (!nodeMap.has(definition.entryNodeId)) {
@@ -119,7 +59,7 @@ export function validatePipeline(definition: PipelineDefinition): PipelineValida
       })
     }
 
-    const targetIds = getEdgeTargets(edge)
+    const targetIds = projectValidationEdgeTargets(edge)
     for (const targetId of targetIds) {
       if (!nodeMap.has(targetId)) {
         errors.push({
@@ -140,7 +80,7 @@ export function validatePipeline(definition: PipelineDefinition): PipelineValida
   }
 
   for (const edge of definition.edges) {
-    const targets = getEdgeTargets(edge)
+    const targets = projectValidationEdgeTargets(edge)
     const neighbors = adjacency.get(edge.sourceNodeId)
     if (neighbors) {
       for (const t of targets) {
@@ -322,7 +262,7 @@ export function validatePipeline(definition: PipelineDefinition): PipelineValida
             edge =>
               edge.type !== 'error' &&
               edge.sourceNodeId === exitId &&
-              getEdgeTargets(edge).some(targetId => bodyIds.has(targetId)),
+              projectValidationEdgeTargets(edge).some(targetId => bodyIds.has(targetId)),
           )
           if (bodyContinuationEdges.length === 0) {
             errors.push({
@@ -370,7 +310,7 @@ export function validatePipeline(definition: PipelineDefinition): PipelineValida
             edge =>
               edge.type !== 'error' &&
               edge.sourceNodeId === exitId &&
-              getEdgeTargets(edge).some(targetId => bodyIds.has(targetId)),
+              projectValidationEdgeTargets(edge).some(targetId => bodyIds.has(targetId)),
           )
           if (hasBodyContinuation) {
             errors.push({
@@ -399,7 +339,7 @@ export function validatePipeline(definition: PipelineDefinition): PipelineValida
         }
         for (const edge of definition.edges) {
           if (!bodyIds.has(edge.sourceNodeId)) continue
-          for (const targetId of getEdgeTargets(edge)) {
+          for (const targetId of projectValidationEdgeTargets(edge)) {
             if (bodyIds.has(targetId)) continue
             errors.push({
               code: 'INVALID_LOOP_BODY_GRAPH',
@@ -503,194 +443,5 @@ export function validatePipeline(definition: PipelineDefinition): PipelineValida
     valid: errors.length === 0,
     errors,
     warnings,
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function getEdgeTargets(edge: PipelineEdge): string[] {
-  switch (edge.type) {
-    case 'sequential':
-    case 'error':
-      return [edge.targetNodeId]
-    case 'conditional':
-      return Object.values(edge.branches)
-  }
-}
-
-function findUnsupportedForkBranchShape(
-  forkNodeId: string,
-  owningJoinNodeId: string,
-  nodeMap: ReadonlyMap<string, PipelineNode>,
-  edges: readonly PipelineEdge[],
-): { nodeId: string; kind: string } | undefined {
-  const forkEdges = edges.filter(edge => edge.sourceNodeId === forkNodeId)
-  if (forkEdges.length === 0) {
-    return { nodeId: forkNodeId, kind: 'fork has no branch starts' }
-  }
-  if (forkEdges.some(edge => edge.type !== 'sequential')) {
-    return { nodeId: forkNodeId, kind: 'fork uses conditional or error routing' }
-  }
-
-  const branchStartIds = forkEdges.flatMap(edge =>
-    edge.type === 'sequential' ? [edge.targetNodeId] : [],
-  )
-  if (
-    new Set(branchStartIds).size !== branchStartIds.length ||
-    branchStartIds.includes(owningJoinNodeId)
-  ) {
-    return { nodeId: forkNodeId, kind: 'fork branch starts are duplicate or empty' }
-  }
-
-  const branchOwner = new Map<string, string>()
-  const expectedPredecessor = new Map<string, string>()
-  const branchEndIds = new Set<string>()
-
-  for (const branchStartId of branchStartIds) {
-    let currentId = branchStartId
-    let predecessorId = forkNodeId
-    const branchVisited = new Set<string>()
-
-    while (currentId !== owningJoinNodeId) {
-      if (branchVisited.has(currentId)) {
-        return { nodeId: currentId, kind: 'branch cycles before its owning join' }
-      }
-      branchVisited.add(currentId)
-
-      const existingOwner = branchOwner.get(currentId)
-      if (existingOwner !== undefined && existingOwner !== branchStartId) {
-        return { nodeId: currentId, kind: 'branches overlap before their owning join' }
-      }
-      branchOwner.set(currentId, branchStartId)
-      expectedPredecessor.set(currentId, predecessorId)
-
-      const node = nodeMap.get(currentId)
-      if (node === undefined) {
-        return { nodeId: currentId, kind: 'branch reaches a missing node' }
-      }
-      if (node.type === 'fork') return { nodeId: currentId, kind: 'nested fork' }
-      if (node.type === 'join') return { nodeId: currentId, kind: 'nested or foreign join' }
-      if (node.type === 'loop') return { nodeId: currentId, kind: 'loop control' }
-      if (node.type === 'suspend') {
-        return { nodeId: currentId, kind: 'suspension or terminal control' }
-      }
-      if (node.type === 'gate' && node.gateType === 'approval') {
-        return { nodeId: currentId, kind: 'approval suspension' }
-      }
-
-      const outgoing = edges.filter(edge => edge.sourceNodeId === currentId)
-      if (outgoing.some(edge => edge.type === 'conditional')) {
-        return { nodeId: currentId, kind: 'conditional branch control' }
-      }
-      if (outgoing.some(edge => edge.type === 'error')) {
-        return { nodeId: currentId, kind: 'try/catch error control' }
-      }
-      if (outgoing.length !== 1 || outgoing[0]?.type !== 'sequential') {
-        return { nodeId: currentId, kind: 'branch does not have exactly one sequential successor' }
-      }
-
-      const nextId = outgoing[0].targetNodeId
-      if (nextId === owningJoinNodeId) branchEndIds.add(currentId)
-      predecessorId = currentId
-      currentId = nextId
-    }
-  }
-
-  for (const [nodeId, predecessorId] of expectedPredecessor) {
-    const incoming = edges.filter(edge => getEdgeTargets(edge).includes(nodeId))
-    if (
-      incoming.length !== 1 ||
-      incoming[0]?.type !== 'sequential' ||
-      incoming[0].sourceNodeId !== predecessorId
-    ) {
-      return { nodeId, kind: 'branch has an external or ambiguous predecessor' }
-    }
-  }
-
-  const joinIncoming = edges.filter(edge => getEdgeTargets(edge).includes(owningJoinNodeId))
-  if (
-    joinIncoming.length !== branchEndIds.size ||
-    joinIncoming.some(
-      edge => edge.type !== 'sequential' || !branchEndIds.has(edge.sourceNodeId),
-    )
-  ) {
-    return { nodeId: owningJoinNodeId, kind: 'join has an external or ambiguous predecessor' }
-  }
-
-  return undefined
-}
-
-function bfsReachable(startId: string, adjacency: Map<string, Set<string>>): Set<string> {
-  const visited = new Set<string>()
-  const queue = [startId]
-  visited.add(startId)
-
-  while (queue.length > 0) {
-    const current = queue.shift()!
-    const neighbors = adjacency.get(current)
-    if (neighbors) {
-      for (const neighbor of neighbors) {
-        if (!visited.has(neighbor)) {
-          visited.add(neighbor)
-          queue.push(neighbor)
-        }
-      }
-    }
-  }
-
-  return visited
-}
-
-/** DFS cycle detection using white/gray/black coloring */
-function detectCycles(
-  adjacency: Map<string, Set<string>>,
-  loopBodyNodeIds: Set<string>,
-  errors: PipelineValidationError[],
-): void {
-  const WHITE = 0
-  const GRAY = 1
-  const BLACK = 2
-
-  const color = new Map<string, number>()
-  for (const nodeId of adjacency.keys()) {
-    color.set(nodeId, WHITE)
-  }
-
-  function dfs(nodeId: string, path: string[]): void {
-    color.set(nodeId, GRAY)
-    path.push(nodeId)
-
-    const neighbors = adjacency.get(nodeId)
-    if (neighbors) {
-      for (const neighbor of neighbors) {
-        const neighborColor = color.get(neighbor)
-        if (neighborColor === GRAY) {
-          // Found a cycle — check if ALL nodes in the cycle are loop body nodes
-          const cycleStart = path.indexOf(neighbor)
-          const cycleNodes = path.slice(cycleStart)
-          const allInLoopBody = cycleNodes.every(id => loopBodyNodeIds.has(id))
-          if (!allInLoopBody) {
-            errors.push({
-              code: 'UNBOUNDED_CYCLE',
-              message: `Cycle detected: ${[...cycleNodes, neighbor].join(' -> ')}`,
-              nodeId: neighbor,
-            })
-          }
-        } else if (neighborColor === WHITE) {
-          dfs(neighbor, path)
-        }
-      }
-    }
-
-    path.pop()
-    color.set(nodeId, BLACK)
-  }
-
-  for (const nodeId of adjacency.keys()) {
-    if (color.get(nodeId) === WHITE) {
-      dfs(nodeId, [])
-    }
   }
 }
