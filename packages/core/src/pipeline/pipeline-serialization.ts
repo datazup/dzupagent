@@ -294,17 +294,25 @@ const PipelineLoopBodyGraphCheckpointStateSchema = z
     });
   });
 
+const PipelineSha256DigestSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/);
+
+/** Mid-item durable progress for an in-flight for-each item (E0 frame). */
+const PipelineForEachItemFrameSchema = z.object({
+  itemIndex: z.number().int().nonnegative(),
+  nextBodyNodeIndex: z.number().int().nonnegative(),
+  bodyResults: z.record(z.string(), z.unknown()).optional(),
+  attempt: z.number().int().nonnegative().optional(),
+});
+
 const PipelineLoopCheckpointStateSchema = z
   .object({
     iteration: z.number().int().nonnegative(),
     nextBodyNodeIndex: z.number().int().nonnegative().optional(),
     bodyResults: z.record(z.string(), z.unknown()).optional(),
+    itemFrame: PipelineForEachItemFrameSchema.optional(),
     bodyGraphState: PipelineLoopBodyGraphCheckpointStateSchema.optional(),
     previousOutput: z.unknown().optional(),
-    progressDigest: z
-      .string()
-      .regex(/^sha256:[a-f0-9]{64}$/)
-      .optional(),
+    progressDigest: PipelineSha256DigestSchema.optional(),
   })
   .superRefine((cursor, context) => {
     const hasNextBodyNodeIndex = cursor.nextBodyNodeIndex !== undefined;
@@ -359,6 +367,15 @@ export const PipelineCheckpointSchema = z.object({
   pipelineId: z.string().min(1),
   version: z.number().int().nonnegative(),
   schemaVersion: z.enum(PIPELINE_SCHEMA_VERSIONS),
+  sourceBinding: z
+    .object({
+      definitionDigest: PipelineSha256DigestSchema,
+      loopSourceDigests: z
+        .record(z.string(), PipelineSha256DigestSchema)
+        .optional(),
+    })
+    .strict()
+    .optional(),
   completedNodeIds: z.array(z.string()),
   nodeIdempotencyKeys: z.record(z.string(), z.string()).optional(),
   loopState: z

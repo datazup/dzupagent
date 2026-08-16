@@ -37,6 +37,11 @@ export type {
 // --- Checkpoint store types ---
 export type {
   PipelineCheckpoint,
+  PipelineCheckpointCommitReceipt,
+  PipelineCheckpointSourceBinding,
+  PipelineExecutionScope,
+  PipelineForEachItemFrame,
+  PipelineLedgerUnavailablePolicy,
   PipelineInteractionResumeCursor,
   PipelineLoopBodyGraphCheckpointOutcome,
   PipelineLoopBodyGraphCheckpointState,

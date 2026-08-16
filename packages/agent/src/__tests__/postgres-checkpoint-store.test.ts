@@ -250,7 +250,7 @@ describe("PostgresPipelineCheckpointStore", () => {
 
       await store.setup();
 
-      expect(calls).toHaveLength(9);
+      expect(calls).toHaveLength(10);
       expect(calls[0]!.text).toContain(
         "CREATE TABLE IF NOT EXISTS my_checkpoints"
       );
@@ -276,10 +276,14 @@ describe("PostgresPipelineCheckpointStore", () => {
       expect(calls[6]!.text).toContain(
         "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS interaction_state"
       );
+      // Backward-compatible migration (E0): adds source_binding.
       expect(calls[7]!.text).toContain(
-        "CREATE INDEX IF NOT EXISTS my_checkpoints_run_idx"
+        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS source_binding"
       );
       expect(calls[8]!.text).toContain(
+        "CREATE INDEX IF NOT EXISTS my_checkpoints_run_idx"
+      );
+      expect(calls[9]!.text).toContain(
         "CREATE INDEX IF NOT EXISTS my_checkpoints_expiry_idx"
       );
     });
@@ -564,6 +568,57 @@ describe("PostgresPipelineCheckpointStore", () => {
       expect(result!.budgetState).toEqual({ tokensUsed: 42, costCents: 3 });
       // Date objects are normalised to ISO strings.
       expect(result!.createdAt).toBe("2026-04-24T00:00:00.000Z");
+    });
+
+    it("persists and restores the E0 source binding through the row mapping", async () => {
+      // Postgres maps explicit columns rather than serializing the checkpoint
+      // wholesale, so a new field is silently DROPPED unless it is threaded
+      // into the insert, the upsert, and the row->checkpoint mapping. The
+      // in-memory and Redis stores would hide that, hence this proof.
+      const binding = {
+        definitionDigest: `sha256:${"a".repeat(64)}`,
+        loopSourceDigests: { "loop-items": `sha256:${"b".repeat(64)}` },
+      };
+      const { client, calls } = createMockClient([
+        () => ({ rows: [] }),
+        () => ({
+          rows: [
+            {
+              pipeline_run_id: "run-1",
+              pipeline_id: "pipeline-1",
+              version: 1,
+              schema_version: "1.0.0",
+              completed_node_ids: ["start"],
+              state: {},
+              suspended_at_node_id: null,
+              budget_state: null,
+              created_at: new Date("2026-04-24T00:00:00.000Z"),
+              expires_at: null,
+              source_binding: binding,
+            },
+          ],
+        }),
+      ]);
+      const store = new PostgresPipelineCheckpointStore({ client });
+
+      await store.save({
+        pipelineRunId: "run-1",
+        pipelineId: "pipeline-1",
+        version: 1,
+        schemaVersion: "1.0.0",
+        completedNodeIds: ["start"],
+        state: {},
+        createdAt: "2026-04-24T00:00:00.000Z",
+        sourceBinding: binding,
+      });
+
+      // The binding must actually reach the INSERT, not just the type.
+      const insert = calls[0]!;
+      expect(insert.text).toContain("source_binding");
+      expect(insert.params).toContain(JSON.stringify(binding));
+
+      const result = await store.load("run-1");
+      expect(result!.sourceBinding).toEqual(binding);
     });
 
     it("restores recoveryAttemptsUsed from the row (W5-gap)", async () => {

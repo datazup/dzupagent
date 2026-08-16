@@ -64,6 +64,7 @@ interface CheckpointRow {
   expires_at: Date | string | null;
   recovery_attempts_used: number | null;
   provider_session_refs: PipelineCheckpoint["providerSessionRefs"] | null;
+  source_binding: PipelineCheckpoint["sourceBinding"] | null;
   interaction_state: {
     pendingInteraction?: PipelineCheckpoint["pendingInteraction"];
     interactionReceipts?: PipelineCheckpoint["interactionReceipts"];
@@ -131,6 +132,7 @@ export class PostgresPipelineCheckpointStore
         recovery_attempts_used INTEGER DEFAULT 0,
         provider_session_refs JSONB,
         interaction_state JSONB,
+        source_binding JSONB,
         state JSONB NOT NULL,
         suspended_at_node_id TEXT,
         budget_state JSONB,
@@ -150,6 +152,8 @@ export class PostgresPipelineCheckpointStore
     const addRecoveryAttemptsCol = `ALTER TABLE ${this.tableName} ADD COLUMN IF NOT EXISTS recovery_attempts_used INTEGER DEFAULT 0`;
     const addProviderSessionRefsCol = `ALTER TABLE ${this.tableName} ADD COLUMN IF NOT EXISTS provider_session_refs JSONB`;
     const addInteractionStateCol = `ALTER TABLE ${this.tableName} ADD COLUMN IF NOT EXISTS interaction_state JSONB`;
+    // E0: run-level binding to the exact compiled artifact / for-each source.
+    const addSourceBindingCol = `ALTER TABLE ${this.tableName} ADD COLUMN IF NOT EXISTS source_binding JSONB`;
 
     await this.client.query(createTable);
     await this.client.query(addIdempotencyCol);
@@ -158,6 +162,7 @@ export class PostgresPipelineCheckpointStore
     await this.client.query(addRecoveryAttemptsCol);
     await this.client.query(addProviderSessionRefsCol);
     await this.client.query(addInteractionStateCol);
+    await this.client.query(addSourceBindingCol);
     await this.client.query(createRunIdx);
     await this.client.query(createExpiryIdx);
   }
@@ -172,9 +177,10 @@ export class PostgresPipelineCheckpointStore
         pipeline_run_id, pipeline_id, version, schema_version,
         completed_node_ids, state, suspended_at_node_id, budget_state,
         created_at, expires_at, node_idempotency_keys, loop_state, fork_state,
-        recovery_attempts_used, provider_session_refs, interaction_state
+        recovery_attempts_used, provider_session_refs, interaction_state,
+        source_binding
       )
-      VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb, $9, $10, $11::jsonb, $12::jsonb, $13::jsonb, $14, $15::jsonb, $16::jsonb)
+      VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb, $9, $10, $11::jsonb, $12::jsonb, $13::jsonb, $14, $15::jsonb, $16::jsonb, $17::jsonb)
       ON CONFLICT (pipeline_run_id, version) DO UPDATE SET
         pipeline_id = EXCLUDED.pipeline_id,
         schema_version = EXCLUDED.schema_version,
@@ -189,7 +195,8 @@ export class PostgresPipelineCheckpointStore
         fork_state = EXCLUDED.fork_state,
         recovery_attempts_used = EXCLUDED.recovery_attempts_used,
         provider_session_refs = EXCLUDED.provider_session_refs,
-        interaction_state = EXCLUDED.interaction_state
+        interaction_state = EXCLUDED.interaction_state,
+        source_binding = EXCLUDED.source_binding
     `;
 
     await this.client.query(sql, [
@@ -220,6 +227,9 @@ export class PostgresPipelineCheckpointStore
             interactionReceipts: checkpoint.interactionReceipts,
             interactionResumeCursor: checkpoint.interactionResumeCursor,
           })
+        : null,
+      checkpoint.sourceBinding
+        ? JSON.stringify(checkpoint.sourceBinding)
         : null,
     ]);
   }
@@ -367,6 +377,9 @@ function rowToCheckpoint(row: CheckpointRow): PipelineCheckpoint {
   }
   if (Array.isArray(row.provider_session_refs)) {
     cp.providerSessionRefs = row.provider_session_refs;
+  }
+  if (row.source_binding && typeof row.source_binding === "object") {
+    cp.sourceBinding = row.source_binding;
   }
   if (row.interaction_state && typeof row.interaction_state === "object") {
     if (row.interaction_state.pendingInteraction !== undefined) {

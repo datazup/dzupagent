@@ -103,8 +103,14 @@ export async function handleLoop(
   // standard-node path, so account their successful paid work here. A body
   // result is charged before its body-progress checkpoint hook runs; retained
   // results skipped during resume never pass through this wrapper and are not
-  // charged twice. Concurrent for_each needs per-item reservations/durable
-  // receipts and intentionally remains on the unwrapped executor for now.
+  // charged twice.
+  //
+  // The predicate below is `forEach === undefined`, so EVERY for_each loop
+  // stays on the unwrapped executor — sequential (concurrency 1) as well as
+  // concurrent. Sequential for_each is not an oversight-free case: it is
+  // simply not charged here yet, and packet 24-F is where its per-item
+  // reserve/settle lifecycle lands. Do not read this branch as "only
+  // concurrent for_each is excluded".
   const bodyExecutor: NodeExecutor =
     loopNode.forEach === undefined
       ? async (nodeId, node, bodyContext) => {

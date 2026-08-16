@@ -478,6 +478,108 @@ describe("PipelineCheckpoint", () => {
     expect(result.success).toBe(true);
   });
 
+  // --- E0: source binding + for-each item frame contract ---
+
+  const DIGEST_A = `sha256:${"a".repeat(64)}` as const;
+  const DIGEST_B = `sha256:${"b".repeat(64)}` as const;
+
+  it("accepts a checkpoint carrying a root source binding", () => {
+    const cp = makeCheckpoint({
+      sourceBinding: {
+        definitionDigest: DIGEST_A,
+        loopSourceDigests: { "loop-items": DIGEST_B },
+      },
+    });
+    const result = PipelineCheckpointSchema.safeParse(cp);
+    expect(result.success).toBe(true);
+  });
+
+  it("still accepts a checkpoint with no source binding", () => {
+    // Absence must stay valid: checkpoints written before E0 have no binding,
+    // and resume treats "unbound" as unprovable rather than as agreement.
+    const cp = makeCheckpoint();
+    expect("sourceBinding" in cp).toBe(false);
+    expect(PipelineCheckpointSchema.safeParse(cp).success).toBe(true);
+  });
+
+  it("rejects a source-binding digest that is not a canonical sha256", () => {
+    const result = PipelineCheckpointSchema.safeParse(
+      makeCheckpoint({
+        sourceBinding: { definitionDigest: "deadbeef" },
+      })
+    );
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a per-loop source digest that is not a canonical sha256", () => {
+    const result = PipelineCheckpointSchema.safeParse(
+      makeCheckpoint({
+        sourceBinding: {
+          definitionDigest: DIGEST_A,
+          loopSourceDigests: { "loop-items": `sha256:${"z".repeat(64)}` },
+        },
+      })
+    );
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an unknown key inside the source binding", () => {
+    // The binding is `.strict()` like the checkpoint itself, so a typo cannot
+    // silently ride along as unvalidated provenance.
+    const result = PipelineCheckpointSchema.safeParse(
+      makeCheckpoint({
+        sourceBinding: {
+          definitionDigest: DIGEST_A,
+          sourceDigest: DIGEST_B,
+        },
+      })
+    );
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts a for-each loop cursor carrying mid-item progress", () => {
+    const cp = makeCheckpoint({
+      loopState: {
+        "loop-items": {
+          iteration: 2,
+          itemFrame: {
+            itemIndex: 2,
+            nextBodyNodeIndex: 1,
+            bodyResults: { fetch: { nodeId: "fetch", output: 1 } },
+            attempt: 0,
+          },
+        },
+      },
+    });
+    const result = PipelineCheckpointSchema.safeParse(cp);
+    expect(result.success).toBe(true);
+  });
+
+  it("requires nextBodyNodeIndex on a for-each item frame", () => {
+    // itemIndex alone cannot say how far into the item we got, which is the
+    // whole point of the frame — a frame without it would re-run body nodes.
+    const result = PipelineCheckpointSchema.safeParse(
+      makeCheckpoint({
+        loopState: { "loop-items": { iteration: 2, itemFrame: { itemIndex: 2 } } },
+      })
+    );
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a negative item index on a for-each item frame", () => {
+    const result = PipelineCheckpointSchema.safeParse(
+      makeCheckpoint({
+        loopState: {
+          "loop-items": {
+            iteration: 0,
+            itemFrame: { itemIndex: -1, nextBodyNodeIndex: 0 },
+          },
+        },
+      })
+    );
+    expect(result.success).toBe(false);
+  });
+
   it("validates a checkpoint with budgetState and suspendedAtNodeId", () => {
     const cp = makeCheckpoint({
       suspendedAtNodeId: "n3",

@@ -31,11 +31,20 @@ import type { PipelineSchemaVersion } from "./pipeline-definition.js";
  * The optional fields are backward-compatible with iteration-only W3
  * checkpoints. They are omitted for for-each loops, whose ordered-prefix
  * cursor remains iteration-based.
+ *
+ * `itemFrame` is the E0 exception to that last sentence: a for-each loop's
+ * ordered-prefix `iteration` still counts fully-completed items, but a crash
+ * part-way through an item currently repeats every body node in it. The frame
+ * records progress *within* the in-flight item so E3 can resume mid-item.
+ * It is absent for predicate loops and for for-each loops sitting exactly on
+ * an item boundary.
  */
 export interface PipelineLoopCheckpointState {
   iteration: number;
   nextBodyNodeIndex?: number;
   bodyResults?: Record<string, unknown>;
+  /** Mid-item progress for a for-each loop. Absent on an item boundary. */
+  itemFrame?: PipelineForEachItemFrame;
   /**
    * Scoped canonical-executor frame for a compiler-lowered graph body.
    * Mutually exclusive with the legacy flat-list cursor above.
@@ -45,6 +54,39 @@ export interface PipelineLoopCheckpointState {
   previousOutput?: unknown;
   /** Canonical digest of the previous iteration's progress-node output. */
   progressDigest?: `sha256:${string}`;
+}
+
+/**
+ * Durable progress inside one in-flight `for_each` item.
+ *
+ * The ordered-prefix cursor (`PipelineLoopCheckpointState.iteration`) only
+ * advances when an item is *fully* complete, so it cannot express "item 7 got
+ * through two of its four body nodes". Without that, a crash mid-item re-runs
+ * body nodes that already committed their side effects.
+ *
+ * Retaining `bodyResults` mirrors the predicate-loop cursor: downstream body
+ * nodes in the same item read their predecessors' outputs, so a mid-item resume
+ * has to restore them rather than re-execute to rebuild them.
+ */
+export interface PipelineForEachItemFrame {
+  /** Zero-based index of the in-flight item within the resolved source. */
+  itemIndex: number;
+  /**
+   * Zero-based index of the next body node to dispatch for this item.
+   * Body nodes before it completed successfully and are retained below.
+   */
+  nextBodyNodeIndex: number;
+  /**
+   * Successful body results for this item, keyed by body node id. Restored
+   * into the item's `previousResults` on resume so downstream body nodes see
+   * their predecessors without re-execution.
+   */
+  bodyResults?: Record<string, unknown>;
+  /**
+   * Attempt counter for this item, incremented per re-dispatch. Feeds the
+   * execution scope so a retry derives a distinct idempotency key.
+   */
+  attempt?: number;
 }
 
 export interface PipelineLoopBodyGraphCheckpointState {
@@ -90,6 +132,81 @@ export type PipelineLoopBodyGraphCheckpointOutcome =
   | { kind: "terminal"; exitNodeId: string };
 
 /**
+ * Run-level binding to the exact artifact a checkpoint was produced from.
+ *
+ * `pipelineId` names a definition but does not pin its *content*, so an
+ * ordinary resume cannot today prove the checkpoint it is restoring belongs to
+ * the same compiled pipeline — or, for a `for_each` loop, to the same item
+ * source. Restoring a checkpoint under a changed definition silently admits
+ * source replacement and item reordering.
+ *
+ * This binding is the E0 contract that closes that hole. It is declared here
+ * and carried on the checkpoint; enforcement (rejecting a mismatched resume)
+ * lands with the resume work in E3, so this stays optional for backward
+ * compatibility with checkpoints written before it existed.
+ */
+export interface PipelineCheckpointSourceBinding {
+  /**
+   * Canonical digest of the compiled pipeline artifact this run executes.
+   * Same value space as the interaction cursor's `definitionDigest`, hoisted
+   * to the run so every resume — not only an interaction resume — can check it.
+   */
+  definitionDigest: PipelineSha256Digest;
+  /**
+   * Per-loop digest of the resolved `for_each` item source, keyed by loop node
+   * id. Recorded when the loop's items are resolved, so a resume can prove the
+   * retained ordered prefix still refers to the same items in the same order.
+   * Loops whose source has not yet been resolved are absent.
+   */
+  loopSourceDigests?: Record<string, PipelineSha256Digest>;
+}
+
+/**
+ * Identity of one durable unit of loop work.
+ *
+ * A predicate loop's cursor is a single `iteration` counter, which is enough
+ * because its body advances strictly in order. A `for_each` item is not the
+ * same shape: it has an index into a resolved source, and its body is a list of
+ * nodes that can each fail independently. Without an explicit scope, an
+ * idempotency key derived from `(runId, nodeId)` alone repeats across every
+ * item, and a crash part-way through an item cannot be distinguished from a
+ * crash before it.
+ *
+ * This is the frame E1 (CAS persistence) versions and E2 (item-scoped
+ * idempotency) folds into the key space. E0 only declares it.
+ */
+export interface PipelineExecutionScope {
+  /** Loop node this scope belongs to. */
+  loopNodeId: string;
+  /** Zero-based index into the resolved `for_each` source. */
+  itemIndex: number;
+  /** Body node being executed within the item, when scoped to one. */
+  bodyNodeId?: string;
+  /**
+   * Attempt counter for this exact (loop, item, body node) triple. Starts at 0
+   * and increments per re-dispatch, so a retry is distinguishable from the
+   * first attempt in both the ledger and the derived idempotency key.
+   */
+  attempt?: number;
+}
+
+/**
+ * Policy for a node whose durable ledger is unreachable at dispatch.
+ *
+ * Today the runtime always degrades open: it logs
+ * `effect: "idempotency_disabled_for_node"`, synthesizes a lease with
+ * `fenceToken: 0`, and proceeds — trading exactly-once for liveness. That is
+ * defensible for idempotent work and wrong for chargeable per-item work, where
+ * a retried run can double-execute a side effect.
+ *
+ * Making it a policy value rather than a hardcoded branch lets the choice be
+ * made per run instead of per build. E0 declares it and does NOT change the
+ * current behavior: `"degrade-open"` remains the default, so absence is exactly
+ * today's semantics. Flipping any lane to `"strict"` is an E2 decision.
+ */
+export type PipelineLedgerUnavailablePolicy = "degrade-open" | "strict";
+
+/**
  * Snapshot of a pipeline run's state at a point in time.
  *
  * Checkpoints are versioned — each save increments the version number
@@ -104,6 +221,12 @@ export interface PipelineCheckpoint {
   version: number;
   /** Schema version for forward compatibility */
   schemaVersion: PipelineSchemaVersion;
+  /**
+   * Exact artifact/source this checkpoint was produced from. Optional for
+   * backward compatibility; absence means "unbound", which resume must treat
+   * as unprovable rather than as agreement.
+   */
+  sourceBinding?: PipelineCheckpointSourceBinding;
   /** IDs of nodes that have completed execution */
   completedNodeIds: string[];
   /**
@@ -235,6 +358,24 @@ export interface PipelineCheckpointSummary {
 // ---------------------------------------------------------------------------
 
 /**
+ * Outcome of a compare-and-set checkpoint write.
+ *
+ * A conflict is an ordinary, expected result — not an error — so it is
+ * reported rather than thrown. `observedVersion` lets a caller decide whether
+ * to reload and retry or to abandon the write.
+ */
+export interface PipelineCheckpointCommitReceipt {
+  /** True when this write won; false when another writer held the version. */
+  committed: boolean;
+  /**
+   * The store's newest version for this run after the attempt. On a successful
+   * commit this is the version just written; on a conflict it is the version
+   * that was found instead of `expectedVersion`.
+   */
+  observedVersion: number;
+}
+
+/**
  * Persistence interface for pipeline checkpoints.
  *
  * Implementations may store data in-memory, on disk, or in a database.
@@ -243,6 +384,28 @@ export interface PipelineCheckpointSummary {
 export interface PipelineCheckpointStore {
   /** Save a checkpoint (creates or updates by pipelineRunId + version) */
   save(checkpoint: PipelineCheckpoint): Promise<void>;
+
+  /**
+   * Save a checkpoint only if the store's current newest version for this run
+   * is exactly `expectedVersion`, returning a receipt describing what happened.
+   *
+   * `save` above returns `Promise<void>`: the writer increments its own local
+   * version counter and has no way to learn that another writer already claimed
+   * that version. Two writers for one run therefore silently clobber each
+   * other. This is the compare-and-set seam that closes it.
+   *
+   * Optional so existing store implementations remain valid. E1 implements it
+   * for the in-memory, Redis, and Postgres stores and moves the writer onto it;
+   * until then callers fall back to `save`. A store that does not implement it
+   * cannot be used for exactly-once per-item work.
+   *
+   * Implementations must NOT throw on a version conflict — report it as
+   * `{ committed: false }` so the caller can reload and retry.
+   */
+  saveIfVersion?(
+    checkpoint: PipelineCheckpoint,
+    expectedVersion: number,
+  ): Promise<PipelineCheckpointCommitReceipt>;
 
   /** Load the latest checkpoint for a run (undefined if no checkpoint exists) */
   load(pipelineRunId: string): Promise<PipelineCheckpoint | undefined>;
