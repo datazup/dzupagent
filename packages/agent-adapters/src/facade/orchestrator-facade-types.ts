@@ -4,149 +4,162 @@
  * circular dependencies with `orchestrator-facade.ts`.
  */
 
-import type { CircuitBreakerConfig } from '@dzupagent/core/llm'
-import type { DzupEventBus } from '@dzupagent/core/events'
+import type { CircuitBreakerConfig } from "@dzupagent/core/llm";
+import type { DzupEventBus } from "@dzupagent/core/events";
 
-import type { AdapterApprovalGate } from '../approval/adapter-approval.js'
-import type { AdapterGuardrails } from '../guardrails/adapter-guardrails.js'
-import type { CostTrackingConfig } from '../middleware/cost-tracking.js'
-import type { MemoryEnrichmentOptions } from '../middleware/memory-enrichment.js'
-import type { AdapterPolicy } from '../policy/policy-compiler.js'
+import type { AdapterApprovalGate } from "../approval/adapter-approval.js";
+import type { AdapterGuardrails } from "../guardrails/adapter-guardrails.js";
+import type { CostTrackingConfig } from "../middleware/cost-tracking.js";
+import type { MemoryEnrichmentOptions } from "../middleware/memory-enrichment.js";
+import type { AdapterPolicy } from "../policy/policy-compiler.js";
 import type {
   AgentPolicyConformanceMode,
   AdapterProviderId,
   AgentCLIAdapter,
   TaskRoutingStrategy,
   TokenUsage,
-} from '../types.js'
+} from "../types.js";
 
 export interface OrchestratorConfig {
   /** Adapters to register */
-  adapters: AgentCLIAdapter[]
+  adapters: AgentCLIAdapter[];
   /** Event bus (optional, creates one if not provided) */
-  eventBus?: DzupEventBus | undefined
+  eventBus?: DzupEventBus | undefined;
   /** Routing strategy. Default: TagBasedRouter */
-  router?: TaskRoutingStrategy | undefined
+  router?: TaskRoutingStrategy | undefined;
   /** Enable cost tracking. Default true */
-  enableCostTracking?: boolean | undefined
+  enableCostTracking?: boolean | undefined;
   /** Cost tracking config */
-  costTrackingConfig?: CostTrackingConfig | undefined
+  costTrackingConfig?: CostTrackingConfig | undefined;
   /** Circuit breaker config */
-  circuitBreakerConfig?: Partial<CircuitBreakerConfig> | undefined
+  circuitBreakerConfig?: Partial<CircuitBreakerConfig> | undefined;
   /** Optional approval gate for human-in-the-loop approval before execution. */
-  approvalGate?: AdapterApprovalGate | undefined
+  approvalGate?: AdapterApprovalGate | undefined;
   /** Optional guardrails for budget/stuck/tool enforcement on event streams. */
-  guardrails?: AdapterGuardrails | undefined
+  guardrails?: AdapterGuardrails | undefined;
   /** Default policy applied to all runs unless overridden per-run. */
-  defaultPolicy?: AdapterPolicy | undefined
+  defaultPolicy?: AdapterPolicy | undefined;
   /**
    * Default policy conformance handling mode for this orchestrator instance.
    * Can be overridden per run/chat call.
    */
-  policyConformanceMode?: AgentPolicyConformanceMode | undefined
+  policyConformanceMode?: AgentPolicyConformanceMode | undefined;
   /** When provided, all adapters are auto-wrapped with withMemoryEnrichment */
-  memoryEnrichment?: MemoryEnrichmentOptions | undefined
+  memoryEnrichment?: MemoryEnrichmentOptions | undefined;
   /**
    * Unified Capability Layer — when provided, skills and memory from the
    * `.dzupagent/` directory tree are automatically loaded and injected into
    * every `run()` call.
    */
-  dzupagent?: {
-    /** Project root for .dzupagent/ resolution. Defaults to process.cwd() */
-    projectRoot?: string | undefined
-    /** Skip memory injection entirely */
-    skipMemory?: boolean | undefined
-    /** Skip skill injection entirely */
-    skipSkills?: boolean | undefined
-  } | undefined
+  dzupagent?:
+    | {
+        /** Project root for .dzupagent/ resolution. Defaults to process.cwd() */
+        projectRoot?: string | undefined;
+        /** Skip memory injection entirely */
+        skipMemory?: boolean | undefined;
+        /** Skip skill injection entirely */
+        skipSkills?: boolean | undefined;
+      }
+    | undefined;
 }
 
 export interface RunOptions {
-  tags?: string[] | undefined
-  preferredProvider?: AdapterProviderId | undefined
+  tags?: string[] | undefined;
+  preferredProvider?: AdapterProviderId | undefined;
   /** Explicit legacy cross-provider fallback authorization. */
-  approvedFallbackProviders?: AdapterProviderId[] | undefined
-  signal?: AbortSignal | undefined
-  workingDirectory?: string | undefined
-  systemPrompt?: string | undefined
-  maxTurns?: number | undefined
-  model?: string | undefined
-  tools?: boolean | undefined
-  outputSchema?: Record<string, unknown> | undefined
-  reasoning?: string | undefined
-  promptPrep?: string | undefined
+  approvedFallbackProviders?: AdapterProviderId[] | undefined;
+  signal?: AbortSignal | undefined;
+  workingDirectory?: string | undefined;
+  systemPrompt?: string | undefined;
+  maxTurns?: number | undefined;
+  model?: string | undefined;
+  tools?: boolean | undefined;
+  outputSchema?: Record<string, unknown> | undefined;
+  reasoning?: string | undefined;
+  promptPrep?: string | undefined;
   /** When true and an approvalGate is configured, requires approval before execution. */
-  requireApproval?: boolean | undefined
+  requireApproval?: boolean | undefined;
   /** Approval context metadata forwarded to the approval gate. */
-  approvalRunId?: string | undefined
+  approvalRunId?: string | undefined;
+  /**
+   * Explicit provider-native session to resume for this run (B2b). Wins over
+   * any registry-tracked provider session.
+   */
+  resumeSessionId?: string | undefined;
   /** Per-run policy (overrides default policy if set). */
-  policy?: AdapterPolicy | undefined
+  policy?: AdapterPolicy | undefined;
   /** Per-run conformance mode (overrides orchestrator default when set). */
-  policyConformanceMode?: AgentPolicyConformanceMode | undefined
+  policyConformanceMode?: AgentPolicyConformanceMode | undefined;
   /**
    * Persona ID to apply to this run. Resolved by the caller (app layer)
    * into a system prompt before invocation. Stored for observability.
    */
-  personaId?: string | undefined
+  personaId?: string | undefined;
   /** Parent run ID for hierarchical orchestration tracking. */
-  parentRunId?: string | undefined
+  parentRunId?: string | undefined;
   /** Branch identifier within a parallel/conditional execution tree. */
-  branchId?: string | undefined
+  branchId?: string | undefined;
   /** Current depth in the orchestration hierarchy. Root = 0. */
-  depth?: number | undefined
+  depth?: number | undefined;
 }
 
 export interface RunResult {
-  result: string
-  providerId: AdapterProviderId
-  sessionId?: string | undefined
-  durationMs: number
-  usage?: TokenUsage | undefined
-  cancelled?: true | undefined
-  error?: string | undefined
+  result: string;
+  providerId: AdapterProviderId;
+  sessionId?: string | undefined;
+  durationMs: number;
+  usage?: TokenUsage | undefined;
+  cancelled?: true | undefined;
+  error?: string | undefined;
 }
 
 export interface ChatOptions {
   /** Resume existing workflow or create new */
-  workflowId?: string | undefined
+  workflowId?: string | undefined;
   /**
    * Abort signal for cancelling the turn mid-stream. Forwarded to the
    * provider adapter via AgentInput.signal so cancellation reaches the
    * underlying provider process, not just the consumer-side iterator.
    */
-  signal?: AbortSignal | undefined
-  provider?: AdapterProviderId | undefined
+  signal?: AbortSignal | undefined;
+  provider?: AdapterProviderId | undefined;
   /** Explicit legacy cross-provider fallback authorization. */
-  approvedFallbackProviders?: AdapterProviderId[] | undefined
+  approvedFallbackProviders?: AdapterProviderId[] | undefined;
   /** Default true */
-  includeHistory?: boolean | undefined
-  workingDirectory?: string | undefined
-  systemPrompt?: string | undefined
+  includeHistory?: boolean | undefined;
+  workingDirectory?: string | undefined;
+  systemPrompt?: string | undefined;
   /** Maximum turns / iterations */
-  maxTurns?: number | undefined
+  maxTurns?: number | undefined;
   /** Sampling temperature (0-1) */
-  temperature?: number | undefined
+  temperature?: number | undefined;
   /** Maximum output tokens */
-  maxTokens?: number | undefined
+  maxTokens?: number | undefined;
   /** Top-p nucleus sampling */
-  topP?: number | undefined
+  topP?: number | undefined;
   /** Per-turn adapter timeout override (milliseconds) */
-  timeoutMs?: number | undefined
+  timeoutMs?: number | undefined;
   /** Model override forwarded to the adapter for this turn */
-  model?: string | undefined
+  model?: string | undefined;
   /** Reasoning effort override forwarded to the adapter for this turn */
-  reasoning?: string | undefined
+  reasoning?: string | undefined;
   /** When true and an approvalGate is configured, requires approval before execution. */
-  requireApproval?: boolean | undefined
+  requireApproval?: boolean | undefined;
   /** Approval context metadata forwarded to the approval gate. */
-  approvalRunId?: string | undefined
+  approvalRunId?: string | undefined;
   /** Per-turn policy (overrides default policy if set). */
-  policy?: AdapterPolicy | undefined
+  policy?: AdapterPolicy | undefined;
   /** Per-turn conformance mode (overrides orchestrator default when set). */
-  policyConformanceMode?: AgentPolicyConformanceMode | undefined
+  policyConformanceMode?: AgentPolicyConformanceMode | undefined;
+  /**
+   * Explicit provider-native session to resume for this turn (B2b). Wins over
+   * any registry-tracked provider session: the session registry only fills
+   * AgentInput.resumeSessionId when the input left it unset.
+   */
+  resumeSessionId?: string | undefined;
 }
 
 export interface InteractionResponseOptions {
-  workflowId: string
-  provider?: AdapterProviderId | undefined
+  workflowId: string;
+  provider?: AdapterProviderId | undefined;
 }

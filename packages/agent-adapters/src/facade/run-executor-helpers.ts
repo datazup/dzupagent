@@ -4,37 +4,49 @@
  * dependencies as arguments.
  */
 
-import { ForgeError } from '@dzupagent/core/events'
+import { ForgeError } from "@dzupagent/core/events";
 
-import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
+import type { ProviderAdapterRegistry } from "../registry/adapter-registry.js";
 import type {
   AdapterProviderId,
   AgentCompletedEvent,
   AgentEvent,
   AgentInput,
   TaskDescriptor,
-} from '../types.js'
-import { resolveFallbackProviderId } from '../utils/provider-helpers.js'
+} from "../types.js";
+import { resolveFallbackProviderId } from "../utils/provider-helpers.js";
 
-import type { ChatOptions, RunOptions, RunResult } from './orchestrator-facade-types.js'
+import type {
+  ChatOptions,
+  RunOptions,
+  RunResult,
+} from "./orchestrator-facade-types.js";
 
 export function resolveRunFallbackProviderId(
   registry: { listAdapters(): AdapterProviderId[] },
   preferredProvider?: AdapterProviderId,
   lastFailureProviderId?: AdapterProviderId,
 ): AdapterProviderId {
-  return lastFailureProviderId
-    ?? preferredProvider
-    ?? resolveFallbackProviderId(registry.listAdapters())
-    ?? ('unknown' as AdapterProviderId)
+  return (
+    lastFailureProviderId ??
+    preferredProvider ??
+    resolveFallbackProviderId(registry.listAdapters()) ??
+    ("unknown" as AdapterProviderId)
+  );
 }
 
-export function buildRunInput(prompt: string, options: RunOptions | undefined, signal: AbortSignal): AgentInput {
-  const adapterOptions: Record<string, unknown> = {}
-  if (options?.model !== undefined) adapterOptions.model = options.model
-  if (options?.tools !== undefined) adapterOptions.tools = options.tools
-  if (options?.reasoning !== undefined) adapterOptions.reasoning = options.reasoning
-  if (options?.promptPrep !== undefined) adapterOptions.promptPrep = options.promptPrep
+export function buildRunInput(
+  prompt: string,
+  options: RunOptions | undefined,
+  signal: AbortSignal,
+): AgentInput {
+  const adapterOptions: Record<string, unknown> = {};
+  if (options?.model !== undefined) adapterOptions.model = options.model;
+  if (options?.tools !== undefined) adapterOptions.tools = options.tools;
+  if (options?.reasoning !== undefined)
+    adapterOptions.reasoning = options.reasoning;
+  if (options?.promptPrep !== undefined)
+    adapterOptions.promptPrep = options.promptPrep;
 
   return {
     prompt,
@@ -42,67 +54,91 @@ export function buildRunInput(prompt: string, options: RunOptions | undefined, s
     systemPrompt: options?.systemPrompt,
     maxTurns: options?.maxTurns,
     signal,
-    ...(options?.outputSchema !== undefined ? { outputSchema: options.outputSchema } : {}),
-    ...(Object.keys(adapterOptions).length > 0 ? { options: adapterOptions } : {}),
-  }
+    ...(options?.resumeSessionId !== undefined
+      ? { resumeSessionId: options.resumeSessionId }
+      : {}),
+    ...(options?.outputSchema !== undefined
+      ? { outputSchema: options.outputSchema }
+      : {}),
+    ...(Object.keys(adapterOptions).length > 0
+      ? { options: adapterOptions }
+      : {}),
+  };
 }
 
-export function buildRunTask(prompt: string, options: RunOptions | undefined): TaskDescriptor {
+export function buildRunTask(
+  prompt: string,
+  options: RunOptions | undefined,
+): TaskDescriptor {
   return {
     prompt,
     tags: options?.tags ?? [],
     preferredProvider: options?.preferredProvider,
     approvedFallbackProviders: options?.approvedFallbackProviders,
     workingDirectory: options?.workingDirectory,
-  }
+  };
 }
 
-export function buildChatInput(prompt: string, options: ChatOptions | undefined): AgentInput {
-  const adapterOptions: Record<string, unknown> = {}
-  if (options?.temperature != null) adapterOptions.temperature = options.temperature
-  if (options?.maxTokens != null) adapterOptions.maxTokens = options.maxTokens
-  if (options?.topP != null) adapterOptions.topP = options.topP
-  if (options?.timeoutMs != null) adapterOptions.timeoutMs = options.timeoutMs
-  if (options?.reasoning != null) adapterOptions.reasoning = options.reasoning
-  if (options?.model != null) adapterOptions.model = options.model
+export function buildChatInput(
+  prompt: string,
+  options: ChatOptions | undefined,
+): AgentInput {
+  const adapterOptions: Record<string, unknown> = {};
+  if (options?.temperature != null)
+    adapterOptions.temperature = options.temperature;
+  if (options?.maxTokens != null) adapterOptions.maxTokens = options.maxTokens;
+  if (options?.topP != null) adapterOptions.topP = options.topP;
+  if (options?.timeoutMs != null) adapterOptions.timeoutMs = options.timeoutMs;
+  if (options?.reasoning != null) adapterOptions.reasoning = options.reasoning;
+  if (options?.model != null) adapterOptions.model = options.model;
   return {
     prompt,
     workingDirectory: options?.workingDirectory,
     systemPrompt: options?.systemPrompt,
     maxTurns: options?.maxTurns,
+    ...(options?.resumeSessionId !== undefined && {
+      resumeSessionId: options.resumeSessionId,
+    }),
     ...(options?.signal !== undefined && { signal: options.signal }),
     ...(Object.keys(adapterOptions).length > 0 && { options: adapterOptions }),
-  }
+  };
 }
 
 export interface HandleRunErrorContext {
-  registry: ProviderAdapterRegistry
-  startMs: number
-  timeoutMs: number
-  timeoutAborted: boolean
-  task: TaskDescriptor
-  lastFailure: Extract<AgentEvent, { type: 'adapter:failed' }> | undefined
-  completion: AgentCompletedEvent | undefined
+  registry: ProviderAdapterRegistry;
+  startMs: number;
+  timeoutMs: number;
+  timeoutAborted: boolean;
+  task: TaskDescriptor;
+  lastFailure: Extract<AgentEvent, { type: "adapter:failed" }> | undefined;
+  completion: AgentCompletedEvent | undefined;
 }
 
-export function handleRunError(err: unknown, ctx: HandleRunErrorContext): RunResult {
+export function handleRunError(
+  err: unknown,
+  ctx: HandleRunErrorContext,
+): RunResult {
   if (ctx.timeoutAborted) {
-    const elapsed = Date.now() - ctx.startMs
+    const elapsed = Date.now() - ctx.startMs;
     const providerId = resolveRunFallbackProviderId(
       ctx.registry,
       ctx.task.preferredProvider,
       ctx.lastFailure?.providerId,
-    )
+    );
     throw new ForgeError({
-      code: 'ADAPTER_EXECUTION_FAILED',
+      code: "ADAPTER_EXECUTION_FAILED",
       message: `Adapter timed out after ${elapsed}ms (limit: ${ctx.timeoutMs}ms)`,
       recoverable: false,
-      context: { source: 'OrchestratorFacade.run', providerId, timeoutMs: ctx.timeoutMs },
-    })
+      context: {
+        source: "OrchestratorFacade.run",
+        providerId,
+        timeoutMs: ctx.timeoutMs,
+      },
+    });
   }
-  if (ForgeError.is(err) && err.code === 'AGENT_ABORTED') {
+  if (ForgeError.is(err) && err.code === "AGENT_ABORTED") {
     return {
-      result: '',
+      result: "",
       providerId: resolveRunFallbackProviderId(
         ctx.registry,
         ctx.task.preferredProvider,
@@ -113,7 +149,7 @@ export function handleRunError(err: unknown, ctx: HandleRunErrorContext): RunRes
       usage: ctx.completion?.usage,
       cancelled: true,
       error: err.message,
-    }
+    };
   }
-  throw err
+  throw err;
 }

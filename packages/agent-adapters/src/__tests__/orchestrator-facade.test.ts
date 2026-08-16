@@ -14,7 +14,7 @@ import {
   OrchestratorFacade,
   createOrchestrator,
 } from "../facade/orchestrator-facade.js";
-import { buildChatInput } from "../facade/run-executor-helpers.js";
+import { buildChatInput, buildRunInput } from "../facade/run-executor-helpers.js";
 import { AdapterApprovalGate } from "../approval/adapter-approval.js";
 import { AdapterGuardrails } from "../guardrails/adapter-guardrails.js";
 import { OpenAIAdapter } from "../openai/openai-adapter.js";
@@ -38,12 +38,12 @@ import type {
 function createMockAdapter(
   providerId: AdapterProviderId,
   result = `Result from ${providerId}`,
-  delayMs = 0
+  delayMs = 0,
 ): AgentCLIAdapter {
   return {
     providerId,
     async *execute(
-      _input: AgentInput
+      _input: AgentInput,
     ): AsyncGenerator<AgentEvent, void, undefined> {
       if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
       yield {
@@ -64,7 +64,7 @@ function createMockAdapter(
     },
     async *resumeSession(
       _id: string,
-      _input: AgentInput
+      _input: AgentInput,
     ): AsyncGenerator<AgentEvent, void, undefined> {
       yield {
         type: "adapter:started",
@@ -97,7 +97,9 @@ function createMockAdapter(
 
 function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
   const events: DzupEvent[] = [];
-  bus.onAny((e) => { events.push(e); });
+  bus.onAny((e) => {
+    events.push(e);
+  });
   return events;
 }
 
@@ -111,7 +113,7 @@ function createRawCapableAdapter(options?: {
   return {
     providerId,
     async *execute(
-      _input: AgentInput
+      _input: AgentInput,
     ): AsyncGenerator<AgentEvent, void, undefined> {
       yield {
         type: "adapter:started",
@@ -139,7 +141,7 @@ function createRawCapableAdapter(options?: {
       };
     },
     async *executeWithRaw(
-      input: AgentInput
+      input: AgentInput,
     ): AsyncGenerator<AgentStreamEvent, void, undefined> {
       yield {
         type: "adapter:provider_raw",
@@ -174,7 +176,7 @@ function createRawCapableAdapter(options?: {
 }
 
 function createPolicyCapturingRawAdapter(
-  providerId: AdapterProviderId = "codex"
+  providerId: AdapterProviderId = "codex",
 ): {
   adapter: AgentCLIAdapter;
   getCapturedInput: () => AgentInput | undefined;
@@ -186,7 +188,7 @@ function createPolicyCapturingRawAdapter(
   const adapter: AgentCLIAdapter = {
     providerId,
     async *execute(
-      input: AgentInput
+      input: AgentInput,
     ): AsyncGenerator<AgentEvent, void, undefined> {
       capturedInput = input;
       yield {
@@ -206,7 +208,7 @@ function createPolicyCapturingRawAdapter(
       };
     },
     async *executeWithRaw(
-      input: AgentInput
+      input: AgentInput,
     ): AsyncGenerator<AgentStreamEvent, void, undefined> {
       yield {
         type: "adapter:provider_raw",
@@ -261,7 +263,7 @@ function createAbortParkingAdapter(providerId: AdapterProviderId = "codex"): {
   let abortObservedInFlight = false;
 
   async function* park(
-    input: AgentInput
+    input: AgentInput,
   ): AsyncGenerator<AgentEvent, void, undefined> {
     yield {
       type: "adapter:started",
@@ -301,7 +303,7 @@ function createAbortParkingAdapter(providerId: AdapterProviderId = "codex"): {
     providerId,
     execute: park,
     async *executeWithRaw(
-      input: AgentInput
+      input: AgentInput,
     ): AsyncGenerator<AgentStreamEvent, void, undefined> {
       yield* park(input);
     },
@@ -339,7 +341,7 @@ function createSSEStream(lines: string[]): ReadableStream<Uint8Array> {
 function mockFetchResponse(
   body: ReadableStream<Uint8Array>,
   status = 200,
-  ok = true
+  ok = true,
 ): Response {
   return {
     ok,
@@ -400,7 +402,7 @@ describe("OrchestratorFacade", () => {
         name: "test-router",
         route(
           _task: TaskDescriptor,
-          available: AdapterProviderId[]
+          available: AdapterProviderId[],
         ): RoutingDecision {
           const hasFastTag = _task.tags.includes("fast");
           const provider = hasFastTag ? "codex" : "claude";
@@ -466,7 +468,7 @@ describe("OrchestratorFacade", () => {
       } as (...args: unknown[]) => AsyncGenerator<AgentEvent, void, undefined>;
 
       await expect(facade.run("incomplete stream")).rejects.toThrow(
-        "No adapter:completed event observed"
+        "No adapter:completed event observed",
       );
     });
 
@@ -612,7 +614,7 @@ describe("OrchestratorFacade", () => {
         expect(result.cancelled).toBe(true);
         expect(result.selectedResult.cancelled).toBe(true);
         expect(result.allResults.every((provider) => provider.cancelled)).toBe(
-          true
+          true,
         );
       } finally {
         vi.useRealTimers();
@@ -647,7 +649,7 @@ describe("OrchestratorFacade", () => {
       const result = await facade.race(
         "Fix the test",
         ["claude", "codex"],
-        controller.signal
+        controller.signal,
       );
 
       expect(result.cancelled).toBe(true);
@@ -660,7 +662,7 @@ describe("OrchestratorFacade", () => {
       expect(types).not.toContain("pipeline:run_completed");
 
       const cancelledEvent = emitted.find(
-        (event) => event.type === "pipeline:run_cancelled"
+        (event) => event.type === "pipeline:run_cancelled",
       );
       expect(cancelledEvent).toMatchObject({
         type: "pipeline:run_cancelled",
@@ -806,7 +808,7 @@ describe("OrchestratorFacade", () => {
       expect(firstEvent.done).toBe(false);
       // Registry yields routing progress events before adapter events
       expect(["adapter:progress", "adapter:started"]).toContain(
-        firstEvent.value?.type
+        firstEvent.value?.type,
       );
 
       const remainingTypes: string[] = [];
@@ -825,7 +827,7 @@ describe("OrchestratorFacade", () => {
             type: "approval:granted",
             runId: "chat-approval-1",
           }),
-        ])
+        ]),
       );
     });
   });
@@ -840,13 +842,13 @@ describe("OrchestratorFacade", () => {
 
       const events: AgentStreamEvent[] = [];
       for await (const event of facade.chatWithRaw(
-        "Inspect the raw stream path"
+        "Inspect the raw stream path",
       )) {
         events.push(event);
       }
 
       expect(events.map((event) => event.type)).toContain(
-        "adapter:provider_raw"
+        "adapter:provider_raw",
       );
       expect(events.map((event) => event.type)).toContain("adapter:completed");
       expect(facade.getCostReport()?.totalCostCents ?? 0).toBeGreaterThan(0);
@@ -899,7 +901,7 @@ describe("OrchestratorFacade", () => {
       // unhandled-rejection before the assertions run.
       const settled = drained.then(
         () => ({ ok: true as const }),
-        (error: unknown) => ({ ok: false as const, error })
+        (error: unknown) => ({ ok: false as const, error }),
       );
 
       // Abort only once the adapter has actually parked, so the turn is
@@ -908,7 +910,7 @@ describe("OrchestratorFacade", () => {
       expect(adapterSignal).toBeDefined();
       expect(adapterSignal?.aborted).toBe(false);
       expect(events.map((event) => event.type)).not.toContain(
-        "adapter:completed"
+        "adapter:completed",
       );
 
       controller.abort();
@@ -918,7 +920,7 @@ describe("OrchestratorFacade", () => {
       // seam while the generator was suspended.
       expect(getAbortObservedInFlight()).toBe(true);
       expect(events.map((event) => event.type)).not.toContain(
-        "adapter:completed"
+        "adapter:completed",
       );
 
       // A caller-initiated abort must surface as AGENT_ABORTED, NOT be
@@ -979,9 +981,9 @@ describe("OrchestratorFacade", () => {
 
         const toolCall = events.find(
           (
-            event
+            event,
           ): event is Extract<AgentEvent, { type: "adapter:tool_call" }> =>
-            event.type === "adapter:tool_call"
+            event.type === "adapter:tool_call",
         );
         expect(toolCall).toBeDefined();
         expect(toolCall?.toolCallId).toBe("test-id-123");
@@ -1061,7 +1063,7 @@ describe("OrchestratorFacade", () => {
       }
 
       expect(events.map((event) => event.type)).toContain(
-        "adapter:provider_raw"
+        "adapter:provider_raw",
       );
       expect(configureSpy).not.toHaveBeenCalled();
       expect(getCapturedInput()).toMatchObject({
@@ -1089,7 +1091,7 @@ describe("OrchestratorFacade", () => {
       const events: AgentStreamEvent[] = [];
       for await (const event of facade.chatWithRaw(
         "Use policy without provider",
-        { policy }
+        { policy },
       )) {
         events.push(event);
       }
@@ -1180,7 +1182,7 @@ describe("OrchestratorFacade", () => {
       const memoryAdapter: AgentCLIAdapter = {
         providerId: "claude" as AdapterProviderId,
         async *execute(
-          input: AgentInput
+          input: AgentInput,
         ): AsyncGenerator<AgentEvent, void, undefined> {
           capturedSystemPrompt = input.systemPrompt;
           yield {
@@ -1291,7 +1293,7 @@ describe("OrchestratorFacade", () => {
             conformanceMode: "strict",
             fallbackBehavior: "blocked_attempt",
           }),
-        ])
+        ]),
       );
     });
 
@@ -1322,7 +1324,7 @@ describe("OrchestratorFacade", () => {
             conformanceMode: "warn-only",
             fallbackBehavior: "continue_primary_attempt",
           }),
-        ])
+        ]),
       );
     });
 
@@ -1343,7 +1345,7 @@ describe("OrchestratorFacade", () => {
           approvedFallbackProviders: ["codex"],
           policy: { networkAccess: false },
           policyConformanceMode: "strict",
-        }
+        },
       )) {
         seenTypes.push(event.type);
       }
@@ -1358,7 +1360,7 @@ describe("OrchestratorFacade", () => {
             conformanceMode: "strict",
             fallbackBehavior: "blocked_attempt",
           }),
-        ])
+        ]),
       );
     });
 
@@ -1381,7 +1383,7 @@ describe("OrchestratorFacade", () => {
           approvedFallbackProviders: ["codex"],
           policy: { networkAccess: false },
           policyConformanceMode: "strict",
-        }
+        },
       )) {
         // consume stream to completion
       }
@@ -1390,7 +1392,7 @@ describe("OrchestratorFacade", () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
       const entries = await store.search({});
       const conformanceEntries = entries.filter(
-        (entry) => entry.action === "policy.conformance_violation"
+        (entry) => entry.action === "policy.conformance_violation",
       );
 
       expect(conformanceEntries).toHaveLength(1);
@@ -1399,14 +1401,14 @@ describe("OrchestratorFacade", () => {
           providerId: "openai",
           conformanceMode: "strict",
           fallbackBehavior: "blocked_attempt",
-        })
+        }),
       );
       expect(
         entries.some(
           (entry) =>
             entry.action === "agent.completed" &&
-            entry.details["agentId"] === "codex"
-        )
+            entry.details["agentId"] === "codex",
+        ),
       ).toBe(true);
     });
   });
@@ -1429,7 +1431,7 @@ describe("OrchestratorFacade with dzupagent config", () => {
     const adapter: AgentCLIAdapter = {
       providerId: "claude" as AdapterProviderId,
       async *execute(
-        input: AgentInput
+        input: AgentInput,
       ): AsyncGenerator<AgentEvent, void, undefined> {
         capturedSystemPrompt = input.systemPrompt;
         yield {
@@ -1504,7 +1506,7 @@ You are an expert code reviewer.
 
 ## Task
 Review code for correctness and style.
-`
+`,
     );
 
     const { adapter, getCapturedSystemPrompt } = createCapturingAdapter();
@@ -1535,7 +1537,7 @@ version: "1"
 
 ## Task
 Inspect event drift before responding.
-`
+`,
     );
 
     const { adapter, getCapturedSystemPrompt } = createCapturingAdapter();
@@ -1572,7 +1574,7 @@ name: my-skill
 
 ## Task
 Do the task.
-`
+`,
     );
     await writeFile(
       join(memoryDir, "project-facts.md"),
@@ -1581,7 +1583,7 @@ name: project-facts
 ---
 
 This project uses PostgreSQL and Redis.
-`
+`,
     );
 
     const { adapter, getCapturedSystemPrompt } = createCapturingAdapter();
@@ -1618,7 +1620,7 @@ name: my-skill
 
 ## Task
 Do the task.
-`
+`,
     );
     await writeFile(
       join(memoryDir, "project-facts.md"),
@@ -1627,7 +1629,7 @@ name: project-facts
 ---
 
 This project uses PostgreSQL and Redis.
-`
+`,
     );
 
     const { adapter, getCapturedSystemPrompt } = createCapturingAdapter();
@@ -1663,7 +1665,7 @@ name: test-skill
 
 ## Task
 Run the tests first.
-`
+`,
     );
     await writeFile(
       join(memoryDir, "tech-stack.md"),
@@ -1672,7 +1674,7 @@ name: tech-stack
 ---
 
 We use Vitest for testing.
-`
+`,
     );
 
     const { adapter, getCapturedSystemPrompt } = createCapturingAdapter();
@@ -1725,7 +1727,7 @@ name: my-skill
 
 ## Task
 Do the task.
-`
+`,
       );
 
       const emitted: DzupEvent[] = [];
@@ -1741,7 +1743,7 @@ Do the task.
       await facade.run("Do something");
 
       const skillsEvent = emitted.find(
-        (e) => (e as { type: string }).type === "adapter:skills_compiled"
+        (e) => (e as { type: string }).type === "adapter:skills_compiled",
       ) as unknown as
         | {
             type: string;
@@ -1773,7 +1775,7 @@ Do the task.
       await facade.run("Hello");
 
       const skillsEvents = emitted.filter(
-        (e) => (e as { type: string }).type === "adapter:skills_compiled"
+        (e) => (e as { type: string }).type === "adapter:skills_compiled",
       );
       expect(skillsEvents).toHaveLength(0);
     });
@@ -1792,7 +1794,7 @@ Do the task.
       await facade.run("Hello");
 
       const skillsEvents = emitted.filter(
-        (e) => (e as { type: string }).type === "adapter:skills_compiled"
+        (e) => (e as { type: string }).type === "adapter:skills_compiled",
       );
       expect(skillsEvents).toHaveLength(0);
     });
@@ -1808,7 +1810,7 @@ name: skill-a
 
 ## Task
 Task A.
-`
+`,
       );
       await writeFile(
         join(skillsDir, "skill-b.md"),
@@ -1818,7 +1820,7 @@ name: skill-b
 
 ## Task
 Task B.
-`
+`,
       );
 
       const emitted: DzupEvent[] = [];
@@ -1834,7 +1836,7 @@ Task B.
       await facade.run("Do it");
 
       const skillsEvent = emitted.find(
-        (e) => (e as { type: string }).type === "adapter:skills_compiled"
+        (e) => (e as { type: string }).type === "adapter:skills_compiled",
       ) as unknown as
         | {
             type: string;
@@ -1889,6 +1891,34 @@ Task B.
       const input = buildChatInput("hello", { temperature: 0.5 });
 
       expect("signal" in input).toBe(false);
+    });
+
+    it("forwards an explicit resumeSessionId into AgentInput (B2b native resume)", () => {
+      const input = buildChatInput("hello", {
+        resumeSessionId: "prov-sess-42",
+      });
+
+      expect(input.resumeSessionId).toBe("prov-sess-42");
+    });
+
+    it("buildRunInput forwards an explicit resumeSessionId too (non-streaming run path)", () => {
+      const controller = new AbortController();
+      const input = buildRunInput(
+        "hello",
+        { resumeSessionId: "prov-sess-42" },
+        controller.signal,
+      );
+
+      expect(input.resumeSessionId).toBe("prov-sess-42");
+      expect(
+        "resumeSessionId" in buildRunInput("hello", {}, controller.signal),
+      ).toBe(false);
+    });
+
+    it("does not set a resumeSessionId key when ChatOptions carries none, so the session registry may fill it", () => {
+      const input = buildChatInput("hello", { temperature: 0.5 });
+
+      expect("resumeSessionId" in input).toBe(false);
     });
   });
 });
