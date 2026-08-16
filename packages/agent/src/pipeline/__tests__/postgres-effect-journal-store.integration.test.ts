@@ -5,6 +5,8 @@
  * DZUPAGENT_EFFECT_JOURNAL_POSTGRES_URL for an authorized disposable database;
  * RUN_REQUIRED_INTEGRATION=1 makes absence fail closed instead of skipping.
  */
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   executeEffectOnce,
@@ -179,7 +181,145 @@ describe("PostgresEffectJournalStore — live disposable database", () => {
     },
     20_000
   );
+
+  liveIt(
+    "survives process death: a SIGKILLed claimant leaves a durable pending claim that blocks re-dispatch",
+    async () => {
+      const connectionString =
+        process.env["DZUPAGENT_EFFECT_JOURNAL_POSTGRES_URL"]!;
+      const survivorClient = await LivePostgresClient.connect(connectionString);
+      const tableName = `test_effect_crash_${crypto
+        .randomUUID()
+        .replaceAll("-", "")}`;
+      const survivor = new PostgresEffectJournalStore<string>({
+        client: survivorClient,
+        tableName,
+      });
+
+      try {
+        await survivor.setup();
+
+        const crashedKey = "live:process-death";
+        const workerPath = fileURLToPath(
+          new URL("./fixtures/effect-journal-crash-worker.mjs", import.meta.url)
+        );
+
+        // A real second OS process claims the effect, then dies uncleanly while
+        // the claim is still pending. Two clients in one process cannot prove
+        // this: the claim has to outlive the process that wrote it.
+        const worker = spawn(
+          process.execPath,
+          [workerPath, connectionString, tableName, crashedKey, claimedAt],
+          { stdio: ["ignore", "pipe", "pipe"] }
+        );
+
+        const claimed = await new Promise<boolean>((resolve, reject) => {
+          let out = "";
+          // Fake timers cannot bound this wait: it is a real OS child process
+          // connecting to a real database, so the elapsed time is outside this
+          // test's event loop and vi.advanceTimersByTimeAsync() would never let
+          // the handshake arrive.
+          // eslint-disable-next-line no-restricted-syntax -- real child process, see above
+          const timer = setTimeout(
+            () => reject(new Error("worker did not claim within 15s")),
+            15_000
+          );
+          worker.stdout.on("data", (chunk: Buffer) => {
+            out += chunk.toString();
+            if (out.includes("CLAIMED")) {
+              clearTimeout(timer);
+              resolve(true);
+            }
+            if (out.includes("CLAIM_FAILED")) {
+              clearTimeout(timer);
+              resolve(false);
+            }
+          });
+          worker.on("error", reject);
+          worker.on("exit", (code) => {
+            clearTimeout(timer);
+            if (!out.includes("CLAIMED")) {
+              reject(new Error(`worker exited early with code ${code}`));
+            }
+          });
+        });
+        expect(claimed).toBe(true);
+
+        const workerExit = new Promise<number | null>((resolve) => {
+          worker.on("exit", (_code, signal) =>
+            resolve(signal === "SIGKILL" ? -9 : _code)
+          );
+        });
+        worker.kill("SIGKILL");
+        expect(await workerExit).toBe(-9);
+
+        // The killed process left a durable `pending` row behind.
+        const persisted = await survivorClient.query<{ status: string }>(
+          `SELECT status FROM ${tableName} WHERE idempotency_key = $1`,
+          [crashedKey]
+        );
+        expect(persisted.rows).toHaveLength(1);
+        expect(persisted.rows[0]?.status).toBe("pending");
+
+        // A surviving process must refuse to re-run the effect: the outcome of
+        // the dead process's effect is unknown, so exactly-once forbids retry.
+        let survivorDispatches = 0;
+        const survivorExecute = async () => {
+          survivorDispatches += 1;
+          return "must-not-run";
+        };
+        await expect(
+          executeEffectOnce({
+            store: survivor,
+            intent: crashedIntent(crashedKey),
+            execute: survivorExecute,
+            now: () => committedAt,
+          })
+        ).resolves.toEqual({
+          status: "blocked",
+          // The dead process left a matching-digest `pending` row, so the
+          // survivor takes the existing-claim branch: the effect may or may
+          // not have reached the outside world before the kill, so
+          // exactly-once forbids re-dispatch. (A digest MISMATCH would instead
+          // yield `idempotency-conflict` — see the worker's comment on why the
+          // digest must be derived, not hand-rolled.)
+          reason: "effect-outcome-unknown",
+        });
+        expect(survivorDispatches).toBe(0);
+
+        // Non-vacuity control: the same survivor, same table, same execute
+        // function DOES dispatch for a key no dead process ever claimed. This
+        // proves the refusal above comes from the crashed claim, not from a
+        // store that blocks everything.
+        await expect(
+          executeEffectOnce({
+            store: survivor,
+            intent: crashedIntent("live:process-death-control"),
+            execute: survivorExecute,
+            now: () => committedAt,
+          })
+        ).resolves.toMatchObject({ status: "executed" });
+        expect(survivorDispatches).toBe(1);
+      } finally {
+        await survivorClient.query(`DROP TABLE IF EXISTS ${tableName}`);
+        await survivorClient.close();
+      }
+    },
+    30_000
+  );
 });
+
+function crashedIntent(key: string): EffectIntent {
+  return materializeEffectIntent({
+    idempotencyKey: key,
+    sourceHash: `sha256:${"a".repeat(64)}`,
+    runId: "live-run",
+    nodeId: "crash-node",
+    effectClass: "db_write",
+    attemptPolicy: "exactly-once-required",
+    operationDigest: `sha256:${"b".repeat(64)}`,
+  });
+}
 
 function effectIntent(key: string, nodeId = "node-1"): EffectIntent {
   return materializeEffectIntent({
@@ -199,23 +339,27 @@ class LivePostgresClient implements PostgresClientLike {
   ) {}
 
   static async connect(connectionString: string): Promise<LivePostgresClient> {
-    const importModule = new Function(
-      "specifier",
-      "return import(specifier)"
-    ) as (specifier: string) => Promise<unknown>;
-    const pg = (await importModule("pg")) as {
-      Client: new (options: { connectionString: string }) => PostgresClientLike &
-        { connect(): Promise<void>; end(): Promise<void> };
+    // `pg` is resolved at runtime rather than statically imported: it is an
+    // ambient workspace dependency, not declared by this package, so a static
+    // import would put an undeclared dependency in the package's graph.
+    // `createRequire` (not `new Function("return import(...)")`) is used
+    // because the latter throws "A dynamic import callback was not specified"
+    // under the vitest transform, which made this suite unrunnable.
+    const { createRequire } = await import("node:module");
+    const pg = createRequire(import.meta.url)("pg") as {
+      Client: new (options: {
+        connectionString: string;
+      }) => PostgresClientLike & {
+        connect(): Promise<void>;
+        end(): Promise<void>;
+      };
     };
     const client = new pg.Client({ connectionString });
     await client.connect();
     return new LivePostgresClient(client);
   }
 
-  query<T = unknown>(
-    text: string,
-    params?: unknown[]
-  ): Promise<{ rows: T[] }> {
+  query<T = unknown>(text: string, params?: unknown[]): Promise<{ rows: T[] }> {
     return this.client.query<T>(text, params);
   }
 
