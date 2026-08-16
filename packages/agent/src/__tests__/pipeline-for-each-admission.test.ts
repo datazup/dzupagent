@@ -226,6 +226,67 @@ describe("for_each runtime admission", () => {
     );
   });
 
+  // G2e — doc 27 §8 prereq 8, discharged as "retain the leaf-only denial".
+  //
+  // The denial is only *retained* if it stays complete as `PipelineNode` grows.
+  // Before G2e the admission switch had no `default`: it enumerated all eight
+  // union members, so it was exhaustive on the day it was written, but a ninth
+  // member would fall straight through and be ADMITTED into the flat item
+  // worker — which cannot dispatch graph control or own a per-item frame for a
+  // node type it has never seen.
+  //
+  // These tests pin the runtime half (default-deny). The compile-time half is
+  // `assertNeverBodyNode`, which cannot be asserted from a test: it fails
+  // `yarn typecheck`, not vitest — and vitest does not typecheck.
+  describe("unknown item-body node types (G2e)", () => {
+    // Not a real `PipelineNode`. That is the point: it stands in for a member
+    // added to the union by a future packet whose author did not revisit this
+    // admission. Cast at the fixture boundary only.
+    const unknownBodyNode = {
+      id: "future",
+      type: "quantum-dispatch",
+    } as unknown as PipelineNode;
+
+    it("denies an item-body node type the flat worker does not recognize", () => {
+      const definition = rawDefinition({ bodyNodes: [unknownBodyNode] });
+
+      expect(validatePipeline(definition).errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: "FOR_EACH_RECURSIVE_CONTROL_UNSUPPORTED",
+            nodeId: "future",
+          }),
+        ])
+      );
+    });
+
+    it("names the offending type so the denial is diagnosable", () => {
+      const definition = rawDefinition({ bodyNodes: [unknownBodyNode] });
+      const error = validatePipeline(definition).errors.find(
+        (candidate) => candidate.nodeId === "future"
+      );
+
+      // Assert the CODE's own message, not a bare truthy check: a denial that
+      // cannot name what it rejected sends the next author to the wrong file.
+      expect(error?.message).toContain("quantum-dispatch");
+    });
+
+    // Non-vacuity control. Every assertion above would also pass if
+    // `rawDefinition` produced a definition that was invalid for some unrelated
+    // reason. Hold the shape fixed and vary ONLY the body node's type: the same
+    // fixture with a recognized leaf must be VALID, which proves the denial
+    // above is caused by the unknown type and nothing else.
+    it("admits the identical shape when the body node type is recognized", () => {
+      const definition = rawDefinition({
+        bodyNodes: [
+          { id: "future", type: "agent", agentId: "worker" },
+        ],
+      });
+
+      expect(validatePipeline(definition).valid).toBe(true);
+    });
+  });
+
   it("keeps legacy sequential leaf inventories without redundant edges valid", () => {
     const definition = rawDefinition({
       bodyNodes: [

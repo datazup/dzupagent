@@ -114,6 +114,27 @@ function findUnsupportedBodyShape(
         return recursive(bodyId, "join control");
       case "loop":
         return recursive(bodyId, "nested loop control");
+      default:
+        // G2e — prereq 8 is an either/or: route item bodies through canonical
+        // item-scoped dispatch, OR *retain* the leaf-only denial. This slice
+        // discharges the second half, and "retain" is the load-bearing word:
+        // the denial must stay complete as `PipelineNode` grows.
+        //
+        // Before G2e this switch had no default. It enumerated all eight
+        // members of the union, so it was exhaustive *on that day* — but
+        // nothing held it that way. Verified, not assumed: adding a ninth
+        // member to `PipelineNode` and rebuilding core produced type errors
+        // across the runtime and **none here**; the new type fell out of the
+        // switch and was silently ADMITTED into the flat item worker, which
+        // cannot dispatch graph control or own a per-item frame for it.
+        //
+        // Default-deny closes that. `assertNeverBodyNode` additionally makes
+        // it a *compile-time* failure, so a future node type cannot reach this
+        // line without an author deciding which side of the admission it is on.
+        return recursive(
+          bodyId,
+          `unrecognized item-body node type "${assertNeverBodyNode(bodyNode)}"`
+        );
     }
   }
 
@@ -150,6 +171,26 @@ function findUnsupportedBodyShape(
   }
 
   return undefined;
+}
+
+/**
+ * Compile-time exhaustiveness guard for the item-body admission switch (G2e).
+ *
+ * Every `PipelineNode` member is handled above, so `node` narrows to `never`
+ * here and this call typechecks. Add a member to the union without deciding
+ * whether the flat item worker may execute it, and the argument no longer
+ * narrows to `never` — `yarn typecheck` fails on this line, at the exact place
+ * the decision belongs.
+ *
+ * It still returns a value rather than throwing: a hand-authored or legacy
+ * artifact validated at runtime can carry a type this build does not know, and
+ * a validator whose job is to *deny* must not crash on the input it exists to
+ * reject. The caller turns this into a denial; the type parameter is what makes
+ * the omission impossible to ship, and the runtime return is what makes the
+ * denial safe when it is reached anyway.
+ */
+function assertNeverBodyNode(node: never): string {
+  return (node as { type?: string }).type ?? "unknown";
 }
 
 function edgeTargets(edge: PipelineEdge): string[] {
