@@ -119,6 +119,19 @@ export async function handleLoop(
             : {
                 releaseIterationBudget: (input) => budgetHost.release!(input),
               }),
+          // G2b: reconcile is optional for the same compatibility reason, but
+          // its ABSENCE is not a no-op like settle/release — an unobservable
+          // reserve then fails the item closed, because nothing can prove the
+          // reservation's fate. That asymmetry is deliberate.
+          ...(budgetHost.reconcile === undefined
+            ? {}
+            : {
+                reconcileIterationBudget: (input) =>
+                  budgetHost.reconcile!(input),
+              }),
+          // G2b: run identity for the deterministic reservation ID, so a
+          // replayed reserve after a crash presents the same id.
+          budgetRunId: runId,
           ...(budgetHost.itemBudgetCents === undefined
             ? {}
             : { itemBudgetCents: budgetHost.itemBudgetCents }),

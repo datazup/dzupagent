@@ -25,6 +25,38 @@ interface HeldItemReservation {
   readonly reservedCostCents: number;
   readonly itemIndex: number;
   readonly attempt: number;
+  /** G2b: deterministic identity presented to settle/release. */
+  readonly reservationId: string;
+}
+
+/**
+ * G2b (doc 27 §8 prereq 5): derive the deterministic reservation ID for one
+ * `for_each` item attempt.
+ *
+ * Mirrors E2's idempotency-key scope segment deliberately — same field order,
+ * same `attempt`-omitted-at-zero rule — so an operator reading a ledger row and
+ * an execution trace side by side sees the same item named the same way. It is
+ * a distinct namespace (`resv:v1:`) rather than the node key itself, because a
+ * reservation is per ITEM while an idempotency key is per item BODY NODE;
+ * reusing the node key would make N body nodes look like N reservations.
+ *
+ * Deterministic by construction: a crash-and-replay of the same item attempt
+ * derives the identical string, which is exactly what lets a host recognise a
+ * replayed reserve instead of opening a second ledger row.
+ *
+ * Exported for direct unit test: at `concurrency` 1 every observable difference
+ * this function makes is also reachable end-to-end, but pinning the format here
+ * keeps the wire contract falsifiable independently of the loop.
+ */
+export function deriveItemReservationId(params: {
+  runId?: string;
+  loopNodeId: string;
+  itemIndex: number;
+  attempt: number;
+}): string {
+  const run = params.runId === undefined ? "" : params.runId;
+  const base = `resv:v1:${run}:item:${params.loopNodeId}:${params.itemIndex}`;
+  return params.attempt > 0 ? `${base}:attempt:${params.attempt}` : base;
 }
 
 type ForEachContract = NonNullable<LoopNode["forEach"]>;
@@ -174,9 +206,19 @@ export async function executeForEachLoop(
     index: number,
     attempt: number,
     state: Record<string, unknown>
-  ): Promise<HeldItemReservation | undefined | "denied"> => {
+  ): Promise<
+    HeldItemReservation | undefined | "denied" | { outcomeUnknown: string }
+  > => {
     if (itemBudgetCents === undefined) return undefined;
     const reserve = resume?.reserveIterationBudget;
+    const reservationId = deriveItemReservationId({
+      ...(resume?.budgetRunId === undefined
+        ? {}
+        : { runId: resume.budgetRunId }),
+      loopNodeId: loopNode.id,
+      itemIndex: index,
+      attempt,
+    });
     let reservation;
     try {
       reservation =
@@ -190,9 +232,17 @@ export async function executeForEachLoop(
               state,
               itemIndex: index,
               ...(attempt > 0 ? { attempt } : {}),
+              reservationId,
             });
-    } catch {
-      reservation = { status: "unknown" } as const;
+    } catch (error) {
+      // G2b (prereq 6): a THROWN reserve is not an answered "unknown". The call
+      // may have created the reservation before the transport failed, so its
+      // existence is genuinely unknown and neither releasing nor redispatching
+      // is safe. Hand it to reconciliation rather than collapsing it into the
+      // clean-denial path, which would leak the reservation forever.
+      return {
+        outcomeUnknown: error instanceof Error ? error.message : String(error),
+      };
     }
     if (
       reservation.status === "unknown" ||
@@ -206,7 +256,56 @@ export async function executeForEachLoop(
       reservedCostCents: reservation.reservedCostCents,
       itemIndex: index,
       attempt,
+      reservationId,
     };
+  };
+
+  /**
+   * G2b: resolve an outcome-unknown reserve. Returns an error string when the
+   * item must stay blocked — i.e. whenever the host cannot PROVE the outcome.
+   * Only an explicit `released`/`absent` answer clears it.
+   */
+  const reconcileUnknownReserve = async (
+    index: number,
+    attempt: number,
+    reason: string
+  ): Promise<string | undefined> => {
+    const reservationId = deriveItemReservationId({
+      ...(resume?.budgetRunId === undefined
+        ? {}
+        : { runId: resume.budgetRunId }),
+      loopNodeId: loopNode.id,
+      itemIndex: index,
+      attempt,
+    });
+    const reconcile = resume?.reconcileIterationBudget;
+    const blocked =
+      `Loop "${loopNode.id}" item ${index} reservation ${reservationId} is ` +
+      `outcome-unknown and could not be reconciled: ${reason}`;
+    if (reconcile === undefined) return blocked;
+    let outcome;
+    try {
+      outcome = await reconcile({
+        loopNodeId: loopNode.id,
+        iteration: index + 1,
+        itemIndex: index,
+        ...(attempt > 0 ? { attempt } : {}),
+        reservationId,
+        budgetCents: itemBudgetCents as number,
+        reason,
+      });
+    } catch (error) {
+      // A reconcile that itself fails proves nothing — stay blocked.
+      return (
+        `${blocked} (reconciliation failed: ` +
+        `${error instanceof Error ? error.message : String(error)})`
+      );
+    }
+    // `released` and `absent` are the only two proofs. `unknown` — and any
+    // unrecognised status — leaves the item blocked, fail-closed.
+    return outcome.status === "released" || outcome.status === "absent"
+      ? undefined
+      : blocked;
   };
 
   /** Returns an error string when the settled amount overruns its reservation. */
@@ -234,6 +333,7 @@ export async function executeForEachLoop(
       iteration: held.itemIndex + 1,
       itemIndex: held.itemIndex,
       ...(held.attempt > 0 ? { attempt: held.attempt } : {}),
+      reservationId: held.reservationId,
       reservedCostCents: held.reservedCostCents,
       actualCostCents,
     });
@@ -253,6 +353,7 @@ export async function executeForEachLoop(
       iteration: held.itemIndex + 1,
       itemIndex: held.itemIndex,
       ...(held.attempt > 0 ? { attempt: held.attempt } : {}),
+      reservationId: held.reservationId,
       reservedCostCents: held.reservedCostCents,
       reason,
     });
@@ -301,6 +402,42 @@ export async function executeForEachLoop(
     // source of truth for whether a reservation is outstanding, and every one
     // of the three exits below reconciles it exactly once.
     const held = await reserveItem(index, attempt, iterationState);
+    // G2b exit 0 — the reserve threw, so whether the host holds a reservation
+    // is unknown. Reconciliation is the only thing that can clear it; until it
+    // does, the item neither releases nor redispatches and the loop stops.
+    if (typeof held === "object" && held !== null && "outcomeUnknown" in held) {
+      const blocked = await reconcileUnknownReserve(
+        index,
+        attempt,
+        held.outcomeUnknown
+      );
+      if (blocked !== undefined) {
+        budgetBreached = true;
+        firstError ??= {
+          nodeId: loopNode.id,
+          output: null,
+          durationMs: Date.now() - startTime,
+          error: blocked,
+        };
+        iterationDurations[index] = Date.now() - iterStart;
+        return;
+      }
+      // Reconciliation PROVED the reservation is gone (released or never
+      // created), so nothing is outstanding for this item. It is now a clean
+      // denial: the item still must not dispatch unpriced, but the loop is no
+      // longer blocked on an unresolved reservation.
+      budgetBreached = true;
+      firstError ??= {
+        nodeId: loopNode.id,
+        output: null,
+        durationMs: Date.now() - startTime,
+        error:
+          `Loop "${loopNode.id}" item ${index} budget is unknown: ` +
+          "its reservation failed and was reconciled as not outstanding",
+      };
+      iterationDurations[index] = Date.now() - iterStart;
+      return;
+    }
     if (held === "denied") {
       // The ceiling was authored but no authoritative reservation exists.
       // Fail closed: an unpriced item must not dispatch.

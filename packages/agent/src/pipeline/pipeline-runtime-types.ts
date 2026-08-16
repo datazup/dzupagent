@@ -314,6 +314,12 @@ export interface PipelineRuntimeConfig {
       itemIndex?: number;
       /** F: re-dispatch counter; omitted on a first attempt. */
       attempt?: number;
+      /**
+       * G2b: deterministic reservation ID, stable across a crash-and-replay of
+       * the same item attempt. A host keys its ledger by this to recognise a
+       * replayed reserve instead of opening a second reservation.
+       */
+      reservationId?: string;
     }):
       | { status: "reserved"; reservedCostCents: number }
       | { status: "unknown" }
@@ -333,6 +339,8 @@ export interface PipelineRuntimeConfig {
       iteration: number;
       itemIndex?: number;
       attempt?: number;
+      /** G2b: the same deterministic ID the reserve carried. */
+      reservationId?: string;
       reservedCostCents: number;
       actualCostCents: number;
     }): void | Promise<void>;
@@ -345,9 +353,35 @@ export interface PipelineRuntimeConfig {
       iteration: number;
       itemIndex?: number;
       attempt?: number;
+      /** G2b: the same deterministic ID the reserve carried. */
+      reservationId?: string;
       reservedCostCents: number;
       reason: "aborted" | "failed";
     }): void | Promise<void>;
+    /**
+     * G2b (doc 27 §8 prereq 6): prove the outcome of a reserve that THREW,
+     * whose reservation may or may not exist on the host.
+     *
+     * Unlike `settle`/`release`, an absent `reconcile` is NOT a no-op: the
+     * runtime cannot prove the outcome by itself, so it fails the item closed
+     * and blocks both release and redispatch. Only an explicit `released` or
+     * `absent` answer clears the item; `unknown` keeps it blocked.
+     */
+    reconcile?(input: {
+      loopNodeId: string;
+      iteration: number;
+      itemIndex?: number;
+      attempt?: number;
+      reservationId: string;
+      budgetCents: number;
+      reason: string;
+    }):
+      | { status: "released" }
+      | { status: "absent" }
+      | { status: "unknown" }
+      | Promise<
+          { status: "released" } | { status: "absent" } | { status: "unknown" }
+        >;
     /**
      * F: hard monetary ceiling admitted per `for_each` item. The `forEach`
      * compile-time contract carries no budget field, so a per-item ceiling is

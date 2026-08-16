@@ -58,6 +58,46 @@ export type LoopIterationBudgetReservation =
       status: "unknown";
     };
 
+/**
+ * G2b: the outcome of a reserve whose result the runtime could not observe.
+ *
+ * A host that *answers* `{ status: "unknown" }` has told us it holds nothing —
+ * that is a clean denial and nothing is outstanding. A reserve that *throws* is
+ * categorically different: the call may have created a ledger row before the
+ * transport failed, so the reservation's existence is genuinely unknown.
+ *
+ * Doc 27 §8 prereq 6 requires that case be treated as outcome-unknown: block
+ * release and redispatch until reconciliation proves the outcome. Releasing
+ * blind would return money the host may never have taken; redispatching blind
+ * would double-charge.
+ */
+export interface LoopBudgetReconcileInput extends LoopBudgetSettlementScope {
+  /** Deterministic identity of the reservation whose fate is unknown. */
+  reservationId: string;
+  /** The ceiling the reserve was attempted against. */
+  budgetCents: number;
+  /** Failure detail from the reserve that could not be observed. */
+  reason: string;
+}
+
+/**
+ * G2b: a host's authoritative answer about a reservation it may or may not
+ * hold. This is the ONLY thing that can clear an outcome-unknown item.
+ */
+export type LoopBudgetReconcileOutcome =
+  | {
+      /** The host holds the reservation; it is now released. Safe to proceed. */
+      status: "released";
+    }
+  | {
+      /** The host never created it. Nothing is outstanding. Safe to proceed. */
+      status: "absent";
+    }
+  | {
+      /** The host still cannot prove the outcome. The item stays blocked. */
+      status: "unknown";
+    };
+
 export interface LoopIterationBudgetReservationInput {
   loopNodeId: string;
   iteration: number;
@@ -72,6 +112,16 @@ export interface LoopIterationBudgetReservationInput {
   itemIndex?: number;
   /** F: re-dispatch counter for this item; omitted on a first attempt. */
   attempt?: number;
+  /**
+   * G2b (doc 27 §8 prereq 5): deterministic reservation ID. Stable for a given
+   * `(runId, loopNodeId, itemIndex, attempt)`, so a reserve replayed after a
+   * crash presents the SAME id and the host can recognise it as the same
+   * reservation rather than opening a second one.
+   *
+   * Optional so a pre-G2b host that ignores it is unaffected; present on every
+   * `for_each` per-item reserve once the runtime threads a `runId`.
+   */
+  reservationId?: string;
 }
 
 /**
@@ -84,6 +134,12 @@ export interface LoopBudgetSettlementScope {
   iteration: number;
   itemIndex?: number;
   attempt?: number;
+  /**
+   * G2b: the same deterministic ID the reserve carried. A host correlates by
+   * this alone; the positional triple above is retained for compatibility with
+   * F-era hosts that key their ledger by it.
+   */
+  reservationId?: string;
 }
 
 /**
@@ -123,6 +179,14 @@ export interface LoopBudgetLifecycle {
   settle?(input: LoopBudgetSettlementInput): void | Promise<void>;
   /** Return an unspent reservation whose work never completed. */
   release?(input: LoopBudgetReleaseInput): void | Promise<void>;
+  /**
+   * G2b: prove the outcome of a reserve the runtime could not observe. Absent ⇒
+   * the runtime cannot prove the outcome itself, so it fails the item closed and
+   * blocks redispatch — it never guesses.
+   */
+  reconcile?(
+    input: LoopBudgetReconcileInput
+  ): LoopBudgetReconcileOutcome | Promise<LoopBudgetReconcileOutcome>;
 }
 
 /** Input to the runtime-owned bounded graph scheduler for one iteration. */
@@ -265,6 +329,20 @@ export interface LoopResumeOptions {
   releaseIterationBudget?: (
     input: LoopBudgetReleaseInput
   ) => void | Promise<void>;
+  /**
+   * G2b: prove the outcome of a reserve that threw. Absent ⇒ an outcome-unknown
+   * reserve fails the item closed with release and redispatch both blocked,
+   * which is the fail-closed default doc 27 §8 prereq 6 requires.
+   */
+  reconcileIterationBudget?: (
+    input: LoopBudgetReconcileInput
+  ) => LoopBudgetReconcileOutcome | Promise<LoopBudgetReconcileOutcome>;
+  /**
+   * G2b: run identity used to derive the deterministic reservation ID. Absent ⇒
+   * the ID degrades to a run-less form, which is still stable within the run but
+   * not across runs. The runtime always threads it.
+   */
+  budgetRunId?: string;
   /**
    * F: hard monetary ceiling admitted per `for_each` item. The `forEach`
    * compile-time contract carries no budget field, so this ceiling is authored
