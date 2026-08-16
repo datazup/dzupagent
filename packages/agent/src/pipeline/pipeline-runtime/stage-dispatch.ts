@@ -285,6 +285,25 @@ export async function dispatchLoopStage(
         ...frame.loopSourceDigests,
         [loopNode.id]: currentDigest,
       };
+
+      // E3 defect 2 (doc 27 §8 proof 5, cursor sub-part): the retained cursor
+      // is durable data, so a truncated write or a hand-edited checkpoint can
+      // present a prefix the source cannot support. The executor otherwise
+      // clamps it into range, which turns corruption into a silent wrong
+      // answer: `iteration: 99` over a 2-item source clamps to 2 and the loop
+      // reports success having dispatched nothing.
+      //
+      // Bind the cursor to the item count here, where the source is resolved,
+      // because the count is not itself stored on the checkpoint. Enforced on
+      // resume only — a fresh pass has no retained prefix to invalidate.
+      if (isResuming) {
+        assertForEachCursorWithinSource(
+          loopNode.id,
+          runId,
+          frame.loopState[loopNode.id],
+          resolvedSource.value.length
+        );
+      }
     }
   }
 
@@ -685,6 +704,72 @@ function loopBodyResultsForCheckpoint(
       },
     ])
   );
+}
+
+/**
+ * Reject a `for_each` cursor the resolved source cannot support (E3 defect 2).
+ *
+ * Doc 27 §8 proof 5 requires cursor corruption to be rejected *before* any item
+ * is dispatched. Three ways a durable cursor can disagree with its source:
+ *
+ * - the ordered prefix (`iteration`) exceeds the item count, so the checkpoint
+ *   claims more items finished than exist;
+ * - an in-flight frame is filed at an index outside the source;
+ * - a frame's self-reported `itemIndex` disagrees with the key it is filed
+ *   under. `readItemFrames` keys a pre-G1 singular frame *by its own*
+ *   `itemIndex`, so the two are assumed equal downstream; a disagreement would
+ *   resume the wrong item's body cursor. Note `PipelineCheckpointSchema`
+ *   already rejects this earlier on the `resume` path, so this branch is
+ *   defence-in-depth for callers that reach the executor without that parse.
+ *
+ * Fail closed rather than clamp: a stranded run is operator-recoverable, but a
+ * clamped cursor silently skips or re-runs committed item bodies. A negative or
+ * fractional `iteration` is rejected by the checkpoint schema on the
+ * serializing path; this guard covers the in-memory path too by treating any
+ * non-integer prefix as corrupt.
+ */
+export function assertForEachCursorWithinSource(
+  loopNodeId: string,
+  runId: string,
+  cursor: LoopState[string] | undefined,
+  itemCount: number
+): void {
+  if (cursor === undefined) return;
+
+  const iteration = cursor.iteration ?? 0;
+  if (!Number.isInteger(iteration) || iteration < 0 || iteration > itemCount) {
+    throw new PipelineForEachCursorCorruptError(
+      `Cannot resume loop "${loopNodeId}" in run "${runId}": its checkpoint ` +
+        `retains a completed prefix of ${iteration} item(s), but the source ` +
+        `resolves to ${itemCount}. The cursor does not describe this source.`
+    );
+  }
+
+  const itemFrames = readItemFrames(cursor);
+  if (itemFrames === undefined) return;
+  for (const [key, itemFrame] of Object.entries(itemFrames)) {
+    const keyedIndex = Number(key);
+    if (itemFrame.itemIndex !== keyedIndex) {
+      throw new PipelineForEachCursorCorruptError(
+        `Cannot resume loop "${loopNodeId}" in run "${runId}": an in-flight ` +
+          `item frame is filed at index ${key} but reports item index ` +
+          `${itemFrame.itemIndex}. Resuming would restore one item's body ` +
+          "cursor onto another item."
+      );
+    }
+    if (keyedIndex < 0 || keyedIndex >= itemCount) {
+      throw new PipelineForEachCursorCorruptError(
+        `Cannot resume loop "${loopNodeId}" in run "${runId}": an in-flight ` +
+          `item frame names index ${key}, which is outside the ${itemCount} ` +
+          "item(s) the source resolves to."
+      );
+    }
+  }
+}
+
+/** A resume was rejected because its `for_each` cursor cannot describe the source. */
+export class PipelineForEachCursorCorruptError extends Error {
+  override readonly name = "PipelineForEachCursorCorruptError";
 }
 
 /**

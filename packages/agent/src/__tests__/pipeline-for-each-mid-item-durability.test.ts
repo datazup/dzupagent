@@ -355,4 +355,152 @@ describe('checkpoint source binding (E3 defect 1)', () => {
     const resumed = await second.resume(legacy)
     expect(resumed.state).toBe('completed')
   })
+
+  it('binds the forEach contract itself, not merely the nodes around it', async () => {
+    // The sibling digest tests mutate a plain agent node, which would still be
+    // caught if `forEach` were dropped from the canonical digest input. This
+    // one mutates ONLY the forEach block, so it goes red if a canonicalization
+    // change ever stops covering the loop contract. Sub-part (c) of doc 27 §8
+    // proof 5 is covered by construction; this is the evidence for it.
+    const store = new InMemoryPipelineCheckpointStore()
+    const first = new PipelineRuntime({
+      definition: threeBodyForEachPipeline(),
+      nodeExecutor: tracingExecutor([], { item: 'b', nodeId: 'step-c' }),
+      checkpointStore: store,
+    })
+    const firstResult = await first.execute({ items: ITEMS })
+    const checkpoint = await store.load(firstResult.runId)
+
+    const mutated = threeBodyForEachPipeline()
+    const loop = mutated.nodes[0] as { forEach: { as: string } }
+    // Rebinding the item variable changes what every body node reads as
+    // `item` — the retained prefix was computed under the old binding.
+    loop.forEach.as = 'element'
+
+    const second = new PipelineRuntime({
+      definition: mutated,
+      nodeExecutor: tracingExecutor([]),
+      checkpointStore: store,
+    })
+
+    await expect(second.resume(checkpoint!)).rejects.toThrow(
+      PipelineSourceBindingMismatchError,
+    )
+  })
+})
+
+describe('for_each cursor integrity (E3 defect 2)', () => {
+  /** Run to a mid-item crash and hand back the checkpoint it left behind. */
+  async function crashedCheckpoint(
+    store: InMemoryPipelineCheckpointStore,
+  ): Promise<PipelineCheckpoint> {
+    const first = new PipelineRuntime({
+      definition: threeBodyForEachPipeline(),
+      nodeExecutor: tracingExecutor([], { item: 'b', nodeId: 'step-c' }),
+      checkpointStore: store,
+    })
+    const firstResult = await first.execute({ items: ITEMS })
+    return (await store.load(firstResult.runId))!
+  }
+
+  it('refuses a completed prefix longer than the source, instead of clamping it', async () => {
+    const store = new InMemoryPipelineCheckpointStore()
+    const checkpoint = await crashedCheckpoint(store)
+    // Corrupt the durable cursor: claim 99 of 2 items finished. Clamping this
+    // to 2 would report a successful run that dispatched nothing.
+    const corrupt = structuredClone(checkpoint)
+    corrupt.loopState!['loop-items']!.iteration = 99
+    delete corrupt.loopState!['loop-items']!.itemFrames
+
+    const resumeRuns: string[] = []
+    const second = new PipelineRuntime({
+      definition: threeBodyForEachPipeline(),
+      nodeExecutor: tracingExecutor(resumeRuns),
+      checkpointStore: store,
+    })
+
+    const resumed = await second.resume(corrupt)
+    expect(resumed.state).toBe('failed')
+    // The load-bearing half: rejected before any item body was dispatched.
+    expect(resumeRuns).toEqual([])
+    // ...and it failed for THIS reason, not incidentally.
+    expect(resumed.error).toMatch(/completed prefix of 99 item\(s\)/)
+  })
+
+  it('refuses an in-flight frame whose itemIndex disagrees with its key', async () => {
+    const store = new InMemoryPipelineCheckpointStore()
+    const checkpoint = await crashedCheckpoint(store)
+    // `readItemFrames` keys a pre-G1 singular frame by its own `itemIndex`, so
+    // downstream code assumes the two agree. A frame filed at '1' that reports
+    // index 0 would restore item 'b' body results onto item 'a'.
+    //
+    // Caught by `PipelineCheckpointSchema` on the way in, EARLIER than the
+    // cursor guard, so the run never starts and there is no run result to
+    // inspect. Pinned at the boundary that actually rejects it.
+    const corrupt = structuredClone(checkpoint)
+    corrupt.loopState!['loop-items']!.itemFrames!['1']!.itemIndex = 0
+
+    const resumeRuns: string[] = []
+    const second = new PipelineRuntime({
+      definition: threeBodyForEachPipeline(),
+      nodeExecutor: tracingExecutor(resumeRuns),
+      checkpointStore: store,
+    })
+
+    await expect(second.resume(corrupt)).rejects.toThrow(
+      /does not match its frame's itemIndex/,
+    )
+    expect(resumeRuns).toEqual([])
+  })
+
+  it('refuses an in-flight frame indexed outside the source', async () => {
+    const store = new InMemoryPipelineCheckpointStore()
+    const checkpoint = await crashedCheckpoint(store)
+    const corrupt = structuredClone(checkpoint)
+    const frames = corrupt.loopState!['loop-items']!.itemFrames!
+    delete frames['1']
+    frames['7'] = { itemIndex: 7, nextBodyNodeIndex: 1, bodyResults: {} }
+
+    const resumeRuns: string[] = []
+    const second = new PipelineRuntime({
+      definition: threeBodyForEachPipeline(),
+      nodeExecutor: tracingExecutor(resumeRuns),
+      checkpointStore: store,
+    })
+
+    const resumed = await second.resume(corrupt)
+    expect(resumed.state).toBe('failed')
+    expect(resumeRuns).toEqual([])
+    expect(resumed.error).toMatch(/names index 7, which is outside the 2 item/)
+  })
+
+  it('admits an intact cursor, including a prefix that exactly equals the source', async () => {
+    // The control. The guard rejects only genuine corruption — an untouched
+    // checkpoint still resumes, and `iteration === itemCount` (every item done)
+    // is a legal boundary, not an overrun. Without this, a guard that rejected
+    // everything would pass the three tests above.
+    const store = new InMemoryPipelineCheckpointStore()
+    const checkpoint = await crashedCheckpoint(store)
+
+    const resumeRuns: string[] = []
+    const second = new PipelineRuntime({
+      definition: threeBodyForEachPipeline(),
+      nodeExecutor: tracingExecutor(resumeRuns),
+      checkpointStore: store,
+    })
+    const resumed = await second.resume(structuredClone(checkpoint))
+    expect(resumed.state).toBe('completed')
+    // Item 'b' resumed at its last body node; item 'a' was not re-run.
+    expect(resumeRuns).toEqual(['b:step-c'])
+
+    const boundary = structuredClone(checkpoint)
+    boundary.loopState!['loop-items']!.iteration = 2
+    delete boundary.loopState!['loop-items']!.itemFrames
+    const third = new PipelineRuntime({
+      definition: threeBodyForEachPipeline(),
+      nodeExecutor: tracingExecutor([]),
+      checkpointStore: store,
+    })
+    expect((await third.resume(boundary)).state).toBe('completed')
+  })
 })
