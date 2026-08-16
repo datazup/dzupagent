@@ -82,6 +82,43 @@ export function canonicalInputDigest(input: unknown): string {
 }
 
 /**
+ * Identity of one durable unit of loop work, folded into the key space.
+ *
+ * A `for_each` body node derives the same `(runId, nodeId)` for every item, so
+ * without a scope every item of a loop shares one idempotency key: the first
+ * item claims it and the rest replay that item's result. This makes each item
+ * its own durable unit.
+ *
+ * Structurally mirrors `PipelineExecutionScope` in `@dzupagent/core/pipeline`,
+ * restated here because `runtime-contracts` sits below core in the dependency
+ * order and must stay environment-neutral.
+ */
+export interface IdempotencyExecutionScope {
+  /** Loop node this scope belongs to. */
+  loopNodeId: string;
+  /** Zero-based index into the resolved `for_each` source. */
+  itemIndex: number;
+  /** Body node being executed within the item, when scoped to one. */
+  bodyNodeId?: string;
+  /** Attempt counter, so a retry is distinguishable from the first attempt. */
+  attempt?: number;
+}
+
+/**
+ * Render an execution scope as a key segment.
+ *
+ * `bodyNodeId` and `attempt` are appended only when present, so adding a scope
+ * without them produces the shortest form that still separates items. The
+ * segment is prefixed `item:` so it can never be confused with a digest.
+ */
+function scopeSegment(scope: IdempotencyExecutionScope): string {
+  let segment = `item:${scope.loopNodeId}:${scope.itemIndex}`;
+  if (scope.bodyNodeId !== undefined) segment += `:${scope.bodyNodeId}`;
+  if (scope.attempt !== undefined) segment += `:attempt:${scope.attempt}`;
+  return segment;
+}
+
+/**
  * Materialize a full idempotency key for a node execution.
  *
  * Template: `dzup:v1:{sourceHash}:{runId}:{nodeId}:{attemptPolicy}:{canonicalInputDigest}`
@@ -91,6 +128,12 @@ export function canonicalInputDigest(input: unknown): string {
  * - `nodeId`        -- the node's stable ID within the flow
  * - `attemptPolicy` -- `'at-least-once' | 'exactly-once-required' | 'idempotent'`
  * - `input`         -- the node's input value (hashed via canonicalInputDigest)
+ * - `scope`         -- optional `for_each` execution scope (E2)
+ *
+ * When `scope` is present the scope segment is appended, giving each loop item
+ * its own key. When it is absent the key is byte-identical to the pre-E2 form:
+ * this is load-bearing, because a changed key for an unscoped node would
+ * invalidate every in-flight run's ledger entries.
  *
  * The returned key is intentionally left human-readable (the whole key is
  * not re-hashed) so it remains useful for debugging and log correlation.
@@ -101,7 +144,11 @@ export function materializeIdempotencyKey(params: {
   nodeId: string;
   attemptPolicy: string;
   input: unknown;
+  scope?: IdempotencyExecutionScope;
 }): string {
   const inputDigest = canonicalInputDigest(params.input);
-  return `dzup:v1:${params.sourceHash}:${params.runId}:${params.nodeId}:${params.attemptPolicy}:${inputDigest}`;
+  const base = `dzup:v1:${params.sourceHash}:${params.runId}:${params.nodeId}:${params.attemptPolicy}:${inputDigest}`;
+  return params.scope === undefined
+    ? base
+    : `${base}:${scopeSegment(params.scope)}`;
 }

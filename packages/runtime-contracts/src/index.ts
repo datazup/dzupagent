@@ -93,6 +93,7 @@ export {
   canonicalInputDigest,
   materializeIdempotencyKey,
 } from "./idempotency.js";
+export type { IdempotencyExecutionScope } from "./idempotency.js";
 export {
   DEFAULT_FLOW_RUNTIME_INPUT_LIMITS,
   FLOW_CREDENTIAL_HANDLE_REF_SCHEMA,

@@ -87,4 +87,56 @@ describe("dispatchStandardNode — node ledger begin failure (ERR-M-08)", () => 
     });
     expect((context as { runId?: unknown }).runId).toBe(result.runId);
   });
+
+  it("degrade-open is still the behavior when the policy is set explicitly", async () => {
+    vi.spyOn(defaultLogger, "warn").mockImplementation(() => {});
+    const executor = vi.fn<NodeExecutor>().mockResolvedValue({
+      nodeId: "n1",
+      output: { ok: true },
+      durationMs: 1,
+    });
+
+    const result = await new PipelineRuntime({
+      definition: singleNode(NODE),
+      nodeExecutor: executor,
+      nodeLedger: rejectingLedger(new Error("redis ECONNREFUSED")),
+      ledgerUnavailablePolicy: "degrade-open",
+    }).execute();
+
+    expect(result.state).toBe("completed");
+    expect(executor).toHaveBeenCalledTimes(1);
+  });
+
+  it('E2: under "strict", an unreachable ledger fails the node instead of running it', async () => {
+    const errorSpy = vi
+      .spyOn(defaultLogger, "error")
+      .mockImplementation(() => {});
+    const ledgerError = new Error("redis ECONNREFUSED");
+    const executor = vi.fn<NodeExecutor>().mockResolvedValue({
+      nodeId: "n1",
+      output: { ok: true },
+      durationMs: 1,
+    });
+
+    const result = await new PipelineRuntime({
+      definition: singleNode(NODE),
+      nodeExecutor: executor,
+      nodeLedger: rejectingLedger(ledgerError),
+      ledgerUnavailablePolicy: "strict",
+    }).execute();
+
+    expect(result.state).toBe("failed");
+    // The point of strict: the side effect never runs without the safety net.
+    expect(executor).not.toHaveBeenCalled();
+
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    const [, context] = errorSpy.mock.calls[0]!;
+    expect(context).toMatchObject({
+      operation: "node.ledger.begin",
+      nodeId: "n1",
+      error: String(ledgerError),
+      effect: "node_failed_ledger_unavailable",
+      policy: "strict",
+    });
+  });
 });

@@ -27,6 +27,7 @@
 import {
   canonicalInputDigest,
   materializeIdempotencyKey,
+  type IdempotencyExecutionScope,
 } from "@dzupagent/runtime-contracts";
 import type { PipelineNode } from "@dzupagent/core/pipeline";
 
@@ -75,6 +76,15 @@ export interface NodeIdempotencyKeyContext {
    * canonical derivation is bypassed entirely. Absent ⇒ derived key, unchanged.
    */
   declaredKey?: string;
+  /**
+   * E2: the `for_each` execution scope this node is running under, when it is
+   * a loop body node. Absent outside a loop.
+   *
+   * Present ⇒ the key gains an `item:{loopNodeId}:{itemIndex}` segment, so each
+   * item of a loop is its own durable unit. Absent ⇒ the key is byte-identical
+   * to the pre-E2 form.
+   */
+  scope?: IdempotencyExecutionScope;
 }
 
 /**
@@ -97,6 +107,18 @@ export interface NodeIdempotencyKeyContext {
  * if `flowDefinition` is not threaded at a given call site it degrades to the
  * empty string, which is harmless because `runId` already guarantees
  * uniqueness. `attemptPolicy` and `input` are now real.
+ *
+ * E2 audit: both production call sites (`PipelineExecutor.keyFor` and
+ * `fork-branch-executor`) already thread `config.definition`, so the empty
+ * `sourceHash` fallback is reachable only from tests and direct callers that
+ * pass no context. It is retained as the documented degraded form rather than
+ * made mandatory — promoting it to a hard requirement would change keys for
+ * any such caller and is deferred to E3, where resume-time enforcement of
+ * `sourceBinding.definitionDigest` lands.
+ *
+ * Digest formats differ and must not be mixed: `sourceHash` here is a bare
+ * 64-hex `canonicalInputDigest`, whereas `sourceBinding.definitionDigest` on
+ * the checkpoint is `sha256:`-prefixed.
  */
 export function nodeIdempotencyKey(
   runId: string,
@@ -109,7 +131,15 @@ export function nodeIdempotencyKey(
   // times. Absent ⇒ fall through to the canonical derivation (unchanged).
   const declared = context.declaredKey;
   if (typeof declared === "string" && declared.length > 0) {
-    return `dzup:v1:declared:${declared}`;
+    // E2 design call: a declared key inside a `for_each` loop is PER-ITEM.
+    // Unscoped it would name one durable unit for the whole loop — the first
+    // item would claim it and items 2..N would replay that item's result, so a
+    // 100-invoice loop charges one invoice. Scoping keeps the operator's intent
+    // ("this work is exactly-once") while making the unit the item.
+    // Outside a loop there is no scope and the key is unchanged.
+    return context.scope === undefined
+      ? `dzup:v1:declared:${declared}`
+      : `dzup:v1:declared:${declared}:item:${context.scope.loopNodeId}:${context.scope.itemIndex}`;
   }
 
   return materializeIdempotencyKey({
@@ -121,6 +151,7 @@ export function nodeIdempotencyKey(
     nodeId,
     attemptPolicy: context.attemptPolicy ?? ATTEMPT_POLICY_DEFAULT,
     input: context.input ?? {},
+    ...(context.scope !== undefined ? { scope: context.scope } : {}),
   });
 }
 

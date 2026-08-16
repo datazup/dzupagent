@@ -27,6 +27,7 @@ import type {
   PipelineCheckpointExecutionLog,
   PipelineCheckpointProviderSessionRef,
   PipelineInteractionResumeCursor,
+  PipelineLedgerUnavailablePolicy,
 } from "@dzupagent/core/pipeline";
 import type {
   NodeExecutionContext,
@@ -328,6 +329,18 @@ export interface PipelineRuntimeConfig {
    * `DurableNodeLedger`.
    */
   nodeLedger?: NodeLedgerLike;
+  /**
+   * E2: what to do when the durable ledger is unreachable at node dispatch.
+   *
+   * `"degrade-open"` (the default, and the pre-E2 behavior) logs
+   * `idempotency_disabled_for_node`, synthesizes a lease, and proceeds —
+   * trading exactly-once for liveness. `"strict"` fails the node instead,
+   * which is the right choice for chargeable per-item work where a retry can
+   * double-execute a side effect.
+   *
+   * Absent ⇒ exactly today's semantics.
+   */
+  ledgerUnavailablePolicy?: PipelineLedgerUnavailablePolicy;
   /** Finite provider-free interaction policy and injectable clock for tests. */
   interaction?: {
     ttlMs?: number;

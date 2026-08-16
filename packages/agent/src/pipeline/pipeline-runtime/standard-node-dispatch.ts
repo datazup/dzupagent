@@ -146,6 +146,26 @@ export async function dispatchStandardNode(
         Date.now()
       );
     } catch (err) {
+      // E2: under "strict", an unreachable ledger fails the node rather than
+      // proceeding without the exactly-once safety net. The degraded path below
+      // synthesizes a lease with `fenceToken: 0` that is indistinguishable
+      // downstream from a real one, so for chargeable per-item work the only
+      // safe answer is to stop.
+      if (config.ledgerUnavailablePolicy === "strict") {
+        defaultLogger.error("[pipeline] node ledger begin failed — failing node", {
+          operation: "node.ledger.begin",
+          runId,
+          nodeId: node.id,
+          error: String(err),
+          effect: "node_failed_ledger_unavailable",
+          policy: "strict",
+        });
+        if (span) config.tracer?.endSpanWithError(span, err);
+        return fail(
+          `node "${node.id}" could not acquire a durable ledger lease and ` +
+            `ledgerUnavailablePolicy is "strict": ${String(err)}`
+        );
+      }
       // Ledger unavailability is non-fatal for liveness, but it disables the
       // exactly-once safety net for this node: a retried run can now
       // double-execute a side-effecting node (duplicate payment/email). Surface
@@ -157,6 +177,7 @@ export async function dispatchStandardNode(
         nodeId: node.id,
         error: String(err),
         effect: "idempotency_disabled_for_node",
+        policy: "degrade-open",
       });
       begin = { kind: "lease", lease: { owner: runId, fenceToken: 0 } };
     }

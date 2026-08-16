@@ -14,7 +14,10 @@ import {
   nodeIdempotencyKey,
   nodeIdempotencyContext,
 } from "../pipeline/pipeline-runtime/idempotency.js";
-import { materializeIdempotencyKey } from "@dzupagent/runtime-contracts";
+import {
+  canonicalInputDigest,
+  materializeIdempotencyKey,
+} from "@dzupagent/runtime-contracts";
 import type { PipelineDefinition, PipelineNode } from "@dzupagent/core";
 
 /**
@@ -434,5 +437,92 @@ describe("W1 durability wiring — declared-key short-circuit matrix (T1-T4, T7)
 
     expect(keyWithoutDecls).toBe(baselineKey);
     expect(keyWithoutDecls).not.toBe(key);
+  });
+});
+
+describe("E2 — item-scoped idempotency keys", () => {
+  it("an unscoped key is byte-identical to the pre-E2 form", () => {
+    // Load-bearing: a changed key for an unscoped node would invalidate every
+    // in-flight run's ledger entries. Pinned as an exact string, not a shape.
+    const key = nodeIdempotencyKey("run-1", "n1", {
+      attemptPolicy: "at-least-once",
+      input: {},
+    });
+
+    expect(key).toBe(
+      `dzup:v1::run-1:n1:at-least-once:${canonicalInputDigest({})}`
+    );
+  });
+
+  it("adding a scope appends an item segment and changes nothing before it", () => {
+    const unscoped = nodeIdempotencyKey("run-1", "n1", { input: {} });
+    const scoped = nodeIdempotencyKey("run-1", "n1", {
+      input: {},
+      scope: { loopNodeId: "loop-1", itemIndex: 7 },
+    });
+
+    expect(scoped).toBe(`${unscoped}:item:loop-1:7`);
+  });
+
+  it("each item of a loop gets a distinct key — the defect E2 closes", () => {
+    const keyFor = (itemIndex: number) =>
+      nodeIdempotencyKey("run-1", "charge", {
+        input: {},
+        scope: { loopNodeId: "invoices", itemIndex },
+      });
+
+    const keys = [0, 1, 2, 3].map(keyFor);
+    expect(new Set(keys).size).toBe(4);
+  });
+
+  it("distinguishes body node and attempt within one item", () => {
+    const base = { loopNodeId: "loop-1", itemIndex: 3 } as const;
+    const plain = nodeIdempotencyKey("run-1", "n1", { input: {}, scope: base });
+    const withBody = nodeIdempotencyKey("run-1", "n1", {
+      input: {},
+      scope: { ...base, bodyNodeId: "send" },
+    });
+    const withAttempt = nodeIdempotencyKey("run-1", "n1", {
+      input: {},
+      scope: { ...base, bodyNodeId: "send", attempt: 1 },
+    });
+
+    expect(withBody).toBe(`${plain}:send`);
+    expect(withAttempt).toBe(`${withBody}:attempt:1`);
+    expect(new Set([plain, withBody, withAttempt]).size).toBe(3);
+  });
+
+  it("a declared key inside a loop is PER-ITEM, not per-loop", () => {
+    // Design call: unscoped, one declared key would name a single durable unit
+    // for the whole loop — item 1 claims it and items 2..N replay its result.
+    const item0 = nodeIdempotencyKey("run-1", "charge", {
+      declaredKey: "order-123",
+      scope: { loopNodeId: "invoices", itemIndex: 0 },
+    });
+    const item1 = nodeIdempotencyKey("run-1", "charge", {
+      declaredKey: "order-123",
+      scope: { loopNodeId: "invoices", itemIndex: 1 },
+    });
+
+    expect(item0).toBe("dzup:v1:declared:order-123:item:invoices:0");
+    expect(item1).toBe("dzup:v1:declared:order-123:item:invoices:1");
+    expect(item0).not.toBe(item1);
+  });
+
+  it("a declared key OUTSIDE a loop is unchanged", () => {
+    expect(
+      nodeIdempotencyKey("run-1", "charge", { declaredKey: "order-123" })
+    ).toBe("dzup:v1:declared:order-123");
+  });
+
+  it("the declared key still wins over the derived form when scoped", () => {
+    const declared = nodeIdempotencyKey("run-1", "n1", {
+      declaredKey: "k",
+      input: { a: 1 },
+      attemptPolicy: "exactly-once-required",
+      scope: { loopNodeId: "loop-1", itemIndex: 0 },
+    });
+
+    expect(declared).toBe("dzup:v1:declared:k:item:loop-1:0");
   });
 });

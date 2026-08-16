@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-08-14
+Date: 2026-08-16
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -871,7 +871,7 @@ Root index: `packages/runtime-contracts/src/index.ts`
 | `stable` | `./canonical-execution.js` | 46 | `exact:./canonical-execution.js` | `validateExecutionRouteDecision`, `AdapterRunExecutionRequest`, `AgentExecutionRequest`, `ExecutionArtifactRef` |
 | `stable` | `./canonical-gates.js` | 16 | `exact:./canonical-gates.js` | `validateGateResult`, `GateActor`, `GateActorRequirement`, `GateCheck` |
 | `stable` | `./local-model.js` | 6 | `exact:./local-model.js` | `LocalModelCapabilityProfile`, `LocalModelEndpointDescriptor`, `LocalModelEndpointRejectionCode`, `LocalModelHealthSnapshot` |
-| `stable` | `./idempotency.js` | 4 | `exact:./idempotency.js` | `CANONICAL_JSON_VERSION`, `canonicalJson`, `canonicalInputDigest`, `materializeIdempotencyKey` |
+| `stable` | `./idempotency.js` | 5 | `exact:./idempotency.js` | `CANONICAL_JSON_VERSION`, `canonicalJson`, `canonicalInputDigest`, `materializeIdempotencyKey` |
 | `stable` | `./flow-runtime-input.js` | 16 | `exact:./flow-runtime-input.js` | `DEFAULT_FLOW_RUNTIME_INPUT_LIMITS`, `FLOW_CREDENTIAL_HANDLE_REF_SCHEMA`, `FLOW_RUNTIME_INPUT_CONTRACT`, `sha256Text` |
 | `stable` | `./ai-economics.js` | 19 | `exact:./ai-economics.js` | `AI_COST_UNKNOWN_REASONS`, `AI_PRICE_SOURCE_KINDS`, `AI_QUOTA_SCHEMA`, `AI_QUOTA_UNITS` |
 
