@@ -31,6 +31,7 @@ import {
   writeCheckpoint,
   lastWriteLostCommit,
   lastWriteOutcome,
+  clearWriteOutcome,
 } from '../pipeline/pipeline-runtime/checkpoint-writer.js'
 import { restoreLoopStateAfterLostCommit } from '../pipeline/pipeline-runtime/stage-dispatch.js'
 import type {
@@ -299,6 +300,37 @@ describe('checkpoint write outcome (G2a)', () => {
     const written = await writeCheckpoint(writeInput(store, tracker))
     expect(written).toBeUndefined()
     expect(lastWriteOutcome(tracker)?.kind).toBe('unpersisted_run')
+    expect(lastWriteLostCommit(tracker)).toBe(false)
+  })
+
+  it('does not let a conflict latch go stale', async () => {
+    // The latch is read *after* a write, so a stale `conflict` would fail a
+    // boundary whose own commit never lost. Every real write path overwrites
+    // the entry; this pins that, and `clearWriteOutcome` covers the paths
+    // where a write is skipped entirely.
+    const store = new InMemoryPipelineCheckpointStore()
+    const seed = { version: 0 }
+    await writeCheckpoint(writeInput(store, seed))
+
+    const tracker = { version: 41 }
+    await writeCheckpoint(writeInput(store, tracker))
+    expect(lastWriteLostCommit(tracker)).toBe(true)
+
+    // The conflict resynchronized the tracker, so this write wins — and the
+    // latch must follow it rather than persisting the earlier loss.
+    await writeCheckpoint(writeInput(store, tracker))
+    expect(lastWriteLostCommit(tracker)).toBe(false)
+    expect(lastWriteOutcome(tracker)?.kind).toBe('committed')
+  })
+
+  it('clearWriteOutcome forgets a recorded outcome', async () => {
+    const store = new InMemoryPipelineCheckpointStore()
+    const tracker = { version: 0 }
+    await writeCheckpoint(writeInput(store, tracker))
+    expect(lastWriteOutcome(tracker)?.kind).toBe('committed')
+
+    clearWriteOutcome(tracker)
+    expect(lastWriteOutcome(tracker)).toBeUndefined()
     expect(lastWriteLostCommit(tracker)).toBe(false)
   })
 

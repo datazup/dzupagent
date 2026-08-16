@@ -132,6 +132,23 @@ export function lastWriteOutcome(
 }
 
 /**
+ * Forget any recorded outcome for `versionTracker`.
+ *
+ * Call this wherever a checkpoint write is *skipped* rather than attempted —
+ * a strategy that does not checkpoint at this point, or an override that
+ * persists by some other route. Every real write path already overwrites the
+ * entry (a win records `committed`, an unconfigured store records `no_store`),
+ * so the only way a `conflict` can go stale is for a later call site to
+ * consult the latch without any intervening write. Clearing on the skip paths
+ * makes that impossible by construction rather than by call-order luck.
+ */
+export function clearWriteOutcome(
+  versionTracker: CheckpointWriteInput["versionTracker"]
+): void {
+  writeOutcomes.delete(versionTracker);
+}
+
+/**
  * True when the last write against `versionTracker` lost a compare-and-set
  * race to **another writer**, meaning its checkpoint was not persisted and a
  * rival owns this run's version line.

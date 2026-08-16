@@ -43,7 +43,10 @@ import {
   findJoinNode,
 } from "./pipeline-runtime/edge-resolution.js";
 import { extractErrorCode } from "./pipeline-runtime/error-classification.js";
-import { writeCheckpoint } from "./pipeline-runtime/checkpoint-writer.js";
+import {
+  writeCheckpoint,
+  clearWriteOutcome,
+} from "./pipeline-runtime/checkpoint-writer.js";
 import {
   dispatchForkStage,
   dispatchLoopStage,
@@ -387,6 +390,10 @@ export class PipelineExecutor {
 
   private async saveCheckpoint(frame: RunFrame): Promise<void> {
     if (this.checkpointOverride !== undefined) {
+      // G2a: an override persists by its own route, so no outcome is recorded
+      // for this frame. Clear rather than leave a previous write's verdict
+      // standing, or a caller consulting the latch would read a stale one.
+      clearWriteOutcome(frame.versionTracker);
       await this.checkpointOverride(frame);
       return;
     }
@@ -397,7 +404,14 @@ export class PipelineExecutor {
       strategy === "none" ||
       strategy === "manual"
     ) {
+      clearWriteOutcome(frame.versionTracker);
       return;
+    }
+
+    if (strategy !== "after_each_node") {
+      // Strategies that do not checkpoint here (e.g. `on_suspend`) write
+      // nothing, so the latch must not retain an earlier write's verdict.
+      clearWriteOutcome(frame.versionTracker);
     }
 
     if (strategy === "after_each_node") {
