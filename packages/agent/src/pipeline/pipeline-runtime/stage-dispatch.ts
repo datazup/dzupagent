@@ -48,10 +48,44 @@ import type {
 import type { ForkState, LoopState } from "./executor-state-types.js";
 import type { PipelineForEachItemFrame } from "@dzupagent/core/pipeline";
 import type { BudgetTrackerState } from "./iteration-budget-tracker.js";
-import { persistCheckpointWithIntegrityBoundary } from "./checkpoint-integrity-error.js";
+import {
+  persistCheckpointWithIntegrityBoundary,
+  PipelineCheckpointCommitConflictError,
+} from "./checkpoint-integrity-error.js";
+import { lastWriteLostCommit } from "./checkpoint-writer.js";
 import { createRuntimePendingInteraction } from "../pipeline-interaction-runtime.js";
 import { resolveStatePath } from "../loop-executor/state-path.js";
 import { PipelineSourceBindingMismatchError } from "../pipeline-runtime-lifecycle/resume-context.js";
+
+/**
+ * Roll a loop's in-memory entry back to what the store still holds, after a
+ * checkpoint commit was lost to a compare-and-set conflict (G2a).
+ *
+ * Exported for direct testing: the run aborts immediately after a lost
+ * item-boundary commit and writes no further checkpoint, so this rollback has
+ * no *end-to-end* observation point — a mutant deleting it survives every
+ * suite. That mirrors the G1 mid-item merge, and for the same underlying
+ * reason: the state it protects only becomes readable once a lost commit can
+ * be followed by another write against the same frame, which requires the N>1
+ * admission. It is unit-tested here and owes an end-to-end test to that slice.
+ *
+ * Correctness still matters today: leaving the retired-frame/advanced-cursor
+ * entry in memory would mean any future caller that persists this frame writes
+ * a cursor no durable record backs.
+ */
+export function restoreLoopStateAfterLostCommit(
+  loopState: LoopState,
+  loopNodeId: string,
+  previous: LoopState[string] | undefined
+): void {
+  // `delete` rather than assigning `undefined`: the first boundary of a loop
+  // has no prior entry, and `LoopState` holds no undefined values.
+  if (previous === undefined) {
+    delete loopState[loopNodeId];
+    return;
+  }
+  loopState[loopNodeId] = previous;
+}
 
 /** Dependency bag exposing the executor's helpers to the stage functions. */
 export interface StageContext {
@@ -397,6 +431,9 @@ export async function dispatchLoopStage(
       // every frame at or above it is still in flight. The pre-G1 code
       // rebuilt the entry from scratch, which dropped the whole collection —
       // a flush by an early item erased the live frame of a later one.
+      // G2a: captured BEFORE the retirement below overwrites it, so a lost
+      // commit can restore the in-memory frame to what the store still holds.
+      const previousLoopState = frame.loopState[loopNode.id];
       const retainedItemFrames = retainInFlightItemFrames(
         readItemFrames(frame.loopState[loopNode.id]),
         completedIterations
@@ -414,6 +451,36 @@ export async function dispatchLoopStage(
           : {}),
       };
       await ctx.saveCheckpoint(frame);
+      // G2a — serialized checkpoint commits.
+      //
+      // An item boundary is the one place the loop advances its *durable*
+      // ordered prefix, so it is the one place a lost commit corrupts rather
+      // than merely delays. `writeCheckpoint` resynchronizes its version
+      // counter and returns without persisting when it loses a compare-and-set
+      // race; before G2a that loss was indistinguishable from "no store
+      // configured", so this callback returned normally and the loop treated
+      // `completedIterations` items as durably committed. They were not: the
+      // store still holds the rival's checkpoint, whose cursor is behind and
+      // whose mid-item frames this callback just retired in memory. A resume
+      // from that record replays committed body work with no frame to resume
+      // from.
+      //
+      // Fail closed instead. Restore the pre-write loop state so the in-memory
+      // frame matches what is actually durable, then surface the loss: another
+      // writer owns this run's version line, and continuing to execute against
+      // a stale cursor is precisely the interleaving the exact-1 admission
+      // gate exists to prevent.
+      if (lastWriteLostCommit(frame.versionTracker)) {
+        restoreLoopStateAfterLostCommit(
+          frame.loopState,
+          loopNode.id,
+          previousLoopState
+        );
+        throw new PipelineCheckpointCommitConflictError(loopNode.id, {
+          completedIterations,
+          observedVersion: frame.versionTracker.version,
+        });
+      }
     },
   };
 
