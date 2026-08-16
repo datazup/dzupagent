@@ -16,6 +16,10 @@ import type {
 } from "../pipeline-runtime-types.js";
 import type { LoopResumeOptions } from "./types.js";
 import { resolveStatePath, setStatePath } from "./state-path.js";
+import {
+  advanceCompletedPrefix,
+  type ForEachMergeState,
+} from "./for-each-merge.js";
 
 /**
  * F: a reservation held for one in-flight item, carried from the reserve at
@@ -166,19 +170,29 @@ export async function executeForEachLoop(
     }
   }
   const enrichedItems = [...items];
-  let accumulatorValues =
+  const initialAccumulator =
     contract.accumulator !== undefined
       ? initialAccumulatorValue(context.state, contract.accumulator)
       : [];
   if (contract.accumulator !== undefined) {
-    setStatePath(context.state, contract.accumulator.key, accumulatorValues);
+    setStatePath(context.state, contract.accumulator.key, initialAccumulator);
   }
   const results = new Array<NodeResult | undefined>(items.length);
-  const completed = new Array<boolean>(items.length).fill(false);
-  const attachedValues = new Array<unknown>(items.length);
-  const accumulatorItems = new Array<unknown>(items.length);
+  // The ordered-prefix merge state, owned by `for-each-merge.ts`. Grouped into
+  // one object so the merge algorithm is drivable as a unit against completion
+  // patterns the exact-1 admission gate makes unreachable end-to-end
+  // (doc 27 §8 proofs 2 and 3).
+  const merge: ForEachMergeState = {
+    completed: new Array<boolean>(items.length).fill(false),
+    flushedPrefix: startIndex,
+    collected,
+    enrichedItems,
+    attachedValues: new Array<unknown>(items.length),
+    accumulatorItems: new Array<unknown>(items.length),
+    accumulatorValues: initialAccumulator,
+  };
+  const completed = merge.completed;
   let nextIndex = startIndex;
-  let flushedPrefix = startIndex;
   let firstError: NodeResult | undefined;
   // F: a breached monetary ceiling stops the loop regardless of
   // `contract.failFast`, unlike a body error, which `failFast` lets the author
@@ -363,8 +377,7 @@ export async function executeForEachLoop(
       // forever. Only reconciliation can prove which, so hand it over rather
       // than letting the throw escape the loop unclassified.
       return {
-        outcomeUnknown:
-          error instanceof Error ? error.message : String(error),
+        outcomeUnknown: error instanceof Error ? error.message : String(error),
       };
     }
     return actualCostCents > held.reservedCostCents
@@ -399,8 +412,7 @@ export async function executeForEachLoop(
       });
     } catch (error) {
       return {
-        outcomeUnknown:
-          error instanceof Error ? error.message : String(error),
+        outcomeUnknown: error instanceof Error ? error.message : String(error),
       };
     }
     return undefined;
@@ -657,8 +669,8 @@ export async function executeForEachLoop(
         contract.collect.from
       );
     }
-    attachedValues[index] = iterationState[contract.as];
-    accumulatorItems[index] = iterationState[contract.as];
+    merge.attachedValues[index] = iterationState[contract.as];
+    merge.accumulatorItems[index] = iterationState[contract.as];
     iterationDurations[index] = Date.now() - iterStart;
     completed[index] = true;
     flushQueue = flushQueue.then(flushCompletedPrefix);
@@ -666,42 +678,30 @@ export async function executeForEachLoop(
   };
 
   const flushCompletedPrefix = async (): Promise<void> => {
-    let advanced = false;
-    while (completed[flushedPrefix]) {
-      if (contract.attachAs !== undefined) {
-        enrichedItems[flushedPrefix] = attachIterationValue(
-          enrichedItems[flushedPrefix],
-          contract.attachAs,
-          attachedValues[flushedPrefix]
-        );
-      }
-      if (contract.accumulator !== undefined) {
-        accumulatorValues = appendAccumulatorValue(
-          accumulatorValues,
-          accumulatorItems[flushedPrefix],
-          contract.accumulator.window
-        );
-      }
-      flushedPrefix++;
-      advanced = true;
-    }
-
-    if (!advanced) return;
+    // The merge itself is synchronous and lives in `for-each-merge.ts`; only
+    // the publish-and-checkpoint tail below is async. A zero return means the
+    // cursor did not move, and no checkpoint may be written for it.
+    const retired = advanceCompletedPrefix(merge, contract);
+    if (retired === 0) return;
 
     if (contract.collect !== undefined) {
       setStatePath(
         context.state,
         contract.collect.into,
-        collected.slice(0, flushedPrefix)
+        collected.slice(0, merge.flushedPrefix)
       );
     }
     if (contract.attachAs !== undefined) {
-      setStatePath(context.state, contract.source, enrichedItems);
+      setStatePath(context.state, contract.source, merge.enrichedItems);
     }
     if (contract.accumulator !== undefined) {
-      setStatePath(context.state, contract.accumulator.key, accumulatorValues);
+      setStatePath(
+        context.state,
+        contract.accumulator.key,
+        merge.accumulatorValues
+      );
     }
-    await resume?.onIterationComplete?.(flushedPrefix);
+    await resume?.onIterationComplete?.(merge.flushedPrefix);
   };
 
   const workers = Array.from({ length: concurrency }, async () => {
@@ -738,7 +738,7 @@ export async function executeForEachLoop(
           contract,
           partialCollected,
           partialEnrichedItems,
-          accumulatorValues,
+          merge.accumulatorValues,
           firstError.output
         ),
       },
@@ -761,7 +761,7 @@ export async function executeForEachLoop(
           contract,
           collected.slice(0, completedIterations),
           enrichedItems,
-          accumulatorValues,
+          merge.accumulatorValues,
           null
         ),
         durationMs: Date.now() - startTime,
@@ -784,7 +784,11 @@ export async function executeForEachLoop(
     setStatePath(context.state, contract.source, enrichedItems);
   }
   if (contract.accumulator !== undefined) {
-    setStatePath(context.state, contract.accumulator.key, accumulatorValues);
+    setStatePath(
+      context.state,
+      contract.accumulator.key,
+      merge.accumulatorValues
+    );
   }
   for (const result of results) {
     if (result !== undefined)
@@ -800,7 +804,7 @@ export async function executeForEachLoop(
         contract,
         collected,
         enrichedItems,
-        accumulatorValues,
+        merge.accumulatorValues,
         results[results.length - 1]?.output ?? null
       ),
       durationMs: totalDuration,
@@ -848,26 +852,6 @@ function initialAccumulatorValue(
   }
   if (accumulator.initialValue === undefined) return [];
   return [accumulator.initialValue];
-}
-
-function appendAccumulatorValue(
-  values: unknown[],
-  value: unknown,
-  window?: number
-): unknown[] {
-  const next = [...values, value];
-  return window === undefined ? next : next.slice(-window);
-}
-
-function attachIterationValue(
-  item: unknown,
-  attachAs: string,
-  value: unknown
-): unknown {
-  if (typeof item !== "object" || item === null || Array.isArray(item)) {
-    return item;
-  }
-  return { ...(item as Record<string, unknown>), [attachAs]: value };
 }
 
 function forEachAggregateEvent(
