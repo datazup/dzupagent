@@ -310,6 +310,10 @@ export interface PipelineRuntimeConfig {
       budgetCents: number;
       bodyNodeIds: readonly string[];
       state: Readonly<Record<string, unknown>>;
+      /** F: present only for a `for_each` per-item reservation. */
+      itemIndex?: number;
+      /** F: re-dispatch counter; omitted on a first attempt. */
+      attempt?: number;
     }):
       | { status: "reserved"; reservedCostCents: number }
       | { status: "unknown" }
@@ -317,6 +321,49 @@ export interface PipelineRuntimeConfig {
           | { status: "reserved"; reservedCostCents: number }
           | { status: "unknown" }
         >;
+    /**
+     * F: reconcile a reservation against actual spend, releasing the unspent
+     * delta. **Optional on purpose** — a pre-F host that supplies `reserve`
+     * alone keeps today's behaviour exactly rather than failing closed.
+     * `actualCostCents` is integer cents; money never crosses this seam as a
+     * float.
+     */
+    settle?(input: {
+      loopNodeId: string;
+      iteration: number;
+      itemIndex?: number;
+      attempt?: number;
+      reservedCostCents: number;
+      actualCostCents: number;
+    }): void | Promise<void>;
+    /**
+     * F: return an unspent reservation whose work aborted or failed. Optional
+     * for the same compatibility reason as `settle`.
+     */
+    release?(input: {
+      loopNodeId: string;
+      iteration: number;
+      itemIndex?: number;
+      attempt?: number;
+      reservedCostCents: number;
+      reason: "aborted" | "failed";
+    }): void | Promise<void>;
+    /**
+     * F: hard monetary ceiling admitted per `for_each` item. The `forEach`
+     * compile-time contract carries no budget field, so a per-item ceiling is
+     * authored here by the host rather than by the flow document. Absent ⇒
+     * `for_each` takes no reservation, which is the pre-F behaviour.
+     */
+    itemBudgetCents?: number;
+    /**
+     * F: extract the actual integer cents a settled body result cost. Absent ⇒
+     * actual spend is treated as the full reservation (nothing to release),
+     * which is conservative and never under-charges.
+     */
+    extractItemCostCents?: (
+      nodeId: string,
+      result: NodeResult
+    ) => number | undefined;
   };
   /**
    * P2: Optional durable node ledger for crash-safe, effectively-once node

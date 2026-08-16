@@ -64,6 +64,65 @@ export interface LoopIterationBudgetReservationInput {
   budgetCents: number;
   bodyNodeIds: readonly string[];
   state: Readonly<Record<string, unknown>>;
+  /**
+   * F: present only for a `for_each` per-item reservation, absent for the
+   * predicate-loop per-iteration reservation. A host that reserves per item
+   * uses this to key its ledger by item rather than by iteration ordinal.
+   */
+  itemIndex?: number;
+  /** F: re-dispatch counter for this item; omitted on a first attempt. */
+  attempt?: number;
+}
+
+/**
+ * F: identity of the reservation being reconciled. A host correlates a
+ * settle/release against its own ledger with this triple, which is exactly
+ * what {@link LoopIterationBudgetReservationInput} carried at reserve time.
+ */
+export interface LoopBudgetSettlementScope {
+  loopNodeId: string;
+  iteration: number;
+  itemIndex?: number;
+  attempt?: number;
+}
+
+/**
+ * F: reconciliation of a reservation against actual spend.
+ *
+ * `actualCostCents` is an integer count of cents — money never travels
+ * through a float in this contract.
+ */
+export interface LoopBudgetSettlementInput extends LoopBudgetSettlementScope {
+  /** Conservative amount taken at reserve time. */
+  reservedCostCents: number;
+  /** Actual integer cents spent by the settled unit of work. */
+  actualCostCents: number;
+}
+
+/** F: return of an unspent reservation on an abort/failure path. */
+export interface LoopBudgetReleaseInput extends LoopBudgetSettlementScope {
+  /** Conservative amount taken at reserve time, returned in full. */
+  reservedCostCents: number;
+  /** Why the reservation is being returned rather than settled. */
+  reason: "aborted" | "failed";
+}
+
+/**
+ * F: the full reservation lifecycle a host may implement.
+ *
+ * `reserve` is the only required member: a pre-F host supplying `reserve`
+ * alone keeps today's behaviour exactly, because an absent `settle`/`release`
+ * degrades to a no-op rather than failing closed. Widening this contract must
+ * never break a reserve-only host.
+ */
+export interface LoopBudgetLifecycle {
+  reserve(
+    input: LoopIterationBudgetReservationInput
+  ): LoopIterationBudgetReservation | Promise<LoopIterationBudgetReservation>;
+  /** Reconcile actual spend, releasing the unspent delta. */
+  settle?(input: LoopBudgetSettlementInput): void | Promise<void>;
+  /** Return an unspent reservation whose work never completed. */
+  release?(input: LoopBudgetReleaseInput): void | Promise<void>;
 }
 
 /** Input to the runtime-owned bounded graph scheduler for one iteration. */
@@ -187,6 +246,36 @@ export interface LoopResumeOptions {
   ) =>
     | LoopIterationBudgetReservation
     | Promise<LoopIterationBudgetReservation>;
+  /**
+   * F: reconcile a reservation against actual spend. Absent ⇒ no settlement
+   * occurs and behaviour is byte-identical to the reserve-only contract.
+   */
+  settleIterationBudget?: (
+    input: LoopBudgetSettlementInput
+  ) => void | Promise<void>;
+  /**
+   * F: return an unspent reservation when its work aborted or failed. Absent ⇒
+   * the pre-F leak, preserved rather than fixed, for reserve-only hosts.
+   */
+  releaseIterationBudget?: (
+    input: LoopBudgetReleaseInput
+  ) => void | Promise<void>;
+  /**
+   * F: hard monetary ceiling admitted per `for_each` item. The `forEach`
+   * compile-time contract carries no budget field, so this ceiling is authored
+   * by the host runtime config rather than by the flow document. Absent ⇒
+   * `for_each` takes no reservation at all, which is the pre-F behaviour.
+   */
+  itemBudgetCents?: number;
+  /**
+   * F: extract the actual integer cents one settled body result cost. Absent ⇒
+   * actual spend is treated as the full reservation, which never
+   * under-charges and never reports a false overrun.
+   */
+  extractItemCostCents?: (
+    nodeId: string,
+    result: NodeResult
+  ) => number | undefined;
   /**
    * Runtime-owned bounded scheduler for compiler-lowered graph bodies.
    * Required when `LoopNode.bodyGraph` is present; absence fails closed.

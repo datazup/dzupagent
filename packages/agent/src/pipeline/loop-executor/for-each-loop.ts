@@ -17,6 +17,16 @@ import type {
 import type { LoopResumeOptions } from "./types.js";
 import { resolveStatePath, setStatePath } from "./state-path.js";
 
+/**
+ * F: a reservation held for one in-flight item, carried from the reserve at
+ * the item's first body node to whichever of the three exits it reaches.
+ */
+interface HeldItemReservation {
+  readonly reservedCostCents: number;
+  readonly itemIndex: number;
+  readonly attempt: number;
+}
+
 type ForEachContract = NonNullable<LoopNode["forEach"]>;
 
 export async function executeForEachLoop(
@@ -138,7 +148,105 @@ export async function executeForEachLoop(
   let nextIndex = startIndex;
   let flushedPrefix = startIndex;
   let firstError: NodeResult | undefined;
+  // F: a breached monetary ceiling stops the loop unconditionally, unlike a
+  // body error, which `contract.failFast` lets the author tolerate. `failFast`
+  // is a policy about FAILURES; an authored budget ceiling is a hard admission
+  // gate, so honouring `failFast` here would keep spending past the breach.
+  let budgetBreached = false;
   let flushQueue = Promise.resolve();
+
+  // F: per-item economic settlement. The `forEach` compile-time contract has
+  // no budget field, so the ceiling is host-authored via `itemBudgetCents`.
+  // When it is absent, `for_each` takes no reservation and all three helpers
+  // are inert — byte-identical to the pre-F behaviour.
+  const itemBudgetCents = resume?.itemBudgetCents;
+  const reserveItem = async (
+    index: number,
+    attempt: number,
+    state: Record<string, unknown>
+  ): Promise<HeldItemReservation | undefined | "denied"> => {
+    if (itemBudgetCents === undefined) return undefined;
+    const reserve = resume?.reserveIterationBudget;
+    let reservation;
+    try {
+      reservation =
+        reserve === undefined
+          ? ({ status: "unknown" } as const)
+          : await reserve({
+              loopNodeId: loopNode.id,
+              iteration: index + 1,
+              budgetCents: itemBudgetCents,
+              bodyNodeIds: bodyNodes.map(({ id }) => id),
+              state,
+              itemIndex: index,
+              ...(attempt > 0 ? { attempt } : {}),
+            });
+    } catch {
+      reservation = { status: "unknown" } as const;
+    }
+    if (
+      reservation.status === "unknown" ||
+      !Number.isFinite(reservation.reservedCostCents) ||
+      reservation.reservedCostCents < 0 ||
+      reservation.reservedCostCents > itemBudgetCents
+    ) {
+      return "denied";
+    }
+    return {
+      reservedCostCents: reservation.reservedCostCents,
+      itemIndex: index,
+      attempt,
+    };
+  };
+
+  /** Returns an error string when the settled amount overruns its reservation. */
+  const settleItem = async (
+    held: HeldItemReservation | undefined,
+    bodyResults: Readonly<Record<string, NodeResult>>
+  ): Promise<string | undefined> => {
+    if (held === undefined) return undefined;
+    // Absent an extractor, actual spend is treated as the full reservation:
+    // conservative, never under-charges, and never reports a false overrun.
+    const extract = resume?.extractItemCostCents;
+    let actualCostCents = held.reservedCostCents;
+    if (extract !== undefined) {
+      let total = 0;
+      for (const [nodeId, result] of Object.entries(bodyResults)) {
+        const cost = extract(nodeId, result);
+        if (cost !== undefined && Number.isFinite(cost) && cost > 0) {
+          total += Math.round(cost);
+        }
+      }
+      actualCostCents = total;
+    }
+    await resume?.settleIterationBudget?.({
+      loopNodeId: loopNode.id,
+      iteration: held.itemIndex + 1,
+      itemIndex: held.itemIndex,
+      ...(held.attempt > 0 ? { attempt: held.attempt } : {}),
+      reservedCostCents: held.reservedCostCents,
+      actualCostCents,
+    });
+    return actualCostCents > held.reservedCostCents
+      ? `Loop "${loopNode.id}" item ${held.itemIndex} settled ${actualCostCents} cents, ` +
+          `exceeding its ${held.reservedCostCents}-cent reservation`
+      : undefined;
+  };
+
+  const releaseItem = async (
+    held: HeldItemReservation | undefined,
+    reason: "aborted" | "failed"
+  ): Promise<void> => {
+    if (held === undefined) return;
+    await resume?.releaseIterationBudget?.({
+      loopNodeId: loopNode.id,
+      iteration: held.itemIndex + 1,
+      itemIndex: held.itemIndex,
+      ...(held.attempt > 0 ? { attempt: held.attempt } : {}),
+      reservedCostCents: held.reservedCostCents,
+      reason,
+    });
+  };
 
   const runIteration = async (index: number): Promise<void> => {
     const iteration = index + 1;
@@ -180,6 +288,27 @@ export async function executeForEachLoop(
     const retainedBodyResults: Record<string, NodeResult> = {
       ...((itemResume?.bodyResults ?? {}) as Record<string, NodeResult>),
     };
+
+    // F: admit this item's ceiling BEFORE its first body node dispatches, so a
+    // reservation that cannot be authorized never spends. `held` is the single
+    // source of truth for whether a reservation is outstanding, and every one
+    // of the three exits below reconciles it exactly once.
+    const held = await reserveItem(index, attempt, iterationState);
+    if (held === "denied") {
+      // The ceiling was authored but no authoritative reservation exists.
+      // Fail closed: an unpriced item must not dispatch.
+      budgetBreached = true;
+      firstError ??= {
+        nodeId: loopNode.id,
+        output: null,
+        durationMs: Date.now() - startTime,
+        error:
+          `Loop "${loopNode.id}" item ${index} budget is unknown: ` +
+          "no authoritative conservative reservation is available",
+      };
+      iterationDurations[index] = Date.now() - iterStart;
+      return;
+    }
 
     for (
       let bodyIndex = startBodyNodeIndex;
@@ -246,6 +375,29 @@ export async function executeForEachLoop(
     }
 
     if (!completedBody) {
+      // F: exits 1 and 2 — aborted, or a body node failed. The item never
+      // completed, so its reservation is returned in full rather than settled.
+      // Leaking here is the original defect reproduced one level down.
+      await releaseItem(
+        held,
+        context.signal?.aborted === true ? "aborted" : "failed"
+      );
+      iterationDurations[index] = Date.now() - iterStart;
+      return;
+    }
+
+    // F: exit 3 — the item completed. Reconcile actual spend against the
+    // reservation, releasing the unspent delta. An overrun fails the loop
+    // closed (operator decision, 08-16): the authored ceiling was breached.
+    const overrun = await settleItem(held, retainedBodyResults);
+    if (overrun !== undefined) {
+      budgetBreached = true;
+      firstError ??= {
+        nodeId: loopNode.id,
+        output: lastBodyResult?.output ?? null,
+        durationMs: Date.now() - startTime,
+        error: overrun,
+      };
       iterationDurations[index] = Date.now() - iterStart;
       return;
     }
@@ -308,6 +460,7 @@ export async function executeForEachLoop(
   const workers = Array.from({ length: concurrency }, async () => {
     while (
       !(contract.failFast === true && firstError !== undefined) &&
+      !budgetBreached &&
       !context.signal?.aborted
     ) {
       const index = nextIndex;

@@ -99,13 +99,32 @@ export async function handleLoop(
   });
 
   const predicates = config.predicates ?? {};
+  const budgetHost = config.loopIterationBudgetReservation;
   const executionResume: LoopResumeOptions = {
     ...resume,
-    ...(config.loopIterationBudgetReservation === undefined
+    ...(budgetHost === undefined
       ? {}
       : {
-          reserveIterationBudget: (input) =>
-            config.loopIterationBudgetReservation!.reserve(input),
+          reserveIterationBudget: (input) => budgetHost.reserve(input),
+          // F: settle/release are optional on the host. Forwarding them only
+          // when present keeps a reserve-only host on exactly its pre-F
+          // behaviour rather than failing closed on a missing method.
+          ...(budgetHost.settle === undefined
+            ? {}
+            : {
+                settleIterationBudget: (input) => budgetHost.settle!(input),
+              }),
+          ...(budgetHost.release === undefined
+            ? {}
+            : {
+                releaseIterationBudget: (input) => budgetHost.release!(input),
+              }),
+          ...(budgetHost.itemBudgetCents === undefined
+            ? {}
+            : { itemBudgetCents: budgetHost.itemBudgetCents }),
+          ...(budgetHost.extractItemCostCents === undefined
+            ? {}
+            : { extractItemCostCents: budgetHost.extractItemCostCents }),
         }),
   };
 
@@ -116,11 +135,11 @@ export async function handleLoop(
   // charged twice.
   //
   // The predicate below is `forEach === undefined`, so EVERY for_each loop
-  // stays on the unwrapped executor — sequential (concurrency 1) as well as
-  // concurrent. Sequential for_each is not an oversight-free case: it is
-  // simply not charged here yet, and packet 24-F is where its per-item
-  // reserve/settle lifecycle lands. Do not read this branch as "only
-  // concurrent for_each is excluded".
+  // stays on the unwrapped executor. That is deliberate and still correct
+  // after packet 24-F: a for_each item is charged by the per-item
+  // reserve/settle/release lifecycle inside `for-each-loop.ts` (keyed by
+  // `itemIndex`), NOT by this per-body-node `recordIterationBudget` wrapper.
+  // Wrapping for_each here too would double-charge each item.
   const bodyExecutor: NodeExecutor =
     loopNode.forEach === undefined
       ? async (nodeId, node, bodyContext) => {
