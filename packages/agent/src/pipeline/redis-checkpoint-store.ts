@@ -18,7 +18,12 @@
  */
 
 import { PipelineCheckpointSchema } from '@dzupagent/core/pipeline'
-import type { PipelineCheckpoint, PipelineCheckpointStore, PipelineCheckpointSummary } from '@dzupagent/core/pipeline'
+import type {
+  PipelineCheckpoint,
+  PipelineCheckpointCommitReceipt,
+  PipelineCheckpointStore,
+  PipelineCheckpointSummary,
+} from '@dzupagent/core/pipeline'
 
 // ---------------------------------------------------------------------------
 // Adapter interface
@@ -110,6 +115,64 @@ export class RedisPipelineCheckpointStore implements PipelineCheckpointStore {
       // Keep the version index alive at least as long as the newest entry.
       await this.client.expire(zkey, this.defaultTtlSeconds)
     }
+  }
+
+  /**
+   * Compare-and-set write backed by `SET ... NX` on the per-version key.
+   *
+   * A read-then-write would race: two writers could both read the same newest
+   * version and both proceed. Instead the *existence of the version key* is the
+   * claim — `NX` makes the create atomic inside Redis, so exactly one of two
+   * writers racing the same `expectedVersion` gets `OK` and the other gets
+   * `null`. The index (`zadd`/`sadd`) is only updated by the winner.
+   *
+   * A conflict is reported, never thrown. On conflict the newest version is
+   * re-read so the loser observes what actually won.
+   */
+  async saveIfVersion(
+    checkpoint: PipelineCheckpoint,
+    expectedVersion: number,
+  ): Promise<PipelineCheckpointCommitReceipt> {
+    const observed = await this.newestVersion(checkpoint.pipelineRunId)
+    if (observed !== expectedVersion) {
+      return { committed: false, observedVersion: observed }
+    }
+
+    const payload = JSON.stringify(checkpoint)
+    const versionKey = this.versionKey(checkpoint.pipelineRunId, checkpoint.version)
+
+    // NX is the actual arbiter — the check above only short-circuits an
+    // obviously stale write. Losing the NX race means another writer claimed
+    // this exact version between the read and here.
+    const claimed = this.defaultTtlSeconds
+      ? await this.client.set(versionKey, payload, 'EX', this.defaultTtlSeconds, 'NX')
+      : await this.client.set(versionKey, payload, 'NX')
+
+    if (claimed === null || claimed === undefined) {
+      return {
+        committed: false,
+        observedVersion: await this.newestVersion(checkpoint.pipelineRunId),
+      }
+    }
+
+    // Delegate the durable write + index maintenance to `save` so a subclass
+    // overriding it (fault injection, instrumentation) stays on the write path
+    // rather than being bypassed here. The NX claim above already decided the
+    // race; `save` re-setting the same key with the same payload is harmless.
+    await this.save(checkpoint)
+
+    return { committed: true, observedVersion: checkpoint.version }
+  }
+
+  /**
+   * Highest indexed version for a run, or 0 when nothing is stored. Mirrors the
+   * in-memory store's convention: the first write carries version 1, so an
+   * empty run reports the 0 that write expects.
+   */
+  private async newestVersion(pipelineRunId: string): Promise<number> {
+    const members = await this.client.zrevrange(this.versionsKey(pipelineRunId), 0, 0)
+    const newest = Number(members[0])
+    return Number.isFinite(newest) ? newest : 0
   }
 
   async load(pipelineRunId: string): Promise<PipelineCheckpoint | undefined> {

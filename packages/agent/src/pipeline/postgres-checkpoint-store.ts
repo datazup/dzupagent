@@ -12,6 +12,7 @@
 
 import type {
   PipelineCheckpoint,
+  PipelineCheckpointCommitReceipt,
   PipelineCheckpointStore,
   PipelineCheckpointSummary,
 } from "@dzupagent/core/pipeline";
@@ -71,6 +72,45 @@ interface CheckpointRow {
     interactionResumeCursor?: PipelineCheckpoint["interactionResumeCursor"];
   } | null;
 }
+
+// ---------------------------------------------------------------------------
+// Insert shape (shared by save + saveIfVersion)
+// ---------------------------------------------------------------------------
+
+/**
+ * Columns written by every checkpoint insert, in positional-parameter order.
+ *
+ * The row mapping here is explicit columns, not wholesale serialization, so a
+ * checkpoint field with no column is silently dropped in Postgres while
+ * round-tripping green against the in-memory and Redis stores. Adding a
+ * top-level field means touching all five places: the row type, the DDL, an
+ * `ADD COLUMN IF NOT EXISTS` migration, this list plus its placeholders and the
+ * upsert SET, and `rowToCheckpoint`. (`loop_state` is JSONB, so nested
+ * additions ride free.)
+ */
+const CHECKPOINT_INSERT_COLUMNS = [
+  "pipeline_run_id",
+  "pipeline_id",
+  "version",
+  "schema_version",
+  "completed_node_ids",
+  "state",
+  "suspended_at_node_id",
+  "budget_state",
+  "created_at",
+  "expires_at",
+  "node_idempotency_keys",
+  "loop_state",
+  "fork_state",
+  "recovery_attempts_used",
+  "provider_session_refs",
+  "interaction_state",
+  "source_binding",
+].join(", ");
+
+/** JSONB-cast positional placeholders matching {@link CHECKPOINT_INSERT_COLUMNS}. */
+const CHECKPOINT_INSERT_PLACEHOLDERS =
+  "$1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb, $9, $10, $11::jsonb, $12::jsonb, $13::jsonb, $14, $15::jsonb, $16::jsonb, $17::jsonb";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -168,19 +208,9 @@ export class PostgresPipelineCheckpointStore
   }
 
   async save(checkpoint: PipelineCheckpoint): Promise<void> {
-    const expiresAt = this.defaultTtlMs
-      ? new Date(Date.now() + this.defaultTtlMs).toISOString()
-      : null;
-
     const sql = `
-      INSERT INTO ${this.tableName} (
-        pipeline_run_id, pipeline_id, version, schema_version,
-        completed_node_ids, state, suspended_at_node_id, budget_state,
-        created_at, expires_at, node_idempotency_keys, loop_state, fork_state,
-        recovery_attempts_used, provider_session_refs, interaction_state,
-        source_binding
-      )
-      VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb, $9, $10, $11::jsonb, $12::jsonb, $13::jsonb, $14, $15::jsonb, $16::jsonb, $17::jsonb)
+      INSERT INTO ${this.tableName} (${CHECKPOINT_INSERT_COLUMNS})
+      VALUES (${CHECKPOINT_INSERT_PLACEHOLDERS})
       ON CONFLICT (pipeline_run_id, version) DO UPDATE SET
         pipeline_id = EXCLUDED.pipeline_id,
         schema_version = EXCLUDED.schema_version,
@@ -199,7 +229,86 @@ export class PostgresPipelineCheckpointStore
         source_binding = EXCLUDED.source_binding
     `;
 
-    await this.client.query(sql, [
+    await this.client.query(sql, this.insertParams(checkpoint));
+  }
+
+  /**
+   * Compare-and-set write.
+   *
+   * Relies on the table's `UNIQUE (pipeline_run_id, version)` constraint rather
+   * than a read-then-write, which would race between processes. `ON CONFLICT
+   * DO NOTHING` turns a losing write into zero affected rows instead of a
+   * thrown constraint error, so a conflict is an ordinary reported outcome —
+   * note this deliberately does NOT reuse `save`'s `DO UPDATE`, which would
+   * overwrite the winner and reintroduce the clobber this closes.
+   *
+   * The guard is the version's uniqueness, so `expectedVersion` is only used to
+   * reject an obviously stale write early and to report the observed version.
+   *
+   * Unlike the in-memory and Redis stores, this does NOT delegate to `save`:
+   * `save` is an upsert whose `DO UPDATE` would overwrite the winning row,
+   * which is the clobber this method exists to prevent. The insert is therefore
+   * issued here, sharing `insertParams` so the two writes cannot drift on which
+   * columns they persist.
+   */
+  async saveIfVersion(
+    checkpoint: PipelineCheckpoint,
+    expectedVersion: number,
+  ): Promise<PipelineCheckpointCommitReceipt> {
+    const observed = await this.newestVersion(checkpoint.pipelineRunId);
+    if (observed !== expectedVersion) {
+      return { committed: false, observedVersion: observed };
+    }
+
+    const sql = `
+      INSERT INTO ${this.tableName} (${CHECKPOINT_INSERT_COLUMNS})
+      VALUES (${CHECKPOINT_INSERT_PLACEHOLDERS})
+      ON CONFLICT (pipeline_run_id, version) DO NOTHING
+    `;
+    const result: { rows: unknown[]; rowCount?: number } =
+      await this.client.query(sql, this.insertParams(checkpoint));
+
+    const affected =
+      typeof result.rowCount === "number" ? result.rowCount : result.rows.length;
+    if (affected === 0) {
+      return {
+        committed: false,
+        observedVersion: await this.newestVersion(checkpoint.pipelineRunId),
+      };
+    }
+    return { committed: true, observedVersion: checkpoint.version };
+  }
+
+  /**
+   * Highest stored version for a run, or 0 when nothing is stored — matching
+   * the in-memory store's convention that a first write (version 1) expects 0.
+   * Expired rows are excluded so a TTL'd-out run reads as empty, consistent
+   * with `load`.
+   */
+  private async newestVersion(pipelineRunId: string): Promise<number> {
+    const sql = `
+      SELECT MAX(version) AS version FROM ${this.tableName}
+      WHERE pipeline_run_id = $1
+        AND (expires_at IS NULL OR expires_at > NOW())
+    `;
+    const result = await this.client.query<{ version: number | null }>(sql, [
+      pipelineRunId,
+    ]);
+    const newest = result.rows[0]?.version;
+    return typeof newest === "number" ? newest : 0;
+  }
+
+  /**
+   * Positional parameters for {@link CHECKPOINT_INSERT_COLUMNS}, in order.
+   * Shared by `save` and `saveIfVersion` so the two writes can never drift on
+   * which fields they persist.
+   */
+  private insertParams(checkpoint: PipelineCheckpoint): unknown[] {
+    const expiresAt = this.defaultTtlMs
+      ? new Date(Date.now() + this.defaultTtlMs).toISOString()
+      : null;
+
+    return [
       checkpoint.pipelineRunId,
       checkpoint.pipelineId,
       checkpoint.version,
@@ -231,7 +340,7 @@ export class PostgresPipelineCheckpointStore
       checkpoint.sourceBinding
         ? JSON.stringify(checkpoint.sourceBinding)
         : null,
-    ]);
+    ];
   }
 
   async load(pipelineRunId: string): Promise<PipelineCheckpoint | undefined> {

@@ -122,7 +122,26 @@ export async function writeCheckpoint(
       : {}),
     recoveryAttemptsUsed,
   });
-  await store.save(checkpoint);
+  // Prefer the compare-and-set path when the store implements it. `save` alone
+  // cannot detect that another writer already claimed this version — the local
+  // `versionTracker` bump above is unsynchronized — so two writers for one run
+  // silently clobber each other. `expectedVersion` is the version *before* this
+  // bump: committing takes the run from there to `versionTracker.version`.
+  if (store.saveIfVersion) {
+    const receipt = await store.saveIfVersion(
+      checkpoint,
+      versionTracker.version - 1
+    );
+    if (!receipt.committed) {
+      // A conflict is not an error. Resynchronize the local counter to what the
+      // store actually holds so the next write builds on the winner instead of
+      // retrying the same lost version forever, and report the loss upward.
+      versionTracker.version = receipt.observedVersion;
+      return undefined;
+    }
+  } else {
+    await store.save(checkpoint);
+  }
   await appendExecutionLogSnapshot(config, checkpoint);
   await applyCheckpointRetention(
     store,

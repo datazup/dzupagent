@@ -152,4 +152,89 @@ describe('InMemoryPipelineCheckpointStore', () => {
     const loaded = await store.load('run-1')
     expect(loaded!.state['value']).toBe('original')
   })
+
+  // -------------------------------------------------------------------------
+  // E1 — compare-and-set writes
+  // -------------------------------------------------------------------------
+
+  describe('saveIfVersion (CAS)', () => {
+    it('commits when the observed version matches, and reports the written version', async () => {
+      const receipt = await store.saveIfVersion(makeCheckpoint({ version: 1 }), 0)
+
+      expect(receipt).toEqual({ committed: true, observedVersion: 1 })
+      expect((await store.load('run-1'))!.version).toBe(1)
+    })
+
+    it('an empty run observes 0, which is what the first write expects', async () => {
+      // The writer starts its tracker at 0 and pre-increments, so version 1 is
+      // the first checkpoint ever written. A stale expectation must still lose.
+      const stale = await store.saveIfVersion(makeCheckpoint({ version: 2 }), 1)
+
+      expect(stale).toEqual({ committed: false, observedVersion: 0 })
+      expect(await store.load('run-1')).toBeUndefined()
+    })
+
+    it('rejects a stale expected version without writing', async () => {
+      await store.saveIfVersion(makeCheckpoint({ version: 1, state: { by: 'first' } }), 0)
+
+      const conflict = await store.saveIfVersion(
+        makeCheckpoint({ version: 2, state: { by: 'stale' } }),
+        0, // expects the pre-write world; the store is already at 1
+      )
+
+      expect(conflict).toEqual({ committed: false, observedVersion: 1 })
+      const loaded = await store.load('run-1')
+      expect(loaded!.version).toBe(1)
+      expect(loaded!.state).toEqual({ by: 'first' })
+    })
+
+    it('two writers racing one version: exactly one commits, the loser observes the winner', async () => {
+      // The real interleaving, not an assertion about a receipt in isolation.
+      // Both writers read the same expected version and are dispatched before
+      // either resolves, which is precisely the clobber `save` cannot detect.
+      const expectedVersion = 0
+
+      const [a, b] = await Promise.all([
+        store.saveIfVersion(
+          makeCheckpoint({ version: 1, state: { by: 'writer-a' } }),
+          expectedVersion,
+        ),
+        store.saveIfVersion(
+          makeCheckpoint({ version: 1, state: { by: 'writer-b' } }),
+          expectedVersion,
+        ),
+      ])
+
+      const winners = [a, b].filter(r => r.committed)
+      const losers = [a, b].filter(r => !r.committed)
+      expect(winners).toHaveLength(1)
+      expect(losers).toHaveLength(1)
+
+      // The loser must observe the winner's version, not its own attempt.
+      expect(losers[0]!.observedVersion).toBe(1)
+
+      // Only one checkpoint landed — the other did not clobber it.
+      expect(await store.listVersions('run-1')).toHaveLength(1)
+      const survivor = await store.load('run-1')
+      const winnerName = winners[0] === a ? 'writer-a' : 'writer-b'
+      expect(survivor!.state).toEqual({ by: winnerName })
+    })
+
+    it('does not throw on conflict', async () => {
+      await store.saveIfVersion(makeCheckpoint({ version: 1 }), 0)
+
+      await expect(
+        store.saveIfVersion(makeCheckpoint({ version: 2 }), 99),
+      ).resolves.toEqual({ committed: false, observedVersion: 1 })
+    })
+
+    it('clones on commit — mutating the input afterwards does not affect the store', async () => {
+      const cp = makeCheckpoint({ version: 1, state: { value: 'original' } })
+      await store.saveIfVersion(cp, 0)
+
+      cp.state['value'] = 'mutated'
+
+      expect((await store.load('run-1'))!.state['value']).toBe('original')
+    })
+  })
 })

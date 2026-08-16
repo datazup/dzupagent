@@ -764,4 +764,158 @@ describe("PostgresPipelineCheckpointStore", () => {
       expect(pruned).toBe(5);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // E1 — compare-and-set writes
+  // -------------------------------------------------------------------------
+
+  describe("saveIfVersion (CAS)", () => {
+    /**
+     * Client that actually enforces `UNIQUE (pipeline_run_id, version)` and
+     * answers `MAX(version)`. The CAS guard is that constraint, so a mock that
+     * accepted every insert would make these tests vacuous.
+     */
+    function createUniqueEnforcingClient() {
+      const calls: RecordedCall[] = [];
+      const rows: Array<{ pipeline_run_id: string; version: number }> = [];
+
+      const client: PostgresClientLike = {
+        query: vi.fn(async <T>(text: string, params: unknown[] = []) => {
+          calls.push({ text, params });
+
+          if (text.includes("MAX(version)")) {
+            const runId = params[0];
+            const versions = rows
+              .filter((r) => r.pipeline_run_id === runId)
+              .map((r) => r.version);
+            const max = versions.length > 0 ? Math.max(...versions) : null;
+            return { rows: [{ version: max }] as T[], rowCount: 1 };
+          }
+
+          if (text.includes("INSERT INTO")) {
+            const runId = params[0] as string;
+            const version = params[2] as number;
+            const clash = rows.some(
+              (r) => r.pipeline_run_id === runId && r.version === version,
+            );
+            if (clash) {
+              // Real Postgres semantics: DO NOTHING affects zero rows, whereas
+              // DO UPDATE affects one — which is exactly how an upsert silently
+              // clobbers the winner. Modelling both is what makes the conflict
+              // test below fail if the CAS insert ever becomes an upsert.
+              return text.includes("DO NOTHING")
+                ? { rows: [] as T[], rowCount: 0 }
+                : { rows: [] as T[], rowCount: 1 };
+            }
+            rows.push({ pipeline_run_id: runId, version });
+            return { rows: [] as T[], rowCount: 1 };
+          }
+
+          return { rows: [] as T[], rowCount: 0 };
+        }),
+      };
+
+      return { client, calls, rows };
+    }
+
+    it("commits when the observed version matches", async () => {
+      const { client } = createUniqueEnforcingClient();
+      const store = new PostgresPipelineCheckpointStore({ client });
+
+      const receipt = await store.saveIfVersion(makeCheckpoint({ version: 1 }), 0);
+
+      expect(receipt).toEqual({ committed: true, observedVersion: 1 });
+    });
+
+    it("uses ON CONFLICT DO NOTHING, not the upsert that would clobber the winner", async () => {
+      const { client, calls } = createUniqueEnforcingClient();
+      const store = new PostgresPipelineCheckpointStore({ client });
+
+      await store.saveIfVersion(makeCheckpoint({ version: 1 }), 0);
+
+      const insert = calls.find((c) => c.text.includes("INSERT INTO"))!;
+      expect(insert.text).toContain("ON CONFLICT (pipeline_run_id, version) DO NOTHING");
+      expect(insert.text).not.toContain("DO UPDATE SET");
+    });
+
+    it("reports a conflict from a zero row count rather than throwing", async () => {
+      // A true interleaving: the loser reads MAX(version) while the run is
+      // still empty, and the winner commits version 1 before the loser's
+      // INSERT lands. The early version check therefore PASSES for the loser
+      // and the unique constraint is the only thing standing between it and a
+      // clobber — so this exercises the DO NOTHING branch, not the early exit.
+      const { client, rows } = createUniqueEnforcingClient();
+      const store = new PostgresPipelineCheckpointStore({ client });
+
+      const originalQuery = client.query;
+      let interleaved = false;
+      client.query = (async <T>(text: string, params: unknown[] = []) => {
+        const result = await (originalQuery as PostgresClientLike["query"]).call(
+          client,
+          text,
+          params,
+        );
+        // After the loser reads an empty run, let the winner commit v1.
+        if (!interleaved && text.includes("MAX(version)")) {
+          interleaved = true;
+          rows.push({ pipeline_run_id: "run-1", version: 1 });
+        }
+        return result as { rows: T[] };
+      }) as PostgresClientLike["query"];
+
+      const conflict = await store.saveIfVersion(makeCheckpoint({ version: 1 }), 0);
+
+      expect(conflict.committed).toBe(false);
+      // The loser observes the winner's version, not its own attempt.
+      expect(conflict.observedVersion).toBe(1);
+      // Exactly one row for that version — the winner's.
+      expect(rows.filter((r) => r.version === 1)).toHaveLength(1);
+    });
+
+    it("rejects a stale expected version early, before touching the table", async () => {
+      const { client } = createUniqueEnforcingClient();
+      const store = new PostgresPipelineCheckpointStore({ client });
+      await store.saveIfVersion(makeCheckpoint({ version: 1 }), 0);
+
+      const conflict = await store.saveIfVersion(makeCheckpoint({ version: 1 }), 0);
+
+      expect(conflict).toEqual({ committed: false, observedVersion: 1 });
+    });
+
+    it("rejects a stale expected version before attempting the insert", async () => {
+      const { client, calls } = createUniqueEnforcingClient();
+      const store = new PostgresPipelineCheckpointStore({ client });
+      await store.saveIfVersion(makeCheckpoint({ version: 1 }), 0);
+      const insertsBefore = calls.filter((c) => c.text.includes("INSERT INTO")).length;
+
+      const conflict = await store.saveIfVersion(makeCheckpoint({ version: 2 }), 0);
+
+      expect(conflict).toEqual({ committed: false, observedVersion: 1 });
+      const insertsAfter = calls.filter((c) => c.text.includes("INSERT INTO")).length;
+      expect(insertsAfter).toBe(insertsBefore);
+    });
+
+    it("persists every mapped column — a dropped field would vanish only in Postgres", async () => {
+      // In-memory and Redis serialize the checkpoint wholesale, so they cannot
+      // catch a column the explicit mapping forgot. This pins the CAS insert to
+      // the same 17-column shape `save` writes.
+      const { client, calls } = createUniqueEnforcingClient();
+      const store = new PostgresPipelineCheckpointStore({ client });
+
+      await store.saveIfVersion(
+        makeCheckpoint({
+          version: 1,
+          sourceBinding: { definitionDigest: `sha256:${"a".repeat(64)}` },
+        }),
+        0,
+      );
+
+      const insert = calls.find((c) => c.text.includes("INSERT INTO"))!;
+      expect(insert.text).toContain("source_binding");
+      expect(insert.params).toHaveLength(17);
+      expect(JSON.parse(insert.params[16] as string)).toEqual({
+        definitionDigest: `sha256:${"a".repeat(64)}`,
+      });
+    });
+  });
 });

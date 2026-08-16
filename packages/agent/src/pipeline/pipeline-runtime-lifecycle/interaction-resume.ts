@@ -239,7 +239,9 @@ receipt: PipelineInteractionResumeV1,
   if (committed === undefined) {
     throw new PipelineInteractionRuntimeError(
       "INTERACTION_BINDING_MISMATCH",
-      "Interaction receipt could not be committed without a checkpoint store.",
+      "Interaction receipt could not be committed: no checkpoint store is " +
+        "configured, or another writer committed a newer version for this run " +
+        "first. Reload the run and retry the response against the current cursor.",
     );
   }
   host.setState("running");

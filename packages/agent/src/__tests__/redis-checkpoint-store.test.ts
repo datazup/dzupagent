@@ -27,7 +27,14 @@ class MockRedis implements RedisClientLike {
   sortedSets = new Map<string, Map<string, number>>() // member -> score
   sets = new Map<string, Set<string>>()
 
-  async set(key: string, value: string, ..._modifiers: Array<string | number>): Promise<'OK'> {
+  /**
+   * Honours the `NX` modifier: real Redis returns `null` (not `OK`) when NX is
+   * given and the key already exists. The CAS path depends on that distinction,
+   * so a mock that always returns `OK` would make its conflict test vacuous.
+   */
+  async set(key: string, value: string, ...modifiers: Array<string | number>): Promise<'OK' | null> {
+    const nx = modifiers.some(m => String(m).toUpperCase() === 'NX')
+    if (nx && this.strings.has(key)) return null
     this.strings.set(key, value)
     return 'OK'
   }
@@ -364,5 +371,57 @@ describe('RedisPipelineCheckpointStore', () => {
     expect([...client.strings.keys()]).toContain('tenant-a:cp:run-1:1')
     expect([...client.sortedSets.keys()]).toContain('tenant-a:cp:run-1:versions')
     expect(await client.smembers('tenant-a:cp:runs')).toEqual(['run-1'])
+  })
+
+  // -------------------------------------------------------------------------
+  // E1 — compare-and-set writes
+  // -------------------------------------------------------------------------
+
+  describe('saveIfVersion (CAS)', () => {
+    it('commits when the observed version matches and indexes the version', async () => {
+      const receipt = await store.saveIfVersion(makeCheckpoint({ version: 1 }), 0)
+
+      expect(receipt).toEqual({ committed: true, observedVersion: 1 })
+      expect((await store.load('run-1'))!.version).toBe(1)
+      expect(await client.zrange('checkpoint:run-1:versions', 0, -1)).toEqual(['1'])
+      expect(await client.smembers('checkpoint:runs')).toEqual(['run-1'])
+    })
+
+    it('rejects a stale expected version without writing', async () => {
+      await store.saveIfVersion(makeCheckpoint({ version: 1, state: { by: 'first' } }), 0)
+
+      const conflict = await store.saveIfVersion(
+        makeCheckpoint({ version: 2, state: { by: 'stale' } }),
+        0,
+      )
+
+      expect(conflict).toEqual({ committed: false, observedVersion: 1 })
+      expect((await store.load('run-1'))!.state).toEqual({ by: 'first' })
+      expect(await client.zrange('checkpoint:run-1:versions', 0, -1)).toEqual(['1'])
+    })
+
+    it('SET NX is the arbiter: a key claimed between the read and the write loses', async () => {
+      // The version-index read says "0, go ahead", but another writer already
+      // holds the version key. Only NX can catch that, so this pins the branch
+      // that a read-then-write implementation would get wrong.
+      client.strings.set('checkpoint:run-1:1', JSON.stringify(makeCheckpoint({ version: 1, state: { by: 'winner' } })))
+
+      const receipt = await store.saveIfVersion(
+        makeCheckpoint({ version: 1, state: { by: 'loser' } }),
+        0,
+      )
+
+      expect(receipt.committed).toBe(false)
+      // The winner's payload survives untouched.
+      expect(JSON.parse(client.strings.get('checkpoint:run-1:1')!).state).toEqual({ by: 'winner' })
+    })
+
+    it('does not throw on conflict', async () => {
+      await store.saveIfVersion(makeCheckpoint({ version: 1 }), 0)
+
+      await expect(
+        store.saveIfVersion(makeCheckpoint({ version: 2 }), 99),
+      ).resolves.toEqual({ committed: false, observedVersion: 1 })
+    })
   })
 })

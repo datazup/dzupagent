@@ -6,7 +6,32 @@
  * @module pipeline/in-memory-checkpoint-store
  */
 
-import type { PipelineCheckpointStore, PipelineCheckpoint, PipelineCheckpointSummary } from '@dzupagent/core/pipeline'
+import type {
+  PipelineCheckpointStore,
+  PipelineCheckpoint,
+  PipelineCheckpointCommitReceipt,
+  PipelineCheckpointSummary,
+} from '@dzupagent/core/pipeline'
+
+/**
+ * Newest stored version for a run, or {@link NO_CHECKPOINT_VERSION} when the
+ * run has no versions yet. Shared by `saveIfVersion` so an absent run and a
+ * present run are compared on the same scale.
+ */
+function newestVersion(versions: PipelineCheckpoint[] | undefined): number {
+  if (!versions || versions.length === 0) return NO_CHECKPOINT_VERSION
+  return versions.reduce((best, cur) => (cur.version > best ? cur.version : best), NO_CHECKPOINT_VERSION)
+}
+
+/**
+ * Observed version for a run with no stored checkpoint.
+ *
+ * `writeCheckpoint` starts its version tracker at 0 and pre-increments, so the
+ * first checkpoint ever written for a run carries version 1. An empty run
+ * therefore reports 0 — the version its first write expects — and 0 is never a
+ * stored version, so this does not alias a real one.
+ */
+const NO_CHECKPOINT_VERSION = 0
 
 /**
  * In-memory pipeline checkpoint store with versioned history.
@@ -25,6 +50,39 @@ export class InMemoryPipelineCheckpointStore implements PipelineCheckpointStore 
     } else {
       this.store.set(cloned.pipelineRunId, [cloned])
     }
+  }
+
+  /**
+   * Compare-and-set write: commit only if the newest stored version for this
+   * run is exactly `expectedVersion`.
+   *
+   * Two concurrent callers cannot both commit the same expected version: the
+   * base `save` appends synchronously before yielding, so the compare and the
+   * append are not interleaved. A subclass whose `save` yields before writing
+   * would weaken that; this store is the single-process implementation, and
+   * cross-process safety comes from the Redis (`SET NX`) and Postgres
+   * (`UNIQUE` + `ON CONFLICT DO NOTHING`) stores instead.
+   *
+   * A conflict is reported, never thrown.
+   *
+   * A run with nothing stored observes 0, which is the version the first write
+   * (carrying version 1) expects — so a first write needs no special case.
+   *
+   * The commit itself delegates to `save` so that a subclass overriding `save`
+   * — fault-injection stores in the test suite, instrumentation, or an
+   * alternate persistence path — stays on the write path instead of being
+   * bypassed by this method.
+   */
+  async saveIfVersion(
+    checkpoint: PipelineCheckpoint,
+    expectedVersion: number,
+  ): Promise<PipelineCheckpointCommitReceipt> {
+    const observed = newestVersion(this.store.get(checkpoint.pipelineRunId))
+    if (observed !== expectedVersion) {
+      return { committed: false, observedVersion: observed }
+    }
+    await this.save(checkpoint)
+    return { committed: true, observedVersion: checkpoint.version }
   }
 
   async load(pipelineRunId: string): Promise<PipelineCheckpoint | undefined> {
