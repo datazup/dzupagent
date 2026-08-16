@@ -26,6 +26,12 @@ export function createPipelineCheckpoint(options: {
   nodeIdempotencyKeys?: Record<string, string>;
   /** Per-loop-node iteration cursor for durable loop resume (W3). */
   loopState?: LoopState;
+  /**
+   * Exact artifact/source this checkpoint was produced from (E3). Omitted when
+   * the runtime cannot establish one, which resume treats as "unprovable"
+   * rather than as agreement.
+   */
+  sourceBinding?: PipelineCheckpoint["sourceBinding"];
   /** Per-fork branch progress for durable fork/branch resume (W4). */
   forkState?: Record<
     string,
@@ -56,6 +62,9 @@ export function createPipelineCheckpoint(options: {
       Object.keys(options.interactionReceipts ?? {}).length > 0
         ? "1.1.0"
         : "1.0.0",
+    sourceBinding: options.sourceBinding
+      ? structuredClone(options.sourceBinding)
+      : undefined,
     completedNodeIds: [...options.completedNodeIds],
     // Snapshot the map so later mutations don't leak into a saved checkpoint.
     nodeIdempotencyKeys:

@@ -20,7 +20,9 @@ import type {
 import type {
   PipelineInteractionResumeV1,
   PipelinePendingInteractionV1,
+  PipelineSha256Digest,
 } from "@dzupagent/runtime-contracts";
+import { digestPipelineDefinition } from "@dzupagent/runtime-contracts";
 import type { PipelineInteractionResumeCursor } from "@dzupagent/core/pipeline";
 import type {
   PipelineState,
@@ -47,6 +49,8 @@ import type { ForkState, LoopState } from "./executor-state-types.js";
 import type { BudgetTrackerState } from "./iteration-budget-tracker.js";
 import { persistCheckpointWithIntegrityBoundary } from "./checkpoint-integrity-error.js";
 import { createRuntimePendingInteraction } from "../pipeline-interaction-runtime.js";
+import { resolveStatePath } from "../loop-executor/state-path.js";
+import { PipelineSourceBindingMismatchError } from "../pipeline-runtime-lifecycle/resume-context.js";
 
 /** Dependency bag exposing the executor's helpers to the stage functions. */
 export interface StageContext {
@@ -106,6 +110,14 @@ export interface RunFrame {
   pendingInteraction?: PipelinePendingInteractionV1;
   interactionReceipts: Record<string, PipelineInteractionResumeV1>;
   interactionResumeCursor?: PipelineInteractionResumeCursor;
+  /**
+   * Per-loop digest of each `for_each` loop's resolved item source (E3),
+   * recorded when the loop resolves its items. Carried onto the checkpoint's
+   * `sourceBinding` so a resume can prove the retained ordered prefix still
+   * refers to the same items in the same order. Loops not yet reached are
+   * absent — absence is "unprovable", never "agreement".
+   */
+  loopSourceDigests?: Record<string, PipelineSha256Digest>;
   startTime: number;
 }
 
@@ -201,6 +213,44 @@ export async function dispatchLoopStage(
     nodeIdempotencyKeys,
   } = frame;
 
+  // E3: pin the resolved item source before the loop runs, so a resume can
+  // prove its retained ordered prefix still refers to the same items in the
+  // same order. Recorded only for `for_each` loops whose source actually
+  // resolves to an array — anything else stays unbound (unprovable), never
+  // falsely bound.
+  if (loopNode.forEach !== undefined) {
+    const resolvedSource = resolveStatePath(runState, loopNode.forEach.source);
+    if (Array.isArray(resolvedSource.value)) {
+      const currentDigest = digestPipelineDefinition(resolvedSource.value);
+      // E3 defect 1, per-loop half: a resumed loop carries a retained ordered
+      // prefix (`iteration`) or a mid-item frame computed against the source as
+      // it was. If the source has since changed, that prefix names different
+      // items — fail closed rather than skip or re-run the wrong ones. Only
+      // enforced when the loop is actually resuming: a first pass has no
+      // retained prefix to invalidate.
+      const recordedDigest = frame.loopSourceDigests?.[loopNode.id];
+      const isResuming =
+        (frame.loopState[loopNode.id]?.iteration ?? 0) > 0 ||
+        frame.loopState[loopNode.id]?.itemFrame !== undefined;
+      if (
+        isResuming &&
+        recordedDigest !== undefined &&
+        recordedDigest !== currentDigest
+      ) {
+        throw new PipelineSourceBindingMismatchError(
+          `Cannot resume loop "${loopNode.id}" in run "${runId}": its item ` +
+            `source was checkpointed as ${recordedDigest} but now resolves to ` +
+            `${currentDigest}. The retained ordered prefix would refer to ` +
+            "different items.",
+        );
+      }
+      frame.loopSourceDigests = {
+        ...frame.loopSourceDigests,
+        [loopNode.id]: currentDigest,
+      };
+    }
+  }
+
   // Durable loop resume (W3): start from the persisted cursor (if any) and
   // checkpoint the cursor + accumulated state after every iteration so a
   // crash resumes mid-loop instead of restarting at iteration 0.
@@ -222,6 +272,17 @@ export async function dispatchLoopStage(
     ...(savedLoopState?.bodyGraphState === undefined
       ? {}
       : { bodyGraphState: savedLoopState.bodyGraphState }),
+    ...(savedLoopState?.itemFrame === undefined
+      ? {}
+      : {
+          itemFrame: {
+            ...savedLoopState.itemFrame,
+            bodyResults: (savedLoopState.itemFrame.bodyResults ?? {}) as Record<
+              string,
+              NodeResult
+            >,
+          },
+        }),
     ...(savedLoopState?.previousOutput !== undefined
       ? { previousOutput: savedLoopState.previousOutput }
       : {}),
@@ -275,8 +336,36 @@ export async function dispatchLoopStage(
         await ctx.saveCheckpoint(frame);
       }
     },
+    onItemBodyNodeComplete: async (progress) => {
+      const previousBoundary = frame.loopState[loopNode.id];
+      frame.loopState[loopNode.id] = {
+        // The ordered-prefix cursor does NOT advance mid-item: `iteration`
+        // still counts fully-completed items. Only the frame moves.
+        iteration: previousBoundary?.iteration ?? 0,
+        itemFrame: {
+          itemIndex: progress.itemIndex,
+          nextBodyNodeIndex: progress.nextBodyNodeIndex,
+          bodyResults: loopBodyResultsForCheckpoint(
+            progress.bodyResults,
+            ctx.config.definition.checkpoint?.includeProviderSessionRefs === true
+          ),
+          ...(progress.attempt === undefined ? {} : { attempt: progress.attempt }),
+        },
+        ...(previousBoundary?.previousOutput !== undefined
+          ? { previousOutput: previousBoundary.previousOutput }
+          : {}),
+        ...(previousBoundary?.progressDigest !== undefined
+          ? { progressDigest: previousBoundary.progressDigest }
+          : {}),
+      };
+      await ctx.saveCheckpoint(frame);
+    },
     onIterationComplete: async (completedIterations, progress) => {
       clearCommittedLoopInteractionCursor(frame, loopNode.id);
+      // Reaching an item boundary retires the mid-item frame: the ordered
+      // prefix now covers this item, so a retained frame would resume into an
+      // item that is already done. Rebuilding the entry from scratch (rather
+      // than spreading the previous one) is what drops it.
       frame.loopState[loopNode.id] = {
         iteration: completedIterations,
         ...(progress?.previousOutput !== undefined
@@ -296,6 +385,7 @@ export async function dispatchLoopStage(
       nodeMap: ctx.nodeMap,
       emit: ctx.emit,
       budgetTracker: ctx.budgetTracker,
+      runId,
     },
     loopNode,
     runState,

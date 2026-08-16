@@ -21,6 +21,24 @@ export interface LoopBodyCheckpointProgress {
   bodyResults: Readonly<Record<string, NodeResult>>;
 }
 
+/**
+ * A `for_each` loop's durable position part-way through one item (E3).
+ *
+ * Distinct from {@link LoopBodyCheckpointProgress}, which is the predicate
+ * loop's cursor: that one is keyed by a completed-iteration count, whereas an
+ * item has an explicit index into the resolved source.
+ */
+export interface ForEachItemCheckpointProgress {
+  /** Zero-based index of the in-flight item. */
+  itemIndex: number;
+  /** Zero-based body-node index to dispatch next for this item. */
+  nextBodyNodeIndex: number;
+  /** Results from body nodes already completed within this item. */
+  bodyResults: Readonly<Record<string, NodeResult>>;
+  /** Attempt counter for this item; omitted on the first attempt. */
+  attempt?: number;
+}
+
 /** Iteration output/progress retained at a completed iteration boundary. */
 export interface LoopIterationCheckpointProgress {
   /** Final body-node output exposed as `loop.previous` next iteration. */
@@ -153,6 +171,12 @@ export interface LoopResumeOptions {
   bodyResults?: Readonly<Record<string, NodeResult>>;
   /** Scoped graph frame retained for the current incomplete iteration. */
   bodyGraphState?: LoopBodyGraphCheckpointState;
+  /**
+   * Mid-item frame for a `for_each` loop (E3). Applies only to the item whose
+   * `itemIndex` it names; later items start at body node 0. Absent means the
+   * loop resumes exactly on an item boundary, which is the pre-E3 behaviour.
+   */
+  itemFrame?: ForEachItemCheckpointProgress;
   /** Previous completed iteration's final body output. */
   previousOutput?: unknown;
   /** Previous completed iteration's canonical progress digest. */
@@ -183,6 +207,15 @@ export interface LoopResumeOptions {
    */
   onBodyNodeComplete?: (
     progress: LoopBodyCheckpointProgress
+  ) => Promise<void>;
+  /**
+   * Invoked after each successful `for_each` body node while the item is still
+   * in flight (E3) — never on the item's last body node, whose durable cursor
+   * is the ordered-prefix advance reported by `onIterationComplete`. The
+   * runtime persists this as `loopState[loopId].itemFrame`.
+   */
+  onItemBodyNodeComplete?: (
+    progress: ForEachItemCheckpointProgress
   ) => Promise<void>;
   /**
    * Invoked after each fully-completed iteration with the running iteration

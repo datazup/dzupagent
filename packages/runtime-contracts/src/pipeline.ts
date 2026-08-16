@@ -23,6 +23,7 @@
  * @module runtime-contracts/pipeline
  */
 
+import type { IdempotencyExecutionScope } from "./idempotency.js";
 import type { PipelinePendingInteractionV1 } from "./pipeline-interaction.js";
 
 // ---------------------------------------------------------------------------
@@ -126,6 +127,18 @@ export interface NodeExecutionContext {
    * deduplicated. Optional: omitted when the runtime does not supply one.
    */
   idempotencyKey?: string;
+  /**
+   * E3: the `for_each` item this node is executing under, when it is a loop
+   * body node. Absent for every other dispatch path, which keeps keys and
+   * ledger identities byte-identical outside a loop.
+   *
+   * This is the seam that carries item identity from the loop executor to key
+   * derivation. It rides on the context rather than on a second body-executor
+   * parameter deliberately: the context is already threaded to every node
+   * dispatch, so there is one path to key derivation instead of two that can
+   * drift apart.
+   */
+  executionScope?: IdempotencyExecutionScope;
 }
 
 /**

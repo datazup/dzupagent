@@ -7,6 +7,8 @@
  * @module pipeline/pipeline-runtime/executor-state-types
  */
 
+import type { PipelineForEachItemFrame } from "@dzupagent/core/pipeline";
+
 import type { LoopBodyGraphCheckpointState } from "../loop-executor/types.js";
 
 /** One predicate-loop's iteration and optional mid-body resume cursor. */
@@ -15,6 +17,12 @@ export interface LoopCheckpointState {
   nextBodyNodeIndex?: number;
   bodyResults?: Record<string, unknown>;
   bodyGraphState?: LoopBodyGraphCheckpointState;
+  /**
+   * Mid-item progress for a `for_each` loop (E3). Absent when the loop sits on
+   * an item boundary, which keeps iteration-only checkpoints byte-identical.
+   * Mirrors `PipelineLoopCheckpointState.itemFrame` in the core contract.
+   */
+  itemFrame?: PipelineForEachItemFrame;
   previousOutput?: unknown;
   progressDigest?: `sha256:${string}`;
 }

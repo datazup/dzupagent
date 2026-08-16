@@ -27,13 +27,19 @@ import type {
   PipelineRunContext,
   PipelineRunResult,
 } from "../pipeline-runtime-types.js";
+import { digestPipelineDefinition } from "@dzupagent/runtime-contracts";
 import {
+  assertCheckpointSourceBinding,
   restoreRunContextFromCheckpoint,
   type ResumeHost,
 } from "./resume-context.js";
 import { enforceReplayBudget } from "./replay-budget.js";
 
 export { restoreRunContextFromCheckpoint } from "./resume-context.js";
+export {
+  assertCheckpointSourceBinding,
+  PipelineSourceBindingMismatchError,
+} from "./resume-context.js";
 export type { ResumeHost } from "./resume-context.js";
 export { failReplayBudgetExceeded } from "./replay-budget.js";
 import {
@@ -88,6 +94,13 @@ export async function resumeFromCheckpoint(
   if (checkpoint.interactionResumeCursor !== undefined) {
     host.assertInteractionResumeCursorValid(checkpoint);
   }
+  // E3 defect 1: prove the checkpoint belongs to the definition being resumed
+  // before overlaying its state. Per-loop item-source digests are NOT checked
+  // here — a loop re-resolves its source from live state during the run, so
+  // that comparison belongs at the loop stage, where the current digest exists.
+  assertCheckpointSourceBinding(checkpoint, {
+    definitionDigest: digestPipelineDefinition(host.config.definition),
+  });
   host.assertRuntimeToolReadiness();
 
   const {
@@ -98,6 +111,7 @@ export async function resumeFromCheckpoint(
     nodeIdempotencyKeys,
     loopState,
     forkState,
+    loopSourceDigests,
     pendingInteraction,
     interactionReceipts,
     interactionResumeCursor,
@@ -123,6 +137,7 @@ export async function resumeFromCheckpoint(
     nodeIdempotencyKeys,
     loopState,
     forkState,
+    ...(loopSourceDigests === undefined ? {} : { loopSourceDigests }),
     eventLog: host.eventLog,
     versionTracker,
     ...(pendingInteraction === undefined ? {} : { pendingInteraction }),

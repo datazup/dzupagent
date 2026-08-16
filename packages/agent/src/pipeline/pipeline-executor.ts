@@ -410,6 +410,9 @@ export class PipelineExecutor {
         nodeIdempotencyKeys: frame.nodeIdempotencyKeys,
         loopState: frame.loopState,
         forkState: frame.forkState,
+        ...(frame.loopSourceDigests === undefined
+          ? {}
+          : { loopSourceDigests: frame.loopSourceDigests }),
         eventLog: frame.eventLog,
         versionTracker: frame.versionTracker,
         recoveryAttemptsUsed: this.coordinator.getRecoveryAttemptsUsed(),
@@ -448,6 +451,9 @@ export class PipelineExecutor {
       nodeIdempotencyKeys: frame.nodeIdempotencyKeys,
       loopState: frame.loopState,
       forkState: frame.forkState,
+      ...(frame.loopSourceDigests === undefined
+        ? {}
+        : { loopSourceDigests: frame.loopSourceDigests }),
       eventLog: frame.eventLog,
       versionTracker: frame.versionTracker,
       recoveryAttemptsUsed: this.coordinator.getRecoveryAttemptsUsed(),

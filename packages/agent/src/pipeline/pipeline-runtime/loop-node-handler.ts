@@ -28,6 +28,10 @@ import {
   nodeFailedEvent,
 } from "./runtime-events.js";
 import { recordIterationBudget } from "./node-side-effects.js";
+import {
+  nodeIdempotencyContext,
+  nodeIdempotencyKey,
+} from "./idempotency.js";
 import type { BudgetTrackerState } from "./iteration-budget-tracker.js";
 
 export interface LoopNodeHandlerDeps {
@@ -35,6 +39,12 @@ export interface LoopNodeHandlerDeps {
   nodeMap: Map<string, PipelineNode>;
   emit: (event: PipelineRuntimeEvent) => void;
   budgetTracker: BudgetTrackerState;
+  /**
+   * Run this loop belongs to. Required to derive item-scoped idempotency keys
+   * for `for_each` body nodes (E3), which are dispatched outside the executor's
+   * standard-node path and so never reach `PipelineExecutor.keyFor`.
+   */
+  runId: string;
 }
 
 export interface LoopNodeHandlerResult {
@@ -53,7 +63,7 @@ export async function handleLoop(
   nodeResults: Map<string, NodeResult>,
   resume?: LoopResumeOptions
 ): Promise<LoopNodeHandlerResult> {
-  const { config, nodeMap, emit, budgetTracker } = deps;
+  const { config, nodeMap, emit, budgetTracker, runId } = deps;
 
   emit(nodeStartedEvent(loopNode.id, "loop"));
 
@@ -133,7 +143,26 @@ export async function handleLoop(
             ? bodyResult
             : { ...bodyResult, error: budgetAbort };
         }
-      : config.nodeExecutor;
+      : // E3: for_each body nodes never reach `PipelineExecutor.keyFor` — they
+        // are dispatched straight from the loop executor. Derive the scoped
+        // key here, mirroring `fork-branch-executor`, so an item's key carries
+        // its item identity instead of repeating across all N items. The scope
+        // arrives on the context from `for-each-loop.ts`; when it is absent the
+        // key is byte-identical to the pre-E3 form.
+        async (nodeId, node, bodyContext) => {
+          if (bodyContext.executionScope === undefined) {
+            return config.nodeExecutor(nodeId, node, bodyContext);
+          }
+          const idempotencyKey = nodeIdempotencyKey(runId, node.id, {
+            flowDefinition: config.definition,
+            ...nodeIdempotencyContext(node),
+            scope: bodyContext.executionScope,
+          });
+          return config.nodeExecutor(nodeId, node, {
+            ...bodyContext,
+            idempotencyKey,
+          });
+        };
 
   const { result, metrics, control } = await executeLoop(
     loopNode,

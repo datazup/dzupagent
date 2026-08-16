@@ -37,6 +37,7 @@ import type {
   ProviderSessionRef,
   PipelineInteractionResumeV1,
   PipelinePendingInteractionV1,
+  PipelineSha256Digest,
 } from "@dzupagent/runtime-contracts";
 import type { RecoveryCopilot } from "../recovery/recovery-copilot.js";
 import type { PipelineStuckDetector } from "../self-correction/pipeline-stuck-detector.js";
@@ -437,6 +438,12 @@ export interface PipelineRunContext {
   nodeIdempotencyKeys: Record<string, string>;
   loopState: LoopState;
   forkState: ForkRuntimeState;
+  /**
+   * Per-loop digest of each `for_each` loop's resolved item source (E3).
+   * Restored from the checkpoint's `sourceBinding` on resume and re-recorded
+   * as each loop resolves, so a changed source is detectable.
+   */
+  loopSourceDigests?: Record<string, PipelineSha256Digest>;
   eventLog: PipelineRuntimeEvent[];
   versionTracker: { version: number };
   pendingInteraction?: PipelinePendingInteractionV1;

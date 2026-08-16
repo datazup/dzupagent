@@ -13,6 +13,8 @@
  */
 
 import type { PipelineCheckpoint } from "@dzupagent/core/pipeline";
+import type { PipelineSha256Digest } from "@dzupagent/runtime-contracts";
+import { digestPipelineDefinition } from "@dzupagent/runtime-contracts";
 import type {
   NodeResult,
   PipelineRuntimeConfig,
@@ -44,6 +46,12 @@ export interface CheckpointWriteInput {
   nodeIdempotencyKeys: Record<string, string>;
   loopState: LoopState;
   forkState: ForkState;
+  /**
+   * Per-loop digests of resolved `for_each` item sources (E3). Optional: a run
+   * that has not reached a loop has none, and their absence keeps the binding
+   * to the definition digest alone.
+   */
+  loopSourceDigests?: Record<string, PipelineSha256Digest>;
   eventLog: PipelineRuntimeEvent[];
   versionTracker: { version: number };
   /** Current cumulative recovery-attempt counter to persist. */
@@ -77,6 +85,7 @@ export async function writeCheckpoint(
     nodeIdempotencyKeys,
     loopState,
     forkState,
+    loopSourceDigests,
     eventLog,
     versionTracker,
     recoveryAttemptsUsed,
@@ -102,6 +111,16 @@ export async function writeCheckpoint(
     nodeIdempotencyKeys,
     loopState,
     forkState,
+    // E3: bind the checkpoint to the exact artifact it was produced from, so
+    // resume can prove it belongs to this compiled pipeline (and, per loop, to
+    // the same item source) instead of trusting `pipelineId` alone.
+    sourceBinding: {
+      definitionDigest: digestPipelineDefinition(config.definition),
+      ...(loopSourceDigests !== undefined &&
+      Object.keys(loopSourceDigests).length > 0
+        ? { loopSourceDigests }
+        : {}),
+    },
     events: checkpointEvents(config, eventLog, savedEvent),
     executionLog,
     providerSessionRefs: checkpointProviderSessionRefs(config, nodeResults),

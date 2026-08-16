@@ -158,7 +158,35 @@ export async function executeForEachLoop(
     let lastBodyResult: NodeResult | undefined;
     let completedBody = true;
 
-    for (const bodyNode of bodyNodes) {
+    // E3 mid-item resume: a crash part-way through this item must not re-run
+    // the body nodes that already committed. `itemResume` applies only to the
+    // one item the checkpoint was taken in — every later item starts at body
+    // node 0 with no retained results.
+    const itemResume =
+      resume?.itemFrame !== undefined && resume.itemFrame.itemIndex === index
+        ? resume.itemFrame
+        : undefined;
+    const startBodyNodeIndex = itemResume?.nextBodyNodeIndex ?? 0;
+    // Restore predecessors' outputs rather than re-executing to rebuild them.
+    if (itemResume?.bodyResults !== undefined) {
+      for (const [nodeId, result] of Object.entries(itemResume.bodyResults)) {
+        iterationPreviousResults.set(nodeId, result as NodeResult);
+      }
+    }
+    // The attempt counter makes a re-dispatch of this item distinguishable
+    // from its first attempt in both the ledger and the derived key.
+    const attempt = itemResume?.attempt ?? 0;
+    // Body results retained for a mid-item checkpoint, accumulated as we go.
+    const retainedBodyResults: Record<string, NodeResult> = {
+      ...((itemResume?.bodyResults ?? {}) as Record<string, NodeResult>),
+    };
+
+    for (
+      let bodyIndex = startBodyNodeIndex;
+      bodyIndex < bodyNodes.length;
+      bodyIndex++
+    ) {
+      const bodyNode = bodyNodes[bodyIndex] as PipelineNode;
       if (context.signal?.aborted) {
         completedBody = false;
         break;
@@ -169,6 +197,15 @@ export async function executeForEachLoop(
           ...context,
           state: iterationState,
           previousResults: iterationPreviousResults,
+          // E3: item identity reaches key derivation here. `attempt` is
+          // omitted at 0 so a first-attempt key keeps the shortest scoped
+          // form rather than gaining an `:attempt:0` segment.
+          executionScope: {
+            loopNodeId: loopNode.id,
+            itemIndex: index,
+            bodyNodeId: bodyNode.id,
+            ...(attempt > 0 ? { attempt } : {}),
+          },
         });
       } catch (error) {
         bodyResult = {
@@ -190,6 +227,21 @@ export async function executeForEachLoop(
         };
         completedBody = false;
         break;
+      }
+
+      // Persist mid-item progress ONLY while the item is still in flight. The
+      // last body node completing the item is an item boundary, and its cursor
+      // is the ordered-prefix `iteration` advanced by `flushCompletedPrefix` —
+      // emitting a frame there would contradict that cursor and break the
+      // exact `toEqual({ iteration: n })` boundary pins.
+      retainedBodyResults[bodyNode.id] = bodyResult;
+      if (bodyIndex < bodyNodes.length - 1) {
+        await resume?.onItemBodyNodeComplete?.({
+          itemIndex: index,
+          nextBodyNodeIndex: bodyIndex + 1,
+          bodyResults: retainedBodyResults,
+          ...(attempt > 0 ? { attempt } : {}),
+        });
       }
     }
 
