@@ -87,6 +87,12 @@ describe("PostgresEffectJournalStore — live disposable database", () => {
         ).resolves.toMatchObject({ status: "replayed" });
         expect(dispatches).toBe(1);
 
+        // Within-table freshness control: a key this table has never seen
+        // dispatches. This shows the `replayed` above is not a store that
+        // reports `replayed` for everything. It is NOT the empty-journal
+        // control — that one lives in its own test below, because proving the
+        // assertions depend on journal *contents* requires a table that was
+        // never written to at all.
         await expect(
           executeEffectOnce({
             store: right,
@@ -306,6 +312,113 @@ describe("PostgresEffectJournalStore — live disposable database", () => {
       }
     },
     30_000
+  );
+
+  liveIt(
+    "empty-journal control: the exact intents that replay and block against a written journal all execute against an empty one",
+    async () => {
+      // doc 24 §9 packet 24-C evidence item: "empty-journal control".
+      //
+      // The other live tests assert `replayed`, `effect-outcome-unknown` and
+      // `idempotency-conflict`. Each of those outcomes is only meaningful if it
+      // is caused by rows in the journal. A store that ignored its input and
+      // returned those statuses unconditionally would satisfy every one of
+      // them, and so would a suite whose assertions were simply written to
+      // match whatever the adapter happens to emit.
+      //
+      // This control supplies the counterfactual those tests cannot supply
+      // themselves: the SAME intents, the SAME store class and the SAME
+      // execute function, differing only in that the journal is empty. Every
+      // outcome must flip to `executed`. If any assertion above were pinned to
+      // a constant rather than to journal state, this test fails.
+      const connectionString =
+        process.env["DZUPAGENT_EFFECT_JOURNAL_POSTGRES_URL"]!;
+      const client = await LivePostgresClient.connect(connectionString);
+      const tableName = `test_effect_empty_${crypto
+        .randomUUID()
+        .replaceAll("-", "")}`;
+      const store = new PostgresEffectJournalStore<string>({
+        client,
+        tableName,
+      });
+
+      try {
+        await store.setup();
+
+        // The table exists and is genuinely empty: setup() alone must not
+        // manufacture rows. Asserted, not assumed — an adapter that seeded a
+        // row would silently weaken every "fresh key" claim in this suite.
+        const empty = await client.query<{ count: string }>(
+          `SELECT COUNT(*)::text AS count FROM ${tableName}`
+        );
+        expect(empty.rows[0]?.count).toBe("0");
+
+        let dispatches = 0;
+        const execute = async () => {
+          dispatches += 1;
+          return "committed";
+        };
+
+        // `live:replay` is `replayed` when the journal holds a committed row.
+        await expect(
+          executeEffectOnce({
+            store,
+            intent: effectIntent("live:replay"),
+            execute,
+            now: () => committedAt,
+          })
+        ).resolves.toMatchObject({ status: "executed" });
+
+        // `live:pending` is blocked/effect-outcome-unknown when the journal
+        // holds a pending claim.
+        await expect(
+          executeEffectOnce({
+            store,
+            intent: effectIntent("live:pending"),
+            execute,
+            now: () => committedAt,
+          })
+        ).resolves.toMatchObject({ status: "executed" });
+
+        // This intent is blocked/idempotency-conflict when the journal holds a
+        // claim for the same key under a different node — the digest differs.
+        await expect(
+          executeEffectOnce({
+            store,
+            intent: effectIntent("live:conflict", "other-node"),
+            execute,
+            now: () => committedAt,
+          })
+        ).resolves.toMatchObject({ status: "executed" });
+
+        // `live:process-death` is blocked when a SIGKILLed process left a
+        // pending claim behind.
+        await expect(
+          executeEffectOnce({
+            store,
+            intent: crashedIntent("live:process-death"),
+            execute,
+            now: () => committedAt,
+          })
+        ).resolves.toMatchObject({ status: "executed" });
+
+        // Every effect really was dispatched: four intents, four executions.
+        // Without this the four `executed` assertions could pass on a store
+        // that reported success without ever calling `execute`.
+        expect(dispatches).toBe(4);
+
+        // And the empty journal is empty no longer — the executions were
+        // durably recorded, so "executed" meant a committed row, not a no-op.
+        const written = await client.query<{ count: string }>(
+          `SELECT COUNT(*)::text AS count FROM ${tableName} WHERE status = 'committed'`
+        );
+        expect(written.rows[0]?.count).toBe("4");
+      } finally {
+        await client.query(`DROP TABLE IF EXISTS ${tableName}`);
+        await client.close();
+      }
+    },
+    20_000
   );
 });
 
