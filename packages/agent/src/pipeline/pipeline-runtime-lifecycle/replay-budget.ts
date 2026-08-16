@@ -1,4 +1,7 @@
-import type { NodeResult, PipelineRunResult } from "../pipeline-runtime-types.js";
+import type {
+  NodeResult,
+  PipelineRunResult,
+} from "../pipeline-runtime-types.js";
 import type { ResumeHost } from "./resume-context.js";
 
 /** Shared terminal for a `resume.maxReplayNodes` budget breach. */
@@ -10,7 +13,7 @@ export function failReplayBudgetExceeded(
     replayNodeCount: number;
     maxReplayNodes: number;
     startTime: number;
-  }
+  },
 ): PipelineRunResult {
   const errorMessage =
     `Resume replay budget exceeded: ${args.replayNodeCount} nodes would replay, ` +
@@ -23,6 +26,7 @@ export function failReplayBudgetExceeded(
     state: "failed",
     nodeResults: args.nodeResults,
     totalDurationMs: Date.now() - args.startTime,
+    error: errorMessage,
   };
 }
 /**
@@ -39,7 +43,7 @@ export function enforceReplayBudget(
     completedNodeIds: string[];
     nodeResults: Map<string, NodeResult>;
     startTime: number;
-  }
+  },
 ): PipelineRunResult | undefined {
   const maxReplayNodes = host.config.definition.resume?.maxReplayNodes;
   if (maxReplayNodes === undefined) return undefined;
@@ -47,7 +51,7 @@ export function enforceReplayBudget(
   const replayNodeCount = host.countReplayNodesFrom(
     args.startNodeId,
     args.runState,
-    args.completedNodeIds
+    args.completedNodeIds,
   );
   if (replayNodeCount > maxReplayNodes) {
     return failReplayBudgetExceeded(host, {

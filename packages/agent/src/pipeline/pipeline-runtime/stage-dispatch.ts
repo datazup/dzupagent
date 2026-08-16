@@ -121,7 +121,9 @@ export interface StageContext {
     runId: string,
     state: PipelineState,
     nodeResults: Map<string, NodeResult>,
-    totalDurationMs: number
+    totalDurationMs: number,
+    /** Failure reason; only meaningful when `state` is `"failed"`. */
+    error?: string
   ) => PipelineRunResult;
   /** Execute one bounded compiler-lowered loop body through the graph walker. */
   scheduleLoopBodyGraph: (
@@ -595,7 +597,10 @@ export async function dispatchLoopStage(
         runId,
         "failed",
         nodeResults,
-        Date.now() - frame.startTime
+        Date.now() - frame.startTime,
+        // Same string as the event: a loop fail-closed (for_each budget denial
+        // included) is exactly the case where the caller needs the reason.
+        loopResult.error
       ),
     };
   }

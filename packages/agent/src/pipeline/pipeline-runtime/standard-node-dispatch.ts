@@ -81,7 +81,7 @@ export interface StandardNodeDispatchInput {
 }
 
 export async function dispatchStandardNode(
-  input: StandardNodeDispatchInput
+  input: StandardNodeDispatchInput,
 ): Promise<StandardNodeOutcome> {
   const {
     config,
@@ -126,6 +126,10 @@ export async function dispatchStandardNode(
         state: "failed",
         nodeResults,
         totalDurationMs: Date.now() - startTime,
+        // Same string that goes to the event bus, so a caller holding only the
+        // run result can still see why it failed. This is the fail-closed path
+        // for `for_each` budget denials.
+        error,
       },
     };
   };
@@ -143,7 +147,7 @@ export async function dispatchStandardNode(
         node.id,
         idempotencyKey,
         runId,
-        Date.now()
+        Date.now(),
       );
     } catch (err) {
       // E2: under "strict", an unreachable ledger fails the node rather than
@@ -152,18 +156,21 @@ export async function dispatchStandardNode(
       // downstream from a real one, so for chargeable per-item work the only
       // safe answer is to stop.
       if (config.ledgerUnavailablePolicy === "strict") {
-        defaultLogger.error("[pipeline] node ledger begin failed — failing node", {
-          operation: "node.ledger.begin",
-          runId,
-          nodeId: node.id,
-          error: String(err),
-          effect: "node_failed_ledger_unavailable",
-          policy: "strict",
-        });
+        defaultLogger.error(
+          "[pipeline] node ledger begin failed — failing node",
+          {
+            operation: "node.ledger.begin",
+            runId,
+            nodeId: node.id,
+            error: String(err),
+            effect: "node_failed_ledger_unavailable",
+            policy: "strict",
+          },
+        );
         if (span) config.tracer?.endSpanWithError(span, err);
         return fail(
           `node "${node.id}" could not acquire a durable ledger lease and ` +
-            `ledgerUnavailablePolicy is "strict": ${String(err)}`
+            `ledgerUnavailablePolicy is "strict": ${String(err)}`,
         );
       }
       // Ledger unavailability is non-fatal for liveness, but it disables the
@@ -202,7 +209,7 @@ export async function dispatchStandardNode(
         node.id,
         outgoingEdges,
         config.predicates,
-        runState
+        runState,
       );
       return { kind: "continue", nextNodeId: nextIds[0] };
     }
@@ -227,7 +234,7 @@ export async function dispatchStandardNode(
       node.id,
       ledgerLease.owner,
       ledgerLease.fenceToken,
-      config.signal
+      config.signal,
     );
     nodeSignal = heartbeat.signal;
   }
@@ -255,7 +262,7 @@ export async function dispatchStandardNode(
           idempotencyKey,
           ledgerLease,
           finalResult.error,
-          true
+          true,
         );
       }
       if (span) config.tracer?.endSpanWithError(span, finalResult.error);
@@ -267,14 +274,14 @@ export async function dispatchStandardNode(
         emit,
         node.id,
         finalResult.error,
-        context
+        context,
       );
       if (stuckAbort) return fail(stuckAbort);
 
       const errorNext = getErrorTarget(
         node.id,
         errorEdges,
-        extractErrorCode(finalResult.error)
+        extractErrorCode(finalResult.error),
       );
       if (errorNext) {
         if (saveErrorEdgeCheckpoint !== undefined) {
@@ -294,7 +301,7 @@ export async function dispatchStandardNode(
         node.id,
         node.type,
         finalResult.error,
-        runId
+        runId,
       );
       if (recovered) {
         nodeResults.delete(node.id);
@@ -320,11 +327,11 @@ export async function dispatchStandardNode(
         idempotencyKey,
         ledgerLease,
         finalResult.output,
-        finalResult.durationMs
+        finalResult.durationMs,
       );
       if (!committed) {
         return fail(
-          `node "${node.id}" lease lost during execution (fenced out)`
+          `node "${node.id}" lease lost during execution (fenced out)`,
         );
       }
     }
@@ -343,7 +350,7 @@ export async function dispatchStandardNode(
       emit,
       node.id,
       finalResult,
-      context
+      context,
     );
     if (stuckAbort) return fail(stuckAbort);
 
@@ -354,7 +361,7 @@ export async function dispatchStandardNode(
       budgetTracker,
       node.id,
       finalResult,
-      completedNodeIds.length
+      completedNodeIds.length,
     );
     if (budgetAbort) {
       // The node itself succeeded and is already recorded in
@@ -377,7 +384,7 @@ export async function dispatchStandardNode(
       node.id,
       outgoingEdges,
       config.predicates,
-      runState
+      runState,
     );
     return { kind: "continue", nextNodeId: nextIds[0] };
   } catch (err) {
@@ -400,7 +407,7 @@ export async function dispatchStandardNode(
     const errorNext = getErrorTarget(
       node.id,
       errorEdges,
-      extractErrorCode(err)
+      extractErrorCode(err),
     );
     if (errorNext) {
       if (saveErrorEdgeCheckpoint !== undefined) {
@@ -420,7 +427,7 @@ export async function dispatchStandardNode(
       node.id,
       node.type,
       errorMessage,
-      runId
+      runId,
     );
     if (recovered) {
       nodeResults.delete(node.id);

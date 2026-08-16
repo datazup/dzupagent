@@ -73,9 +73,7 @@ import {
   resumePipelineInteraction,
   type InteractionResumeHost,
 } from "./pipeline-runtime-lifecycle/interaction-resume.js";
-import {
-  PipelineInteractionRuntimeError,
-} from "./pipeline-interaction-runtime.js";
+import { PipelineInteractionRuntimeError } from "./pipeline-interaction-runtime.js";
 
 // ---------------------------------------------------------------------------
 // Pipeline Runtime
@@ -118,7 +116,7 @@ export class PipelineRuntime {
     this.eventLog = eventLog;
 
     const { nodeMap, outgoingEdges, errorEdges } = buildNodeIndex(
-      normalized.definition
+      normalized.definition,
     );
     this.nodeMap = nodeMap;
     this.outgoingEdges = outgoingEdges;
@@ -138,7 +136,7 @@ export class PipelineRuntime {
       this.nodeMap,
       this.outgoingEdges,
       this.errorEdges,
-      coordinator
+      coordinator,
     );
     this.resumePlannerCtx = {
       nodeMap: this.nodeMap,
@@ -157,9 +155,15 @@ export class PipelineRuntime {
       resumeFromCheckpoint: (checkpoint) =>
         resumeFromCheckpoint(this.resumeHost, checkpoint),
       emit: (event) => this.emit(event),
-      setState: (state) => { this.state = state; },
-      setRecoveryAttemptsUsed: (count) => { this.recoveryAttemptsUsed = count; },
-      setBudgetTracker: (state) => { this.budgetTracker = state; },
+      setState: (state) => {
+        this.state = state;
+      },
+      setRecoveryAttemptsUsed: (count) => {
+        this.recoveryAttemptsUsed = count;
+      },
+      setBudgetTracker: (state) => {
+        this.budgetTracker = state;
+      },
       getRecoveryAttemptsUsed: () => this.recoveryAttemptsUsed,
       getBudgetTracker: () => this.budgetTracker,
     };
@@ -176,7 +180,7 @@ export class PipelineRuntime {
       setBudgetCostCents: (costCents) => {
         this.budgetTracker = restoreBudgetTrackerState(
           costCents,
-          this.config.iterationBudget?.maxCostCents ?? 0
+          this.config.iterationBudget?.maxCostCents ?? 0,
         );
       },
       emitStarted: (runId) =>
@@ -205,7 +209,10 @@ export class PipelineRuntime {
         });
       },
       assertInteractionResumeCursorValid: (checkpoint) =>
-        assertInteractionResumeCursorValid(this.interactionResumeHost, checkpoint),
+        assertInteractionResumeCursorValid(
+          this.interactionResumeHost,
+          checkpoint,
+        ),
       hasNode: (nodeId) => this.nodeMap.has(nodeId),
       getNextNodeIds: (nodeId, runState) =>
         this.getNextNodeIdsForResume(nodeId, runState),
@@ -263,7 +270,7 @@ export class PipelineRuntime {
   /** Resume execution from a checkpoint. */
   async resume(
     checkpoint: PipelineCheckpoint,
-    additionalState?: Record<string, unknown>
+    additionalState?: Record<string, unknown>,
   ): Promise<PipelineRunResult> {
     this.assertDefinitionValid();
     const parsed = PipelineCheckpointSchema.safeParse(checkpoint);
@@ -287,12 +294,16 @@ export class PipelineRuntime {
     checkpoint: PipelineCheckpoint,
     receipt: PipelineInteractionResumeV1,
   ): Promise<PipelineRunResult> {
-    return resumePipelineInteraction(this.interactionResumeHost, checkpoint, receipt);
+    return resumePipelineInteraction(
+      this.interactionResumeHost,
+      checkpoint,
+      receipt,
+    );
   }
 
   async recoverAfterProcessRestart(
     pipelineRunId: string,
-    additionalState?: Record<string, unknown>
+    additionalState?: Record<string, unknown>,
   ): Promise<PipelineRunResult> {
     this.assertDefinitionValid();
     const policy =
@@ -301,31 +312,30 @@ export class PipelineRuntime {
     const store = this.config.checkpointStore;
     if (!store) {
       throw new Error(
-        `Cannot recover run '${pipelineRunId}': no checkpoint store configured.`
+        `Cannot recover run '${pipelineRunId}': no checkpoint store configured.`,
       );
     }
 
     const checkpoint = await store.load(pipelineRunId);
     if (!checkpoint) {
       throw new Error(
-        `Cannot recover run '${pipelineRunId}': no checkpoint found.`
+        `Cannot recover run '${pipelineRunId}': no checkpoint found.`,
       );
     }
 
     if (policy === "fail_running") {
       this.state = "failed";
-      this.emit(
-        pipelineFailedEvent(
-          pipelineRunId,
-          "Run marked failed after process restart by resume.onProcessRestart=fail_running"
-        )
-      );
+      // Bound once so the event and the run result cannot drift apart.
+      const error =
+        "Run marked failed after process restart by resume.onProcessRestart=fail_running";
+      this.emit(pipelineFailedEvent(pipelineRunId, error));
       return {
         pipelineId: this.config.definition.id,
         runId: pipelineRunId,
         state: "failed",
         nodeResults: new Map(),
         totalDurationMs: 0,
+        error,
       };
     }
 
@@ -338,36 +348,36 @@ export class PipelineRuntime {
 
   private async redeliverFromCheckpoint(
     checkpoint: PipelineCheckpoint,
-    additionalState?: Record<string, unknown>
+    additionalState?: Record<string, unknown>,
   ): Promise<PipelineRunResult> {
     this.assertDefinitionValid();
     return redeliverFromCheckpointOrchestrator(
       this.resumeHost,
       checkpoint,
-      additionalState
+      additionalState,
     );
   }
 
   private findMidFlightLoopNodeId(
     loopState: LoopState,
-    completedNodeIds: string[]
+    completedNodeIds: string[],
   ): string | undefined {
     return findMidFlightLoopNodeId(
       this.resumePlannerCtx,
       loopState,
-      completedNodeIds
+      completedNodeIds,
     );
   }
 
   private findMidFlightForkNodeId(
-    forkState: Record<string, { branches: Record<string, unknown> }>
+    forkState: Record<string, { branches: Record<string, unknown> }>,
   ): string | undefined {
     return findMidFlightForkNodeId(this.resumePlannerCtx, forkState);
   }
 
   private findRestartNodeId(
     completedNodeIds: string[],
-    runState: Record<string, unknown>
+    runState: Record<string, unknown>,
   ): string | undefined {
     return findRestartNodeId(this.resumePlannerCtx, completedNodeIds, runState);
   }
@@ -375,13 +385,13 @@ export class PipelineRuntime {
   private countReplayNodesFrom(
     startNodeId: string,
     runState: Record<string, unknown>,
-    completedNodeIds: string[]
+    completedNodeIds: string[],
   ): number {
     return countReplayNodesFrom(
       this.resumePlannerCtx,
       startNodeId,
       runState,
-      completedNodeIds
+      completedNodeIds,
     );
   }
 
@@ -402,7 +412,7 @@ export class PipelineRuntime {
    * them to load or parse raw checkpoint records.
    */
   async getProviderSessionRefs(
-    pipelineRunId: string
+    pipelineRunId: string,
   ): Promise<PipelineCheckpointProviderSessionRef[]> {
     const checkpoint = await this.config.checkpointStore?.load(pipelineRunId);
     return structuredClone(checkpoint?.providerSessionRefs ?? []);
@@ -420,7 +430,7 @@ export class PipelineRuntime {
    * structured `PipelineRunResult`) without duplicating the catch block.
    */
   private async runFromNode(
-    args: PipelineRunContext
+    args: PipelineRunContext,
   ): Promise<PipelineRunResult> {
     try {
       return await this.executor.executeFromNode(args);
@@ -434,6 +444,7 @@ export class PipelineRuntime {
         state: "failed",
         nodeResults: args.nodeResults,
         totalDurationMs: Date.now() - args.startTime,
+        error: errorMessage,
       };
     }
   }
@@ -447,16 +458,15 @@ export class PipelineRuntime {
    */
   private getNextNodeIdsForResume(
     nodeId: string,
-    runState: Record<string, unknown>
+    runState: Record<string, unknown>,
   ): string[] {
     return getNextNodeIds(
       nodeId,
       this.outgoingEdges,
       this.config.predicates,
-      runState
+      runState,
     );
   }
-
 
   private emit(event: PipelineRuntimeEvent): void {
     this.config.onEvent?.(event);
@@ -477,7 +487,7 @@ export class PipelineRuntime {
 
     const readiness = getRuntimeToolReadiness(
       this.config.definition,
-      this.config.runtimeToolHandlers
+      this.config.runtimeToolHandlers,
     );
     if (!readiness.ready) {
       throw new Error(formatRuntimeToolReadinessError(readiness));

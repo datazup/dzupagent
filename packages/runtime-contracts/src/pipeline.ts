@@ -152,7 +152,7 @@ export interface NodeExecutionContext {
 export type NodeExecutor<TNode = unknown> = (
   nodeId: string,
   node: TNode,
-  context: NodeExecutionContext
+  context: NodeExecutionContext,
 ) => Promise<NodeResult>;
 
 // ---------------------------------------------------------------------------
@@ -173,6 +173,20 @@ export interface PipelineRunResult {
   nodeResults: Map<string, NodeResult>;
   totalDurationMs: number;
   budgetUsed?: { tokens: number; costCents: number };
+  /**
+   * Why the run failed, when `state` is `"failed"`.
+   *
+   * Failure reasons were previously emitted only on the `pipeline:failed`
+   * event, so a caller holding the run result could see *that* a run failed but
+   * not *why* — including fail-closed denials such as a `for_each` budget stop,
+   * where the reason is the whole point. Callers that do not subscribe to the
+   * event bus had no way to recover it.
+   *
+   * Optional and additive: it is absent on success, and reading it is never
+   * required. Mirrors the existing `error?: string` on the per-node executor
+   * result in `@dzupagent/adapter-types`.
+   */
+  error?: string;
   /** Exact external decision request when the run is suspended on interaction. */
   pendingInteraction?: PipelinePendingInteractionV1;
 }

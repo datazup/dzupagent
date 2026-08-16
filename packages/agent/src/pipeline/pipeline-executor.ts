@@ -228,8 +228,8 @@ export class PipelineExecutor {
       budgetTracker: this.coordinator.getBudgetTracker(),
       emit: this.emit.bind(this),
       setState: (next) => this.coordinator.setState(next),
-      runResult: (runId, state, nodeResults, totalDurationMs) =>
-        this.runResult(runId, state, nodeResults, totalDurationMs),
+      runResult: (runId, state, nodeResults, totalDurationMs, error) =>
+        this.runResult(runId, state, nodeResults, totalDurationMs, error),
       scheduleLoopBodyGraph: (loopNode, frame, input) =>
         scheduleLoopBodyGraph(
           {
@@ -377,7 +377,10 @@ export class PipelineExecutor {
     runId: string,
     state: PipelineState,
     nodeResults: Map<string, NodeResult>,
-    totalDurationMs: number
+    totalDurationMs: number,
+    // Only meaningful for `state === "failed"`; the direct callers here build
+    // cancelled/completed/suspended results and pass nothing.
+    error?: string
   ): PipelineRunResult {
     return {
       pipelineId: this.config.definition.id,
@@ -385,6 +388,7 @@ export class PipelineExecutor {
       state,
       nodeResults,
       totalDurationMs,
+      ...(error === undefined ? {} : { error }),
     };
   }
 

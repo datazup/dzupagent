@@ -42,9 +42,7 @@ export {
 } from "./resume-context.js";
 export type { ResumeHost } from "./resume-context.js";
 export { failReplayBudgetExceeded } from "./replay-budget.js";
-import {
-  validateRetainedLoopBodyGraphCheckpointState,
-} from "../loop-body-graph-checkpoint-validator.js";
+import { validateRetainedLoopBodyGraphCheckpointState } from "../loop-body-graph-checkpoint-validator.js";
 import { validatePendingInteractionForDefinition } from "../pipeline-interaction-runtime.js";
 
 function failRetainedLoopControl(
@@ -52,7 +50,7 @@ function failRetainedLoopControl(
   runId: string,
   nodeResults: Map<string, NodeResult>,
   startTime: number,
-  detail: string
+  detail: string,
 ): PipelineRunResult {
   const message = `Corrupt retained nested loop control: ${detail}`;
   host.setState("failed");
@@ -63,6 +61,7 @@ function failRetainedLoopControl(
     state: "failed",
     nodeResults,
     totalDurationMs: Date.now() - startTime,
+    error: message,
   };
 }
 
@@ -70,7 +69,7 @@ function failRetainedLoopControl(
 export async function resumeFromCheckpoint(
   host: ResumeHost,
   checkpoint: PipelineCheckpoint,
-  additionalState?: Record<string, unknown>
+  additionalState?: Record<string, unknown>,
 ): Promise<PipelineRunResult> {
   if (checkpoint.pendingInteraction !== undefined) {
     const { pending } = validatePendingInteractionForDefinition(
@@ -176,7 +175,7 @@ export async function resumeFromCheckpoint(
   }
 
   const retainedOutcomes = Object.entries(loopState).filter(
-    ([, cursor]) => cursor.bodyGraphState?.outcome !== undefined
+    ([, cursor]) => cursor.bodyGraphState?.outcome !== undefined,
   );
   if (retainedOutcomes.length > 1) {
     return failRetainedLoopControl(
@@ -184,7 +183,7 @@ export async function resumeFromCheckpoint(
       runId,
       nodeResults,
       startTime,
-      "multiple nested loop outcomes are retained"
+      "multiple nested loop outcomes are retained",
     );
   }
   const retainedOutcome = retainedOutcomes[0];
@@ -195,7 +194,7 @@ export async function resumeFromCheckpoint(
       validateRetainedLoopBodyGraphCheckpointState(
         host.config.definition,
         loopNodeId,
-        graphState
+        graphState,
       );
     } catch (error) {
       return failRetainedLoopControl(
@@ -203,7 +202,7 @@ export async function resumeFromCheckpoint(
         runId,
         nodeResults,
         startTime,
-        error instanceof Error ? error.message : String(error)
+        error instanceof Error ? error.message : String(error),
       );
     }
     const outcome = graphState.outcome!;
@@ -217,7 +216,7 @@ export async function resumeFromCheckpoint(
           runId,
           nodeResults,
           startTime,
-          `nested normal outcome for loop "${loopNodeId}" has an invalid outer checkpoint marker`
+          `nested normal outcome for loop "${loopNodeId}" has an invalid outer checkpoint marker`,
         );
       }
       // The scoped executor saved its normal exit immediately before the loop
@@ -233,7 +232,7 @@ export async function resumeFromCheckpoint(
           runId,
           nodeResults,
           startTime,
-          `nested suspended outcome for loop "${loopNodeId}" has an invalid outer checkpoint marker`
+          `nested suspended outcome for loop "${loopNodeId}" has an invalid outer checkpoint marker`,
         );
       }
       const budgetResult = enforceReplayBudget(host, {
@@ -255,7 +254,7 @@ export async function resumeFromCheckpoint(
         runId,
         nodeResults,
         startTime,
-        `nested terminal outcome for loop "${loopNodeId}" has an invalid outer checkpoint marker`
+        `nested terminal outcome for loop "${loopNodeId}" has an invalid outer checkpoint marker`,
       );
     } else {
       host.setState("completed");
@@ -280,7 +279,7 @@ export async function resumeFromCheckpoint(
       runId,
       nodeResults,
       startTime,
-      `loop "${checkpoint.suspendedAtNodeId}" is marked suspended without a suspended outcome`
+      `loop "${checkpoint.suspendedAtNodeId}" is marked suspended without a suspended outcome`,
     );
   }
 
@@ -290,7 +289,7 @@ export async function resumeFromCheckpoint(
   // (only added when the loop finishes), so it will not be skipped.
   const midFlightLoopId = host.findMidFlightLoopNodeId(
     loopState,
-    completedNodeIds
+    completedNodeIds,
   );
   if (!checkpoint.suspendedAtNodeId && midFlightLoopId) {
     return host.runFromNode(runCtx(midFlightLoopId));
@@ -339,14 +338,14 @@ export async function resumeFromCheckpoint(
   // Find the node after the suspend point
   if (!host.hasNode(checkpoint.suspendedAtNodeId)) {
     throw new Error(
-      `Suspended node "${checkpoint.suspendedAtNodeId}" not found`
+      `Suspended node "${checkpoint.suspendedAtNodeId}" not found`,
     );
   }
 
   // Get next node(s) after the suspended node
   const nextNodeIds = host.getNextNodeIds(
     checkpoint.suspendedAtNodeId,
-    runState
+    runState,
   );
 
   if (nextNodeIds.length === 0) {
@@ -383,7 +382,7 @@ export async function resumeFromCheckpoint(
 export async function redeliverFromCheckpoint(
   host: ResumeHost,
   checkpoint: PipelineCheckpoint,
-  additionalState?: Record<string, unknown>
+  additionalState?: Record<string, unknown>,
 ): Promise<PipelineRunResult> {
   if (
     checkpoint.pendingInteraction !== undefined ||
