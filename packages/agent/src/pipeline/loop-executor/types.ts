@@ -76,8 +76,22 @@ export interface LoopBudgetReconcileInput extends LoopBudgetSettlementScope {
   reservationId: string;
   /** The ceiling the reserve was attempted against. */
   budgetCents: number;
-  /** Failure detail from the reserve that could not be observed. */
+  /** Failure detail from the call that could not be observed. */
   reason: string;
+  /**
+   * G2d (doc 27 §8 prereq 7): which lifecycle call went unobserved.
+   *
+   * Prereq 7 requires terminal settlement for every started/completed/failed/
+   * unknown/cancelled item, so reconciliation is no longer reachable only from
+   * `reserve`. The three boundaries need different remediation — a `settle`
+   * that vanished may have CHARGED the item, whereas a `release` that vanished
+   * may have REFUNDED it — so a host cannot respond correctly without knowing
+   * which one it is.
+   *
+   * Optional: a G2b-era host that ignores it still receives the same
+   * `released`/`absent`/`unknown` contract and behaves exactly as before.
+   */
+  boundary?: "reserve" | "settle" | "release";
 }
 
 /**

@@ -261,14 +261,23 @@ export async function executeForEachLoop(
   };
 
   /**
-   * G2b: resolve an outcome-unknown reserve. Returns an error string when the
-   * item must stay blocked — i.e. whenever the host cannot PROVE the outcome.
-   * Only an explicit `released`/`absent` answer clears it.
+   * G2b/G2d: resolve an outcome-unknown reservation. Returns an error string
+   * when the item must stay blocked — i.e. whenever the host cannot PROVE the
+   * outcome. Only an explicit `released`/`absent` answer clears it.
+   *
+   * G2d (doc 27 §8 prereq 7) widened this from the reserve boundary alone to
+   * every lifecycle boundary that can leave a reservation unaccounted. A
+   * `settle` or `release` that THROWS is the same class of fact as a thrown
+   * `reserve`: the call may have been applied before the transport failed, so
+   * the reservation's terminal state is genuinely unknown. `boundary` names
+   * which call went unobserved so an operator reading the failure knows what
+   * to look for in the ledger.
    */
-  const reconcileUnknownReserve = async (
+  const reconcileUnknownReservation = async (
     index: number,
     attempt: number,
-    reason: string
+    reason: string,
+    boundary: "reserve" | "settle" | "release"
   ): Promise<string | undefined> => {
     const reservationId = deriveItemReservationId({
       ...(resume?.budgetRunId === undefined
@@ -281,7 +290,8 @@ export async function executeForEachLoop(
     const reconcile = resume?.reconcileIterationBudget;
     const blocked =
       `Loop "${loopNode.id}" item ${index} reservation ${reservationId} is ` +
-      `outcome-unknown and could not be reconciled: ${reason}`;
+      `outcome-unknown after its ${boundary} could not be observed and was ` +
+      `not reconciled: ${reason}`;
     if (reconcile === undefined) return blocked;
     let outcome;
     try {
@@ -293,6 +303,7 @@ export async function executeForEachLoop(
         reservationId,
         budgetCents: itemBudgetCents as number,
         reason,
+        boundary,
       });
     } catch (error) {
       // A reconcile that itself fails proves nothing — stay blocked.
@@ -308,11 +319,17 @@ export async function executeForEachLoop(
       : blocked;
   };
 
-  /** Returns an error string when the settled amount overruns its reservation. */
+  /**
+   * Settle a completed item's reservation.
+   *
+   * Returns an error string when the settled amount overruns its reservation,
+   * or (G2d) an `outcomeUnknown` marker when the settle call itself could not
+   * be observed. `undefined` means the item settled cleanly.
+   */
   const settleItem = async (
     held: HeldItemReservation | undefined,
     bodyResults: Readonly<Record<string, NodeResult>>
-  ): Promise<string | undefined> => {
+  ): Promise<string | undefined | { outcomeUnknown: string }> => {
     if (held === undefined) return undefined;
     // Absent an extractor, actual spend is treated as the full reservation:
     // conservative, never under-charges, and never reports a false overrun.
@@ -328,35 +345,65 @@ export async function executeForEachLoop(
       }
       actualCostCents = total;
     }
-    await resume?.settleIterationBudget?.({
-      loopNodeId: loopNode.id,
-      iteration: held.itemIndex + 1,
-      itemIndex: held.itemIndex,
-      ...(held.attempt > 0 ? { attempt: held.attempt } : {}),
-      reservationId: held.reservationId,
-      reservedCostCents: held.reservedCostCents,
-      actualCostCents,
-    });
+    try {
+      await resume?.settleIterationBudget?.({
+        loopNodeId: loopNode.id,
+        iteration: held.itemIndex + 1,
+        itemIndex: held.itemIndex,
+        ...(held.attempt > 0 ? { attempt: held.attempt } : {}),
+        reservationId: held.reservationId,
+        reservedCostCents: held.reservedCostCents,
+        actualCostCents,
+      });
+    } catch (error) {
+      // G2d (prereq 7): the item's WORK completed, but whether its reservation
+      // was settled is now unknown — the host may have applied the settlement
+      // before the transport failed. Releasing would refund money already
+      // charged; assuming success would leave a reservation outstanding
+      // forever. Only reconciliation can prove which, so hand it over rather
+      // than letting the throw escape the loop unclassified.
+      return {
+        outcomeUnknown:
+          error instanceof Error ? error.message : String(error),
+      };
+    }
     return actualCostCents > held.reservedCostCents
       ? `Loop "${loopNode.id}" item ${held.itemIndex} settled ${actualCostCents} cents, ` +
           `exceeding its ${held.reservedCostCents}-cent reservation`
       : undefined;
   };
 
+  /**
+   * Return an unspent reservation whose work never completed.
+   *
+   * G2d (prereq 7): returns an `outcomeUnknown` marker when the release call
+   * could not be observed. A thrown release is not proof the reservation is
+   * still held — the host may have returned it before the transport failed —
+   * so redispatching or declaring the item terminally settled would both be
+   * guesses. `undefined` means the reservation was returned cleanly.
+   */
   const releaseItem = async (
     held: HeldItemReservation | undefined,
     reason: "aborted" | "failed"
-  ): Promise<void> => {
-    if (held === undefined) return;
-    await resume?.releaseIterationBudget?.({
-      loopNodeId: loopNode.id,
-      iteration: held.itemIndex + 1,
-      itemIndex: held.itemIndex,
-      ...(held.attempt > 0 ? { attempt: held.attempt } : {}),
-      reservationId: held.reservationId,
-      reservedCostCents: held.reservedCostCents,
-      reason,
-    });
+  ): Promise<{ outcomeUnknown: string } | undefined> => {
+    if (held === undefined) return undefined;
+    try {
+      await resume?.releaseIterationBudget?.({
+        loopNodeId: loopNode.id,
+        iteration: held.itemIndex + 1,
+        itemIndex: held.itemIndex,
+        ...(held.attempt > 0 ? { attempt: held.attempt } : {}),
+        reservationId: held.reservationId,
+        reservedCostCents: held.reservedCostCents,
+        reason,
+      });
+    } catch (error) {
+      return {
+        outcomeUnknown:
+          error instanceof Error ? error.message : String(error),
+      };
+    }
+    return undefined;
   };
 
   const runIteration = async (index: number): Promise<void> => {
@@ -406,10 +453,11 @@ export async function executeForEachLoop(
     // is unknown. Reconciliation is the only thing that can clear it; until it
     // does, the item neither releases nor redispatches and the loop stops.
     if (typeof held === "object" && held !== null && "outcomeUnknown" in held) {
-      const blocked = await reconcileUnknownReserve(
+      const blocked = await reconcileUnknownReservation(
         index,
         attempt,
-        held.outcomeUnknown
+        held.outcomeUnknown,
+        "reserve"
       );
       if (blocked !== undefined) {
         budgetBreached = true;
@@ -522,10 +570,38 @@ export async function executeForEachLoop(
       // F: exits 1 and 2 — aborted, or a body node failed. The item never
       // completed, so its reservation is returned in full rather than settled.
       // Leaking here is the original defect reproduced one level down.
-      await releaseItem(
+      const releaseOutcome = await releaseItem(
         held,
         context.signal?.aborted === true ? "aborted" : "failed"
       );
+      // G2d (prereq 7): a release that could not be observed leaves this item
+      // in a non-terminal settlement state. Reconcile is the only proof; until
+      // it answers, the loop stops rather than reporting a clean failure over
+      // an unaccounted reservation.
+      //
+      // This OVERWRITES `firstError` rather than using `??=`, unlike every
+      // other exit. The body error that triggered this release is already
+      // recorded, but an unaccounted reservation is the strictly more severe
+      // fact: a failed item is an expected outcome the author can handle,
+      // whereas money in an unknown state is an operator-visible integrity
+      // breach. Reporting the body error here would hide it.
+      if (releaseOutcome !== undefined) {
+        const blocked = await reconcileUnknownReservation(
+          index,
+          attempt,
+          releaseOutcome.outcomeUnknown,
+          "release"
+        );
+        if (blocked !== undefined) {
+          budgetBreached = true;
+          firstError = {
+            nodeId: loopNode.id,
+            output: null,
+            durationMs: Date.now() - startTime,
+            error: blocked,
+          };
+        }
+      }
       iterationDurations[index] = Date.now() - iterStart;
       return;
     }
@@ -534,7 +610,34 @@ export async function executeForEachLoop(
     // reservation, releasing the unspent delta. An overrun fails the loop
     // closed (operator decision, 08-16): the authored ceiling was breached.
     const overrun = await settleItem(held, retainedBodyResults);
-    if (overrun !== undefined) {
+    // G2d (prereq 7): the settle call itself was unobservable. The item's work
+    // is DONE and was charged, so this is not a release path — refunding could
+    // return money the host already took. Only reconciliation can prove the
+    // reservation's terminal state, and until it does the loop fails closed.
+    if (typeof overrun === "object" && overrun !== null) {
+      const blocked = await reconcileUnknownReservation(
+        index,
+        attempt,
+        overrun.outcomeUnknown,
+        "settle"
+      );
+      if (blocked !== undefined) {
+        budgetBreached = true;
+        firstError ??= {
+          nodeId: loopNode.id,
+          output: lastBodyResult?.output ?? null,
+          durationMs: Date.now() - startTime,
+          error: blocked,
+        };
+        iterationDurations[index] = Date.now() - iterStart;
+        return;
+      }
+      // Reconciliation PROVED the reservation is no longer outstanding, so the
+      // item is terminally settled despite the unobservable call. Its work
+      // completed successfully, so it counts as a completed item — fall
+      // through to the normal completion path below.
+    }
+    if (typeof overrun === "string") {
       budgetBreached = true;
       firstError ??= {
         nodeId: loopNode.id,
