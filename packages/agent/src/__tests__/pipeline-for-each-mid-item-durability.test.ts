@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { PipelineRuntime } from '../pipeline/pipeline-runtime.js'
 import { InMemoryPipelineCheckpointStore } from '../pipeline/in-memory-checkpoint-store.js'
 import { PipelineSourceBindingMismatchError } from '../pipeline/pipeline-runtime-lifecycle/resume-context.js'
-import type { PipelineDefinition, PipelineNode } from '@dzupagent/core'
+import type { PipelineCheckpoint, PipelineDefinition, PipelineNode } from '@dzupagent/core'
 import type { NodeExecutor } from '../pipeline/pipeline-runtime-types.js'
 
 /** A for_each loop whose body is three sequential nodes. */
@@ -169,6 +169,96 @@ describe('for_each mid-item durability (E3)', () => {
     expect(keys[0]).toContain('item:loop-items:0')
     expect(keys[1]).toContain('item:loop-items:1')
   })
+
+  it('keys duplicate-valued items by index, not by item value', async () => {
+    // doc 27 §8 minimum proof 1 — duplicate-value index identity.
+    //
+    // The test above uses distinct items (`{id:'a'}`, `{id:'b'}`), so it cannot
+    // separate "keyed by index" from "keyed by index *and* value": both give two
+    // distinct keys. Deep-equal items make index the ONLY distinguishing input,
+    // so a key that folds in the item value collapses these two onto one key and
+    // a per-item ledger dedupes item 1 against item 0 — a 2-invoice loop charges
+    // one invoice. Duplicate values are the realistic case, not a corner case.
+    const store = new InMemoryPipelineCheckpointStore()
+    const keys: Array<string | undefined> = []
+    const runtime = new PipelineRuntime({
+      definition: threeBodyForEachPipeline(),
+      nodeExecutor: async (nodeId: string, _node: PipelineNode, ctx) => {
+        if (nodeId === 'step-a') keys.push(ctx.idempotencyKey)
+        ctx.state['itemStatus'] = 'ok'
+        return { nodeId, output: 'ok', durationMs: 1 }
+      },
+      checkpointStore: store,
+    })
+    // Deep-equal, distinct object identities: neither value nor reference
+    // identity can separate them, so only `itemIndex` can.
+    await runtime.execute({ items: [{ id: 'dup' }, { id: 'dup' }] })
+
+    expect(keys).toHaveLength(2)
+    expect(keys[0]).toBeDefined()
+    expect(keys[0]).not.toEqual(keys[1])
+    expect(keys[0]).toContain('item:loop-items:0')
+    expect(keys[1]).toContain('item:loop-items:1')
+  })
+
+  it.each(['before-save', 'save-then-throw'] as const)(
+    'fails closed when the mid-item frame write fails (%s)',
+    async (failureMode) => {
+      // doc 27 §8 minimum proof 7 — before-save / save-then-throw fault
+      // injection. The idiom is used for predicate and graph loops, but no
+      // for_each test injected a checkpoint fault, so the item-frame write had
+      // no proof it fails closed.
+      //
+      // The two modes differ in what the STORE ends up holding, which is the
+      // whole point: `before-save` loses the write entirely, `save-then-throw`
+      // persists it and only then reports failure — the ambiguous-outcome case
+      // where the run must not assume its write was lost.
+      class ItemFrameFailureStore extends InMemoryPipelineCheckpointStore {
+        private failed = false
+
+        override async save(checkpoint: PipelineCheckpoint): Promise<void> {
+          const frames = checkpoint.loopState?.['loop-items']?.itemFrames
+          // Target the first write that carries a mid-item frame, so the fault
+          // lands strictly inside an item rather than on an item boundary.
+          if (!this.failed && frames !== undefined && Object.keys(frames).length > 0) {
+            this.failed = true
+            if (failureMode === 'save-then-throw') {
+              await super.save(checkpoint)
+            }
+            throw new Error(`simulated item-frame ${failureMode}`)
+          }
+          await super.save(checkpoint)
+        }
+      }
+
+      const store = new ItemFrameFailureStore()
+      const runs: string[] = []
+      const result = await new PipelineRuntime({
+        definition: threeBodyForEachPipeline(),
+        nodeExecutor: tracingExecutor(runs),
+        checkpointStore: store,
+      }).execute({ items: ITEMS })
+
+      // Fail closed: a lost or ambiguous item-frame write must not be reported
+      // as a completed run.
+      expect(result.state).toBe('failed')
+
+      const checkpoint = await store.load(result.runId)
+      if (failureMode === 'before-save') {
+        // The write never landed, so no frame for the in-flight item exists.
+        expect(
+          Object.keys(checkpoint?.loopState?.['loop-items']?.itemFrames ?? {})
+        ).toEqual([])
+        return
+      }
+
+      // save-then-throw: the frame IS durable despite the reported failure, so
+      // a resume can pick the item up mid-body instead of re-running it.
+      expect(
+        Object.keys(checkpoint?.loopState?.['loop-items']?.itemFrames ?? {})
+      ).not.toEqual([])
+    }
+  )
 })
 
 describe('checkpoint source binding (E3 defect 1)', () => {
