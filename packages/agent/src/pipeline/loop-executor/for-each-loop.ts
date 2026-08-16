@@ -148,10 +148,20 @@ export async function executeForEachLoop(
   let nextIndex = startIndex;
   let flushedPrefix = startIndex;
   let firstError: NodeResult | undefined;
-  // F: a breached monetary ceiling stops the loop unconditionally, unlike a
-  // body error, which `contract.failFast` lets the author tolerate. `failFast`
-  // is a policy about FAILURES; an authored budget ceiling is a hard admission
-  // gate, so honouring `failFast` here would keep spending past the breach.
+  // F: a breached monetary ceiling stops the loop regardless of
+  // `contract.failFast`, unlike a body error, which `failFast` lets the author
+  // tolerate. `failFast` is a policy about FAILURES; an authored budget ceiling
+  // is a hard admission gate, so honouring `failFast` here would keep spending
+  // past the breach.
+  //
+  // SCOPE: this flag is read by the worker loop BETWEEN items, which stops
+  // dispatch exactly because `concurrency` is pinned to 1 above — one worker,
+  // no item in flight when the check runs. At concurrency > 1 (packet 24-G)
+  // that is no longer sufficient: up to N-1 items would already be mid-flight
+  // with reservations outstanding and would settle spend past the breach.
+  // Admitting concurrency therefore requires propagating this into in-flight
+  // items (an internal AbortController composed with `context.signal`), not
+  // just relaxing the guard.
   let budgetBreached = false;
   let flushQueue = Promise.resolve();
 
