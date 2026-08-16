@@ -231,11 +231,16 @@ export interface LoopResumeOptions {
   /** Scoped graph frame retained for the current incomplete iteration. */
   bodyGraphState?: LoopBodyGraphCheckpointState;
   /**
-   * Mid-item frame for a `for_each` loop (E3). Applies only to the item whose
-   * `itemIndex` it names; later items start at body node 0. Absent means the
-   * loop resumes exactly on an item boundary, which is the pre-E3 behaviour.
+   * Mid-item frames for a `for_each` loop (E3 shape, G1 keying), keyed by the
+   * item's zero-based index as a decimal string. A frame applies only to the
+   * item its key names; every other item starts at body node 0. Absent means
+   * the loop resumes exactly on an item boundary (pre-E3 behaviour).
+   *
+   * Keyed rather than singular so that N in-flight items cannot clobber one
+   * another. `concurrency` is still pinned to 1 everywhere, so exactly one
+   * entry is populated today.
    */
-  itemFrame?: ForEachItemCheckpointProgress;
+  itemFrames?: Readonly<Record<string, ForEachItemCheckpointProgress>>;
   /** Previous completed iteration's final body output. */
   previousOutput?: unknown;
   /** Previous completed iteration's canonical progress digest. */
@@ -301,7 +306,7 @@ export interface LoopResumeOptions {
    * Invoked after each successful `for_each` body node while the item is still
    * in flight (E3) — never on the item's last body node, whose durable cursor
    * is the ordered-prefix advance reported by `onIterationComplete`. The
-   * runtime persists this as `loopState[loopId].itemFrame`.
+   * runtime persists this as `loopState[loopId].itemFrames[itemIndex]`.
    */
   onItemBodyNodeComplete?: (
     progress: ForEachItemCheckpointProgress

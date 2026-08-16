@@ -65,7 +65,7 @@ function tracingExecutor(
 const ITEMS = [{ id: 'a' }, { id: 'b' }]
 
 describe('for_each mid-item durability (E3)', () => {
-  it('persists an itemFrame when a crash lands inside an item', async () => {
+  it('persists an item frame when a crash lands inside an item', async () => {
     const store = new InMemoryPipelineCheckpointStore()
     const runs: string[] = []
     const runtime = new PipelineRuntime({
@@ -82,14 +82,17 @@ describe('for_each mid-item durability (E3)', () => {
     // Item 'a' completed, so the ordered prefix is 1. Item 'b' (index 1) got
     // through step-a and step-b, so the frame points at step-c.
     expect(loopState?.iteration).toBe(1)
-    expect(loopState?.itemFrame).toMatchObject({
+    // G1: frames are keyed by item index. Item 'b' is the only one in flight.
+    expect(Object.keys(loopState?.itemFrames ?? {})).toEqual(['1'])
+    expect(loopState?.itemFrames?.['1']).toMatchObject({
       itemIndex: 1,
       nextBodyNodeIndex: 2,
     })
-    expect(Object.keys(loopState?.itemFrame?.bodyResults ?? {}).sort()).toEqual([
-      'step-a',
-      'step-b',
-    ])
+    expect(
+      Object.keys(loopState?.itemFrames?.['1']?.bodyResults ?? {}).sort()
+    ).toEqual(['step-a', 'step-b'])
+    // The superseded singular spelling must not be written alongside it.
+    expect(loopState?.itemFrame).toBeUndefined()
   })
 
   it('resumes at the next body node instead of re-running the whole item', async () => {
@@ -127,7 +130,7 @@ describe('for_each mid-item durability (E3)', () => {
     expect(resumeRuns).toEqual(['b:step-c'])
   })
 
-  it('clears the itemFrame once the item completes', async () => {
+  it('clears the item frames once the item completes', async () => {
     const store = new InMemoryPipelineCheckpointStore()
     const runtime = new PipelineRuntime({
       definition: threeBodyForEachPipeline(),
@@ -140,6 +143,7 @@ describe('for_each mid-item durability (E3)', () => {
     const checkpoint = await store.load(result.runId)
     // A retained frame after the loop finished would resume into a completed
     // item on the next restore.
+    expect(checkpoint?.loopState?.['loop-items']?.itemFrames).toBeUndefined()
     expect(checkpoint?.loopState?.['loop-items']?.itemFrame).toBeUndefined()
   })
 

@@ -280,10 +280,7 @@ export async function executeForEachLoop(
     // the body nodes that already committed. `itemResume` applies only to the
     // one item the checkpoint was taken in — every later item starts at body
     // node 0 with no retained results.
-    const itemResume =
-      resume?.itemFrame !== undefined && resume.itemFrame.itemIndex === index
-        ? resume.itemFrame
-        : undefined;
+    const itemResume = resume?.itemFrames?.[String(index)];
     const startBodyNodeIndex = itemResume?.nextBodyNodeIndex ?? 0;
     // Restore predecessors' outputs rather than re-executing to rebuild them.
     if (itemResume?.bodyResults !== undefined) {

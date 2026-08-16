@@ -18,11 +18,19 @@ export interface LoopCheckpointState {
   bodyResults?: Record<string, unknown>;
   bodyGraphState?: LoopBodyGraphCheckpointState;
   /**
-   * Mid-item progress for a `for_each` loop (E3). Absent when the loop sits on
-   * an item boundary, which keeps iteration-only checkpoints byte-identical.
-   * Mirrors `PipelineLoopCheckpointState.itemFrame` in the core contract.
+   * Pre-G1 singular spelling, still read so checkpoints written before G1
+   * resume. Never written; normalised into `itemFrames` on read.
+   *
+   * @deprecated Use {@link itemFrames}.
    */
   itemFrame?: PipelineForEachItemFrame;
+  /**
+   * Mid-item progress for every in-flight `for_each` item (G1), keyed by the
+   * item's zero-based index as a decimal string. Absent when the loop sits on
+   * an item boundary, which keeps iteration-only checkpoints byte-identical.
+   * Mirrors `PipelineLoopCheckpointState.itemFrames` in the core contract.
+   */
+  itemFrames?: Record<string, PipelineForEachItemFrame>;
   previousOutput?: unknown;
   progressDigest?: `sha256:${string}`;
 }

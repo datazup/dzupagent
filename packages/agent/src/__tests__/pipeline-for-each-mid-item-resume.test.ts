@@ -6,7 +6,7 @@
  *  - **2**: a crash part-way through an item re-ran every body node in it.
  *    The loop's ordered-prefix cursor (`iteration`) only advances on a
  *    *completed* item, so "item 2 finished 1 of its 2 body nodes" had nowhere
- *    to live. `itemFrame` is that missing frame.
+ *    to live. `itemFrames[itemIndex]` is that missing frame.
  *  - **4 (runtime half)**: body nodes are dispatched straight from the loop
  *    executor and never reach `PipelineExecutor.keyFor`, so an idempotency key
  *    derived from `(runId, nodeId)` repeated across every item. The execution
@@ -69,7 +69,7 @@ function recordingExecutor(dispatches: string[]): NodeExecutor {
 }
 
 describe("for_each mid-item durability (E3)", () => {
-  it("checkpoints an itemFrame between body nodes and omits it on an item boundary", async () => {
+  it("checkpoints an item frame between body nodes and omits it on an item boundary", async () => {
     const store = new InMemoryPipelineCheckpointStore();
     const runtime = new PipelineRuntime({
       definition: twoBodyForEachPipeline(),
@@ -96,14 +96,18 @@ describe("for_each mid-item durability (E3)", () => {
       if (cp === undefined || cp === null) break;
       const cursor = cp.loopState?.["loop-items"];
       if (cursor === undefined) continue;
+      // G1: frames are keyed by item index. `concurrency` is pinned to 1, so
+      // at most one is in flight at any version.
+      const inFlight = Object.values(cursor.itemFrames ?? {});
+      expect(inFlight.length).toBeLessThanOrEqual(1);
       frames.push({
         version: v,
         iteration: cursor.iteration,
-        ...(cursor.itemFrame === undefined
+        ...(inFlight[0] === undefined
           ? {}
           : {
-              itemIndex: cursor.itemFrame.itemIndex,
-              nextBodyNodeIndex: cursor.itemFrame.nextBodyNodeIndex,
+              itemIndex: inFlight[0].itemIndex,
+              nextBodyNodeIndex: inFlight[0].nextBodyNodeIndex,
             }),
       });
     }
@@ -152,13 +156,13 @@ describe("for_each mid-item durability (E3)", () => {
     const checkpoint = await store.load(failed.runId);
     const cursor = checkpoint?.loopState?.["loop-items"];
     // The crash left a frame pinned to item 1, resuming at body node 1.
-    expect(cursor?.itemFrame).toMatchObject({
+    expect(cursor?.itemFrames?.["1"]).toMatchObject({
       itemIndex: 1,
       nextBodyNodeIndex: 1,
     });
     // `step-a`'s result is retained so the resume does not re-execute it to
     // rebuild what `step-b` reads.
-    expect(Object.keys(cursor?.itemFrame?.bodyResults ?? {})).toContain(
+    expect(Object.keys(cursor?.itemFrames?.["1"]?.bodyResults ?? {})).toContain(
       "step-a"
     );
 

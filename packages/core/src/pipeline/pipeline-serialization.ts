@@ -310,6 +310,14 @@ const PipelineLoopCheckpointStateSchema = z
     nextBodyNodeIndex: z.number().int().nonnegative().optional(),
     bodyResults: z.record(z.string(), z.unknown()).optional(),
     itemFrame: PipelineForEachItemFrameSchema.optional(),
+    itemFrames: z
+      .record(
+        z.string().regex(/^(0|[1-9][0-9]*)$/, {
+          message: "itemFrames keys must be decimal item indices",
+        }),
+        PipelineForEachItemFrameSchema,
+      )
+      .optional(),
     bodyGraphState: PipelineLoopBodyGraphCheckpointStateSchema.optional(),
     previousOutput: z.unknown().optional(),
     progressDigest: PipelineSha256DigestSchema.optional(),
@@ -338,6 +346,34 @@ const PipelineLoopCheckpointStateSchema = z
         path: ["bodyGraphState"],
         message: "bodyGraphState is mutually exclusive with the flat body cursor",
       });
+    }
+
+    // G1: `itemFrame` is the pre-G1 singular spelling of `itemFrames`. A
+    // checkpoint carrying both is ambiguous about which one is authoritative,
+    // so reject it rather than silently preferring one.
+    if (cursor.itemFrame !== undefined && cursor.itemFrames !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["itemFrames"],
+        message:
+          "itemFrames supersedes the legacy itemFrame; a checkpoint must not carry both",
+      });
+    }
+
+    // Each frame is addressed by its item index, so a key disagreeing with the
+    // frame it holds would resume the wrong item.
+    if (cursor.itemFrames !== undefined) {
+      for (const [key, frame] of Object.entries(cursor.itemFrames)) {
+        if (String(frame.itemIndex) !== key) {
+          context.addIssue({
+            code: "custom",
+            path: ["itemFrames", key, "itemIndex"],
+            message:
+              `itemFrames key "${key}" does not match its frame's itemIndex ` +
+              `${frame.itemIndex}`,
+          });
+        }
+      }
     }
   });
 

@@ -32,19 +32,44 @@ import type { PipelineSchemaVersion } from "./pipeline-definition.js";
  * checkpoints. They are omitted for for-each loops, whose ordered-prefix
  * cursor remains iteration-based.
  *
- * `itemFrame` is the E0 exception to that last sentence: a for-each loop's
+ * `itemFrames` is the E0 exception to that last sentence: a for-each loop's
  * ordered-prefix `iteration` still counts fully-completed items, but a crash
- * part-way through an item currently repeats every body node in it. The frame
- * records progress *within* the in-flight item so E3 can resume mid-item.
- * It is absent for predicate loops and for for-each loops sitting exactly on
- * an item boundary.
+ * part-way through an item would otherwise repeat every body node in it. The
+ * frames record progress *within* each in-flight item so E3 can resume
+ * mid-item. They are absent for predicate loops and for for-each loops
+ * sitting exactly on an item boundary. The singular `itemFrame` is the
+ * pre-G1 spelling, still read but no longer written.
  */
 export interface PipelineLoopCheckpointState {
   iteration: number;
   nextBodyNodeIndex?: number;
   bodyResults?: Record<string, unknown>;
-  /** Mid-item progress for a for-each loop. Absent on an item boundary. */
+  /**
+   * Mid-item progress for a for-each loop, singular (E3 shape).
+   *
+   * @deprecated G1 superseded this with {@link itemFrames}, which can hold
+   * more than one in-flight item. Retained read-only for checkpoints written
+   * before G1: readers normalise it into `itemFrames` keyed by its own
+   * `itemIndex`. Writers must emit `itemFrames` instead. A checkpoint must
+   * not carry both.
+   */
   itemFrame?: PipelineForEachItemFrame;
+  /**
+   * Mid-item progress for every currently in-flight for-each item (G1),
+   * keyed by the item's zero-based index within the resolved source
+   * (decimal, no padding — the same string `String(itemIndex)` produces).
+   *
+   * The singular `itemFrame` it replaces could only ever name one item, so
+   * two concurrently in-flight items clobbered each other and an item
+   * boundary reached by one erased the live frame of another. Keying by
+   * index makes the durable shape *capable* of N>1; it does not admit it.
+   * `concurrency` remains pinned to 1 at every admission point, so exactly
+   * one key is populated in practice today.
+   *
+   * Absent for predicate loops and for for-each loops sitting exactly on an
+   * item boundary. An empty record is normalised to absent when written.
+   */
+  itemFrames?: Record<string, PipelineForEachItemFrame>;
   /**
    * Scoped canonical-executor frame for a compiler-lowered graph body.
    * Mutually exclusive with the legacy flat-list cursor above.

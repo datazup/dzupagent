@@ -46,6 +46,7 @@ import type {
   LoopBodyGraphScheduleResult,
 } from "../loop-executor/types.js";
 import type { ForkState, LoopState } from "./executor-state-types.js";
+import type { PipelineForEachItemFrame } from "@dzupagent/core/pipeline";
 import type { BudgetTrackerState } from "./iteration-budget-tracker.js";
 import { persistCheckpointWithIntegrityBoundary } from "./checkpoint-integrity-error.js";
 import { createRuntimePendingInteraction } from "../pipeline-interaction-runtime.js";
@@ -231,7 +232,7 @@ export async function dispatchLoopStage(
       const recordedDigest = frame.loopSourceDigests?.[loopNode.id];
       const isResuming =
         (frame.loopState[loopNode.id]?.iteration ?? 0) > 0 ||
-        frame.loopState[loopNode.id]?.itemFrame !== undefined;
+        readItemFrames(frame.loopState[loopNode.id]) !== undefined;
       if (
         isResuming &&
         recordedDigest !== undefined &&
@@ -241,7 +242,7 @@ export async function dispatchLoopStage(
           `Cannot resume loop "${loopNode.id}" in run "${runId}": its item ` +
             `source was checkpointed as ${recordedDigest} but now resolves to ` +
             `${currentDigest}. The retained ordered prefix would refer to ` +
-            "different items.",
+            "different items."
         );
       }
       frame.loopSourceDigests = {
@@ -263,26 +264,34 @@ export async function dispatchLoopStage(
       : {}),
     ...(savedLoopState?.bodyResults !== undefined
       ? {
-          bodyResults: savedLoopState.bodyResults as Record<
-            string,
-            NodeResult
-          >,
+          bodyResults: savedLoopState.bodyResults as Record<string, NodeResult>,
         }
       : {}),
     ...(savedLoopState?.bodyGraphState === undefined
       ? {}
       : { bodyGraphState: savedLoopState.bodyGraphState }),
-    ...(savedLoopState?.itemFrame === undefined
-      ? {}
-      : {
-          itemFrame: {
-            ...savedLoopState.itemFrame,
-            bodyResults: (savedLoopState.itemFrame.bodyResults ?? {}) as Record<
-              string,
-              NodeResult
-            >,
-          },
-        }),
+    ...(() => {
+      // G1: accepts either the keyed `itemFrames` or a pre-G1 singular
+      // `itemFrame`, both normalised to the keyed shape before dispatch.
+      const savedItemFrames = readItemFrames(savedLoopState);
+      if (savedItemFrames === undefined) {
+        return {};
+      }
+      return {
+        itemFrames: Object.fromEntries(
+          Object.entries(savedItemFrames).map(([key, itemFrame]) => [
+            key,
+            {
+              ...itemFrame,
+              bodyResults: (itemFrame.bodyResults ?? {}) as Record<
+                string,
+                NodeResult
+              >,
+            },
+          ])
+        ),
+      };
+    })(),
     ...(savedLoopState?.previousOutput !== undefined
       ? { previousOutput: savedLoopState.previousOutput }
       : {}),
@@ -342,14 +351,31 @@ export async function dispatchLoopStage(
         // The ordered-prefix cursor does NOT advance mid-item: `iteration`
         // still counts fully-completed items. Only the frame moves.
         iteration: previousBoundary?.iteration ?? 0,
-        itemFrame: {
-          itemIndex: progress.itemIndex,
-          nextBodyNodeIndex: progress.nextBodyNodeIndex,
-          bodyResults: loopBodyResultsForCheckpoint(
-            progress.bodyResults,
-            ctx.config.definition.checkpoint?.includeProviderSessionRefs === true
-          ),
-          ...(progress.attempt === undefined ? {} : { attempt: progress.attempt }),
+        // G1: merge this item's frame into the keyed collection instead of
+        // replacing it. The pre-G1 code rebuilt a singular `itemFrame`, so a
+        // second in-flight item overwrote the first and the loser's mid-item
+        // progress was lost — on resume it restarted at body node 0 and
+        // re-ran committed side effects.
+        //
+        // NOT COVERED BY A KILLING TEST, deliberately: at `concurrency: 1`
+        // only one item is ever in flight, so merging and overwriting are
+        // observationally identical and a mutant dropping this spread
+        // survives. It becomes observable — and must gain a test — in the
+        // slice that admits N>1.
+        itemFrames: {
+          ...readItemFrames(previousBoundary),
+          [String(progress.itemIndex)]: {
+            itemIndex: progress.itemIndex,
+            nextBodyNodeIndex: progress.nextBodyNodeIndex,
+            bodyResults: loopBodyResultsForCheckpoint(
+              progress.bodyResults,
+              ctx.config.definition.checkpoint?.includeProviderSessionRefs ===
+                true
+            ),
+            ...(progress.attempt === undefined
+              ? {}
+              : { attempt: progress.attempt }),
+          },
         },
         ...(previousBoundary?.previousOutput !== undefined
           ? { previousOutput: previousBoundary.previousOutput }
@@ -362,12 +388,24 @@ export async function dispatchLoopStage(
     },
     onIterationComplete: async (completedIterations, progress) => {
       clearCommittedLoopInteractionCursor(frame, loopNode.id);
-      // Reaching an item boundary retires the mid-item frame: the ordered
-      // prefix now covers this item, so a retained frame would resume into an
-      // item that is already done. Rebuilding the entry from scratch (rather
-      // than spreading the previous one) is what drops it.
+      // Reaching an item boundary retires the mid-item frames the ordered
+      // prefix now covers: those items are done, so a retained frame would
+      // resume into one already complete.
+      //
+      // G1: retire only the *flushed* frames. `completedIterations` is the
+      // ordered prefix, so every item indexed below it is fully complete and
+      // every frame at or above it is still in flight. The pre-G1 code
+      // rebuilt the entry from scratch, which dropped the whole collection —
+      // a flush by an early item erased the live frame of a later one.
+      const retainedItemFrames = retainInFlightItemFrames(
+        readItemFrames(frame.loopState[loopNode.id]),
+        completedIterations
+      );
       frame.loopState[loopNode.id] = {
         iteration: completedIterations,
+        ...(retainedItemFrames === undefined
+          ? {}
+          : { itemFrames: retainedItemFrames }),
         ...(progress?.previousOutput !== undefined
           ? { previousOutput: progress.previousOutput }
           : {}),
@@ -409,7 +447,8 @@ export async function dispatchLoopStage(
       const interactionNode = ctx.nodeMap.get(outcome.exitNodeId);
       if (
         interactionNode !== undefined &&
-        (interactionNode.type === "gate" || interactionNode.type === "suspend") &&
+        (interactionNode.type === "gate" ||
+          interactionNode.type === "suspend") &&
         interactionNode.interaction !== undefined
       ) {
         frame.pendingInteraction = createRuntimePendingInteraction({
@@ -532,23 +571,23 @@ function clearCommittedLoopInteractionCursor(
     return;
   }
   const selected = cursor.selectedSuccessorNodeId;
-  const selectedResult = selected === undefined
-    ? undefined
-    : state?.nodeResults[selected];
+  const selectedResult =
+    selected === undefined ? undefined : state?.nodeResults[selected];
   const selectedErrorTarget =
     selected !== undefined && selectedResult?.error !== undefined
       ? errorTarget?.(selected, selectedResult.error)
       : undefined;
-  const selectedCommitted = selected === undefined
-    ? state === undefined ||
-      (state.completed &&
-        state.outcome?.kind === "normal" &&
-        state.outcome.exitNodeId === cursor.nodeId)
-    : state === undefined ||
-      state.completedNodeIds.includes(selected) ||
-      (selectedResult?.error !== undefined &&
-        selectedErrorTarget !== undefined &&
-        state.nextNodeId === selectedErrorTarget);
+  const selectedCommitted =
+    selected === undefined
+      ? state === undefined ||
+        (state.completed &&
+          state.outcome?.kind === "normal" &&
+          state.outcome.exitNodeId === cursor.nodeId)
+      : state === undefined ||
+        state.completedNodeIds.includes(selected) ||
+        (selectedResult?.error !== undefined &&
+          selectedErrorTarget !== undefined &&
+          state.nextNodeId === selectedErrorTarget);
   if (selectedCommitted) delete frame.interactionResumeCursor;
 }
 
@@ -574,4 +613,50 @@ function loopBodyResultsForCheckpoint(
       },
     ])
   );
+}
+
+/**
+ * Read a loop cursor's in-flight for-each frames in the keyed G1 shape.
+ *
+ * Accepts either spelling so a checkpoint written before G1 still resumes: a
+ * singular `itemFrame` is normalised to a one-entry map keyed by its own
+ * `itemIndex`. Returns `undefined` when the loop sits on an item boundary, so
+ * iteration-only checkpoints stay byte-identical rather than gaining an empty
+ * record. The schema rejects a checkpoint carrying both spellings, so
+ * preferring `itemFrames` here cannot silently discard a live frame.
+ */
+export function readItemFrames(
+  cursor: LoopState[string] | undefined
+): Record<string, PipelineForEachItemFrame> | undefined {
+  if (cursor?.itemFrames !== undefined) {
+    return Object.keys(cursor.itemFrames).length === 0
+      ? undefined
+      : cursor.itemFrames;
+  }
+  if (cursor?.itemFrame !== undefined) {
+    return { [String(cursor.itemFrame.itemIndex)]: cursor.itemFrame };
+  }
+  return undefined;
+}
+
+/**
+ * Drop the frames the ordered prefix has absorbed, keeping those still live.
+ *
+ * `completedIterations` is the ordered prefix: every item indexed below it is
+ * fully complete, so its frame would resume into finished work. Frames at or
+ * above it belong to items still in flight and must survive another item's
+ * flush. Returns `undefined` when nothing remains, keeping an item-boundary
+ * cursor free of an empty record.
+ */
+export function retainInFlightItemFrames(
+  itemFrames: Record<string, PipelineForEachItemFrame> | undefined,
+  completedIterations: number
+): Record<string, PipelineForEachItemFrame> | undefined {
+  if (itemFrames === undefined) return undefined;
+  const retained = Object.fromEntries(
+    Object.entries(itemFrames).filter(
+      ([, itemFrame]) => itemFrame.itemIndex >= completedIterations
+    )
+  );
+  return Object.keys(retained).length === 0 ? undefined : retained;
 }
