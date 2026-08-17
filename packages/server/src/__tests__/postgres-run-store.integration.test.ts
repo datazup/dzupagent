@@ -127,6 +127,7 @@ async function createSchema(client: PgClient): Promise<void> {
       phase     VARCHAR(50),
       message   TEXT NOT NULL,
       data      JSONB,
+      tenant_id TEXT NOT NULL DEFAULT 'default',
       timestamp TIMESTAMP NOT NULL DEFAULT NOW()
     )
   `)
