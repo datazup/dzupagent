@@ -27,15 +27,20 @@ function makeFetchStub(
     calls.push({ url, init })
     for (const h of handlers) {
       if (h.match(url, init)) {
-        if (typeof h.response === 'function') {
-          h.response(url)
+        // Bind the narrowed response: the `typeof === "function"` guard
+        // narrows `h.response`, but a property access is re-widened inside a
+        // closure, so only the eagerly-read fields below kept the narrowing and
+        // `json`'s body did not.
+        const response = h.response
+        if (typeof response === 'function') {
+          response(url)
           throw new Error('unreachable')
         }
         return {
-          ok: h.response.ok,
-          status: h.response.status,
-          statusText: h.response.statusText ?? 'OK',
-          json: async () => h.response.body as unknown,
+          ok: response.ok,
+          status: response.status,
+          statusText: response.statusText ?? 'OK',
+          json: async () => response.body as unknown,
         } as Awaited<ReturnType<FetchLike>>
       }
     }
