@@ -1,8 +1,34 @@
 import type { DzupEvent, DzupEventOf } from './event-types.js'
 import { defaultLogger, type FrameworkLogger } from '../utils/logger.js'
 
-type Handler<T extends DzupEvent['type']> = (event: DzupEventOf<T>) => void | Promise<void>
-type AnyHandler = (event: DzupEvent) => void | Promise<void>
+/**
+ * Handler returns are declared as plain `void`, deliberately — not
+ * `void | Promise<void>`.
+ *
+ * TypeScript's void-returning-function leniency lets a callback that returns a
+ * value satisfy a `=> void` parameter, so `bus.onAny((e) => seen.push(e))`
+ * type-checks even though `push` returns `number`. That leniency does not
+ * survive a union: under `=> void | Promise<void>` the same expression is
+ * rejected with TS2322 ("Type 'number' is not assignable to type
+ * 'void | Promise<void>'"), which is why expression-bodied handlers across the
+ * workspace had to be rewritten with block bodies.
+ *
+ * `void` still accepts `async` handlers — a `Promise<void>` return is
+ * assignable to a `void` return position — and `runHandlers` inspects the value
+ * a handler actually returned, so async rejections are still caught.
+ */
+type Handler<T extends DzupEvent['type']> = (event: DzupEventOf<T>) => void
+type AnyHandler = (event: DzupEvent) => void
+
+/**
+ * How handlers are stored and invoked internally.
+ *
+ * The public types above say `void` for the leniency described there; this one
+ * says `unknown` because `runHandlers` has to inspect what a handler actually
+ * returned, and an expression of type `void` cannot be tested for truthiness
+ * (TS1345).
+ */
+type StoredHandler = (event: DzupEvent) => unknown
 
 /**
  * Typed, in-process event bus for DzupAgent.
@@ -36,10 +62,10 @@ export interface DzupEventBus {
 
 export function createEventBus(): DzupEventBus {
   const logger: FrameworkLogger = defaultLogger
-  const handlers = new Map<string, Set<AnyHandler>>()
-  const wildcards = new Set<AnyHandler>()
+  const handlers = new Map<string, Set<StoredHandler>>()
+  const wildcards = new Set<StoredHandler>()
 
-  function getSet(type: string): Set<AnyHandler> {
+  function getSet(type: string): Set<StoredHandler> {
     let set = handlers.get(type)
     if (!set) {
       set = new Set()
@@ -48,10 +74,10 @@ export function createEventBus(): DzupEventBus {
     return set
   }
 
-  function runHandlers(list: Iterable<AnyHandler>, event: DzupEvent): void {
+  function runHandlers(list: Iterable<StoredHandler>, event: DzupEvent): void {
     for (const handler of list) {
       try {
-        const result = handler(event)
+        const result: unknown = handler(event)
         // Catch async handler errors
         if (result && typeof result === 'object' && 'catch' in result) {
           ;(result as Promise<void>).catch((err: unknown) => {
@@ -77,16 +103,16 @@ export function createEventBus(): DzupEventBus {
 
     on<T extends DzupEvent['type']>(type: T, handler: Handler<T>): () => void {
       const set = getSet(type)
-      const wrapped = handler as AnyHandler
+      const wrapped = handler as StoredHandler
       set.add(wrapped)
       return () => { set.delete(wrapped) }
     },
 
     once<T extends DzupEvent['type']>(type: T, handler: Handler<T>): () => void {
       const set = getSet(type)
-      const wrapped: AnyHandler = (event) => {
+      const wrapped: StoredHandler = (event) => {
         set.delete(wrapped)
-        return (handler as AnyHandler)(event)
+        return (handler as StoredHandler)(event)
       }
       set.add(wrapped)
       return () => { set.delete(wrapped) }

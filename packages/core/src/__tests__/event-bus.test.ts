@@ -84,6 +84,94 @@ describe('DzupEventBus', () => {
     consoleSpy.mockRestore()
   })
 
+  // ── Handler return values ──────────────────────────────────────────────────
+  //
+  // These four tests pin the duck-typing guard in `runHandlers`
+  // (`../events/event-bus.ts`) — the guard that decides whether what a handler
+  // returned is a promise worth attaching a `.catch` to.
+  //
+  // They are also the type-level lock on the handler signature: each subscribes
+  // with an *expression-bodied* arrow that returns a non-void value. Those only
+  // compile because handlers are declared `=> void`. Restoring the former
+  // `=> void | Promise<void>` union makes this file fail `check-test-typecheck`
+  // with TS2322, because TypeScript's void-return leniency does not survive a
+  // union.
+
+  it('accepts expression-bodied handlers that return a value', () => {
+    const bus = createEventBus()
+    const seen: DzupEvent[] = []
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    // `Array.push` returns a number — non-void on all three subscribe methods.
+    bus.on('agent:started', (event) => seen.push(event))
+    bus.once('agent:started', (event) => seen.push(event))
+    bus.onAny((event) => seen.push(event))
+
+    bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'r1' })
+
+    expect(seen).toHaveLength(3)
+    // A number must not be mistaken for a promise: calling `.catch` on it would
+    // throw, and the surrounding try/catch would log that as a handler error.
+    expect(consoleSpy).not.toHaveBeenCalled()
+
+    consoleSpy.mockRestore()
+  })
+
+  it('does not treat a non-promise object return as a promise', () => {
+    const bus = createEventBus()
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const later = vi.fn()
+
+    // Truthy and `typeof === 'object'`, but no `catch` — the case the
+    // `'catch' in result` half of the guard exists for.
+    bus.on('agent:started', () => ({ handled: true }))
+    bus.on('agent:started', later)
+
+    bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'r1' })
+
+    expect(consoleSpy).not.toHaveBeenCalled()
+    expect(later).toHaveBeenCalledTimes(1)
+
+    consoleSpy.mockRestore()
+  })
+
+  it('does not probe a null return for promise-ness', () => {
+    const bus = createEventBus()
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    // `typeof null === 'object'`, so without the leading truthiness check
+    // `'catch' in result` throws "Cannot use 'in' operator ... in null".
+    bus.on('agent:started', () => null)
+
+    bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'r1' })
+
+    expect(consoleSpy).not.toHaveBeenCalled()
+
+    consoleSpy.mockRestore()
+  })
+
+  it('still attaches a catch to a promise returned by an async handler', async () => {
+    const bus = createEventBus()
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    // The positive control for the three tests above: narrowing the guard must
+    // not cost us the async rejection it was written to catch.
+    bus.on('agent:started', async () => { throw new Error('async boom') })
+
+    expect(() =>
+      bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'r1' }),
+    ).not.toThrow()
+
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('async boom'),
+    )
+
+    consoleSpy.mockRestore()
+  })
+
   it('supports multiple handlers per event type', () => {
     const bus = createEventBus()
     const h1 = vi.fn()
