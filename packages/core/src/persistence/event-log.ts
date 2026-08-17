@@ -7,6 +7,7 @@
  */
 
 import { defaultLogger, type FrameworkLogger } from '../utils/logger.js'
+import type { DzupEventBus } from '../events/event-bus.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -183,9 +184,21 @@ export class InMemoryEventLog implements EventLogStore {
 // ---------------------------------------------------------------------------
 
 /** Minimal event bus contract for the sink (avoids tight coupling to DzupEventBus). */
-interface EventBusLike {
-  onAny: (handler: (event: { type: string; [key: string]: unknown }) => void) => () => void
-}
+/**
+ * The bus surface this sink consumes.
+ *
+ * Derived from `DzupEventBus` with `Pick` rather than re-declared structurally.
+ * The previous independent declaration had drifted out of usability: it typed
+ * the handler parameter as `{ type: string; [key: string]: unknown }`, and no
+ * `DzupEvent` member satisfies that — the members are object/interface types
+ * with no index signature, and TypeScript only infers an implicit one for
+ * object *literal* types. So under `strictFunctionTypes` the real bus was not
+ * assignable to its own sink, and all three call sites laundered it through
+ * `as unknown as Parameters<EventLogSink['attach']>[0]`.
+ *
+ * A `Pick` cannot drift from the bus, so that cannot recur.
+ */
+type EventBusLike = Pick<DzupEventBus, 'onAny'>
 
 /**
  * Listens to a DzupEventBus and auto-appends every event to an EventLogStore.
@@ -203,10 +216,11 @@ export class EventLogSink {
   attach(eventBus: EventBusLike, runId: string): () => void {
     return eventBus.onAny((event) => {
       const { type, ...rest } = event
+      const payload: Record<string, unknown> = { ...rest }
       // Fire-and-forget; a rejected append must never escape to
       // unhandledRejection — log a warning and keep the sink non-fatal.
       void this.log
-        .append({ runId, type, payload: rest as Record<string, unknown> })
+        .append({ runId, type, payload })
         .catch((err: unknown) => {
           this.logger.warn('EventLogSink: failed to append run event', {
             runId,

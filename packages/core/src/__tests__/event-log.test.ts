@@ -160,15 +160,10 @@ describe('EventLogSink', () => {
     const sink = new EventLogSink(log)
     const bus = createEventBus()
 
-    // See note in core.integration.test.ts: EventBusLike's index-signature
-    // handler param makes DzupEventBus structurally incompatible.
-    const unsub = sink.attach(
-      bus as unknown as Parameters<EventLogSink['attach']>[0],
-      'run-42',
-    )
+    const unsub = sink.attach(bus, 'run-42')
 
-    bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'run-42' } as never)
-    bus.emit({ type: 'tool:called', toolName: 'bash', input: {} } as never)
+    bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'run-42' })
+    bus.emit({ type: 'tool:called', toolName: 'bash', input: {} })
 
     // Give microtasks a chance to resolve (append is async but fire-and-forget)
     await new Promise((resolve) => setTimeout(resolve, 10))
@@ -181,7 +176,12 @@ describe('EventLogSink', () => {
 
     unsub()
 
-    bus.emit({ type: 'agent:done' } as never)
+    bus.emit({
+      type: 'agent:completed',
+      agentId: 'a1',
+      runId: 'run-42',
+      durationMs: 1,
+    })
     await new Promise((resolve) => setTimeout(resolve, 10))
 
     // No new events after unsub
@@ -207,12 +207,9 @@ describe('EventLogSink', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sink = new EventLogSink(rejectingStore as any, logger)
       const bus = createEventBus()
-      const unsub = sink.attach(
-        bus as unknown as Parameters<EventLogSink['attach']>[0],
-        'run-99',
-      )
+      const unsub = sink.attach(bus, 'run-99')
 
-      bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'run-99' } as never)
+      bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'run-99' })
 
       // Allow the rejected append + .catch to settle.
       await new Promise((resolve) => setTimeout(resolve, 10))
@@ -228,5 +225,26 @@ describe('EventLogSink', () => {
     } finally {
       process.off('unhandledRejection', onUnhandled)
     }
+  })
+
+  it('accepts a real DzupEventBus with no cast (type-level regression lock)', () => {
+    // `EventLogSink` documents itself as listening to a DzupEventBus, but its
+    // `EventBusLike` parameter used to be an independently-declared structural
+    // type whose handler took `{ type: string; [key: string]: unknown }`. No
+    // DzupEvent member satisfies an index signature, so under
+    // `strictFunctionTypes` the real bus was NOT assignable and every call site
+    // laundered it through `as unknown as ...`.
+    //
+    // This assignment is the lock: it is unannotated at the call sites above,
+    // so re-narrowing `EventBusLike` breaks compilation here and in them, and
+    // `check-test-typecheck` (which, unlike `yarn typecheck`, does typecheck
+    // this file) goes red. The runtime assertion keeps it non-vacuous.
+    const attachParam: Parameters<EventLogSink['attach']>[0] = createEventBus()
+    expect(typeof attachParam.onAny).toBe('function')
+
+    const log = new InMemoryEventLog()
+    const unsub = new EventLogSink(log).attach(attachParam, 'run-lock')
+    expect(typeof unsub).toBe('function')
+    unsub()
   })
 })
