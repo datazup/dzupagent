@@ -76,8 +76,16 @@ export interface MemoryContextLimitsConfig {
  * - `getStore`                    — the pruner / consolidation sweeps skip
  *   silently when a service does not expose a backing store
  *
- * `MemoryService` and `EncryptedMemoryService` remain assignable, so this is a
- * strictly widening change for callers.
+ * `MemoryService` remains assignable, so this is a strictly widening change for
+ * callers — see the compile-time assertion in `memory-service-port.test.ts`.
+ *
+ * `EncryptedMemoryService` is NOT assignable, and was not assignable to the
+ * previous `MemoryService` annotation either: it is a standalone wrapper class
+ * (it does not extend `MemoryService`) exposing only `put`, `get`, `search`,
+ * `rotateKey` and `formatForPrompt`. It has no `getKeyed` and no `delete`, both
+ * of which the decay sweep calls unguarded. Widening the port to admit it would
+ * make `runMemoryDecay` call methods that are not there, so the gap is left
+ * visible here rather than papered over.
  */
 export type MemoryServicePort = Pick<
   MemoryService,
