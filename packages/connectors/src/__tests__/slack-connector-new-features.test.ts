@@ -757,9 +757,7 @@ describe("Slack connector — new features", () => {
 
     it("preserves paragraph text in each block", () => {
       const blocks = textToBlocks("First para\n\nSecond para");
-      const texts = blocks.map(
-        (b) => (b as { text: { text: string } }).text.text,
-      );
+      const texts = blocks.map((b) => b.text.text);
       expect(texts[0]).toBe("First para");
       expect(texts[1]).toBe("Second para");
     });

@@ -138,7 +138,7 @@ export function textsToContextBlock(texts: string[]): SlackContextBlock {
  * Convert a text string into a full Block Kit payload (array of blocks).
  * Splits on blank lines to produce multiple section blocks.
  */
-export function textToBlocks(text: string): SlackBlock[] {
+export function textToBlocks(text: string): SlackSectionBlock[] {
   if (!text || text.trim() === "") {
     return [textToSectionBlock(text)];
   }

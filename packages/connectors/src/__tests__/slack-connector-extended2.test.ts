@@ -716,9 +716,7 @@ describe("Block Kit helpers — advanced edge cases", () => {
 
   it("textToBlocks: paragraphs are trimmed in each block", () => {
     const blocks = textToBlocks("  hello  \n\n  world  ");
-    const texts = blocks.map(
-      (b) => (b as { text: { text: string } }).text.text,
-    );
+    const texts = blocks.map((b) => b.text.text);
     expect(texts[0]).toBe("hello");
     expect(texts[1]).toBe("world");
   });
