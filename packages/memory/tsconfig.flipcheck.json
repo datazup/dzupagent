@@ -1,5 +1,27 @@
 {
+  // Check-only project: the gate always invokes it with --noEmit, so the
+  // inherited "rootDir": "src" constrains an output layout that is never
+  // produced. All it did was report TS6059 three times for a cross-package
+  // import (see below), which is a layout complaint, not a type error.
+  // Widened to the packages directory so the sibling package it reaches is in
+  // range; nothing about which type errors are found changes.
+  //
+  // tsup.config.ts is included because src/__tests__/build-config.test.ts
+  // asserts the build configuration and imports it; "src/**/*.ts" alone left
+  // that import unresolvable (TS2307).
+  //
+  // NOTE for a follow-up: memory's filesystem-knowledge-store.test.ts imports
+  // runKnowledgeStoreContract by relative path into agent-types' *source*
+  // (../../../../agent-types/src/.../__tests__/knowledge-store-contract.test.js).
+  // A shared contract suite reached that way is the reason this override is
+  // needed at all. Publishing it through agent-types would remove the need, but
+  // the helper imports vitest at module scope, so it cannot simply move into
+  // built output.
   "extends": "./tsconfig.json",
-  "include": ["src/**/*.ts"],
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".."
+  },
+  "include": ["src/**/*.ts", "tsup.config.ts"],
   "exclude": ["node_modules", "dist"]
 }
