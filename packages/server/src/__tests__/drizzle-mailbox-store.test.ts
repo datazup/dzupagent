@@ -8,7 +8,15 @@
  * No live database, no network, deterministic.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import type { Mock } from 'vitest'
 import { DrizzleMailboxStore } from '../persistence/drizzle-mailbox-store.js'
+import type {
+  DrizzleDeleteBuilder,
+  DrizzleInsertBuilder,
+  DrizzleSelectQuery,
+  DrizzleStoreDatabase,
+  DrizzleUpdateBuilder,
+} from '../persistence/drizzle-store-types.js'
 import type { MailMessage, MailboxQuery } from '@dzupagent/agent'
 
 // ---------------------------------------------------------------------------
@@ -17,10 +25,30 @@ import type { MailMessage, MailboxQuery } from '@dzupagent/agent'
 
 interface CallLog { op: string; fn: string; args: unknown[] }
 
+/**
+ * A single Proxy chain node stands in for every Drizzle builder shape at once.
+ * A Proxy cannot be proven structurally, so the assertion inside
+ * {@link makeChain} is the one honest boundary; call sites stay fully typed.
+ */
+type MockChain = DrizzleSelectQuery &
+  DrizzleInsertBuilder &
+  DrizzleUpdateBuilder &
+  DrizzleDeleteBuilder
+
+type ChainMock = Mock<(...args: unknown[]) => MockChain>
+
+interface MockDb extends DrizzleStoreDatabase {
+  select: ChainMock
+  insert: ChainMock
+  update: ChainMock
+  delete: ChainMock
+  _log: CallLog[]
+}
+
 function makeChain(
   terminal: unknown,
   onCall: (fn: string, args: unknown[]) => void,
-): Record<string, unknown> {
+): MockChain {
   const handler: ProxyHandler<() => unknown> = {
     get(_t, prop: string) {
       if (prop === 'then') {
@@ -33,7 +61,7 @@ function makeChain(
       }
     },
   }
-  return new Proxy(function proxyFn() {}, handler)
+  return new Proxy(function proxyFn() {}, handler) as unknown as MockChain
 }
 
 interface MockDbConfig {
@@ -49,11 +77,11 @@ interface MockDbConfig {
   log?: CallLog[]
 }
 
-function buildMockDb(cfg: MockDbConfig = {}): Record<string, unknown> {
+function buildMockDb(cfg: MockDbConfig = {}): MockDb {
   const log = cfg.log ?? []
   const selQueue = [...(cfg.selectSequence ?? [])]
 
-  const make = (op: string, terminal: unknown) => {
+  const make = (op: string, terminal: unknown): MockChain => {
     const onCall = (fn: string, args: unknown[]): void => {
       log.push({ op, fn, args })
     }
@@ -61,10 +89,12 @@ function buildMockDb(cfg: MockDbConfig = {}): Record<string, unknown> {
   }
 
   return {
-    select: vi.fn(() => make('select', selQueue.shift() ?? [])),
-    insert: vi.fn(() => make('insert', cfg.insertTerminal ?? undefined)),
-    update: vi.fn(() => make('update', cfg.updateTerminal ?? undefined)),
-    delete: vi.fn(() => make('delete', cfg.deleteTerminal ?? { rowCount: 0 })),
+    select: vi.fn((..._args: unknown[]) => make('select', selQueue.shift() ?? [])),
+    insert: vi.fn((..._args: unknown[]) => make('insert', cfg.insertTerminal ?? undefined)),
+    update: vi.fn((..._args: unknown[]) => make('update', cfg.updateTerminal ?? undefined)),
+    delete: vi.fn((..._args: unknown[]) =>
+      make('delete', cfg.deleteTerminal ?? { rowCount: 0 }),
+    ),
     _log: log,
   }
 }
@@ -157,10 +187,12 @@ describe('DrizzleMailboxStore', () => {
       const store = new DrizzleMailboxStore(db)
 
       const msg = makeMailMessage()
-      // Cast to strip readonly so we can delete the field
-      delete (msg as Record<string, unknown>)['id']
+      // Hop through `unknown` to reach an index-signature view of the message.
+      delete (msg as unknown as Record<string, unknown>)['id']
 
-      await store.save({ ...msg, id: '' })
+      // Save `msg` itself: re-adding `id: ''` here would exercise the
+      // empty-string branch covered by the next test, not the absent-id branch.
+      await store.save(msg)
 
       const valuesCall = log.find((l) => l.op === 'insert' && l.fn === 'values')
       const row = valuesCall!.args[0] as Record<string, unknown>
@@ -219,7 +251,7 @@ describe('DrizzleMailboxStore', () => {
       const db = buildMockDb({ log })
       const store = new DrizzleMailboxStore(db)
       const msg = makeMailMessage()
-      delete (msg as Record<string, unknown>)['ttl']
+      delete (msg as unknown as Record<string, unknown>)['ttl']
       await store.save(msg)
 
       const valuesCall = log.find((l) => l.op === 'insert' && l.fn === 'values')

@@ -10,7 +10,15 @@
  * No real Postgres connection is required.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import type { Mock } from 'vitest'
 import { DrizzleClusterStore } from '../persistence/drizzle-cluster-store.js'
+import type {
+  DrizzleDeleteBuilder,
+  DrizzleInsertBuilder,
+  DrizzleSelectQuery,
+  DrizzleStoreDatabase,
+  DrizzleUpdateBuilder,
+} from '../persistence/drizzle-store-types.js'
 import type { ClusterRecord, CreateClusterInput } from '../persistence/drizzle-cluster-store.js'
 import type { ClusterRole } from '@dzupagent/agent'
 
@@ -43,10 +51,31 @@ interface CallLog {
 // (identical pattern to drizzle-a2a-task-store.test.ts)
 // ---------------------------------------------------------------------------
 
+/**
+ * The Proxy answers every property with a chain-returning function, so a single
+ * chain node stands in for every Drizzle builder shape at once. A Proxy cannot
+ * be proven structurally, so the assertion inside {@link makeChain} is the one
+ * honest boundary; every call site below is fully typed.
+ */
+type MockChain = DrizzleSelectQuery &
+  DrizzleInsertBuilder &
+  DrizzleUpdateBuilder &
+  DrizzleDeleteBuilder
+
+type ChainMock = Mock<(...args: unknown[]) => MockChain>
+
+interface MockDb extends DrizzleStoreDatabase {
+  select: ChainMock
+  insert: ChainMock
+  update: ChainMock
+  delete: ChainMock
+  _log: CallLog[]
+}
+
 function makeChain(
   terminal: unknown,
   onCall: (fn: string, args: unknown[]) => void,
-): Record<string, unknown> {
+): MockChain {
   const handler: ProxyHandler<() => unknown> = {
     get(_t, prop: string) {
       if (prop === 'then') {
@@ -59,7 +88,7 @@ function makeChain(
       }
     },
   }
-  return new Proxy(function proxyFn() {}, handler)
+  return new Proxy(function proxyFn() {}, handler) as unknown as MockChain
 }
 
 interface MockDbConfig {
@@ -73,13 +102,13 @@ interface MockDbConfig {
   log?: CallLog[]
 }
 
-function buildMockDb(cfg: MockDbConfig = {}): Record<string, unknown> {
+function buildMockDb(cfg: MockDbConfig = {}): MockDb {
   const log = cfg.log ?? []
   const selQueue = [...(cfg.selectSequence ?? [])]
   const insQueue = [...(cfg.insertSequence ?? [])]
   const delQueue = [...(cfg.deleteSequence ?? [])]
 
-  const make = (op: string, terminal: unknown) => {
+  const make = (op: string, terminal: unknown): MockChain => {
     const onCall = (fn: string, args: unknown[]): void => {
       log.push({ op, fn, args })
     }
@@ -88,11 +117,16 @@ function buildMockDb(cfg: MockDbConfig = {}): Record<string, unknown> {
 
   return {
     // select() resolves to rows array
-    select: vi.fn(() => make('select', selQueue.shift() ?? [])),
+    select: vi.fn((..._args: unknown[]) => make('select', selQueue.shift() ?? [])),
     // insert() resolves to void (cluster store does not use .returning())
-    insert: vi.fn(() => make('insert', insQueue.shift() ?? undefined)),
+    insert: vi.fn((..._args: unknown[]) => make('insert', insQueue.shift() ?? undefined)),
     // delete().returning() resolves to affected rows
-    delete: vi.fn(() => make('delete', delQueue.shift() ?? [])),
+    delete: vi.fn((..._args: unknown[]) => make('delete', delQueue.shift() ?? [])),
+    // The cluster store never issues an UPDATE. Throw rather than return a
+    // lenient chain so a future store change cannot silently pass here.
+    update: vi.fn((..._args: unknown[]): MockChain => {
+      throw new Error('drizzle-cluster-store mock: db.update() is not implemented')
+    }),
     _log: log,
   }
 }

@@ -6,7 +6,15 @@
  * that records operations and yields configured terminal values.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import type { Mock } from 'vitest'
 import { DrizzleA2ATaskStore } from '../a2a/drizzle-a2a-task-store.js'
+import type {
+  DrizzleDeleteBuilder,
+  DrizzleInsertBuilder,
+  DrizzleSelectQuery,
+  DrizzleStoreDatabase,
+  DrizzleUpdateBuilder,
+} from '../persistence/drizzle-store-types.js'
 import type { A2ATask } from '../a2a/task-handler.js'
 
 // ---------------------------------------------------------------------------
@@ -16,7 +24,27 @@ import type { A2ATask } from '../a2a/task-handler.js'
 
 interface CallLog { op: string; fn: string; args: unknown[] }
 
-function makeChain(terminal: unknown, onCall: (fn: string, args: unknown[]) => void): Record<string, unknown> {
+/**
+ * A single Proxy chain node stands in for every Drizzle builder shape at once.
+ * A Proxy cannot be proven structurally, so the assertion inside
+ * {@link makeChain} is the one honest boundary; call sites stay fully typed.
+ */
+type MockChain = DrizzleSelectQuery &
+  DrizzleInsertBuilder &
+  DrizzleUpdateBuilder &
+  DrizzleDeleteBuilder
+
+type ChainMock = Mock<(...args: unknown[]) => MockChain>
+
+interface MockDb extends DrizzleStoreDatabase {
+  select: ChainMock
+  insert: ChainMock
+  update: ChainMock
+  delete: ChainMock
+  _log: CallLog[]
+}
+
+function makeChain(terminal: unknown, onCall: (fn: string, args: unknown[]) => void): MockChain {
   const handler: ProxyHandler<() => unknown> = {
     get(_t, prop: string) {
       if (prop === 'then') {
@@ -29,7 +57,7 @@ function makeChain(terminal: unknown, onCall: (fn: string, args: unknown[]) => v
       }
     },
   }
-  return new Proxy(function proxyFn() {}, handler)
+  return new Proxy(function proxyFn() {}, handler) as unknown as MockChain
 }
 
 /**
@@ -46,13 +74,13 @@ interface MockDbConfig {
   log?: CallLog[]
 }
 
-function buildMockDb(cfg: MockDbConfig = {}): Record<string, unknown> {
+function buildMockDb(cfg: MockDbConfig = {}): MockDb {
   const log = cfg.log ?? []
   const selQueue = [...(cfg.selectSequence ?? [])]
   const insQueue = [...(cfg.insertSequence ?? [])]
   const updQueue = [...(cfg.updateSequence ?? [])]
 
-  const make = (op: string, rows: unknown[]) => {
+  const make = (op: string, rows: unknown[]): MockChain => {
     const onCall = (fn: string, args: unknown[]): void => {
       log.push({ op, fn, args })
     }
@@ -60,9 +88,14 @@ function buildMockDb(cfg: MockDbConfig = {}): Record<string, unknown> {
   }
 
   return {
-    select: vi.fn(() => make('select', selQueue.shift() ?? [])),
-    insert: vi.fn(() => make('insert', insQueue.shift() ?? [])),
-    update: vi.fn(() => make('update', updQueue.shift() ?? [])),
+    select: vi.fn((..._args: unknown[]) => make('select', selQueue.shift() ?? [])),
+    insert: vi.fn((..._args: unknown[]) => make('insert', insQueue.shift() ?? [])),
+    update: vi.fn((..._args: unknown[]) => make('update', updQueue.shift() ?? [])),
+    // The A2A task store never issues a DELETE. Throw rather than return a
+    // lenient chain so a future store change cannot silently pass here.
+    delete: vi.fn((..._args: unknown[]): MockChain => {
+      throw new Error('drizzle-a2a-task-store mock: db.delete() is not implemented')
+    }),
     _log: log,
   }
 }
