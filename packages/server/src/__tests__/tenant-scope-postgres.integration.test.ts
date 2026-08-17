@@ -101,6 +101,7 @@ async function createPreTenantSchema(client: PgClient): Promise<void> {
       role_id varchar(255) NOT NULL,
       agent_id text NOT NULL,
       capabilities jsonb DEFAULT '[]'::jsonb,
+      tenant_id text NOT NULL DEFAULT 'default',
       created_at timestamp NOT NULL DEFAULT now()
     );
     CREATE UNIQUE INDEX cluster_roles_cluster_role_idx ON cluster_roles (cluster_id, role_id);
