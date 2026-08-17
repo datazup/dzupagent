@@ -747,10 +747,21 @@ describe("BigQueryConnector", () => {
           return [rows];
         }
       ),
-      createQueryJob: vi.fn(async (opts: { query: string }) => {
-        queries.push({ query: opts.query });
-        return [{ getQueryResults: async () => [rows] }];
-      }),
+      // Declared as the adapter actually calls it (bigquery.ts:143-151). The
+      // narrower `{ query: string }` meant the cost-cap assertion below could
+      // only reach `maximumBytesBilled` through a cast to a locally invented
+      // shape, so it was checking the test's own guess, not the job options.
+      createQueryJob: vi.fn(
+        async (opts: {
+          query: string;
+          defaultDataset: { projectId: string; datasetId: string };
+          maximumBytesBilled: string;
+          jobTimeoutMs: number;
+        }) => {
+          queries.push({ query: opts.query });
+          return [{ getQueryResults: async () => [rows] }];
+        }
+      ),
     };
     (c as unknown as { client: unknown }).client = client;
     return { c, client, queries };
@@ -834,9 +845,7 @@ describe("BigQueryConnector", () => {
   it("executeQuery enforces a maximumBytesBilled cost cap and the read-only guard", async () => {
     const { c, client } = makeBq([{ id: 1 }]);
     await c.executeQuery("SELECT * FROM t", { maxRows: 10 });
-    const jobOpts = client.createQueryJob.mock.calls[0]![0] as {
-      maximumBytesBilled: string;
-    };
+    const jobOpts = client.createQueryJob.mock.calls[0]![0];
     expect(jobOpts.maximumBytesBilled).toBe("1000000000");
   });
 
