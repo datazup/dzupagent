@@ -802,8 +802,7 @@ describe("Rename propagation via VirtualFS multi-edit", () => {
         // component.ts still uses old name — intentionally NOT updated
       ],
     });
-    // After rename: utils exports getUser, service is updated, component still uses fetchUser
-    const files = new Map(Object.entries(vfs.toSnapshot()));
+    // After rename: utils exports getUser, service is updated, component still uses fetchUser.
     // The component.ts still imports fetchUser which hasn't been re-exported
     // import-validator works on file resolution (not symbol names), so this
     // tests that the vfs captures the partial rename state correctly:

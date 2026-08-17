@@ -136,11 +136,6 @@ describe("TIER_DEFAULTS — full-access tier", () => {
 
 describe("tierToDockerFlags", () => {
   describe("read-only tier", () => {
-    let flags: string[];
-    beforeEach_local(() => {
-      flags = tierToDockerFlags("read-only");
-    });
-
     it("includes --network=none", () => {
       const flags = tierToDockerFlags("read-only");
       expect(flags).toContain("--network=none");
@@ -239,11 +234,6 @@ describe("tierToDockerFlags", () => {
     }
   });
 });
-
-// Small helper — avoids polluting the test scope without needing a full beforeEach block
-function beforeEach_local(fn: () => void): void {
-  // Intentional no-op — flags variables declared inline above instead
-}
 
 // ---------------------------------------------------------------------------
 // validateTierConfig

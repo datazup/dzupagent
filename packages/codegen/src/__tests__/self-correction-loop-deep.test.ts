@@ -37,10 +37,6 @@ import type { ReflectionNode } from "../correction/reflection-node.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
-function zeroTokens(): TokenUsage {
-  return { model: "", inputTokens: 0, outputTokens: 0 };
-}
-
 function makeTokens(input: number, output: number): TokenUsage {
   return { model: "test-model", inputTokens: input, outputTokens: output };
 }

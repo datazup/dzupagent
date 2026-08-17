@@ -471,7 +471,7 @@ describe("buildImportGraph — graph topology: fan-out patterns", () => {
     const hub = {
       path: "src/hub.ts",
       content: spokes
-        .map((s, i) => `import { S${i} } from './spoke${i}'`)
+        .map((_, i) => `import { S${i} } from './spoke${i}'`)
         .join("\n"),
     };
     const graph = buildImportGraph([hub, ...spokes], "/root");

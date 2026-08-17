@@ -588,27 +588,8 @@ describe("applyPatchSet — rollback", () => {
     await applyPatchSet(patches, readFile, writeFile);
     expect(files.get("a.ts")).toBe("modified_a\nline2");
 
-    // Now try to apply a failing patch — forces rollback of a fresh change
-    const failPatches: FilePatch[] = [
-      makeFilePatch("a.ts", [
-        makeHunk(1, 2, 1, 2, [
-          { type: "remove", content: "modified_a" },
-          { type: "add", content: "STEP2" },
-          { type: "context", content: "line2" },
-        ]),
-      ]),
-      // This second patch will fail (wrong context)
-      makeFilePatch("a.ts", [
-        makeHunk(1, 2, 1, 2, [
-          { type: "context", content: "TOTALLY_WRONG" },
-          { type: "remove", content: "line2" },
-          { type: "add", content: "LINE2" },
-        ]),
-      ]),
-    ];
-
-    // Note: applyPatchSet processes patches per file (different files), so a
-    // simpler scenario: two different files where second fails triggers rollback.
+    // applyPatchSet processes patches per file, so a same-file pair cannot
+    // exercise rollback. Two different files, where the second fails, can.
     const files2 = new Map([
       ["x.ts", "xA\nxB"],
       ["y.ts", "yA\nyB"],

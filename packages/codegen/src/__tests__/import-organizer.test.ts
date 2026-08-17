@@ -55,14 +55,6 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Strip trailing whitespace from each line for comparison stability. */
-function normalize(code: string): string {
-  return code
-    .split("\n")
-    .map((l) => l.trimEnd())
-    .join("\n");
-}
-
 /** Build a minimal body that references all provided names. */
 function bodyUsing(...names: string[]): string {
   return `\n${names.map((n) => `const _ref${n} = ${n}`).join("\n")}\n`;

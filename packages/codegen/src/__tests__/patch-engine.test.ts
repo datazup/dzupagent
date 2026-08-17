@@ -745,7 +745,7 @@ describe('applyPatchSet', () => {
       files.set(path, content)
     })
 
-    const { results, rolledBack } = await applyPatchSet(
+    const { rolledBack } = await applyPatchSet(
       patches, readFile, writeFile, { rollbackOnFailure: true },
     )
 

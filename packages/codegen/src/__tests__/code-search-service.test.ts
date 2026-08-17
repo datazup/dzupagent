@@ -373,6 +373,7 @@ describe('CodeSearchService', () => {
     it('searches for chunks containing a specific symbol', async () => {
       const results = await service.searchBySymbol('UserService')
 
+      expect(results.length).toBeGreaterThan(0)
       // The mock store should find chunks with "UserService" in text
       expect(mockStore.search).toHaveBeenCalledWith(
         'test_code',
@@ -527,8 +528,10 @@ describe('CodeSearchService', () => {
 
     it('re-indexes same file path (upsert behavior)', async () => {
       await service.indexFile('src/user-service.ts', TS_SOURCE, 'typescript')
-      const statsBefore = await service.getStats()
-      const chunksBefore = statsBefore.totalChunks
+      // No sound claim can be made from a before/after chunk count here: the
+      // two fixtures chunk differently (2 then 3), so equality fails and any
+      // inequality would pass for the wrong reason. The upsert is proven by
+      // totalFiles staying at 1 and upsert being called twice.
 
       // Index same file again with different content
       await service.indexFile('src/user-service.ts', TS_SOURCE_2, 'typescript')

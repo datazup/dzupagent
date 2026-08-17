@@ -489,11 +489,10 @@ export class Important {}`,
     ]
 
     const map = buildRepoMap(files)
-    // Both should appear, but class first in the content (higher score)
-    const classIdx = map.content.indexOf('Important')
-    const constIdx = map.content.indexOf('x')
-    // class (weight 3 + 3 export = 6) vs const (weight 1 + 3 export = 4)
-    // Both should appear in the output
+    // The obvious restoration here — indexOf('Important') < indexOf('x') — is
+    // unsound and was measured to fail: 'x' is one character, so indexOf finds
+    // an unrelated earlier occurrence (21) rather than the const's own entry.
+    // An ordering test needs a distinctive const name, not these indices.
     expect(map.content).toContain('Important')
     expect(map.content).toContain('x')
   })
