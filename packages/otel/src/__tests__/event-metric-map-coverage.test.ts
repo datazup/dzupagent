@@ -13,6 +13,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
+import type { MetricMapping } from '../event-metric-map/types.js'
 import { agentLifecycleMetricMap } from '../event-metric-map/agent-lifecycle.js'
 import { platformIdentityMetricMap } from '../event-metric-map/platform-identity.js'
 import { supervisorMetricMap } from '../event-metric-map/supervisor.js'
@@ -35,7 +36,7 @@ function extractAll(
 
 describe('agent-lifecycle: run lifecycle events', () => {
   it('run:paused produces counter with agent_id', () => {
-    const mappings = agentLifecycleMetricMap['run:paused']
+    const mappings: MetricMapping[] = agentLifecycleMetricMap['run:paused']!
     expect(mappings).toHaveLength(1)
     const result = mappings[0]!.extract({
       type: 'run:paused',
@@ -49,7 +50,7 @@ describe('agent-lifecycle: run lifecycle events', () => {
   })
 
   it('run:resumed produces counter with agent_id', () => {
-    const mappings = agentLifecycleMetricMap['run:resumed']
+    const mappings: MetricMapping[] = agentLifecycleMetricMap['run:resumed']!
     expect(mappings).toHaveLength(1)
     const result = mappings[0]!.extract({
       type: 'run:resumed',
@@ -62,7 +63,7 @@ describe('agent-lifecycle: run lifecycle events', () => {
   })
 
   it('run:cancelled produces counter with agent_id', () => {
-    const mappings = agentLifecycleMetricMap['run:cancelled']
+    const mappings: MetricMapping[] = agentLifecycleMetricMap['run:cancelled']!
     expect(mappings).toHaveLength(1)
     const result = mappings[0]!.extract({
       type: 'run:cancelled',
@@ -79,11 +80,11 @@ describe('agent-lifecycle: run lifecycle events', () => {
 
 describe('platform-identity: mcp:server_added extract', () => {
   it('mcp:server_added produces counter with transport label', () => {
-    const mappings = platformIdentityMetricMap['mcp:server_added']
+    const mappings: MetricMapping[] = platformIdentityMetricMap['mcp:server_added']
     expect(mappings).toHaveLength(1)
     const result = mappings[0]!.extract({
       type: 'mcp:server_added',
-      serverName: 'my-server',
+      serverId: 'my-server',
       transport: 'stdio',
     } as DzupEvent)
     expect(result.value).toBe(1)
@@ -96,12 +97,13 @@ describe('platform-identity: mcp:server_added extract', () => {
 
 describe('supervisor: routing_decision and merge_complete', () => {
   it('supervisor:routing_decision labels by strategy', () => {
-    const mappings = supervisorMetricMap['supervisor:routing_decision']
+    const mappings: MetricMapping[] = supervisorMetricMap['supervisor:routing_decision']
     expect(mappings).toHaveLength(1)
     const result = mappings[0]!.extract({
       type: 'supervisor:routing_decision',
       strategy: 'round_robin',
-      selectedAgentId: 'agent-1',
+      reason: 'least-loaded specialist',
+      agentId: 'agent-1',
     } as DzupEvent)
     expect(result.value).toBe(1)
     expect(result.labels.strategy).toBe('round_robin')
@@ -109,7 +111,7 @@ describe('supervisor: routing_decision and merge_complete', () => {
   })
 
   it('supervisor:merge_complete labels by merge_status', () => {
-    const mappings = supervisorMetricMap['supervisor:merge_complete']
+    const mappings: MetricMapping[] = supervisorMetricMap['supervisor:merge_complete']
     expect(mappings).toHaveLength(1)
     const result = mappings[0]!.extract({
       type: 'supervisor:merge_complete',
@@ -121,7 +123,7 @@ describe('supervisor: routing_decision and merge_complete', () => {
   })
 
   it('supervisor:circuit_breaker_filtered produces counter with empty labels', () => {
-    const mappings = supervisorMetricMap['supervisor:circuit_breaker_filtered']
+    const mappings: MetricMapping[] = supervisorMetricMap['supervisor:circuit_breaker_filtered']
     expect(mappings).toHaveLength(1)
     const result = mappings[0]!.extract({
       type: 'supervisor:circuit_breaker_filtered',
@@ -135,7 +137,7 @@ describe('supervisor: routing_decision and merge_complete', () => {
 
 describe('scheduler: all scheduler events extract functions', () => {
   it('scheduler:started labels by poll_interval_ms', () => {
-    const mappings = schedulerMetricMap['scheduler:started']
+    const mappings: MetricMapping[] = schedulerMetricMap['scheduler:started']
     const result = mappings[0]!.extract({
       type: 'scheduler:started',
       pollIntervalMs: 5000,
@@ -145,7 +147,7 @@ describe('scheduler: all scheduler events extract functions', () => {
   })
 
   it('scheduler:stopped produces counter with empty labels', () => {
-    const mappings = schedulerMetricMap['scheduler:stopped']
+    const mappings: MetricMapping[] = schedulerMetricMap['scheduler:stopped']
     const result = mappings[0]!.extract({
       type: 'scheduler:stopped',
     } as DzupEvent)
@@ -154,7 +156,7 @@ describe('scheduler: all scheduler events extract functions', () => {
   })
 
   it('scheduler:triggered labels by schedule_id', () => {
-    const mappings = schedulerMetricMap['scheduler:triggered']
+    const mappings: MetricMapping[] = schedulerMetricMap['scheduler:triggered']
     const result = mappings[0]!.extract({
       type: 'scheduler:triggered',
       scheduleId: 'sched-1',
@@ -164,7 +166,7 @@ describe('scheduler: all scheduler events extract functions', () => {
   })
 
   it('scheduler:trigger_failed labels by schedule_id', () => {
-    const mappings = schedulerMetricMap['scheduler:trigger_failed']
+    const mappings: MetricMapping[] = schedulerMetricMap['scheduler:trigger_failed']
     const result = mappings[0]!.extract({
       type: 'scheduler:trigger_failed',
       scheduleId: 'sched-2',
@@ -175,7 +177,7 @@ describe('scheduler: all scheduler events extract functions', () => {
   })
 
   it('scheduler:schedule_created labels by schedule_type', () => {
-    const mappings = schedulerMetricMap['scheduler:schedule_created']
+    const mappings: MetricMapping[] = schedulerMetricMap['scheduler:schedule_created']
     const result = mappings[0]!.extract({
       type: 'scheduler:schedule_created',
       scheduleId: 'sched-3',
@@ -186,7 +188,7 @@ describe('scheduler: all scheduler events extract functions', () => {
   })
 
   it('scheduler:schedule_enabled produces counter', () => {
-    const mappings = schedulerMetricMap['scheduler:schedule_enabled']
+    const mappings: MetricMapping[] = schedulerMetricMap['scheduler:schedule_enabled']
     const result = mappings[0]!.extract({
       type: 'scheduler:schedule_enabled',
       scheduleId: 'sched-4',
@@ -195,7 +197,7 @@ describe('scheduler: all scheduler events extract functions', () => {
   })
 
   it('scheduler:schedule_disabled produces counter', () => {
-    const mappings = schedulerMetricMap['scheduler:schedule_disabled']
+    const mappings: MetricMapping[] = schedulerMetricMap['scheduler:schedule_disabled']
     const result = mappings[0]!.extract({
       type: 'scheduler:schedule_disabled',
       scheduleId: 'sched-5',
@@ -208,7 +210,7 @@ describe('scheduler: all scheduler events extract functions', () => {
 
 describe('execution-ledger: budget warning and exceeded histograms', () => {
   it('ledger:budget_warning histogram records usedCents', () => {
-    const mappings = executionLedgerMetricMap['ledger:budget_warning']
+    const mappings: MetricMapping[] = executionLedgerMetricMap['ledger:budget_warning']
     expect(mappings).toHaveLength(3)
 
     // Second mapping: histogram of used cents
@@ -224,7 +226,7 @@ describe('execution-ledger: budget warning and exceeded histograms', () => {
   })
 
   it('ledger:budget_warning histogram records utilization ratio', () => {
-    const mappings = executionLedgerMetricMap['ledger:budget_warning']
+    const mappings: MetricMapping[] = executionLedgerMetricMap['ledger:budget_warning']
 
     // Third mapping: budget utilization ratio
     const ratioResult = mappings[2]!.extract({
@@ -239,7 +241,7 @@ describe('execution-ledger: budget warning and exceeded histograms', () => {
   })
 
   it('ledger:budget_warning ratio is 0 when limitCents is 0', () => {
-    const mappings = executionLedgerMetricMap['ledger:budget_warning']
+    const mappings: MetricMapping[] = executionLedgerMetricMap['ledger:budget_warning']
     const ratioResult = mappings[2]!.extract({
       type: 'ledger:budget_warning',
       workflowRunId: 'wf-3',
@@ -251,7 +253,7 @@ describe('execution-ledger: budget warning and exceeded histograms', () => {
   })
 
   it('ledger:budget_exceeded histogram records overage', () => {
-    const mappings = executionLedgerMetricMap['ledger:budget_exceeded']
+    const mappings: MetricMapping[] = executionLedgerMetricMap['ledger:budget_exceeded']
     expect(mappings).toHaveLength(2)
 
     // Second mapping: overage histogram
@@ -266,7 +268,7 @@ describe('execution-ledger: budget warning and exceeded histograms', () => {
   })
 
   it('ledger:budget_exceeded overage is 0 when under limit', () => {
-    const mappings = executionLedgerMetricMap['ledger:budget_exceeded']
+    const mappings: MetricMapping[] = executionLedgerMetricMap['ledger:budget_exceeded']
     const overageResult = mappings[1]!.extract({
       type: 'ledger:budget_exceeded',
       workflowRunId: 'wf-5',
@@ -281,24 +283,24 @@ describe('execution-ledger: budget warning and exceeded histograms', () => {
 
 describe('workflow-domain: all extract functions', () => {
   it('workflow:brief_created produces counter', () => {
-    const mappings = workflowDomainMetricMap['workflow:brief_created']
+    const mappings: MetricMapping[] = workflowDomainMetricMap['workflow:brief_created']
     const result = mappings[0]!.extract({ type: 'workflow:brief_created' } as DzupEvent)
     expect(result.value).toBe(1)
   })
 
   it('workflow:spec_created produces counter', () => {
-    const mappings = workflowDomainMetricMap['workflow:spec_created']
+    const mappings: MetricMapping[] = workflowDomainMetricMap['workflow:spec_created']
     const result = mappings[0]!.extract({ type: 'workflow:spec_created' } as DzupEvent)
     expect(result.value).toBe(1)
   })
 
   it('workflow:spec_revised maps to empty array', () => {
-    const mappings = workflowDomainMetricMap['workflow:spec_revised']
+    const mappings: MetricMapping[] = workflowDomainMetricMap['workflow:spec_revised']
     expect(mappings).toHaveLength(0)
   })
 
   it('workflow:template_created labels by mode', () => {
-    const mappings = workflowDomainMetricMap['workflow:template_created']
+    const mappings: MetricMapping[] = workflowDomainMetricMap['workflow:template_created']
     const result = mappings[0]!.extract({
       type: 'workflow:template_created',
       mode: 'interactive',
@@ -307,13 +309,13 @@ describe('workflow-domain: all extract functions', () => {
   })
 
   it('workflow:run_started produces counter', () => {
-    const mappings = workflowDomainMetricMap['workflow:run_started']
+    const mappings: MetricMapping[] = workflowDomainMetricMap['workflow:run_started']
     const result = mappings[0]!.extract({ type: 'workflow:run_started' } as DzupEvent)
     expect(result.value).toBe(1)
   })
 
   it('workflow:run_status_changed labels by new_status', () => {
-    const mappings = workflowDomainMetricMap['workflow:run_status_changed']
+    const mappings: MetricMapping[] = workflowDomainMetricMap['workflow:run_status_changed']
     const result = mappings[0]!.extract({
       type: 'workflow:run_status_changed',
       newStatus: 'running',
@@ -322,13 +324,13 @@ describe('workflow-domain: all extract functions', () => {
   })
 
   it('workflow:phase_entered produces counter', () => {
-    const mappings = workflowDomainMetricMap['workflow:phase_entered']
+    const mappings: MetricMapping[] = workflowDomainMetricMap['workflow:phase_entered']
     const result = mappings[0]!.extract({ type: 'workflow:phase_entered' } as DzupEvent)
     expect(result.value).toBe(1)
   })
 
   it('workflow:run_completed produces counter and duration histogram', () => {
-    const mappings = workflowDomainMetricMap['workflow:run_completed']
+    const mappings: MetricMapping[] = workflowDomainMetricMap['workflow:run_completed']
     expect(mappings).toHaveLength(2)
     const results = extractAll(mappings, {
       type: 'workflow:run_completed',
@@ -339,25 +341,25 @@ describe('workflow-domain: all extract functions', () => {
   })
 
   it('workflow:run_failed produces counter', () => {
-    const mappings = workflowDomainMetricMap['workflow:run_failed']
+    const mappings: MetricMapping[] = workflowDomainMetricMap['workflow:run_failed']
     const result = mappings[0]!.extract({ type: 'workflow:run_failed' } as DzupEvent)
     expect(result.value).toBe(1)
   })
 
   it('workflow:task_created produces counter', () => {
-    const mappings = workflowDomainMetricMap['workflow:task_created']
+    const mappings: MetricMapping[] = workflowDomainMetricMap['workflow:task_created']
     const result = mappings[0]!.extract({ type: 'workflow:task_created' } as DzupEvent)
     expect(result.value).toBe(1)
   })
 
   it('workflow:task_assigned produces counter', () => {
-    const mappings = workflowDomainMetricMap['workflow:task_assigned']
+    const mappings: MetricMapping[] = workflowDomainMetricMap['workflow:task_assigned']
     const result = mappings[0]!.extract({ type: 'workflow:task_assigned' } as DzupEvent)
     expect(result.value).toBe(1)
   })
 
   it('workflow:task_status_changed labels by new_status', () => {
-    const mappings = workflowDomainMetricMap['workflow:task_status_changed']
+    const mappings: MetricMapping[] = workflowDomainMetricMap['workflow:task_status_changed']
     const result = mappings[0]!.extract({
       type: 'workflow:task_status_changed',
       newStatus: 'in_progress',
@@ -366,7 +368,7 @@ describe('workflow-domain: all extract functions', () => {
   })
 
   it('workflow:task_completed produces counter and duration histogram', () => {
-    const mappings = workflowDomainMetricMap['workflow:task_completed']
+    const mappings: MetricMapping[] = workflowDomainMetricMap['workflow:task_completed']
     expect(mappings).toHaveLength(2)
     const results = extractAll(mappings, {
       type: 'workflow:task_completed',
@@ -377,7 +379,7 @@ describe('workflow-domain: all extract functions', () => {
   })
 
   it('workflow:execution_started labels by provider_id', () => {
-    const mappings = workflowDomainMetricMap['workflow:execution_started']
+    const mappings: MetricMapping[] = workflowDomainMetricMap['workflow:execution_started']
     const result = mappings[0]!.extract({
       type: 'workflow:execution_started',
       providerId: 'anthropic',
@@ -386,7 +388,7 @@ describe('workflow-domain: all extract functions', () => {
   })
 
   it('workflow:execution_completed produces counter and duration histogram', () => {
-    const mappings = workflowDomainMetricMap['workflow:execution_completed']
+    const mappings: MetricMapping[] = workflowDomainMetricMap['workflow:execution_completed']
     expect(mappings).toHaveLength(2)
     const results = extractAll(mappings, {
       type: 'workflow:execution_completed',
@@ -397,13 +399,13 @@ describe('workflow-domain: all extract functions', () => {
   })
 
   it('workflow:execution_failed produces counter', () => {
-    const mappings = workflowDomainMetricMap['workflow:execution_failed']
+    const mappings: MetricMapping[] = workflowDomainMetricMap['workflow:execution_failed']
     const result = mappings[0]!.extract({ type: 'workflow:execution_failed' } as DzupEvent)
     expect(result.value).toBe(1)
   })
 
   it('workflow:prompt_recorded labels by prompt_type', () => {
-    const mappings = workflowDomainMetricMap['workflow:prompt_recorded']
+    const mappings: MetricMapping[] = workflowDomainMetricMap['workflow:prompt_recorded']
     const result = mappings[0]!.extract({
       type: 'workflow:prompt_recorded',
       promptType: 'system',
@@ -412,7 +414,7 @@ describe('workflow-domain: all extract functions', () => {
   })
 
   it('workflow:cost_recorded produces counter and histogram with budget_bucket', () => {
-    const mappings = workflowDomainMetricMap['workflow:cost_recorded']
+    const mappings: MetricMapping[] = workflowDomainMetricMap['workflow:cost_recorded']
     expect(mappings).toHaveLength(2)
     const results = extractAll(mappings, {
       type: 'workflow:cost_recorded',
@@ -424,19 +426,19 @@ describe('workflow-domain: all extract functions', () => {
   })
 
   it('workflow:cost_budget_warning produces counter', () => {
-    const mappings = workflowDomainMetricMap['workflow:cost_budget_warning']
+    const mappings: MetricMapping[] = workflowDomainMetricMap['workflow:cost_budget_warning']
     const result = mappings[0]!.extract({ type: 'workflow:cost_budget_warning' } as DzupEvent)
     expect(result.value).toBe(1)
   })
 
   it('workflow:cost_budget_exceeded produces counter', () => {
-    const mappings = workflowDomainMetricMap['workflow:cost_budget_exceeded']
+    const mappings: MetricMapping[] = workflowDomainMetricMap['workflow:cost_budget_exceeded']
     const result = mappings[0]!.extract({ type: 'workflow:cost_budget_exceeded' } as DzupEvent)
     expect(result.value).toBe(1)
   })
 
   it('workflow:artifact_saved labels by artifact_type', () => {
-    const mappings = workflowDomainMetricMap['workflow:artifact_saved']
+    const mappings: MetricMapping[] = workflowDomainMetricMap['workflow:artifact_saved']
     const result = mappings[0]!.extract({
       type: 'workflow:artifact_saved',
       artifactType: 'code',
@@ -445,7 +447,7 @@ describe('workflow-domain: all extract functions', () => {
   })
 
   it('workflow:suggestion_created labels by category', () => {
-    const mappings = workflowDomainMetricMap['workflow:suggestion_created']
+    const mappings: MetricMapping[] = workflowDomainMetricMap['workflow:suggestion_created']
     const result = mappings[0]!.extract({
       type: 'workflow:suggestion_created',
       category: 'improvement',
@@ -454,7 +456,7 @@ describe('workflow-domain: all extract functions', () => {
   })
 
   it('workflow:schedule_triggered labels by schedule_id', () => {
-    const mappings = workflowDomainMetricMap['workflow:schedule_triggered']
+    const mappings: MetricMapping[] = workflowDomainMetricMap['workflow:schedule_triggered']
     const result = mappings[0]!.extract({
       type: 'workflow:schedule_triggered',
       scheduleId: 'ws-1',
@@ -467,11 +469,18 @@ describe('workflow-domain: all extract functions', () => {
 
 describe('empty-events: mail:received', () => {
   it('mail:received labels by to', () => {
-    const mappings = emptyEventMetricMap['mail:received']
+    const mappings: MetricMapping[] = emptyEventMetricMap['mail:received']
     expect(mappings).toHaveLength(1)
     const result = mappings[0]!.extract({
       type: 'mail:received',
-      message: { from: 'agent-a', to: 'agent-b', body: 'hello' },
+      message: {
+        id: 'msg-1',
+        from: 'agent-a',
+        to: 'agent-b',
+        subject: 'greeting',
+        body: { text: 'hello' },
+        createdAt: 0,
+      },
     } as DzupEvent)
     expect(result.value).toBe(1)
     expect(result.labels.to).toBe('agent-b')
@@ -482,20 +491,20 @@ describe('empty-events: mail:received', () => {
 
 describe('approval: human_contact events', () => {
   it('human_contact:requested produces counter', () => {
-    const mappings = approvalMetricMap['human_contact:requested']
+    const mappings: MetricMapping[] = approvalMetricMap['human_contact:requested']
     expect(mappings).toHaveLength(1)
     const result = mappings[0]!.extract({ type: 'human_contact:requested' } as DzupEvent)
     expect(result.value).toBe(1)
   })
 
   it('human_contact:responded produces counter', () => {
-    const mappings = approvalMetricMap['human_contact:responded']
+    const mappings: MetricMapping[] = approvalMetricMap['human_contact:responded']
     const result = mappings[0]!.extract({ type: 'human_contact:responded' } as DzupEvent)
     expect(result.value).toBe(1)
   })
 
   it('human_contact:timed_out produces counter', () => {
-    const mappings = approvalMetricMap['human_contact:timed_out']
+    const mappings: MetricMapping[] = approvalMetricMap['human_contact:timed_out']
     const result = mappings[0]!.extract({ type: 'human_contact:timed_out' } as DzupEvent)
     expect(result.value).toBe(1)
   })
@@ -516,7 +525,7 @@ describe('adapter-runtime: adapter:cache_stats metrics', () => {
   } as DzupEvent
 
   it('produces counter with provider_id', () => {
-    const mappings = adapterRuntimeMetricMap['adapter:cache_stats']
+    const mappings: MetricMapping[] = adapterRuntimeMetricMap['adapter:cache_stats']
     const counter = mappings.find((m) => m.metricName === 'dzip_adapter_cache_stats_total')
     expect(counter).toBeDefined()
     const result = counter!.extract(cacheStatsEvent)
@@ -525,7 +534,7 @@ describe('adapter-runtime: adapter:cache_stats metrics', () => {
   })
 
   it('produces gauge with cache hit ratio', () => {
-    const mappings = adapterRuntimeMetricMap['adapter:cache_stats']
+    const mappings: MetricMapping[] = adapterRuntimeMetricMap['adapter:cache_stats']
     const gauge = mappings.find((m) => m.metricName === 'dzip_adapter_cache_hit_ratio')
     expect(gauge).toBeDefined()
     const result = gauge!.extract(cacheStatsEvent)
@@ -534,7 +543,7 @@ describe('adapter-runtime: adapter:cache_stats metrics', () => {
   })
 
   it('produces histogram for cache read tokens', () => {
-    const mappings = adapterRuntimeMetricMap['adapter:cache_stats']
+    const mappings: MetricMapping[] = adapterRuntimeMetricMap['adapter:cache_stats']
     const histogram = mappings.find((m) => m.metricName === 'dzip_adapter_cache_read_tokens')
     expect(histogram).toBeDefined()
     const result = histogram!.extract(cacheStatsEvent)
@@ -542,7 +551,7 @@ describe('adapter-runtime: adapter:cache_stats metrics', () => {
   })
 
   it('produces histogram for cache write tokens', () => {
-    const mappings = adapterRuntimeMetricMap['adapter:cache_stats']
+    const mappings: MetricMapping[] = adapterRuntimeMetricMap['adapter:cache_stats']
     const histogram = mappings.find((m) => m.metricName === 'dzip_adapter_cache_write_tokens')
     expect(histogram).toBeDefined()
     const result = histogram!.extract(cacheStatsEvent)
