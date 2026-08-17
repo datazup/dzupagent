@@ -15,15 +15,17 @@ async function collect(iterable: AsyncIterable<Record<string, unknown>>): Promis
   return values
 }
 
-function createInjectedChild(): ChildProcess & { stdout: PassThrough; stderr: PassThrough; stdin: PassThrough } {
-  const child = new EventEmitter() as ChildProcess & {
-    stdout: PassThrough
-    stderr: PassThrough
-    stdin: PassThrough
-    exitCode: number | null
-    signalCode: NodeJS.Signals | null
-    pid: number
-  }
+type InjectedChild = ChildProcess & {
+  stdout: PassThrough
+  stderr: PassThrough
+  stdin: PassThrough
+  exitCode: number | null
+  signalCode: NodeJS.Signals | null
+  pid: number
+}
+
+function createInjectedChild(): InjectedChild {
+  const child = new EventEmitter() as InjectedChild
   child.stdout = new PassThrough()
   child.stderr = new PassThrough()
   child.stdin = new PassThrough()
@@ -34,7 +36,7 @@ function createInjectedChild(): ChildProcess & { stdout: PassThrough; stderr: Pa
   return child
 }
 
-function createTrackedHomeProjection(cleanup: () => Promise<void> | void): CliHomeProjection {
+function createTrackedHomeProjection(cleanup: () => Promise<void>): CliHomeProjection {
   return {
     root: '/tmp/dzupagent-tracked-home',
     env: { TEST_CLI_HOME: '/tmp/dzupagent-tracked-home' },

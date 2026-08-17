@@ -56,16 +56,8 @@ function asyncIterableOf<T>(items: T[]): AsyncIterable<T> & { interrupt: ReturnT
   const interruptFn = vi.fn()
   return {
     interrupt: interruptFn,
-    [Symbol.asyncIterator]() {
-      let index = 0
-      return {
-        async next() {
-          if (index < items.length) {
-            return { value: items[index++], done: false as const }
-          }
-          return { value: undefined, done: true as const }
-        },
-      }
+    async *[Symbol.asyncIterator]() {
+      for (const item of items) yield item
     },
   }
 }
@@ -454,12 +446,12 @@ describe('Adapter Execution Flow', () => {
 
     it('Claude has listSessions, Codex does not', () => {
       expect(typeof claude.listSessions).toBe('function')
-      expect((codex as Record<string, unknown>).listSessions).toBeUndefined()
+      expect('listSessions' in codex).toBe(false)
     })
 
     it('Claude has forkSession, Codex does not', () => {
       expect(typeof claude.forkSession).toBe('function')
-      expect((codex as Record<string, unknown>).forkSession).toBeUndefined()
+      expect('forkSession' in codex).toBe(false)
     })
   })
 

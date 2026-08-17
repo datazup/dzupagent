@@ -463,7 +463,7 @@ describe('InteractionResolver — ai-autonomous mode', () => {
   it('prefers DZUPAGENT_LLM_API_KEY over ANTHROPIC_API_KEY', async () => {
     process.env['DZUPAGENT_LLM_API_KEY'] = 'dzup-key'
     process.env['ANTHROPIC_API_KEY'] = 'anthropic-key'
-    const fetchSpy = vi.fn(async () =>
+    const fetchSpy = vi.fn(async (_url: string, _init: RequestInit) =>
       new Response(
         JSON.stringify({ content: [{ type: 'text', text: 'yes' }] }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -475,13 +475,13 @@ describe('InteractionResolver — ai-autonomous mode', () => {
     await resolver.resolve(makeReq())
 
     expect(fetchSpy).toHaveBeenCalledTimes(1)
-    const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit]
+    const [, init] = fetchSpy.mock.calls[0]!
     const headers = init.headers as Record<string, string>
     expect(headers['x-api-key']).toBe('dzup-key')
   })
 
   it('includes context in the system prompt when provided', async () => {
-    const fetchSpy = vi.fn(async () =>
+    const fetchSpy = vi.fn(async (_url: string, _init: RequestInit) =>
       new Response(
         JSON.stringify({ content: [{ type: 'text', text: 'yes' }] }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -492,13 +492,13 @@ describe('InteractionResolver — ai-autonomous mode', () => {
     const resolver = new InteractionResolver({ mode: 'ai-autonomous' })
     await resolver.resolve(makeReq({ context: 'Running in sandbox mode' }))
 
-    const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit]
+    const [, init] = fetchSpy.mock.calls[0]!
     const parsed = JSON.parse(init.body as string) as { system: string }
     expect(parsed.system).toContain('Running in sandbox mode')
   })
 
   it('uses configured model when provided', async () => {
-    const fetchSpy = vi.fn(async () =>
+    const fetchSpy = vi.fn(async (_url: string, _init: RequestInit) =>
       new Response(
         JSON.stringify({ content: [{ type: 'text', text: 'yes' }] }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -512,7 +512,7 @@ describe('InteractionResolver — ai-autonomous mode', () => {
     })
     await resolver.resolve(makeReq())
 
-    const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit]
+    const [, init] = fetchSpy.mock.calls[0]!
     const parsed = JSON.parse(init.body as string) as { model: string }
     expect(parsed.model).toBe('claude-sonnet-4-5')
   })

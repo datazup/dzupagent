@@ -188,7 +188,7 @@ describe('BaseCliAdapter — adapter:provider_raw emission', () => {
     })
 
     const adapter = new TestCliAdapter('gemini')
-    const events = await collectEvents(adapter.execute({ prompt: 'normalized only' }))
+    const events: AgentStreamEvent[] = await collectEvents(adapter.execute({ prompt: 'normalized only' }))
 
     expect(events.some((e) => e.type === 'adapter:provider_raw')).toBe(false)
     expect(events.some((e) => e.type === 'adapter:completed')).toBe(true)

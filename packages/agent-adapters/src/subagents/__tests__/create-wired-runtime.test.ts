@@ -41,7 +41,9 @@ describe("createWiredSubagentRuntime (end-to-end)", () => {
   it("runs a real subagent through the registry and publishes bus events", async () => {
     const bus = createEventBus();
     const seen: DzupEvent[] = [];
-    bus.onAny((e: DzupEvent) => seen.push(e));
+    bus.onAny((e: DzupEvent) => {
+      seen.push(e);
+    });
 
     const runtime = createWiredSubagentRuntime({
       registry: registryWith([
@@ -117,7 +119,9 @@ describe("createWiredSubagentRuntime (end-to-end)", () => {
   it("resolves a persona at admission and runs it on the routed provider", async () => {
     const bus = createEventBus();
     const seen: DzupEvent[] = [];
-    bus.onAny((e: DzupEvent) => seen.push(e));
+    bus.onAny((e: DzupEvent) => {
+      seen.push(e);
+    });
     const loader = {
       loadAgent: async () =>
         ({
@@ -153,7 +157,9 @@ describe("createWiredSubagentRuntime (end-to-end)", () => {
   it("publishes personaName and inlineDefinitionHash on spawned events", async () => {
     const bus = createEventBus();
     const seen: DzupEvent[] = [];
-    bus.onAny((e: DzupEvent) => seen.push(e));
+    bus.onAny((e: DzupEvent) => {
+      seen.push(e);
+    });
     const loader = {
       loadAgent: async () =>
         ({

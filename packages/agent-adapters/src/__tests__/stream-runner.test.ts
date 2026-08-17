@@ -80,7 +80,7 @@ describe('AdapterStreamRunner', () => {
     const source = makeSource([{ kind: 'thread_start', sessionId: 's1' }])
     const events = await collect(runner.run(source, makeInput({ correlationId: 'my-corr' })))
 
-    expect((events[0] as Record<string, unknown>)['correlationId']).toBe('my-corr')
+    expect(events[0]?.correlationId).toBe('my-corr')
   })
 
   it('maps raw events through source.mapRawEvent', async () => {
@@ -197,9 +197,9 @@ describe('AdapterStreamRunner', () => {
   })
 
   it('abort via onAbortController stops the stream', async () => {
-    let runnerController: AbortController | null = null
+    const runnerControllers: AbortController[] = []
     const runner = new AdapterStreamRunner({
-      onAbortController: (ctrl) => { runnerController = ctrl },
+      onAbortController: (ctrl) => { runnerControllers.push(ctrl) },
     })
 
     const source: AdapterStreamSource<RawEvent> = {
@@ -227,8 +227,8 @@ describe('AdapterStreamRunner', () => {
     for await (const ev of runner.run(source, makeInput())) {
       events.push(ev)
       count++
-      if (count === 2 && runnerController) {
-        runnerController.abort()
+      if (count === 2) {
+        runnerControllers[0]?.abort()
       }
     }
 

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import { BaseCliAdapter } from '../base/base-cli-adapter.js'
 import type { AgentEvent, AgentInput } from '../types.js'
+import type { SpawnJsonlOptions } from '../utils/process-helpers.js'
 import { collectEvents, getProcessHelperMocks } from './test-helpers.js'
 import { ForgeError } from '@dzupagent/core'
 
@@ -661,10 +662,10 @@ describe('BaseCliAdapter.execute() — path-level tests', () => {
     })
 
     it('input.workingDirectory is forwarded to spawnAndStreamJsonl as cwd', async () => {
-      let capturedCwd: string | undefined
+      let capturedCwd: string | URL | undefined
 
-      mockSpawnAndStreamJsonl.mockImplementation(async function* (_binary: string, _args: string[], opts: Record<string, unknown>) {
-        capturedCwd = opts['cwd'] as string | undefined
+      mockSpawnAndStreamJsonl.mockImplementation(async function* (_binary: string, _args: string[], opts?: SpawnJsonlOptions) {
+        capturedCwd = opts?.cwd
         yield { type: 'completed', result: 'ok' }
       })
 
@@ -675,10 +676,10 @@ describe('BaseCliAdapter.execute() — path-level tests', () => {
     })
 
     it('config.workingDirectory is used as cwd fallback when input.workingDirectory is absent', async () => {
-      let capturedCwd: string | undefined
+      let capturedCwd: string | URL | undefined
 
-      mockSpawnAndStreamJsonl.mockImplementation(async function* (_binary: string, _args: string[], opts: Record<string, unknown>) {
-        capturedCwd = opts['cwd'] as string | undefined
+      mockSpawnAndStreamJsonl.mockImplementation(async function* (_binary: string, _args: string[], opts?: SpawnJsonlOptions) {
+        capturedCwd = opts?.cwd
         yield { type: 'completed', result: 'ok' }
       })
 
