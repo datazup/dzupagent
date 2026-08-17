@@ -75,6 +75,19 @@ export class IterationBudget {
     );
   }
 
+  /**
+   * Check whether a tool was blocked during this run rather than by the
+   * caller's static guardrail configuration.
+   *
+   * Production callers add runtime blocks when stuck detection observes a
+   * repeated call. Keeping this provenance separate lets the tool loops
+   * advance stuck recovery on a retry without misclassifying a statically
+   * denied tool as an agent-stuck signal.
+   */
+  isToolDynamicallyBlocked(toolName: string): boolean {
+    return this.dynamicallyBlockedTools.has(toolName);
+  }
+
   /** Dynamically block a tool at runtime (e.g., by stuck detector).
    * Tracks in a private Set to avoid mutating the caller-provided config. */
   blockTool(toolName: string): void {

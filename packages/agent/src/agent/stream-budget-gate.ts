@@ -79,6 +79,7 @@ export function applyBudgetGate(args: {
     }
   }
 
+  const dynamicallyBlocked = budget?.isToolDynamicallyBlocked(toolName) ?? false
   if (budget?.isToolBlocked(toolName)) {
     emitToolError(policy, {
       toolName,
@@ -98,6 +99,14 @@ export function applyBudgetGate(args: {
           name: toolName,
         }),
         eventResult: '[blocked]',
+        ...(dynamicallyBlocked
+          ? {
+              stuckReason: `Tool "${toolName}" was retried after stuck detection blocked it`,
+              stuckRecovery: 'Stopping to prevent further model-call spend.',
+              repeatedTool: toolName,
+              shouldStop: true,
+            }
+          : {}),
       },
     }
   }

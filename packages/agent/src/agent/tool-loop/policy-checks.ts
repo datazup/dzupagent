@@ -138,6 +138,8 @@ export function runPolicyChecks(
     }
   }
 
+  const dynamicallyBlocked =
+    config.budget?.isToolDynamicallyBlocked(toolName) ?? false
   if (config.budget?.isToolBlocked(toolName)) {
     config.onToolResult?.(toolName, '[blocked]')
     emitToolError(config, {
@@ -156,6 +158,12 @@ export function runPolicyChecks(
           tool_call_id: toolCallId,
           name: toolName,
         }),
+        ...(dynamicallyBlocked
+          ? {
+              stuckToolName: toolName,
+              stuckReason: `Tool "${toolName}" was retried after stuck detection blocked it`,
+            }
+          : {}),
       },
     }
   }
