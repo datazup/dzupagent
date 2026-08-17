@@ -61,3 +61,6 @@ bun.lockb
 # transient type-resolution probe scratch dirs
 **/.*-types-*/
 **/.types-resolution-*/
+
+# Yarn local resolution cache (regenerated; must not be tracked)
+.yarn/install-state.gz
