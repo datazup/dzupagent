@@ -1,23 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ConventionExtractor } from '../convention-extractor.js'
 import { ALL_CONVENTION_CATEGORIES } from '../types.js'
-import type {
-  DetectedConvention,
-  ConventionCategory,
-  ConventionExtractorConfig,
-} from '../types.js'
+import type { DetectedConvention, ConventionCategory } from '../types.js'
 import type { MemoryService } from '../../memory-service.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-interface StoredEntry {
-  ns: string
-  scope: Record<string, string>
-  key: string
-  value: Record<string, unknown>
-}
 
 function createMockMemoryService(): {
   service: MemoryService

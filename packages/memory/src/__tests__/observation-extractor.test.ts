@@ -32,7 +32,14 @@ function createThrowingModel(error: Error): { model: BaseChatModel; invokeMock: 
   return { model, invokeMock }
 }
 
-function jsonResponse(observations: Array<Partial<Observation> & { text?: string; category?: string }>): string {
+// Models RAW model output, which is unvalidated JSON: the extractor's job is to
+// filter categories it does not recognise, so the fixture must be able to carry
+// arbitrary category strings. `category` is therefore omitted from the
+// Observation-derived part rather than intersected with it (an intersection
+// narrows back to the valid union and makes invalid-input tests unwritable).
+function jsonResponse(
+  observations: Array<Omit<Partial<Observation>, 'category'> & { text?: string; category?: string }>,
+): string {
   return JSON.stringify(observations.map(observation => ({
     evidenceRefs: ['m1'],
     ...observation,

@@ -17,8 +17,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   consolidateNamespace,
   consolidateAll,
-  type ConsolidationConfig,
-  type ConsolidationResult as NsConsolidationResult,
 } from "../memory-consolidation.js";
 import {
   ConsolidationEngine,
@@ -30,7 +28,6 @@ import { dedupLessons } from "../lesson-dedup.js";
 import {
   SemanticConsolidator,
   consolidateWithLLM,
-  type ConsolidationAction,
 } from "../semantic-consolidation.js";
 import {
   SleepConsolidator,
@@ -42,57 +39,6 @@ import type { BaseChatModel } from "@langchain/core/language_models/chat_models"
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
-
-/** Minimal BaseStore backed by an in-memory Map, compatible with consolidateNamespace. */
-function makeBaseStore(
-  records: Array<{
-    ns: string[];
-    key: string;
-    value: Record<string, unknown>;
-    createdAt?: Date;
-  }> = [],
-): BaseStore {
-  const data = new Map<
-    string,
-    { key: string; value: Record<string, unknown>; createdAt: Date }
-  >();
-  const nsKey = (ns: string[], k: string) => `${ns.join("/")}__${k}`;
-
-  for (const r of records) {
-    data.set(nsKey(r.ns, r.key), {
-      key: r.key,
-      value: r.value,
-      createdAt: r.createdAt ?? new Date(),
-    });
-  }
-
-  return {
-    search: vi.fn(async (ns: string[], opts?: { limit?: number }) => {
-      const prefix = `${ns.join("/")}__`;
-      const limit = opts?.limit ?? 200;
-      return [...data.values()]
-        .filter((r) => data.has(`${ns.join("/")}__${r.key}`))
-        .filter((r) => {
-          const k = nsKey(ns, r.key);
-          return data.has(k) && data.get(k)!.value === r.value;
-        })
-        .slice(0, limit);
-    }),
-    get: vi.fn(),
-    put: vi.fn(
-      async (ns: string[], key: string, value: Record<string, unknown>) => {
-        data.set(nsKey(ns, key), { key, value, createdAt: new Date() });
-      },
-    ),
-    delete: vi.fn(async (ns: string[], key: string) => {
-      data.delete(nsKey(ns, key));
-    }),
-    batch: vi.fn(),
-    start: vi.fn(),
-    setup: vi.fn(),
-    listNamespaces: vi.fn(),
-  } as unknown as BaseStore;
-}
 
 /** A simpler ConsolidationStore backed by a Map — for ConsolidationEngine tests. */
 interface MockConsolidationStore extends ConsolidationStore {
@@ -138,7 +84,7 @@ function makeMockModel(responseJson: string): BaseChatModel {
 
 /** Build a namespaced BaseStore that only stores items for one specific namespace tuple. */
 function makeNsStore(
-  ns: string[],
+  _ns: string[],
   records: Array<{
     key: string;
     value: Record<string, unknown>;
@@ -728,7 +674,7 @@ describe("ConsolidationEngine", () => {
           { key: "x:b", value: { text: "beta" } },
           { key: "x:c", value: { text: "gamma" } },
         ]),
-        put: vi.fn(async (_ns: string[], key: string) => {
+        put: vi.fn(async (_ns: string[], _key: string) => {
           callCount++;
           // First put is the summary (succeeds), subsequent puts for children fail
           if (callCount > 1) throw new Error("write failed");
@@ -1084,7 +1030,7 @@ describe("SemanticConsolidator — extended scenarios", () => {
       const store = {
         search: vi
           .fn()
-          .mockImplementation((ns: string[], opts?: { query?: string }) => {
+          .mockImplementation((_ns: string[], opts?: { query?: string }) => {
             if (opts?.query) {
               return Promise.resolve(
                 items.map((it) => ({ ...it, score: 0.9 })),

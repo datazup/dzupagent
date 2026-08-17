@@ -31,53 +31,6 @@ function makeEntry(key: string, version: number, updatedAt: number): SharedEntry
   }
 }
 
-/**
- * In-memory mock transport that connects two endpoints together.
- * Messages sent on one side are received by the other.
- */
-function createLinkedTransports(): [SyncTransport, SyncTransport] {
-  let handlerA: ((message: SyncMessage) => void) | null = null
-  let handlerB: ((message: SyncMessage) => void) | null = null
-  let closed = false
-
-  const transportA: SyncTransport = {
-    async send(message: SyncMessage): Promise<void> {
-      if (closed) throw new Error('Transport closed')
-      // Deliver to the other side asynchronously
-      if (handlerB) {
-        const h = handlerB
-        queueMicrotask(() => h(structuredClone(message)))
-      }
-    },
-    onMessage(handler: (message: SyncMessage) => void): void {
-      handlerA = handler
-    },
-    async close(): Promise<void> {
-      closed = true
-      handlerA = null
-    },
-  }
-
-  const transportB: SyncTransport = {
-    async send(message: SyncMessage): Promise<void> {
-      if (closed) throw new Error('Transport closed')
-      if (handlerA) {
-        const h = handlerA
-        queueMicrotask(() => h(structuredClone(message)))
-      }
-    },
-    onMessage(handler: (message: SyncMessage) => void): void {
-      handlerB = handler
-    },
-    async close(): Promise<void> {
-      closed = true
-      handlerB = null
-    },
-  }
-
-  return [transportA, transportB]
-}
-
 /** Synchronous mock transport (messages delivered immediately). */
 function createMockTransport(): SyncTransport & { sent: SyncMessage[] } {
   let handler: ((message: SyncMessage) => void) | null = null
@@ -426,7 +379,7 @@ describe('SyncProtocol', () => {
       expect(digestResponses[0]!.type).toBe('sync:request-delta')
 
       // Step 4: B receives request, sends delta
-      const deltaResponses = protocolA.handleMessage(digestResponses[0]!)
+      protocolA.handleMessage(digestResponses[0]!)
       // Wait — A handles the request-delta FROM A? No, B should handle it.
       // Let me fix: B receives the request-delta from A
       const deltaMsgs = protocolB.handleMessage(digestResponses[0]!)
@@ -927,6 +880,7 @@ describe('network partition (delayed deltas)', () => {
 
     // Apply A's delta to B
     const resultB = protocolB.applyDelta(deltaAtoB)
+    expect(resultB.accepted).toBeGreaterThanOrEqual(1) // a-only should be accepted
 
     // Both sides should have a-only and b-only
     expect(nsA.get('b-only')?.value).toEqual({ v: 'only-B' })

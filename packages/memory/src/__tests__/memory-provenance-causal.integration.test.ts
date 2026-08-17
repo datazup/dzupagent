@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ProvenanceWriter, extractProvenance } from '../provenance/provenance-writer.js'
 import { CausalGraph } from '../causal/causal-graph.js'
-import { pruneStaleMemories } from '../staleness-pruner.js'
+import { pruneStaleMemories, pruneStaleMemoriesWithGraph } from '../staleness-pruner.js'
 import type { MemoryService } from '../memory-service.js'
 import type { MemoryEntry } from '../consolidation-types.js'
 
@@ -288,10 +288,21 @@ describe('Provenance + Staleness pruner integration', () => {
     graph = new CausalGraph(mock.service)
   })
 
-  it('12. a memory with causal dependents should NOT be pruned when marked as important', () => {
-    // A memory that has causal dependents should be considered important.
-    // The staleness pruner respects the importance field, so we simulate
-    // a memory that has dependents by giving it high importance.
+  it('12. a memory with causal dependents should NOT be pruned when marked as important', async () => {
+    // Register REAL causal edges so this exercises the graph-aware pruner
+    // rather than only the importance field: both memories have a dependent,
+    // but only the protected one keeps its edge.
+    await graph.addRelation({
+      cause: 'root-memory', causeNamespace: NS,
+      effect: 'root-dependent', effectNamespace: NS,
+      confidence: 0.9,
+    })
+    await graph.addRelation({
+      cause: 'stale-memory', causeNamespace: NS,
+      effect: 'stale-dependent', effectNamespace: NS,
+      confidence: 0.9,
+    })
+
     const memories: MemoryEntry[] = [
       {
         key: 'root-memory',
@@ -309,9 +320,11 @@ describe('Provenance + Staleness pruner integration', () => {
       },
     ]
 
-    const result = pruneStaleMemories(memories, {
+    const result = await pruneStaleMemoriesWithGraph(memories, {
       maxStaleness: 30,
       importanceThreshold: 0.8,
+      causalGraph: graph,
+      causalNamespace: NS,
       now: NOW,
     })
 
@@ -319,6 +332,14 @@ describe('Provenance + Staleness pruner integration', () => {
     expect(result.kept.find(m => m.key === 'root-memory')).toBeDefined()
     // Stale memory should be pruned
     expect(result.pruned.find(m => m.key === 'stale-memory')).toBeDefined()
+
+    // pruneStaleMemoriesWithGraph calls removeNode() for pruned entries ONLY,
+    // so exactly the stale memory's edge is torn down.
+    expect(result.causalRelationsRemoved).toBe(1)
+    const rootNode = await graph.getRelations('root-memory', NS)
+    expect(rootNode.effects.map(r => r.effect)).toEqual(['root-dependent'])
+    const staleNode = await graph.getRelations('stale-memory', NS)
+    expect(staleNode.effects).toHaveLength(0)
   })
 
   it('13. a memory without causal dependents and past TTL SHOULD be pruned', () => {

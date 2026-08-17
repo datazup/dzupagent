@@ -28,14 +28,13 @@ import { createMemoryHarness } from "../testing/index.js";
 import {
   consolidateNamespace,
   consolidateAll,
-  type ConsolidationConfig,
 } from "../memory-consolidation.js";
 import {
   ConsolidationEngine,
   type ConsolidationStore,
   type ConsolidationStoreItem,
 } from "../consolidation-engine.js";
-import { parseMemoryEntry, type MemoryEntry } from "../consolidation-types.js";
+import type { MemoryEntry } from "../consolidation-types.js";
 import { dedupLessons } from "../lesson-dedup.js";
 import {
   SemanticConsolidator,
@@ -62,7 +61,7 @@ function makeMemoryEntry(
 
 /** Minimal BaseStore backed by a Map, keyed by (ns+key). */
 function makeNsStore(
-  initialNs: string[],
+  _initialNs: string[],
   records: Array<{
     key: string;
     value: Record<string, unknown>;
@@ -900,7 +899,7 @@ describe("Conflict resolution — latest wins", () => {
       ]
     );
     (store.delete as ReturnType<typeof vi.fn>).mockImplementation(
-      async (ns: string[], key: string) => deleteSpy(key)
+      async (_ns: string[], key: string) => deleteSpy(key)
     );
     await consolidateNamespace(store, ["ns"]);
     expect(deleteSpy).toHaveBeenCalledWith("stale");
@@ -925,7 +924,7 @@ describe("Conflict resolution — latest wins", () => {
       ]
     );
     (store.delete as ReturnType<typeof vi.fn>).mockImplementation(
-      async (ns: string[], key: string) => deleteSpy(key)
+      async (_ns: string[], key: string) => deleteSpy(key)
     );
     await consolidateNamespace(store, ["ns"]);
     expect(deleteSpy).toHaveBeenCalledWith("first-in-list");

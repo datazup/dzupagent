@@ -36,7 +36,10 @@ function createMockMemoryService(initialData?: {
   const service = {
     get: vi.fn().mockImplementation(
       (ns: string, scope: Record<string, string>, key?: string) => {
-        getCalls.push({ ns, scope, key })
+        // `key` is optional on the recorded shape; under
+        // exactOptionalPropertyTypes an absent key must be OMITTED, not
+        // recorded as an explicit `undefined`.
+        getCalls.push({ ns, scope, ...(key !== undefined ? { key } : {}) })
         const records = data[ns] ?? []
         if (key) return Promise.resolve(records.filter((r, i) => keyOf(r, i) === key))
         return Promise.resolve(records)
@@ -61,7 +64,7 @@ function createMockMemoryService(initialData?: {
     ),
     formatForPrompt: vi.fn().mockImplementation(
       (records: Record<string, unknown>[], options?: { header?: string }) => {
-        formatForPromptCalls.push({ records, options })
+        formatForPromptCalls.push({ records, ...(options !== undefined ? { options } : {}) })
         return `formatted(${records.length})`
       },
     ),

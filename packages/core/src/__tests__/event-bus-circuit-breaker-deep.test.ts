@@ -29,8 +29,8 @@ import type { DzupEvent } from "../events/event-types.js";
 // ──────────────────────────────────────────────────────────────────────────────
 
 function makeBreaker(
-  overrides: Partial<
-    Parameters<(typeof CircuitBreaker)["prototype"]["constructor"]>[0]
+  overrides: NonNullable<
+    ConstructorParameters<typeof CircuitBreaker>[0]
   > = {}
 ): CircuitBreaker {
   return new CircuitBreaker({
@@ -46,8 +46,8 @@ function makeBreaker(
 function makeBreakerWithBus(
   bus: DzupEventBus,
   key: string,
-  overrides: Partial<
-    Parameters<(typeof CircuitBreaker)["prototype"]["constructor"]>[0]
+  overrides: NonNullable<
+    ConstructorParameters<typeof CircuitBreaker>[0]
   > = {}
 ): CircuitBreaker {
   return new CircuitBreaker({
@@ -147,8 +147,8 @@ describe("DzupEventBus — deep coverage", () => {
     it("each handler receives the same event object reference", () => {
       const bus = createEventBus();
       const received: DzupEvent[] = [];
-      bus.on("plugin:registered", (e) => received.push(e));
-      bus.on("plugin:registered", (e) => received.push(e));
+      bus.on("plugin:registered", (e) => { received.push(e) });
+      bus.on("plugin:registered", (e) => { received.push(e) });
       const evt = { type: "plugin:registered" as const, pluginName: "x" };
       bus.emit(evt);
       expect(received).toHaveLength(2);
@@ -283,7 +283,7 @@ describe("DzupEventBus — deep coverage", () => {
     it("receives every distinct event type", () => {
       const bus = createEventBus();
       const events: string[] = [];
-      bus.onAny((e) => events.push(e.type));
+      bus.onAny((e) => { events.push(e.type) });
 
       bus.emit({ type: "agent:started", agentId: "a", runId: "r" });
       bus.emit({ type: "tool:called", toolName: "t", input: {} });
@@ -411,9 +411,12 @@ describe("DzupEventBus — deep coverage", () => {
       });
       await Promise.resolve();
       expect(captured).not.toBeNull();
-      expect(
-        (captured as Extract<DzupEvent, { type: "tool:result" }>).durationMs
-      ).toBe(99);
+      expect(captured).toMatchObject({
+        type: "tool:result",
+        toolName: "search",
+        durationMs: 99,
+        status: "success",
+      });
     });
   });
 
@@ -506,7 +509,7 @@ describe("DzupEventBus — deep coverage", () => {
     it("events are processed in emission order by a single handler", () => {
       const bus = createEventBus();
       const received: string[] = [];
-      bus.onAny((e) => received.push(e.type));
+      bus.onAny((e) => { received.push(e.type) });
       bus.emit({ type: "agent:started", agentId: "a", runId: "r1" });
       bus.emit({ type: "tool:called", toolName: "t", input: {} });
       bus.emit({
@@ -1231,7 +1234,7 @@ describe("Integration — CircuitBreaker state-change events on DzupEventBus", (
   it("circuit open event is received on the event bus", () => {
     const bus = createEventBus();
     const healthEvents: DzupEvent[] = [];
-    bus.on("registry:health_changed", (e) => healthEvents.push(e));
+    bus.on("registry:health_changed", (e) => { healthEvents.push(e) });
 
     const b = makeBreakerWithBus(bus, "provider-a", { failureThreshold: 2 });
     b.recordFailure();
@@ -1312,7 +1315,7 @@ describe("Integration — CircuitBreaker state-change events on DzupEventBus", (
   it("wildcard subscriber on bus receives all circuit breaker transitions", () => {
     const bus = createEventBus();
     const allEvents: DzupEvent[] = [];
-    bus.onAny((e) => allEvents.push(e));
+    bus.onAny((e) => { allEvents.push(e) });
 
     const b1 = makeBreakerWithBus(bus, "b1", { failureThreshold: 1 });
     const b2 = makeBreakerWithBus(bus, "b2", { failureThreshold: 1 });
@@ -1350,7 +1353,7 @@ describe("Integration — CircuitBreaker state-change events on DzupEventBus", (
   it("event bus unsubscribe stops receiving circuit breaker events", () => {
     const bus = createEventBus();
     const received: DzupEvent[] = [];
-    const unsub = bus.on("registry:health_changed", (e) => received.push(e));
+    const unsub = bus.on("registry:health_changed", (e) => { received.push(e) });
 
     const b = makeBreakerWithBus(bus, "prov", { failureThreshold: 1 });
     b.recordFailure(); // fires event — received
@@ -1366,7 +1369,7 @@ describe("Integration — CircuitBreaker state-change events on DzupEventBus", (
   it("once subscriber receives exactly one circuit breaker transition event", () => {
     const bus = createEventBus();
     const received: DzupEvent[] = [];
-    bus.once("registry:health_changed", (e) => received.push(e));
+    bus.once("registry:health_changed", (e) => { received.push(e) });
 
     const b1 = makeBreakerWithBus(bus, "x", { failureThreshold: 1 });
     const b2 = makeBreakerWithBus(bus, "y", { failureThreshold: 1 });

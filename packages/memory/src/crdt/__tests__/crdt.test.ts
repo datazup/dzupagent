@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { HLC } from '../hlc.js'
 import { CRDTResolver } from '../crdt-resolver.js'
-import type { HLCTimestamp, LWWRegister, ORSet, LWWMap } from '../types.js'
+import type { HLCTimestamp } from '../types.js'
 import type { MemoryService } from '../../memory-service.js'
 
 // ===========================================================================
@@ -407,7 +407,6 @@ describe('CRDT integration with MemorySpaceManager', () => {
 
     // Verify put was called with _crdt metadata
     expect(putSpy).toHaveBeenCalled()
-    const writtenValue = putSpy.mock.calls[putSpy.mock.calls.length - 1]
     // The provenance writer calls memoryService.put — check it has _crdt
     // ProvenanceWriter wraps the value, so we check the call args
     const lastPutArgs = putSpy.mock.calls[putSpy.mock.calls.length - 1] as unknown[]

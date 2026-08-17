@@ -25,9 +25,20 @@ describe('fusionSearch', () => {
       expect(results[0]!.sources).toHaveLength(1)
     })
 
-    it('handles undefined sources without crashing', () => {
-      const results = fusionSearch({ vector: undefined, fts: undefined, graph: undefined })
-      expect(results).toEqual([])
+    it('skips an absent source and still fuses the present ones', () => {
+      // `fts` is omitted, so `results.fts` reads back as `undefined` inside
+      // fusionSearch and the `if (!items) continue` guard must skip it rather
+      // than iterate it. (exactOptionalPropertyTypes forbids writing
+      // `fts: undefined` literally; omission is the same runtime shape.)
+      const results = fusionSearch({
+        vector: [makeItem('a', 0.9)],
+        graph: [makeItem('a', 0.4), makeItem('b', 0.2)],
+      })
+      expect(results.map(r => r.key)).toEqual(['a', 'b'])
+      expect(results[0]!.sources).toEqual(['vector', 'graph'])
+      // 'a': rank 0 in vector + rank 0 in graph = 2/60; 'b': rank 1 in graph = 1/61
+      expect(results[0]!.score).toBeCloseTo(2 / 60, 6)
+      expect(results[1]!.score).toBeCloseTo(1 / 61, 6)
     })
   })
 

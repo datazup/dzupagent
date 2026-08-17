@@ -12,7 +12,7 @@ import type { CostEntry } from "../cost-attribution.js";
 import { SafetyMonitor } from "../safety-monitor.js";
 import type { SafetyPatternRule } from "../safety-monitor.js";
 import { AuditTrail, InMemoryAuditStore } from "../audit-trail.js";
-import type { AuditEntry, AuditCategory } from "../audit-trail.js";
+import type { AuditEntry } from "../audit-trail.js";
 import { VectorMetricsCollector } from "../vector-metrics.js";
 import { createOTelPlugin } from "../otel-plugin.js";
 
@@ -218,7 +218,7 @@ describe("OTelBridge — span events for lifecycle events", () => {
       agentId: "a",
       runId: "r",
       message: "err",
-      errorCode: "E1",
+      errorCode: "PROVIDER_UNAVAILABLE",
     });
   });
 
@@ -232,7 +232,7 @@ describe("OTelBridge — span events for lifecycle events", () => {
       type: "tool:error",
       toolName: "git_diff",
       message: "fail",
-      errorCode: "E2",
+      errorCode: "PROVIDER_RATE_LIMITED",
     });
   });
 
@@ -245,7 +245,6 @@ describe("OTelBridge — span events for lifecycle events", () => {
     bus.emit({
       type: "provider:circuit_opened",
       provider: "openai",
-      consecutiveFailures: 5,
     });
   });
 });
@@ -355,7 +354,7 @@ describe("CostAttributor — deep edge cases", () => {
 
   it("emits budget:warning at 80% cost threshold", () => {
     const warnings: unknown[] = [];
-    bus.on("budget:warning", (e) => warnings.push(e));
+    bus.on("budget:warning", (e) => { warnings.push(e) });
     cost = new CostAttributor({
       thresholds: { maxCostCents: 100 },
       eventBus: bus,
@@ -373,7 +372,7 @@ describe("CostAttributor — deep edge cases", () => {
 
   it("emits budget:exceeded at 100% cost threshold", () => {
     const exceeded: unknown[] = [];
-    bus.on("budget:exceeded", (e) => exceeded.push(e));
+    bus.on("budget:exceeded", (e) => { exceeded.push(e) });
     cost = new CostAttributor({
       thresholds: { maxCostCents: 100 },
       eventBus: bus,
@@ -390,7 +389,7 @@ describe("CostAttributor — deep edge cases", () => {
 
   it("emits warning only once (not repeated)", () => {
     const warnings: unknown[] = [];
-    bus.on("budget:warning", (e) => warnings.push(e));
+    bus.on("budget:warning", (e) => { warnings.push(e) });
     cost = new CostAttributor({
       thresholds: { maxCostCents: 100 },
       eventBus: bus,
@@ -413,7 +412,7 @@ describe("CostAttributor — deep edge cases", () => {
 
   it("emits exceeded only once", () => {
     const exceeded: unknown[] = [];
-    bus.on("budget:exceeded", (e) => exceeded.push(e));
+    bus.on("budget:exceeded", (e) => { exceeded.push(e) });
     cost = new CostAttributor({
       thresholds: { maxCostCents: 100 },
       eventBus: bus,
@@ -436,7 +435,7 @@ describe("CostAttributor — deep edge cases", () => {
 
   it("token threshold triggers warning", () => {
     const warnings: unknown[] = [];
-    bus.on("budget:warning", (e) => warnings.push(e));
+    bus.on("budget:warning", (e) => { warnings.push(e) });
     cost = new CostAttributor({
       thresholds: { maxTokens: 1000 },
       eventBus: bus,
@@ -453,7 +452,7 @@ describe("CostAttributor — deep edge cases", () => {
 
   it("token threshold triggers exceeded", () => {
     const exceeded: unknown[] = [];
-    bus.on("budget:exceeded", (e) => exceeded.push(e));
+    bus.on("budget:exceeded", (e) => { exceeded.push(e) });
     cost = new CostAttributor({
       thresholds: { maxTokens: 1000 },
       eventBus: bus,
@@ -470,7 +469,7 @@ describe("CostAttributor — deep edge cases", () => {
 
   it("custom warningRatio changes threshold", () => {
     const warnings: unknown[] = [];
-    bus.on("budget:warning", (e) => warnings.push(e));
+    bus.on("budget:warning", (e) => { warnings.push(e) });
     cost = new CostAttributor({
       thresholds: { maxCostCents: 100, warningRatio: 0.5 },
       eventBus: bus,
@@ -701,7 +700,7 @@ describe("SafetyMonitor — deep edge cases", () => {
       type: "tool:error",
       toolName: "git_status",
       message: "fail1",
-      errorCode: "E1",
+      errorCode: "PROVIDER_UNAVAILABLE",
     });
     expect(monitor.getEvents()).toHaveLength(0);
 
@@ -709,7 +708,7 @@ describe("SafetyMonitor — deep edge cases", () => {
       type: "tool:error",
       toolName: "git_status",
       message: "fail2",
-      errorCode: "E2",
+      errorCode: "PROVIDER_RATE_LIMITED",
     });
     const events = monitor.getEvents();
     expect(events.length).toBeGreaterThanOrEqual(1);
@@ -725,14 +724,14 @@ describe("SafetyMonitor — deep edge cases", () => {
       type: "tool:error",
       toolName: "git_status",
       message: "fail",
-      errorCode: "E",
+      errorCode: "TOOL_EXECUTION_FAILED",
     });
     bus.emit({ type: "tool:result", toolName: "git_status", durationMs: 10 });
     bus.emit({
       type: "tool:error",
       toolName: "git_status",
       message: "fail",
-      errorCode: "E",
+      errorCode: "TOOL_EXECUTION_FAILED",
     });
     // Only 1 consecutive failure after reset, threshold is 2
     expect(
@@ -749,13 +748,13 @@ describe("SafetyMonitor — deep edge cases", () => {
       type: "tool:error",
       toolName: "tool_a",
       message: "fail",
-      errorCode: "E",
+      errorCode: "TOOL_EXECUTION_FAILED",
     });
     bus.emit({
       type: "tool:error",
       toolName: "tool_b",
       message: "fail",
-      errorCode: "E",
+      errorCode: "TOOL_EXECUTION_FAILED",
     });
     // Neither tool has 2 consecutive failures
     expect(
@@ -945,8 +944,7 @@ describe("AuditTrail — deep edge cases", () => {
     bus.emit({
       type: "approval:requested",
       runId: "r",
-      action: "deploy",
-      reason: "needs review",
+      plan: "deploy",
     });
     await flushMicrotasks();
 

@@ -502,32 +502,28 @@ describe('AgentFileImporter.validate — edge cases', () => {
   })
 
   it('rejects when agent.name is non-string', () => {
-    const f = validFile()
-    ;(f.agent as Record<string, unknown>)['name'] = 42
+    const f: Record<string, unknown> = { ...validFile(), agent: { name: 42 } }
     const r = importer.validate(f)
     expect(r.valid).toBe(false)
     expect(r.errors.some(e => e.includes('agent.name'))).toBe(true)
   })
 
   it('rejects when memory.namespaces is missing', () => {
-    const f = validFile()
-    ;(f as Record<string, unknown>)['memory'] = {}
+    const f: Record<string, unknown> = { ...validFile(), memory: {} }
     const r = importer.validate(f)
     expect(r.valid).toBe(false)
     expect(r.errors.some(e => e.includes('memory.namespaces'))).toBe(true)
   })
 
   it('rejects when exportedBy is empty string', () => {
-    const f = validFile()
-    ;(f as Record<string, unknown>)['exportedBy'] = ''
+    const f: Record<string, unknown> = { ...validFile(), exportedBy: '' }
     const r = importer.validate(f)
     expect(r.valid).toBe(false)
     expect(r.errors.some(e => e.includes('exportedBy'))).toBe(true)
   })
 
   it('rejects when exportedAt is not a string', () => {
-    const f = validFile()
-    ;(f as Record<string, unknown>)['exportedAt'] = 12345
+    const f: Record<string, unknown> = { ...validFile(), exportedAt: 12345 }
     const r = importer.validate(f)
     expect(r.valid).toBe(false)
     expect(r.errors.some(e => e.includes('exportedAt'))).toBe(true)
@@ -535,7 +531,7 @@ describe('AgentFileImporter.validate — edge cases', () => {
 
   it('accepts file with no signature (validation skipped)', () => {
     const f = validFile()
-    delete (f as Record<string, unknown>)['signature']
+    delete f.signature
     const r = importer.validate(f)
     expect(r.valid).toBe(true)
   })

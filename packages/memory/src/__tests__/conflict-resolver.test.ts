@@ -8,25 +8,28 @@ import type {
 } from '../graph/graph-types.js'
 
 function makeNode(overrides: Partial<GraphNode> & Pick<GraphNode, 'id'>): GraphNode {
+  // `provenance` is pulled out of the spread: merging it below and then
+  // spreading `overrides` wholesale would replace the merged object with the
+  // caller's partial one, dropping timestamp/confidence/evidenceRefs.
+  const { provenance, ...rest } = overrides
   return {
-    id: overrides.id,
     type: 'fact',
-    label: overrides.label ?? 'L',
-    content: overrides.content ?? 'C',
+    label: 'L',
+    content: 'C',
     metadata: {},
-    provenance: {
-      agentId: 'agent-' + overrides.id,
-      timestamp: new Date(),
-      confidence: 0.5,
-      evidenceRefs: [],
-      ...(overrides.provenance ?? {}),
-    },
     trustScore: 0.5,
     decayRate: 0,
     namespace: 'ns',
     createdAt: new Date(),
     updatedAt: new Date(),
-    ...overrides,
+    ...rest,
+    provenance: {
+      agentId: 'agent-' + overrides.id,
+      timestamp: new Date(),
+      confidence: 0.5,
+      evidenceRefs: [],
+      ...(provenance ?? {}),
+    },
   } as GraphNode
 }
 
@@ -120,7 +123,10 @@ describe('ConflictResolver', () => {
       const r = new ConflictResolver(scorer, 'trust_vote')
       const conflict = r.detectConflict(a, b, makeEdge('contradicts'))!
       const result = r.resolve(conflict, a, b)
-      expect(['a', 'b']).toContain(result.winner)
+      // agent-B is the only agent given positive contributions, so trust_vote
+      // must pick b. `toContain(['a','b'])` was vacuous — those are the only
+      // two possible winners, so it held no matter which way the vote went.
+      expect(result.winner).toBe('b')
       expect(result.reason).toMatch(/trust/)
     })
 

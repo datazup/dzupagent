@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ObservationalMemory } from '../observational-memory.js'
+import type { ObservationLifecycleEvent } from '../observational-memory.js'
 import type { ObservationalMemoryConfig } from '../observational-memory.js'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseStore } from '@langchain/langgraph'
@@ -66,7 +67,10 @@ function createMockMemoryService(
   search: ReturnType<typeof vi.fn>
   formatForPrompt: ReturnType<typeof vi.fn>
 } {
-  const data = new Map(
+  // Annotated: without it the `as const` seed infers a `existing-${number}`
+  // template-literal key type, so the mock's own put/get (which take a plain
+  // `string` key) become unassignable.
+  const data = new Map<string, Record<string, unknown>>(
     existingRecords.map((record, index) => [`existing-${index}`, record] as const),
   )
   return {
@@ -229,7 +233,7 @@ describe('ObservationalMemory', () => {
 
   describe('candidate-first persistence', () => {
     it('emits non-sensitive candidate lifecycle events for host adapters', async () => {
-      const events: Array<Record<string, unknown>> = []
+      const events: ObservationLifecycleEvent[] = []
       sut = createOM({
         observerThreshold: 1,
         observationWriteMode: 'candidate-first',
@@ -445,7 +449,7 @@ describe('ObservationalMemory', () => {
     })
 
     it('emits the count removed by persistent retention pruning', async () => {
-      const events: Array<Record<string, unknown>> = []
+      const events: ObservationLifecycleEvent[] = []
       const candidateStore: ObservationCandidateStore = {
         load: vi.fn().mockResolvedValue([]),
         put: vi.fn().mockResolvedValue(true),

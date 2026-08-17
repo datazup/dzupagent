@@ -202,7 +202,7 @@ describe('ProtocolBridge.a2aToMcp — fallback branches', () => {
       from: 'a2a://x/y',
       to: 'mcp://x/z',
       protocol: 'a2a',
-      payload: { type: 'error', code: 'E', message: 'boom' },
+      payload: { type: 'error', code: 'TOOL_EXECUTION_FAILED', message: 'boom' },
     })
     const result = ProtocolBridge.a2aToMcp(msg)
     if (result.payload.type === 'tool_result') {
@@ -1586,7 +1586,10 @@ describe('safety-monitor — branch coverage', () => {
 
   it('replaces built-in rules when replaceBuiltInRules=true', () => {
     const custom: SafetyRule = {
-      name: 'test',
+      id: 'test',
+      category: 'prompt_injection',
+      severity: 'warning',
+      action: 'log',
       check: () => null,
     }
     const m = createSafetyMonitor({ rules: [custom], replaceBuiltInRules: true })
@@ -1599,41 +1602,49 @@ describe('safety-monitor — branch coverage', () => {
 
   it('extends built-in rules when rules provided without replace flag', () => {
     const alwaysFires: SafetyRule = {
-      name: 'always',
+      id: 'always',
+      category: 'prompt_injection',
+      severity: 'warning',
+      action: 'log',
       check: () => ({
         category: 'prompt_injection',
-        severity: 'high',
+        severity: 'critical',
         message: 'always',
-        rule: 'always',
-        action: 'monitor',
+        evidence: 'always',
+        timestamp: new Date(0),
+        action: 'log',
       }),
     }
     const m = createSafetyMonitor({ rules: [alwaysFires] })
     const found = m.scanContent('anything')
-    expect(found.some((v) => v.rule === 'always')).toBe(true)
+    expect(found.some((v) => v.evidence === 'always')).toBe(true)
     m.dispose()
   })
 
   it('auto-attaches when eventBus is in config', () => {
     const bus = createEventBus()
     const emitted: unknown[] = []
-    bus.onAny((e) => emitted.push(e))
+    bus.onAny((e) => { emitted.push(e) })
     const m = createSafetyMonitor({
       eventBus: bus,
       replaceBuiltInRules: true,
       rules: [{
-        name: 'rl',
+        id: 'rl',
+        category: 'prompt_injection',
+        severity: 'warning',
+        action: 'log',
         check: () => ({
-          category: 'memory_poisoning',
-          severity: 'high',
+          category: 'prompt_injection',
+          severity: 'critical',
           message: 'hit',
-          rule: 'rl',
+          evidence: 'rl',
+          timestamp: new Date(0),
           action: 'block',
         }),
       }],
     })
     // Emitting memory:written triggers scanContent
-    bus.emit({ type: 'memory:written', namespace: 'n', scope: 's', key: 'k', bytes: 4 })
+    bus.emit({ type: 'memory:written', namespace: 'n', key: 'k' })
     // safety:violation + safety:blocked should have been emitted
     expect(emitted.some((e) => (e as { type?: string }).type === 'safety:violation')).toBe(true)
     expect(emitted.some((e) => (e as { type?: string }).type === 'safety:blocked')).toBe(true)
@@ -1643,24 +1654,28 @@ describe('safety-monitor — branch coverage', () => {
   it('emits safety:kill_requested for kill action', () => {
     const bus = createEventBus()
     const emitted: Array<{ type?: string }> = []
-    bus.onAny((e) => emitted.push(e as { type?: string }))
+    bus.onAny((e) => { emitted.push(e as { type?: string }) })
     const m = createSafetyMonitor({
       eventBus: bus,
       replaceBuiltInRules: true,
       rules: [{
-        name: 'critical',
+        id: 'critical',
+        category: 'prompt_injection',
+        severity: 'warning',
+        action: 'log',
         check: () => ({
-          category: 'privilege_escalation',
+          category: 'escalation',
           severity: 'critical',
           message: 'kill now',
-          rule: 'critical',
+          evidence: 'critical',
+          timestamp: new Date(0),
           action: 'kill',
           agentId: 'a1',
         }),
       }],
     })
     bus.emit({
-      type: 'tool:error', toolName: 'danger', message: 'msg', errorCode: 'X',
+      type: 'tool:error', toolName: 'danger', message: 'msg', errorCode: 'TOOL_EXECUTION_FAILED',
     })
     expect(emitted.some((e) => e.type === 'safety:kill_requested')).toBe(true)
     m.dispose()
@@ -1668,17 +1683,24 @@ describe('safety-monitor — branch coverage', () => {
 
   it('handles rule.check() that throws without blocking other rules', () => {
     const throwingRule: SafetyRule = {
-      name: 'broken',
+      id: 'broken',
+      category: 'prompt_injection',
+      severity: 'warning',
+      action: 'log',
       check: () => { throw new Error('broken rule') },
     }
     const goodRule: SafetyRule = {
-      name: 'good',
+      id: 'good',
+      category: 'prompt_injection',
+      severity: 'warning',
+      action: 'log',
       check: () => ({
         category: 'prompt_injection',
-        severity: 'low',
+        severity: 'info',
         message: 'ok',
-        rule: 'good',
-        action: 'monitor',
+        evidence: 'good',
+        timestamp: new Date(0),
+        action: 'log',
       }),
     }
     const m = createSafetyMonitor({
@@ -1686,7 +1708,7 @@ describe('safety-monitor — branch coverage', () => {
       rules: [throwingRule, goodRule],
     })
     const found = m.scanContent('anything')
-    expect(found.some((v) => v.rule === 'good')).toBe(true)
+    expect(found.some((v) => v.evidence === 'good')).toBe(true)
     m.dispose()
   })
 
@@ -1709,20 +1731,24 @@ describe('safety-monitor — branch coverage', () => {
     const m = createSafetyMonitor({
       replaceBuiltInRules: true,
       rules: [{
-        name: 'x',
+        id: 'x',
+        category: 'prompt_injection',
+        severity: 'warning',
+        action: 'log',
         check: () => ({
-          category: 'memory_poisoning',
-          severity: 'high',
+          category: 'prompt_injection',
+          severity: 'critical',
           message: 'm',
-          rule: 'x',
+          evidence: 'x',
+          timestamp: new Date(0),
           action: 'block',
         }),
       }],
     })
     m.attach(bus1)
     m.attach(bus2) // detaches from bus1
-    bus2.onAny((e) => emitted.push(e))
-    bus1.emit({ type: 'memory:written', namespace: 'n', scope: 's', key: 'k', bytes: 1 })
+    bus2.onAny((e) => { emitted.push(e) })
+    bus1.emit({ type: 'memory:written', namespace: 'n', key: 'k' })
     // Only bus2 should be active; emission on bus1 should not trigger monitor
     expect(emitted.length).toBe(0)
     m.dispose()
@@ -1739,12 +1765,16 @@ describe('safety-monitor — branch coverage', () => {
       eventBus: bus,
       replaceBuiltInRules: true,
       rules: [{
-        name: 'x',
+        id: 'x',
+        category: 'prompt_injection',
+        severity: 'warning',
+        action: 'log',
         check: () => ({
-          category: 'memory_poisoning',
-          severity: 'high',
+          category: 'prompt_injection',
+          severity: 'critical',
           message: 'm',
-          rule: 'x',
+          evidence: 'x',
+          timestamp: new Date(0),
           action: 'block',
         }),
       }],
@@ -1759,13 +1789,17 @@ describe('safety-monitor — branch coverage', () => {
     const m = createSafetyMonitor({
       replaceBuiltInRules: true,
       rules: [{
-        name: 'r',
+        id: 'r',
+        category: 'prompt_injection',
+        severity: 'warning',
+        action: 'log',
         check: () => ({
           category: 'prompt_injection',
-          severity: 'low',
+          severity: 'info',
           message: 'hit',
-          rule: 'r',
-          action: 'monitor',
+          evidence: 'r',
+          timestamp: new Date(0),
+          action: 'log',
         }),
       }],
     })
@@ -1779,13 +1813,17 @@ describe('safety-monitor — branch coverage', () => {
     const m = createSafetyMonitor({
       replaceBuiltInRules: true,
       rules: [{
-        name: 'r',
+        id: 'r',
+        category: 'prompt_injection',
+        severity: 'warning',
+        action: 'log',
         check: () => ({
           category: 'prompt_injection',
-          severity: 'low',
+          severity: 'info',
           message: 'hit',
-          rule: 'r',
-          action: 'monitor',
+          evidence: 'r',
+          timestamp: new Date(0),
+          action: 'log',
         }),
       }],
     })

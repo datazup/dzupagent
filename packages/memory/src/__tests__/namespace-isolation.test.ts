@@ -114,6 +114,26 @@ describe("Namespace isolation – cross-namespace read prevention", () => {
     }
   });
 
+  it("the same namespace is isolated across tenant scopes", async () => {
+    // buildKey() and scopeMatches() both key on tenantId, so the SAME
+    // namespace under a different tenant is a separate partition.
+    await fillNamespace(client, "alpha", 3, SCOPE);
+    await fillNamespace(client, "alpha", 2, SCOPE_B);
+
+    const tenantA = await client.get("alpha", SCOPE);
+    const tenantB = await client.get("alpha", SCOPE_B);
+
+    expect(tenantA).toHaveLength(3);
+    expect(tenantB).toHaveLength(2);
+    expect(tenantA.every((r) => r.scope.tenantId === "tenant-1")).toBe(true);
+    expect(tenantB.every((r) => r.scope.tenantId === "tenant-2")).toBe(true);
+
+    // A tenant-1 record id must not be reachable — or deletable — as tenant-2.
+    const victim = tenantA[0]!;
+    expect(await client.delete("alpha", SCOPE_B, victim.id)).toBe(false);
+    expect(await client.get("alpha", SCOPE)).toHaveLength(3);
+  });
+
   it("cross-namespace search prevention: search in namespace A returns no results from namespace B", async () => {
     await client.put(
       "alpha",

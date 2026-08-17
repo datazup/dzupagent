@@ -5,7 +5,8 @@
  *   - retrieval/vector-search.ts          (StoreVectorSearch)
  *   - retrieval/vector-store-search.ts    (VectorStoreSearch)
  *   - memory-service-search.ts            (fuseWithVector, extractDecayMeta, searchMemory)
- *   - memory-service-store.ts             (putMemoryRecord, deleteMemoryRecord)
+ *   - memory-service-store.ts             (deleteMemoryRecord, buildNamespaceTuple,
+ *                                          getNamespace)
  *   - memory-service.ts                   (MemoryService — delete paths, batch, update, etc.)
  *
  * All embedding calls are mocked — no real embedding APIs are invoked.
@@ -20,7 +21,6 @@ import {
   searchMemory,
 } from "../memory-service-search.js";
 import {
-  putMemoryRecord,
   deleteMemoryRecord,
   buildNamespaceTuple,
   getNamespace,
@@ -31,6 +31,7 @@ import type { NamespaceConfig } from "../memory-types.js";
 import type { BaseStore } from "@langchain/langgraph";
 import type { MemoryStoreCapabilities } from "../store-capabilities.js";
 import type { DecayMetadata } from "../decay-engine.js";
+import type { ReferenceTracker } from "../provenance/reference-tracker.js";
 
 // ─── Shared helpers ──────────────────────────────────────────────────────────
 
@@ -203,8 +204,6 @@ describe("extractDecayMeta", () => {
 // ─── 2. fuseWithVector — RRF fusion logic ────────────────────────────────────
 
 describe("fuseWithVector", () => {
-  const RRF_K = 60; // must match implementation
-
   function makeKeywordScored(
     entries: Array<{ key: string; score: number; text?: string }>
   ) {
@@ -573,7 +572,9 @@ describe("searchMemory", () => {
     store.search.mockResolvedValueOnce([
       { key: "r1", value: { text: "result" } },
     ]);
-    const tracker = { trackReference: vi.fn(async () => undefined) };
+    const trackReference = vi.fn(async () => undefined);
+    // Partial double: searchMemory only ever calls `trackReference`.
+    const tracker = { trackReference } as unknown as ReferenceTracker;
     const result = await searchMemory(
       ns,
       scope,
@@ -594,7 +595,7 @@ describe("searchMemory", () => {
     // Wait for fire-and-forget
     await new Promise((r) => setTimeout(r, 10));
     expect(result).toHaveLength(1);
-    expect(tracker.trackReference).toHaveBeenCalledWith(
+    expect(trackReference).toHaveBeenCalledWith(
       "run-123",
       expect.any(String),
       expect.any(Object)
@@ -604,7 +605,9 @@ describe("searchMemory", () => {
   it("does NOT fire reference tracking when results are empty", async () => {
     const store = createMockBaseStore();
     store.search.mockResolvedValueOnce([]);
-    const tracker = { trackReference: vi.fn(async () => undefined) };
+    const trackReference = vi.fn(async () => undefined);
+    // Partial double: searchMemory only ever calls `trackReference`.
+    const tracker = { trackReference } as unknown as ReferenceTracker;
     await searchMemory(
       ns,
       scope,
@@ -623,7 +626,7 @@ describe("searchMemory", () => {
       }
     );
     await new Promise((r) => setTimeout(r, 10));
-    expect(tracker.trackReference).not.toHaveBeenCalled();
+    expect(trackReference).not.toHaveBeenCalled();
   });
 
   it("does NOT call store.search with limit param when supportsPagination=false", async () => {

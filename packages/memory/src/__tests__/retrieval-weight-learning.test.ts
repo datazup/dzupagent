@@ -3,8 +3,6 @@ import {
   AdaptiveRetriever,
   WeightLearner,
   type RetrievalWeights,
-  type QueryIntent,
-  type FeedbackQuality,
 } from '../retrieval/adaptive-retriever.js';
 
 // ─── Helper factories ────────────────────────────────────────────────────────
@@ -161,10 +159,25 @@ describe('WeightLearner', () => {
     learner.recordFeedback('factual', raw, 'good');
     const learned = learner.getIntentAdjustment('factual')!;
 
-    const blendRate = 0.5;
+    // Use an asymmetric rate so a swapped-operand mutant
+    // ((1 - rate) * learned + rate * raw) cannot pass.
+    const blendRate = 0.25;
     const blended = learner.blend(raw, 'factual', blendRate);
 
-    // Each component should be between raw and learned values (approximately)
+    // blend() computes (1 - rate) * raw + rate * learned, then clamps to
+    // [0.05, 0.8] and renormalizes. With these inputs no component reaches a
+    // clamp bound and the mix already sums to 1.0, so the convex combination
+    // is exact.
+    expect(blended.vector).toBeCloseTo(0.75 * raw.vector + 0.25 * learned.vector, 6);
+    expect(blended.fts).toBeCloseTo(0.75 * raw.fts + 0.25 * learned.fts, 6);
+    expect(blended.graph).toBeCloseTo(0.75 * raw.graph + 0.25 * learned.graph, 6);
+
+    // Each component lands strictly between the raw and the learned value.
+    expect(blended.vector).toBeGreaterThan(raw.vector);
+    expect(blended.vector).toBeLessThan(learned.vector);
+    expect(blended.graph).toBeLessThan(raw.graph);
+    expect(blended.graph).toBeGreaterThan(learned.graph);
+
     // The blended weights should sum to ~1.0
     expect(sumWeights(blended)).toBeCloseTo(1.0, 2);
   });

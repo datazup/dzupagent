@@ -346,31 +346,10 @@ describe('SharedMemoryNamespace — CRDT (vector clock merge)', () => {
 
   describe('backward compatibility (no vectorClock)', () => {
     it('merge uses version comparison when entries lack vectorClock', () => {
-      ns.put('agent-a', 'k1', { v: 'local' })
-      const local = ns.get('k1')!
-
-      // Remote without vectorClock, higher version
-      const remote: SharedEntry = {
-        key: 'k1',
-        value: { v: 'remote-higher-version' },
-        writtenBy: 'agent-b',
-        version: local.version + 1,
-        updatedAt: Date.now() + 1000,
-        createdAt: Date.now(),
-        // No vectorClock
-      }
-
-      // Remove local's vectorClock to simulate legacy entry
-      delete local.vectorClock
-      // Re-set it so it's truly without clock
-      ns.clear()
-      // Manually set up state: put a legacy entry without clock
-      // We need to test the fallback path, so let's construct the scenario differently
-      // Put an entry, then strip its clock from the map
+      // Local entry HAS a vector clock (put() always assigns one); the remote
+      // entry has none, which forces merge() onto the version-comparison
+      // fallback path.
       const legacyNs = new SharedMemoryNamespace({ namespace: ['legacy'] })
-
-      // We can't easily strip the clock from the internal map,
-      // so let's test: remote has no clock, local has clock -> fallback path
       legacyNs.put('agent-a', 'k1', { v: 'local-with-clock' })
 
       const remoteNoClock: SharedEntry = {

@@ -3,7 +3,7 @@ import {
   MCPMemoryHandler,
   MCP_MEMORY_TOOLS,
 } from '../mcp-memory-server.js'
-import type { MCPMemoryServices, MCPToolResult } from '../mcp-memory-server.js'
+import type { MCPMemoryServices } from '../mcp-memory-server.js'
 import type { MemoryService } from '../memory-service.js'
 import type { TemporalMemoryService } from '../temporal.js'
 import type { RelationshipStore } from '../retrieval/relationship-store.js'

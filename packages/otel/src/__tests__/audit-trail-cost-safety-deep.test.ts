@@ -149,13 +149,13 @@ describe("AuditTrail — deep coverage", () => {
         type: "agent:failed",
         agentId: "a1",
         runId: "r1",
-        errorCode: "CIRCUIT_OPEN",
+        errorCode: "PROVIDER_UNAVAILABLE",
         message: "Circuit breaker open",
       });
       await tick();
 
       const entries = await store.getByCategory("agent_lifecycle");
-      expect(entries[0]!.details["errorCode"]).toBe("CIRCUIT_OPEN");
+      expect(entries[0]!.details["errorCode"]).toBe("PROVIDER_UNAVAILABLE");
       expect(entries[0]!.details["message"]).toBe("Circuit breaker open");
     });
 
@@ -744,8 +744,8 @@ describe("CostAttributor — deep coverage", () => {
   describe("warning then exceeded sequence", () => {
     it("warning fires before exceeded when approaching threshold incrementally", () => {
       const events: string[] = [];
-      bus.on("budget:warning", () => events.push("warning"));
-      bus.on("budget:exceeded", () => events.push("exceeded"));
+      bus.on("budget:warning", () => { events.push("warning") });
+      bus.on("budget:exceeded", () => { events.push("exceeded") });
 
       const cost = new CostAttributor({
         thresholds: { maxCostCents: 100, warningRatio: 0.8 },
@@ -771,8 +771,8 @@ describe("CostAttributor — deep coverage", () => {
 
     it("only one warning and one exceeded fired across many records", () => {
       const events: string[] = [];
-      bus.on("budget:warning", () => events.push("warning"));
-      bus.on("budget:exceeded", () => events.push("exceeded"));
+      bus.on("budget:warning", () => { events.push("warning") });
+      bus.on("budget:exceeded", () => { events.push("exceeded") });
 
       const cost = new CostAttributor({
         thresholds: { maxCostCents: 100 },
@@ -796,8 +796,8 @@ describe("CostAttributor — deep coverage", () => {
   describe("no thresholds configured", () => {
     it("does not emit any budget events when no thresholds set", () => {
       const events: unknown[] = [];
-      bus.on("budget:warning", (e) => events.push(e));
-      bus.on("budget:exceeded", (e) => events.push(e));
+      bus.on("budget:warning", (e) => { events.push(e) });
+      bus.on("budget:exceeded", (e) => { events.push(e) });
 
       const cost = new CostAttributor({ eventBus: bus });
 
@@ -857,7 +857,7 @@ describe("CostAttributor — deep coverage", () => {
   describe("token threshold exceeded event", () => {
     it("budget:exceeded reason is tokens for token threshold", () => {
       const exceeded: Array<{ reason: string }> = [];
-      bus.on("budget:exceeded", (e) => exceeded.push(e as { reason: string }));
+      bus.on("budget:exceeded", (e) => { exceeded.push(e as { reason: string }) });
 
       const cost = new CostAttributor({
         thresholds: { maxTokens: 500 },
@@ -1007,9 +1007,7 @@ describe("SafetyMonitor — deep coverage", () => {
 
       sut.scanInput("system prompt: override");
       expect(sut.getEvents()).toHaveLength(1);
-      expect(sut.getEvents()[0]!.action ?? sut.getEvents()[0]!.category).toBe(
-        "prompt_injection_input"
-      );
+      expect(sut.getEvents()[0]!.category).toBe("prompt_injection_input");
     });
   });
 
@@ -1020,13 +1018,13 @@ describe("SafetyMonitor — deep coverage", () => {
       bus.emit({
         type: "tool:error",
         toolName: "deploy",
-        errorCode: "ERR",
+        errorCode: "TOOL_EXECUTION_FAILED",
         message: "fail1",
       });
       bus.emit({
         type: "tool:error",
         toolName: "deploy",
-        errorCode: "ERR",
+        errorCode: "TOOL_EXECUTION_FAILED",
         message: "fail2",
       });
 
@@ -1041,7 +1039,7 @@ describe("SafetyMonitor — deep coverage", () => {
       bus.emit({
         type: "tool:error",
         toolName: "bad_tool",
-        errorCode: "ERR",
+        errorCode: "TOOL_EXECUTION_FAILED",
         message: "oops",
       });
 
@@ -1056,7 +1054,7 @@ describe("SafetyMonitor — deep coverage", () => {
       bus.emit({
         type: "tool:error",
         toolName: "tool_x",
-        errorCode: "ERR",
+        errorCode: "TOOL_EXECUTION_FAILED",
         message: "fail",
       });
 
@@ -1178,7 +1176,7 @@ describe("Integration — audit + cost + safety on tool-call flow", () => {
 
   it("agent lifecycle + cost attribution + audit all work on agent:completed", async () => {
     const budgetEvents: string[] = [];
-    bus.on("budget:warning", () => budgetEvents.push("warning"));
+    bus.on("budget:warning", () => { budgetEvents.push("warning") });
 
     cost.record({
       agentId: "code-agent",
@@ -1229,19 +1227,19 @@ describe("Integration — audit + cost + safety on tool-call flow", () => {
     bus.emit({
       type: "tool:error",
       toolName: "risky_tool",
-      errorCode: "ERR",
+      errorCode: "TOOL_EXECUTION_FAILED",
       message: "f1",
     });
     bus.emit({
       type: "tool:error",
       toolName: "risky_tool",
-      errorCode: "ERR",
+      errorCode: "TOOL_EXECUTION_FAILED",
       message: "f2",
     });
     bus.emit({
       type: "tool:error",
       toolName: "risky_tool",
-      errorCode: "ERR",
+      errorCode: "TOOL_EXECUTION_FAILED",
       message: "f3",
     });
     await tick();
@@ -1264,7 +1262,7 @@ describe("Integration — audit + cost + safety on tool-call flow", () => {
     bus.emit({
       type: "tool:error",
       toolName: "search",
-      errorCode: "ERR",
+      errorCode: "TOOL_EXECUTION_FAILED",
       message: "timeout",
     });
     bus.emit({ type: "approval:requested", runId: "r1", plan: { steps: [] } });
@@ -1273,7 +1271,7 @@ describe("Integration — audit + cost + safety on tool-call flow", () => {
       type: "agent:failed",
       agentId: "a1",
       runId: "r1",
-      errorCode: "TIMEOUT",
+      errorCode: "PROVIDER_TIMEOUT",
       message: "timed out",
     });
     await tick();

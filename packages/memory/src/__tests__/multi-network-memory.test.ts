@@ -3,10 +3,7 @@ import {
   MultiNetworkMemory,
   DEFAULT_NETWORK_CONFIGS,
 } from '../multi-network-memory.js'
-import type {
-  MultiNetworkMemoryConfig,
-  MemoryNetwork,
-} from '../multi-network-memory.js'
+import type { MemoryNetwork } from '../multi-network-memory.js'
 import type { MemoryService } from '../memory-service.js'
 
 // ---------------------------------------------------------------------------

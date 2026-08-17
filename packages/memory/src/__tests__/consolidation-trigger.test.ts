@@ -26,14 +26,8 @@ import {
   type ConsolidationStore,
   type ConsolidationStoreItem,
 } from "../consolidation-engine.js";
-import {
-  consolidateNamespace,
-  consolidateAll,
-} from "../memory-consolidation.js";
-import {
-  SleepConsolidator,
-  runSleepConsolidation,
-} from "../sleep-consolidator.js";
+import { consolidateNamespace } from "../memory-consolidation.js";
+import { runSleepConsolidation } from "../sleep-consolidator.js";
 import type { SleepConsolidationConfig } from "../sleep-consolidator.js";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { BaseStore } from "@langchain/langgraph";

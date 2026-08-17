@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { voidFilter } from '../retrieval/void-filter.js'
-import type { VoidFilterConfig, VoidFilterResult } from '../retrieval/void-filter.js'
+import type { VoidFilterConfig } from '../retrieval/void-filter.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -13,8 +13,6 @@ function makeCandidate(
 ) {
   return { key, score, value }
 }
-
-type Candidate = ReturnType<typeof makeCandidate>
 
 // ---------------------------------------------------------------------------
 // Trivial / degenerate cases
@@ -238,8 +236,11 @@ describe('voidFilter', () => {
         makeCandidate('c', 0.20),
       ]
 
-      // Default minCandidates=3, so filtering should apply
+      // Default minCandidates=3, so filtering should apply: the 0.20 outlier
+      // falls past the largest score gap (0.90 -> 0.20) and is voided.
       const resultDefault = voidFilter(candidates)
+      expect(resultDefault.active).toHaveLength(2)
+      expect(resultDefault.void).toHaveLength(1)
 
       // With minCandidates=5, 3 candidates is too few, all active
       const resultHigh = voidFilter(candidates, { minCandidates: 5 })

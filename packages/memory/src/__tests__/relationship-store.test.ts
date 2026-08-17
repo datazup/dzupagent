@@ -48,10 +48,6 @@ function createMockStore() {
   } as unknown as BaseStore & {
     capabilities: MemoryStoreCapabilities
     _data: Map<string, Map<string, Record<string, unknown>>>
-    search: ReturnType<typeof vi.fn>
-    put: ReturnType<typeof vi.fn>
-    get: ReturnType<typeof vi.fn>
-    delete: ReturnType<typeof vi.fn>
   }
 }
 

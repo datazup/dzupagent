@@ -293,10 +293,19 @@ describe('ConflictResolver', () => {
     const nB = makeNode('b')
     const nC = makeNode('c')
     const edge1 = makeEdge('a', 'b')
+    const edge2 = makeEdge('b', 'c')
 
     resolver.detectConflict(nA, nB, edge1)
+    resolver.detectConflict(nB, nC, edge2)
+
+    // getConflictsForNode matches on BOTH endpoints (nodeA or nodeB), so 'c'
+    // — which only ever appears as nodeB — must still be found.
     expect(resolver.getConflictsForNode('a')).toHaveLength(1)
-    expect(resolver.getConflictsForNode('c')).toHaveLength(0)
+    expect(resolver.getConflictsForNode('c')).toHaveLength(1)
+    // 'b' participates in both conflicts, once per endpoint position.
+    expect(resolver.getConflictsForNode('b')).toHaveLength(2)
+    // A node that never took part in a conflict yields nothing.
+    expect(resolver.getConflictsForNode('unknown')).toHaveLength(0)
   })
 })
 

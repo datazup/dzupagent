@@ -252,32 +252,28 @@ describe('AgentFileImporter.validate', () => {
   })
 
   it('rejects missing $schema', () => {
-    const file = validFile()
-    ;(file as Record<string, unknown>)['$schema'] = 'wrong'
+    const file: Record<string, unknown> = { ...validFile(), $schema: 'wrong' }
     const { valid, errors } = importer.validate(file)
     expect(valid).toBe(false)
     expect(errors.some(e => e.includes('$schema'))).toBe(true)
   })
 
   it('rejects missing version', () => {
-    const file = validFile()
-    ;(file as Record<string, unknown>)['version'] = '2.0.0'
+    const file: Record<string, unknown> = { ...validFile(), version: '2.0.0' }
     const { valid, errors } = importer.validate(file)
     expect(valid).toBe(false)
     expect(errors.some(e => e.includes('version'))).toBe(true)
   })
 
   it('rejects missing exportedAt', () => {
-    const file = validFile()
-    ;(file as Record<string, unknown>)['exportedAt'] = ''
+    const file: Record<string, unknown> = { ...validFile(), exportedAt: '' }
     const { valid, errors } = importer.validate(file)
     expect(valid).toBe(false)
     expect(errors.some(e => e.includes('exportedAt'))).toBe(true)
   })
 
   it('rejects missing agent section', () => {
-    const file = validFile()
-    ;(file as Record<string, unknown>)['agent'] = null
+    const file: Record<string, unknown> = { ...validFile(), agent: null }
     const { valid, errors } = importer.validate(file)
     expect(valid).toBe(false)
     expect(errors.some(e => e.includes('agent'))).toBe(true)
@@ -292,8 +288,7 @@ describe('AgentFileImporter.validate', () => {
   })
 
   it('rejects missing memory section', () => {
-    const file = validFile()
-    ;(file as Record<string, unknown>)['memory'] = null
+    const file: Record<string, unknown> = { ...validFile(), memory: null }
     const { valid, errors } = importer.validate(file)
     expect(valid).toBe(false)
     expect(errors.some(e => e.includes('memory'))).toBe(true)

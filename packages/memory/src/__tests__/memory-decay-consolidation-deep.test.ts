@@ -20,6 +20,7 @@ import {
   type ConsolidationStoreItem,
 } from "../consolidation-engine.js";
 import { createStore } from "../store-factory.js";
+import type { MemoryStoreCapabilities } from "../store-capabilities.js";
 import type { StoreQueryOptions } from "../store-factory.js";
 import type { BaseStore } from "@langchain/langgraph";
 import {
@@ -1353,11 +1354,22 @@ describe("StoreFactory — capabilities integration", () => {
   });
 
   it("memory store with explicit capability overrides propagates them", async () => {
+    // The override must DISAGREE with the default (all three default to true),
+    // or the assertion would hold whether or not the override propagated. The
+    // previous version passed `supportsVectorSearch` — not a member of
+    // MemoryStoreCapabilities, so nothing read it — and asserted only
+    // `toBeDefined()`, which never tested propagation at all.
     const store = await createStore({
       type: "memory",
-      capabilities: { supportsVectorSearch: true },
+      capabilities: { supportsDelete: false },
     });
-    expect(store).toBeDefined();
+    const { capabilities } = store as unknown as {
+      capabilities: MemoryStoreCapabilities;
+    };
+    expect(capabilities.supportsDelete).toBe(false);
+    // Un-overridden members keep their defaults: this is a merge, not a replace.
+    expect(capabilities.supportsSearchFilters).toBe(true);
+    expect(capabilities.supportsPagination).toBe(true);
   });
 
   it("multiple separate createStore calls produce independent stores", async () => {

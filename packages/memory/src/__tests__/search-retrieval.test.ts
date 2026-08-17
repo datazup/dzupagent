@@ -32,14 +32,13 @@ import {
 import { scoreWithDecay, createDecayMetadata } from "../decay-engine.js";
 import { InMemoryMemoryClient } from "../in-memory-client.js";
 import type { MemoryRecord, MemoryScope } from "@dzupagent/agent-types";
-import type { BaseStore } from "@langchain/langgraph";
 import type { SemanticStoreAdapter } from "../memory-types.js";
+import type { ReferenceTracker } from "../provenance/reference-tracker.js";
 import type { MemoryStoreCapabilities } from "../store-capabilities.js";
 
 // ─── Shared test helpers ──────────────────────────────────────────────────────
 
 const TENANT: MemoryScope = { tenantId: "tenant-x" };
-const TENANT_B: MemoryScope = { tenantId: "tenant-y" };
 const TENANT_PROJECT: MemoryScope = {
   tenantId: "tenant-x",
   projectId: "proj-1",
@@ -124,7 +123,7 @@ function makeBaseStore(
 const DEFAULT_CAPABILITIES: MemoryStoreCapabilities = {
   supportsDelete: true,
   supportsPagination: true,
-  supportsSemanticSearch: false,
+  supportsSearchFilters: true,
 };
 
 // =============================================================================
@@ -1485,12 +1484,13 @@ describe("fuseWithVector", () => {
 
 describe("searchMemory", () => {
   it("returns empty array when store throws", async () => {
+    // Partial double: searchMemory only ever calls `search` on the store.
     const failingStore = {
       search: vi.fn().mockRejectedValue(new Error("store unavailable")),
       get: vi.fn(),
       put: vi.fn(),
       delete: vi.fn(),
-    };
+    } as unknown as BaseStore;
     const ns = { name: "obs", scopeKeys: ["tenantId"], searchable: true };
     const results = await searchMemory(
       ns,
@@ -1572,7 +1572,8 @@ describe("searchMemory", () => {
     const ns = { name: "obs", scopeKeys: ["tenantId"], searchable: true };
 
     const trackReference = vi.fn().mockResolvedValue(undefined);
-    const tracker = { trackReference };
+    // Partial double: searchMemory only ever calls `trackReference`.
+    const tracker = { trackReference } as unknown as ReferenceTracker;
 
     await searchMemory(
       ns,
@@ -1600,7 +1601,8 @@ describe("searchMemory", () => {
     const { store } = makeBaseStore(data);
     const ns = { name: "obs", scopeKeys: ["tenantId"], searchable: true };
     const trackReference = vi.fn();
-    const tracker = { trackReference };
+    // Partial double: searchMemory only ever calls `trackReference`.
+    const tracker = { trackReference } as unknown as ReferenceTracker;
 
     await searchMemory(ns, { tenantId: "t1" }, "test", 10, undefined, {
       store,

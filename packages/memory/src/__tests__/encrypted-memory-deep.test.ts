@@ -92,6 +92,11 @@ function createMockMemoryService(): {
 
 const SCOPE: MemoryScope = { tenantId: "t1", projectId: "p1" };
 
+// MemoryService / EncryptedMemoryService take a flat `Record<string, string>`
+// scope, not the `MemoryScope` interface used by the MemoryClient surface
+// (an interface has no implicit index signature, so it is not assignable).
+const FLAT_SCOPE: Record<string, string> = { tenantId: "t1", projectId: "p1" };
+
 // ===========================================================================
 // memoryServiceToClient — scope conversion
 // ===========================================================================
@@ -747,7 +752,7 @@ describe("EncryptedMemoryService — concurrent puts", () => {
 
     await Promise.all(
       Array.from({ length: 8 }, (_, i) =>
-        service.put("ns", SCOPE, `key-${i}`, { secret: `value-${i}` })
+        service.put("ns", FLAT_SCOPE, `key-${i}`, { secret: `value-${i}` })
       )
     );
 
@@ -776,13 +781,13 @@ describe("EncryptedMemoryService — concurrent puts", () => {
 
     const secrets = ["alpha", "beta", "gamma", "delta"];
     await Promise.all(
-      secrets.map((secret, i) => service.put("ns", SCOPE, `k${i}`, { secret }))
+      secrets.map((secret, i) => service.put("ns", FLAT_SCOPE, `k${i}`, { secret }))
     );
 
     for (let i = 0; i < secrets.length; i++) {
       const stored = mock.putSpy.mock.calls[i]![3] as Record<string, unknown>;
       mock.getSpy.mockResolvedValueOnce([stored]);
-      const [decrypted] = await service.get("ns", SCOPE);
+      const [decrypted] = await service.get("ns", FLAT_SCOPE);
       expect(decrypted!["secret"]).toBe(secrets[i]);
     }
   });
@@ -802,11 +807,11 @@ describe("EncryptedMemoryService — large payload", () => {
     });
 
     const bigText = "x".repeat(100_000);
-    await service.put("ns", SCOPE, "big", { secret: bigText });
+    await service.put("ns", FLAT_SCOPE, "big", { secret: bigText });
 
     const stored = mock.putSpy.mock.calls[0]![3] as Record<string, unknown>;
     mock.getSpy.mockResolvedValueOnce([stored]);
-    const [decrypted] = await service.get("ns", SCOPE);
+    const [decrypted] = await service.get("ns", FLAT_SCOPE);
     expect(decrypted!["secret"]).toBe(bigText);
   });
 
@@ -822,11 +827,11 @@ describe("EncryptedMemoryService — large payload", () => {
     for (let i = 0; i < 50; i++) {
       value[`field_${i}`] = `value_${i}`;
     }
-    await service.put("ns", SCOPE, "many", value);
+    await service.put("ns", FLAT_SCOPE, "many", value);
 
     const stored = mock.putSpy.mock.calls[0]![3] as Record<string, unknown>;
     mock.getSpy.mockResolvedValueOnce([stored]);
-    const [decrypted] = await service.get("ns", SCOPE);
+    const [decrypted] = await service.get("ns", FLAT_SCOPE);
 
     for (let i = 0; i < 50; i++) {
       expect(decrypted![`field_${i}`]).toBe(`value_${i}`);
@@ -848,7 +853,7 @@ describe("EncryptedMemoryService — null/undefined plaintext field values", () 
       plaintextFields: ["tag"],
     });
 
-    await service.put("ns", SCOPE, "k", { tag: null, secret: "s" });
+    await service.put("ns", FLAT_SCOPE, "k", { tag: null, secret: "s" });
     const stored = mock.putSpy.mock.calls[0]![3] as Record<string, unknown>;
     // null is a falsy but defined value — depends on implementation
     // Key assertion: the encrypted envelope must still be present
@@ -863,7 +868,7 @@ describe("EncryptedMemoryService — null/undefined plaintext field values", () 
       keyProvider: provider,
     });
 
-    await service.put("ns", SCOPE, "empty", {});
+    await service.put("ns", FLAT_SCOPE, "empty", {});
     const stored = mock.putSpy.mock.calls[0]![3] as Record<string, unknown>;
     const env = stored["_encrypted_value"] as Record<string, unknown>;
     expect(env["_encrypted"]).toBe(true);
@@ -888,7 +893,7 @@ describe("EncryptedMemoryService — namespace matching is case-sensitive", () =
     });
 
     // 'secrets' (lowercase) should NOT be encrypted
-    await service.put("secrets", SCOPE, "k", { data: "plain" });
+    await service.put("secrets", FLAT_SCOPE, "k", { data: "plain" });
     const stored = mock.putSpy.mock.calls[0]![3] as Record<string, unknown>;
     expect(stored["_encrypted_value"]).toBeUndefined();
   });
@@ -902,7 +907,7 @@ describe("EncryptedMemoryService — namespace matching is case-sensitive", () =
       encryptedNamespaces: ["Secrets"],
     });
 
-    await service.put("Secrets", SCOPE, "k", { data: "enc" });
+    await service.put("Secrets", FLAT_SCOPE, "k", { data: "enc" });
     const stored = mock.putSpy.mock.calls[0]![3] as Record<string, unknown>;
     expect(stored["_encrypted_value"]).toBeDefined();
   });
@@ -924,7 +929,7 @@ describe("EncryptedMemoryService — rotateKey bulk rotation", () => {
 
     // Write 5 records with old key
     for (let i = 0; i < 5; i++) {
-      await writer.put("ns", SCOPE, `k${i}`, { secret: `s${i}` });
+      await writer.put("ns", FLAT_SCOPE, `k${i}`, { secret: `s${i}` });
     }
     const storedRecords = mock.putSpy.mock.calls
       .slice(0, 5)
@@ -943,7 +948,7 @@ describe("EncryptedMemoryService — rotateKey bulk rotation", () => {
     mock.getKeyedSpy.mockResolvedValueOnce(
       storedRecords.map((value, i) => ({ key: `k${i}`, value }))
     );
-    const result = await rotator.rotateKey("ns", SCOPE);
+    const result = await rotator.rotateKey("ns", FLAT_SCOPE);
 
     expect(result.rotated).toBe(5);
     expect(result.failed).toBe(0);
@@ -970,7 +975,7 @@ describe("EncryptedMemoryService — rotateKey bulk rotation", () => {
     });
 
     mock.getKeyedSpy.mockResolvedValueOnce([]);
-    const result = await service.rotateKey("empty-ns", SCOPE);
+    const result = await service.rotateKey("empty-ns", FLAT_SCOPE);
     expect(result.rotated).toBe(0);
     expect(result.failed).toBe(0);
   });
@@ -990,9 +995,9 @@ describe("EncryptedMemoryService — IV uniqueness", () => {
     });
 
     const value = { secret: "same", text: "same" };
-    await service.put("ns", SCOPE, "a", value);
-    await service.put("ns", SCOPE, "b", value);
-    await service.put("ns", SCOPE, "c", value);
+    await service.put("ns", FLAT_SCOPE, "a", value);
+    await service.put("ns", FLAT_SCOPE, "b", value);
+    await service.put("ns", FLAT_SCOPE, "c", value);
 
     const ivs = mock.putSpy.mock.calls.map(
       (call) =>
@@ -1021,14 +1026,14 @@ describe("EncryptedMemoryService — search returns decrypted records", () => {
       keyProvider: provider,
     });
 
-    await service.put("ns", SCOPE, "a", {
+    await service.put("ns", FLAT_SCOPE, "a", {
       text: "matching query",
       secret: "found-secret",
     });
     const stored = mock.putSpy.mock.calls[0]![3] as Record<string, unknown>;
 
     mock.searchSpy.mockResolvedValueOnce([stored]);
-    const results = await service.search("ns", SCOPE, "matching query", 3);
+    const results = await service.search("ns", FLAT_SCOPE, "matching query", 3);
 
     expect(results).toHaveLength(1);
     expect(results[0]!["secret"]).toBe("found-secret");
@@ -1044,7 +1049,7 @@ describe("EncryptedMemoryService — search returns decrypted records", () => {
     });
 
     mock.searchSpy.mockResolvedValueOnce([]);
-    const results = await service.search("ns", SCOPE, "nothing");
+    const results = await service.search("ns", FLAT_SCOPE, "nothing");
     expect(results).toEqual([]);
   });
 
