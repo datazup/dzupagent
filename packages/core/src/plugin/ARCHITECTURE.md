@@ -101,10 +101,18 @@ Ordering path (`resolvePluginOrder`):
 - `DzupPlugin`
 - `name: string`
 - `version: string`
-- `onRegister?(ctx): void | Promise<void>`
+- `onRegister?(ctx): void`
 - `middleware?: AgentMiddleware[]`
 - `hooks?: Partial<AgentHooks>`
-- `eventHandlers?: Partial<Record<DzupEvent['type'], (event: DzupEvent) => void | Promise<void>>>`
+- `eventHandlers?: Partial<Record<DzupEvent['type'], (event: DzupEvent) => void>>`
+
+> Both are declared `=> void`, not `=> void | Promise<void>`. Async suppliers are
+> still accepted and still awaited — `PluginRegistry` reads the returned value
+> through an `unknown` widening and awaits it. The union is the narrower
+> declaration, not the wider one: TypeScript's void-return leniency does not
+> survive a union, so under `=> void | Promise<void>` an expression-bodied
+> handler such as the `Sentry.captureException(e)` example in `plugin-types.ts`
+> is rejected with TS2322. See `857fed23`.
 
 - `PluginRegistry`
 - `new PluginRegistry(eventBus: DzupEventBus)`
