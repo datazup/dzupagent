@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import {
   InMemoryAgentStore,
   InMemoryRunStore,
@@ -24,7 +25,7 @@ function baseConfig(overrides: Partial<ForgeServerConfig>): ForgeServerConfig {
 describe('DZUPAGENT-SEC-H-20 rate limiter ordering and keys', () => {
   it('throttles rotating invalid bearer tokens before another auth lookup', async () => {
     const validateKey = vi.fn(async () => null)
-    const app = new Hono()
+    const app = new Hono<AppEnv>()
     applyMiddleware(
       app,
       baseConfig({

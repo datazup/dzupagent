@@ -5,6 +5,7 @@
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { Hono } from "hono";
+import type { AppEnv } from "../../types.js";
 import {
   InMemoryAgentStore,
   InMemoryRunStore,
@@ -40,7 +41,7 @@ afterEach(() => {
 describe("composition/middleware", () => {
   it("does not emit CORS headers by default", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     applyMiddleware(app, baseConfig());
     app.get("/api/health", (c) => c.json({ ok: true }));
 
@@ -57,7 +58,7 @@ describe("composition/middleware", () => {
 
   it("does not warn when corsOrigins is set to an explicit allow-list", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     applyMiddleware(
       app,
       baseConfig({
@@ -69,7 +70,7 @@ describe("composition/middleware", () => {
   });
 
   it("allows configured CORS allow-list origins", async () => {
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     applyMiddleware(
       app,
       baseConfig({ corsOrigins: "https://app.example.com" })
@@ -91,7 +92,7 @@ describe("composition/middleware", () => {
 
   it("supports wildcard CORS only with an explicit compatibility opt-in", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     applyMiddleware(app, baseConfig({ allowWildcardCors: true }));
     app.get("/api/health", (c) => c.json({ ok: true }));
 
@@ -120,7 +121,7 @@ describe("composition/middleware", () => {
   });
 
   it("answers CORS preflight for configured allow-list origins", async () => {
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     applyMiddleware(
       app,
       baseConfig({ corsOrigins: ["https://app.example.com"] })
@@ -231,7 +232,7 @@ describe("composition/middleware", () => {
   });
 
   it("adds safe default security headers without removing CORS headers", async () => {
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     applyMiddleware(
       app,
       baseConfig({ corsOrigins: "https://app.example.com" })
@@ -251,7 +252,7 @@ describe("composition/middleware", () => {
 
   // DZUPAGENT-SEC-I-03: clickjacking + CSP defaults must apply on all routes.
   it("emits default CSP and X-Frame-Options to block clickjacking (SEC-I-03)", async () => {
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     applyMiddleware(app, baseConfig());
     app.get("/api/health", (c) => c.json({ ok: true }));
 
@@ -266,7 +267,7 @@ describe("composition/middleware", () => {
   });
 
   it("allows hosts to override the default CSP and X-Frame-Options", async () => {
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     applyMiddleware(
       app,
       baseConfig({
@@ -287,7 +288,7 @@ describe("composition/middleware", () => {
   });
 
   it("allows hosts to suppress individual security headers with false", async () => {
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     applyMiddleware(
       app,
       baseConfig({
@@ -308,7 +309,7 @@ describe("composition/middleware", () => {
   });
 
   it("allows hosts to override and disable individual security headers", async () => {
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     applyMiddleware(
       app,
       baseConfig({
@@ -331,7 +332,7 @@ describe("composition/middleware", () => {
   });
 
   it("allows hosts to disable security headers entirely", async () => {
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     applyMiddleware(app, baseConfig({ securityHeaders: false }));
     app.get("/api/health", (c) => c.json({ ok: true }));
 
@@ -342,7 +343,7 @@ describe("composition/middleware", () => {
   });
 
   it("keeps auth middleware behavior while adding security headers to auth errors", async () => {
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     applyMiddleware(
       app,
       baseConfig({
@@ -364,7 +365,7 @@ describe("composition/middleware", () => {
   });
 
   it("allows small JSON requests through the shared body size guard", async () => {
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     applyMiddleware(app, baseConfig());
     app.post("/api/echo", async (c) => c.json({ data: await c.req.json() }));
 
@@ -383,7 +384,7 @@ describe("composition/middleware", () => {
   });
 
   it("rejects oversized JSON requests before route handlers parse the body", async () => {
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     applyMiddleware(
       app,
       baseConfig({ jsonBodyLimit: { defaultMaxBytes: 10 } })
@@ -408,7 +409,7 @@ describe("composition/middleware", () => {
   });
 
   it("rejects oversized JSON requests that omit Content-Length before handlers parse", async () => {
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     applyMiddleware(
       app,
       baseConfig({ jsonBodyLimit: { defaultMaxBytes: 10 } })
@@ -429,7 +430,7 @@ describe("composition/middleware", () => {
   });
 
   it("honors route-specific JSON body size overrides", async () => {
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     applyMiddleware(
       app,
       baseConfig({
@@ -466,7 +467,7 @@ describe("composition/middleware", () => {
     // Force the guard predicate to report not accepting runs.
     vi.spyOn(shutdown, "isAcceptingRuns").mockReturnValue(false);
 
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     applyMiddleware(app, baseConfig({ shutdown }));
     // Provide a downstream POST handler so the guard's 503 is observable.
     app.post("/api/runs", (c) => c.json({ ok: true }));
@@ -479,7 +480,7 @@ describe("composition/middleware", () => {
 
   it("returns 500 with INTERNAL_ERROR envelope from the global error handler", async () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     applyMiddleware(app, baseConfig());
     app.get("/boom", () => {
       throw new Error("kaboom");
@@ -498,7 +499,7 @@ describe("composition/middleware", () => {
   // SEC-M-03: a default rate limiter is applied when auth is enabled but no
   // explicit rateLimit config was supplied.
   it("applies a default rate limiter when auth is enabled without explicit rateLimit (SEC-M-03)", async () => {
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     applyMiddleware(
       app,
       baseConfig({
@@ -518,7 +519,7 @@ describe("composition/middleware", () => {
   });
 
   it("does not apply a rate limiter when neither auth nor rateLimit is configured (SEC-M-03)", async () => {
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     applyMiddleware(app, baseConfig());
     app.get("/api/runs", (c) => c.json({ ok: true }));
 
@@ -529,7 +530,7 @@ describe("composition/middleware", () => {
   });
 
   it("enforces the default limit and returns 429 past the threshold (SEC-M-03)", async () => {
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     applyMiddleware(
       app,
       baseConfig({
@@ -557,7 +558,7 @@ describe("composition/middleware", () => {
   // SEC-M-04: oversize bodies are rejected via a streaming read that aborts at
   // maxBytes+1 rather than buffering the whole payload.
   it("rejects oversized JSON without buffering the whole body (SEC-M-04)", async () => {
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     applyMiddleware(
       app,
       baseConfig({ jsonBodyLimit: { defaultMaxBytes: 16 } })
@@ -582,7 +583,7 @@ describe("composition/middleware", () => {
   });
 
   it("allows within-limit JSON through the streaming size check (SEC-M-04)", async () => {
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     applyMiddleware(
       app,
       baseConfig({ jsonBodyLimit: { defaultMaxBytes: 1024 } })
@@ -602,13 +603,13 @@ describe("composition/middleware", () => {
   });
 
   it("returns no auth when config.auth is omitted", () => {
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     const { effectiveAuth } = applyMiddleware(app, baseConfig());
     expect(effectiveAuth).toBeUndefined();
   });
 
   it("threads apiKeyStore.validate into the resolved auth config when no validateKey was supplied", async () => {
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     const validate = vi.fn(async (key: string) =>
       key === "good" ? { id: "k1", role: "user" } : null
     );

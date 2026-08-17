@@ -36,7 +36,7 @@ describe('run-stages-admission tenant stamping (SEC-M-01-EXTENDED)', () => {
     const runStore = new InMemoryRunStore()
     const eventBus = createEventBus()
     const emitted: DzupEvent[] = []
-    eventBus.onAny((event) => emitted.push(event))
+    eventBus.onAny((event) => { emitted.push(event) })
 
     await runStore.create({ agentId: 'missing', input: {} })
     const job = makeJob({ agentId: 'missing' })
@@ -59,7 +59,7 @@ describe('run-stages-admission tenant stamping (SEC-M-01-EXTENDED)', () => {
     const runStore = new InMemoryRunStore()
     const eventBus = createEventBus()
     const emitted: DzupEvent[] = []
-    eventBus.onAny((event) => emitted.push(event))
+    eventBus.onAny((event) => { emitted.push(event) })
 
     await runStore.create({ agentId: 'missing', input: {} })
     const job = makeJob({ agentId: 'missing', metadata: undefined })
@@ -81,7 +81,7 @@ describe('run-stages-admission tenant stamping (SEC-M-01-EXTENDED)', () => {
     const runStore = new InMemoryRunStore()
     const eventBus = createEventBus()
     const emitted: DzupEvent[] = []
-    eventBus.onAny((event) => emitted.push(event))
+    eventBus.onAny((event) => { emitted.push(event) })
 
     await runStore.create({ agentId: 'approval-agent', input: {} })
     const job = makeJob({ agentId: 'approval-agent', metadata: { tenantId: 'tenant-B', approvalTimeoutMs: 5000 } })

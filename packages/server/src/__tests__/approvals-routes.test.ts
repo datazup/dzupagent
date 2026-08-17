@@ -106,7 +106,7 @@ describe('Approvals routes — grant / reject decision flows', () => {
 
       const { app, eventBus } = buildApp(runStore, approvalStore)
       const emitted: unknown[] = []
-      eventBus.onAny((e) => emitted.push(e))
+      eventBus.onAny((e) => { emitted.push(e) })
 
       await post(app, `/api/approvals/${run.id}/ap-2/grant`, { approvedBy: 'operator' })
 
@@ -220,7 +220,7 @@ describe('Approvals routes — grant / reject decision flows', () => {
 
       const { app, eventBus } = buildApp(runStore, approvalStore)
       const emitted: unknown[] = []
-      eventBus.onAny((e) => emitted.push(e))
+      eventBus.onAny((e) => { emitted.push(e) })
 
       await post(app, `/api/approvals/${run.id}/ap-r4/reject`, { reason: 'cost too high' })
 

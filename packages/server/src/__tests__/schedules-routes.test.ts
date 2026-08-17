@@ -45,7 +45,7 @@ function buildApp(
   return app;
 }
 
-async function post(app: Hono, path: string, body?: unknown) {
+async function post(app: Hono<AppEnv>, path: string, body?: unknown) {
   return app.request(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -53,7 +53,7 @@ async function post(app: Hono, path: string, body?: unknown) {
   });
 }
 
-async function put(app: Hono, path: string, body: unknown) {
+async function put(app: Hono<AppEnv>, path: string, body: unknown) {
   return app.request(path, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -61,7 +61,7 @@ async function put(app: Hono, path: string, body: unknown) {
   });
 }
 
-async function del(app: Hono, path: string) {
+async function del(app: Hono<AppEnv>, path: string) {
   return app.request(path, { method: "DELETE" });
 }
 
@@ -78,7 +78,7 @@ const VALID_SCHEDULE = {
 
 describe("POST /api/schedules", () => {
   let store: InMemoryScheduleStore;
-  let app: Hono;
+  let app: Hono<AppEnv>;
 
   beforeEach(() => {
     store = new InMemoryScheduleStore();
@@ -151,7 +151,7 @@ describe("POST /api/schedules", () => {
 
 describe("GET /api/schedules", () => {
   let store: InMemoryScheduleStore;
-  let app: Hono;
+  let app: Hono<AppEnv>;
 
   beforeEach(() => {
     store = new InMemoryScheduleStore();
@@ -236,7 +236,7 @@ describe("GET /api/schedules", () => {
 
 describe("GET /api/schedules/:id", () => {
   let store: InMemoryScheduleStore;
-  let app: Hono;
+  let app: Hono<AppEnv>;
 
   beforeEach(() => {
     store = new InMemoryScheduleStore();
@@ -282,7 +282,7 @@ describe("GET /api/schedules/:id", () => {
 
 describe("PUT /api/schedules/:id", () => {
   let store: InMemoryScheduleStore;
-  let app: Hono;
+  let app: Hono<AppEnv>;
 
   beforeEach(() => {
     store = new InMemoryScheduleStore();
@@ -340,7 +340,7 @@ describe("PUT /api/schedules/:id", () => {
 
 describe("DELETE /api/schedules/:id", () => {
   let store: InMemoryScheduleStore;
-  let app: Hono;
+  let app: Hono<AppEnv>;
 
   beforeEach(() => {
     store = new InMemoryScheduleStore();

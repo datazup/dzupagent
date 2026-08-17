@@ -269,7 +269,7 @@ describe('POST /api/runs', () => {
 
   it('emits agent:started event after creating a run', async () => {
     const events: Array<{ type: string }> = []
-    config.eventBus.onAny((e) => events.push(e as { type: string }))
+    config.eventBus.onAny((e) => { events.push(e as { type: string }) })
 
     await req(app, 'POST', '/api/runs', {
       agentId: 'agent-1',
@@ -531,7 +531,7 @@ describe('POST /api/runs/:id/cancel', () => {
 
   it('200 — emits agent:failed event after cancellation', async () => {
     const events: Array<{ type: string }> = []
-    config.eventBus.onAny((e) => events.push(e as { type: string }))
+    config.eventBus.onAny((e) => { events.push(e as { type: string }) })
 
     const run = await config.runStore.create({ agentId: 'agent-1', input: 'task' })
     await req(app, 'POST', `/api/runs/${run.id}/cancel`)

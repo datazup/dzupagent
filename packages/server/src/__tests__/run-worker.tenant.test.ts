@@ -47,7 +47,7 @@ describe('run-worker tenant stamping (SEC-M-01-EXTENDED)', () => {
     })
 
     const emitted: DzupEvent[] = []
-    eventBus.onAny((event) => emitted.push(event))
+    eventBus.onAny((event) => { emitted.push(event) })
 
     startRunWorker({
       runQueue,
@@ -95,7 +95,7 @@ describe('run-worker tenant stamping (SEC-M-01-EXTENDED)', () => {
     })
 
     const emitted: DzupEvent[] = []
-    eventBus.onAny((event) => emitted.push(event))
+    eventBus.onAny((event) => { emitted.push(event) })
 
     startRunWorker({
       runQueue,

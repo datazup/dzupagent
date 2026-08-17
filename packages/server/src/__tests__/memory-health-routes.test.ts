@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import type { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import { createMemoryHealthRoutes, type HealthProvider } from '../routes/memory-health.js'
 
-function createApp(retriever: HealthProvider): Hono {
+function createApp(retriever: HealthProvider): Hono<AppEnv> {
   return createMemoryHealthRoutes({ retriever })
 }
 

@@ -111,7 +111,7 @@ describe('Run routes — extended coverage', () => {
     await config.runStore.update(run.id, { status: 'paused' })
 
     const events: unknown[] = []
-    config.eventBus.onAny((e) => events.push(e))
+    config.eventBus.onAny((e) => { events.push(e) })
 
     const res = await req(app, 'POST', `/api/runs/${run.id}/resume`, {
       resumeToken: 'token-abc',

@@ -255,7 +255,7 @@ describe("Server run-executor deep coverage (W21-B2)", () => {
 
     it("agent:failed is emitted for unknown agent id", async () => {
       const events: DzupEvent[] = [];
-      eventBus.onAny((e) => events.push(e));
+      eventBus.onAny((e) => { events.push(e) });
 
       startRunWorker({
         runQueue,
@@ -322,7 +322,7 @@ describe("Server run-executor deep coverage (W21-B2)", () => {
   describe("Event emission", () => {
     it("emits agent:started with correct runId and agentId", async () => {
       const events: DzupEvent[] = [];
-      eventBus.onAny((e) => events.push(e));
+      eventBus.onAny((e) => { events.push(e) });
 
       startRunWorker({
         runQueue,
@@ -349,7 +349,7 @@ describe("Server run-executor deep coverage (W21-B2)", () => {
 
     it("emits agent:completed with durationMs", async () => {
       const events: DzupEvent[] = [];
-      eventBus.onAny((e) => events.push(e));
+      eventBus.onAny((e) => { events.push(e) });
 
       startRunWorker({
         runQueue,
@@ -375,7 +375,7 @@ describe("Server run-executor deep coverage (W21-B2)", () => {
 
     it("emits agent:failed with errorCode INTERNAL_ERROR when executor throws", async () => {
       const events: DzupEvent[] = [];
-      eventBus.onAny((e) => events.push(e));
+      eventBus.onAny((e) => { events.push(e) });
 
       startRunWorker({
         runQueue,
@@ -404,7 +404,7 @@ describe("Server run-executor deep coverage (W21-B2)", () => {
 
     it("does not emit agent:completed when the executor throws", async () => {
       const events: DzupEvent[] = [];
-      eventBus.onAny((e) => events.push(e));
+      eventBus.onAny((e) => { events.push(e) });
 
       startRunWorker({
         runQueue,
@@ -966,7 +966,7 @@ describe("Server run-executor deep coverage (W21-B2)", () => {
 
     it("stream is closed even if executor errors", async () => {
       const events: DzupEvent[] = [];
-      eventBus.onAny((e) => events.push(e));
+      eventBus.onAny((e) => { events.push(e) });
 
       startRunWorker({
         runQueue,

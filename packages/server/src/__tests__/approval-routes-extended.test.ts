@@ -47,7 +47,7 @@ describe('Approval routes — extended', () => {
     await config.runStore.update(run.id, { status: 'awaiting_approval' })
 
     const events: unknown[] = []
-    config.eventBus.onAny((e) => events.push(e))
+    config.eventBus.onAny((e) => { events.push(e) })
 
     await req(app, 'POST', `/api/runs/${run.id}/approve`)
 
@@ -88,7 +88,7 @@ describe('Approval routes — extended', () => {
     await config.runStore.update(run.id, { status: 'awaiting_approval' })
 
     const events: unknown[] = []
-    config.eventBus.onAny((e) => events.push(e))
+    config.eventBus.onAny((e) => { events.push(e) })
 
     await req(app, 'POST', `/api/runs/${run.id}/reject`, { reason: 'Too expensive' })
 

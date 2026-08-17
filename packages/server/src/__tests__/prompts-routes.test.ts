@@ -33,7 +33,7 @@ function buildApp(store: PromptStore, tenantId = "tenant-1") {
   return app;
 }
 
-async function post(app: Hono, path: string, body?: unknown) {
+async function post(app: Hono<AppEnv>, path: string, body?: unknown) {
   return app.request(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -41,7 +41,7 @@ async function post(app: Hono, path: string, body?: unknown) {
   });
 }
 
-async function put(app: Hono, path: string, body: unknown) {
+async function put(app: Hono<AppEnv>, path: string, body: unknown) {
   return app.request(path, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -49,7 +49,7 @@ async function put(app: Hono, path: string, body: unknown) {
   });
 }
 
-async function del(app: Hono, path: string) {
+async function del(app: Hono<AppEnv>, path: string) {
   return app.request(path, { method: "DELETE" });
 }
 
@@ -66,7 +66,7 @@ const VALID_PROMPT = {
 
 describe("POST /api/prompts", () => {
   let store: InMemoryPromptStore;
-  let app: Hono;
+  let app: Hono<AppEnv>;
 
   beforeEach(() => {
     store = new InMemoryPromptStore();
@@ -149,7 +149,7 @@ describe("POST /api/prompts", () => {
 
 describe("GET /api/prompts", () => {
   let store: InMemoryPromptStore;
-  let app: Hono;
+  let app: Hono<AppEnv>;
 
   beforeEach(async () => {
     store = new InMemoryPromptStore();
@@ -231,7 +231,7 @@ describe("GET /api/prompts", () => {
 
 describe("GET /api/prompts/:id", () => {
   let store: InMemoryPromptStore;
-  let app: Hono;
+  let app: Hono<AppEnv>;
 
   beforeEach(() => {
     store = new InMemoryPromptStore();
@@ -276,7 +276,7 @@ describe("GET /api/prompts/:id", () => {
 
 describe("GET /api/prompts/active/:promptId", () => {
   let store: InMemoryPromptStore;
-  let app: Hono;
+  let app: Hono<AppEnv>;
 
   beforeEach(() => {
     store = new InMemoryPromptStore();
@@ -317,7 +317,7 @@ describe("GET /api/prompts/active/:promptId", () => {
 
 describe("PUT /api/prompts/:id", () => {
   let store: InMemoryPromptStore;
-  let app: Hono;
+  let app: Hono<AppEnv>;
 
   beforeEach(() => {
     store = new InMemoryPromptStore();
@@ -375,7 +375,7 @@ describe("PUT /api/prompts/:id", () => {
 
 describe("POST /api/prompts/:id/publish", () => {
   let store: InMemoryPromptStore;
-  let app: Hono;
+  let app: Hono<AppEnv>;
 
   beforeEach(() => {
     store = new InMemoryPromptStore();
@@ -427,7 +427,7 @@ describe("POST /api/prompts/:id/publish", () => {
 
 describe("POST /api/prompts/rollback/:promptId", () => {
   let store: InMemoryPromptStore;
-  let app: Hono;
+  let app: Hono<AppEnv>;
 
   beforeEach(() => {
     store = new InMemoryPromptStore();
@@ -481,7 +481,7 @@ describe("POST /api/prompts/rollback/:promptId", () => {
 
 describe("DELETE /api/prompts/:id", () => {
   let store: InMemoryPromptStore;
-  let app: Hono;
+  let app: Hono<AppEnv>;
 
   beforeEach(() => {
     store = new InMemoryPromptStore();

@@ -75,7 +75,7 @@ describe('dzip-agent-run-executor tenant stamping (SEC-M-01-FOLLOWUP)', () => {
 
     const bus = createEventBus()
     const emitted: DzupEvent[] = []
-    bus.onAny((event) => emitted.push(event))
+    bus.onAny((event) => { emitted.push(event) })
 
     const executor = createDzupAgentRunExecutor()
     await executor(makeContext(bus, 'tenant-A'))
@@ -96,7 +96,7 @@ describe('dzip-agent-run-executor tenant stamping (SEC-M-01-FOLLOWUP)', () => {
 
     const bus = createEventBus()
     const emitted: DzupEvent[] = []
-    bus.onAny((event) => emitted.push(event))
+    bus.onAny((event) => { emitted.push(event) })
 
     const executor = createDzupAgentRunExecutor()
     await expect(executor(makeContext(bus, 'tenant-B'))).rejects.toThrow(/boom/)
@@ -116,7 +116,7 @@ describe('dzip-agent-run-executor tenant stamping (SEC-M-01-FOLLOWUP)', () => {
 
     const bus = createEventBus()
     const emitted: DzupEvent[] = []
-    bus.onAny((event) => emitted.push(event))
+    bus.onAny((event) => { emitted.push(event) })
 
     const executor = createDzupAgentRunExecutor()
     await executor(makeContext(bus, 'tenant-C'))
@@ -135,7 +135,7 @@ describe('dzip-agent-run-executor tenant stamping (SEC-M-01-FOLLOWUP)', () => {
 
     const bus = createEventBus()
     const emitted: DzupEvent[] = []
-    bus.onAny((event) => emitted.push(event))
+    bus.onAny((event) => { emitted.push(event) })
 
     const executor = createDzupAgentRunExecutor()
     await executor(makeContext(bus, undefined))

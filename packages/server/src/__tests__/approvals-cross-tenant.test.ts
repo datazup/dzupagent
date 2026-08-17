@@ -12,6 +12,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import {
   InMemoryAgentStore,
   InMemoryRunStore,
@@ -24,9 +25,9 @@ import { createApprovalsRoutes } from '../routes/approvals.js'
 
 function appWithApiKey(
   apiKey: { id: string; tenantId: string },
-  routes: Hono,
-): Hono {
-  const app = new Hono()
+  routes: Hono<AppEnv>,
+): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
   app.use('*', async (c, next) => {
     c.set('apiKey' as never, apiKey as never)
     await next()
@@ -38,7 +39,7 @@ function appWithApiKey(
 describe('Approvals routes — cross-tenant guard (QF-01 / SEC-01)', () => {
   let runStore: InMemoryRunStore
   let approvalStore: InMemoryApprovalStateStore
-  let routes: Hono
+  let routes: Hono<AppEnv>
 
   beforeEach(() => {
     runStore = new InMemoryRunStore()

@@ -10,6 +10,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import type { EvalScorer, EvalSuite } from '@dzupagent/eval-contracts'
 import { createEvalRoutes } from '../routes/evals.js'
 import { InMemoryEvalRunStore } from '../persistence/eval-run-store.js'
@@ -46,10 +47,10 @@ const toySuite: EvalSuite = {
  */
 function appWithApiKey(
   apiKey: { id: string; tenantId: string },
-  routes: Hono,
+  routes: Hono<AppEnv>,
   mountPath = '/api/evals',
-): Hono {
-  const app = new Hono()
+): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
   app.use('*', async (c, next) => {
     c.set('apiKey' as never, apiKey as never)
     await next()
@@ -68,7 +69,7 @@ async function jsonBody<T>(res: Response): Promise<T> {
 
 describe('Eval routes — tenant isolation (SEC-M-06)', () => {
   let store: InMemoryEvalRunStore
-  let routes: Hono
+  let routes: Hono<AppEnv>
 
   beforeEach(() => {
     store = new InMemoryEvalRunStore()

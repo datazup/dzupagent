@@ -112,7 +112,7 @@ describe('Human contact respond route', () => {
       const run = await createSuspendedRun(config, 'suspended', [contactId])
 
       const events: Array<Record<string, unknown>> = []
-      config.eventBus.onAny((e) => events.push(e as unknown as Record<string, unknown>))
+      config.eventBus.onAny((e) => { events.push(e as unknown as Record<string, unknown>) })
 
       await postRespond(app, run.id, contactId, {
         type: 'approval',
@@ -159,7 +159,7 @@ describe('Human contact respond route', () => {
       const run = await createSuspendedRun(config, 'suspended', ['contact-real2'])
 
       const events: Array<Record<string, unknown>> = []
-      config.eventBus.onAny((e) => events.push(e as unknown as Record<string, unknown>))
+      config.eventBus.onAny((e) => { events.push(e as unknown as Record<string, unknown>) })
 
       await postRespond(app, run.id, 'contact-forged2', {
         type: 'approval',
@@ -298,7 +298,7 @@ describe('Human contact respond route', () => {
       const run = await createSuspendedRun(config, 'suspended', [contactId])
 
       const events: Array<Record<string, unknown>> = []
-      config.eventBus.onAny((e) => events.push(e as unknown as Record<string, unknown>))
+      config.eventBus.onAny((e) => { events.push(e as unknown as Record<string, unknown>) })
 
       const res = await postRespond(app, run.id, contactId, {
         type: 'approval',
@@ -322,7 +322,7 @@ describe('Human contact respond route', () => {
       const run = await createSuspendedRun(config, 'suspended', ['contact-r2'])
 
       const events: Array<Record<string, unknown>> = []
-      config.eventBus.onAny((e) => events.push(e as unknown as Record<string, unknown>))
+      config.eventBus.onAny((e) => { events.push(e as unknown as Record<string, unknown>) })
 
       await postRespond(app, run.id, 'contact-r2', {
         type: 'approval',
@@ -342,7 +342,7 @@ describe('Human contact respond route', () => {
       const run = await createSuspendedRun(config, 'suspended', ['contact-r3'])
 
       const events: Array<Record<string, unknown>> = []
-      config.eventBus.onAny((e) => events.push(e as unknown as Record<string, unknown>))
+      config.eventBus.onAny((e) => { events.push(e as unknown as Record<string, unknown>) })
 
       await postRespond(app, run.id, 'contact-r3', {
         type: 'approval',
@@ -388,7 +388,7 @@ describe('Human contact respond route', () => {
       const run = await createSuspendedRun(config, 'suspended', ['contact-c2'])
 
       const events: Array<Record<string, unknown>> = []
-      config.eventBus.onAny((e) => events.push(e as unknown as Record<string, unknown>))
+      config.eventBus.onAny((e) => { events.push(e as unknown as Record<string, unknown>) })
 
       await postRespond(app, run.id, 'contact-c2', {
         type: 'clarification',
@@ -412,7 +412,7 @@ describe('Human contact respond route', () => {
       const run = await createSuspendedRun(config, 'suspended', ['contact-c3'])
 
       const events: Array<Record<string, unknown>> = []
-      config.eventBus.onAny((e) => events.push(e as unknown as Record<string, unknown>))
+      config.eventBus.onAny((e) => { events.push(e as unknown as Record<string, unknown>) })
 
       await postRespond(app, run.id, 'contact-c3', {
         type: 'clarification',

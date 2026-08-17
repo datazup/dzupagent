@@ -11,6 +11,7 @@ import {
 } from '@dzupagent/core'
 import { InMemoryCatalogStore } from '../marketplace/catalog-store.js'
 import type { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 
 const tenantA = 'tenant-a'
 const tenantB = 'tenant-b'
@@ -29,7 +30,7 @@ function createTestConfig(): ForgeServerConfig {
   }
 }
 
-function createAuthenticatedApp(catalogStore = new InMemoryCatalogStore()): Hono {
+function createAuthenticatedApp(catalogStore = new InMemoryCatalogStore()): Hono<AppEnv> {
   return createForgeApp({
     ...createTestConfig(),
     catalogStore,
@@ -49,7 +50,7 @@ function authHeaders(tenantId: string): Record<string, string> {
 }
 
 async function req(
-  app: Hono,
+  app: Hono<AppEnv>,
   method: string,
   path: string,
   body?: unknown,
@@ -77,7 +78,7 @@ function validEntry(overrides: Record<string, unknown> = {}) {
 // ---------------------------------------------------------------------------
 
 describe('Marketplace routes', () => {
-  let app: Hono
+  let app: Hono<AppEnv>
 
   beforeEach(() => {
     app = createForgeApp(createTestConfig())

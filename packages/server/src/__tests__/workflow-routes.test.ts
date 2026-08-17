@@ -18,6 +18,7 @@ import {
 } from '@dzupagent/core'
 import type { SkillStepResolver } from '@dzupagent/agent'
 import type { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 
 // ---------------------------------------------------------------------------
 // Mock @dzupagent/flow-compiler
@@ -91,7 +92,7 @@ function createTestConfig(overrides?: Partial<{
   }
 }
 
-async function req(app: Hono, method: string, path: string, body?: unknown) {
+async function req(app: Hono<AppEnv>, method: string, path: string, body?: unknown) {
   const init: RequestInit = {
     method,
     headers: { 'Content-Type': 'application/json' },
@@ -105,7 +106,7 @@ async function req(app: Hono, method: string, path: string, body?: unknown) {
 // ---------------------------------------------------------------------------
 
 describe('Workflow routes', () => {
-  let app: Hono
+  let app: Hono<AppEnv>
 
   beforeEach(() => {
     app = createForgeApp(createTestConfig())

@@ -46,7 +46,7 @@ describe('run-stages-persistence tenant stamping (SEC-M-01-EXTENDED)', () => {
     const runStore = new InMemoryRunStore()
     const eventBus = createEventBus()
     const emitted: DzupEvent[] = []
-    eventBus.onAny((event) => emitted.push(event))
+    eventBus.onAny((event) => { emitted.push(event) })
 
     const job = makeJob()
     // persistCancellation reads run.status and only acts on non-terminal
@@ -70,7 +70,7 @@ describe('run-stages-persistence tenant stamping (SEC-M-01-EXTENDED)', () => {
     const runStore = new InMemoryRunStore()
     const eventBus = createEventBus()
     const emitted: DzupEvent[] = []
-    eventBus.onAny((event) => emitted.push(event))
+    eventBus.onAny((event) => { emitted.push(event) })
 
     const job = makeJob({ metadata: { tenantId: 'tenant-B' } })
     const run = await runStore.create({ agentId: job.agentId, input: job.input })
@@ -92,7 +92,7 @@ describe('run-stages-persistence tenant stamping (SEC-M-01-EXTENDED)', () => {
     const runStore = new InMemoryRunStore()
     const eventBus = createEventBus()
     const emitted: DzupEvent[] = []
-    eventBus.onAny((event) => emitted.push(event))
+    eventBus.onAny((event) => { emitted.push(event) })
 
     const job = makeJob({ metadata: undefined })
     const run = await runStore.create({ agentId: job.agentId, input: job.input })
@@ -115,7 +115,7 @@ describe('run-stages-persistence tenant stamping (SEC-M-01-EXTENDED)', () => {
     const agentStore = new InMemoryAgentStore()
     const eventBus = createEventBus()
     const emitted: DzupEvent[] = []
-    eventBus.onAny((event) => emitted.push(event))
+    eventBus.onAny((event) => { emitted.push(event) })
     const modelRegistry = new ModelRegistry()
     const runQueue = new InMemoryRunQueue({ concurrency: 1 })
 

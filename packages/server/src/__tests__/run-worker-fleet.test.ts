@@ -34,7 +34,7 @@ describe("startRunWorker — worker fleet registry (P1)", () => {
     const store = new InMemoryWorkerNodeStore();
     const eventBus = createEventBus();
     const events: DzupEvent["type"][] = [];
-    eventBus.onAny((e) => events.push(e.type));
+    eventBus.onAny((e) => { events.push(e.type) });
 
     startRunWorker(
       baseOptions({
@@ -68,7 +68,7 @@ describe("startRunWorker — worker fleet registry (P1)", () => {
     const store = new InMemoryWorkerNodeStore();
     const eventBus = createEventBus();
     const events: DzupEvent["type"][] = [];
-    eventBus.onAny((e) => events.push(e.type));
+    eventBus.onAny((e) => { events.push(e.type) });
     let stop: (() => Promise<void>) | undefined;
 
     startRunWorker(

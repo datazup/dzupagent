@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Hono } from 'hono'
+import type { AppEnv } from '../../../types.js'
 import {
   InMemoryAgentStore,
   InMemoryRunStore,
@@ -78,7 +79,7 @@ function makeCompletionBody(overrides: Record<string, unknown> = {}): Record<str
 // ---------------------------------------------------------------------------
 
 describe('OpenAI-compatible routes', () => {
-  let app: Hono
+  let app: Hono<AppEnv>
   let agentStore: InMemoryAgentStore
 
   beforeEach(async () => {
@@ -339,7 +340,7 @@ describe('OpenAI-compatible routes', () => {
   })
 
   describe('Tenant scoping', () => {
-    async function createTenantScopedApp(): Promise<Hono> {
+    async function createTenantScopedApp(): Promise<Hono<AppEnv>> {
       const scopedStore = new InMemoryAgentStore()
       await scopedStore.save(TENANT_A_AGENT)
       await scopedStore.save(TENANT_B_AGENT)

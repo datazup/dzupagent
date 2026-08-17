@@ -9,6 +9,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import { createDeployRoutes } from '../routes/deploy.js'
 import { InMemoryDeploymentHistoryStore } from '../deploy/deployment-history-store.js'
 
@@ -18,10 +19,10 @@ import { InMemoryDeploymentHistoryStore } from '../deploy/deployment-history-sto
 
 function appWithApiKey(
   apiKey: { id: string; tenantId: string },
-  routes: Hono,
+  routes: Hono<AppEnv>,
   mountPath = '/api/deploy',
-): Hono {
-  const app = new Hono()
+): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
   app.use('*', async (c, next) => {
     c.set('apiKey' as never, apiKey as never)
     await next()
@@ -46,7 +47,7 @@ const BASE_RECORD = {
 
 describe('Deploy routes — tenant isolation (SEC-M-06)', () => {
   let historyStore: InMemoryDeploymentHistoryStore
-  let routes: Hono
+  let routes: Hono<AppEnv>
 
   beforeEach(() => {
     historyStore = new InMemoryDeploymentHistoryStore()

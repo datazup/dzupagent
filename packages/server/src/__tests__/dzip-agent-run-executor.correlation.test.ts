@@ -72,7 +72,7 @@ describe('dzip-agent-run-executor correlation', () => {
 
     const bus = createEventBus()
     const emitted: DzupEvent[] = []
-    bus.onAny((event) => emitted.push(event))
+    bus.onAny((event) => { emitted.push(event) })
 
     const executor = createDzupAgentRunExecutor()
     await executor(makeContext(bus))
@@ -122,7 +122,7 @@ describe('dzip-agent-run-executor correlation', () => {
 
     const bus = createEventBus()
     const emitted: DzupEvent[] = []
-    bus.onAny((event) => emitted.push(event))
+    bus.onAny((event) => { emitted.push(event) })
 
     const executor = createDzupAgentRunExecutor()
     await expect(executor(makeContext(bus))).rejects.toThrow('write denied')

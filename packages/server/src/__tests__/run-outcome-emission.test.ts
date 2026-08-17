@@ -406,7 +406,7 @@ describe('run:scored emission — run-worker wiring', () => {
     }
 
     const scored: ScoredEvent[] = []
-    eventBus.on('run:scored', (event) => scored.push(event))
+    eventBus.on('run:scored', (event) => { scored.push(event) })
 
     startRunWorker({
       runQueue,

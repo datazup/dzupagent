@@ -1111,7 +1111,7 @@ describe('run-worker — escalation policy edge cases', () => {
     })
 
     const seenEvents: Array<{ type: string }> = []
-    eventBus.onAny((event) => seenEvents.push(event as { type: string }))
+    eventBus.onAny((event) => { seenEvents.push(event as { type: string }) })
 
     startRunWorker({
       runQueue,
@@ -1373,7 +1373,7 @@ describe('run-worker — escalation policy edge cases', () => {
     })
 
     const seenEvents: Array<Record<string, unknown>> = []
-    eventBus.onAny((event) => seenEvents.push(event as Record<string, unknown>))
+    eventBus.onAny((event) => { seenEvents.push(event as Record<string, unknown>) })
 
     startRunWorker({
       runQueue,
@@ -2657,7 +2657,7 @@ describe('run-worker — escalation policy edge cases', () => {
     })
 
     const seenEvents: string[] = []
-    eventBus.onAny((event) => seenEvents.push((event as { type: string }).type))
+    eventBus.onAny((event) => { seenEvents.push((event as { type: string }).type) })
 
     startRunWorker({
       runQueue,

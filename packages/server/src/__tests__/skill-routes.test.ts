@@ -14,6 +14,7 @@ import {
 import { createDefaultSkillRegistry } from '@dzupagent/agent-adapters'
 import type { AdapterSkillRegistry, AdapterSkillBundle } from '@dzupagent/agent-adapters'
 import type { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -29,7 +30,7 @@ function createTestConfig(skillRegistry?: AdapterSkillRegistry): ForgeServerConf
   }
 }
 
-async function req(app: Hono, method: string, path: string, body?: unknown) {
+async function req(app: Hono<AppEnv>, method: string, path: string, body?: unknown) {
   const init: RequestInit = {
     method,
     headers: { 'Content-Type': 'application/json' },
@@ -72,7 +73,7 @@ function testBundle(): AdapterSkillBundle {
 // ---------------------------------------------------------------------------
 
 describe('Skill routes', () => {
-  let app: Hono
+  let app: Hono<AppEnv>
   let registry: AdapterSkillRegistry
 
   beforeEach(() => {
