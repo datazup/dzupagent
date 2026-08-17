@@ -61,9 +61,19 @@ export interface RunExecutorResult {
   compressionLog?: CompressionLogEntry[];
 }
 
+/**
+ * An executor may resolve to either a bare output value or a structured
+ * {@link RunExecutorResult}; `run-stages-execution.ts` narrows with the
+ * `isStructuredResult` guard and supports both.
+ *
+ * The return type is deliberately `unknown` rather than
+ * `unknown | RunExecutorResult`: `unknown` absorbs every union member, so that
+ * form collapsed to exactly this type while reading as though it constrained
+ * something. Callers must narrow -- see `isStructuredResult`.
+ */
 export type RunExecutor = (
   context: RunExecutionContext
-) => Promise<unknown | RunExecutorResult>;
+) => Promise<unknown>;
 
 // ---------------------------------------------------------------------------
 // Structural types for RunReflector (avoids hard dependency on @dzupagent/agent)
