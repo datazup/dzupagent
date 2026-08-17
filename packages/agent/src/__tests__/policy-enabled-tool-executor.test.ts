@@ -129,7 +129,12 @@ function makeParams(
       // is undefined. `in` distinguishes that from an omitted key; a spread of
       // the filtered object could not.
       ...("wrapToolResults" in configOverrides
-        ? { wrapToolResults: configOverrides.wrapToolResults }
+        ? configOverrides.wrapToolResults === undefined
+          ? // Explicitly-present-but-undefined means "omit the key entirely",
+            // which is how a caller asks for the executor's own ON default
+            // under exactOptionalPropertyTypes.
+            {}
+          : { wrapToolResults: configOverrides.wrapToolResults }
         : { wrapToolResults: false }),
       ...omitUndefined(configOverrides),
       maxIterations: configOverrides.maxIterations ?? 10,

@@ -70,12 +70,16 @@ function createMockModel(
     callIndex++;
     return new AIMessage({
       content: resp.content,
-      tool_calls: resp.tool_calls?.map((tc) => ({
-        id: tc.id,
-        name: tc.name,
-        args: tc.args,
-        type: "tool_call" as const,
-      })),
+      ...(resp.tool_calls
+        ? {
+            tool_calls: resp.tool_calls.map((tc) => ({
+              id: tc.id,
+              name: tc.name,
+              args: tc.args,
+              type: "tool_call" as const,
+            })),
+          }
+        : {}),
       response_metadata: {},
     });
   });
@@ -939,9 +943,11 @@ describe("Result merging from multiple agents", () => {
       const mergeStrategy = {
         merge: vi.fn(() => ({
           status: "partial" as const,
+          agentResults: [],
           successCount: 1,
+          timeoutCount: 0,
           errorCount: 1,
-          mergedOutput: "merged",
+          output: "merged",
         })),
       };
 
@@ -963,10 +969,20 @@ describe("Result merging from multiple agents", () => {
       });
 
       expect(mergeStrategy.merge).toHaveBeenCalledOnce();
+
+      // The whole point of the emit is to carry the merged result's status and
+      // counts onto the bus (parallel-delegation-aggregator.ts maps
+      // merged.status/successCount/errorCount onto the event). Asserting only
+      // that *an* event exists leaves that mapping unverified and makes the
+      // fixture's "partial"/1/1 dead values no assertion ever reads.
       const mergeEvent = collectedEvents.find(
-        (e) => e.type === "supervisor:merge_complete",
+        (e): e is Extract<DzupEvent, { type: "supervisor:merge_complete" }> =>
+          e.type === "supervisor:merge_complete",
       );
       expect(mergeEvent).toBeDefined();
+      expect(mergeEvent?.mergeStatus).toBe("partial");
+      expect(mergeEvent?.successCount).toBe(1);
+      expect(mergeEvent?.errorCount).toBe(1);
     });
   });
 });
@@ -1053,6 +1069,12 @@ describe("Error propagation across agents", () => {
 
     it("circuit breaker records failure for non-timeout agent errors", async () => {
       const breaker = new AgentCircuitBreaker({ failureThreshold: 1 });
+      // `KeyedCircuitBreaker.recordTimeout` is a straight alias for
+      // `recordFailure`, so `getState() === 'open'` is identical in this test and
+      // the timeout one below and proves nothing about which branch of
+      // `recordCircuitBreakerFailure` ran. Spy on both to pin the branch.
+      const recordTimeout = vi.spyOn(breaker, "recordTimeout");
+      const recordFailure = vi.spyOn(breaker, "recordFailure");
       const failAgent = createAgent(
         "fail-agent",
         createThrowingModel("generic failure"),
@@ -1063,17 +1085,22 @@ describe("Error propagation across agents", () => {
         mergeStrategy: {
           merge: () => ({
             status: "all_failed" as const,
+            agentResults: [],
             successCount: 0,
+            timeoutCount: 0,
             errorCount: 1,
           }),
         },
       });
 
+      expect(recordFailure).toHaveBeenCalledWith("fail-agent");
+      expect(recordTimeout).not.toHaveBeenCalled();
       expect(breaker.getState("fail-agent")).toBe("open");
     });
 
     it("circuit breaker records timeout for timeout-message errors", async () => {
       const breaker = new AgentCircuitBreaker({ failureThreshold: 1 });
+      const recordTimeout = vi.spyOn(breaker, "recordTimeout");
       const timeoutAgent = createAgent(
         "timeout-agent",
         createThrowingModel("operation timeout exceeded"),
@@ -1084,12 +1111,18 @@ describe("Error propagation across agents", () => {
         mergeStrategy: {
           merge: () => ({
             status: "all_failed" as const,
+            agentResults: [],
             successCount: 0,
+            timeoutCount: 0,
             errorCount: 1,
           }),
         },
       });
 
+      // Only `recordTimeout` is asserted here: it delegates to `recordFailure`
+      // internally, so a `recordFailure` spy fires on this path too and cannot
+      // discriminate. This assertion is what makes the test's name true.
+      expect(recordTimeout).toHaveBeenCalledWith("timeout-agent");
       expect(breaker.getState("timeout-agent")).toBe("open");
     });
 

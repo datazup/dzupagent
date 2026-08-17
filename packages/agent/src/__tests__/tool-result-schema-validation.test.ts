@@ -31,7 +31,8 @@ import type { ToolLoopConfig } from "../agent/tool-loop/types.js";
 
 function mockLLM(response: string, modelName?: string): StructuredLLMWithMeta {
   return {
-    model: modelName,
+    // exactOptionalPropertyTypes: omit `model` rather than passing `undefined`.
+    ...(modelName !== undefined ? { model: modelName } : {}),
     invoke: vi.fn(async () => ({ content: response })),
   };
 }

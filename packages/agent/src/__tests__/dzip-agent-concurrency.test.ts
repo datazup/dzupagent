@@ -16,6 +16,8 @@ import {
 } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 
+import type { MemoryService } from '@dzupagent/memory'
+
 import { DzupAgent } from '../agent/dzip-agent.js'
 
 /**
@@ -104,7 +106,9 @@ describe('DzupAgent concurrency — per-run memory frame', () => {
       id: 'concurrent-agent',
       instructions: 'Base instructions',
       model,
-      memory,
+      // Partial double — the memory-context loader only calls `get` and
+      // `formatForPrompt` on the injected MemoryService.
+      memory: memory as unknown as MemoryService,
       memoryNamespace: 'facts',
       memoryScope: { project: 'demo' },
     })
@@ -189,7 +193,8 @@ describe('DzupAgent concurrency — per-run memory frame', () => {
       id: 'concurrent-prep',
       instructions: 'Base instructions',
       model,
-      memory,
+      // Partial double — see above.
+      memory: memory as unknown as MemoryService,
       memoryNamespace: 'facts',
       memoryScope: { project: 'demo' },
     })

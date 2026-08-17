@@ -35,7 +35,7 @@ function makeCluster(
     workspace:
       "workspace" in overrides ? overrides.workspace : { root: "/workspace" },
     mailbox: overrides.mailbox ?? makeMailbox(),
-    roles: overrides.roles,
+    ...(overrides.roles !== undefined ? { roles: overrides.roles } : {}),
   });
 }
 
@@ -43,7 +43,9 @@ function makeRole(partial: Partial<ClusterRole> = {}): ClusterRole {
   return {
     roleId: partial.roleId ?? "role-a",
     agentId: partial.agentId ?? "agent-a",
-    capabilities: partial.capabilities,
+    ...(partial.capabilities !== undefined
+      ? { capabilities: partial.capabilities }
+      : {}),
   };
 }
 

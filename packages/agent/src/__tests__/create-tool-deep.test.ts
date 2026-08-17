@@ -17,10 +17,13 @@ describe('createForgeTool', () => {
   })
 
   it('creates a tool that JSON-stringifies non-string output', async () => {
-    const tool = createForgeTool({
+    // No outputSchema, so ForgeToolConfig's TOutput falls back to its
+    // `z.ZodType<string>` default; name the real output type explicitly.
+    const inputSchema = z.object({ a: z.number(), b: z.number() })
+    const tool = createForgeTool<typeof inputSchema, z.ZodType<{ sum: number }>>({
       id: 'calc',
       description: 'Adds numbers',
-      inputSchema: z.object({ a: z.number(), b: z.number() }),
+      inputSchema,
       execute: async ({ a, b }) => ({ sum: a + b }),
     })
 
@@ -47,17 +50,21 @@ describe('createForgeTool', () => {
       description: 'Returns invalid data',
       inputSchema: z.object({ x: z.string() }),
       outputSchema: z.object({ value: z.number() }),
-      execute: async () => ({ value: 'not-a-number' }),
+      // Intentional type violation: this test exists to prove the runtime
+      // outputSchema.parse rejects output the static type would forbid.
+      execute: async () =>
+        ({ value: 'not-a-number' }) as unknown as { value: number },
     })
 
     await expect(tool.invoke({ x: 'test' })).rejects.toThrow()
   })
 
   it('uses toModelOutput when provided', async () => {
-    const tool = createForgeTool({
+    const inputSchema = z.object({ items: z.array(z.string()) })
+    const tool = createForgeTool<typeof inputSchema, z.ZodType<string[]>>({
       id: 'formatted',
       description: 'Returns formatted output',
-      inputSchema: z.object({ items: z.array(z.string()) }),
+      inputSchema,
       execute: async ({ items }) => items,
       toModelOutput: (items) => `Found ${items.length} items`,
     })

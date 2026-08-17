@@ -34,6 +34,10 @@ import {
   type DelegationExecutor,
 } from "../orchestration/delegation.js";
 import { aggregateSettledResults } from "../orchestration/parallel-delegation-aggregator.js";
+import type {
+  AgentResult,
+  MergedResult,
+} from "../orchestration/orchestration-merge-strategy-types.js";
 import { RuleBasedRouting } from "../orchestration/routing/rule-based-routing.js";
 import { RoundRobinRouting } from "../orchestration/routing/round-robin-routing.js";
 import { HashRouting } from "../orchestration/routing/hash-routing.js";
@@ -63,12 +67,16 @@ function createMockModel(
     callIndex++;
     return new AIMessage({
       content: resp.content,
-      tool_calls: resp.tool_calls?.map((tc) => ({
-        id: tc.id,
-        name: tc.name,
-        args: tc.args,
-        type: "tool_call" as const,
-      })),
+      ...(resp.tool_calls
+        ? {
+            tool_calls: resp.tool_calls.map((tc) => ({
+              id: tc.id,
+              name: tc.name,
+              args: tc.args,
+              type: "tool_call" as const,
+            })),
+          }
+        : {}),
       response_metadata: {},
     });
   });
@@ -597,13 +605,21 @@ describe("Result aggregation — collecting and merging sub-agent outputs", () =
   });
 
   it("aggregateSettledResults: invokes mergeStrategy.merge with agent results", () => {
+    // `merge`'s parameter is typed so `mock.calls[0]` is a 1-tuple. A zero-arg
+    // `vi.fn(() => ...)` records the EMPTY tuple, which makes a destructured
+    // argument `never` -- and `expect(<never>).toEqual(...)` cannot fail. This
+    // test's name promises the agent results are checked, so they are, below.
     const mergeStrategy = {
-      merge: vi.fn(() => ({
-        status: "success" as const,
-        successCount: 2,
-        errorCount: 0,
-        mergedOutput: "merged",
-      })),
+      merge: vi.fn(
+        (results: AgentResult[]): MergedResult => ({
+          status: "success" as const,
+          agentResults: results,
+          successCount: 2,
+          timeoutCount: 0,
+          errorCount: 0,
+          output: "merged",
+        }),
+      ),
     };
     const assignments: TaskAssignment[] = [
       { specialistId: "ms-a", task: "ta", input: {} },
@@ -620,6 +636,13 @@ describe("Result aggregation — collecting and merging sub-agent outputs", () =
       mergeStrategy,
     });
     expect(mergeStrategy.merge).toHaveBeenCalledOnce();
+
+    // The aggregator derives AgentResults from the settled outcomes before
+    // handing them to the strategy; pin that projection.
+    const [passedResults] = mergeStrategy.merge.mock.calls[0]!;
+    expect(passedResults.map((r) => r.agentId)).toEqual(["ms-a", "ms-b"]);
+    expect(passedResults.map((r) => r.status)).toEqual(["success", "success"]);
+    expect(passedResults.map((r) => r.output)).toEqual(["a-out", "b-out"]);
   });
 
   it("AgentOrchestrator.parallel default merge numbers sections from 1", async () => {

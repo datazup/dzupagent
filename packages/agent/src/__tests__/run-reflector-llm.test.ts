@@ -330,7 +330,7 @@ describe('RunReflector LLM reflection', () => {
       const llm = mockLlm({})
       const reflector = new RunReflector({ llm, llmMode: 'always' })
 
-      await reflector.score(makeInput({ toolCalls: undefined }))
+      await reflector.score(makeInput())
 
       const prompt = (llm as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string
       expect(prompt).toContain('(none)')

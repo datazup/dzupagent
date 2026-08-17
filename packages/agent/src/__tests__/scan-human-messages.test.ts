@@ -255,6 +255,10 @@ describe('scanHumanMessages — PII redact mode', () => {
         (e as Record<string, unknown>)['type'] === 'agent:context_fallback',
     )
     expect(securityEvent).toBeDefined()
+    // `agent:context_fallback` is also emitted for memory-load failure,
+    // summarization fallback and summary failure (message-preparation.ts).
+    // `reason` is the only field that makes this event the security path.
+    expect((securityEvent as Record<string, unknown>)['reason']).toBe('security:sanitized')
   })
 })
 
@@ -352,7 +356,7 @@ describe('scanHumanMessages — both off', () => {
     await prepareRunState(params)
 
     const securityEvents = (eventBus.emit as ReturnType<typeof vi.fn>).mock.calls.filter(
-      ([e]: [unknown]) =>
+      ([e]: unknown[]) =>
         typeof e === 'object' && e !== null &&
         (e as Record<string, unknown>)['type'] === 'agent:context_fallback',
     )
@@ -391,8 +395,7 @@ describe('scanHumanMessages — runId threading', () => {
         (e as Record<string, unknown>)['type'] === 'agent:context_fallback',
     )
     expect(securityEvent).toBeDefined()
-    if (securityEvent) {
-      expect((securityEvent as Record<string, unknown>)['runId']).toBe('test-run-123')
-    }
+    expect((securityEvent as Record<string, unknown>)['runId']).toBe('test-run-123')
+    expect((securityEvent as Record<string, unknown>)['reason']).toBe('security:sanitized')
   })
 })

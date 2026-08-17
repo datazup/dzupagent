@@ -168,7 +168,7 @@ describe('processGeneratedRun outputFilters', () => {
         instructions: 'test instructions',
         model,
         guardrails: {
-          outputFilter: (output) => `legacy:${output}`,
+          outputFilter: async (output) => `legacy:${output}`,
         },
         memoryScope: {
           tenantId: 'tenant-7',

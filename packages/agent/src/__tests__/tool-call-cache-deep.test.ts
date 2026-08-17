@@ -156,8 +156,14 @@ describe("cache hit", () => {
     const resolver = makeResolver();
     const step1 = await resolver.resolve("skill-a");
     const step2 = await resolver.resolve("skill-a");
-    const r1 = await step1.execute({ userMessage: "hello" }, {} as never);
-    const r2 = await step2.execute({ userMessage: "world" }, {} as never);
+    const r1 = (await step1.execute(
+      { userMessage: "hello" },
+      {} as never
+    )) as Record<string, unknown>;
+    const r2 = (await step2.execute(
+      { userMessage: "world" },
+      {} as never
+    )) as Record<string, unknown>;
     expect(typeof r1["skill-a"]).toBe("string");
     expect(typeof r2["skill-a"]).toBe("string");
   });
@@ -646,10 +652,10 @@ describe("WorkflowStep.execute() and messageBuilder", () => {
   it("execute() returns an object keyed by skillId", async () => {
     const resolver = makeResolver();
     const step = await resolver.resolve("skill-a");
-    const result = await step.execute(
+    const result = (await step.execute(
       { userMessage: "do something" },
       {} as never
-    );
+    )) as Record<string, unknown>;
     expect(typeof result["skill-a"]).toBe("string");
   });
 

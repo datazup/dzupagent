@@ -182,7 +182,7 @@ describe('DzupAgent model resolution', () => {
 
   it('throws when model is a string but no registry is provided', () => {
     expect(() => {
-      new DzupAgent(minimalConfig({ model: 'codegen', registry: undefined }))
+      new DzupAgent(minimalConfig({ model: 'codegen' }))
     }).toThrow('no registry was provided')
   })
 
@@ -914,8 +914,13 @@ describe('DzupAgent stream()', () => {
   it('falls back to generate path when model lacks stream method', async () => {
     const model = createMockModel([new AIMessage('fallback')], { withStream: false })
 
-    // Remove stream from model to trigger fallback
-    delete (model as Record<string, unknown>).stream
+    // `withStream: false` is what makes the model stream-less: createMockModel
+    // simply never assigns `stream`. (The previous `delete model.stream` here
+    // was a no-op that read as if it were the thing arming the fallback.)
+    // Assert the precondition instead, so this test fails loudly if the
+    // factory ever starts attaching `stream` unconditionally rather than
+    // silently exercising the native streaming path.
+    expect('stream' in model).toBe(false)
 
     const agent = new DzupAgent(minimalConfig({ model }))
     const events = await collectStreamEvents(agent)

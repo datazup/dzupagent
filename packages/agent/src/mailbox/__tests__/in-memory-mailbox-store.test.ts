@@ -19,8 +19,8 @@ function makeMessage(overrides: Partial<MailMessage> = {}): MailMessage {
     subject: overrides.subject ?? 'test subject',
     body: overrides.body ?? { data: 'hello' },
     createdAt: overrides.createdAt ?? Date.now(),
-    readAt: overrides.readAt,
-    ttl: overrides.ttl,
+    ...(overrides.readAt !== undefined ? { readAt: overrides.readAt } : {}),
+    ...(overrides.ttl !== undefined ? { ttl: overrides.ttl } : {}),
   }
 }
 

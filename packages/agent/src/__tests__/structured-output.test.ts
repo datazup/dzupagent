@@ -16,7 +16,9 @@ import type {
 /** Create a mock LLM that returns a fixed response. */
 function mockLLM(response: string, modelName?: string): StructuredLLMWithMeta {
   return {
-    model: modelName,
+    // `model` is optional and exactOptionalPropertyTypes is on: omit it entirely
+    // rather than passing `undefined`, which the strategy detector treats the same.
+    ...(modelName !== undefined ? { model: modelName } : {}),
     invoke: async () => ({ content: response }),
   }
 }
@@ -25,7 +27,7 @@ function mockLLM(response: string, modelName?: string): StructuredLLMWithMeta {
 function mockLLMSequence(responses: string[], modelName?: string): StructuredLLMWithMeta {
   let callIndex = 0
   return {
-    model: modelName,
+    ...(modelName !== undefined ? { model: modelName } : {}),
     invoke: vi.fn(async () => {
       const response = responses[callIndex] ?? responses[responses.length - 1]!
       callIndex++
@@ -51,32 +53,32 @@ const PersonSchema = z.object({
 
 describe('detectStrategy', () => {
   it('detects anthropic-tool-use for Claude models', () => {
-    expect(detectStrategy({ model: 'claude-3-sonnet', invoke: async () => ({ content: '' }) }))
+    expect(detectStrategy({ model: 'claude-3-sonnet' }))
       .toBe('anthropic-tool-use')
   })
 
   it('detects anthropic-tool-use for anthropic models', () => {
-    expect(detectStrategy({ model: 'anthropic/claude-3', invoke: async () => ({ content: '' }) }))
+    expect(detectStrategy({ model: 'anthropic/claude-3' }))
       .toBe('anthropic-tool-use')
   })
 
   it('detects openai-json-schema for GPT models', () => {
-    expect(detectStrategy({ model: 'gpt-4o', invoke: async () => ({ content: '' }) }))
+    expect(detectStrategy({ model: 'gpt-4o' }))
       .toBe('openai-json-schema')
   })
 
   it('detects openai-json-schema for openai models', () => {
-    expect(detectStrategy({ model: 'openai/gpt-4', invoke: async () => ({ content: '' }) }))
+    expect(detectStrategy({ model: 'openai/gpt-4' }))
       .toBe('openai-json-schema')
   })
 
   it('defaults to generic-parse for unknown models', () => {
-    expect(detectStrategy({ model: 'llama-3', invoke: async () => ({ content: '' }) }))
+    expect(detectStrategy({ model: 'llama-3' }))
       .toBe('generic-parse')
   })
 
   it('defaults to generic-parse when no model name', () => {
-    expect(detectStrategy({ invoke: async () => ({ content: '' }) }))
+    expect(detectStrategy({}))
       .toBe('generic-parse')
   })
 
@@ -89,7 +91,7 @@ describe('detectStrategy', () => {
     ['google/gemini-2.5-pro', 'generic-parse'],
     ['openrouter/meta-llama/llama-3.1-70b-instruct', 'generic-parse'],
   ] as const)('matches provider-matrix heuristic for %s', (model, expected) => {
-    expect(detectStrategy({ model, invoke: async () => ({ content: '' }) }))
+    expect(detectStrategy({ model }))
       .toBe(expected)
   })
 })

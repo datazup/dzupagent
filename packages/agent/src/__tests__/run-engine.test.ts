@@ -8,7 +8,7 @@ import {
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import { InMemoryRunStateStore, omitUndefined, type DzupRunState } from '@dzupagent/core'
-import type { DzupAgentConfig, GenerateOptions, GenerateResult } from '../agent/agent-types.js'
+import type { DzupAgentConfig, GenerateOptions } from '../agent/agent-types.js'
 import type { ToolLoopResult, StopReason, ToolStat } from '../agent/tool-loop.js'
 import type * as ToolLoopModule from '../agent/tool-loop.js'
 import { makeMockTool, makeMockEventBus } from './test-utils.js'

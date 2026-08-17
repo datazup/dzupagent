@@ -1,6 +1,7 @@
 import { AIMessage, HumanMessage, SystemMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { FrozenSnapshot } from '@dzupagent/context'
+import type { MemoryService } from '@dzupagent/memory'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
 import { DzupAgent } from '../agent/dzip-agent.js'
@@ -22,14 +23,18 @@ const mockArrowRuntime = vi.hoisted(() => ({
   },
 }))
 
-vi.mock('@dzupagent/memory-ipc', () => mockArrowRuntime, { virtual: true })
+vi.mock('@dzupagent/memory-ipc', () => mockArrowRuntime)
 
 function createMemoryService() {
-  return {
+  const svc = {
     get: vi.fn(async () => [{ text: 'stored fact' }]),
     formatForPrompt: vi.fn((records: Array<Record<string, unknown>>) =>
       records.length === 0 ? '' : `## Memory Context\n- ${String(records[0]?.['text'] ?? '')}`),
   }
+  // Partial double: the agent's memory-context loader only calls `get` and
+  // `formatForPrompt`. Intersecting (rather than widening to MemoryService)
+  // keeps the vitest Mock types visible to the assertions below.
+  return svc as typeof svc & MemoryService
 }
 
 function createModel() {

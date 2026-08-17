@@ -282,13 +282,40 @@ describe('DzupAgent stream() — circuit-breaker outcome recording', () => {
     const model = createSucceedingStreamModel('direct')
     const agent = new DzupAgent(minimalConfig({
       model,
-      registry: undefined,
     }))
 
-    await consume(agent.stream([new HumanMessage('hi')]))
-    // Nothing to assert against (no spy) — but the test confirms the path
-    // does not throw when ctx.resolvedProvider/registry are undefined.
-    expect(true).toBe(true)
+    const events = await consume(agent.stream([new HumanMessage('hi')]))
+
+    // The no-registry path must run to completion, not merely avoid
+    // throwing: an empty stream also satisfied the previous
+    // `expect(true).toBe(true)` placeholder.
+    expect(events.map(e => e.type)).toEqual(['text', 'done'])
+    expect(events.find(e => e.type === 'text')?.data.content).toBe('direct')
+    expect(events.find(e => e.type === 'done')?.data.stopReason).toBe('complete')
+    expect(model.stream).toHaveBeenCalledTimes(1)
+
+    // "does not record provider outcomes" is unobservable while there is no
+    // registry to spy on. Re-run the same direct-model configuration WITH a
+    // registry attached: `resolveModel` leaves `provider` undefined for a
+    // model instance, so the recording guard must stay closed even though a
+    // registry is available.
+    const spiedModel = createSucceedingStreamModel('direct-with-registry')
+    const registry = createMockRegistry(spiedModel)
+    const agentWithRegistry = new DzupAgent(minimalConfig({
+      model: spiedModel,
+      registry,
+    }))
+
+    const spiedEvents = await consume(
+      agentWithRegistry.stream([new HumanMessage('hi')]),
+    )
+
+    expect(spiedEvents.find(e => e.type === 'text')?.data.content).toBe(
+      'direct-with-registry',
+    )
+    expect(registry.getModelWithFallback).not.toHaveBeenCalled()
+    expect(registry.recordProviderSuccess).not.toHaveBeenCalled()
+    expect(registry.recordProviderFailure).not.toHaveBeenCalled()
   })
 })
 

@@ -115,7 +115,7 @@ describe('RunReflector', () => {
   // ------------------------------------------------------------------
   describe('toolSuccess', () => {
     it('scores 1.0 when no tools are used', async () => {
-      const score = await reflector.score(makeInput({ toolCalls: undefined }))
+      const score = await reflector.score(makeInput())
       expect(score.dimensions.toolSuccess).toBe(1.0)
     })
 
@@ -328,20 +328,17 @@ describe('RunReflector', () => {
     })
 
     it('handles no token usage', async () => {
-      const score = await reflector.score(makeInput({ tokenUsage: undefined }))
+      const score = await reflector.score(makeInput())
       expect(score.overall).toBeGreaterThan(0)
     })
 
     it('handles no tool calls', async () => {
-      const score = await reflector.score(makeInput({ toolCalls: undefined }))
+      const score = await reflector.score(makeInput())
       expect(score.dimensions.toolSuccess).toBe(1.0)
     })
 
     it('handles no error/retry counts (defaults to 0)', async () => {
-      const score = await reflector.score(makeInput({
-        errorCount: undefined,
-        retryCount: undefined,
-      }))
+      const score = await reflector.score(makeInput())
       expect(score.dimensions.reliability).toBe(1.0)
     })
 

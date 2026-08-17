@@ -6,7 +6,7 @@ import type { RecoveryLesson } from '../self-correction/recovery-lesson-types.js
 function makeLesson(overrides?: Partial<RecoveryLesson>): RecoveryLesson {
   return {
     id: 'run-1',
-    errorType: 'tool_failure',
+    errorType: 'timeout',
     errorFingerprint: 'tf:abc',
     nodeId: 'node-x',
     strategy: 'retry-with-backoff',

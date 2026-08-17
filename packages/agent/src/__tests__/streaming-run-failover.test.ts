@@ -40,6 +40,16 @@ function makeEventBus(): DzupEventBus & { emit: ReturnType<typeof vi.fn> } {
   } as unknown as DzupEventBus & { emit: ReturnType<typeof vi.fn> };
 }
 
+/**
+ * Predicate over one `vi.fn()` call record: does its first argument carry the
+ * given event `type`? Written over `unknown[]` because `mock.calls` entries are
+ * variadic arrays, which a fixed-length tuple annotation cannot accept.
+ */
+const emitted =
+  (type: string) =>
+  (call: unknown[]): boolean =>
+    (call[0] as { type?: string } | undefined)?.type === type;
+
 function makeAttempt(
   provider: string,
   modelName: string,
@@ -100,7 +110,7 @@ describe("attemptWithFailover — first attempt succeeds", () => {
     });
 
     const attemptEvent = eventBus.emit.mock.calls.find(
-      ([e]: [{ type: string }]) => e.type === "provider:run_attempt",
+      emitted("provider:run_attempt"),
     )?.[0];
     expect(attemptEvent).toMatchObject({
       type: "provider:run_attempt",
@@ -127,7 +137,7 @@ describe("attemptWithFailover — first attempt succeeds", () => {
     });
 
     const selectedEvent = eventBus.emit.mock.calls.find(
-      ([e]: [{ type: string }]) => e.type === "provider:run_selected",
+      emitted("provider:run_selected"),
     )?.[0];
     expect(selectedEvent).toMatchObject({
       type: "provider:run_selected",
@@ -217,7 +227,7 @@ describe("attemptWithFailover — first fails, second succeeds", () => {
     });
 
     const failureEvent = eventBus.emit.mock.calls.find(
-      ([e]: [{ type: string }]) => e.type === "provider:run_failure",
+      emitted("provider:run_failure"),
     )?.[0];
     expect(failureEvent).toMatchObject({
       type: "provider:run_failure",
@@ -255,7 +265,7 @@ describe("attemptWithFailover — first fails, second succeeds", () => {
     });
 
     const selectedEvent = eventBus.emit.mock.calls.find(
-      ([e]: [{ type: string }]) => e.type === "provider:run_selected",
+      emitted("provider:run_selected"),
     )?.[0];
     expect(selectedEvent).toMatchObject({
       type: "provider:run_selected",
@@ -392,7 +402,7 @@ describe("attemptWithFailover — all attempts fail", () => {
     ).rejects.toThrow();
 
     const failureEvents = eventBus.emit.mock.calls
-      .filter(([e]: [{ type: string }]) => e.type === "provider:run_failure")
+      .filter(emitted("provider:run_failure"))
       .map(([e]) => e);
 
     // Last failure must have retrying=false (no more attempts available).
@@ -463,7 +473,7 @@ describe("attemptWithFailover — shouldRetry=false prevents advancing to next a
     ).rejects.toThrow();
 
     const failureEvent = eventBus.emit.mock.calls.find(
-      ([e]: [{ type: string }]) => e.type === "provider:run_failure",
+      emitted("provider:run_failure"),
     )?.[0];
     expect(failureEvent).toMatchObject({
       retrying: false,
@@ -571,7 +581,7 @@ describe("streaming path: recordProviderSuccess gap regression (RF-04)", () => {
     });
 
     const selectedEvent = eventBus.emit.mock.calls.find(
-      ([e]: [{ type: string }]) => e.type === "provider:run_selected",
+      emitted("provider:run_selected"),
     )?.[0];
     expect(selectedEvent).toMatchObject({
       type: "provider:run_selected",

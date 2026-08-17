@@ -176,12 +176,18 @@ async function drainStream(
 
 function firstStreamToolResult(events: AgentStreamEvent[]): string | undefined {
   const event = events.find((e) => e.type === 'tool_result')
-  return event?.type === 'tool_result' ? event.data.result : undefined
+  // AgentStreamEvent.data is Record<string, unknown> (not a discriminated
+  // union), so the payload field has to be narrowed at the read site.
+  return event?.type === 'tool_result'
+    ? (event.data['result'] as string | undefined)
+    : undefined
 }
 
 function doneContent(events: AgentStreamEvent[]): string | undefined {
   const event = events.findLast((e) => e.type === 'done')
-  return event?.type === 'done' ? event.data.content : undefined
+  return event?.type === 'done'
+    ? (event.data['content'] as string | undefined)
+    : undefined
 }
 
 function generatedToolContents(
@@ -519,7 +525,10 @@ describe('DzupAgent stream() — stream tool guardrail parity (MJ-AGENT-02)', ()
         get: vi.fn(async () => []),
         formatForPrompt: vi.fn(() => ''),
         put,
-      } as unknown as DzupAgentConfig['memory']
+        // Partial double: the agent only calls get/formatForPrompt on read and
+        // put on write-back. NonNullable keeps `undefined` out of the config
+        // literal, which exactOptionalPropertyTypes rejects.
+      } as unknown as NonNullable<DzupAgentConfig['memory']>
 
       const agent = new DzupAgent(
         baseConfig({
@@ -836,7 +845,9 @@ describe('DzupAgent stream() — stream tool guardrail parity (MJ-AGENT-02)', ()
             onAbort(signal)
             throw signal.reason
           }
-          await new Promise<never>((_resolve, reject) => {
+          // `return` so the inferred type is Promise<never> (this tool never
+          // resolves normally), which satisfies the tool's Promise<string>.
+          return await new Promise<never>((_resolve, reject) => {
             signal.addEventListener('abort', () => {
               onAbort(signal)
               reject(signal.reason)

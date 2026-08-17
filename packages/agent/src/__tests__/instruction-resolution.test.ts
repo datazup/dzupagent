@@ -55,7 +55,10 @@ describe('AgentInstructionResolver', () => {
   })
 
   it('deduplicates concurrent AGENTS loads', async () => {
-    let resolveLoad: ((value: Array<{ path: string; sections: Array<{ agentId: string; instructions: string }> }>) => void) | null = null
+    // Definite-assignment: the Promise executor runs synchronously, so this is
+    // always captured. Declaring it `| null = null` made TS narrow the call site
+    // to `never` and forced a `?.()` that would silently no-op if it never ran.
+    let resolveLoad!: (value: Array<{ path: string; sections: Array<{ agentId: string; instructions: string }> }>) => void
     const loadPromise = new Promise<Array<{ path: string; sections: Array<{ agentId: string; instructions: string }> }>>((resolve) => {
       resolveLoad = resolve
     })
@@ -79,7 +82,7 @@ describe('AgentInstructionResolver', () => {
 
     expect(loadAgentsFiles).toHaveBeenCalledTimes(1)
 
-    resolveLoad?.([{ path: '/repo/AGENTS.md', sections: [{ agentId: 'reviewer', instructions: 'Merged' }] }])
+    resolveLoad([{ path: '/repo/AGENTS.md', sections: [{ agentId: 'reviewer', instructions: 'Merged' }] }])
 
     await expect(first).resolves.toBe('Concurrent merge')
     await expect(second).resolves.toBe('Concurrent merge')

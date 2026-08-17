@@ -21,6 +21,7 @@ import type { StructuredToolInterface } from "@langchain/core/tools";
 import { TextDeltaBuffer } from "../streaming/text-delta-buffer.js";
 import { StreamingRunHandle } from "../streaming/streaming-run-handle.js";
 import { StreamActionParser } from "../streaming/stream-action-parser.js";
+import type { StreamActionEvent } from "../streaming/stream-action-parser.js";
 import type { StreamEvent } from "../streaming/streaming-types.js";
 
 // ---------------------------------------------------------------------------
@@ -843,11 +844,7 @@ describe("StreamActionParser — stream completion and flush behaviour", () => {
     const tool = makeTool("counter", async () => "1");
     const parser = new StreamActionParser([tool]);
 
-    const allEvents: ReturnType<typeof parser.processChunk> extends Promise<
-      infer T
-    >
-      ? T[]
-      : never[] = [];
+    const allEvents: StreamActionEvent[] = [];
 
     allEvents.push(...(await parser.processChunk({ content: "thinking..." })));
     allEvents.push(

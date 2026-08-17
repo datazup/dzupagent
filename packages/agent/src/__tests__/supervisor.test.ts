@@ -34,12 +34,16 @@ function createMockModel(
     callIndex++;
     const msg = new AIMessage({
       content: resp.content,
-      tool_calls: resp.tool_calls?.map((tc) => ({
-        id: tc.id,
-        name: tc.name,
-        args: tc.args,
-        type: "tool_call" as const,
-      })),
+      ...(resp.tool_calls
+        ? {
+            tool_calls: resp.tool_calls.map((tc) => ({
+              id: tc.id,
+              name: tc.name,
+              args: tc.args,
+              type: "tool_call" as const,
+            })),
+          }
+        : {}),
       response_metadata: {},
     });
     return msg;

@@ -186,7 +186,9 @@ describe("ContractNetManager — branch coverage", () => {
   it("emits announce/bid/award/completed events through eventBus", async () => {
     const events: DzupEvent[] = [];
     const bus = createEventBus();
-    bus.onAny((e) => events.push(e));
+    bus.onAny((e) => {
+      events.push(e);
+    });
     let i = 0;
     const model = {
       invoke: vi.fn(async () => {
@@ -273,7 +275,9 @@ describe("ContractNetManager — branch coverage", () => {
   it("emits failed event when execution throws", async () => {
     const events: DzupEvent[] = [];
     const bus = createEventBus();
-    bus.onAny((e) => events.push(e));
+    bus.onAny((e) => {
+      events.push(e);
+    });
     let i = 0;
     const model = {
       invoke: vi.fn(async () => {

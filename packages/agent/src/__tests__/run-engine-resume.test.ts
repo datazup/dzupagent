@@ -76,18 +76,18 @@ describe('prepareRunState — resume rehydration', () => {
       journalEntry({
         type: 'step_completed',
         seq: 2,
-        data: { stepId: 's1', toolName: 'search', result: 'found results' },
+        data: { stepId: 's1', toolName: 'search', output: 'found results' },
       }),
       journalEntry({
         type: 'step_completed',
         seq: 3,
-        data: { stepId: 's2', toolName: 'write_file', result: 'done' },
+        data: { stepId: 's2', toolName: 'write_file', output: 'done' },
       }),
       // Beyond lastStateSeq — must be ignored.
       journalEntry({
         type: 'step_completed',
         seq: 4,
-        data: { stepId: 's3', toolName: 'future', result: 'nope' },
+        data: { stepId: 's3', toolName: 'future', output: 'nope' },
       }),
     ]
 
@@ -138,7 +138,7 @@ describe('prepareRunState — resume rehydration', () => {
       journalEntry({
         type: 'step_completed',
         seq: 1,
-        data: { toolName: 'noop', result: 'ok' },
+        data: { stepId: 's1', toolName: 'noop', output: 'ok' },
       }),
     ]
 

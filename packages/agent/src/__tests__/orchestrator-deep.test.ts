@@ -45,14 +45,7 @@ import {
 // ---------------------------------------------------------------------------
 
 function createMockModel(
-  responses: Array<{
-    content: string;
-    tool_calls?: Array<{
-      id: string;
-      name: string;
-      args: Record<string, unknown>;
-    }>;
-  }>
+  responses: Array<{ content: string }>
 ): BaseChatModel {
   let callIndex = 0;
   const invoke = vi.fn(async (_messages: BaseMessage[]) => {
@@ -60,12 +53,6 @@ function createMockModel(
     callIndex++;
     return new AIMessage({
       content: resp.content,
-      tool_calls: resp.tool_calls?.map((tc) => ({
-        id: tc.id,
-        name: tc.name,
-        args: tc.args,
-        type: "tool_call" as const,
-      })),
       response_metadata: {},
     });
   });
@@ -875,13 +862,12 @@ describe("AgentOrchestrator.supervisor — deep branches", () => {
       createMockModel([{ content: "b" }])
     );
 
-    const routingPolicy: RoutingPolicy = {
-      select: vi.fn((_task, candidates) => ({
-        selected: candidates.filter((c) => c.id === "sa"),
-        reason: "chose sa",
-        strategy: "rule",
-      })),
-    };
+    const select: RoutingPolicy["select"] = (_task, candidates) => ({
+      selected: candidates.filter((c) => c.id === "sa"),
+      reason: "chose sa",
+      strategy: "rule",
+    });
+    const routingPolicy: RoutingPolicy = { select: vi.fn(select) };
 
     const manager = createAgentWithModel("mgr", managerModel);
 

@@ -232,6 +232,11 @@ describe('resolveArrowMemoryConfig — undefined handling', () => {
   })
 
   it('config with undefined fields and no profile uses balanced', () => {
+    // NOT redundant with the `{}` case above: this is what distinguishes the
+    // implementation's `config?.x ?? preset.x` from a `{ ...preset, ...config }`
+    // spread, where a present-undefined would clobber the preset. No cast —
+    // `resolveArrowMemoryConfig` now declares a parameter that admits
+    // present-but-undefined fields, which is exactly what its body handles.
     const resolved = resolveArrowMemoryConfig({
       totalBudget: undefined,
       maxMemoryFraction: undefined,

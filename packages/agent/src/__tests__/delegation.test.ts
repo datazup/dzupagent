@@ -52,7 +52,7 @@ function withStoreUpdate(
       status: "completed",
       output,
       completedAt: new Date(),
-      tokenUsage,
+      ...(tokenUsage !== undefined ? { tokenUsage } : {}),
     });
   };
 }
@@ -315,9 +315,9 @@ describe("SimpleDelegationTracker", () => {
         defaultTimeoutMs: 30,
       });
 
-      const result = await tracker.delegate(
-        makeRequest({ timeoutMs: undefined }),
-      );
+      // makeRequest() supplies no timeoutMs, so the request reaches the
+      // tracker without one and must fall back to defaultTimeoutMs.
+      const result = await tracker.delegate(makeRequest());
 
       expect(result.success).toBe(false);
       expect(result.error).toContain("timed out");
@@ -595,7 +595,9 @@ describe("SimpleDelegationTracker", () => {
         executor,
       });
 
-      await tracker.delegate(makeRequest({ priority: undefined }));
+      const { priority: _omittedPriority, ...requestWithoutPriority } =
+        makeRequest();
+      await tracker.delegate(requestWithoutPriority);
 
       const runs = await store.list({ agentId: "specialist-db" });
       expect(runs).toHaveLength(1);

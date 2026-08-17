@@ -6,14 +6,21 @@ import { z } from 'zod'
 import { DzupAgent } from '../agent/dzip-agent.js'
 import type { AgentStreamEvent, GenerateOptions } from '../agent/agent-types.js'
 
-function createMockModel(
-  responses: AIMessage[],
-  options?: { stream?: boolean },
-): BaseChatModel & {
+/**
+ * One named alias for the mock's shape. Spelling the intersection out at
+ * each `as` site produced two structurally identical but unrelated
+ * `BaseChatModel` instantiations (TS2719).
+ */
+type MockChatModel = BaseChatModel & {
   invoke: ReturnType<typeof vi.fn>
   bindTools: ReturnType<typeof vi.fn>
   stream?: ReturnType<typeof vi.fn>
-} {
+}
+
+function createMockModel(
+  responses: AIMessage[],
+  options?: { stream?: boolean },
+): MockChatModel {
   let invokeIndex = 0
   let streamIndex = 0
 
@@ -27,10 +34,7 @@ function createMockModel(
   }
 
   if (options?.stream === false) {
-    return model as unknown as BaseChatModel & {
-      invoke: ReturnType<typeof vi.fn>
-      bindTools: ReturnType<typeof vi.fn>
-    }
+    return model as unknown as MockChatModel
   }
 
   return {
@@ -40,11 +44,7 @@ function createMockModel(
       streamIndex += 1
       yield response
     }),
-  } as unknown as BaseChatModel & {
-    invoke: ReturnType<typeof vi.fn>
-    bindTools: ReturnType<typeof vi.fn>
-    stream: ReturnType<typeof vi.fn>
-  }
+  } as unknown as MockChatModel
 }
 
 function aiWithToolCall(name: string, args: Record<string, unknown>) {
@@ -227,6 +227,9 @@ describe('DzupAgent generate()/stream() parity', () => {
           name: 'before-agent',
           beforeAgent: async () => {
             beforeAgentCalls += 1
+            // beforeAgent is typed to return a state patch; the runtime
+            // discards it (see runBeforeAgentHooks).
+            return {}
           },
         },
         {

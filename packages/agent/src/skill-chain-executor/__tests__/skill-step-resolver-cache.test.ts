@@ -67,11 +67,16 @@ function buildResolver(opts: {
   cacheMaxSize?: number
   cacheTtlMs?: number
 }): SharedAgentSkillResolver {
+  // exactOptionalPropertyTypes: omit an absent key rather than forwarding
+  // `undefined`, which would spread over the constructor's own default.
+  // The guard is `!== undefined`, not truthiness, so an explicit `0` still
+  // reaches the resolver -- the "0 means unlimited / no expiry" suites below
+  // depend on that value arriving.
   return new SharedAgentSkillResolver({
     baseAgent: makeMockBaseAgent(),
     registry: makeMockRegistry(),
-    cacheMaxSize: opts.cacheMaxSize,
-    cacheTtlMs: opts.cacheTtlMs,
+    ...(opts.cacheMaxSize !== undefined ? { cacheMaxSize: opts.cacheMaxSize } : {}),
+    ...(opts.cacheTtlMs !== undefined ? { cacheTtlMs: opts.cacheTtlMs } : {}),
   })
 }
 
@@ -79,12 +84,32 @@ function buildResolver(opts: {
 // Accessor helpers — private methods exposed via (resolver as any)
 // ---------------------------------------------------------------------------
 
+/**
+ * The resolver's private cache surface. Both members really exist on the class
+ * (`private getCachedAgent(skillId: string): DzupAgent | undefined` and
+ * `private putCache(skillId: string, agent: DzupAgent): void`); only the
+ * `private` modifier hides them, so this view is structurally exact.
+ *
+ * A named interface rather than an index signature: under
+ * `noUncheckedIndexedAccess` a `Record<string, F>` lookup is `F | undefined`
+ * and therefore not callable.
+ */
+interface ResolverCacheInternals {
+  getCachedAgent(skillId: string): DzupAgent | undefined
+  putCache(skillId: string, agent: DzupAgent): void
+}
+
+function cacheInternals(
+  resolver: SharedAgentSkillResolver,
+): ResolverCacheInternals {
+  return resolver as unknown as ResolverCacheInternals
+}
+
 function getCachedAgent(
   resolver: SharedAgentSkillResolver,
   skillId: string,
 ): DzupAgent | undefined {
-  return (resolver as unknown as Record<string, (id: string) => DzupAgent | undefined>)
-    ['getCachedAgent'](skillId)
+  return cacheInternals(resolver).getCachedAgent(skillId)
 }
 
 function putCache(
@@ -92,8 +117,7 @@ function putCache(
   skillId: string,
   agent: DzupAgent,
 ): void {
-  ;(resolver as unknown as Record<string, (id: string, a: DzupAgent) => void>)
-    ['putCache'](skillId, agent)
+  cacheInternals(resolver).putCache(skillId, agent)
 }
 
 // ===========================================================================

@@ -59,9 +59,19 @@ export function getMemoryProfilePreset(profile: MemoryProfile): MemoryProfilePre
  *
  * If neither `config` nor `profile` is provided, returns `undefined` so the
  * caller knows Arrow memory was not requested.
+ *
+ * `config` is deliberately widened to allow present-but-undefined fields
+ * rather than taking a bare `ArrowMemoryConfig`. Under
+ * `exactOptionalPropertyTypes` an `ArrowMemoryConfig` parameter would reject
+ * `{ totalBudget: undefined }`, yet every field is read through
+ * `config?.x ?? preset.x`, which handles a present-undefined identically to an
+ * absent key — and that behaviour is what distinguishes this resolver from a
+ * `{ ...preset, ...config }` spread, where a present-undefined would clobber
+ * the preset. Untyped callers (JSON config, JS consumers) reach this shape, so
+ * the signature now states what the body already guarantees.
  */
 export function resolveArrowMemoryConfig(
-  config?: ArrowMemoryConfig,
+  config?: { [K in keyof ArrowMemoryConfig]?: ArrowMemoryConfig[K] | undefined },
   profile?: MemoryProfile,
 ): ArrowMemoryConfig | undefined {
   if (!config && !profile) return undefined

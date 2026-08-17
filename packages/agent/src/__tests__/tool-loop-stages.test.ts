@@ -74,16 +74,25 @@ describe("runPreIterationGuards", () => {
 
   it("records iteration and surfaces budget warnings", () => {
     const state = freshState();
-    // warnAtPercent default is 80% — set max=10 and warnAtPercent so a single
-    // iteration triggers a warning to keep the test deterministic.
-    const budget = new IterationBudget({ maxIterations: 10, warnAtPercent: 1 });
+    // `budgetWarnings` — not `warnAtPercent` — is the real threshold knob on
+    // GuardrailConfig: a list of 0-1 ratios that defaults to [0.7, 0.9].
+    // With maxIterations=10 the first recorded iteration is exactly 10% of the
+    // budget, so a [0.1] threshold makes the warning fire deterministically.
+    const budget = new IterationBudget({
+      maxIterations: 10,
+      budgetWarnings: [0.1],
+    });
     const onBudgetWarning = vi.fn();
     const result = runPreIterationGuards(state, { budget, onBudgetWarning });
     expect(result).toEqual({ kind: "continue" });
-    // Warning may or may not fire depending on threshold semantics — the
-    // contract is just that the callback is consulted, never throws.
-    expect(onBudgetWarning).not.toThrow;
     expect(budget.getState().iterations).toBe(1);
+    // The warning must actually reach the callback — that is the whole claim
+    // of this test, and `runPreIterationGuards` is the only thing that can
+    // forward it.
+    expect(onBudgetWarning).toHaveBeenCalledTimes(1);
+    expect(onBudgetWarning).toHaveBeenCalledWith(
+      "Iteration budget at 10% (1/10)"
+    );
   });
 });
 

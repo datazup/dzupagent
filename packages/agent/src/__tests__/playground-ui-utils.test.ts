@@ -41,12 +41,7 @@ import {
 // Helpers to create test data
 // ---------------------------------------------------------------------------
 
-// Several tests pass an explicit 'durationMs: undefined' to exercise the
-// no-duration branch, overriding the default below. exactOptionalPropertyTypes
-// forbids that through a plain Partial<>, so relax the optional keys.
-function makeNode(
-  overrides: { [K in keyof TimelineNode]?: TimelineNode[K] | undefined } = {},
-): TimelineNode {
+function makeNode(overrides: Partial<TimelineNode> = {}): TimelineNode {
   return {
     index: 0,
     timestamp: 1000,
@@ -55,6 +50,15 @@ function makeNode(
     durationMs: 100,
     ...overrides,
   }
+}
+
+// Several tests exercise the no-duration branch. Under exactOptionalPropertyTypes
+// that means `durationMs` must be ABSENT, not present-and-undefined, so it gets
+// its own builder rather than a relaxed override type on makeNode().
+function makeNodeNoDuration(overrides: Partial<TimelineNode> = {}): TimelineNode {
+  const node = makeNode(overrides)
+  delete node.durationMs
+  return node
 }
 
 function makeSummary(overrides: Partial<ReplaySummary> = {}): ReplaySummary {
@@ -98,15 +102,15 @@ describe('getNodeStatus', () => {
   })
 
   it('returns "running" for :started type', () => {
-    expect(getNodeStatus(makeNode({ type: 'llm:started', durationMs: undefined }))).toBe('running')
+    expect(getNodeStatus(makeNodeNoDuration({ type: 'llm:started' }))).toBe('running')
   })
 
   it('returns "running" for type containing "running"', () => {
-    expect(getNodeStatus(makeNode({ type: 'task_running', durationMs: undefined }))).toBe('running')
+    expect(getNodeStatus(makeNodeNoDuration({ type: 'task_running' }))).toBe('running')
   })
 
   it('returns "pending" when no duration and not started/running', () => {
-    expect(getNodeStatus(makeNode({ type: 'unknown', durationMs: undefined }))).toBe('pending')
+    expect(getNodeStatus(makeNodeNoDuration({ type: 'unknown' }))).toBe('pending')
   })
 
   it('error takes priority over success duration', () => {
@@ -348,8 +352,8 @@ describe('getMaxDuration', () => {
 
   it('falls back to latencyMs when durationMs is undefined', () => {
     const nodes = [
-      makeNode({ durationMs: undefined, latencyMs: 300 }),
-      makeNode({ durationMs: undefined, latencyMs: 100 }),
+      makeNodeNoDuration({ latencyMs: 300 }),
+      makeNodeNoDuration({ latencyMs: 100 }),
     ]
     expect(getMaxDuration(nodes)).toBe(300)
   })

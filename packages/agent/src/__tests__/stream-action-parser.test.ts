@@ -32,7 +32,9 @@ describe('StreamActionParser', () => {
         inFlight--
         return value
       },
-    } as StructuredToolInterface
+      // Partial double: StreamActionParser only reads `name` (for lookup) and
+      // calls `invoke` on the matched tool.
+    } as unknown as StructuredToolInterface
 
     const parser = new StreamActionParser([slowTool], {
       parallelExecution: true,

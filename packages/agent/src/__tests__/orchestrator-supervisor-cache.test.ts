@@ -14,10 +14,7 @@ import { AgentOrchestrator } from '../orchestration/orchestrator.js'
 import type { AgentCircuitBreaker } from '../orchestration/circuit-breaker.js'
 
 function createMockModel(
-  responses: Array<{
-    content: string
-    tool_calls?: Array<{ id: string; name: string; args: Record<string, unknown> }>
-  }>,
+  responses: Array<{ content: string }>,
 ): BaseChatModel {
   let callIndex = 0
   const invoke = vi.fn(async (_messages: BaseMessage[]) => {
@@ -25,12 +22,6 @@ function createMockModel(
     callIndex++
     return new AIMessage({
       content: resp.content,
-      tool_calls: resp.tool_calls?.map(tc => ({
-        id: tc.id,
-        name: tc.name,
-        args: tc.args,
-        type: 'tool_call' as const,
-      })),
       response_metadata: {},
     })
   })

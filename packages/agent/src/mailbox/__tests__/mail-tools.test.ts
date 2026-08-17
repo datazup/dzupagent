@@ -11,7 +11,7 @@ import type { AgentMailbox, MailMessage, MailboxQuery } from '../types.js'
 function createMockMailbox(): AgentMailbox {
   return {
     agentId: 'agent-a',
-    send: vi.fn<[string, string, Record<string, unknown>], Promise<MailMessage>>(
+    send: vi.fn<(to: string, subject: string, body: Record<string, unknown>) => Promise<MailMessage>>(
       async (to, subject, body) => ({
         id: 'generated-id',
         from: 'agent-a',
@@ -21,7 +21,7 @@ function createMockMailbox(): AgentMailbox {
         createdAt: 1700000000000,
       }),
     ),
-    receive: vi.fn<[MailboxQuery?], Promise<MailMessage[]>>(async () => [
+    receive: vi.fn<(query?: MailboxQuery) => Promise<MailMessage[]>>(async () => [
       {
         id: 'msg-1',
         from: 'agent-b',
@@ -29,7 +29,10 @@ function createMockMailbox(): AgentMailbox {
         subject: 'Update',
         body: { status: 'done' },
         createdAt: 1700000000000,
-        readAt: undefined,
+        // Set to a real timestamp (not `undefined`): JSON.stringify drops
+        // undefined values, which would make the "strips readAt" assertion
+        // in "returns array without readAt or ttl fields" vacuous.
+        readAt: 1700000001000,
         ttl: 3600,
       },
     ]),

@@ -7,7 +7,7 @@
 import { HumanMessage } from '@langchain/core/messages'
 import type { BaseStore } from '@langchain/langgraph'
 import { createEventBus, type DzupEvent } from '@dzupagent/core'
-import { MemoryService, type InMemoryReferenceTracker } from '@dzupagent/memory'
+import { MemoryService } from '@dzupagent/memory'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
 import { DzupAgent } from '../agent/dzip-agent.js'
@@ -38,6 +38,19 @@ class FakeStore {
     return [...bucket.entries()].map(([key, value]) => ({ key, value }))
   }
 }
+
+/**
+ * The exact tracker type `MemoryServiceOptions.referenceTracker` requires.
+ *
+ * It is derived from the constructor rather than imported by name because
+ * `@dzupagent/memory` publicly exports a *different* type also called
+ * `ReferenceTracker` (the structural interface from
+ * `provenance/redis-reference-tracker.ts`), while the option wants the
+ * unexported `ReferenceTracker` *class* from `provenance/reference-tracker.ts`.
+ */
+type MemoryServiceReferenceTracker = NonNullable<
+  NonNullable<ConstructorParameters<typeof MemoryService>[2]>['referenceTracker']
+>
 
 class CapturingReferenceTracker {
   readonly refs: Array<{
@@ -103,11 +116,15 @@ describe('DzupAgent memory write-back (P9)', () => {
     const memory = new MemoryService(
       store as unknown as BaseStore,
       [{ name: 'facts', scopeKeys: ['project'] }],
-      // CapturingReferenceTracker is structurally compatible with the internal
-      // ReferenceTracker class (has trackReference).  The internal class is not
-      // exported; cast through the exported InMemoryReferenceTracker which has
-      // the same structural shape.  Strictly better than `as never`.
-      { rejectUnsafe: false, referenceTracker: tracker as unknown as InMemoryReferenceTracker },
+      // Partial double: MemoryService only ever calls `trackReference` on the
+      // configured tracker, which is the one method CapturingReferenceTracker
+      // implements. The real tracker also carries private state
+      // (store/now/onError) plus getReferencesForRun/getRunsCitingMemory, none
+      // of which this path touches — hence the double cast rather than `as any`.
+      {
+        rejectUnsafe: false,
+        referenceTracker: tracker as unknown as MemoryServiceReferenceTracker,
+      },
     )
     await memory.put(
       'facts',

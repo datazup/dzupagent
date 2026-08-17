@@ -1511,7 +1511,9 @@ describe("DelegatingSupervisor", () => {
       const captured: Array<Parameters<ProviderExecutionPort["run"]>> = [];
       const mockProviderPort: ProviderExecutionPort = {
         run: vi.fn(
-          async (...args: Parameters<ProviderExecutionPort["run"]>) => {
+          async (
+            ...args: Parameters<ProviderExecutionPort["run"]>
+          ): ReturnType<ProviderExecutionPort["run"]> => {
             captured.push(args);
             await new Promise((resolve) => setTimeout(resolve, 5));
             return {

@@ -18,12 +18,14 @@ const tick = () => new Promise<void>((r) => setTimeout(r, 20))
 function createMinimalDefinition(id = 'test-pipeline'): PipelineDefinition {
   return {
     id,
+    name: `Pipeline ${id}`,
     version: '1.0.0',
+    schemaVersion: '1.0.0',
     entryNodeId: 'start',
     checkpointStrategy: 'none',
     nodes: [
-      { id: 'start', type: 'standard', label: 'Start' },
-      { id: 'end', type: 'standard', label: 'End' },
+      { id: 'start', type: 'agent', agentId: 'start-agent', name: 'Start' },
+      { id: 'end', type: 'agent', agentId: 'end-agent', name: 'End' },
     ],
     edges: [
       { type: 'sequential', sourceNodeId: 'start', targetNodeId: 'end' },
@@ -365,7 +367,7 @@ describe('SelfLearningRuntime', () => {
   describe('resume', () => {
     it('delegates resume to underlying PipelineRuntime', async () => {
       const def = createMinimalDefinition()
-      def.nodes.push({ id: 'suspend', type: 'suspend', label: 'Suspend' })
+      def.nodes.push({ id: 'suspend', type: 'suspend', name: 'Suspend' })
       def.edges = [
         { type: 'sequential', sourceNodeId: 'start', targetNodeId: 'suspend' },
         { type: 'sequential', sourceNodeId: 'suspend', targetNodeId: 'end' },

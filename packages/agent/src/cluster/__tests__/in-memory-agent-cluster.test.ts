@@ -15,7 +15,7 @@ function makeRole(overrides: Partial<ClusterRole> = {}): ClusterRole {
   return {
     roleId: overrides.roleId ?? 'default-role',
     agentId: overrides.agentId ?? 'agent-default',
-    capabilities: overrides.capabilities,
+    ...(overrides.capabilities !== undefined ? { capabilities: overrides.capabilities } : {}),
   }
 }
 

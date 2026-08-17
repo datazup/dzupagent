@@ -6,6 +6,7 @@ import {
   ConditionEvaluationError,
   WorkflowParseError,
 } from '../skill-chain-executor/errors.js'
+import type { CandidateInterpretation } from '../skill-chain-executor/errors.js'
 
 describe('SkillNotFoundError', () => {
   it('has correct message and properties', () => {
@@ -94,8 +95,10 @@ describe('ConditionEvaluationError', () => {
 
 describe('WorkflowParseError', () => {
   it('has correct properties', () => {
-    const candidates = [
-      { text: 'analyze > build', confidence: 0.8, skills: ['analyze', 'build'] },
+    // CandidateInterpretation is { steps, reason, score } — the previous
+    // fixture used a { text, confidence, skills } shape no producer emits.
+    const candidates: CandidateInterpretation[] = [
+      { steps: ['analyze', 'build'], reason: 'analyze > build', score: 0.8 },
     ]
     const err = new WorkflowParseError('bad input', 'ambiguous command', candidates)
     expect(err.message).toContain('ambiguous command')

@@ -18,7 +18,7 @@
  * All LLM calls are mocked — no live network required.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import { AIMessage } from "@langchain/core/messages";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { BaseMessage, HumanMessage } from "@langchain/core/messages";
@@ -26,13 +26,30 @@ import { DzupAgent } from "../agent/dzip-agent.js";
 import { AgentOrchestrator } from "../orchestration/orchestrator.js";
 import { OrchestrationError } from "../orchestration/orchestration-error.js";
 import { AgentCircuitBreaker } from "../orchestration/circuit-breaker.js";
-import type { RoutingPolicy } from "../orchestration/routing-policy-types.js";
-import type { ProviderExecutionPort } from "../orchestration/provider-adapter/provider-execution-port.js";
+import type {
+  AgentSpec,
+  RoutingPolicy,
+} from "../orchestration/routing-policy-types.js";
+import type {
+  ProviderExecutionPort,
+  ProviderExecutionResult,
+} from "../orchestration/provider-adapter/provider-execution-port.js";
 import { makeMockEventBus } from "./test-utils.js";
 
 // ---------------------------------------------------------------------------
 // Mock helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * A `BaseChatModel` stand-in whose `invoke` is the vitest mock the factory
+ * built. Declaring it here lets a test assert on `model.invoke` directly.
+ * The alternative -- casting a real `BaseChatModel` back to
+ * `{ invoke: Mock<...> }` -- is a cast TypeScript rejects as non-overlapping,
+ * because a `BaseChatModel` genuinely does not carry the mock surface.
+ */
+type MockChatModel = BaseChatModel & {
+  invoke: Mock<BaseChatModel["invoke"]>;
+};
 
 /** Create a mock BaseChatModel that plays back a sequence of responses. */
 function createMockModel(
@@ -44,19 +61,23 @@ function createMockModel(
       args: Record<string, unknown>;
     }>;
   }>,
-): BaseChatModel {
+): MockChatModel {
   let callIndex = 0;
   const invoke = vi.fn(async (_messages: BaseMessage[]) => {
     const resp = responses[callIndex] ?? responses[responses.length - 1]!;
     callIndex++;
     return new AIMessage({
       content: resp.content,
-      tool_calls: resp.tool_calls?.map((tc) => ({
-        id: tc.id,
-        name: tc.name,
-        args: tc.args,
-        type: "tool_call" as const,
-      })),
+      ...(resp.tool_calls
+        ? {
+            tool_calls: resp.tool_calls.map((tc) => ({
+              id: tc.id,
+              name: tc.name,
+              args: tc.args,
+              type: "tool_call" as const,
+            })),
+          }
+        : {}),
       response_metadata: {},
     });
   });
@@ -68,11 +89,11 @@ function createMockModel(
     }),
     _modelType: () => "base_chat_model",
     _llmType: () => "mock",
-  } as unknown as BaseChatModel;
+  } as unknown as MockChatModel;
 }
 
 /** Create a mock model that always throws. */
-function createThrowingModel(message: string): BaseChatModel {
+function createThrowingModel(message: string): MockChatModel {
   return {
     invoke: vi.fn(async () => {
       throw new Error(message);
@@ -82,11 +103,11 @@ function createThrowingModel(message: string): BaseChatModel {
     }),
     _modelType: () => "base_chat_model",
     _llmType: () => "mock",
-  } as unknown as BaseChatModel;
+  } as unknown as MockChatModel;
 }
 
 /** Create a mock model that always returns a fixed content string. */
-function createFixedModel(content: string): BaseChatModel {
+function createFixedModel(content: string): MockChatModel {
   return createMockModel([{ content }]);
 }
 
@@ -102,6 +123,38 @@ function makeAgent(
     instructions: `You are ${id}.`,
     model,
   });
+}
+
+/**
+ * A COMPLETE `ProviderExecutionPort` double.
+ *
+ * `ProviderExecutionResult` requires `providerId`, `attemptedProviders` and
+ * `fallbackAttempts`. The supervisor's provider-adapter branch reads only
+ * `portResult.content` (see `supervisor-runner.ts`), so supplying the routing
+ * fields is behaviour-preserving -- it makes the double match the contract
+ * without changing what the assertions observe.
+ *
+ * `stream` is the other half of the port contract, and is a THROWING stub
+ * rather than an omitted key: `supervisor()` never streams, and a partial
+ * double would let a future switch to `stream()` keep this suite green while
+ * the port produced nothing.
+ */
+function makeProviderPort(content: string): ProviderExecutionPort {
+  return {
+    run: vi.fn(
+      async (): Promise<ProviderExecutionResult> => ({
+        content,
+        providerId: "claude",
+        attemptedProviders: ["claude"],
+        fallbackAttempts: 0,
+      }),
+    ),
+    stream: () => {
+      throw new Error(
+        "ProviderExecutionPort double: stream() is not used by supervisor()",
+      );
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -206,8 +259,6 @@ describe("AgentOrchestrator.supervisor — happy path", () => {
 
   it("manager answers directly without invoking specialists", async () => {
     const specModel = createFixedModel("unused");
-    const specInvoke = (specModel as { invoke: ReturnType<typeof vi.fn> })
-      .invoke;
 
     const manager = makeAgent("mgr", createFixedModel("Direct answer."));
     const specialist = makeAgent("spec", specModel);
@@ -219,7 +270,7 @@ describe("AgentOrchestrator.supervisor — happy path", () => {
     });
 
     expect(result.content).toBe("Direct answer.");
-    expect(specInvoke).not.toHaveBeenCalled();
+    expect(specModel.invoke).not.toHaveBeenCalled();
   });
 });
 
@@ -541,7 +592,7 @@ describe("AgentOrchestrator.supervisor — routing policy", () => {
     const s2 = makeAgent("s2", createFixedModel("ok"));
 
     const policy: RoutingPolicy = {
-      select: vi.fn((_task, candidates) => ({
+      select: vi.fn((_task, candidates: AgentSpec[]) => ({
         selected: candidates.filter((c) => c.id === "s1"),
         reason: "only s1",
         strategy: "rule",
@@ -598,9 +649,7 @@ describe("AgentOrchestrator.supervisor — provider-adapter mode", () => {
     const manager = makeAgent("mgr", createFixedModel("unused"));
     const specialist = makeAgent("spec", createFixedModel("ok"));
 
-    const port: ProviderExecutionPort = {
-      run: vi.fn(async () => ({ content: "From provider port." })),
-    };
+    const port = makeProviderPort("From provider port.");
 
     const result = await AgentOrchestrator.supervisor({
       manager,
@@ -633,9 +682,7 @@ describe("AgentOrchestrator.supervisor — provider-adapter mode", () => {
     const s1 = makeAgent("s1", createFixedModel("ok"));
     const s2 = makeAgent("s2", createFixedModel("ok"));
 
-    const port: ProviderExecutionPort = {
-      run: vi.fn(async () => ({ content: "ok" })),
-    };
+    const port = makeProviderPort("ok");
 
     const result = await AgentOrchestrator.supervisor({
       manager,
@@ -1083,23 +1130,30 @@ describe("AgentOrchestrator.supervisor — repeated failure pattern", () => {
     });
     breaker.recordFailure("tripped");
 
-    const specInvoke = (
-      createThrowingModel("never") as { invoke: ReturnType<typeof vi.fn> }
-    ).invoke;
-    const tripped = makeAgent("tripped", createThrowingModel("never"));
+    // The spy must come from the SAME model instance the agent runs on. The
+    // previous version read `.invoke` off a throwaway second model that was
+    // never handed to any agent, so the `not.toHaveBeenCalled()` assertion
+    // below held no matter what the circuit breaker did -- it could not fail.
+    const trippedModel = createThrowingModel("never");
+    const tripped = makeAgent("tripped", trippedModel);
 
     const managerModel = createFixedModel("Only healthy available.");
     const manager = makeAgent("mgr", managerModel);
     const healthy = makeAgent("healthy", createFixedModel("I am available"));
 
-    await AgentOrchestrator.supervisor({
+    const result = await AgentOrchestrator.supervisor({
       manager,
       specialists: [healthy, tripped],
       task: "Task",
       circuitBreaker: breaker,
     });
-
+    // `not.toHaveBeenCalled()` alone cannot fail here: this manager answers
+    // directly, so NO specialist is invoked whether or not the breaker
+    // excluded one. The observable that actually distinguishes exclusion is
+    // the specialist set the manager was offered.
+    expect(result.availableSpecialists).toEqual(["healthy"]);
+    expect(result.routingDecisionId).toMatch(/^circuit-breaker-mgr-/);
     // The tripped specialist should never have been invoked
-    expect(specInvoke).not.toHaveBeenCalled();
+    expect(trippedModel.invoke).not.toHaveBeenCalled();
   });
 });

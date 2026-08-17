@@ -101,8 +101,12 @@ function createExecutor(
   return new SkillChainExecutor({
     resolver,
     registry: new SkillRegistry(),
-    eventBus: opts?.eventBus,
-    defaultRetry: opts?.defaultRetry,
+    // exactOptionalPropertyTypes: omit the optional keys instead of passing
+    // `undefined`, which the config type does not accept.
+    ...(opts?.eventBus !== undefined ? { eventBus: opts.eventBus } : {}),
+    ...(opts?.defaultRetry !== undefined
+      ? { defaultRetry: opts.defaultRetry }
+      : {}),
   });
 }
 

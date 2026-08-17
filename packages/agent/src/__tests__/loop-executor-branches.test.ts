@@ -237,14 +237,15 @@ describe('loop-executor — branch coverage', () => {
     let observedAbort = false
     const exec: NodeExecutor = async (id, _node, context) => {
       await new Promise<void>((_resolve, reject) => {
-        context.signal?.addEventListener(
-          'abort',
-          () => {
-            observedAbort = true
-            reject(new Error('aborted'))
-          },
-          { once: true },
-        )
+        // `NodeExecutionContext.signal` is the structural `CancellationSignal`:
+        // `addEventListener` is optional and 2-arity by design. `{ once: true }`
+        // was redundant anyway — 'abort' fires at most once. The
+        // `expect(observedAbort).toBe(true)` below is what keeps the optional
+        // call from silently no-opping.
+        context.signal?.addEventListener?.('abort', () => {
+          observedAbort = true
+          reject(new Error('aborted'))
+        })
       })
       return { nodeId: id, output: null, durationMs: 1 }
     }
