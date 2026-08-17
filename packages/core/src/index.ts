@@ -1045,6 +1045,15 @@ export type {
   PipelineValidationWarning,
   PipelineValidationResult,
   PipelineCheckpoint,
+  // The for_each item-frame types were reachable only from the `/pipeline`
+  // subpath, so importing them from the package root — as the agent tests do —
+  // failed while the identical import via the subpath succeeded. The root and
+  // subpath type surfaces are meant to agree.
+  PipelineCheckpointSourceBinding,
+  PipelineForEachItemEconomics,
+  PipelineForEachItemFrame,
+  PipelineForEachItemOutcome,
+  PipelineForEachItemTerminalRecord,
   PipelineLoopCheckpointState,
   PipelineCheckpointEventRecord,
   PipelineCheckpointExecutionLog,

@@ -134,10 +134,14 @@ export interface LoopBudgetReconcileInput extends LoopBudgetSettlementScope {
    * may have REFUNDED it — so a host cannot respond correctly without knowing
    * which one it is.
    *
-   * Optional: a G2b-era host that ignores it still receives the same
-   * `released`/`absent`/`unknown` contract and behaves exactly as before.
+   * Required, because the single producer (`for-each-loop.ts`) has passed it
+   * on every call since G2d. Declaring it optional described a caller that
+   * does not exist and cost a host the ability to switch on it without a
+   * needless undefined branch. This appears only as a CALLBACK PARAMETER —
+   * no consumer constructs the input — so tightening it informs hosts rather
+   * than breaking them.
    */
-  boundary?: "reserve" | "settle" | "release";
+  boundary: "reserve" | "settle" | "release";
 }
 
 /**
@@ -422,9 +426,7 @@ export interface LoopResumeOptions {
   /** Host admission hook for an authored hard per-iteration ceiling. */
   reserveIterationBudget?: (
     input: LoopIterationBudgetReservationInput
-  ) =>
-    | LoopIterationBudgetReservation
-    | Promise<LoopIterationBudgetReservation>;
+  ) => LoopIterationBudgetReservation | Promise<LoopIterationBudgetReservation>;
   /**
    * F: reconcile a reservation against actual spend. Absent ⇒ no settlement
    * occurs and behaviour is byte-identical to the reserve-only contract.
@@ -487,9 +489,7 @@ export interface LoopResumeOptions {
    * this to persist a mid-iteration cursor and its retained body results.
    * For-each loops continue to checkpoint only their completed ordered prefix.
    */
-  onBodyNodeComplete?: (
-    progress: LoopBodyCheckpointProgress
-  ) => Promise<void>;
+  onBodyNodeComplete?: (progress: LoopBodyCheckpointProgress) => Promise<void>;
   /**
    * Invoked after each successful `for_each` body node while the item is still
    * in flight (E3) — never on the item's last body node, whose durable cursor

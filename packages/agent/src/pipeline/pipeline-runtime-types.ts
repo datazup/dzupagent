@@ -375,6 +375,15 @@ export interface PipelineRuntimeConfig {
       reservationId: string;
       budgetCents: number;
       reason: string;
+      /**
+       * G2d: which lifecycle call went unobserved. `for-each-loop.ts` has
+       * passed this on every reconcile since G2d widened reconciliation past
+       * the reserve boundary, but the field was never declared here — so a
+       * host reading the value the runtime actually sends, as the G2d prose
+       * instructs, got a type error on a field that was present at runtime.
+       * Required, not optional: every call site supplies it.
+       */
+      boundary: "reserve" | "settle" | "release";
     }):
       | { status: "released" }
       | { status: "absent" }
