@@ -79,15 +79,22 @@ export async function executeForEachLoop(
 ): Promise<{ result: NodeResult; metrics: LoopMetrics }> {
   const startTime = Date.now();
   const contract = loopNode.forEach as ForEachContract;
-  if (contract.concurrency !== 1) {
+  // 24-I: concurrency > 1 is admitted. The value must still be a positive
+  // integer — a fractional or non-positive value is an authoring error, not a
+  // degenerate-but-runnable contract, and silently clamping it would run a
+  // pipeline at a concurrency its author never wrote.
+  if (
+    !Number.isInteger(contract.concurrency) ||
+    (contract.concurrency as number) < 1
+  ) {
     return {
       result: {
         nodeId: loopNode.id,
         output: null,
         durationMs: Date.now() - startTime,
         error:
-          `Loop "${loopNode.id}" for_each concurrency must be 1 until ` +
-          "a durable per-item frame and economic settlement protocol are admitted",
+          `Loop "${loopNode.id}" for_each concurrency must be a positive ` +
+          `integer; received ${String(contract.concurrency)}`,
       },
       metrics: {
         iterationCount: 0,
@@ -204,15 +211,49 @@ export async function executeForEachLoop(
   // is a hard admission gate, so honouring `failFast` here would keep spending
   // past the breach.
   //
-  // SCOPE: this flag is read by the worker loop BETWEEN items, which stops
-  // dispatch exactly because `concurrency` is pinned to 1 above — one worker,
-  // no item in flight when the check runs. At concurrency > 1 (packet 24-G)
-  // that is no longer sufficient: up to N-1 items would already be mid-flight
-  // with reservations outstanding and would settle spend past the breach.
-  // Admitting concurrency therefore requires propagating this into in-flight
-  // items (an internal AbortController composed with `context.signal`), not
-  // just relaxing the guard.
+  // 24-I: the flag is still read by the worker loop between items, but that is
+  // no longer sufficient on its own. At concurrency > 1 up to N-1 items are
+  // already mid-flight with reservations outstanding when a breach is
+  // observed, and each would keep dispatching body nodes and settling spend
+  // past it. `stopDispatch` below propagates the breach INTO those items.
   let budgetBreached = false;
+
+  // 24-I: an internal stop signal, deliberately NOT merged into
+  // `context.signal`. Three sites classify an item's terminal outcome as
+  // `aborted` by reading `context.signal?.aborted` (see the `recordTerminal`
+  // calls below and the post-loop reason); routing a budget breach through
+  // that signal would relabel a breach as a host cancellation and lose the
+  // distinction 24-G's terminal set exists to record. In-flight items observe
+  // this separately and stop as `budget_breached`.
+  const dispatchStop = new AbortController();
+  const stopDispatch = (): void => {
+    if (!dispatchStop.signal.aborted) dispatchStop.abort();
+  };
+  /**
+   * True once dispatch must stop, from either a budget breach or a host
+   * abort.
+   *
+   * The host signal is POLLED here rather than subscribed to with
+   * `addEventListener`. This package compiles with `lib: ["ES2023"]` and no
+   * DOM lib, so `AbortSignal`'s event methods are not typed; polling composes
+   * the two sources with no listener to register, no `once` semantics to get
+   * wrong, and nothing to unsubscribe when the loop returns. Every consumer
+   * is already a gate check inside a loop, so a poll is exactly as prompt as
+   * a callback would be.
+   */
+  const dispatchHalted = (): boolean =>
+    dispatchStop.signal.aborted || context.signal?.aborted === true;
+
+  /**
+   * 24-I: the ONLY way to record a breach. Setting `budgetBreached` without
+   * halting dispatch is what let in-flight items spend past a ceiling at N>1,
+   * so the two are coupled here rather than left to six call sites to
+   * remember.
+   */
+  const breachBudget = (): void => {
+    budgetBreached = true;
+    stopDispatch();
+  };
   let flushQueue = Promise.resolve();
 
   // F: per-item economic settlement. The `forEach` compile-time contract has
@@ -607,6 +648,11 @@ export async function executeForEachLoop(
     const iterationPreviousResults = new Map(context.previousResults);
     let lastBodyResult: NodeResult | undefined;
     let completedBody = true;
+    // 24-I: true only when THIS item stopped at the dispatch gate rather than
+    // because its own body node errored. Both leave `completedBody` false, but
+    // they are different terminal outcomes, and at N>1 a body error in one
+    // item halts the others — so the halt flag alone cannot classify them.
+    let haltedBeforeBody = false;
 
     // E3 mid-item resume: a crash part-way through this item must not re-run
     // the body nodes that already committed. `itemResume` applies only to the
@@ -658,7 +704,7 @@ export async function executeForEachLoop(
         "reserve"
       );
       if (blocked !== undefined) {
-        budgetBreached = true;
+        breachBudget();
         firstError ??= {
           nodeId: loopNode.id,
           output: null,
@@ -682,7 +728,7 @@ export async function executeForEachLoop(
       // created), so nothing is outstanding for this item. It is now a clean
       // denial: the item still must not dispatch unpriced, but the loop is no
       // longer blocked on an unresolved reservation.
-      budgetBreached = true;
+      breachBudget();
       firstError ??= {
         nodeId: loopNode.id,
         output: null,
@@ -701,7 +747,7 @@ export async function executeForEachLoop(
     if (held === "denied") {
       // The ceiling was authored but no authoritative reservation exists.
       // Fail closed: an unpriced item must not dispatch.
-      budgetBreached = true;
+      breachBudget();
       firstError ??= {
         nodeId: loopNode.id,
         output: null,
@@ -724,8 +770,13 @@ export async function executeForEachLoop(
       bodyIndex++
     ) {
       const bodyNode = bodyNodes[bodyIndex] as PipelineNode;
-      if (context.signal?.aborted) {
+      // 24-I: `dispatchHalted` covers a host abort AND a budget breach raised
+      // by ANOTHER worker while this item was mid-flight. At concurrency 1 the
+      // breach case is unreachable (the only worker is this one), which is why
+      // reading `context.signal` alone sufficed before this packet.
+      if (dispatchHalted()) {
         completedBody = false;
+        haltedBeforeBody = true;
         break;
       }
       let bodyResult: NodeResult;
@@ -800,9 +851,14 @@ export async function executeForEachLoop(
       // F: exits 1 and 2 — aborted, or a body node failed. The item never
       // completed, so its reservation is returned in full rather than settled.
       // Leaking here is the original defect reproduced one level down.
+      // 24-I: an item halted mid-flight by another worker's budget breach was
+      // stopped by a signal, not by its own body reporting an error, so it
+      // releases as `aborted` exactly like a host cancellation does. Reading
+      // `context.signal` alone here would release it as `failed` and tell the
+      // host this item's work errored when it never ran.
       const releaseOutcome = await releaseItem(
         held,
-        context.signal?.aborted === true ? "aborted" : "failed"
+        haltedBeforeBody ? "aborted" : "failed"
       );
       // G2d (prereq 7): a release that could not be observed leaves this item
       // in a non-terminal settlement state. Reconcile is the only proof; until
@@ -825,7 +881,7 @@ export async function executeForEachLoop(
         );
         if (blocked !== undefined) {
           releaseUnresolved = true;
-          budgetBreached = true;
+          breachBudget();
           firstError = {
             nodeId: loopNode.id,
             output: null,
@@ -847,7 +903,10 @@ export async function executeForEachLoop(
         index,
         releaseUnresolved
           ? "outcome_unknown"
-          : context.signal?.aborted === true
+          : // 24-I: `haltedBeforeBody` covers a host abort AND a breach raised
+          // by another worker. Both stopped this item at the dispatch gate
+          // with no body error of its own, which is what `cancelled` means.
+          haltedBeforeBody
           ? "cancelled"
           : "failed",
         // The reservation was released rather than settled, so it carries no
@@ -885,7 +944,7 @@ export async function executeForEachLoop(
         "settle"
       );
       if (blocked !== undefined) {
-        budgetBreached = true;
+        breachBudget();
         firstError ??= {
           nodeId: loopNode.id,
           output: lastBodyResult?.output ?? null,
@@ -901,7 +960,7 @@ export async function executeForEachLoop(
       // through to the normal completion path below.
     }
     if (typeof overrun === "string") {
-      budgetBreached = true;
+      breachBudget();
       firstError ??= {
         nodeId: loopNode.id,
         output: lastBodyResult?.output ?? null,

@@ -79,8 +79,14 @@ function checkpoint(): PipelineCheckpoint {
 }
 
 describe("for_each runtime admission", () => {
-  it("rejects raw concurrent definitions with the stable code", () => {
-    const result = validatePipeline(rawDefinition({ concurrency: 2 }));
+  // 24-I re-authored these three. They were written to pin the ADMISSION
+  // GATE'S PLACEMENT — that it fires before any executor or store is touched —
+  // and used `concurrency: 2` only as a convenient invalid value. N>1 is now
+  // admitted, so the vehicle moves to `0`, which is still invalid, and the
+  // structural claim each test makes is unchanged. Deleting them would have
+  // dropped the placement proof along with the obsolete value.
+  it("rejects a non-positive concurrency with the stable code", () => {
+    const result = validatePipeline(rawDefinition({ concurrency: 0 }));
 
     expect(result.errors).toEqual(
       expect.arrayContaining([
@@ -90,6 +96,50 @@ describe("for_each runtime admission", () => {
         }),
       ])
     );
+  });
+
+  it("rejects a fractional concurrency with the stable code", () => {
+    const result = validatePipeline(rawDefinition({ concurrency: 1.5 }));
+
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "FOR_EACH_CONCURRENCY_UNSUPPORTED",
+          nodeId: "items",
+        }),
+      ])
+    );
+  });
+
+  it("rejects an absent concurrency on a raw artifact", () => {
+    // Absence is a violation HERE and a skip in the compiler, deliberately: a
+    // raw artifact with no concurrency predates the contract, whereas an
+    // author who omitted the field gets 1 from lowering. Pinned so the two
+    // rules cannot silently converge.
+    const definition = rawDefinition({ concurrency: 1 });
+    const loop = definition.nodes[0] as LoopNode;
+    delete (loop.forEach as { concurrency?: number }).concurrency;
+
+    expect(validatePipeline(definition).errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "FOR_EACH_CONCURRENCY_UNSUPPORTED",
+          nodeId: "items",
+        }),
+      ])
+    );
+  });
+
+  it("admits a concurrency greater than one", () => {
+    // THE ADMISSION ITSELF. Red before 24-I on every one of the six deny
+    // sites; this is the assertion the packet exists to turn green.
+    const result = validatePipeline(rawDefinition({ concurrency: 4 }));
+
+    expect(
+      result.errors.filter(
+        (e) => e.code === "FOR_EACH_CONCURRENCY_UNSUPPORTED"
+      )
+    ).toEqual([]);
   });
 
   it("protects every public lifecycle entry before executor or store access", async () => {
@@ -103,25 +153,25 @@ describe("for_each runtime admission", () => {
       prune: vi.fn(),
     };
     const runtime = new PipelineRuntime({
-      definition: rawDefinition({ concurrency: 2 }),
+      definition: rawDefinition({ concurrency: 0 }),
       nodeExecutor,
       checkpointStore: store,
     });
 
     await expect(runtime.execute({ items: ["a"] })).rejects.toThrow(
-      "for_each concurrency must be 1"
+      "for_each concurrency must be a positive integer"
     );
     await expect(runtime.resume(checkpoint())).rejects.toThrow(
-      "for_each concurrency must be 1"
+      "for_each concurrency must be a positive integer"
     );
     await expect(
       runtime.resumeInteraction(
         checkpoint(),
         {} as PipelineInteractionResumeV1
       )
-    ).rejects.toThrow("for_each concurrency must be 1");
+    ).rejects.toThrow("for_each concurrency must be a positive integer");
     await expect(runtime.recoverAfterProcessRestart("run-items")).rejects.toThrow(
-      "for_each concurrency must be 1"
+      "for_each concurrency must be a positive integer"
     );
 
     expect(nodeExecutor).not.toHaveBeenCalled();
@@ -134,7 +184,7 @@ describe("for_each runtime admission", () => {
   });
 
   it("protects the public executeLoop bypass before item dispatch", async () => {
-    const definition = rawDefinition({ concurrency: 2 });
+    const definition = rawDefinition({ concurrency: 0 });
     const loop = definition.nodes[0] as LoopNode;
     const body = definition.nodes[1]!;
     const executor = vi.fn();
@@ -147,7 +197,7 @@ describe("for_each runtime admission", () => {
       {}
     );
 
-    expect(result.error).toContain("for_each concurrency must be 1");
+    expect(result.error).toContain("for_each concurrency must be a positive integer");
     expect(metrics.iterationCount).toBe(0);
     expect(executor).not.toHaveBeenCalled();
   });

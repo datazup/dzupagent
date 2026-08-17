@@ -134,9 +134,11 @@ export const LoopNodeSchema = PipelineNodeBaseSchema.extend({
           initialValue: z.unknown().optional(),
         })
         .optional(),
-      concurrency: z.literal(1, {
-        error:
-          "for_each.concurrency must be 1 until a durable per-item frame and economic settlement protocol are admitted",
+      // 24-I: widened from `z.literal(1)`. Still REQUIRED and still a positive
+      // integer — absence remains a violation here, matching the agent-side
+      // admission gate rather than the compiler's skip-if-absent rule.
+      concurrency: z.number().int().positive({
+        error: "for_each.concurrency must be a positive integer",
       }),
       failFast: z.boolean().optional(),
       empty: z.object({
@@ -568,9 +570,9 @@ export const PipelineCheckpointSchema = z
     //
     // Absence stays unprovable in the other direction: a `1.0.0` checkpoint
     // carrying no terminal set is untouched by this rule and keeps resuming.
-    const hasForEachTerminalSet = Object.values(checkpoint.loopState ?? {}).some(
-      (cursor) => cursor.itemOutcomes !== undefined,
-    );
+    const hasForEachTerminalSet = Object.values(
+      checkpoint.loopState ?? {}
+    ).some((cursor) => cursor.itemOutcomes !== undefined);
     if (checkpoint.schemaVersion === "1.0.0" && hasForEachTerminalSet) {
       context.addIssue({
         code: "custom",

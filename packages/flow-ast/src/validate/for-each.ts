@@ -162,12 +162,12 @@ function validateConcurrency(
     })
     return undefined
   }
-  if (value !== 1) {
+  // 24-I: N>1 admitted; only a non-positive or fractional value is a diagnostic.
+  if (!Number.isInteger(value) || value < 1) {
     issues.push({
       path,
       code: 'FOR_EACH_CONCURRENCY_UNSUPPORTED',
-      message:
-        'for_each.concurrency must be exactly 1 until a durable per-item frame and economic settlement protocol are admitted',
+      message: 'for_each.concurrency must be a positive integer',
     })
   }
   return value

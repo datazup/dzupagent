@@ -77,11 +77,22 @@ function makeSequentialForEachPipeline(): PipelineDefinition {
   };
 }
 
-function unsafeConcurrentForEachPipeline(): PipelineDefinition {
+// 24-I: the invalid vehicle moved from 2 (now admitted) to 0. Renamed so the
+// helper says what it actually builds rather than "concurrent".
+function invalidConcurrencyForEachPipeline(): PipelineDefinition {
   const definition = structuredClone(makeSequentialForEachPipeline()) as unknown as {
     nodes: Array<{ forEach?: { concurrency: number } }>;
   };
-  definition.nodes[0]!.forEach!.concurrency = 2;
+  definition.nodes[0]!.forEach!.concurrency = 0;
+  return definition as unknown as PipelineDefinition;
+}
+
+/** A for_each artifact at an admitted concurrency greater than one. */
+function concurrentForEachPipeline(concurrency: number): PipelineDefinition {
+  const definition = structuredClone(makeSequentialForEachPipeline()) as unknown as {
+    nodes: Array<{ forEach?: { concurrency: number } }>;
+  };
+  definition.nodes[0]!.forEach!.concurrency = concurrency;
   return definition as unknown as PipelineDefinition;
 }
 
@@ -247,7 +258,7 @@ describe("PipelineNode discriminated union", () => {
     expect(result.success).toBe(true);
   });
 
-  it("rejects concurrent LoopNode for_each runtime metadata", () => {
+  it("rejects an invalid LoopNode for_each concurrency", () => {
     const result = LoopNodeSchema.safeParse({
       type: "loop",
       id: "unsafe_each",
@@ -258,7 +269,7 @@ describe("PipelineNode discriminated union", () => {
         source: "validationItems",
         as: "validationItem",
         order: "input",
-        concurrency: 2,
+        concurrency: 0,
         empty: { body: "skip", aggregate: "empty-array" },
       },
     });
@@ -957,8 +968,8 @@ describe("serializePipeline / deserializePipeline", () => {
     expect(deserializePipeline(serializePipeline(original))).toEqual(original);
   });
 
-  it("rejects concurrent for_each at definition, serialization, and deserialization boundaries", () => {
-    const invalid = unsafeConcurrentForEachPipeline();
+  it("rejects an invalid for_each concurrency at definition, serialization, and deserialization boundaries", () => {
+    const invalid = invalidConcurrencyForEachPipeline();
     const parsed = PipelineDefinitionSchema.safeParse(invalid);
 
     expect(parsed.success).toBe(false);
@@ -968,18 +979,35 @@ describe("serializePipeline / deserializePipeline", () => {
           expect.objectContaining({
             path: ["nodes", 0, "forEach", "concurrency"],
             message:
-              "for_each.concurrency must be 1 until a durable per-item frame and economic settlement protocol are admitted",
+              "for_each.concurrency must be a positive integer",
           }),
         ])
       );
     }
     expect(() => serializePipeline(invalid)).toThrow(
-      "for_each.concurrency must be 1"
+      "for_each.concurrency must be a positive integer"
     );
     expect(() => deserializePipeline(JSON.stringify(invalid))).toThrow(
-      "for_each.concurrency must be 1"
+      "for_each.concurrency must be a positive integer"
     );
   });
+
+  // 24-I: the admission at the core boundary. `concurrency` was `z.literal(1)`
+  // and a type-level literal `1`, so N>1 could not be expressed here at all —
+  // these three boundaries are where a relaxed compiler would otherwise have
+  // its artifact rejected on load.
+  it.each([2, 4, 32])(
+    "admits and round-trips for_each concurrency %s",
+    (concurrency) => {
+      const definition = concurrentForEachPipeline(concurrency);
+
+      expect(PipelineDefinitionSchema.safeParse(definition).success).toBe(true);
+      // Round-trip preserves the value rather than normalizing it back to 1.
+      expect(deserializePipeline(serializePipeline(definition))).toEqual(
+        definition
+      );
+    }
+  );
 
   it("round-trips W1 per-node durability fields", () => {
     const original = makeMinimalPipeline({

@@ -492,14 +492,17 @@ describe('lowerPipelineLoop', () => {
     expect(artifact.id.length).toBeGreaterThan(0)
   })
 
-  it('rejects direct lowering of concurrent for_each before body lowering', () => {
+  // 24-I: vehicle moves from 2 (admitted) to 0 (still invalid). The claim —
+  // that an invalid concurrency throws before any body id is generated — is
+  // unchanged.
+  it('rejects direct lowering of an invalid for_each concurrency before body lowering', () => {
     const resolver = makeResolver(['items.process'])
     const idGen = vi.fn(() => 'unexpected')
     const ast: ForEachNode = {
       type: 'for_each',
       source: '$.items',
       as: 'item',
-      concurrency: 2,
+      concurrency: 0,
       body: [action('items.process')],
     }
 
@@ -513,7 +516,7 @@ describe('lowerPipelineLoop', () => {
         idGen,
         name: 'unsafe-concurrent-loop',
       }),
-    ).toThrow(/concurrency must be 1/)
+    ).toThrow(/concurrency must be at least 1/)
     expect(idGen).not.toHaveBeenCalled()
   })
 })

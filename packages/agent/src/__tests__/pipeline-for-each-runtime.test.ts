@@ -485,11 +485,14 @@ describe('PipelineRuntime — lowered for_each collect', () => {
     })
   })
 
-  it('rejects concurrent items before body dispatch or checkpoint persistence', async () => {
+  // 24-I: the vehicle moves from 3 (now admitted) to 0 (still invalid). The
+  // claim is unchanged — an invalid concurrency is refused before a single
+  // body node dispatches or a checkpoint is written.
+  it('rejects an invalid concurrency before body dispatch or checkpoint persistence', async () => {
     const store = new InMemoryPipelineCheckpointStore()
     const bodyRuns: string[] = []
     const runtime = new PipelineRuntime({
-      definition: unsafeConcurrentForEachPipeline(3),
+      definition: unsafeConcurrentForEachPipeline(0),
       nodeExecutor: async (nodeId) => {
         bodyRuns.push(nodeId)
         return { nodeId, output: null, durationMs: 1 }
@@ -502,9 +505,42 @@ describe('PipelineRuntime — lowered for_each collect', () => {
         { id: 'a', status: 'ready' },
         { id: 'b', status: 'blocked' },
       ],
-    })).rejects.toThrow('for_each concurrency must be 1')
+    })).rejects.toThrow('for_each concurrency must be a positive integer')
     expect(bodyRuns).toEqual([])
     expect(await store.load('unused')).toBeUndefined()
+  })
+
+  it('runs every item to completion at concurrency 3', async () => {
+    // The counterpart to the rejection above: the same definition shape that
+    // was refused outright before 24-I now executes, and every item's body
+    // runs exactly once. Without this, the change above would only prove the
+    // gate moved, not that N>1 actually works.
+    const store = new InMemoryPipelineCheckpointStore()
+    const bodyRuns: string[] = []
+    const runtime = new PipelineRuntime({
+      definition: unsafeConcurrentForEachPipeline(3),
+      nodeExecutor: async (nodeId, _node, ctx) => {
+        const item = ctx.state['item'] as { id: string }
+        bodyRuns.push(`${item.id}:${nodeId}`)
+        return { nodeId, output: null, durationMs: 1 }
+      },
+      checkpointStore: store,
+    })
+
+    const result = await runtime.execute({
+      items: [
+        { id: 'a', status: 'ready' },
+        { id: 'b', status: 'blocked' },
+        { id: 'c', status: 'ready' },
+      ],
+    })
+
+    expect(result.state).toBe('completed')
+    // Exactly one body run per item — no item dropped, none run twice.
+    expect(bodyRuns).toHaveLength(3)
+    expect(new Set(bodyRuns.map((r) => r.split(':')[0]))).toEqual(
+      new Set(['a', 'b', 'c'])
+    )
   })
 
   it('resumes a sequential for_each failure from a Redis-backed checkpoint store', async () => {

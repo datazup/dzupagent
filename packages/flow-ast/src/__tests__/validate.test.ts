@@ -73,7 +73,11 @@ describe("flowNodeSchema.safeParse — valid inputs", () => {
     }
   });
 
-  it.each([0, 1.5, 2, 8, Number.NaN, Number.POSITIVE_INFINITY])(
+  // 24-I: 2 and 8 moved out of this list — they are admitted now. Everything
+  // that remains is still invalid for the same reason it always was: not a
+  // positive integer. NaN and Infinity stay because `Number.isInteger`
+  // rejects both, which is the property this list pins.
+  it.each([0, 1.5, -1, Number.NaN, Number.POSITIVE_INFINITY])(
     "rejects for_each concurrency %s without normalizing it",
     (concurrency) => {
       const result = flowNodeSchema.safeParse({
@@ -94,6 +98,28 @@ describe("flowNodeSchema.safeParse — valid inputs", () => {
           }),
         ]),
       );
+    },
+  );
+
+  // 24-I: the admission, asserted at the AST frontend. Red on every value
+  // here before this packet.
+  it.each([1, 2, 8, 64])(
+    "admits for_each concurrency %s and preserves it verbatim",
+    (concurrency) => {
+      const result = flowNodeSchema.safeParse({
+        type: "for_each",
+        source: "items",
+        as: "item",
+        concurrency,
+        body: [{ type: "set", assign: { seen: true } }],
+      });
+
+      expect(result.success).toBe(true);
+      // Preserved, not normalized — the value the author wrote is the value
+      // that must reach lowering, or the six-site relaxation is cosmetic.
+      if (result.success && result.data.type === "for_each") {
+        expect(result.data.concurrency).toBe(concurrency);
+      }
     },
   );
 

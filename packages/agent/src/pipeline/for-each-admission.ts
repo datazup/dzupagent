@@ -20,12 +20,22 @@ export function validateForEachAdmission(
 ): PipelineValidationError[] {
   const errors: PipelineValidationError[] = [];
 
-  if (loop.forEach?.concurrency !== 1) {
+  // 24-I: N>1 is admitted. Absence is still a violation here — this gate
+  // validates hand-authored and legacy ARTIFACTS, where a missing concurrency
+  // means the field predates the contract rather than "author chose the
+  // default". The compiler's rule differs deliberately: there absence means
+  // the AUTHOR omitted it, and lowering supplies 1.
+  const concurrency = loop.forEach?.concurrency;
+  if (
+    concurrency === undefined ||
+    !Number.isInteger(concurrency) ||
+    concurrency < 1
+  ) {
     errors.push({
       code: "FOR_EACH_CONCURRENCY_UNSUPPORTED",
       message:
-        `LoopNode "${loop.id}" for_each concurrency must be 1 until the runtime ` +
-        "has a definition-bound durable per-item frame, serialized checkpoint commits, and reservation settlement receipts",
+        `LoopNode "${loop.id}" for_each concurrency must be a positive ` +
+        `integer; received ${String(concurrency)}`,
       nodeId: loop.id,
     });
   }

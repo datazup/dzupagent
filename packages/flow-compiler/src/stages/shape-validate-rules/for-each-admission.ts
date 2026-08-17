@@ -17,14 +17,18 @@ export function validateForEachAdmission(
 ): ValidationError[] {
   const errors: ValidationError[] = [];
 
-  if (node.concurrency !== undefined && node.concurrency !== 1) {
+  // 24-I: N>1 admitted. Absence still skips — an author who omitted the field
+  // gets 1 from lowering. Only an authored value can be invalid here.
+  if (
+    node.concurrency !== undefined &&
+    (!Number.isInteger(node.concurrency) || node.concurrency < 1)
+  ) {
     errors.push({
       nodeType: node.type,
       nodePath: `${path}.concurrency`,
       code: "FOR_EACH_CONCURRENCY_UNSUPPORTED",
       category: "control",
-      message:
-        "for_each.concurrency must be 1 until the runtime has a definition-bound durable per-item frame, serialized checkpoint commits, and reservation settlement receipts",
+      message: "for_each.concurrency must be a positive integer",
     });
   }
 

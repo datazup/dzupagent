@@ -40,7 +40,8 @@ function document(node: Record<string, unknown>): Record<string, unknown> {
 }
 
 describe("Packet 24-D for_each durability admission", () => {
-  it.each([0, 1.5, 2, 8, Number.NaN, Number.POSITIVE_INFINITY])(
+  // 24-I: 2 and 8 are admitted now; the rest are still not positive integers.
+  it.each([0, 1.5, -1, Number.NaN, Number.POSITIVE_INFINITY])(
     "rejects raw concurrency %s with no artifact or semantic resolution",
     async (concurrency) => {
       resolver.resolve.mockClear();
@@ -75,7 +76,7 @@ describe("Packet 24-D for_each durability admission", () => {
       "      id: items",
       "      source: items",
       "      as: item",
-      "      concurrency: 2",
+      "      concurrency: 0",
       "      body:",
       "        - set:",
       "            id: item",
@@ -84,7 +85,7 @@ describe("Packet 24-D for_each durability admission", () => {
     ].join("\n");
 
     const results = [
-      await compiler.compileDocument(document(forEachNode(undefined, 2))),
+      await compiler.compileDocument(document(forEachNode(undefined, 0))),
       await compiler.compileDsl(dsl),
     ];
     for (const result of results) {
@@ -113,7 +114,7 @@ describe("Packet 24-D for_each durability admission", () => {
       "      id: items",
       "      source: items",
       "      as: item",
-      "      concurrency: 2",
+      "      concurrency: 0",
       "      collect:",
       "        from: item",
       "        into: itemResults",
@@ -124,10 +125,10 @@ describe("Packet 24-D for_each durability admission", () => {
       "              item: true",
     ].join("\n");
     const results = [
-      await compileTextInput(compiler, JSON.stringify(forEachNode(undefined, 2))),
+      await compileTextInput(compiler, JSON.stringify(forEachNode(undefined, 0))),
       await compileTextInput(
         compiler,
-        JSON.stringify(document(forEachNode(undefined, 2)))
+        JSON.stringify(document(forEachNode(undefined, 0)))
       ),
       await compileTextInput(compiler, dsl),
     ];
@@ -146,11 +147,11 @@ describe("Packet 24-D for_each durability admission", () => {
     const report = await createFlowCompiler({
       toolResolver: resolver,
     }).analyzeStrictReferenceMigration([
-      { id: "flow", kind: "flow", input: forEachNode(undefined, 2) },
+      { id: "flow", kind: "flow", input: forEachNode(undefined, 0) },
       {
         id: "document",
         kind: "document",
-        input: document(forEachNode(undefined, 2)),
+        input: document(forEachNode(undefined, 0)),
       },
       {
         id: "dsl",
@@ -164,7 +165,7 @@ describe("Packet 24-D for_each durability admission", () => {
           "      id: items",
           "      source: items",
           "      as: item",
-          "      concurrency: 2",
+          "      concurrency: 0",
           "      collect:",
           "        from: item",
           "        into: itemResults",
@@ -355,6 +356,28 @@ describe("Packet 24-D for_each durability admission", () => {
           (node) => node.type === "loop"
         )
       ).toMatchObject({ forEach: { concurrency: 1 } });
+    }
+  );
+
+  // 24-I: THE test the packet turns on. Before this change
+  // `_shared-leaf.ts` emitted a hardcoded `concurrency: 1` into every lowered
+  // artifact regardless of what the author wrote, so relaxing the five other
+  // deny sites would have changed nothing observable at runtime. This asserts
+  // the authored value actually survives lowering.
+  it.each([2, 4, 16])(
+    "lowers an authored concurrency %s into the artifact verbatim",
+    async (concurrency) => {
+      const result = await createFlowCompiler({ toolResolver: resolver }).compile(
+        forEachNode(undefined, concurrency) as unknown as FlowNode
+      );
+
+      expect("errors" in result ? JSON.stringify(result.errors) : "ok").toBe("ok");
+      if ("errors" in result) return;
+      expect(
+        (result.artifact as { nodes: Array<Record<string, unknown>> }).nodes.find(
+          (node) => node.type === "loop"
+        )
+      ).toMatchObject({ forEach: { concurrency } });
     }
   );
 });

@@ -192,8 +192,13 @@ export interface LoopNode extends PipelineNodeBase {
       window?: number;
       initialValue?: unknown;
     };
-    /** Current executable artifact admission is sequential-only. */
-    concurrency: 1;
+    /**
+     * Maximum items dispatched concurrently. A positive integer; 1 is
+     * sequential. 24-I widened this from the literal `1` — durable per-item
+     * frames (24-E/F), terminal outcomes (24-G) and settled-item redispatch
+     * refusal (24-H) are the prerequisites that made N>1 admissible.
+     */
+    concurrency: number;
     failFast?: boolean;
     empty: {
       body: "skip";

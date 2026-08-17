@@ -139,10 +139,18 @@ export function lowerForEach(
       `router-contract violation: for_each in flat target at ${path}`
     );
   }
-  if (node.concurrency !== undefined && node.concurrency !== 1) {
+  // 24-I: an authored concurrency now reaches the artifact. Absence still
+  // lowers to 1 — a flow that never named a value keeps the sequential
+  // execution it was authored against. The floor is enforced here rather than
+  // left to the runtime's `Math.max`, so an artifact never carries a value the
+  // schema would reject.
+  if (node.concurrency !== undefined && !Number.isInteger(node.concurrency)) {
     throw new Error(
-      `lowerForEach: concurrency must be 1 at ${path} until a durable per-item frame and economic settlement protocol are admitted`
+      `lowerForEach: concurrency must be a positive integer at ${path}`
     );
+  }
+  if (node.concurrency !== undefined && node.concurrency < 1) {
+    throw new Error(`lowerForEach: concurrency must be at least 1 at ${path}`);
   }
 
   // Lower the body nodes as a sequence
@@ -155,7 +163,7 @@ export function lowerForEach(
   const bodyPorts = portsOf(bodyResult);
   if (bodyPorts.suspensionSites.length > 0) {
     throw new Error(
-      `lowerForEach: interaction at ${path} requires a durable per-item bodyGraph and is not admitted`,
+      `lowerForEach: interaction at ${path} requires a durable per-item bodyGraph and is not admitted`
     );
   }
   const bodyNodeIds = bodyResult.nodes.map((n) => n.id);
@@ -278,9 +286,7 @@ export function lowerTypedLoop(
       ...(node.iterationBudgetCents !== undefined
         ? { iterationBudgetCents: node.iterationBudgetCents }
         : {}),
-      ...(progressNodeId !== undefined
-        ? { progressKey: progressNodeId }
-        : {}),
+      ...(progressNodeId !== undefined ? { progressKey: progressNodeId } : {}),
     },
     ...nodeDurabilityFields(node),
   };
@@ -314,7 +320,9 @@ function resolveLoopProgressNodeId(
   );
   if (matches.length !== 1) {
     throw new Error(
-      `lowerTypedLoop: progressKey ${JSON.stringify(authoredNodeId)} at ${path} ` +
+      `lowerTypedLoop: progressKey ${JSON.stringify(
+        authoredNodeId
+      )} at ${path} ` +
         `must resolve to exactly one executable body node; resolved ${matches.length}`
     );
   }
@@ -333,7 +341,10 @@ function forEachContract(node: ForEachNode): NonNullable<LoopNode["forEach"]> {
     ...(node.accumulator !== undefined
       ? { accumulator: node.accumulator }
       : {}),
-    concurrency: 1,
+    // 24-I: thread the authored value through. Before this packet every
+    // artifact carried a hardcoded 1 regardless of what the author wrote, so
+    // relaxing the deny sites alone would have changed nothing observable.
+    concurrency: node.concurrency ?? 1,
     failFast: node.failFast ?? false,
     empty: {
       body: "skip",
@@ -353,7 +364,7 @@ export function lowerClarification(
 ): LowerPipelineResult {
   if (node.outputKey === undefined || node.outputKey.length === 0) {
     throw new Error(
-      `lowerClarification: clarification at ${path} requires outputKey`,
+      `lowerClarification: clarification at ${path} requires outputKey`
     );
   }
   const responseKind =
@@ -378,7 +389,7 @@ export function lowerClarification(
     throw new Error(
       `lowerClarification: invalid interaction at ${path}: ${interactionValidation.issues
         .map((issue) => `${issue.path}: ${issue.message}`)
-        .join("; ")}`,
+        .join("; ")}`
     );
   }
   const suspendNode: SuspendNode = {
