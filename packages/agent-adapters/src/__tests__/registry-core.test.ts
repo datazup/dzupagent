@@ -30,7 +30,9 @@ describe('AdapterRegistryCore', () => {
     const core = new AdapterRegistryCore(health)
     const bus = createEventBus()
     const captured: any[] = []
-    bus.onAny((e) => captured.push(e))
+    bus.onAny((e) => {
+      captured.push(e)
+    })
     core.setEventBus(bus)
 
     core.register(makeAdapter('claude'))
@@ -63,7 +65,9 @@ describe('AdapterRegistryCore', () => {
     const core = new AdapterRegistryCore(health)
     const bus = createEventBus()
     const captured: any[] = []
-    bus.onAny((e) => captured.push(e))
+    bus.onAny((e) => {
+      captured.push(e)
+    })
     core.setEventBus(bus)
 
     core.register(makeAdapter('claude'))

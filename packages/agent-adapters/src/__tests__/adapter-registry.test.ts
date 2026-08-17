@@ -183,7 +183,9 @@ describe('ProviderAdapterRegistry', () => {
 
     const eventBus = createEventBus()
     const emitted: any[] = []
-    eventBus.onAny((event) => emitted.push(event))
+    eventBus.onAny((event) => {
+      emitted.push(event)
+    })
     registry.setEventBus(eventBus)
 
     await collectEvents(registry.executeWithFallback(input, task))
@@ -230,7 +232,9 @@ describe('ProviderAdapterRegistry', () => {
 
     const eventBus = createEventBus()
     const emitted: any[] = []
-    eventBus.onAny((event) => emitted.push(event))
+    eventBus.onAny((event) => {
+      emitted.push(event)
+    })
     registry.setEventBus(eventBus)
 
     await collectEvents(registry.executeWithFallback(input, task))
@@ -477,7 +481,9 @@ describe('RegistryExecutionPort', () => {
 
     const eventBus = createEventBus()
     const emitted: unknown[] = []
-    eventBus.onAny((event) => emitted.push(event))
+    eventBus.onAny((event) => {
+      emitted.push(event)
+    })
 
     const bridge = new EventBusBridge(eventBus)
     const port = new RegistryExecutionPort(registry, bridge)
@@ -517,7 +523,9 @@ describe('RegistryExecutionPort', () => {
 
     const eventBus = createEventBus()
     const emitted: any[] = []
-    eventBus.onAny((event) => emitted.push(event))
+    eventBus.onAny((event) => {
+      emitted.push(event)
+    })
     registry.setEventBus(eventBus)
 
     await collectEvents(registry.executeWithFallback(input, task))
@@ -551,7 +559,9 @@ describe('RegistryExecutionPort', () => {
 
     const eventBus = createEventBus()
     const emitted: any[] = []
-    eventBus.onAny((event) => emitted.push(event))
+    eventBus.onAny((event) => {
+      emitted.push(event)
+    })
     registry.setEventBus(eventBus)
 
     await collectEvents(registry.executeWithFallback(input, task))

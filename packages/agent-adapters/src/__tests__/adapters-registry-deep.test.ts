@@ -51,6 +51,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createEventBus } from "@dzupagent/core";
 import { collectEvents } from "./test-helpers.js";
 import type { AgentEvent, AgentInput } from "../types.js";
+// `CodexAdapter` inherits `BaseSdkAdapter`'s `constructor(config: AdapterConfig)`
+// even though it reads codex-only fields off `this.config` via a
+// `CodexAdapterConfig` cast, so those fields are rejected in a fresh object
+// literal. Annotating the config with the adapter's own exported interface keeps
+// the field names typechecked against the implementation.
+import type { CodexAdapterConfig } from "../codex/codex-adapter.js";
 
 // ─── SDK mocks for Claude ────────────────────────────────────────────────────
 
@@ -60,15 +66,8 @@ function asyncClaudeOf<T>(
   const interruptFn = vi.fn();
   return {
     interrupt: interruptFn,
-    [Symbol.asyncIterator]() {
-      let i = 0;
-      return {
-        async next() {
-          if (i < items.length)
-            return { value: items[i++], done: false as const };
-          return { value: undefined, done: true as const };
-        },
-      };
+    async *[Symbol.asyncIterator]() {
+      for (const item of items) yield item;
     },
   };
 }
@@ -655,7 +654,8 @@ describe("CodexAdapter — W30 gap coverage", () => {
 
   describe("networkAccessEnabled", () => {
     it("passes networkAccessEnabled=true to startThread", async () => {
-      const a = new CodexAdapter({ networkAccessEnabled: true });
+      const config: CodexAdapterConfig = { networkAccessEnabled: true };
+      const a = new CodexAdapter(config);
       mockStartThread.mockReturnValue(
         makeCodexThread([codexStarted(), codexTurnCompleted()])
       );
@@ -677,7 +677,8 @@ describe("CodexAdapter — W30 gap coverage", () => {
     });
 
     it("allows input.options.networkAccessEnabled to override config", async () => {
-      const a = new CodexAdapter({ networkAccessEnabled: true });
+      const config: CodexAdapterConfig = { networkAccessEnabled: true };
+      const a = new CodexAdapter(config);
       mockStartThread.mockReturnValue(
         makeCodexThread([codexStarted(), codexTurnCompleted()])
       );
@@ -781,7 +782,8 @@ describe("CodexAdapter — W30 gap coverage", () => {
     });
 
     it("uses config.approvalPolicy when input has no override", async () => {
-      const a = new CodexAdapter({ approvalPolicy: "never" });
+      const config: CodexAdapterConfig = { approvalPolicy: "never" };
+      const a = new CodexAdapter(config);
       mockStartThread.mockReturnValue(
         makeCodexThread([codexStarted(), codexTurnCompleted()])
       );
@@ -1239,7 +1241,9 @@ describe("ProviderAdapterRegistry — W30 gap coverage", () => {
       registry.register(makeRegistryAdapter("claude"));
       const bus = createEventBus();
       const captured: unknown[] = [];
-      bus.onAny((e) => captured.push(e));
+      bus.onAny((e) => {
+        captured.push(e);
+      });
       registry.setEventBus(bus);
 
       registry.recordFailure("claude", new Error("test failure"));
@@ -1261,7 +1265,9 @@ describe("ProviderAdapterRegistry — W30 gap coverage", () => {
       registry.register(makeRegistryAdapter("claude"));
       const bus = createEventBus();
       const captured: unknown[] = [];
-      bus.onAny((e) => captured.push(e));
+      bus.onAny((e) => {
+        captured.push(e);
+      });
       registry.setEventBus(bus);
 
       registry.recordFailure("claude", new Error("fail"));

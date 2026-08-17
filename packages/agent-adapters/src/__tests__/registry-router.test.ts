@@ -121,7 +121,9 @@ function buildRouterWithBus(...adapters: AgentCLIAdapter[]): {
   const core = new AdapterRegistryCore(health)
   const bus = createEventBus()
   const emitted: DzupEvent[] = []
-  bus.onAny((event) => emitted.push(event))
+  bus.onAny((event) => {
+    emitted.push(event)
+  })
   core.setEventBus(bus)
   for (const adapter of adapters) core.register(adapter)
   const router = new AdapterRegistryRouter(core, health, undefined)

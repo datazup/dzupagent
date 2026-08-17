@@ -12,6 +12,12 @@ import {
 } from '../recovery/recovery-events.js'
 import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
+  RecoveryResult,
+  RecoverySuccessResult,
+  RecoveryFailureResult,
+  RecoveryCancelledResult,
+} from '../recovery/recovery-types.js'
+import type {
   AdapterProviderId,
   AgentCLIAdapter,
   AgentEvent,
@@ -25,6 +31,30 @@ import { stubCapabilities } from './adapter-capability-stub.js'
 // ---------------------------------------------------------------------------
 // Mock helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Narrow a {@link RecoveryResult} to its success arm. Throws (failing the
+ * test) when the copilot returned a failure/cancellation instead.
+ */
+function assertRecoverySucceeded(
+  result: RecoveryResult,
+): asserts result is RecoverySuccessResult {
+  if (!result.success) {
+    throw new Error(`expected a successful RecoveryResult, got: ${result.error}`)
+  }
+}
+
+/**
+ * Narrow a {@link RecoveryResult} to its non-success arms (failure or
+ * cancellation). Throws (failing the test) when the copilot succeeded.
+ */
+function assertRecoveryFailed(
+  result: RecoveryResult,
+): asserts result is RecoveryFailureResult | RecoveryCancelledResult {
+  if (result.success) {
+    throw new Error(`expected a failed RecoveryResult, got: ${result.result}`)
+  }
+}
 
 function createMockAdapter(
   providerId: AdapterProviderId,
@@ -299,7 +329,9 @@ function createRoutingFailureRegistry(
 
 function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
   const events: DzupEvent[] = []
-  bus.onAny((e) => events.push(e))
+  bus.onAny((e) => {
+    events.push(e)
+  })
   return events
 }
 
@@ -472,6 +504,7 @@ describe('AdapterRecoveryCopilot', () => {
       const result = await copilot.executeWithRecovery({ prompt: 'do it' })
 
       expect(result.success).toBe(true)
+      assertRecoverySucceeded(result)
       expect(result.result).toBe('success')
       expect(result.totalAttempts).toBe(1)
       expect(result.providerId).toBe('claude')
@@ -578,6 +611,7 @@ describe('AdapterRecoveryCopilot', () => {
       const result = await copilot.executeWithRecovery({ prompt: 'do it' })
 
       expect(result.success).toBe(false)
+      assertRecoveryFailed(result)
       expect(result.totalAttempts).toBe(2)
       expect(result.error).toContain('always fails')
     })
@@ -643,6 +677,7 @@ describe('AdapterRecoveryCopilot', () => {
       const result = await copilot.executeWithRecovery({ prompt: 'do it' })
 
       expect(result.success).toBe(false)
+      assertRecoveryFailed(result)
       expect(result.strategy).toBe('escalate-human')
       expect(result.error).toContain('Escalated to human')
 
@@ -662,6 +697,7 @@ describe('AdapterRecoveryCopilot', () => {
       // Intentional contract change: cancellation now resolves with an explicit result
       // so callers can branch on `cancelled` instead of catching a rejected promise.
       expect(result.success).toBe(false)
+      assertRecoveryFailed(result)
       expect(result.cancelled).toBe(true)
       expect(result.strategy).toBe('abort')
       expect(result.error).toContain('cancelled')
