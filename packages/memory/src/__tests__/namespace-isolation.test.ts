@@ -123,10 +123,21 @@ describe("Namespace isolation – cross-namespace read prevention", () => {
     const tenantA = await client.get("alpha", SCOPE);
     const tenantB = await client.get("alpha", SCOPE_B);
 
-    expect(tenantA).toHaveLength(3);
-    expect(tenantB).toHaveLength(2);
-    expect(tenantA.every((r) => r.scope.tenantId === "tenant-1")).toBe(true);
-    expect(tenantB.every((r) => r.scope.tenantId === "tenant-2")).toBe(true);
+    // Asserting the projected tenant ids, rather than collapsing the records
+    // to a single boolean predicate, pins the same property AND the length and
+    // names the offending value on failure — the collapsed form reports only
+    // `true !== false` when a record leaks across the tenant boundary. The
+    // predicate form is also what the `vacuous-every` ratchet counts, so it is
+    // described here rather than written, to keep a grep for it honest.
+    expect(tenantA.map((r) => r.scope.tenantId)).toEqual([
+      "tenant-1",
+      "tenant-1",
+      "tenant-1",
+    ]);
+    expect(tenantB.map((r) => r.scope.tenantId)).toEqual([
+      "tenant-2",
+      "tenant-2",
+    ]);
 
     // A tenant-1 record id must not be reachable — or deletable — as tenant-2.
     const victim = tenantA[0]!;
@@ -170,10 +181,11 @@ describe("Namespace isolation – cross-namespace read prevention", () => {
     const ns1Results = await client.get("ns1", SCOPE, { search: keyword });
     const ns2Results = await client.get("ns2", SCOPE, { search: keyword });
 
-    expect(ns1Results.every((r) => r.namespace === "ns1")).toBe(true);
-    expect(ns2Results.every((r) => r.namespace === "ns2")).toBe(true);
-    expect(ns1Results).toHaveLength(1);
-    expect(ns2Results).toHaveLength(1);
+    // Same reasoning as above: the projection subsumes the length assertions
+    // these lines used to carry separately, and a cross-namespace leak reports
+    // the namespace that leaked instead of a bare `false`.
+    expect(ns1Results.map((r) => r.namespace)).toEqual(["ns1"]);
+    expect(ns2Results.map((r) => r.namespace)).toEqual(["ns2"]);
   });
 });
 
