@@ -3,7 +3,7 @@ import { tool } from '@langchain/core/tools'
 import { z } from 'zod'
 import { resolve } from 'node:path'
 import { resolveAgentTools, ToolResolutionError, getToolProfileConfig } from '../runtime/tool-resolver.js'
-import type { ToolProfile, ToolResolverContext, ToolResolverResult } from '../runtime/tool-resolver.js'
+import type { ToolResolverContext, ToolResolverResult } from '../runtime/tool-resolver.js'
 
 const fastFailMcpServer = {
   id: 'test',

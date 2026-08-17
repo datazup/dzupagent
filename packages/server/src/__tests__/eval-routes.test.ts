@@ -618,7 +618,8 @@ describe('Eval routes', () => {
     })
     const store = new LeaseRaceEvalRunStore(runningRun)
 
-    const app = createForgeApp({
+    // Constructed for its startup-reconciliation side effect; no request is made.
+    createForgeApp({
       ...createActiveConfig(),
       evals: {
         suites: {

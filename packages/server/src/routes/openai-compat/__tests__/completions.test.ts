@@ -16,7 +16,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Hono } from "hono";
 import {
   InMemoryAgentStore,
-  InMemoryRunStore,
   ModelRegistry,
   createEventBus,
 } from "@dzupagent/core";

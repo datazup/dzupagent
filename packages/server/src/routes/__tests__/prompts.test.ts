@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { createPromptRoutes } from '../prompts.js'
 import { InMemoryPromptStore } from '../../prompts/prompt-store.js'
 
@@ -175,7 +175,7 @@ describe('Prompt routes', () => {
 
   describe('POST /rollback/:promptId', () => {
     it('rolls back to a prior version', async () => {
-      const { app, store } = makeApp()
+      const { app } = makeApp()
       const v1 = await json(await app.request('/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

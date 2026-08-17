@@ -222,7 +222,8 @@ describe('eval route default path (MJ-CODE-01)', () => {
     }
     await sharedStore.saveRun(stale)
 
-    const app = createForgeApp(defaultPathConfig(async (input) => input.toUpperCase(), sharedStore))
+    // Constructed for its startup-recovery side effect; no request is made.
+    createForgeApp(defaultPathConfig(async (input) => input.toUpperCase(), sharedStore))
 
     await waitForCondition(
       async () => {

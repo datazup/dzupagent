@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { InMemoryFlowArtifactStore } from "../flow-artifact-store.js";
-import type { FlowArtifact } from "../flow-artifact-store.js";
 
 describe("InMemoryFlowArtifactStore", () => {
   let store: InMemoryFlowArtifactStore;

@@ -103,7 +103,7 @@ function createTestRouter(): CostAwareRouter {
 function createEchoExecutor(
   overrides?: Partial<RunExecutorResult>
 ): RunExecutor {
-  return async ({ input, metadata }) => {
+  return async ({ input }) => {
     const payload = input as Record<string, unknown> | string;
     const message =
       typeof payload === "string"

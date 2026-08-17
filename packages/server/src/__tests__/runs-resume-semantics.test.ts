@@ -97,7 +97,7 @@ async function seedPausedRunWithCheckpoint(
     type: 'run_started',
     data: { input: opts.runInput, agentId: opts.agentId },
   })
-  const stepSeq = await harness.journal.append(run.id, {
+  await harness.journal.append(run.id, {
     type: 'step_completed',
     data: { stepId: 'step-1', toolName: 'search', output: { hits: 3 } },
   })

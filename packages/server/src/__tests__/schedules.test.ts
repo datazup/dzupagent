@@ -17,12 +17,10 @@ function createTestApp(onManualTrigger?: (s: { id: string; workflowText: string 
 
 describe('Schedule REST routes', () => {
   let app: Hono
-  let store: InMemoryScheduleStore
 
   beforeEach(() => {
     const ctx = createTestApp()
     app = ctx.app
-    store = ctx.store
   })
 
   it('POST /api/schedules creates a schedule', async () => {

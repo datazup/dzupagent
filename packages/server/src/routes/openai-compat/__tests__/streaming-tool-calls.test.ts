@@ -6,12 +6,9 @@
  * - Streaming route integration with mock agent.stream()
  * - Type/shape validation of emitted chunks
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { OpenAICompletionMapper } from '../completion-mapper.js'
-import type {
-  ChatCompletionChunkWithTools,
-  StreamingToolCallDelta,
-} from '../types.js'
+import type { ChatCompletionChunkWithTools } from '../types.js'
 
 // ---------------------------------------------------------------------------
 // Helpers

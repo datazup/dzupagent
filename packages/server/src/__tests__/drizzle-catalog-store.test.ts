@@ -625,7 +625,7 @@ describe('DrizzleCatalogStore', () => {
 
   describe('getById()', () => {
     it('returns the mapped entry when id exists', async () => {
-      const row = seedRow(db, { id: 'ent-1', slug: 'found-slug', name: 'Found' })
+      seedRow(db, { id: 'ent-1', slug: 'found-slug', name: 'Found' })
 
       const result = await store.getById('ent-1')
       expect(result).not.toBeNull()

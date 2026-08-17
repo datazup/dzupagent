@@ -6,7 +6,7 @@
  * approvals-cross-tenant.test.ts; this file focuses on the happy-path
  * decision flows and event emission contract.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { Hono } from 'hono'
 import { InMemoryRunStore, createEventBus } from '@dzupagent/core'
 import { InMemoryApprovalStateStore } from '@dzupagent/hitl-kit'

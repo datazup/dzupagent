@@ -11,7 +11,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { InMemoryQuotaManager } from "../runtime/memory-quota-manager.js";
 import { QuotaExceededError } from "../runtime/resource-quota.js";
-import type { ResourceDimensions } from "../runtime/resource-quota.js";
 import { TracePrinter } from "../cli/trace-printer.js";
 import { configValidate, configShow } from "../cli/config-command.js";
 import { memoryBrowse, memorySearch } from "../cli/memory-command.js";
@@ -22,7 +21,6 @@ import {
   ModelRegistry,
   createEventBus,
 } from "@dzupagent/core";
-import type { DzupEventBus } from "@dzupagent/core";
 import type { MemoryServiceLike } from "@dzupagent/memory-ipc";
 import { writeFileSync, unlinkSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";

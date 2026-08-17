@@ -63,15 +63,6 @@ function mockSelect(rows: Array<typeof apiKeys.$inferSelect>): ReturnType<typeof
   return vi.fn().mockReturnValue(chain)
 }
 
-function mockInsert(returnedRows: Array<typeof apiKeys.$inferSelect>): ReturnType<typeof vi.fn> {
-  const chain = {
-    values: vi.fn().mockReturnValue({
-      returning: vi.fn().mockResolvedValue(returnedRows),
-    }),
-  }
-  return vi.fn().mockReturnValue(chain)
-}
-
 function mockUpdate(updatedValuesCapture: { value?: Record<string, unknown> }): ReturnType<typeof vi.fn> {
   const chain = {
     set: vi.fn((values: Record<string, unknown>) => {

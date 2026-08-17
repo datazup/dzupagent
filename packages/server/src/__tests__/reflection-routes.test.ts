@@ -1,7 +1,7 @@
 /**
  * Tests for reflection HTTP routes.
  */
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { Hono } from 'hono'
 import { createReflectionRoutes } from '../routes/reflections.js'
 import type { RunReflectionStore, ReflectionSummary, ReflectionPattern } from '@dzupagent/agent'

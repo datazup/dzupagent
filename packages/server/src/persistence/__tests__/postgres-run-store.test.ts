@@ -238,7 +238,7 @@ describe('PostgresRunStore (persistence/__tests__)', () => {
         { id: '1', agentId: 'a', status: 'completed', input: null, output: null, plan: null, tokenUsageInput: 0, tokenUsageOutput: 0, costCents: null, error: null, metadata: null, startedAt: now, completedAt: null },
         { id: '2', agentId: 'a', status: 'failed', input: null, output: null, plan: null, tokenUsageInput: 0, tokenUsageOutput: 0, costCents: null, error: 'oops', metadata: null, startedAt: now, completedAt: null },
       ]
-      const { store, db } = buildStore({ selectRows: rows })
+      const { store } = buildStore({ selectRows: rows })
 
       const runs = await store.list()
 

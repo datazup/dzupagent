@@ -18,7 +18,7 @@ import type {
 } from '../runtime/run-worker.js'
 import { InMemoryRunTraceStore } from '../persistence/run-trace-store.js'
 import { InMemoryReflectionStore } from '@dzupagent/agent'
-import type { RunReflectionStore, ReflectionSummary } from '@dzupagent/agent'
+import type { RunReflectionStore } from '@dzupagent/agent'
 import type { ExecutableAgentResolver } from '../services/executable-agent-resolver.js'
 
 async function waitForTerminalStatus(
@@ -2179,7 +2179,7 @@ describe('run-worker — escalation policy edge cases', () => {
 
     let callCount = 0
     const statefulPolicy: EscalationPolicyLike = {
-      recordScore(key: string, score: number, currentTier: string): EscalationResultLike {
+      recordScore(_key: string, _score: number, currentTier: string): EscalationResultLike {
         callCount++
         return {
           shouldEscalate: callCount >= 3, // Escalate on 3rd call

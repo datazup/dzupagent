@@ -1,7 +1,7 @@
 /**
  * Tests for preset HTTP routes.
  */
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { Hono } from 'hono'
 import { createPresetRoutes } from '../routes/presets.js'
 import {

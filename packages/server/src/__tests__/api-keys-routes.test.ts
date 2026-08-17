@@ -403,7 +403,7 @@ describe("POST /api/keys/:id/rotate", () => {
   });
 
   it("returns 400 when trying to rotate a revoked key", async () => {
-    const { app, store } = buildApp({ ownerId: "owner-1" });
+    const { app } = buildApp({ ownerId: "owner-1" });
     const createRes = await post(app, "/api/keys", { name: "revoked-key" });
     const created = (await createRes.json()) as { id: string };
 

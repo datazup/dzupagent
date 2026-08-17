@@ -9,7 +9,7 @@ import {
   InMemoryScheduleStore,
   DrizzleScheduleStore,
 } from '../schedules/schedule-store.js'
-import type { ScheduleRecord, ScheduleStore } from '../schedules/schedule-store.js'
+import type { ScheduleRecord } from '../schedules/schedule-store.js'
 
 // ---------------------------------------------------------------------------
 // Chainable mock DB — mirrors the Drizzle query-builder pattern
@@ -34,7 +34,6 @@ function createMockDb() {
   }
 
   function chainable() {
-    let _table: string | null = null
     let _values: Record<string, unknown> | null = null
     let _setData: Record<string, unknown> | null = null
     let _whereId: string | null = null

@@ -4,11 +4,7 @@ import {
   formatDoctorReport,
   formatDoctorReportJSON,
 } from '../cli/doctor.js'
-import type {
-  DoctorContext,
-  DoctorReport,
-  CheckStatus,
-} from '../cli/doctor.js'
+import type { DoctorContext, DoctorReport } from '../cli/doctor.js'
 
 // ---------------------------------------------------------------------------
 // Helpers

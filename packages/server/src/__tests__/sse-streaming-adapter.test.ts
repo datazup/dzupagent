@@ -666,9 +666,9 @@ describe('streamRunHandleToSSE — keep-alive and timeout', () => {
       runTimeoutMs: 0,
     })
 
-    // No setTimeout should have been called for the timeout (we check none were
-    // added beyond what existed before, accounting for internal microtask delays).
-    // Instead, verify directly: fail is never called.
+    // No run-timeout timer should have been scheduled.
+    expect(setTimeoutSpy.mock.calls.length).toBe(callsBefore)
+
     handle.push({ type: 'done', finalOutput: '' })
     handle.complete()
     await vi.advanceTimersByTimeAsync(1)

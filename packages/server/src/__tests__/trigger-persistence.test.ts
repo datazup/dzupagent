@@ -18,12 +18,10 @@ function createTestApp() {
 
 describe('Trigger REST routes', () => {
   let app: Hono
-  let store: InMemoryTriggerStore
 
   beforeEach(() => {
     const ctx = createTestApp()
     app = ctx.app
-    store = ctx.store
   })
 
   // 1

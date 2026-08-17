@@ -17,12 +17,10 @@ function createTestApp() {
 
 describe('Persona REST routes', () => {
   let app: Hono
-  let store: InMemoryPersonaStore
 
   beforeEach(() => {
     const ctx = createTestApp()
     app = ctx.app
-    store = ctx.store
   })
 
   it('POST /api/personas creates a persona', async () => {

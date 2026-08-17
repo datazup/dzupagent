@@ -548,7 +548,7 @@ describe("Server run-executor deep coverage (W21-B2)", () => {
         modelRegistry,
         runExecutor: async ({ signal }) => {
           // Wait until cancelled
-          await new Promise<void>((resolve, reject) => {
+          await new Promise<void>((_resolve, reject) => {
             signal.addEventListener("abort", () => {
               sawAbort = true;
               reject(new DOMException("Run cancelled", "AbortError"));

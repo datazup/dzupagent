@@ -10,7 +10,7 @@
  *
  * No real database — InMemoryScheduleStore is the persistence layer.
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { Hono } from "hono";
 import { createScheduleRoutes } from "../routes/schedules.js";
 import {
