@@ -343,10 +343,11 @@ describe('AgentExecutionHarness port return types', () => {
         spawnChild: async () => ({
           id: 'child-async-reject',
           terminate: () => { lifecycle.push('terminate') },
-          wait: () => new Promise<void>((_resolve, reject) => {
+          wait: () => {
             lifecycle.push('wait')
-            setTimeout(() => reject(new Error('async wait failure')), 0)
-          }),
+            // Rejects on a later microtask, not synchronously.
+            return Promise.resolve().then(() => { throw new Error('async wait failure') })
+          },
         }),
       },
       actions: [{ kind: 'spawn', tool: 'process.spawn', commandRef: 'fixture-child' }],
@@ -368,10 +369,10 @@ describe('AgentExecutionHarness port return types', () => {
         ...f.ports,
         spawnChild: async () => ({
           id: 'child-ordered-cleanup',
-          terminate: () => new Promise<void>((resolve) => {
+          terminate: () => {
             lifecycle.push('terminate:called')
-            setTimeout(() => { lifecycle.push('terminate:settled'); resolve() }, 0)
-          }),
+            return Promise.resolve().then(() => { lifecycle.push('terminate:settled') })
+          },
           wait: () => { lifecycle.push('wait:called') },
         }),
       },
@@ -392,9 +393,9 @@ describe('AgentExecutionHarness port return types', () => {
       profile: f.profile,
       ports: {
         ...f.ports,
-        writeFile: (filePath, content) => new Promise<void>((resolve) => {
-          setTimeout(() => { writeFileSync(filePath, content); resolve() }, 0)
-        }),
+        // Materializes the bytes only on a later microtask, so the read-back
+        // below sees stale content unless the harness settles this first.
+        writeFile: (filePath, content) => Promise.resolve().then(() => { writeFileSync(filePath, content) }),
       },
       actions: [
         { kind: 'read', tool: 'fs.read', path: 'seed.txt' },
