@@ -291,7 +291,7 @@ Root index: `packages/agent/src/index.ts`
 | `deprecated-transitional` | `./agent/tool-registry.js` | 2 | `prefix:./agent/` | `DynamicToolRegistry`, `ToolRegistryEvent` |
 | `stable` | `./tools/create-tool.js` | 2 | `exact:./tools/create-tool.js` | `createForgeTool`, `ForgeToolConfig` |
 | `deprecated-transitional` | `./tools/human-contact-tool.js` | 5 | `prefix:./tools/` | `createHumanContactTool`, `InMemoryPendingContactStore`, `HumanContactInput`, `HumanContactToolConfig` |
-| `deprecated-transitional` | `./tools/tool-tier-registry.js` | 4 | `prefix:./tools/` | `setToolTier`, `getToolTier`, `filterToolsByTier`, `DEFAULT_TOOL_TIER` |
+| `deprecated-transitional` | `./tools/tool-tier-registry.js` | 10 | `prefix:./tools/` | `setToolTier`, `getToolTier`, `hasExplicitToolTier`, `resolveToolTier` |
 | `deprecated-transitional` | `./agent/agent-state.js` | 4 | `prefix:./agent/` | `serializeMessages`, `deserializeMessages`, `AgentStateSnapshot`, `SerializedMessage` |
 | `deprecated-transitional` | `./snapshot/agent-snapshot.js` | 6 | `prefix:./snapshot/` | `createSnapshot`, `verifySnapshot`, `compressSnapshot`, `decompressSnapshot` |
 | `deprecated-transitional` | `./snapshot/serialized-message.js` | 4 | `prefix:./snapshot/` | `serializeMessage`, `migrateMessages`, `SerializedMessage`, `MultimodalContent` |
