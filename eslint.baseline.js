@@ -308,7 +308,7 @@ export const TEST_QUALITY_BASELINE_COUNTS = {
   "packages/rag/src/__tests__/pipeline-memory-retriever.test.ts": { "stateless-memory-double": 1 },
   "packages/rag/src/__tests__/quality-retriever.test.ts": { "vacuous-every": 1 },
   "packages/scraper/src/__tests__/browser-pool.test.ts": { "real-set-timeout": 1 },
-  "packages/scraper/src/__tests__/scraper-deep.test.ts": { "vacuous-every": 2, "real-set-timeout": 1 },
+  "packages/scraper/src/__tests__/scraper-deep.test.ts": { "vacuous-every": 2 },
   "packages/scraper/src/__tests__/scraper-http-contract-deep.test.ts": { "real-set-timeout": 1 },
   "packages/scraper/src/__tests__/scraper-integration.test.ts": { "real-set-timeout": 1 },
   "packages/server/src/__tests__/agent-definition-service.test.ts": { "vacuous-every": 1 },
