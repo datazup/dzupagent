@@ -35,7 +35,7 @@ S2=$(git status --porcelain | md5sum); H2=$(git rev-parse HEAD)
 | `agent` | **claimed** | agent-slice session (2026-08-17 PM) | 198 errors at claim time; re-derived, not inherited |
 | `evals` | free | — | 188 errors |
 | `agent-adapters` | **claimed** | agent-adapters-remainder session (2026-08-17 PM) | 125 errors re-derived at claim time (after `0ac23153`); driving to 0 |
-| `memory` | free | — | 4 errors |
+| `memory` | **claimed** | connectors session, after closing connectors (2026-08-17 17:10) | 4 structural errors. The previous owner left them deliberately: 3x TS6059 (a deep import that drags `agent-types` under memory's rootDir — fix belongs in agent-types) and 1x TS2307 (`../../tsup.config`, outside flipcheck's `include`). Both fixes sit outside a tests-only slice, which is why they were deferred; taking them now that the repo is quiescent. `tsconfig.flipcheck.json` is per-package, so editing memory's own copy changes no sibling's measurement. |
 
 Packages at zero (do not regress): `adapter-rules`, `cache`,
 `connectors-browser`, `create-dzupagent`, `dialogue-core-replay`, `express`,
