@@ -23,6 +23,7 @@ import type {
   AgentEvent,
   AgentInput,
 } from '../types.js'
+import { stubCapabilities } from './adapter-capability-stub.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -45,6 +46,7 @@ function mockAdapter(
     }
   }
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     execute: impl ?? defaultImpl,
     async *resumeSession() {

@@ -14,6 +14,7 @@ import type {
 import type {
   AdapterRuntimeToolOrchestrator,
 } from '../runtime-tool-bridge.js'
+import { stubCapabilities } from '../../__tests__/adapter-capability-stub.js'
 
 describe('adapter runtime tool bridge', () => {
   it('executes prompt runtime nodes through OrchestratorFacade.run', async () => {
@@ -695,6 +696,7 @@ function createCapturingAdapter(
   return {
     inputs,
     adapter: {
+      getCapabilities: () => stubCapabilities(),
       providerId,
       async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
         inputs.push(input)

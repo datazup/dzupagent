@@ -8,9 +8,11 @@ import type { DzupEventBus } from '@dzupagent/core'
 import { ProviderAdapterRegistry } from '../../registry/adapter-registry.js'
 import { UCLEnrichmentStep } from '../ucl-enrichment-step.js'
 import type { AdapterProviderId, AgentCLIAdapter, AgentEvent, AgentInput } from '../../types.js'
+import { stubCapabilities } from '../../__tests__/adapter-capability-stub.js'
 
 function stubAdapter(providerId: AdapterProviderId): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
       // empty

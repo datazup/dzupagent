@@ -40,6 +40,7 @@ import type {
   AgentInput,
   TaskDescriptor,
 } from '../types.js'
+import { stubCapabilities } from './adapter-capability-stub.js'
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -50,6 +51,7 @@ function makeAdapter(
   impl: (input: AgentInput) => AsyncGenerator<AgentEvent, void, undefined>,
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     execute: impl,
     async *resumeSession() {

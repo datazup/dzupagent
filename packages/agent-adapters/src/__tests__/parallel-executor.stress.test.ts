@@ -9,6 +9,7 @@ import type {
   AgentCLIAdapter,
   AgentInput,
 } from '../types.js'
+import { stubCapabilities } from './adapter-capability-stub.js'
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -20,6 +21,7 @@ function createMockAdapter(
   delayMs = 0,
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput) {
       if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs))
@@ -53,6 +55,7 @@ function createFailingAdapter(
   delayMs = 0,
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput) {
       if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs))
@@ -72,6 +75,7 @@ function createAbortAwareAdapter(
   result: string,
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(input: AgentInput) {
       yield {
@@ -276,6 +280,7 @@ describe('ParallelExecutor stress tests', () => {
       delayMs: number,
     ): AgentCLIAdapter {
       return {
+        getCapabilities: () => stubCapabilities(),
         providerId,
         async *execute(_input: AgentInput) {
           currentConcurrency += 1

@@ -12,6 +12,7 @@ import type {
   AgentEvent,
   AgentInput,
 } from '../types.js'
+import { stubCapabilities } from './adapter-capability-stub.js'
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -20,6 +21,7 @@ import type {
 function createCountingAdapter(providerId: AdapterProviderId): AgentCLIAdapter {
   let callCount = 0
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
       callCount++

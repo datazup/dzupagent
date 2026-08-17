@@ -26,6 +26,7 @@ import { InMemoryCheckpointStore } from '../session/workflow-checkpointer.js'
 import type { WorkflowCheckpoint } from '../session/workflow-checkpointer.js'
 import { createOrchestrator } from '../facade/orchestrator-facade.js'
 import type { AgentCLIAdapter, AgentEvent, AgentInput, AdapterProviderId } from '../types.js'
+import { stubCapabilities } from './adapter-capability-stub.js'
 
 // ---------------------------------------------------------------------------
 // Shared constants
@@ -56,6 +57,7 @@ function createFakeAdapter(
   delayMs = 0,
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
       if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs))

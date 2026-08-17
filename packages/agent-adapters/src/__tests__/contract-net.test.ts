@@ -20,6 +20,7 @@ import type {
   AgentInput,
   TaskDescriptor,
 } from '../types.js'
+import { stubCapabilities } from './adapter-capability-stub.js'
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -30,6 +31,7 @@ function createMockAdapter(
   events: AgentEvent[],
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput) {
       for (const e of events) yield e
@@ -247,6 +249,7 @@ describe('ContractNetOrchestrator', () => {
   it('does not collect bids from or execute disabled providers', async () => {
     const disabledState = { calls: 0 }
     const disabledAdapter: AgentCLIAdapter = {
+      getCapabilities: () => stubCapabilities(),
       providerId: 'claude',
       async *execute() {
         disabledState.calls += 1
@@ -278,6 +281,7 @@ describe('ContractNetOrchestrator', () => {
 
   it('falls back to next-best bid on failure', async () => {
     const failingAdapter: AgentCLIAdapter = {
+      getCapabilities: () => stubCapabilities(),
       providerId: 'claude',
       async *execute() {
         throw new Error('claude failed')
@@ -314,6 +318,7 @@ describe('ContractNetOrchestrator', () => {
 
   it('all adapters fail returns unsuccessful result', async () => {
     const failAdapter1: AgentCLIAdapter = {
+      getCapabilities: () => stubCapabilities(),
       providerId: 'claude',
       async *execute() {
         throw new Error('claude exploded')
@@ -326,6 +331,7 @@ describe('ContractNetOrchestrator', () => {
       configure() {},
     }
     const failAdapter2: AgentCLIAdapter = {
+      getCapabilities: () => stubCapabilities(),
       providerId: 'codex',
       async *execute() {
         throw new Error('codex exploded')
@@ -403,6 +409,7 @@ describe('ContractNetOrchestrator', () => {
 
   it('returns an explicit cancelled result when aborted during adapter execution', async () => {
     const adapter: AgentCLIAdapter = {
+      getCapabilities: () => stubCapabilities(),
       providerId: 'claude',
       async *execute(input: AgentInput) {
         await new Promise((resolve) => setTimeout(resolve, 50))
@@ -456,6 +463,7 @@ describe('ContractNetOrchestrator', () => {
     })
 
     const adapter: AgentCLIAdapter = {
+      getCapabilities: () => stubCapabilities(),
       providerId: 'claude',
       async *execute() {
         yield {
@@ -572,6 +580,7 @@ describe('ContractNetOrchestrator', () => {
 
   it('records thrown bid execution failures in registry circuit state', async () => {
     const adapter: AgentCLIAdapter = {
+      getCapabilities: () => stubCapabilities(),
       providerId: 'claude',
       async *execute() {
         throw new Error('thrown failure')

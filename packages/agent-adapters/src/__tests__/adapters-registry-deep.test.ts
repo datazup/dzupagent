@@ -143,6 +143,7 @@ import type {
   TaskDescriptor,
   TaskRoutingStrategy,
 } from "../types.js";
+import { stubCapabilities } from './adapter-capability-stub.js'
 
 // ─── Claude fixtures ──────────────────────────────────────────────────────────
 
@@ -178,6 +179,7 @@ function makeRegistryAdapter(
   events: AgentEvent[] = []
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(): AsyncGenerator<AgentEvent, void, undefined> {
       for (const e of events) yield e;

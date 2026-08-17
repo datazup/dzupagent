@@ -4,9 +4,11 @@ import { createEventBus } from '@dzupagent/core'
 import { AdapterHealthMonitor } from '../registry/health-monitor.js'
 import { AdapterRegistryCore } from '../registry/registry-core.js'
 import type { AdapterProviderId, AgentCLIAdapter, AgentEvent, AgentInput } from '../types.js'
+import { stubCapabilities } from './adapter-capability-stub.js'
 
 function makeAdapter(providerId: AdapterProviderId): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
       return

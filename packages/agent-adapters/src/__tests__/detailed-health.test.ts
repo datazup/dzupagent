@@ -16,6 +16,7 @@ import type {
   AgentInput,
   HealthStatus,
 } from '../types.js'
+import { stubCapabilities } from './adapter-capability-stub.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -26,6 +27,7 @@ function createMockAdapter(
   healthy = true,
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
       yield {

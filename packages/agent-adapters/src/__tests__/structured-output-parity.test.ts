@@ -27,6 +27,7 @@ import type {
   AgentEvent,
   AgentInput,
 } from '../types.js'
+import { stubCapabilities } from './adapter-capability-stub.js'
 
 function createMockModel(
   responses: AIMessage[],
@@ -77,6 +78,7 @@ function createMockAdapter(
   let callIndex = 0
 
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
       const result = responses[callIndex] ?? responses[responses.length - 1] ?? ''
@@ -111,6 +113,7 @@ function createFailingAdapter(
   message: string,
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(): AsyncGenerator<AgentEvent, void, undefined> {
       yield {

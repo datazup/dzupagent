@@ -11,6 +11,7 @@ import type {
   AgentEvent,
   AgentInput,
 } from '../types.js'
+import { stubCapabilities } from './adapter-capability-stub.js'
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -22,6 +23,7 @@ function createMockAdapter(
   delayMs = 0,
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput) {
       if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs))
@@ -54,6 +56,7 @@ function createFailingAdapter(
   errorMessage: string,
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput) {
       throw new Error(errorMessage)
@@ -73,6 +76,7 @@ function createFailedEventAdapter(
   code = 'ADAPTER_EXECUTION_FAILED',
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput) {
       yield {
@@ -104,6 +108,7 @@ function createNoTerminalAdapter(
   message = 'partial output',
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput) {
       yield {
@@ -140,6 +145,7 @@ function createAbortAwareAdapter(
   onReady?: () => void,
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(input: AgentInput) {
       state.executeCalls += 1
@@ -399,6 +405,7 @@ describe('ParallelExecutor', () => {
   it('does not execute disabled providers supplied in the parallel provider list', async () => {
     const disabledState = { calls: 0 }
     const disabledAdapter: AgentCLIAdapter = {
+      getCapabilities: () => stubCapabilities(),
       providerId: 'claude',
       async *execute() {
         disabledState.calls += 1

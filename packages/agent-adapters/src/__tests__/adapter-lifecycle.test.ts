@@ -10,12 +10,14 @@ import type {
   RoutingDecision,
 } from '../types.js'
 import { collectEvents } from './test-helpers.js'
+import { stubCapabilities } from './adapter-capability-stub.js'
 
 function createMockAdapter(
   providerId: AdapterProviderId,
   events: AgentEvent[] = [],
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
       for (const event of events) {

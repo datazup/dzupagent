@@ -20,12 +20,14 @@ import {
   POLICY_ACTIVE_OPTION_KEY,
   POLICY_CONFORMANCE_MODE_OPTION_KEY,
 } from '../pipeline/policy-enforcement-pipeline.js'
+import { stubCapabilities } from './adapter-capability-stub.js'
 
 function makeAdapter(
   providerId: AdapterProviderId,
   events: AgentEvent[] = [],
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
       for (const e of events) yield e
@@ -47,6 +49,7 @@ function makeCapturingAdapter(
   events: AgentEvent[] = [],
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
       onInput(input)

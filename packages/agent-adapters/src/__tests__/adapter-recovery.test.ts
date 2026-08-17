@@ -21,6 +21,7 @@ import type {
   TaskDescriptor,
 } from '../types.js'
 import { collectEvents } from './test-helpers.js'
+import { stubCapabilities } from './adapter-capability-stub.js'
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -31,6 +32,7 @@ function createMockAdapter(
   results: AgentEvent[],
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput) {
       for (const e of results) yield e
@@ -51,6 +53,7 @@ function createFailingAdapter(
   errorMsg: string,
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
       throw new Error(errorMsg)
@@ -71,6 +74,7 @@ function createAbortingAdapter(
   errorMsg = 'cancelled',
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
       yield {
@@ -114,6 +118,7 @@ function createFailedThenReturnAdapter(
   errorMsg = 'mid-stream failure',
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
       yield {
@@ -150,6 +155,7 @@ function createFailedThenReturnAdapter(
  */
 function createNoTerminalAdapter(providerId: AdapterProviderId): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
       yield {
@@ -509,6 +515,7 @@ describe('AdapterRecoveryCopilot', () => {
           const shouldFail = callCount <= 1
 
           const adapter: AgentCLIAdapter = {
+            getCapabilities: () => stubCapabilities(),
             providerId: 'claude' as AdapterProviderId,
             async *execute(input: AgentInput) {
               callInputs.push(input)
@@ -938,6 +945,7 @@ describe('AdapterRecoveryCopilot', () => {
           callCount++
 
           const adapter: AgentCLIAdapter = {
+            getCapabilities: () => stubCapabilities(),
             providerId: (callCount === 1 ? 'claude' : 'codex') as AdapterProviderId,
             async *execute(input: AgentInput) {
               capturedInputs.push(input)
@@ -1023,6 +1031,7 @@ describe('AdapterRecoveryCopilot', () => {
           callCount++
 
           const adapter: AgentCLIAdapter = {
+            getCapabilities: () => stubCapabilities(),
             providerId: 'claude' as AdapterProviderId,
             async *execute(input: AgentInput) {
               capturedInputs.push(input)

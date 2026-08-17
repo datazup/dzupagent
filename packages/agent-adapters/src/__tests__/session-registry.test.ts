@@ -15,6 +15,7 @@ import type {
   AgentInput,
   TaskDescriptor,
 } from '../types.js'
+import { stubCapabilities } from './adapter-capability-stub.js'
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -25,6 +26,7 @@ function createMockAdapter(
   events: AgentEvent[],
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput) {
       for (const e of events) yield e

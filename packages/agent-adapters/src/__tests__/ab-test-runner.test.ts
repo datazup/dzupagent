@@ -21,6 +21,7 @@ import type {
   AgentInput,
 } from '../types.js'
 import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
+import { stubCapabilities } from './adapter-capability-stub.js'
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -31,6 +32,7 @@ function createMockAdapter(
   events: AgentEvent[],
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput) {
       for (const e of events) yield e
@@ -61,6 +63,7 @@ function completedEvents(providerId: AdapterProviderId, result: string): AgentEv
 
 function failingAdapter(providerId: AdapterProviderId): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute() {
       throw new Error(`${providerId} failed`)
@@ -404,6 +407,7 @@ describe('ABTestRunner', () => {
       let maxConcurrent = 0
 
       const slowAdapter: AgentCLIAdapter = {
+        getCapabilities: () => stubCapabilities(),
         providerId: 'claude',
         async *execute() {
           concurrent++

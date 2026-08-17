@@ -9,6 +9,7 @@ import type {
   AgentCLIAdapter,
   AgentInput,
 } from '../types.js'
+import { stubCapabilities } from './adapter-capability-stub.js'
 
 function createMockRegistry(adapters: Map<AdapterProviderId, AgentCLIAdapter>): ProviderAdapterRegistry {
   return {
@@ -38,6 +39,7 @@ function createDeferred<T = void>(): {
 
 function createWinningAdapter(providerId: AdapterProviderId, result: string): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput) {
       yield {
@@ -71,6 +73,7 @@ function createGatedAdapter(
   state: { started: number; completed: number },
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput) {
       state.started += 1

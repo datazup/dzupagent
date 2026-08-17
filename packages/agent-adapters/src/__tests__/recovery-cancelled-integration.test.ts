@@ -12,9 +12,11 @@ import type {
 } from '../types.js'
 import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import { collectEvents } from './test-helpers.js'
+import { stubCapabilities } from './adapter-capability-stub.js'
 
 function createAbortingAdapter(providerId: AdapterProviderId): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
       yield {

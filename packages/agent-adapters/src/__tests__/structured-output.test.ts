@@ -17,6 +17,7 @@ import type {
   TaskDescriptor,
 } from '../types.js'
 import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
+import { stubCapabilities } from './adapter-capability-stub.js'
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -29,6 +30,7 @@ function createMockAdapter(
   let callIndex = 0
 
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
       const result = responses[callIndex] ?? responses[responses.length - 1] ?? ''
@@ -65,6 +67,7 @@ function createMockAdapter(
 
 function createFailingAdapter(providerId: AdapterProviderId): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(): AsyncGenerator<AgentEvent, void, undefined> {
       yield {
@@ -294,6 +297,7 @@ describe('StructuredOutputAdapter', () => {
   it('injects format instructions by default', async () => {
     let capturedPrompt = ''
     const mockAdapter: AgentCLIAdapter = {
+      getCapabilities: () => stubCapabilities(),
       providerId: 'claude',
       async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
         capturedPrompt = input.prompt
@@ -334,6 +338,7 @@ describe('StructuredOutputAdapter', () => {
   it('does not inject format instructions when disabled', async () => {
     let capturedPrompt = ''
     const mockAdapter: AgentCLIAdapter = {
+      getCapabilities: () => stubCapabilities(),
       providerId: 'claude',
       async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
         capturedPrompt = input.prompt

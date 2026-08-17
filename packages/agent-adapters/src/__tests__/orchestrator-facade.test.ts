@@ -30,6 +30,7 @@ import type {
   TaskDescriptor,
   RoutingDecision,
 } from "../types.js";
+import { stubCapabilities } from './adapter-capability-stub.js'
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -41,6 +42,7 @@ function createMockAdapter(
   delayMs = 0,
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(
       _input: AgentInput,
@@ -111,6 +113,7 @@ function createRawCapableAdapter(options?: {
   const providerId = options?.providerId ?? ("claude" as AdapterProviderId);
 
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(
       _input: AgentInput,
@@ -186,6 +189,7 @@ function createPolicyCapturingRawAdapter(
   const configureSpy = vi.fn();
 
   const adapter: AgentCLIAdapter = {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(
       input: AgentInput,
@@ -300,6 +304,7 @@ function createAbortParkingAdapter(providerId: AdapterProviderId = "codex"): {
   }
 
   const adapter: AgentCLIAdapter = {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     execute: park,
     async *executeWithRaw(
@@ -1180,6 +1185,7 @@ describe("OrchestratorFacade", () => {
       // Create a mock adapter that captures the input it receives
       let capturedSystemPrompt: string | undefined;
       const memoryAdapter: AgentCLIAdapter = {
+        getCapabilities: () => stubCapabilities(),
         providerId: "claude" as AdapterProviderId,
         async *execute(
           input: AgentInput,
@@ -1429,6 +1435,7 @@ describe("OrchestratorFacade with dzupagent config", () => {
   } {
     let capturedSystemPrompt: string | undefined;
     const adapter: AgentCLIAdapter = {
+      getCapabilities: () => stubCapabilities(),
       providerId: "claude" as AdapterProviderId,
       async *execute(
         input: AgentInput,

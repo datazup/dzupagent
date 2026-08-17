@@ -8,6 +8,7 @@ import type {
   AgentCLIAdapter,
   AgentInput,
 } from '../types.js'
+import { stubCapabilities } from './adapter-capability-stub.js'
 
 function createDeferred<T = void>(): {
   promise: Promise<T>
@@ -37,6 +38,7 @@ function createFastWinnerAdapter(
   beforeCompletion?: Promise<void>,
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput) {
       yield {
@@ -74,6 +76,7 @@ function createLateRejectingAdapter(
   started: { resolve: () => void },
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput) {
       started.resolve()

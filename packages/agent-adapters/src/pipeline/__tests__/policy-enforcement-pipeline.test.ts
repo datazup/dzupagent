@@ -15,12 +15,14 @@ import type {
   AgentEvent,
   AgentInput,
 } from '../../types.js'
+import { stubCapabilities } from '../../__tests__/adapter-capability-stub.js'
 
 function createMockAdapter(providerId: AdapterProviderId): AgentCLIAdapter & {
   __configured: Array<Record<string, unknown>>
 } {
   const captured: Array<Record<string, unknown>> = []
   const adapter: AgentCLIAdapter = {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
       yield {

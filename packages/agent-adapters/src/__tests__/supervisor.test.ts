@@ -20,6 +20,7 @@ import type {
   RoutingDecision,
   TaskDescriptor,
 } from '../types.js'
+import { stubCapabilities } from './adapter-capability-stub.js'
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -30,6 +31,7 @@ function createMockAdapter(
   results: AgentEvent[],
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput) {
       for (const e of results) yield e
@@ -271,6 +273,7 @@ describe('SupervisorOrchestrator', () => {
     it('does not delegate supervisor execution to disabled providers', async () => {
       const disabledState = { calls: 0 }
       const disabledAdapter: AgentCLIAdapter = {
+        getCapabilities: () => stubCapabilities(),
         providerId: 'claude',
         async *execute() {
           disabledState.calls += 1

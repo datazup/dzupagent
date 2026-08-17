@@ -23,6 +23,7 @@ import type {
   AgentEvent,
   AgentInput,
 } from '../types.js'
+import { stubCapabilities } from './adapter-capability-stub.js'
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -33,6 +34,7 @@ function createMockAdapter(
   result = `Result from ${providerId}`,
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
       yield {
@@ -78,6 +80,7 @@ function createMockAdapter(
  */
 function createEchoAdapter(providerId: AdapterProviderId): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
       yield {
@@ -118,6 +121,7 @@ function createFailingAdapter(
   errorMsg = 'Adapter failure',
 ): AgentCLIAdapter {
   return {
+    getCapabilities: () => stubCapabilities(),
     providerId,
     async *execute(_input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
       yield {
@@ -596,6 +600,7 @@ describe('AdapterWorkflow.run()', () => {
   it('retries on failure when maxRetries > 0', async () => {
     let callCount = 0
     const flakyAdapter: AgentCLIAdapter = {
+      getCapabilities: () => stubCapabilities(),
       providerId: 'claude',
       async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
         callCount++
