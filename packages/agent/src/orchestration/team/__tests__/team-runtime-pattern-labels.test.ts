@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AIMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseMessage } from '@langchain/core/messages'
+import { omitUndefined } from '../../../utils/exact-optional.js'
 import { DzupAgent } from '../../../agent/dzip-agent.js'
 import { AgentOrchestrator } from '../../orchestrator.js'
 import { ContractNetManager } from '../../contract-net/contract-net-manager.js'
@@ -9,6 +10,7 @@ import { TeamRuntime } from '../team-runtime.js'
 import type { ParticipantDefinition, TeamDefinition } from '../team-definition.js'
 import type { TeamPolicies } from '../team-policy.js'
 import type { SupervisionPolicy } from '../supervision-policy.js'
+import type { SupervisorResult } from '../../supervisor-types.js'
 import type { TeamRunResult, TeamSpawnedAgent } from '../team-workspace.js'
 
 type AgentMap = Map<string, DzupAgent>
@@ -47,13 +49,15 @@ function buildDefinition(
     id,
     name: `Team ${id}`,
     coordinatorPattern: pattern,
-    participants: participants.map((participant, index) => ({
-      id: participant.id ?? `p${index + 1}`,
-      role: participant.role ?? 'worker',
-      model: participant.model ?? 'mock-model',
-      capabilities: participant.capabilities,
-      systemPrompt: participant.systemPrompt,
-    })),
+    participants: participants.map((participant, index) =>
+      omitUndefined<ParticipantDefinition>({
+        id: participant.id ?? `p${index + 1}`,
+        role: participant.role ?? 'worker',
+        model: participant.model ?? 'mock-model',
+        capabilities: participant.capabilities,
+        systemPrompt: participant.systemPrompt,
+      }),
+    ),
   }
 }
 
@@ -67,8 +71,10 @@ function makeRuntime(
 ): TeamRuntime {
   return new TeamRuntime({
     definition,
-    policies: options?.policies,
-    supervisionPolicy: options?.supervisionPolicy,
+    ...omitUndefined({
+      policies: options?.policies,
+      supervisionPolicy: options?.supervisionPolicy,
+    }),
     resolveParticipant: async (participant): Promise<TeamSpawnedAgent> => ({
       agent: agentsById.get(participant.id)!,
       status: 'idle',
@@ -104,11 +110,15 @@ describe('TeamRuntime result pattern labels', () => {
       ],
       expectedPattern: 'supervisor',
       setup: () => {
+        // `AgentOrchestrator.supervisor` is overloaded; `vi.spyOn` resolves to
+        // the deprecated positional overload (returns `string`), while the
+        // supervisor pattern calls the config-object overload (returns
+        // `SupervisorResult`). Cast so the double matches the runtime path.
         vi.spyOn(AgentOrchestrator, 'supervisor').mockResolvedValue({
           content: 'supervised',
           availableSpecialists: ['s1'],
           filteredSpecialists: [],
-        })
+        } satisfies SupervisorResult as unknown as string)
       },
     },
     {
@@ -134,7 +144,6 @@ describe('TeamRuntime result pattern labels', () => {
       coordinatorPattern: 'blackboard',
       participants: [{ id: 'bb1', role: 'contributor' }],
       expectedPattern: 'blackboard',
-      policies: { execution: { maxRounds: 1 } },
     },
     {
       name: 'peer-to-peer',
@@ -201,10 +210,11 @@ describe('TeamRuntime result pattern labels', () => {
           createAgent(participant.id),
         ]),
       )
-      const runtime = makeRuntime(definition, agentsById, {
-        policies,
-        supervisionPolicy,
-      })
+      const runtime = makeRuntime(
+        definition,
+        agentsById,
+        omitUndefined({ policies, supervisionPolicy }),
+      )
 
       await prime?.(runtime)
       const result = await runtime.execute('task')

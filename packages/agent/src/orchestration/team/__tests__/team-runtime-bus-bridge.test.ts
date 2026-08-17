@@ -213,8 +213,8 @@ describe("bridgeTeamEventsToBus", () => {
         type: "phase_changed",
         teamId: "t",
         runId: "r",
-        from: "idle",
-        to: "running",
+        from: "initializing",
+        to: "planning",
         at: AT,
       },
       {

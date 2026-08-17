@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import type { FleetSupervisorApi } from "@dzupagent/agent-types/fleet";
 import { FanOutPolicy } from "../policies/fan-out-policy.js";
 
 const makeFleet = (states: boolean[]) =>
@@ -87,14 +88,29 @@ describe("FanOutPolicy", () => {
 
   it("onWorkerComplete resolves without side effects", async () => {
     const p = new FanOutPolicy();
-    const supervisor = { complete: vi.fn(), escalate: vi.fn() } as never;
+    // The real FleetSupervisorApi surface is pauseTask/cancelTask/reassign.
+    // The previous double asserted on `complete`/`escalate`, which do not
+    // exist on the interface, so no implementation could ever have called
+    // them and the assertions could not fail.
+    const supervisor = {
+      pauseTask: vi.fn(async () => {}),
+      cancelTask: vi.fn(async () => {}),
+      reassign: vi.fn(async () => {}),
+    } satisfies FleetSupervisorApi;
     const result = await p.onWorkerComplete(
-      { workerId: "w0", repo: "r0", taskId: "t1", state: "done", events: [] },
+      {
+        workerId: "w0",
+        repo: "r0",
+        taskId: "t1",
+        state: "completed",
+        events: [],
+      },
       supervisor,
     );
     expect(result).toBeUndefined();
-    expect(supervisor.complete).not.toHaveBeenCalled();
-    expect(supervisor.escalate).not.toHaveBeenCalled();
+    expect(supervisor.pauseTask).not.toHaveBeenCalled();
+    expect(supervisor.cancelTask).not.toHaveBeenCalled();
+    expect(supervisor.reassign).not.toHaveBeenCalled();
   });
 
   it("onEscalation returns human-handoff kind", async () => {
@@ -106,7 +122,12 @@ describe("FanOutPolicy", () => {
   it("onEscalation note is a non-empty string", async () => {
     const p = new FanOutPolicy();
     const outcome = await p.onEscalation("budget-exhausted", {} as never);
+    // EscalationOutcome is a discriminated union (HumanHandoff | Retry);
+    // only the human-handoff arm carries `note`.
+    if (outcome.kind !== "human-handoff") {
+      throw new Error(`expected human-handoff, got ${outcome.kind}`);
+    }
     expect(typeof outcome.note).toBe("string");
-    expect((outcome.note ?? "").length).toBeGreaterThan(0);
+    expect(outcome.note.length).toBeGreaterThan(0);
   });
 });

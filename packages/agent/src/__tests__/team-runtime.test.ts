@@ -27,6 +27,7 @@ import type {
   ResumeContract,
 } from "../orchestration/team/team-checkpoint.js";
 import type { TeamSpawnedAgent as SpawnedAgent } from "../orchestration/team/team-workspace.js";
+import { omitUndefined } from "../utils/exact-optional.js";
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -80,13 +81,15 @@ function buildDefinition(
     id,
     name: `Team ${id}`,
     coordinatorPattern: pattern,
-    participants: defaults.map((d, i) => ({
-      id: d.id ?? `p${i + 1}`,
-      role: d.role ?? "specialist",
-      model: d.model ?? "mock-model",
-      capabilities: d.capabilities,
-      systemPrompt: d.systemPrompt,
-    })),
+    participants: defaults.map((d, i) =>
+      omitUndefined<ParticipantDefinition>({
+        id: d.id ?? `p${i + 1}`,
+        role: d.role ?? "specialist",
+        model: d.model ?? "mock-model",
+        capabilities: d.capabilities,
+        systemPrompt: d.systemPrompt,
+      }),
+    ),
   };
 }
 
@@ -118,9 +121,16 @@ function createRuntime(
   return new TeamRuntime({
     definition,
     resolveParticipant: makeResolver(agentsById),
-    policies: options?.policies,
-    onEvent: options?.onEvent,
-    generateRunId: options?.generateRunId,
+    // All three are exact-optional on `TeamRuntimeOptions`. The constructor
+    // reads each with `??` (`options.policies ?? {}`,
+    // `options.onEvent ?? (() => {})`,
+    // `options.generateRunId ?? (() => crypto.randomUUID())`), so dropping an
+    // undefined key is the same run as passing it.
+    ...omitUndefined({
+      policies: options?.policies,
+      onEvent: options?.onEvent,
+      generateRunId: options?.generateRunId,
+    }),
   });
 }
 

@@ -19,7 +19,10 @@ describe("validateTeamPolicies", () => {
     });
 
     it("passes with all policy groups undefined", () => {
-      const p: TeamPolicies = {
+      // exactOptionalPropertyTypes forbids *writing* `undefined` into these
+      // optional properties, but JS callers and JSON round-trips still hand
+      // one in, so keep the runtime case covered via a shape that permits it.
+      const p: { [K in keyof TeamPolicies]: TeamPolicies[K] | undefined } = {
         execution: undefined,
         governance: undefined,
         memory: undefined,
@@ -28,7 +31,9 @@ describe("validateTeamPolicies", () => {
         mailbox: undefined,
         evaluation: undefined,
       };
-      expect(() => validateTeamPolicies(SUPERVISOR, p)).not.toThrow();
+      expect(() =>
+        validateTeamPolicies(SUPERVISOR, p as TeamPolicies)
+      ).not.toThrow();
     });
   });
 
@@ -279,7 +284,7 @@ describe("validateTeamPolicies", () => {
           validateTeamPolicies(BLACKBOARD, {
             memory: {
               shareAcrossParticipants: false,
-            } as unknown as TeamPolicies["memory"],
+            } as unknown as NonNullable<TeamPolicies["memory"]>,
           })
         ).toThrow(/'tier' must be one of/);
       });
@@ -315,7 +320,7 @@ describe("validateTeamPolicies", () => {
           validateTeamPolicies(BLACKBOARD, {
             memory: {
               tier: "ephemeral",
-            } as unknown as TeamPolicies["memory"],
+            } as unknown as NonNullable<TeamPolicies["memory"]>,
           })
         ).toThrow(/'shareAcrossParticipants' must be a boolean/);
       });

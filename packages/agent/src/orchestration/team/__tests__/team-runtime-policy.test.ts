@@ -11,7 +11,7 @@ import type {
 import type { TeamPolicies } from "../team-policy.js";
 import type { TeamRuntimeEvent } from "../team-runtime.js";
 import type { TeamCheckpoint, ResumeContract } from "../team-checkpoint.js";
-import type { SpawnedAgent } from "../team-workspace.js";
+import type { TeamSpawnedAgent } from "../team-workspace.js";
 
 function buildDefinition(
   id: string,
@@ -98,10 +98,10 @@ function makeRuntime(
   return new TeamRuntime({
     definition,
     policies: { execution: { maxParallelParticipants } },
-    resolveParticipant: async (participant): Promise<SpawnedAgent> => ({
+    resolveParticipant: async (participant): Promise<TeamSpawnedAgent> => ({
       agent: agentsById.get(participant.id)!,
       status: "idle",
-      role: participant.role as SpawnedAgent["role"],
+      role: participant.role as TeamSpawnedAgent["role"],
       tags: [],
       spawnedAt: Date.now(),
     }),
@@ -309,10 +309,10 @@ describe("TeamRuntime execution policy", () => {
       policies: { governance: { judgeModel: "claude-opus-4-7" } },
       generateRunId: () => "run-governance",
       onEvent: (event) => events.push(event),
-      resolveParticipant: async (participant): Promise<SpawnedAgent> => ({
+      resolveParticipant: async (participant): Promise<TeamSpawnedAgent> => ({
         agent: agentsById.get(participant.id)!,
         status: "idle",
-        role: participant.role as SpawnedAgent["role"],
+        role: participant.role as TeamSpawnedAgent["role"],
         tags: [],
         spawnedAt: Date.now(),
       }),
@@ -391,10 +391,10 @@ describe("TeamRuntime blackboard memory policy", () => {
     return new TeamRuntime({
       definition: buildBlackboardDefinition("blackboard-budget"),
       policies,
-      resolveParticipant: async (participant): Promise<SpawnedAgent> => ({
+      resolveParticipant: async (participant): Promise<TeamSpawnedAgent> => ({
         agent,
         status: "idle",
-        role: participant.role as SpawnedAgent["role"],
+        role: participant.role as TeamSpawnedAgent["role"],
         tags: [],
         spawnedAt: Date.now(),
       }),

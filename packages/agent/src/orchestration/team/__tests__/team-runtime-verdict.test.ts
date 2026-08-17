@@ -21,7 +21,7 @@ import type {
   TeamDefinition,
 } from "../team-definition.js";
 import type { CoordinatorPattern } from "../team-definition.js";
-import type { SpawnedAgent } from "../team-workspace.js";
+import type { TeamSpawnedAgent } from "../team-workspace.js";
 
 function createAgent(id: string): DzupAgent {
   const model: BaseChatModel = {
@@ -46,7 +46,10 @@ function buildDefinition(
     id,
     name: id,
     coordinatorPattern: pattern,
-    participants: participants.map((p) => ({ model: "mock", ...p })),
+    // `model` is required by the parameter type and supplied by every call
+    // site, so the previous `{ model: "mock", ...p }` default was always
+    // overwritten.
+    participants: participants.map((p) => ({ ...p })),
   };
 }
 
@@ -69,10 +72,10 @@ function makeRuntime(
     ...(options.evaluation ? { evaluation: options.evaluation } : {}),
     ...(options.onEvent ? { onEvent: options.onEvent } : {}),
     generateRunId: () => "run-verdict",
-    resolveParticipant: async (participant): Promise<SpawnedAgent> => ({
+    resolveParticipant: async (participant): Promise<TeamSpawnedAgent> => ({
       agent: agents.get(participant.id)!,
       status: "idle",
-      role: participant.role as SpawnedAgent["role"],
+      role: participant.role as TeamSpawnedAgent["role"],
       tags: [],
       spawnedAt: Date.now(),
     }),

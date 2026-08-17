@@ -6,13 +6,24 @@
  * and AgentOrchestrator.parallel.
  */
 
-/** A function that merges multiple result strings into one. */
+/**
+ * A function that merges multiple result strings into one.
+ *
+ * The contract permits an async merge because host-supplied custom strategies
+ * (`MapReduceConfig.customMerge`) may need to await. Every BUILT-IN strategy
+ * below is synchronous, and each declares `: string` directly rather than
+ * being annotated `: MergeStrategyFn` — annotating them widened their public
+ * return type to `string | Promise<string>`, which forced callers (and the
+ * tests that pin their exact output) to cast before using the result as a
+ * string. Conformance to this contract is still enforced, by the
+ * `satisfies Record<string, MergeStrategyFn>` on the registry below.
+ */
 export type MergeStrategyFn = (results: string[]) => string | Promise<string>
 
 /**
  * Concatenate all results with separator lines.
  */
-export const concatMerge: MergeStrategyFn = (results) =>
+export const concatMerge = (results: string[]): string =>
   results.join('\n\n---\n\n')
 
 /**
@@ -20,7 +31,7 @@ export const concatMerge: MergeStrategyFn = (results) =>
  * Useful for classification tasks where agents output a single label.
  * Ties are broken by first occurrence.
  */
-export const voteMerge: MergeStrategyFn = (results) => {
+export const voteMerge = (results: string[]): string => {
   const counts = new Map<string, number>()
   for (const r of results) {
     const normalized = r.trim()
@@ -41,13 +52,13 @@ export const voteMerge: MergeStrategyFn = (results) => {
 /**
  * Format all results as a numbered list.
  */
-export const numberedMerge: MergeStrategyFn = (results) =>
+export const numberedMerge = (results: string[]): string =>
   results.map((r, i) => `${i + 1}. ${r}`).join('\n\n')
 
 /**
  * Serialize all results as a JSON array.
  */
-export const jsonArrayMerge: MergeStrategyFn = (results) =>
+export const jsonArrayMerge = (results: string[]): string =>
   JSON.stringify(results, null, 2)
 
 /** Built-in strategy registry. */

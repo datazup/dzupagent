@@ -25,7 +25,7 @@ import type {
   ParticipantDefinition,
   TeamDefinition,
 } from "../team-definition.js";
-import type { SpawnedAgent } from "../team-workspace.js";
+import type { TeamSpawnedAgent } from "../team-workspace.js";
 
 function createAgent(id: string): DzupAgent {
   const model: BaseChatModel = {
@@ -60,10 +60,10 @@ function makeRuntime(
 ): TeamRuntime {
   return new TeamRuntime({
     definition,
-    resolveParticipant: async (participant): Promise<SpawnedAgent> => ({
+    resolveParticipant: async (participant): Promise<TeamSpawnedAgent> => ({
       agent: agentsById.get(participant.id)!,
       status: "idle",
-      role: participant.role as SpawnedAgent["role"],
+      role: participant.role as TeamSpawnedAgent["role"],
       tags: [],
       spawnedAt: Date.now(),
     }),

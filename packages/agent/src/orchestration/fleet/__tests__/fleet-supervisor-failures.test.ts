@@ -224,14 +224,20 @@ describe("FleetSupervisor failure paths", () => {
       id: "seed-1",
       runId: "seed-run",
       repo: null,
-      kind: "context",
+      kind: "lesson",
       key: "seed-key",
       version: 1,
       authorWorkerId: null,
       parentId: null,
       createdAt: new Date().toISOString(),
       supersededAt: null,
-      payload: { data: "seed value" },
+      payload: {
+        scope: "this-run",
+        rule: "seed value",
+        why: "seeded before the run",
+        howToApply: "read it back from the store",
+        evidenceLinks: [],
+      },
       tags: ["seed"],
     };
     const spec: FleetRunSpec = {
