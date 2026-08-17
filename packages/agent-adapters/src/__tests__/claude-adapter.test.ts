@@ -404,9 +404,9 @@ describe('ClaudeAgentAdapter', () => {
         { type: 'adapter:stream_delta' }
       >[]
       expect(deltas).toHaveLength(2)
-      expect(deltas[0].content).toBe('chunk1')
-      expect(deltas[1].content).toBe('chunk2')
-      expect(deltas[0].providerId).toBe('claude')
+      expect(deltas[0]!.content).toBe('chunk1')
+      expect(deltas[1]!.content).toBe('chunk2')
+      expect(deltas[0]!.providerId).toBe('claude')
     })
 
     it('ignores stream_event with empty delta', async () => {
@@ -660,7 +660,7 @@ describe('ClaudeAgentAdapter', () => {
 
       await collectEvents(adapter.execute({ prompt: 'hello' }))
 
-      const call = mockQuery.mock.calls[0][0] as Record<string, unknown>
+      const call = mockQuery.mock.calls[0]![0] as Record<string, unknown>
       expect((call['options'] as Record<string, unknown> | undefined)?.['systemPrompt']).toBeUndefined()
     })
 
@@ -1269,18 +1269,18 @@ describe('ClaudeAgentAdapter', () => {
 
       expect(sessions).toHaveLength(2)
 
-      expect(sessions[0].sessionId).toBe('sess-1')
-      expect(sessions[0].providerId).toBe('claude')
-      expect(sessions[0].createdAt).toEqual(new Date('2025-01-15T10:00:00Z'))
-      expect(sessions[0].lastActiveAt).toEqual(new Date('2025-01-15T11:00:00Z'))
-      expect(sessions[0].workingDirectory).toBe('/project/a')
-      expect(sessions[0].metadata).toEqual({ branch: 'main' })
+      expect(sessions[0]!.sessionId).toBe('sess-1')
+      expect(sessions[0]!.providerId).toBe('claude')
+      expect(sessions[0]!.createdAt).toEqual(new Date('2025-01-15T10:00:00Z'))
+      expect(sessions[0]!.lastActiveAt).toEqual(new Date('2025-01-15T11:00:00Z'))
+      expect(sessions[0]!.workingDirectory).toBe('/project/a')
+      expect(sessions[0]!.metadata).toEqual({ branch: 'main' })
 
-      expect(sessions[1].sessionId).toBe('sess-2')
-      expect(sessions[1].createdAt).toEqual(new Date('2025-01-16T10:00:00Z'))
-      expect(sessions[1].lastActiveAt).toEqual(new Date('2025-01-16T12:00:00Z'))
-      expect(sessions[1].workingDirectory).toBeUndefined()
-      expect(sessions[1].metadata).toBeUndefined()
+      expect(sessions[1]!.sessionId).toBe('sess-2')
+      expect(sessions[1]!.createdAt).toEqual(new Date('2025-01-16T10:00:00Z'))
+      expect(sessions[1]!.lastActiveAt).toEqual(new Date('2025-01-16T12:00:00Z'))
+      expect(sessions[1]!.workingDirectory).toBeUndefined()
+      expect(sessions[1]!.metadata).toBeUndefined()
     })
 
     it('returns empty array when listSessions is not available on SDK', async () => {
@@ -1313,7 +1313,7 @@ describe('ClaudeAgentAdapter', () => {
       ])
 
       const sessions = await adapter.listSessions()
-      expect(sessions[0].createdAt).toEqual(new Date(timestamp))
+      expect(sessions[0]!.createdAt).toEqual(new Date(timestamp))
     })
 
     it('handles sessions with missing date fields', async () => {
@@ -1322,9 +1322,9 @@ describe('ClaudeAgentAdapter', () => {
       ])
 
       const sessions = await adapter.listSessions()
-      expect(sessions[0].createdAt).toEqual(new Date(0))
+      expect(sessions[0]!.createdAt).toEqual(new Date(0))
       // lastActiveAt defaults to Date.now(), so it should be recent
-      expect(sessions[0].lastActiveAt.getTime()).toBeGreaterThan(0)
+      expect(sessions[0]!.lastActiveAt.getTime()).toBeGreaterThan(0)
     })
   })
 

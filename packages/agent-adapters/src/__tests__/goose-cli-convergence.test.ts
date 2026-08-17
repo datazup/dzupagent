@@ -68,11 +68,11 @@ describe('Goose CLI convergence contract', () => {
     const { profile, workspace } = await fixtureProfile()
     let projectionRoot = ''
     mockSpawnAndStreamJsonl.mockImplementation(async function* (command, args, options) {
-      projectionRoot = options.env!['XDG_CONFIG_HOME']!.replace(/\/config$/u, '')
+      projectionRoot = options!.env!['XDG_CONFIG_HOME']!.replace(/\/config$/u, '')
       expect(command).toBe('goose')
-      expect(options.cwd).toBe(workspace)
-      expect(options.stdoutMode).toBe('text')
-      expect(options.env).toMatchObject({
+      expect(options?.cwd).toBe(workspace)
+      expect(options?.stdoutMode).toBe('text')
+      expect(options?.env).toMatchObject({
         HOME: join(projectionRoot, 'home'),
         XDG_CONFIG_HOME: join(projectionRoot, 'config'),
         XDG_DATA_HOME: join(projectionRoot, 'data'),
@@ -81,7 +81,7 @@ describe('Goose CLI convergence contract', () => {
         GOOSE_TELEMETRY_ENABLED: 'false',
         OPENAI_API_KEY: 'profile-key',
       })
-      expect(options.env?.['ANTHROPIC_API_KEY']).toBeUndefined()
+      expect(options?.env?.['ANTHROPIC_API_KEY']).toBeUndefined()
       const projected = await readFile(join(projectionRoot, 'config/goose/config.yaml'), 'utf8')
       expect(projected).toContain('GOOSE_PROVIDER: "openai"')
       expect(projected).toContain('GOOSE_MODEL: "gpt-4.1"')
@@ -125,8 +125,8 @@ describe('Goose CLI convergence contract', () => {
     await writeFile(join(auth, 'credentials.json'), '{"oauth":"local"}\n')
     await writeFile(join(auth, 'settings.json'), '{"hooks":["unsafe"]}\n')
     mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, _args, options) {
-      expect(await readFile(join(options.env!['HOME']!, 'credentials.json'), 'utf8')).toContain('local')
-      await expect(access(join(options.env!['HOME']!, 'settings.json'))).rejects.toThrow()
+      expect(await readFile(join(options!.env!['HOME']!, 'credentials.json'), 'utf8')).toContain('local')
+      await expect(access(join(options!.env!['HOME']!, 'settings.json'))).rejects.toThrow()
       yield { type: 'text_result', content: 'ok' }
     })
     await collectEvents(new GooseAdapter({
@@ -164,9 +164,9 @@ describe('Goose CLI convergence contract', () => {
     const { profile, workspace } = await fixtureProfile()
     const projectionRoots: string[] = []
     mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, _args, options) {
-      projectionRoots.push(options.env!['XDG_CONFIG_HOME']!.replace(/\/config$/u, ''))
+      projectionRoots.push(options!.env!['XDG_CONFIG_HOME']!.replace(/\/config$/u, ''))
       await new Promise((resolve) => setTimeout(resolve, 5))
-      yield { type: 'text_result', content: options.env!['XDG_DATA_HOME']! }
+      yield { type: 'text_result', content: options!.env!['XDG_DATA_HOME']! }
     })
     const adapter = new GooseAdapter({ cliBaseProfileRoot: profile })
     const [first, second] = await Promise.all([

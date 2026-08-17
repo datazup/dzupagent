@@ -1012,7 +1012,7 @@ describe("GeminiCLIAdapter — W30 gap coverage", () => {
       const pIdx = args.indexOf("--prompt");
       expect(pIdx).toBeGreaterThanOrEqual(0);
       expect(args[pIdx + 1]).toBe(bigPrompt);
-      expect(args[pIdx + 1].length).toBe(65_536);
+      expect(args[pIdx + 1]!.length).toBe(65_536);
     });
   });
 

@@ -57,16 +57,16 @@ describe('Qwen CLI convergence contract', () => {
 
     let projectionRoot = ''
     mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, args, options) {
-      projectionRoot = options.env?.['QWEN_HOME'] ?? ''
+      projectionRoot = options?.env?.['QWEN_HOME'] ?? ''
       expect(projectionRoot).not.toBe('')
-      expect(options.env?.['QWEN_RUNTIME_DIR']).toBe(projectionRoot)
-      expect(options.env?.['DASHSCOPE_API_KEY']).toBeUndefined()
-      expect(options.env?.['QWEN_API_KEY']).toBeUndefined()
-      expect(options.env?.['OPENAI_API_KEY']).toBeUndefined()
-      expect(options.env?.['BAILIAN_CODING_PLAN_API_KEY']).toBe('explicit-test-only')
-      expect(options.env?.['OPENAI_BASE_URL']).toBe('https://coding-intl.dashscope.aliyuncs.com/v1')
-      expect(options.env?.['OPENAI_MODEL']).toBe('qwen3-coder-plus')
-      expect(options.env?.['QWEN_CUSTOM_API_KEY_TEAM']).toBeUndefined()
+      expect(options?.env?.['QWEN_RUNTIME_DIR']).toBe(projectionRoot)
+      expect(options?.env?.['DASHSCOPE_API_KEY']).toBeUndefined()
+      expect(options?.env?.['QWEN_API_KEY']).toBeUndefined()
+      expect(options?.env?.['OPENAI_API_KEY']).toBeUndefined()
+      expect(options?.env?.['BAILIAN_CODING_PLAN_API_KEY']).toBe('explicit-test-only')
+      expect(options?.env?.['OPENAI_BASE_URL']).toBe('https://coding-intl.dashscope.aliyuncs.com/v1')
+      expect(options?.env?.['OPENAI_MODEL']).toBe('qwen3-coder-plus')
+      expect(options?.env?.['QWEN_CUSTOM_API_KEY_TEAM']).toBeUndefined()
       await expect(access(join(projectionRoot, 'settings.json'))).resolves.toBeUndefined()
       expect(JSON.parse(await readFile(join(projectionRoot, 'settings.json'), 'utf8'))).toMatchObject({
         security: { auth: { selectedType: 'openai', enforcedType: 'openai' } },

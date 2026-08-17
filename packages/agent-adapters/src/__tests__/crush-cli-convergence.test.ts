@@ -58,14 +58,14 @@ describe('Crush CLI convergence contract', () => {
     const { profile, workspace } = await fixtureProfile()
     let projectionRoot = ''
     mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, args, options) {
-      projectionRoot = options.env?.['CRUSH_GLOBAL_DATA']?.replace(/\/data$/u, '') ?? ''
-      expect(options.cwd).toBe(workspace)
-      expect(options.stdoutMode).toBe('text')
-      expect(options.env?.['HOME']).toBe(join(projectionRoot, 'home'))
-      expect(options.env?.['CRUSH_GLOBAL_CONFIG']).toBe(join(projectionRoot, 'config'))
-      expect(options.env?.['CRUSH_SKILLS_DIR']).toBe(join(projectionRoot, 'skills'))
-      expect(options.env?.['OPENAI_API_KEY']).toBeUndefined()
-      expect(options.env?.['GEMINI_API_KEY']).toBeUndefined()
+      projectionRoot = options?.env?.['CRUSH_GLOBAL_DATA']?.replace(/\/data$/u, '') ?? ''
+      expect(options?.cwd).toBe(workspace)
+      expect(options?.stdoutMode).toBe('text')
+      expect(options?.env?.['HOME']).toBe(join(projectionRoot, 'home'))
+      expect(options?.env?.['CRUSH_GLOBAL_CONFIG']).toBe(join(projectionRoot, 'config'))
+      expect(options?.env?.['CRUSH_SKILLS_DIR']).toBe(join(projectionRoot, 'skills'))
+      expect(options?.env?.['OPENAI_API_KEY']).toBeUndefined()
+      expect(options?.env?.['GEMINI_API_KEY']).toBeUndefined()
       const projected = JSON.parse(await readFile(join(projectionRoot, 'data', 'crush.json'), 'utf8'))
       expect(Object.keys(projected.providers)).toEqual(['openrouter'])
       expect(projected.models.large).toMatchObject({ provider: 'openrouter', model: 'qwen/qwen3-coder' })
@@ -94,7 +94,7 @@ describe('Crush CLI convergence contract', () => {
   it('enforces workspace-write with an exact allowlist and explicit auto-approval consent', async () => {
     const { profile, workspace } = await fixtureProfile()
     mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, _args, options) {
-      const config = JSON.parse(await readFile(join(options.env!['CRUSH_GLOBAL_DATA']!, 'crush.json'), 'utf8'))
+      const config = JSON.parse(await readFile(join(options!.env!['CRUSH_GLOBAL_DATA']!, 'crush.json'), 'utf8'))
       expect(config.options.disabled_tools).not.toContain('view')
       expect(config.options.disabled_tools).not.toContain('edit')
       expect(config.options.disabled_tools).toEqual(expect.arrayContaining(['bash', 'write', 'fetch']))
@@ -118,9 +118,9 @@ describe('Crush CLI convergence contract', () => {
     const { profile, workspace } = await fixtureProfile()
     const projectionRoots: string[] = []
     mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, _args, options) {
-      projectionRoots.push(options.env!['CRUSH_GLOBAL_DATA']!.replace(/\/data$/u, ''))
+      projectionRoots.push(options!.env!['CRUSH_GLOBAL_DATA']!.replace(/\/data$/u, ''))
       await new Promise((resolve) => setTimeout(resolve, 10))
-      yield { type: 'text_result', content: options.env!['CRUSH_GLOBAL_DATA']! }
+      yield { type: 'text_result', content: options!.env!['CRUSH_GLOBAL_DATA']! }
     })
     const adapter = new CrushAdapter({ cliBaseProfileRoot: profile })
     const [first, second] = await Promise.all([

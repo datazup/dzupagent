@@ -253,11 +253,11 @@ describe('BaseCliAdapter.execute() — path-level tests', () => {
         signalInterrupt()
         // Honour the abort by blocking until the signal fires.
         await new Promise<void>((_, reject) => {
-          if (opts.signal?.aborted) {
+          if (opts?.signal?.aborted) {
             reject(new DOMException('aborted', 'AbortError'))
             return
           }
-          opts.signal?.addEventListener('abort', () => {
+          opts?.signal?.addEventListener('abort', () => {
             reject(new DOMException('aborted', 'AbortError'))
           })
         })
@@ -442,8 +442,8 @@ describe('BaseCliAdapter.execute() — path-level tests', () => {
     it('exposes the active resolver through respondInteraction', async () => {
       mockSpawnAndStreamJsonl.mockImplementation(
         async function* (_binary, _args, opts) {
-          if (opts.stdinResponder) {
-            await opts.stdinResponder({}, 'Which environment?', 'clarification')
+          if (opts?.stdinResponder) {
+            await opts?.stdinResponder({}, 'Which environment?', 'clarification')
           }
           yield { type: 'completed', result: 'resumed' }
         },
@@ -475,8 +475,8 @@ describe('BaseCliAdapter.execute() — path-level tests', () => {
       mockSpawnAndStreamJsonl.mockImplementation(
         async function* (_binary, _args, opts) {
           // Simulate the CLI emitting an interactive question via stdinResponder.
-          if (opts.stdinResponder) {
-            await opts.stdinResponder(
+          if (opts?.stdinResponder) {
+            await opts?.stdinResponder(
               { type: 'question', message: 'Overwrite this file?' },
               'Overwrite this file?',
               'permission',
@@ -504,8 +504,8 @@ describe('BaseCliAdapter.execute() — path-level tests', () => {
     it('adapter:interaction_required carries the question text and kind', async () => {
       mockSpawnAndStreamJsonl.mockImplementation(
         async function* (_binary, _args, opts) {
-          if (opts.stdinResponder) {
-            await opts.stdinResponder(
+          if (opts?.stdinResponder) {
+            await opts?.stdinResponder(
               { type: 'question', message: 'Delete all caches?' },
               'Delete all caches?',
               'confirmation',
@@ -542,7 +542,7 @@ describe('BaseCliAdapter.execute() — path-level tests', () => {
       mockSpawnAndStreamJsonl.mockImplementation(
         async function* (_binary, _args, opts) {
           // stdinResponder is NOT present under auto-approve.
-          expect(opts.stdinResponder).toBeUndefined()
+          expect(opts?.stdinResponder).toBeUndefined()
           yield { type: 'completed', result: 'ok' }
         },
       )
@@ -574,7 +574,7 @@ describe('BaseCliAdapter.execute() — path-level tests', () => {
       const adapter = new TestCliAdapter()
       const events = await collectEvents(adapter.execute({ prompt: 'fast' }))
 
-      expect(events[0].type).toBe('adapter:started')
+      expect(events[0]!.type).toBe('adapter:started')
     })
 
     it('exactly one terminal event (completed or failed) is emitted per execution', async () => {
@@ -591,7 +591,7 @@ describe('BaseCliAdapter.execute() — path-level tests', () => {
         (e) => e.type === 'adapter:completed' || e.type === 'adapter:failed',
       )
       expect(terminalEvents).toHaveLength(1)
-      expect(terminalEvents[0].type).toBe('adapter:completed')
+      expect(terminalEvents[0]!.type).toBe('adapter:completed')
     })
 
     it('resumeSession sets isResume=true on the adapter:started event', async () => {

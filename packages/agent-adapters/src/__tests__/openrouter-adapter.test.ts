@@ -105,8 +105,8 @@ describe('OpenRouterAdapter', () => {
     ])
 
     const started = events[0]
-    expect(started.type).toBe('adapter:started')
-    if (started.type === 'adapter:started') {
+    expect(started?.type).toBe('adapter:started')
+    if (started?.type === 'adapter:started') {
       expect(started.prompt).toBe('Hi')
       expect(started.isResume).toBe(false)
       expect(started.model).toBe('anthropic/claude-sonnet-4-5-20250514')

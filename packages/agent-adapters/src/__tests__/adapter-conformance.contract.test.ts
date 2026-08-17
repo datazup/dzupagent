@@ -223,11 +223,11 @@ describe('CLI adapter conformance contract', () => {
       mockSpawnAndStreamJsonl.mockImplementation(async function* (_binary, _args, opts) {
         yield { type: 'message', content: `${testCase.providerId} running` }
         await new Promise<void>((resolve) => {
-          if (opts.signal?.aborted) {
+          if (opts?.signal?.aborted) {
             resolve()
             return
           }
-          opts.signal?.addEventListener('abort', () => resolve(), { once: true })
+          opts?.signal?.addEventListener('abort', () => resolve(), { once: true })
         })
         throw new ForgeError({
           code: 'AGENT_ABORTED',

@@ -606,9 +606,9 @@ describe('Adapter Execution Flow', () => {
       const toolResults = findAllEvents(events, 'adapter:tool_result')
 
       expect(toolCalls).toHaveLength(1)
-      expect(toolCalls[0].toolName).toBe('docs-server/search_docs')
+      expect(toolCalls[0]!.toolName).toBe('docs-server/search_docs')
       expect(toolResults).toHaveLength(1)
-      expect(toolResults[0].output).toBe(JSON.stringify(['Found 3 results']))
+      expect(toolResults[0]!.output).toBe(JSON.stringify(['Found 3 results']))
     })
 
     it('Codex surfaces todo_list items as adapter progress updates', async () => {
@@ -703,10 +703,10 @@ describe('Adapter Execution Flow', () => {
       const sessions = await claude.listSessions()
 
       expect(sessions).toHaveLength(1)
-      expect(sessions[0].sessionId).toBe('sess-1')
-      expect(sessions[0].providerId).toBe('claude')
-      expect(sessions[0].workingDirectory).toBe('/project/a')
-      expect(sessions[0].metadata).toEqual({ branch: 'main' })
+      expect(sessions[0]!.sessionId).toBe('sess-1')
+      expect(sessions[0]!.providerId).toBe('claude')
+      expect(sessions[0]!.workingDirectory).toBe('/project/a')
+      expect(sessions[0]!.metadata).toEqual({ branch: 'main' })
     })
 
     it('resumeSession sets isResume=true on started event', async () => {
@@ -810,8 +810,8 @@ describe('Adapter Execution Flow', () => {
       const deltas = findAllEvents(events, 'adapter:stream_delta')
 
       expect(deltas).toHaveLength(2)
-      expect(deltas[0].content).toBe('Hello ')
-      expect(deltas[1].content).toBe('world')
+      expect(deltas[0]!.content).toBe('Hello ')
+      expect(deltas[1]!.content).toBe('world')
     })
 
     it('Codex does not produce stream_delta (SDK does not expose them)', async () => {

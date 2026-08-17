@@ -57,11 +57,11 @@ describe('Gemini CLI convergence contract', () => {
 
     let projectedRoot = ''
     mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, _args, options) {
-      projectedRoot = options.env?.['GEMINI_CLI_HOME'] ?? ''
+      projectedRoot = options?.env?.['GEMINI_CLI_HOME'] ?? ''
       expect(projectedRoot).not.toBe('')
-      expect(options.env?.['GEMINI_API_KEY']).toBeUndefined()
-      expect(options.env?.['GOOGLE_API_KEY']).toBeUndefined()
-      expect(options.env?.['GOOGLE_APPLICATION_CREDENTIALS']).toBeUndefined()
+      expect(options?.env?.['GEMINI_API_KEY']).toBeUndefined()
+      expect(options?.env?.['GOOGLE_API_KEY']).toBeUndefined()
+      expect(options?.env?.['GOOGLE_APPLICATION_CREDENTIALS']).toBeUndefined()
       await expect(access(join(projectedRoot, '.gemini/settings.json'))).resolves.toBeUndefined()
       await expect(access(join(projectedRoot, '.gemini/projects.json'))).resolves.toBeUndefined()
       await expect(access(join(projectedRoot, '.gemini/history'))).resolves.toBeUndefined()
@@ -88,8 +88,8 @@ describe('Gemini CLI convergence contract', () => {
     await writeFile(join(profile, 'settings.json'), '{"selectedAuthType":"oauth-personal"}\n')
     let projectedRoot = ''
     mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, _args, options) {
-      projectedRoot = options.env?.['GEMINI_CLI_HOME'] ?? ''
-      expect(options.env?.['GEMINI_CLI_MCP_BEARER_TOKEN']).toBe('opaque-token')
+      projectedRoot = options?.env?.['GEMINI_CLI_HOME'] ?? ''
+      expect(options?.env?.['GEMINI_CLI_MCP_BEARER_TOKEN']).toBe('opaque-token')
       const settings = await readFile(join(projectedRoot, '.gemini/settings.json'), 'utf8')
       expect(settings).toContain('Bearer ${GEMINI_CLI_MCP_BEARER_TOKEN}')
       expect(settings).not.toContain('opaque-token')

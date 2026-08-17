@@ -207,8 +207,8 @@ describe('SkillCapabilityMatrixBuilder', () => {
       const matrices = builder.buildForAll([b1, b2])
 
       expect(matrices).toHaveLength(2)
-      expect(matrices[0].skillId).toBe('b1')
-      expect(matrices[1].skillId).toBe('b2')
+      expect(matrices[0]!.skillId).toBe('b1')
+      expect(matrices[1]!.skillId).toBe('b2')
     })
 
     it('returns empty array for empty input', () => {

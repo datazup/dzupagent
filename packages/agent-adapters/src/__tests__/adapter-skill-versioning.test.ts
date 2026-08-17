@@ -275,8 +275,8 @@ describe('InMemoryAdapterSkillTelemetry', () => {
     const limited = telemetry.getHistory('bundle-001', 'claude', 3)
     expect(limited).toHaveLength(3)
     // Should be the 3 most recent
-    expect(limited[0].runId).toBe('run-7')
-    expect(limited[2].runId).toBe('run-9')
+    expect(limited[0]!.runId).toBe('run-7')
+    expect(limited[2]!.runId).toBe('run-9')
   })
 
   it('getHistory returns all entries when limit is omitted', () => {

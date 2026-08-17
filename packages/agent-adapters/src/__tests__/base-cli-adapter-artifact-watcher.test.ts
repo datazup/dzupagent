@@ -4,7 +4,7 @@ import type { AdapterRule } from '@dzupagent/adapter-rules'
 
 import { BaseCliAdapter } from '../base/base-cli-adapter.js'
 import { ADAPTER_TRACE_ENV_OPTION } from '../observability/adapter-tracer.js'
-import type { AgentEvent, AgentInput } from '../types.js'
+import type { AdapterProviderId, AgentEvent, AgentInput } from '../types.js'
 import { withAdapterRuleRuntimePlan } from '../rules.js'
 import { collectEvents, getProcessHelperMocks } from './test-helpers.js'
 
@@ -68,7 +68,7 @@ describe('BaseCliAdapter ArtifactWatcher lifecycle', () => {
     })
 
     const stop = vi.fn()
-    const factory = vi.fn(() => ({ stop }))
+    const factory = vi.fn((_paths: string[], _providerId: AdapterProviderId) => ({ stop }))
 
     const adapter = new TestCliAdapter()
     adapter.setArtifactWatcherFactory(factory)
@@ -104,7 +104,7 @@ describe('BaseCliAdapter ArtifactWatcher lifecycle', () => {
         watchedPathCount: expect.any(Number),
       })
     })
-    const factory = vi.fn(() => ({ stop }))
+    const factory = vi.fn((_paths: string[], _providerId: AdapterProviderId) => ({ stop }))
 
     adapter.setArtifactWatcherFactory(factory)
     await collectEvents(adapter.execute({ prompt: 'hello', workingDirectory: '/tmp/work' }))
@@ -119,7 +119,7 @@ describe('BaseCliAdapter ArtifactWatcher lifecycle', () => {
     })
 
     const stop = vi.fn()
-    const factory = vi.fn(() => ({ stop }))
+    const factory = vi.fn((_paths: string[], _providerId: AdapterProviderId) => ({ stop }))
 
     const adapter = new TestCliAdapter()
     adapter.setArtifactWatcherFactory(factory)
@@ -137,7 +137,7 @@ describe('BaseCliAdapter ArtifactWatcher lifecycle', () => {
     })
 
     const stop = vi.fn()
-    const factory = vi.fn(() => ({ stop }))
+    const factory = vi.fn((_paths: string[], _providerId: AdapterProviderId) => ({ stop }))
 
     const adapter = new TestCliAdapter()
     adapter.setArtifactWatcherFactory(factory)
@@ -208,7 +208,7 @@ describe('BaseCliAdapter ArtifactWatcher lifecycle', () => {
     })
 
     const stop = vi.fn()
-    const factory = vi.fn(() => ({ stop }))
+    const factory = vi.fn((_paths: string[], _providerId: AdapterProviderId) => ({ stop }))
     const adapter = new TestCliAdapter()
     adapter.setArtifactWatcherFactory(factory)
 
@@ -248,6 +248,6 @@ describe('BaseCliAdapter ArtifactWatcher lifecycle', () => {
 
     expect(mockSpawnAndStreamJsonl).toHaveBeenCalledTimes(1)
     const spawnOptions = mockSpawnAndStreamJsonl.mock.calls[0]![2]
-    expect(spawnOptions.env?.['TRACEPARENT']).toBe(traceparent)
+    expect(spawnOptions?.env?.['TRACEPARENT']).toBe(traceparent)
   })
 })
