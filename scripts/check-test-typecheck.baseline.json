@@ -1,5 +1,5 @@
 {
-  "totalErrors": 1852,
+  "totalErrors": 1662,
   "note": "Test-file typecheck baseline (tsconfig.flipcheck.json per package). Ratchets down only. Bump only via --update-baseline after FIXING errors, never to accommodate new ones. Enforced per package AND per file, so a fix in one place cannot mask a regression in another. totalErrors and perCode are informational; the per-file budgets are what fail the build.",
   "packages": {
     "adapter-rules": {
@@ -475,46 +475,9 @@
       }
     },
     "otel": {
-      "maxErrors": 190,
-      "perCode": {
-        "TS2322": 82,
-        "TS2554": 20,
-        "TS2353": 18,
-        "TS6133": 14,
-        "TS18048": 14,
-        "TS2345": 12,
-        "TS2352": 9,
-        "TS2379": 6,
-        "TS6196": 5,
-        "TS2375": 4,
-        "TS2339": 4,
-        "TS2532": 1,
-        "TS2561": 1
-      },
-      "perFile": {
-        "src/__tests__/agent-loop-trace.test.ts": 6,
-        "src/__tests__/audit-cost-integration.test.ts": 8,
-        "src/__tests__/audit-trail-cost-safety-deep.test.ts": 19,
-        "src/__tests__/cost-attribution-deep.test.ts": 5,
-        "src/__tests__/cost-attribution-extended.test.ts": 11,
-        "src/__tests__/cost-attribution.test.ts": 6,
-        "src/__tests__/coverage-gaps.test.ts": 8,
-        "src/__tests__/deep-coverage-bridge-cost-safety.test.ts": 18,
-        "src/__tests__/deep-coverage-tracer.test.ts": 3,
-        "src/__tests__/event-metric-map-coverage.test.ts": 23,
-        "src/__tests__/event-metric-map-fragments.test.ts": 18,
-        "src/__tests__/event-metric-map.test.ts": 4,
-        "src/__tests__/execution-ledger-metrics.test.ts": 1,
-        "src/__tests__/otel-bridge-extended.test.ts": 26,
-        "src/__tests__/otel-bridge.integration.test.ts": 1,
-        "src/__tests__/otel-bridge.test.ts": 1,
-        "src/__tests__/safety-monitor-extended.test.ts": 9,
-        "src/__tests__/team-runtime-alerting-doc.test.ts": 1,
-        "src/__tests__/tracer-extended.test.ts": 2,
-        "src/__tests__/tracer.test.ts": 2,
-        "src/__tests__/w15-j1-branch-gaps.test.ts": 2,
-        "src/__tests__/w15-tracing-metrics-baggage.test.ts": 16
-      }
+      "maxErrors": 0,
+      "perCode": {},
+      "perFile": {}
     },
     "scraper": {
       "maxErrors": 0,
