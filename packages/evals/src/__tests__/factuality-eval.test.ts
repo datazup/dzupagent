@@ -8,13 +8,13 @@ import {
   type ReferenceFact,
 } from '../scorers/factuality-scorer.js';
 
-const facts: ReferenceFact[] = [
+const facts: [ReferenceFact, ReferenceFact, ReferenceFact] = [
   { id: 'fact-1', text: 'Paris is the capital of France.' },
   { id: 'fact-2', text: 'The Eiffel Tower is in Paris.' },
   { id: 'fact-3', text: 'Berlin is the capital of Germany.' },
 ];
 
-const claims: FactualityClaim[] = [
+const claims: [FactualityClaim, FactualityClaim, FactualityClaim] = [
   { id: 'claim-1', text: 'Paris is the capital of France.' },
   { id: 'claim-2', text: 'The Eiffel Tower is in Paris.' },
   { id: 'claim-3', text: 'The Eiffel Tower is in Lyon.' },
