@@ -11,7 +11,32 @@ export interface AgentMessage {
   timestamp: number
 }
 
-export type AgentMessageHandler = (message: AgentMessage) => void | Promise<void>
+/**
+ * Handler returns are declared as plain `void`, deliberately — not
+ * `void | Promise<void>`.
+ *
+ * TypeScript's void-returning-function leniency lets a callback that returns a
+ * value satisfy a `=> void` parameter, so
+ * `bus.subscribe('c', 'a', (m) => seen.push(m))` type-checks even though `push`
+ * returns `number`. That leniency does not survive a union: under
+ * `=> void | Promise<void>` the same expression is rejected with TS2322
+ * ("Type 'number' is not assignable to type 'void | Promise<void>'").
+ *
+ * `void` still accepts `async` handlers — a `Promise<void>` return is
+ * assignable to a `void` return position — and `publish` inspects the value a
+ * handler actually returned, so async rejections are still caught.
+ */
+export type AgentMessageHandler = (message: AgentMessage) => void
+
+/**
+ * How handlers are stored and invoked internally.
+ *
+ * The public type above says `void` for the leniency described there; this one
+ * says `unknown` because `publish` has to inspect what a handler actually
+ * returned, and an expression of type `void` cannot be tested for truthiness
+ * (TS1345).
+ */
+type StoredAgentMessageHandler = (message: AgentMessage) => unknown
 
 /**
  * Named message bus for peer-to-peer agent communication.
@@ -34,7 +59,7 @@ export type AgentMessageHandler = (message: AgentMessage) => void | Promise<void
 const logger: FrameworkLogger = defaultLogger
 
 export class AgentBus {
-  private subscriptions: Map<string, Map<string, AgentMessageHandler>> = new Map()
+  private subscriptions: Map<string, Map<string, StoredAgentMessageHandler>> = new Map()
   private history: AgentMessage[] = []
   private maxHistory: number
 
@@ -61,7 +86,7 @@ export class AgentBus {
 
     for (const handler of channelSubs.values()) {
       try {
-        const result = handler(message)
+        const result: unknown = handler(message)
         if (result && typeof result === 'object' && 'catch' in result) {
           ;(result as Promise<void>).catch((err: unknown) => {
             const msg = err instanceof Error ? err.message : String(err)
@@ -84,7 +109,7 @@ export class AgentBus {
       channelSubs = new Map()
       this.subscriptions.set(channel, channelSubs)
     }
-    channelSubs.set(agentId, handler)
+    channelSubs.set(agentId, handler as StoredAgentMessageHandler)
     return () => { this.unsubscribe(channel, agentId) }
   }
 

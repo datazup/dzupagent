@@ -27,6 +27,18 @@ export interface PluginContext {
  * hooks, event handlers, and configuration. They are registered via
  * `PluginRegistry.register()` and resolved at agent creation time.
  *
+ * Plugin-supplied callbacks below return plain `void`, deliberately — not
+ * `void | Promise<void>`. TypeScript's void-returning-function leniency lets a
+ * callback that returns a value satisfy a `=> void` position, so
+ * `onRegister: (ctx) => ctx.eventBus.emit(e)` type-checks. That leniency does
+ * not survive a union: under `=> void | Promise<void>` the same expression is
+ * rejected with TS2322 ("Type 'number' is not assignable to type
+ * 'void | Promise<void>'"), so the union a plugin author reads as *more*
+ * permissive is strictly *less* permissive. `void` still accepts `async`
+ * callbacks — `Promise<void>` is assignable to a `void` return position — and
+ * `PluginRegistry.register()` widens the returned value to `unknown` so it can
+ * still await what the plugin actually returned.
+ *
  * @example
  * ```ts
  * const sentryPlugin: DzupPlugin = {
@@ -44,8 +56,8 @@ export interface DzupPlugin {
   /** Semver version */
   version: string
 
-  /** Called when the plugin is registered */
-  onRegister?(ctx: PluginContext): void | Promise<void>
+  /** Called when the plugin is registered. Async callbacks are awaited. */
+  onRegister?(ctx: PluginContext): void
 
   /** Middleware to inject into agents */
   middleware?: AgentMiddleware[]
@@ -54,7 +66,7 @@ export interface DzupPlugin {
   hooks?: Partial<AgentHooks>
 
   /** Event handlers to subscribe to the event bus */
-  eventHandlers?: Partial<Record<DzupEvent['type'], (event: DzupEvent) => void | Promise<void>>>
+  eventHandlers?: Partial<Record<DzupEvent['type'], (event: DzupEvent) => void>>
 }
 
 export type PluginSource = 'local' | 'npm' | 'builtin' | 'unknown'

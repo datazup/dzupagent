@@ -43,9 +43,27 @@ export interface ToolValidationResult {
   reason?: string;
 }
 
+/**
+ * Audit-sink callbacks return plain `void`, deliberately — not
+ * `void | Promise<void>`.
+ *
+ * TypeScript's void-returning-function leniency lets a callback that returns a
+ * value satisfy a `=> void` position, so
+ * `{ onToolCall: (entry) => calls.push(entry) }` type-checks even though `push`
+ * returns `number`. That leniency does not survive a union: under
+ * `=> void | Promise<void>` the same expression is rejected with TS2322
+ * ("Type 'number' is not assignable to type 'void | Promise<void>'"), so the
+ * union an audit-sink author reads as *more* permissive is strictly *less*
+ * permissive.
+ *
+ * `void` still accepts `async` sinks — a `Promise<void>` return is assignable
+ * to a `void` return position — and `ToolGovernance` widens the returned value
+ * to `unknown` so it still awaits (and therefore still catches rejections
+ * from) whatever the sink actually returned.
+ */
 export interface ToolAuditHandler {
-  onToolCall(entry: ToolAuditEntry): void | Promise<void>;
-  onToolResult?(entry: ToolResultAuditEntry): void | Promise<void>;
+  onToolCall(entry: ToolAuditEntry): void;
+  onToolResult?(entry: ToolResultAuditEntry): void;
 }
 
 export interface ToolAuditEntry {
@@ -141,7 +159,12 @@ export class ToolGovernance {
   /** Record a tool call for audit */
   async audit(entry: ToolAuditEntry): Promise<void> {
     try {
-      await this.config.auditHandler?.onToolCall(entry);
+      // Widened to `unknown` because `onToolCall` is declared `=> void` (see
+      // ToolAuditHandler); `void` is assignable to `unknown`, and awaiting
+      // `unknown` resolves a thenable and passes anything else through. The
+      // call stays in method position so `this` is still bound to the sink.
+      const audited: unknown = this.config.auditHandler?.onToolCall(entry);
+      await audited;
     } catch (err) {
       // ERR-H-06: audit failures are non-fatal but must be observable
       defaultLogger.warn("[tool-governance] audit() swallowed error", {
@@ -154,9 +177,11 @@ export class ToolGovernance {
   /** Record a tool result for audit */
   async auditResult(entry: ToolResultAuditEntry): Promise<void> {
     try {
-      await this.config.auditHandler?.onToolResult?.(
+      // Widened to `unknown` for the same reason as audit() above.
+      const audited: unknown = this.config.auditHandler?.onToolResult?.(
         this.prepareResultAuditEntry(entry),
       );
+      await audited;
     } catch (err) {
       // ERR-H-06: audit failures are non-fatal but must be observable
       defaultLogger.warn("[tool-governance] auditResult() swallowed error", {

@@ -82,9 +82,17 @@ export class PluginRegistry {
       this.unregisterPlugin(plugin.name)
     }
 
-    // Run onRegister callback
+    // Run onRegister callback.
+    //
+    // `onRegister` is declared `=> void` so that expression-bodied callbacks
+    // stay assignable (see DzupPlugin). The registry still has to await a
+    // promise the plugin actually returned, so the result is widened to
+    // `unknown` — `void` is assignable to `unknown`, and awaiting `unknown`
+    // resolves a thenable and passes anything else straight through. The call
+    // stays in method position so `this` is still bound to the plugin object.
     if (plugin.onRegister) {
-      await plugin.onRegister(ctx)
+      const registered: unknown = plugin.onRegister(ctx)
+      await registered
     }
 
     const eventDisposers: Array<() => void> = []
