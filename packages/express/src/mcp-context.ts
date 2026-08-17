@@ -129,6 +129,12 @@ async function handleAuthFailure<TContext>(
   },
 ): Promise<void> {
   if (config.onAuthFailure) {
+    // The await is deliberate and is covered by a test: `onAuthFailure` is
+    // declared `=> void` (see the note on MCPRequestContextFailureHandler) but
+    // an async handler is still accepted, and only this await routes its
+    // rejection into the `.catch(next)` in createMcpRequestContextAuth. Drop it
+    // and an async handler that throws becomes an unhandled rejection that the
+    // Express error pipeline never sees.
     await config.onAuthFailure(context)
     return
   }

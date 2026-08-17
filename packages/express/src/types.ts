@@ -86,8 +86,18 @@ export interface SSEHandlerConfig {
   headers?: Record<string, string>;
   /** Called when the client disconnects before the stream completes */
   onDisconnect?: (req: Request) => void;
-  /** Called when the stream completes successfully */
-  onComplete?: (result: AgentResult, req: Request) => void | Promise<void>;
+  /**
+   * Called when the stream completes successfully.
+   *
+   * Declared `void`, not `void | Promise<void>`: TypeScript's void-returning-
+   * function leniency lets a handler that returns a value satisfy a `=> void`
+   * position, but that leniency does not survive a union, so `onComplete: (r) =>
+   * completed.push(r)` was rejected under the union with TS2322 ("Type 'number'
+   * is not assignable to type 'void | Promise<void>'"). Plain `void` still
+   * accepts an `async` handler, and `SSEHandler.streamAgent()` still awaits the
+   * result, so async handlers complete before `streamAgent()` resolves.
+   */
+  onComplete?: (result: AgentResult, req: Request) => void;
   /** Called on stream error */
   onError?: (error: Error, req: Request, res: Response) => void;
   /** Keep-alive interval in milliseconds (default: 15000) */
@@ -231,9 +241,16 @@ export type MCPRequestContextAssigner<TContext> = (
   context: TContext
 ) => void;
 
+/**
+ * Handles an MCP authentication failure, typically by writing the response.
+ *
+ * Declared `void` rather than `void | Promise<void>` for the reason documented
+ * on `SSEHandlerConfig.onComplete`. An `async` handler is still accepted and is
+ * still awaited before the auth middleware returns.
+ */
 export type MCPRequestContextFailureHandler = (
   context: MCPAuthFailureContext
-) => void | Promise<void>;
+) => void;
 
 export interface MCPRequestContextAuthConfig<TContext> {
   resolveContext: MCPRequestContextResolver<TContext>;

@@ -299,7 +299,10 @@ export class SSEHandler {
     writer.end();
     req.removeListener("close", onClose);
 
-    // Fire completion hook
+    // Fire completion hook. The await is deliberate and is covered by a test:
+    // `onComplete` is declared `=> void` (see the note on SSEHandlerConfig) but
+    // an async handler is still accepted, and `streamAgent()` must not resolve
+    // until that handler has finished.
     if (!clientDisconnected) {
       await this.config.onComplete?.(result, req);
     }

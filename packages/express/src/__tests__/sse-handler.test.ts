@@ -4,6 +4,7 @@ import type { Request, Response } from "express";
 import type { AgentStreamEvent } from "@dzupagent/agent";
 import { SSEHandler } from "../sse-handler.js";
 import { ClientSafeError } from "../route-error.js";
+import type { AgentResult } from "../types.js";
 
 interface MockResponseState {
   statusCode: number;
@@ -141,6 +142,90 @@ describe("SSEHandler", () => {
       await handler.streamAgent(disconnectStream(), res, req);
 
       expect(onComplete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("onComplete callback contract", () => {
+    /**
+     * Pins `onComplete: (result, req) => void`.
+     *
+     * The expression body is the point: `Array.prototype.push` returns `number`,
+     * which the former `=> void | Promise<void>` rejected with TS2322. This file
+     * is excluded from `tsconfig.json`, so the lock is enforced by
+     * `tsconfig.flipcheck.json` and `scripts/check-test-typecheck.mjs` rather
+     * than by `yarn workspace @dzupagent/express typecheck`.
+     */
+    it("accepts an expression-bodied onComplete that returns a value", async () => {
+      const completed: AgentResult[] = [];
+      const handler = new SSEHandler({
+        keepAliveMs: 60_000,
+        onComplete: (result) => completed.push(result),
+      });
+      const { res } = createMockResponse();
+      const req = createMockRequest();
+
+      const result = await handler.streamAgent(
+        streamFromEvents([
+          { type: "text", data: { content: "hello" } } as AgentStreamEvent,
+        ]),
+        res,
+        req
+      );
+
+      // Assert the callback actually fired, so the type lock is not vacuous.
+      expect(completed).toEqual([result]);
+    });
+
+    it("awaits an async onComplete before streamAgent resolves", async () => {
+      // A deferred gate rather than a timer (real timers are banned in tests).
+      // It also makes the lock stronger than an ordering assertion: while the
+      // handler is parked on the gate, `streamAgent` MUST still be pending. A
+      // single microtask hop would not have distinguished the two cases.
+      const order: string[] = [];
+      let releaseOnComplete!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        releaseOnComplete = resolve;
+      });
+
+      const handler = new SSEHandler({
+        keepAliveMs: 60_000,
+        onComplete: async () => {
+          order.push("onComplete:start");
+          await gate;
+          order.push("onComplete:end");
+        },
+      });
+      const { res } = createMockResponse();
+      const req = createMockRequest();
+
+      let settled = false;
+      const streaming = handler
+        .streamAgent(
+          streamFromEvents([
+            { type: "text", data: { content: "hello" } } as AgentStreamEvent,
+          ]),
+          res,
+          req
+        )
+        .then(() => {
+          settled = true;
+          order.push("streamAgent:resolved");
+        });
+
+      // Drain generously. With the await in place streamAgent is still parked
+      // on the gate; without it, streamAgent resolves within a few microtasks.
+      for (let i = 0; i < 50; i++) await Promise.resolve();
+      expect(order).toEqual(["onComplete:start"]);
+      expect(settled).toBe(false);
+
+      releaseOnComplete();
+      await streaming;
+
+      expect(order).toEqual([
+        "onComplete:start",
+        "onComplete:end",
+        "streamAgent:resolved",
+      ]);
     });
   });
 
