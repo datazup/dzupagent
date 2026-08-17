@@ -14,11 +14,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import {
-  EpisodicMemory,
-  type EpisodicEvent,
-  type Episode,
-} from "../episodic-memory.js";
+import { EpisodicMemory, type EpisodicEvent } from "../episodic-memory.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -128,8 +124,8 @@ describe("EpisodicMemory — event retrieval", () => {
     const events = mem.getEpisodeEvents("ep-1");
     expect(events).toHaveLength(5);
     for (let i = 1; i < events.length; i++) {
-      expect(events[i].timestamp).toBeGreaterThanOrEqual(
-        events[i - 1].timestamp,
+      expect(events[i]!.timestamp).toBeGreaterThanOrEqual(
+        events[i - 1]!.timestamp,
       );
     }
   });
@@ -152,7 +148,7 @@ describe("EpisodicMemory — event retrieval", () => {
     const tl = mem.getTimeline();
     expect(tl).toHaveLength(6);
     for (let i = 1; i < tl.length; i++) {
-      expect(tl[i].timestamp).toBeGreaterThanOrEqual(tl[i - 1].timestamp);
+      expect(tl[i]!.timestamp).toBeGreaterThanOrEqual(tl[i - 1]!.timestamp);
     }
   });
 
@@ -241,7 +237,7 @@ describe("EpisodicMemory — filter by time range", () => {
   it("includes boundary timestamps", () => {
     const result = mem.filterByTimeRange(100, 100);
     expect(result).toHaveLength(1);
-    expect(result[0].timestamp).toBe(100);
+    expect(result[0]!.timestamp).toBe(100);
   });
 
   it("returns empty array when no events fall in range", () => {
@@ -273,7 +269,7 @@ describe("EpisodicMemory — explicit episode boundaries", () => {
     const ev = mem.logEvent({ type: "begin", timestamp: 9999 });
     expect(ev.episodeId).toBe("ep-first");
     const ep = mem.getEpisode("ep-first")!;
-    expect(ep.events[0].type).toBe("begin");
+    expect(ep.events[0]!.type).toBe("begin");
   });
 
   it("endEpisode marks episode endedAt", () => {
@@ -468,8 +464,8 @@ describe("EpisodicMemory — timeline reconstruction", () => {
     mem.logEvent({ type: "early", timestamp: 100 });
 
     const tl = mem.getTimeline();
-    expect(tl[0].type).toBe("early");
-    expect(tl[1].type).toBe("late");
+    expect(tl[0]!.type).toBe("early");
+    expect(tl[1]!.type).toBe("late");
   });
 });
 
@@ -496,9 +492,9 @@ describe("EpisodicMemory — timeline gaps", () => {
 
     const gaps = mem.getTimelineGaps();
     expect(gaps).toHaveLength(1);
-    expect(gaps[0].afterEpisodeId).toBe("ep-1");
-    expect(gaps[0].beforeEpisodeId).toBe("ep-2");
-    expect(gaps[0].gapMs).toBe(300);
+    expect(gaps[0]!.afterEpisodeId).toBe("ep-1");
+    expect(gaps[0]!.beforeEpisodeId).toBe("ep-2");
+    expect(gaps[0]!.gapMs).toBe(300);
   });
 
   it("no gaps when episodes are back-to-back", () => {
@@ -558,7 +554,7 @@ describe("EpisodicMemory — recent episodes", () => {
   it("getRecentEpisodes(1) returns only the most recent episode", () => {
     const recent = mem.getRecentEpisodes(1);
     expect(recent).toHaveLength(1);
-    expect(recent[0].id).toBe("ep-5");
+    expect(recent[0]!.id).toBe("ep-5");
   });
 
   it("getRecentEpisodes(N) when N > total returns all episodes most-recent-first", () => {
@@ -668,7 +664,7 @@ describe("EpisodicMemory — cross-episode search", () => {
       (e) => e.type === "error" && e.payload.code === 500,
     );
     expect(serverErrors).toHaveLength(1);
-    expect(serverErrors[0].payload.code).toBe(500);
+    expect(serverErrors[0]!.payload.code).toBe(500);
   });
 });
 
@@ -725,8 +721,8 @@ describe("EpisodicMemory — serialization", () => {
 
     const data = mem.serialize();
     expect(data.episodes).toHaveLength(1);
-    expect(data.episodes[0].id).toBe("ep-1");
-    expect(data.episodes[0].events).toHaveLength(1);
+    expect(data.episodes[0]!.id).toBe("ep-1");
+    expect(data.episodes[0]!.events).toHaveLength(1);
     // must be JSON-round-trippable
     const json = JSON.stringify(data);
     expect(() => JSON.parse(json)).not.toThrow();
@@ -756,7 +752,7 @@ describe("EpisodicMemory — serialization", () => {
     });
 
     const restored = EpisodicMemory.deserialize(mem.serialize());
-    const ev = restored.getEpisodeEvents("ep-1")[0];
+    const ev = restored.getEpisodeEvents("ep-1")[0]!;
     expect(ev.payload.foo).toBe("bar");
     expect((ev.payload.nested as Record<string, number>).n).toBe(42);
   });
@@ -796,9 +792,9 @@ describe("EpisodicMemory — serialization", () => {
     mem.logEvent({ type: "x", timestamp: 1 });
 
     const data = mem.serialize();
-    data.episodes[0].events[0].type = "mutated";
+    data.episodes[0]!.events[0]!.type = "mutated";
 
-    expect(mem.getEpisodeEvents("ep-1")[0].type).toBe("x");
+    expect(mem.getEpisodeEvents("ep-1")[0]!.type).toBe("x");
   });
 
   it("round-trip through JSON.stringify / JSON.parse and deserialize", () => {

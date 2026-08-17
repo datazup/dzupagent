@@ -99,8 +99,8 @@ describe("ShortTermBuffer – add and peek", () => {
     await buf.add({ text: "hello", turn: 1 }, SCOPE);
     const items = buf.peek();
     expect(items).toHaveLength(1);
-    expect(items[0].text).toBe("hello");
-    expect(items[0].turn).toBe(1);
+    expect(items[0]!.text).toBe("hello");
+    expect(items[0]!.turn).toBe(1);
   });
 
   it("peek returns items in insertion order", async () => {
@@ -601,7 +601,7 @@ describe("ShortTermBuffer – partial flush", () => {
   });
 
   it("partial flush keeps all items when none are old enough", async () => {
-    const { service, put } = createMockStore();
+    const { service } = createMockStore();
     const buf = new ShortTermBuffer({
       capacity: 10,
       store: service,
@@ -646,7 +646,7 @@ describe("ShortTermBuffer – partial flush", () => {
   });
 
   it("partial flush with threshold=0 flushes nothing", async () => {
-    const { service, put } = createMockStore();
+    const { service } = createMockStore();
     const buf = new ShortTermBuffer({
       capacity: 10,
       store: service,

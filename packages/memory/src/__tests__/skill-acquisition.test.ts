@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { SkillAcquisitionEngine } from '../skill-acquisition.js'
-import type { AcquiredSkill, ScanLesson, ScanRule } from '../skill-acquisition.js'
+import type { ScanLesson, ScanRule } from '../skill-acquisition.js'
 import type { BaseStore } from '@langchain/langgraph'
 
 // ---------------------------------------------------------------------------
@@ -87,10 +87,10 @@ describe('SkillAcquisitionEngine', () => {
       const skills = await engine.scan({ lessons, rules: [] })
 
       expect(skills).toHaveLength(1)
-      expect(skills[0].applicationType).toBe('prompt_injection')
-      expect(skills[0].content).toBe('Always validate Prisma schema before migration')
-      expect(skills[0].evidence.lessonIds).toEqual(['lesson-1'])
-      expect(skills[0].confidence).toBe(0.9)
+      expect(skills[0]!.applicationType).toBe('prompt_injection')
+      expect(skills[0]!.content).toBe('Always validate Prisma schema before migration')
+      expect(skills[0]!.evidence.lessonIds).toEqual(['lesson-1'])
+      expect(skills[0]!.confidence).toBe(0.9)
 
       // Should be persisted in the store
       const count = await engine.count()
@@ -101,7 +101,7 @@ describe('SkillAcquisitionEngine', () => {
       const lessons = [makeLesson({ summary: 'Always validate Prisma schema before running migrations in production' })]
       const skills = await engine.scan({ lessons, rules: [] })
 
-      expect(skills[0].name).toBe('Always validate Prisma schema before')
+      expect(skills[0]!.name).toBe('Always validate Prisma schema before')
     })
 
     it('should generate unique skill IDs with skill_ prefix', async () => {
@@ -112,9 +112,9 @@ describe('SkillAcquisitionEngine', () => {
       const skills = await engine.scan({ lessons, rules: [] })
 
       expect(skills).toHaveLength(2)
-      expect(skills[0].id).toMatch(/^skill_\d+_[a-z0-9]+$/)
-      expect(skills[1].id).toMatch(/^skill_\d+_[a-z0-9]+$/)
-      expect(skills[0].id).not.toBe(skills[1].id)
+      expect(skills[0]!.id).toMatch(/^skill_\d+_[a-z0-9]+$/)
+      expect(skills[1]!.id).toMatch(/^skill_\d+_[a-z0-9]+$/)
+      expect(skills[0]!.id).not.toBe(skills[1]!.id)
     })
   })
 
@@ -153,10 +153,10 @@ describe('SkillAcquisitionEngine', () => {
       const skills = await engine.scan({ lessons: [], rules })
 
       expect(skills).toHaveLength(1)
-      expect(skills[0].applicationType).toBe('prompt_injection')
-      expect(skills[0].content).toContain('ValidationError')
-      expect(skills[0].evidence.ruleIds).toEqual(['rule-1'])
-      expect(skills[0].applicableWhen).toBe('gen_backend, validation')
+      expect(skills[0]!.applicationType).toBe('prompt_injection')
+      expect(skills[0]!.content).toContain('ValidationError')
+      expect(skills[0]!.evidence.ruleIds).toEqual(['rule-1'])
+      expect(skills[0]!.applicableWhen).toBe('gen_backend, validation')
     })
 
     it('should not create skills from rules below minSuccessRate', async () => {
@@ -307,12 +307,12 @@ describe('SkillAcquisitionEngine', () => {
         lessons: [makeLesson()],
         rules: [],
       })
-      expect(skills[0].lastUsedAt).toBeUndefined()
+      expect(skills[0]!.lastUsedAt).toBeUndefined()
 
-      await engine.markUsed(skills[0].id)
+      await engine.markUsed(skills[0]!.id)
 
       const allSkills = await engine.getSkills()
-      expect(allSkills[0].lastUsedAt).toBeInstanceOf(Date)
+      expect(allSkills[0]!.lastUsedAt).toBeInstanceOf(Date)
     })
 
     it('should not throw for non-existent skill', async () => {
@@ -330,7 +330,7 @@ describe('SkillAcquisitionEngine', () => {
       })
       expect(await engine.count()).toBe(1)
 
-      await engine.removeSkill(skills[0].id)
+      await engine.removeSkill(skills[0]!.id)
       expect(await engine.count()).toBe(0)
     })
 

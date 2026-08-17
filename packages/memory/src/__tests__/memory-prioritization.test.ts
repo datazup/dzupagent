@@ -14,7 +14,7 @@ import {
   findWeakMemories,
 } from "../decay-engine.js";
 import type { DecayMetadata } from "../decay-engine.js";
-import { computeStaleness, pruneStaleMemories } from "../staleness-pruner.js";
+import { pruneStaleMemories } from "../staleness-pruner.js";
 import type { MemoryEntry } from "../consolidation-types.js";
 
 // ---------------------------------------------------------------------------
@@ -242,8 +242,8 @@ describe("priority-based retrieval", () => {
       }))
       .sort((a, b) => b.score - a.score);
 
-    expect(scored[0].key).toBe("fresh");
-    expect(scored[scored.length - 1].key).toBe("old");
+    expect(scored[0]!.key).toBe("fresh");
+    expect(scored[scored.length - 1]!.key).toBe("old");
   });
 
   it("lower relevance but higher strength can outrank higher relevance old memory", () => {
@@ -383,7 +383,7 @@ describe("priority decay with fake timers", () => {
     const records = [{ key: "old-mem", meta }];
     const weak = findWeakMemories(records, 0.5);
     expect(weak).toHaveLength(1);
-    expect(weak[0].key).toBe("old-mem");
+    expect(weak[0]!.key).toBe("old-mem");
   });
 
   it("freshly created memory is not weak", () => {
@@ -408,8 +408,8 @@ describe("priority decay with fake timers", () => {
       { key: "very-old", meta: veryOld },
     ];
     const weak = findWeakMemories(records, 0.01);
-    expect(weak[0].strength).toBeLessThan(weak[1].strength);
-    expect(weak[0].key).toBe("very-old");
+    expect(weak[0]!.strength).toBeLessThan(weak[1]!.strength);
+    expect(weak[0]!.key).toBe("very-old");
   });
 });
 
@@ -570,7 +570,7 @@ describe("priority-weighted sampling", () => {
       target -= item.priority;
       if (target <= 0) return item.value;
     }
-    return items[items.length - 1].value;
+    return items[items.length - 1]!.value;
   }
 
   it("high-priority items are sampled more often in simulation", () => {

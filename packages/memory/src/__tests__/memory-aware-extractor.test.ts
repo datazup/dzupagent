@@ -99,9 +99,9 @@ describe('MemoryAwareExtractor', () => {
       expect(putCalls).toHaveLength(2)
 
       // Verify stored metadata
-      expect(putCalls[0].ns).toBe('observations')
-      expect(putCalls[0].scope).toEqual(DEFAULT_SCOPE)
-      expect(putCalls[0].value).toMatchObject({
+      expect(putCalls[0]!.ns).toBe('observations')
+      expect(putCalls[0]!.scope).toEqual(DEFAULT_SCOPE)
+      expect(putCalls[0]!.value).toMatchObject({
         text: 'Project uses PostgreSQL',
         category: 'fact',
         confidence: 0.95,
@@ -115,8 +115,8 @@ describe('MemoryAwareExtractor', () => {
           }),
         ],
       })
-      expect(putCalls[0].key).toMatch(/^obs-\d+-0$/)
-      expect(putCalls[1].key).toMatch(/^obs-\d+-1$/)
+      expect(putCalls[0]!.key).toMatch(/^obs-\d+-0$/)
+      expect(putCalls[1]!.key).toMatch(/^obs-\d+-1$/)
     })
   })
 
@@ -147,9 +147,9 @@ describe('MemoryAwareExtractor', () => {
 
       expect(result.totalExtracted).toBe(2)
       expect(result.skipped).toHaveLength(1)
-      expect(result.skipped[0].observation.text).toBe('Project uses PostgreSQL')
+      expect(result.skipped[0]!.observation.text).toBe('Project uses PostgreSQL')
       expect(result.added).toHaveLength(1)
-      expect(result.added[0].text).toBe('Team prefers dark mode')
+      expect(result.added[0]!.text).toBe('Team prefers dark mode')
       expect(putCalls).toHaveLength(1)
     })
 

@@ -127,8 +127,8 @@ describe('ScopedMemoryService', () => {
       await scoped.put('decisions', SCOPE, 'key1', { text: 'value' })
 
       expect(mock.putCalls).toHaveLength(1)
-      expect(mock.putCalls[0].ns).toBe('decisions')
-      expect(mock.putCalls[0].value).toMatchObject({ text: 'value', _agent: 'writer' })
+      expect(mock.putCalls[0]!.ns).toBe('decisions')
+      expect(mock.putCalls[0]!.value).toMatchObject({ text: 'value', _agent: 'writer' })
     })
 
     it('enriches value with writeTags', async () => {
@@ -141,7 +141,7 @@ describe('ScopedMemoryService', () => {
       await scoped.put('decisions', SCOPE, 'key1', { text: 'hello' })
 
       expect(mock.putCalls).toHaveLength(1)
-      const written = mock.putCalls[0].value
+      const written = mock.putCalls[0]!.value
       expect(written['_agent']).toBe('writer')
       expect(written['_tag_role']).toBe('planner')
       expect(written['_tag_team']).toBe('alpha')
@@ -269,9 +269,9 @@ describe('ScopedMemoryService', () => {
       await scoped.search('ns3', SCOPE, 'q')
 
       expect(scoped.getViolations()).toHaveLength(3)
-      expect(scoped.getViolations()[0].namespace).toBe('ns1')
-      expect(scoped.getViolations()[1].namespace).toBe('ns2')
-      expect(scoped.getViolations()[2].namespace).toBe('ns3')
+      expect(scoped.getViolations()[0]!.namespace).toBe('ns1')
+      expect(scoped.getViolations()[1]!.namespace).toBe('ns2')
+      expect(scoped.getViolations()[2]!.namespace).toBe('ns3')
     })
 
     it('clearViolations resets the list', async () => {

@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { SharedMemoryNamespace } from '../shared-namespace.js'
-import type { SharedNamespaceConfig } from '../shared-namespace.js'
 
 describe('SharedMemoryNamespace', () => {
   let ns: SharedMemoryNamespace
@@ -136,10 +135,10 @@ describe('SharedMemoryNamespace', () => {
       audited.put('agent-a', 'k1', { v: 1 })
       const trail = audited.getAudit()
       expect(trail).toHaveLength(1)
-      expect(trail[0].action).toBe('put')
-      expect(trail[0].key).toBe('k1')
-      expect(trail[0].agentId).toBe('agent-a')
-      expect(trail[0].previousVersion).toBeUndefined()
+      expect(trail[0]!.action).toBe('put')
+      expect(trail[0]!.key).toBe('k1')
+      expect(trail[0]!.agentId).toBe('agent-a')
+      expect(trail[0]!.previousVersion).toBeUndefined()
     })
 
     it('records previousVersion on updates', () => {
@@ -147,7 +146,7 @@ describe('SharedMemoryNamespace', () => {
       audited.put('agent-b', 'k1', { v: 2 })
       const trail = audited.getAudit('k1')
       expect(trail).toHaveLength(2)
-      expect(trail[1].previousVersion).toBe(1)
+      expect(trail[1]!.previousVersion).toBe(1)
     })
 
     it('records delete operations with previousVersion', () => {
@@ -155,8 +154,8 @@ describe('SharedMemoryNamespace', () => {
       audited.delete('agent-a', 'k1')
       const trail = audited.getAudit('k1')
       expect(trail).toHaveLength(2)
-      expect(trail[1].action).toBe('delete')
-      expect(trail[1].previousVersion).toBe(1)
+      expect(trail[1]!.action).toBe('delete')
+      expect(trail[1]!.previousVersion).toBe(1)
     })
 
     it('filters audit by key', () => {
@@ -218,19 +217,19 @@ describe('SharedMemoryNamespace', () => {
     it('matches on key substring', () => {
       const results = ns.search('project')
       expect(results).toHaveLength(1)
-      expect(results[0].key).toBe('project-config')
+      expect(results[0]!.key).toBe('project-config')
     })
 
     it('matches on value content', () => {
       const results = ns.search('typescript')
       expect(results).toHaveLength(1)
-      expect(results[0].key).toBe('user-preferences')
+      expect(results[0]!.key).toBe('user-preferences')
     })
 
     it('is case-insensitive', () => {
       const results = ns.search('VUE')
       expect(results).toHaveLength(1)
-      expect(results[0].key).toBe('project-config')
+      expect(results[0]!.key).toBe('project-config')
     })
 
     it('respects limit parameter', () => {

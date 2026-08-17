@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { z } from 'zod'
 import { VersionedWorkingMemory } from '../versioned-working-memory.js'
-import type { VersionedWorkingMemoryConfig, WorkingMemoryDiff } from '../versioned-working-memory.js'
 import type { MemoryService } from '../memory-service.js'
 
 // ---------------------------------------------------------------------------
@@ -13,8 +12,6 @@ const TestSchema = z.object({
   features: z.array(z.string()).default([]),
   count: z.number().default(0),
 })
-
-type TestState = z.infer<typeof TestSchema>
 
 /**
  * In-memory mock of MemoryService that stores records in a Map
@@ -59,19 +56,6 @@ function createMockStore(): {
 }
 
 const SCOPE = { tenantId: 't1', projectId: 'p1' }
-
-function createVMem(
-  overrides?: Partial<VersionedWorkingMemoryConfig<typeof TestSchema>>,
-  store?: MemoryService,
-) {
-  const mock = store ?? createMockStore().service
-  return new VersionedWorkingMemory({
-    schema: TestSchema,
-    store: mock,
-    namespace: 'working',
-    ...overrides,
-  })
-}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -179,9 +163,9 @@ describe('VersionedWorkingMemory', () => {
 
       const history = await vmem.getHistory(SCOPE)
       expect(history).toHaveLength(1)
-      expect(history[0].version).toBe(1)
-      expect(history[0].reason).toBe('chose react')
-      expect(history[0].changes).toContainEqual(
+      expect(history[0]!.version).toBe(1)
+      expect(history[0]!.reason).toBe('chose react')
+      expect(history[0]!.changes).toContainEqual(
         expect.objectContaining({ path: 'stack', oldValue: '', newValue: 'react' }),
       )
     })
@@ -209,8 +193,8 @@ describe('VersionedWorkingMemory', () => {
       const history = await vmem.getHistory(SCOPE)
       expect(history).toHaveLength(3)
       // Most recent first
-      expect(history[0].version).toBe(3)
-      expect(history[2].version).toBe(1)
+      expect(history[0]!.version).toBe(3)
+      expect(history[2]!.version).toBe(1)
     })
 
     it('auto-saves by default', async () => {
@@ -255,8 +239,8 @@ describe('VersionedWorkingMemory', () => {
 
       const history = await vmem.getHistory(SCOPE, 2)
       expect(history).toHaveLength(2)
-      expect(history[0].version).toBe(3)
-      expect(history[1].version).toBe(2)
+      expect(history[0]!.version).toBe(3)
+      expect(history[1]!.version).toBe(2)
     })
   })
 
@@ -275,8 +259,8 @@ describe('VersionedWorkingMemory', () => {
     it('returns diffs between two versions', async () => {
       const diffs = await vmem.diff(SCOPE, 1, 3)
       expect(diffs).toHaveLength(2) // versions 2 and 3
-      expect(diffs[0].version).toBe(2)
-      expect(diffs[1].version).toBe(3)
+      expect(diffs[0]!.version).toBe(2)
+      expect(diffs[1]!.version).toBe(3)
     })
 
     it('returns empty when fromVersion equals toVersion', async () => {
@@ -383,8 +367,8 @@ describe('VersionedWorkingMemory', () => {
       // Only 3 most recent should be retrievable
       const history = await small.getHistory(SCOPE)
       expect(history).toHaveLength(3)
-      expect(history[0].version).toBe(5)
-      expect(history[2].version).toBe(3)
+      expect(history[0]!.version).toBe(5)
+      expect(history[2]!.version).toBe(3)
     })
 
     it('pruned entries are overwritten with tombstones', async () => {
