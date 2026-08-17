@@ -11,15 +11,17 @@ import { CodexCliAdapter } from '../codex/codex-cli-adapter.js'
 import { createCodexBackendAdapter } from '../codex/codex-backend.js'
 import type { AgentStreamEvent } from '../types.js'
 
-function createChild(): ChildProcess & { stdout: PassThrough; stderr: PassThrough; stdin: PassThrough } {
-  const child = new EventEmitter() as ChildProcess & {
-    stdout: PassThrough
-    stderr: PassThrough
-    stdin: PassThrough
-    exitCode: number | null
-    signalCode: NodeJS.Signals | null
-    pid: number
-  }
+type FakeChild = ChildProcess & {
+  stdout: PassThrough
+  stderr: PassThrough
+  stdin: PassThrough
+  exitCode: number | null
+  signalCode: NodeJS.Signals | null
+  pid: number
+}
+
+function createChild(): FakeChild {
+  const child = new EventEmitter() as FakeChild
   child.stdout = new PassThrough()
   child.stderr = new PassThrough()
   child.stdin = new PassThrough()
@@ -193,7 +195,7 @@ describe('Codex explicit CLI backend', () => {
 
     const events = await collect(adapter.executeWithRaw({ prompt: 'dotted events' }))
     expect(events.find((event) => event.type === 'adapter:message')).toMatchObject({ content: 'final answer' })
-    expect(events.findLast((event) => event.type === 'adapter:completed')).toMatchObject({
+    expect([...events].reverse().find((event) => event.type === 'adapter:completed')).toMatchObject({
       result: 'final answer',
       usage: { inputTokens: 7, outputTokens: 2 },
     })
@@ -396,8 +398,9 @@ describe('Codex explicit CLI backend', () => {
       runtimeDependencies: {
         spawn: () => createChild(),
         killProcessTree: (child, signal) => {
-          child.stdout?.end()
-          child.stderr?.end()
+          const fake = child as FakeChild
+          fake.stdout.end()
+          fake.stderr.end()
           setTimeout(() => child.emit('close', null, signal), 0)
         },
       },
@@ -414,8 +417,9 @@ describe('Codex explicit CLI backend', () => {
           return child
         },
         killProcessTree: (child, signal) => {
-          child.stdout?.end()
-          child.stderr?.end()
+          const fake = child as FakeChild
+          fake.stdout.end()
+          fake.stderr.end()
           setTimeout(() => child.emit('close', null, signal), 0)
         },
       },
@@ -444,8 +448,9 @@ describe('Codex explicit CLI backend', () => {
       runtimeDependencies: {
         spawn,
         killProcessTree: (child, signal) => {
-          child.stdout?.end()
-          child.stderr?.end()
+          const fake = child as FakeChild
+          fake.stdout.end()
+          fake.stderr.end()
           setTimeout(() => child.emit('close', null, signal), 0)
         },
       },

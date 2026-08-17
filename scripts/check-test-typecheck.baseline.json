@@ -1,5 +1,5 @@
 {
-  "totalErrors": 1563,
+  "totalErrors": 1544,
   "note": "Test-file typecheck baseline (tsconfig.flipcheck.json per package). Ratchets down only. Bump only via --update-baseline after FIXING errors, never to accommodate new ones. Enforced per package AND per file, so a fix in one place cannot mask a regression in another. totalErrors and perCode are informational; the per-file budgets are what fail the build.",
   "packages": {
     "adapter-rules": {
@@ -119,19 +119,17 @@
       }
     },
     "agent-adapters": {
-      "maxErrors": 144,
+      "maxErrors": 125,
       "perCode": {
         "TS2322": 54,
         "TS2345": 25,
-        "TS2339": 17,
-        "TS2540": 13,
         "TS2352": 12,
+        "TS2339": 11,
         "TS2353": 9,
         "TS2367": 3,
+        "TS2540": 2,
         "TS7024": 2,
         "TS18047": 2,
-        "TS2550": 1,
-        "TS7006": 1,
         "TS7031": 1,
         "TS2769": 1,
         "TS6192": 1,
@@ -162,7 +160,6 @@
         "src/__tests__/cli-smoke.test.ts": 1,
         "src/__tests__/codex-adapter.test.ts": 2,
         "src/__tests__/codex-app-server-adapter.test.ts": 3,
-        "src/__tests__/codex-cli-adapter.test.ts": 19,
         "src/__tests__/codex-goal-control.test.ts": 5,
         "src/__tests__/codex-provider-request-lookup.test.ts": 2,
         "src/__tests__/contract-net.test.ts": 3,
