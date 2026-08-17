@@ -13,6 +13,7 @@ import type { PipelineDefinition, PipelineNode } from '@dzupagent/core/pipeline'
 import type {
   WorkflowStep,
   MergeStrategy,
+  StepCompletedEvent,
 } from './workflow-types.js'
 import type { WorkflowConfig, WorkflowErrorHandler } from './workflow-builder-types.js'
 import type { WorkflowTransformHandler } from './workflow-compiler-types.js'
@@ -134,11 +135,22 @@ export function createNodeBuilders(ctx: NodeBuilderContext): NodeBuilders {
         const start = Date.now()
         emit({ type: 'step:started', stepId: step.id })
         try {
-          const result = await step.execute(state, stepCtx) as Record<string, unknown> | undefined
+          // `rawResult` is the step's real return value; `result` is the
+          // state-merge view of it. Keep them separate so the emitted `output`
+          // carries what the step actually returned (a string, an array, a
+          // number) rather than the object-shaped cast used for merging.
+          const rawResult: unknown = await step.execute(state, stepCtx)
+          const result = rawResult as Record<string, unknown> | undefined
           if (result && typeof result === 'object') {
             Object.assign(state, result)
           }
-          emit({ type: 'step:completed', stepId: step.id, durationMs: Date.now() - start })
+          emit(omitUndefined<StepCompletedEvent>({
+            type: 'step:completed',
+            stepId: step.id,
+            durationMs: Date.now() - start,
+            output: rawResult,
+            stepName: step.description,
+          }))
           return result
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
@@ -173,8 +185,18 @@ export function createNodeBuilders(ctx: NodeBuilderContext): NodeBuilders {
             emit({ type: 'step:started', stepId: step.id })
             const stepStart = Date.now()
             try {
-              const result = await step.execute(state, parallelCtx) as Record<string, unknown> | undefined
-              emit({ type: 'step:completed', stepId: step.id, durationMs: Date.now() - stepStart })
+              // Same split as the sequential builder: emit the real return
+              // value, but keep `result ?? {}` as the merge contribution so
+              // `mergeResults` behaviour is unchanged.
+              const rawResult: unknown = await step.execute(state, parallelCtx)
+              const result = rawResult as Record<string, unknown> | undefined
+              emit(omitUndefined<StepCompletedEvent>({
+                type: 'step:completed',
+                stepId: step.id,
+                durationMs: Date.now() - stepStart,
+                output: rawResult,
+                stepName: step.description,
+              }))
               return result ?? {}
             } catch (err) {
               emit({

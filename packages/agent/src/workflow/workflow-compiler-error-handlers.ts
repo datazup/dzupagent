@@ -8,9 +8,14 @@
  *
  * @module workflow/workflow-compiler-error-handlers
  */
-import type { WorkflowContext, WorkflowEvent } from './workflow-types.js'
+import type {
+  WorkflowContext,
+  WorkflowEvent,
+  StepCompletedEvent,
+} from './workflow-types.js'
 import type { WorkflowErrorHandler } from './workflow-builder-types.js'
 import type { NodeExecutionContext } from '../pipeline/pipeline-runtime-types.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 /**
  * Bridge the structural `CancellationSignal` shape exposed by
@@ -74,13 +79,22 @@ export async function applyErrorHandlers(
     const start = Date.now()
     emit({ type: 'step:started', stepId: recoveryStep.id })
     try {
-      const result = await recoveryStep.execute(state, ctx) as
-        | Record<string, unknown>
-        | undefined
+      // `rawResult` is the recovery step's real return value; `result` is the
+      // state-merge view of it. A recovery step's output is journalled just
+      // like a normal step's — a resumed transcript must show what the
+      // recovery actually produced, not a bare "[completed]".
+      const rawResult: unknown = await recoveryStep.execute(state, ctx)
+      const result = rawResult as Record<string, unknown> | undefined
       if (result && typeof result === 'object') {
         Object.assign(state, result)
       }
-      emit({ type: 'step:completed', stepId: recoveryStep.id, durationMs: Date.now() - start })
+      emit(omitUndefined<StepCompletedEvent>({
+        type: 'step:completed',
+        stepId: recoveryStep.id,
+        durationMs: Date.now() - start,
+        output: rawResult,
+        stepName: recoveryStep.description,
+      }))
     } catch (recoveryErr) {
       const message = recoveryErr instanceof Error ? recoveryErr.message : String(recoveryErr)
       emit({ type: 'step:failed', stepId: recoveryStep.id, error: message })

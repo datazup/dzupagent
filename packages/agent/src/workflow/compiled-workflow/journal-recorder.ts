@@ -16,9 +16,13 @@
  *
  * @module workflow/compiled-workflow/journal-recorder
  */
-import type { RunJournal } from "@dzupagent/core/persistence";
+import type {
+  RunJournal,
+  StepCompletedEntry,
+} from "@dzupagent/core/persistence";
 import { defaultLogger } from "@dzupagent/core/utils";
 import type { WorkflowEvent } from "../workflow-types.js";
+import { omitUndefined } from "../../utils/exact-optional.js";
 
 /**
  * ERR-H-10: append a run-lifecycle entry (run_started/completed/failed/
@@ -73,7 +77,25 @@ export async function journalWrite(
       case "step:completed":
         await journal.append(runId, {
           type: "step_completed",
-          data: { stepId: event.stepId, durationMs: event.durationMs },
+          // `output` is mirrored verbatim — see the SIZE note on
+          // `StepCompletedEvent.output`. Dropping it here is what made
+          // `rehydrateMessagesFromJournal` render every resumed step as the
+          // literal "[completed]".
+          //
+          // `stepName` -> `toolName` is a deliberate slot reuse: the core
+          // `StepCompletedEntry.data` contract has no `stepName` field, and
+          // `toolName` is its only human-readable label slot. Both readers
+          // treat it as exactly that — `resume-utils` uses it as a display
+          // label (`toolName ?? stepId`) and `getCheckpoints()` projects it
+          // onto `CheckpointInfo.stepName`, documented as "human-readable step
+          // name (e.g. tool name)". Omitted when the step has no description,
+          // so both readers keep their existing `stepId` fallback.
+          data: omitUndefined<StepCompletedEntry["data"]>({
+            stepId: event.stepId,
+            durationMs: event.durationMs,
+            output: event.output,
+            toolName: event.stepName,
+          }),
         });
         break;
       case "step:failed":
