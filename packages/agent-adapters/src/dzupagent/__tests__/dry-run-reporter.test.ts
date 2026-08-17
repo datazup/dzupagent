@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import type { MockInstance } from 'vitest'
 
 import { DryRunReporter } from '../dry-run-reporter.js'
 
 describe('DryRunReporter', () => {
   let logSpy: ReturnType<typeof vi.spyOn>
-  let stdoutSpy: ReturnType<typeof vi.spyOn>
+  let stdoutSpy: MockInstance<typeof process.stdout.write>
 
   beforeEach(() => {
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})

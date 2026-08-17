@@ -12,16 +12,8 @@ function asyncIterableOf<T>(items: T[]): AsyncIterable<T> & { interrupt: ReturnT
   const interruptFn = vi.fn()
   return {
     interrupt: interruptFn,
-    [Symbol.asyncIterator]() {
-      let index = 0
-      return {
-        async next() {
-          if (index < items.length) {
-            return { value: items[index++], done: false as const }
-          }
-          return { value: undefined, done: true as const }
-        },
-      }
+    async *[Symbol.asyncIterator]() {
+      for (const item of items) yield item
     },
   }
 }

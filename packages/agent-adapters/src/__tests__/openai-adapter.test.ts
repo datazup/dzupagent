@@ -330,9 +330,7 @@ describe("OpenAIAdapter", () => {
     const adapter = new OpenAIAdapter({ apiKey: "k" });
     const gen = adapter.execute({ prompt: "test" });
     const started = await gen.next();
-    const restEventsPromise = collectEvents({
-      [Symbol.asyncIterator]: () => gen,
-    });
+    const restEventsPromise = collectEvents(gen);
 
     await fetchStarted;
     adapter.interrupt();

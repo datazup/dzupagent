@@ -52,8 +52,15 @@ export interface FacadeSupervisorOptions extends Omit<BaseSupervisorOptions, nev
   personaId?: string | undefined
 }
 
-export interface ParallelOptions extends Omit<ParallelExecutionOptions, 'providers'>, RuntimeAdapterPatternOptions {
+export interface ParallelOptions
+  extends Omit<ParallelExecutionOptions, 'providers' | 'mergeStrategy'>,
+    RuntimeAdapterPatternOptions {
   providers?: AdapterProviderId[] | undefined
+  /**
+   * Optional at the facade layer: `parallel()` defaults it to 'all'. Required on
+   * ParallelExecutionOptions, which is the executor's fully-resolved contract.
+   */
+  mergeStrategy?: MergeStrategy | undefined
 }
 
 export interface RaceOptions extends RuntimeAdapterPatternOptions {

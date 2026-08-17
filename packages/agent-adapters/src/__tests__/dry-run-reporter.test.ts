@@ -1,4 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
+import type { MockInstance } from 'vitest'
 import { DryRunReporter } from '../dzupagent/dry-run-reporter.js'
 
 // ---------------------------------------------------------------------------
@@ -96,7 +97,7 @@ describe('DryRunReporter (console mode)', () => {
 
 describe('DryRunReporter (json mode)', () => {
   let logSpy: ReturnType<typeof vi.spyOn>
-  let stdoutSpy: ReturnType<typeof vi.spyOn>
+  let stdoutSpy: MockInstance<typeof process.stdout.write>
 
   beforeEach(() => {
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
