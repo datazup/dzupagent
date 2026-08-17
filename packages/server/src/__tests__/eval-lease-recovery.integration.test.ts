@@ -33,7 +33,8 @@ function req(
   if (body !== undefined) {
     init.body = JSON.stringify(body)
   }
-  return app.request(path, init)
+  // Hono's `request` overload resolves to `Response | Promise<Response>`.
+  return Promise.resolve(app.request(path, init))
 }
 
 const exactMatchScorer: EvalScorer = {
@@ -68,7 +69,7 @@ describe('eval lease recovery integration', () => {
     const store = new InMemoryEvalRunStore()
     let firstExecutions = 0
     let secondExecutions = 0
-    let releaseBlockedRun: (() => void) | null = null
+    let releaseBlockedRun: (() => void) | undefined
     const blockedRun = new Promise<void>((resolve) => {
       releaseBlockedRun = resolve
     })
@@ -210,8 +211,8 @@ describe('eval lease recovery integration', () => {
     const store = new InMemoryEvalRunStore()
     let firstExecutions = 0
     let secondExecutions = 0
-    let releaseBlockedRun: (() => void) | null = null
-    let releaseSecondBlockedRun: (() => void) | null = null
+    let releaseBlockedRun: (() => void) | undefined
+    let releaseSecondBlockedRun: (() => void) | undefined
     const blockedRun = new Promise<void>((resolve) => {
       releaseBlockedRun = resolve
     })

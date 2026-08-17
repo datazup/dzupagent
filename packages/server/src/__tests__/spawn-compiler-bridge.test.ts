@@ -39,7 +39,9 @@ function makeChild(lines: string[]): ChildMock {
     setImmediate(() => child.emit('close', 0))
   })
   // Emit close when stdout ends OR is destroyed
-  const fireClose = (): void => setImmediate(() => child.emit('close', 0))
+  const fireClose = (): void => {
+    setImmediate(() => child.emit('close', 0))
+  }
   child.stdout.on('end', fireClose)
   child.stdout.on('close', fireClose)
   setImmediate(() => child.emit('spawn'))
@@ -75,19 +77,19 @@ function makeStream(): { stream: { writeSSE: (e: SseEvent) => Promise<void>; onA
 }
 
 // Minimal Hono context mock
+/** The Hono `Context` the subject takes. */
+type CompileCtx = Parameters<typeof handleSubprocessCompile>[0]
+
+/**
+ * A stand-in for the Hono context. `handleSubprocessCompile` reads only
+ * `req.query`, `req.method`, `req.path`, `header()`, `json()` and the injected
+ * `_mockStream`; the remaining ~20 `Context` members are unreachable here, so
+ * the widening is named once instead of being repeated at 14 call sites.
+ */
 function makeCtx(
   stream: ReturnType<typeof makeStream>['stream'],
   query: Record<string, string> = {},
-): {
-  _mockStream: ReturnType<typeof makeStream>['stream']
-  req: {
-    query: (k: string) => string | undefined
-    method: string
-    path: string
-  }
-  header: ReturnType<typeof vi.fn>
-  json: (body: unknown, status: number) => Response
-} {
+): CompileCtx {
   return {
     _mockStream: stream,
     req: {
@@ -97,7 +99,7 @@ function makeCtx(
     },
     header: vi.fn(),
     json: (body: unknown, status: number) => Response.json(body, { status }),
-  }
+  } as unknown as CompileCtx
 }
 
 // Override streamSSE to call the callback synchronously with our mock stream
@@ -152,7 +154,7 @@ describe('SpawnCompilerBridge', () => {
     try {
       const { stream, events } = makeStream()
       const response = await handleSubprocessCompile(
-        makeCtx(stream) as Parameters<typeof handleSubprocessCompile>[0],
+        makeCtx(stream),
         { type: 'action' },
       )
 
@@ -186,7 +188,7 @@ describe('SpawnCompilerBridge', () => {
 
     const { stream } = makeStream()
     await handleSubprocessCompile(
-      makeCtx(stream) as Parameters<typeof handleSubprocessCompile>[0],
+      makeCtx(stream),
       { type: 'action', tool: 't' },
     )
 
@@ -199,7 +201,7 @@ describe('SpawnCompilerBridge', () => {
     spawnMock.mockReturnValueOnce(child)
 
     const { stream, events } = makeStream()
-    await handleSubprocessCompile(makeCtx(stream) as Parameters<typeof handleSubprocessCompile>[0], { type: 'action', tool: 't' })
+    await handleSubprocessCompile(makeCtx(stream), { type: 'action', tool: 't' })
 
     const types = events.map((e) => e.event)
     expect(types).toContain('flow:compile_started')
@@ -230,7 +232,7 @@ describe('SpawnCompilerBridge', () => {
     spawnMock.mockReturnValueOnce(child)
 
     const { stream, events } = makeStream()
-    await handleSubprocessCompile(makeCtx(stream) as Parameters<typeof handleSubprocessCompile>[0], {})
+    await handleSubprocessCompile(makeCtx(stream), {})
 
     const failed = events.find((e) => e.event === 'flow:compile_failed')
     expect(failed).toBeDefined()
@@ -242,7 +244,7 @@ describe('SpawnCompilerBridge', () => {
     spawnMock.mockReturnValueOnce(child)
 
     const { stream } = makeStream()
-    await handleSubprocessCompile(makeCtx(stream) as Parameters<typeof handleSubprocessCompile>[0], { type: 'action', tool: 't' })
+    await handleSubprocessCompile(makeCtx(stream), { type: 'action', tool: 't' })
 
     expect(child.stdin.write).toHaveBeenCalledWith(
       JSON.stringify({ type: 'action', tool: 't' }),
@@ -261,7 +263,7 @@ describe('SpawnCompilerBridge', () => {
     spawnMock.mockReturnValueOnce(child)
 
     const { stream, events } = makeStream()
-    await handleSubprocessCompile(makeCtx(stream) as Parameters<typeof handleSubprocessCompile>[0], {})
+    await handleSubprocessCompile(makeCtx(stream), {})
 
     const errorEv = events.find((e) => e.event === 'flow:compile_failed' || e.event === 'error')
     expect(errorEv).toBeDefined()
@@ -273,7 +275,7 @@ describe('SpawnCompilerBridge', () => {
     const rawJson = JSON.stringify({ type: 'action', tool: 'myTool' })
 
     const { stream } = makeStream()
-    await handleSubprocessCompile(makeCtx(stream) as Parameters<typeof handleSubprocessCompile>[0], rawJson)
+    await handleSubprocessCompile(makeCtx(stream), rawJson)
 
     expect(child.stdin.write).toHaveBeenCalledWith(rawJson, 'utf8', expect.any(Function))
   })
@@ -286,7 +288,7 @@ describe('SpawnCompilerBridge', () => {
     spawnMock.mockReturnValueOnce(child)
 
     const { stream } = makeStream()
-    const ctx = makeCtx(stream) as Parameters<typeof handleSubprocessCompile>[0]
+    const ctx = makeCtx(stream)
 
     // Override onAbort to trigger abort immediately
     ;(stream as { onAbort: (fn: () => void) => void }).onAbort = (fn: () => void) => {
@@ -308,7 +310,7 @@ describe('SpawnCompilerBridge', () => {
 
     const { stream } = makeStream()
     const ctx = makeCtx(stream, { runId: 'run-123' })
-    await handleSubprocessCompile(ctx as unknown as Parameters<typeof handleSubprocessCompile>[0], { type: 'action', tool: 't' })
+    await handleSubprocessCompile(ctx, { type: 'action', tool: 't' })
 
     expect(ctx.header).toHaveBeenCalledWith('X-Run-Id', 'run-123')
   })
@@ -319,7 +321,7 @@ describe('SpawnCompilerBridge', () => {
 
     const { stream } = makeStream()
     const ctx = makeCtx(stream)
-    await handleSubprocessCompile(ctx as unknown as Parameters<typeof handleSubprocessCompile>[0], { type: 'action', tool: 't' })
+    await handleSubprocessCompile(ctx, { type: 'action', tool: 't' })
 
     expect(ctx.header).not.toHaveBeenCalledWith('X-Run-Id', expect.anything())
   })
@@ -338,7 +340,9 @@ describe('SpawnCompilerBridge', () => {
     child.kill = vi.fn(() => {
       setImmediate(() => child.emit('close', code, signal))
     })
-    const fireClose = (): void => setImmediate(() => child.emit('close', code, signal))
+    const fireClose = (): void => {
+      setImmediate(() => child.emit('close', code, signal))
+    }
     child.stdout.on('end', fireClose)
     child.stdout.on('close', fireClose)
     setImmediate(() => child.emit('spawn'))
@@ -351,7 +355,7 @@ describe('SpawnCompilerBridge', () => {
     spawnMock.mockReturnValueOnce(child)
 
     const { stream, events } = makeStream()
-    await handleSubprocessCompile(makeCtx(stream) as Parameters<typeof handleSubprocessCompile>[0], { type: 'action', tool: 't' })
+    await handleSubprocessCompile(makeCtx(stream), { type: 'action', tool: 't' })
 
     const eventTypes = events.map((e) => e.event)
     // Critical: the partial result must NOT be surfaced as success.
@@ -377,7 +381,7 @@ describe('SpawnCompilerBridge', () => {
     spawnMock.mockReturnValueOnce(child)
 
     const { stream, events } = makeStream()
-    await handleSubprocessCompile(makeCtx(stream) as Parameters<typeof handleSubprocessCompile>[0], {})
+    await handleSubprocessCompile(makeCtx(stream), {})
 
     expect(events.map((e) => e.event)).not.toContain('flow:compile_result')
     const failed = events.find((e) => e.event === 'flow:compile_failed')
@@ -395,7 +399,7 @@ describe('SpawnCompilerBridge', () => {
     spawnMock.mockReturnValueOnce(child)
 
     const { stream, events } = makeStream()
-    await handleSubprocessCompile(makeCtx(stream) as Parameters<typeof handleSubprocessCompile>[0], { type: 'action', tool: 't' })
+    await handleSubprocessCompile(makeCtx(stream), { type: 'action', tool: 't' })
 
     expect(events.map((e) => e.event)).not.toContain('flow:compile_result')
     const failed = events.find((e) => e.event === 'flow:compile_failed')
@@ -410,7 +414,7 @@ describe('SpawnCompilerBridge', () => {
     spawnMock.mockReturnValueOnce(child)
 
     const { stream, events } = makeStream()
-    await handleSubprocessCompile(makeCtx(stream) as Parameters<typeof handleSubprocessCompile>[0], { type: 'action', tool: 't' })
+    await handleSubprocessCompile(makeCtx(stream), { type: 'action', tool: 't' })
 
     expect(events.map((e) => e.event)).toContain('flow:compile_result')
     // The buffered result is the last frame emitted.

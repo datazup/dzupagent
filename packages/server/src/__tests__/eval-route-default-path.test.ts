@@ -168,7 +168,7 @@ describe('eval route default path (MJ-CODE-01)', () => {
   })
 
   it('default writable path cancels in-flight runs with canonical attempt-history', async () => {
-    let release: (() => void) | null = null
+    let release: (() => void) | undefined
     const blocker = new Promise<void>((resolve) => { release = resolve })
     const app = createForgeApp(defaultPathConfig(async (input, ctx) => {
       if (input === 'hello') await blocker

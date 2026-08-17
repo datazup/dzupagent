@@ -2,6 +2,15 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Hono } from "hono";
 import type { MemoryServiceLike } from "@dzupagent/memory-ipc";
 import { createLearningRoutes } from "../routes/learning.js";
+import type { AppVariables } from "../types.js";
+
+/**
+ * `resolveTenantId` honours a legacy `tenantId` context slot for hosts that set
+ * one, but `AppVariables` does not model it (nothing in the package writes it).
+ * These tests exercise that fallback, including the non-string case, so the slot
+ * is declared here as `unknown` rather than widened in the app's own env.
+ */
+type LegacyTenantEnv = { Variables: AppVariables & { tenantId: unknown } };
 
 /**
  * Minimal in-memory MemoryServiceLike for testing learning routes.
@@ -2476,7 +2485,7 @@ describe("Learning routes", () => {
         importance: 3,
       });
 
-      const ctxApp = new Hono();
+      const ctxApp = new Hono<LegacyTenantEnv>();
       ctxApp.use("*", async (c, next) => {
         c.set("apiKey", { id: "key-auth", tenantId: "auth-tenant" });
         c.set("tenantId", "legacy-tenant");
@@ -2494,7 +2503,7 @@ describe("Learning routes", () => {
     });
 
     it("writes learning feedback and ingested lessons under authenticated apiKey tenantId", async () => {
-      const authApp = new Hono();
+      const authApp = new Hono<LegacyTenantEnv>();
       authApp.use("*", async (c, next) => {
         c.set("apiKey", { id: "key-a", tenantId: "tenant-a" });
         await next();
@@ -2504,7 +2513,7 @@ describe("Learning routes", () => {
         createLearningRoutes({ memoryService, defaultTenantId: "test-tenant" })
       );
 
-      const otherApp = new Hono();
+      const otherApp = new Hono<LegacyTenantEnv>();
       otherApp.use("*", async (c, next) => {
         c.set("apiKey", { id: "key-b", tenantId: "tenant-b" });
         await next();
@@ -2584,7 +2593,7 @@ describe("Learning routes", () => {
       });
 
       // Create an app that injects tenantId via middleware
-      const ctxApp = new Hono();
+      const ctxApp = new Hono<LegacyTenantEnv>();
       ctxApp.use("*", async (c, next) => {
         c.set("tenantId", ctxTenantId);
         await next();
@@ -2606,7 +2615,7 @@ describe("Learning routes", () => {
         importance: 1,
       });
 
-      const ctxApp = new Hono();
+      const ctxApp = new Hono<LegacyTenantEnv>();
       ctxApp.use("*", async (c, next) => {
         c.set("tenantId", "");
         await next();
@@ -2627,7 +2636,7 @@ describe("Learning routes", () => {
         priority: 1,
       });
 
-      const ctxApp = new Hono();
+      const ctxApp = new Hono<LegacyTenantEnv>();
       ctxApp.use("*", async (c, next) => {
         c.set("tenantId", 12345);
         await next();

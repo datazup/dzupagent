@@ -348,7 +348,7 @@ describe('Eval routes', () => {
   })
 
   it('reports eval queue stats and metrics for pending and active runs', async () => {
-    let releaseBlockedCase: (() => void) | null = null
+    let releaseBlockedCase: (() => void) | undefined
     const blockedCase = new Promise<void>((resolve) => {
       releaseBlockedCase = resolve
     })
@@ -473,7 +473,7 @@ describe('Eval routes', () => {
     const store = new InMemoryEvalRunStore()
     let firstInstanceExecutions = 0
     let secondInstanceExecutions = 0
-    let releaseBlockedCase: (() => void) | null = null
+    let releaseBlockedCase: (() => void) | undefined
     const blockedCase = new Promise<void>((resolve) => {
       releaseBlockedCase = resolve
     })
@@ -682,6 +682,7 @@ describe('Eval routes', () => {
         queuedAt: string
         startedAt?: string
         completedAt?: string
+        attemptHistory?: EvalRunAttemptRecord[]
         result?: {
           suiteId: string
           aggregateScore: number
@@ -736,7 +737,7 @@ describe('Eval routes', () => {
   })
 
   it('cancels a running eval run and preserves the cancelled terminal state', async () => {
-    let releaseBlockedCase: (() => void) | null = null
+    let releaseBlockedCase: (() => void) | undefined
     const blockedCase = new Promise<void>((resolve) => {
       releaseBlockedCase = resolve
     })
@@ -771,7 +772,12 @@ describe('Eval routes', () => {
     expect(cancelRes.status).toBe(200)
     const cancelled = await cancelRes.json() as {
       success: boolean
-      data: { id: string; status: string; completedAt?: string }
+      data: {
+        id: string
+        status: string
+        completedAt?: string
+        attemptHistory?: EvalRunAttemptRecord[]
+      }
     }
 
     expect(cancelled.success).toBe(true)
@@ -851,7 +857,12 @@ describe('Eval routes', () => {
     expect(retryRes.status).toBe(202)
     const retried = await retryRes.json() as {
       success: boolean
-      data: { id: string; status: string; queuedAt?: string }
+      data: {
+        id: string
+        status: string
+        queuedAt?: string
+        attemptHistory?: EvalRunAttemptRecord[]
+      }
     }
     expect(retried.success).toBe(true)
     expect(retried.data.id).toBe(created.data.id)
