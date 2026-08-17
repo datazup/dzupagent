@@ -59,9 +59,7 @@ function completedEvent(): AgentEvent {
     providerId: "claude",
     sessionId: "s1",
     result: "done",
-    inputTokens: 10,
-    outputTokens: 5,
-    costUsd: 0,
+    usage: { inputTokens: 10, outputTokens: 5 },
     durationMs: 100,
     timestamp: ts(),
   };
@@ -73,7 +71,6 @@ function failedEvent(): AgentEvent {
     providerId: "claude",
     sessionId: "s1",
     error: "timeout",
-    recoverable: true,
     timestamp: ts(),
   };
 }

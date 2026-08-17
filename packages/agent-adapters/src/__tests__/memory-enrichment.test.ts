@@ -34,9 +34,7 @@ function makeCompletedEvent(): AgentEvent {
     providerId: "claude",
     sessionId: "sess-1",
     result: "done",
-    inputTokens: 10,
-    outputTokens: 5,
-    costUsd: 0,
+    usage: { inputTokens: 10, outputTokens: 5 },
     durationMs: 100,
     timestamp: Date.now(),
   });

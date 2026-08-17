@@ -190,9 +190,9 @@ describe('CLI adapter conformance contract', () => {
     it(`${testCase.providerId} treats provider failure as terminal without adding synthetic completion`, async () => {
       mockSpawnAndStreamJsonl.mockImplementation(async function* () {
         if (testCase.providerId === 'goose') {
-          throw new ForgeError({ code: 'PROVIDER_ERR', message: 'goose failed', recoverable: false })
+          throw new ForgeError({ code: 'PROVIDER_UNAVAILABLE', message: 'goose failed', recoverable: false })
         }
-        yield { type: 'error', error: { message: `${testCase.providerId} failed`, code: 'PROVIDER_ERR' } }
+        yield { type: 'error', error: { message: `${testCase.providerId} failed`, code: 'PROVIDER_UNAVAILABLE' } }
       })
 
       const events: AgentEvent[] = []
@@ -213,9 +213,9 @@ describe('CLI adapter conformance contract', () => {
       expect(failed?.type).toBe('adapter:failed')
       if (failed?.type === 'adapter:failed') {
         expect(failed.providerId).toBe(testCase.providerId)
-        expect(failed.code).toBe('PROVIDER_ERR')
+        expect(failed.code).toBe('PROVIDER_UNAVAILABLE')
       }
-      if (testCase.providerId === 'goose') expect(thrown).toMatchObject({ code: 'PROVIDER_ERR' })
+      if (testCase.providerId === 'goose') expect(thrown).toMatchObject({ code: 'PROVIDER_UNAVAILABLE' })
       else expect(thrown).toBeUndefined()
     })
 

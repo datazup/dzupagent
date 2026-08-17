@@ -59,7 +59,6 @@ function failedEvent(): AgentEvent {
     providerId: "claude",
     sessionId: "s1",
     error: "timeout",
-    recoverable: true,
     timestamp: ts(),
   };
 }

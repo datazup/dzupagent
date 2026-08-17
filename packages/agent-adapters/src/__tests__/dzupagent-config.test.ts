@@ -70,10 +70,10 @@ describe('loadDzupAgentConfig', () => {
   it('loads project config only', async () => {
     await writeFile(
       join(projectDir, 'config.json'),
-      JSON.stringify({ codex: { memoryStrategy: 'inject-every-turn' } }),
+      JSON.stringify({ codex: { memoryStrategy: 'inject-always' } }),
     )
     const cfg = await loadDzupAgentConfig(makePaths(globalDir, projectDir))
-    expect(cfg.codex?.memoryStrategy).toBe('inject-every-turn')
+    expect(cfg.codex?.memoryStrategy).toBe('inject-always')
   })
 
   it('project config overrides global config for same key', async () => {
@@ -92,14 +92,14 @@ describe('loadDzupAgentConfig', () => {
   it('merges non-overlapping keys from both configs', async () => {
     await writeFile(
       join(globalDir, 'config.json'),
-      JSON.stringify({ codex: { memoryStrategy: 'inject-every-turn' } }),
+      JSON.stringify({ codex: { memoryStrategy: 'inject-always' } }),
     )
     await writeFile(
       join(projectDir, 'config.json'),
       JSON.stringify({ memory: { maxTokens: 7000 } }),
     )
     const cfg = await loadDzupAgentConfig(makePaths(globalDir, projectDir))
-    expect(cfg.codex?.memoryStrategy).toBe('inject-every-turn')
+    expect(cfg.codex?.memoryStrategy).toBe('inject-always')
     expect(cfg.memory?.maxTokens).toBe(7000)
   })
 
@@ -354,9 +354,9 @@ describe('loadConfig — projectDir convenience wrapper', () => {
 describe('getCodexMemoryStrategy', () => {
   it('returns configured strategy', () => {
     const cfg: DzupAgentConfig = {
-      codex: { memoryStrategy: 'inject-every-turn' },
+      codex: { memoryStrategy: 'inject-always' },
     }
-    expect(getCodexMemoryStrategy(cfg)).toBe('inject-every-turn')
+    expect(getCodexMemoryStrategy(cfg)).toBe('inject-always')
   })
 
   it('returns default when codex is missing', () => {
