@@ -3,6 +3,11 @@ import { HumanMessage, AIMessage } from '@langchain/core/messages'
 import type { RunJournalEntry } from '@dzupagent/core'
 import { rehydrateMessagesFromJournal } from '../agent/resume-utils.js'
 
+// `Partial<RunJournalEntry> &` is load-bearing: `Partial<T>` distributes over
+// the entry union, so intersecting it with a literal `type` narrows `data` to
+// that entry's payload shape and every fixture below is checked against the
+// real journal contract. Widening `data` to a bare `unknown` silently stops
+// checking them.
 function entry(partial: Partial<RunJournalEntry> & { type: RunJournalEntry['type']; seq: number; data: unknown }): RunJournalEntry {
   return {
     v: 1,
@@ -30,8 +35,8 @@ describe('rehydrateMessagesFromJournal', () => {
 
   it('emits HumanMessage + AIMessage per step_completed in seq order', () => {
     const entries: RunJournalEntry[] = [
-      entry({ type: 'step_completed', seq: 2, data: { stepId: 's1', toolName: 'search', result: 'found 3' } }),
-      entry({ type: 'step_completed', seq: 3, data: { stepId: 's2', toolName: 'write_file', result: 'written' } }),
+      entry({ type: 'step_completed', seq: 2, data: { stepId: 's1', toolName: 'search', output: 'found 3' } }),
+      entry({ type: 'step_completed', seq: 3, data: { stepId: 's2', toolName: 'write_file', output: 'written' } }),
     ]
     const messages = rehydrateMessagesFromJournal(entries, 'original input')
     expect(messages).toHaveLength(3)
@@ -47,8 +52,8 @@ describe('rehydrateMessagesFromJournal', () => {
 
   it('sorts step_completed by seq even if provided out of order', () => {
     const entries: RunJournalEntry[] = [
-      entry({ type: 'step_completed', seq: 5, data: { toolName: 'second', result: 'later' } }),
-      entry({ type: 'step_completed', seq: 2, data: { toolName: 'first', result: 'earlier' } }),
+      entry({ type: 'step_completed', seq: 5, data: { stepId: 'step-5', toolName: 'second', output: 'later' } }),
+      entry({ type: 'step_completed', seq: 2, data: { stepId: 'step-2', toolName: 'first', output: 'earlier' } }),
     ]
     const messages = rehydrateMessagesFromJournal(entries, 'x')
     expect(String(messages[1]!.content)).toContain('first')
@@ -66,22 +71,37 @@ describe('rehydrateMessagesFromJournal', () => {
     expect(String(messages[2]!.content)).not.toContain('ignored')
   })
 
-  it('uses result when present, falls back to "[completed]"', () => {
+  it('uses output when present, falls back to "[completed]"', () => {
     const entries: RunJournalEntry[] = [
-      entry({ type: 'step_completed', seq: 1, data: { toolName: 't1' } }),
-      entry({ type: 'step_completed', seq: 2, data: { toolName: 't2', result: 'value' } }),
+      entry({ type: 'step_completed', seq: 1, data: { stepId: 's1', toolName: 't1' } }),
+      entry({ type: 'step_completed', seq: 2, data: { stepId: 's2', toolName: 't2', output: 'value' } }),
     ]
     const messages = rehydrateMessagesFromJournal(entries, '')
     expect(String(messages[1]!.content)).toContain('[completed]')
     expect(String(messages[2]!.content)).toContain('value')
   })
 
+  it('JSON-encodes a non-string output instead of rendering [object Object]', () => {
+    const entries: RunJournalEntry[] = [
+      entry({
+        type: 'step_completed',
+        seq: 1,
+        data: { stepId: 's1', toolName: 'search', output: { hits: 3, top: 'readme' } },
+      }),
+    ]
+    const messages = rehydrateMessagesFromJournal(entries, '')
+    const rendered = String(messages[1]!.content)
+    expect(rendered).toContain('"hits":3')
+    expect(rendered).toContain('"top":"readme"')
+    expect(rendered).not.toContain('[object Object]')
+  })
+
   it('ignores non-step_completed entries', () => {
     const entries: RunJournalEntry[] = [
       entry({ type: 'run_started', seq: 1, data: { input: 'hello', agentId: 'a1' } }),
       entry({ type: 'step_started', seq: 2, data: { stepId: 's1', toolName: 'search' } }),
-      entry({ type: 'step_completed', seq: 3, data: { toolName: 'search', result: 'ok' } }),
-      entry({ type: 'run_paused', seq: 4, data: { reason: 'approval' } }),
+      entry({ type: 'step_completed', seq: 3, data: { stepId: 's2', toolName: 'search', output: 'ok' } }),
+      entry({ type: 'run_paused', seq: 4, data: { reason: 'user_request' } }),
     ]
     const messages = rehydrateMessagesFromJournal(entries, 'hello')
     expect(messages).toHaveLength(2)
