@@ -91,7 +91,7 @@ function createMockModel(
       callIdx++
       // Attach usage_metadata so extractTokenUsage works
       if (inputTokens || outputTokens) {
-        ;(resp as AIMessage & { usage_metadata: unknown }).usage_metadata = {
+        ;(resp as BaseMessage & { usage_metadata: unknown }).usage_metadata = {
           input_tokens: inputTokens,
           output_tokens: outputTokens,
         }

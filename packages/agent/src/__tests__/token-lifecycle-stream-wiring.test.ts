@@ -64,7 +64,7 @@ function createStreamingModel(
     invoke: vi.fn().mockResolvedValue(new AIMessage(responseText)),
     stream: vi.fn().mockImplementation(async function* () {
       const finalChunk = new AIMessage(responseText)
-      ;(finalChunk as AIMessage & { usage_metadata: Record<string, unknown> }).usage_metadata =
+      ;(finalChunk as BaseMessage & { usage_metadata: Record<string, unknown> }).usage_metadata =
         usageMetadata
       yield finalChunk
     }),
@@ -83,7 +83,7 @@ function createInvokeOnlyModel(
   usageMetadata: Record<string, unknown>,
 ): BaseChatModel {
   const response = new AIMessage(responseText)
-  ;(response as AIMessage & { usage_metadata: Record<string, unknown> }).usage_metadata =
+  ;(response as BaseMessage & { usage_metadata: Record<string, unknown> }).usage_metadata =
     usageMetadata
   const mockModel = {
     invoke: vi.fn().mockResolvedValue(response),

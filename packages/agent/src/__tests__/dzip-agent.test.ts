@@ -311,7 +311,7 @@ describe('DzupAgent generate()', () => {
 
   it('passes costLedger fallbackToLocal=false through distributed guardrail wiring', async () => {
     const response = new AIMessage('done')
-    ;(response as AIMessage & { usage_metadata: Record<string, unknown> }).usage_metadata = {
+    ;(response as BaseMessage & { usage_metadata: Record<string, unknown> }).usage_metadata = {
       input_tokens: 1,
       output_tokens: 1,
     }
@@ -404,7 +404,7 @@ describe('DzupAgent generateStructured()', () => {
     const { z } = await import('zod')
 
     const rawWithUsage = new AIMessage('structured')
-    ;(rawWithUsage as AIMessage & { usage_metadata: Record<string, number> }).usage_metadata = {
+    ;(rawWithUsage as BaseMessage & { usage_metadata: Record<string, number> }).usage_metadata = {
       input_tokens: 123,
       output_tokens: 45,
       total_tokens: 168,
@@ -961,7 +961,7 @@ describe('DzupAgent stream()', () => {
           ? aiWithToolCalls([{ name: 'work', args: {} }])
           : new AIMessage('done')
         // Attach usage metadata
-        ;(msg as AIMessage & { usage_metadata: unknown }).usage_metadata = {
+        ;(msg as BaseMessage & { usage_metadata: unknown }).usage_metadata = {
           input_tokens: 400,
           output_tokens: 100,
         }

@@ -58,7 +58,7 @@ function createMockModel(
       const resp = responses[callIdx] ?? new AIMessage('done')
       callIdx++
       if (opts?.inputTokens || opts?.outputTokens) {
-        ;(resp as AIMessage & { usage_metadata: unknown }).usage_metadata = {
+        ;(resp as BaseMessage & { usage_metadata: unknown }).usage_metadata = {
           input_tokens: opts.inputTokens ?? 0,
           output_tokens: opts.outputTokens ?? 0,
         }

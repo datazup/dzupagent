@@ -29,7 +29,7 @@ function createMockStreamingModel(
       // Simulate streaming: yield the full response as a single chunk
       const finalChunk = new AIMessage(responseText)
       if (usageMetadata?.usage_metadata) {
-        ;(finalChunk as AIMessage & { usage_metadata: Record<string, unknown> }).usage_metadata =
+        ;(finalChunk as BaseMessage & { usage_metadata: Record<string, unknown> }).usage_metadata =
           usageMetadata.usage_metadata
       }
       if (usageMetadata?.response_metadata) {
