@@ -3,7 +3,7 @@
   "packet": "MEM-P000",
   "sourceIdentity": {
     "kind": "content-digest-set",
-    "digest": "sha256:8fd585ccb8151864bbf0744804000a71853346b71e4949ee88a44c8ef2c11e18",
+    "digest": "sha256:8e0266388c1e541bd4e9751967e1bb5c5faea2abd95ccea7f3bbda8e3fbde2e5",
     "inputs": [
       {
         "path": "config/memory-api-census.v1.json",
@@ -188,7 +188,7 @@
       },
       {
         "path": "packages/memory/src/__tests__/namespace-isolation.test.ts",
-        "sha256": "sha256:2d4010016fc9429bfcf911142439de8a9fd6cae9e86f84c16b575b9900824cf5"
+        "sha256": "sha256:c5844aa03780ec02238941cc83ad3b9915a8dc4001de7bcf2979feeccbad0792"
       },
       {
         "path": "packages/memory/src/__tests__/observation-candidate-store-truthfulness.test.ts",
