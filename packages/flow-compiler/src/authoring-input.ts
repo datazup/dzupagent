@@ -1,10 +1,8 @@
-import {
-  validateFlowDocumentShape,
-  type FlowDocumentV1,
-} from '@dzupagent/flow-ast'
+import type { FlowDocumentV1 } from '@dzupagent/flow-ast'
 import {
   canonicalizeDsl,
   toPrimitiveRegistryV1,
+  validateDocument,
   type DslV2FrontendMetadata,
   type PrimitiveExpansionHandlers,
   type PrimitiveRegistryV2,
@@ -27,11 +25,11 @@ export function prepareFlowInputFromDocument(
     }
   }
 
-  const issues = validateFlowDocumentShape(document).map((issue) => ({
+  const issues = validateDocument(document).diagnostics.map((issue) => ({
     stage: 2 as const,
     code: issue.code,
     message: issue.message,
-    nodePath: issue.nodePath,
+    nodePath: issue.path,
     category: 'shape' as const,
   }))
   if (issues.length > 0) {

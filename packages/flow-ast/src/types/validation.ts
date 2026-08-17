@@ -51,6 +51,9 @@ export type ValidationErrorCode =
   | "FOR_EACH_RECURSIVE_CONTROL_UNSUPPORTED"
   | "FOR_EACH_SUSPENSION_UNSUPPORTED"
   | "FOR_EACH_TERMINAL_UNSUPPORTED"
+  | "unreachable_after_complete"
+  // Retained for compatibility with diagnostics emitted before the canonical
+  // flow-ast reachability pass became the compiler source of truth.
   | "FLOW_UNREACHABLE_AFTER_TERMINAL"
   | "output_key_collision"
   | "AMBIGUOUS_LOOP_BODY_OUTPUT"

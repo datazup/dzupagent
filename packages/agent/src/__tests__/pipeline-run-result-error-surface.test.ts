@@ -83,8 +83,13 @@ describe("PipelineRunResult.error (result-surface repair)", () => {
         return { nodeId, output: "ok", durationMs: 1 };
       },
       loopIterationBudgetReservation: {
+        mode: "strict",
         itemBudgetCents: 100,
         reserve: () => ({ status: "unknown" as const }),
+        settle: () => {},
+        release: () => {},
+        reconcile: () => ({ status: "unknown" as const }),
+        measureItemCost: () => ({ status: "known" as const, costCents: 0 }),
       },
     });
 
@@ -108,11 +113,16 @@ describe("PipelineRunResult.error (result-surface repair)", () => {
       definition: forEachPipeline(),
       nodeExecutor: okExecutor,
       loopIterationBudgetReservation: {
+        mode: "strict",
         itemBudgetCents: 100,
         reserve: () => ({
           status: "reserved" as const,
           reservedCostCents: 101,
         }),
+        settle: () => {},
+        release: () => {},
+        reconcile: () => ({ status: "unknown" as const }),
+        measureItemCost: () => ({ status: "known" as const, costCents: 0 }),
       },
     });
 

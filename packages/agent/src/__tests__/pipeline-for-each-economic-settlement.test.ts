@@ -17,6 +17,7 @@ import { describe, expect, it } from "vitest";
 import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
 import type { PipelineDefinition, PipelineNode } from "@dzupagent/core";
 import type { NodeExecutor } from "../pipeline/pipeline-runtime-types.js";
+import type { LoopBudgetHost } from "../pipeline/loop-executor.js";
 
 /** A for_each loop whose body is two sequential nodes. */
 function forEachPipeline(): PipelineDefinition {
@@ -77,6 +78,7 @@ function recordingHost(options?: {
     settles,
     releases,
     config: {
+      mode: "strict" as const,
       itemBudgetCents: 100,
       reserve: (input: unknown) => {
         reserves.push(input);
@@ -91,11 +93,16 @@ function recordingHost(options?: {
       release: (input: unknown) => {
         releases.push(input);
       },
-      ...(options?.costPerNode === undefined
-        ? {}
-        : {
-            extractItemCostCents: () => options.costPerNode as number,
-          }),
+      reconcile: () => ({ status: "unknown" as const }),
+      measureItemCost: (input: {
+        bodyResults: Readonly<Record<string, unknown>>;
+      }) => ({
+        status: "known" as const,
+        costCents:
+          options?.costPerNode === undefined
+            ? (options?.reservedCostCents ?? 50)
+            : options.costPerNode * Object.keys(input.bodyResults).length,
+      }),
     },
   };
 }
@@ -248,8 +255,13 @@ describe("for_each per-item economic settlement (F)", () => {
       definition: forEachPipeline(),
       nodeExecutor: tracingExecutor(runs),
       loopIterationBudgetReservation: {
+        mode: "strict",
         itemBudgetCents: 100,
         reserve: () => ({ status: "unknown" as const }),
+        settle: () => {},
+        release: () => {},
+        reconcile: () => ({ status: "unknown" as const }),
+        measureItemCost: () => ({ status: "known" as const, costCents: 0 }),
       },
     });
 
@@ -262,15 +274,23 @@ describe("for_each per-item economic settlement (F)", () => {
 
   it("fails closed when a reservation exceeds the authored ceiling", async () => {
     const runs: string[] = [];
+    const releases: unknown[] = [];
     const runtime = new PipelineRuntime({
       definition: forEachPipeline(),
       nodeExecutor: tracingExecutor(runs),
       loopIterationBudgetReservation: {
+        mode: "strict",
         itemBudgetCents: 100,
         reserve: () => ({
           status: "reserved" as const,
           reservedCostCents: 101,
         }),
+        settle: () => {},
+        release: (input) => {
+          releases.push(input);
+        },
+        reconcile: () => ({ status: "unknown" as const }),
+        measureItemCost: () => ({ status: "known" as const, costCents: 0 }),
       },
     });
 
@@ -278,7 +298,37 @@ describe("for_each per-item economic settlement (F)", () => {
 
     expect(result.state).toBe("failed");
     expect(runs).toEqual([]);
+    expect(releases).toHaveLength(1);
   });
+
+  it.each([Number.NaN, -1, 1.5])(
+    "blocks malformed reserved cost %s even when reconcile reports absent",
+    async (reservedCostCents) => {
+      const runs: string[] = [];
+      const runtime = new PipelineRuntime({
+        definition: forEachPipeline(),
+        nodeExecutor: tracingExecutor(runs),
+        loopIterationBudgetReservation: {
+          mode: "strict",
+          itemBudgetCents: 100,
+          reserve: () => ({
+            status: "reserved" as const,
+            reservedCostCents,
+          }),
+          settle: () => {},
+          release: () => {},
+          reconcile: () => ({ status: "absent" as const }),
+          measureItemCost: () => ({ status: "known" as const, costCents: 0 }),
+        },
+      });
+
+      const result = await runtime.execute({ items: ITEMS });
+
+      expect(result.state).toBe("failed");
+      expect(result.error).toContain("malformed");
+      expect(runs).toEqual([]);
+    }
+  );
 
   // --- Backward compatibility: widening must not break reserve-only hosts. ---
   it("leaves a reserve-only host on exactly its pre-F behaviour", async () => {
@@ -306,7 +356,7 @@ describe("for_each per-item economic settlement (F)", () => {
     expect(reserves).toEqual([]);
   });
 
-  it("does not fail closed when a ceiling is authored but settle is absent", async () => {
+  it("fails closed when an untyped ceiling host omits strict settlement", async () => {
     const runs: string[] = [];
     const runtime = new PipelineRuntime({
       definition: forEachPipeline(),
@@ -314,14 +364,42 @@ describe("for_each per-item economic settlement (F)", () => {
       loopIterationBudgetReservation: {
         itemBudgetCents: 100,
         reserve: () => ({ status: "reserved" as const, reservedCostCents: 50 }),
+      } as unknown as LoopBudgetHost,
+    });
+
+    const result = await runtime.execute({ items: ITEMS });
+
+    expect(result.state).toBe("failed");
+    expect(runs).toEqual([]);
+  });
+
+  it.each([
+    ["unknown", { status: "unknown" as const, reason: "provider omitted usage" }],
+    ["non-finite", { status: "known" as const, costCents: Number.NaN }],
+  ])("fails closed on %s strict settlement cost instead of charging zero", async (_case, cost) => {
+    const settles: unknown[] = [];
+    const runs: string[] = [];
+    const runtime = new PipelineRuntime({
+      definition: forEachPipeline(),
+      nodeExecutor: tracingExecutor(runs),
+      loopIterationBudgetReservation: {
+        mode: "strict",
+        itemBudgetCents: 100,
+        reserve: () => ({ status: "reserved" as const, reservedCostCents: 50 }),
+        settle: (input) => {
+          settles.push(input);
+        },
+        release: () => {},
+        reconcile: () => ({ status: "unknown" as const }),
+        measureItemCost: () => cost,
       },
     });
 
     const result = await runtime.execute({ items: ITEMS });
 
-    // A host that reserves but cannot settle still runs to completion; the
-    // absent settle is a no-op, not a closed gate.
-    expect(result.state).toBe("completed");
-    expect(runs).toHaveLength(4);
+    expect(result.state).toBe("failed");
+    expect(runs).toEqual(["a:step-a", "a:step-b"]);
+    expect(settles).toEqual([]);
+    expect(result.error).toMatch(/usage\/cost is unknown/);
   });
 });

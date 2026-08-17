@@ -1,8 +1,7 @@
 /**
  * DSL-03 terminal-continuation validation: a `complete` node must never have
- * a normal continuation. Siblings after it are unreachable — surfaced as a
- * warning under the interactive admission profile and a hard error under
- * unattended.
+ * a normal continuation. Siblings after it are unreachable and are rejected
+ * under every admission profile.
  */
 import { describe, expect, it } from 'vitest'
 
@@ -10,7 +9,7 @@ import type { FlowNode, ResolvedTool, SequenceNode, ToolResolver } from '@dzupag
 
 import { semanticResolve } from '../stages/semantic.js'
 
-const CODE = 'FLOW_UNREACHABLE_AFTER_TERMINAL'
+const CODE = 'unreachable_after_complete'
 
 const emptyToolResolver = (): ToolResolver => ({
   resolve: (): ResolvedTool | null => null,
@@ -34,20 +33,19 @@ describe('DSL-03 — unreachable work after terminal complete', () => {
     expect(byCode(result.errors)).toHaveLength(0)
   })
 
-  it('warns (interactive) on a sibling after complete, anchored at the unreachable node', async () => {
+  it('rejects (interactive) a sibling after complete, anchored at the unreachable node', async () => {
     const result = await semanticResolve(sequence(complete(), clarify('never asked?')), {
       toolResolver: emptyToolResolver(),
     })
 
-    const hits = byCode(result.warnings)
+    const hits = byCode(result.errors)
     expect(hits).toHaveLength(1)
     expect(hits[0]).toMatchObject({
       code: CODE,
       nodeType: 'clarification',
       nodePath: 'root.nodes[1]',
     })
-    // Interactive keeps it non-fatal.
-    expect(byCode(result.errors)).toHaveLength(0)
+    expect(byCode(result.warnings)).toHaveLength(0)
   })
 
   it('rejects (unattended) a sibling after complete as a hard error', async () => {
@@ -69,7 +67,7 @@ describe('DSL-03 — unreachable work after terminal complete', () => {
       { toolResolver: emptyToolResolver() },
     )
 
-    const hits = byCode(result.warnings)
+    const hits = byCode(result.errors)
     expect(hits).toHaveLength(1)
     expect(hits[0]).toMatchObject({ nodePath: 'root.nodes[1]' })
   })
@@ -84,7 +82,7 @@ describe('DSL-03 — unreachable work after terminal complete', () => {
 
     const result = await semanticResolve(ast, { toolResolver: emptyToolResolver() })
 
-    const hits = byCode(result.warnings)
+    const hits = byCode(result.errors)
     expect(hits).toHaveLength(1)
     expect(hits[0]).toMatchObject({ nodePath: 'root.nodes[0].then[1]' })
   })
@@ -97,7 +95,7 @@ describe('DSL-03 — unreachable work after terminal complete', () => {
 
     const result = await semanticResolve(ast, { toolResolver: emptyToolResolver() })
 
-    const hits = byCode(result.warnings)
+    const hits = byCode(result.errors)
     expect(hits).toHaveLength(1)
     expect(hits[0]).toMatchObject({ nodePath: 'root.nodes[0].branches[0][1]' })
   })

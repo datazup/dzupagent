@@ -45,6 +45,7 @@ import type { TrajectoryCalibrator } from "../self-correction/trajectory-calibra
 import type { RedisClientLike } from "./redis-checkpoint-store.js";
 import type { PostgresClientLike } from "./postgres-checkpoint-store.js";
 import type { LoopState } from "./pipeline-runtime/executor-state-types.js";
+import type { LoopBudgetHost } from "./loop-executor/types.js";
 
 // ---------------------------------------------------------------------------
 // Re-exported pure runtime contracts (REC-H-10 BC shim)
@@ -303,118 +304,7 @@ export interface PipelineRuntimeConfig {
    * hard `iterationBudgetCents` ceiling. Missing or unknown reservation fails
    * before the first body node dispatches.
    */
-  loopIterationBudgetReservation?: {
-    reserve(input: {
-      loopNodeId: string;
-      iteration: number;
-      budgetCents: number;
-      bodyNodeIds: readonly string[];
-      state: Readonly<Record<string, unknown>>;
-      /** F: present only for a `for_each` per-item reservation. */
-      itemIndex?: number;
-      /** F: re-dispatch counter; omitted on a first attempt. */
-      attempt?: number;
-      /**
-       * G2b: deterministic reservation ID, stable across a crash-and-replay of
-       * the same item attempt. A host keys its ledger by this to recognise a
-       * replayed reserve instead of opening a second reservation.
-       */
-      reservationId?: string;
-    }):
-      | { status: "reserved"; reservedCostCents: number }
-      | { status: "unknown" }
-      | Promise<
-          | { status: "reserved"; reservedCostCents: number }
-          | { status: "unknown" }
-        >;
-    /**
-     * F: reconcile a reservation against actual spend, releasing the unspent
-     * delta. **Optional on purpose** — a pre-F host that supplies `reserve`
-     * alone keeps today's behaviour exactly rather than failing closed.
-     * `actualCostCents` is integer cents; money never crosses this seam as a
-     * float.
-     */
-    settle?(input: {
-      loopNodeId: string;
-      iteration: number;
-      itemIndex?: number;
-      attempt?: number;
-      /** G2b: the same deterministic ID the reserve carried. */
-      reservationId?: string;
-      reservedCostCents: number;
-      actualCostCents: number;
-    }): void | Promise<void>;
-    /**
-     * F: return an unspent reservation whose work aborted or failed. Optional
-     * for the same compatibility reason as `settle`.
-     */
-    release?(input: {
-      loopNodeId: string;
-      iteration: number;
-      itemIndex?: number;
-      attempt?: number;
-      /** G2b: the same deterministic ID the reserve carried. */
-      reservationId?: string;
-      reservedCostCents: number;
-      reason: "aborted" | "failed";
-    }): void | Promise<void>;
-    /**
-     * G2b (doc 27 §8 prereq 6): prove the outcome of a reserve that THREW,
-     * whose reservation may or may not exist on the host.
-     *
-     * Unlike `settle`/`release`, an absent `reconcile` is NOT a no-op: the
-     * runtime cannot prove the outcome by itself, so it fails the item closed
-     * and blocks both release and redispatch. Only an explicit `released` or
-     * `absent` answer clears the item; `unknown` keeps it blocked.
-     */
-    reconcile?(input: {
-      loopNodeId: string;
-      iteration: number;
-      itemIndex?: number;
-      attempt?: number;
-      reservationId: string;
-      budgetCents: number;
-      reason: string;
-      /**
-       * G2d: which lifecycle call went unobserved. `for-each-loop.ts` has
-       * passed this on every reconcile since G2d widened reconciliation past
-       * the reserve boundary, but the field was never declared here — so a
-       * host reading the value the runtime actually sends, as the G2d prose
-       * instructs, got a type error on a field that was present at runtime.
-       * Required, not optional: every call site supplies it.
-       */
-      boundary: "reserve" | "settle" | "release";
-    }):
-      | { status: "released" }
-      | { status: "absent" }
-      | { status: "unknown" }
-      // 24-H: the host observed the reservation and another writer holds it.
-      // Blocks like `unknown`, but reports certainty rather than a failure to
-      // observe, and names the holder so an operator can find the rival.
-      | { status: "conflict"; heldBy: string }
-      | Promise<
-          | { status: "released" }
-          | { status: "absent" }
-          | { status: "unknown" }
-          | { status: "conflict"; heldBy: string }
-        >;
-    /**
-     * F: hard monetary ceiling admitted per `for_each` item. The `forEach`
-     * compile-time contract carries no budget field, so a per-item ceiling is
-     * authored here by the host rather than by the flow document. Absent ⇒
-     * `for_each` takes no reservation, which is the pre-F behaviour.
-     */
-    itemBudgetCents?: number;
-    /**
-     * F: extract the actual integer cents a settled body result cost. Absent ⇒
-     * actual spend is treated as the full reservation (nothing to release),
-     * which is conservative and never under-charges.
-     */
-    extractItemCostCents?: (
-      nodeId: string,
-      result: NodeResult
-    ) => number | undefined;
-  };
+  loopIterationBudgetReservation?: LoopBudgetHost;
   /**
    * P2: Optional durable node ledger for crash-safe, effectively-once node
    * execution. When provided, each standard node is leased before execution,

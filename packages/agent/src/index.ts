@@ -446,6 +446,17 @@ export {
   hasErrors,
 } from "./pipeline/loop-executor.js";
 export type {
+  LoopBudgetCompatibilityHost,
+  LoopBudgetCostEvidence,
+  LoopBudgetCostMeasurementInput,
+  LoopBudgetHost,
+  LoopBudgetReconcileInput,
+  LoopBudgetReconcileOutcome,
+  LoopBudgetReleaseInput,
+  LoopBudgetSettlementInput,
+  LoopBudgetStrictHost,
+} from "./pipeline/loop-executor.js";
+export type {
   PipelineState,
   NodeResult,
   PipelineRunResult,

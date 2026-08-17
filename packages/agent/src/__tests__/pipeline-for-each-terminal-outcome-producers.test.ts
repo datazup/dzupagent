@@ -41,6 +41,7 @@ import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
 import { InMemoryPipelineCheckpointStore } from "../pipeline/in-memory-checkpoint-store.js";
 import type { PipelineDefinition, PipelineNode } from "@dzupagent/core";
 import type { NodeExecutor } from "../pipeline/pipeline-runtime-types.js";
+import type { LoopBudgetStrictHost } from "../pipeline/loop-executor.js";
 
 /** A for_each loop whose body is three sequential nodes. */
 function threeBodyForEachPipeline(failFast = true): PipelineDefinition {
@@ -96,46 +97,57 @@ function failingExecutor(failOn?: {
 
 /** Host that admits every reservation. */
 function admittingHost(reservedCostCents = 50) {
-  const reserves: Array<Record<string, unknown>> = [];
-  const settles: Array<Record<string, unknown>> = [];
-  const releases: Array<Record<string, unknown>> = [];
+  const reserves: unknown[] = [];
+  const settles: unknown[] = [];
+  const releases: unknown[] = [];
+  const config: LoopBudgetStrictHost = {
+    mode: "strict",
+    itemBudgetCents: 100,
+    reserve: (input) => {
+      reserves.push(input);
+      return { status: "reserved", reservedCostCents };
+    },
+    settle: (input) => {
+      settles.push(input);
+    },
+    release: (input) => {
+      releases.push(input);
+    },
+    reconcile: () => ({ status: "unknown" }),
+    measureItemCost: () => ({
+      status: "known",
+      costCents: reservedCostCents,
+    }),
+  };
   return {
     reserves,
     settles,
     releases,
-    config: {
-      itemBudgetCents: 100,
-      reserve: (input: Record<string, unknown>) => {
-        reserves.push(input);
-        return { status: "reserved" as const, reservedCostCents };
-      },
-      settle: (input: Record<string, unknown>) => {
-        settles.push(input);
-      },
-      release: (input: Record<string, unknown>) => {
-        releases.push(input);
-      },
-    },
+    config,
   };
 }
 
 /** Host that DENIES the ceiling for one named item index. */
 function denyingHost(denyIndex: number) {
-  const reserves: Array<Record<string, unknown>> = [];
+  const reserves: unknown[] = [];
+  const config: LoopBudgetStrictHost = {
+    mode: "strict",
+    itemBudgetCents: 100,
+    reserve: (input) => {
+      reserves.push(input);
+      if (input.itemIndex === denyIndex) {
+        return { status: "unknown" };
+      }
+      return { status: "reserved", reservedCostCents: 50 };
+    },
+    settle: () => {},
+    release: () => {},
+    reconcile: () => ({ status: "absent" }),
+    measureItemCost: () => ({ status: "known", costCents: 50 }),
+  };
   return {
     reserves,
-    config: {
-      itemBudgetCents: 100,
-      reserve: (input: Record<string, unknown>) => {
-        reserves.push(input);
-        if (input["itemIndex"] === denyIndex) {
-          return { status: "unknown" as const };
-        }
-        return { status: "reserved" as const, reservedCostCents: 50 };
-      },
-      settle: () => {},
-      release: () => {},
-    },
+    config,
   };
 }
 
@@ -245,16 +257,18 @@ describe("24-G: for_each records a terminal outcome at every exit", () => {
       nodeExecutor: failingExecutor(),
       checkpointStore: store,
       loopIterationBudgetReservation: {
+        mode: "strict",
         itemBudgetCents: 100,
-        reserve: (input: Record<string, unknown>) => {
-          if (input["itemIndex"] === 1) {
+        reserve: (input) => {
+          if (input.itemIndex === 1) {
             throw new Error("transport died mid-reserve");
           }
           return { status: "reserved" as const, reservedCostCents: 50 };
         },
         settle: () => {},
         release: () => {},
-        // No reconcile hook: the reservation stays unproven, fail-closed.
+        reconcile: () => ({ status: "unknown" as const }),
+        measureItemCost: () => ({ status: "known" as const, costCents: 50 }),
       },
     });
 
@@ -364,24 +378,12 @@ describe("24-G: proof 8 — the terminal set covers every index", () => {
   });
 });
 
-describe("24-G: what the terminal set does NOT yet do", () => {
-  it("re-runs an item that completed out of order, because its OUTPUT is not durable", async () => {
-    // The honest boundary of this packet, pinned so it is not mistaken for a
-    // capability that already exists.
-    //
-    // A reader that skipped re-dispatching an item whose durable outcome is
-    // `completed` was built and then REMOVED: disabling it killed zero tests,
-    // because `nextIndex` starts at the ordered prefix, so the loop never
-    // dispatches an item the prefix already covers. The existing cursor
-    // subsumes the skip entirely.
-    //
-    // The one genuinely uncovered case is an item that completed OUT OF ORDER,
-    // past the prefix. Here item 'd' (index 3) completes after item 'c'
-    // (index 2) fails, so the prefix stops at 2 while index 3 is durably
-    // `completed`. It is still re-run on resume — and must be, because
-    // `itemOutcomes` records what HAPPENED to an item and never what it
-    // PRODUCED, while only the flushed prefix persists collected values.
-    // Skipping it would leave a hole in the aggregate.
+describe("24-G: out-of-order terminal evidence", () => {
+  it("retains a completed item past the ordered prefix", async () => {
+    // This is the durable seam consumed by the aggregate-receipt resume proof:
+    // item 'd' (index 3) completes after item 'c' (index 2) fails, so the
+    // ordered prefix stays at 2 while index 3 carries both a completed outcome
+    // and its body-complete receipt. Resume must restore it, never redispatch.
     const store = new InMemoryPipelineCheckpointStore();
     const firstRuns: string[] = [];
     const first = new PipelineRuntime({

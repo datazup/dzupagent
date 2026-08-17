@@ -97,6 +97,7 @@ describe("24-I — a budget breach halts in-flight for_each items", () => {
       definition: forEachPipeline(2),
       nodeExecutor: executor,
       loopIterationBudgetReservation: {
+        mode: "strict",
         itemBudgetCents: 100,
         // The parameter types are INFERRED from the host-config contract rather
         // than re-declared narrowly: an explicit `{ itemIndex: number }` is not
@@ -118,6 +119,8 @@ describe("24-I — a budget breach halts in-flight for_each items", () => {
         release: (input) => {
           released.push(input.itemIndex ?? -1);
         },
+        reconcile: () => ({ status: "unknown" as const }),
+        measureItemCost: () => ({ status: "known" as const, costCents: 50 }),
       },
     });
 
@@ -179,6 +182,7 @@ describe("24-I — a budget breach halts in-flight for_each items", () => {
       definition: forEachPipeline(2),
       nodeExecutor: executor,
       loopIterationBudgetReservation: {
+        mode: "strict",
         itemBudgetCents: 100,
         reserve: async (input) => {
           if (input.itemIndex === 1) {
@@ -193,6 +197,8 @@ describe("24-I — a budget breach halts in-flight for_each items", () => {
         release: (input) => {
           releasedWith.push(`${input.itemIndex ?? -1}:${input.reason}`);
         },
+        reconcile: () => ({ status: "unknown" as const }),
+        measureItemCost: () => ({ status: "known" as const, costCents: 50 }),
       },
     });
 
@@ -229,12 +235,15 @@ describe("24-I — a budget breach halts in-flight for_each items", () => {
       definition: forEachPipeline(1),
       nodeExecutor: executor,
       loopIterationBudgetReservation: {
+        mode: "strict",
         itemBudgetCents: 100,
         reserve: () => ({ status: "reserved" as const, reservedCostCents: 50 }),
         settle: () => {},
         release: (input) => {
           releasedWith.push(`${input.itemIndex ?? -1}:${input.reason}`);
         },
+        reconcile: () => ({ status: "unknown" as const }),
+        measureItemCost: () => ({ status: "known" as const, costCents: 50 }),
       },
     });
 

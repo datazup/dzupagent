@@ -21,6 +21,7 @@ import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
 import { InMemoryPipelineCheckpointStore } from "../pipeline/in-memory-checkpoint-store.js";
 import type { PipelineDefinition, PipelineNode } from "@dzupagent/core";
 import type { NodeExecutor } from "../pipeline/pipeline-runtime-types.js";
+import type { LoopBudgetStrictHost } from "../pipeline/loop-executor.js";
 
 /** A for_each loop whose body is three sequential nodes, so a crash can land strictly inside an item. */
 function threeBodyForEachPipeline(): PipelineDefinition {
@@ -78,26 +79,30 @@ function tracingExecutor(
 
 /** Records every lifecycle call the host receives, in order. */
 function recordingHost() {
-  const reserves: Array<Record<string, unknown>> = [];
-  const settles: Array<Record<string, unknown>> = [];
-  const releases: Array<Record<string, unknown>> = [];
+  const reserves: unknown[] = [];
+  const settles: unknown[] = [];
+  const releases: unknown[] = [];
+  const config: LoopBudgetStrictHost = {
+    mode: "strict",
+    itemBudgetCents: 100,
+    reserve: (input) => {
+      reserves.push(input);
+      return { status: "reserved", reservedCostCents: 50 };
+    },
+    settle: (input) => {
+      settles.push(input);
+    },
+    release: (input) => {
+      releases.push(input);
+    },
+    reconcile: () => ({ status: "unknown" }),
+    measureItemCost: () => ({ status: "known", costCents: 50 }),
+  };
   return {
     reserves,
     settles,
     releases,
-    config: {
-      itemBudgetCents: 100,
-      reserve: (input: Record<string, unknown>) => {
-        reserves.push(input);
-        return { status: "reserved" as const, reservedCostCents: 50 };
-      },
-      settle: (input: Record<string, unknown>) => {
-        settles.push(input);
-      },
-      release: (input: Record<string, unknown>) => {
-        releases.push(input);
-      },
-    },
+    config,
   };
 }
 

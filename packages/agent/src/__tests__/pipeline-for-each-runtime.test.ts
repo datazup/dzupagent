@@ -589,8 +589,25 @@ describe('PipelineRuntime — lowered for_each collect', () => {
     // crashed one `failed`, and any item the loop never reached `cancelled`.
     // Asserting both together is the point — the cursor must NOT move because
     // outcomes were recorded.
-    expect(checkpoint?.loopState?.['loop-items']).toEqual({
+    expect(checkpoint?.loopState?.['loop-items']).toMatchObject({
       iteration: 2,
+      itemFrames: {
+        '3': {
+          itemIndex: 3,
+          nextBodyNodeIndex: 1,
+          outcome: 'completed',
+          bodyResults: {
+            'loop-items': {
+              output: {
+                schema: 'dzupagent/for-each-aggregate-receipt/v1',
+                loopNodeId: 'loop-items',
+                itemIndex: 3,
+                collectedValue: { status: 'known', value: 'd:blocked' },
+              },
+            },
+          },
+        },
+      },
       itemOutcomes: {
         '0': { itemIndex: 0, outcome: 'completed' },
         '1': { itemIndex: 1, outcome: 'completed' },
@@ -626,23 +643,9 @@ describe('PipelineRuntime — lowered for_each collect', () => {
     const resumed = await second.resume(checkpoint!)
 
     expect(resumed.state).toBe('completed')
-    // 24-H: 'd' STILL re-runs here, and that is the correct outcome for THIS
-    // pipeline shape rather than an unfixed defect.
-    //
-    // 24-H makes a resume skip an item it already settled, so it is not charged
-    // twice — but only when the item's aggregate contribution can be rebuilt
-    // without re-running it. This loop has a SINGLE body node, so the mid-item
-    // frame write (gated on `bodyIndex < bodyNodes.length - 1`) never fires and
-    // no frame is retained; `collect.from` is `itemStatus`, which only that one
-    // node produces. So 'd' genuinely has nothing to restore from, and skipping
-    // it would flush `undefined` into `itemStatuses` — corrupting the aggregate
-    // to fix a double charge, which is the worse trade.
-    //
-    // The multi-body-node shape, where the frame survives and the skip DOES
-    // fire, is covered in `pipeline-for-each-settled-item-redispatch.test.ts`.
-    // The two together are what make the recoverability gate honest: each is
-    // red if the gate is forced to the other's answer.
-    expect(resumeRuns).toEqual(['c', 'd'])
+    // The single-body item completed past the ordered prefix, but its durable
+    // aggregate receipt restores `itemStatus`; no effect is re-dispatched.
+    expect(resumeRuns).toEqual(['c'])
     expect(resumed.nodeResults.get('loop-items')?.output).toMatchObject({
       loopOutput: ['a:ready', 'b:blocked', 'c:ready', 'd:blocked'],
       metrics: {
@@ -727,8 +730,24 @@ describe('PipelineRuntime — lowered for_each collect', () => {
     // crashed one `failed`, and any item the loop never reached `cancelled`.
     // Asserting both together is the point — the cursor must NOT move because
     // outcomes were recorded.
-    expect(checkpoint?.loopState?.['loop-items']).toEqual({
+    expect(checkpoint?.loopState?.['loop-items']).toMatchObject({
       iteration: 2,
+      itemFrames: {
+        '3': {
+          itemIndex: 3,
+          nextBodyNodeIndex: 1,
+          outcome: 'completed',
+          bodyResults: {
+            'loop-items': {
+              output: {
+                schema: 'dzupagent/for-each-aggregate-receipt/v1',
+                itemIndex: 3,
+                collectedValue: { status: 'known', value: 'd:blocked' },
+              },
+            },
+          },
+        },
+      },
       itemOutcomes: {
         '0': { itemIndex: 0, outcome: 'completed' },
         '1': { itemIndex: 1, outcome: 'completed' },
@@ -764,11 +783,7 @@ describe('PipelineRuntime — lowered for_each collect', () => {
         const resumed = await second.resume(checkpoint!)
 
         expect(resumed.state).toBe('completed')
-        // 24-G: 'd' still re-runs. Its terminal record says `completed`, but
-        // it completed OUT OF ORDER — past the flushed prefix — so its
-        // collected value is not durable and the resume must rebuild it. The
-        // reader skips a completed item only when its output is recoverable.
-        expect(resumeRuns).toEqual(['c', 'd'])
+        expect(resumeRuns).toEqual(['c'])
         expect(resumed.nodeResults.get('loop-items')?.output).toMatchObject({
           loopOutput: ['a:ready', 'b:blocked', 'c:ready', 'd:blocked'],
           metrics: {

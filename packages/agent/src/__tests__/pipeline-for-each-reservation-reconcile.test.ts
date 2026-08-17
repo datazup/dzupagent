@@ -5,11 +5,10 @@
  * F gave `for_each` a reserve/settle/release lifecycle but left two clauses of
  * admission precondition 3 open, and one of them was an outright leak:
  *
- * A `reserve` that THREW was collapsed into the same branch as a host that
- * *answered* `{ status: "unknown" }`. Those are not the same fact. An answered
- * unknown means the host holds nothing. A thrown reserve may have written a
- * ledger row before the transport died — so the reservation's existence is
- * genuinely unknown, and the pre-G2b runtime issued no release for it, ever.
+ * A `reserve` that THREW was collapsed into a denial even though it may have
+ * written a ledger row before the transport died. Strict mode now also treats
+ * an answered `{ status: "unknown" }` as non-authoritative: only reconciliation
+ * can prove the row absent or released.
  * Verified against the pre-G2b tree: releases came back `[]`.
  *
  * Prereq 6 requires that case be treated as outcome-unknown — block release and
@@ -78,6 +77,14 @@ function tracingExecutor(runs: string[]): NodeExecutor {
 }
 
 const ITEMS = [{ id: "a" }, { id: "b" }];
+
+const STRICT_LIFECYCLE = {
+  mode: "strict" as const,
+  settle: () => {},
+  release: () => {},
+  reconcile: () => ({ status: "unknown" as const }),
+  measureItemCost: () => ({ status: "known" as const, costCents: 50 }),
+};
 
 /**
  * The failure message surfaces on the `pipeline:failed` runtime event, not on
@@ -162,6 +169,7 @@ describe("G2b — deterministic reservation ID (prereq 5)", () => {
       definition: forEachPipeline(),
       nodeExecutor: tracingExecutor([]),
       loopIterationBudgetReservation: {
+        ...STRICT_LIFECYCLE,
         itemBudgetCents: 100,
         reserve: (input) => {
           reserves.push(input);
@@ -197,6 +205,7 @@ describe("G2b — deterministic reservation ID (prereq 5)", () => {
         return { nodeId, output: "ok", durationMs: 1 };
       },
       loopIterationBudgetReservation: {
+        ...STRICT_LIFECYCLE,
         itemBudgetCents: 100,
         reserve: (input) => {
           reserves.push(input);
@@ -225,6 +234,7 @@ describe("G2b — outcome-unknown reconciliation (prereq 6)", () => {
       nodeExecutor: tracingExecutor(runs),
       onEvent: (event) => events.push(event),
       loopIterationBudgetReservation: {
+        ...STRICT_LIFECYCLE,
         itemBudgetCents: 100,
         reserve: () => {
           throw new Error("transport died after the ledger write");
@@ -256,6 +266,7 @@ describe("G2b — outcome-unknown reconciliation (prereq 6)", () => {
       nodeExecutor: tracingExecutor(runs),
       onEvent: (event) => events.push(event),
       loopIterationBudgetReservation: {
+        ...STRICT_LIFECYCLE,
         itemBudgetCents: 100,
         reserve: () => {
           throw new Error("transport died");
@@ -279,6 +290,48 @@ describe("G2b — outcome-unknown reconciliation (prereq 6)", () => {
     expect(failureMessage(events)).toContain("outcome-unknown");
   });
 
+  it("does not redispatch a durable outcome-unknown reserve on resume", async () => {
+    const store = new InMemoryPipelineCheckpointStore();
+    const first = new PipelineRuntime({
+      definition: checkpointingForEachPipeline(),
+      nodeExecutor: tracingExecutor([]),
+      checkpointStore: store,
+      loopIterationBudgetReservation: {
+        ...STRICT_LIFECYCLE,
+        itemBudgetCents: 100,
+        reserve: () => {
+          throw new Error("reserve transport died");
+        },
+        reconcile: () => ({ status: "unknown" as const }),
+      },
+    });
+    const failed = await first.execute({ items: ITEMS });
+    const checkpoint = await store.load(failed.runId);
+
+    const reruns: string[] = [];
+    const rereserves: unknown[] = [];
+    const resumed = new PipelineRuntime({
+      definition: checkpointingForEachPipeline(),
+      nodeExecutor: tracingExecutor(reruns),
+      checkpointStore: store,
+      loopIterationBudgetReservation: {
+        ...STRICT_LIFECYCLE,
+        itemBudgetCents: 100,
+        reserve: (input) => {
+          rereserves.push(input);
+          return { status: "reserved" as const, reservedCostCents: 50 };
+        },
+      },
+    });
+
+    const result = await resumed.resume(checkpoint!);
+
+    expect(result.state).toBe("failed");
+    expect(reruns).toEqual([]);
+    expect(rereserves).toEqual([]);
+    expect(result.error).toContain("redispatch is blocked");
+  });
+
   it("stays blocked when reconcile itself throws", async () => {
     const runs: string[] = [];
     const events: { type: string; error?: string }[] = [];
@@ -287,6 +340,7 @@ describe("G2b — outcome-unknown reconciliation (prereq 6)", () => {
       nodeExecutor: tracingExecutor(runs),
       onEvent: (event) => events.push(event),
       loopIterationBudgetReservation: {
+        ...STRICT_LIFECYCLE,
         itemBudgetCents: 100,
         reserve: () => {
           throw new Error("transport died");
@@ -315,6 +369,7 @@ describe("G2b — outcome-unknown reconciliation (prereq 6)", () => {
         nodeExecutor: tracingExecutor(runs),
         onEvent: (event) => events.push(event),
         loopIterationBudgetReservation: {
+        ...STRICT_LIFECYCLE,
           itemBudgetCents: 100,
           reserve: () => {
             throw new Error("transport died");
@@ -336,7 +391,42 @@ describe("G2b — outcome-unknown reconciliation (prereq 6)", () => {
     }
   );
 
-  it("does not consult reconcile when the host cleanly answers unknown", async () => {
+  it("releases a reconciled reserved hold before denying the unstarted item", async () => {
+    const runs: string[] = [];
+    const releases: string[] = [];
+    const store = new InMemoryPipelineCheckpointStore();
+    const runtime = new PipelineRuntime({
+      definition: checkpointingForEachPipeline(),
+      nodeExecutor: tracingExecutor(runs),
+      checkpointStore: store,
+      loopIterationBudgetReservation: {
+        ...STRICT_LIFECYCLE,
+        itemBudgetCents: 100,
+        reserve: () => {
+          throw new Error("reserve acknowledgement lost");
+        },
+        release: (input) => {
+          releases.push(input.reservationId ?? "");
+        },
+        reconcile: (input) => {
+          expect(input.boundary).toBe("reserve");
+          return { status: "reserved" as const, reservedCostCents: 50 };
+        },
+      },
+    });
+
+    const result = await runtime.execute({ items: ITEMS });
+
+    expect(result.state).toBe("failed");
+    expect(runs).toEqual([]);
+    expect(releases).toHaveLength(1);
+    const checkpoint = await store.load(result.runId);
+    expect(
+      checkpoint?.loopState?.["loop-items"]?.itemOutcomes?.["0"]?.outcome
+    ).toBe("denied");
+  });
+
+  it("reconciles an answered unknown instead of assuming no ledger row exists", async () => {
     const runs: string[] = [];
     const reconciles: unknown[] = [];
     const events: { type: string; error?: string }[] = [];
@@ -345,9 +435,10 @@ describe("G2b — outcome-unknown reconciliation (prereq 6)", () => {
       nodeExecutor: tracingExecutor(runs),
       onEvent: (event) => events.push(event),
       loopIterationBudgetReservation: {
+        ...STRICT_LIFECYCLE,
         itemBudgetCents: 100,
-        // ANSWERED unknown — the host holds nothing. This is a clean denial and
-        // must keep its pre-G2b behaviour, not become an outcome-unknown block.
+        // An answered unknown is still not proof that no ledger row exists in
+        // strict mode; reconciliation owns that fact.
         reserve: () => ({ status: "unknown" as const }),
         reconcile: () => {
           reconciles.push(true);
@@ -360,10 +451,8 @@ describe("G2b — outcome-unknown reconciliation (prereq 6)", () => {
 
     expect(result.state).toBe("failed");
     expect(runs).toEqual([]);
-    expect(reconciles).toEqual([]);
-    expect(failureMessage(events)).toContain(
-      "no authoritative conservative reservation"
-    );
+    expect(reconciles).toHaveLength(1);
+    expect(failureMessage(events)).toContain("not outstanding");
   });
 
   it("leaves a reserve-only host on exactly its pre-G2b behaviour", async () => {
@@ -425,6 +514,7 @@ describe("24-H — reconcile can report a conflicting holder (proof 6)", () => {
       nodeExecutor: tracingExecutor(runs),
       onEvent: (event) => events.push(event),
       loopIterationBudgetReservation: {
+        ...STRICT_LIFECYCLE,
         itemBudgetCents: 100,
         reserve: () => {
           throw new Error("transport died");
@@ -467,6 +557,7 @@ describe("24-H — reconcile can report a conflicting holder (proof 6)", () => {
       nodeExecutor: tracingExecutor([]),
       onEvent: (event) => events.push(event),
       loopIterationBudgetReservation: {
+        ...STRICT_LIFECYCLE,
         itemBudgetCents: 100,
         reserve: () => {
           throw new Error("transport died");
@@ -498,6 +589,7 @@ describe("24-H — reconcile can report a conflicting holder (proof 6)", () => {
       nodeExecutor: tracingExecutor([]),
       checkpointStore: store,
       loopIterationBudgetReservation: {
+        ...STRICT_LIFECYCLE,
         itemBudgetCents: 100,
         reserve: () => {
           throw new Error("transport died");
@@ -527,6 +619,7 @@ describe("24-H — reconcile can report a conflicting holder (proof 6)", () => {
       definition: forEachPipeline(),
       nodeExecutor: tracingExecutor(runs),
       loopIterationBudgetReservation: {
+        ...STRICT_LIFECYCLE,
         itemBudgetCents: 100,
         reserve: () => {
           throw new Error("transport died");

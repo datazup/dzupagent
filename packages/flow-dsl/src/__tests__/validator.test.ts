@@ -113,6 +113,51 @@ describe('validateDocument', () => {
       }),
     ])
   })
+
+  it('returns valid=false for a sibling after terminal complete', () => {
+    const doc = makeValidDoc({
+      root: {
+        type: 'sequence',
+        id: 'root',
+        nodes: [
+          { type: 'complete', id: 'done' },
+          { type: 'action', id: 'never-runs', toolRef: 'skill:dead', input: {} },
+        ],
+      },
+    })
+
+    const result = validateDocument(doc)
+
+    expect(result).toEqual({
+      valid: false,
+      diagnostics: [
+        expect.objectContaining({
+          phase: 'validate',
+          code: 'unreachable_after_complete',
+          path: 'root.nodes[1]',
+        }),
+      ],
+    })
+  })
+
+  it('preserves output-key errors before unreachable-after-complete errors', () => {
+    const doc = makeValidDoc({
+      root: {
+        type: 'sequence',
+        id: 'root',
+        nodes: [
+          { type: 'prompt', id: 'first', userPrompt: 'first', outputKey: 'result' },
+          { type: 'complete', id: 'done' },
+          { type: 'prompt', id: 'dead', userPrompt: 'dead', outputKey: 'result' },
+        ],
+      },
+    })
+
+    expect(validateDocument(doc).diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
+      'output_key_collision',
+      'unreachable_after_complete',
+    ])
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -160,6 +205,32 @@ describe('parseDslToDocument', () => {
     expect(result.document).toBeNull()
     expect(result.partialDocument).not.toBeNull()
     expect(result.diagnostics.some((d) => d.code === 'INVALID_DSL_VERSION')).toBe(true)
+  })
+
+  it('rejects parsed DSL with a sibling after terminal complete', () => {
+    const result = parseDslToDocument(`
+dsl: dzupflow/v1
+id: unreachable
+version: 1
+steps:
+  - complete:
+      id: done
+  - action:
+      id: never-runs
+      ref: skill:dead
+      input: {}
+`)
+
+    expect(result.ok).toBe(false)
+    expect(result.document).toBeNull()
+    expect(result.partialDocument).not.toBeNull()
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        phase: 'validate',
+        code: 'unreachable_after_complete',
+        path: 'root.nodes[1]',
+      }),
+    ])
   })
 })
 

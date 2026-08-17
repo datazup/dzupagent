@@ -15,6 +15,30 @@ const baseResult: FetchResult = {
   method: 'http',
 }
 
+/**
+ * Holds a mocked fetch in-flight until every sibling in its batch has started.
+ *
+ * `scrapeMany` dispatches a batch with `Promise.allSettled(batch.map(...))`, so
+ * a batch's calls are created back-to-back and are only ever separated by
+ * microtasks. Yielding to the MACROTASK queue therefore guarantees that all of
+ * them have incremented `current` before any of them decrements it, which is
+ * what makes the `maxConcurrent` assertions below deterministic rather than
+ * lucky.
+ *
+ * Deliberately not a real `setTimeout`: that ties the suite to the wall clock
+ * and is banned by `no-restricted-syntax` (whose selector is purely syntactic,
+ * so `vi.useFakeTimers()` would not silence it either). Deliberately not a bare
+ * `await Promise.resolve()`: a single microtask can lose the race against
+ * whatever microtasks `scrape()` itself awaits before reaching the fetcher, so
+ * the peak would be under-observed and the assertion would pass for the wrong
+ * reason.
+ */
+function yieldToMacrotask(): Promise<void> {
+  return new Promise((resolve) => {
+    setImmediate(resolve)
+  })
+}
+
 function wireUpMocks(
   scraper: WebScraper,
   mocks: {
@@ -192,7 +216,7 @@ describe('WebScraper - scrapeMany edge cases', () => {
         callOrder.push(idx)
         current++
         maxConcurrent = Math.max(maxConcurrent, current)
-        await new Promise((r) => setTimeout(r, 5))
+        await yieldToMacrotask()
         current--
         return { ...baseResult, url }
       }),
@@ -218,7 +242,7 @@ describe('WebScraper - scrapeMany edge cases', () => {
       httpFetch: vi.fn().mockImplementation(async (url: string) => {
         current++
         maxConcurrent = Math.max(maxConcurrent, current)
-        await new Promise(r => setTimeout(r, 5))
+        await yieldToMacrotask()
         current--
         return { ...baseResult, url }
       }),
@@ -227,7 +251,11 @@ describe('WebScraper - scrapeMany edge cases', () => {
     const urls = Array.from({ length: 10 }, (_, i) => `https://example.com/${i}`)
     await scraper.scrapeMany(urls)
 
-    expect(maxConcurrent).toBeLessThanOrEqual(5)
+    // Two-sided on purpose. `toBeLessThanOrEqual(5)` alone cannot tell a default
+    // of 5 from a default of 1 — a strictly serial `scrapeMany` peaks at 1,
+    // which satisfies it — so this test survived a serial mutant while claiming
+    // to pin the default. Asserting the peak exactly is what makes its name true.
+    expect(maxConcurrent).toBe(5)
   })
 
   it('scrapeMany without extraction options passes undefined', async () => {

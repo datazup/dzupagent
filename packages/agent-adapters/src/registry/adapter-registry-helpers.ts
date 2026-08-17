@@ -114,7 +114,9 @@ export async function* runOneAttempt(
     | undefined;
   let completedUsage: TokenUsage | undefined;
 
-  const gen = adapter.executeWithRaw?.(input) ?? adapter.execute(input);
+  const gen = input.resumeSessionId
+    ? adapter.resumeSession(input.resumeSessionId, input)
+    : adapter.executeWithRaw?.(input) ?? adapter.execute(input);
 
   for await (const event of gen) {
     if (isProviderRawStreamEvent(event)) {

@@ -50,6 +50,7 @@ interface FakeAdapterOptions {
   fail?: { message: string; code?: string | undefined } | undefined;
   throwError?: unknown;
   onExecute?: ((input: AgentInput) => void) | undefined;
+  onResume?: ((sessionId: string, input: AgentInput) => void) | undefined;
 }
 
 function createFakeAdapter(
@@ -97,7 +98,22 @@ function createFakeAdapter(
         ...(input.correlationId ? { correlationId: input.correlationId } : {}),
       };
     },
-    async *resumeSession(): AsyncGenerator<AgentEvent, void, undefined> {},
+    async *resumeSession(
+      sessionId: string,
+      input: AgentInput
+    ): AsyncGenerator<AgentEvent, void, undefined> {
+      options.onResume?.(sessionId, input);
+      yield {
+        type: "adapter:completed",
+        providerId,
+        sessionId,
+        result: options.result ?? `resumed:${providerId}`,
+        ...(options.usage ? { usage: options.usage } : {}),
+        durationMs: 12,
+        timestamp: 112,
+        ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+      };
+    },
     interrupt() {},
     async healthCheck() {
       return {
@@ -232,6 +248,45 @@ describe("runAgentExecution", () => {
     expect(adapterFactories.createClaudeBackendAdapter).not.toHaveBeenCalled();
     const materializedConfig = materializeAdapter.mock.calls[0]![0].config;
     expect(materializedConfig.env?.OPENAI_API_KEY).toBeUndefined();
+  });
+
+  it("uses the provider-native resume path when an exact session is projected", async () => {
+    const onExecute = vi.fn();
+    const onResume = vi.fn();
+    const request = exactRequest({
+      providerId: "codex",
+      backend: "cli",
+      authMode: "subscription_cli",
+      profileRef: "codex-default",
+      prompt: "continue",
+      correlationId: "corr-resume",
+    });
+    const adapter = createFakeAdapter("codex", {
+      result: "resumed result",
+      onExecute,
+      onResume,
+    });
+    const prepared = prepareFakeRunner(request, adapter, {
+      projectInput(input) {
+        return { ...input, resumeSessionId: "provider-session-1" };
+      },
+    });
+
+    await expect(
+      runPreparedAgentExecution(request, prepared)
+    ).resolves.toMatchObject({
+      ok: true,
+      text: "resumed result",
+      providerId: "codex",
+    });
+    expect(onExecute).not.toHaveBeenCalled();
+    expect(onResume).toHaveBeenCalledWith(
+      "provider-session-1",
+      expect.objectContaining({
+        prompt: "continue",
+        correlationId: "corr-resume",
+      })
+    );
   });
 
   it("never ignores a subscription profile when no qualified materializer is injected", async () => {

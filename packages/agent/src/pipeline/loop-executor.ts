@@ -22,6 +22,15 @@ export type {
   LoopBodyGraphScheduleOutcome,
   LoopBodyGraphScheduleResult,
   LoopExecutionResult,
+  LoopBudgetCompatibilityHost,
+  LoopBudgetCostEvidence,
+  LoopBudgetCostMeasurementInput,
+  LoopBudgetHost,
+  LoopBudgetReconcileInput,
+  LoopBudgetReconcileOutcome,
+  LoopBudgetReleaseInput,
+  LoopBudgetSettlementInput,
+  LoopBudgetStrictHost,
   LoopResumeOptions,
 } from "./loop-executor/types.js";
 export { executeLoop } from "./loop-executor/predicate-loop.js";

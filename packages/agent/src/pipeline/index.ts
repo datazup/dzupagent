@@ -98,6 +98,17 @@ export type {
 } from './runtime-tool-handlers.js'
 export { executeLoop, stateFieldTruthy, qualityBelow, hasErrors } from './loop-executor.js'
 export type {
+  LoopBudgetCompatibilityHost,
+  LoopBudgetCostEvidence,
+  LoopBudgetCostMeasurementInput,
+  LoopBudgetHost,
+  LoopBudgetReconcileInput,
+  LoopBudgetReconcileOutcome,
+  LoopBudgetReleaseInput,
+  LoopBudgetSettlementInput,
+  LoopBudgetStrictHost,
+} from './loop-executor.js'
+export type {
   PipelineState,
   NodeResult,
   PipelineRunResult,

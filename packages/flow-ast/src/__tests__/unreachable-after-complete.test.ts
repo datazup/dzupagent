@@ -38,7 +38,10 @@ describe('checkUnreachableAfterComplete', () => {
         severity: UNREACHABLE_AFTER_COMPLETE_SEVERITY,
         message: expect.stringContaining('"a1"'),
         completeId: 'done',
+        completePath: 'root.nodes[0]',
         unreachableId: 'a1',
+        unreachablePath: 'root.nodes[1]',
+        unreachableType: 'action',
         scopePath: 'root',
         unreachableCount: 2,
       },
@@ -64,7 +67,10 @@ describe('checkUnreachableAfterComplete', () => {
     expect(diags).toHaveLength(1)
     expect(diags[0]).toMatchObject({
       completeId: 'early_exit',
+      completePath: 'root.nodes[0].then[0]',
       unreachableId: 'dead',
+      unreachablePath: 'root.nodes[0].then[1]',
+      unreachableType: 'action',
       scopePath: 'root.branch[id=b1].then',
       unreachableCount: 1,
     })

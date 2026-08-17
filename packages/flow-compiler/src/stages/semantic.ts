@@ -265,9 +265,11 @@ export async function semanticResolve(
   //     the flow (missing match is a hard error).
   validateCheckpointRestore(ast, errors, warnings)
 
-  // DSL-03: a terminal `complete` must never have a normal continuation —
-  // siblings after it are unreachable (warning interactive, error unattended).
-  validateTerminalContinuations(ast, errors, warnings, ctx.admissionProfile)
+  // DSL-03 defense-in-depth for callers that invoke semanticResolve directly:
+  // a terminal `complete` must never have a normal continuation. The standard
+  // compiler rejects this in Stage 2; direct semantic validation rejects it
+  // here with the same canonical diagnostic.
+  validateTerminalContinuations(ast, errors)
 
   return { ast, errors, warnings, resolved, resolvedPersonas, expandedAgentTools, expandedAgentProfiles }
 }

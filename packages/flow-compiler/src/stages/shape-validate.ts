@@ -1,5 +1,6 @@
 import {
   checkOutputKeyUniqueness,
+  checkUnreachableAfterComplete,
   type FlowNode,
   type ValidationError,
 } from "@dzupagent/flow-ast";
@@ -45,6 +46,19 @@ export function validateShape(ast: FlowNode): ValidationError[] {
     ...checkOutputKeyUniqueness(ast).map((diagnostic) => ({
       nodeType: ast.type,
       nodePath: diagnostic.scopePath,
+      code: diagnostic.code,
+      message: diagnostic.message,
+      category: "control" as const,
+    }))
+  );
+
+  // Cross-cutting authoring diagnostics are intentionally ordered after
+  // output-key uniqueness. This preserves the existing first-error contract
+  // while still aggregating terminal dead work into the same Stage 2 result.
+  errors.push(
+    ...checkUnreachableAfterComplete(ast).map((diagnostic) => ({
+      nodeType: diagnostic.unreachableType,
+      nodePath: diagnostic.unreachablePath,
       code: diagnostic.code,
       message: diagnostic.message,
       category: "control" as const,

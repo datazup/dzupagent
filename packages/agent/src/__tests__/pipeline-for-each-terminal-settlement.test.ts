@@ -35,6 +35,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
+import { InMemoryPipelineCheckpointStore } from "../pipeline/in-memory-checkpoint-store.js";
 import type { PipelineDefinition, PipelineNode } from "@dzupagent/core";
 import type { NodeExecutor } from "../pipeline/pipeline-runtime-types.js";
 
@@ -68,6 +69,14 @@ function forEachPipeline(): PipelineDefinition {
 }
 
 const ITEMS = [{ id: "a" }, { id: "b" }];
+
+const STRICT_LIFECYCLE = {
+  mode: "strict" as const,
+  settle: () => {},
+  release: () => {},
+  reconcile: () => ({ status: "unknown" as const }),
+  measureItemCost: () => ({ status: "known" as const, costCents: 50 }),
+};
 
 function okExecutor(): NodeExecutor {
   return async (nodeId: string, _node: PipelineNode) => ({
@@ -103,7 +112,7 @@ function failureMessage(events: { type: string; error?: string }[]): string {
 }
 
 describe("G2d — an unobservable settle is outcome-unknown (prereq 7)", () => {
-  it("fails closed, naming boundary and reservation, when no reconcile exists", async () => {
+  it("fails closed, naming boundary and reservation, when reconciliation cannot prove the outcome", async () => {
     const events: { type: string; error?: string }[] = [];
     const calls: string[] = [];
     const runtime = new PipelineRuntime({
@@ -112,6 +121,7 @@ describe("G2d — an unobservable settle is outcome-unknown (prereq 7)", () => {
       onEvent: (event: { type: string; error?: string }) =>
         events.push(event),
       loopIterationBudgetReservation: {
+        ...STRICT_LIFECYCLE,
         itemBudgetCents: 100,
         reserve: (input) => {
           calls.push(`reserve:${input.itemIndex}`);
@@ -148,6 +158,7 @@ describe("G2d — an unobservable settle is outcome-unknown (prereq 7)", () => {
       onEvent: (event: { type: string; error?: string }) =>
         events.push(event),
       loopIterationBudgetReservation: {
+        ...STRICT_LIFECYCLE,
         itemBudgetCents: 100,
         reserve: () => ({
           status: "reserved" as const,
@@ -175,6 +186,7 @@ describe("G2d — an unobservable settle is outcome-unknown (prereq 7)", () => {
       onEvent: (event: { type: string; error?: string }) =>
         events.push(event),
       loopIterationBudgetReservation: {
+        ...STRICT_LIFECYCLE,
         itemBudgetCents: 100,
         reserve: () => ({
           status: "reserved" as const,
@@ -197,12 +209,15 @@ describe("G2d — an unobservable settle is outcome-unknown (prereq 7)", () => {
     expect(message).toContain("reconcile also died");
   });
 
-  it("completes the run when reconcile proves the reservation released", async () => {
+  it("blocks completed work when reconcile proves settlement did not land", async () => {
     const calls: string[] = [];
+    const events: { type: string; error?: string }[] = [];
     const runtime = new PipelineRuntime({
       definition: forEachPipeline(),
       nodeExecutor: okExecutor(),
+      onEvent: (event: { type: string; error?: string }) => events.push(event),
       loopIterationBudgetReservation: {
+        ...STRICT_LIFECYCLE,
         itemBudgetCents: 100,
         reserve: (input) => {
           calls.push(`reserve:${input.itemIndex}`);
@@ -221,10 +236,47 @@ describe("G2d — an unobservable settle is outcome-unknown (prereq 7)", () => {
 
     const result = await runtime.execute({ items: ITEMS });
 
-    // The item's WORK succeeded; only the settle acknowledgement was lost.
-    // Once the host proves nothing is outstanding, the item is terminally
-    // settled and the run is legitimately complete — a failure here would
-    // discard good work over a recovered bookkeeping call.
+    // Released means the settle did not charge. It proves the hold is gone,
+    // but it is not proof of paid completion and must never masquerade as one.
+    expect(result.state).toBe("failed");
+    expect(failureMessage(events)).toContain("settlement was not applied");
+    expect(calls).toEqual([
+      "reserve:0",
+      "settle:0",
+      "reconcile:0",
+    ]);
+  });
+
+  it("completes once when reconcile proves a thrown settle already landed", async () => {
+    const calls: string[] = [];
+    const store = new InMemoryPipelineCheckpointStore();
+    const runtime = new PipelineRuntime({
+      definition: { ...forEachPipeline(), checkpointStrategy: "after_each_node" },
+      nodeExecutor: okExecutor(),
+      checkpointStore: store,
+      loopIterationBudgetReservation: {
+        ...STRICT_LIFECYCLE,
+        itemBudgetCents: 100,
+        reserve: (input) => {
+          calls.push(`reserve:${input.itemIndex}`);
+          return { status: "reserved" as const, reservedCostCents: 50 };
+        },
+        settle: (input) => {
+          calls.push(`settle:${input.itemIndex}`);
+          throw new Error("ack lost after charge");
+        },
+        reconcile: (input) => {
+          calls.push(`reconcile:${input.itemIndex}`);
+          return {
+            status: "settled" as const,
+            cost: { status: "known" as const, costCents: 40 },
+          };
+        },
+      },
+    });
+
+    const result = await runtime.execute({ items: ITEMS });
+
     expect(result.state).toBe("completed");
     expect(calls).toEqual([
       "reserve:0",
@@ -234,6 +286,85 @@ describe("G2d — an unobservable settle is outcome-unknown (prereq 7)", () => {
       "settle:1",
       "reconcile:1",
     ]);
+    const checkpoint = await store.load(result.runId);
+    expect(
+      checkpoint?.loopState?.["loop-items"]?.itemOutcomes?.["0"]?.economics
+        ?.settledCostCents
+    ).toBe(40);
+  });
+
+  it("retries settle only when reconciliation proves the reservation remains held", async () => {
+    const calls: string[] = [];
+    const settleAttempts = new Map<number, number>();
+    const runtime = new PipelineRuntime({
+      definition: forEachPipeline(),
+      nodeExecutor: okExecutor(),
+      loopIterationBudgetReservation: {
+        ...STRICT_LIFECYCLE,
+        itemBudgetCents: 100,
+        reserve: (input) => {
+          calls.push(`reserve:${input.itemIndex}`);
+          return { status: "reserved" as const, reservedCostCents: 50 };
+        },
+        settle: (input) => {
+          const index = input.itemIndex ?? -1;
+          const attempt = (settleAttempts.get(index) ?? 0) + 1;
+          settleAttempts.set(index, attempt);
+          calls.push(`settle:${index}:${attempt}`);
+          if (attempt === 1) throw new Error("first settle acknowledgement lost");
+        },
+        reconcile: (input) => {
+          calls.push(`reconcile:${input.itemIndex}`);
+          return { status: "reserved" as const, reservedCostCents: 50 };
+        },
+      },
+    });
+
+    const result = await runtime.execute({ items: ITEMS });
+
+    expect(result.state).toBe("completed");
+    expect(calls).toEqual([
+      "reserve:0",
+      "settle:0:1",
+      "reconcile:0",
+      "settle:0:2",
+      "reserve:1",
+      "settle:1:1",
+      "reconcile:1",
+      "settle:1:2",
+    ]);
+  });
+
+  it("blocks a settle conflict without retrying or dispatching the next item", async () => {
+    const calls: string[] = [];
+    const events: { type: string; error?: string }[] = [];
+    const runtime = new PipelineRuntime({
+      definition: forEachPipeline(),
+      nodeExecutor: okExecutor(),
+      onEvent: (event: { type: string; error?: string }) => events.push(event),
+      loopIterationBudgetReservation: {
+        ...STRICT_LIFECYCLE,
+        itemBudgetCents: 100,
+        reserve: (input) => {
+          calls.push(`reserve:${input.itemIndex}`);
+          return { status: "reserved" as const, reservedCostCents: 50 };
+        },
+        settle: (input) => {
+          calls.push(`settle:${input.itemIndex}`);
+          throw new Error("settle transport died");
+        },
+        reconcile: () => ({
+          status: "conflict" as const,
+          heldBy: "another-writer",
+        }),
+      },
+    });
+
+    const result = await runtime.execute({ items: ITEMS });
+
+    expect(result.state).toBe("failed");
+    expect(calls).toEqual(["reserve:0", "settle:0"]);
+    expect(failureMessage(events)).toContain("another-writer");
   });
 
   it("tells the host that the SETTLE boundary vanished", async () => {
@@ -242,6 +373,7 @@ describe("G2d — an unobservable settle is outcome-unknown (prereq 7)", () => {
       definition: forEachPipeline(),
       nodeExecutor: okExecutor(),
       loopIterationBudgetReservation: {
+        ...STRICT_LIFECYCLE,
         itemBudgetCents: 100,
         reserve: () => ({
           status: "reserved" as const,
@@ -274,6 +406,7 @@ describe("G2d — an unobservable release is outcome-unknown (prereq 7)", () => 
       onEvent: (event: { type: string; error?: string }) =>
         events.push(event),
       loopIterationBudgetReservation: {
+        ...STRICT_LIFECYCLE,
         itemBudgetCents: 100,
         reserve: () => ({
           status: "reserved" as const,
@@ -304,6 +437,7 @@ describe("G2d — an unobservable release is outcome-unknown (prereq 7)", () => 
       definition: forEachPipeline(),
       nodeExecutor: failingExecutor(),
       loopIterationBudgetReservation: {
+        ...STRICT_LIFECYCLE,
         itemBudgetCents: 100,
         reserve: () => ({
           status: "reserved" as const,
@@ -332,6 +466,7 @@ describe("G2d — an unobservable release is outcome-unknown (prereq 7)", () => 
       onEvent: (event: { type: string; error?: string }) =>
         events.push(event),
       loopIterationBudgetReservation: {
+        ...STRICT_LIFECYCLE,
         itemBudgetCents: 100,
         reserve: () => ({
           status: "reserved" as const,
@@ -354,6 +489,34 @@ describe("G2d — an unobservable release is outcome-unknown (prereq 7)", () => 
     expect(message).toContain("simulated body failure");
     expect(message).not.toContain("outcome-unknown");
   });
+
+  it("retries release when reconciliation proves the hold remains reserved", async () => {
+    let releaseCalls = 0;
+    let reconcileCalls = 0;
+    const runtime = new PipelineRuntime({
+      definition: forEachPipeline(),
+      nodeExecutor: failingExecutor(),
+      loopIterationBudgetReservation: {
+        ...STRICT_LIFECYCLE,
+        itemBudgetCents: 100,
+        reserve: () => ({ status: "reserved" as const, reservedCostCents: 50 }),
+        release: () => {
+          releaseCalls++;
+          if (releaseCalls === 1) throw new Error("release acknowledgement lost");
+        },
+        reconcile: () => {
+          reconcileCalls++;
+          return { status: "reserved" as const, reservedCostCents: 50 };
+        },
+      },
+    });
+
+    const result = await runtime.execute({ items: ITEMS });
+
+    expect(result.state).toBe("failed");
+    expect(releaseCalls).toBe(2);
+    expect(reconcileCalls).toBe(1);
+  });
 });
 
 describe("G2d — boundaries that were already terminal stay unchanged", () => {
@@ -363,6 +526,7 @@ describe("G2d — boundaries that were already terminal stay unchanged", () => {
       definition: forEachPipeline(),
       nodeExecutor: okExecutor(),
       loopIterationBudgetReservation: {
+        ...STRICT_LIFECYCLE,
         itemBudgetCents: 100,
         reserve: (input) => {
           calls.push(`reserve:${input.itemIndex}`);
@@ -394,12 +558,15 @@ describe("G2d — boundaries that were already terminal stay unchanged", () => {
   it("still fails closed on a settled overrun rather than reconciling it", async () => {
     const events: { type: string; error?: string }[] = [];
     const reconciles: unknown[] = [];
+    const store = new InMemoryPipelineCheckpointStore();
     const runtime = new PipelineRuntime({
-      definition: forEachPipeline(),
+      definition: { ...forEachPipeline(), checkpointStrategy: "after_each_node" },
       nodeExecutor: okExecutor(),
+      checkpointStore: store,
       onEvent: (event: { type: string; error?: string }) =>
         events.push(event),
       loopIterationBudgetReservation: {
+        ...STRICT_LIFECYCLE,
         itemBudgetCents: 100,
         reserve: () => ({
           status: "reserved" as const,
@@ -409,7 +576,7 @@ describe("G2d — boundaries that were already terminal stay unchanged", () => {
         // An overrun is an ANSWERED, observed settlement — the ceiling was
         // breached. It is not outcome-unknown, so widening the return type
         // must not have rerouted it into reconciliation.
-        extractItemCostCents: () => 400,
+        measureItemCost: () => ({ status: "known" as const, costCents: 400 }),
         reconcile: (input) => {
           reconciles.push(input);
           return { status: "released" as const };
@@ -422,14 +589,18 @@ describe("G2d — boundaries that were already terminal stay unchanged", () => {
     expect(result.state).toBe("failed");
     expect(failureMessage(events)).toContain("exceeding its 50-cent reservation");
     expect(reconciles).toHaveLength(0);
+    const checkpoint = await store.load(result.runId);
+    expect(
+      checkpoint?.loopState?.["loop-items"]?.itemOutcomes?.["0"]?.economics
+        ?.settledCostCents
+    ).toBe(400);
   });
 
-  it("leaves a reserve-only host byte-identical to its pre-G2d behaviour", async () => {
+  it("keeps reserve-only compatibility when no hard item ceiling is active", async () => {
     const runtime = new PipelineRuntime({
       definition: forEachPipeline(),
       nodeExecutor: okExecutor(),
       loopIterationBudgetReservation: {
-        itemBudgetCents: 100,
         reserve: () => ({
           status: "reserved" as const,
           reservedCostCents: 50,
@@ -439,8 +610,8 @@ describe("G2d — boundaries that were already terminal stay unchanged", () => {
 
     const result = await runtime.execute({ items: ITEMS });
 
-    // Absent settle/release there is nothing to observe and nothing can
-    // vanish, so the widened contract must not fail a host closed.
+    // A reserve-only host remains compatible only outside strict item-ceiling
+    // mode; for_each does not invoke it when no item ceiling is authored.
     expect(result.state).toBe("completed");
   });
 });

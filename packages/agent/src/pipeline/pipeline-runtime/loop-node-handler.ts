@@ -100,15 +100,23 @@ export async function handleLoop(
 
   const predicates = config.predicates ?? {};
   const budgetHost = config.loopIterationBudgetReservation;
+  const strictBudgetHost =
+    budgetHost?.mode === "strict" ? budgetHost : undefined;
+  // Runtime guard for untyped JavaScript/older serialized configuration: a
+  // hard ceiling without the strict discriminant must not be silently ignored.
+  const untypedItemBudget = (
+    budgetHost as { itemBudgetCents?: unknown } | undefined
+  )?.itemBudgetCents;
   const executionResume: LoopResumeOptions = {
     ...resume,
     ...(budgetHost === undefined
       ? {}
       : {
           reserveIterationBudget: (input) => budgetHost.reserve(input),
-          // F: settle/release are optional on the host. Forwarding them only
-          // when present keeps a reserve-only host on exactly its pre-F
-          // behaviour rather than failing closed on a missing method.
+          // Compatibility hosts keep their optional lifecycle outside a hard
+          // item ceiling. A strict host supplies all four operations by type;
+          // the loop also validates them at runtime before dispatch so an
+          // untyped JavaScript caller cannot bypass the fail-closed contract.
           ...(budgetHost.settle === undefined
             ? {}
             : {
@@ -119,10 +127,6 @@ export async function handleLoop(
             : {
                 releaseIterationBudget: (input) => budgetHost.release!(input),
               }),
-          // G2b: reconcile is optional for the same compatibility reason, but
-          // its ABSENCE is not a no-op like settle/release — an unobservable
-          // reserve then fails the item closed, because nothing can prove the
-          // reservation's fate. That asymmetry is deliberate.
           ...(budgetHost.reconcile === undefined
             ? {}
             : {
@@ -132,12 +136,21 @@ export async function handleLoop(
           // G2b: run identity for the deterministic reservation ID, so a
           // replayed reserve after a crash presents the same id.
           budgetRunId: runId,
-          ...(budgetHost.itemBudgetCents === undefined
-            ? {}
-            : { itemBudgetCents: budgetHost.itemBudgetCents }),
-          ...(budgetHost.extractItemCostCents === undefined
-            ? {}
-            : { extractItemCostCents: budgetHost.extractItemCostCents }),
+          ...(strictBudgetHost === undefined
+            ? untypedItemBudget === undefined
+              ? {}
+              : {
+                  itemBudgetCents:
+                    typeof untypedItemBudget === "number"
+                      ? untypedItemBudget
+                      : Number.NaN,
+                }
+            : {
+                budgetMode: "strict" as const,
+                itemBudgetCents: strictBudgetHost.itemBudgetCents,
+                measureItemCost: (input) =>
+                  strictBudgetHost.measureItemCost(input),
+              }),
         }),
   };
 

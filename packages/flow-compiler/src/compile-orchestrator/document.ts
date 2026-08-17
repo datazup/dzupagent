@@ -60,7 +60,7 @@ export async function runCompileDocument(
   }
 
   // Extract document-level policy before handing off only the root to runCompile().
-  // The policy is validated by validateFlowDocumentShape (inside prepareFlowInputFromDocument)
+  // The policy is validated by validateDocument (inside prepareFlowInputFromDocument)
   // so by the time we reach here the fields are guaranteed to be well-typed.
   const documentPolicy = extractDocumentPolicy(document);
 
@@ -304,7 +304,7 @@ function extractDocumentPolicy(
 
 /**
  * Extract the top-level `durability` block (P0). The document has already
- * passed `validateFlowDocumentShape` by the time we reach here, so the block —
+ * passed `validateDocument` by the time we reach here, so the block —
  * when present and an object — is well-typed; we pass it through verbatim.
  */
 function extractDocumentDurability(

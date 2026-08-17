@@ -40,6 +40,7 @@ import { describe, expect, it } from "vitest";
 import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
 import { InMemoryPipelineCheckpointStore } from "../pipeline/in-memory-checkpoint-store.js";
 import type { PipelineDefinition } from "@dzupagent/core";
+import type { LoopBudgetStrictHost } from "../pipeline/loop-executor.js";
 
 /**
  * A for_each loop whose body is three sequential nodes, with `failFast` off so
@@ -97,30 +98,34 @@ function recordingHost() {
   const reserves: Array<{ itemIndex: number; reservationId: string }> = [];
   const settles: SettlementRecord[] = [];
   const releases: Array<{ itemIndex: number }> = [];
+  const config: LoopBudgetStrictHost = {
+    mode: "strict",
+    itemBudgetCents: 100,
+    reserve: (input) => {
+      reserves.push({
+        itemIndex: input.itemIndex ?? -1,
+        reservationId: input.reservationId ?? "",
+      });
+      return { status: "reserved", reservedCostCents: 50 };
+    },
+    settle: (input) => {
+      settles.push({
+        itemIndex: input.itemIndex ?? -1,
+        reservationId: input.reservationId ?? "",
+        actualCostCents: input.actualCostCents,
+      });
+    },
+    release: (input) => {
+      releases.push({ itemIndex: input.itemIndex ?? -1 });
+    },
+    reconcile: () => ({ status: "unknown" }),
+    measureItemCost: () => ({ status: "known", costCents: 50 }),
+  };
   return {
     reserves,
     settles,
     releases,
-    config: {
-      itemBudgetCents: 100,
-      reserve: (input: Record<string, unknown>) => {
-        reserves.push({
-          itemIndex: input["itemIndex"] as number,
-          reservationId: input["reservationId"] as string,
-        });
-        return { status: "reserved" as const, reservedCostCents: 50 };
-      },
-      settle: (input: Record<string, unknown>) => {
-        settles.push({
-          itemIndex: input["itemIndex"] as number,
-          reservationId: input["reservationId"] as string,
-          actualCostCents: input["actualCostCents"] as number,
-        });
-      },
-      release: (input: Record<string, unknown>) => {
-        releases.push({ itemIndex: input["itemIndex"] as number });
-      },
-    },
+    config,
   };
 }
 

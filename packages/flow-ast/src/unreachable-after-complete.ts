@@ -19,8 +19,14 @@ export interface UnreachableAfterCompleteDiagnostic {
   message: string
   /** Id of the terminal `complete` node. */
   completeId: string
+  /** Canonical AST path of the terminal `complete` node. */
+  completePath: string
   /** Id of the first unreachable sibling. */
   unreachableId: string
+  /** Canonical AST path of the first unreachable sibling. */
+  unreachablePath: string
+  /** Node type of the first unreachable sibling. */
+  unreachableType: FlowNode['type']
   /** Sequence-scope path (e.g. "root.branch[id=b1].then"). */
   scopePath: string
   /** How many siblings follow the terminal node in this scope. */
@@ -30,6 +36,7 @@ export interface UnreachableAfterCompleteDiagnostic {
 function walkScope(
   nodes: FlowNode[],
   scopePath: string,
+  pathFor: (index: number) => string,
   diags: UnreachableAfterCompleteDiagnostic[],
 ): void {
   for (let i = 0; i < nodes.length; i += 1) {
@@ -45,7 +52,10 @@ function walkScope(
           `Node "${unreachableId}" follows terminal complete node "${completeId}" ` +
           `in scope ${scopePath} and can never execute.`,
         completeId,
+        completePath: pathFor(i),
         unreachableId,
+        unreachablePath: pathFor(i + 1),
+        unreachableType: next.type,
         scopePath,
         unreachableCount: nodes.length - 1 - i,
       })
@@ -54,33 +64,58 @@ function walkScope(
       break
     }
   }
-  for (const n of nodes) descend(n, scopePath, diags)
+  nodes.forEach((node, index) => {
+    descend(node, scopePath, pathFor(index), diags)
+  })
 }
 
 function descend(
   node: FlowNode,
-  parentPath: string,
+  parentScopePath: string,
+  nodePath: string,
   diags: UnreachableAfterCompleteDiagnostic[],
 ): void {
   const anyNode = node as unknown as Record<string, unknown>
   const kind = (anyNode.type as string | undefined) ?? 'unknown'
   const id = (anyNode.id as string | undefined) ?? '(anon)'
-  const base = `${parentPath}.${kind}[id=${id}]`
+  const base = `${parentScopePath}.${kind}[id=${id}]`
 
   for (const field of ['body', 'then', 'else', 'onApprove', 'onReject'] as const) {
     const arr = anyNode[field]
-    if (Array.isArray(arr)) walkScope(arr as FlowNode[], `${base}.${field}`, diags)
+    if (Array.isArray(arr)) {
+      walkScope(
+        arr as FlowNode[],
+        `${base}.${field}`,
+        (index) => `${nodePath}.${field}[${index}]`,
+        diags,
+      )
+    }
   }
   if (kind === 'try_catch' && Array.isArray(anyNode.catch)) {
-    walkScope(anyNode.catch as FlowNode[], `${base}.catch`, diags)
+    walkScope(
+      anyNode.catch as FlowNode[],
+      `${base}.catch`,
+      (index) => `${nodePath}.catch[${index}]`,
+      diags,
+    )
   }
   if (kind === 'parallel' && Array.isArray(anyNode.branches)) {
     ;(anyNode.branches as FlowNode[][]).forEach((branch, i) => {
-      walkScope(branch, `${base}.branches[${i}]`, diags)
+      walkScope(
+        branch,
+        `${base}.branches[${i}]`,
+        (index) => `${nodePath}.branches[${i}][${index}]`,
+        diags,
+      )
     })
   }
   if (kind === 'sequence' && Array.isArray(anyNode.nodes)) {
-    walkScope(anyNode.nodes as FlowNode[], `${base}.nodes`, diags)
+    walkScope(
+      anyNode.nodes as FlowNode[],
+      `${base}.nodes`,
+      (index) => `${nodePath}.nodes[${index}]`,
+      diags,
+    )
   }
 }
 
@@ -95,9 +130,14 @@ export function checkUnreachableAfterComplete(
   const diags: UnreachableAfterCompleteDiagnostic[] = []
   const anyRoot = root as unknown as Record<string, unknown>
   if (anyRoot.type === 'sequence' && Array.isArray(anyRoot.nodes)) {
-    walkScope(anyRoot.nodes as FlowNode[], 'root', diags)
+    walkScope(
+      anyRoot.nodes as FlowNode[],
+      'root',
+      (index) => `root.nodes[${index}]`,
+      diags,
+    )
   } else {
-    walkScope([root], 'root', diags)
+    walkScope([root], 'root', () => 'root', diags)
   }
   return diags
 }

@@ -116,7 +116,7 @@ describe("for_each mid-item durability (E3)", () => {
 
     // Mid-item writes exist, and each one names the item it is inside and the
     // body node to resume at.
-    const midItem = frames.filter((f) => f.itemIndex !== undefined);
+    const midItem = frames.filter((f) => f.nextBodyNodeIndex === 1);
     expect(midItem.length).toBeGreaterThan(0);
     for (const f of midItem) {
       expect(f.nextBodyNodeIndex).toBe(1);
@@ -124,6 +124,11 @@ describe("for_each mid-item durability (E3)", () => {
       // fully-completed items, so it equals the in-flight item's index.
       expect(f.iteration).toBe(f.itemIndex);
     }
+
+    // The body-complete aggregate receipt deliberately keeps the same item
+    // frame at cursor 2 until settlement and terminal accounting commit. It is
+    // not a redispatch cursor: resume reconciles it without running the body.
+    expect(frames.some((f) => f.nextBodyNodeIndex === 2)).toBe(true);
 
     // An item-boundary write carries no frame — a retained one would resume
     // into an item that is already complete.

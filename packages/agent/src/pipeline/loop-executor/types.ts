@@ -105,14 +105,31 @@ export type LoopIterationBudgetReservation =
     };
 
 /**
+ * Authoritative cost evidence for one completed `for_each` item.
+ *
+ * A strict ceiling never represents missing/non-finite usage as zero. Hosts
+ * must say whether cost is known, and the runtime validates known cents before
+ * presenting them to settlement.
+ */
+export type LoopBudgetCostEvidence =
+  | {
+      status: "known";
+      costCents: number;
+    }
+  | {
+      status: "unknown";
+      reason?: string;
+    };
+
+/**
  * G2b: the outcome of a reserve whose result the runtime could not observe.
  *
- * A host that *answers* `{ status: "unknown" }` has told us it holds nothing —
- * that is a clean denial and nothing is outstanding. A reserve that *throws* is
- * categorically different: the call may have created a ledger row before the
- * transport failed, so the reservation's existence is genuinely unknown.
+ * In strict mode neither a thrown reserve nor an answered
+ * `{ status: "unknown" }` proves that no ledger row exists. A clean absence is
+ * represented by reconciliation's explicit `absent`/`released` outcomes; all
+ * other uncertainty remains blocked.
  *
- * Doc 27 §8 prereq 6 requires that case be treated as outcome-unknown: block
+ * Doc 27 §8 prereq 6 requires uncertainty to be treated as outcome-unknown: block
  * release and redispatch until reconciliation proves the outcome. Releasing
  * blind would return money the host may never have taken; redispatching blind
  * would double-charge.
@@ -149,6 +166,16 @@ export interface LoopBudgetReconcileInput extends LoopBudgetSettlementScope {
  * hold. This is the ONLY thing that can clear an outcome-unknown item.
  */
 export type LoopBudgetReconcileOutcome =
+  | {
+      /** The reservation still exists and remains available for settlement. */
+      status: "reserved";
+      reservedCostCents: number;
+    }
+  | {
+      /** The item was already settled; cost evidence is authoritative. */
+      status: "settled";
+      cost: LoopBudgetCostEvidence;
+    }
   | {
       /** The host holds the reservation; it is now released. Safe to proceed. */
       status: "released";
@@ -250,6 +277,13 @@ export interface LoopBudgetSettlementInput extends LoopBudgetSettlementScope {
   actualCostCents: number;
 }
 
+/** Input to a strict host's authoritative per-item cost measurement. */
+export interface LoopBudgetCostMeasurementInput
+  extends LoopBudgetSettlementScope {
+  /** Successful body results for the completed item, keyed by body node id. */
+  bodyResults: Readonly<Record<string, NodeResult>>;
+}
+
 /** F: return of an unspent reservation on an abort/failure path. */
 export interface LoopBudgetReleaseInput extends LoopBudgetSettlementScope {
   /** Conservative amount taken at reserve time, returned in full. */
@@ -259,7 +293,7 @@ export interface LoopBudgetReleaseInput extends LoopBudgetSettlementScope {
 }
 
 /**
- * F: the full reservation lifecycle a host may implement.
+ * Compatibility reservation lifecycle for hosts without a hard item ceiling.
  *
  * `reserve` is the only required member: a pre-F host supplying `reserve`
  * alone keeps today's behaviour exactly, because an absent `settle`/`release`
@@ -283,6 +317,49 @@ export interface LoopBudgetLifecycle {
     input: LoopBudgetReconcileInput
   ): LoopBudgetReconcileOutcome | Promise<LoopBudgetReconcileOutcome>;
 }
+
+/**
+ * Compatibility host used only when no hard per-item ceiling is active.
+ *
+ * The optional lifecycle members deliberately preserve the pre-strict
+ * reserve-only shape for predicate loops and unpriced `for_each` execution.
+ * `itemBudgetCents` is forbidden: authoring a hard ceiling selects the strict
+ * discriminant below and therefore requires the complete lifecycle.
+ */
+export interface LoopBudgetCompatibilityHost extends LoopBudgetLifecycle {
+  mode?: "compatibility";
+  itemBudgetCents?: never;
+  /** Legacy extractor retained for source compatibility outside strict mode. */
+  extractItemCostCents?: (
+    nodeId: string,
+    result: NodeResult
+  ) => number | undefined;
+}
+
+/**
+ * Fail-closed budget host for a hard `for_each` item ceiling.
+ *
+ * Every lifecycle operation is required. The cost measurement is explicitly
+ * known/unknown so missing usage cannot silently settle as zero (or as an
+ * assumed reservation amount).
+ */
+export interface LoopBudgetStrictHost extends LoopBudgetLifecycle {
+  mode: "strict";
+  itemBudgetCents: number;
+  settle(input: LoopBudgetSettlementInput): void | Promise<void>;
+  release(input: LoopBudgetReleaseInput): void | Promise<void>;
+  reconcile(
+    input: LoopBudgetReconcileInput
+  ): LoopBudgetReconcileOutcome | Promise<LoopBudgetReconcileOutcome>;
+  measureItemCost(
+    input: LoopBudgetCostMeasurementInput
+  ): LoopBudgetCostEvidence | Promise<LoopBudgetCostEvidence>;
+}
+
+/** Discriminated host contract for compatible and strict budget profiles. */
+export type LoopBudgetHost =
+  | LoopBudgetCompatibilityHost
+  | LoopBudgetStrictHost;
 
 /** Input to the runtime-owned bounded graph scheduler for one iteration. */
 export interface LoopBodyGraphScheduleInput {
@@ -463,14 +540,14 @@ export interface LoopResumeOptions {
    */
   itemBudgetCents?: number;
   /**
-   * F: extract the actual integer cents one settled body result cost. Absent ⇒
-   * actual spend is treated as the full reservation, which never
-   * under-charges and never reports a false overrun.
+   * Strict hard-ceiling profile selected by the host. `itemBudgetCents`
+   * requires this mode and every lifecycle hook below.
    */
-  extractItemCostCents?: (
-    nodeId: string,
-    result: NodeResult
-  ) => number | undefined;
+  budgetMode?: "strict";
+  /** Authoritative known/unknown item cost measurement in strict mode. */
+  measureItemCost?: (
+    input: LoopBudgetCostMeasurementInput
+  ) => LoopBudgetCostEvidence | Promise<LoopBudgetCostEvidence>;
   /**
    * Runtime-owned bounded scheduler for compiler-lowered graph bodies.
    * Required when `LoopNode.bodyGraph` is present; absence fails closed.

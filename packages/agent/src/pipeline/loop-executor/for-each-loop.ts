@@ -18,7 +18,12 @@ import type {
   PipelineRuntimeEvent,
   LoopMetrics,
 } from "../pipeline-runtime-types.js";
-import type { LoopResumeOptions } from "./types.js";
+import type {
+  LoopBudgetCostEvidence,
+  LoopBudgetReconcileOutcome,
+  LoopResumeOptions,
+} from "./types.js";
+import { canonicalInputDigest } from "@dzupagent/runtime-contracts";
 import { resolveStatePath, setStatePath } from "./state-path.js";
 import {
   advanceCompletedPrefix,
@@ -35,6 +40,96 @@ interface HeldItemReservation {
   readonly attempt: number;
   /** G2b: deterministic identity presented to settle/release. */
   readonly reservationId: string;
+}
+
+const FOR_EACH_AGGREGATE_RECEIPT_V1 =
+  "dzupagent/for-each-aggregate-receipt/v1" as const;
+
+interface ForEachKnownValue {
+  readonly status: "known";
+  readonly value?: unknown;
+}
+
+interface ForEachAggregateReceiptV1 {
+  readonly schema: typeof FOR_EACH_AGGREGATE_RECEIPT_V1;
+  readonly loopNodeId: string;
+  readonly itemIndex: number;
+  readonly itemValue: ForEachKnownValue;
+  readonly collectedValue?: ForEachKnownValue;
+  readonly finalBodyResult: {
+    readonly nodeId: string;
+    readonly output: ForEachKnownValue;
+  };
+}
+
+/**
+ * The loop node cannot be one of its own admitted leaf body nodes, so its id is
+ * a collision-free slot in the durable `bodyResults` record. Keeping the
+ * receipt inside that already-serialized record avoids widening the core
+ * checkpoint schema while the checkpoint's root definition digest, loop id,
+ * source digest and item-index key bind the receipt to its definition.
+ */
+function aggregateReceiptResult(
+  loopNodeId: string,
+  itemIndex: number,
+  itemValue: unknown,
+  collectedValue: ForEachKnownValue | undefined,
+  finalBodyResult: NodeResult
+): NodeResult {
+  const receipt: ForEachAggregateReceiptV1 = {
+    schema: FOR_EACH_AGGREGATE_RECEIPT_V1,
+    loopNodeId,
+    itemIndex,
+    itemValue: { status: "known", value: itemValue },
+    ...(collectedValue === undefined ? {} : { collectedValue }),
+    finalBodyResult: {
+      nodeId: finalBodyResult.nodeId,
+      output: { status: "known", value: finalBodyResult.output },
+    },
+  };
+  return { nodeId: loopNodeId, output: receipt, durationMs: 0 };
+}
+
+function readAggregateReceipt(
+  loopNodeId: string,
+  itemIndex: number,
+  itemValue: unknown,
+  bodyResults: Readonly<Record<string, NodeResult>> | undefined
+): ForEachAggregateReceiptV1 | undefined {
+  const receiptResult = bodyResults?.[loopNodeId];
+  if (receiptResult?.nodeId !== loopNodeId) return undefined;
+  const candidate = receiptResult.output;
+  if (typeof candidate !== "object" || candidate === null) return undefined;
+  const record = candidate as Partial<ForEachAggregateReceiptV1>;
+  const collected = record.collectedValue;
+  const final = record.finalBodyResult;
+  if (
+    record.schema !== FOR_EACH_AGGREGATE_RECEIPT_V1 ||
+    record.loopNodeId !== loopNodeId ||
+    record.itemIndex !== itemIndex ||
+    record.itemValue?.status !== "known" ||
+    (collected !== undefined && collected.status !== "known") ||
+    typeof final !== "object" ||
+    final === null ||
+    typeof final.nodeId !== "string" ||
+    final.nodeId.length === 0 ||
+    typeof final.output !== "object" ||
+    final.output === null ||
+    final.output.status !== "known"
+  ) {
+    return undefined;
+  }
+  try {
+    if (
+      canonicalInputDigest(record.itemValue.value) !==
+      canonicalInputDigest(itemValue)
+    ) {
+      return undefined;
+    }
+  } catch {
+    return undefined;
+  }
+  return record as ForEachAggregateReceiptV1;
 }
 
 /**
@@ -79,6 +174,27 @@ export async function executeForEachLoop(
 ): Promise<{ result: NodeResult; metrics: LoopMetrics }> {
   const startTime = Date.now();
   const contract = loopNode.forEach as ForEachContract;
+  if (
+    bodyNodes.length === 0 ||
+    bodyNodes.some((bodyNode) => bodyNode.id === loopNode.id)
+  ) {
+    return {
+      result: {
+        nodeId: loopNode.id,
+        output: null,
+        durationMs: Date.now() - startTime,
+        error:
+          `Loop "${loopNode.id}" for_each body must contain at least one ` +
+          "leaf node and cannot contain the loop itself",
+      },
+      metrics: {
+        iterationCount: 0,
+        iterationDurations: [],
+        converged: false,
+        terminationReason: "condition_met",
+      },
+    };
+  }
   // 24-I: concurrency > 1 is admitted. The value must still be a positive
   // integer — a fractional or non-positive value is an authoring error, not a
   // degenerate-but-runnable contract, and silently clamping it would run a
@@ -261,12 +377,44 @@ export async function executeForEachLoop(
   // When it is absent, `for_each` takes no reservation and all three helpers
   // are inert — byte-identical to the pre-F behaviour.
   const itemBudgetCents = resume?.itemBudgetCents;
+  if (
+    itemBudgetCents !== undefined &&
+    (resume?.budgetMode !== "strict" ||
+      !Number.isSafeInteger(itemBudgetCents) ||
+      itemBudgetCents < 0 ||
+      resume.reserveIterationBudget === undefined ||
+      resume.settleIterationBudget === undefined ||
+      resume.releaseIterationBudget === undefined ||
+      resume.reconcileIterationBudget === undefined ||
+      resume.measureItemCost === undefined)
+  ) {
+    return {
+      result: {
+        nodeId: loopNode.id,
+        output: null,
+        durationMs: Date.now() - startTime,
+        error:
+          `Loop "${loopNode.id}" hard item ceiling requires a strict budget ` +
+          "host with a non-negative integer ceiling and reserve/settle/" +
+          "release/reconcile/measureItemCost lifecycle",
+      },
+      metrics: {
+        iterationCount: 0,
+        iterationDurations: [],
+        converged: false,
+        terminationReason: "condition_met",
+      },
+    };
+  }
   const reserveItem = async (
     index: number,
     attempt: number,
     state: Record<string, unknown>
   ): Promise<
-    HeldItemReservation | undefined | "denied" | { outcomeUnknown: string }
+    | HeldItemReservation
+    | undefined
+    | { outcomeUnknown: string; malformed?: boolean }
+    | { deniedHeld: HeldItemReservation }
   > => {
     if (itemBudgetCents === undefined) return undefined;
     const reserve = resume?.reserveIterationBudget;
@@ -294,50 +442,58 @@ export async function executeForEachLoop(
               reservationId,
             });
     } catch (error) {
-      // G2b (prereq 6): a THROWN reserve is not an answered "unknown". The call
-      // may have created the reservation before the transport failed, so its
-      // existence is genuinely unknown and neither releasing nor redispatching
-      // is safe. Hand it to reconciliation rather than collapsing it into the
-      // clean-denial path, which would leak the reservation forever.
+      // The call may have created the reservation before the transport failed,
+      // so its existence is genuinely unknown and neither releasing nor
+      // redispatching is safe. Hand it to reconciliation; strict answered
+      // `unknown` follows the same authority rule below.
       return {
         outcomeUnknown: error instanceof Error ? error.message : String(error),
       };
     }
-    if (
-      reservation.status === "unknown" ||
-      !Number.isFinite(reservation.reservedCostCents) ||
-      reservation.reservedCostCents < 0 ||
-      reservation.reservedCostCents > itemBudgetCents
-    ) {
-      return "denied";
+    if (reservation.status === "unknown") {
+      return {
+        outcomeUnknown:
+          "the strict host answered that reservation authority is unknown",
+      };
     }
-    return {
+    if (
+      !Number.isSafeInteger(reservation.reservedCostCents) ||
+      reservation.reservedCostCents < 0
+    ) {
+      return {
+        outcomeUnknown:
+          `the strict host returned malformed reserved cost ` +
+          `${String(reservation.reservedCostCents)}`,
+        malformed: true,
+      };
+    }
+    const held: HeldItemReservation = {
       reservedCostCents: reservation.reservedCostCents,
       itemIndex: index,
       attempt,
       reservationId,
     };
+    return reservation.reservedCostCents > itemBudgetCents
+      ? { deniedHeld: held }
+      : held;
   };
 
+  type ReconciledReservation =
+    | Exclude<LoopBudgetReconcileOutcome, { status: "unknown" | "conflict" }>
+    | { status: "blocked"; error: string };
+
   /**
-   * G2b/G2d: resolve an outcome-unknown reservation. Returns an error string
-   * when the item must stay blocked — i.e. whenever the host cannot PROVE the
-   * outcome. Only an explicit `released`/`absent` answer clears it.
-   *
-   * G2d (doc 27 §8 prereq 7) widened this from the reserve boundary alone to
-   * every lifecycle boundary that can leave a reservation unaccounted. A
-   * `settle` or `release` that THROWS is the same class of fact as a thrown
-   * `reserve`: the call may have been applied before the transport failed, so
-   * the reservation's terminal state is genuinely unknown. `boundary` names
-   * which call went unobserved so an operator reading the failure knows what
-   * to look for in the ledger.
+   * Observe an outcome-unknown reservation without assigning one generic
+   * meaning to every lifecycle boundary. `released`, `absent`, `reserved`, and
+   * `settled` are returned to the boundary-specific caller; only
+   * unknown/conflict/transport failure collapse to a fail-closed block.
    */
   const reconcileUnknownReservation = async (
     index: number,
     attempt: number,
     reason: string,
     boundary: "reserve" | "settle" | "release"
-  ): Promise<string | undefined> => {
+  ): Promise<ReconciledReservation> => {
     const reservationId = deriveItemReservationId({
       ...(resume?.budgetRunId === undefined
         ? {}
@@ -351,7 +507,7 @@ export async function executeForEachLoop(
       `Loop "${loopNode.id}" item ${index} reservation ${reservationId} is ` +
       `outcome-unknown after its ${boundary} could not be observed and was ` +
       `not reconciled: ${reason}`;
-    if (reconcile === undefined) return blocked;
+    if (reconcile === undefined) return { status: "blocked", error: blocked };
     let outcome;
     try {
       outcome = await reconcile({
@@ -366,66 +522,83 @@ export async function executeForEachLoop(
       });
     } catch (error) {
       // A reconcile that itself fails proves nothing — stay blocked.
-      return (
-        `${blocked} (reconciliation failed: ` +
-        `${error instanceof Error ? error.message : String(error)})`
-      );
+      return {
+        status: "blocked",
+        error:
+          `${blocked} (reconciliation failed: ` +
+          `${error instanceof Error ? error.message : String(error)})`,
+      };
     }
-    // `released` and `absent` are the only two proofs. `unknown` — and any
-    // unrecognised status — leaves the item blocked, fail-closed.
-    if (outcome.status === "released" || outcome.status === "absent") {
-      return undefined;
-    }
-    // 24-H (proof 6, conflict half): a conflict blocks exactly like an unknown,
-    // but it is the opposite epistemic state and must not be reported as one.
-    // "could not be observed" sends an operator hunting a transport fault; the
-    // host in fact observed the reservation perfectly and knows who owns it.
-    // Reporting the holder is the entire value the status adds over `unknown` —
-    // without it this is a relabelling that earns nothing.
     if (outcome.status === "conflict") {
-      return (
-        `Loop "${loopNode.id}" item ${index} reservation ${reservationId} is ` +
-        `held by another writer "${outcome.heldBy}" after its ${boundary}: ` +
-        `${reason}`
-      );
+      return {
+        status: "blocked",
+        error:
+          `Loop "${loopNode.id}" item ${index} reservation ${reservationId} is ` +
+          `held by another writer "${outcome.heldBy}" after its ${boundary}: ` +
+          `${reason}`,
+      };
     }
-    return blocked;
+    if (outcome.status === "unknown") {
+      return { status: "blocked", error: blocked };
+    }
+    return outcome;
   };
 
   /**
    * Settle a completed item's reservation.
    *
-   * Returns an error string when the settled amount overruns its reservation,
-   * or (G2d) an `outcomeUnknown` marker when the settle call itself could not
-   * be observed. `undefined` means the item settled cleanly.
+   * Returns authoritative charged cents (plus an overrun marker when needed),
+   * or an explicit unknown-cost / unobservable-settle result. `undefined`
+   * applies only when no strict reservation was held.
    */
   const settleItem = async (
     held: HeldItemReservation | undefined,
     bodyResults: Readonly<Record<string, NodeResult>>
   ): Promise<
-    | string
     | undefined
-    | { outcomeUnknown: string }
+    | { outcomeUnknown: string; actualCostCents: number }
+    | { costUnknown: string }
     // 24-G: a clean settle now reports what was ACTUALLY settled, so the
     // terminal record carries the real charged amount rather than re-deriving
     // it from the reservation. Re-deriving would silently report the reserved
     // amount whenever an extractor returned something smaller.
-    | { settledCostCents: number }
+    | { settledCostCents: number; overrun?: string }
   > => {
     if (held === undefined) return undefined;
-    // Absent an extractor, actual spend is treated as the full reservation:
-    // conservative, never under-charges, and never reports a false overrun.
-    const extract = resume?.extractItemCostCents;
-    let actualCostCents = held.reservedCostCents;
-    if (extract !== undefined) {
-      let total = 0;
-      for (const [nodeId, result] of Object.entries(bodyResults)) {
-        const cost = extract(nodeId, result);
-        if (cost !== undefined && Number.isFinite(cost) && cost > 0) {
-          total += Math.round(cost);
-        }
-      }
-      actualCostCents = total;
+    let cost: LoopBudgetCostEvidence;
+    try {
+      cost =
+        (await resume?.measureItemCost?.({
+          loopNodeId: loopNode.id,
+          iteration: held.itemIndex + 1,
+          itemIndex: held.itemIndex,
+          ...(held.attempt > 0 ? { attempt: held.attempt } : {}),
+          reservationId: held.reservationId,
+          bodyResults,
+        })) ?? {
+          status: "unknown",
+          reason: "the strict host did not provide cost evidence",
+        };
+    } catch (error) {
+      cost = {
+        status: "unknown",
+        reason:
+          error instanceof Error ? error.message : String(error),
+      };
+    }
+    if (cost.status === "unknown") {
+      return {
+        costUnknown:
+          cost.reason ?? "the host reported item usage/cost as unknown",
+      };
+    }
+    const actualCostCents = cost.costCents;
+    if (!Number.isSafeInteger(actualCostCents) || actualCostCents < 0) {
+      return {
+        costUnknown:
+          `the host reported non-finite/non-integer item cost ` +
+          `${String(actualCostCents)}`,
+      };
     }
     try {
       await resume?.settleIterationBudget?.({
@@ -446,11 +619,16 @@ export async function executeForEachLoop(
       // than letting the throw escape the loop unclassified.
       return {
         outcomeUnknown: error instanceof Error ? error.message : String(error),
+        actualCostCents,
       };
     }
     return actualCostCents > held.reservedCostCents
-      ? `Loop "${loopNode.id}" item ${held.itemIndex} settled ${actualCostCents} cents, ` +
-          `exceeding its ${held.reservedCostCents}-cent reservation`
+      ? {
+          settledCostCents: actualCostCents,
+          overrun:
+            `Loop "${loopNode.id}" item ${held.itemIndex} settled ${actualCostCents} cents, ` +
+            `exceeding its ${held.reservedCostCents}-cent reservation`,
+        }
       : { settledCostCents: actualCostCents };
   };
 
@@ -484,6 +662,211 @@ export async function executeForEachLoop(
       };
     }
     return undefined;
+  };
+
+  const readReconciledSettledCost = (
+    outcome: Extract<LoopBudgetReconcileOutcome, { status: "settled" }>,
+    boundary: "reserve" | "settle" | "release"
+  ): { settledCostCents: number; overrun?: string } | { error: string } => {
+    if (outcome.cost.status === "unknown") {
+      return {
+        error:
+          `Loop "${loopNode.id}" reconciliation after ${boundary} reported ` +
+          `settled usage/cost as unknown: ${outcome.cost.reason ?? "no reason"}`,
+      };
+    }
+    const settledCostCents = outcome.cost.costCents;
+    if (!Number.isSafeInteger(settledCostCents) || settledCostCents < 0) {
+      return {
+        error:
+          `Loop "${loopNode.id}" reconciliation after ${boundary} reported ` +
+          `invalid settled cost ${String(settledCostCents)}`,
+      };
+    }
+    return { settledCostCents };
+  };
+
+  type ReleaseResolution =
+    | { status: "released" }
+    | { status: "settled"; settledCostCents: number }
+    | { status: "blocked"; error: string };
+
+  /** Resolve an unobserved release, retrying once only when reconcile proves
+   * the original reservation is still held by this writer. */
+  const resolveUnknownRelease = async (
+    held: HeldItemReservation,
+    releaseReason: "aborted" | "failed",
+    reason: string
+  ): Promise<ReleaseResolution> => {
+    const interpret = async (
+      reconciliation: ReconciledReservation,
+      allowRetry: boolean
+    ): Promise<ReleaseResolution> => {
+      if (reconciliation.status === "blocked") return reconciliation;
+      if (
+        reconciliation.status === "released" ||
+        reconciliation.status === "absent"
+      ) {
+        return { status: "released" };
+      }
+      if (reconciliation.status === "settled") {
+        const settled = readReconciledSettledCost(reconciliation, "release");
+        return "error" in settled
+          ? { status: "blocked", error: settled.error }
+          : { status: "settled", settledCostCents: settled.settledCostCents };
+      }
+      if (
+        !Number.isSafeInteger(reconciliation.reservedCostCents) ||
+        reconciliation.reservedCostCents !== held.reservedCostCents
+      ) {
+        return {
+          status: "blocked",
+          error:
+            `Loop "${loopNode.id}" item ${held.itemIndex} release ` +
+            "reconciliation disagreed with the durable reservation amount",
+        };
+      }
+      if (!allowRetry) {
+        return {
+          status: "blocked",
+          error:
+            `Loop "${loopNode.id}" item ${held.itemIndex} reservation remains ` +
+            "held after a retried release; outcome is still unknown",
+        };
+      }
+      const retry = await releaseItem(held, releaseReason);
+      if (retry === undefined) return { status: "released" };
+      const retried = await reconcileUnknownReservation(
+        held.itemIndex,
+        held.attempt,
+        retry.outcomeUnknown,
+        "release"
+      );
+      return interpret(retried, false);
+    };
+
+    return interpret(
+      await reconcileUnknownReservation(
+        held.itemIndex,
+        held.attempt,
+        reason,
+        "release"
+      ),
+      true
+    );
+  };
+
+  type SettlementResolution =
+    | { status: "settled"; settledCostCents: number; overrun?: string }
+    | { status: "blocked"; error: string };
+
+  /** Resolve an unobserved settlement from the body-complete receipt. */
+  const resolveUnknownSettlement = async (
+    held: HeldItemReservation,
+    actualCostCents: number,
+    reason: string
+  ): Promise<SettlementResolution> => {
+    const observed = await reconcileUnknownReservation(
+      held.itemIndex,
+      held.attempt,
+      reason,
+      "settle"
+    );
+    if (observed.status === "blocked") return observed;
+    if (observed.status === "released" || observed.status === "absent") {
+      return {
+        status: "blocked",
+        error:
+          `Loop "${loopNode.id}" item ${held.itemIndex} settlement was not ` +
+          `applied: reconciliation reported ${observed.status}; redispatch is blocked`,
+      };
+    }
+    if (observed.status === "settled") {
+      const settled = readReconciledSettledCost(observed, "settle");
+      if ("error" in settled) return { status: "blocked", error: settled.error };
+      return {
+        status: "settled",
+        settledCostCents: settled.settledCostCents,
+        ...(settled.settledCostCents > held.reservedCostCents
+          ? {
+              overrun:
+                `Loop "${loopNode.id}" item ${held.itemIndex} settled ` +
+                `${settled.settledCostCents} cents, exceeding its ` +
+                `${held.reservedCostCents}-cent reservation`,
+            }
+          : {}),
+      };
+    }
+    if (
+      !Number.isSafeInteger(observed.reservedCostCents) ||
+      observed.reservedCostCents !== held.reservedCostCents
+    ) {
+      return {
+        status: "blocked",
+        error:
+          `Loop "${loopNode.id}" item ${held.itemIndex} settle reconciliation ` +
+          "disagreed with the durable reservation amount",
+      };
+    }
+
+    // The host authoritatively says the first settle did not land and the
+    // original hold remains, so retrying this idempotent reservation is safe.
+    try {
+      await resume?.settleIterationBudget?.({
+        loopNodeId: loopNode.id,
+        iteration: held.itemIndex + 1,
+        itemIndex: held.itemIndex,
+        ...(held.attempt > 0 ? { attempt: held.attempt } : {}),
+        reservationId: held.reservationId,
+        reservedCostCents: held.reservedCostCents,
+        actualCostCents,
+      });
+    } catch (error) {
+      const retried = await reconcileUnknownReservation(
+        held.itemIndex,
+        held.attempt,
+        error instanceof Error ? error.message : String(error),
+        "settle"
+      );
+      if (retried.status === "settled") {
+        const settled = readReconciledSettledCost(retried, "settle");
+        if ("error" in settled) {
+          return { status: "blocked", error: settled.error };
+        }
+        return {
+          status: "settled",
+          settledCostCents: settled.settledCostCents,
+          ...(settled.settledCostCents > held.reservedCostCents
+            ? {
+                overrun:
+                  `Loop "${loopNode.id}" item ${held.itemIndex} settled ` +
+                  `${settled.settledCostCents} cents, exceeding its ` +
+                  `${held.reservedCostCents}-cent reservation`,
+              }
+            : {}),
+        };
+      }
+      return retried.status === "blocked"
+        ? retried
+        : {
+            status: "blocked",
+            error:
+              `Loop "${loopNode.id}" item ${held.itemIndex} retried settle ` +
+              `remains unresolved (${retried.status}); redispatch is blocked`,
+          };
+    }
+    return {
+      status: "settled",
+      settledCostCents: actualCostCents,
+      ...(actualCostCents > held.reservedCostCents
+        ? {
+            overrun:
+              `Loop "${loopNode.id}" item ${held.itemIndex} settled ` +
+              `${actualCostCents} cents, exceeding its ` +
+              `${held.reservedCostCents}-cent reservation`,
+          }
+        : {}),
+    };
   };
 
   // 24-G: every index that reaches a terminal state, recorded here so the
@@ -526,60 +909,76 @@ export async function executeForEachLoop(
   };
 
   /**
-   * 24-H: mark an already-settled item complete without dispatching it.
+   * Persist the item's exact aggregate contribution at the body-complete
+   * boundary. The same frame is first written as `running` before settlement
+   * and then as `completed` with settled economics. Consequently a crash on
+   * either side of the host call retains enough output to reconcile without
+   * dispatching the body again.
+   */
+  const checkpointAggregateReceipt = async (input: {
+    index: number;
+    attempt: number;
+    outcome: "running" | "completed";
+    held: HeldItemReservation | undefined;
+    settledCostCents?: number;
+    bodyResults: Readonly<Record<string, NodeResult>>;
+  }): Promise<void> => {
+    await resume?.onItemBodyNodeComplete?.({
+      itemIndex: input.index,
+      nextBodyNodeIndex: bodyNodes.length,
+      bodyResults: input.bodyResults,
+      ...(input.attempt > 0 ? { attempt: input.attempt } : {}),
+      outcome: input.outcome,
+      ...(input.held === undefined
+        ? {}
+        : {
+            economics: {
+              reservationId: input.held.reservationId,
+              reservedCostCents: input.held.reservedCostCents,
+              ...(input.settledCostCents === undefined
+                ? {}
+                : { settledCostCents: input.settledCostCents }),
+            },
+          }),
+    });
+  };
+
+  /**
+   * Restore a durably completed item without dispatching its body.
    *
-   * Returns `false` when the item's aggregate contribution CANNOT be
-   * reconstructed, in which case nothing is mutated and the caller must
-   * dispatch the item normally. That gate is the whole subtlety of this packet,
-   * and it is not a defensive nicety — it is reachable and covered:
-   *
-   * - A multi-body-node item leaves a mid-item frame (written at every body
-   *   node except the last), which survives prefix retirement for exactly the
-   *   items this path handles (`itemIndex >= completedIterations`). Its
-   *   `collect.from` resolves against the retained results, so the value is
-   *   recoverable and the skip is safe.
-   * - A SINGLE-body-node item leaves NO frame at all — the frame write is gated
-   *   on `bodyIndex < bodyNodes.length - 1`, which is never true when there is
-   *   one node. If `collect.from` names something only that node produced, the
-   *   value is genuinely gone, and skipping would flush `undefined` into the
-   *   aggregate: `['a', 'b', 'c', undefined]`.
-   *
-   * That second case is precisely the hole 24-G predicted. It was wrong that the
-   * hole is unavoidable, and this packet was wrong to assume it never occurs —
-   * both shapes are real, and which one applies is a property of the flow
-   * document, not of the loop. So recoverability is TESTED rather than assumed:
-   * skip when the value can be rebuilt, re-run when it cannot. Re-running is the
-   * pre-24-H behaviour, double charge included, which is strictly better than a
-   * silently corrupted aggregate.
-   *
-   * No terminal outcome is recorded on the skip path: the previous run already
-   * recorded `completed` for this index, and re-recording would overwrite that
-   * run's settled economics with an attempt that never opened a ledger row.
+   * Completion is accepted only from the body-complete frame written by this
+   * executor and its validated aggregate/output receipt. A missing or corrupt
+   * receipt, or any other body cursor, returns `false`; the caller fails closed
+   * and never converts uncertain completion into a duplicate effect or charge.
+   * The same representation covers single- and multi-body items.
    */
   const restoreSettledItem = async (index: number): Promise<boolean> => {
-    const itemState = {
-      ...context.state,
-      [contract.as]: items[index],
-    };
-    let restoredValue: unknown;
-    if (contract.collect !== undefined) {
-      const retained = new Map<string, NodeResult>();
-      const frame = resume?.itemFrames?.[String(index)];
-      for (const [nodeId, result] of Object.entries(frame?.bodyResults ?? {})) {
-        retained.set(nodeId, result as NodeResult);
-      }
-      const resolved = resolveStatePath(itemState, contract.collect.from);
-      const fromResults = retained.get(contract.collect.from)?.output;
-      // `collectIterationValue` falls back to `undefined` when neither source
-      // has the path, which is indistinguishable from a genuinely-undefined
-      // collected value. Resolve the two sources explicitly instead so an
-      // unrecoverable value is a REFUSAL to skip rather than a silent hole.
-      if (!resolved.found && fromResults === undefined) return false;
-      restoredValue = resolved.found ? resolved.value : fromResults;
+    const frame = resume?.itemFrames?.[String(index)];
+    if (
+      frame?.outcome !== "completed" ||
+      frame.nextBodyNodeIndex !== bodyNodes.length
+    ) {
+      return false;
     }
-    if (contract.collect !== undefined) collected[index] = restoredValue;
-    merge.attachedValues[index] = itemState[contract.as];
-    merge.accumulatorItems[index] = itemState[contract.as];
+    const receipt = readAggregateReceipt(
+      loopNode.id,
+      index,
+      items[index],
+      frame?.bodyResults
+    );
+    if (receipt === undefined) return false;
+    if (contract.collect !== undefined) {
+      if (receipt.collectedValue === undefined) return false;
+      collected[index] = receipt.collectedValue.value;
+    }
+    const itemValue = receipt.itemValue.value;
+    merge.attachedValues[index] = itemValue;
+    merge.accumulatorItems[index] = itemValue;
+    results[index] = {
+      nodeId: receipt.finalBodyResult.nodeId,
+      output: receipt.finalBodyResult.output.value,
+      durationMs: 0,
+    };
     // A skipped item consumed no wall-clock this run. Recording 0 rather than
     // leaving it undefined keeps it counted by `completedIterations`, which
     // filters on `!== undefined` — an omitted duration would under-report the
@@ -594,42 +993,91 @@ export async function executeForEachLoop(
   };
 
   const runIteration = async (index: number): Promise<void> => {
-    // 24-H: THE READER — the first consumer of the terminal set that makes a
-    // scheduling decision, and the reason 24-G's record is load-bearing rather
-    // than merely observable.
-    //
-    // 24-G built a reader here and DELETED it, because disabling it killed
-    // zero tests: `nextIndex` starts at `startIndex`, so the worker loop never
-    // dispatches an item BELOW the ordered prefix, and the cursor subsumed the
-    // skip entirely. This reader is not that one. It covers the case the
-    // cursor provably cannot reach — an item that completed OUT OF ORDER, past
-    // the prefix (index 3 completing after index 2 failed). The prefix stops at
-    // 2; index 3 is dispatched again on every resume.
-    //
-    // What that re-dispatch costs is MONEY, not correctness of the aggregate.
-    // 24-F advances `attempt` whenever a resumed frame carries economics, so
-    // the replay reserves under a DIFFERENT id than the settled attempt
-    // (`…:item:3` then `…:item:3:attempt:1`) and no host-side idempotency key
-    // can collapse the two. The item settles twice for one unit of work.
-    //
-    // Skipping is CONDITIONAL on the item's aggregate contribution still being
-    // reconstructible — `restoreSettledItem` returns false when it is not, and
-    // the item then falls through and is dispatched normally. Both shapes are
-    // real: a multi-body-node item keeps a retained frame holding its results,
-    // while a single-body-node item leaves no frame at all and its collected
-    // value can be genuinely unrecoverable. Skipping unconditionally would fix
-    // the double charge by corrupting the aggregate to `[a, b, c, undefined]`,
-    // which is a strictly worse trade. See `restoreSettledItem`.
-    //
-    // Gated on `completed` alone, never on `isTerminalItemOutcome`: a `failed`,
-    // `cancelled` or `denied` item released its reservation and genuinely owes
-    // another attempt, and `outcome_unknown` is not terminal at all. Only a
-    // `completed` item was charged, and only a charged item must not be charged
-    // again. Absence stays unprovable — an item with no record is dispatched
-    // normally, so pre-24-G checkpoints keep resuming unchanged.
+    // A completed frame or terminal outcome is a permanent no-redispatch
+    // boundary, including when it lies beyond the ordered prefix. Restoration
+    // requires the exact durable aggregate receipt; missing/corrupt evidence
+    // fails closed. Failed/cancelled/denied outcomes remain retryable only when
+    // they carry no settled charge. An outcome_unknown stays blocked unless a
+    // body-complete receipt identifies the recoverable settle boundary below.
+    const itemResume = resume?.itemFrames?.[String(index)];
     const priorOutcome = resume?.itemOutcomes?.[String(index)];
-    if (priorOutcome?.outcome === "completed") {
+    if (
+      priorOutcome?.outcome !== "completed" &&
+      priorOutcome?.economics?.settledCostCents !== undefined
+    ) {
+      // A failed/cancelled/denied attempt that was nevertheless charged must
+      // never become a retry candidate. The terminal set lacks a dedicated
+      // "failed-but-charged" tag, so retain its exact economics and stop here.
+      terminalOutcomes.add(index);
+      breachBudget();
+      firstError ??= {
+        nodeId: loopNode.id,
+        output: null,
+        durationMs: Date.now() - startTime,
+        error:
+          `Loop "${loopNode.id}" item ${index} is terminal with a settled ` +
+          `charge of ${priorOutcome.economics.settledCostCents} cents; ` +
+          "redispatch is blocked",
+      };
+      return;
+    }
+    if (
+      priorOutcome?.outcome === "outcome_unknown" &&
+      itemResume?.nextBodyNodeIndex !== bodyNodes.length
+    ) {
+      // Without a body-complete receipt the checkpoint does not retain which
+      // lifecycle boundary became unobservable. Re-dispatching would guess
+      // that an earlier reserve/release left no live money, so keep the item
+      // blocked for operator reconciliation. Body-complete settle recovery is
+      // the one distinguishable case and continues below.
+      terminalOutcomes.add(index);
+      breachBudget();
+      firstError ??= {
+        nodeId: loopNode.id,
+        output: null,
+        durationMs: Date.now() - startTime,
+        error:
+          `Loop "${loopNode.id}" item ${index} has a durable outcome-unknown ` +
+          "reservation without a body-complete receipt; redispatch is blocked",
+      };
+      return;
+    }
+    const frameCompleted = itemResume?.outcome === "completed";
+    if (priorOutcome?.outcome === "completed" || frameCompleted) {
+      terminalOutcomes.add(index);
+      if (frameCompleted && priorOutcome?.outcome !== "completed") {
+        const economics = itemResume.economics;
+        const held =
+          economics === undefined
+            ? undefined
+            : {
+                itemIndex: index,
+                attempt: itemResume.attempt ?? 0,
+                reservationId: economics.reservationId,
+                reservedCostCents: economics.reservedCostCents,
+              };
+        await recordTerminalOutcome(
+          index,
+          "completed",
+          held,
+          economics?.settledCostCents
+        );
+      }
       if (await restoreSettledItem(index)) return;
+      // A completed item is never a redispatch candidate. A checkpoint written
+      // before aggregate receipts existed may be unreconstructible (notably a
+      // single-body collect-from-state item); fail closed rather than repeat
+      // its effects or charge it again.
+      breachBudget();
+      firstError ??= {
+        nodeId: loopNode.id,
+        output: null,
+        durationMs: Date.now() - startTime,
+        error:
+          `Loop "${loopNode.id}" item ${index} is durably completed but its ` +
+          "aggregate/output receipt is missing or corrupt; redispatch is blocked",
+      };
+      return;
     }
 
     const iteration = index + 1;
@@ -658,7 +1106,6 @@ export async function executeForEachLoop(
     // the body nodes that already committed. `itemResume` applies only to the
     // one item the checkpoint was taken in — every later item starts at body
     // node 0 with no retained results.
-    const itemResume = resume?.itemFrames?.[String(index)];
     const startBodyNodeIndex = itemResume?.nextBodyNodeIndex ?? 0;
     // Restore predecessors' outputs rather than re-executing to rebuild them.
     if (itemResume?.bodyResults !== undefined) {
@@ -681,28 +1128,270 @@ export async function executeForEachLoop(
     // host no reservation exists, nothing durable can collide, and advancing
     // would needlessly change the item's idempotency keys on every resume.
     const resumedAttempt = itemResume?.attempt ?? 0;
-    const attempt =
-      itemResume?.economics === undefined ? resumedAttempt : resumedAttempt + 1;
     // Body results retained for a mid-item checkpoint, accumulated as we go.
     const retainedBodyResults: Record<string, NodeResult> = {
       ...((itemResume?.bodyResults ?? {}) as Record<string, NodeResult>),
     };
+
+    const preparedReceipt = readAggregateReceipt(
+      loopNode.id,
+      index,
+      items[index],
+      itemResume?.bodyResults
+    );
+    if (startBodyNodeIndex >= bodyNodes.length) {
+      const blockPreparedCompletion = async (
+        reason: string,
+        outcome: PipelineForEachItemOutcome = "outcome_unknown",
+        settledCostCents?: number
+      ): Promise<void> => {
+        breachBudget();
+        firstError ??= {
+          nodeId: loopNode.id,
+          output: preparedReceipt?.finalBodyResult?.output.value ?? null,
+          durationMs: Date.now() - startTime,
+          error:
+            `Loop "${loopNode.id}" item ${index} has completed body work that ` +
+            `cannot be settled safely: ${reason}; redispatch is blocked`,
+        };
+        const economics = itemResume?.economics;
+        await recordTerminalOutcome(
+          index,
+          outcome,
+          economics === undefined
+            ? undefined
+            : {
+                itemIndex: index,
+                attempt: resumedAttempt,
+                reservationId: economics.reservationId,
+                reservedCostCents: economics.reservedCostCents,
+              },
+          settledCostCents ?? economics?.settledCostCents
+        );
+        iterationDurations[index] = Date.now() - iterStart;
+      };
+
+      if (
+        startBodyNodeIndex !== bodyNodes.length ||
+        preparedReceipt === undefined
+      ) {
+        await blockPreparedCompletion(
+          "its aggregate/output receipt is missing, corrupt, or has an invalid body cursor"
+        );
+        return;
+      }
+
+      const receiptBodyResults = Object.fromEntries(
+        Object.entries(retainedBodyResults).filter(
+          ([nodeId]) => nodeId !== loopNode.id
+        )
+      );
+      const economics = itemResume?.economics;
+      if (economics === undefined) {
+        if (itemBudgetCents !== undefined) {
+          await blockPreparedCompletion(
+            "the strict ceiling receipt has no reservation economics"
+          );
+          return;
+        }
+        await checkpointAggregateReceipt({
+          index,
+          attempt: resumedAttempt,
+          outcome: "completed",
+          held: undefined,
+          bodyResults: retainedBodyResults,
+        });
+        await recordTerminalOutcome(index, "completed", undefined);
+        if (!(await restoreSettledItem(index))) {
+          await blockPreparedCompletion("its durable aggregate could not be restored");
+        }
+        return;
+      }
+
+      const resumedHeld: HeldItemReservation = {
+        itemIndex: index,
+        attempt: resumedAttempt,
+        reservationId: economics.reservationId,
+        reservedCostCents: economics.reservedCostCents,
+      };
+      const reconciliation = await reconcileUnknownReservation(
+        index,
+        resumedAttempt,
+        "resume of a durable body-complete aggregate receipt",
+        "settle"
+      );
+
+      let settledCostCents: number | undefined;
+      let settlementOverrun: string | undefined;
+      if (reconciliation.status === "settled") {
+        const settled = readReconciledSettledCost(reconciliation, "settle");
+        if ("error" in settled) {
+          await blockPreparedCompletion(settled.error);
+          return;
+        }
+        settledCostCents = settled.settledCostCents;
+      } else if (reconciliation.status === "reserved") {
+        if (
+          !Number.isSafeInteger(reconciliation.reservedCostCents) ||
+          reconciliation.reservedCostCents !== economics.reservedCostCents
+        ) {
+          await blockPreparedCompletion(
+            "reconciliation disagreed with the durable reservation amount"
+          );
+          return;
+        }
+        const settlement = await settleItem(resumedHeld, receiptBodyResults);
+        if (settlement !== undefined && "settledCostCents" in settlement) {
+          settledCostCents = settlement.settledCostCents;
+          settlementOverrun = settlement.overrun;
+        } else if (settlement !== undefined && "outcomeUnknown" in settlement) {
+          const resolved = await resolveUnknownSettlement(
+            resumedHeld,
+            settlement.actualCostCents,
+            settlement.outcomeUnknown
+          );
+          if (resolved.status === "blocked") {
+            await blockPreparedCompletion(resolved.error);
+            return;
+          }
+          settledCostCents = resolved.settledCostCents;
+          settlementOverrun = resolved.overrun;
+        } else {
+          const detail =
+            settlement !== undefined && "costUnknown" in settlement
+              ? settlement.costUnknown
+              : "settlement produced no authoritative receipt";
+          await blockPreparedCompletion(detail);
+          return;
+        }
+      } else {
+        const detail =
+          reconciliation.status === "blocked"
+            ? reconciliation.error
+            : `reconciliation returned ${reconciliation.status}; ` +
+              "completed work is not authoritatively charged";
+        await blockPreparedCompletion(detail);
+        return;
+      }
+
+      if (settledCostCents === undefined) {
+        await blockPreparedCompletion(
+          "settlement produced no authoritative known cost"
+        );
+        return;
+      }
+      if (
+        settlementOverrun !== undefined ||
+        settledCostCents > economics.reservedCostCents
+      ) {
+        await blockPreparedCompletion(
+          settlementOverrun ??
+            `settled ${settledCostCents} cents against a ${economics.reservedCostCents}-cent reservation`,
+          "failed",
+          settledCostCents
+        );
+        return;
+      }
+      await checkpointAggregateReceipt({
+        index,
+        attempt: resumedAttempt,
+        outcome: "completed",
+        held: resumedHeld,
+        settledCostCents,
+        bodyResults: retainedBodyResults,
+      });
+      await recordTerminalOutcome(
+        index,
+        "completed",
+        resumedHeld,
+        settledCostCents
+      );
+      if (!(await restoreSettledItem(index))) {
+        await blockPreparedCompletion("its durable aggregate could not be restored");
+      }
+      return;
+    }
+
+    const attempt =
+      itemResume?.economics === undefined ? resumedAttempt : resumedAttempt + 1;
 
     // F: admit this item's ceiling BEFORE its first body node dispatches, so a
     // reservation that cannot be authorized never spends. `held` is the single
     // source of truth for whether a reservation is outstanding, and every one
     // of the three exits below reconciles it exactly once.
     const held = await reserveItem(index, attempt, iterationState);
-    // G2b exit 0 — the reserve threw, so whether the host holds a reservation
-    // is unknown. Reconciliation is the only thing that can clear it; until it
-    // does, the item neither releases nor redispatches and the loop stops.
+    // A thrown reserve is reconciled before dispatch. Absent/released proves a
+    // clean denial; reserved proves a hold exists and therefore requires the
+    // strict host's release lifecycle before denial. Settled, unknown, and
+    // conflict cannot authorize body work and remain blocked.
     if (typeof held === "object" && held !== null && "outcomeUnknown" in held) {
-      const blocked = await reconcileUnknownReservation(
+      const reconciliation = await reconcileUnknownReservation(
         index,
         attempt,
         held.outcomeUnknown,
         "reserve"
       );
+      let reconciledHeld: HeldItemReservation | undefined;
+      let blocked: string | undefined;
+      if (reconciliation.status === "blocked") {
+        blocked = reconciliation.error;
+      } else if (reconciliation.status === "settled") {
+        const settled = readReconciledSettledCost(reconciliation, "reserve");
+        blocked =
+          "error" in settled
+            ? settled.error
+            : `Loop "${loopNode.id}" item ${index} was charged ` +
+              `${settled.settledCostCents} cents before its body was admitted; ` +
+              "dispatch is blocked";
+      } else if (reconciliation.status === "reserved") {
+        if (
+          !Number.isSafeInteger(reconciliation.reservedCostCents) ||
+          reconciliation.reservedCostCents < 0 ||
+          reconciliation.reservedCostCents > (itemBudgetCents as number)
+        ) {
+          blocked =
+            `Loop "${loopNode.id}" item ${index} reserve reconciliation ` +
+            `reported invalid hold ${String(reconciliation.reservedCostCents)}`;
+        } else {
+          reconciledHeld = {
+            itemIndex: index,
+            attempt,
+            reservationId: deriveItemReservationId({
+              ...(resume?.budgetRunId === undefined
+                ? {}
+                : { runId: resume.budgetRunId }),
+              loopNodeId: loopNode.id,
+              itemIndex: index,
+              attempt,
+            }),
+            reservedCostCents: reconciliation.reservedCostCents,
+          };
+          const release = await releaseItem(reconciledHeld, "failed");
+          if (release !== undefined) {
+            const releaseResolution = await resolveUnknownRelease(
+              reconciledHeld,
+              "failed",
+              release.outcomeUnknown
+            );
+            if (releaseResolution.status !== "released") {
+              blocked =
+                releaseResolution.status === "blocked"
+                  ? releaseResolution.error
+                  : `Loop "${loopNode.id}" item ${index} was charged ` +
+                    `${releaseResolution.settledCostCents} cents while closing ` +
+                    "a reserve that failed before dispatch";
+            }
+          }
+        }
+      }
+
+      if (held.malformed === true && blocked === undefined) {
+        blocked =
+          `Loop "${loopNode.id}" item ${index} reserve returned malformed ` +
+          "evidence; reconciliation cannot turn that contradictory response " +
+          "into authoritative admission";
+      }
+
       if (blocked !== undefined) {
         breachBudget();
         firstError ??= {
@@ -711,23 +1400,11 @@ export async function executeForEachLoop(
           durationMs: Date.now() - startTime,
           error: blocked,
         };
-        // 24-G exit 0. The reservation's state could not be proven, so this is
-        // `outcome_unknown` and NOT terminal — `isTerminalItemOutcome` excludes
-        // it deliberately, because accounting must not close over an
-        // outstanding ledger row. It is still recorded: an unproven reservation
-        // is the one an operator most needs a durable pointer to, and leaving
-        // it absent would erase the only trace of the stranded row.
-        //
-        // No economics is attached: `held` is the marker object here, not a
-        // reservation, so there is no id or amount the loop can honestly claim.
-        await recordTerminalOutcome(index, "outcome_unknown", undefined);
+        await recordTerminalOutcome(index, "outcome_unknown", reconciledHeld);
         iterationDurations[index] = Date.now() - iterStart;
         return;
       }
-      // Reconciliation PROVED the reservation is gone (released or never
-      // created), so nothing is outstanding for this item. It is now a clean
-      // denial: the item still must not dispatch unpriced, but the loop is no
-      // longer blocked on an unresolved reservation.
+
       breachBudget();
       firstError ??= {
         nodeId: loopNode.id,
@@ -737,29 +1414,55 @@ export async function executeForEachLoop(
           `Loop "${loopNode.id}" item ${index} budget is unknown: ` +
           "its reservation failed and was reconciled as not outstanding",
       };
-      // 24-G exit 0b. Reconciliation proved nothing is outstanding, so unlike
-      // the branch above this IS terminal — the item never dispatched and holds
-      // no reservation.
-      await recordTerminalOutcome(index, "denied", undefined);
+      await recordTerminalOutcome(index, "denied", reconciledHeld);
       iterationDurations[index] = Date.now() - iterStart;
       return;
     }
-    if (held === "denied") {
-      // The ceiling was authored but no authoritative reservation exists.
-      // Fail closed: an unpriced item must not dispatch.
+
+    if (
+      typeof held === "object" &&
+      held !== null &&
+      "deniedHeld" in held
+    ) {
+      const deniedHeld = held.deniedHeld;
+      const release = await releaseItem(deniedHeld, "failed");
+      const resolution =
+        release === undefined
+          ? ({ status: "released" } as const)
+          : await resolveUnknownRelease(
+              deniedHeld,
+              "failed",
+              release.outcomeUnknown
+            );
+      if (resolution.status !== "released") {
+        breachBudget();
+        firstError ??= {
+          nodeId: loopNode.id,
+          output: null,
+          durationMs: Date.now() - startTime,
+          error:
+            resolution.status === "blocked"
+              ? resolution.error
+              : `Loop "${loopNode.id}" item ${index} was charged ` +
+                `${resolution.settledCostCents} cents while closing an ` +
+                "over-ceiling reservation",
+        };
+        await recordTerminalOutcome(index, "outcome_unknown", deniedHeld);
+        iterationDurations[index] = Date.now() - iterStart;
+        return;
+      }
+
       breachBudget();
       firstError ??= {
         nodeId: loopNode.id,
         output: null,
         durationMs: Date.now() - startTime,
         error:
-          `Loop "${loopNode.id}" item ${index} budget is unknown: ` +
-          "no authoritative conservative reservation is available",
+          `Loop "${loopNode.id}" item ${index} reservation of ` +
+          `${deniedHeld.reservedCostCents} cents exceeds its ` +
+          `${String(itemBudgetCents)}-cent ceiling and was released`,
       };
-      // 24-G exit 0b. A denied item never dispatched and opened no ledger row,
-      // so it carries no economics. Recording a zero-cent reservation here
-      // would assert a row that does not exist.
-      await recordTerminalOutcome(index, "denied", undefined);
+      await recordTerminalOutcome(index, "denied", deniedHeld);
       iterationDurations[index] = Date.now() - iterStart;
       return;
     }
@@ -872,21 +1575,35 @@ export async function executeForEachLoop(
       // whereas money in an unknown state is an operator-visible integrity
       // breach. Reporting the body error here would hide it.
       let releaseUnresolved = false;
+      let releaseSettledCostCents: number | undefined;
       if (releaseOutcome !== undefined) {
-        const blocked = await reconcileUnknownReservation(
-          index,
-          attempt,
-          releaseOutcome.outcomeUnknown,
-          "release"
+        const resolution = await resolveUnknownRelease(
+          // `releaseItem` returns an unknown marker only when it received a
+          // concrete reservation, so this correlation is guaranteed here.
+          held as HeldItemReservation,
+          haltedBeforeBody ? "aborted" : "failed",
+          releaseOutcome.outcomeUnknown
         );
-        if (blocked !== undefined) {
+        if (resolution.status === "blocked") {
           releaseUnresolved = true;
           breachBudget();
           firstError = {
             nodeId: loopNode.id,
             output: null,
             durationMs: Date.now() - startTime,
-            error: blocked,
+            error: resolution.error,
+          };
+        } else if (resolution.status === "settled") {
+          releaseSettledCostCents = resolution.settledCostCents;
+          breachBudget();
+          firstError = {
+            nodeId: loopNode.id,
+            output: null,
+            durationMs: Date.now() - startTime,
+            error:
+              `Loop "${loopNode.id}" item ${index} failed before completion ` +
+              `but release reconciliation proves it was charged ` +
+              `${resolution.settledCostCents} cents; redispatch is blocked`,
           };
         }
       }
@@ -915,16 +1632,77 @@ export async function executeForEachLoop(
           typeof held === "string" ||
           "outcomeUnknown" in held
           ? undefined
-          : held
+          : held,
+        releaseSettledCostCents
       );
       iterationDurations[index] = Date.now() - iterStart;
       return;
     }
 
+    const collectedValue =
+      contract.collect === undefined
+        ? undefined
+        : {
+            status: "known" as const,
+            value: collectIterationValue(
+              iterationState,
+              iterationPreviousResults,
+              contract.collect.from
+            ),
+          };
+    const aggregateBodyResults: Record<string, NodeResult> = {
+      ...retainedBodyResults,
+      [loopNode.id]: aggregateReceiptResult(
+        loopNode.id,
+        index,
+        iterationState[contract.as],
+        collectedValue,
+        lastBodyResult!
+      ),
+    };
+    // Persist the output receipt BEFORE settlement. If the process dies after
+    // the host applies the charge but before the completed checkpoint, resume
+    // reconciles this exact reservation and restores this receipt; it never
+    // dispatches the item body to rebuild output.
+    await checkpointAggregateReceipt({
+      index,
+      attempt,
+      outcome: "running",
+      held:
+        held === undefined ||
+        typeof held === "string" ||
+        "outcomeUnknown" in held
+          ? undefined
+          : held,
+      bodyResults: aggregateBodyResults,
+    });
+
     // F: exit 3 — the item completed. Reconcile actual spend against the
     // reservation, releasing the unspent delta. An overrun fails the loop
     // closed (operator decision, 08-16): the authored ceiling was breached.
-    const overrun = await settleItem(held, retainedBodyResults);
+    const completedHeld = held as HeldItemReservation | undefined;
+    let settlement = await settleItem(completedHeld, retainedBodyResults);
+    if (
+      settlement !== undefined &&
+      "costUnknown" in settlement
+    ) {
+      breachBudget();
+      firstError ??= {
+        nodeId: loopNode.id,
+        output: lastBodyResult?.output ?? null,
+        durationMs: Date.now() - startTime,
+        error:
+          `Loop "${loopNode.id}" item ${index} usage/cost is unknown; ` +
+          `settlement was not attempted: ${settlement.costUnknown}`,
+      };
+      await recordTerminalOutcome(
+        index,
+        "outcome_unknown",
+        completedHeld
+      );
+      iterationDurations[index] = Date.now() - iterStart;
+      return;
+    }
     // G2d (prereq 7): the settle call itself was unobservable. The item's work
     // is DONE and was charged, so this is not a release path — refunding could
     // return money the host already took. Only reconciliation can prove the
@@ -933,39 +1711,44 @@ export async function executeForEachLoop(
     // because a clean settle now also returns an object. Matching on the shape
     // alone would route every successful settlement into reconciliation.
     if (
-      typeof overrun === "object" &&
-      overrun !== null &&
-      "outcomeUnknown" in overrun
+      settlement !== undefined &&
+      "outcomeUnknown" in settlement
     ) {
-      const blocked = await reconcileUnknownReservation(
-        index,
-        attempt,
-        overrun.outcomeUnknown,
-        "settle"
+      const resolution = await resolveUnknownSettlement(
+        completedHeld as HeldItemReservation,
+        settlement.actualCostCents,
+        settlement.outcomeUnknown
       );
-      if (blocked !== undefined) {
+      if (resolution.status === "blocked") {
         breachBudget();
         firstError ??= {
           nodeId: loopNode.id,
           output: lastBodyResult?.output ?? null,
           durationMs: Date.now() - startTime,
-          error: blocked,
+          error: resolution.error,
         };
+        await recordTerminalOutcome(
+          index,
+          "outcome_unknown",
+          completedHeld
+        );
         iterationDurations[index] = Date.now() - iterStart;
         return;
       }
-      // Reconciliation PROVED the reservation is no longer outstanding, so the
-      // item is terminally settled despite the unobservable call. Its work
-      // completed successfully, so it counts as a completed item — fall
-      // through to the normal completion path below.
+      settlement = {
+        settledCostCents: resolution.settledCostCents,
+        ...(resolution.overrun === undefined
+          ? {}
+          : { overrun: resolution.overrun }),
+      };
     }
-    if (typeof overrun === "string") {
+    if (settlement !== undefined && "overrun" in settlement) {
       breachBudget();
       firstError ??= {
         nodeId: loopNode.id,
         output: lastBodyResult?.output ?? null,
         durationMs: Date.now() - startTime,
-        error: overrun,
+        error: settlement.overrun,
       };
       // 24-G: the item's body succeeded but it settled past its authored
       // ceiling, which fails the loop closed. It is `failed` rather than
@@ -975,38 +1758,41 @@ export async function executeForEachLoop(
       await recordTerminalOutcome(
         index,
         "failed",
-        held === undefined ||
-          typeof held === "string" ||
-          "outcomeUnknown" in held
-          ? undefined
-          : held
+        completedHeld,
+        settlement.settledCostCents
       );
       iterationDurations[index] = Date.now() - iterStart;
       return;
     }
+
+    const settledCostCents =
+      settlement !== undefined && "settledCostCents" in settlement
+        ? settlement.settledCostCents
+        : undefined;
+    // Persist completion and its exact output before publishing the terminal
+    // accounting record. Either record can independently block redispatch;
+    // the completed frame additionally restores single-body aggregation.
+    await checkpointAggregateReceipt({
+      index,
+      attempt,
+      outcome: "completed",
+      held: completedHeld,
+      ...(settledCostCents === undefined ? {} : { settledCostCents }),
+      bodyResults: aggregateBodyResults,
+    });
 
     // 24-G exit 3. The item completed and settled, so its economics is
     // terminal too — this is the only exit that records a settled cost.
     await recordTerminalOutcome(
       index,
       "completed",
-      held === undefined || typeof held === "string" || "outcomeUnknown" in held
-        ? undefined
-        : held,
-      typeof overrun === "object" &&
-        overrun !== null &&
-        "settledCostCents" in overrun
-        ? overrun.settledCostCents
-        : undefined
+      completedHeld,
+      settledCostCents
     );
 
     results[index] = lastBodyResult;
     if (contract.collect !== undefined) {
-      collected[index] = collectIterationValue(
-        iterationState,
-        iterationPreviousResults,
-        contract.collect.from
-      );
+      collected[index] = collectedValue?.value;
     }
     merge.attachedValues[index] = iterationState[contract.as];
     merge.accumulatorItems[index] = iterationState[contract.as];
