@@ -199,6 +199,20 @@ export interface LoopNode extends PipelineNodeBase {
      * refusal (24-H) are the prerequisites that made N>1 admissible.
      */
     concurrency: number;
+    /**
+     * Stops DISPATCH of further items once an item has failed. Items already
+     * in flight are NOT halted — they run their remaining body nodes to
+     * completion. At `concurrency: 1` the two readings coincide, because
+     * nothing is in flight when the failure is observed; at N>1 up to N-1
+     * siblings keep running.
+     *
+     * Scope is deliberately narrower than `budgetBreached`, which 24-I DOES
+     * propagate to in-flight items. An authored budget ceiling is a hard
+     * admission gate, whereas `failFast` is a policy about failures: an item
+     * underway holds a reservation and partial side effects, and halting it
+     * mid-body would reintroduce the release/settle ambiguity 24-F..24-H
+     * removed. Pinned by `pipeline-for-each-fail-fast-scope.test.ts`.
+     */
     failFast?: boolean;
     empty: {
       body: "skip";
