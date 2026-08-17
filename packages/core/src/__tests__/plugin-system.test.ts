@@ -721,7 +721,10 @@ describe("PluginRegistry — hook priority/ordering", () => {
     await registry.register(makePlugin({ name: "pB", hooks: hookB }), ctx);
     await registry.register(makePlugin({ name: "pC", hooks: hookC }), ctx);
     const hooks = registry.getHooks();
-    // Simulate calling all onRunStart hooks in order
+    // Hand-invoked: this loop is the ONLY caller. It pins the ORDER of
+    // `getHooks()`, not that production dispatches plugin hooks (nothing
+    // consumes `getHooks()` yet). Real run-lifecycle dispatch is proved in
+    // @dzupagent/agent's `run-lifecycle-hooks-dispatch.test.ts`.
     const hooksCtx = { agentId: "a", runId: "r", metadata: {} };
     for (const h of hooks) {
       if (h.onRunStart) await h.onRunStart(hooksCtx);

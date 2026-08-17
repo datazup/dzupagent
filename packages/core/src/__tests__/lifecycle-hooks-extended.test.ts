@@ -1192,7 +1192,19 @@ describe("concurrent runHooks invocations", () => {
 // 20. AgentHooks — full interface with all hooks wired through runHooks/runModifierHook
 // ---------------------------------------------------------------------------
 
-describe("AgentHooks — all hooks exercised end-to-end", () => {
+/**
+ * HAND-INVOKED dispatcher coverage — NOT end-to-end.
+ *
+ * Every test below calls `runHooks` / `runModifierHook` itself, so what is
+ * pinned is the DISPATCHER's argument forwarding for each hook shape. None
+ * of it shows that production code ever reaches these hooks.
+ *
+ * Real run-lifecycle dispatch (`onRunStart` / `onRunComplete` / `onRunError`
+ * fired as a consequence of a live `DzupAgent.generate()` / `.stream()`) is
+ * proved in `packages/agent/src/__tests__/run-lifecycle-hooks-dispatch.test.ts`.
+ * `@dzupagent/core` has no agent and cannot assert it here.
+ */
+describe("AgentHooks — hand-invoked dispatcher argument forwarding", () => {
   let callLog: string[];
   let ctx: HookContext;
 
@@ -1201,7 +1213,7 @@ describe("AgentHooks — all hooks exercised end-to-end", () => {
     ctx = makeCtx({ agentId: "e2e-agent", runId: "e2e-run" });
   });
 
-  it("onRunStart fires and receives context", async () => {
+  it("runHooks forwards the context to an onRunStart-shaped hook", async () => {
     const hooks: AgentHooks = {
       onRunStart: vi.fn(async (c) => {
         callLog.push(`start:${c.agentId}`);
@@ -1211,7 +1223,7 @@ describe("AgentHooks — all hooks exercised end-to-end", () => {
     expect(callLog).toEqual(["start:e2e-agent"]);
   });
 
-  it("onRunComplete fires and receives context + result", async () => {
+  it("runHooks forwards context + result to an onRunComplete-shaped hook", async () => {
     const hooks: AgentHooks = {
       onRunComplete: vi.fn(async (c, r) => {
         callLog.push(`complete:${c.runId}:${r}`);
@@ -1227,7 +1239,7 @@ describe("AgentHooks — all hooks exercised end-to-end", () => {
     expect(callLog).toEqual(["complete:e2e-run:success"]);
   });
 
-  it("onRunError fires and receives context + error", async () => {
+  it("runHooks forwards context + error to an onRunError-shaped hook", async () => {
     const hooks: AgentHooks = {
       onRunError: vi.fn(async (c, e) => {
         callLog.push(`error:${c.runId}:${e.message}`);
@@ -1373,7 +1385,7 @@ describe("AgentHooks — all hooks exercised end-to-end", () => {
     expect(callLog).toEqual(["budget-exceeded:over token limit"]);
   });
 
-  it("all 9 hooks fire in a full run lifecycle simulation", async () => {
+  it("dispatches all 9 hook shapes in a hand-sequenced order (no production run involved)", async () => {
     const hooks: AgentHooks = {
       onRunStart: vi.fn(async () => {
         callLog.push("start");

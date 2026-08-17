@@ -1095,7 +1095,12 @@ describe("Plugin composition — hooks chaining via getHooks + runHooks", () => 
     registry = new PluginRegistry(bus);
   });
 
-  it("hooks from two plugins both fire when run via runHooks", async () => {
+  // NOTE: this loop invokes the hooks ITSELF (it does not even go through
+  // `runHooks`). It pins that `getHooks()` returns BOTH plugins' hook sets,
+  // not that any dispatcher reaches them — nothing in production consumes
+  // `PluginRegistry.getHooks()` yet. Run-lifecycle dispatch from a real run is
+  // proved in @dzupagent/agent (`run-lifecycle-hooks-dispatch.test.ts`).
+  it("getHooks() returns the hook set of every registered plugin", async () => {
     const order: string[] = [];
     await registry.register(
       makePlugin({
@@ -1128,7 +1133,7 @@ describe("Plugin composition — hooks chaining via getHooks + runHooks", () => 
     expect(order).toContain("B");
   });
 
-  it("hooks fire in registration order (A before B)", async () => {
+  it("getHooks() returns hook sets in registration order (A before B)", async () => {
     const order: string[] = [];
     await registry.register(
       makePlugin({

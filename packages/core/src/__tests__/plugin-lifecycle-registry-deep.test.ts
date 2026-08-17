@@ -609,11 +609,24 @@ describe("PluginRegistry — plugin:registered event ordering", () => {
 });
 
 // ---------------------------------------------------------------------------
-// GROUP 9 — Lifecycle hooks called with correct context object shape
+// GROUP 9 — getHooks() returns plugin hooks callable at the declared arity
+//
+// SCOPE: these tests invoke the returned hook THEMSELVES. What they pin is the
+// registry contract — a registered plugin's hook survives `getHooks()` and is
+// callable with its declared parameters — NOT that anything dispatches it.
+//
+// Two separate facts about dispatch, so this group is not misread:
+//  1. Run-lifecycle dispatch from a real run IS now implemented, and proved in
+//     `packages/agent/src/__tests__/run-lifecycle-hooks-dispatch.test.ts`
+//     against `DzupAgent.generate()` / `.stream()`.
+//  2. `PluginRegistry.getHooks()` still has NO production consumer: nothing
+//     merges plugin-contributed hooks into a `DzupAgentConfig`, so a plugin's
+//     `onRunStart` is not reached by a run today. That gap is out of scope
+//     here and must not be inferred as covered from this group.
 // ---------------------------------------------------------------------------
 
-describe("PluginRegistry — lifecycle: hooks context shape", () => {
-  it("onRunStart hook receives object with agentId and runId", async () => {
+describe("PluginRegistry — getHooks() hook arity and context shape", () => {
+  it("returns an onRunStart hook that is callable with a HookContext", async () => {
     const bus = createEventBus();
     const ctx = makeCtx(bus);
     const registry = new PluginRegistry(bus);
@@ -642,7 +655,7 @@ describe("PluginRegistry — lifecycle: hooks context shape", () => {
     expect((captures[0] as { runId: string }).runId).toBe("run-1");
   });
 
-  it("onRunComplete hook is accessible on the hooks object", async () => {
+  it("returns a registered onRunComplete hook on the hooks object", async () => {
     const bus = createEventBus();
     const ctx = makeCtx(bus);
     const registry = new PluginRegistry(bus);
@@ -657,7 +670,7 @@ describe("PluginRegistry — lifecycle: hooks context shape", () => {
     expect(hookSet?.onRunComplete).toBeDefined();
   });
 
-  it("onRunError hook receives the hook context and the error object", async () => {
+  it("returns an onRunError hook callable at the declared (ctx, error) arity", async () => {
     const bus = createEventBus();
     const ctx = makeCtx(bus);
     const registry = new PluginRegistry(bus);

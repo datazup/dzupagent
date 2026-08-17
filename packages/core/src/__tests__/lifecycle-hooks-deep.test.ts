@@ -6,7 +6,7 @@
  * - Invocation order (sequential, registration order)
  * - Async hooks awaited before continuing
  * - Error isolation: one hook throws, others still run
- * - onRunStart / onRunComplete / onRunError semantics
+ * - runHooks argument forwarding for the run-lifecycle hook shapes
  * - beforeToolCall / afterToolCall modifier semantics
  * - onToolError hook
  * - onPhaseChange hook
@@ -21,6 +21,13 @@
  * - runModifierHook with object values
  * - runHooks with eventBus error reporting
  * - mergeHooks deduplication and ordering
+ *
+ * NOTE ON SCOPE (run-lifecycle hooks): `@dzupagent/core` has no agent and
+ * cannot drive a run, so nothing in this file proves that `onRunStart` /
+ * `onRunComplete` / `onRunError` are DISPATCHED by production code — every
+ * assertion here hands the hook to `runHooks` itself. Real dispatch through
+ * a live `DzupAgent.generate()` / `.stream()` is proved in
+ * `packages/agent/src/__tests__/run-lifecycle-hooks-dispatch.test.ts`.
  */
 
 import { describe, it, expect, vi } from "vitest";
@@ -292,10 +299,14 @@ describe("runHooks — error isolation", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 5. onRunStart semantics (via runHooks with HookContext)
+// 5. runHooks forwarding of an onRunStart-shaped payload
+//
+//    These invoke the hook via `runHooks` by hand: they pin ARGUMENT
+//    FORWARDING for the `(ctx)` shape, NOT that a run dispatches the hook.
+//    Production dispatch lives in @dzupagent/agent — see the file header.
 // ---------------------------------------------------------------------------
 
-describe("onRunStart hook semantics", () => {
+describe("runHooks forwarding: onRunStart-shaped (ctx) payload", () => {
   it("receives agent id from context", async () => {
     const ctx = makeCtx({ agentId: "my-agent" });
     let capturedAgentId: string | undefined;
@@ -346,10 +357,10 @@ describe("onRunStart hook semantics", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 6. onRunComplete semantics
+// 6. runHooks forwarding of an onRunComplete-shaped (ctx, result) payload
 // ---------------------------------------------------------------------------
 
-describe("onRunComplete hook semantics", () => {
+describe("runHooks forwarding: onRunComplete-shaped (ctx, result) payload", () => {
   it("receives context and result", async () => {
     const ctx = makeCtx();
     const result = { answer: 42 };
@@ -392,10 +403,10 @@ describe("onRunComplete hook semantics", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 7. onRunError semantics
+// 7. runHooks forwarding of an onRunError-shaped (ctx, error) payload
 // ---------------------------------------------------------------------------
 
-describe("onRunError hook semantics", () => {
+describe("runHooks forwarding: onRunError-shaped (ctx, error) payload", () => {
   it("receives context and error", async () => {
     const ctx = makeCtx();
     const err = new Error("run failed");
@@ -418,7 +429,7 @@ describe("onRunError hook semantics", () => {
     expect(capturedMessage).toBe("catastrophic failure");
   });
 
-  it("onRunError hook throwing does not propagate", async () => {
+  it("a throwing onRunError-shaped hook is swallowed by runHooks", async () => {
     const ctx = makeCtx();
     const hook = vi.fn(async () => {
       throw new Error("error handler also failed");
