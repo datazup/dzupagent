@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { createEventBus, type DzupEvent } from '@dzupagent/core'
 import type {
+  AdapterCapabilityProfile,
+  AdapterConfig,
   AgentCLIAdapter,
   AgentEvent,
   AgentInput,
@@ -38,13 +40,27 @@ class MockAdapter implements AgentCLIAdapter {
       cliAvailable: true,
     }
   }
+
+  // CodegenRunEngine only reads providerId and drives execute(); these two
+  // members are part of AgentCLIAdapter but nothing under test calls them.
+  // Throwing keeps the double honest — if the engine starts depending on
+  // either, this test says so instead of silently accepting a canned answer.
+  configure(_opts: Partial<AdapterConfig>): void {
+    throw new Error('MockAdapter.configure is not implemented')
+  }
+
+  getCapabilities(): AdapterCapabilityProfile {
+    throw new Error('MockAdapter.getCapabilities is not implemented')
+  }
 }
 
 describe('CodegenRunEngine correlation', () => {
   it('emits tool lifecycle events with executionRunId', async () => {
     const bus = createEventBus()
     const emitted: DzupEvent[] = []
-    bus.onAny((event) => emitted.push(event))
+    bus.onAny((event) => {
+      emitted.push(event)
+    })
 
     const adapter = new MockAdapter([
       {
@@ -137,7 +153,9 @@ describe('CodegenRunEngine correlation', () => {
   it('emits tool:error with executionRunId when adapter fails mid-tool', async () => {
     const bus = createEventBus()
     const emitted: DzupEvent[] = []
-    bus.onAny((event) => emitted.push(event))
+    bus.onAny((event) => {
+      emitted.push(event)
+    })
 
     const adapter = new MockAdapter([
       {

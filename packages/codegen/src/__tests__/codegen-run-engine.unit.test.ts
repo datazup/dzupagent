@@ -149,7 +149,9 @@ describe('CodegenRunEngine', () => {
   beforeEach(() => {
     bus = createEventBus()
     emitted = []
-    bus.onAny((event) => emitted.push(event))
+    bus.onAny((event) => {
+      emitted.push(event)
+    })
   })
 
   // -----------------------------------------------------------------------
