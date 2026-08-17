@@ -194,6 +194,7 @@ export function createNodeBuilders(ctx: NodeBuilderContext): NodeBuilders {
                 type: 'step:completed',
                 stepId: step.id,
                 durationMs: Date.now() - stepStart,
+                output: rawResult,
                 stepName: step.description,
               }))
               return result ?? {}
