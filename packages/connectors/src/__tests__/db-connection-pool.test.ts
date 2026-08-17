@@ -9,6 +9,7 @@
  * Uses in-memory mock pg.Pool / pg.PoolClient objects; no real pg import needed.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type { MockedFunction } from "vitest";
 import { createPgExecutor } from "../database/db-query.js";
 import { createDatabaseOperations } from "../database/db-operations.js";
 import { createDatabaseConnector } from "../database/db-connector.js";
@@ -40,13 +41,25 @@ function makePoolResult(
   return { rows, rowCount: rowCount ?? rows.length, fields: [] };
 }
 
+/**
+ * `PgPoolClient.query` is declared as a plain function, so the six call sites
+ * below that queue per-statement responses (BEGIN / SET LOCAL TRANSACTION READ
+ * ONLY / the real query / COMMIT) could not reach mockResolvedValueOnce on it.
+ * MockedFunction exposes the mock controls while keeping the declared signature,
+ * so a queued response still has to be a PgQueryResult.
+ */
+type MockClient = Omit<PgPoolClient, "query"> & {
+  query: MockedFunction<PgPoolClient["query"]>;
+  _released: boolean;
+};
+
 /** Build a minimal mock PgPoolClient. */
 function makeMockClient(
   queryImpl: (
     text: string,
     values?: unknown[]
   ) => Promise<PgQueryResult> = () => Promise.resolve(makePoolResult())
-): PgPoolClient & { _released: boolean } {
+): MockClient {
   const client = {
     _released: false,
     query: vi.fn().mockImplementation(queryImpl),
@@ -55,7 +68,7 @@ function makeMockClient(
       .mockImplementation(function (this: { _released: boolean }) {
         this._released = true;
       }),
-  } as unknown as PgPoolClient & { _released: boolean };
+  } as unknown as MockClient;
   return client;
 }
 
