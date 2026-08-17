@@ -327,7 +327,7 @@ export const TEST_QUALITY_BASELINE_COUNTS = {
   "packages/server/src/__tests__/events-tenant-isolation.test.ts": { "real-set-timeout": 1 },
   "packages/server/src/__tests__/in-memory-run-queue.test.ts": { "real-set-timeout": 4 },
   "packages/server/src/__tests__/input-guard.test.ts": { "real-set-timeout": 1 },
-  "packages/server/src/__tests__/learning-routes.test.ts": { "stateless-memory-double": 3, "vacuous-every": 3 },
+  "packages/server/src/__tests__/learning-routes.test.ts": { "vacuous-every": 3 },
   "packages/server/src/__tests__/marketplace-catalog-store.test.ts": { "real-set-timeout": 1 },
   "packages/server/src/__tests__/mcp-integration.test.ts": { "vacuous-every": 1 },
   "packages/server/src/__tests__/memory-tenant-isolation.test.ts": { "vacuous-every": 2 },
