@@ -211,7 +211,9 @@ function createMockRegistry(adapters: Map<AdapterProviderId, AgentCLIAdapter>): 
 
 function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
   const events: DzupEvent[] = []
-  bus.onAny((e) => events.push(e))
+  bus.onAny((e) => {
+    events.push(e)
+  })
   return events
 }
 
@@ -284,6 +286,7 @@ describe('ParallelExecutor', () => {
         [
           'claude',
           {
+            getCapabilities: () => stubCapabilities(),
             providerId: 'claude',
             async *execute() {
               slowState.executeCalls += 1
@@ -318,6 +321,7 @@ describe('ParallelExecutor', () => {
         [
           'gemini',
           {
+            getCapabilities: () => stubCapabilities(),
             providerId: 'gemini',
             async *execute() {
               fastState.executeCalls += 1

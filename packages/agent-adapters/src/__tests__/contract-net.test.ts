@@ -79,7 +79,9 @@ function failedEvents(providerId: AdapterProviderId, error: string): AgentEvent[
 
 function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
   const events: DzupEvent[] = []
-  bus.onAny((e) => events.push(e))
+  bus.onAny((e) => {
+    events.push(e)
+  })
   return events
 }
 
@@ -241,7 +243,8 @@ describe('ContractNetOrchestrator', () => {
 
     expect(result.success).toBe(true)
     expect(result.executionResult).toBe('Hello')
-    expect(result.winningBid.providerId).toBe('claude')
+    expect(result.winningBid).not.toBeNull()
+    expect(result.winningBid!.providerId).toBe('claude')
     expect(result.allBids).toHaveLength(1)
     expect(result.durationMs).toBeGreaterThanOrEqual(0)
   })
@@ -525,7 +528,8 @@ describe('ContractNetOrchestrator', () => {
 
     expect(result.success).toBe(true)
     // Crush is cheapest (cost=1), so custom scorer should pick it
-    expect(result.winningBid.providerId).toBe('crush')
+    expect(result.winningBid).not.toBeNull()
+    expect(result.winningBid!.providerId).toBe('crush')
   })
 
   it('emits protocol events', async () => {

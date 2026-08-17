@@ -1015,8 +1015,11 @@ describe("OrchestratorFacade", () => {
           events: [],
         };
 
-        tracker.add(toolCall!, span);
-        const consumed = tracker.take(toolResult);
+        // ToolSpanTracker's parameter type is `{ toolName: string } & Record<string, unknown>`;
+        // AgentEvent members are interfaces, which do not get an implicit index
+        // signature. Spreading produces an object-literal type that does.
+        tracker.add({ ...toolCall! }, span);
+        const consumed = tracker.take({ ...toolResult });
         expect(consumed).toBe(span);
       } finally {
         vi.unstubAllGlobals();
@@ -1738,7 +1741,9 @@ Do the task.
       );
 
       const emitted: DzupEvent[] = [];
-      bus.onAny((e) => emitted.push(e));
+      bus.onAny((e) => {
+        emitted.push(e);
+      });
 
       const { adapter } = createCapturingAdapter();
       const facade = createOrchestrator({
@@ -1770,7 +1775,9 @@ Do the task.
       await mkdir(join(tempDir, ".dzupagent"), { recursive: true });
 
       const emitted: DzupEvent[] = [];
-      bus.onAny((e) => emitted.push(e));
+      bus.onAny((e) => {
+        emitted.push(e);
+      });
 
       const { adapter } = createCapturingAdapter();
       const facade = createOrchestrator({
@@ -1790,7 +1797,9 @@ Do the task.
     it("does NOT emit adapter:skills_compiled when eventBus is the default (no dzupagent config)", async () => {
       // No dzupagent config — skills compilation is skipped entirely
       const emitted: DzupEvent[] = [];
-      bus.onAny((e) => emitted.push(e));
+      bus.onAny((e) => {
+        emitted.push(e);
+      });
 
       const { adapter } = createCapturingAdapter();
       const facade = createOrchestrator({
@@ -1831,7 +1840,9 @@ Task B.
       );
 
       const emitted: DzupEvent[] = [];
-      bus.onAny((e) => emitted.push(e));
+      bus.onAny((e) => {
+        emitted.push(e);
+      });
 
       const { adapter } = createCapturingAdapter();
       const facade = createOrchestrator({

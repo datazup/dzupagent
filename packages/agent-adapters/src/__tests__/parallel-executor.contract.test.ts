@@ -21,7 +21,9 @@ function createMockRegistry(adapters: Map<AdapterProviderId, AgentCLIAdapter>): 
 
 function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
   const events: DzupEvent[] = []
-  bus.onAny((event) => events.push(event))
+  bus.onAny((event) => {
+    events.push(event)
+  })
   return events
 }
 
