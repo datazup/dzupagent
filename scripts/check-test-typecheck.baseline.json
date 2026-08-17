@@ -1,5 +1,5 @@
 {
-  "totalErrors": 1585,
+  "totalErrors": 1563,
   "note": "Test-file typecheck baseline (tsconfig.flipcheck.json per package). Ratchets down only. Bump only via --update-baseline after FIXING errors, never to accommodate new ones. Enforced per package AND per file, so a fix in one place cannot mask a regression in another. totalErrors and perCode are informational; the per-file budgets are what fail the build.",
   "packages": {
     "adapter-rules": {
@@ -119,15 +119,14 @@
       }
     },
     "agent-adapters": {
-      "maxErrors": 166,
+      "maxErrors": 144,
       "perCode": {
-        "TS2322": 59,
-        "TS2339": 29,
+        "TS2322": 54,
         "TS2345": 25,
+        "TS2339": 17,
         "TS2540": 13,
         "TS2352": 12,
         "TS2353": 9,
-        "TS2558": 5,
         "TS2367": 3,
         "TS7024": 2,
         "TS18047": 2,
@@ -193,7 +192,6 @@
         "src/__tests__/registry-router.test.ts": 1,
         "src/__tests__/run-manager.test.ts": 1,
         "src/__tests__/session-registry.test.ts": 2,
-        "src/__tests__/stream-runner-tool-audit.test.ts": 22,
         "src/__tests__/stream-runner.test.ts": 2,
         "src/__tests__/supervisor.test.ts": 1,
         "src/__tests__/workflow-branches.test.ts": 1,
