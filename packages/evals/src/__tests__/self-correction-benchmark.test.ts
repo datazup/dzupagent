@@ -7,7 +7,6 @@ import {
 } from '../benchmarks/suites/self-correction.js';
 import type {
   CorrectionCategory,
-  CorrectionScenario,
 } from '../benchmarks/suites/self-correction.js';
 import type { BenchmarkSuite } from '../benchmarks/benchmark-types.js';
 

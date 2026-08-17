@@ -3,7 +3,7 @@
  * strict mode, output/reference separation, error handling,
  * report generation edge cases, and concurrency behavior.
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { EvalDataset } from '../dataset/eval-dataset.js';
 import {
   EvalRunner,
@@ -11,7 +11,7 @@ import {
   reportToCIAnnotations,
   reportToJSON,
 } from '../runner/enhanced-runner.js';
-import type { EvalReport, EvalReportEntry } from '../runner/enhanced-runner.js';
+import type { EvalReport } from '../runner/enhanced-runner.js';
 import type { EvalInput, Scorer, ScorerConfig, ScorerResult } from '../types.js';
 
 // ---------------------------------------------------------------------------

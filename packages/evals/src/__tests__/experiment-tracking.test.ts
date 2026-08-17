@@ -16,7 +16,7 @@
  * All tests are fully deterministic — no network calls, no LLM, no filesystem.
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { randomUUID } from "node:crypto";
 
 import type {
@@ -41,7 +41,6 @@ import {
   BenchmarkTrendStore,
   InMemoryBenchmarkRunStore,
 } from "../benchmarks/benchmark-trend.js";
-import type { BenchmarkRunRecord as TrendRunRecord } from "../benchmarks/benchmark-trend.js";
 
 import { EvalDataset } from "../dataset/eval-dataset.js";
 import {

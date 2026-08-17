@@ -33,8 +33,6 @@ import {
 } from "../orchestrator/benchmark-orchestrator.js";
 import type {
   BenchmarkOrchestratorConfig,
-  RegressionGateResult,
-  RegressionDetail,
 } from "../orchestrator/benchmark-orchestrator.js";
 import type {
   BenchmarkRunStore,

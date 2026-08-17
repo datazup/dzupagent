@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { LlmJudgeScorer, judgeResponseSchema } from '../scorers/llm-judge-scorer.js';
-import type { JudgeDimension, JudgeScorerResult, JudgeTokenUsage } from '../scorers/llm-judge-scorer.js';
+import type { JudgeDimension, JudgeTokenUsage } from '../scorers/llm-judge-scorer.js';
 import type { EvalInput } from '../types.js';
 
 // ---------------------------------------------------------------------------

@@ -15,12 +15,12 @@
  * No real LLM calls — all judge/scorer invocations use vi.fn() mocks.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { DeterministicScorer } from "../deterministic-scorer.js";
 import { LLMJudgeScorer } from "../llm-judge-scorer.js";
 import { CompositeScorer } from "../composite-scorer.js";
 import { runEvalSuite } from "../eval-runner.js";
-import type { EvalScorer, EvalResult, EvalSuite, EvalCase } from "../types.js";
+import type { EvalSuite, EvalCase } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

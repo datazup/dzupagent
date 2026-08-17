@@ -58,13 +58,6 @@ function makeEvalScorer(name: string, score: number): EvalScorer {
   };
 }
 
-function makeThrowingEvalScorer(name: string): EvalScorer {
-  return {
-    name,
-    score: vi.fn().mockRejectedValue(new Error(`${name} exploded`)),
-  };
-}
-
 function makeEnhancedScorer(id: string, score: number): Scorer<EvalInput> {
   const config: ScorerConfig = { id, name: id, type: "custom" };
   return {

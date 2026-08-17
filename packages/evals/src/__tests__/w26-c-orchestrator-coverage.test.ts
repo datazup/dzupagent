@@ -326,7 +326,6 @@ describe("eval-orchestrator-attempts", () => {
     });
 
     it("uses EVAL_RUN_FAILED when error has no name", () => {
-      const err = new Error("generic");
       // Simulate unnamed error
       const fakeErr = { name: "", message: "generic" } as Error;
       const record = toEvalRunError(fakeErr);
@@ -404,7 +403,6 @@ describe("eval-orchestrator-attempts", () => {
     });
 
     it("synthesises history from run fields when attemptHistory is empty", () => {
-      const now = new Date().toISOString();
       const run = makeQueuedRun({ attemptHistory: [] });
       const history = getAttemptHistory(run);
       expect(history).toHaveLength(1);
@@ -750,7 +748,6 @@ import {
 describe("eval-orchestrator-recovery", () => {
   describe("sortStaleRuns", () => {
     it("filters out completed, failed, and cancelled runs", () => {
-      const now = new Date().toISOString();
       const runs = [
         makeQueuedRun({ status: "completed" }),
         makeQueuedRun({ status: "failed" }),
@@ -1535,7 +1532,7 @@ describe("EvalOrchestrator", () => {
       const store = new MockRunStore();
       const run = makeQueuedRun();
       store.seedRun(run);
-      const orch = new EvalOrchestrator({
+      new EvalOrchestrator({
         store,
         executeTarget: async (i) => i,
       });
@@ -1562,7 +1559,7 @@ describe("EvalOrchestrator", () => {
         },
       });
       store.seedRun(run);
-      const orch = new EvalOrchestrator({
+      new EvalOrchestrator({
         store,
         executeTarget: async (i) => i,
       });

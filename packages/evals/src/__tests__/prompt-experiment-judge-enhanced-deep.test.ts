@@ -71,14 +71,6 @@ function makeScorer(score: number, id = "default-scorer"): Scorer<EvalInput> {
   };
 }
 
-function makeFailingScorer(id = "failing-scorer"): Scorer<EvalInput> {
-  const config: ScorerConfig = { id, name: id, type: "deterministic" };
-  return {
-    config,
-    score: vi.fn().mockRejectedValue(new Error("scorer exploded")),
-  };
-}
-
 function makeDataset(count = 3, prefix = "q"): EvalDataset {
   return EvalDataset.from(
     Array.from({ length: count }, (_, i) => ({

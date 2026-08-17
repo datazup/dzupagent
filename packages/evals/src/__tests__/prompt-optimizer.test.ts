@@ -1,11 +1,11 @@
 /**
  * Tests for PromptOptimizer — mocking LangChain BaseChatModel and PromptVersionStore.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { PromptOptimizer } from '../prompt-optimizer/prompt-optimizer.js';
 import type { PromptVersion, PromptVersionStore, PromptVersionEvalScores } from '../prompt-optimizer/prompt-version-store.js';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import type { EvalInput, Scorer, ScorerConfig, ScorerResult } from '../types.js';
+import type { EvalInput, Scorer, ScorerConfig } from '../types.js';
 import { EvalDataset } from '../dataset/eval-dataset.js';
 
 // ---------------------------------------------------------------------------

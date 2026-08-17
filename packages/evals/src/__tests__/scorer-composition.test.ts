@@ -11,7 +11,7 @@
  *  - Edge cases (empty list, single scorer, all-zero)
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { CompositeScorer } from "../composite-scorer.js";
 import type { EvalScorer, EvalResult } from "../types.js";
 import type {
@@ -341,7 +341,7 @@ describe("Chained scorers", () => {
       const capturedOutputs: string[] = [];
       const observer: EvalScorer = {
         name: "observer",
-        score: async (input, output) => {
+        score: async (_input, output) => {
           capturedOutputs.push(output);
           return { score: 0.7, pass: true, reasoning: "observed" };
         },
@@ -901,7 +901,7 @@ describe("Async race conditions", () => {
       const capturedRefs: Array<string | undefined> = [];
       const racingScorer = (name: string, d: number): EvalScorer => ({
         name,
-        score: async (input, output, ref) => {
+        score: async (_input, _output, ref) => {
           await delay(d);
           capturedRefs.push(ref);
           return { score: 0.5, pass: true, reasoning: name };

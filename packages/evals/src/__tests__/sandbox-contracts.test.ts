@@ -14,7 +14,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   SANDBOX_CONTRACT,
-  createSandboxContract,
   runContractSuite,
   ContractSuiteBuilder,
   timedTest,

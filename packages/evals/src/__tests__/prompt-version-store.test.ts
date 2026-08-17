@@ -3,7 +3,6 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { PromptVersionStore } from '../prompt-optimizer/prompt-version-store.js';
-import type { PromptVersion } from '../prompt-optimizer/prompt-version-store.js';
 import type { BaseStore } from '@langchain/langgraph';
 
 // ---------------------------------------------------------------------------
@@ -167,7 +166,7 @@ describe('PromptVersionStore', () => {
     });
 
     it('finds version by ID across prompt keys', async () => {
-      const v1 = await store.save({ promptKey: 'p1', content: 'v1' });
+      await store.save({ promptKey: 'p1', content: 'v1' });
       const v2 = await store.save({ promptKey: 'p2', content: 'v2' });
 
       const found = await store.getById(v2.id);
@@ -208,7 +207,7 @@ describe('PromptVersionStore', () => {
   describe('activate', () => {
     it('activates a version by ID', async () => {
       const v1 = await store.save({ promptKey: 'p1', content: 'v1' });
-      const v2 = await store.save({ promptKey: 'p1', content: 'v2' });
+      await store.save({ promptKey: 'p1', content: 'v2' });
 
       await store.activate(v1.id);
 
@@ -221,7 +220,7 @@ describe('PromptVersionStore', () => {
     });
 
     it('deactivates previous active version', async () => {
-      const v1 = await store.save({ promptKey: 'p1', content: 'v1', active: true });
+      await store.save({ promptKey: 'p1', content: 'v1', active: true });
       const v2 = await store.save({ promptKey: 'p1', content: 'v2' });
 
       await store.activate(v2.id);
@@ -333,7 +332,7 @@ describe('PromptVersionStore', () => {
         namespace: ['custom', 'ns'],
       });
 
-      const v = await customStore.save({ promptKey: 'p1', content: 'test' });
+      await customStore.save({ promptKey: 'p1', content: 'test' });
       const found = await customStore.getActive('p1');
       // Should not conflict with the default namespace
       expect(found).toBeNull(); // not active

@@ -6,25 +6,19 @@
  * output grounding, and score aggregation across multiple tool calls.
  */
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { DeterministicScorer } from "../deterministic-scorer.js";
 import { CompositeScorer } from "../composite-scorer.js";
 import {
   createKeywordScorer,
   createJSONSchemaScorer,
 } from "../scorers/deterministic-enhanced.js";
-import type { EvalInput } from "../types.js";
-import type { EvalScorer, EvalCase, EvalSuite } from "../types.js";
+import type { EvalSuite } from "../types.js";
 import { runEvalSuite } from "../eval-runner.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Build a simple EvalScorer from a deterministic scorer instance. */
-function asEvalScorer(scorer: DeterministicScorer): EvalScorer {
-  return scorer;
-}
 
 /** Simulate an agent response that selected a specific tool. */
 function agentSelectsTool(

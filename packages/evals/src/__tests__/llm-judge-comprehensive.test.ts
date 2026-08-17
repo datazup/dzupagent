@@ -32,15 +32,11 @@ import {
 import { LLMJudgeScorer } from "../llm-judge-scorer.js";
 import { createLLMJudge } from "../scorers/llm-judge-enhanced.js";
 import {
-  STANDARD_CRITERIA,
-  CODE_CRITERIA,
   FIVE_POINT_RUBRIC,
   TEN_POINT_RUBRIC,
 } from "../scorers/criteria.js";
 import type {
   JudgeDimension,
-  JudgeScorerConfig,
-  JudgeAnchor,
 } from "../scorers/llm-judge-scorer.js";
 import type { JudgeCriterion } from "../scorers/criteria.js";
 import type { EvalInput } from "../types.js";
@@ -376,16 +372,16 @@ describe("D. Reference-guided judging (ground truth in prompt)", () => {
     expect(prompt).not.toContain("Reference answer");
   });
 
-  it("reference empty string is treated as no reference", async () => {
-    // An empty string reference should not add a reference section
-    // (depends on implementation — this tests observable behavior)
+  it("reference empty string still emits the reference section", async () => {
+    // Counterpart to the test above: absent reference omits the section,
+    // an empty-string reference still emits it.
     const llm = vi.fn().mockResolvedValue(make5Dim());
     const scorer = new LlmJudgeScorer({ llm });
     await scorer.score("q", "a", "");
     const prompt = llm.mock.calls[0]![0] as string;
-    // Implementation adds reference section if reference !== undefined
-    // An empty string IS defined, so it may appear but must not crash
-    expect(llm).toHaveBeenCalledOnce();
+    // buildPrompt gates on `reference !== undefined`, so an empty string is a
+    // defined reference and the section is emitted with an empty value.
+    expect(prompt).toContain("Reference answer:");
   });
 
   it("scoring with reference still produces normalized [0,1] dimensions", async () => {

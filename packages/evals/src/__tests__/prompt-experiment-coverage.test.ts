@@ -4,34 +4,14 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { PromptExperiment } from '../prompt-experiment/prompt-experiment.js';
-import type { PromptVariant, ExperimentConfig } from '../prompt-experiment/prompt-experiment.js';
+import type { PromptVariant } from '../prompt-experiment/prompt-experiment.js';
 import { EvalDataset } from '../dataset/eval-dataset.js';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import type { EvalInput, Scorer, ScorerConfig, ScorerResult } from '../types.js';
+import type { EvalInput, Scorer, ScorerConfig } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function makeMockModel(responseMap?: Record<string, string>): BaseChatModel {
-  return {
-    invoke: vi.fn().mockImplementation(async (messages: Array<{ content: string }>) => {
-      // Find the system prompt to determine which variant we're running
-      if (responseMap) {
-        for (const msg of messages) {
-          if (typeof msg.content === 'string') {
-            for (const [key, value] of Object.entries(responseMap)) {
-              if (msg.content.includes(key)) {
-                return { content: value };
-              }
-            }
-          }
-        }
-      }
-      return { content: 'default output' };
-    }),
-  } as unknown as BaseChatModel;
-}
 
 function makeSimpleModel(output: string): BaseChatModel {
   return {
@@ -201,7 +181,6 @@ describe('PromptExperiment', () => {
       } as unknown as BaseChatModel;
 
       // Score based on output length
-      let evalCallCount = 0;
       const scorer: Scorer<EvalInput> = {
         config: { id: 'len', name: 'len', type: 'deterministic' },
         score: vi.fn().mockImplementation(async (input: EvalInput) => {

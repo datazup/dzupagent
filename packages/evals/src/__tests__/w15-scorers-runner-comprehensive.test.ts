@@ -25,16 +25,12 @@ import {
   createCostScorer,
 } from '../scorers/deterministic-enhanced.js';
 import { LlmJudgeScorer } from '../scorers/llm-judge-scorer.js';
-import type { JudgeDimension } from '../scorers/llm-judge-scorer.js';
 import {
-  EvalRunner,
   reportToMarkdown,
   reportToJSON,
   reportToCIAnnotations,
 } from '../runner/enhanced-runner.js';
-import type { EvalReport, EvalReportEntry } from '../runner/enhanced-runner.js';
-import { EvalDataset } from '../dataset/eval-dataset.js';
-import type { EvalInput, Scorer, ScorerConfig, ScorerResult } from '../types.js';
+import type { EvalReport } from '../runner/enhanced-runner.js';
 import { createLLMJudge } from '../scorers/llm-judge-enhanced.js';
 import { FIVE_POINT_RUBRIC, TEN_POINT_RUBRIC } from '../scorers/criteria.js';
 
@@ -63,20 +59,6 @@ function makeJudgeResponse(overrides?: Record<string, unknown>): string {
     reasoning: 'Good quality output',
     ...overrides,
   });
-}
-
-function createSimpleScorer(id: string, score: number, passed: boolean): Scorer<EvalInput> {
-  const config: ScorerConfig = { id, name: id, type: 'deterministic' };
-  return {
-    config,
-    score: async () => ({
-      scorerId: id,
-      scores: [{ criterion: 'test', score, reasoning: 'test reason' }],
-      aggregateScore: score,
-      passed,
-      durationMs: 1,
-    }),
-  };
 }
 
 // ===========================================================================

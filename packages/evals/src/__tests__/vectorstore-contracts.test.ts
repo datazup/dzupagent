@@ -13,7 +13,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   VECTOR_STORE_CONTRACT,
-  createVectorStoreContract,
   runContractSuite,
   ContractSuiteBuilder,
   timedTest,

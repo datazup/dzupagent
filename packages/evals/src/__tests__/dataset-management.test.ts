@@ -8,7 +8,7 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { EvalDataset } from "../dataset/eval-dataset.js";
-import type { EvalEntry, DatasetMetadata } from "../dataset/eval-dataset.js";
+import type { EvalEntry } from "../dataset/eval-dataset.js";
 
 // ---------------------------------------------------------------------------
 // In-memory DatasetStore — thin CRUD + versioning layer built on EvalDataset

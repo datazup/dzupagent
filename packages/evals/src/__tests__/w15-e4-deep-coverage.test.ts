@@ -831,7 +831,7 @@ describe('Domain Scorer Configs', () => {
     it('should have criteria weights summing close to 1.0 for each domain', () => {
       for (const [domain, config] of Object.entries(DOMAIN_CONFIGS)) {
         const total = config.criteria.reduce((sum, c) => sum + c.weight, 0);
-        expect(total).toBeCloseTo(1.0, 2);
+        expect(total, domain).toBeCloseTo(1.0, 2);
       }
     });
   });

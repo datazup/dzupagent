@@ -28,7 +28,6 @@ import { EMBEDDING_PROVIDER_CONTRACT } from '../contracts/suites/embedding-provi
 import type {
   ComplianceReport,
   ContractSuite,
-  ContractTestResult,
 } from '../contracts/contract-types.js';
 
 // ===========================================================================
@@ -213,8 +212,7 @@ function createMockLLMProvider() {
       };
     },
 
-    async *stream(messages: Array<{ content: string }>) {
-      const _msgs = messages;
+    async *stream(_messages: Array<{ content: string }>) {
       yield { content: 'Hello' };
       yield { content: ', ' };
       yield { content: 'world' };

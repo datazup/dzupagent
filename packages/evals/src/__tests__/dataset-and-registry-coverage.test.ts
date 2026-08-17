@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { EvalDataset } from '../dataset/eval-dataset.js';
 import type { EvalEntry } from '../dataset/eval-dataset.js';
 import { ScorerRegistry, defaultScorerRegistry } from '../scorers/scorer-registry.js';
-import type { EvalInput, Scorer, ScorerResult } from '../types.js';
+import type { EvalInput, ScorerResult } from '../types.js';
 import {
   LlmJudgeScorer,
   judgeResponseSchema,

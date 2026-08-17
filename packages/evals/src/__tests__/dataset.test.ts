@@ -185,8 +185,8 @@ describe('EvalDataset', () => {
       // Very unlikely to be identical with different seeds on 5 entries
       const ids1 = s1.entries.map((e) => e.id).join(',');
       const ids2 = s2.entries.map((e) => e.id).join(',');
-      // Not guaranteed different, but with these specific seeds they should differ
-      // We just check both have correct size
+      // sample() is seeded, so this comparison is deterministic, not probabilistic.
+      expect(ids1).not.toBe(ids2);
       expect(s1.size).toBe(3);
       expect(s2.size).toBe(3);
       // At minimum both should contain valid entry IDs

@@ -8,7 +8,6 @@ import {
 import type {
   LearningCurveStore,
   StoreItem,
-  LearningCurveConfig,
 } from '../benchmarks/suites/learning-curve.js';
 
 // ---------------------------------------------------------------------------

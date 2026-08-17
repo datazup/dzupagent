@@ -58,9 +58,8 @@
  *     - Extra fields ignored
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { LLMJudgeScorer } from "../llm-judge-scorer.js";
-import type { LLMJudgeConfig } from "../llm-judge-scorer.js";
 import { createLLMJudge, PINNED_JUDGE } from "../scorers/llm-judge-enhanced.js";
 import {
   judgeResponseSchema,
@@ -73,7 +72,6 @@ import {
   TEN_POINT_RUBRIC,
 } from "../scorers/criteria.js";
 import type { JudgeCriterion } from "../scorers/criteria.js";
-import type { EvalInput } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Test helpers
