@@ -33,127 +33,6 @@ function makeStore() {
   return new InMemoryApprovalStateStore();
 }
 
-/**
- * Multi-approver orchestrator built on top of the standard store.
- *
- * Wraps a single InMemoryApprovalStateStore and tracks per-approver
- * decisions in-memory. Resolves the backing store only when the quorum
- * condition is met. This is intentionally self-contained test infrastructure
- * — no changes to production code.
- */
-class MultiApproverGate {
-  private readonly store: InMemoryApprovalStateStore;
-  private approverDecisions = new Map<
-    string,
-    {
-      approver: string;
-      decision: "granted" | "rejected";
-      reason?: string;
-      at: Date;
-    }[]
-  >();
-
-  constructor(store?: InMemoryApprovalStateStore) {
-    this.store = store ?? new InMemoryApprovalStateStore();
-  }
-
-  async createPending(
-    runId: string,
-    approvalId: string,
-    payload: unknown
-  ): Promise<void> {
-    await this.store.createPending(runId, approvalId, payload);
-    this.approverDecisions.set(`${runId}::${approvalId}`, []);
-  }
-
-  /**
-   * Record one approver's decision.
-   *
-   * @param strategy 'and' = all must approve, 'or' = any one approves,
-   *                 'majority' = >50% must approve
-   */
-  async recordDecision(
-    runId: string,
-    approvalId: string,
-    approver: string,
-    decision: "granted" | "rejected",
-    options: {
-      strategy: "and" | "or" | "majority";
-      requiredApprovers: string[];
-      reason?: string;
-    }
-  ): Promise<void> {
-    const key = `${runId}::${approvalId}`;
-    const decisions = this.approverDecisions.get(key);
-    if (!decisions) throw new Error(`No pending approval: ${key}`);
-
-    // Idempotent: same approver decision is counted once
-    const existing = decisions.find((d) => d.approver === approver);
-    if (existing) return; // duplicate — ignore
-
-    decisions.push({
-      approver,
-      decision,
-      reason: options.reason,
-      at: new Date(),
-    });
-
-    const granted = decisions.filter((d) => d.decision === "granted");
-    const rejected = decisions.filter((d) => d.decision === "rejected");
-    const total = options.requiredApprovers.length;
-
-    if (options.strategy === "or") {
-      if (granted.length >= 1) {
-        await this.store.grant(runId, approvalId, this.buildMeta(granted));
-      } else if (rejected.length === total) {
-        await this.store.reject(
-          runId,
-          approvalId,
-          rejected.map((r) => r.reason ?? "rejected").join("; ")
-        );
-      }
-    } else if (options.strategy === "and") {
-      if (granted.length === total) {
-        await this.store.grant(runId, approvalId, this.buildMeta(granted));
-      } else if (rejected.length >= 1) {
-        await this.store.reject(
-          runId,
-          approvalId,
-          rejected[0]!.reason ?? "rejected"
-        );
-      }
-    } else if (options.strategy === "majority") {
-      const majority = Math.floor(total / 2) + 1;
-      if (granted.length >= majority) {
-        await this.store.grant(runId, approvalId, this.buildMeta(granted));
-      } else if (rejected.length >= majority) {
-        await this.store.reject(runId, approvalId, "majority rejected");
-      }
-    }
-  }
-
-  getDecisions(runId: string, approvalId: string) {
-    return this.approverDecisions.get(`${runId}::${approvalId}`) ?? [];
-  }
-
-  poll(
-    runId: string,
-    approvalId: string,
-    timeoutMs: number
-  ): Promise<ApprovalOutcome> {
-    return this.store.poll(runId, approvalId, timeoutMs);
-  }
-
-  private buildMeta(
-    decisions: { approver: string; decision: string; at: Date }[]
-  ): { approvedBy: string[]; timestamps: string[] } {
-    return {
-      approvedBy: decisions.map((d) => d.approver),
-      timestamps: decisions.map((d) => d.at.toISOString()),
-    };
-  }
-}
-
 // ---------------------------------------------------------------------------
 // 1. Single approver
 // ---------------------------------------------------------------------------
@@ -228,282 +107,42 @@ describe("Single approver", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 2. Multi-approver: AND strategy
-// ---------------------------------------------------------------------------
-
-describe("Multi-approver — AND (all must approve)", () => {
-  const APPROVERS = ["alice", "bob", "carol"];
-
-  it("does not resolve until all three approve", async () => {
-    const gate = new MultiApproverGate();
-    await gate.createPending("r2", "ap", { q: "deploy?" });
-    const pollP = gate.poll("r2", "ap", 3_000);
-
-    await gate.recordDecision("r2", "ap", "alice", "granted", {
-      strategy: "and",
-      requiredApprovers: APPROVERS,
-    });
-    // Not resolved yet — only 1 of 3
-    const partialResult = await Promise.race([
-      pollP.then(() => "resolved"),
-      new Promise<string>((r) => setTimeout(() => r("pending"), 20)),
-    ]);
-    expect(partialResult).toBe("pending");
-
-    await gate.recordDecision("r2", "ap", "bob", "granted", {
-      strategy: "and",
-      requiredApprovers: APPROVERS,
-    });
-    // Still waiting for carol
-    const partialResult2 = await Promise.race([
-      pollP.then(() => "resolved"),
-      new Promise<string>((r) => setTimeout(() => r("pending"), 20)),
-    ]);
-    expect(partialResult2).toBe("pending");
-
-    await gate.recordDecision("r2", "ap", "carol", "granted", {
-      strategy: "and",
-      requiredApprovers: APPROVERS,
-    });
-
-    const outcome = await pollP;
-    expect(outcome.decision).toBe("granted");
-    if (outcome.decision !== "granted") throw new Error("expected granted");
-    const meta = outcome.response as { approvedBy: string[] };
-    expect(meta.approvedBy).toContain("alice");
-    expect(meta.approvedBy).toContain("bob");
-    expect(meta.approvedBy).toContain("carol");
-  });
-
-  it("rejects immediately when any single approver rejects (AND)", async () => {
-    const gate = new MultiApproverGate();
-    await gate.createPending("r2b", "ap", {});
-    const pollP = gate.poll("r2b", "ap", 3_000);
-
-    await gate.recordDecision("r2b", "ap", "alice", "granted", {
-      strategy: "and",
-      requiredApprovers: APPROVERS,
-    });
-    await gate.recordDecision("r2b", "ap", "bob", "rejected", {
-      strategy: "and",
-      requiredApprovers: APPROVERS,
-      reason: "not comfortable",
-    });
-
-    const outcome = await pollP;
-    expect(outcome.decision).toBe("rejected");
-    if (outcome.decision !== "rejected") throw new Error("expected rejected");
-    expect(outcome.reason).toBe("not comfortable");
-  });
-
-  it("includes all granting approvers in the response metadata (AND)", async () => {
-    const gate = new MultiApproverGate();
-    await gate.createPending("r2c", "ap", {});
-    const pollP = gate.poll("r2c", "ap", 3_000);
-
-    for (const approver of APPROVERS) {
-      await gate.recordDecision("r2c", "ap", approver, "granted", {
-        strategy: "and",
-        requiredApprovers: APPROVERS,
-      });
-    }
-
-    const outcome = await pollP;
-    if (outcome.decision !== "granted") throw new Error("expected granted");
-    const meta = outcome.response as { approvedBy: string[] };
-    expect(meta.approvedBy).toHaveLength(3);
-  });
+/**
+ * COVERAGE GAP — deliberately skipped suite (DZUPAGENT-TEST-C-14).
+ *
+ * This file previously held 11 `it()` blocks whose entire subject under test
+ * was `MultiApproverGate` — a class DEFINED LOCALLY in this file. Three
+ * top-level describes ("Multi-approver — AND" 3, "Multi-approver — OR" 3,
+ * "Multi-approver — majority rule" 4) plus one block in "Duplicate approval
+ * idempotence" ("same approver granting twice is counted once
+ * (MultiApproverGate)") asserted only against the local gate's own
+ * quorum arithmetic. (The audit enumerated 10; the idempotence block was
+ * undercounted and is removed here too — the rest of that describe drives
+ * the real gate and is kept.) A grep for `MultiApproverGate` over all
+ * non-test source in all 36 packages returns nothing, and neither
+ * `approval-gate.ts` nor `approval-state-store.ts` exposes any
+ * `requiredApprovers`, quorum, or `strategy` concept: AND / OR / majority
+ * approver semantics DO NOT SHIP.
+ *
+ * The remaining 67 `it()` blocks in this file are NOT affected: they drive
+ * the real `ApprovalGate`, `InMemoryApprovalStateStore`,
+ * `ApprovalTimeoutError`, `DuplicateApprovalError` and `UnknownApprovalError`
+ * imported from `../index.js`.
+ *
+ * UNTESTED PRODUCTION SYMBOLS — none to name for multi-approver quorum;
+ * the shipped `ApprovalGate` (packages/hitl-kit/src/approval-gate.ts) is
+ * single-approver by construction. Multi-approver approval is an
+ * UNIMPLEMENTED FEATURE that 11 tests made look covered.
+ *
+ * Removed 2026-08-14 (DZUPAGENT-TEST-C-14 / RF-07).
+ */
+describe.skip("multi-approver quorum (AND / OR / majority) — no production symbol ships in @dzupagent/hitl-kit", () => {
+  it("needs a shipped multi-approver symbol before AND (all must approve) can be covered", () => {});
+  it("needs a shipped multi-approver symbol before OR (any one approves) can be covered", () => {});
+  it("needs a shipped multi-approver symbol before majority rule can be covered", () => {});
+  it("needs a shipped multi-approver symbol before per-approver duplicate-decision idempotence can be covered", () => {});
 });
 
-// ---------------------------------------------------------------------------
-// 3. Multi-approver: OR strategy
-// ---------------------------------------------------------------------------
-
-describe("Multi-approver — OR (any one approves)", () => {
-  const APPROVERS = ["alice", "bob", "carol"];
-
-  it("resolves as soon as the first approver grants (OR)", async () => {
-    const gate = new MultiApproverGate();
-    await gate.createPending("r3", "ap", {});
-    const pollP = gate.poll("r3", "ap", 3_000);
-
-    await gate.recordDecision("r3", "ap", "alice", "granted", {
-      strategy: "or",
-      requiredApprovers: APPROVERS,
-    });
-
-    const outcome = await pollP;
-    expect(outcome.decision).toBe("granted");
-    if (outcome.decision !== "granted") throw new Error("expected granted");
-    const meta = outcome.response as { approvedBy: string[] };
-    expect(meta.approvedBy).toEqual(["alice"]);
-  });
-
-  it("rejects only when all approvers reject (OR)", async () => {
-    const gate = new MultiApproverGate();
-    await gate.createPending("r3b", "ap", {});
-    const pollP = gate.poll("r3b", "ap", 3_000);
-
-    for (const approver of APPROVERS) {
-      await gate.recordDecision("r3b", "ap", approver, "rejected", {
-        strategy: "or",
-        requiredApprovers: APPROVERS,
-        reason: `${approver} rejects`,
-      });
-    }
-
-    const outcome = await pollP;
-    expect(outcome.decision).toBe("rejected");
-    if (outcome.decision !== "rejected") throw new Error("expected rejected");
-    expect(outcome.reason).toContain("alice rejects");
-  });
-
-  it("still pending when some reject but not all (OR)", async () => {
-    const gate = new MultiApproverGate();
-    await gate.createPending("r3c", "ap", {});
-    const pollP = gate.poll("r3c", "ap", 3_000);
-
-    await gate.recordDecision("r3c", "ap", "alice", "rejected", {
-      strategy: "or",
-      requiredApprovers: APPROVERS,
-    });
-    await gate.recordDecision("r3c", "ap", "bob", "rejected", {
-      strategy: "or",
-      requiredApprovers: APPROVERS,
-    });
-    // carol has not yet decided
-
-    const partial = await Promise.race([
-      pollP.then(() => "resolved"),
-      new Promise<string>((r) => setTimeout(() => r("pending"), 20)),
-    ]);
-    expect(partial).toBe("pending");
-
-    // Now grant via carol
-    await gate.recordDecision("r3c", "ap", "carol", "granted", {
-      strategy: "or",
-      requiredApprovers: APPROVERS,
-    });
-    const outcome = await pollP;
-    expect(outcome.decision).toBe("granted");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 4. Multi-approver: majority rule
-// ---------------------------------------------------------------------------
-
-describe("Multi-approver — majority rule (>50% must approve)", () => {
-  const APPROVERS = ["alice", "bob", "carol", "dave", "eve"];
-
-  it("grants when majority (3/5) approve", async () => {
-    const gate = new MultiApproverGate();
-    await gate.createPending("r4", "ap", {});
-    const pollP = gate.poll("r4", "ap", 3_000);
-
-    // 3 grants = majority
-    await gate.recordDecision("r4", "ap", "alice", "granted", {
-      strategy: "majority",
-      requiredApprovers: APPROVERS,
-    });
-    await gate.recordDecision("r4", "ap", "bob", "granted", {
-      strategy: "majority",
-      requiredApprovers: APPROVERS,
-    });
-    await gate.recordDecision("r4", "ap", "carol", "granted", {
-      strategy: "majority",
-      requiredApprovers: APPROVERS,
-    });
-
-    const outcome = await pollP;
-    expect(outcome.decision).toBe("granted");
-    if (outcome.decision !== "granted") throw new Error("expected granted");
-    const meta = outcome.response as { approvedBy: string[] };
-    expect(meta.approvedBy).toHaveLength(3);
-  });
-
-  it("rejects when majority (3/5) reject", async () => {
-    const gate = new MultiApproverGate();
-    await gate.createPending("r4b", "ap", {});
-    const pollP = gate.poll("r4b", "ap", 3_000);
-
-    for (const approver of ["alice", "bob", "carol"]) {
-      await gate.recordDecision("r4b", "ap", approver, "rejected", {
-        strategy: "majority",
-        requiredApprovers: APPROVERS,
-      });
-    }
-
-    const outcome = await pollP;
-    expect(outcome.decision).toBe("rejected");
-    if (outcome.decision !== "rejected") throw new Error("expected rejected");
-    expect(outcome.reason).toBe("majority rejected");
-  });
-
-  it("stays pending when 2/5 approve (not yet majority)", async () => {
-    const gate = new MultiApproverGate();
-    await gate.createPending("r4c", "ap", {});
-    const pollP = gate.poll("r4c", "ap", 3_000);
-
-    await gate.recordDecision("r4c", "ap", "alice", "granted", {
-      strategy: "majority",
-      requiredApprovers: APPROVERS,
-    });
-    await gate.recordDecision("r4c", "ap", "bob", "granted", {
-      strategy: "majority",
-      requiredApprovers: APPROVERS,
-    });
-
-    const partial = await Promise.race([
-      pollP.then(() => "resolved"),
-      new Promise<string>((r) => setTimeout(() => r("pending"), 20)),
-    ]);
-    expect(partial).toBe("pending");
-
-    // 3rd grant tips majority
-    await gate.recordDecision("r4c", "ap", "carol", "granted", {
-      strategy: "majority",
-      requiredApprovers: APPROVERS,
-    });
-    const outcome = await pollP;
-    expect(outcome.decision).toBe("granted");
-  });
-
-  it("handles even number of approvers (4): requires 3 for majority", async () => {
-    const evenApprovers = ["alice", "bob", "carol", "dave"];
-    const gate = new MultiApproverGate();
-    await gate.createPending("r4d", "ap", {});
-    const pollP = gate.poll("r4d", "ap", 3_000);
-
-    // 2/4 — not yet majority
-    await gate.recordDecision("r4d", "ap", "alice", "granted", {
-      strategy: "majority",
-      requiredApprovers: evenApprovers,
-    });
-    await gate.recordDecision("r4d", "ap", "bob", "granted", {
-      strategy: "majority",
-      requiredApprovers: evenApprovers,
-    });
-
-    const partial = await Promise.race([
-      pollP.then(() => "resolved"),
-      new Promise<string>((r) => setTimeout(() => r("pending"), 20)),
-    ]);
-    expect(partial).toBe("pending");
-
-    // 3/4 = majority
-    await gate.recordDecision("r4d", "ap", "carol", "granted", {
-      strategy: "majority",
-      requiredApprovers: evenApprovers,
-    });
-    const outcome = await pollP;
-    expect(outcome.decision).toBe("granted");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 5. Timeout: auto-approve and auto-reject
-// ---------------------------------------------------------------------------
 
 describe("Timeout behaviour", () => {
   afterEach(() => {
@@ -1052,40 +691,6 @@ describe("Gate in workflow", () => {
 // ---------------------------------------------------------------------------
 
 describe("Duplicate approval idempotence", () => {
-  it("same approver granting twice is counted once (MultiApproverGate)", async () => {
-    const gate = new MultiApproverGate();
-    await gate.createPending("r11", "ap", {});
-    const pollP = gate.poll("r11", "ap", 3_000);
-
-    // Alice grants twice
-    await gate.recordDecision("r11", "ap", "alice", "granted", {
-      strategy: "and",
-      requiredApprovers: ["alice", "bob"],
-    });
-    await gate.recordDecision("r11", "ap", "alice", "granted", {
-      strategy: "and",
-      requiredApprovers: ["alice", "bob"],
-    });
-
-    const decisions = gate.getDecisions("r11", "ap");
-    // Should only have ONE entry for alice
-    expect(decisions.filter((d) => d.approver === "alice")).toHaveLength(1);
-
-    // Not yet resolved — still waiting for bob
-    const partial = await Promise.race([
-      pollP.then(() => "resolved"),
-      new Promise<string>((r) => setTimeout(() => r("pending"), 20)),
-    ]);
-    expect(partial).toBe("pending");
-
-    await gate.recordDecision("r11", "ap", "bob", "granted", {
-      strategy: "and",
-      requiredApprovers: ["alice", "bob"],
-    });
-    const outcome = await pollP;
-    expect(outcome.decision).toBe("granted");
-  });
-
   it("store-level: repeated grant calls are idempotent after resolution", async () => {
     const store = makeStore();
     await store.createPending("r11b", "ap", {});

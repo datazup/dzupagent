@@ -336,355 +336,43 @@ const LANG_ENTRIES: EvalEntry[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// CRUD tests
-// ---------------------------------------------------------------------------
-
-describe("DatasetStore — CRUD", () => {
-  let store: DatasetStore;
-
-  beforeEach(() => {
-    store = new DatasetStore();
-  });
-
-  describe("create()", () => {
-    it("creates a dataset and assigns a unique id", () => {
-      const stored = store.create("math-ds", MATH_ENTRIES);
-      expect(stored.id).toMatch(/^ds-\d+$/);
-      expect(stored.name).toBe("math-ds");
-      expect(stored.dataset.size).toBe(3);
-      expect(stored.version).toBe(1);
-    });
-
-    it("assigns a createdAt timestamp", () => {
-      const before = Date.now();
-      const stored = store.create("ds", MATH_ENTRIES);
-      const after = Date.now();
-      expect(stored.createdAt.getTime()).toBeGreaterThanOrEqual(before);
-      expect(stored.createdAt.getTime()).toBeLessThanOrEqual(after);
-    });
-
-    it("stores description and tags", () => {
-      const stored = store.create("ds", MATH_ENTRIES, {
-        description: "Math eval set",
-        tags: ["math", "benchmark"],
-      });
-      expect(stored.description).toBe("Math eval set");
-      expect(stored.tags).toEqual(["math", "benchmark"]);
-    });
-
-    it("assigns incrementing unique ids across datasets", () => {
-      const a = store.create("a", []);
-      const b = store.create("b", []);
-      const c = store.create("c", []);
-      expect(a.id).not.toBe(b.id);
-      expect(b.id).not.toBe(c.id);
-    });
-
-    it("creates initial version 1 in version history", () => {
-      const stored = store.create("ds", MATH_ENTRIES);
-      const versions = store.listVersions(stored.id);
-      expect(versions).toHaveLength(1);
-      expect(versions[0]!.version).toBe(1);
-    });
-
-    it("creates empty dataset without error", () => {
-      const stored = store.create("empty-ds", []);
-      expect(stored.dataset.size).toBe(0);
-      expect(stored.version).toBe(1);
-    });
-  });
-
-  describe("getById()", () => {
-    it("retrieves dataset by id", () => {
-      const stored = store.create("math-ds", MATH_ENTRIES);
-      const retrieved = store.getById(stored.id);
-      expect(retrieved).toBeDefined();
-      expect(retrieved!.name).toBe("math-ds");
-      expect(retrieved!.dataset.size).toBe(3);
-    });
-
-    it("returns undefined for unknown id", () => {
-      const result = store.getById("nonexistent-id");
-      expect(result).toBeUndefined();
-    });
-
-    it("returns undefined after deletion", () => {
-      const stored = store.create("ds", MATH_ENTRIES);
-      store.delete(stored.id);
-      expect(store.getById(stored.id)).toBeUndefined();
-    });
-  });
-
-  describe("getByName()", () => {
-    it("retrieves dataset by name", () => {
-      store.create("lang-ds", LANG_ENTRIES);
-      const found = store.getByName("lang-ds");
-      expect(found).toBeDefined();
-      expect(found!.dataset.size).toBe(2);
-    });
-
-    it("returns undefined when name not found", () => {
-      expect(store.getByName("ghost")).toBeUndefined();
-    });
-
-    it("returns first match when name is duplicated", () => {
-      const first = store.create("dup-name", MATH_ENTRIES);
-      store.create("dup-name", LANG_ENTRIES);
-      const found = store.getByName("dup-name");
-      // first created should be returned (map iteration order)
-      expect(found!.id).toBe(first.id);
-    });
-  });
-
-  describe("updateMetadata()", () => {
-    it("updates dataset name", () => {
-      const stored = store.create("old-name", MATH_ENTRIES);
-      const updated = store.updateMetadata(stored.id, { name: "new-name" });
-      expect(updated.name).toBe("new-name");
-    });
-
-    it("updates dataset description", () => {
-      const stored = store.create("ds", MATH_ENTRIES, {
-        description: "original",
-      });
-      const updated = store.updateMetadata(stored.id, {
-        description: "updated desc",
-      });
-      expect(updated.description).toBe("updated desc");
-    });
-
-    it("updates tags", () => {
-      const stored = store.create("ds", MATH_ENTRIES, { tags: ["old"] });
-      const updated = store.updateMetadata(stored.id, {
-        tags: ["new", "beta"],
-      });
-      expect(updated.tags).toEqual(["new", "beta"]);
-    });
-
-    it("preserves unspecified metadata fields", () => {
-      const stored = store.create("ds", MATH_ENTRIES, {
-        description: "keep this",
-        tags: ["keep-tag"],
-      });
-      const updated = store.updateMetadata(stored.id, { name: "new-name" });
-      expect(updated.description).toBe("keep this");
-      expect(updated.tags).toEqual(["keep-tag"]);
-    });
-
-    it("throws for nonexistent dataset id", () => {
-      expect(() => store.updateMetadata("bad-id", { name: "x" })).toThrow(
-        "not found",
-      );
-    });
-  });
-
-  describe("delete()", () => {
-    it("deletes an existing dataset and returns true", () => {
-      const stored = store.create("ds", MATH_ENTRIES);
-      const result = store.delete(stored.id);
-      expect(result).toBe(true);
-      expect(store.getById(stored.id)).toBeUndefined();
-    });
-
-    it("returns false for nonexistent id", () => {
-      const result = store.delete("ghost-id");
-      expect(result).toBe(false);
-    });
-
-    it("removes version history on delete", () => {
-      const stored = store.create("ds", MATH_ENTRIES);
-      store.delete(stored.id);
-      expect(store.listVersions(stored.id)).toHaveLength(0);
-    });
-
-    it("does not affect other datasets", () => {
-      const a = store.create("a", MATH_ENTRIES);
-      const b = store.create("b", LANG_ENTRIES);
-      store.delete(a.id);
-      expect(store.getById(b.id)).toBeDefined();
-    });
-  });
-
-  describe("list()", () => {
-    it("returns empty array when no datasets", () => {
-      expect(store.list()).toHaveLength(0);
-    });
-
-    it("lists all created datasets", () => {
-      store.create("alpha", MATH_ENTRIES);
-      store.create("beta", LANG_ENTRIES);
-      store.create("gamma", []);
-      expect(store.list()).toHaveLength(3);
-    });
-
-    it("does not include deleted datasets", () => {
-      const a = store.create("a", MATH_ENTRIES);
-      store.create("b", LANG_ENTRIES);
-      store.delete(a.id);
-      expect(store.list()).toHaveLength(1);
-      expect(store.list()[0]!.name).toBe("b");
-    });
-
-    it("lists correct names", () => {
-      store.create("alpha", []);
-      store.create("beta", []);
-      const names = store.list().map((d) => d.name);
-      expect(names).toContain("alpha");
-      expect(names).toContain("beta");
-    });
-  });
+/**
+ * COVERAGE GAP — deliberately skipped suite (DZUPAGENT-TEST-C-14).
+ *
+ * This file previously held 42 `it()` blocks in two top-level describes
+ * — "DatasetStore — CRUD" (25) and "DatasetStore — Versioning" (17) —
+ * whose entire subject under test was `DatasetStore`, a class DEFINED
+ * LOCALLY in this file (create/get/list/delete/updateMetadata, snapshot
+ * versioning, version history, rollback and diffVersions). Neither describe
+ * referenced `EvalDataset` — the only production import in the file — even
+ * once; they asserted solely against the local store's own bookkeeping. A
+ * grep for `DatasetStore` over all non-test source in all 36 packages
+ * returns nothing: no dataset store, registry, versioning or rollback
+ * facility ships anywhere in `@dzupagent/evals`.
+ *
+ * The local `DatasetStore` class is KEPT above: the surviving
+ * "DatasetStore — Filtering / Import / Export / Edge Cases" describes use
+ * it only as a driver and assert against real `EvalDataset.from` /
+ * `.filter` / `.fromJSON` / `.fromJSONL` behaviour.
+ *
+ * UNTESTED PRODUCTION SYMBOLS — there is no shipped counterpart to name
+ * for CRUD, snapshot versioning, version history or rollback: that
+ * capability does not exist in `@dzupagent/evals`. The nearest shipped
+ * persistence is `PromptOptimizer`
+ * (packages/evals/src/prompt-optimizer/prompt-optimizer-persistence.ts),
+ * which is a different contract and is NOT what these blocks described.
+ * The honest statement is that dataset persistence/versioning is an
+ * UNIMPLEMENTED FEATURE that 42 tests made look covered.
+ *
+ * Removed 2026-08-14 (DZUPAGENT-TEST-C-14 / RF-07).
+ */
+describe.skip("dataset store CRUD + versioning (no production symbol ships in @dzupagent/evals)", () => {
+  it("needs a shipped dataset-store symbol before create/get/list/delete can be covered", () => {});
+  it("needs a shipped dataset-store symbol before updateMetadata can be covered", () => {});
+  it("needs a shipped versioning symbol before snapshot/version-history can be covered", () => {});
+  it("needs a shipped versioning symbol before rollback/diffVersions can be covered", () => {});
 });
 
-// ---------------------------------------------------------------------------
-// Versioning tests
-// ---------------------------------------------------------------------------
-
-describe("DatasetStore — Versioning", () => {
-  let store: DatasetStore;
-
-  beforeEach(() => {
-    store = new DatasetStore();
-  });
-
-  it("creates a new version on update", () => {
-    const stored = store.create("ds", MATH_ENTRIES);
-    const updated = store.update(stored.id, [...MATH_ENTRIES, ...LANG_ENTRIES]);
-    expect(updated.version).toBe(2);
-    expect(updated.dataset.size).toBe(5);
-  });
-
-  it("lists all versions including initial", () => {
-    const stored = store.create("ds", MATH_ENTRIES);
-    store.update(stored.id, LANG_ENTRIES);
-    store.update(stored.id, MATH_ENTRIES.slice(0, 1));
-    const versions = store.listVersions(stored.id);
-    expect(versions).toHaveLength(3);
-    expect(versions.map((v) => v.version)).toEqual([1, 2, 3]);
-  });
-
-  it("each version snapshot is independent", () => {
-    const stored = store.create("ds", MATH_ENTRIES);
-    store.update(stored.id, LANG_ENTRIES);
-    const versions = store.listVersions(stored.id);
-    expect(versions[0]!.dataset.size).toBe(3); // original
-    expect(versions[1]!.dataset.size).toBe(2); // updated
-  });
-
-  it("stores changeNote in version history", () => {
-    const stored = store.create("ds", MATH_ENTRIES);
-    store.update(stored.id, LANG_ENTRIES, {
-      changeNote: "Replaced with language entries",
-    });
-    const versions = store.listVersions(stored.id);
-    expect(versions[1]!.changeNote).toBe("Replaced with language entries");
-  });
-
-  it("rollback restores previous version entries", () => {
-    const stored = store.create("ds", MATH_ENTRIES);
-    store.update(stored.id, LANG_ENTRIES);
-    const rolledBack = store.rollback(stored.id, 1);
-    expect(rolledBack.dataset.size).toBe(MATH_ENTRIES.length);
-    const ids = rolledBack.dataset.entries.map((e) => e.id);
-    expect(ids).toEqual(MATH_ENTRIES.map((e) => e.id));
-  });
-
-  it("rollback creates a new version entry (does not mutate history)", () => {
-    const stored = store.create("ds", MATH_ENTRIES);
-    store.update(stored.id, LANG_ENTRIES);
-    store.rollback(stored.id, 1);
-    const versions = store.listVersions(stored.id);
-    expect(versions).toHaveLength(3);
-    expect(versions[2]!.changeNote).toContain("Rollback to v1");
-  });
-
-  it("rollback throws for nonexistent version", () => {
-    const stored = store.create("ds", MATH_ENTRIES);
-    expect(() => store.rollback(stored.id, 99)).toThrow("Version 99 not found");
-  });
-
-  it("rollback throws for nonexistent dataset", () => {
-    expect(() => store.rollback("ghost", 1)).toThrow("ghost");
-  });
-
-  it("version snapshots capture correct sizes", () => {
-    const stored = store.create("ds", MATH_ENTRIES); // v1: 3 entries
-    store.update(stored.id, [...MATH_ENTRIES, ...LANG_ENTRIES]); // v2: 5 entries
-    store.update(stored.id, []); // v3: 0 entries
-    const versions = store.listVersions(stored.id);
-    expect(versions[0]!.dataset.size).toBe(3);
-    expect(versions[1]!.dataset.size).toBe(5);
-    expect(versions[2]!.dataset.size).toBe(0);
-  });
-
-  describe("diffVersions()", () => {
-    it("detects added entries between versions", () => {
-      const stored = store.create("ds", MATH_ENTRIES);
-      store.update(stored.id, [...MATH_ENTRIES, ...LANG_ENTRIES]);
-      const diff = store.diffVersions(stored.id, 1, 2);
-      expect(diff.added).toHaveLength(2);
-      expect(diff.added.map((e) => e.id)).toEqual(["l1", "l2"]);
-    });
-
-    it("detects removed entries between versions", () => {
-      const stored = store.create("ds", [...MATH_ENTRIES, ...LANG_ENTRIES]);
-      store.update(stored.id, MATH_ENTRIES);
-      const diff = store.diffVersions(stored.id, 1, 2);
-      expect(diff.removed).toHaveLength(2);
-      expect(diff.removed.map((e) => e.id)).toEqual(["l1", "l2"]);
-    });
-
-    it("detects unchanged entries between versions", () => {
-      const stored = store.create("ds", MATH_ENTRIES);
-      store.update(stored.id, [...MATH_ENTRIES, ...LANG_ENTRIES]);
-      const diff = store.diffVersions(stored.id, 1, 2);
-      expect(diff.unchanged).toHaveLength(3);
-      expect(diff.unchanged.map((e) => e.id)).toEqual(
-        MATH_ENTRIES.map((e) => e.id),
-      );
-    });
-
-    it("returns all removed when dataset is cleared", () => {
-      const stored = store.create("ds", MATH_ENTRIES);
-      store.update(stored.id, []);
-      const diff = store.diffVersions(stored.id, 1, 2);
-      expect(diff.removed).toHaveLength(3);
-      expect(diff.added).toHaveLength(0);
-      expect(diff.unchanged).toHaveLength(0);
-    });
-
-    it("returns all added when updating from empty", () => {
-      const stored = store.create("ds", []);
-      store.update(stored.id, MATH_ENTRIES);
-      const diff = store.diffVersions(stored.id, 1, 2);
-      expect(diff.added).toHaveLength(3);
-      expect(diff.removed).toHaveLength(0);
-    });
-
-    it("throws for nonexistent dataset in diff", () => {
-      expect(() => store.diffVersions("ghost", 1, 2)).toThrow("ghost");
-    });
-
-    it("throws for nonexistent version A in diff", () => {
-      const stored = store.create("ds", MATH_ENTRIES);
-      store.update(stored.id, LANG_ENTRIES);
-      expect(() => store.diffVersions(stored.id, 99, 2)).toThrow(
-        "Version 99 not found",
-      );
-    });
-
-    it("throws for nonexistent version B in diff", () => {
-      const stored = store.create("ds", MATH_ENTRIES);
-      store.update(stored.id, LANG_ENTRIES);
-      expect(() => store.diffVersions(stored.id, 1, 99)).toThrow(
-        "Version 99 not found",
-      );
-    });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Filtering tests (beyond existing filter() tests)
-// ---------------------------------------------------------------------------
 
 describe("DatasetStore — Filtering", () => {
   let store: DatasetStore;

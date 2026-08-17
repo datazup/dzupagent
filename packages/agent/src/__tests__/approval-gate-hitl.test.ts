@@ -47,6 +47,20 @@ import {
 } from "../approval/approval-types.js";
 import { runToolLoop } from "../agent/tool-loop.js";
 
+/**
+ * Fetch the persisted resumeToken for a run so tests can call
+ * ApprovalGate.resume(), which now requires it (DZUPAGENT-AGENT-H-14).
+ * Falls back to a sentinel when nothing is pending, so "no pending approval"
+ * cases still exercise the pre-token error path.
+ */
+async function tokenFor(
+  gate: ApprovalGate,
+  runId: string,
+): Promise<string> {
+  return (await gate.loadPending(runId))?.resumeToken ?? "missing-resume-token"
+}
+
+
 // ---------------------------------------------------------------------------
 // Shared test doubles
 // ---------------------------------------------------------------------------
@@ -217,7 +231,7 @@ describe("ApprovalGate.loadPending()", () => {
       gate.requestApproval({ runId: "run-lp2", plan: "x" }),
     ).rejects.toBeInstanceOf(ApprovalSuspendedError);
 
-    await gate.resume("run-lp2", { decision: "approved" });
+    await gate.resume("run-lp2", { decision: "approved" }, await tokenFor(gate, "run-lp2"));
 
     const after = await gate.loadPending("run-lp2");
     expect(after).toBeNull();
@@ -430,7 +444,7 @@ describe("ApprovalGate.resume() error cases", () => {
     const bus = createEventBus();
     const gate = new ApprovalGate({ mode: "required" }, bus);
     await expect(
-      gate.resume("run-1", { decision: "approved" }),
+      gate.resume("run-1", { decision: "approved" }, await tokenFor(gate, "run-1")),
     ).rejects.toThrow(/checkpointStore/);
   });
 
@@ -442,7 +456,7 @@ describe("ApprovalGate.resume() error cases", () => {
       bus,
     );
     await expect(
-      gate.resume("run-nope", { decision: "approved" }),
+      gate.resume("run-nope", { decision: "approved" }, await tokenFor(gate, "run-nope")),
     ).rejects.toThrow(/No pending approval/);
   });
 
@@ -457,7 +471,7 @@ describe("ApprovalGate.resume() error cases", () => {
       bus,
     );
     await gate.requestApproval({ runId: "run-r1", plan: "p" }).catch(() => {});
-    await gate.resume("run-r1", { decision: "approved" });
+    await gate.resume("run-r1", { decision: "approved" }, await tokenFor(gate, "run-r1"));
 
     expect(granted).toHaveLength(1);
     expect(granted[0]).toMatchObject({
@@ -480,7 +494,7 @@ describe("ApprovalGate.resume() error cases", () => {
     await gate.resume("run-r2", {
       decision: "rejected",
       reason: "denied by policy",
-    });
+    }, await tokenFor(gate, "run-r2"));
 
     expect(rejected).toHaveLength(1);
     expect(rejected[0]).toMatchObject({
@@ -501,7 +515,7 @@ describe("ApprovalGate.resume() error cases", () => {
       bus,
     );
     await gate.requestApproval({ runId: "run-r3", plan: "p" }).catch(() => {});
-    await gate.resume("run-r3", { decision: "rejected" });
+    await gate.resume("run-r3", { decision: "rejected" }, await tokenFor(gate, "run-r3"));
 
     const evt = rejected[0] as Record<string, unknown>;
     expect(evt["reason"]).toBeUndefined();
@@ -837,21 +851,32 @@ describe("ApprovalGate — rapid grant beats timeout", () => {
   });
 
   it("does not emit timed_out when approval arrives in time", async () => {
-    const bus = createEventBus();
-    const timeouts: unknown[] = [];
-    bus.on("approval:timed_out", (e) => { timeouts.push(e) });
+    // Fake timers: this is a negative assertion, so it needs time to pass rather
+    // than a condition to poll. It also FIXES the assertion — the previous 20ms
+    // real sleep never reached the 200ms timeout it claimed to rule out, so the
+    // test would have passed even if the gate leaked its timer. Advancing well
+    // past the timeout is the assertion that was intended, at zero wall cost.
+    vi.useFakeTimers();
+    try {
+      const bus = createEventBus();
+      const timeouts: unknown[] = [];
+      bus.on("approval:timed_out", (e) => { timeouts.push(e) });
 
-    const gate = new ApprovalGate({ mode: "required", timeoutMs: 200 }, bus);
-    const p = gate.waitForApproval("run-fast2", "plan");
-    setTimeout(
-      () => bus.emit({ type: "approval:granted", runId: "run-fast2" }),
-      5,
-    );
-    await p;
+      const gate = new ApprovalGate({ mode: "required", timeoutMs: 200 }, bus);
+      const p = gate.waitForApproval("run-fast2", "plan");
+      setTimeout(
+        () => bus.emit({ type: "approval:granted", runId: "run-fast2" }),
+        5,
+      );
+      await vi.advanceTimersByTimeAsync(5);
+      await p;
 
-    // Give a bit of time to ensure no delayed timeout fires
-    await new Promise<void>((r) => setTimeout(r, 20));
-    expect(timeouts).toHaveLength(0);
+      // Blow past the 200ms timeout window; a leaked timer would fire here.
+      await vi.advanceTimersByTimeAsync(500);
+      expect(timeouts).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -1240,7 +1265,7 @@ describe("ApprovalGate webhook channel forwarding", () => {
     await gate.waitForApproval("run-ch", "plan");
 
     // Allow the async webhook to settle
-    await new Promise<void>((r) => setTimeout(r, 20));
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     const body = JSON.parse(fetchSpy.mock.calls[0]![1].body as string);
@@ -1259,7 +1284,7 @@ describe("ApprovalGate webhook channel forwarding", () => {
     );
 
     await gate.waitForApproval("run-type", { step: "final" });
-    await new Promise<void>((r) => setTimeout(r, 20));
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalled());
 
     const body = JSON.parse(fetchSpy.mock.calls[0]![1].body as string);
     expect(body.type).toBe("approval_requested");
@@ -1277,7 +1302,7 @@ describe("ApprovalGate webhook channel forwarding", () => {
     );
 
     await gate.waitForApproval("run-wh-id", "plan");
-    await new Promise<void>((r) => setTimeout(r, 20));
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalled());
 
     const body = JSON.parse(fetchSpy.mock.calls[0]![1].body as string);
     expect(body.runId).toBe("run-wh-id");
@@ -1295,7 +1320,7 @@ describe("ApprovalGate webhook channel forwarding", () => {
     );
 
     await gate.waitForApproval("run-post", "plan");
-    await new Promise<void>((r) => setTimeout(r, 20));
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalled());
 
     expect(fetchSpy.mock.calls[0]![1].method).toBe("POST");
   });
@@ -1389,5 +1414,171 @@ describe("ApprovalGate durableResume configuration", () => {
     expect(
       () => new ApprovalGate({ mode: "required", durableResume: false }, bus),
     ).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DZUPAGENT-AGENT-H-14 — approval grants must be scoped, and resume tokens
+// must be verified. Regression coverage for the human-approval bypass.
+// ---------------------------------------------------------------------------
+
+describe("ApprovalGate grant scoping (DZUPAGENT-AGENT-H-14)", () => {
+  it("a grant for run A does not satisfy a pending approval for run B", async () => {
+    const bus = createEventBus();
+    const gate = new ApprovalGate({ mode: "required", timeoutMs: 80 }, bus);
+
+    const pending = gate.waitForApproval("run-B", "deploy prod");
+    bus.emit({ type: "approval:granted", runId: "run-A" });
+
+    // The foreign grant must be ignored; the only way out is the timeout.
+    await expect(pending).resolves.toBe("timeout");
+  });
+
+  it("a grant for contact X does not satisfy contact Y on the same run", async () => {
+    const bus = createEventBus();
+    const gate = new ApprovalGate({ mode: "required", timeoutMs: 200 }, bus);
+
+    let pendingContactId: string | undefined;
+    bus.on("approval:requested", (e) => {
+      pendingContactId = e.contactId;
+    });
+
+    const pending = gate.waitForApproval("run-same", "deploy prod");
+    expect(pendingContactId).toBeDefined();
+
+    // A grant answering a DIFFERENT outstanding contact on the same run.
+    bus.emit({
+      type: "approval:granted",
+      runId: "run-same",
+      contactId: "some-other-contact",
+    });
+
+    await expect(pending).resolves.toBe("timeout");
+  });
+
+  it("a grant naming the pending contact does satisfy it", async () => {
+    const bus = createEventBus();
+    const gate = new ApprovalGate({ mode: "required", timeoutMs: 500 }, bus);
+
+    let pendingContactId: string | undefined;
+    bus.on("approval:requested", (e) => {
+      pendingContactId = e.contactId;
+    });
+
+    const pending = gate.waitForApproval("run-match", "deploy prod");
+    bus.emit({
+      type: "approval:granted",
+      runId: "run-match",
+      contactId: pendingContactId!,
+    });
+
+    await expect(pending).resolves.toBe("approved");
+  });
+
+  it("an unqualified (run-scoped) grant still satisfies a pending approval", async () => {
+    // POST /api/runs/:id/approve answers the run as a whole and has no
+    // contact to name; that path must keep working.
+    const bus = createEventBus();
+    const gate = new ApprovalGate({ mode: "required", timeoutMs: 500 }, bus);
+
+    const pending = gate.waitForApproval("run-unqualified", "deploy prod");
+    bus.emit({ type: "approval:granted", runId: "run-unqualified" });
+
+    await expect(pending).resolves.toBe("approved");
+  });
+});
+
+describe("ApprovalGate.resume() token verification (DZUPAGENT-AGENT-H-14)", () => {
+  function durableGate(store: InMemoryApprovalStore, bus: ReturnType<typeof createEventBus>) {
+    return new ApprovalGate(
+      { mode: "required", durableResume: true, checkpointStore: store },
+      bus,
+    );
+  }
+
+  async function suspend(gate: ApprovalGate, runId: string): Promise<string> {
+    try {
+      await gate.requestApproval({ runId, plan: "deploy prod" });
+    } catch (err) {
+      if (err instanceof ApprovalSuspendedError) return err.resumeToken;
+      throw err;
+    }
+    throw new Error("expected ApprovalSuspendedError");
+  }
+
+  it("rejects a replayed resumeToken", async () => {
+    const store = new InMemoryApprovalStore();
+    const bus = createEventBus();
+    const gate = durableGate(store, bus);
+
+    const token = await suspend(gate, "run-replay");
+
+    // First use succeeds.
+    await gate.resume("run-replay", { decision: "approved" }, token);
+
+    // Replaying the very same token must not produce a second grant.
+    await expect(
+      gate.resume("run-replay", { decision: "approved" }, token),
+    ).rejects.toThrow(/No pending approval/);
+
+    const granted: unknown[] = [];
+    bus.on("approval:granted", (e) => { granted.push(e) });
+    await expect(
+      gate.resume("run-replay", { decision: "approved" }, token),
+    ).rejects.toThrow();
+    expect(granted).toHaveLength(0);
+  });
+
+  it("rejects a mismatching resumeToken without consuming the pending state", async () => {
+    const store = new InMemoryApprovalStore();
+    const bus = createEventBus();
+    const gate = durableGate(store, bus);
+
+    const token = await suspend(gate, "run-badtoken");
+
+    const granted: unknown[] = [];
+    bus.on("approval:granted", (e) => { granted.push(e) });
+
+    await expect(
+      gate.resume("run-badtoken", { decision: "approved" }, "not-the-token"),
+    ).rejects.toThrow(/Invalid resumeToken/);
+    expect(granted).toHaveLength(0);
+
+    // A wrong guess must not destroy the live approval.
+    const stillPending = await gate.loadPending("run-badtoken");
+    expect(stillPending).not.toBeNull();
+
+    // The real token still works.
+    await gate.resume("run-badtoken", { decision: "approved" }, token);
+    expect(granted).toHaveLength(1);
+  });
+
+  it("a token minted for run A cannot resume run B", async () => {
+    const store = new InMemoryApprovalStore();
+    const bus = createEventBus();
+    const gate = durableGate(store, bus);
+
+    const tokenA = await suspend(gate, "run-tok-A");
+    await suspend(gate, "run-tok-B");
+
+    await expect(
+      gate.resume("run-tok-B", { decision: "approved" }, tokenA),
+    ).rejects.toThrow(/Invalid resumeToken/);
+  });
+
+  it("the grant emitted by resume() carries the pending contactId", async () => {
+    const store = new InMemoryApprovalStore();
+    const bus = createEventBus();
+    const gate = durableGate(store, bus);
+
+    const granted: Array<{ contactId?: string }> = [];
+    bus.on("approval:granted", (e) => { granted.push(e) });
+
+    const token = await suspend(gate, "run-grant-contact");
+    const pending = await gate.loadPending("run-grant-contact");
+    await gate.resume("run-grant-contact", { decision: "approved" }, token);
+
+    expect(granted).toHaveLength(1);
+    expect(granted[0]!.contactId).toBe(pending!.contactId);
   });
 });

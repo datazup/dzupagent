@@ -214,7 +214,7 @@ describe("MemoryPruner", () => {
         {
           operation: "search",
           impact: "source-unavailable",
-          reason: "boom",
+          reason: "backend-error",
         },
       ],
     });
@@ -242,7 +242,7 @@ describe("MemoryPruner", () => {
         {
           operation: "delete",
           impact: "partial-result",
-          reason: "delete failed",
+          reason: "backend-error",
           target: "old",
         },
       ],
@@ -359,7 +359,7 @@ describe("MemoryPruner", () => {
         expect.objectContaining({
           operation: "search",
           impact: "partial-result",
-          reason: "page 3 exploded",
+          reason: "backend-error",
         })
       );
     });

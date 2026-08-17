@@ -174,7 +174,8 @@ describe('ConsolidationEngine', () => {
       {
         operation: 'summarize',
         impact: 'fallback-used',
-        reason: 'judge failed',
+        reason: 'backend-error',
+        errorId: expect.any(String),
         target: 'task',
       },
     ])
@@ -208,7 +209,8 @@ describe('ConsolidationEngine', () => {
       {
         operation: 'put',
         impact: 'partial-result',
-        reason: 'child update failed',
+        reason: 'backend-error',
+        errorId: expect.any(String),
         target: 'task:b',
       },
     ])
@@ -245,7 +247,8 @@ describe('ConsolidationEngine', () => {
       {
         operation: 'search',
         impact: 'source-unavailable',
-        reason: 'boom',
+        reason: 'backend-error',
+        errorId: expect.any(String),
         target: 's/n',
       },
     ])

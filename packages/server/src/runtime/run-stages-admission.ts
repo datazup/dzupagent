@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { DzupEventBus } from "@dzupagent/core/events";
 import type { AgentExecutionSpec, RunStore } from "@dzupagent/core/persistence";
 import type { CostLedgerClient } from "@dzupagent/agent";
@@ -6,6 +7,7 @@ import type { RunJob } from "../queue/run-queue.js";
 import type { InputGuard } from "../security/input-guard.js";
 import type { TenantRunQuota } from "../security/tenant-run-quota.js";
 import { closeTraceWithTerminalStep } from "./run-stages-utils.js";
+import { recordPendingContact } from "./pending-contacts.js";
 
 /** Default per-tenant concurrent-run cap when none is supplied on the job. */
 const DEFAULT_TENANT_RUN_LIMIT = 20;
@@ -260,21 +262,32 @@ export async function waitForRunApproval(options: {
       ? Number(options.job.metadata["approvalTimeoutMs"])
       : 60_000;
 
+  // Name this approval request so a grant can be scoped to it. Recording it
+  // as an outstanding contact is what lets the respond route reject ids it
+  // never issued (DZUPAGENT-AGENT-H-14).
+  const contactId = randomUUID();
+
   await options.runStore.update(options.job.runId, {
     status: "awaiting_approval",
     plan: { input: options.input, metadata: options.job.metadata },
   });
+  await recordPendingContact(
+    options.runStore,
+    options.job.runId,
+    contactId
+  );
   await options.runStore.addLog(options.job.runId, {
     level: "info",
     phase: "approval",
     message: "Awaiting approval before execution",
-    data: { timeoutMs },
+    data: { timeoutMs, contactId },
   });
   options.eventBus.emit(
     stampTenant(
       {
         type: "approval:requested",
         runId: options.job.runId,
+        contactId,
         plan: { input: options.input },
       },
       options.job
@@ -284,6 +297,7 @@ export async function waitForRunApproval(options: {
   const decision = await waitForApprovalDecision(
     options.eventBus,
     options.job.runId,
+    contactId,
     timeoutMs
   );
   if (!decision.approved) {
@@ -332,11 +346,17 @@ export async function waitForRunApproval(options: {
 async function waitForApprovalDecision(
   eventBus: DzupEventBus,
   runId: string,
+  contactId: string,
   timeoutMs: number
 ): Promise<{ approved: boolean; reason?: string }> {
   return new Promise((resolve) => {
     const unsubGrant = eventBus.on("approval:granted", (event) => {
       if (event.runId !== runId) return;
+      // A grant that names a different contact is answering a different
+      // request and must not admit this run (DZUPAGENT-AGENT-H-14).
+      if (event.contactId !== undefined && event.contactId !== contactId) {
+        return;
+      }
       unsubGrant();
       unsubReject();
       clearTimeout(timer);

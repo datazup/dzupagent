@@ -147,6 +147,7 @@ describe('IncidentResponseEngine', () => {
   afterEach(() => {
     engine?.dispose()
     clearIncidentFlags()
+    vi.useRealTimers()
   })
 
   it('attach/detach lifecycle', () => {
@@ -309,6 +310,10 @@ describe('IncidentResponseEngine', () => {
   })
 
   it('cooldown: second trigger within cooldown is skipped', async () => {
+    // Fake timers: the second assertion is negative (the event is *suppressed*),
+    // which vi.waitFor cannot express. Advancing 10ms of fake time keeps us well
+    // inside the 60s cooldown while costing zero wall time.
+    vi.useFakeTimers()
     const onIncident = vi.fn()
     const playbook = makePlaybook({ cooldownMs: 60_000 })
     const config: IncidentResponseConfig = { playbooks: [playbook], onIncident }
@@ -326,7 +331,7 @@ describe('IncidentResponseEngine', () => {
     })
 
     // Allow microtask to process
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    await vi.advanceTimersByTimeAsync(10)
     expect(onIncident).toHaveBeenCalledTimes(1)
 
     // Second event within cooldown should be skipped
@@ -337,7 +342,7 @@ describe('IncidentResponseEngine', () => {
       message: 'Second',
     })
 
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    await vi.advanceTimersByTimeAsync(10)
     expect(onIncident).toHaveBeenCalledTimes(1) // Still 1, not 2
 
     consoleSpy.mockRestore()
@@ -400,6 +405,8 @@ describe('IncidentResponseEngine', () => {
   })
 
   it('removePlaybook at runtime', async () => {
+    // Fake timers: asserts the removed playbook does NOT fire (negative).
+    vi.useFakeTimers()
     const onIncident = vi.fn()
     const playbook = makePlaybook({ cooldownMs: 0 })
     const config: IncidentResponseConfig = { playbooks: [playbook], onIncident }
@@ -419,13 +426,14 @@ describe('IncidentResponseEngine', () => {
       message: 'test',
     })
 
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    await vi.advanceTimersByTimeAsync(10)
     expect(onIncident).not.toHaveBeenCalled()
 
     consoleSpy.mockRestore()
   })
 
   it('event matching: correct playbook triggered for event type', async () => {
+    vi.useFakeTimers()
     const onIncident = vi.fn()
     const safetyPlaybook = makePlaybook({
       id: 'pb-safety',
@@ -454,7 +462,7 @@ describe('IncidentResponseEngine', () => {
       namespace: 'secrets',
     })
 
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    await vi.advanceTimersByTimeAsync(10)
     expect(onIncident).toHaveBeenCalledTimes(1)
     expect(onIncident.mock.calls[0]![0].playbookId).toBe('pb-memory')
 
@@ -462,6 +470,8 @@ describe('IncidentResponseEngine', () => {
   })
 
   it('condition filter: only triggers when condition returns true', async () => {
+    // Fake timers: the first assertion is negative (condition false => no fire).
+    vi.useFakeTimers()
     const onIncident = vi.fn()
     const playbook = makePlaybook({
       triggers: [
@@ -487,7 +497,7 @@ describe('IncidentResponseEngine', () => {
       message: 'rate limited',
     })
 
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    await vi.advanceTimersByTimeAsync(10)
     expect(onIncident).not.toHaveBeenCalled()
 
     // Emit event that DOES match condition
@@ -498,7 +508,7 @@ describe('IncidentResponseEngine', () => {
       message: 'injection detected',
     })
 
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    await vi.advanceTimersByTimeAsync(10)
     expect(onIncident).toHaveBeenCalledTimes(1)
 
     consoleSpy.mockRestore()

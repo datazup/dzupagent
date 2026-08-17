@@ -18,6 +18,20 @@ import {
 import { createWorkflow } from '../workflow/workflow-builder.js'
 import type { WorkflowStep } from '../workflow/workflow-types.js'
 
+/**
+ * Fetch the persisted resumeToken for a run so tests can call
+ * ApprovalGate.resume(), which now requires it (DZUPAGENT-AGENT-H-14).
+ * Falls back to a sentinel when nothing is pending, so "no pending approval"
+ * cases still exercise the pre-token error path.
+ */
+async function tokenFor(
+  gate: ApprovalGate,
+  runId: string,
+): Promise<string> {
+  return (await gate.loadPending(runId))?.resumeToken ?? 'missing-resume-token'
+}
+
+
 class InMemoryApprovalCheckpointStore implements ApprovalCheckpointStore {
   private readonly map = new Map<string, ApprovalPendingState>()
   private static key(runId: string, key: string): string {
@@ -75,7 +89,7 @@ describe('durable approval gate', () => {
       bus2,
     )
 
-    await gate2.resume('run-1', { decision: 'approved' })
+    await gate2.resume('run-1', { decision: 'approved' }, await tokenFor(gate2, 'run-1'))
     expect(granted2).toHaveLength(1)
     expect(granted2[0]).toMatchObject({ type: 'approval:granted', runId: 'run-1' })
 
@@ -99,7 +113,7 @@ describe('durable approval gate', () => {
       gate.requestApproval({ runId: 'run-2', plan: 'maybe' }),
     ).rejects.toBeInstanceOf(ApprovalSuspendedError)
 
-    await gate.resume('run-2', { decision: 'rejected', reason: 'too risky' })
+    await gate.resume('run-2', { decision: 'rejected', reason: 'too risky' }, await tokenFor(gate, 'run-2'))
     expect(rejected).toHaveLength(1)
     expect(rejected[0]).toMatchObject({
       type: 'approval:rejected',
@@ -115,7 +129,7 @@ describe('durable approval gate', () => {
       { mode: 'required', durableResume: true, checkpointStore },
       bus,
     )
-    await expect(gate.resume('missing', { decision: 'approved' })).rejects.toThrow(
+    await expect(gate.resume('missing', { decision: 'approved' }, await tokenFor(gate, 'missing'))).rejects.toThrow(
       /No pending approval for runId/,
     )
   })

@@ -1053,7 +1053,7 @@ describe("Malformed and missing decay metadata — graceful handling", () => {
         {
           operation: "search",
           impact: "source-unavailable",
-          reason: "search failure",
+          reason: "backend-error",
         },
       ],
     });

@@ -75,7 +75,7 @@ describe('createNodeWsUpgradeHandler branch coverage', () => {
     })
 
     handler({ url: '/ws' } as unknown as IncomingMessage, new MockSocket() as unknown as Duplex, Buffer.alloc(0))
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => expect(handleUpgrade).toHaveBeenCalledOnce())
 
     expect(handleUpgrade).toHaveBeenCalledOnce()
   })
@@ -99,7 +99,7 @@ describe('createNodeWsUpgradeHandler branch coverage', () => {
     })
 
     handler({ url: '/ws' } as unknown as IncomingMessage, new MockSocket() as unknown as Duplex, Buffer.alloc(0))
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => expect(errors).toHaveLength(1))
 
     expect(errors).toHaveLength(1)
     expect((errors[0] as Error).message).toBe('attach failed')
@@ -122,7 +122,9 @@ describe('createNodeWsUpgradeHandler branch coverage', () => {
     })
 
     expect(() => handler({ url: '/ws' } as unknown as IncomingMessage, new MockSocket() as unknown as Duplex, Buffer.alloc(0))).not.toThrow()
-    await new Promise((r) => setTimeout(r, 10))
+    // Wait for the rejected attach to actually settle — that is the path whose
+    // swallowing this test asserts. An unhandled rejection would surface here.
+    await vi.waitFor(() => expect(manager.attach).toHaveBeenCalled())
   })
 
   it('handles resolveScopeFromRequest returning null', async () => {
@@ -140,7 +142,7 @@ describe('createNodeWsUpgradeHandler branch coverage', () => {
     })
 
     handler({ url: '/ws' } as unknown as IncomingMessage, new MockSocket() as unknown as Duplex, Buffer.alloc(0))
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => expect(bridge.clientCount).toBe(1))
 
     expect(bridge.clientCount).toBe(1)
   })
@@ -166,7 +168,7 @@ describe('createNodeWsUpgradeHandler branch coverage', () => {
     })
 
     handler({ url: '/ws' } as unknown as IncomingMessage, new MockSocket() as unknown as Duplex, Buffer.alloc(0))
-    await new Promise((r) => setTimeout(r, 20))
+    await vi.waitFor(() => expect(registry.get(ws)?.runIds).toEqual(['async-resolved']))
 
     expect(registry.get(ws)?.runIds).toEqual(['async-resolved'])
   })
@@ -186,7 +188,7 @@ describe('createNodeWsUpgradeHandler branch coverage', () => {
     })
 
     handler({ url: '/ws' } as unknown as IncomingMessage, new MockSocket() as unknown as Duplex, Buffer.alloc(0))
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => expect(handleUpgrade).toHaveBeenCalledOnce())
 
     expect(handleUpgrade).toHaveBeenCalledOnce()
   })

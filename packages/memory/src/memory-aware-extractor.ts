@@ -31,6 +31,7 @@ import type { MemoryService } from './memory-service.js'
 import {
   degradation,
   statusFor,
+  type MemoryDegradationReason,
   type MemoryOperationDegradation,
   type MemoryOperationOutcome,
   type MemoryOperationResult,
@@ -52,7 +53,10 @@ export interface MemoryAwareExtractorConfig extends ObservationExtractorConfig {
 export interface ExtractionFailure {
   observation: Observation
   key: string
-  reason: string
+  /** Stable reason code — never raw driver text (ERR-C-30). */
+  reason: MemoryDegradationReason
+  /** Correlation id of the structured log line holding the full error. */
+  errorId: string
 }
 
 export interface ExtractionResult extends MemoryOperationOutcome {
@@ -187,6 +191,7 @@ export class MemoryAwareExtractor {
           observation: obs,
           key,
           reason: failure.reason,
+          errorId: failure.errorId,
         })
       }
     }

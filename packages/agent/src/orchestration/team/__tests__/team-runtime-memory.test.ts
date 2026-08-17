@@ -145,7 +145,9 @@ describe("consolidateIfEnabled", () => {
         {
           operation: "search" as const,
           impact: "source-unavailable" as const,
-          reason: "store unavailable",
+          // ERR-C-30: degradation reasons are stable codes, not driver text.
+          reason: "backend-error" as const,
+          errorId: "00000000-0000-4000-8000-000000000000",
         },
       ],
     }));
@@ -161,7 +163,7 @@ describe("consolidateIfEnabled", () => {
         runId: "run-mem",
         namespace: "team-mem",
         reason: "failed",
-        error: "store unavailable",
+        error: "backend-error",
         at: expect.any(Date),
       },
     ]);
@@ -272,7 +274,9 @@ describe("consolidateIfEnabled", () => {
     expect(events[0]).toMatchObject({
       type: "team_consolidation_skipped",
       reason: "failed",
-      error: "store unavailable",
+      // ERR-C-30: the engine's degradation reports a stable code, not the
+      // store's raw message.
+      error: "backend-error",
     });
     expect(events.some((event) => event.type === "team_consolidation_completed"))
       .toBe(false);

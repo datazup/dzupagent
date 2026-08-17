@@ -410,7 +410,8 @@ describe("ConsolidationEngine — deep coverage", () => {
         {
           operation: "put",
           impact: "partial-result",
-          reason: "store write failed",
+          reason: "backend-error",
+          errorId: expect.any(String),
           target: "task:__summary__",
         },
       ]);

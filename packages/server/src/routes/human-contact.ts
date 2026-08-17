@@ -11,6 +11,7 @@ import { Hono } from 'hono'
 import type { AppEnv } from '../types.js'
 import type { ForgeServerConfig } from '../composition/types.js'
 import { requireOwnedRun } from './run-guard.js'
+import { isPendingContact, withoutPendingContact } from '../runtime/pending-contacts.js'
 
 export function createHumanContactRoutes(config: ForgeServerConfig): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
@@ -56,8 +57,27 @@ export function createHumanContactRoutes(config: ForgeServerConfig): Hono<AppEnv
       )
     }
 
+    // --- Validate the contact id (DZUPAGENT-AGENT-H-14) ---
+    // Without this, any id in the URL was accepted and laundered into an
+    // approval grant that satisfied whatever approval the run was waiting on.
+    // Fail closed: an id the server never issued for this run does not exist.
+    if (!isPendingContact(run, contactId)) {
+      return c.json(
+        {
+          error: {
+            code: 'NOT_FOUND',
+            message: `No outstanding human contact request "${contactId}" for this run`,
+          },
+        },
+        404,
+      )
+    }
+
     // --- Update run: store response + resume ---
-    const existingMetadata = (run.metadata as Record<string, unknown> | undefined) ?? {}
+    const existingMetadata = withoutPendingContact(
+      (run.metadata as Record<string, unknown> | undefined) ?? {},
+      contactId,
+    )
     await runStore.update(runId, {
       status: 'running',
       metadata: {
@@ -85,11 +105,13 @@ export function createHumanContactRoutes(config: ForgeServerConfig): Hono<AppEnv
       response: body,
     })
 
-    // Also emit approval-specific events for backward compatibility
+    // Also emit approval-specific events for backward compatibility.
+    // The grant is qualified with the contactId it answers so a consumer
+    // waiting on a *different* contact of the same run will not accept it.
     if (body['type'] === 'approval') {
       const approved = body['approved'] === true
       if (approved) {
-        eventBus.emit({ type: 'approval:granted', runId })
+        eventBus.emit({ type: 'approval:granted', runId, contactId })
       } else {
         eventBus.emit({
           type: 'approval:rejected',

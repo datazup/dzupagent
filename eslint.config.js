@@ -171,18 +171,31 @@ export default [
     },
   },
   // Grandfathered violations of the two rules above: keep warning, never fail.
-  // This list must only ever shrink — see the header of eslint.baseline.js.
-  {
-    files: TEST_QUALITY_BASELINE,
-    rules: {
-      "no-restricted-syntax": [
-        "warn",
-        STATELESS_MEMORY_DOUBLE,
-        VACUOUS_EVERY,
-        SET_TIMEOUT_IN_TEST,
-      ],
-    },
-  },
+  //
+  // Warning is not the whole gate. eslint.baseline.js records HOW MANY
+  // violations each listed file had, and scripts/run-package-lint.mjs fails the
+  // lint when a recorded count rises, when an unlisted file has violations, or
+  // when a count is stale after a fix. Without that ceiling a listed file could
+  // accrue new violations forever at `warn` while `yarn lint` stayed green —
+  // which is exactly how the stateless-memory-double count drifted 135 -> 139.
+  //
+  // Spread conditionally: ESLint rejects a config object whose `files` is an
+  // empty array, and an empty baseline is the goal state.
+  ...(TEST_QUALITY_BASELINE.length > 0
+    ? [
+        {
+          files: TEST_QUALITY_BASELINE,
+          rules: {
+            "no-restricted-syntax": [
+              "warn",
+              STATELESS_MEMORY_DOUBLE,
+              VACUOUS_EVERY,
+              SET_TIMEOUT_IN_TEST,
+            ],
+          },
+        },
+      ]
+    : []),
   // Type-aware rules for TypeScript source files only (requires tsconfig project).
   // Most package tsconfigs still exclude test files, so they cannot use
   // project-based parsing. (memory-ipc, security, rag and context now include

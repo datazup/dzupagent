@@ -329,7 +329,9 @@ export class MemoryService {
           runId,
           namespace,
           scope,
-          error: `${item.operation}: ${item.reason}`,
+          // Reason is a stable code, not driver text (ERR-C-30); the errorId
+          // joins this event to the structured log line with full detail.
+          error: `${item.operation}: ${item.reason} [errorId=${item.errorId}]`,
         })
       }
 
@@ -348,14 +350,17 @@ export class MemoryService {
 
       return result
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      // ERR-C-30: build the degradation first so the event bus carries the
+      // same stable code + errorId the caller gets, and the raw error is
+      // logged exactly once by the `error-log.ts` chokepoint.
+      const failure = degradation('search', 'source-unavailable', err, namespace)
       this.eventBus?.emit({
         type: 'memory:error',
         agentId: this.agentId ?? 'unknown',
         runId,
         namespace,
         scope,
-        error: message,
+        error: `${failure.operation}: ${failure.reason} [errorId=${failure.errorId}]`,
       })
       return {
         summarized: 0,
@@ -363,9 +368,7 @@ export class MemoryService {
         provenance: {},
         durationMs: Date.now() - startedAt,
         status: 'degraded',
-        degradations: [
-          degradation('search', 'source-unavailable', err, namespace),
-        ],
+        degradations: [failure],
       }
     }
   }

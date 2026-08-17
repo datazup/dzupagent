@@ -334,7 +334,7 @@ async function runMemoryPruner(
         namespace,
         key: item.target ?? 'pruner',
         scopeKeys: getSafeScopeKeys(scope),
-        message: `${item.operation}: ${item.reason}`,
+        message: `${item.operation}: ${item.reason} [errorId=${item.errorId}]`,
       })
     }
     if (result.expired > 0 || result.evicted > 0) {
@@ -394,7 +394,7 @@ export async function runConsolidateFinalizer(
         namespace,
         key: item.target ?? 'consolidation',
         scopeKeys: getSafeScopeKeys(scope),
-        message: `${item.operation}: ${item.reason}`,
+        message: `${item.operation}: ${item.reason} [errorId=${item.errorId}]`,
       })
     }
     if (result.summarized > 0) {
