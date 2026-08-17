@@ -24,6 +24,19 @@ export { createForgeTool } from './tools/create-tool.js'
 export type { ForgeToolConfig } from './tools/create-tool.js'
 export { createHumanContactTool, InMemoryPendingContactStore } from './tools/human-contact-tool.js'
 export type { HumanContactInput, HumanContactToolConfig, PendingContactStore } from './tools/human-contact-tool.js'
+export {
+  setToolTier,
+  getToolTier,
+  hasExplicitToolTier,
+  resolveToolTier,
+  filterToolsByTier,
+  DEFAULT_TOOL_TIER,
+  DEFAULT_UNCLASSIFIED_TOOL_POLICY,
+} from './tools/tool-tier-registry.js'
+export type {
+  ToolTierResolution,
+  ToolTierSource,
+  UnclassifiedToolPolicy,
+} from './tools/tool-tier-registry.js'
 export { ToolSchemaRegistry } from './tools/tool-schema-registry.js'
 export type { ToolSchemaEntry, CompatCheckResult } from './tools/tool-schema-registry.js'
-

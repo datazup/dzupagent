@@ -23,6 +23,7 @@ import type { StructuredToolInterface } from '@langchain/core/tools'
 import { tool } from '@langchain/core/tools'
 import type { ContactType, ContactChannel, HumanContactRequest, PendingHumanContact } from '@dzupagent/core/tools'
 import { omitUndefined } from '../utils/exact-optional.js'
+import { setToolTier } from './tool-tier-registry.js'
 
 // ---------------------------------------------------------------------------
 // Input schema
@@ -196,7 +197,7 @@ export function createHumanContactTool(
     config.pendingStore ?? new InMemoryPendingContactStore()
   const defaultChannel: ContactChannel = config.defaultChannel ?? 'in-app'
 
-  return tool(
+  const humanContactTool = tool(
     async (input: HumanContactInput): Promise<string> => {
       const contactId = randomUUID()
       const runId = 'unknown'
@@ -257,4 +258,9 @@ export function createHumanContactTool(
       schema: humanContactInputSchema,
     },
   )
+  // Human contact persists pending state, may cross an external delivery
+  // channel, and suspends the run. It must never inherit the compatibility
+  // read-only tier merely because the LangChain type has no metadata slot.
+  setToolTier(humanContactTool, 'full-access')
+  return humanContactTool
 }

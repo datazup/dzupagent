@@ -43,7 +43,11 @@ export function resolveAvailableTools(
 export function getTools(
   input: ToolResolutionInput
 ): StructuredToolInterface[] {
-  return filterToolsByTier(resolveAvailableTools(input), input.permissionTier);
+  return filterToolsByTier(
+    resolveAvailableTools(input),
+    input.permissionTier,
+    input.config.unclassifiedToolPolicy,
+  );
 }
 
 /**

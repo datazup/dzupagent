@@ -10,6 +10,7 @@
 import type { BaseMessage } from "@langchain/core/messages";
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import type { GenerateOptions, GenerateResult } from "../agent/agent-types.js";
+import { setToolTier } from "./tool-tier-registry.js";
 
 /**
  * Default ceiling on cross-agent `asTool` recursion depth.
@@ -88,7 +89,7 @@ export async function agentAsTool(
   // not thread a live `current()` supplier.
   let localDepth = 0;
 
-  return tool(
+  const wrappedAgentTool = tool(
     async ({ task, context }: { task: string; context?: string }) => {
       const depth = ctx.depth?.current ? ctx.depth.current() : localDepth;
       if (depth >= maxDepth) {
@@ -122,4 +123,8 @@ export async function agentAsTool(
       }),
     }
   );
+  // Invoking a nested agent can consume provider budget and execute that
+  // agent's own tools. Treat it as an explicitly privileged framework tool.
+  setToolTier(wrappedAgentTool, "full-access");
+  return wrappedAgentTool;
 }

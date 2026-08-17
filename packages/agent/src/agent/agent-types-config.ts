@@ -12,6 +12,7 @@
  */
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
+import type { UnclassifiedToolPolicy } from '../tools/tool-tier-registry.js'
 import type {
   ModelTier,
   ModelRegistry,
@@ -71,6 +72,17 @@ export interface DzupAgentConfig extends MemoryConfigSlice, ObservabilityConfigS
    * Default: `'read-only'` (most restrictive).
    */
   permissionTier?: PermissionTier
+  /**
+   * Admission policy for third-party tools that do not register tier metadata.
+   *
+   * `'compatibility-read-only'` preserves the historical behavior and reports
+   * the tool name in `agent:tools-filtered.unclassifiedTools`.
+   * `'require-full-access'` fails closed for read-only/workspace-write agents.
+   * Agent-owned framework tools are always explicitly classified.
+   *
+   * Default: `'compatibility-read-only'`.
+   */
+  unclassifiedToolPolicy?: UnclassifiedToolPolicy
   /** Middleware hooks (cost tracking, observability, etc.) */
   middleware?: AgentMiddleware[]
   /** Message compression config */

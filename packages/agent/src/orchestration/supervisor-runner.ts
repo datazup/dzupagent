@@ -276,6 +276,13 @@ export async function runSupervisor(
     managerWithTools = new DzupAgent({
       ...managerConfig,
       id: `${managerConfig.id}__supervisor`,
+      // Calling the supervisor pattern is the host's explicit request to let
+      // its synthesized manager invoke specialist agents. Those tools are
+      // correctly classified as full-access because they may spend provider
+      // budget and execute nested tools. Preserve an explicit manager tier,
+      // but do not let the ordinary DzupAgent read-only default silently
+      // remove the capability this orchestration constructor promises.
+      permissionTier: managerConfig.permissionTier ?? "full-access",
       tools: [...(managerConfig.tools ?? []), ...specialistTools],
       instructions:
         managerConfig.instructions +

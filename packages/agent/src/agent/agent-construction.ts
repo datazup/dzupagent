@@ -18,7 +18,10 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import { defaultTokenizerRegistry, TokenBucket, type ModelTier, type Tokenizer } from '@dzupagent/core/llm'
 import type { PermissionTier } from '@dzupagent/core/tools'
-import { filterToolsByTier } from '../tools/tool-tier-registry.js'
+import {
+  filterToolsByTier,
+  hasExplicitToolTier,
+} from '../tools/tool-tier-registry.js'
 import type { DzupAgentConfig } from './agent-types.js'
 import { validateHardBudgetReservation } from './runtime-hard-budget.js'
 
@@ -202,7 +205,11 @@ export function emitToolFilterAudit(params: {
 }): void {
   const { agentId, config, permissionTier, resolved } = params
   if (!config.eventBus) return
-  const allowed = filterToolsByTier(resolved, permissionTier)
+  const allowed = filterToolsByTier(
+    resolved,
+    permissionTier,
+    config.unclassifiedToolPolicy,
+  )
   const allowedSet = new Set<StructuredToolInterface>(allowed)
   const filtered = resolved
     .filter((tool) => !allowedSet.has(tool))
@@ -214,5 +221,8 @@ export function emitToolFilterAudit(params: {
     totalTools: resolved.length,
     allowedTools: allowed.length,
     filteredTools: filtered,
+    unclassifiedTools: resolved
+      .filter((tool) => !hasExplicitToolTier(tool))
+      .map((tool) => tool.name),
   })
 }

@@ -334,8 +334,16 @@ export type {
 export {
   setToolTier,
   getToolTier,
+  hasExplicitToolTier,
+  resolveToolTier,
   filterToolsByTier,
   DEFAULT_TOOL_TIER,
+  DEFAULT_UNCLASSIFIED_TOOL_POLICY,
+} from "./tools/tool-tier-registry.js";
+export type {
+  ToolTierResolution,
+  ToolTierSource,
+  UnclassifiedToolPolicy,
 } from "./tools/tool-tier-registry.js";
 
 // --- State (legacy) ---

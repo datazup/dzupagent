@@ -24,6 +24,8 @@ import {
   setToolTier,
   filterToolsByTier,
   getToolTier,
+  hasExplicitToolTier,
+  resolveToolTier,
   DEFAULT_TOOL_TIER,
 } from '../tools/tool-tier-registry.js'
 
@@ -99,12 +101,26 @@ describe('tool-tier-registry', () => {
     const tool = makeTool('untagged')
     expect(getToolTier(tool)).toBe(DEFAULT_TOOL_TIER)
     expect(DEFAULT_TOOL_TIER).toBe('read-only')
+    expect(hasExplicitToolTier(tool)).toBe(false)
+    expect(resolveToolTier(tool)).toEqual({
+      requiredTier: 'read-only',
+      source: 'unclassified-compatibility',
+    })
+    expect(resolveToolTier(tool, 'require-full-access')).toEqual({
+      requiredTier: 'full-access',
+      source: 'unclassified-fail-closed',
+    })
   })
 
   it('records the tagged tier without mutating the tool', () => {
     const tool = makeTool('writer')
     setToolTier(tool, 'workspace-write')
     expect(getToolTier(tool)).toBe('workspace-write')
+    expect(hasExplicitToolTier(tool)).toBe(true)
+    expect(resolveToolTier(tool)).toEqual({
+      requiredTier: 'workspace-write',
+      source: 'explicit',
+    })
     // The tool should not gain any new own-property for the tier.
     expect(Object.prototype.hasOwnProperty.call(tool, 'requiredTier')).toBe(false)
   })
@@ -126,6 +142,20 @@ describe('tool-tier-registry', () => {
       writer,
       sudo,
     ])
+  })
+
+  it('can fail closed for unclassified third-party tools', () => {
+    const explicitReader = makeTool('explicit-reader')
+    const unclassified = makeTool('unclassified')
+    setToolTier(explicitReader, 'read-only')
+
+    expect(
+      filterToolsByTier(
+        [explicitReader, unclassified],
+        'read-only',
+        'require-full-access',
+      ),
+    ).toEqual([explicitReader])
   })
 })
 
@@ -226,6 +256,7 @@ describe('DzupAgent permission-tier filtering', () => {
           totalTools: number
           allowedTools: number
           filteredTools: string[]
+          unclassifiedTools?: string[]
         }
       | undefined
 
@@ -235,6 +266,7 @@ describe('DzupAgent permission-tier filtering', () => {
     expect(filteredEvent!.totalTools).toBe(3)
     expect(filteredEvent!.allowedTools).toBe(1)
     expect(filteredEvent!.filteredTools.sort()).toEqual(['sudo-5', 'writer-5'])
+    expect(filteredEvent!.unclassifiedTools).toEqual(['reader-5'])
   })
 
   it('emits an empty filteredTools list when nothing is filtered', () => {
@@ -249,11 +281,42 @@ describe('DzupAgent permission-tier filtering', () => {
 
     const filteredEvent = eventBus.events.find(
       (event) => (event as { type?: string }).type === 'agent:tools-filtered',
-    ) as { allowedTools: number; filteredTools: string[] } | undefined
+    ) as {
+      allowedTools: number
+      filteredTools: string[]
+      unclassifiedTools?: string[]
+    } | undefined
 
     expect(filteredEvent).toBeDefined()
     expect(filteredEvent!.allowedTools).toBe(1)
     expect(filteredEvent!.filteredTools).toEqual([])
+    expect(filteredEvent!.unclassifiedTools).toEqual(['reader-6'])
+  })
+
+  it('supports fail-closed admission while retaining explicitly read-only tools', () => {
+    const explicitReader = makeTool('explicit-reader-7')
+    const unclassified = makeTool('unclassified-7')
+    setToolTier(explicitReader, 'read-only')
+    const eventBus = createEventBusStub()
+
+    const agent = new DzupAgent(minimalConfig({
+      tools: [explicitReader, unclassified],
+      permissionTier: 'read-only',
+      unclassifiedToolPolicy: 'require-full-access',
+      eventBus: eventBus as never,
+    }))
+
+    expect(readBoundTools(agent).map((tool) => tool.name)).toEqual([
+      'explicit-reader-7',
+    ])
+    const filteredEvent = eventBus.events.find(
+      (event) => (event as { type?: string }).type === 'agent:tools-filtered',
+    ) as {
+      filteredTools: string[]
+      unclassifiedTools?: string[]
+    } | undefined
+    expect(filteredEvent?.filteredTools).toEqual(['unclassified-7'])
+    expect(filteredEvent?.unclassifiedTools).toEqual(['unclassified-7'])
   })
 
   it('filters and audits middleware-provided tools from the resolved tool list', () => {
@@ -273,11 +336,17 @@ describe('DzupAgent permission-tier filtering', () => {
 
     const filteredEvent = eventBus.events.find(
       (event) => (event as { type?: string }).type === 'agent:tools-filtered',
-    ) as { totalTools: number; allowedTools: number; filteredTools: string[] } | undefined
+    ) as {
+      totalTools: number
+      allowedTools: number
+      filteredTools: string[]
+      unclassifiedTools?: string[]
+    } | undefined
 
     expect(filteredEvent).toBeDefined()
     expect(filteredEvent!.totalTools).toBe(2)
     expect(filteredEvent!.allowedTools).toBe(1)
     expect(filteredEvent!.filteredTools).toEqual(['middleware-sudo-7'])
+    expect(filteredEvent!.unclassifiedTools).toEqual(['reader-7'])
   })
 })

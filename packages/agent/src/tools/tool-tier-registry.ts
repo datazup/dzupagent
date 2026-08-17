@@ -14,9 +14,11 @@
  *
  * Resolution rules:
  *
- *   - A tool with no registered tier defaults to `'read-only'`.  This
- *     is the safest possible default — every agent (including the
- *     default `'read-only'` tier) can invoke it.
+ *   - Agent-owned framework tools must register a tier at construction.
+ *   - Third-party tools without metadata follow an explicit compatibility
+ *     policy. The current default preserves the historical `'read-only'`
+ *     behavior; security-sensitive hosts can select `'require-full-access'`
+ *     to fail closed until the tool is classified.
  *   - Tools tagged at a higher tier are filtered out for agents whose
  *     {@link PermissionTier} does not satisfy the requirement; see
  *     {@link filterToolsByTier}.
@@ -31,6 +33,30 @@ import { tierSatisfies } from '@dzupagent/core/tools'
  * that build many short-lived tools.
  */
 const registry: WeakMap<object, PermissionTier> = new WeakMap()
+
+export type UnclassifiedToolPolicy =
+  | 'compatibility-read-only'
+  | 'require-full-access'
+
+export type ToolTierSource =
+  | 'explicit'
+  | 'unclassified-compatibility'
+  | 'unclassified-fail-closed'
+
+export interface ToolTierResolution {
+  requiredTier: PermissionTier
+  source: ToolTierSource
+}
+
+/**
+ * Compatibility default for unclassified third-party tools.
+ *
+ * This preserves the pre-metadata behavior while making it observable.
+ * Hosts that require fail-closed admission should configure
+ * `'require-full-access'` until every third-party tool is classified.
+ */
+export const DEFAULT_UNCLASSIFIED_TOOL_POLICY: UnclassifiedToolPolicy =
+  'compatibility-read-only'
 
 /**
  * Default tier for tools that have not been explicitly tagged.
@@ -54,12 +80,40 @@ export function setToolTier(
   registry.set(tool, tier)
 }
 
+/** Return true only when the tool producer registered explicit metadata. */
+export function hasExplicitToolTier(tool: StructuredToolInterface): boolean {
+  return registry.has(tool)
+}
+
+/**
+ * Resolve both the effective tier and its provenance for auditing.
+ */
+export function resolveToolTier(
+  tool: StructuredToolInterface,
+  unclassifiedPolicy: UnclassifiedToolPolicy = DEFAULT_UNCLASSIFIED_TOOL_POLICY,
+): ToolTierResolution {
+  const explicitTier = registry.get(tool)
+  if (explicitTier !== undefined) {
+    return { requiredTier: explicitTier, source: 'explicit' }
+  }
+
+  return unclassifiedPolicy === 'require-full-access'
+    ? { requiredTier: 'full-access', source: 'unclassified-fail-closed' }
+    : {
+        requiredTier: DEFAULT_TOOL_TIER,
+        source: 'unclassified-compatibility',
+      }
+}
+
 /**
  * Resolve the {@link PermissionTier} for a tool. Returns
  * {@link DEFAULT_TOOL_TIER} when no explicit registration exists.
  */
-export function getToolTier(tool: StructuredToolInterface): PermissionTier {
-  return registry.get(tool) ?? DEFAULT_TOOL_TIER
+export function getToolTier(
+  tool: StructuredToolInterface,
+  unclassifiedPolicy: UnclassifiedToolPolicy = DEFAULT_UNCLASSIFIED_TOOL_POLICY,
+): PermissionTier {
+  return resolveToolTier(tool, unclassifiedPolicy).requiredTier
 }
 
 /**
@@ -75,6 +129,9 @@ export function getToolTier(tool: StructuredToolInterface): PermissionTier {
 export function filterToolsByTier(
   tools: ReadonlyArray<StructuredToolInterface>,
   agentTier: PermissionTier,
+  unclassifiedPolicy: UnclassifiedToolPolicy = DEFAULT_UNCLASSIFIED_TOOL_POLICY,
 ): StructuredToolInterface[] {
-  return tools.filter((tool) => tierSatisfies(agentTier, getToolTier(tool)))
+  return tools.filter((tool) =>
+    tierSatisfies(agentTier, getToolTier(tool, unclassifiedPolicy)),
+  )
 }

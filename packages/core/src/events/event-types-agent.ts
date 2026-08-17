@@ -47,6 +47,8 @@ export type AgentDomainEvent =
       totalTools: number
       allowedTools: number
       filteredTools: string[]
+      /** Tools admitted through or denied by the unclassified-tool policy. */
+      unclassifiedTools?: string[]
     }
   | { type: 'agent:stream_delta'; agentId: string; runId: string; content: string; tenantId?: string }
   | { type: 'agent:stream_done'; agentId: string; runId: string; finalContent: string; tenantId?: string }

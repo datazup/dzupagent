@@ -174,6 +174,33 @@ describe("AgentOrchestrator.supervisor", () => {
     expect(result.availableSpecialists).toEqual(["frontend", "backend"]);
   });
 
+  it("preserves an explicit read-only manager tier instead of escalating it", async () => {
+    const managerModel = createMockModel([{ content: "No delegation." }]);
+    const specialistModel = createMockModel([{ content: "specialist result" }]);
+    const manager = new DzupAgent({
+      id: "restricted-manager",
+      description: "Restricted manager",
+      instructions: "Do not invoke privileged tools.",
+      model: managerModel,
+      permissionTier: "read-only",
+    });
+    const specialist = createAgent(
+      "restricted-specialist",
+      "Privileged specialist",
+      specialistModel
+    );
+
+    const result = await AgentOrchestrator.supervisor({
+      manager,
+      specialists: [specialist],
+      task: "Respect the manager policy",
+    });
+
+    expect(result.content).toBe("No delegation.");
+    expect(managerModel.bindTools).not.toHaveBeenCalled();
+    expect(specialistModel.invoke).not.toHaveBeenCalled();
+  });
+
   it("throws OrchestrationError on empty specialists array", async () => {
     const model = createMockModel([{ content: "hello" }]);
     const manager = createAgent("mgr", "Manager", model);

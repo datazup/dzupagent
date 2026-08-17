@@ -17,6 +17,7 @@ import type { StructuredToolInterface } from '@langchain/core/tools'
 import { tool } from '@langchain/core/tools'
 import type { AgentMailbox } from './types.js'
 import { omitUndefined } from '../utils/exact-optional.js'
+import { setToolTier } from '../tools/tool-tier-registry.js'
 
 // ---------------------------------------------------------------------------
 // Shared config
@@ -56,7 +57,7 @@ export function createSendMailTool(
 ): StructuredToolInterface {
   const { mailbox } = config
 
-  return tool(
+  const sendMailTool = tool(
     async (input: z.infer<typeof sendMailInputSchema>): Promise<string> => {
       const message = await mailbox.send(input.to, input.subject, input.body)
       return JSON.stringify({
@@ -73,6 +74,10 @@ export function createSendMailTool(
       schema: sendMailInputSchema,
     },
   )
+  // Sending mail creates durable inter-agent state and may cross a remote
+  // mailbox boundary, so it is not a read-only operation.
+  setToolTier(sendMailTool, 'full-access')
+  return sendMailTool
 }
 
 // ---------------------------------------------------------------------------
@@ -102,7 +107,7 @@ export function createCheckMailTool(
 ): StructuredToolInterface {
   const { mailbox } = config
 
-  return tool(
+  const checkMailTool = tool(
     async (input: z.infer<typeof checkMailInputSchema>): Promise<string> => {
       const messages = await mailbox.receive(omitUndefined({
         limit: input.limit,
@@ -127,4 +132,6 @@ export function createCheckMailTool(
       schema: checkMailInputSchema,
     },
   )
+  setToolTier(checkMailTool, 'read-only')
+  return checkMailTool
 }
