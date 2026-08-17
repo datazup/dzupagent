@@ -15,7 +15,7 @@ function msgEvent(content: string): AgentEvent {
   return {
     type: "adapter:message",
     providerId: "claude",
-    sessionId: "s1",
+    role: "assistant" as const,
     content,
     timestamp: ts(),
   };
@@ -25,7 +25,6 @@ function toolCallEvent(toolName: string, input: unknown = {}): AgentEvent {
   return {
     type: "adapter:tool_call",
     providerId: "claude",
-    sessionId: "s1",
     toolName,
     input,
     timestamp: ts(),
@@ -36,7 +35,6 @@ function toolResultEvent(toolName: string, output: string): AgentEvent {
   return {
     type: "adapter:tool_result",
     providerId: "claude",
-    sessionId: "s1",
     toolName,
     output,
     durationMs: 10,

@@ -457,8 +457,6 @@ describe("ClaudeAgentAdapter — W30 gap coverage", () => {
         config: baseConfig,
         interactionPolicy: {
           mode: "auto-approve",
-          allowedTools: [],
-          blockedTools: [],
         },
       });
       expect((opts["options"] as Record<string, unknown>)["resume"]).toBe(
@@ -472,8 +470,6 @@ describe("ClaudeAgentAdapter — W30 gap coverage", () => {
         config: baseConfig,
         interactionPolicy: {
           mode: "auto-approve",
-          allowedTools: [],
-          blockedTools: [],
         },
       });
       expect((opts["options"] as Record<string, unknown>)["maxBudgetUsd"]).toBe(
@@ -487,8 +483,6 @@ describe("ClaudeAgentAdapter — W30 gap coverage", () => {
         config: baseConfig,
         interactionPolicy: {
           mode: "auto-approve",
-          allowedTools: [],
-          blockedTools: [],
         },
       });
       expect((opts["options"] as Record<string, unknown>)["maxTurns"]).toBe(12);
@@ -500,8 +494,6 @@ describe("ClaudeAgentAdapter — W30 gap coverage", () => {
         config: baseConfig,
         interactionPolicy: {
           mode: "auto-approve",
-          allowedTools: [],
-          blockedTools: [],
         },
       });
       expect(
@@ -515,8 +507,6 @@ describe("ClaudeAgentAdapter — W30 gap coverage", () => {
         config: baseConfig,
         interactionPolicy: {
           mode: "auto-approve",
-          allowedTools: [],
-          blockedTools: [],
         },
       });
       expect(
@@ -530,8 +520,6 @@ describe("ClaudeAgentAdapter — W30 gap coverage", () => {
         config: { providerOptions: { customFlag: true, extraKey: "value" } },
         interactionPolicy: {
           mode: "auto-approve",
-          allowedTools: [],
-          blockedTools: [],
         },
       });
       const o = opts["options"] as Record<string, unknown>;
@@ -545,8 +533,6 @@ describe("ClaudeAgentAdapter — W30 gap coverage", () => {
         config: { workingDirectory: "/config/dir" },
         interactionPolicy: {
           mode: "auto-approve",
-          allowedTools: [],
-          blockedTools: [],
         },
       });
       expect((opts["options"] as Record<string, unknown>)["cwd"]).toBe(
@@ -560,8 +546,6 @@ describe("ClaudeAgentAdapter — W30 gap coverage", () => {
         config: { workingDirectory: "/fallback/dir" },
         interactionPolicy: {
           mode: "auto-approve",
-          allowedTools: [],
-          blockedTools: [],
         },
       });
       expect((opts["options"] as Record<string, unknown>)["cwd"]).toBe(
@@ -575,8 +559,6 @@ describe("ClaudeAgentAdapter — W30 gap coverage", () => {
         config: baseConfig,
         interactionPolicy: {
           mode: "auto-approve",
-          allowedTools: [],
-          blockedTools: [],
         },
       });
       const o = opts["options"] as Record<string, unknown>;
@@ -604,8 +586,6 @@ describe("ClaudeAgentAdapter — W30 gap coverage", () => {
         },
         interactionPolicy: {
           mode: "auto-approve",
-          allowedTools: [],
-          blockedTools: [],
         },
       });
       const o = opts["options"] as Record<string, unknown>;
@@ -625,8 +605,6 @@ describe("ClaudeAgentAdapter — W30 gap coverage", () => {
         config: baseConfig,
         interactionPolicy: {
           mode: "auto-approve",
-          allowedTools: [],
-          blockedTools: [],
         },
       });
       expect((opts["options"] as Record<string, unknown>)["tools"]).toEqual([]);

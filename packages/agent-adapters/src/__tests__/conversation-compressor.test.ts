@@ -26,7 +26,7 @@ function msgEvent(content: string): AgentEvent {
   return {
     type: "adapter:message",
     providerId: "claude",
-    sessionId: "s1",
+    role: "assistant" as const,
     content,
     timestamp: ts(),
   };
@@ -36,7 +36,6 @@ function toolCallEvent(toolName: string): AgentEvent {
   return {
     type: "adapter:tool_call",
     providerId: "claude",
-    sessionId: "s1",
     toolName,
     input: {},
     timestamp: ts(),
@@ -47,7 +46,6 @@ function toolResultEvent(toolName: string, output = "ok"): AgentEvent {
   return {
     type: "adapter:tool_result",
     providerId: "claude",
-    sessionId: "s1",
     toolName,
     output,
     durationMs: 5,
@@ -174,8 +172,7 @@ describe("ConversationCompressor", () => {
       const deltaEvent: AgentEvent = {
         type: "adapter:stream_delta",
         providerId: "claude",
-        sessionId: "s1",
-        delta: "partial",
+        content: "partial",
         timestamp: ts(),
       };
       c.recordEvents([startedEvent("Q"), deltaEvent, completedEvent()]);

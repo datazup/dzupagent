@@ -653,7 +653,6 @@ describe('ContractNetOrchestrator', () => {
       {
         type: 'adapter:message' as const,
         providerId: 'claude',
-        sessionId: 'sess-1',
         role: 'assistant',
         content: 'partial',
         timestamp: Date.now(),

@@ -58,7 +58,7 @@ class TestCliAdapter extends BaseCliAdapter {
       return {
         type: 'adapter:message',
         providerId: this.providerId,
-        sessionId,
+        role: 'assistant' as const,
         content: String(record['content'] ?? ''),
         timestamp: Date.now(),
       }
