@@ -198,7 +198,6 @@ describe('union-return lock: ApprovalConfig.webhookDLQ', () => {
   it('still swallows an async DLQ rejection instead of orphaning it (await-drop lock)', async () => {
     vi.useFakeTimers()
     const bus = createEventBus()
-    // eslint-disable-next-line no-restricted-globals -- stubbing, not calling, the global
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
 
     const unhandled: unknown[] = []
