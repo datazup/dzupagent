@@ -192,7 +192,7 @@ export async function runGenerate(
       })
     );
 
-    if ((result.stopReason as string) !== "failed") {
+    if (MEMORY_WRITE_BACK_BY_STOP_REASON[result.stopReason]) {
       const runId = deps.resolveMemoryRunId();
       await maybeWriteBackMemoryFinalizer({
         agentId: deps.agentId,
