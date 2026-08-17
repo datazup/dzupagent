@@ -3,13 +3,27 @@
  * "out-of-order completion without redispatch" and "concurrent commit
  * preservation".
  *
- * WHY THESE ARE UNIT TESTS. Both proofs describe behaviour under concurrency
- * greater than one. The admission gate pins `for_each` concurrency to exactly
- * 1 (`for-each-loop.ts`), so a single worker completes items strictly in input
- * order and the merge's gap-filling branch is structurally unreachable
- * end-to-end. A test driving the runtime and *claiming* to prove out-of-order
- * behaviour would be vacuous: it would pass against a merge that ignored order
- * entirely, because no gap would ever exist to mishandle.
+ * WHY THESE WERE UNIT TESTS. Both proofs describe behaviour under concurrency
+ * greater than one. When they were written the admission gate pinned `for_each`
+ * concurrency to exactly 1 (`for-each-loop.ts`), so a single worker completed
+ * items strictly in input order and the merge's gap-filling branch was
+ * structurally unreachable end-to-end. A test driving the runtime and
+ * *claiming* to prove out-of-order behaviour would have been vacuous: it would
+ * pass against a merge that ignored order entirely, because no gap would ever
+ * exist to mishandle.
+ *
+ * 24-I RE-DATED. That premise no longer holds: N>1 is admitted and
+ * `for-each-loop.ts` spawns `concurrency` real workers, so a genuine gap is
+ * now constructible end-to-end. Proof 3 is discharged that way in
+ * `pipeline-for-each-concurrent-frame-preservation.test.ts`, which kills a
+ * mutant these unit tests cannot reach.
+ *
+ * These tests are KEPT and still earn their place: they qualify
+ * `advanceCompletedPrefix` against completion orders a scheduler cannot be
+ * made to produce on demand, which is coverage a run-based test trades away
+ * for realism. What must NOT be claimed of them is that they prove the loop
+ * schedules concurrently — see the paragraph below, which was already careful
+ * about exactly that.
  *
  * `advanceCompletedPrefix` was therefore extracted so the completion pattern
  * becomes an input rather than an emergent property of the scheduler. That is
@@ -22,6 +36,12 @@
  * correctly under parallel dispatch — those need prereqs 2 and 4 and the
  * scheduler work in packet 24-G. Nothing here admits concurrency, and the
  * exact-1 guard is untouched.
+ *
+ * 24-I: the last clause is now stale in one direction only. Nothing in THIS
+ * file admits concurrency — that remains true and is the point. But the
+ * exact-1 guard itself no longer exists anywhere: 24-I replaced it with a
+ * positive-integer check at all six sites. The prereqs named above (24-F, 24-G,
+ * 24-H) shipped, which is what made that relaxation admissible.
  */
 import { describe, expect, it } from "vitest";
 import {

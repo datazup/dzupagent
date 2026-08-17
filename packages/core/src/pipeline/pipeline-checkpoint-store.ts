@@ -62,9 +62,13 @@ export interface PipelineLoopCheckpointState {
    * The singular `itemFrame` it replaces could only ever name one item, so
    * two concurrently in-flight items clobbered each other and an item
    * boundary reached by one erased the live frame of another. Keying by
-   * index makes the durable shape *capable* of N>1; it does not admit it.
-   * `concurrency` remains pinned to 1 at every admission point, so exactly
-   * one key is populated in practice today.
+   * index makes the durable shape *capable* of N>1.
+   *
+   * 24-I RE-DATED: this previously said `concurrency` "remains pinned to 1 at
+   * every admission point, so exactly one key is populated in practice". Both
+   * halves are now false — N>1 is admitted and several keys are populated
+   * concurrently in a real run. This is a correctness claim readers rely on,
+   * not a test comment, so it is corrected rather than merely annotated.
    *
    * Absent for predicate loops and for for-each loops sitting exactly on an
    * item boundary. An empty record is normalised to absent when written.

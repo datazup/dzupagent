@@ -96,8 +96,10 @@ describe("for_each mid-item durability (E3)", () => {
       if (cp === undefined || cp === null) break;
       const cursor = cp.loopState?.["loop-items"];
       if (cursor === undefined) continue;
-      // G1: frames are keyed by item index. `concurrency` is pinned to 1, so
-      // at most one is in flight at any version.
+      // G1: frames are keyed by item index. 24-I RE-DATED: `concurrency` is no
+      // longer pinned to 1 globally, but THIS pipeline's fixture sets it to 1
+      // (see the definition above), so at most one frame is in flight at any
+      // version. The bound holds because of the fixture, not the admission.
       const inFlight = Object.values(cursor.itemFrames ?? {});
       expect(inFlight.length).toBeLessThanOrEqual(1);
       frames.push({

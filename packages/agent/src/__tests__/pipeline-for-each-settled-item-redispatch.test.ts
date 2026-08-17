@@ -45,6 +45,11 @@ import type { PipelineDefinition } from "@dzupagent/core";
  * A for_each loop whose body is three sequential nodes, with `failFast` off so
  * a later item keeps running after an earlier one fails — the only way to reach
  * an out-of-order completion at `concurrency: 1`.
+ *
+ * 24-I: N>1 now offers a second route to out-of-order completion, but this
+ * fixture deliberately stays at 1. A failure-driven gap is deterministic; a
+ * scheduling-driven one is not, and the assertions here name exact item
+ * indices. Kept sequential on purpose, not by omission.
  */
 function threeBodyForEachPipeline(): PipelineDefinition {
   return {

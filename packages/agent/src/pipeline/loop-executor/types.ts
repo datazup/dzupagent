@@ -392,8 +392,11 @@ export interface LoopResumeOptions {
    * the loop resumes exactly on an item boundary (pre-E3 behaviour).
    *
    * Keyed rather than singular so that N in-flight items cannot clobber one
-   * another. `concurrency` is still pinned to 1 everywhere, so exactly one
-   * entry is populated today.
+   * another.
+   *
+   * 24-I RE-DATED: previously "`concurrency` is still pinned to 1 everywhere,
+   * so exactly one entry is populated today". N>1 is admitted, and at N>1 as
+   * many entries are populated as there are items in flight.
    */
   itemFrames?: Readonly<Record<string, ForEachItemCheckpointProgress>>;
   /**
