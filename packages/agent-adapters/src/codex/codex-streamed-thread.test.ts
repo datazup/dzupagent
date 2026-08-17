@@ -33,8 +33,9 @@ import {
 } from './codex-helpers.js'
 
 import type { RunStreamedThreadContext } from './codex-streamed-thread-types.js'
-import type { CodexStreamEvent, CodexInstance } from './codex-types.js'
-import type { AgentInput, AgentStreamEvent } from '../types.js'
+import type { CodexStreamEvent, CodexInstance, CodexThread } from './codex-types.js'
+import type { AgentEvent, AgentInput, AgentStreamEvent } from '../types.js'
+import { InteractionResolver } from '../interaction/interaction-resolver.js'
 import { normalizeCodex } from '../normalize-codex.js'
 
 // ---------------------------------------------------------------------------
@@ -51,6 +52,16 @@ function makeInput(overrides: Partial<AgentInput> = {}): AgentInput {
   return { prompt: 'test', correlationId: 'corr-1', ...overrides }
 }
 
+/**
+ * InteractionResolver is a class, not an interface, so a bare `{ resolve }` literal
+ * cannot satisfy it. Build a real one and swap in the spy the test wants to assert on.
+ */
+function makeResolver(resolve: InteractionResolver['resolve']): InteractionResolver {
+  const resolver = new InteractionResolver({ mode: 'auto-approve' })
+  resolver.resolve = resolve
+  return resolver
+}
+
 function makeMinimalCtx(overrides: Partial<RunStreamedThreadContext> = {}): RunStreamedThreadContext {
   return {
     providerId: 'codex' as RunStreamedThreadContext['providerId'],
@@ -62,10 +73,10 @@ function makeMinimalCtx(overrides: Partial<RunStreamedThreadContext> = {}): RunS
     abort: vi.fn(),
     buildApprovalContext: (_input) => ({
       providerId: 'codex' as RunStreamedThreadContext['providerId'],
-      policy: { mode: 'auto' },
-      resolver: {
-        resolve: vi.fn().mockResolvedValue({ answer: 'yes', resolvedBy: 'auto' }),
-      },
+      policy: { mode: 'auto-approve' },
+      resolver: makeResolver(
+        vi.fn().mockResolvedValue({ answer: 'yes', resolvedBy: 'auto-approve' }),
+      ),
       buildThreadOptions: () => ({}),
     }),
     isApprovalCapable: () => false,
@@ -157,12 +168,12 @@ describe('detectApprovalPause', () => {
 
 describe('handleStreamApprovalRequest', () => {
   it('delegates to handleApprovalRequest and yields interaction_resolved event', async () => {
-    const resolverFn = vi.fn().mockResolvedValue({ answer: 'yes', resolvedBy: 'auto' })
+    const resolverFn = vi.fn().mockResolvedValue({ answer: 'yes', resolvedBy: 'auto-approve' })
     const ctx = makeMinimalCtx({
       buildApprovalContext: (_input) => ({
         providerId: 'codex' as RunStreamedThreadContext['providerId'],
-        policy: { mode: 'auto' },
-        resolver: { resolve: resolverFn },
+        policy: { mode: 'auto-approve' },
+        resolver: makeResolver(resolverFn),
         buildThreadOptions: () => ({}),
       }),
     })
@@ -187,12 +198,12 @@ describe('handleStreamApprovalRequest', () => {
   })
 
   it('emits interaction_required then interaction_resolved in ask-caller mode', async () => {
-    const resolverFn = vi.fn().mockResolvedValue({ answer: 'yes', resolvedBy: 'human' })
+    const resolverFn = vi.fn().mockResolvedValue({ answer: 'yes', resolvedBy: 'caller' })
     const ctx = makeMinimalCtx({
       buildApprovalContext: (_input) => ({
         providerId: 'codex' as RunStreamedThreadContext['providerId'],
         policy: { mode: 'ask-caller', askCaller: { timeoutMs: 5000 } },
-        resolver: { resolve: resolverFn },
+        resolver: makeResolver(resolverFn),
         buildThreadOptions: () => ({}),
       }),
     })
@@ -228,7 +239,7 @@ describe('handleStreamTurnFailedApproval', () => {
       { type: 'item.completed', item: { type: 'agent_message', id: 'i1', text: 'Resumed!' } },
       { type: 'turn.completed' },
     ]
-    const resumedThread = {
+    const resumedThread: CodexThread = {
       async runStreamed() {
         return {
           events: (async function* () {
@@ -243,11 +254,11 @@ describe('handleStreamTurnFailedApproval', () => {
       resumeThread: vi.fn().mockReturnValue(resumedThread),
     }
 
-    const resolverFn = vi.fn().mockResolvedValue({ answer: 'yes', resolvedBy: 'auto' })
+    const resolverFn = vi.fn().mockResolvedValue({ answer: 'yes', resolvedBy: 'auto-approve' })
     const approvalCtx = {
       providerId: 'codex' as RunStreamedThreadContext['providerId'],
-      policy: { mode: 'auto' as const },
-      resolver: { resolve: resolverFn },
+      policy: { mode: 'auto-approve' as const },
+      resolver: makeResolver(resolverFn),
       buildThreadOptions: () => ({}),
     }
 
@@ -304,11 +315,11 @@ describe('handleStreamTurnFailedApproval', () => {
       resumeThread: vi.fn(),
     }
 
-    const resolverFn = vi.fn().mockResolvedValue({ answer: 'no', resolvedBy: 'policy' })
+    const resolverFn = vi.fn().mockResolvedValue({ answer: 'no', resolvedBy: 'auto-deny' })
     const approvalCtx = {
       providerId: 'codex' as RunStreamedThreadContext['providerId'],
-      policy: { mode: 'auto' as const },
-      resolver: { resolve: resolverFn },
+      policy: { mode: 'auto-approve' as const },
+      resolver: makeResolver(resolverFn),
       buildThreadOptions: () => ({}),
     }
 
@@ -731,22 +742,22 @@ describe('mapItemCompleted', () => {
 
 describe('annotateProviderIdentity', () => {
   it('returns event unchanged when no IDs provided', () => {
-    const event = { type: 'adapter:started', providerId: 'codex', sessionId: 's', timestamp: 0 }
+    const event: AgentEvent = { type: 'adapter:started', providerId: 'codex', sessionId: 's', timestamp: 0 }
     const result = annotateProviderIdentity(event, null, null)
     expect(result).toBe(event)
   })
 
   it('adds providerEventId to event when provided', () => {
-    const event = { type: 'adapter:started', providerId: 'codex', sessionId: 's', timestamp: 0 }
+    const event: AgentEvent = { type: 'adapter:started', providerId: 'codex', sessionId: 's', timestamp: 0 }
     const result = annotateProviderIdentity(event, 'pev-123', null)
-    expect((result as Record<string, unknown>)['providerEventId']).toBe('pev-123')
+    expect((result as unknown as Record<string, unknown>)['providerEventId']).toBe('pev-123')
   })
 
   it('adds both IDs when both provided', () => {
-    const event = { type: 'adapter:started', providerId: 'codex', sessionId: 's', timestamp: 0 }
+    const event: AgentEvent = { type: 'adapter:started', providerId: 'codex', sessionId: 's', timestamp: 0 }
     const result = annotateProviderIdentity(event, 'pev-1', 'parent-pev')
-    expect((result as Record<string, unknown>)['providerEventId']).toBe('pev-1')
-    expect((result as Record<string, unknown>)['parentProviderEventId']).toBe('parent-pev')
+    expect((result as unknown as Record<string, unknown>)['providerEventId']).toBe('pev-1')
+    expect((result as unknown as Record<string, unknown>)['parentProviderEventId']).toBe('parent-pev')
   })
 })
 
