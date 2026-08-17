@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { collectEvents } from "./test-helpers.js";
-import type { AgentEvent, AgentInput } from "../types.js";
+import type {
+  AgentEvent,
+  AgentInput,
+  AgentStreamEvent,
+} from "../types.js";
+import type { CodexStreamEvent } from "../codex/codex-types.js";
 
 // ---------------------------------------------------------------------------
 // SDK mock types (mirrors the shapes consumed by CodexAdapter)
@@ -15,7 +20,12 @@ interface MockStreamEvent {
     cached_input_tokens?: number;
   };
   item?: Record<string, unknown>;
-  error?: string;
+  /**
+   * Mirrors the production contract (CodexStreamEvent.error), which carries
+   * either a bare string or a `{ message }` envelope. Declaring it as `string`
+   * alone made this double narrower than the code under test.
+   */
+  error?: CodexStreamEvent["error"];
   message?: string;
 }
 
@@ -529,7 +539,12 @@ describe("CodexAdapter", () => {
       ]);
       mockStartThread.mockReturnValue(thread);
 
-      const executeEvents = await collectEvents(adapter.execute(makeInput()));
+      // Widened to the raw-inclusive union on purpose: execute() is declared
+      // to yield AgentEvent (no provider_raw), so this assertion only stays a
+      // real runtime regression check against the wider stream union.
+      const executeEvents: AgentStreamEvent[] = await collectEvents(
+        adapter.execute(makeInput()),
+      );
       expect(
         executeEvents.find((event) => event.type === "adapter:provider_raw"),
       ).toBeUndefined();

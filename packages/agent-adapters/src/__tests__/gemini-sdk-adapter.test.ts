@@ -261,10 +261,9 @@ describe("GeminiSDKAdapter", () => {
 
   it("healthCheck returns unhealthy when SDK is missing", async () => {
     // Create adapter with fresh state and make loadSDK fail
+    // `sdk` is a per-instance private cache, so a freshly constructed adapter
+    // already has nothing cached and loadSDK() must re-import.
     const adapter = new GeminiSDKAdapter({ googleApiKey: TEST_API_KEY });
-    // Override internal sdk to force reload by clearing cached value
-
-    (adapter as Record<string, unknown>)["sdk"] = undefined;
     MockGoogleGenerativeAI.mockImplementationOnce(() => {
       throw new Error("Module not found");
     });
@@ -530,7 +529,20 @@ describe("GeminiSDKAdapter", () => {
     );
   });
 
-  it.each([
+  interface ResponseSchemaCase {
+    label: string;
+    /**
+     * Widened to the common supertype of the three case schemas: without it,
+     * JsonOutputSchema.fromZod<T> infers T from the first case only and the
+     * remaining cases fail to unify.
+     */
+    schema: z.ZodType<Record<string, unknown>>;
+    response: string;
+    expectedValue: Record<string, unknown>;
+    expectedSchema: Record<string, unknown>;
+  }
+
+  it.each<ResponseSchemaCase>([
     {
       label: "envelope-backed top-level array",
       schema: z.object({
@@ -699,7 +711,7 @@ describe("GeminiSDKAdapter", () => {
     it("throws ADAPTER_EXECUTION_FAILED when no API key is set", async () => {
       const adapter = new GeminiSDKAdapter({}); // no googleApiKey, no apiKey
       await expect(
-        collectEvents(adapter.execute({ prompt: "hi", sessionId: "s1" }))
+        collectEvents(adapter.execute({ prompt: "hi" }))
       ).rejects.toMatchObject({
         code: "ADAPTER_EXECUTION_FAILED",
         message: expect.stringContaining("GOOGLE_API_KEY"),
@@ -709,7 +721,7 @@ describe("GeminiSDKAdapter", () => {
     it("throws ADAPTER_EXECUTION_FAILED when apiKey is an empty string", async () => {
       const adapter = new GeminiSDKAdapter({ apiKey: "" });
       await expect(
-        collectEvents(adapter.execute({ prompt: "hi", sessionId: "s1" }))
+        collectEvents(adapter.execute({ prompt: "hi" }))
       ).rejects.toMatchObject({
         code: "ADAPTER_EXECUTION_FAILED",
         message: expect.stringContaining("GOOGLE_API_KEY"),

@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { QwenAdapter, createQwenCliAdapter } from '../qwen/qwen-adapter.js'
+import type { AgentInput } from '../types.js'
 import { collectEvents, getProcessHelperMocks } from './test-helpers.js'
 
 vi.mock('../utils/process-helpers.js', () => ({
@@ -117,10 +118,17 @@ describe('Qwen CLI convergence contract', () => {
     expect(args).not.toContain('--max-turns')
   })
 
+  // AgentInputPolicy.allowedTools is a mutable string[], so this case cannot be
+  // frozen by the `as const` below without losing assignability to AgentInput.
+  const allowlistInput: AgentInput = {
+    prompt: 'x',
+    policyContext: { activePolicy: { allowedTools: ['read_file'] } },
+  }
+
   it.each([
     [{ apiKey: 'api-key' }, { prompt: 'x' }, 'BAILIAN_CODING_PLAN_API_KEY'],
     [{}, { prompt: 'x', options: { mcpServers: [{ id: 'local' }] } }, 'isolated bare mode'],
-    [{}, { prompt: 'x', policyContext: { activePolicy: { allowedTools: ['read_file'] } } }, 'not a strict allowlist'],
+    [{}, allowlistInput, 'not a strict allowlist'],
     [{}, { prompt: 'x', policyContext: { activePolicy: { networkAccess: false } } }, 'network isolation'],
     [{}, { prompt: 'x', maxBudgetUsd: 1 }, 'cost budget'],
     [{ sandboxMode: 'full-access' }, { prompt: 'x', workingDirectory: '/workspace' }, 'approvalRequired=false'],

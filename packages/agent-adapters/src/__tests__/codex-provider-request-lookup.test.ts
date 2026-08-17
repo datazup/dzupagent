@@ -9,6 +9,15 @@ import {
 
 function createAppServer(
   thread: Record<string, unknown>,
+  respondToThreadRead: (stdout: PassThrough) => void = (stdout) => {
+    stdout.write(
+      `${JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        result: { thread },
+      })}\n`,
+    )
+  },
 ): ChildProcess {
   const child = new EventEmitter() as ChildProcess
   const stdin = new PassThrough()
@@ -35,13 +44,7 @@ function createAppServer(
         stdout.write('{"jsonrpc":"2.0","id":0,"result":{}}\n')
       }
       if (message.method === 'thread/read') {
-        stdout.write(
-          `${JSON.stringify({
-            jsonrpc: '2.0',
-            id: 1,
-            result: { thread },
-          })}\n`,
-        )
+        respondToThreadRead(stdout)
       }
     }
   })
@@ -49,30 +52,14 @@ function createAppServer(
 }
 
 function createMissingThreadAppServer(): ChildProcess {
-  const child = createAppServer({})
-  let buffer = ''
-  child.stdin?.removeAllListeners('data')
-  child.stdin?.on('data', (chunk: Buffer) => {
-    buffer += chunk.toString('utf8')
-    for (;;) {
-      const boundary = buffer.indexOf('\n')
-      if (boundary < 0) break
-      const message = JSON.parse(buffer.slice(0, boundary)) as {
-        id?: number
-        method?: string
-      }
-      buffer = buffer.slice(boundary + 1)
-      if (message.id === 0) {
-        child.stdout?.write('{"jsonrpc":"2.0","id":0,"result":{}}\n')
-      }
-      if (message.method === 'thread/read') {
-        child.stdout?.write(
-          '{"jsonrpc":"2.0","id":1,"error":{"message":"thread not loaded: missing"}}\n',
-        )
-      }
-    }
+  // Reuses the shared framing loop and only swaps the thread/read reply.
+  // ChildProcess types stdout as a read-only Readable, so the writable
+  // PassThrough is handed to the responder instead of being re-derived.
+  return createAppServer({}, (stdout) => {
+    stdout.write(
+      '{"jsonrpc":"2.0","id":1,"error":{"message":"thread not loaded: missing"}}\n',
+    )
   })
-  return child
 }
 
 describe('Codex provider request restart lookup', () => {

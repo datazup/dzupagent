@@ -22,7 +22,7 @@ import {
 } from '../codex/codex-app-server-adapter.js'
 import { CodexAdapter } from '../codex/codex-adapter.js'
 import { createCodexBackendAdapter } from '../codex/codex-backend.js'
-import type { AgentEvent, AgentInput } from '../types.js'
+import type { AgentEvent, AgentInput, AgentStreamEvent } from '../types.js'
 
 interface RpcFrame {
   readonly id?: number | string | undefined
@@ -534,7 +534,10 @@ describe('Codex App Server provider-session adapter', () => {
         cachedInputTokens: 3,
       },
     }))
-    expect(events.some((event) => event.type === 'adapter:provider_raw')).toBe(false)
+    // execute() is declared to yield AgentEvent (provider_raw excluded); widening
+    // here keeps the leak check an honest runtime assertion rather than a tautology.
+    const streamEvents: AgentStreamEvent[] = events
+    expect(streamEvents.some((event) => event.type === 'adapter:provider_raw')).toBe(false)
     expect(server.calls.some((frame) => frame.id === 'approval-1' && !frame.method)).toBe(false)
   })
 
@@ -620,16 +623,16 @@ describe('Codex App Server provider-session adapter', () => {
   })
 
   it.each([
-    ['thread/started', (server: FakeServer) => {
+    ['thread/started', (server: FakeServer): void => {
       notify(server, 'thread/started', { thread: { id: 'thread-1' } })
     }],
-    ['turn/started', (server: FakeServer) => {
+    ['turn/started', (server: FakeServer): void => {
       notify(server, 'turn/started', {
         threadId: 'thread-1',
         turn: { id: 'turn-1', status: 'inProgress' },
       })
     }],
-    ['turn/completed', (_server: FakeServer) => undefined],
+    ['turn/completed', (_server: FakeServer): void => undefined],
   ] as const)('rejects an incomplete %s notification without completion', async (
     method,
     prefix,

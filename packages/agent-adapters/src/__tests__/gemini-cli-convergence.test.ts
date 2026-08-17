@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GeminiCLIAdapter } from '../gemini/gemini-adapter.js'
 import { createGeminiBackendAdapter } from '../gemini/gemini-backend.js'
 import { GeminiSDKAdapter } from '../gemini/gemini-sdk-adapter.js'
+import type { AgentInput } from '../types.js'
 import { collectEvents, getProcessHelperMocks } from './test-helpers.js'
 
 vi.mock('../utils/process-helpers.js', () => ({
@@ -125,11 +126,17 @@ describe('Gemini CLI convergence contract', () => {
     await expect(access(projectedRoot)).rejects.toThrow()
   })
 
+  // AgentInputPolicy.allowedTools is a mutable string[], so this case cannot be
+  // frozen by the `as const` below without losing assignability to AgentInput.
+  const allowlistPolicy: Pick<AgentInput, 'policyContext'> = {
+    policyContext: { activePolicy: { allowedTools: ['read_file'] } },
+  }
+
   it.each([
     [{ systemPrompt: 'system' }, 'system-prompt'],
     [{ maxTurns: 2 }, 'max-turns'],
     [{ outputSchema: { type: 'object' } }, 'structured-output'],
-    [{ policyContext: { activePolicy: { allowedTools: ['read_file'] } } }, 'tool allow/block'],
+    [allowlistPolicy, 'tool allow/block'],
     [{ options: { mcpServers: [{ id: 'local', transport: { kind: 'stdio', command: 'x' } }] } }, 'only HTTP MCP'],
   ] as const)('refuses unsupported policy projection before spawn: %s', async (extra, expected) => {
     const events = await collectEvents(new GeminiCLIAdapter().execute({ prompt: 'x', ...extra }))

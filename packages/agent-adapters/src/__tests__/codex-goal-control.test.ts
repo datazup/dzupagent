@@ -86,7 +86,7 @@ function binding(nativeGoalControl = true): ProviderSessionAttemptBinding {
   }
 }
 
-function requestBase(kind: 'goal-get' | 'goal-set' | 'goal-clear') {
+function requestBase<K extends 'goal-get' | 'goal-set' | 'goal-clear'>(kind: K) {
   return {
     schema: PROVIDER_SESSION_OPERATION_SCHEMA,
     operationId: `operation-${kind}`,
