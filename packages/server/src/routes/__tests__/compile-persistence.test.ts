@@ -167,7 +167,7 @@ describe('compile route — RunEventStore persistence', () => {
     await Promise.resolve()
 
     expect(store.appendArtifact).toHaveBeenCalledTimes(1)
-    const [call] = (store.appendArtifact as ReturnType<typeof vi.fn>).mock.calls
+    const call = (store.appendArtifact as ReturnType<typeof vi.fn>).mock.calls[0]!
     const event = call[0] as Parameters<RunEventStore['appendArtifact']>[0]
 
     expect(event.runId).toBe(SUCCESS_RESULT.compileId)
@@ -211,7 +211,7 @@ describe('compile route — RunEventStore persistence', () => {
     await Promise.resolve()
 
     expect(store.appendArtifact).toHaveBeenCalledTimes(1)
-    const [call] = (store.appendArtifact as ReturnType<typeof vi.fn>).mock.calls
+    const call = (store.appendArtifact as ReturnType<typeof vi.fn>).mock.calls[0]!
     const event = call[0] as Parameters<RunEventStore['appendArtifact']>[0]
 
     expect(event.runId).toBe('caller-run-42')
@@ -231,7 +231,7 @@ describe('compile route — RunEventStore persistence', () => {
     await Promise.resolve()
 
     expect(store.appendArtifact).toHaveBeenCalledTimes(1)
-    const [call] = (store.appendArtifact as ReturnType<typeof vi.fn>).mock.calls
+    const call = (store.appendArtifact as ReturnType<typeof vi.fn>).mock.calls[0]!
     const event = call[0] as Parameters<RunEventStore['appendArtifact']>[0]
 
     // No ?runId supplied — must fall back to result.compileId.
@@ -288,7 +288,7 @@ describe('compile route — RunEventStore persistence', () => {
     await new Promise((r) => setTimeout(r, 10))
 
     expect(store.appendArtifact).toHaveBeenCalledTimes(1)
-    const [call] = (store.appendArtifact as ReturnType<typeof vi.fn>).mock.calls
+    const call = (store.appendArtifact as ReturnType<typeof vi.fn>).mock.calls[0]!
     const event = call[0] as Parameters<RunEventStore['appendArtifact']>[0]
 
     expect(event.runId).toBe(TEST_RUN_ID)

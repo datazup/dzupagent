@@ -274,7 +274,7 @@ describe('GET /api/runs/:id/token-report (Session X)', () => {
       expect(res.status).toBe(200)
       const body = (await res.json()) as TokenReportResponse
       expect(body.data.compressionLog).toHaveLength(1)
-      const [got] = body.data.compressionLog
+      const got = body.data.compressionLog[0]!
       expect(got.before).toBe(6400)
       expect(got.after).toBe(2100)
       expect(got.summary).toBe('Rolled up tool results')

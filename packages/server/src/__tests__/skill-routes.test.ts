@@ -126,9 +126,9 @@ describe('Skill routes', () => {
     expect(res.status).toBe(201)
     const json = await res.json() as { data: Record<string, { providerId: string; hash: string }> }
     expect(json.data['codex']).toBeDefined()
-    expect(json.data['codex'].providerId).toBe('codex')
+    expect(json.data['codex']!.providerId).toBe('codex')
     expect(json.data['claude']).toBeDefined()
-    expect(json.data['claude'].providerId).toBe('claude')
+    expect(json.data['claude']!.providerId).toBe('claude')
   })
 
   it('POST /api/skills/compile compiles for a specific provider', async () => {

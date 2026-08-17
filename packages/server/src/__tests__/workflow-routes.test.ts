@@ -171,8 +171,8 @@ describe('Workflow routes', () => {
       const json = await res.json() as { valid: boolean; steps: Array<{ skillId: string; resolved: boolean }>; errors: string[] }
       expect(json.valid).toBe(true)
       expect(json.steps).toHaveLength(2)
-      expect(json.steps[0].skillId).toBe('summarize')
-      expect(json.steps[0].resolved).toBe(true)
+      expect(json.steps[0]!.skillId).toBe('summarize')
+      expect(json.steps[0]!.resolved).toBe(true)
       expect(json.errors).toHaveLength(0)
     })
 
@@ -183,7 +183,7 @@ describe('Workflow routes', () => {
       expect(res.status).toBe(200)
       const json = await res.json() as { valid: boolean; steps: Array<{ skillId: string; resolved: boolean }>; errors: string[] }
       expect(json.valid).toBe(false)
-      expect(json.steps[1].resolved).toBe(false)
+      expect(json.steps[1]!.resolved).toBe(false)
       expect(json.errors.length).toBeGreaterThan(0)
     })
 
@@ -265,9 +265,9 @@ describe('Workflow routes', () => {
       expect(res.status).toBe(200)
       const json = await res.json() as { workflows: Array<{ name: string; description?: string; stepCount: number }> }
       expect(json.workflows).toHaveLength(1)
-      expect(json.workflows[0].name).toBe('daily-report')
-      expect(json.workflows[0].description).toBe('Generate daily report')
-      expect(json.workflows[0].stepCount).toBe(2)
+      expect(json.workflows[0]!.name).toBe('daily-report')
+      expect(json.workflows[0]!.description).toBe('Generate daily report')
+      expect(json.workflows[0]!.stepCount).toBe(2)
     })
   })
 

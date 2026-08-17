@@ -175,11 +175,11 @@ describe('Pipeline: custom code tool', () => {
     )
     // Assert
     expect(result.tools).toHaveLength(1)
-    expect(result.tools[0].name).toBe('custom_echo')
-    expect(result.activated[0].source).toBe('custom')
+    expect(result.tools[0]!.name).toBe('custom_echo')
+    expect(result.activated[0]!.source).toBe('custom')
     expect(result.unresolved).toEqual([])
 
-    const output = await result.tools[0].invoke({ x: 'hello' })
+    const output = await result.tools[0]!.invoke({ x: 'hello' })
     expect(output).toBe('echo:hello')
   })
 
@@ -210,8 +210,8 @@ describe('Pipeline: custom code tool', () => {
 
     // Override replaces the original; only one entry with name git_status
     expect(tools).toHaveLength(1)
-    expect(tools[0].description).toBe('custom override')
-    expect(activated[0].source).toBe('custom')
+    expect(tools[0]!.description).toBe('custom override')
+    expect(activated[0]!.source).toBe('custom')
   })
 
   it('custom tool fills an unresolved slot', async () => {
@@ -254,12 +254,12 @@ describe('Pipeline: MCP tool (fake client at MCPClient boundary)', () => {
 
     // Assert resolution
     expect(result.tools).toHaveLength(1)
-    expect(result.tools[0].name).toBe('add')
+    expect(result.tools[0]!.name).toBe('add')
     expect(result.activated[0]).toEqual({ name: 'add', source: 'mcp' })
     expect(result.unresolved).toEqual([])
 
     // Assert invocation round-trip
-    const output = await result.tools[0].invoke({ a: 20, b: 22 })
+    const output = await result.tools[0]!.invoke({ a: 20, b: 22 })
     expect(output).toBe('42')
 
     // The fake server recorded the call
@@ -285,7 +285,7 @@ describe('Pipeline: MCP tool (fake client at MCPClient boundary)', () => {
     )
 
     expect(result.tools).toHaveLength(1)
-    expect(result.tools[0].name).toBe('ping')
+    expect(result.tools[0]!.name).toBe('ping')
     expect(result.activated).toEqual([{ name: 'ping', source: 'mcp' }])
     expect(result.resolved).toContain('mcp:direct-srv')
     expect(result.warnings).toHaveLength(0)
@@ -312,7 +312,7 @@ describe('Pipeline: MCP tool (fake client at MCPClient boundary)', () => {
     )
 
     expect(result.tools).toHaveLength(1)
-    expect(result.tools[0].name).toBe('listed')
+    expect(result.tools[0]!.name).toBe('listed')
   })
 })
 
@@ -466,7 +466,7 @@ describe('Pipeline: schema mismatch / bad input', () => {
       mcpContext(['mcp:err-srv'], [{ id: 'err-srv', url: 'http://fake:8000' }]),
     )
 
-    const output = await result.tools[0].invoke({ data: '' })
+    const output = await result.tools[0]!.invoke({ data: '' })
     // Returns the error string — does not throw, run continues
     expect(typeof output).toBe('string')
     expect(output).toContain('Error')
@@ -569,13 +569,13 @@ describe('Pipeline: builtin + custom + MCP coexistence', () => {
     // Only one entry named shared_tool
     const matching = result.tools.filter((t) => t.name === 'shared_tool')
     expect(matching).toHaveLength(1)
-    expect(matching[0].description).toBe('custom override')
+    expect(matching[0]!.description).toBe('custom override')
 
     const activated = result.activated.find((a) => a.name === 'shared_tool')
     expect(activated?.source).toBe('custom')
 
     // Invoked via custom impl
-    const out = await matching[0].invoke({})
+    const out = await matching[0]!.invoke({})
     expect(out).toBe('custom version')
   })
 

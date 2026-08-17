@@ -291,7 +291,7 @@ describe('Registry Routes', () => {
       const data = json['data'] as Record<string, unknown>
       const agents = data['agents'] as Array<Record<string, unknown>>
       expect(agents.length).toBe(1)
-      const summary = agents[0]
+      const summary = agents[0]!
       expect(summary['id']).toBe(a1.id)
       expect(summary['name']).toBe('delta')
       expect(summary['status']).toBe('healthy')

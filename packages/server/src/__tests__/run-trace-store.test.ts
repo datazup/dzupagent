@@ -103,8 +103,8 @@ describe('InMemoryRunTraceStore', () => {
 
     const subset = await store.getSteps('run-1', 3, 7)
     expect(subset).toHaveLength(4)
-    expect(subset[0].stepIndex).toBe(3)
-    expect(subset[3].stepIndex).toBe(6)
+    expect(subset[0]!.stepIndex).toBe(3)
+    expect(subset[3]!.stepIndex).toBe(6)
   })
 
   it('should clamp getSteps range to valid bounds', async () => {
@@ -121,13 +121,13 @@ describe('InMemoryRunTraceStore', () => {
     // from < 0 is clamped to 0
     const subset1 = await store.getSteps('run-1', -5, 3)
     expect(subset1).toHaveLength(3)
-    expect(subset1[0].stepIndex).toBe(0)
+    expect(subset1[0]!.stepIndex).toBe(0)
 
     // to > length is clamped to length
     const subset2 = await store.getSteps('run-1', 3, 100)
     expect(subset2).toHaveLength(2)
-    expect(subset2[0].stepIndex).toBe(3)
-    expect(subset2[1].stepIndex).toBe(4)
+    expect(subset2[0]!.stepIndex).toBe(3)
+    expect(subset2[1]!.stepIndex).toBe(4)
   })
 
   it('should return empty array for invalid range (from >= to)', async () => {
@@ -162,7 +162,7 @@ describe('InMemoryRunTraceStore', () => {
     expect(trace.steps).toHaveLength(5)
     expect(trace.totalSteps).toBe(5)
     // Only the first 5 steps are kept
-    expect(trace.steps[4].content).toBe('step-4')
+    expect(trace.steps[4]!.content).toBe('step-4')
   })
 
   it('should default max steps to 1000', async () => {
@@ -327,7 +327,7 @@ describe('InMemoryRunTraceStore', () => {
       durationMs: 250,
     })
 
-    const step = (await store.getTrace('run-1'))!.steps[0]
+    const step = (await store.getTrace('run-1'))!.steps[0]!
     expect(step.metadata).toEqual({ toolName: 'search', retryCount: 0 })
     expect(step.durationMs).toBe(250)
     expect(step.type).toBe('tool_call')

@@ -58,6 +58,19 @@ function expectMappedRequestShape(value: unknown): asserts value is EnhancedMapp
   expect(isRecord(record['options'])).toBe(true)
 }
 
+/**
+ * Read `choices[0]`, failing the assertion when it is absent instead of
+ * indexing into a possibly-empty array.
+ */
+function firstChoice(record: Record<string, unknown>): Record<string, unknown> {
+  const choices = record['choices']
+  expect(Array.isArray(choices)).toBe(true)
+  const choice = (choices as unknown[])[0]
+  expect(isRecord(choice)).toBe(true)
+  if (!isRecord(choice)) throw new Error('choices[0] is not an object')
+  return choice
+}
+
 function expectChatCompletionResponseShape(
   value: unknown,
 ): asserts value is ChatCompletionResponse {
@@ -67,9 +80,7 @@ function expectChatCompletionResponseShape(
   expectStringField(record, 'id')
   expectStringField(record, 'model')
   expectNumberField(record, 'created')
-  expect(Array.isArray(record['choices'])).toBe(true)
-  const choice = (record['choices'] as Array<Record<string, unknown>>)[0]
-  expect(isRecord(choice)).toBe(true)
+  const choice = firstChoice(record)
   expect(choice['index']).toBe(0)
   expect(['stop', 'length', 'tool_calls']).toContain(choice['finish_reason'])
   expect(isRecord(choice['message'])).toBe(true)
@@ -89,9 +100,7 @@ function expectChatCompletionChunkShape(value: unknown): asserts value is ChatCo
   expectStringField(record, 'id')
   expectStringField(record, 'model')
   expectNumberField(record, 'created')
-  expect(Array.isArray(record['choices'])).toBe(true)
-  const choice = (record['choices'] as Array<Record<string, unknown>>)[0]
-  expect(isRecord(choice)).toBe(true)
+  const choice = firstChoice(record)
   expect(choice['index']).toBe(0)
   expect(isRecord(choice['delta'])).toBe(true)
   expect(['stop', 'length', null]).toContain(choice['finish_reason'] as string | null)
