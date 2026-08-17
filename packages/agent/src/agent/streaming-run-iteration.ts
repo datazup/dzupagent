@@ -33,9 +33,13 @@ import {
 } from './model-hooks.js'
 import {
   emitProviderRunEvent,
+  openModelStreamBounded,
   openStreamWithProviderFailover,
-  type StreamableModel,
 } from './streaming-run-provider.js'
+import {
+  awaitRateLimit,
+  recordDistributedCost,
+} from './rate-limit-coordinator.js'
 import { shouldWriteBackMemory } from './memory-write-back-policy.js'
 import { applyOutputFilter } from './run-engine.js'
 import type { StreamRunContext } from './streaming-run-types.js'
@@ -124,8 +128,8 @@ export async function openIterationStream(
   ctx: StreamRunContext,
   runState: PreparedRunState,
   allMessages: BaseMessage[],
+  signal?: AbortSignal,
 ): Promise<OpenedStream> {
-  const streamModel = runState.model as StreamableModel
   let activeProvider = ctx.resolvedProvider
   let activeModelName =
     (runState.model as BaseChatModel & { model?: string }).model
@@ -135,7 +139,12 @@ export async function openIterationStream(
 
   const attempts = ctx.getProviderAttempts?.(runState.tools) ?? []
   if (attempts.length > 1) {
-    const opened = await openStreamWithProviderFailover(ctx, attempts, allMessages)
+    const opened = await openStreamWithProviderFailover(
+      ctx,
+      attempts,
+      allMessages,
+      signal,
+    )
     return {
       stream: opened.stream,
       activeProvider: opened.provider,
@@ -145,8 +154,16 @@ export async function openIterationStream(
   }
 
   let stream: AsyncIterable<AIMessage>
+  // Admission is deliberately outside the provider fault boundary. A local or
+  // distributed rate denial means the provider was never contacted.
+  await awaitRateLimit(ctx.modelGates)
   try {
-    stream = await streamModel.stream(allMessages)
+    stream = await openModelStreamBounded(runState.model, allMessages, {
+      ...(ctx.config.guardrails?.modelTimeoutMs !== undefined
+        ? { modelTimeoutMs: ctx.config.guardrails.modelTimeoutMs }
+        : {}),
+      ...(signal !== undefined ? { signal } : {}),
+    })
     // Single-provider path: record success-on-open against the
     // selection-time provider so the circuit breaker sees the same
     // signal `attemptWithFailover` produces for the multi-provider
@@ -165,6 +182,22 @@ export async function openIterationStream(
   }
 
   return { stream, activeProvider, activeModelName, activeAttempt }
+}
+
+/**
+ * Record a completed provider-native response against the shared distributed
+ * ledger exactly once, and only when the provider supplied real usage. Local
+ * token estimation remains useful for iteration budgets but is not reliable
+ * enough to mutate a fleet-wide monetary ledger.
+ */
+export async function recordCompletedStreamCost(
+  ctx: StreamRunContext,
+  fullResponse: AIMessage,
+  activeModelName: string,
+): Promise<void> {
+  const usage = extractTokenUsage(fullResponse, activeModelName)
+  if (usage.inputTokens <= 0 && usage.outputTokens <= 0) return
+  await recordDistributedCost(ctx.modelGates, fullResponse)
 }
 
 /**

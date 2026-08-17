@@ -39,6 +39,7 @@ import {
   dispatchStreamOnModelError,
   maybeAdoptCompression,
   openIterationStream,
+  recordCompletedStreamCost,
   recordIterationUsage,
 } from './streaming-run-iteration.js'
 import { runStreamFallback } from './streaming-run-fallback.js'
@@ -156,7 +157,12 @@ export async function* streamRun(
       ? R
       : never
     try {
-      opened = await openIterationStream(ctx, runState, allMessages)
+      opened = await openIterationStream(
+        ctx,
+        runState,
+        allMessages,
+        optionsWithUsage?.signal,
+      )
       llmCalls += 1
 
       fullResponse = yield* consumeStream({
@@ -174,6 +180,16 @@ export async function* streamRun(
       throw err
     }
     if (!fullResponse) continue
+
+    // A confirmed fleet ceiling is a terminal accounting verdict. It is
+    // evaluated after complete real usage exists and before any tool or next
+    // model turn, and it sits outside the provider-failure catch above so a
+    // healthy provider is never blamed for our own cost policy.
+    await recordCompletedStreamCost(
+      ctx,
+      fullResponse,
+      opened.activeModelName,
+    )
 
     partialContent = chunks.join('')
     allMessages.push(fullResponse)

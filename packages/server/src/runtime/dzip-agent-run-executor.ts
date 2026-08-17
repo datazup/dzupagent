@@ -153,7 +153,9 @@ export function createDzupAgentRunExecutor(
         });
       }
 
-      for await (const event of agent.stream([new HumanMessage(prompt)])) {
+      for await (const event of agent.stream([new HumanMessage(prompt)], {
+        signal: ctx.signal,
+      })) {
         if (event.type === "text") {
           const content =
             typeof event.data["content"] === "string"

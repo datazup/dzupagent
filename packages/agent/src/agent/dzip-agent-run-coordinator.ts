@@ -46,6 +46,7 @@ import { generateStructured as generateStructuredRun } from "./structured-genera
 import { omitUndefined } from "../utils/exact-optional.js";
 import { bindTools as bindToolsHelper } from "./provider-selection.js";
 import { resolveMemoryRunId } from "./dzip-agent-resolvers.js";
+import { createRunDeadline } from "./run-deadline.js";
 import {
   buildRunHookContext,
   dispatchOnRunComplete,
@@ -327,10 +328,14 @@ export async function invokeModelWithMiddleware(
  */
 export interface RunStreamDeps {
   agentId: string;
+  tenantId: string;
   config: DzupAgentConfig;
   resolvedModel: BaseChatModel;
   resolvedProvider: string | undefined;
   resolvedTier: string | undefined;
+  rateLimiter: TokenBucket | undefined;
+  distributedRateLimiter: DistributedRateLimiter | undefined;
+  distributedCostLedger: DistributedCostLedger | undefined;
   middlewareRuntime: AgentMiddlewareRuntime;
   getProviderAttempts: (tools: StructuredToolInterface[]) => ProviderAttempt[];
   prepareMessages: (
@@ -380,11 +385,26 @@ export async function* runStream(
   await dispatchOnRunStart(deps.config, hookCtx);
 
   let lastDoneData: unknown;
+  const runDeadline = createRunDeadline(
+    deps.config.guardrails?.maxDurationMs,
+    options?.signal
+  );
+  const effectiveOptions = runDeadline.signal
+    ? { ...(options ?? {}), signal: runDeadline.signal }
+    : options;
   try {
     const events = streamRun(
       {
         agentId: deps.agentId,
         config: deps.config,
+        modelGates: {
+          agentId: deps.agentId,
+          tenantId: deps.tenantId,
+          rateLimiter: deps.rateLimiter,
+          distributedRateLimiter: deps.distributedRateLimiter,
+          distributedCostLedger: deps.distributedCostLedger,
+          eventBus: deps.config.eventBus,
+        },
         resolvedModel: deps.resolvedModel,
         resolvedProvider: deps.resolvedProvider,
         resolvedTier: deps.resolvedTier,
@@ -410,7 +430,7 @@ export async function* runStream(
           deps.maybeWriteBackMemory(content, runId),
       },
       messages,
-      options
+      effectiveOptions
     );
 
     for await (const event of events) {
@@ -422,5 +442,7 @@ export async function* runStream(
   } catch (error) {
     await dispatchOnRunError(deps.config, hookCtx, toRunError(error));
     throw error;
+  } finally {
+    runDeadline.dispose();
   }
 }

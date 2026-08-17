@@ -302,10 +302,14 @@ export class DzupAgent {
     return runStreamRun(
       {
         agentId: this.id,
+        tenantId: this.tenantId,
         config: this.config,
         resolvedModel: this.resolvedModel,
         resolvedProvider: this.resolvedProvider,
         resolvedTier: this.resolvedTier,
+        rateLimiter: this.rateLimiter,
+        distributedRateLimiter: this.distributedRateLimiter,
+        distributedCostLedger: this.distributedCostLedger,
         middlewareRuntime: this.middlewareRuntime,
         getProviderAttempts: (tools) =>
           getProviderAttemptsHelper({

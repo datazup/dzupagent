@@ -58,6 +58,16 @@ export interface AttemptWithFailoverParams<T> {
   eventBus: DzupEventBus | undefined
   registry?: ProviderFailoverRegistry | undefined
   /**
+   * Optional admission gate executed once immediately before each provider
+   * dispatch. A rejection aborts the failover chain without recording a
+   * provider fault: no provider work has started yet, so blaming the selected
+   * candidate would corrupt circuit-breaker health.
+   */
+  beforeAttempt?: (
+    attempt: ProviderAttempt,
+    attemptNumber: number,
+  ) => Promise<void>
+  /**
    * Predicate consulted after a failure to decide whether to advance to the
    * next attempt. The loop additionally requires that there *is* a next
    * attempt; this callback only encodes the policy (transient error filter,
@@ -81,7 +91,7 @@ export interface AttemptWithFailoverParams<T> {
 export async function attemptWithFailover<T>(
   params: AttemptWithFailoverParams<T>,
 ): Promise<T> {
-  const { attempts, phase, agentId, runId, tenantId, eventBus, registry, shouldRetry, execute } =
+  const { attempts, phase, agentId, runId, tenantId, eventBus, registry, beforeAttempt, shouldRetry, execute } =
     params
   let lastError: unknown
 
@@ -102,6 +112,12 @@ export async function attemptWithFailover<T>(
         ...(tenantId !== undefined && { tenantId }),
       })
     }
+
+    // Admission failures (for example, a local or distributed rate-limit
+    // denial) are control-plane verdicts, not provider failures. Keep this
+    // outside the provider try/catch so they neither poison breaker state nor
+    // trigger a cost-increasing failover attempt.
+    await beforeAttempt?.(attempt, attemptNumber)
 
     try {
       const result = await execute(attempt, attemptNumber)

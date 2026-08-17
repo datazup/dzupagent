@@ -12,6 +12,7 @@ import type { StructuredToolInterface } from '@langchain/core/tools'
 import type { ModelRegistry } from '@dzupagent/core/llm'
 import type { DzupAgentConfig } from './agent-types.js'
 import type { ProviderAttempt } from './streaming-run-provider.js'
+import type { RateLimitCoordinatorDeps } from './rate-limit-coordinator.js'
 
 /**
  * Callbacks and configuration a streaming run needs from its owning
@@ -24,6 +25,8 @@ import type { ProviderAttempt } from './streaming-run-provider.js'
 export interface StreamRunContext {
   agentId: string
   config: DzupAgentConfig
+  /** Shared pre/post model gates used by both generate and native stream. */
+  modelGates: RateLimitCoordinatorDeps
   resolvedModel: BaseChatModel
   /**
    * Provider name returned by the registry when tier-based fallback was

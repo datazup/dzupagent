@@ -222,9 +222,9 @@ export async function invokeModelWithProviderFailover(
     ...(deps.tenantId !== undefined && { tenantId: deps.tenantId }),
     eventBus: deps.eventBus,
     registry: deps.registry,
+    beforeAttempt: async () => awaitRateLimit(deps),
     shouldRetry: (err) => deps.shouldRunFailover(err, messages),
     execute: async (attempt) => {
-      await awaitRateLimit(deps);
       const result = await invokeModelBounded(deps, attempt.model, messages);
       await recordDistributedCost(deps, result);
       return result;
