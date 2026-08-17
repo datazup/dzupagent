@@ -34,7 +34,7 @@ S2=$(git status --porcelain | md5sum); H2=$(git rev-parse HEAD)
 | `server` | free | — | 664 errors (budget, re-read 2026-08-17 PM; the 575 figure was measured mid-edit). `3969e4df` repaired a committed regression here; the `RunExecutor` contract note lives in `run-worker-types.ts` |
 | `agent` | **claimed** | agent-slice session (2026-08-17 PM) | 198 errors at claim time; re-derived, not inherited |
 | `evals` | free | — | 188 errors |
-| `agent-adapters` | free | — | 144 errors (ratcheted `0be1333a`) |
+| `agent-adapters` | **claimed** | agent-adapters-remainder session (2026-08-17 PM) | 125 errors re-derived at claim time (after `0ac23153`); driving to 0 |
 | `memory` | free | — | 4 errors |
 
 Packages at zero (do not regress): `adapter-rules`, `cache`,
