@@ -92,6 +92,7 @@ import {
   type RunGenerateDeps,
 } from "./dzip-agent-run-coordinator.js";
 import {
+  applyPluginRegistry,
   emitToolFilterAudit,
   resolveTokenizer,
   resolveRateLimiter,
@@ -145,10 +146,17 @@ export class DzupAgent {
     },
   };
 
-  constructor(config: DzupAgentConfig) {
+  constructor(rawConfig: DzupAgentConfig) {
     // RF-21 (CODE-09) — guard early so any invalid combination throws before
     // we allocate model / tokenizer / event-bus runtimes.
-    validateConfig(config);
+    validateConfig(rawConfig);
+
+    // Fold `pluginRegistry`'s hooks/middleware in BEFORE anything reads them.
+    // Every downstream consumer goes through `this.config`, so normalising the
+    // config object exactly once here is what makes a registered plugin's
+    // hooks and middleware actually dispatch. Returns `rawConfig` by identity
+    // when no registry is configured — the no-plugin path allocates nothing.
+    const config = applyPluginRegistry(rawConfig);
 
     this.id = config.id;
     this.name = config.name ?? config.id;

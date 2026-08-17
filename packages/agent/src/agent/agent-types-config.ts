@@ -21,7 +21,7 @@ import type {
   TokenBucketConfig,
 } from '@dzupagent/core/llm'
 import type { DzupEventBus } from '@dzupagent/core/events'
-import type { AgentHooks } from '@dzupagent/core/orchestration'
+import type { AgentHooks, PluginRegistry } from '@dzupagent/core/orchestration'
 import type { DzupRunStateStore } from '@dzupagent/core/persistence'
 import type { PermissionTier } from '@dzupagent/core/tools'
 import type { MessageManagerConfig, ConversationPhase } from '@dzupagent/context'
@@ -111,6 +111,60 @@ export interface DzupAgentConfig extends MemoryConfigSlice, ObservabilityConfigS
    * never aborts the run.
    */
   hooks?: AgentHooks
+
+  /**
+   * Plugin registry whose contributions are folded into this agent.
+   *
+   * This is the field that makes `DzupPlugin.hooks` and `DzupPlugin.middleware`
+   * REACHABLE. Before it existed, `PluginRegistry.getHooks()` and
+   * `getMiddleware()` had no production consumer at all: a plugin could be
+   * registered, its hooks aggregated, and nothing ever handed them to an agent
+   * — so `onRunStart` / `beforeModelCall` / `beforeAgent` contributed by a
+   * plugin were declared but never dispatched.
+   *
+   * ## What is merged, and in what order
+   *
+   * At CONSTRUCTION (see `applyPluginRegistry` in `agent-construction.ts`):
+   *
+   *  - `hooks` becomes `pluginRegistry.toAgentHooks(hooks, { eventBus })` —
+   *    i.e. **every plugin in registration order, then this config's own
+   *    `hooks` LAST**. For the three value-returning hooks
+   *    (`beforeToolCall`, `afterToolCall`, `beforeModelCall`) the last
+   *    contributor decides the value that escapes, so the application's own
+   *    hook always has the final say and an ambient plugin can never silently
+   *    overrule it. Contract owned by `composeAgentHooks`.
+   *  - `middleware` becomes `[...pluginRegistry.getMiddleware(), ...middleware]`
+   *    — same principle, plugins first and this config's own middleware last,
+   *    so for the last-wins seams (`beforeAgent` state patches,
+   *    `wrapToolCall` result transforms) the app wins.
+   *
+   *    ⚠️ ONE seam is first-wins and therefore inverts:
+   *    `AgentMiddlewareRuntime.invokeModel` picks the FIRST middleware that
+   *    declares `wrapModelCall` (`.find(...)`), so a plugin-supplied
+   *    `wrapModelCall` pre-empts one supplied here. That asymmetry is
+   *    pre-existing behaviour of the middleware runtime, not something this
+   *    field introduces; it is pinned by a test rather than silently inherited.
+   *
+   * ## Timing
+   *
+   * The merge happens ONCE, at construction. Plugins registered on the
+   * registry AFTER `new DzupAgent(...)` are NOT picked up by that agent —
+   * build the registry first, then the agents. A registry may be shared by any
+   * number of agents; the agent never registers anything itself and never
+   * takes ownership of the registry's event bus (the registry already holds
+   * one, given to its constructor).
+   *
+   * ## Idempotence
+   *
+   * The effective config exposed by `DzupAgent.agentConfig` has this field
+   * REMOVED and the merged results baked in, so the documented
+   * `new DzupAgent({ ...agent.agentConfig, ...overrides })` derivation cannot
+   * compose the same plugin hooks twice.
+   *
+   * When this field is absent the config object is passed through by identity —
+   * no clone, no composition, no behavioural change whatsoever.
+   */
+  pluginRegistry?: PluginRegistry
 
   /**
    * How instructions are resolved:
