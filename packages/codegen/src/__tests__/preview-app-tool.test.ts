@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createPreviewAppTool } from '../tools/preview-app.tool.js'
 import type { SandboxProtocolV2 } from '../sandbox/sandbox-protocol-v2.js'
-import type { ExecResult, ExecOptions } from '../sandbox/sandbox-protocol.js'
 
 // ---------------------------------------------------------------------------
 // Mock SandboxProtocolV2
@@ -9,16 +8,16 @@ import type { ExecResult, ExecOptions } from '../sandbox/sandbox-protocol.js'
 
 function createMockSandbox(overrides?: Partial<SandboxProtocolV2>): SandboxProtocolV2 {
   return {
-    execute: vi.fn<[string, ExecOptions?], Promise<ExecResult>>().mockResolvedValue({
+    execute: vi.fn<SandboxProtocolV2['execute']>().mockResolvedValue({
       exitCode: 0,
       stdout: '',
       stderr: '',
       timedOut: false,
     }),
-    uploadFiles: vi.fn<[Record<string, string>], Promise<void>>().mockResolvedValue(undefined),
-    downloadFiles: vi.fn<[string[]], Promise<Record<string, string>>>().mockResolvedValue({}),
-    cleanup: vi.fn<[], Promise<void>>().mockResolvedValue(undefined),
-    isAvailable: vi.fn<[], Promise<boolean>>().mockResolvedValue(true),
+    uploadFiles: vi.fn<SandboxProtocolV2['uploadFiles']>().mockResolvedValue(undefined),
+    downloadFiles: vi.fn<SandboxProtocolV2['downloadFiles']>().mockResolvedValue({}),
+    cleanup: vi.fn<SandboxProtocolV2['cleanup']>().mockResolvedValue(undefined),
+    isAvailable: vi.fn<SandboxProtocolV2['isAvailable']>().mockResolvedValue(true),
     startSession: vi.fn().mockResolvedValue({ sessionId: 'session-123' }),
     executeStream: vi.fn().mockImplementation(async function* () {
       yield { type: 'stdout' as const, data: 'Server running on port 3000' }

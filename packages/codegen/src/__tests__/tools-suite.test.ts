@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { createWriteFileTool } from '../tools/write-file.tool.js'
 import { createRunTestsTool } from '../tools/run-tests.tool.js'
 import { createGenerateFileTool } from '../tools/generate-file.tool.js'
-import type { SandboxProtocol, ExecResult } from '../sandbox/sandbox-protocol.js'
+import type { SandboxProtocol } from '../sandbox/sandbox-protocol.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -10,7 +10,7 @@ import type { SandboxProtocol, ExecResult } from '../sandbox/sandbox-protocol.js
 
 function createMockSandbox(overrides: Partial<SandboxProtocol> = {}): SandboxProtocol {
   return {
-    execute: vi.fn<[string], Promise<ExecResult>>().mockResolvedValue({
+    execute: vi.fn<SandboxProtocol['execute']>().mockResolvedValue({
       exitCode: 0,
       stdout: '',
       stderr: '',

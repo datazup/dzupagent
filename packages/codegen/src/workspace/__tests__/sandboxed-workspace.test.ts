@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto'
 
 import { LocalWorkspace } from '../local-workspace.js'
 import { SandboxedWorkspace } from '../sandboxed-workspace.js'
-import type { SandboxProtocol, ExecResult } from '../../sandbox/sandbox-protocol.js'
+import type { SandboxProtocol } from '../../sandbox/sandbox-protocol.js'
 import type { WorkspaceOptions } from '../types.js'
 
 /**
@@ -18,16 +18,16 @@ function createMockSandbox(): SandboxProtocol & {
   uploadFiles: ReturnType<typeof vi.fn>
 } {
   return {
-    execute: vi.fn<[string, { cwd?: string; timeoutMs?: number }?], Promise<ExecResult>>().mockResolvedValue({
+    execute: vi.fn<SandboxProtocol['execute']>().mockResolvedValue({
       exitCode: 0,
       stdout: 'mock stdout',
       stderr: '',
       timedOut: false,
     }),
-    uploadFiles: vi.fn<[Record<string, string>], Promise<void>>().mockResolvedValue(undefined),
-    downloadFiles: vi.fn<[string[]], Promise<Record<string, string>>>().mockResolvedValue({}),
-    cleanup: vi.fn<[], Promise<void>>().mockResolvedValue(undefined),
-    isAvailable: vi.fn<[], Promise<boolean>>().mockResolvedValue(true),
+    uploadFiles: vi.fn<SandboxProtocol['uploadFiles']>().mockResolvedValue(undefined),
+    downloadFiles: vi.fn<SandboxProtocol['downloadFiles']>().mockResolvedValue({}),
+    cleanup: vi.fn<SandboxProtocol['cleanup']>().mockResolvedValue(undefined),
+    isAvailable: vi.fn<SandboxProtocol['isAvailable']>().mockResolvedValue(true),
   }
 }
 
