@@ -14,6 +14,10 @@
       "types": "./dist/fleet.d.ts",
       "import": "./dist/fleet.js"
     },
+    "./fleet-contract": {
+      "types": "./dist/fleet-contract.d.ts",
+      "import": "./dist/fleet-contract.js"
+    },
     "./implementation": {
       "types": "./dist/implementation.d.ts",
       "import": "./dist/implementation.js"

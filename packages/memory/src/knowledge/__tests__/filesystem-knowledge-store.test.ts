@@ -3,15 +3,25 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { FilesystemKnowledgeStore } from "../filesystem-knowledge-store.js";
-import { runKnowledgeStoreContract } from "../../../../agent-types/src/orchestration/fleet/__tests__/knowledge-store-contract.test.js";
+import { knowledgeStoreContractCases } from "@dzupagent/agent-types/fleet-contract";
 
 let tmp: string;
 beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), "fkstest-"));
 });
 
-runKnowledgeStoreContract("FilesystemKnowledgeStore", async () => {
-  return new FilesystemKnowledgeStore({ rootDir: tmp });
+// The shared conformance contract ships as plain data through the package
+// boundary; this file supplies the vitest bindings. It used to be reached by a
+// relative path into agent-types' *source* test tree, which forced this
+// package's flipcheck rootDir open to "..".
+describe("KnowledgeStore contract: FilesystemKnowledgeStore", () => {
+  for (const contractCase of knowledgeStoreContractCases) {
+    it(contractCase.name, async () => {
+      await contractCase.run(
+        async () => new FilesystemKnowledgeStore({ rootDir: tmp })
+      );
+    });
+  }
 });
 
 describe("FilesystemKnowledgeStore specifics", () => {

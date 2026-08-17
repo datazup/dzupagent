@@ -1,26 +1,25 @@
 {
-  // Check-only project: the gate always invokes it with --noEmit, so the
-  // inherited "rootDir": "src" constrains an output layout that is never
-  // produced. All it did was report TS6059 three times for a cross-package
-  // import (see below), which is a layout complaint, not a type error.
-  // Widened to the packages directory so the sibling package it reaches is in
-  // range; nothing about which type errors are found changes.
+  // Check-only project: the gate always invokes it with --noEmit, so rootDir
+  // constrains nothing but which files TS6059 will complain about.
   //
   // tsup.config.ts is included because src/__tests__/build-config.test.ts
   // asserts the build configuration and imports it; "src/**/*.ts" alone left
-  // that import unresolvable (TS2307).
+  // that import unresolvable (TS2307). Because that file sits at the package
+  // root rather than under src/, rootDir is widened by exactly one level, to
+  // this package's own directory.
   //
-  // NOTE for a follow-up: memory's filesystem-knowledge-store.test.ts imports
-  // runKnowledgeStoreContract by relative path into agent-types' *source*
-  // (../../../../agent-types/src/.../__tests__/knowledge-store-contract.test.js).
-  // A shared contract suite reached that way is the reason this override is
-  // needed at all. Publishing it through agent-types would remove the need, but
-  // the helper imports vitest at module scope, so it cannot simply move into
-  // built output.
+  // It used to be widened to ".." — the whole packages/ tree — because
+  // filesystem-knowledge-store.test.ts reached the shared KnowledgeStore
+  // contract by relative path into agent-types' *source* test tree
+  // (../../../../agent-types/src/.../knowledge-store-contract.test.js),
+  // dragging a sibling package under this project's root. That contract is now
+  // vitest-free and published as @dzupagent/agent-types/fleet-contract, so the
+  // import crosses the normal package boundary and rootDir no longer has to
+  // reach outside packages/memory.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
-    "rootDir": ".."
+    "rootDir": "."
   },
   "include": ["src/**/*.ts", "tsup.config.ts"],
   "exclude": ["node_modules", "dist"]
