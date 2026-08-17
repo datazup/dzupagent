@@ -109,11 +109,13 @@ function createMockExecutor(
 ): NodeExecutor {
   return async (nodeId: string, _node: PipelineNode, _ctx: NodeExecutionContext): Promise<NodeResult> => {
     const override = results?.[nodeId]
+    // `NodeResult.error` is exact-optional; consumers gate on truthiness, not
+    // on key presence, so omitting it is exactly "this node succeeded".
     return {
       nodeId,
       output: override?.output ?? `output-${nodeId}`,
       durationMs: override?.durationMs ?? 1,
-      error: override?.error,
+      ...(override?.error === undefined ? {} : { error: override.error }),
     }
   }
 }

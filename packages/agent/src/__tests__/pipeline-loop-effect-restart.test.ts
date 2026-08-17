@@ -8,10 +8,11 @@
  */
 import { describe, expect, it } from "vitest";
 import fixture from "@dzupagent/runtime-contracts/fixtures/ai-execution-conformance-v2.json";
-import {
-  canonicalInputDigest,
-  type AiExecutionBinding,
-} from "@dzupagent/runtime-contracts";
+import { canonicalInputDigest } from "@dzupagent/runtime-contracts";
+// `AiExecutionBinding` is published on the `/ai-execution` subpath. The package
+// root re-exports an explicitly enumerated surface (see runtime-contracts
+// src/index.ts) which does not include it.
+import type { AiExecutionBinding } from "@dzupagent/runtime-contracts/ai-execution";
 import {
   executeEffectOnce,
   materializeEffectIntent,
@@ -27,7 +28,7 @@ import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
 import { InMemoryPipelineCheckpointStore } from "../pipeline/in-memory-checkpoint-store.js";
 import type { NodeExecutor } from "../pipeline/pipeline-runtime-types.js";
 
-const executionBinding = (
+const fixtureExecutionBinding = (
   fixture as {
     cases: Array<{ receipt?: { schema?: string; binding?: AiExecutionBinding } }>;
   }
@@ -35,9 +36,15 @@ const executionBinding = (
   ({ receipt }) => receipt?.schema === "dzupagent.aiExecutionReceipt/v2"
 )?.receipt?.binding;
 
-if (executionBinding === undefined) {
+if (fixtureExecutionBinding === undefined) {
   throw new Error("V2 conformance fixture is missing its execution binding");
 }
+
+// Re-bind the narrowed value: control-flow narrowing of a module-level const
+// does not reach into the body of the `effectIntent` function declaration
+// below, so it would otherwise still see `AiExecutionBinding | undefined` and
+// violate the exact-optional `EffectIntentInput.executionBinding`.
+const executionBinding: AiExecutionBinding = fixtureExecutionBinding;
 
 class SharedEffectJournal implements EffectJournalStore<string> {
   readonly records = new Map<string, EffectJournalRecord<string>>();

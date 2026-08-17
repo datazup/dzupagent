@@ -88,7 +88,9 @@ function mockExecutor(
       nodeId,
       output: o?.output ?? `out-${nodeId}`,
       durationMs: o?.durationMs ?? 1,
-      error: o?.error,
+      // NodeResult.error is optional; exactOptionalPropertyTypes forbids
+      // handing it an explicit `undefined`.
+      ...(o?.error !== undefined ? { error: o.error } : {}),
     };
   };
 }

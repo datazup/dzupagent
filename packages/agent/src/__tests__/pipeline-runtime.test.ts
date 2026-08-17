@@ -60,11 +60,14 @@ function createMockExecutor(
     _ctx: NodeExecutionContext,
   ): Promise<NodeResult> => {
     const override = results?.[nodeId];
+    // `NodeResult.error` is exact-optional and every consumer gates on
+    // truthiness (`if (finalResult.error)` / `if (!result.error) break`), never
+    // on key presence — so omitting it is exactly "this node succeeded".
     return {
       nodeId,
       output: override?.output ?? `output-${nodeId}`,
       durationMs: override?.durationMs ?? 1,
-      error: override?.error,
+      ...(override?.error === undefined ? {} : { error: override.error }),
     };
   };
 }
@@ -499,7 +502,17 @@ describe("PipelineRuntime — error edges", () => {
     const executor: NodeExecutor = async (nodeId) => {
       order.push(nodeId);
       if (nodeId === "B") {
-        return { nodeId, output: null, durationMs: 0, error };
+        // A structured (non-string) error reaches the edge resolver by being
+        // THROWN, never by riding on `NodeResult.error`. That field is declared
+        // `string` and the runtime hands it straight to
+        // `nodeFailedEvent(nodeId, error: string)`,
+        // `recordNodeFailure(nodeId, error: string)` and
+        // `classifyFailureType(error: string)` — the last of which calls
+        // `.toLowerCase()` and would throw on an object. The catch arm of
+        // standard-node-dispatch is the real seam: it routes on
+        // `extractErrorCode(err)` over the raw thrown value and normalises the
+        // stored result to `error: errorMessage`.
+        throw error;
       }
       return { nodeId, output: nodeId, durationMs: 0 };
     };
@@ -561,7 +574,10 @@ describe("PipelineRuntime — error edges", () => {
       const executor: NodeExecutor = async (nodeId) => {
         order.push(nodeId);
         if (nodeId === "B") {
-          return { nodeId, output: null, durationMs: 0, error };
+          // Thrown, not returned — see the note on the generic-handler case
+          // above: `NodeResult.error` is `string`, and the catch arm is where
+          // `extractErrorCode` actually sees a structured error object.
+          throw error;
         }
         return { nodeId, output: nodeId, durationMs: 0 };
       };

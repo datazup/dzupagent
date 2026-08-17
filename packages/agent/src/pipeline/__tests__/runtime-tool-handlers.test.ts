@@ -447,8 +447,11 @@ describe("PipelineRuntime runtime tool handlers", () => {
       }),
       runtimeToolHandlers: createRuntimeToolHandlers({
         validate: createRuntimeValidatePort({
+          // `RuntimeValidationCommandResult.id` is exact-optional. Omitting it
+          // is what the production runners do too, and the port fills it back
+          // in with `id: result.id ?? command.id` (tool-handlers/validation.ts).
           runCommand: async ({ id, command }) => ({
-            id,
+            ...(id === undefined ? {} : { id }),
             command,
             ok: true,
             exitCode: 0,
@@ -504,7 +507,7 @@ describe("PipelineRuntime runtime tool handlers", () => {
       runtimeToolHandlers: createRuntimeToolHandlers({
         validate: createRuntimeValidatePort({
           runCommand: async ({ id, command }) => ({
-            id,
+            ...(id === undefined ? {} : { id }),
             command,
             ok: false,
             exitCode: 1,

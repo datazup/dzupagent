@@ -118,31 +118,24 @@ function forEachAccumulatorPipeline(): PipelineDefinition {
   }
 }
 
-function aggregateEvents(events: PipelineRuntimeEvent[]): Array<{
-  type: string
-  nodeId: string
-  aggregateKey?: string
-  aggregateKeys?: string[]
-  source?: string
-  attachAs?: string
-  accumulatorKey?: string
-  count?: number
-  order?: string
-  empty?: boolean
-}> {
+/**
+ * The aggregate event's real shape comes from the `PipelineRuntimeEvent` union:
+ * `count`, `order` and `empty` are REQUIRED on it (and `order` is the literal
+ * `'input'`). The hand-rolled structural copy this helper used to carry had
+ * them all optional and `type: string`, which is not a valid narrowing of the
+ * union — so it asserted nothing about the emitter's contract.
+ */
+type ForEachAggregateEvent = Extract<
+  PipelineRuntimeEvent,
+  { type: 'pipeline:for_each_aggregate' }
+>
+
+function aggregateEvents(
+  events: PipelineRuntimeEvent[],
+): ForEachAggregateEvent[] {
   return events.filter(
-    (event): event is {
-      type: string
-      nodeId: string
-      aggregateKey?: string
-      aggregateKeys?: string[]
-      source?: string
-      attachAs?: string
-      accumulatorKey?: string
-      count?: number
-      order?: string
-      empty?: boolean
-    } => event.type === 'pipeline:for_each_aggregate',
+    (event): event is ForEachAggregateEvent =>
+      event.type === 'pipeline:for_each_aggregate',
   )
 }
 
@@ -1263,14 +1256,20 @@ function parseRedisReply(buffer: Buffer): {
 } {
   const parsed = parseRedisValue(buffer, 0)
   if (!parsed) return { complete: false }
-  return { complete: true, value: parsed.value, error: parsed.error }
+  return {
+    complete: true,
+    value: parsed.value,
+    ...(parsed.error === undefined ? {} : { error: parsed.error }),
+  }
 }
 
 function parseRedisValue(
   buffer: Buffer,
   offset: number,
 ): { value: unknown; offset: number; error?: string } | undefined {
-  const type = String.fromCharCode(buffer[offset])
+  const typeByte = buffer[offset]
+  if (typeByte === undefined) return undefined
+  const type = String.fromCharCode(typeByte)
   const lineEnd = buffer.indexOf('\r\n', offset)
   if (lineEnd === -1) return undefined
   const line = buffer.toString('utf8', offset + 1, lineEnd)

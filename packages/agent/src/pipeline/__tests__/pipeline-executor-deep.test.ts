@@ -35,6 +35,7 @@ import type {
   PipelineEdge,
 } from "@dzupagent/core";
 import type {
+  NodeExecutionContext,
   NodeExecutor,
   PipelineRuntimeEvent,
 } from "../pipeline-runtime-types.js";
@@ -1393,7 +1394,16 @@ describe("PipelineExecutor — NodeExecutionContext", () => {
   });
 
   it("executor receives a signal in context that is initially not aborted", async () => {
-    const signals: (AbortSignal | undefined)[] = [];
+    // The runtime only threads a signal onto NodeExecutionContext when the
+    // config carries one: `let nodeSignal = config.signal` in
+    // standard-node-dispatch, then `omitUndefined(...)` drops the key. Without
+    // the controller below this test captured `undefined` and asserted only
+    // `toHaveLength(1)` — true for ANY captured value, so it proved nothing
+    // about the signal its own title names. `ctx.signal` is the structural
+    // `CancellationSignal`, not `AbortSignal`; the old element annotation was
+    // the tell.
+    const controller = new AbortController();
+    const signals: NodeExecutionContext["signal"][] = [];
     const executor: NodeExecutor = async (nodeId, _node, ctx) => {
       signals.push(ctx.signal);
       return { nodeId, output: "ok", durationMs: 1 };
@@ -1402,11 +1412,13 @@ describe("PipelineExecutor — NodeExecutionContext", () => {
     const runtime = new PipelineRuntime({
       definition: makeDef([makeNode("A")]),
       nodeExecutor: executor,
+      signal: controller.signal,
     });
 
     await runtime.execute();
-    // Signal may or may not be provided depending on config — just verify no crash
     expect(signals).toHaveLength(1);
+    expect(signals[0]).toBe(controller.signal);
+    expect(signals[0]?.aborted).toBe(false);
   });
 
   it("idempotency key is a stable string that does not change across two calls for same run", async () => {

@@ -798,7 +798,13 @@ describe('PipelineRuntime — graceful cancel via AbortSignal', () => {
           resolve({ nodeId, output: 'late', durationMs: 10_000 })
         }, 10_000)
 
-        ctx.signal?.addEventListener('abort', () => {
+        // `NodeExecutionContext.signal` is the structural `CancellationSignal`,
+        // whose `addEventListener` is optional and 2-arity by design (see the
+        // note on `asAbortSignal` in workflow-compiler-error-handlers.ts). The
+        // dropped `{ once: true }` was redundant anyway: an AbortSignal fires
+        // 'abort' at most once. Matches the production call shape in
+        // loop-executor/iteration-deadline.ts.
+        ctx.signal?.addEventListener?.('abort', () => {
           clearTimeout(timeout)
           resolve({
             nodeId,
@@ -806,7 +812,7 @@ describe('PipelineRuntime — graceful cancel via AbortSignal', () => {
             durationMs: 0,
             error: 'Aborted by signal',
           })
-        }, { once: true })
+        })
       })
     }
 

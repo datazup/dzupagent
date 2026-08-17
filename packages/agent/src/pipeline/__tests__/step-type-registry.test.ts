@@ -13,11 +13,24 @@ function makeCtx(overrides?: Partial<StepContext>): StepContext {
   }
 }
 
+/**
+ * The descriptor this helper builds is narrowed to
+ * `StepTypeDescriptor<{ topic: string }, { markdown: string }>`, so its
+ * `execute` override has to be narrowed the same way. Typing the parameter
+ * from the bare `StepTypeDescriptor` picked up the DEFAULT generics
+ * (`unknown` config, `Promise<unknown>` output), which cannot satisfy the
+ * declared return type.
+ */
+type ReportStepDescriptor = StepTypeDescriptor<
+  { topic: string },
+  { markdown: string }
+>
+
 /** Helper: create a simple descriptor with string config and string output. */
 function makeDescriptor(
   type: string,
-  executeFn?: StepTypeDescriptor['execute'],
-): StepTypeDescriptor<{ topic: string }, { markdown: string }> {
+  executeFn?: ReportStepDescriptor['execute'],
+): ReportStepDescriptor {
   return {
     type,
     configSchema: z.object({ topic: z.string() }),

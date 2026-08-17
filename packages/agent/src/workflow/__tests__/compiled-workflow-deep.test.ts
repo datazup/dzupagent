@@ -73,7 +73,11 @@ function makeCheckpoint(
     schemaVersion: "1.0.0" as const,
     completedNodeIds,
     state,
-    suspendedAtNodeId,
+    // `PipelineCheckpoint.suspendedAtNodeId` is exact-optional. The crash-path
+    // callers below deliberately pass no node id, and every consumer branches
+    // on `!checkpoint.suspendedAtNodeId` / `!== undefined`, so omitting the key
+    // is exactly the "ungraceful crash" checkpoint shape the runtime expects.
+    ...(suspendedAtNodeId === undefined ? {} : { suspendedAtNodeId }),
     createdAt: new Date().toISOString(),
   };
 }
@@ -792,7 +796,7 @@ describe("CompiledWorkflow — withStuckDetector()", () => {
 
   it("withStuckDetector(config) returns same CompiledWorkflow instance — is chainable", () => {
     const wf = createWorkflow({ id: "stuck-chain" }).build();
-    const result = wf.withStuckDetector({ maxConsecutiveErrors: 2 });
+    const result = wf.withStuckDetector({ maxNodeFailures: 2 });
     expect(result).toBe(wf);
   });
 
@@ -802,7 +806,10 @@ describe("CompiledWorkflow — withStuckDetector()", () => {
       .then(step("a", () => ({ a: 1 })))
       .then(step("b", () => ({ b: 2 })))
       .build()
-      .withStuckDetector({ maxConsecutiveErrors: 5 });
+      // The most aggressive real threshold PipelineStuckConfig offers: one
+      // node failure is enough to flag stuck. A clean run must still emit
+      // nothing, which is what makes this assertion capable of failing.
+      .withStuckDetector({ maxNodeFailures: 1 });
 
     await wf.run({}, { onEvent: (e) => events.push(e) });
     expect(events.some((e) => e.type === "workflow:stuck")).toBe(false);

@@ -109,7 +109,8 @@ describe("pipeline structured loop-body scheduler", () => {
       }),
       predicates: {
         "choose-then": (state) => (state["iterations"] ?? 0) === 0,
-        "continue-loop": (state) => (state["iterations"] ?? 0) < 2,
+        "continue-loop": (state) =>
+          ((state["iterations"] as number | undefined) ?? 0) < 2,
       },
       nodeExecutor: async (nodeId, _node, context) => {
         calls.push(nodeId);
@@ -148,7 +149,8 @@ describe("pipeline structured loop-body scheduler", () => {
         normalExitNodeIds: ["join"],
       }),
       predicates: {
-        "continue-loop": (state) => (state["left"] ?? 0) < 2,
+        "continue-loop": (state) =>
+          ((state["left"] as number | undefined) ?? 0) < 2,
       },
       nodeExecutor: async (nodeId, _node, context) => {
         calls.push(nodeId);
