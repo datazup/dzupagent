@@ -11,7 +11,7 @@
  * pipelines downstream.
  */
 import { describe, it, expect, vi } from 'vitest'
-import { AIMessage, HumanMessage, type BaseMessage } from '@langchain/core/messages'
+import { AIMessage, HumanMessage, type StandardMessageStructure } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { createEventBus, type DzupEvent } from '@dzupagent/core'
 import { DzupAgent } from '../agent/dzip-agent.js'
@@ -30,7 +30,7 @@ function createMockModel(overrides?: {
       overrides?.invoke ??
         (() => {
           const msg = new AIMessage('hello')
-          ;(msg as BaseMessage & { usage_metadata: Record<string, unknown> }).usage_metadata = {
+          ;(msg as AIMessage<StandardMessageStructure>).usage_metadata = {
             input_tokens: 11,
             output_tokens: 7,
             total_tokens: 18,

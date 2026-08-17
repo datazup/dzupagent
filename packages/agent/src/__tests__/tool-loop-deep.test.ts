@@ -15,6 +15,7 @@ import {
   AIMessage,
   HumanMessage,
   type BaseMessage,
+  type StandardMessageStructure,
 } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
@@ -58,9 +59,10 @@ function createMockModel(
       const resp = responses[callIdx] ?? new AIMessage('done')
       callIdx++
       if (opts?.inputTokens || opts?.outputTokens) {
-        ;(resp as BaseMessage & { usage_metadata: unknown }).usage_metadata = {
+        ;(resp as AIMessage<StandardMessageStructure>).usage_metadata = {
           input_tokens: opts.inputTokens ?? 0,
           output_tokens: opts.outputTokens ?? 0,
+          total_tokens: (opts.inputTokens ?? 0) + (opts.outputTokens ?? 0),
         }
       }
       return resp

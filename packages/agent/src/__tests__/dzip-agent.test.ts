@@ -10,6 +10,7 @@ import {
   HumanMessage,
   ToolMessage,
   type BaseMessage,
+  type StandardMessageStructure,
 } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { ModelRegistry, DzupEventBus } from '@dzupagent/core'
@@ -311,9 +312,10 @@ describe('DzupAgent generate()', () => {
 
   it('passes costLedger fallbackToLocal=false through distributed guardrail wiring', async () => {
     const response = new AIMessage('done')
-    ;(response as BaseMessage & { usage_metadata: Record<string, unknown> }).usage_metadata = {
+    ;(response as AIMessage<StandardMessageStructure>).usage_metadata = {
       input_tokens: 1,
       output_tokens: 1,
+      total_tokens: 2,
     }
 
     const emittedEvents: unknown[] = []
@@ -404,7 +406,7 @@ describe('DzupAgent generateStructured()', () => {
     const { z } = await import('zod')
 
     const rawWithUsage = new AIMessage('structured')
-    ;(rawWithUsage as BaseMessage & { usage_metadata: Record<string, number> }).usage_metadata = {
+    ;(rawWithUsage as AIMessage<StandardMessageStructure>).usage_metadata = {
       input_tokens: 123,
       output_tokens: 45,
       total_tokens: 168,
@@ -961,9 +963,10 @@ describe('DzupAgent stream()', () => {
           ? aiWithToolCalls([{ name: 'work', args: {} }])
           : new AIMessage('done')
         // Attach usage metadata
-        ;(msg as BaseMessage & { usage_metadata: unknown }).usage_metadata = {
+        ;(msg as AIMessage<StandardMessageStructure>).usage_metadata = {
           input_tokens: 400,
           output_tokens: 100,
+          total_tokens: 500,
         }
         yield msg
       }),

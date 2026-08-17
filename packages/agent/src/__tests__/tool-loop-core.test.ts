@@ -19,6 +19,7 @@ import {
   HumanMessage,
   SystemMessage,
   type BaseMessage,
+  type StandardMessageStructure,
 } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
@@ -91,9 +92,10 @@ function createMockModel(
       callIdx++
       // Attach usage_metadata so extractTokenUsage works
       if (inputTokens || outputTokens) {
-        ;(resp as BaseMessage & { usage_metadata: unknown }).usage_metadata = {
+        ;(resp as AIMessage<StandardMessageStructure>).usage_metadata = {
           input_tokens: inputTokens,
           output_tokens: outputTokens,
+          total_tokens: inputTokens + outputTokens,
         }
       }
       return resp

@@ -16,7 +16,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { AIMessage, HumanMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import type { BaseMessage } from '@langchain/core/messages'
+import type { BaseMessage, StandardMessageStructure, UsageMetadata } from '@langchain/core/messages'
 import { createEventBus, type TokenUsage } from '@dzupagent/core'
 import { DzupAgent } from '../agent/dzip-agent.js'
 import type { GenerateOptions } from '../agent/agent-types.js'
@@ -58,14 +58,13 @@ function makeSpyPlugin(): AgentLoopPlugin & {
  */
 function createStreamingModel(
   responseText: string,
-  usageMetadata: Record<string, unknown>,
+  usageMetadata: UsageMetadata,
 ): BaseChatModel {
   const mockModel = {
     invoke: vi.fn().mockResolvedValue(new AIMessage(responseText)),
     stream: vi.fn().mockImplementation(async function* () {
       const finalChunk = new AIMessage(responseText)
-      ;(finalChunk as BaseMessage & { usage_metadata: Record<string, unknown> }).usage_metadata =
-        usageMetadata
+      ;(finalChunk as AIMessage<StandardMessageStructure>).usage_metadata = usageMetadata
       yield finalChunk
     }),
     bindTools: vi.fn().mockReturnThis(),
@@ -80,11 +79,10 @@ function createStreamingModel(
  */
 function createInvokeOnlyModel(
   responseText: string,
-  usageMetadata: Record<string, unknown>,
+  usageMetadata: UsageMetadata,
 ): BaseChatModel {
   const response = new AIMessage(responseText)
-  ;(response as BaseMessage & { usage_metadata: Record<string, unknown> }).usage_metadata =
-    usageMetadata
+  ;(response as AIMessage<StandardMessageStructure>).usage_metadata = usageMetadata
   const mockModel = {
     invoke: vi.fn().mockResolvedValue(response),
     bindTools: vi.fn().mockReturnThis(),

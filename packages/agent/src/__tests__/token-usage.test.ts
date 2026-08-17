@@ -8,7 +8,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { AIMessage, HumanMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import type { BaseMessage } from '@langchain/core/messages'
+import type { BaseMessage, StandardMessageStructure, UsageMetadata } from '@langchain/core/messages'
 import { DzupAgent } from '../agent/dzip-agent.js'
 import type { GenerateOptions } from '../agent/agent-types.js'
 
@@ -19,7 +19,7 @@ import type { GenerateOptions } from '../agent/agent-types.js'
 function createMockStreamingModel(
   responseText: string,
   usageMetadata?: {
-    usage_metadata?: Record<string, unknown>
+    usage_metadata?: UsageMetadata
     response_metadata?: Record<string, unknown>
   },
 ): BaseChatModel {
@@ -29,7 +29,7 @@ function createMockStreamingModel(
       // Simulate streaming: yield the full response as a single chunk
       const finalChunk = new AIMessage(responseText)
       if (usageMetadata?.usage_metadata) {
-        ;(finalChunk as BaseMessage & { usage_metadata: Record<string, unknown> }).usage_metadata =
+        ;(finalChunk as AIMessage<StandardMessageStructure>).usage_metadata =
           usageMetadata.usage_metadata
       }
       if (usageMetadata?.response_metadata) {
