@@ -88,12 +88,28 @@ nothing** (a fixture with its own annotation, decoupled from the port under
 test). The A/B revert is not ceremony — it is the only thing that distinguishes
 a type lock from a comment.
 
-⚠️ **One regression from this lane, being repaired:** `857fed23` introduced 4
-`packages/core` lint errors (real `setTimeout` in the new pin file). The
-`execution-contracts` lane hit the identical rule and fixed it in `45a690de`.
-The repair must not swap the timers for a bare `await Promise.resolve()` — the
-express lane proved that makes an await-drop mutant **undetectable**, since the
-microtask ordering is then identical with and without the await.
+✅ **The one regression from this lane is REPAIRED** (`40c9f3f1`): `857fed23`
+introduced 4 `packages/core` lint errors (real `setTimeout` in the new pin
+file), the same rule `execution-contracts` hit in `45a690de`. core lint is back
+to **0 errors / 62 warnings**, suite unchanged at 168 files / 4972 tests,
+flipcheck 0.
+
+🔑 **The repair could not be the obvious one, and this generalises.** Swapping
+the timers for a bare `await Promise.resolve()` would have made both await-drop
+mutants **undetectable** — the callback's continuation still lands before the
+test's own `await` resumes, so the ordering assertion holds identically with and
+without the `await`. The express lane hit this first; it was confirmed here
+rather than assumed. Both load-bearing tests now use an explicit **deferred
+gate** — park the callback, assert the operation is *still pending*, then
+release — which is immune to microtask-count luck and strictly stronger than the
+ordering assertion it replaces. Re-verified by mutation: the two mutants kill
+**different subsets** (2 tests vs 1), so the locks are non-redundant.
+
+⚠️ Note for whoever runs core lint: the command still exits 1, entirely on a
+**foreign** ratchet red (`event-bus-circuit-breaker-deep.test.ts`: `vacuous-every
+fell 1 -> 0` while `eslint.baseline.js` still records 1). ESLint itself reports 0
+errors. That check reported 2 problems before this repair and 1 after — clearing
+the last one needs `lint:baseline:update`, which is its owner's call, not ours.
 
 Packages at zero (do not regress): `adapter-rules`, `cache`,
 `connectors-browser`, `create-dzupagent`, `dialogue-core-replay`, `express`,
