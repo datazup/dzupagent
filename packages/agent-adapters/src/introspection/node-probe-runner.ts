@@ -58,7 +58,23 @@ export interface NodeProbeRunnerPorts {
   setTimer?: typeof setTimeout;
   clearTimer?: typeof clearTimeout;
   redact?: (text: string) => string;
-  capture?: (capture: ProbeCapture) => void | Promise<void>;
+  /**
+   * Declared as returning plain `void`, deliberately — not
+   * `void | Promise<void>`.
+   *
+   * TypeScript's void-returning-function leniency lets a callback that returns
+   * a value satisfy a `=> void` position, so
+   * `capture: (c) => captures.push(c)` type-checks even though `push` returns
+   * `number`. That leniency does not survive a union: under
+   * `=> void | Promise<void>` the same expression is rejected with TS2322, so
+   * the union that reads as the more permissive signature is in fact the
+   * stricter one for every fixture that supplies this port.
+   *
+   * `void` still accepts `async` captures, and `captureResult` awaits what the
+   * port actually returned, so a rejected async capture is still classified as
+   * `capture-error`.
+   */
+  capture?: (capture: ProbeCapture) => void;
   platform?: NodeJS.Platform;
 }
 
@@ -346,9 +362,13 @@ function createNodeProbeRunnerWithPorts(
   }
 
   async function captureResult(result: ProbeResult, request: ProbeCommand): Promise<ProbeResult> {
-    if (!ports.capture) return result;
+    // `capture` is declared `(capture) => void` so fixtures can supply an
+    // expression-bodied arrow; read through a widened view here because the
+    // await below is what turns a rejected async capture into `capture-error`.
+    const capture: ((capture: ProbeCapture) => unknown) | undefined = ports.capture;
+    if (!capture) return result;
     try {
-      await ports.capture({
+      await capture({
         command: request.command,
         stdout: result.stdout,
         stderr: result.stderr,

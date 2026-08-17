@@ -74,6 +74,26 @@ export interface AgentExecutionResult {
   runnerAttestation?: PreparedAgentExecutionAttestation | undefined
 }
 
+/**
+ * Per-event listener, declared as returning plain `void` — not
+ * `void | Promise<void>`.
+ *
+ * TypeScript's void-returning-function leniency lets a callback that returns a
+ * value satisfy a `=> void` position, so `onEvent: (e) => events.push(e)`
+ * type-checks even though `push` returns `number`. That leniency does not
+ * survive a union: under `=> void | Promise<void>` the same expression is
+ * rejected with TS2322 ("Type 'number' is not assignable to type
+ * 'void | Promise<void>'"), which is why callers had to write block bodies.
+ * The sibling `AdapterWorkflowRunOptions.onEvent` has always been plain `void`,
+ * and its callers do write the concise form.
+ *
+ * `void` still accepts `async` listeners — a `Promise<void>` return is
+ * assignable to a `void` return position — and `runPreparedAgentExecution`
+ * awaits what the listener actually returned, so an async listener still
+ * settles before the next event is processed.
+ */
+export type AgentExecutionEventListener = (event: AgentEvent) => void
+
 export interface RunAgentExecutionOptions {
   /** Private host hook for explicit binary/profile materialization. */
   materializeAdapter?: PrepareAgentExecutionRunnerOptions['materializeAdapter']
@@ -82,12 +102,14 @@ export interface RunAgentExecutionOptions {
   requiredCapabilities?: PrepareAgentExecutionRunnerOptions['requiredCapabilities']
   projectInput?: PrepareAgentExecutionRunnerOptions['projectInput']
   projectEvent?: PrepareAgentExecutionRunnerOptions['projectEvent']
-  onEvent?: ((event: AgentEvent) => void | Promise<void>) | undefined
+  /** See {@link AgentExecutionEventListener} for why this is plain `void`. */
+  onEvent?: AgentExecutionEventListener | undefined
   now?: (() => number) | undefined
 }
 
 export interface RunPreparedAgentExecutionOptions {
-  onEvent?: ((event: AgentEvent) => void | Promise<void>) | undefined
+  /** See {@link AgentExecutionEventListener} for why this is plain `void`. */
+  onEvent?: AgentExecutionEventListener | undefined
   now?: (() => number) | undefined
 }
 
@@ -483,6 +505,10 @@ export async function runPreparedAgentExecution(
   options: RunPreparedAgentExecutionOptions = {},
 ): Promise<AgentExecutionResult> {
   const now = options.now ?? Date.now
+  // `onEvent` is declared `(event) => void` so callers can supply an
+  // expression-bodied arrow; read through a widened view here because the
+  // await below is load-bearing for async listeners.
+  const onEvent: ((event: AgentEvent) => unknown) | undefined = options.onEvent
   const startMs = now()
   const events: AgentEvent[] = []
   const attempted = new Set<AdapterProviderId>()
@@ -494,7 +520,7 @@ export async function runPreparedAgentExecution(
     const task = projectTaskDescriptor(request)
     for await (const event of prepared.state.executeWithFallback(input, task)) {
       events.push(event)
-      await options.onEvent?.(event)
+      await onEvent?.(event)
       collectProviderId(event, attempted)
 
       if (event.type === 'adapter:failed') {

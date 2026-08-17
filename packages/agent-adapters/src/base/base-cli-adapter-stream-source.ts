@@ -122,7 +122,11 @@ export function buildCliStreamSource(
         captured.error = adapter.normalizeError(err);
         throw err;
       } finally {
-        await prepared.cleanup?.();
+        // `cleanup` is declared `() => void` so callers can supply an
+        // expression-bodied arrow; read through a widened view here because
+        // this await is load-bearing for async cleanup.
+        const cleanup: (() => unknown) | undefined = prepared.cleanup;
+        await cleanup?.();
       }
     },
     mapRawEvent(

@@ -53,6 +53,9 @@ export interface AdapterPluginConfig {
 // Plugin instance interface
 // ---------------------------------------------------------------------------
 
+/** A single entry of {@link AdapterPluginInstance.eventHandlers}. */
+export type AdapterPluginEventHandler = (event: unknown) => void
+
 export interface AdapterPluginInstance {
   /** Plugin name */
   readonly name: string
@@ -60,8 +63,22 @@ export interface AdapterPluginInstance {
   readonly version: string
   /** Called when registered with PluginRegistry */
   onRegister(ctx: { eventBus: DzupEventBus; modelRegistry?: unknown }): void
-  /** Event handlers wired up by the plugin */
-  eventHandlers: Record<string, (event: unknown) => void | Promise<void>>
+  /**
+   * Event handlers wired up by the plugin.
+   *
+   * Handlers are declared as returning plain `void`, deliberately — not
+   * `void | Promise<void>`. TypeScript's void-returning-function leniency lets
+   * a callback that returns a value satisfy a `=> void` position, so a caller
+   * assembling their own handler map can write
+   * `{ 'agent:failed': (e) => seen.push(e) }`. That leniency does not survive a
+   * union: under `=> void | Promise<void>` the same expression is rejected with
+   * TS2322 ("Type 'number' is not assignable to type 'void | Promise<void>'").
+   *
+   * `void` still accepts `async` handlers, and this map stays assignable to
+   * core's `DzupPlugin['eventHandlers']` because a `void` return is assignable
+   * to a `void | Promise<void>` return.
+   */
+  eventHandlers: Record<string, AdapterPluginEventHandler>
 
   /** Access the adapter registry */
   getRegistry(): ProviderAdapterRegistry
@@ -110,7 +127,7 @@ export function createAdapterPlugin(config: AdapterPluginConfig = {}): AdapterPl
   // Build event handlers map — populated once during onRegister so that
   // consumers who read `plugin.eventHandlers` before registration still
   // get a stable reference.
-  const eventHandlers: Record<string, (event: unknown) => void | Promise<void>> = {}
+  const eventHandlers: Record<string, AdapterPluginEventHandler> = {}
 
   // Collected unsubscribe functions from eventBus.on() — called in dispose()
   const busUnsubscribers: Array<() => void> = []
