@@ -1,10 +1,10 @@
 # Memory conformance baseline v1
 
 - Result: **passed**
-- Source digest: `sha256:5960ae0a1331853306a33d68aef477e098fb9ae16a929cc7e2ae6526d9f5103a` (151 files)
+- Source digest: `sha256:c15a5385c6b5b729d94c2ef8866f829e358b77f0515395e8aa97adfdba0eb6c8` (151 files)
 - Config digest: `sha256:936c9124f40283f5aef5793e2b3c641c6d28c95aeb26c0e08a84245756be0e4c`
-- Profile digest: `sha256:e3c5b808dbd58891473745fb5a3a65da032fc0171c5315bb71caa18358ac3972`
-- Result digest: `sha256:ca8b7da54c2ff02dbee80a56d0f2591bcc18f14440a87d832575a6e8efc3aca9`
+- Profile digest: `sha256:66404d4b083dfe8b4a3a1c32e16785f426ec41bf5dbcb386edd76cf588fb2967`
+- Result digest: `sha256:8dddb3599d85dd705fe32f5a942761374fb6c54a304536a62c77969ec4490831`
 - Provider-free: **passed**
 - Live provider: **not-run**
 - Production: **not-enabled**
@@ -13,13 +13,13 @@
 
 | Suite | Status | Passed | Failed | Expected red | Digest |
 | --- | --- | ---: | ---: | ---: | --- |
-| memory-record-conformance | passed | 5 | 0 | 0 | `sha256:525cccc4cbb8af7c20ea0c1a1e21aa714bdbee13e409f4195e75d2a18859e5a7` |
-| memory-lifecycle-conformance | passed | 8 | 0 | 0 | `sha256:95ed7dd6f83e927a0d05823119dee2b377e94216075327dc7cff16f7f315c6cb` |
-| memory-store-conformance | passed | 8 | 0 | 0 | `sha256:c5d57d8435c9a05df2271a7a50409206114a496e5dee0ad3818be85cf0170082` |
-| memory-retrieval-conformance | passed | 9 | 0 | 0 | `sha256:fd03c35362032cad07af0166deabdfc6d7195646573805b776780acebe8df355` |
-| memory-compaction-conformance | passed | 8 | 0 | 0 | `sha256:1bd5f86551537daf3880775583c7f8d4c03a6a92b102b8378ac644e7d63d8bab` |
-| memory-deletion-conformance | passed | 4 | 0 | 0 | `sha256:f94943d166e6fcc1b75b9c17e81a5bebce91491132b3aa855800ea85b70daeb7` |
-| memory-worker-conformance | passed | 15 | 0 | 0 | `sha256:a175c89c8bd0527915195099351e8fcb3534ef71c9aaa0b3a2c264bdf2ec8de4` |
+| memory-record-conformance | passed | 5 | 0 | 0 | `sha256:6218160650fae98350b9f40c9d683b7ec0782567f26bf53fd3f216e3da9ab155` |
+| memory-lifecycle-conformance | passed | 8 | 0 | 0 | `sha256:8f054354416e9cf927afe6251acae6bbe5dfd9f98cb93758fa23b61585f4ca95` |
+| memory-store-conformance | passed | 8 | 0 | 0 | `sha256:4ee86e61ed3698b0da34cc91efb4b166bc47be406b42f7fc1c52d1745712a8d1` |
+| memory-retrieval-conformance | passed | 9 | 0 | 0 | `sha256:acd460c3194df7924eed2b4d0f68f51de0b54df594d2a2989d20f5711ebb4b77` |
+| memory-compaction-conformance | passed | 8 | 0 | 0 | `sha256:39f8dae84b1c156fe8260d7079ec82b80234bef2e15d9477b40aae0f220d1a6a` |
+| memory-deletion-conformance | passed | 4 | 0 | 0 | `sha256:b98ff86872e544577d8cd6341c1cc11452069679c4c03ab14af2fdbace6c5e72` |
+| memory-worker-conformance | passed | 15 | 0 | 0 | `sha256:feb6b7ac7e0a658f45a5ac272317f56353587acfc742dd659f9b8e6dd46a6e4f` |
 
 ## Aggregate
 

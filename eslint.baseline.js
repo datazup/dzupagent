@@ -183,7 +183,6 @@ export const TEST_QUALITY_BASELINE_COUNTS = {
   "packages/core/src/__tests__/circuit-breaker-extended.test.ts": { "vacuous-every": 2 },
   "packages/core/src/__tests__/compliance-audit.test.ts": { "vacuous-every": 1 },
   "packages/core/src/__tests__/embedding-registry.test.ts": { "vacuous-every": 1 },
-  "packages/core/src/__tests__/event-bus-circuit-breaker-deep.test.ts": { "vacuous-every": 1 },
   "packages/core/src/__tests__/event-log.test.ts": { "real-set-timeout": 3 },
   "packages/core/src/__tests__/in-memory-store.test.ts": { "vacuous-every": 1 },
   "packages/core/src/__tests__/invoke-with-timeout.test.ts": { "real-set-timeout": 1 },
