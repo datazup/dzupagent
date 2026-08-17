@@ -71,6 +71,42 @@ function resultEntry(toolName: string): ToolResultAuditEntry {
   }
 }
 
+/**
+ * Drains the microtask queue. Ten turns is far more than any path exercised
+ * here needs; the point is to give a hypothetical *non*-awaiting implementation
+ * every chance to settle before a test asserts that it has not.
+ *
+ * Real timers are deliberately avoided: `no-restricted-syntax` bans setTimeout
+ * in tests, and wall-clock waits are both slow and flaky.
+ */
+async function flushMicrotasks(turns = 10): Promise<void> {
+  for (let i = 0; i < turns; i++) {
+    await Promise.resolve()
+  }
+}
+
+/**
+ * A promise plus the handle that settles it, so a supplied callback can be
+ * parked open-endedly and released on demand.
+ *
+ * This is what makes the two await-drop locks below real, and it is NOT
+ * interchangeable with a plain `await Promise.resolve()` in the callback.
+ * Under that naive swap the mutant and the original produce the *identical*
+ * microtask ordering — with the production `await` dropped, the callback's
+ * continuation still lands before the test's own `await` resumes — so the
+ * assertion holds in both worlds and the lock is vacuous. A gate that stays
+ * shut until the test opens it cannot be beaten by microtask luck: the
+ * awaiting operation stays pending for an unbounded number of turns, while a
+ * non-awaiting one settles straight away.
+ */
+function deferred(): { promise: Promise<void>; release: () => void } {
+  let release!: () => void
+  const promise = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  return { promise, release }
+}
+
 // ---------------------------------------------------------------------------
 // SITE 1 — DzupPlugin.onRegister
 // ---------------------------------------------------------------------------
@@ -95,21 +131,36 @@ describe('union-return lock: DzupPlugin.onRegister', () => {
 
   it('still awaits an async onRegister after the narrowing', async () => {
     const order: string[] = []
+    const gate = deferred()
 
     const plugin: DzupPlugin = {
       name: 'async-onregister',
       version: '1.0.0',
       onRegister: async () => {
-        await new Promise((resolve) => setTimeout(resolve, 5))
+        await gate.promise
         order.push('onRegister')
       },
     }
 
     const bus = createEventBus()
-    await new PluginRegistry(bus).register(plugin, stubContext(bus))
+    let registerSettled = false
+    const registration = new PluginRegistry(bus)
+      .register(plugin, stubContext(bus))
+      .then(() => {
+        registerSettled = true
+      })
+
+    // THE LOCK: onRegister is parked on a gate the test has not opened, so a
+    // register() that awaits it cannot possibly have settled — however long we
+    // drain. Drop the `await` in PluginRegistry.register and register() falls
+    // straight through its remaining synchronous work and settles right here.
+    await flushMicrotasks()
+    expect(registerSettled).toBe(false)
+
+    gate.release()
+    await registration
     order.push('after-register')
 
-    // If `await` were dropped, 'after-register' would land first.
     expect(order).toEqual(['onRegister', 'after-register'])
   })
 
@@ -191,7 +242,9 @@ describe('union-return lock: DzupPlugin.eventHandlers', () => {
     const bus = createEventBus()
     await new PluginRegistry(bus).register(plugin, stubContext(bus))
     bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'r1' })
-    await new Promise((resolve) => setTimeout(resolve, 5))
+    // emit() dispatches fire-and-forget, so drain the handler's continuation.
+    // Not an await-drop lock: nothing here claims emit() waits on the handler.
+    await flushMicrotasks()
 
     expect(seen).toEqual(['agent:started'])
   })
@@ -234,9 +287,11 @@ describe('union-return lock: AgentMessageHandler', () => {
     })
 
     // The rejection is caught inside publish(); an unhandled rejection here
-    // would fail the run rather than return normally.
+    // would fail the run rather than return normally. Draining lets the
+    // handler's rejection actually materialize before the test ends, so an
+    // unattached rejection would surface rather than slip past unobserved.
     expect(() => { bus.publish('a', 'c', {}) }).not.toThrow()
-    await new Promise((resolve) => setTimeout(resolve, 5))
+    await flushMicrotasks()
   })
 })
 
@@ -285,20 +340,33 @@ describe('union-return lock: ToolAuditHandler', () => {
 
   it('still awaits async audit sinks after the narrowing', async () => {
     const order: string[] = []
+    const gate = deferred()
 
     const gov = new ToolGovernance({
       auditHandler: {
         onToolCall: async () => {
-          await new Promise((resolve) => setTimeout(resolve, 5))
+          await gate.promise
           order.push('onToolCall')
         },
       },
     })
 
-    await gov.audit(auditEntry('slow'))
+    let auditSettled = false
+    const audited = gov.audit(auditEntry('slow')).then(() => {
+      auditSettled = true
+    })
+
+    // THE LOCK: the sink is parked on a gate the test has not opened, so an
+    // audit() that awaits it cannot possibly have settled — however long we
+    // drain. Drop the `await` in ToolGovernance.audit and audit() falls out of
+    // its try block and settles right here.
+    await flushMicrotasks()
+    expect(auditSettled).toBe(false)
+
+    gate.release()
+    await audited
     order.push('after-audit')
 
-    // If `await` were dropped, 'after-audit' would land first.
     expect(order).toEqual(['onToolCall', 'after-audit'])
   })
 
