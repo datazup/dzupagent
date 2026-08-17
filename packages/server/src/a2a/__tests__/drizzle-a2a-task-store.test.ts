@@ -13,6 +13,33 @@ import { InMemoryA2ATaskStore } from '../task-handler.js'
 import type { A2ATask, A2ATaskStore } from '../task-handler.js'
 import { createA2ARoutes } from '../../routes/a2a.js'
 import { buildAgentCard } from '../agent-card.js'
+import type {
+  DrizzleDeleteBuilder,
+  DrizzleInsertBuilder,
+  DrizzleSelectQuery,
+  DrizzleStoreDatabase,
+  DrizzleUpdateBuilder,
+} from '../../persistence/drizzle-store-types.js'
+import type { Mock } from 'vitest'
+
+/**
+ * A single Proxy chain node stands in for every Drizzle builder shape at once.
+ * A Proxy cannot be proven structurally, so the assertion inside
+ * {@link makeDrizzleChain} is the one honest boundary.
+ */
+type MockChain = DrizzleSelectQuery &
+  DrizzleInsertBuilder &
+  DrizzleUpdateBuilder &
+  DrizzleDeleteBuilder
+
+type ChainMock = Mock<(...args: unknown[]) => MockChain>
+
+interface MockDb extends DrizzleStoreDatabase {
+  select: ChainMock
+  insert: ChainMock
+  update: ChainMock
+  delete: ChainMock
+}
 
 interface DrizzleCallLog {
   op: string
@@ -20,7 +47,7 @@ interface DrizzleCallLog {
   args: unknown[]
 }
 
-function makeDrizzleChain(terminal: unknown, onCall: (fn: string, args: unknown[]) => void): Record<string, unknown> {
+function makeDrizzleChain(terminal: unknown, onCall: (fn: string, args: unknown[]) => void): MockChain {
   const handler: ProxyHandler<() => unknown> = {
     get(_target, prop: string) {
       if (prop === 'then') {
@@ -34,22 +61,27 @@ function makeDrizzleChain(terminal: unknown, onCall: (fn: string, args: unknown[
     },
   }
 
-  return new Proxy(function proxyFn() {}, handler)
+  return new Proxy(function proxyFn() {}, handler) as unknown as MockChain
 }
 
-function buildDrizzleMockDb(selectSequence: unknown[][], log: DrizzleCallLog[] = []): Record<string, unknown> {
+function buildDrizzleMockDb(selectSequence: unknown[][], log: DrizzleCallLog[] = []): MockDb {
   const selectQueue = [...selectSequence]
 
   return {
-    select: vi.fn(() => makeDrizzleChain(selectQueue.shift() ?? [], (fn, args) => {
+    select: vi.fn((..._args: unknown[]) => makeDrizzleChain(selectQueue.shift() ?? [], (fn, args) => {
       log.push({ op: 'select', fn, args })
     })),
-    insert: vi.fn(() => makeDrizzleChain([], (fn, args) => {
+    insert: vi.fn((..._args: unknown[]) => makeDrizzleChain([], (fn, args) => {
       log.push({ op: 'insert', fn, args })
     })),
-    update: vi.fn(() => makeDrizzleChain([], (fn, args) => {
+    update: vi.fn((..._args: unknown[]) => makeDrizzleChain([], (fn, args) => {
       log.push({ op: 'update', fn, args })
     })),
+    // The A2A task store never issues a DELETE. Throw rather than return a
+    // lenient chain so a future store change cannot silently pass here.
+    delete: vi.fn((..._args: unknown[]): MockChain => {
+      throw new Error('drizzle-a2a-task-store mock: db.delete() is not implemented')
+    }),
   }
 }
 

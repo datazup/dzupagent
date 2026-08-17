@@ -80,34 +80,46 @@ function createMockDb() {
         limitN = input
         return chain
       },
+      // DrizzleTriggerStore never orders its queries. Throw rather than return
+      // an unordered chain, which would silently pass an ordering assertion.
+      orderBy(..._expressions: unknown[]): never {
+        throw new Error('trigger-drizzle-store mock: orderBy() is not implemented')
+      },
       async returning() {
         if (mode === 'insert' && values?.id) {
           const row = makeRow(values as Partial<StoredTrigger> & { id: string })
           storage[row.id] = row
           return [row]
         }
-        if (mode === 'update' && patch && whereId && storage[whereId]) {
-          storage[whereId] = { ...storage[whereId], ...patch }
-          return [storage[whereId]]
+        if (mode === 'update' && patch && whereId) {
+          const existing = storage[whereId]
+          if (existing) {
+            const updated = { ...existing, ...patch }
+            storage[whereId] = updated
+            return [updated]
+          }
         }
-        if (mode === 'delete' && whereId && storage[whereId]) {
+        if (mode === 'delete' && whereId) {
           const row = storage[whereId]
-          delete storage[whereId]
-          return [row]
+          if (row) {
+            delete storage[whereId]
+            return [row]
+          }
         }
         return []
       },
-      then(resolve: (rows: StoredTrigger[]) => void, reject?: (error: unknown) => void) {
-        try {
-          let rows = Object.values(storage)
-          for (const condition of conditions) {
-            rows = rows.filter((row) => row[condition.field] === condition.value)
-          }
-          if (limitN !== null) rows = rows.slice(0, limitN)
-          resolve(rows)
-        } catch (error) {
-          reject?.(error)
+      // Full `PromiseLike` shape: `onfulfilled` optional, `onrejected` forwarded.
+      // The one-required-callback form could not satisfy `DrizzleSelectQuery`.
+      then<TResult1 = unknown[], TResult2 = never>(
+        onfulfilled?: ((value: unknown[]) => TResult1 | PromiseLike<TResult1>) | null,
+        onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+      ): Promise<TResult1 | TResult2> {
+        let rows = Object.values(storage)
+        for (const condition of conditions) {
+          rows = rows.filter((row) => row[condition.field] === condition.value)
         }
+        if (limitN !== null) rows = rows.slice(0, limitN)
+        return Promise.resolve(rows).then(onfulfilled, onrejected)
       },
     }
 

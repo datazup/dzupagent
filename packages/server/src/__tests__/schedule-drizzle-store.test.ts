@@ -70,6 +70,11 @@ function createMockDb() {
         _limitN = n
         return chain
       },
+      // DrizzleScheduleStore never orders its queries. Throw rather than return
+      // an unordered chain, which would silently pass an ordering assertion.
+      orderBy(..._expressions: unknown[]): never {
+        throw new Error('schedule-drizzle-store mock: orderBy() is not implemented')
+      },
       async returning() {
         if (_mode === 'insert' && _values) {
           const row = makeRow(_values)
@@ -99,22 +104,23 @@ function createMockDb() {
         return []
       },
       // For select queries — chain resolves as a thenable
-      then(resolve: (v: unknown[]) => void, reject?: (e: unknown) => void) {
-        try {
-          let results = Object.values(storage)
+      // Full `PromiseLike` shape: `onfulfilled` optional, `onrejected` forwarded.
+      // The one-required-callback form could not satisfy `DrizzleSelectQuery`.
+      then<TResult1 = unknown[], TResult2 = never>(
+        onfulfilled?: ((value: unknown[]) => TResult1 | PromiseLike<TResult1>) | null,
+        onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+      ): Promise<TResult1 | TResult2> {
+        let results = Object.values(storage)
 
-          // Apply where conditions
-          for (const cond of _whereConditions) {
-            results = results.filter((r) => r[cond.field] === cond.value)
-          }
-
-          if (_limitN !== undefined && _limitN !== null) {
-            results = results.slice(0, _limitN)
-          }
-          resolve(results)
-        } catch (e) {
-          if (reject) reject(e)
+        // Apply where conditions
+        for (const cond of _whereConditions) {
+          results = results.filter((r) => r[cond.field] === cond.value)
         }
+
+        if (_limitN !== undefined && _limitN !== null) {
+          results = results.slice(0, _limitN)
+        }
+        return Promise.resolve(results).then(onfulfilled, onrejected)
       },
     }
     return { chain, setMode: (m: typeof _mode) => { _mode = m } }

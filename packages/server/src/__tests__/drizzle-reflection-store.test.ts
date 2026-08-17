@@ -5,6 +5,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { DrizzleReflectionStore } from '../persistence/drizzle-reflection-store.js'
 import type { ReflectionSummary, ReflectionPattern } from '@dzupagent/agent'
+import type {
+  DrizzleConflictMutationResult,
+  DrizzleDeleteBuilder,
+  DrizzleInsertBuilder,
+  DrizzleSelectQuery,
+} from '../persistence/drizzle-store-types.js'
 
 // ---------------------------------------------------------------------------
 // Chainable mock DB — mirrors the Drizzle query-builder pattern
@@ -133,12 +139,14 @@ function createMockDb() {
   // return the chain and then await the full chain (not .returning()).
   // The DrizzleReflectionStore awaits the chain directly after onConflictDoNothing().
   const db = {
-    select() {
+    select(): DrizzleSelectQuery {
       const { chain, setMode } = chainable()
       setMode('select')
-      return chain
+      // The chain is a dynamically-mutated record (see `insert` below), so the
+      // builder shape is asserted at these three boundaries rather than proven.
+      return chain as unknown as DrizzleSelectQuery
     },
-    insert(_tbl: unknown) {
+    insert(_tbl: unknown): DrizzleInsertBuilder<DrizzleConflictMutationResult> {
       const { chain, setMode } = chainable()
       setMode('insert')
       // Make the chain itself thenable for await on onConflictDoNothing
@@ -172,12 +180,18 @@ function createMockDb() {
         _values = v
         return originalValues.call(chain, v)
       }
-      return chain
+      return chain as unknown as DrizzleInsertBuilder<DrizzleConflictMutationResult>
     },
-    delete(_tbl: unknown) {
+    delete(_tbl: unknown): DrizzleDeleteBuilder {
       const { chain, setMode } = chainable()
       setMode('delete')
-      return chain
+      return chain as unknown as DrizzleDeleteBuilder
+    },
+    // DrizzleReflectionStore never issues an UPDATE (it upserts via
+    // insert().onConflictDoNothing()). Throw rather than return a lenient chain
+    // so a future store change cannot silently pass here.
+    update(_tbl: unknown): never {
+      throw new Error('drizzle-reflection-store mock: db.update() is not implemented')
     },
     _storage: storage,
     _reset() { storage = {}; db._storage = storage },
@@ -720,7 +734,8 @@ describe('DrizzleReflectionStore', () => {
   describe('schema boundary', () => {
     it('extra fields in summary are not stored in the row', async () => {
       const summary = makeSummary({ runId: 'extra-fields' }) as ReflectionSummary & { extraField: string }
-      ;(summary as Record<string, unknown>)['extraField'] = 'should-be-ignored'
+      ;(summary as unknown as Record<string, unknown>)['extraField'] =
+        'should-be-ignored'
       await store.save(summary)
 
       const row = db._storage['extra-fields']!
