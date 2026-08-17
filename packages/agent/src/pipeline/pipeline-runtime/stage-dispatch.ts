@@ -430,6 +430,16 @@ export async function dispatchLoopStage(
             ...(progress.attempt === undefined
               ? {}
               : { attempt: progress.attempt }),
+            // 24-F: carry the loop's classification through verbatim rather
+            // than inferring one here. A writer that inferred "running" from
+            // the presence of a body cursor would manufacture an outcome the
+            // loop never observed, and absence must stay unprovable.
+            ...(progress.outcome === undefined
+              ? {}
+              : { outcome: progress.outcome }),
+            ...(progress.economics === undefined
+              ? {}
+              : { economics: progress.economics }),
           },
         },
         ...(previousBoundary?.previousOutput !== undefined

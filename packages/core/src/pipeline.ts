@@ -316,7 +316,9 @@ export type {
   PipelineCheckpointCommitReceipt,
   PipelineCheckpointSourceBinding,
   PipelineExecutionScope,
+  PipelineForEachItemEconomics,
   PipelineForEachItemFrame,
+  PipelineForEachItemOutcome,
   PipelineLedgerUnavailablePolicy,
   PipelineInteractionResumeCursor,
   PipelineLoopBodyGraphCheckpointState,
@@ -346,6 +348,11 @@ export {
   serializePipeline,
   deserializePipeline,
   autoLayout,
+  // 24-F: the `./pipeline` subpath resolves to THIS module, not
+  // `pipeline/index.ts`, so a consumer importing from `@dzupagent/core/pipeline`
+  // sees only what is forwarded here.
+  PIPELINE_FOR_EACH_ITEM_OUTCOMES,
+  isTerminalItemOutcome,
 } from "./pipeline/index.js";
 export type {
   NodePosition,

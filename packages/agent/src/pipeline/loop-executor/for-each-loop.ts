@@ -450,7 +450,21 @@ export async function executeForEachLoop(
     }
     // The attempt counter makes a re-dispatch of this item distinguishable
     // from its first attempt in both the ledger and the derived key.
-    const attempt = itemResume?.attempt ?? 0;
+    //
+    // 24-F: a resumed frame that durably recorded a reservation proves a
+    // PREVIOUS attempt already opened a ledger row under the id this attempt
+    // number derives. Reusing the number would re-present that exact id to the
+    // host, so a host treating it as an idempotency key would silently reuse
+    // the dead attempt's row — charging the new work against a reservation
+    // that was already released, or double-opening one that was not. Advancing
+    // the counter is what makes the replay distinguishable.
+    //
+    // Gated on `economics` rather than on the frame alone: without a budget
+    // host no reservation exists, nothing durable can collide, and advancing
+    // would needlessly change the item's idempotency keys on every resume.
+    const resumedAttempt = itemResume?.attempt ?? 0;
+    const attempt =
+      itemResume?.economics === undefined ? resumedAttempt : resumedAttempt + 1;
     // Body results retained for a mid-item checkpoint, accumulated as we go.
     const retainedBodyResults: Record<string, NodeResult> = {
       ...((itemResume?.bodyResults ?? {}) as Record<string, NodeResult>),
@@ -574,6 +588,20 @@ export async function executeForEachLoop(
           nextBodyNodeIndex: bodyIndex + 1,
           bodyResults: retainedBodyResults,
           ...(attempt > 0 ? { attempt } : {}),
+          // 24-F: the item is mid-body with a reservation outstanding. Both
+          // facts are process-local until written here, which is why a crash
+          // at this exact point used to strand the ledger row.
+          outcome: "running",
+          ...(held === undefined ||
+          typeof held === "string" ||
+          "outcomeUnknown" in held
+            ? {}
+            : {
+                economics: {
+                  reservationId: held.reservationId,
+                  reservedCostCents: held.reservedCostCents,
+                },
+              }),
         });
       }
     }
