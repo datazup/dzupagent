@@ -309,6 +309,50 @@ describe("24-G: proof 8 — the terminal set covers every index", () => {
       expect(outcomes[String(index)]).toBeDefined();
     }
   });
+
+  it("does not overwrite an earlier run's `completed` with `cancelled` on resume", async () => {
+    // The `index < startIndex` half of the cancellation sweep, which the rest
+    // of this lane leaves UNCOVERED: deleting that one line keeps all 151
+    // other for_each tests green, so without this test the guard reads as
+    // protection while being free to regress.
+    //
+    // The sweep runs over `0..n-1` and the runtime writer merges by index, so
+    // on a resume every item behind the restored prefix would be re-swept —
+    // rewriting a `completed` recorded by the previous run as `cancelled`.
+    // That is strictly worse than the absent record 24-G set out to fix: it
+    // does not lose the item's fate, it durably ASSERTS the wrong one, and an
+    // operator reconciling the ledger would see settled work reported as
+    // never having run.
+    const store = new InMemoryPipelineCheckpointStore();
+    const failingOnB = () =>
+      failingExecutor({ item: "b", nodeId: "step-a" });
+
+    const first = new PipelineRuntime({
+      definition: threeBodyForEachPipeline(true),
+      nodeExecutor: failingOnB(),
+      checkpointStore: store,
+    });
+    const firstResult = await first.execute({ items: THREE_ITEMS });
+    expect(firstResult.state).toBe("failed");
+
+    const checkpoint = await store.load(firstResult.runId);
+    // Item 0 completed and is behind the ordered prefix; item 1 failed.
+    expect(outcomesOf(checkpoint)["0"]?.outcome).toBe("completed");
+    expect(checkpoint?.loopState?.["loop-items"]?.iteration).toBe(1);
+
+    // Resume and fail item 1 again, so the sweep runs a second time with a
+    // restored `startIndex` of 1.
+    const second = new PipelineRuntime({
+      definition: threeBodyForEachPipeline(true),
+      nodeExecutor: failingOnB(),
+      checkpointStore: store,
+    });
+    await second.resume(checkpoint!);
+
+    const resumed = outcomesOf(await store.load(firstResult.runId));
+    expect(resumed["0"]?.outcome).toBe("completed");
+    expect(resumed["1"]?.outcome).toBe("failed");
+  });
 });
 
 describe("24-G: what the terminal set does NOT yet do", () => {
