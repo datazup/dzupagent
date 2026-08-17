@@ -14,6 +14,10 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { DrizzleRunTraceStore } from '../drizzle-run-trace-store.js'
+import type {
+  DrizzleInsertBuilder,
+  DrizzleMutationResult,
+} from '../drizzle-store-types.js'
 import { runTraces, traceSteps } from '../drizzle-schema.js'
 
 // ---------------------------------------------------------------------------
@@ -33,11 +37,24 @@ class FakeDb {
     throw new Error('FakeDb: unknown table')
   }
 
-  insert(t: unknown): { values: (row: Row) => Promise<void> } {
+  /**
+   * `DrizzleStoreDatabase.insert(t).values(v)` resolves to a
+   * `DrizzleMutationResult`, which also exposes `returning()`. These stores never
+   * ask for RETURNING on an insert, so the double throws rather than returning
+   * an empty array — a store change cannot pass silently here.
+   */
+  insert(t: unknown): DrizzleInsertBuilder {
     const target = this.tableFor(t)
     return {
-      values: async (row: Row) => {
-        target.push({ ...row })
+      values: (row: unknown): DrizzleMutationResult => {
+        target.push({ ...(row as Row) })
+        const settled: Promise<unknown> = Promise.resolve(undefined)
+        return {
+          then: (onfulfilled, onrejected) => settled.then(onfulfilled, onrejected),
+          returning: () => {
+            throw new Error('FakeDb: insert().returning() is not implemented')
+          },
+        }
       },
     }
   }
@@ -143,12 +160,21 @@ class UpdateChain {
     return this
   }
 
-  then<T>(onFulfilled: (v: undefined) => T): Promise<T> {
+  then<TResult1 = unknown, TResult2 = never>(
+    onfulfilled?: ((value: unknown) => TResult1 | PromiseLike<TResult1>) | null,
+    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+  ): Promise<TResult1 | TResult2> {
     for (const row of this.target) {
       if (this.filters.every((f) => f(row))) Object.assign(row, this.patch)
     }
-    return Promise.resolve(onFulfilled(undefined))
+    const settled: Promise<unknown> = Promise.resolve(undefined)
+    return settled.then(onfulfilled, onrejected)
   }
+  /** Unused by these stores; throw rather than fake an empty RETURNING set. */
+  returning(): Promise<unknown[]> {
+    throw new Error('FakeDb: returning() is not implemented')
+  }
+
 }
 
 class DeleteChain {
@@ -170,7 +196,10 @@ class DeleteChain {
     return this
   }
 
-  then<T>(onFulfilled: (result: { rowCount: number }) => T): Promise<T> {
+  then<TResult1 = unknown, TResult2 = never>(
+    onfulfilled?: ((value: unknown) => TResult1 | PromiseLike<TResult1>) | null,
+    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+  ): Promise<TResult1 | TResult2> {
     let removed = 0
     for (let i = this.target.length - 1; i >= 0; i--) {
       const row = this.target[i]!
@@ -179,8 +208,14 @@ class DeleteChain {
         removed++
       }
     }
-    return Promise.resolve(onFulfilled({ rowCount: removed }))
+    const settled: Promise<unknown> = Promise.resolve({ rowCount: removed })
+    return settled.then(onfulfilled, onrejected)
   }
+  /** Unused by these stores; throw rather than fake an empty RETURNING set. */
+  returning(): Promise<unknown[]> {
+    throw new Error('FakeDb: returning() is not implemented')
+  }
+
 }
 
 // ---------------------------------------------------------------------------

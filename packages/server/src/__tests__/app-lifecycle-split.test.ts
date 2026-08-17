@@ -49,7 +49,6 @@ describe("RF-6: buildForgeApp / startForgeRuntime lifecycle split", () => {
         intervalMs: 60_000,
         idleThresholdMs: Number.MAX_SAFE_INTEGER,
         maxConcurrent: 1,
-        eventBus: createEventBus(),
       },
     });
 
@@ -75,7 +74,6 @@ describe("RF-6: buildForgeApp / startForgeRuntime lifecycle split", () => {
         intervalMs: 60_000,
         idleThresholdMs: Number.MAX_SAFE_INTEGER,
         maxConcurrent: 1,
-        eventBus: createEventBus(),
       },
     };
 
@@ -103,7 +101,6 @@ describe("RF-6: buildForgeApp / startForgeRuntime lifecycle split", () => {
         intervalMs: 60_000,
         idleThresholdMs: Number.MAX_SAFE_INTEGER,
         maxConcurrent: 1,
-        eventBus: createEventBus(),
       },
     };
 
@@ -160,7 +157,6 @@ describe("RF-6: buildForgeApp / startForgeRuntime lifecycle split", () => {
         intervalMs: 60_000,
         idleThresholdMs: Number.MAX_SAFE_INTEGER,
         maxConcurrent: 1,
-        eventBus: createEventBus(),
       },
     });
 
@@ -190,7 +186,6 @@ describe("RF-6: buildForgeApp / startForgeRuntime lifecycle split", () => {
         intervalMs: 60_000,
         idleThresholdMs: Number.MAX_SAFE_INTEGER,
         maxConcurrent: 1,
-        eventBus: createEventBus(),
       },
     };
 

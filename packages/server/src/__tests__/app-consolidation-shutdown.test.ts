@@ -56,7 +56,6 @@ describe('createForgeApp consolidation shutdown wiring', () => {
         intervalMs: 60_000,
         idleThresholdMs: Number.MAX_SAFE_INTEGER,
         maxConcurrent: 1,
-        eventBus: createEventBus(),
       },
     })
 
