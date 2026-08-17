@@ -10,16 +10,12 @@ import { describe, expect, it, beforeEach, afterEach } from 'vitest'
 import { mkdir, writeFile, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { randomBytes, createHash } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import { DzupAgentSyncer } from '../dzupagent/syncer.js'
 import { DzupAgentFileLoader } from '../dzupagent/file-loader.js'
 import { DzupAgentAgentLoader } from '../dzupagent/agent-loader.js'
 import { AdapterSkillRegistry, createDefaultSkillRegistry } from '../skills/adapter-skill-registry.js'
 import type { DzupAgentPaths } from '../types.js'
-
-function sha256(content: string): string {
-  return createHash('sha256').update(content, 'utf-8').digest('hex')
-}
 
 function makePaths(projectRoot: string): DzupAgentPaths {
   const projectDir = join(projectRoot, '.dzupagent')

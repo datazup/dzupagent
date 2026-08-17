@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { ForgeError } from '@dzupagent/core'
 
 import {
   AdapterRecoveryCopilot,
@@ -13,7 +12,6 @@ import type {
   RoutingDecision,
   TaskDescriptor,
 } from '../types.js'
-import { collectEvents } from './test-helpers.js'
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -349,7 +347,7 @@ describe('Recovery Backoff', () => {
   })
 
   it('no delay on first attempt', async () => {
-    const { registry, getCallTimestamps } = createTimedRetryRegistry(0) // succeeds immediately
+    const { registry } = createTimedRetryRegistry(0) // succeeds immediately
     const copilot = new AdapterRecoveryCopilot(registry, {
       maxAttempts: 3,
       backoffMs: 5000, // large delay — should not be used on first attempt

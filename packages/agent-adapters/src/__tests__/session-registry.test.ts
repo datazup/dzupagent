@@ -10,37 +10,14 @@ import type {
 import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
-  AgentCLIAdapter,
   AgentEvent,
   AgentInput,
   TaskDescriptor,
 } from '../types.js'
-import { stubCapabilities } from './adapter-capability-stub.js'
 
 // ---------------------------------------------------------------------------
 // Mock helpers
 // ---------------------------------------------------------------------------
-
-function createMockAdapter(
-  providerId: AdapterProviderId,
-  events: AgentEvent[],
-): AgentCLIAdapter {
-  return {
-    getCapabilities: () => stubCapabilities(),
-    providerId,
-    async *execute(_input: AgentInput) {
-      for (const e of events) yield e
-    },
-    async *resumeSession(_id: string, _input: AgentInput) {
-      /* noop */
-    },
-    interrupt() {},
-    async healthCheck() {
-      return { healthy: true, providerId, sdkInstalled: true, cliAvailable: true }
-    },
-    configure() {},
-  }
-}
 
 function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
   const events: DzupEvent[] = []

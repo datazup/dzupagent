@@ -15,7 +15,7 @@ function createMockRedisClient() {
       return item ? item.value : null
     }),
     set: vi.fn(async (key: string, value: string, ex?: string, seconds?: number): Promise<'OK'> => {
-      store.set(key, { value, ttl: ex === 'EX' ? seconds : undefined })
+      store.set(key, ex === 'EX' && seconds !== undefined ? { value, ttl: seconds } : { value })
       return 'OK'
     }),
     del: vi.fn(async (...keys: string[]): Promise<number> => {

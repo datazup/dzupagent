@@ -100,7 +100,6 @@ function createMockAdapter(
 
 describe('Correlation ID Propagation', () => {
   it('correlationId on AgentInput propagates to events', async () => {
-    const adapter = createMockAdapter('claude')
     // Wrap adapter to inject correlationId like BaseCliAdapter does
     const correlationId = 'req-abc-123'
     const input: AgentInput = { prompt: 'test', correlationId }

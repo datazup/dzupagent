@@ -52,7 +52,15 @@ export interface CachePolicy {
 export interface CacheableRequest {
   messages: Array<{ role: string; content: string }>
   model: string
-  temperature?: number
+  /**
+   * Sampling temperature. An explicit `undefined` is accepted as well as an
+   * absent property: both readers use `??` (`key-generator.ts:17` treats it as
+   * 0, `middleware.ts:52` as 1), and a JS caller of this published package can
+   * pass either. Without the explicit `| undefined`, exactOptionalPropertyTypes
+   * rejects `{ temperature: undefined }` — an input the implementation handles
+   * and two tests pin down.
+   */
+  temperature?: number | undefined
   maxTokens?: number
   [key: string]: unknown
 }

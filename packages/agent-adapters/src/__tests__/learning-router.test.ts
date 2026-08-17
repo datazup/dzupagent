@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 
 import { LearningRouter } from '../registry/learning-router.js'
-import type { LearningRouterConfig } from '../registry/learning-router.js'
 import type { AdapterLearningLoop } from '../learning/adapter-learning-loop.js'
 import type { ProviderProfile } from '../learning/adapter-learning-loop.js'
 import type { AdapterProviderId, TaskDescriptor } from '../types.js'

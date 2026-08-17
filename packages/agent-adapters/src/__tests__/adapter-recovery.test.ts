@@ -503,7 +503,6 @@ describe('AdapterRecoveryCopilot', () => {
     })
 
     it('increase-budget increases limits', async () => {
-      let capturedInput: AgentInput | undefined
 
       const callInputs: AgentInput[] = []
       let callCount = 0

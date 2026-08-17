@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
 import { CacheMiddleware } from '../middleware.js'
 import { InMemoryCacheBackend } from '../backends/in-memory.js'
-import type { CacheableRequest, CacheBackend, CacheStats } from '../types.js'
+import type { CacheableRequest, CacheStats } from '../types.js'
+import { makeCacheBackend } from './backend-double.js'
 
 function makeRequest(overrides: Partial<CacheableRequest> = {}): CacheableRequest {
   return {
@@ -20,13 +21,13 @@ describe('CacheMiddleware — deep coverage', () => {
   describe('onDegraded callback', () => {
     it('calls onDegraded on get when backend.get throws an Error', async () => {
       const onDegraded = vi.fn()
-      const failingBackend: CacheBackend = {
+      const failingBackend = makeCacheBackend({
         get: async () => { throw new Error('backend get fail') },
         set: async () => {},
         delete: async () => {},
         clear: async () => {},
         stats: async (): Promise<CacheStats> => ({ hits: 0, misses: 0, size: 0, hitRate: 0 }),
-      }
+      })
       const mw = new CacheMiddleware({
         backend: failingBackend,
         policy: { maxTemperature: 1, defaultTtlSeconds: 60 },
@@ -41,13 +42,13 @@ describe('CacheMiddleware — deep coverage', () => {
 
     it('calls onDegraded on set when backend.set throws an Error', async () => {
       const onDegraded = vi.fn()
-      const failingBackend: CacheBackend = {
+      const failingBackend = makeCacheBackend({
         get: async () => null,
         set: async () => { throw new Error('backend set fail') },
         delete: async () => {},
         clear: async () => {},
         stats: async (): Promise<CacheStats> => ({ hits: 0, misses: 0, size: 0, hitRate: 0 }),
-      }
+      })
       const mw = new CacheMiddleware({
         backend: failingBackend,
         policy: { maxTemperature: 1, defaultTtlSeconds: 60 },
@@ -61,13 +62,13 @@ describe('CacheMiddleware — deep coverage', () => {
 
     it('calls onDegraded with stringified non-Error on get', async () => {
       const onDegraded = vi.fn()
-      const failingBackend: CacheBackend = {
+      const failingBackend = makeCacheBackend({
         get: async () => { throw 'raw string error' },
         set: async () => {},
         delete: async () => {},
         clear: async () => {},
         stats: async (): Promise<CacheStats> => ({ hits: 0, misses: 0, size: 0, hitRate: 0 }),
-      }
+      })
       const mw = new CacheMiddleware({
         backend: failingBackend,
         policy: { maxTemperature: 1, defaultTtlSeconds: 60 },
@@ -80,13 +81,13 @@ describe('CacheMiddleware — deep coverage', () => {
 
     it('calls onDegraded with stringified non-Error on set', async () => {
       const onDegraded = vi.fn()
-      const failingBackend: CacheBackend = {
+      const failingBackend = makeCacheBackend({
         get: async () => null,
         set: async () => { throw 42 },
         delete: async () => {},
         clear: async () => {},
         stats: async (): Promise<CacheStats> => ({ hits: 0, misses: 0, size: 0, hitRate: 0 }),
-      }
+      })
       const mw = new CacheMiddleware({
         backend: failingBackend,
         policy: { maxTemperature: 1, defaultTtlSeconds: 60 },
@@ -100,13 +101,13 @@ describe('CacheMiddleware — deep coverage', () => {
     it('calls both onDegraded and onMiss on get error', async () => {
       const onDegraded = vi.fn()
       const onMiss = vi.fn()
-      const failingBackend: CacheBackend = {
+      const failingBackend = makeCacheBackend({
         get: async () => { throw new Error('fail') },
         set: async () => {},
         delete: async () => {},
         clear: async () => {},
         stats: async (): Promise<CacheStats> => ({ hits: 0, misses: 0, size: 0, hitRate: 0 }),
-      }
+      })
       const mw = new CacheMiddleware({
         backend: failingBackend,
         policy: { maxTemperature: 1, defaultTtlSeconds: 60 },
@@ -240,13 +241,13 @@ describe('CacheMiddleware — deep coverage', () => {
     })
 
     it('handles backend returning invalid JSON gracefully', async () => {
-      const corruptBackend: CacheBackend = {
+      const corruptBackend = makeCacheBackend({
         get: async () => '{broken json',
         set: async () => {},
         delete: async () => {},
         clear: async () => {},
         stats: async (): Promise<CacheStats> => ({ hits: 0, misses: 0, size: 0, hitRate: 0 }),
-      }
+      })
       const onDegraded = vi.fn()
       const mw = new CacheMiddleware({
         backend: corruptBackend,
@@ -288,7 +289,7 @@ describe('CacheMiddleware — deep coverage', () => {
       await mw.get(req)
 
       expect(onHit).toHaveBeenCalledTimes(1)
-      const [key, model] = onHit.mock.calls[0]
+      const [key, model] = onHit.mock.calls[0]!
       expect(key).toMatch(/^ns:llm:[a-f0-9]{64}$/)
       expect(model).toBe('gpt-4')
     })
@@ -303,7 +304,7 @@ describe('CacheMiddleware — deep coverage', () => {
       await mw.get(makeRequest({ model: 'claude-3' }))
 
       expect(onMiss).toHaveBeenCalledTimes(1)
-      const [key, model] = onMiss.mock.calls[0]
+      const [key, model] = onMiss.mock.calls[0]!
       expect(key).toMatch(/^llm:[a-f0-9]{64}$/)
       expect(model).toBe('claude-3')
     })

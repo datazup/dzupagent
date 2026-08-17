@@ -67,14 +67,6 @@ tags: [workspace]
 All packages use ESM. Node 20+.
 `
 
-const MEMORY_AGENT = `---
-name: claude-preferences
-description: Claude-specific preferences
-tags: [agent, claude]
----
-
-Prefer concise responses. Use bullet points.
-`
 
 // ---------------------------------------------------------------------------
 // Tests

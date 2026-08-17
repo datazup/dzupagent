@@ -107,25 +107,6 @@ function makeRegistry(adapter: AgentCLIAdapter): ProviderAdapterRegistry {
 }
 
 /** Registry that alternates between a failing then a succeeding adapter. */
-function makeRetryRegistry(
-  failCount: number,
-  providerId: AdapterProviderId = 'claude' as AdapterProviderId,
-): ProviderAdapterRegistry {
-  let calls = 0
-  const success = makeSuccessAdapter(providerId)
-  const fail = makeFailingAdapter(providerId, 'transient')
-  return {
-    getForTask(_task: TaskDescriptor) {
-      calls++
-      const adapter = calls <= failCount ? fail : success
-      return { adapter, decision: { provider: providerId, reason: 'mock', confidence: 1 } }
-    },
-    listAdapters() { return [providerId] },
-    recordSuccess(_id: AdapterProviderId) {},
-    recordFailure(_id: AdapterProviderId, _err: Error) {},
-  } as unknown as ProviderAdapterRegistry
-}
-
 const PROVIDER: AdapterProviderId = 'claude' as AdapterProviderId
 const TRACE_ID = 'trace-001'
 const INPUT: AgentInput = { prompt: 'hello' }

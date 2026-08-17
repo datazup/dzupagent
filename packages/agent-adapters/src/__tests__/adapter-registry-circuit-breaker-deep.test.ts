@@ -107,20 +107,6 @@ function createMockAdapter(
   return { ...base, ...overrides }
 }
 
-function createThrowingAdapter(providerId: AdapterProviderId, error: Error): AgentCLIAdapter {
-  return createMockAdapter(providerId, [], {
-    async *execute(_input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
-      yield {
-        type: 'adapter:started',
-        providerId,
-        sessionId: `sess-${providerId}`,
-        timestamp: Date.now(),
-      }
-      throw error
-    },
-  })
-}
-
 function createMidStreamThrowingAdapter(providerId: AdapterProviderId, error: Error): AgentCLIAdapter {
   return createMockAdapter(providerId, [], {
     async *execute(_input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {

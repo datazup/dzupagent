@@ -407,7 +407,7 @@ describe('durable approval gate — e2e persistence across restart', () => {
       enableCostTracking: false,
     })
 
-    const _runPromise1 = facade1.run('Deploy to prod', {
+    void facade1.run('Deploy to prod', {
       requireApproval: true,
       approvalRunId: 'reject-run-1',
     })

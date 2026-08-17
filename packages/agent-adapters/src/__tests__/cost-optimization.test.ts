@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createEventBus } from '@dzupagent/core'
-import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
 
 import { CostOptimizationEngine } from '../middleware/cost-optimization.js'
 import type {
@@ -14,12 +14,6 @@ import type {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
-  const events: DzupEvent[] = []
-  bus.onAny((e) => events.push(e))
-  return events
-}
 
 function makeRecord(
   providerId: AdapterProviderId,

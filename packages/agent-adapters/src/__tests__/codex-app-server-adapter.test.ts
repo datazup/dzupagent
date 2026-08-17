@@ -629,7 +629,7 @@ describe('Codex App Server provider-session adapter', () => {
         turn: { id: 'turn-1', status: 'inProgress' },
       })
     }],
-    ['turn/completed', (server: FakeServer) => undefined],
+    ['turn/completed', (_server: FakeServer) => undefined],
   ] as const)('rejects an incomplete %s notification without completion', async (
     method,
     prefix,

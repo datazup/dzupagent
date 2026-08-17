@@ -3,7 +3,6 @@ import { createEventBus } from '@dzupagent/core'
 import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 import { CostTrackingMiddleware } from '../middleware/cost-tracking.js'
-import type { CostTrackingConfig } from '../middleware/cost-tracking.js'
 import type { AgentEvent, AgentCompletedEvent, AgentStartedEvent, TokenUsage } from '../types.js'
 
 // ---------------------------------------------------------------------------

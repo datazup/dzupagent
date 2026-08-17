@@ -1,6 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { createEventBus } from '@dzupagent/core'
-import type { DzupEventBus } from '@dzupagent/core'
 
 import {
   ADAPTER_WORKFLOW_OWNERSHIP,
@@ -602,7 +600,7 @@ describe('AdapterWorkflow.run()', () => {
     const flakyAdapter: AgentCLIAdapter = {
       getCapabilities: () => stubCapabilities(),
       providerId: 'claude',
-      async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
+      async *execute(_input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
         callCount++
         if (callCount < 3) {
           // Fail the first 2 attempts by not emitting completed

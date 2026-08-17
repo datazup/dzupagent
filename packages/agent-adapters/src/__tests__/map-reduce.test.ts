@@ -52,7 +52,7 @@ function createFailingRegistry(failAtChunk?: number): ProviderAdapterRegistry {
   let callCount = 0
 
   return {
-    async *executeWithFallback(input: AgentInput, _task: TaskDescriptor) {
+    async *executeWithFallback(_input: AgentInput, _task: TaskDescriptor) {
       const currentCall = callCount++
       if (failAtChunk === undefined || currentCall === failAtChunk) {
         throw new Error(`Failed processing chunk ${currentCall}`)
@@ -76,7 +76,7 @@ function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
 }
 
 // Standard mapper and reducer for string[] chunks
-const stringArrayMapper: MapperFn<string[]> = (chunk, index) => ({
+const stringArrayMapper: MapperFn<string[]> = (chunk, _index) => ({
   input: { prompt: chunk.join('\n') },
   task: { prompt: chunk.join('\n'), tags: ['general'] },
 })
@@ -265,7 +265,7 @@ describe('MapReduceOrchestrator', () => {
       let maxConcurrentObserved = 0
 
       const registry = {
-        async *executeWithFallback(input: AgentInput, _task: TaskDescriptor) {
+        async *executeWithFallback(_input: AgentInput, _task: TaskDescriptor) {
           concurrentCount++
           maxConcurrentObserved = Math.max(maxConcurrentObserved, concurrentCount)
           await new Promise((r) => setTimeout(r, 20))
@@ -406,7 +406,7 @@ describe('MapReduceOrchestrator', () => {
 
       const result = await orchestrator.execute('apple, banana, cherry', {
         chunker: commaChunker,
-        mapper: (chunk: string, index: number) => ({
+        mapper: (chunk: string, _index: number) => ({
           input: { prompt: chunk },
           task: { prompt: chunk, tags: ['general'] },
         }),

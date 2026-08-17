@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 
 import { CapabilityRouter } from '../registry/capability-router.js'
-import type { ProviderCapability } from '../registry/capability-router.js'
 import type { AdapterProviderId, TaskDescriptor } from '../types.js'
 
 // ---------------------------------------------------------------------------

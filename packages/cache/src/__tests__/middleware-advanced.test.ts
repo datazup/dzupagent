@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { CacheMiddleware } from '../middleware.js'
 import { InMemoryCacheBackend } from '../backends/in-memory.js'
 import type { CacheableRequest, CacheBackend, CacheStats } from '../types.js'
+import { makeCacheBackend } from './backend-double.js'
 
 function makeRequest(overrides: Partial<CacheableRequest> = {}): CacheableRequest {
   return {
@@ -110,7 +111,7 @@ describe('CacheMiddleware — advanced', () => {
     await middleware.set(req, 'the-response')
 
     // Read raw from backend to verify structure
-    const key = (await getFirstKey(backend))
+    const key = await getFirstKey()
     expect(key).toBeTruthy()
     const raw = await backend.get(key!)
     expect(raw).toBeTruthy()
@@ -180,13 +181,13 @@ describe('CacheMiddleware — advanced', () => {
 
   it('onMiss fires when backend get returns parse-invalid JSON', async () => {
     const onMiss = vi.fn()
-    const corruptBackend: CacheBackend = {
+    const corruptBackend = makeCacheBackend({
       get: async () => 'not-valid-json',
       set: async () => {},
       delete: async () => {},
       clear: async () => {},
       stats: async () => ({ hits: 0, misses: 0, size: 0, hitRate: 0 }),
-    }
+    })
     const mw = new CacheMiddleware({
       backend: corruptBackend,
       policy: { maxTemperature: 1, defaultTtlSeconds: 60 },
@@ -229,11 +230,9 @@ describe('CacheMiddleware — advanced', () => {
 
 // --- helpers ---
 
-async function getFirstKey(backend: InMemoryCacheBackend): Promise<string | null> {
-  // We cheat by storing a known request and computing its key
-  // Instead, we rely on the fact that InMemoryCacheBackend uses a Map internally
-  // and stats reports size. We'll just use a workaround via get.
-  // Actually, let's just use the generateCacheKey utility.
+// Recomputes the key the middleware would have stored under, rather than
+// reaching into the backend — so it takes no backend argument.
+async function getFirstKey(): Promise<string | null> {
   const { generateCacheKey } = await import('../key-generator.js')
   const req: CacheableRequest = {
     messages: [{ role: 'user', content: 'Hello' }],
@@ -245,11 +244,11 @@ async function getFirstKey(backend: InMemoryCacheBackend): Promise<string | null
 }
 
 function createFailingBackend(): CacheBackend {
-  return {
+  return makeCacheBackend({
     get: async () => { throw new Error('backend failure') },
     set: async () => { throw new Error('backend failure') },
     delete: async () => { throw new Error('backend failure') },
     clear: async () => { throw new Error('backend failure') },
     stats: async (): Promise<CacheStats> => ({ hits: 0, misses: 0, size: 0, hitRate: 0 }),
-  }
+  })
 }

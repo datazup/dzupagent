@@ -17,7 +17,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { CacheMiddleware } from '../middleware.js'
 import { InMemoryCacheBackend } from '../backends/in-memory.js'
 import { generateCacheKey } from '../key-generator.js'
-import type { CacheableRequest, CacheBackend, CacheStats } from '../types.js'
+import type { CacheableRequest, CacheStats } from '../types.js'
+import { makeCacheBackend } from './backend-double.js'
 
 function makeRequest(overrides: Partial<CacheableRequest> = {}): CacheableRequest {
   return {
@@ -300,7 +301,7 @@ describe('CacheMiddleware — Wave 21 deep (W21-B3)', () => {
   describe('error handling', () => {
     it('backend.get throwing results in miss callback being invoked', async () => {
       const onMiss = vi.fn()
-      const failingBackend: CacheBackend = {
+      const failingBackend = makeCacheBackend({
         get: async () => {
           throw new Error('redis unavailable')
         },
@@ -308,7 +309,7 @@ describe('CacheMiddleware — Wave 21 deep (W21-B3)', () => {
         delete: async () => {},
         clear: async () => {},
         stats: async () => failingStats(),
-      }
+      })
 
       const mw = new CacheMiddleware({
         backend: failingBackend,
@@ -322,7 +323,7 @@ describe('CacheMiddleware — Wave 21 deep (W21-B3)', () => {
     })
 
     it('backend.set throwing does not crash and is not treated as fatal', async () => {
-      const failingBackend: CacheBackend = {
+      const failingBackend = makeCacheBackend({
         get: async () => null,
         set: async () => {
           throw new Error('write failure')
@@ -330,7 +331,7 @@ describe('CacheMiddleware — Wave 21 deep (W21-B3)', () => {
         delete: async () => {},
         clear: async () => {},
         stats: async () => failingStats(),
-      }
+      })
 
       const mw = new CacheMiddleware({
         backend: failingBackend,
@@ -343,7 +344,7 @@ describe('CacheMiddleware — Wave 21 deep (W21-B3)', () => {
 
     it('backend.set throwing still emits onDegraded diagnostic', async () => {
       const onDegraded = vi.fn()
-      const failingBackend: CacheBackend = {
+      const failingBackend = makeCacheBackend({
         get: async () => null,
         set: async () => {
           throw new Error('write failure')
@@ -351,7 +352,7 @@ describe('CacheMiddleware — Wave 21 deep (W21-B3)', () => {
         delete: async () => {},
         clear: async () => {},
         stats: async () => failingStats(),
-      }
+      })
 
       const mw = new CacheMiddleware({
         backend: failingBackend,
@@ -366,13 +367,13 @@ describe('CacheMiddleware — Wave 21 deep (W21-B3)', () => {
     it('invalid stored JSON triggers miss + degraded callback', async () => {
       const onMiss = vi.fn()
       const onDegraded = vi.fn()
-      const corruptBackend: CacheBackend = {
+      const corruptBackend = makeCacheBackend({
         get: async () => '{{{not json',
         set: async () => {},
         delete: async () => {},
         clear: async () => {},
         stats: async () => failingStats(),
-      }
+      })
 
       const mw = new CacheMiddleware({
         backend: corruptBackend,

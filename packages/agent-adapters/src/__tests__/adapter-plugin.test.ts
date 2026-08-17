@@ -3,7 +3,6 @@ import { createEventBus } from '@dzupagent/core'
 import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 import { createAdapterPlugin } from '../plugin/adapter-plugin.js'
-import type { AdapterPluginInstance } from '../plugin/adapter-plugin.js'
 import type {
   AdapterProviderId,
   AgentCLIAdapter,
@@ -62,11 +61,10 @@ function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
 
 describe('AdapterPlugin (createAdapterPlugin)', () => {
   let bus: DzupEventBus
-  let emitted: DzupEvent[]
 
   beforeEach(() => {
     bus = createEventBus()
-    emitted = collectBusEvents(bus)
+    collectBusEvents(bus)
   })
 
   describe('createAdapterPlugin', () => {

@@ -215,7 +215,7 @@ describe('BaseCliAdapter.execute() — path-level tests', () => {
     it('stops emitting adapter events and yields adapter:failed after signal fires mid-stream', async () => {
       const controller = new AbortController()
 
-      mockSpawnAndStreamJsonl.mockImplementation(async function* (_binary, _args, opts) {
+      mockSpawnAndStreamJsonl.mockImplementation(async function* (_binary, _args, _opts) {
         yield { type: 'message', content: 'first chunk' }
         // Fire the abort after the first record — the combined signal
         // is honoured by the for-await loop / spawn helper.

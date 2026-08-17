@@ -8,7 +8,6 @@ import {
   RegexOutputSchema,
   StructuredOutputAdapter,
 } from '../output/structured-output.js'
-import type { OutputSchema } from '../output/structured-output.js'
 import type {
   AdapterProviderId,
   AgentCLIAdapter,

@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createEventBus } from "@dzupagent/core";
-import type { DzupEventBus } from "@dzupagent/core";
 
 import {
   AdapterHttpHandler,

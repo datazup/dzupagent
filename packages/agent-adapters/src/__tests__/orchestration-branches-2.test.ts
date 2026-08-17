@@ -102,7 +102,7 @@ describe('ParallelExecutor deep branch coverage', () => {
 
   it('marks completed event as cancelled when signal aborts right as result arrives', async () => {
     // Scenario: adapter yields completed but signal aborts before emit completes.
-    const completedAdapter = makeAdapter('claude', async function* (input) {
+    const completedAdapter = makeAdapter('claude', async function* (_input) {
       await new Promise((r) => setTimeout(r, 5))
       yield completedEvent('claude', 'result')
       // Never reached — the executor returns on completed event

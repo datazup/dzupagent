@@ -49,32 +49,11 @@ function makeCompletedEvent(
   };
 }
 
-function makeToolResultEvent(toolName: string, output: string): AgentEvent {
-  return {
-    type: "adapter:tool_result",
-    providerId: "claude",
-    toolName,
-    output,
-    durationMs: 10,
-    timestamp: Date.now(),
-  };
-}
-
 function makeStartedEvent(): AgentEvent {
   return {
     type: "adapter:started",
     providerId: "claude",
     sessionId: "sess-1",
-    timestamp: Date.now(),
-  };
-}
-
-function makeFailedEvent(error = "Something broke"): AgentEvent {
-  return {
-    type: "adapter:failed",
-    providerId: "claude",
-    error,
-    code: "TEST_ERROR",
     timestamp: Date.now(),
   };
 }

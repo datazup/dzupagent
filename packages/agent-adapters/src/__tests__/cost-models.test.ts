@@ -87,7 +87,7 @@ describe('CostModelRegistry', () => {
       providerId: 'claude' as AdapterProviderId,
       modelRates: new Map<string, TokenRates>(),
       defaultRates: { inputCentsPerMillion: 999, outputCentsPerMillion: 999 },
-      estimateCost(input: CostEstimationInput) {
+      estimateCost(_input: CostEstimationInput) {
         return {
           estimatedInputTokens: 0,
           estimatedOutputTokens: 0,
@@ -97,7 +97,7 @@ describe('CostModelRegistry', () => {
           providerId: 'claude' as AdapterProviderId,
         }
       },
-      calculateCost(usage: TokenUsage) {
+      calculateCost(_usage: TokenUsage) {
         return {
           inputCostCents: 0,
           outputCostCents: 0,
