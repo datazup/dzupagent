@@ -76,7 +76,18 @@ function makeVersion(overrides: Partial<PromptVersion> = {}): PromptVersion {
  * getActive / save / activate. Other methods throw — the loop doesn't call
  * them.
  */
-function makeVersionStore(): PromptVersionStore {
+/**
+ * The extra members of the real evals `PromptVersionStore` this double
+ * replicates. The loop's port declares only `getActive`/`save`/`activate`;
+ * the assertions below read the rest.
+ */
+interface TestPromptVersionStore extends PromptVersionStore {
+  getById(versionId: string): Promise<PromptVersion | null>
+  listVersions(promptKey: string): Promise<PromptVersion[]>
+  listPromptKeys(): Promise<string[]>
+}
+
+function makeVersionStore(): TestPromptVersionStore {
   const byId = new Map<string, PromptVersion>()
   let counter = 0
 
@@ -150,7 +161,7 @@ function makeVersionStore(): PromptVersionStore {
     },
   }
 
-  return api as unknown as PromptVersionStore
+  return api
 }
 
 /**
@@ -207,7 +218,7 @@ describe('PromptFeedbackLoop', () => {
   let runId: string
   let runDir: string
   let bus: DzupEventBus
-  let versionStore: PromptVersionStore
+  let versionStore: TestPromptVersionStore
 
   beforeEach(async () => {
     projectDir = join(tmpdir(), `pfl-${Math.random().toString(36).slice(2, 10)}`)

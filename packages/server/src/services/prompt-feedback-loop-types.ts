@@ -29,20 +29,32 @@ export interface OptimizationCandidateLike {
   score: number
 }
 
+/** Mirrors @dzupagent/evals `PromptVersionEvalScores`. */
+export interface PromptVersionEvalScoresLike {
+  avgScore: number
+  passRate: number
+  scorerAverages: Record<string, number>
+  datasetSize: number
+  experimentId?: string | undefined
+}
+
+/** Mirrors @dzupagent/evals `PromptVersion`. */
 export interface PromptVersionLike {
   id: string
   promptKey: string
   content: string
-  active?: boolean | undefined
+  /** Monotonic per-`promptKey` revision number assigned by the store. */
+  version: number
+  parentVersionId?: string | undefined
+  createdAt: string
   metadata?: Record<string, unknown> | undefined
-  createdAt?: string | undefined
+  evalScores?: PromptVersionEvalScoresLike | undefined
+  active: boolean
 }
 
+/** Mirrors @dzupagent/evals `OptimizationResult`. */
 export interface OptimizationResultLike {
-  baselineScore: number
-  bestCandidate: OptimizationCandidateLike | null
   candidates: OptimizationCandidateLike[]
-  iterations: number
   /** True when the optimizer produced a better version than the original. */
   improved: boolean
   /** Version the optimizer considered best after its round. */
@@ -51,19 +63,34 @@ export interface OptimizationResultLike {
   originalVersion: PromptVersionLike
   /** `bestVersion.score - originalVersion.score`. */
   scoreImprovement: number
+  /** Number of optimization rounds executed. */
+  rounds: number
+  exitReason: 'improved' | 'no_improvement' | 'max_rounds' | 'aborted' | 'error'
+  durationMs: number
 }
 
+/**
+ * The subset of @dzupagent/evals `PromptVersionStore` the feedback loop calls:
+ * `getActive`, `save`, `activate` and nothing else.
+ *
+ * This deliberately declares no member the concrete store lacks. The previous
+ * shape required `getLatest(key)` and `list(key)` — neither exists on the evals
+ * store (it has `getById` and `listVersions`) — and typed `activate` as
+ * returning the version when the real method resolves to `void`. A host passing
+ * the very store this port models therefore could not satisfy it, which defeats
+ * the point of the port.
+ */
 export interface PromptVersionStoreLike {
-  getLatest(key: string): Promise<PromptVersionLike | null>
-  getActive(key: string): Promise<PromptVersionLike | null>
+  getActive(promptKey: string): Promise<PromptVersionLike | null>
   save(input: {
     promptKey: string
     content: string
+    parentVersionId?: string | undefined
     metadata?: Record<string, unknown> | undefined
+    evalScores?: PromptVersionEvalScoresLike | undefined
     active?: boolean | undefined
   }): Promise<PromptVersionLike>
-  activate(versionId: string): Promise<PromptVersionLike>
-  list(key: string): Promise<PromptVersionLike[]>
+  activate(versionId: string): Promise<void>
 }
 
 // Backward-compat type aliases for the older names used within this module.
