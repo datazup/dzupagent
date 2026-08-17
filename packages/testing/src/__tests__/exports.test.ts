@@ -139,7 +139,7 @@ describe("Package exports — @dzupagent/testing", () => {
     const packageJson = JSON.parse(rawPackageJson) as PackageJson;
 
     expect(packageJson.bin?.["dzupagent-sdlc-mvp-evidence"]).toBe(
-      "./dist/bin/sdlc-mvp-evidence.js"
+      "dist/bin/sdlc-mvp-evidence.js"
     );
   });
 

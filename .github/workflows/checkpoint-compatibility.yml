@@ -48,15 +48,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # MUST precede setup-node. `cache: yarn` makes setup-node shell out to
+      # `yarn cache dir` during its own step, and the runner's preinstalled Yarn
+      # is 1.22, which refuses a project declaring `packageManager: yarn@4.16.0`.
+      # Enabling Corepack after setup-node is too late — that is why every
+      # workflow here failed at "Setup Node.js" on every push since 2026-06-30.
+      - name: Enable Corepack
+        run: corepack enable
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
           cache: yarn
           cache-dependency-path: yarn.lock
-
-      - name: Enable checked-in Yarn toolchain
-        run: corepack enable
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile

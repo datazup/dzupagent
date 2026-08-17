@@ -1840,7 +1840,7 @@ __metadata:
     typescript: "npm:^5.8.3"
     vitest: "npm:^3.2.4"
   bin:
-    dzupagent-sdlc-mvp-evidence: ./dist/bin/sdlc-mvp-evidence.js
+    dzupagent-sdlc-mvp-evidence: dist/bin/sdlc-mvp-evidence.js
   languageName: unknown
   linkType: soft
 
