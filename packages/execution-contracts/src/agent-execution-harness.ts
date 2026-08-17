@@ -112,18 +112,85 @@ export type AgentExecutionHarnessAction =
   | { readonly kind: 'progress'; readonly tool: string; readonly phase: string }
   | { readonly kind: 'compact'; readonly tool: string }
 
+/**
+ * Port implemented by the caller for a spawned child process.
+ *
+ * `terminate` and `wait` are declared as plain `void`, deliberately — not
+ * `void | Promise<void>`. Both are still awaited by the harness (see
+ * `cleanupChild`), and an implementation may still return a promise: a
+ * `Promise<void>` return is assignable to a `void` return position, so
+ * `async terminate() {}` type-checks unchanged.
+ *
+ * The union was strictly *less* permissive than the plain `void` it replaced.
+ * TypeScript's void-returning-function leniency lets an implementation that
+ * returns a value satisfy a `=> void` position, but that leniency does not
+ * survive a union, so under `void | Promise<void>` both of these were rejected
+ * with TS2322:
+ *
+ * - `terminate: () => proc.kill()` — `boolean` is not assignable to
+ *   `void | Promise<void>`
+ * - `wait: () => once(proc, 'exit')` — `Promise<unknown[]>` is not assignable
+ *   to `Promise<void>`
+ *
+ * The second is the decisive one: `events.once(child, 'exit')` is the canonical
+ * Node implementation of "wait for this child to exit", and the union rejected
+ * it. The union therefore did not express awaitability — it admitted only
+ * `Promise<void>` exactly — while forcing every recorder-style test double to
+ * be written with a block body purely to discard its return value.
+ *
+ * Nor did the union protect the awaits at the call site: removing `await` from
+ * `child.terminate()` / `child.wait()` produces no error under
+ * `void | Promise<void>` either. That guarantee comes instead from
+ * `cleanupChild`, which widens to `unknown` and settles any thenable
+ * explicitly, and from the async-rejection and settle-ordering tests that pin
+ * it.
+ */
 export interface AgentExecutionHarnessChild {
   readonly id: string
-  terminate(): void | Promise<void>
-  wait(): void | Promise<void>
+  terminate(): void
+  wait(): void
 }
 
 export interface AgentExecutionHarnessPorts {
   readonly readFile: (absolutePath: string) => string | Uint8Array
-  readonly writeFile: (absolutePath: string, content: string | Uint8Array) => void | Promise<void>
+  /**
+   * Declared `void` for the reason documented on `AgentExecutionHarnessChild`.
+   * The harness still settles a returned promise before it reads the file back
+   * to verify the written bytes, so an async implementation is safe.
+   */
+  readonly writeFile: (absolutePath: string, content: string | Uint8Array) => void
   readonly spawnChild: (commandRef: string) => AgentExecutionHarnessChild | Promise<AgentExecutionHarnessChild>
   readonly emitEvidence?: (event: Readonly<Record<string, string | number | boolean>>) => void
   readonly now?: () => number
+}
+
+/**
+ * Internal, widened views of the ports whose public return type is `void`.
+ *
+ * The public declarations say `void` for the leniency described above; these
+ * say `unknown` because the harness has to inspect what an implementation
+ * actually returned in order to await it, and an expression of type `void`
+ * cannot be tested for truthiness (TS1345) or narrowed by `isPromiseLike`.
+ *
+ * Both are *object* views rather than bare function types so that every call
+ * stays a method call and `this` keeps binding to the port — extracting
+ * `child.terminate` into a standalone function reference would break any
+ * class-based implementation that touches its own state. Assigning a public
+ * port to one of these views needs no type assertion, because `void` is
+ * assignable to `unknown`.
+ */
+type AgentExecutionHarnessChildPortView = { terminate(): unknown; wait(): unknown }
+type AgentExecutionHarnessWritePortView = {
+  writeFile(absolutePath: string, content: string | Uint8Array): unknown
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return typeof value === 'object' && value !== null && typeof (value as { then?: unknown }).then === 'function'
+}
+
+/** Await a port result that is declared `void` but may actually be a thenable. */
+async function settlePortResult(result: unknown): Promise<void> {
+  if (isPromiseLike(result)) await result
 }
 
 export interface RunAgentExecutionHarnessInput {
@@ -312,8 +379,13 @@ export async function runAgentExecutionHarness(input: RunAgentExecutionHarnessIn
   const cleanupChild = async (child: AgentExecutionHarnessChild): Promise<number> => {
     let verified = true
     if (!child || typeof child.terminate !== 'function' || typeof child.wait !== 'function') return 1
-    try { await child.terminate() } catch { verified = false }
-    try { await child.wait() } catch { verified = false }
+    // Widened to `unknown` so a thenable result is settled explicitly; both
+    // awaits are load-bearing, because an async rejection that is not awaited
+    // escapes these catches and the harness would then report cleanup as
+    // verified when it was not.
+    const port: AgentExecutionHarnessChildPortView = child
+    try { await settlePortResult(port.terminate()) } catch { verified = false }
+    try { await settlePortResult(port.wait()) } catch { verified = false }
     return verified ? 0 : 1
   }
   const terminateChildren = async (): Promise<number> => {
@@ -360,7 +432,10 @@ export async function runAgentExecutionHarness(input: RunAgentExecutionHarnessIn
               try { current = computeAgentExecutionReadStamp(input.ports.readFile(guarded.absolute)) } catch { current = computeAgentExecutionReadStamp(new Uint8Array()) }
               if (current !== retained) { status = 'rejected'; reason = 'HARNESS_READ_STAMP_STALE'; emit('write_rejected', { pathHash }); break }
             }
-            await input.ports.writeFile(guarded.absolute, action.content)
+            // Settled before the read-back below: an unsettled async write
+            // would leave stale bytes on disk and fail the stamp comparison.
+            const writePort: AgentExecutionHarnessWritePortView = input.ports
+            await settlePortResult(writePort.writeFile(guarded.absolute, action.content))
             const writtenStamp = computeAgentExecutionReadStamp(action.content)
             if (computeAgentExecutionReadStamp(input.ports.readFile(guarded.absolute)) !== writtenStamp) throw new Error('HARNESS_PORT_FAILED')
             readStamps.set(guarded.absolute, writtenStamp)

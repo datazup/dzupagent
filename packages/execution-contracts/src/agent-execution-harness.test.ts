@@ -9,6 +9,7 @@ import {
   runAgentExecutionHarness,
   toModelHarnessToolVisibility,
   validateAgentExecutionHarnessProfileV1,
+  type AgentExecutionHarnessChild,
   type AgentExecutionHarnessPorts,
   type AgentExecutionHarnessProfileV1,
 } from './agent-execution-harness.js'
@@ -249,5 +250,161 @@ describe('AgentExecutionHarnessProfileV1', () => {
       actions: [{ kind: 'output', tool: 'agent.output', byteLength: 1 }],
     })
     expect(stalled.reasonCodes[0]).toMatch(/HARNESS_(DURATION_EXCEEDED|PROGRESS_STALLED)/)
+  })
+})
+
+/**
+ * These pin the `=> void` return declarations on `AgentExecutionHarnessChild`
+ * and `AgentExecutionHarnessPorts.writeFile`.
+ *
+ * The first test is a TYPE-level lock: every port below uses an
+ * expression-bodied arrow returning a value, which was TS2322 under the former
+ * `=> void | Promise<void>`. This file is inside `tsconfig.json`'s `include`,
+ * so `yarn workspace @dzupagent/execution-contracts typecheck` enforces it.
+ *
+ * The rest are RUNTIME locks. Narrowing to `void` removes any type-level hint
+ * that these results are awaited — though the union did not provide one either,
+ * since deleting `await` from `child.wait()` type-checks under both. So the
+ * awaits in `cleanupChild` and at the write site are pinned by observable
+ * behaviour instead: an async rejection must be caught, terminate must settle
+ * before wait is called, and an async write must land before the read-back.
+ */
+describe('AgentExecutionHarness port return types', () => {
+  it('accepts expression-bodied recorder ports through the public surface', async () => {
+    const f = fixture()
+    const lifecycle: string[] = []
+    const writes: Array<[string, string | Uint8Array]> = []
+    const stamp = computeAgentExecutionReadStamp(readFileSync(path.join(f.root, 'seed.txt')))
+    // Returns `number`, so the arrow below has a value-typed expression body.
+    const recordWrite = (filePath: string, content: string | Uint8Array): number => {
+      writeFileSync(filePath, content)
+      return writes.push([filePath, content])
+    }
+
+    const result = await runAgentExecutionHarness({
+      profile: f.profile,
+      ports: {
+        ...f.ports,
+        // Expression bodies on purpose: `Array.prototype.push` returns `number`.
+        writeFile: (filePath, content) => recordWrite(filePath, content),
+        spawnChild: () => ({
+          id: 'child-expression-bodied',
+          terminate: () => lifecycle.push('terminate'),
+          wait: () => lifecycle.push('wait'),
+        }),
+      },
+      actions: [
+        { kind: 'spawn', tool: 'process.spawn', commandRef: 'fixture-child' },
+        { kind: 'read', tool: 'fs.read', path: 'seed.txt' },
+        { kind: 'write', tool: 'fs.write', path: 'seed.txt', content: 'recorded', expectedReadStamp: stamp },
+      ],
+    })
+
+    expect(result.status).toBe('completed')
+    expect(result.childCleanupVerified).toBe(true)
+    // Assert the fixtures actually fired, so the type lock is not vacuous.
+    expect(lifecycle).toEqual(['terminate', 'wait'])
+    expect(writes).toEqual([[path.join(f.root, 'seed.txt'), 'recorded']])
+  })
+
+  it('accepts the canonical Node child shape, which the former union rejected', async () => {
+    // `ChildProcess.kill()` returns boolean and `events.once()` returns
+    // Promise<unknown[]>. Neither is assignable to `void | Promise<void>`, so
+    // the union rejected the most natural real implementation of this port.
+    const proc = { kill: (): boolean => true, exited: Promise.resolve<unknown[]>(['exit', 0]) }
+    const nodeShaped: AgentExecutionHarnessChild = {
+      id: 'child-node-shaped',
+      terminate: () => proc.kill(),
+      wait: () => proc.exited,
+    }
+
+    const f = fixture()
+    const result = await runAgentExecutionHarness({
+      profile: f.profile,
+      ports: { ...f.ports, spawnChild: () => nodeShaped },
+      actions: [{ kind: 'spawn', tool: 'process.spawn', commandRef: 'fixture-child' }],
+    })
+
+    expect(result.status).toBe('completed')
+    expect(result.childCleanupVerified).toBe(true)
+    expect(await proc.exited).toEqual(['exit', 0])
+  })
+
+  it('awaits an asynchronously rejecting wait() rather than claiming cleanup succeeded', async () => {
+    // The pre-existing cleanup-failure test throws SYNCHRONOUSLY, which is
+    // caught with or without the await. This rejects on a later turn, so it
+    // fails if the await in `cleanupChild` is dropped.
+    const f = fixture()
+    const lifecycle: string[] = []
+    const result = await runAgentExecutionHarness({
+      profile: f.profile,
+      ports: {
+        ...f.ports,
+        spawnChild: async () => ({
+          id: 'child-async-reject',
+          terminate: () => { lifecycle.push('terminate') },
+          wait: () => new Promise<void>((_resolve, reject) => {
+            lifecycle.push('wait')
+            setTimeout(() => reject(new Error('async wait failure')), 0)
+          }),
+        }),
+      },
+      actions: [{ kind: 'spawn', tool: 'process.spawn', commandRef: 'fixture-child' }],
+    })
+
+    expect(lifecycle).toEqual(['terminate', 'wait'])
+    expect(result.childCleanupVerified).toBe(false)
+    expect(result.status).toBe('failed')
+    expect(result.reasonCodes).toEqual(['HARNESS_CHILD_CLEANUP_FAILED'])
+    expect(result.activeChildProcesses).toBe(1)
+  })
+
+  it('settles terminate() before it calls wait()', async () => {
+    const f = fixture()
+    const lifecycle: string[] = []
+    const result = await runAgentExecutionHarness({
+      profile: f.profile,
+      ports: {
+        ...f.ports,
+        spawnChild: async () => ({
+          id: 'child-ordered-cleanup',
+          terminate: () => new Promise<void>((resolve) => {
+            lifecycle.push('terminate:called')
+            setTimeout(() => { lifecycle.push('terminate:settled'); resolve() }, 0)
+          }),
+          wait: () => { lifecycle.push('wait:called') },
+        }),
+      },
+      actions: [{ kind: 'spawn', tool: 'process.spawn', commandRef: 'fixture-child' }],
+    })
+
+    expect(result.childCleanupVerified).toBe(true)
+    // Dropping the terminate await reorders this to
+    // ['terminate:called', 'wait:called', 'terminate:settled'].
+    expect(lifecycle).toEqual(['terminate:called', 'terminate:settled', 'wait:called'])
+  })
+
+  it('settles an asynchronous writeFile before it verifies the written bytes', async () => {
+    const f = fixture()
+    const target = path.join(f.root, 'seed.txt')
+    const stamp = computeAgentExecutionReadStamp(readFileSync(target))
+    const result = await runAgentExecutionHarness({
+      profile: f.profile,
+      ports: {
+        ...f.ports,
+        writeFile: (filePath, content) => new Promise<void>((resolve) => {
+          setTimeout(() => { writeFileSync(filePath, content); resolve() }, 0)
+        }),
+      },
+      actions: [
+        { kind: 'read', tool: 'fs.read', path: 'seed.txt' },
+        { kind: 'write', tool: 'fs.write', path: 'seed.txt', content: 'async-written', expectedReadStamp: stamp },
+      ],
+    })
+
+    // Without the await the read-back sees the stale bytes and the harness
+    // rejects the action with HARNESS_PORT_FAILED.
+    expect(result.status).toBe('completed')
+    expect(readFileSync(target, 'utf8')).toBe('async-written')
   })
 })
