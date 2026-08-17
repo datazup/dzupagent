@@ -68,6 +68,12 @@ export interface AttemptWithFailoverParams<T> {
     attemptNumber: number,
   ) => Promise<void>
   /**
+   * Optional control-plane fault classifier. Returning `false` propagates the
+   * error immediately without poisoning provider health, emitting a provider
+   * failure, or consulting the retry policy.
+   */
+  isProviderFault?: (error: Error) => boolean
+  /**
    * Predicate consulted after a failure to decide whether to advance to the
    * next attempt. The loop additionally requires that there *is* a next
    * attempt; this callback only encodes the policy (transient error filter,
@@ -91,7 +97,7 @@ export interface AttemptWithFailoverParams<T> {
 export async function attemptWithFailover<T>(
   params: AttemptWithFailoverParams<T>,
 ): Promise<T> {
-  const { attempts, phase, agentId, runId, tenantId, eventBus, registry, beforeAttempt, shouldRetry, execute } =
+  const { attempts, phase, agentId, runId, tenantId, eventBus, registry, beforeAttempt, isProviderFault, shouldRetry, execute } =
     params
   let lastError: unknown
 
@@ -138,6 +144,7 @@ export async function attemptWithFailover<T>(
     } catch (err) {
       lastError = err
       const asError = err instanceof Error ? err : new Error(String(err))
+      if (isProviderFault && !isProviderFault(asError)) throw err
       registry?.recordProviderFailure(attempt.provider, asError)
       const retrying =
         index < attempts.length - 1 && shouldRetry(asError, index)

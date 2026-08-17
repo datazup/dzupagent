@@ -40,6 +40,7 @@ import {
   awaitRateLimit,
   recordDistributedCost,
 } from './rate-limit-coordinator.js'
+import { isModelCancellationError } from './model-timeout-error.js'
 import { shouldWriteBackMemory } from './memory-write-back-policy.js'
 import { applyOutputFilter } from './run-engine.js'
 import type { StreamRunContext } from './streaming-run-types.js'
@@ -174,7 +175,11 @@ export async function openIterationStream(
       ctx.registry.recordProviderSuccess(ctx.resolvedProvider)
     }
   } catch (err) {
-    if (ctx.resolvedProvider && ctx.registry) {
+    if (
+      ctx.resolvedProvider
+      && ctx.registry
+      && !isModelCancellationError(err)
+    ) {
       const asError = err instanceof Error ? err : new Error(String(err))
       ctx.registry.recordProviderFailure(ctx.resolvedProvider, asError)
     }
@@ -197,7 +202,7 @@ export async function recordCompletedStreamCost(
 ): Promise<void> {
   const usage = extractTokenUsage(fullResponse, activeModelName)
   if (usage.inputTokens <= 0 && usage.outputTokens <= 0) return
-  await recordDistributedCost(ctx.modelGates, fullResponse)
+  await recordDistributedCost(ctx.modelGates, fullResponse, activeModelName)
 }
 
 /**
@@ -263,7 +268,7 @@ export async function* consumeStream(args: {
       }
     }
   } catch (err) {
-    if (activeProvider && ctx.registry) {
+    if (activeProvider && ctx.registry && !isModelCancellationError(err)) {
       const asError = err instanceof Error ? err : new Error(String(err))
       ctx.registry.recordProviderFailure(activeProvider, asError)
       if (ctx.config.providerFailover?.enabled) {

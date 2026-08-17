@@ -158,7 +158,9 @@ async function* boundStreamConsumption(
     // A provider that ignored the abort signal may also hang in `return()`.
     // Cleanup is best-effort and must never delay the caller past its bound.
     if (!exhausted && iterator.return) {
-      void Promise.resolve(iterator.return()).catch(() => undefined)
+      void Promise.resolve()
+        .then(() => iterator.return!())
+        .catch(() => undefined)
     }
   }
 }
@@ -303,6 +305,7 @@ export async function openStreamWithProviderFailover(
     registry: ctx.registry,
     tenantId: ctx.modelGates.tenantId,
     beforeAttempt: async () => awaitRateLimit(ctx.modelGates),
+    isProviderFault: (error) => !isModelCancellationError(error),
     shouldRetry: (err) => shouldRunStreamFailover(ctx.config, err, messages),
     execute: async (candidate, attemptNumber) => {
       const stream = await openModelStreamBounded(candidate.model, messages, {

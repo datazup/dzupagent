@@ -6,6 +6,7 @@ import {
 } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { TokenBucket, type ModelRegistry } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
 
 import { DzupAgent } from '../agent/dzip-agent.js'
 import type { AgentStreamEvent, DzupAgentConfig } from '../agent/agent-types.js'
@@ -75,6 +76,22 @@ function partialThenStalledModel(): NativeModel {
   } as unknown as NativeModel
 }
 
+function cleanupThrowingStalledModel(): NativeModel {
+  return {
+    invoke: vi.fn(),
+    bindTools: vi.fn().mockReturnThis(),
+    model: 'gpt-4o',
+    stream: vi.fn(async () => ({
+      [Symbol.asyncIterator]: () => ({
+        next: () => new Promise<IteratorResult<AIMessage>>(() => {}),
+        return: () => {
+          throw new Error('provider cleanup failed synchronously')
+        },
+      }),
+    })),
+  } as unknown as NativeModel
+}
+
 type MockRegistry = ModelRegistry & {
   getModelWithFallback: ReturnType<typeof vi.fn>
   getModelFallbackCandidates: ReturnType<typeof vi.fn>
@@ -135,6 +152,15 @@ function sharedClient() {
       return totalCost
     }),
   }
+}
+
+type MockEventBus = DzupEventBus & { emit: ReturnType<typeof vi.fn> }
+
+function mockEventBus(): MockEventBus {
+  return {
+    emit: vi.fn(),
+    on: vi.fn(() => () => {}),
+  } as unknown as MockEventBus
 }
 
 describe('native stream model-gate parity', () => {
@@ -241,6 +267,14 @@ describe('native stream model-gate parity', () => {
     await expect(drain(agent)).rejects.toSatisfy(isModelCancellationError)
   }, 5_000)
 
+  it('preserves the model timeout when provider iterator cleanup throws synchronously', async () => {
+    const agent = new DzupAgent(baseConfig(cleanupThrowingStalledModel(), {
+      guardrails: { modelTimeoutMs: 40 },
+    }))
+
+    await expect(drain(agent)).rejects.toSatisfy(isModelTimeoutError)
+  }, 5_000)
+
   it('terminates a pre-open caller abort without contacting the provider', async () => {
     const model = successfulModel()
     const agent = new DzupAgent(baseConfig(model))
@@ -253,8 +287,15 @@ describe('native stream model-gate parity', () => {
 
   it('releases a caller after partial output when the signal aborts mid-stream', async () => {
     const controller = new AbortController()
-    const model = partialThenStalledModel()
-    const agent = new DzupAgent(baseConfig(model))
+    const primary = partialThenStalledModel()
+    const secondary = successfulModel('must not replay')
+    const registry = failoverRegistry(primary, secondary)
+    const eventBus = mockEventBus()
+    const agent = new DzupAgent(baseConfig('chat', {
+      registry,
+      eventBus,
+      providerFailover: { enabled: true, shouldRetry: () => true },
+    }))
     const stream = agent.stream([new HumanMessage('hello')], {
       signal: controller.signal,
     })
@@ -265,7 +306,36 @@ describe('native stream model-gate parity', () => {
     })
     controller.abort()
     await expect(stream.next()).rejects.toSatisfy(isModelCancellationError)
-    expect(model.stream).toHaveBeenCalledTimes(1)
+    expect(primary.stream).toHaveBeenCalledTimes(1)
+    expect(secondary.stream).not.toHaveBeenCalled()
+    expect(registry.recordProviderFailure).not.toHaveBeenCalled()
+    expect(eventBus.emit).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'provider:run_failure' }),
+    )
+  }, 5_000)
+
+  it('does not blame or fail over a provider when caller aborts during stream open', async () => {
+    const controller = new AbortController()
+    const primary = openStalledModel()
+    const secondary = successfulModel('must not retry')
+    const registry = failoverRegistry(primary, secondary)
+    const eventBus = mockEventBus()
+    const agent = new DzupAgent(baseConfig('chat', {
+      registry,
+      eventBus,
+      providerFailover: { enabled: true, shouldRetry: () => true },
+    }))
+    const pending = drain(agent, controller.signal)
+
+    await vi.waitFor(() => expect(primary.stream).toHaveBeenCalledTimes(1))
+    controller.abort()
+
+    await expect(pending).rejects.toSatisfy(isModelCancellationError)
+    expect(secondary.stream).not.toHaveBeenCalled()
+    expect(registry.recordProviderFailure).not.toHaveBeenCalled()
+    expect(eventBus.emit).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'provider:run_failure' }),
+    )
   }, 5_000)
 
   it('records one distributed cost entry only after real streamed usage completes', async () => {
@@ -307,6 +377,37 @@ describe('native stream model-gate parity', () => {
     await drain(agent)
 
     expect(client.incrByFloat).not.toHaveBeenCalled()
+  })
+
+  it('prices real streamed usage against the selected model when metadata omits it', async () => {
+    const client = sharedClient()
+    const model = {
+      invoke: vi.fn(),
+      bindTools: vi.fn().mockReturnThis(),
+      model: 'gpt-5',
+      stream: vi.fn(async function* () {
+        yield new AIMessage<StandardMessageStructure>({
+          content: 'usage without model metadata',
+          usage_metadata: {
+            input_tokens: 1_000_000,
+            output_tokens: 1_000_000,
+            total_tokens: 2_000_000,
+          },
+        })
+      }),
+    } as unknown as NativeModel
+    const agent = new DzupAgent(baseConfig(model, {
+      guardrails: {
+        distributed: { costLedger: { client, maxCostUsd: 100 } },
+      },
+    }))
+
+    await drain(agent)
+
+    expect(client.incrByFloat).toHaveBeenCalledWith(
+      'dzupagent:cost:default:native-stream-gates',
+      12.5,
+    )
   })
 
   it('stops on a confirmed cost breach without blaming or trying another provider', async () => {

@@ -134,7 +134,8 @@ export async function awaitRateLimit(
  */
 export async function recordDistributedCost(
   deps: RateLimitCoordinatorDeps,
-  message: BaseMessage
+  message: BaseMessage,
+  modelName?: string
 ): Promise<void> {
   const { agentId, tenantId, distributedCostLedger, eventBus } = deps;
   if (!distributedCostLedger) return;
@@ -146,7 +147,7 @@ export async function recordDistributedCost(
   // try/catch — otherwise it would be swallowed by its own handler.
   let breach: CostLedgerRecordResult | undefined;
   try {
-    const usage = extractTokenUsage(message);
+    const usage = extractTokenUsage(message, modelName);
     const costCents = calculateCostCents(usage);
     const costUsd = costCents / 100;
     const result = await distributedCostLedger.record(
