@@ -78,7 +78,7 @@ describe('SafetyMonitor tool:error catch block', () => {
       bus.emit({
         type: 'tool:error',
         toolName: 'bad',
-        errorCode: 'ERR',
+        errorCode: 'TOOL_EXECUTION_FAILED',
         message: 'boom',
       })
     }).not.toThrow()
@@ -112,7 +112,7 @@ describe('SafetyMonitor tool:error catch block', () => {
       configurable: true,
     })
 
-    bus.emit({ type: 'tool:error', toolName: 't1', errorCode: 'E', message: 'x' })
+    bus.emit({ type: 'tool:error', toolName: 't1', errorCode: 'TOOL_EXECUTION_FAILED', message: 'x' })
     shouldThrow = false
     bus.emit({ type: 'tool:result', toolName: 't1', durationMs: 5 })
 

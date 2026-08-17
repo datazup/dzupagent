@@ -79,7 +79,7 @@ describe('EVENT_METRIC_MAP', () => {
     const testEvents: Record<string, Record<string, unknown>> = {
       'agent:started': { type: 'agent:started', agentId: 'a1', runId: 'r1' },
       'agent:completed': { type: 'agent:completed', agentId: 'a1', runId: 'r1', durationMs: 1000 },
-      'agent:failed': { type: 'agent:failed', agentId: 'a1', runId: 'r1', errorCode: 'ERR', message: 'fail' },
+      'agent:failed': { type: 'agent:failed', agentId: 'a1', runId: 'r1', errorCode: 'TOOL_EXECUTION_FAILED', message: 'fail' },
       'agent:tools-filtered': {
         type: 'agent:tools-filtered',
         agentId: 'a1',
@@ -90,7 +90,7 @@ describe('EVENT_METRIC_MAP', () => {
       },
       'tool:called': { type: 'tool:called', toolName: 't1', input: {} },
       'tool:result': { type: 'tool:result', toolName: 't1', durationMs: 100 },
-      'tool:error': { type: 'tool:error', toolName: 't1', errorCode: 'ERR', message: 'fail' },
+      'tool:error': { type: 'tool:error', toolName: 't1', errorCode: 'TOOL_EXECUTION_FAILED', message: 'fail' },
       'memory:written': { type: 'memory:written', namespace: 'ns', key: 'k' },
       'memory:searched': { type: 'memory:searched', namespace: 'ns', query: 'q', resultCount: 1 },
       'memory:error': { type: 'memory:error', namespace: 'ns', message: 'err' },

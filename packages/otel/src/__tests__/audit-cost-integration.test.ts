@@ -283,7 +283,7 @@ describe('CostAttributor advanced scenarios', () => {
 
   it('_buildUsage computes correct percent for cost threshold', () => {
     const exceeded: Array<{ usage: { percent: number; costCents: number; costLimitCents: number; iterations: number } }> = []
-    bus.on('budget:exceeded', (e) => exceeded.push(e as typeof exceeded[0]))
+    bus.on('budget:exceeded', (e) => { exceeded.push(e as typeof exceeded[0]) })
 
     const cost = new CostAttributor({
       thresholds: { maxCostCents: 200 },
@@ -301,7 +301,7 @@ describe('CostAttributor advanced scenarios', () => {
 
   it('_buildUsage handles both cost and token thresholds, picks higher ratio', () => {
     const exceeded: Array<{ usage: { percent: number } }> = []
-    bus.on('budget:exceeded', (e) => exceeded.push(e as typeof exceeded[0]))
+    bus.on('budget:exceeded', (e) => { exceeded.push(e as typeof exceeded[0]) })
 
     // Token threshold is lower relative to usage
     const cost = new CostAttributor({
@@ -318,7 +318,7 @@ describe('CostAttributor advanced scenarios', () => {
 
   it('warning is emitted only once even with multiple records', () => {
     const warnings: unknown[] = []
-    bus.on('budget:warning', (e) => warnings.push(e))
+    bus.on('budget:warning', (e) => { warnings.push(e) })
 
     const cost = new CostAttributor({
       thresholds: { maxCostCents: 100 },
@@ -395,13 +395,13 @@ describe('SafetyMonitor advanced scenarios', () => {
   it('tool failure tracking persists across multiple different tools', () => {
     const monitor = new SafetyMonitor({ toolFailureThreshold: 2, eventBus: bus })
 
-    bus.emit({ type: 'tool:error', toolName: 'a', errorCode: 'ERR', message: 'f' })
-    bus.emit({ type: 'tool:error', toolName: 'b', errorCode: 'ERR', message: 'f' })
-    bus.emit({ type: 'tool:error', toolName: 'c', errorCode: 'ERR', message: 'f' })
+    bus.emit({ type: 'tool:error', toolName: 'a', errorCode: 'TOOL_EXECUTION_FAILED', message: 'f' })
+    bus.emit({ type: 'tool:error', toolName: 'b', errorCode: 'TOOL_EXECUTION_FAILED', message: 'f' })
+    bus.emit({ type: 'tool:error', toolName: 'c', errorCode: 'TOOL_EXECUTION_FAILED', message: 'f' })
     // None have reached threshold of 2
     expect(monitor.getEvents()).toHaveLength(0)
 
-    bus.emit({ type: 'tool:error', toolName: 'a', errorCode: 'ERR', message: 'f' })
+    bus.emit({ type: 'tool:error', toolName: 'a', errorCode: 'TOOL_EXECUTION_FAILED', message: 'f' })
     expect(monitor.getEvents()).toHaveLength(1)
     expect(monitor.getEvents()[0]!.details?.['toolName']).toBe('a')
   })

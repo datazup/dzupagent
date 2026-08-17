@@ -91,7 +91,7 @@ describe('CostAttributor', () => {
   describe('threshold warning at 80%', () => {
     it('emits budget:warning when cost reaches 80% of max', () => {
       const warnings: unknown[] = []
-      bus.on('budget:warning', (e) => warnings.push(e))
+      bus.on('budget:warning', (e) => { warnings.push(e) })
 
       cost = new CostAttributor({
         thresholds: { maxCostCents: 100 },
@@ -106,7 +106,7 @@ describe('CostAttributor', () => {
 
     it('does not emit warning below 80%', () => {
       const warnings: unknown[] = []
-      bus.on('budget:warning', (e) => warnings.push(e))
+      bus.on('budget:warning', (e) => { warnings.push(e) })
 
       cost = new CostAttributor({
         thresholds: { maxCostCents: 100 },
@@ -122,7 +122,7 @@ describe('CostAttributor', () => {
   describe('threshold exceeded at 100%', () => {
     it('emits budget:exceeded when cost reaches 100% of max', () => {
       const exceeded: unknown[] = []
-      bus.on('budget:exceeded', (e) => exceeded.push(e))
+      bus.on('budget:exceeded', (e) => { exceeded.push(e) })
 
       cost = new CostAttributor({
         thresholds: { maxCostCents: 100 },
@@ -137,7 +137,7 @@ describe('CostAttributor', () => {
 
     it('emits budget:exceeded for token threshold', () => {
       const exceeded: unknown[] = []
-      bus.on('budget:exceeded', (e) => exceeded.push(e))
+      bus.on('budget:exceeded', (e) => { exceeded.push(e) })
 
       cost = new CostAttributor({
         thresholds: { maxTokens: 1000 },
@@ -151,7 +151,7 @@ describe('CostAttributor', () => {
 
     it('only emits exceeded once', () => {
       const exceeded: unknown[] = []
-      bus.on('budget:exceeded', (e) => exceeded.push(e))
+      bus.on('budget:exceeded', (e) => { exceeded.push(e) })
 
       cost = new CostAttributor({
         thresholds: { maxCostCents: 100 },
@@ -184,7 +184,7 @@ describe('CostAttributor', () => {
 
     it('allows threshold events to fire again after reset', () => {
       const warnings: unknown[] = []
-      bus.on('budget:warning', (e) => warnings.push(e))
+      bus.on('budget:warning', (e) => { warnings.push(e) })
 
       cost = new CostAttributor({
         thresholds: { maxCostCents: 100 },

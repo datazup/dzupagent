@@ -46,7 +46,7 @@ describe('CostAttributor extended', () => {
   describe('custom warning ratio', () => {
     it('emits warning at custom ratio', () => {
       const warnings: unknown[] = []
-      bus.on('budget:warning', (e) => warnings.push(e))
+      bus.on('budget:warning', (e) => { warnings.push(e) })
 
       const cost = new CostAttributor({
         thresholds: { maxCostCents: 100, warningRatio: 0.5 },
@@ -65,8 +65,8 @@ describe('CostAttributor extended', () => {
     it('does not emit warning if exceeded is emitted first', () => {
       const warnings: unknown[] = []
       const exceeded: unknown[] = []
-      bus.on('budget:warning', (e) => warnings.push(e))
-      bus.on('budget:exceeded', (e) => exceeded.push(e))
+      bus.on('budget:warning', (e) => { warnings.push(e) })
+      bus.on('budget:exceeded', (e) => { exceeded.push(e) })
 
       const cost = new CostAttributor({
         thresholds: { maxCostCents: 100 },
@@ -84,7 +84,7 @@ describe('CostAttributor extended', () => {
   describe('token threshold warnings', () => {
     it('emits warning at 80% of maxTokens', () => {
       const warnings: unknown[] = []
-      bus.on('budget:warning', (e) => warnings.push(e))
+      bus.on('budget:warning', (e) => { warnings.push(e) })
 
       const cost = new CostAttributor({
         thresholds: { maxTokens: 10000 },
@@ -97,7 +97,7 @@ describe('CostAttributor extended', () => {
 
     it('does not emit warning below 80% of maxTokens', () => {
       const warnings: unknown[] = []
-      bus.on('budget:warning', (e) => warnings.push(e))
+      bus.on('budget:warning', (e) => { warnings.push(e) })
 
       const cost = new CostAttributor({
         thresholds: { maxTokens: 10000 },
@@ -181,7 +181,7 @@ describe('CostAttributor extended', () => {
   describe('_buildUsage output', () => {
     it('includes percent calculation in budget:exceeded event', () => {
       const exceeded: Array<{ usage: { percent: number; tokensUsed: number } }> = []
-      bus.on('budget:exceeded', (e) => exceeded.push(e as typeof exceeded[0]))
+      bus.on('budget:exceeded', (e) => { exceeded.push(e as typeof exceeded[0]) })
 
       const cost = new CostAttributor({
         thresholds: { maxCostCents: 50 },
@@ -196,7 +196,7 @@ describe('CostAttributor extended', () => {
 
     it('includes token usage in budget:warning event', () => {
       const warnings: Array<{ usage: { tokensUsed: number; tokensLimit: number } }> = []
-      bus.on('budget:warning', (e) => warnings.push(e as typeof warnings[0]))
+      bus.on('budget:warning', (e) => { warnings.push(e as typeof warnings[0]) })
 
       const cost = new CostAttributor({
         thresholds: { maxTokens: 1000 },
@@ -214,8 +214,8 @@ describe('CostAttributor extended', () => {
   describe('zero and negative thresholds', () => {
     it('does not emit events for maxCostCents of 0', () => {
       const events: unknown[] = []
-      bus.on('budget:exceeded', (e) => events.push(e))
-      bus.on('budget:warning', (e) => events.push(e))
+      bus.on('budget:exceeded', (e) => { events.push(e) })
+      bus.on('budget:warning', (e) => { events.push(e) })
 
       const cost = new CostAttributor({
         thresholds: { maxCostCents: 0 },
@@ -228,8 +228,8 @@ describe('CostAttributor extended', () => {
 
     it('does not emit events for maxTokens of 0', () => {
       const events: unknown[] = []
-      bus.on('budget:exceeded', (e) => events.push(e))
-      bus.on('budget:warning', (e) => events.push(e))
+      bus.on('budget:exceeded', (e) => { events.push(e) })
+      bus.on('budget:warning', (e) => { events.push(e) })
 
       const cost = new CostAttributor({
         thresholds: { maxTokens: 0 },

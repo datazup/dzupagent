@@ -101,7 +101,7 @@ describe('CostAttributor — deep (W21-B1)', () => {
   describe('budget threshold callback edges', () => {
     it('fires exceeded exactly at ratio = 1.0', () => {
       const exceeded: unknown[] = []
-      bus.on('budget:exceeded', (e) => exceeded.push(e))
+      bus.on('budget:exceeded', (e) => { exceeded.push(e) })
 
       const cost = new CostAttributor({
         thresholds: { maxCostCents: 100 },
@@ -114,7 +114,7 @@ describe('CostAttributor — deep (W21-B1)', () => {
 
     it('warning fires at exactly warningRatio (default 0.8)', () => {
       const warnings: unknown[] = []
-      bus.on('budget:warning', (e) => warnings.push(e))
+      bus.on('budget:warning', (e) => { warnings.push(e) })
 
       const cost = new CostAttributor({
         thresholds: { maxCostCents: 100 },
@@ -127,7 +127,7 @@ describe('CostAttributor — deep (W21-B1)', () => {
 
     it('exceeded is emitted at most once across many over-budget records', () => {
       const exceeded: unknown[] = []
-      bus.on('budget:exceeded', (e) => exceeded.push(e))
+      bus.on('budget:exceeded', (e) => { exceeded.push(e) })
 
       const cost = new CostAttributor({
         thresholds: { maxCostCents: 50 },
@@ -240,7 +240,7 @@ describe('CostAttributor — deep (W21-B1)', () => {
 
     it('reset clears exceeded-emitted flag so it can fire again', () => {
       const exceeded: unknown[] = []
-      bus.on('budget:exceeded', (e) => exceeded.push(e))
+      bus.on('budget:exceeded', (e) => { exceeded.push(e) })
 
       const cost = new CostAttributor({
         thresholds: { maxCostCents: 100 },

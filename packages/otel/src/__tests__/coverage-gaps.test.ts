@@ -303,8 +303,8 @@ describe('SafetyMonitor error handling in attach', () => {
     const bus = createEventBus()
     monitor.attach(bus)
 
-    bus.emit({ type: 'tool:error', toolName: 'bad_tool', errorCode: 'ERR', message: 'fail1' })
-    bus.emit({ type: 'tool:error', toolName: 'bad_tool', errorCode: 'ERR', message: 'fail2' })
+    bus.emit({ type: 'tool:error', toolName: 'bad_tool', errorCode: 'TOOL_EXECUTION_FAILED', message: 'fail1' })
+    bus.emit({ type: 'tool:error', toolName: 'bad_tool', errorCode: 'TOOL_EXECUTION_FAILED', message: 'fail2' })
 
     const events = monitor.getEvents()
     expect(events.some((e) => e.category === 'tool_misuse')).toBe(true)
@@ -315,10 +315,10 @@ describe('SafetyMonitor error handling in attach', () => {
     const bus = createEventBus()
     monitor.attach(bus)
 
-    bus.emit({ type: 'tool:error', toolName: 't1', errorCode: 'E', message: 'f1' })
-    bus.emit({ type: 'tool:error', toolName: 't1', errorCode: 'E', message: 'f2' })
+    bus.emit({ type: 'tool:error', toolName: 't1', errorCode: 'TOOL_EXECUTION_FAILED', message: 'f1' })
+    bus.emit({ type: 'tool:error', toolName: 't1', errorCode: 'TOOL_EXECUTION_FAILED', message: 'f2' })
     bus.emit({ type: 'tool:result', toolName: 't1', durationMs: 10 })
-    bus.emit({ type: 'tool:error', toolName: 't1', errorCode: 'E', message: 'f3' })
+    bus.emit({ type: 'tool:error', toolName: 't1', errorCode: 'TOOL_EXECUTION_FAILED', message: 'f3' })
 
     // Should not have triggered tool_misuse since counter was reset
     const events = monitor.getEvents()

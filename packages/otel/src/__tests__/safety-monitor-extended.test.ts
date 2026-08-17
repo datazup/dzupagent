@@ -125,19 +125,19 @@ describe('SafetyMonitor extended', () => {
       sut = new SafetyMonitor({ toolFailureThreshold: 2, eventBus: bus })
 
       // 2 failures triggers at threshold
-      bus.emit({ type: 'tool:error', toolName: 'rm', errorCode: 'ERR', message: 'f1' })
-      bus.emit({ type: 'tool:error', toolName: 'rm', errorCode: 'ERR', message: 'f2' })
+      bus.emit({ type: 'tool:error', toolName: 'rm', errorCode: 'TOOL_EXECUTION_FAILED', message: 'f1' })
+      bus.emit({ type: 'tool:error', toolName: 'rm', errorCode: 'TOOL_EXECUTION_FAILED', message: 'f2' })
       expect(sut.getEvents()).toHaveLength(1)
 
       // 3rd failure also triggers (count >= threshold)
-      bus.emit({ type: 'tool:error', toolName: 'rm', errorCode: 'ERR', message: 'f3' })
+      bus.emit({ type: 'tool:error', toolName: 'rm', errorCode: 'TOOL_EXECUTION_FAILED', message: 'f3' })
       expect(sut.getEvents()).toHaveLength(2)
     })
 
     it('threshold of 1 triggers on first failure', () => {
       sut = new SafetyMonitor({ toolFailureThreshold: 1, eventBus: bus })
 
-      bus.emit({ type: 'tool:error', toolName: 'x', errorCode: 'ERR', message: 'fail' })
+      bus.emit({ type: 'tool:error', toolName: 'x', errorCode: 'TOOL_EXECUTION_FAILED', message: 'fail' })
       expect(sut.getEvents()).toHaveLength(1)
       expect(sut.getEvents()[0]!.category).toBe('tool_misuse')
     })
@@ -145,19 +145,19 @@ describe('SafetyMonitor extended', () => {
     it('tool:result resets only the named tool counter', () => {
       sut = new SafetyMonitor({ toolFailureThreshold: 2, eventBus: bus })
 
-      bus.emit({ type: 'tool:error', toolName: 'tool_a', errorCode: 'ERR', message: 'fail' })
-      bus.emit({ type: 'tool:error', toolName: 'tool_b', errorCode: 'ERR', message: 'fail' })
+      bus.emit({ type: 'tool:error', toolName: 'tool_a', errorCode: 'TOOL_EXECUTION_FAILED', message: 'fail' })
+      bus.emit({ type: 'tool:error', toolName: 'tool_b', errorCode: 'TOOL_EXECUTION_FAILED', message: 'fail' })
 
       // Reset only tool_a
       bus.emit({ type: 'tool:result', toolName: 'tool_a', durationMs: 10 })
 
       // tool_b still at count=1, one more triggers it
-      bus.emit({ type: 'tool:error', toolName: 'tool_b', errorCode: 'ERR', message: 'fail' })
+      bus.emit({ type: 'tool:error', toolName: 'tool_b', errorCode: 'TOOL_EXECUTION_FAILED', message: 'fail' })
       expect(sut.getEvents()).toHaveLength(1)
       expect(sut.getEvents()[0]!.details?.['toolName']).toBe('tool_b')
 
       // tool_a needs 2 more
-      bus.emit({ type: 'tool:error', toolName: 'tool_a', errorCode: 'ERR', message: 'fail' })
+      bus.emit({ type: 'tool:error', toolName: 'tool_a', errorCode: 'TOOL_EXECUTION_FAILED', message: 'fail' })
       expect(sut.getEvents()).toHaveLength(1) // still 1 from tool_b only
     })
 
@@ -165,7 +165,7 @@ describe('SafetyMonitor extended', () => {
       sut = new SafetyMonitor({ toolFailureThreshold: 3, eventBus: bus })
 
       for (let i = 0; i < 3; i++) {
-        bus.emit({ type: 'tool:error', toolName: 'dangerous_tool', errorCode: 'ERR', message: 'denied' })
+        bus.emit({ type: 'tool:error', toolName: 'dangerous_tool', errorCode: 'TOOL_EXECUTION_FAILED', message: 'denied' })
       }
 
       const events = sut.getEvents()
