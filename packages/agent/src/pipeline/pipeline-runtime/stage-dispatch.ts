@@ -348,6 +348,13 @@ export async function dispatchLoopStage(
         ),
       };
     })(),
+    // 24-H: hand the durable terminal set to the loop so it can refuse to
+    // re-dispatch an item a previous run already settled. 24-G persisted this
+    // record but never read it back; without this line the executor cannot see
+    // it, and an out-of-order completion is charged a second time.
+    ...(savedLoopState?.itemOutcomes === undefined
+      ? {}
+      : { itemOutcomes: savedLoopState.itemOutcomes }),
     ...(savedLoopState?.previousOutput !== undefined
       ? { previousOutput: savedLoopState.previousOutput }
       : {}),

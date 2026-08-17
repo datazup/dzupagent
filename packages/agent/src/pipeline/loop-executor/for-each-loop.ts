@@ -484,35 +484,112 @@ export async function executeForEachLoop(
     });
   };
 
+  /**
+   * 24-H: mark an already-settled item complete without dispatching it.
+   *
+   * Returns `false` when the item's aggregate contribution CANNOT be
+   * reconstructed, in which case nothing is mutated and the caller must
+   * dispatch the item normally. That gate is the whole subtlety of this packet,
+   * and it is not a defensive nicety — it is reachable and covered:
+   *
+   * - A multi-body-node item leaves a mid-item frame (written at every body
+   *   node except the last), which survives prefix retirement for exactly the
+   *   items this path handles (`itemIndex >= completedIterations`). Its
+   *   `collect.from` resolves against the retained results, so the value is
+   *   recoverable and the skip is safe.
+   * - A SINGLE-body-node item leaves NO frame at all — the frame write is gated
+   *   on `bodyIndex < bodyNodes.length - 1`, which is never true when there is
+   *   one node. If `collect.from` names something only that node produced, the
+   *   value is genuinely gone, and skipping would flush `undefined` into the
+   *   aggregate: `['a', 'b', 'c', undefined]`.
+   *
+   * That second case is precisely the hole 24-G predicted. It was wrong that the
+   * hole is unavoidable, and this packet was wrong to assume it never occurs —
+   * both shapes are real, and which one applies is a property of the flow
+   * document, not of the loop. So recoverability is TESTED rather than assumed:
+   * skip when the value can be rebuilt, re-run when it cannot. Re-running is the
+   * pre-24-H behaviour, double charge included, which is strictly better than a
+   * silently corrupted aggregate.
+   *
+   * No terminal outcome is recorded on the skip path: the previous run already
+   * recorded `completed` for this index, and re-recording would overwrite that
+   * run's settled economics with an attempt that never opened a ledger row.
+   */
+  const restoreSettledItem = async (index: number): Promise<boolean> => {
+    const itemState = {
+      ...context.state,
+      [contract.as]: items[index],
+    };
+    let restoredValue: unknown;
+    if (contract.collect !== undefined) {
+      const retained = new Map<string, NodeResult>();
+      const frame = resume?.itemFrames?.[String(index)];
+      for (const [nodeId, result] of Object.entries(frame?.bodyResults ?? {})) {
+        retained.set(nodeId, result as NodeResult);
+      }
+      const resolved = resolveStatePath(itemState, contract.collect.from);
+      const fromResults = retained.get(contract.collect.from)?.output;
+      // `collectIterationValue` falls back to `undefined` when neither source
+      // has the path, which is indistinguishable from a genuinely-undefined
+      // collected value. Resolve the two sources explicitly instead so an
+      // unrecoverable value is a REFUSAL to skip rather than a silent hole.
+      if (!resolved.found && fromResults === undefined) return false;
+      restoredValue = resolved.found ? resolved.value : fromResults;
+    }
+    if (contract.collect !== undefined) collected[index] = restoredValue;
+    merge.attachedValues[index] = itemState[contract.as];
+    merge.accumulatorItems[index] = itemState[contract.as];
+    // A skipped item consumed no wall-clock this run. Recording 0 rather than
+    // leaving it undefined keeps it counted by `completedIterations`, which
+    // filters on `!== undefined` — an omitted duration would under-report the
+    // loop's completed-item count.
+    iterationDurations[index] = 0;
+    completed[index] = true;
+    // Serialized through the same queue as a dispatched completion, so the
+    // ordered prefix advances in one place regardless of how an item completed.
+    flushQueue = flushQueue.then(flushCompletedPrefix);
+    await flushQueue;
+    return true;
+  };
+
   const runIteration = async (index: number): Promise<void> => {
-    // 24-G: THE READER — the first consumer of `outcome` that makes a
-    // scheduling decision.
+    // 24-H: THE READER — the first consumer of the terminal set that makes a
+    // scheduling decision, and the reason 24-G's record is load-bearing rather
+    // than merely observable.
     //
-    // 24-G: NO READER SHIPS HERE, deliberately.
+    // 24-G built a reader here and DELETED it, because disabling it killed
+    // zero tests: `nextIndex` starts at `startIndex`, so the worker loop never
+    // dispatches an item BELOW the ordered prefix, and the cursor subsumed the
+    // skip entirely. This reader is not that one. It covers the case the
+    // cursor provably cannot reach — an item that completed OUT OF ORDER, past
+    // the prefix (index 3 completing after index 2 failed). The prefix stops at
+    // 2; index 3 is dispatched again on every resume.
     //
-    // The obvious next step was for a resume to skip an item whose durable
-    // outcome is already `completed`, so it never re-runs settled work. That
-    // guard was built, and then proved to be DEAD CODE — disabling it entirely
-    // killed zero tests across the whole for_each lane.
+    // What that re-dispatch costs is MONEY, not correctness of the aggregate.
+    // 24-F advances `attempt` whenever a resumed frame carries economics, so
+    // the replay reserves under a DIFFERENT id than the settled attempt
+    // (`…:item:3` then `…:item:3:attempt:1`) and no host-side idempotency key
+    // can collapse the two. The item settles twice for one unit of work.
     //
-    // The reason is structural, not a gap in coverage: `nextIndex` starts at
-    // `startIndex`, so the worker loop never dispatches an item below the
-    // ordered prefix at all. `runIteration` is only ever entered for items the
-    // prefix does not cover, and for those the durable outcome is `failed`,
-    // `cancelled`, or (out of order) `completed` — instrumented and confirmed.
-    // The existing cursor already subsumes the skip completely.
+    // Skipping is CONDITIONAL on the item's aggregate contribution still being
+    // reconstructible — `restoreSettledItem` returns false when it is not, and
+    // the item then falls through and is dispatched normally. Both shapes are
+    // real: a multi-body-node item keeps a retained frame holding its results,
+    // while a single-body-node item leaves no frame at all and its collected
+    // value can be genuinely unrecoverable. Skipping unconditionally would fix
+    // the double charge by corrupting the aggregate to `[a, b, c, undefined]`,
+    // which is a strictly worse trade. See `restoreSettledItem`.
     //
-    // The one case the cursor does NOT cover is an item that completed OUT OF
-    // ORDER, past the prefix (index 3 completing after index 2 failed). That
-    // item genuinely is re-run today. It cannot be skipped from this record
-    // alone, because `itemOutcomes` stores what HAPPENED to an item and never
-    // what it PRODUCED, while only the flushed prefix persists collected
-    // values — skipping it would mark it complete and leave a hole in the
-    // aggregate, turning `[a, b, c, d]` into `[a, b, c, undefined]`.
-    //
-    // Closing that properly needs a durable per-item OUTPUT record, which is a
-    // contract widening in its own right. Recording that here is worth more
-    // than shipping a guard that reads as protection and does nothing.
+    // Gated on `completed` alone, never on `isTerminalItemOutcome`: a `failed`,
+    // `cancelled` or `denied` item released its reservation and genuinely owes
+    // another attempt, and `outcome_unknown` is not terminal at all. Only a
+    // `completed` item was charged, and only a charged item must not be charged
+    // again. Absence stays unprovable — an item with no record is dispatched
+    // normally, so pre-24-G checkpoints keep resuming unchanged.
+    const priorOutcome = resume?.itemOutcomes?.[String(index)];
+    if (priorOutcome?.outcome === "completed") {
+      if (await restoreSettledItem(index)) return;
+    }
 
     const iteration = index + 1;
     const iterStart = Date.now();
@@ -771,11 +848,13 @@ export async function executeForEachLoop(
         releaseUnresolved
           ? "outcome_unknown"
           : context.signal?.aborted === true
-            ? "cancelled"
-            : "failed",
+          ? "cancelled"
+          : "failed",
         // The reservation was released rather than settled, so it carries no
         // settled cost — a released reservation charged nothing.
-        held === undefined || typeof held === "string" || "outcomeUnknown" in held
+        held === undefined ||
+          typeof held === "string" ||
+          "outcomeUnknown" in held
           ? undefined
           : held
       );

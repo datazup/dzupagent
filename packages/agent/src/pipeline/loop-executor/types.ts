@@ -396,6 +396,22 @@ export interface LoopResumeOptions {
    * entry is populated today.
    */
   itemFrames?: Readonly<Record<string, ForEachItemCheckpointProgress>>;
+  /**
+   * 24-H: durable terminal outcomes recorded by a PREVIOUS run of this loop,
+   * keyed exactly as {@link itemFrames}. This is the resume-side half of the
+   * record 24-G shipped, and its first reader.
+   *
+   * Needed because the ordered-prefix cursor cannot protect every settled item.
+   * `startIteration` skips everything BELOW the prefix, but an item that
+   * completed out of order sits ABOVE it — index 3 completing after index 2
+   * failed — and is otherwise re-dispatched, re-reserved under an advanced
+   * `attempt` id, and settled a second time for work already paid for.
+   *
+   * Absent for a first run and for any pre-24-G checkpoint, in which case the
+   * loop behaves exactly as before: absence means "this run recorded no
+   * outcomes", never "no item is settled".
+   */
+  itemOutcomes?: Readonly<Record<string, ForEachItemTerminalOutcome>>;
   /** Previous completed iteration's final body output. */
   previousOutput?: unknown;
   /** Previous completed iteration's canonical progress digest. */

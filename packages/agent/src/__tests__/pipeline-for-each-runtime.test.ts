@@ -597,9 +597,22 @@ describe('PipelineRuntime — lowered for_each collect', () => {
     const resumed = await second.resume(checkpoint!)
 
     expect(resumed.state).toBe('completed')
-    // 24-G: 'd' still re-runs — it completed out of order, past the flushed
-    // prefix, so its collected value is not durable. See the sibling
-    // Redis-backed test below.
+    // 24-H: 'd' STILL re-runs here, and that is the correct outcome for THIS
+    // pipeline shape rather than an unfixed defect.
+    //
+    // 24-H makes a resume skip an item it already settled, so it is not charged
+    // twice — but only when the item's aggregate contribution can be rebuilt
+    // without re-running it. This loop has a SINGLE body node, so the mid-item
+    // frame write (gated on `bodyIndex < bodyNodes.length - 1`) never fires and
+    // no frame is retained; `collect.from` is `itemStatus`, which only that one
+    // node produces. So 'd' genuinely has nothing to restore from, and skipping
+    // it would flush `undefined` into `itemStatuses` — corrupting the aggregate
+    // to fix a double charge, which is the worse trade.
+    //
+    // The multi-body-node shape, where the frame survives and the skip DOES
+    // fire, is covered in `pipeline-for-each-settled-item-redispatch.test.ts`.
+    // The two together are what make the recoverability gate honest: each is
+    // red if the gate is forced to the other's answer.
     expect(resumeRuns).toEqual(['c', 'd'])
     expect(resumed.nodeResults.get('loop-items')?.output).toMatchObject({
       loopOutput: ['a:ready', 'b:blocked', 'c:ready', 'd:blocked'],
