@@ -17,9 +17,9 @@
   // package boundary and rootDir no longer has to reach outside
   // packages/memory.
   //
-  // The literal old path is deliberately not quoted here: it would make
-  // `grep -rn "agent-types/src" packages/memory/` — the guard that proves the
-  // deep import is gone — trip on this comment.
+  // The retired path is described rather than quoted on purpose: a grep for it
+  // across this package is the guard that proves the deep import is gone, and
+  // spelling it here would make that guard match its own documentation.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
