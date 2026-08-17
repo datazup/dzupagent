@@ -332,9 +332,23 @@ export async function executeForEachLoop(
     }
     // `released` and `absent` are the only two proofs. `unknown` — and any
     // unrecognised status — leaves the item blocked, fail-closed.
-    return outcome.status === "released" || outcome.status === "absent"
-      ? undefined
-      : blocked;
+    if (outcome.status === "released" || outcome.status === "absent") {
+      return undefined;
+    }
+    // 24-H (proof 6, conflict half): a conflict blocks exactly like an unknown,
+    // but it is the opposite epistemic state and must not be reported as one.
+    // "could not be observed" sends an operator hunting a transport fault; the
+    // host in fact observed the reservation perfectly and knows who owns it.
+    // Reporting the holder is the entire value the status adds over `unknown` —
+    // without it this is a relabelling that earns nothing.
+    if (outcome.status === "conflict") {
+      return (
+        `Loop "${loopNode.id}" item ${index} reservation ${reservationId} is ` +
+        `held by another writer "${outcome.heldBy}" after its ${boundary}: ` +
+        `${reason}`
+      );
+    }
+    return blocked;
   };
 
   /**

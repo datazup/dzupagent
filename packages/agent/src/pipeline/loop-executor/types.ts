@@ -156,6 +156,37 @@ export type LoopBudgetReconcileOutcome =
   | {
       /** The host still cannot prove the outcome. The item stays blocked. */
       status: "unknown";
+    }
+  | {
+      /**
+       * 24-H (doc 27 §8 proof 6, conflict half): the host observed the
+       * reservation clearly and it belongs to ANOTHER writer.
+       *
+       * Distinct from `unknown`, which means "I could not observe it". Both
+       * block, but they are opposite epistemic states and send an operator to
+       * opposite places: `unknown` says look for a transport fault, `conflict`
+       * says look for the rival writer named below.
+       *
+       * Before this member the fact was unrepresentable, which is why proof 6's
+       * conflict half sat open across three packets. A host that knew perfectly
+       * well who held the reservation had to answer with a lie: `unknown`
+       * (blocks, but misreports certainty as a failure to observe) or
+       * `absent`/`released` (which UNBLOCK the item and redispatch work whose
+       * money another writer owns).
+       */
+      status: "conflict";
+      /**
+       * Opaque host-authored identity of the holder — a run id, worker id, or
+       * whatever the host's ledger keys by. Surfaced verbatim in the failure so
+       * an operator can find the rival writer.
+       *
+       * Keyed by ITEM rather than by reservation id, and that is forced rather
+       * than chosen: `deriveItemReservationId` embeds `attempt`, and 24-F's
+       * attempt advance means a resumed item deliberately presents a DIFFERENT
+       * id from the one the dead attempt opened. A conflict keyed by id could
+       * never be recognised across the resume that provokes it.
+       */
+      heldBy: string;
     };
 
 export interface LoopIterationBudgetReservationInput {

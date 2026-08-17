@@ -379,8 +379,15 @@ export interface PipelineRuntimeConfig {
       | { status: "released" }
       | { status: "absent" }
       | { status: "unknown" }
+      // 24-H: the host observed the reservation and another writer holds it.
+      // Blocks like `unknown`, but reports certainty rather than a failure to
+      // observe, and names the holder so an operator can find the rival.
+      | { status: "conflict"; heldBy: string }
       | Promise<
-          { status: "released" } | { status: "absent" } | { status: "unknown" }
+          | { status: "released" }
+          | { status: "absent" }
+          | { status: "unknown" }
+          | { status: "conflict"; heldBy: string }
         >;
     /**
      * F: hard monetary ceiling admitted per `for_each` item. The `forEach`
