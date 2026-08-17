@@ -287,8 +287,14 @@ describe('SelfLearningPipelineHook', () => {
       fireEvent(handler, { type: 'pipeline:failed', runId: 'r1', error: 'fatal' })
       await tick()
 
-      // No exception thrown
-      expect(true).toBe(true)
+      // `expect(true).toBe(true)` used to stand in for "no exception thrown",
+      // which held even if the handler ignored `pipeline:failed` outright.
+      // Assert the crashing callback was actually reached...
+      expect(config.onPipelineFailed).toHaveBeenCalledWith('r1', 'fatal')
+      // ...and that the swallowed rejection left the handler usable.
+      fireEvent(handler, { type: 'pipeline:node_completed', nodeId: 'a', durationMs: 100 })
+      await tick()
+      expect(hook.getMetrics().nodesCompleted).toBe(1)
     })
   })
 
