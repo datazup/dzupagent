@@ -24,7 +24,7 @@ describe('OTelBridge integration', () => {
     bus.emit({ type: 'tool:result', toolName: 'read_file', durationMs: 1500 })
     bus.emit({ type: 'memory:written', namespace: 'notes', key: 'k1' })
     bus.emit({ type: 'pipeline:run_started', pipelineId: 'pipe-1', runId: 'run-2' })
-    bus.emit({ type: 'pipeline:node_completed', pipelineId: 'pipe-1', nodeId: 'node-1', durationMs: 375 })
+    bus.emit({ type: 'pipeline:node_completed', pipelineId: 'pipe-1', runId: 'run-2', nodeId: 'node-1', durationMs: 375 })
     bus.emit({
       type: 'vector:search_completed',
       provider: 'qdrant',

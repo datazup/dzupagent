@@ -124,7 +124,7 @@ describe("team runtime alerting runbook", () => {
   it("declares every label key the map emits for the verdict metric", () => {
     // A rule grouping by or filtering on a label the exporter never emits
     // matches nothing and silently never fires.
-    const verdict = teamRuntimeMetricMap["team:verdict_evaluated"][0];
+    const verdict = teamRuntimeMetricMap["team:verdict_evaluated"]![0]!;
     expect(verdict.labelKeys).toContain("reason");
   });
 });

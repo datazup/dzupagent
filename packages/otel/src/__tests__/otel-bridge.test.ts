@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createEventBus } from '@dzupagent/core'
-import type { DzupEventBus, DzupEvent } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
 import { DzupTracer } from '../tracer.js'
 import { OTelBridge, InMemoryMetricSink } from '../otel-bridge.js'
 

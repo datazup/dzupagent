@@ -10,7 +10,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createEventBus } from '@dzupagent/core'
 import type { DzupEventBus } from '@dzupagent/core'
 import { AuditTrail, InMemoryAuditStore } from '../audit-trail.js'
-import type { AuditStore, AuditEntry, AuditCategory } from '../audit-trail.js'
+import type { AuditEntry } from '../audit-trail.js'
 import { createOTelPlugin } from '../otel-plugin.js'
 import type { PluginContext } from '@dzupagent/core'
 import { SafetyMonitor } from '../safety-monitor.js'
@@ -96,10 +96,9 @@ describe('AuditTrail auto-prune', () => {
     bus.emit({ type: 'pipeline:phase_changed', phase: 'test' } as never)
     await tick()
 
-    // No entry should be added for unmapped events
+    // pipeline:phase_changed is not mapped in mapEvent(), so it is filtered out
     const all = await store.getAll()
-    // pipeline:phase_changed is not mapped in mapEvent()
-    // so it should be filtered out
+    expect(all.length).toBe(0)
   })
 })
 

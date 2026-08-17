@@ -259,7 +259,7 @@ describe('CostAttributor — deep (W21-B1)', () => {
     it('reset clears currentPhase tracking', () => {
       const cost = new CostAttributor({ eventBus: bus })
 
-      bus.emit({ type: 'pipeline:phase_changed', phase: 'plan', previousPhase: undefined })
+      bus.emit({ type: 'pipeline:phase_changed', phase: 'plan', previousPhase: 'init' })
       cost.reset()
 
       bus.emit({ type: 'tool:result', toolName: 'read_file', durationMs: 10 })

@@ -1,7 +1,6 @@
 import { describe, it, expect, expectTypeOf } from 'vitest'
 import type { DzupEvent } from '@dzupagent/core'
 import { EVENT_METRIC_MAP, getAllMetricNames } from '../event-metric-map.js'
-import type { MetricMapping } from '../event-metric-map.js'
 
 type EventMetricMapKeys = keyof typeof EVENT_METRIC_MAP
 type MissingEventMetricMappings = Exclude<DzupEvent['type'], EventMetricMapKeys>
@@ -26,7 +25,7 @@ describe('EVENT_METRIC_MAP', () => {
   })
 
   it('every mapping has required fields', () => {
-    for (const [eventType, mappings] of Object.entries(EVENT_METRIC_MAP)) {
+    for (const mappings of Object.values(EVENT_METRIC_MAP)) {
       for (const mapping of mappings) {
         expect(mapping.metricName).toBeTruthy()
         expect(['counter', 'histogram', 'gauge']).toContain(mapping.type)
@@ -70,7 +69,7 @@ describe('EVENT_METRIC_MAP', () => {
     ] as const
 
     for (const eventType of populatedEvents) {
-      const mappings = EVENT_METRIC_MAP[eventType]
+      const mappings = EVENT_METRIC_MAP[eventType] ?? []
       expect(mappings.length, `${eventType} should have at least one metric`).toBeGreaterThan(0)
     }
   })
@@ -204,7 +203,7 @@ describe('EVENT_METRIC_MAP', () => {
           expect(typeof result.value).toBe('number')
           expect(typeof result.labels).toBe('object')
           // All label values should be strings
-          for (const [k, v] of Object.entries(result.labels)) {
+          for (const v of Object.values(result.labels)) {
             expect(typeof v).toBe('string')
           }
         })

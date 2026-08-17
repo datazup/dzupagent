@@ -24,7 +24,7 @@ class RecordingSpan implements OTelSpan {
   constructor(name: string, options?: OTelSpanOptions) {
     this.recorded = {
       name,
-      options,
+      ...(options === undefined ? {} : { options }),
       attributes: { ...(options?.attributes ?? {}) },
       events: [],
       ended: false,
@@ -42,7 +42,7 @@ class RecordingSpan implements OTelSpan {
   }
 
   addEvent(name: string, attributes?: Record<string, string | number | boolean>): this {
-    this.recorded.events.push({ name, attributes })
+    this.recorded.events.push({ name, ...(attributes === undefined ? {} : { attributes }) })
     return this
   }
 

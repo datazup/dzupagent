@@ -9,7 +9,6 @@ import { ForgeSpanAttr } from '../span-attributes.js'
 import { SpanStatusCode, SpanKind } from '../otel-types.js'
 import type { OTelSpan, OTelTracer, OTelSpanOptions, OTelContext } from '../otel-types.js'
 import {
-  forgeContextStore,
   withForgeContext,
   currentForgeContext,
 } from '../trace-context-store.js'
@@ -35,7 +34,7 @@ class RecordingSpan implements OTelSpan {
       attributes: { ...(options?.attributes ?? {}) },
       events: [],
       ended: false,
-      kind: options?.kind,
+      ...(options?.kind === undefined ? {} : { kind: options.kind }),
     }
   }
 
@@ -50,7 +49,7 @@ class RecordingSpan implements OTelSpan {
   }
 
   addEvent(name: string, attributes?: Record<string, string | number | boolean>): this {
-    this.recorded.events.push({ name, attributes })
+    this.recorded.events.push({ name, ...(attributes === undefined ? {} : { attributes }) })
     return this
   }
 

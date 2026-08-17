@@ -100,7 +100,7 @@ describe('execution-ledger metric map', () => {
 
     for (const type of ledgerTypes) {
       expect(EVENT_METRIC_MAP[type]).toBeDefined()
-      expect(EVENT_METRIC_MAP[type].length).toBeGreaterThan(0)
+      expect((EVENT_METRIC_MAP[type] ?? []).length).toBeGreaterThan(0)
     }
   })
 })

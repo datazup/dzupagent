@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { createEventBus } from '@dzupagent/core'
 import type { DzupEventBus } from '@dzupagent/core'
 import { AuditTrail, InMemoryAuditStore } from '../audit-trail.js'
-import type { AuditEntry, AuditCategory } from '../audit-trail.js'
+import type { AuditEntry } from '../audit-trail.js'
 import { CostAttributor } from '../cost-attribution.js'
 import { SafetyMonitor } from '../safety-monitor.js'
 

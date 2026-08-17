@@ -44,7 +44,7 @@ class RecordingSpan implements OTelSpan {
   ) {
     this.recorded = {
       name,
-      options,
+      ...(options === undefined ? {} : { options }),
       context,
       attributes: { ...(options?.attributes ?? {}) },
       events: [],
@@ -66,7 +66,7 @@ class RecordingSpan implements OTelSpan {
     name: string,
     attributes?: Record<string, string | number | boolean>,
   ): this {
-    this.recorded.events.push({ name, attributes });
+    this.recorded.events.push({ name, ...(attributes === undefined ? {} : { attributes }) });
     return this;
   }
 
@@ -215,7 +215,7 @@ describe("Agent Loop trace projection", () => {
           event: "implementation.started",
           status: "started",
           role: "implementer",
-          identity: { ...event().identity, reviewId: undefined },
+          identity: (({ reviewId: _drop, ...rest }) => rest)(event().identity),
         }),
       ).status,
     ).toEqual({ code: SpanStatusCode.UNSET });
@@ -239,7 +239,6 @@ describe("Agent Loop trace projection", () => {
             correlationId: "correlation-1",
           },
           role: "manager",
-          decision: undefined,
           stopClassification: "token_budget_exhausted",
         }),
       ).status,
@@ -280,14 +279,14 @@ describe("Agent Loop trace projection", () => {
       projectAgentLoopTraceEvent(
         event({
           role: "untrusted-role",
-        } as Partial<AgentLoopTraceEvent>),
+        } as unknown as Partial<AgentLoopTraceEvent>),
       ),
     ).toThrow(/role/u);
     expect(() =>
       projectAgentLoopTraceEvent(
         event({
           decision: "invented-decision",
-        } as Partial<AgentLoopTraceEvent>),
+        } as unknown as Partial<AgentLoopTraceEvent>),
       ),
     ).toThrow(/decision/u);
   });
