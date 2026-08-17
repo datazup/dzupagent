@@ -6,8 +6,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createHTTPConnector } from '../http/http-connector.js'
 
 describe('HTTP connector', () => {
-  const originalFetch = globalThis.fetch
-
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn())
   })

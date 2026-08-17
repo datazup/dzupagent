@@ -21,7 +21,7 @@
  *   - Connection error: ECONNREFUSED classified as connection_error
  *   - Reconnect: second query succeeds after first query's connection failed
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   createDatabaseConnector,
   createDatabaseOperations,
@@ -34,7 +34,6 @@ import {
 import type {
   PgPool,
   PgPoolClient,
-  QueryResult,
 } from "../database/db-types.js";
 
 // ---------------------------------------------------------------------------
@@ -61,23 +60,6 @@ function makeOps(
 ) {
   const executor = createCustomExecutor(queryFn);
   return createDatabaseOperations(executor, opts);
-}
-
-/** pg.Pool mock — pool.query path only (no connect). */
-function makePgPoolSimple(
-  queryFn: (
-    sql: string,
-    params?: unknown[],
-  ) => Promise<{
-    rows: Record<string, unknown>[];
-    rowCount: number | null;
-    fields: Array<{ name: string; dataTypeID: number }>;
-  }>,
-): PgPool {
-  return {
-    query: vi.fn(queryFn),
-    end: vi.fn().mockResolvedValue(undefined),
-  };
 }
 
 /** pg.Pool mock with connect() (transaction / executeReadOnly path). */

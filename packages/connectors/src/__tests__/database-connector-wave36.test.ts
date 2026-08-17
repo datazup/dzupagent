@@ -20,7 +20,7 @@
  *   - Idle timeout and pool drain simulation
  *   - describeTable isPrimaryKey 't' string mapping
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   createDatabaseConnector,
   createDatabaseConnectorToolkit,

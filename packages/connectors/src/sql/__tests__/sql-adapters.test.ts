@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { BaseSQLConnector } from '../base-sql-connector.js'
 import type {
   SQLDialect,
@@ -6,7 +6,6 @@ import type {
   QueryExecutionOptions,
   QueryResultData,
   ConnectionTestResult,
-  DatabaseSchema,
   TableSchema,
   ColumnInfo,
   ForeignKey,
@@ -308,7 +307,7 @@ describe('BaseSQLConnector.discoverSchema', () => {
     // Create a subclass that throws on sample values for one column
     class FailingSampleConnector extends ConfigurableMockConnector {
       protected override async discoverSampleValues(
-        tableName: string,
+        _tableName: string,
         _schemaName: string,
         columnName: string,
         _limit: number,

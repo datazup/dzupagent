@@ -353,7 +353,7 @@ describe("AgentRegistryAsyncToolResolver — invoke error paths", () => {
 
   it("throws when network fails during invoke", async () => {
     let callCount = 0;
-    const fn: FetchLike = async (url) => {
+    const fn: FetchLike = async (_url) => {
       callCount++;
       if (callCount === 1) {
         // list call succeeds

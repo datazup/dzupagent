@@ -29,7 +29,7 @@
  *              MergeTree ENGINE DDL passthrough, cluster shard comment.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 import { DuckDBConnector } from "../sql/adapters/duckdb.js";
 import { SQLiteConnector } from "../sql/adapters/sqlite.js";

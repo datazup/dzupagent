@@ -954,7 +954,7 @@ describe("base URL composition", () => {
   });
 
   it("base URL with public IP address resolves full URL", async () => {
-    const mock = mockFetch();
+    mockFetch();
     // Use a public IP (not private/loopback), with SSRF policy allowing HTTP
     const tools = createHTTPConnector({
       baseUrl: "http://203.0.113.5", // TEST-NET-3, documentation range
