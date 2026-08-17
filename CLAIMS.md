@@ -52,8 +52,8 @@ S2=$(git status --porcelain | md5sum); H2=$(git rev-parse HEAD)
 | `core` (contract-fix batch) | **in_progress** | contract-fix-batch session 2026-08-17 20:45 | ENUMERATED FILES ONLY: `src/tools/create-tool.ts`, `src/plugin/plugin-registry.ts`, `src/plugin/plugin-types.ts`, `src/persistence.ts` + their tests. Package was clean and free at claim (0 dirty paths). |
 | `memory` (knowledge-store contract) | **in_progress** | contract-fix-batch session 2026-08-17 20:45 | ENUMERATED FILES ONLY: `src/knowledge/filesystem-knowledge-store.ts` + its tests. Package clean at claim. |
 | `agent` (`src/agent/dzip-agent-run-coordinator.ts` + its spec ONLY) | **in_progress** | contract-fix-batch session 2026-08-17 20:45, re-scoped 21:20 | ENUMERATED FILES ONLY, `packages/agent` as a whole is NOT claimed: `src/agent/dzip-agent-run-coordinator.ts` and `src/__tests__/dzip-agent-run-coordinator-memory-write-back.test.ts`. Fixed the dead guard at line 158 (`(result.stopReason as string) !== "failed"` -- `"failed"` is not a `StopReason` member, so memory write-back was NEVER suppressed) in `be25b782`/`f61387d4`; now re-flipping the policy table to the operator's ratified **keep-partial-work** rule (`complete`/`iteration_limit`/`budget_exceeded`/`token_exhausted` write back; `aborted`/`error`/`stuck`/`compression_failed`/`approval_pending` suppress). ⛔ Does NOT touch `src/pipeline/**` or `src/index.ts` (live sibling lane), nor `src/agent/dzip-agent.ts` (**claimed by the plugin-registry-wiring session at 21:12, row below**). ⚠️ **Reported, not taken:** `streaming-run-fallback.ts:51` and `streaming-run-iteration.ts:80` gate write-back on `stopReason === 'complete'` inline, so after this flip `stream()` and `generate()` DIVERGE on the three cut-short reasons. Reconciling them needs those two unclaimed files and is a policy call for the operator, not drift repair. |
-| repo-root **gates that run nowhere** | **CLAIMED 2026-08-17 20:50** | orphan-gate session (continues the 20:10 ci-gate-parity lane) | ENUMERATED FILES ONLY: `scripts/check-gate-coverage.mjs` (new), `scripts/__tests__/check-gate-coverage.test.mjs` (new), `packages/create-dzupagent/package.json` and `packages/testing/package.json` (`bin` fields only). Closes the hole the 20:10 lane left open: `compareProfileToChain` asserts profile==chain, but nothing asserts a gate is in ANY chain — which is exactly how the dead gates hid. Population re-measured: **6** `check:*` scripts are referenced by no other script, not the 2 that were reported. 🚨 **A THIRD dead gate is RED**: `check:publish-metadata` fails on two real npm-11 publish-normalization defects (`create-dzupagent.bin` must be an object; `@dzupagent/testing` `bin[dzupagent-sdlc-mvp-evidence]` must not start with `./`). `check:flow-corpus-losslessness:required` is GREEN but unwired — CI runs the weaker no-`--require-corpus` variant, so a vanished corpus would pass. ⚠️ **No `package.json` edit**: `test:scripts` globs `scripts/__tests__/*.test.mjs` and is already gate 18 in both chain and profile, so the guard reaches CI with no chain edit and therefore no census/conformance re-pin. `eslint.baseline.js` deliberately NOT touched — a sibling is mid-edit in `core` and a baseline write would absorb their tree. |
-| **`.github/workflows/**` — CI IS DEAD** | **CLAIMED 2026-08-17 20:58** | orphan-gate session (same lane, escalated) | 🚨🚨🚨 **EVERY dzupagent workflow has failed on EVERY push since 2026-06-29. Last green `verify-strict` run: 2026-06-29T22:36Z, ~7 weeks ago. Last 100 runs: 95 failure, 5 cancelled, 0 success.** All 10 workflows die at `Setup Node.js`; every gate step downstream is `skipped`. Cause: `actions/setup-node` with `cache: yarn` shells out to `yarn cache dir` DURING its own step, hitting the runner's global Yarn 1.22.22, which refuses because `packageManager` is `yarn@4.16.0`. Only `checkpoint-compatibility.yml` runs `corepack enable` at all and it runs it AFTER `setup-node` — too late, which is why it fails too. **Not caused by any commit**: the last green run is a DESCENDANT of the Node 24 switch (`4b5baf1e`), and the break window (06-29 22:36Z green → 06-30 09:46Z red) contains no repo change ⇒ a runner-image rollout replaced a corepack-shimmed `yarn` with the preinstalled Yarn 1. ⚠️ **This supersedes the 20:10 ci-gate-parity lane's headline**: wiring 3 missing gates into the CI profile was correct but understated — NO gate has run in CI since June. Owns `.github/workflows/*.yml` only. Verification is a live CI run, not a local one. |
+| repo-root **gates that run nowhere** | **RELEASED 2026-08-17 21:15 — SHIPPED** (`fd5f4002`, `3102ff20`, `38a403f5`, `865ce2bf`) | orphan-gate session (continues the 20:10 ci-gate-parity lane) | ENUMERATED FILES ONLY: `scripts/check-gate-coverage.mjs` (new), `scripts/__tests__/check-gate-coverage.test.mjs` (new), `packages/create-dzupagent/package.json` and `packages/testing/package.json` (`bin` fields only). Closes the hole the 20:10 lane left open: `compareProfileToChain` asserts profile==chain, but nothing asserts a gate is in ANY chain — which is exactly how the dead gates hid. Population re-measured: **6** `check:*` scripts are referenced by no other script, not the 2 that were reported. 🚨 **A THIRD dead gate is RED**: `check:publish-metadata` fails on two real npm-11 publish-normalization defects (`create-dzupagent.bin` must be an object; `@dzupagent/testing` `bin[dzupagent-sdlc-mvp-evidence]` must not start with `./`). `check:flow-corpus-losslessness:required` is GREEN but unwired — CI runs the weaker no-`--require-corpus` variant, so a vanished corpus would pass. ⚠️ **No `package.json` edit**: `test:scripts` globs `scripts/__tests__/*.test.mjs` and is already gate 18 in both chain and profile, so the guard reaches CI with no chain edit and therefore no census/conformance re-pin. `eslint.baseline.js` deliberately NOT touched — a sibling is mid-edit in `core` and a baseline write would absorb their tree. |
+| **`.github/workflows/**` — CI WAS DEAD, NOW ALIVE** | **RELEASED 2026-08-17 21:15 — SHIPPED** (`84e96b9d`, then the other nine absorbed into `38a403f5`) | orphan-gate session (same lane, escalated) | 🚨🚨🚨 **EVERY dzupagent workflow has failed on EVERY push since 2026-06-29. Last green `verify-strict` run: 2026-06-29T22:36Z, ~7 weeks ago. Last 100 runs: 95 failure, 5 cancelled, 0 success.** All 10 workflows die at `Setup Node.js`; every gate step downstream is `skipped`. Cause: `actions/setup-node` with `cache: yarn` shells out to `yarn cache dir` DURING its own step, hitting the runner's global Yarn 1.22.22, which refuses because `packageManager` is `yarn@4.16.0`. Only `checkpoint-compatibility.yml` runs `corepack enable` at all and it runs it AFTER `setup-node` — too late, which is why it fails too. **Not caused by any commit**: the last green run is a DESCENDANT of the Node 24 switch (`4b5baf1e`), and the break window (06-29 22:36Z green → 06-30 09:46Z red) contains no repo change ⇒ a runner-image rollout replaced a corepack-shimmed `yarn` with the preinstalled Yarn 1. ⚠️ **This supersedes the 20:10 ci-gate-parity lane's headline**: wiring 3 missing gates into the CI profile was correct but understated — NO gate has run in CI since June. Owns `.github/workflows/*.yml` only. Verification is a live CI run, not a local one. |
 | `agent` (`src/agent/` plugin-wiring — **3 enumerated files**) | **CLAIMED 2026-08-17 21:12** | plugin-registry-wiring session | ENUMERATED FILES ONLY, `packages/agent` as a whole is NOT claimed: `src/agent/agent-types-config.ts`, `src/agent/agent-construction.ts`, `src/agent/dzip-agent.ts` + new `src/__tests__/plugin-registry-agent-wiring.test.ts`. Gives `PluginRegistry.getHooks()`/`getMiddleware()` their first production consumer via a new `DzupAgentConfig.pluginRegistry` field merged at construction. ⛔ Does **not** touch `packages/core/src/plugin/**` (claimed by the contract-fix-batch session — `toAgentHooks`/`composeAgentHooks` already landed there at `4faa4bbf`, so no core edit is needed), nor `src/agent/dzip-agent-run-coordinator.ts` (single-file claim by that same session), nor `src/pipeline/**` (live sibling lane). All 3 target files clean in `git status --porcelain` at claim time. |
 
 **NOT claimed and not touched by this lane:** `packages/agent` (**11** union
@@ -122,3 +122,75 @@ the last one needs `lint:baseline:update`, which is its owner's call, not ours.
 Packages at zero (do not regress): `adapter-rules`, `cache`,
 `connectors-browser`, `create-dzupagent`, `dialogue-core-replay`, `express`,
 `otel`, `scraper`, `test-utils`, `testing`.
+
+### 🚨🚨🚨 CI had been dead for seven weeks — closing state, 2026-08-17 21:15
+
+**Every dzupagent workflow failed at `Setup Node.js` on every push from
+2026-06-30 until 21:00 today.** Last green `verify-strict`: 2026-06-29T22:36Z.
+Of the last 100 runs before the fix: 95 failure, 5 cancelled, **0 success**.
+Every gate step in every run was `skipped`.
+
+Cause: `actions/setup-node` with `cache: yarn` resolves the cache directory by
+shelling out to `yarn cache dir` **during its own step**, and the runner's
+preinstalled Yarn is 1.22.22, which refuses a project declaring
+`packageManager: yarn@4.16.0`. `checkpoint-compatibility.yml` was the only
+workflow that ran `corepack enable` at all, and it ran it *after* `setup-node`,
+so it failed identically — which is the tell that ordering, not presence, is the
+bug.
+
+**No commit caused this.** The last green run is a *descendant* of the Node 24
+switch (`4b5baf1e`), and the break window (06-29 22:36Z green → 06-30 09:46Z
+red) contains no repo change at all. A runner-image rollout replaced a
+corepack-shimmed `yarn` with the preinstalled Yarn 1. The repo did not rot; the
+environment moved out from under it.
+
+Fixed by putting `corepack enable` before every `setup-node` in all 10
+workflows (17 jobs). Verified empirically, not by reasoning: `84e96b9d` was
+pushed alone, and `verify-strict` reached its gates for the first time since
+June with all four `circular-deps` shards **green**.
+
+⚠️ **This supersedes the 20:10 ci-gate-parity lane's headline.** Wiring three
+missing gates into the CI profile was correct, but "3 gates had never run in
+CI" understated it: *no* gate had run in CI since June. A gate can be correctly
+wired and still never execute, because an earlier step in its workflow always
+dies. **Reachability is necessary, not sufficient** — the new
+`check:gate-coverage` guard proves wiring, and only a live run proves execution.
+
+**What CI now reports (first real signal in 7 weeks — none of this is new
+breakage, it is the backlog becoming visible):**
+
+| Workflow | State |
+| --- | --- |
+| Connectors Verified Build, Orchestration Contracts | ✅ green |
+| Security Gate | `dependency-audit` ✅, `secret-scan` ✅, `sast` ❌ on project ESLint |
+| Verify Strict | past setup; fails at **`Rehearse concurrent build custody`, exit 143 = SIGTERM** — the runner kills it (OOM/timeout), so this is a *resource* failure, not a type error |
+| Checkpoint Compatibility | fails at `Install dependencies` / `Typecheck Codegen` |
+| Orchestration Cancel / Race | fail in their own test steps |
+
+Also landed: `check:publish-metadata` is **green** for the first time (36
+packages) — `create-dzupagent` got an explicit `bin` map and `@dzupagent/testing`
+lost its leading `./`. That gate is wired into `publish.yml`, so it had never
+actually executed; it was skipped every time. Releases were blocked and nobody
+could see it.
+
+🔑 **`MEMORY_CONFORMANCE_BASELINE.v1.json` pins `yarn.lock` and `package.json`,
+not just the memory/context sources the generator analyses** — 151 files in
+`source.files[]`. Regenerating the lockfile for the bin fix therefore turned
+`check:memory-conformance`, and with it `test:scripts` (gate 18), red on a clean
+checkout. Re-pinned in `865ce2bf`; strip every digest and the old and new
+artifacts are byte-identical, so no conformance case moved (still 57).
+**Do not attribute a stale artifact to the lane that touched its subject matter
+— diff the pinned set against the recorded `baseCommit` instead.** Exactly one
+pinned file had changed: `yarn.lock`.
+
+🚨 **The shared index is shared state.** `git add <explicit paths>` is *not*
+sufficient protection here: a sibling had already staged its own files, and a
+subsequent `git commit` swept them in. Nine of this lane's workflow files landed
+under another lane's commit message (`38a403f5`) for that reason. Content
+intact, attribution lost. **`git commit -- <paths>` (pathspec form, bypasses the
+index) is the only safe commit form in this repo.**
+
+🚨 Something is replaying a **pre-fix snapshot** of
+`packages/create-dzupagent/package.json` over the committed file — it reverted
+to the string `bin` form three times, twice *after* the fix was committed. HEAD
+was correct each time. If it reappears, that is the source, not a bad commit.
