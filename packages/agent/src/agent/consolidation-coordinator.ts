@@ -90,7 +90,7 @@ export async function runConsolidation(
     return unavailable('not-configured')
   }
 
-  const getStore = (memory as { getStore?: () => unknown }).getStore
+  const getStore = memory.getStore
   if (typeof getStore !== 'function') {
     return unavailable('not-configured')
   }

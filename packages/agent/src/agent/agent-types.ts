@@ -40,6 +40,7 @@ export type {
   MemoryConfigSlice,
   MemoryPolicyConfig,
   MemoryContextLimitsConfig,
+  MemoryServicePort,
 } from './agent-types-memory.js'
 
 export type {

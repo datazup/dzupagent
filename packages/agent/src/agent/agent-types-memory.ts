@@ -58,6 +58,34 @@ export interface MemoryContextLimitsConfig {
 }
 
 /**
+ * Structural port for the memory service accepted by {@link MemoryConfigSlice.memory}.
+ *
+ * `MemoryService` is a concrete class holding `private readonly` state, so no
+ * object literal can ever satisfy it — every caller wanting a lightweight
+ * implementation was forced to write `as unknown as MemoryService`. This port
+ * is the exact slice of that class the framework actually calls, derived with
+ * `Pick` so a signature here can never drift from the real service.
+ *
+ * Required members are the ones the framework invokes unguarded:
+ * - `get` / `formatForPrompt` — every memory-context load path
+ * - `put`                     — post-run write-back (`maybeWriteBackMemory`)
+ * - `getKeyed` / `delete`     — the decay sweep (`runMemoryDecay`)
+ *
+ * Optional members are the ones the framework probes before calling:
+ * - `search` / `searchWithStatus` — only reached in `memoryContextMode: 'query'`
+ * - `getStore`                    — the pruner / consolidation sweeps skip
+ *   silently when a service does not expose a backing store
+ *
+ * `MemoryService` and `EncryptedMemoryService` remain assignable, so this is a
+ * strictly widening change for callers.
+ */
+export type MemoryServicePort = Pick<
+  MemoryService,
+  'get' | 'put' | 'getKeyed' | 'delete' | 'formatForPrompt'
+> &
+  Partial<Pick<MemoryService, 'search' | 'searchWithStatus' | 'getStore'>>
+
+/**
  * Memory wiring slice of {@link DzupAgentConfig}.
  *
  * Covers persistent context: the legacy `memory` service, the
@@ -68,11 +96,15 @@ export interface MemoryConfigSlice {
   /**
    * Memory service for persistent context.
    *
+   * Typed as the structural {@link MemoryServicePort}, not the concrete
+   * `MemoryService` class, so any value with the right shape is accepted.
+   * A real `MemoryService` instance still satisfies it.
+   *
    * @deprecated Prefer `memoryClient` (ADR-0005) for new integrations.
    * The `memory` field continues to work for backwards compatibility and
    * still drives the existing decay / write-back pipeline.
    */
-  memory?: MemoryService
+  memory?: MemoryServicePort
   /**
    * MemoryClient for persistent context (ADR-0005).
    *

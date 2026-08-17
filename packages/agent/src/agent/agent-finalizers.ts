@@ -294,9 +294,9 @@ async function runMemoryPruner(
   const scope = config.memoryScope
   if (!memory || !namespace || !scope) return
 
-  // The pruner needs direct store access; older MemoryService instances
-  // without `getStore()` are skipped silently.
-  const getStore = (memory as { getStore?: () => unknown }).getStore
+  // The pruner needs direct store access; a `MemoryServicePort` that does
+  // not implement the optional `getStore()` is skipped silently.
+  const getStore = memory.getStore
   if (typeof getStore !== 'function') return
 
   let store: unknown
@@ -370,7 +370,7 @@ export async function runConsolidateFinalizer(
   const scope = config.memoryScope
   if (!memory || !namespace || !scope) return
 
-  const getStore = (memory as { getStore?: () => unknown }).getStore
+  const getStore = memory.getStore
   if (typeof getStore !== 'function') return
 
   let store: unknown

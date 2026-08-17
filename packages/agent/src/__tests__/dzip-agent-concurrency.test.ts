@@ -16,8 +16,6 @@ import {
 } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 
-import type { MemoryService } from '@dzupagent/memory'
-
 import { DzupAgent } from '../agent/dzip-agent.js'
 
 /**
@@ -98,6 +96,12 @@ describe('DzupAgent concurrency — per-run memory frame', () => {
             ? ''
             : `## Memory Context\n- ${String(records[0]?.['text'] ?? '')}`,
       ),
+      // Write side of `MemoryServicePort`. These tests exercise only the read
+      // path, but the framework calls these unguarded (write-back / decay), so
+      // supply inert stubs instead of casting the double past its type.
+      put: vi.fn(async (): Promise<void> => {}),
+      getKeyed: vi.fn(async () => []),
+      delete: vi.fn(async () => false),
     }
 
     const { model } = createSlowModel('concurrent', 20)
@@ -106,9 +110,9 @@ describe('DzupAgent concurrency — per-run memory frame', () => {
       id: 'concurrent-agent',
       instructions: 'Base instructions',
       model,
-      // Partial double — the memory-context loader only calls `get` and
-      // `formatForPrompt` on the injected MemoryService.
-      memory: memory as unknown as MemoryService,
+      // Plain object literal — accepted directly by `MemoryServicePort`,
+      // no cast to the concrete `MemoryService` class required.
+      memory,
       memoryNamespace: 'facts',
       memoryScope: { project: 'demo' },
     })
@@ -186,6 +190,10 @@ describe('DzupAgent concurrency — per-run memory frame', () => {
           ? ''
           : `## Memory Context\n- ${String(records[0]?.['text'] ?? '')}`,
       ),
+      // See the write-side note on the first double.
+      put: vi.fn(async (): Promise<void> => {}),
+      getKeyed: vi.fn(async () => []),
+      delete: vi.fn(async () => false),
     }
 
     const { model } = createSlowModel('prep', 5)
@@ -193,8 +201,8 @@ describe('DzupAgent concurrency — per-run memory frame', () => {
       id: 'concurrent-prep',
       instructions: 'Base instructions',
       model,
-      // Partial double — see above.
-      memory: memory as unknown as MemoryService,
+      // Plain object literal — see above.
+      memory,
       memoryNamespace: 'facts',
       memoryScope: { project: 'demo' },
     })

@@ -70,7 +70,32 @@ export function applyDynamicWorkflowCodexDefaults(
 export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
   readonly providerId: AdapterProviderId = "codex";
 
+  /**
+   * Narrowed view of the inherited config.
+   *
+   * `BaseSdkAdapter` declares `config` as `AdapterConfig`, which does not carry
+   * `networkAccessEnabled` or `approvalPolicy`. This adapter reads both, and used
+   * to reach them with `(config as CodexAdapterConfig)` casts -- a cast that no
+   * caller could ever make true, because the inherited constructor only accepted
+   * `AdapterConfig` and rejects both fields as excess properties.
+   *
+   * `declare` because the base constructor already assigns the value; this only
+   * refines its type. Goose, Qwen and Ollama solve the same problem by keeping a
+   * second `private xConfig` copy, but that leaves two states to keep in sync in
+   * `configure()`; narrowing the one field cannot drift.
+   */
+  protected declare config: CodexAdapterConfig;
+
   private sdkModule: { Codex: CodexClass } | null = null;
+
+  constructor(config: CodexAdapterConfig = {}) {
+    super(config);
+  }
+
+  /** Widened from the base signature so Codex-specific keys are settable. */
+  override configure(opts: Partial<CodexAdapterConfig>): void {
+    super.configure(opts);
+  }
 
   /**
    * All in-flight runs. Each `execute()`/`resumeSession()` call owns exactly
@@ -281,7 +306,7 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
   private createInstance(
     sdk: { Codex: CodexClass },
     input: AgentInput,
-    config: AdapterConfig = this.config,
+    config: CodexAdapterConfig = this.config,
   ): CodexInstance {
     const ctorOpts: CodexCtorOptions = {};
 
@@ -373,13 +398,12 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
   /** Build thread options from AgentInput + the run's config snapshot */
   private buildThreadOptions(
     input: AgentInput,
-    config: AdapterConfig = this.config,
+    config: CodexAdapterConfig = this.config,
   ): CodexThreadOptions {
     const opts: CodexThreadOptions = {
       sandboxMode: toCodexSandboxMode(config.sandboxMode),
       approvalPolicy: this.resolveCodexApprovalPolicy(input, config),
-      networkAccessEnabled:
-        (config as CodexAdapterConfig).networkAccessEnabled ?? true,
+      networkAccessEnabled: config.networkAccessEnabled ?? true,
     };
 
     const configuredModel =
@@ -436,13 +460,13 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
    */
   private resolveCodexApprovalPolicy(
     input: AgentInput,
-    config: AdapterConfig = this.config,
+    config: CodexAdapterConfig = this.config,
   ): string {
     // Explicit per-call override takes priority (checked again in buildThreadOptions)
     if (typeof input.options?.["approvalPolicy"] === "string") {
       return input.options["approvalPolicy"];
     }
-    const configApprovalPolicy = (config as CodexAdapterConfig).approvalPolicy;
+    const configApprovalPolicy = config.approvalPolicy;
     if (typeof configApprovalPolicy === "string") {
       return configApprovalPolicy;
     }

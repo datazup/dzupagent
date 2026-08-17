@@ -7,7 +7,7 @@
  * the supplied memory, namespace, and scope before handing off to the
  * DzupAgent constructor.
  */
-import type { MemoryService } from '@dzupagent/memory'
+import type { MemoryServicePort } from './agent-types-memory.js'
 import { buildFrozenSnapshot } from '@dzupagent/context'
 
 import { DzupAgent } from './dzip-agent.js'
@@ -31,7 +31,7 @@ import { resolveArrowMemoryConfig } from './memory-profiles.js'
  */
 export async function createAgentWithMemory(
   config: DzupAgentConfig,
-  memory?: MemoryService | null,
+  memory?: MemoryServicePort | null,
   namespace?: string,
   scope?: Record<string, string>,
 ): Promise<DzupAgent> {

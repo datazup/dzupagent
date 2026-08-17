@@ -571,6 +571,73 @@ describe("CodexAdapter — deep coverage", () => {
     });
   });
 
+  // ── Codex-specific constructor config ─────────────────
+
+  describe("Codex-specific constructor config", () => {
+    // Until CodexAdapter declared its own constructor it inherited
+    // BaseSdkAdapter's `config: AdapterConfig`, which carries neither of these
+    // fields -- so no TypeScript caller could pass them, and there was no test
+    // for either. The adapter read them anyway, through casts.
+    //
+    // Both values below are chosen to differ from the default the adapter would
+    // produce on its own, so a silently dropped field fails these tests.
+
+    it("accepts networkAccessEnabled and passes it to the SDK", async () => {
+      // Default is `?? true`, so only `false` distinguishes "was passed" from
+      // "was dropped".
+      const a = new CodexAdapter({ networkAccessEnabled: false });
+      mockStartThread.mockReturnValue(
+        createMockThread([threadStarted(), turnCompleted()]),
+      );
+      await collectEvents(a.execute(makeInput()));
+      expect(mockStartThread.mock.calls[0]![0]["networkAccessEnabled"]).toBe(
+        false,
+      );
+    });
+
+    it("accepts approvalPolicy and passes it to the SDK", async () => {
+      // With no policy configured the adapter derives "never" from the
+      // auto-approve interaction default, so "on-request" is the discriminating
+      // value here.
+      const a = new CodexAdapter({ approvalPolicy: "on-request" });
+      mockStartThread.mockReturnValue(
+        createMockThread([threadStarted(), turnCompleted()]),
+      );
+      await collectEvents(a.execute(makeInput()));
+      expect(mockStartThread.mock.calls[0]![0]["approvalPolicy"]).toBe(
+        "on-request",
+      );
+    });
+
+    it("configure() can set Codex-specific keys after construction", async () => {
+      const a = new CodexAdapter();
+      a.configure({ networkAccessEnabled: false, approvalPolicy: "on-request" });
+      mockStartThread.mockReturnValue(
+        createMockThread([threadStarted(), turnCompleted()]),
+      );
+      await collectEvents(a.execute(makeInput()));
+      expect(mockStartThread.mock.calls[0]![0]["networkAccessEnabled"]).toBe(
+        false,
+      );
+      expect(mockStartThread.mock.calls[0]![0]["approvalPolicy"]).toBe(
+        "on-request",
+      );
+    });
+
+    it("input.options still overrides the constructor config", async () => {
+      const a = new CodexAdapter({ networkAccessEnabled: false });
+      mockStartThread.mockReturnValue(
+        createMockThread([threadStarted(), turnCompleted()]),
+      );
+      await collectEvents(
+        a.execute(makeInput({ options: { networkAccessEnabled: true } })),
+      );
+      expect(mockStartThread.mock.calls[0]![0]["networkAccessEnabled"]).toBe(
+        true,
+      );
+    });
+  });
+
   // ── Provider config preservation ──────────────────────
 
   describe("provider config preservation", () => {
