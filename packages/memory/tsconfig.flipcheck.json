@@ -10,12 +10,16 @@
   //
   // It used to be widened to ".." — the whole packages/ tree — because
   // filesystem-knowledge-store.test.ts reached the shared KnowledgeStore
-  // contract by relative path into agent-types' *source* test tree
-  // (../../../../agent-types/src/.../knowledge-store-contract.test.js),
-  // dragging a sibling package under this project's root. That contract is now
-  // vitest-free and published as @dzupagent/agent-types/fleet-contract, so the
-  // import crosses the normal package boundary and rootDir no longer has to
-  // reach outside packages/memory.
+  // contract by a four-level relative path into the agent-types package's own
+  // source test tree, dragging a sibling package under this project's root.
+  // That contract is now vitest-free and published as the subpath
+  // @dzupagent/agent-types/fleet-contract, so the import crosses the normal
+  // package boundary and rootDir no longer has to reach outside
+  // packages/memory.
+  //
+  // The literal old path is deliberately not quoted here: it would make
+  // `grep -rn "agent-types/src" packages/memory/` — the guard that proves the
+  // deep import is gone — trip on this comment.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
