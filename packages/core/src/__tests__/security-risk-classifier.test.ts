@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
 import { createRiskClassifier } from '../security/risk-classifier.js'
-import type { RiskTier, RiskClassification } from '../security/risk-classifier.js'
 import {
   DEFAULT_AUTO_APPROVE_TOOLS,
   DEFAULT_LOG_TOOLS,

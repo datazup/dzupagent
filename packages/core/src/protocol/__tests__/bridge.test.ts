@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { ProtocolBridge } from '../protocol-bridge.js'
-import { createForgeMessage, createMessageId } from '../message-factory.js'
-import type { ForgeMessage, ForgePayload } from '../message-types.js'
+import { createForgeMessage } from '../message-factory.js'
+import type { ForgeMessage } from '../message-types.js'
 import type {
   ProtocolAdapter,
   AdapterState,

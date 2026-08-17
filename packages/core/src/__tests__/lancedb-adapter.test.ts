@@ -3,7 +3,6 @@ import {
   LanceDBAdapter,
   translateFilter,
 } from '../vectordb/adapters/lancedb-adapter.js'
-import type { MetadataFilter, VectorQuery } from '../vectordb/types.js'
 
 // --- Mock LanceDB connection and table ---
 
@@ -65,7 +64,7 @@ function createMockTable(opts?: {
     update: vi.fn(async () => undefined),
     delete: vi.fn(async () => undefined),
     countRows: vi.fn(async () => countResult),
-    search: vi.fn((vector: number[]) => createMockQueryBuilder(storedRows)),
+    search: vi.fn((_vector: number[]) => createMockQueryBuilder(storedRows)),
     createIndex: vi.fn(async () => undefined),
     toArrow: vi.fn(async () => ({ __arrow: true })),
     overwrite: vi.fn(async () => undefined),

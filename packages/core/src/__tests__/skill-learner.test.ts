@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { SkillLearner } from '../skills/skill-learner.js'
-import type { SkillExecutionResult, SkillLearnerConfig } from '../skills/skill-learner.js'
 
 describe('SkillLearner', () => {
   let learner: SkillLearner

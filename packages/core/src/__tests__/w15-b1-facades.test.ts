@@ -17,15 +17,11 @@ import {
   createQuickAgent,
   createContainer,
   createEventBus,
-  ModelRegistry,
-  ForgeError,
-  SSETransformer,
   DEFAULT_CONFIG,
   resolveConfig,
   mergeConfigs,
-  ForgeContainer,
 } from '../facades/quick-start.js'
-import type { QuickAgentOptions, QuickAgentResult, DzupEventBus } from '../facades/quick-start.js'
+import type { QuickAgentOptions, DzupEventBus } from '../facades/quick-start.js'
 
 describe('createQuickAgent — provider coverage', () => {
   const providers: Array<QuickAgentOptions['provider']> = [
@@ -173,20 +169,15 @@ describe('config helpers', () => {
 
 import {
   AgentBus,
-  runHooks,
-  mergeHooks,
   InMemoryRunStore,
   InMemoryAgentStore,
-  InMemoryEventLog,
   Semaphore,
   ConcurrencyPool,
-  HealthAggregator,
   createForgeMessage,
   createResponse,
   createErrorResponse,
   isMessageAlive,
   createMessageId,
-  CostAwareRouter,
   scoreComplexity,
   isSimpleTurn,
   calculateCostCents,
@@ -414,24 +405,7 @@ describe('Semaphore — additional coverage', () => {
 // ============================================================================
 
 import {
-  createRiskClassifier,
-  scanForSecrets,
-  redactSecrets,
-  detectPII,
-  redactPII,
-  OutputPipeline,
-  createDefaultPipeline,
-  PolicyEvaluator,
-  InMemoryPolicyStore,
   PolicyTranslator,
-  createSafetyMonitor,
-  getBuiltInRules,
-  createMemoryDefense,
-  DataClassifier,
-  DEFAULT_CLASSIFICATION_PATTERNS,
-  DEFAULT_AUTO_APPROVE_TOOLS,
-  DEFAULT_LOG_TOOLS,
-  DEFAULT_REQUIRE_APPROVAL_TOOLS,
   ComplianceAuditLogger,
   InMemoryAuditStore,
   createHarmfulContentFilter,

@@ -25,7 +25,7 @@ import type { DiscoveredPlugin, PluginManifest } from '../plugin/plugin-discover
 import { createManifest, serializeManifest } from '../plugin/plugin-manifest.js'
 
 import { MCPClient } from '../mcp/mcp-client.js'
-import type { MCPServerConfig, MCPToolDescriptor, MCPToolResult } from '../mcp/mcp-types.js'
+import type { MCPServerConfig, MCPToolDescriptor } from '../mcp/mcp-types.js'
 import { InMemoryMcpManager } from '../mcp/mcp-manager.js'
 import { McpReliabilityManager } from '../mcp/mcp-reliability.js'
 

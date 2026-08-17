@@ -25,7 +25,7 @@
  *   Suite M: ResilientModelInvoker — non-Error thrown values (string, null)
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import type * as RetryModule from "../llm/retry.js";
 import { AIMessage } from "@langchain/core/messages";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
@@ -1280,10 +1280,15 @@ describe("ResilientModelInvoker — non-Error thrown values are coerced", () => 
       { retry: FAST_RETRY },
     );
 
-    // [object Object] is not transient, so it re-throws immediately
-    const result = await invoker.invoke(MESSAGES).catch(() => null);
-    // Either threw or fell back — just confirm no crash
-    expect(true).toBe(true);
+    // The thrown object is coerced via `new Error(String(err))`, which yields
+    // "[object Object]" — the "503" in the `message` property is LOST, so the
+    // error classifies as non-transient and the chain re-throws immediately
+    // rather than falling back.
+    const err = await invoker.invoke(MESSAGES).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toContain("[object Object]");
+    // Fallback must NOT have been consulted for a non-transient error.
+    expect(fallback.invoke).not.toHaveBeenCalled();
   });
 
   it("M-04: empty error message is not transient → re-throws immediately", async () => {

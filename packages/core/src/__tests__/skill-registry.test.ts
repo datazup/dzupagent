@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { SkillRegistry } from '../skills/skill-registry.js'
-import type { SkillRegistryEntry, LoadedSkill } from '../skills/skill-types.js'
+import type { SkillRegistryEntry } from '../skills/skill-types.js'
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -41,7 +41,6 @@ import {
   resolvePluginOrder,
   validateManifest,
   discoverPlugins,
-  PluginNameConflictError,
 } from "../plugin/plugin-discovery.js";
 import type { DiscoveredPlugin } from "../plugin/plugin-discovery.js";
 import {

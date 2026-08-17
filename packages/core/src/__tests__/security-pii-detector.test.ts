@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
 import { detectPII, redactPII } from '../security/pii-detector.js'
-import type { PIIType } from '../security/pii-detector.js'
 
 describe('PII Detector — extended coverage', () => {
   // -----------------------------------------------------------------------

@@ -1507,8 +1507,6 @@ describe('memory-defense — branch coverage', () => {
 
   it('detectEncodedContent skips odd-length hex', () => {
     const d = createMemoryDefense()
-    // Very long odd-length hex string should not yield any match
-    const oddHex = 'abc' + 'abc'.repeat(11) // 36 chars, odd after prefix check
     // Pad to be odd length just above threshold of 32
     const odd = 'a'.repeat(33)
     const found = d.detectEncodedContent(odd)

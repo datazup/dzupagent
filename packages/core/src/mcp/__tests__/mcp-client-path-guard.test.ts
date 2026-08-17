@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { MCPClient } from "../mcp-client.js";
 import type { MCPServerConfig } from "../mcp-types.js";
-import { ForgeError } from "../../errors/forge-error.js";
 
 /**
  * Build a minimal MCPClient with one fake "connected" server and one registered

@@ -545,7 +545,7 @@ describe("DzupEventBus — nested emit inside handler", () => {
   it("nested emit on same event type does not cause infinite recursion if guarded", () => {
     const bus = makeBus();
     let count = 0;
-    bus.on("agent:started", (e) => {
+    bus.on("agent:started", () => {
       if (count < 3) {
         count++;
         bus.emit({

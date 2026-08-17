@@ -17,7 +17,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { CircuitBreaker, KeyedCircuitBreaker } from "../llm/circuit-breaker.js";
 import type {
   CircuitTransitionEvent,
-  CircuitState,
 } from "../llm/circuit-breaker.js";
 import { ResilientModelInvoker } from "../llm/resilient-invoker.js";
 import { isTransientError, isContextLengthError } from "../llm/retry.js";

@@ -37,7 +37,6 @@ import { estimateTokens, extractTokenUsage } from "../llm/invoke.js";
 import { isContextLengthError, isTransientError } from "../llm/retry.js";
 import type * as RetryModule from "../llm/retry.js";
 import type {
-  ModelSpec,
   LLMProviderConfig,
   ModelFactory,
 } from "../llm/model-config.js";

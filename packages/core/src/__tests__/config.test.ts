@@ -11,7 +11,7 @@ import {
   validateConfig,
   getConfigValue,
 } from '../config/index.js';
-import type { ForgeConfig, ConfigLayer } from '../config/index.js';
+import type { ConfigLayer } from '../config/index.js';
 
 // ---------------------------------------------------------------------------
 // loadEnvConfig

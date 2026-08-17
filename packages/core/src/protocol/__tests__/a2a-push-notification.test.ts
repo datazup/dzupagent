@@ -6,7 +6,7 @@ import type { PushNotificationConfig } from '../a2a-push-notification.js'
 // Helpers
 // ---------------------------------------------------------------------------
 
-function createMockFetch(status: number, ok?: boolean): typeof globalThis.fetch {
+function createMockFetch(status: number, _ok?: boolean): typeof globalThis.fetch {
   return vi.fn(async () => {
     return new Response(null, {
       status,

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { parseSSEEvents, streamA2ATask } from '../a2a-sse-stream.js'
 import { A2AClientAdapter } from '../a2a-client-adapter.js'
 import type { ForgeMessage } from '../message-types.js'

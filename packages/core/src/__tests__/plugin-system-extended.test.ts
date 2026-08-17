@@ -34,7 +34,6 @@ import type { PluginRegistrationConflictError } from "../plugin/plugin-registry.
 import type {
   DzupPlugin,
   PluginContext,
-  PluginDisposeResult,
 } from "../plugin/plugin-types.js";
 import {
   resolvePluginOrder,

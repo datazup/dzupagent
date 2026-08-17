@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
 import { createRiskClassifier } from '../security/risk-classifier.js'
-import type { RiskTier } from '../security/risk-classifier.js'
 
 describe('RiskClassifier', () => {
   describe('default configuration', () => {

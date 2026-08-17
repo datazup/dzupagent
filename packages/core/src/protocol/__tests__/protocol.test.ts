@@ -10,9 +10,8 @@ import {
 import {
   ForgeMessageUriSchema,
   ForgePayloadSchema,
-  ForgeMessageSchema,
 } from '../message-schemas.js'
-import type { ForgeMessage, ForgeMessageId, ForgePayload } from '../message-types.js'
+import type { ForgeMessage, ForgePayload } from '../message-types.js'
 
 // ---------------------------------------------------------------------------
 // Helpers

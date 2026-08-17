@@ -3,9 +3,9 @@ import { AgentBus } from '../../events/agent-bus.js'
 import { InternalAdapter, extractAgentId } from '../internal-adapter.js'
 import { ProtocolRouter } from '../protocol-router.js'
 import { A2AClientAdapter } from '../a2a-client-adapter.js'
-import { createForgeMessage, createMessageId } from '../message-factory.js'
+import { createForgeMessage } from '../message-factory.js'
 import type { ForgeMessage } from '../message-types.js'
-import type { ProtocolAdapter, SendOptions } from '../adapter.js'
+import type { ProtocolAdapter } from '../adapter.js'
 import { ForgeError } from '../../errors/forge-error.js'
 
 // ---------------------------------------------------------------------------

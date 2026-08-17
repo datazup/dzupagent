@@ -21,7 +21,6 @@ import type { DzupEventBus } from "../events/event-bus.js";
 import { CircuitBreaker, KeyedCircuitBreaker } from "../llm/circuit-breaker.js";
 import type {
   CircuitTransitionEvent,
-  CircuitState,
 } from "../llm/circuit-breaker.js";
 import type { DzupEvent } from "../events/event-types.js";
 
@@ -556,7 +555,6 @@ describe("DzupEventBus — deep coverage", () => {
         } as DzupEvent);
       }
       expect(received).toHaveLength(1000);
-      expect(received.every((_, idx) => true)).toBe(true); // all delivered
     });
 
     it("1000 events delivered to typed handler", () => {
@@ -1200,17 +1198,16 @@ describe("CircuitBreaker — state machine deep coverage", () => {
         jitterFactor: 0,
       });
       const keys = ["k1", "k2", "k3", "k4", "k5"];
-      // Trip only k1, k3.
-      for (const k of ["k1", "k3"]) {
+      const tripped = ["k1", "k3"];
+      for (const k of tripped) {
         kb.recordFailure(k);
         kb.recordFailure(k);
         kb.recordFailure(k);
       }
-      expect(kb.isAvailable("k1")).toBe(false);
-      expect(kb.isAvailable("k2")).toBe(true);
-      expect(kb.isAvailable("k3")).toBe(false);
-      expect(kb.isAvailable("k4")).toBe(true);
-      expect(kb.isAvailable("k5")).toBe(true);
+      // Only the tripped keys are unavailable; the rest stay independent.
+      for (const k of keys) {
+        expect(kb.isAvailable(k)).toBe(!tripped.includes(k));
+      }
     });
   });
 });

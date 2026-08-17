@@ -2,15 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { QdrantAdapter, translateFilter } from '../adapters/qdrant-adapter.js'
 import type { MetadataFilter } from '../types.js'
 
-/** Creates a mock fetch that returns the given body with the given status */
-function mockFetch(status: number, body: unknown): typeof globalThis.fetch {
-  return vi.fn().mockResolvedValue({
-    ok: status >= 200 && status < 300,
-    status,
-    json: () => Promise.resolve(body),
-  }) as unknown as typeof globalThis.fetch
-}
-
 describe('QdrantAdapter', () => {
   let fetchFn: ReturnType<typeof vi.fn>
   let adapter: QdrantAdapter
@@ -118,6 +109,12 @@ describe('QdrantAdapter', () => {
     expect(body['filter']).toEqual({ must: [{ key: 'cat', match: { value: 'auth' } }] })
     expect(body['limit']).toBe(5)
     expect(body['with_payload']).toBe(true)
+
+    // The mocked response was previously bound and never asserted, leaving the
+    // response-translation half of this path uncovered.
+    expect(results).toHaveLength(1)
+    expect(results[0]!.id).toBe('v1')
+    expect(results[0]!.score).toBe(0.95)
   })
 
   it('search returns VectorSearchResult with score', async () => {

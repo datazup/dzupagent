@@ -23,7 +23,7 @@
  * - mergeHooks deduplication and ordering
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { runHooks, runModifierHook, mergeHooks } from "../hooks/hook-runner.js";
 import { createEventBus } from "../events/event-bus.js";
 import type { AgentHooks, HookContext } from "../hooks/hook-types.js";
@@ -559,7 +559,7 @@ describe("afterToolCall modifier hook semantics", () => {
   it("receives tool result as first arg", async () => {
     let received: unknown;
     const hook = vi.fn(
-      async (toolName: unknown, _input: unknown, result: unknown) => {
+      async (_toolName: unknown, _input: unknown, result: unknown) => {
         received = result;
         return undefined;
       }

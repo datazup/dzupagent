@@ -8,10 +8,7 @@ import {
   OutputPipeline,
   createDefaultPipeline,
   PolicyEvaluator,
-  InMemoryPolicyStore,
   createSafetyMonitor,
-  getBuiltInRules,
-  createMemoryDefense,
   DataClassifier,
   DEFAULT_CLASSIFICATION_PATTERNS,
   DEFAULT_AUTO_APPROVE_TOOLS,
@@ -22,7 +19,6 @@ import type {
   RiskClassifier,
   PolicySet,
   PolicyContext,
-  SafetyMonitor,
 } from '../facades/security.js'
 import { createEventBus } from '../events/event-bus.js'
 

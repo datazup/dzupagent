@@ -129,8 +129,6 @@ describe('WorkflowCommandParser', () => {
         }),
       } as unknown as IntentRouter
 
-      const parser = new WorkflowCommandParser({ intentRouter: mockRouter })
-
       // Create a scenario where sync parse fails: input that normalizes to empty
       // Actually, the sync parse will succeed for any non-empty string (single-token path).
       // We need to force a sync failure. The only way is empty input, but that fails async too.

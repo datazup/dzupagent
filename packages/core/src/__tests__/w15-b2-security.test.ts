@@ -13,7 +13,7 @@
  * - security/classification/ — data classification
  * - security/output/output-filter-enhanced.ts — enhanced output filters
  */
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 
 // ============================================================================
 // PII Detector
@@ -477,7 +477,7 @@ describe('Memory Defense — scan result shape', () => {
 // Data Classification
 // ============================================================================
 
-import { DataClassifier, DEFAULT_CLASSIFICATION_PATTERNS } from '../security/classification/data-classification.js'
+import { DataClassifier } from '../security/classification/data-classification.js'
 
 describe('DataClassifier — additional coverage', () => {
   it('classifies email as internal', () => {
@@ -679,7 +679,7 @@ describe('createDefaultPipeline — configuration', () => {
 
 import { PolicyEvaluator } from '../security/policy/policy-evaluator.js'
 import { InMemoryPolicyStore } from '../security/policy/policy-types.js'
-import type { PolicySet, PolicyRule, PolicyContext } from '../security/policy/policy-types.js'
+import type { PolicySet } from '../security/policy/policy-types.js'
 
 describe('PolicyEvaluator — expired rules', () => {
   const evaluator = new PolicyEvaluator()

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { InMemoryAuditStore } from "../security/audit/in-memory-audit-store.js";
 import { ComplianceAuditLogger } from "../security/audit/audit-logger.js";
 import { createEventBus } from "../events/event-bus.js";
