@@ -26,6 +26,29 @@ import { GitHubClient, GitHubApiError } from "../github/github-client.js";
 // Shared helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Await a rejection and hand back the narrowed error.
+ *
+ * The previous form, `p.catch((e) => e as GitHubApiError)`, narrowed nothing: the
+ * result is a union with the RESOLVED type still in it, and since
+ * `request<T>(path)` infers `T` as `unknown` when called without a type argument,
+ * the union collapsed back to `unknown`. Hence `err.status` / `err.body` were
+ * errors on `unknown`.
+ *
+ * Asserting instanceof inside the helper narrows for the compiler and makes
+ * "rejects" part of the contract each caller checks — the old form let a call
+ * that RESOLVED flow into the assertions instead of failing on the spot.
+ */
+async function rejectsWithApiError(p: Promise<unknown>): Promise<GitHubApiError> {
+  try {
+    await p;
+  } catch (e) {
+    expect(e).toBeInstanceOf(GitHubApiError);
+    return e as GitHubApiError;
+  }
+  throw new Error("expected the request to reject with a GitHubApiError");
+}
+
 function mockFetch(
   body: unknown,
   ok = true,
@@ -82,17 +105,14 @@ describe("Rate-limit response handling", () => {
   it("GitHubClient throws GitHubApiError on 429", async () => {
     mockFetch({ message: "Too Many Requests" }, false, 429);
     const client = new GitHubClient({ token: "tok" });
-    const err = await client.request("/test").catch((e) => e as GitHubApiError);
-    expect(err).toBeInstanceOf(GitHubApiError);
+    const err = await rejectsWithApiError(client.request("/test"));
     expect(err.status).toBe(429);
   });
 
   it("GitHubApiError body contains original rate-limit message", async () => {
     mockFetch({ message: "API rate limit exceeded for ip" }, false, 429);
     const client = new GitHubClient({ token: "tok" });
-    const err = await client
-      .listIssues("o", "r")
-      .catch((e) => e as GitHubApiError);
+    const err = await rejectsWithApiError(client.listIssues("o", "r"));
     expect(err.body).toContain("rate limit exceeded");
   });
 
@@ -1099,8 +1119,7 @@ describe("GitHubClient.request() — additional edge cases", () => {
   it("throws GitHubApiError with status 400 bad request", async () => {
     mockFetch({ message: "Bad Request" }, false, 400);
     const client = new GitHubClient({ token: "tok" });
-    const err = await client.request("/bad").catch((e) => e as GitHubApiError);
-    expect(err).toBeInstanceOf(GitHubApiError);
+    const err = await rejectsWithApiError(client.request("/bad"));
     expect(err.status).toBe(400);
   });
 
