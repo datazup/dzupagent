@@ -9,7 +9,7 @@
  *  - Edge cases: empty, add-only, delete-only, context lines, fuzzy, binary
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   parseUnifiedDiff,
   applyPatch,

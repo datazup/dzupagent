@@ -830,7 +830,7 @@ describe('applyPatchSet', () => {
       },
     ]
 
-    const readFile = vi.fn(async (_path: string) => null)
+    const readFile = vi.fn(async (path: string) => files.get(path) ?? null)
     const writeFile = vi.fn()
 
     const { results } = await applyPatchSet(patches, readFile, writeFile)

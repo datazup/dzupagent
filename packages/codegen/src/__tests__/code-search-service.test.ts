@@ -287,7 +287,7 @@ describe('CodeSearchService', () => {
     })
 
     it('returns results with correct structure', async () => {
-      const results = await service.search('User')
+      const results: CodeSearchResult[] = await service.search('User')
 
       for (const result of results) {
         expect(result).toEqual(
