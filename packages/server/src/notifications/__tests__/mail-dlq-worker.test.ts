@@ -79,12 +79,20 @@ class SelectChain {
     return this
   }
   limit(n: number): this { this.limitN = n; return this }
-  then<T>(onFulfilled: (rows: Row[]) => T): Promise<T> {
+  /**
+   * Full `PromiseLike` shape: `onfulfilled` optional and `onrejected`
+   * forwarded. The one-required-argument form this replaced could not satisfy
+   * `DrizzleSelectQuery` and silently dropped rejections.
+   */
+  then<TResult1 = Row[], TResult2 = never>(
+    onfulfilled?: ((rows: Row[]) => TResult1 | PromiseLike<TResult1>) | null,
+    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+  ): Promise<TResult1 | TResult2> {
     let out = this.rows.slice()
     for (const f of this.filters) out = out.filter(f)
     if (this.orderFn) out.sort(this.orderFn)
     if (this.limitN !== null) out = out.slice(0, this.limitN)
-    return Promise.resolve(onFulfilled(out))
+    return Promise.resolve(out).then(onfulfilled, onrejected)
   }
 }
 

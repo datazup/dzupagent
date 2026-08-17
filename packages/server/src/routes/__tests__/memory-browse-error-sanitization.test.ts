@@ -31,6 +31,14 @@ class MockMemoryService implements MemoryServiceLike {
   async delete(): Promise<boolean> {
     return true;
   }
+
+  /** A read like {@link get}/{@link search}, so it fails the same way. */
+  async getKeyed(): Promise<
+    Array<{ key: string; value: Record<string, unknown> }>
+  > {
+    if (this.throwOnRead) throw new Error(RAW_DB_TEXT);
+    return [];
+  }
 }
 
 function makeApp() {

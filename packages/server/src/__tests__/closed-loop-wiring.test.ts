@@ -60,6 +60,16 @@ class MockMemoryService implements MemoryServiceLike {
   async delete(): Promise<boolean> {
     return true
   }
+  /** Reads back the keys `put()` wrote, so identity is real rather than fabricated. */
+  async getKeyed(
+    namespace: string,
+    scope: Record<string, string>,
+  ): Promise<Array<{ key: string; value: Record<string, unknown> }>> {
+    const prefix = `${namespace}|${JSON.stringify(scope)}|`
+    return [...this.store.entries()]
+      .filter(([k]) => k.startsWith(prefix))
+      .map(([k, value]) => ({ key: k.slice(prefix.length), value }))
+  }
 }
 
 type ScoredEvent = Extract<DzupEvent, { type: 'run:scored' }>

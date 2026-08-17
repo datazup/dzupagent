@@ -45,12 +45,19 @@ function collectScoredEvents(bus: DzupEventBus): ScoredEvent[] {
   return events
 }
 
+/**
+ * `EvalScorer.score` is a method and `EvalResult.score` is a number, so
+ * `Partial<EvalScorer> & Partial<EvalResult>` collapsed `score` to
+ * `((...) => Promise<EvalResult>) & number` — a type no caller can satisfy.
+ * Only the scorer's `name` is overridable here; everything else is a result
+ * field.
+ */
 function makeScorer(
-  overrides: Partial<EvalScorer> & Partial<EvalResult> = {},
+  overrides: Partial<Pick<EvalScorer, 'name'>> & Partial<EvalResult> = {},
 ): EvalScorer {
   const result: EvalResult = {
-    score: typeof overrides.score === 'number' ? overrides.score : 0.9,
-    pass: typeof overrides.pass === 'boolean' ? overrides.pass : true,
+    score: overrides.score ?? 0.9,
+    pass: overrides.pass ?? true,
     reasoning: overrides.reasoning ?? 'stub-ok',
   }
   return {

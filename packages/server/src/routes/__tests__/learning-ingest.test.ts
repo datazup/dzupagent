@@ -52,6 +52,19 @@ class MockMemoryService implements MemoryServiceLike {
   async delete(): Promise<boolean> {
     return true
   }
+
+  /** Reads back the keys `put()` wrote, so identity is real rather than fabricated. */
+  async getKeyed(
+    namespace: string,
+    scope: Record<string, string>,
+  ): Promise<Array<{ key: string; value: Record<string, unknown> }>> {
+    const prefix = this.makeKey(namespace, scope, '')
+    const out: Array<{ key: string; value: Record<string, unknown> }> = []
+    for (const [k, value] of this.store.entries()) {
+      if (k.startsWith(prefix)) out.push({ key: k.slice(prefix.length), value })
+    }
+    return out
+  }
 }
 
 function makeApp(overrides: Partial<Parameters<typeof createLearningRoutes>[0]> = {}) {

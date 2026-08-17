@@ -52,6 +52,17 @@ function createMockMemoryService(): MemoryServiceLike {
       }
       store.set(sk, records);
     },
+    async getKeyed(
+      namespace: string,
+      scope: Record<string, string>
+    ): Promise<Array<{ key: string; value: Record<string, unknown> }>> {
+      const sk = storeKey(namespace, scope);
+      // `put` writes the key into each record, so identity is recoverable here.
+      return (store.get(sk) ?? []).map((r) => ({
+        key: String(r["key"]),
+        value: r,
+      }));
+    },
   };
 }
 
@@ -66,6 +77,7 @@ function createFailingMemoryService(): MemoryServiceLike {
     get: fail as MemoryServiceLike["get"],
     search: fail as MemoryServiceLike["search"],
     put: fail as MemoryServiceLike["put"],
+    getKeyed: fail as MemoryServiceLike["getKeyed"],
   };
 }
 
@@ -768,6 +780,9 @@ describe("Learning routes", () => {
         put: (() => {
           throw "string error";
         }) as MemoryServiceLike["put"],
+        getKeyed: (() => {
+          throw "string error";
+        }) as MemoryServiceLike["getKeyed"],
       };
       const stringFailApp = createTestApp(throwStringService);
 
