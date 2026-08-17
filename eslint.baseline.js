@@ -85,7 +85,7 @@ export const TEST_QUALITY_BASELINE_COUNTS = {
   "packages/agent/src/__tests__/parallel-tools.test.ts": { "real-set-timeout": 5 },
   "packages/agent/src/__tests__/performance-optimizer.test.ts": { "stateless-memory-double": 4 },
   "packages/agent/src/__tests__/phase-gate-suspend-resume-deep.test.ts": { "real-set-timeout": 7 },
-  "packages/agent/src/__tests__/pipeline-for-each-runtime.test.ts": { "real-set-timeout": 8 },
+  "packages/agent/src/__tests__/pipeline-for-each-runtime.test.ts": { "real-set-timeout": 7 },
   "packages/agent/src/__tests__/pipeline-retry.test.ts": { "real-set-timeout": 1 },
   "packages/agent/src/__tests__/pipeline-runtime.cancel-timeout-retry.test.ts": { "real-set-timeout": 6 },
   "packages/agent/src/__tests__/pipeline-runtime.test.ts": { "real-set-timeout": 1 },
