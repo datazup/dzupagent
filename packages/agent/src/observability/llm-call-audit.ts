@@ -80,7 +80,7 @@ export interface LlmCallAuditEntry {
  * never stalls a run.
  */
 export interface LlmCallAuditSink {
-  record(entry: LlmCallAuditEntry): void | Promise<void>
+  record(entry: LlmCallAuditEntry): unknown
 }
 
 /**

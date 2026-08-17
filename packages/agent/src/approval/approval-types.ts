@@ -98,7 +98,7 @@ export interface ApprovalConfig {
    * Called when all webhook delivery attempts fail. Use for dead-letter
    * handling (e.g. persist to a queue for manual retry).
    */
-  webhookDLQ?: (runId: string, webhookUrl: string, error: Error) => void | Promise<void>
+  webhookDLQ?: (runId: string, webhookUrl: string, error: Error) => unknown
   /**
    * Delivery channel for human contact requests.
    * Used when the approval gate delegates to the HumanContactTool internally.

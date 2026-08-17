@@ -11,7 +11,7 @@ export type WorkspaceSubscriber = (
   key: string,
   value: string,
   agentId?: string
-) => void | Promise<void>;
+) => unknown;
 
 interface QueuedWrite {
   key: string;

@@ -123,7 +123,7 @@ export class AgentMailboxImpl implements AgentMailbox {
     return this.store.findByRecipient(this.agentId, query)
   }
 
-  subscribe(handler: (message: MailMessage) => void | Promise<void>): () => void {
+  subscribe(handler: (message: MailMessage) => void): () => void {
     if (!this.eventBus) {
       throw new Error('subscribe() requires an event bus')
     }

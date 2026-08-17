@@ -127,7 +127,7 @@ Durable and config contracts:
 - `webhookUrl?: string`
 - `webhookSigningSecret?: string`
 - `webhookOutboundUrlPolicy?: OutboundUrlSecurityPolicy`
-- `webhookDLQ?: (runId, webhookUrl, error) => void | Promise<void>`
+- `webhookDLQ?: (runId, webhookUrl, error) => unknown` (the gate `await`s it, so the return is deliberately not `void`)
 - `channel?: ContactChannel`
 - `ApprovalCheckpointStore`
 - `save(runId, key, state)`

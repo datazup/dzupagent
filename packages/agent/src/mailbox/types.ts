@@ -92,7 +92,7 @@ export interface AgentMailbox {
    * Subscribe to incoming messages in real time.
    * @returns An unsubscribe function that removes the handler.
    */
-  subscribe(handler: (message: MailMessage) => void | Promise<void>): () => void
+  subscribe(handler: (message: MailMessage) => void): () => void
   /** Acknowledge (mark as read) a message by ID. */
   ack(messageId: string): Promise<void>
 }
