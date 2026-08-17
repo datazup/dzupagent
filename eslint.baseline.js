@@ -51,7 +51,6 @@
 
 export const TEST_QUALITY_BASELINE_COUNTS = {
   "packages/adapter-types/src/__tests__/collab-task.test.ts": { "vacuous-every": 1 },
-  "packages/agent-types/src/orchestration/fleet/__tests__/knowledge-store-contract.test.ts": { "real-set-timeout": 1 },
   "packages/agent/src/__tests__/adaptive-prompt-enricher.test.ts": { "stateless-memory-double": 1 },
   "packages/agent/src/__tests__/agent-finalizers.test.ts": { "stateless-memory-double": 8 },
   "packages/agent/src/__tests__/agents-md-parser.test.ts": { "vacuous-every": 1 },
