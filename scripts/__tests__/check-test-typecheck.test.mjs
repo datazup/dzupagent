@@ -164,8 +164,14 @@ test('the documented flags parse to their options', () => {
     reportOnly: true,
     updateBaseline: true,
     noBlame: true,
+    allowRaise: false,
     onlyPackage: 'core',
   })
+})
+
+test('--allow-raise parses, and is off unless asked for', () => {
+  assert.equal(parseArgs(['--update-baseline']).options.allowRaise, false)
+  assert.equal(parseArgs(['--update-baseline', '--allow-raise']).options.allowRaise, true)
 })
 
 test('no arguments means the enforcing whole-workspace run', () => {

@@ -82,10 +82,20 @@ const BOOLEAN_FLAGS = {
   // whose commit caused it. --no-blame exists for checkouts where git is
   // unavailable or slow.
   '--no-blame': 'noBlame',
+  // A baseline write that RAISES a budget is the ratchet accommodating errors.
+  // It is occasionally legitimate (a deliberate, reviewed widening), so it is
+  // possible — but never silent.
+  '--allow-raise': 'allowRaise',
 }
 
 export function parseArgs(argv) {
-  const options = { reportOnly: false, updateBaseline: false, noBlame: false, onlyPackage: null }
+  const options = {
+    reportOnly: false,
+    updateBaseline: false,
+    noBlame: false,
+    allowRaise: false,
+    onlyPackage: null,
+  }
   const unknown = []
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -325,7 +335,7 @@ function main() {
     process.exitCode = 1
     return
   }
-  const { reportOnly, updateBaseline, noBlame, onlyPackage } = parsed.options
+  const { reportOnly, updateBaseline, noBlame, allowRaise, onlyPackage } = parsed.options
 
   const targets = onlyPackage ? [onlyPackage] : discoverPackages()
 
@@ -359,6 +369,44 @@ function main() {
       merged[pkg] = { total: entry.maxErrors, perFile: entry.perFile ?? {}, perCode: entry.perCode ?? {} }
     }
     Object.assign(merged, current)
+
+    // Fail closed on any budget this write would RAISE.
+    //
+    // Lowering is the whole point and always proceeds. Raising is the failure
+    // mode this guard exists to prevent: a whole-repo --update-baseline
+    // measures every package live, so a lane caught between "broke 40 things"
+    // and "fixed them" has its transient count recorded as the new allowed
+    // budget. Per-file budgets are checked too, because they fail
+    // independently by design — one file can rise while another falls and
+    // leave the package total unchanged, which is precisely the regression the
+    // per-file split exists to catch.
+    const raises = []
+    for (const [pkg, entry] of Object.entries(current)) {
+      const prior = baseline?.packages?.[pkg]
+      if (!prior) continue
+      if (entry.total > prior.maxErrors) {
+        raises.push(`${pkg}: package total ${prior.maxErrors} -> ${entry.total}`)
+      }
+      for (const [file, count] of Object.entries(entry.perFile ?? {})) {
+        const priorCount = prior.perFile?.[file]
+        if (priorCount !== undefined && count > priorCount) {
+          raises.push(`${pkg}/${file}: ${priorCount} -> ${count}`)
+        }
+      }
+    }
+    if (raises.length > 0 && !allowRaise) {
+      console.error(
+        `[check-test-typecheck] refusing to write a baseline that raises ${raises.length} ` +
+          'budget(s). This is how a concurrent lane\'s mid-edit state gets recorded as an ' +
+          'allowed budget. Fix the regression, or re-run with --allow-raise if the widening ' +
+          'is deliberate.'
+      )
+      for (const line of raises.slice(0, 20)) console.error(`  ${line}`)
+      if (raises.length > 20) console.error(`  ... and ${raises.length - 20} more`)
+      process.exitCode = 1
+      return
+    }
+
     writeBaseline(merged)
     const now = Object.values(merged).reduce((n, p) => n + p.total, 0)
     // Report the measured scope, not the merged file's size. The old message
