@@ -48,7 +48,7 @@ S2=$(git status --porcelain | md5sum); H2=$(git rev-parse HEAD)
 | `memory` + `agent-types` | **free — released 2026-08-17 20:20** | run-lifecycle-hooks session | **SHIPPED** (`811f4064`, `7a0895f8`, `15059fd0`, `5dbc485f`). The `agent-types/src/...` deep import is GONE; the contract ships vitest-free as `@dzupagent/agent-types/fleet-contract` (plain `KnowledgeStoreContractCase[]`, throw-based assertions, type-only imports). `tsconfig.flipcheck.json` `rootDir` narrowed `".."` → `"."` — NOT deleted outright: `tsup.config.ts` sits at the package root and a real test imports it, so `"."` is the tightest bound that still admits it, and it can no longer reach outside `packages/memory`. Separately `5dbc485f` cleared the `vacuous-every` ratchet red (rose 2→4 under `64e5ebcf`). memory flipcheck 0, lint exit 0, suite 155 files / 3710 tests. Two mutants killed with disjoint kill sets.
 | repo-root **gate wiring** | **free — released 2026-08-17 20:10** | ci-gate-parity session | **SHIPPED** (`c7772966`, `0096cf9e`, `f4a88829`, `5aefa953`). The `strict-ci` profile CI runs had 21 gates; `verify:strict:ci:no-circular` chains 24. `check:memory-api-census`, `check:memory-conformance` and `check:flow-corpus-losslessness` were never transcribed into it (`164327f5`, 08-04) and had **never run in CI once**; two were red. Both memory artifacts re-pinned (semantically identical — no export, ownership or capability entry moved) and all three gates now exit 0 on a pristine checkout of `5aefa953`. The census was regenerated in a **detached worktree** because two of its pins were uncommitted in the agent lane and it hashes from disk. `compareProfileToChain` + `scripts/__tests__/run-gates.test.mjs` now assert profile==chain, enforced by `test:scripts` which is itself a gate in the profile. Do not regress. ⚠️ **Two more gates run NOWHERE and are red — reported, not taken:** `check:security-audit-status` (its required `docs/SECURITY-AUDIT.md` was deliberately retired by `4f2301b2`; the gate was not — restore or retire, do not make it pass vacuously) and `check:flow-conformance` (matrix last refreshed 07-11, flow packages changed through 08-17; **do not regenerate while flow-\* is dirty**). Neither is in any chain, so wiring them is a policy call, not drift repair. |
 
-**NOT claimed and not touched by this lane:** `packages/agent` (**12** union
+**NOT claimed and not touched by this lane:** `packages/agent` (**11** union
 declaration sites, 6 of them in `pipeline/loop-executor/types.ts`) is LIVE — that
 file and `for-each-loop.ts` were written at 19:27, three minutes before the
 claim, and the lane was still writing at 20:15. The `flow-ast` / `flow-compiler`
@@ -57,8 +57,18 @@ occupancy, not on merit.
 
 ### Union-return sweep — closing state, 2026-08-17 20:30
 
-**26 of 38 declaration sites closed across 6 packages; the 12 that remain are
-all in `packages/agent` and are the only ones left in the workspace.** Verified
+**23 of 34 TypeScript declaration sites closed across 6 packages; the 11 that
+remain are all in `packages/agent` and are the only ones left in the
+workspace.** (Corrected: an earlier revision of this row said "26 of 38" — that
+count included markdown prose and comment lines. Counting `.ts` declarations
+only: agent 11, agent-adapters 7, app-tools 4, core 5, execution-contracts 3,
+express 2, server 2 = 34 before; 11 after. Of the 11 left, **6 are under
+`src/pipeline/`** — `loop-executor/types.ts` ×4 and `pipeline-runtime-types.ts`
+×2 — and belong to the live for-each lane; the other **5 are outside pipeline**
+(`approval/approval-types.ts:101`, `mailbox/types.ts:95`,
+`mailbox/agent-mailbox.ts:126`, `observability/llm-call-audit.ts:83`,
+`orchestration/team/team-workspace.ts:14`) and are takeable as soon as
+`packages/agent` is free.) Verified
 by content at `origin/main`, not from the lanes' reports: every claimed package
 greps to **0** union declaration sites, and all seven pinning test files are
 present (14/11/3/7/14/26/11 tests) with no probe or mutant debris anywhere.
