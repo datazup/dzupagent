@@ -1,6 +1,18 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import type { WorkflowContext } from '@dzupagent/agent/workflow';
 import { MockSkillStepResolver } from '../mock-skill-step-resolver.js';
-import type { MockCall } from '../mock-skill-step-resolver.js';
+
+/**
+ * `WorkflowStep.execute` takes `(input, ctx)` — both required
+ * (`@dzupagent/agent` `workflow-types.ts:9`). Every call below passed only the
+ * input, which does not typecheck and is not how the workflow engine invokes a
+ * step. `MockSkillStepResolver` ignores the context today, so supplying a real
+ * one changes no assertion; it does mean these tests keep compiling, and keep
+ * exercising the true call shape, if the mock ever starts reading it.
+ */
+function ctx(state: Record<string, unknown> = {}): WorkflowContext {
+  return { workflowId: 'test-workflow', state };
+}
 
 describe('MockSkillStepResolver', () => {
   let sut: MockSkillStepResolver;
@@ -17,29 +29,29 @@ describe('MockSkillStepResolver', () => {
     it('should register a skill that returns { [skillId]: output }', async () => {
       sut.registerText('greet', 'hello');
       const step = await sut.resolve('greet');
-      const result = await step.execute({});
+      const result = await step.execute({}, ctx());
       expect(result).toEqual({ greet: 'hello' });
     });
 
     it('should return consistent output across multiple executions', async () => {
       sut.registerText('echo', 'fixed');
       const step = await sut.resolve('echo');
-      const r1 = await step.execute({});
-      const r2 = await step.execute({});
+      const r1 = await step.execute({}, ctx());
+      const r2 = await step.execute({}, ctx());
       expect(r1).toEqual(r2);
     });
 
     it('should ignore the input state and always return the fixed output', async () => {
       sut.registerText('static', 'value');
       const step = await sut.resolve('static');
-      const result = await step.execute({ foo: 'bar', nested: { x: 1 } });
+      const result = await step.execute({ foo: 'bar', nested: { x: 1 } }, ctx());
       expect(result).toEqual({ static: 'value' });
     });
 
     it('should handle empty string output', async () => {
       sut.registerText('empty', '');
       const step = await sut.resolve('empty');
-      const result = await step.execute({});
+      const result = await step.execute({}, ctx());
       expect(result).toEqual({ empty: '' });
     });
 
@@ -47,7 +59,7 @@ describe('MockSkillStepResolver', () => {
       const special = 'line1\nline2\ttab "quotes" \'single\' `backtick`';
       sut.registerText('special', special);
       const step = await sut.resolve('special');
-      const result = await step.execute({});
+      const result = await step.execute({}, ctx());
       expect(result).toEqual({ special });
     });
 
@@ -55,7 +67,7 @@ describe('MockSkillStepResolver', () => {
       const unicode = 'Hello \u{1F600} \u{1F30D} \u00E9\u00E8\u00EA';
       sut.registerText('unicode', unicode);
       const step = await sut.resolve('unicode');
-      const result = await step.execute({});
+      const result = await step.execute({}, ctx());
       expect(result).toEqual({ unicode });
     });
   });
@@ -70,7 +82,7 @@ describe('MockSkillStepResolver', () => {
         value: (state['n'] as number) * 2,
       }));
       const step = await sut.resolve('double');
-      const result = await step.execute({ n: 5 });
+      const result = await step.execute({ n: 5 }, ctx());
       expect(result).toEqual({ value: 10 });
     });
 
@@ -79,7 +91,7 @@ describe('MockSkillStepResolver', () => {
         return { processed: true, input: state['data'] };
       });
       const step = await sut.resolve('async-op');
-      const result = await step.execute({ data: 'test' });
+      const result = await step.execute({ data: 'test' }, ctx());
       expect(result).toEqual({ processed: true, input: 'test' });
     });
 
@@ -90,14 +102,14 @@ describe('MockSkillStepResolver', () => {
         return { ok: true };
       });
       const step = await sut.resolve('capture');
-      await step.execute({ key: 'val', num: 42 });
+      await step.execute({ key: 'val', num: 42 }, ctx());
       expect(receivedState).toEqual({ key: 'val', num: 42 });
     });
 
     it('should handle function that returns empty object', async () => {
       sut.register('empty', () => ({}));
       const step = await sut.resolve('empty');
-      const result = await step.execute({});
+      const result = await step.execute({}, ctx());
       expect(result).toEqual({});
     });
 
@@ -105,7 +117,7 @@ describe('MockSkillStepResolver', () => {
       sut.registerText('overwrite', 'first');
       sut.register('overwrite', () => ({ overwrite: 'second' }));
       const step = await sut.resolve('overwrite');
-      const result = await step.execute({});
+      const result = await step.execute({}, ctx());
       expect(result).toEqual({ overwrite: 'second' });
     });
   });
@@ -119,20 +131,20 @@ describe('MockSkillStepResolver', () => {
       const err = new Error('test failure');
       sut.registerError('failing', err);
       const step = await sut.resolve('failing');
-      await expect(step.execute({})).rejects.toThrow('test failure');
+      await expect(step.execute({}, ctx())).rejects.toThrow('test failure');
     });
 
     it('should wrap a string into an Error', async () => {
       sut.registerError('failing-str', 'string error');
       const step = await sut.resolve('failing-str');
-      await expect(step.execute({})).rejects.toThrow('string error');
+      await expect(step.execute({}, ctx())).rejects.toThrow('string error');
     });
 
     it('should throw an instance of Error when given a string', async () => {
       sut.registerError('err-type', 'msg');
       const step = await sut.resolve('err-type');
       try {
-        await step.execute({});
+        await step.execute({}, ctx());
         expect.fail('should have thrown');
       } catch (e) {
         expect(e).toBeInstanceOf(Error);
@@ -148,7 +160,7 @@ describe('MockSkillStepResolver', () => {
       sut.registerError('custom-err', err);
       const step = await sut.resolve('custom-err');
       try {
-        await step.execute({});
+        await step.execute({}, ctx());
         expect.fail('should have thrown');
       } catch (e) {
         expect(e).toBe(err);
@@ -159,7 +171,7 @@ describe('MockSkillStepResolver', () => {
     it('should throw regardless of input state', async () => {
       sut.registerError('always-fail', 'boom');
       const step = await sut.resolve('always-fail');
-      await expect(step.execute({ any: 'state' })).rejects.toThrow('boom');
+      await expect(step.execute({ any: 'state' }, ctx())).rejects.toThrow('boom');
     });
   });
 
@@ -172,7 +184,7 @@ describe('MockSkillStepResolver', () => {
       sut.registerDelay('slow', 10, 'done');
       const step = await sut.resolve('slow');
       const start = Date.now();
-      const result = await step.execute({});
+      const result = await step.execute({}, ctx());
       const elapsed = Date.now() - start;
       expect(result).toEqual({ slow: 'done' });
       expect(elapsed).toBeGreaterThanOrEqual(5); // allow some timing slack
@@ -181,14 +193,14 @@ describe('MockSkillStepResolver', () => {
     it('should work with zero delay', async () => {
       sut.registerDelay('instant', 0, 'immediate');
       const step = await sut.resolve('instant');
-      const result = await step.execute({});
+      const result = await step.execute({}, ctx());
       expect(result).toEqual({ instant: 'immediate' });
     });
 
     it('should return { [skillId]: output } format', async () => {
       sut.registerDelay('keyed', 1, 'val');
       const step = await sut.resolve('keyed');
-      const result = await step.execute({});
+      const result = await step.execute({}, ctx());
       expect(Object.keys(result as Record<string, unknown>)).toEqual(['keyed']);
     });
   });
@@ -251,14 +263,14 @@ describe('MockSkillStepResolver', () => {
       sut.registerText('null-input', 'val');
       const step = await sut.resolve('null-input');
       // The execute receives null which gets coalesced to {}
-      const result = await step.execute(null);
+      const result = await step.execute(null, ctx());
       expect(result).toEqual({ 'null-input': 'val' });
     });
 
     it('should handle undefined input gracefully', async () => {
       sut.registerText('undef-input', 'val');
       const step = await sut.resolve('undef-input');
-      const result = await step.execute(undefined);
+      const result = await step.execute(undefined, ctx());
       expect(result).toEqual({ 'undef-input': 'val' });
     });
   });
@@ -311,7 +323,7 @@ describe('MockSkillStepResolver', () => {
     it('should record a call when execute is invoked', async () => {
       sut.registerText('tracked', 'val');
       const step = await sut.resolve('tracked');
-      await step.execute({ a: 1 });
+      await step.execute({ a: 1 }, ctx());
       expect(sut.calls).toHaveLength(1);
       expect(sut.calls[0]).toEqual({ skillId: 'tracked', state: { a: 1 } });
     });
@@ -321,9 +333,9 @@ describe('MockSkillStepResolver', () => {
       sut.registerText('skill-b', 'b');
       const stepA = await sut.resolve('skill-a');
       const stepB = await sut.resolve('skill-b');
-      await stepA.execute({ x: 1 });
-      await stepB.execute({ y: 2 });
-      await stepA.execute({ x: 3 });
+      await stepA.execute({ x: 1 }, ctx());
+      await stepB.execute({ y: 2 }, ctx());
+      await stepA.execute({ x: 3 }, ctx());
       expect(sut.calls).toHaveLength(3);
       expect(sut.calls[0]!.skillId).toBe('skill-a');
       expect(sut.calls[1]!.skillId).toBe('skill-b');
@@ -334,7 +346,7 @@ describe('MockSkillStepResolver', () => {
       sut.registerText('snapshot', 'val');
       const step = await sut.resolve('snapshot');
       const state = { mutable: 'original' };
-      await step.execute(state);
+      await step.execute(state, ctx());
       state.mutable = 'modified';
       expect(sut.calls[0]!.state).toEqual({ mutable: 'original' });
     });
@@ -343,7 +355,7 @@ describe('MockSkillStepResolver', () => {
       sut.registerError('err-tracked', 'boom');
       const step = await sut.resolve('err-tracked');
       try {
-        await step.execute({ before: 'error' });
+        await step.execute({ before: 'error' }, ctx());
       } catch {
         // expected
       }
@@ -355,7 +367,7 @@ describe('MockSkillStepResolver', () => {
     it('should use empty object for null input in call recording', async () => {
       sut.registerText('null-call', 'val');
       const step = await sut.resolve('null-call');
-      await step.execute(null);
+      await step.execute(null, ctx());
       // null is coalesced to {} by the ?? operator, so spread of {} is {}
       expect(sut.calls[0]!.state).toEqual({});
     });
@@ -373,7 +385,7 @@ describe('MockSkillStepResolver', () => {
       for (let i = 0; i < 20; i++) {
         expect(sut.canResolve(`skill-${i}`)).toBe(true);
         const step = await sut.resolve(`skill-${i}`);
-        const result = await step.execute({});
+        const result = await step.execute({}, ctx());
         expect(result).toEqual({ [`skill-${i}`]: `output-${i}` });
       }
     });
@@ -386,8 +398,8 @@ describe('MockSkillStepResolver', () => {
       const stepSut = await sut.resolve('shared-name');
       const stepOther = await other.resolve('shared-name');
 
-      expect(await stepSut.execute({})).toEqual({ 'shared-name': 'from-sut' });
-      expect(await stepOther.execute({})).toEqual({ 'shared-name': 'from-other' });
+      expect(await stepSut.execute({}, ctx())).toEqual({ 'shared-name': 'from-sut' });
+      expect(await stepOther.execute({}, ctx())).toEqual({ 'shared-name': 'from-other' });
       expect(sut.calls).toHaveLength(1);
       expect(other.calls).toHaveLength(1);
     });

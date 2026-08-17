@@ -114,7 +114,10 @@ function loadBoundaryConfig(configPath: string): ArchitectureBoundaryConfig {
       ? raw.packageBoundaryRules
       : [],
     appWorkspaces: Array.isArray(raw.appWorkspaces) ? raw.appWorkspaces : [],
-    layerGraph: raw.layerGraph,
+    // Omit the key entirely when the config file has no layerGraph:
+    // exactOptionalPropertyTypes distinguishes "absent" from "present and
+    // undefined", and the declared type allows only the former.
+    ...(raw.layerGraph !== undefined ? { layerGraph: raw.layerGraph } : {}),
   };
 }
 
@@ -367,10 +370,14 @@ function extractAppImports(
     // Normalise scoped packages: "@scope/name/sub" → "@scope/name"
     // Normalise plain packages:  "name/sub" → "name"
     const parts = specifier.split("/");
+    // A malformed bare "@scope" specifier yields no parts[1]; skip it rather
+    // than interpolating "undefined" into the package name.
     const pkgName = specifier.startsWith("@")
-      ? `${parts[0]}/${parts[1]}`
+      ? parts[1] !== undefined
+        ? `${parts[0]}/${parts[1]}`
+        : undefined
       : parts[0];
-    if (targets.has(pkgName)) {
+    if (pkgName !== undefined && targets.has(pkgName)) {
       found.add(pkgName);
     }
   }

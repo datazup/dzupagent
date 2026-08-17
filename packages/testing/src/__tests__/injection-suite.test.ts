@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { INJECTION_SUITE } from '../security/injection-suite.js';
-import type { SecurityTestCase } from '../security/security-test-types.js';
 
 describe('INJECTION_SUITE — test case content validation', () => {
   it('should contain cases for all major injection techniques', () => {

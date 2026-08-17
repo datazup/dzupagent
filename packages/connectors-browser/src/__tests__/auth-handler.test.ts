@@ -540,14 +540,14 @@ describe("AuthHandler", () => {
       // waitForURL/waitForSelector in waitForLoginComplete must both time out.
       vi.mocked(page.waitForURL).mockRejectedValue(new Error("timeout"));
       vi.mocked(page.waitForSelector).mockImplementation(
-        (selector: unknown, opts?: { timeout?: number }) => {
+        async (selector: string) => {
           // username/password selectors during fill must resolve; only the
           // post-login indicator wait (called with no explicit login field name)
           // should reject to simulate no post-login DOM indicator appearing.
-          if (typeof selector === "string" && selector.includes("nav")) {
-            return Promise.reject(new Error("timeout"));
+          if (selector.includes("nav")) {
+            throw new Error("timeout");
           }
-          return Promise.resolve(undefined);
+          return null;
         }
       );
       // isLoginPage at declared loginUrl: form present (1), then post-submit

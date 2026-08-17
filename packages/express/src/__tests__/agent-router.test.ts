@@ -88,21 +88,25 @@ function createResponse(app: TestApp): Response & { state: TestResponseState } {
   res.writeHead = (statusCode, headers = {}) => {
     state.statusCode = statusCode
     for (const [name, value] of Object.entries(headers)) {
-      state.headers[name.toLowerCase()] = value
+      // Same normalisation as `setHeader` above: OutgoingHttpHeader widens to
+      // number | string | string[], and an absent header must not be recorded
+      // as the literal string "undefined".
+      if (value === undefined) continue
+      state.headers[name.toLowerCase()] = Array.isArray(value) ? value.join(',') : String(value)
     }
     return res
   }
 
   res.write = (chunk) => {
     if (chunk !== undefined && chunk !== null) {
-      state.chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk as ArrayBufferView).toString())
+      state.chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk as Uint8Array).toString())
     }
     return true
   }
 
   res.end = (chunk?: unknown) => {
     if (chunk !== undefined && chunk !== null) {
-      state.chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk as ArrayBufferView).toString())
+      state.chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk as Uint8Array).toString())
     }
     state.ended = true
     res.emit('finish')
@@ -138,7 +142,12 @@ function dispatch(
     res.once('finish', onFinish)
     res.once('error', onError)
 
-    app.handle(req, res, (error?: unknown) => {
+    // `handle` is Express's internal dispatch entry point — present at runtime,
+    // absent from @types/express. Assert just that member rather than the app.
+    const dispatchable = app as unknown as {
+      handle: (rq: typeof req, rs: typeof res, next: (error?: unknown) => void) => void
+    }
+    dispatchable.handle(req, res, (error?: unknown) => {
       if (error) {
         reject(error instanceof Error ? error : new Error(String(error)))
         return
@@ -183,12 +192,16 @@ describe('createAgentRouter — route registration', () => {
       rateLimit: false,
     })
 
-    const routes = router.stack
-      .filter((layer: { route?: { path?: string; methods?: Record<string, boolean> } }) => layer.route)
-      .map((layer: { route: { path: string; methods: Record<string, boolean> } }) => ({
-        path: layer.route.path,
-        methods: Object.keys(layer.route.methods).sort(),
-      }))
+    // `.filter()` does not narrow the element type for the following `.map()`,
+    // so the map callback had to re-declare `route` as required — which is not
+    // assignable to ILayer. `flatMap` narrows in-place and needs no assertion.
+    const routes = (
+      router.stack as unknown as Array<{ route?: { path: string; methods: Record<string, boolean> } }>
+    ).flatMap((layer) =>
+      layer.route
+        ? [{ path: layer.route.path, methods: Object.keys(layer.route.methods).sort() }]
+        : [],
+    )
 
     expect(routes).toContainEqual({ path: '/chat', methods: ['post'] })
     expect(routes).toContainEqual({ path: '/chat/sync', methods: ['post'] })
@@ -202,9 +215,9 @@ describe('createAgentRouter — route registration', () => {
       rateLimit: false,
     })
 
-    const routePaths = router.stack
-      .filter((layer: { route?: { path?: string } }) => layer.route)
-      .map((layer: { route: { path: string } }) => layer.route.path)
+    const routePaths = (router.stack as Array<{ route?: { path: string } }>).flatMap((layer) =>
+      layer.route ? [layer.route.path] : [],
+    )
 
     expect(routePaths).toContain('/api/agent/chat')
     expect(routePaths).toContain('/api/agent/chat/sync')
@@ -346,7 +359,7 @@ describe('createAgentRouter — error sanitisation', () => {
       agents: { default: agent },
       rateLimit: false,
       hooks: { onError },
-      logger: { warn: vi.fn(), error: vi.fn() },
+      logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     })
 
     const state = await dispatch(
@@ -364,7 +377,7 @@ describe('createAgentRouter — error sanitisation', () => {
   })
 
   it('logs the real error server-side via the structured logger', async () => {
-    const logger = { warn: vi.fn(), error: vi.fn() }
+    const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
     const agent = createMockAgent({
       generate: vi.fn().mockRejectedValue(new Error('inner detail X')),
     })

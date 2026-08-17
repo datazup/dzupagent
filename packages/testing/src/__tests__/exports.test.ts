@@ -230,7 +230,7 @@ describe("MockSkillStepResolver — instantiation via export", () => {
     const resolver = new testingPkg.MockSkillStepResolver();
     resolver.registerText("hello", "world");
     const step = await resolver.resolve("hello");
-    const result = await step.execute({});
+    const result = await step.execute({}, { workflowId: "exports-test", state: {} });
     expect(result).toEqual({ hello: "world" });
   });
 });

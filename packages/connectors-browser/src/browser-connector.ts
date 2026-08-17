@@ -81,7 +81,7 @@ async function createBrowserSession(config: BrowserConnectorConfig) {
  *
  * @param config - Optional configuration for browser launch, authentication,
  *   and crawl behavior.
- * @returns An array of 5 StructuredTools ready for agent registration.
+ * @returns A fixed 5-tuple of StructuredTools ready for agent registration.
  */
 export function createBrowserConnector(config: BrowserConnectorConfig = {}) {
   const crawlSiteInputSchema = z.object({
@@ -389,11 +389,23 @@ export function createBrowserConnector(config: BrowserConnectorConfig = {}) {
     toModelOutput: (output: string): string => output,
   })
 
-  return [
+  // Annotated as a tuple, not left to infer an array. The order is contractual —
+  // `browser-connector-tools.test.ts` asserts the five names in sequence and every
+  // caller destructures by position — so under noUncheckedIndexedAccess a bare
+  // array type would make `const [crawl] = createBrowserConnector()` yield
+  // `Tool | undefined` at seventeen call sites for a length that never varies.
+  const tools: [
+    typeof crawlSiteTool,
+    typeof captureScreenshotTool,
+    typeof extractFormsTool,
+    typeof extractElementsTool,
+    typeof extractAccessibilityTreeTool,
+  ] = [
     crawlSiteTool,
     captureScreenshotTool,
     extractFormsTool,
     extractElementsTool,
     extractAccessibilityTreeTool,
   ]
+  return tools
 }

@@ -15,19 +15,21 @@ function createRequest(headers: Record<string, string> = {}): Request {
   } as Request
 }
 
-function createResponse(): Response & {
+// Named so the casts below can target the augmented response rather than the
+// bare `Response`: `res.status` must return `MockResponse`, and a cast through
+// `Response['status']` returns plain `Response`, dropping statusMock/jsonMock.
+type MockResponse = Response & {
   statusMock: ReturnType<typeof vi.fn>
   jsonMock: ReturnType<typeof vi.fn>
-} {
-  const res = {} as Response & {
-    statusMock: ReturnType<typeof vi.fn>
-    jsonMock: ReturnType<typeof vi.fn>
-  }
+}
+
+function createResponse(): MockResponse {
+  const res = {} as MockResponse
 
   res.statusMock = vi.fn(() => res)
   res.jsonMock = vi.fn(() => res)
-  res.status = res.statusMock as unknown as Response['status']
-  res.json = res.jsonMock as unknown as Response['json']
+  res.status = res.statusMock as unknown as MockResponse['status']
+  res.json = res.jsonMock as unknown as MockResponse['json']
 
   return res
 }

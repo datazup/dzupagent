@@ -89,21 +89,25 @@ function createResponse(app: TestApp): Response & { state: TestResponseState } {
   res.writeHead = (statusCode, headers = {}) => {
     state.statusCode = statusCode
     for (const [name, value] of Object.entries(headers)) {
-      state.headers[name.toLowerCase()] = value
+      // Same normalisation as `setHeader` above: OutgoingHttpHeader widens to
+      // number | string | string[], and an absent header must not be recorded
+      // as the literal string "undefined".
+      if (value === undefined) continue
+      state.headers[name.toLowerCase()] = Array.isArray(value) ? value.join(',') : String(value)
     }
     return res
   }
 
   res.write = (chunk) => {
     if (chunk !== undefined && chunk !== null) {
-      state.chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk as ArrayBufferView).toString())
+      state.chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk as Uint8Array).toString())
     }
     return true
   }
 
   res.end = (chunk?: unknown) => {
     if (chunk !== undefined && chunk !== null) {
-      state.chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk as ArrayBufferView).toString())
+      state.chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk as Uint8Array).toString())
     }
     state.ended = true
     res.emit('finish')
@@ -139,7 +143,12 @@ function dispatch(
     res.once('finish', onFinish)
     res.once('error', onError)
 
-    app.handle(req, res, (error?: unknown) => {
+    // `handle` is Express's internal dispatch entry point — present at runtime,
+    // absent from @types/express. Assert just that member rather than the app.
+    const dispatchable = app as unknown as {
+      handle: (rq: typeof req, rs: typeof res, next: (error?: unknown) => void) => void
+    }
+    dispatchable.handle(req, res, (error?: unknown) => {
       if (error) {
         reject(error instanceof Error ? error : new Error(String(error)))
       }

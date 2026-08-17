@@ -771,7 +771,7 @@ steps:
       durationMs: 1,
     }));
     const seen: {
-      idempotencyKey?: string;
+      idempotencyKey?: string | undefined;
       arguments?: Record<string, unknown>;
       initialState?: Record<string, unknown>;
     } = {};

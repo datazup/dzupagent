@@ -1,15 +1,11 @@
 {
-  "totalErrors": 2089,
+  "totalErrors": 1979,
   "note": "Test-file typecheck baseline (tsconfig.flipcheck.json per package). Ratchets down only. Bump only via --update-baseline after FIXING errors, never to accommodate new ones. Enforced per package AND per file, so a fix in one place cannot mask a regression in another. totalErrors and perCode are informational; the per-file budgets are what fail the build.",
   "packages": {
     "adapter-rules": {
-      "maxErrors": 1,
-      "perCode": {
-        "TS2783": 1
-      },
-      "perFile": {
-        "src/__tests__/projectors-watchers.test.ts": 1
-      }
+      "maxErrors": 0,
+      "perCode": {},
+      "perFile": {}
     },
     "agent": {
       "maxErrors": 198,
@@ -210,22 +206,9 @@
       }
     },
     "cache": {
-      "maxErrors": 19,
-      "perCode": {
-        "TS2739": 12,
-        "TS2379": 4,
-        "TS6133": 2,
-        "TS2488": 1
-      },
-      "perFile": {
-        "src/__tests__/cache-middleware-w21.test.ts": 4,
-        "src/__tests__/in-memory-backend.test.ts": 1,
-        "src/__tests__/key-generator.test.ts": 1,
-        "src/__tests__/middleware-advanced.test.ts": 4,
-        "src/__tests__/middleware-deep.test.ts": 7,
-        "src/__tests__/redis-backend.test.ts": 1,
-        "src/__tests__/redis-deep.test.ts": 1
-      }
+      "maxErrors": 0,
+      "perCode": {},
+      "perFile": {}
     },
     "codegen": {
       "maxErrors": 154,
@@ -341,18 +324,9 @@
       }
     },
     "connectors-browser": {
-      "maxErrors": 20,
-      "perCode": {
-        "TS18048": 17,
-        "TS2345": 1,
-        "TS6133": 1,
-        "TS2375": 1
-      },
-      "perFile": {
-        "src/__tests__/auth-handler.test.ts": 2,
-        "src/__tests__/browser-connector-tools.test.ts": 17,
-        "src/__tests__/navigation-policy.test.ts": 1
-      }
+      "maxErrors": 0,
+      "perCode": {},
+      "perFile": {}
     },
     "core": {
       "maxErrors": 203,
@@ -423,17 +397,9 @@
       }
     },
     "create-dzupagent": {
-      "maxErrors": 6,
-      "perCode": {
-        "TS6133": 4,
-        "TS7017": 1,
-        "TS2345": 1
-      },
-      "perFile": {
-        "src/__tests__/bridge.test.ts": 4,
-        "src/__tests__/generator.test.ts": 1,
-        "src/__tests__/wizard.test.ts": 1
-      }
+      "maxErrors": 0,
+      "perCode": {},
+      "perFile": {}
     },
     "dialogue-core-replay": {
       "maxErrors": 0,
@@ -491,20 +457,9 @@
       }
     },
     "express": {
-      "maxErrors": 18,
-      "perCode": {
-        "TS2769": 6,
-        "TS2322": 5,
-        "TS2339": 3,
-        "TS2345": 2,
-        "TS2739": 2
-      },
-      "perFile": {
-        "src/__tests__/agent-router.test.ts": 8,
-        "src/__tests__/express.integration.test.ts": 4,
-        "src/__tests__/mcp-context.test.ts": 2,
-        "src/__tests__/mcp-router.test.ts": 4
-      }
+      "maxErrors": 0,
+      "perCode": {},
+      "perFile": {}
     },
     "memory": {
       "maxErrors": 110,
@@ -610,17 +565,9 @@
       }
     },
     "scraper": {
-      "maxErrors": 5,
-      "perCode": {
-        "TS2339": 3,
-        "TS6133": 2
-      },
-      "perFile": {
-        "src/__tests__/browser-pool.test.ts": 2,
-        "src/__tests__/robots-and-fetcher.test.ts": 1,
-        "src/__tests__/scraper-deep.test.ts": 1,
-        "src/__tests__/w15-j2-edges.test.ts": 1
-      }
+      "maxErrors": 0,
+      "perCode": {},
+      "perFile": {}
     },
     "server": {
       "maxErrors": 664,
@@ -767,32 +714,14 @@
       }
     },
     "test-utils": {
-      "maxErrors": 1,
-      "perCode": {
-        "TS6133": 1
-      },
-      "perFile": {
-        "src/__tests__/mcp-compatibility.test.ts": 1
-      }
+      "maxErrors": 0,
+      "perCode": {},
+      "perFile": {}
     },
     "testing": {
-      "maxErrors": 40,
-      "perCode": {
-        "TS2554": 33,
-        "TS2345": 2,
-        "TS6133": 2,
-        "TS2375": 1,
-        "TS2352": 1,
-        "TS2412": 1
-      },
-      "perFile": {
-        "src/__tests__/boundary/architecture.test.ts": 3,
-        "src/__tests__/deterministic-verdict-integration.test.ts": 1,
-        "src/__tests__/exports.test.ts": 1,
-        "src/__tests__/injection-suite.test.ts": 1,
-        "src/__tests__/mock-skill-step-resolver.test.ts": 33,
-        "src/__tests__/w1-w3-compile-to-run.test.ts": 1
-      }
+      "maxErrors": 0,
+      "perCode": {},
+      "perFile": {}
     }
   }
 }

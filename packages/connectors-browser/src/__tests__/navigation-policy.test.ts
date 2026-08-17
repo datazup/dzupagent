@@ -172,7 +172,7 @@ interface RouteCall {
 async function runRouteHandler(
   handler: (route: Route) => Promise<void>,
   call: RouteCall
-): Promise<{ aborted: boolean; abortReason?: string }> {
+): Promise<{ aborted: boolean; abortReason: string | undefined }> {
   let aborted = false;
   let abortReason: string | undefined;
   let continued = false;

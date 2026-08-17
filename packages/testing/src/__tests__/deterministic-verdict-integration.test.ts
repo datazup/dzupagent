@@ -34,7 +34,7 @@ function createAgent(id: string): DzupAgent {
 function makeRuntime(options: {
   policies: ConstructorParameters<typeof TeamRuntime>[0]["policies"];
   governance?: Parameters<typeof Object>[0];
-  evaluation?: unknown;
+  evaluation?: ConstructorParameters<typeof TeamRuntime>[0]["evaluation"];
   onEvent?: (event: TeamRuntimeEvent) => void;
 }): TeamRuntime {
   const definition = {
