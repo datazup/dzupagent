@@ -28,6 +28,9 @@
  *   node scripts/check-test-typecheck.mjs --package core   # restrict to one package
  *   node scripts/check-test-typecheck.mjs --no-blame       # skip git attribution
  *
+ * Unrecognised arguments are rejected. They used to be ignored, which made a
+ * mistyped scoping flag widen the run to every package instead of failing.
+ *
  * On failure each over-budget file is attributed to the commits that last
  * touched its erroring lines, so a red CI log names the culprit instead of
  * requiring the operator to run git blame by hand.
@@ -36,7 +39,7 @@
 import { existsSync, readFileSync, writeFileSync, readdirSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..')
@@ -60,15 +63,88 @@ export function discoverPackages() {
 //   src/__tests__/foo.test.ts(27,16): error TS2339: Property 'x' does not exist...
 const ERROR_LINE_RE = /^(.+?)\((\d+),(\d+)\): error (TS\d+):/
 
-const args = process.argv.slice(2)
-const reportOnly = args.includes('--report-only')
-const updateBaseline = args.includes('--update-baseline')
-const pkgFlagIndex = args.indexOf('--package')
-const onlyPackage = pkgFlagIndex === -1 ? null : args[pkgFlagIndex + 1]
-// Attribution is on by default on failure: the whole point is that the operator
-// reading a red CI log should not have to re-run anything to learn whose commit
-// caused it. --no-blame exists for checkouts where git is unavailable or slow.
-const noBlame = args.includes('--no-blame')
+// Argument parsing is strict on purpose.
+//
+// The permissive version of this — `args.includes(...)` with unrecognised
+// arguments silently ignored — produced a live cross-lane hazard. `--only <pkg>`
+// reads as a scoping flag, but no such flag exists, so the run measured every
+// package; two concurrent sessions reported per-package verdicts that were
+// actually workspace-wide. Paired with `--update-baseline` it is worse than
+// misleading: `targets` is every package, so every package's budget is rewritten
+// from a measurement taken while other packages sit mid-edit, which is the
+// ratchet accommodating errors instead of ratcheting them down. A typo must fail
+// loudly rather than widen the blast radius.
+const BOOLEAN_FLAGS = {
+  '--report-only': 'reportOnly',
+  '--update-baseline': 'updateBaseline',
+  // Attribution is on by default on failure: the whole point is that the
+  // operator reading a red CI log should not have to re-run anything to learn
+  // whose commit caused it. --no-blame exists for checkouts where git is
+  // unavailable or slow.
+  '--no-blame': 'noBlame',
+}
+
+export function parseArgs(argv) {
+  const options = { reportOnly: false, updateBaseline: false, noBlame: false, onlyPackage: null }
+  const unknown = []
+
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i]
+
+    if (arg === '--package') {
+      const value = argv[i + 1]
+      // A missing value left onlyPackage `undefined`, which is falsy and so
+      // indistinguishable from "no --package given" — `--package` as the final
+      // argument silently measured every package. Same defect class as `--only`,
+      // same fix: refuse rather than widen.
+      if (value === undefined || value.startsWith('--')) {
+        return { error: "'--package' requires a package name (for example: --package core)." }
+      }
+      if (options.onlyPackage !== null) {
+        return {
+          error:
+            "'--package' was given more than once. This guard measures exactly one " +
+            'package or all of them, never a subset — only the first was ever honoured.',
+        }
+      }
+      options.onlyPackage = value
+      i += 1
+      continue
+    }
+
+    const field = BOOLEAN_FLAGS[arg]
+    if (field) {
+      options[field] = true
+      continue
+    }
+
+    unknown.push(arg)
+  }
+
+  if (unknown.length > 0) {
+    return {
+      error:
+        `unrecognised argument(s): ${unknown.join(' ')}. The scoping flag is ` +
+        '--package <name>; there is no --only. An ignored scoping flag silently ' +
+        'widens the run to every package, and with --update-baseline that rewrites ' +
+        "every package's budget from a mid-edit measurement.",
+    }
+  }
+
+  return { options }
+}
+
+/**
+ * Human-readable scope, printed BEFORE measuring.
+ *
+ * The old code printed a package count only in the pass/fail summary, and
+ * `--update-baseline` returned before reaching it — so the one command carrying
+ * the rewrite-everything hazard was also the one command that never told you
+ * what it was about to rewrite.
+ */
+export function describeScope(targets, onlyPackage) {
+  return onlyPackage ? `1 package (${onlyPackage})` : `all ${targets.length} enrolled packages`
+}
 
 function runTypecheck(pkg) {
   const result = spawnSync(
@@ -243,6 +319,14 @@ function writeBaseline(perPackage) {
 }
 
 function main() {
+  const parsed = parseArgs(process.argv.slice(2))
+  if (parsed.error) {
+    console.error(`[check-test-typecheck] ${parsed.error}`)
+    process.exitCode = 1
+    return
+  }
+  const { reportOnly, updateBaseline, noBlame, onlyPackage } = parsed.options
+
   const targets = onlyPackage ? [onlyPackage] : discoverPackages()
 
   if (targets.length === 0) {
@@ -257,6 +341,8 @@ function main() {
     process.exitCode = 1
     return
   }
+
+  console.log(`[check-test-typecheck] scope: ${describeScope(targets, onlyPackage)}`)
 
   const current = {}
   for (const pkg of targets) {
@@ -275,7 +361,13 @@ function main() {
     Object.assign(merged, current)
     writeBaseline(merged)
     const now = Object.values(merged).reduce((n, p) => n + p.total, 0)
-    console.log(`[check-test-typecheck] baseline updated (${now} errors across ${Object.keys(merged).length} packages)`)
+    // Report the measured scope, not the merged file's size. The old message
+    // said "across 18 packages" even for a correctly scoped single-package
+    // update, which is indistinguishable from the accident it should surface.
+    console.log(
+      `[check-test-typecheck] baseline updated for ${describeScope(targets, onlyPackage)} ` +
+        `(${now} errors now recorded across ${Object.keys(merged).length} packages)`
+    )
     return
   }
 
@@ -383,4 +475,12 @@ function main() {
   console.log(`[check-test-typecheck] OK (baseline: ${baselineTotal})`)
 }
 
-main()
+// Running the guard on import made `yarn test:scripts` execute the entire
+// 18-package typecheck as a side effect of loading this module for its unit
+// tests — minutes of duplicated work, and worse: main() sets process.exitCode on
+// a real regression, so the scripts unit suite would go red for a reason that
+// has nothing to do with any script test. Only run when this file IS the entry
+// point.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main()
+}
