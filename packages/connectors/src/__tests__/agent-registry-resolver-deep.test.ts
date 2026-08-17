@@ -382,7 +382,7 @@ describe("resolve() — handle shape", () => {
     const resolver = makeResolver({}, f);
     await resolver.refreshCatalogue();
     const result = await resolver.resolve("x");
-    expect(result?.handle.kind).toBe("agent");
+    expect((result?.handle as { kind: string }).kind).toBe("agent");
   });
 
   it("handle.id matches descriptor id", async () => {

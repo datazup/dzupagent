@@ -38,7 +38,7 @@ describe('connector contract normalization', () => {
       signal: controller.signal,
     })
     expect(invoke).toHaveBeenCalledWith({ value: 'alpha' }, { signal: controller.signal })
-    expect(tool.toModelOutput?.({ value: 'ok' })).toBe('OK')
+    expect(tool.toModelOutput?.({ value: 'ok', signal: undefined })).toBe('OK')
   })
 
   it('normalizes real DynamicStructuredTool outputs from a connector factory', async () => {

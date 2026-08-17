@@ -983,7 +983,8 @@ describe("ClickHouseConnector — deep dialect coverage", () => {
   it("executeQuery returns empty columns when meta is absent", async () => {
     const { c, client } = makeCh([]);
     client.query.mockResolvedValueOnce({
-      json: async () => ({ data: [], rows: 0 }),
+      json: async <T = unknown>(): Promise<T> =>
+        ({ data: [], rows: 0 }) as unknown as T,
     });
     const result = await c.executeQuery("SELECT 1");
     expect(result.columns).toEqual([]);

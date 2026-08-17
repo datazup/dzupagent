@@ -160,7 +160,7 @@ type DeferredName = ReturnType<MCPClient["getDeferredToolNames"]>[number];
 function makeEager(
   name: string,
   serverId: string,
-  schema?: unknown
+  schema?: EagerTool["inputSchema"]
 ): EagerTool {
   return {
     name,
@@ -1090,7 +1090,10 @@ describe("MCPAsyncToolResolver — listAvailable safety", () => {
 
 describe("MCPAsyncToolResolver — ResolvedTool shape", () => {
   it("inputSchema from eager tool forwarded to ResolvedTool", async () => {
-    const schema = {
+    // Annotated, so `type` stays the literal "object" instead of widening to
+    // `string` — and so this fixture is bound to the real inputSchema contract
+    // rather than being any object that happens to look like one.
+    const schema: EagerTool["inputSchema"] = {
       type: "object",
       properties: { q: { type: "string" } },
       required: ["q"],
