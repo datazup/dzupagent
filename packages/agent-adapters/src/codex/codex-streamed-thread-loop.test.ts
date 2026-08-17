@@ -24,6 +24,17 @@ import type {
   CodexThread,
 } from './codex-types.js'
 import type { AgentInput, AgentStreamEvent } from '../types.js'
+import { InteractionResolver } from '../interaction/interaction-resolver.js'
+
+/**
+ * InteractionResolver is a class, not an interface, so a bare `{ resolve }` literal
+ * cannot satisfy it. Build a real one and swap in the spy the test asserts on.
+ */
+function makeResolver(resolve: InteractionResolver['resolve']): InteractionResolver {
+  const resolver = new InteractionResolver({ mode: 'auto-approve' })
+  resolver.resolve = resolve
+  return resolver
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -107,10 +118,10 @@ function makeCtx(overrides: Partial<RunStreamedThreadContext> = {}): RunStreamed
     abort: () => abortCtrl.abort(),
     buildApprovalContext: (_input) => ({
       providerId: 'codex' as RunStreamedThreadContext['providerId'],
-      policy: { mode: 'auto' },
-      resolver: {
-        resolve: vi.fn().mockResolvedValue({ answer: 'yes', resolvedBy: 'auto' }),
-      },
+      policy: { mode: 'auto-approve' },
+      resolver: makeResolver(
+        vi.fn().mockResolvedValue({ answer: 'yes', resolvedBy: 'auto-approve' }),
+      ),
       buildThreadOptions: () => ({}),
     }),
     isApprovalCapable: () => false,
@@ -583,10 +594,10 @@ describe('runStreamedThread', () => {
       isApprovalCapable: () => true,
       buildApprovalContext: (_input) => ({
         providerId: 'codex' as RunStreamedThreadContext['providerId'],
-        policy: { mode: 'auto' },
-        resolver: {
-          resolve: vi.fn().mockResolvedValue({ answer: 'yes', resolvedBy: 'auto' }),
-        },
+        policy: { mode: 'auto-approve' },
+        resolver: makeResolver(
+          vi.fn().mockResolvedValue({ answer: 'yes', resolvedBy: 'auto-approve' }),
+        ),
         buildThreadOptions: () => ({}),
       }),
     })
@@ -621,10 +632,10 @@ describe('runStreamedThread', () => {
       isApprovalCapable: () => true,
       buildApprovalContext: (_input) => ({
         providerId: 'codex' as RunStreamedThreadContext['providerId'],
-        policy: { mode: 'auto' },
-        resolver: {
-          resolve: vi.fn().mockResolvedValue({ answer: 'no', resolvedBy: 'policy' }),
-        },
+        policy: { mode: 'auto-approve' },
+        resolver: makeResolver(
+          vi.fn().mockResolvedValue({ answer: 'no', resolvedBy: 'auto-deny' }),
+        ),
         buildThreadOptions: () => ({}),
       }),
     })
@@ -668,12 +679,12 @@ describe('runStreamedThread', () => {
     const thread = makeThread(events)
     const codex = makeCodexInstance()
 
-    const resolverFn = vi.fn().mockResolvedValue({ answer: 'yes', resolvedBy: 'auto' })
+    const resolverFn = vi.fn().mockResolvedValue({ answer: 'yes', resolvedBy: 'auto-approve' })
     const ctx = makeCtx({
       buildApprovalContext: (_input) => ({
         providerId: 'codex' as RunStreamedThreadContext['providerId'],
-        policy: { mode: 'auto' },
-        resolver: { resolve: resolverFn },
+        policy: { mode: 'auto-approve' },
+        resolver: makeResolver(resolverFn),
         buildThreadOptions: () => ({}),
       }),
     })
@@ -722,7 +733,7 @@ describe('runStreamedThread', () => {
     const collected = await genPromise
 
     // Every non-raw-provider event should carry the correlationId
-    const withCorr = collected.filter((e) => (e as Record<string, unknown>)['correlationId'] === 'my-corr-id')
+    const withCorr = collected.filter((e) => (e as unknown as Record<string, unknown>)['correlationId'] === 'my-corr-id')
     expect(withCorr.length).toBeGreaterThan(0)
   })
 
