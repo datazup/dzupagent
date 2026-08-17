@@ -20,7 +20,30 @@ import { InMemoryStore } from "@langchain/langgraph";
 import type { RunJob } from "../queue/run-queue.js";
 import { runPostRunLearningStage } from "../runtime/run-stages-persistence.js";
 import { dispatchExecutionStage } from "../runtime/run-stages-execution.js";
-import type { StartRunWorkerOptions } from "../runtime/run-worker-types.js";
+import type {
+  ReflectionScore,
+  StartRunWorkerOptions,
+} from "../runtime/run-worker-types.js";
+
+/**
+ * `ReflectionScore.dimensions` requires all five `ReflectionDimensions` fields;
+ * these doubles previously returned `{}`, which no real reflector produces.
+ * Mirroring `overall` across the dimensions keeps the fixture self-consistent.
+ */
+function reflectionScore(overall: number): ReflectionScore {
+  return {
+    overall,
+    dimensions: {
+      completeness: overall,
+      coherence: overall,
+      toolSuccess: overall,
+      conciseness: overall,
+      reliability: overall,
+    },
+    flags: [],
+  };
+}
+
 import { InMemoryRunQueue } from "../queue/run-queue.js";
 
 function makeJob(overrides: Partial<RunJob> = {}): RunJob {
@@ -190,7 +213,7 @@ describe("model-tier escalation tenant isolation (R3-ISO-04)", () => {
       }),
     };
     const reflector = {
-      score: vi.fn(() => ({ overall: 0.1, dimensions: {}, flags: [] })),
+      score: vi.fn(() => reflectionScore(0.1)),
     };
     const runStore = new InMemoryRunStore();
     const workerOptions = makeWorkerOptions({
@@ -243,7 +266,7 @@ describe("retrieval feedback tenant isolation (R3-ISO-05)", () => {
       },
     };
     const reflector = {
-      score: vi.fn(() => ({ overall: 0.9, dimensions: {}, flags: [] })),
+      score: vi.fn(() => reflectionScore(0.9)),
     };
     const runStore = new InMemoryRunStore();
     const workerOptions = makeWorkerOptions({

@@ -13,7 +13,30 @@ import {
   persistFailure,
   runPostRunLearningStage,
 } from '../runtime/run-stages-persistence.js'
-import type { StartRunWorkerOptions } from '../runtime/run-worker-types.js'
+import type {
+  ReflectionScore,
+  StartRunWorkerOptions,
+} from '../runtime/run-worker-types.js'
+
+/**
+ * `ReflectionScore.dimensions` requires all five `ReflectionDimensions` fields;
+ * these doubles previously returned `{}`, which no real reflector produces.
+ * Mirroring `overall` across the dimensions keeps the fixture self-consistent.
+ */
+function reflectionScore(overall: number): ReflectionScore {
+  return {
+    overall,
+    dimensions: {
+      completeness: overall,
+      coherence: overall,
+      toolSuccess: overall,
+      conciseness: overall,
+      reliability: overall,
+    },
+    flags: [],
+  }
+}
+
 import { InMemoryRunQueue } from '../queue/run-queue.js'
 
 /**
@@ -128,11 +151,7 @@ describe('run-stages-persistence tenant stamping (SEC-M-01-EXTENDED)', () => {
     })
 
     const reflector = {
-      score: vi.fn(() => ({
-        overall: 0.1,
-        dimensions: {},
-        flags: [],
-      })),
+      score: vi.fn(() => reflectionScore(0.1)),
     }
     const escalationPolicy = {
       recordScore: vi.fn(() => ({
@@ -200,7 +219,7 @@ describe('run-stages-persistence reflection stamping (RUN-REFLECTION-STORE-WIDEN
     })
 
     const reflector = {
-      score: vi.fn(() => ({ overall: 0.9, dimensions: {}, flags: [] })),
+      score: vi.fn(() => reflectionScore(0.9)),
     }
 
     const savedSummaries: Array<{ runId: string; tenantId?: string; ownerId?: string }> = []
@@ -278,7 +297,7 @@ describe('run-stages-persistence reflection stamping (RUN-REFLECTION-STORE-WIDEN
     })
 
     const reflector = {
-      score: vi.fn(() => ({ overall: 0.9, dimensions: {}, flags: [] })),
+      score: vi.fn(() => reflectionScore(0.9)),
     }
 
     const captured: Array<Record<string, unknown>> = []
@@ -355,7 +374,7 @@ describe('run-stages-persistence best-effort logging (CODE-L-01)', () => {
     })
 
     const reflector = {
-      score: vi.fn(() => ({ overall: 0.9, dimensions: {}, flags: [] })),
+      score: vi.fn(() => reflectionScore(0.9)),
     }
 
     // A run store whose telemetry writes always reject. This drives the run

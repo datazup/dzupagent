@@ -19,6 +19,7 @@ import {
   createEventBus,
 } from "@dzupagent/core";
 import type {
+  DeadLetterEntry,
   JobProcessor,
   QueueStats,
   RunJob,
@@ -74,14 +75,20 @@ class CapturingRunQueue implements RunQueue {
     };
   }
 
-  async cancel(): Promise<boolean> {
+  // `RunQueue.cancel` and `.stats` are synchronous; declaring them async made
+  // this double structurally incompatible with the interface it implements.
+  cancel(_runId: string): boolean {
     return false;
   }
   start(_processor: JobProcessor): void {}
   async stop(_waitForActive?: boolean): Promise<void> {}
-  async stats(): Promise<QueueStats> {
-    return { pending: 0, active: 0, completed: 0, failed: 0 };
+  stats(): QueueStats {
+    return { pending: 0, active: 0, completed: 0, failed: 0, deadLetter: 0 };
   }
+  getDeadLetter(): DeadLetterEntry[] {
+    return [];
+  }
+  clearDeadLetter(): void {}
   async shutdown(): Promise<void> {}
 }
 

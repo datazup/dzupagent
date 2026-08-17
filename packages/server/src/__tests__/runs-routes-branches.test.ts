@@ -7,6 +7,10 @@
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { createForgeApp, type ForgeServerConfig } from '../app.js'
+import type { RunJob, RunQueue } from '../queue/run-queue.js'
+
+/** What `RunQueue.enqueue` actually receives. */
+type EnqueueInput = Omit<RunJob, 'id' | 'createdAt' | 'attempts'>
 import {
   InMemoryRunStore,
   InMemoryAgentStore,
@@ -155,8 +159,8 @@ describe('runs routes branch coverage', () => {
   })
 
   it('POST /api/runs with queue + auto-executor returns 202', async () => {
-    const mockQueue = {
-      enqueue: vi.fn(async (job: Record<string, unknown>) => ({
+    const mockQueue: RunQueue = {
+      enqueue: vi.fn(async (job: EnqueueInput) => ({
         id: 'job-1', createdAt: new Date(), attempts: 0, ...job,
       })),
       start: vi.fn(),
@@ -242,8 +246,8 @@ describe('runs routes branch coverage', () => {
 
   it('POST /api/runs with queue + executor + negative priority clamps to 0', async () => {
     const captured: Array<{ priority: number }> = []
-    const mockQueue = {
-      enqueue: vi.fn(async (job: { priority: number }) => {
+    const mockQueue: RunQueue = {
+      enqueue: vi.fn(async (job: EnqueueInput) => {
         captured.push({ priority: job.priority })
         return { id: 'job-1', createdAt: new Date(), attempts: 0, ...job }
       }),
@@ -277,8 +281,8 @@ describe('runs routes branch coverage', () => {
 
   it('POST /api/runs with NaN priority defaults to 5', async () => {
     const captured: Array<{ priority: number }> = []
-    const mockQueue = {
-      enqueue: vi.fn(async (job: { priority: number }) => {
+    const mockQueue: RunQueue = {
+      enqueue: vi.fn(async (job: EnqueueInput) => {
         captured.push({ priority: job.priority })
         return { id: 'job-1', createdAt: new Date(), attempts: 0, ...job }
       }),

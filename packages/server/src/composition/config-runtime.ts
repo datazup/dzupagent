@@ -120,7 +120,13 @@ export interface ForgeRuntimeConfig {
   };
   eventGateway?: EventGateway;
   consolidation?: ConsolidationConfig;
-  router?: CostAwareRouter;
+  /**
+   * Intent/complexity classifier consulted when creating a run. Only
+   * `classify` is called (see routes/runs/create-handler.ts), so the field is
+   * the structural surface rather than the concrete class — whose private
+   * fields make it impossible for a host to supply an alternative router.
+   */
+  router?: Pick<CostAwareRouter, "classify">;
   reflector?: RunReflectorLike;
   retrievalFeedback?: RetrievalFeedbackHookConfig;
   journal?: RunJournal;
