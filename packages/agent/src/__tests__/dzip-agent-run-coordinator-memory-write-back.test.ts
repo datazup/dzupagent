@@ -38,7 +38,10 @@ import { DzupAgent } from "../agent/dzip-agent.js";
 import type { GenerateResult } from "../agent/agent-types.js";
 import type { StopReason } from "../agent/tool-loop.js";
 import { executeGenerateRun } from "../agent/run-engine.js";
+import type * as RunEngineNs from "../agent/run-engine.js";
 import { makeMockMemoryService, makeMockModel } from "./test-utils.js";
+
+type RunEngineModule = typeof RunEngineNs;
 
 /**
  * Only `executeGenerateRun` is replaced, and it defaults to the REAL
@@ -47,15 +50,13 @@ import { makeMockMemoryService, makeMockModel } from "./test-utils.js";
  * the genuine run engine and tool loop end to end.
  */
 vi.mock("../agent/run-engine.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../agent/run-engine.js")>();
+  const actual = await importOriginal<RunEngineModule>();
   return { ...actual, executeGenerateRun: vi.fn(actual.executeGenerateRun) };
 });
 
-const actualRunEngine =
-  await vi.importActual<typeof import("../agent/run-engine.js")>(
-    "../agent/run-engine.js"
-  );
+const actualRunEngine = await vi.importActual<RunEngineModule>(
+  "../agent/run-engine.js"
+);
 
 // `"failed"` was never a member of the union. This assertion is the compile-time
 // tombstone for the original bug: if anyone re-adds `"failed"` to `StopReason`,
