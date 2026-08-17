@@ -11,12 +11,14 @@
  *
  * Extracted from `dzip-agent.ts` (MC-004).
  */
+import { randomUUID } from 'node:crypto'
 import { ConsolidationEngine } from '@dzupagent/memory'
 import type {
   ConsolidationStore,
   MemoryOperationDegradation,
   MemoryOperationStatus,
 } from '@dzupagent/memory'
+import { defaultLogger } from '@dzupagent/core/utils'
 import type { DzupAgentConfig } from './agent-types.js'
 
 export interface AgentConsolidationResult {
@@ -26,7 +28,35 @@ export interface AgentConsolidationResult {
   degradations: MemoryOperationDegradation[]
 }
 
-function unavailable(reason: string): AgentConsolidationResult {
+/**
+ * Build a degraded result that carries a stable reason code — never driver
+ * text (ERR-C-30). Full detail, when there is any, goes to the log with an
+ * opaque `errorId` that joins it back to this result.
+ */
+function unavailable(
+  reason: MemoryOperationDegradation['reason'],
+  error?: unknown,
+): AgentConsolidationResult {
+  const errorId = randomUUID()
+  if (error !== undefined) {
+    try {
+      defaultLogger.error(
+        JSON.stringify({
+          level: 'error',
+          timestamp: new Date().toISOString(),
+          component: 'consolidation-coordinator',
+          operation: `degradation:get:source-unavailable:${reason}`,
+          errorId,
+          error:
+            error instanceof Error
+              ? { name: error.name, message: error.message, stack: error.stack }
+              : { name: 'NonError', message: String(error), stack: undefined },
+        }),
+      )
+    } catch {
+      // Logging must never take down a non-fatal path.
+    }
+  }
   return {
     summarized: 0,
     summaries: [],
@@ -36,6 +66,7 @@ function unavailable(reason: string): AgentConsolidationResult {
         operation: 'get',
         impact: 'source-unavailable',
         reason,
+        errorId,
       },
     ],
   }
@@ -56,12 +87,12 @@ export async function runConsolidation(
   const namespace = config.memoryNamespace
   const scope = config.memoryScope
   if (!memory || !namespace || !scope) {
-    return unavailable('memory, namespace, or scope is not configured')
+    return unavailable('not-configured')
   }
 
   const getStore = (memory as { getStore?: () => unknown }).getStore
   if (typeof getStore !== 'function') {
-    return unavailable('memory provider does not expose getStore()')
+    return unavailable('not-configured')
   }
 
   let store: unknown
@@ -69,7 +100,8 @@ export async function runConsolidation(
     store = getStore.call(memory)
   } catch (error) {
     return unavailable(
-      error instanceof Error ? error.message : String(error),
+      error instanceof Error ? 'backend-error' : 'unknown-error',
+      error,
     )
   }
 
@@ -91,7 +123,8 @@ export async function runConsolidation(
     }
   } catch (error) {
     return unavailable(
-      error instanceof Error ? error.message : String(error),
+      error instanceof Error ? 'backend-error' : 'unknown-error',
+      error,
     )
   }
 }

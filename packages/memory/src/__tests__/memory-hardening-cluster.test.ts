@@ -6,6 +6,8 @@
  *   namespaces the write path indexes into (`searchable: true`).
  * - SHARED-KIT-SEC-L-31  — a vector-channel failure degrades to keyword-only
  *   *loudly*: it is logged with its error class and emitted on the event bus.
+ * - DZUPAGENT-ERR-C-30  — `degradation()` puts a stable reason CODE on the
+ *   public result object and routes the raw driver text to `error-log.ts`.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { MemoryService } from '../memory-service.js'
@@ -13,6 +15,11 @@ import { createStore, closeMemoryStore } from '../store-factory.js'
 import { searchMemoryWithStatus } from '../memory-service-search.js'
 import type { NamespaceConfig, SemanticStoreAdapter } from '../memory-types.js'
 import type { MemoryEventBus } from '../memory-service-types.js'
+import {
+  degradation,
+  classifyDegradationReason,
+} from '../operation-outcome.js'
+import type { FrameworkLogger } from '../error-log.js'
 
 const SEARCHABLE: NamespaceConfig = {
   name: 'lessons',
@@ -261,5 +268,108 @@ describe('SEC-L-31 — vector-channel failures are surfaced, not swallowed', () 
     expect(
       bus.events.filter((e) => e.type === 'memory:vector_search_failed'),
     ).toHaveLength(0)
+  })
+})
+
+describe('DZUPAGENT-ERR-C-30 — degradation() keeps driver text off public results', () => {
+  function recordingLogger(): FrameworkLogger & { lines: string[] } {
+    const lines: string[] = []
+    return {
+      lines,
+      debug: () => {},
+      info: () => {},
+      warn: () => {},
+      error: (message: string) => void lines.push(message),
+    }
+  }
+
+  /** A message shaped like a real Prisma/pg failure: it names schema objects. */
+  const DRIVER_MESSAGE =
+    'Invalid `prisma.memoryRecord.create()` invocation: Unique constraint '
+    + 'failed on the fields: (`tenant_id`,`namespace_key`) — index '
+    + 'memory_record_tenant_namespace_key_idx on table public.memory_record'
+
+  it('never copies the driver message onto the returned object', () => {
+    const logger = recordingLogger()
+    const result = degradation(
+      'put',
+      'partial-result',
+      new Error(DRIVER_MESSAGE),
+      'lessons',
+      { logger },
+    )
+
+    // The whole object — not just `reason` — must be free of driver text.
+    const serialized = JSON.stringify(result)
+    expect(serialized).not.toContain('prisma')
+    expect(serialized).not.toContain('memory_record')
+    expect(serialized).not.toContain('tenant_id')
+    expect(serialized).not.toContain('Unique constraint')
+
+    expect(result.reason).toBe('backend-error')
+    expect(result.operation).toBe('put')
+    expect(result.impact).toBe('partial-result')
+    expect(result.target).toBe('lessons')
+    expect(result.errorId).toMatch(/^[0-9a-f-]{36}$/)
+  })
+
+  it('logs exactly once, with structured context and the full error', () => {
+    const logger = recordingLogger()
+    const result = degradation(
+      'search',
+      'source-unavailable',
+      new Error(DRIVER_MESSAGE),
+      'lessons',
+      { logger, component: 'memory-test' },
+    )
+
+    expect(logger.lines).toHaveLength(1)
+    const line = JSON.parse(logger.lines[0] as string) as Record<string, unknown>
+    expect(line['level']).toBe('error')
+    expect(line['component']).toBe('memory-test')
+    expect(line['operation']).toBe(
+      'degradation:search:source-unavailable:backend-error',
+    )
+    // The errorId is the only join between the public object and this line.
+    expect(line['errorId']).toBe(result.errorId)
+    expect(
+      (line['error'] as { message: string }).message,
+    ).toContain('memory_record')
+  })
+
+  it('classifies from the error type surface, never from message text', () => {
+    const timeout = new Error('x')
+    timeout.name = 'TimeoutError'
+    const refused = Object.assign(new Error('x'), { code: 'ECONNREFUSED' })
+    const denied = Object.assign(new Error('x'), { code: 'EACCES' })
+    const aborted = new Error('x')
+    aborted.name = 'AbortError'
+
+    expect(classifyDegradationReason(timeout)).toBe('operation-timeout')
+    expect(classifyDegradationReason(refused)).toBe('backend-unavailable')
+    expect(classifyDegradationReason(denied)).toBe('permission-denied')
+    expect(classifyDegradationReason(aborted)).toBe('operation-aborted')
+    expect(classifyDegradationReason(new TypeError('x'))).toBe('invalid-request')
+    expect(classifyDegradationReason(new Error('x'))).toBe('backend-error')
+    expect(classifyDegradationReason('plain string')).toBe('unknown-error')
+
+    // A message that *looks* like a timeout must not change the code: the
+    // classifier reads name/code only, so message text can never steer it.
+    expect(
+      classifyDegradationReason(new Error('connection timed out')),
+    ).toBe('backend-error')
+  })
+
+  it('lets a call site override the code for internally-raised failures', () => {
+    const logger = recordingLogger()
+    const result = degradation(
+      'search',
+      'partial-result',
+      new Error('scan truncated after 40 pages'),
+      'lessons',
+      { logger, reason: 'scan-budget-exhausted' },
+    )
+    expect(result.reason).toBe('scan-budget-exhausted')
+    expect(logger.lines).toHaveLength(1)
   })
 })

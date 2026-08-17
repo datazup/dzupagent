@@ -61,7 +61,8 @@
       "outputLogs": "new-only"
     },
     "@dzupagent/memory#typecheck": {
-      "dependsOn": ["@dzupagent/memory-ipc#build:verify"]
+      "dependsOn": ["^build:verify", "^typecheck", "@dzupagent/memory-ipc#build:verify"],
+      "outputs": []
     },
     "@dzupagent/connectors#typecheck": {
       "dependsOn": ["^build:verify", "^typecheck", "@dzupagent/flow-ast#build:verify"],
@@ -81,8 +82,29 @@
       ],
       "outputs": []
     },
+    "test:coverage": {
+      "dependsOn": ["^build:verify"],
+      "inputs": [
+        "src/**",
+        "test/**",
+        "package.json",
+        "tsconfig.json",
+        "vitest.config.*"
+      ],
+      "outputs": ["coverage/**"],
+      "outputLogs": "new-only"
+    },
     "lint": {
-      "inputs": ["src/**", "package.json", ".eslintrc*", "eslint.config.*"],
+      "inputs": [
+        "src/**",
+        "package.json",
+        ".eslintrc*",
+        "eslint.config.*",
+        "$TURBO_ROOT$/eslint.config.js",
+        "$TURBO_ROOT$/eslint.baseline.js",
+        "$TURBO_ROOT$/scripts/run-package-lint.mjs",
+        "$TURBO_ROOT$/scripts/test-quality-baseline.mjs"
+      ],
       "outputs": [],
       "outputLogs": "new-only"
     },

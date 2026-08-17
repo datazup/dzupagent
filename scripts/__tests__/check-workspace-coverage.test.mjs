@@ -6,8 +6,10 @@ import { test } from 'node:test'
 
 import {
   DEFAULT_THRESHOLDS,
+  loadCoverageThresholdConfig,
   runCoverageGate,
   selfCheckCoverageGate,
+  validateCoverageConfig,
 } from '../check-workspace-coverage.mjs'
 
 function makeWorkspace(structure) {
@@ -423,4 +425,144 @@ test('a noCoverage concession also covers a package with no test:coverage script
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
+})
+
+// RF-09 / DZUPAGENT-TEST-C-15: a staged target that points below its own floor asks the team to
+// "improve" to a worse number. The gate used to accept 21 of them silently; it must now refuse.
+const FULL_COVERAGE_SUMMARY = {
+  total: {
+    statements: { total: 100, covered: 99, skipped: 0, pct: 99 },
+    branches: { total: 100, covered: 99, skipped: 0, pct: 99 },
+    functions: { total: 100, covered: 99, skipped: 0, pct: 99 },
+    lines: { total: 100, covered: 99, skipped: 0, pct: 99 },
+  },
+}
+
+test('rejects a staged baseline target that points below its own floor', () => {
+  const { root, configPath } = makeWorkspace({
+    packages: { alpha: { summary: FULL_COVERAGE_SUMMARY } },
+    config: {
+      defaultThresholds: DEFAULT_THRESHOLDS,
+      trackedPackages: [],
+      packages: {
+        alpha: {
+          baseline: {
+            reason: 'inverted ratchet probe',
+            since: '2026-08-04',
+            reviewBy: '2099-01-01',
+            thresholds: { statements: 95, branches: 90, functions: 95, lines: 95 },
+            targets: [{ by: '2099-01-01', thresholds: DEFAULT_THRESHOLDS }],
+          },
+        },
+      },
+    },
+  })
+
+  try {
+    const report = runCoverageGate({ repoRoot: root, configPath })
+    assert.equal(report.exitCode, 1)
+    assert.equal(report.configErrors.length, 4)
+    assert.match(report.configErrors[0], /may not point below its floor/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('rejects an inverted ratchet target even under --report-only', () => {
+  const { root, configPath } = makeWorkspace({
+    packages: { alpha: { summary: FULL_COVERAGE_SUMMARY } },
+    config: {
+      defaultThresholds: DEFAULT_THRESHOLDS,
+      trackedPackages: [],
+      packages: {
+        alpha: {
+          thresholds: { statements: 95, branches: 90, functions: 95, lines: 95 },
+          ratchet: {
+            since: '2026-08-04',
+            reviewBy: '2099-01-01',
+            reason: 'inverted ratchet probe',
+            target: { statements: 96, branches: 60, functions: 96, lines: 96 },
+          },
+        },
+      },
+    },
+  })
+
+  try {
+    const report = runCoverageGate({ repoRoot: root, configPath, reportOnly: true })
+    assert.equal(report.exitCode, 1, 'report-only must not soften a malformed ratchet')
+    assert.equal(report.configErrors.length, 1)
+    assert.match(report.configErrors[0], /ratchet\.target branches 60\.00% is below thresholds branches 90\.00%/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('rejects a later staged target that walks back an earlier one', () => {
+  const { root, configPath } = makeWorkspace({
+    packages: { alpha: { summary: FULL_COVERAGE_SUMMARY } },
+    config: {
+      defaultThresholds: DEFAULT_THRESHOLDS,
+      trackedPackages: [],
+      packages: {
+        alpha: {
+          baseline: {
+            reason: 'regressing ratchet probe',
+            since: '2026-08-04',
+            reviewBy: '2099-01-01',
+            thresholds: { statements: 80, branches: 80, functions: 80, lines: 80 },
+            targets: [
+              { by: '2099-01-01', thresholds: { statements: 90, branches: 90, functions: 90, lines: 90 } },
+              { by: '2099-06-01', thresholds: { statements: 85, branches: 90, functions: 90, lines: 90 } },
+            ],
+          },
+        },
+      },
+    },
+  })
+
+  try {
+    const report = runCoverageGate({ repoRoot: root, configPath })
+    assert.equal(report.exitCode, 1)
+    assert.equal(report.configErrors.length, 1)
+    assert.match(report.configErrors[0], /baseline\.targets\[1\] statements 85\.00% is below baseline\.targets\[0\] statements 90\.00%/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('accepts a ratchet target at or above its floor', () => {
+  const { root, configPath } = makeWorkspace({
+    packages: { alpha: { summary: FULL_COVERAGE_SUMMARY } },
+    config: {
+      defaultThresholds: DEFAULT_THRESHOLDS,
+      trackedPackages: [],
+      packages: {
+        alpha: {
+          thresholds: { statements: 95, branches: 90, functions: 95, lines: 95 },
+          ratchet: {
+            since: '2026-08-04',
+            reviewBy: '2099-01-01',
+            reason: 'valid ratchet',
+            target: { statements: 96, branches: 91, functions: 96, lines: 96 },
+          },
+        },
+      },
+    },
+  })
+
+  try {
+    const report = runCoverageGate({ repoRoot: root, configPath })
+    assert.deepEqual(report.configErrors, [])
+    assert.equal(report.exitCode, 0)
+    assert.equal(report.totals.pass, 1)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the checked-in workspace coverage config has no ratchet inversions', () => {
+  const repoRoot = new URL('../../', import.meta.url).pathname
+  const config = loadCoverageThresholdConfig(repoRoot)
+  assert.deepEqual(validateCoverageConfig(config), [])
 })

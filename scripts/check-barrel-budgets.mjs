@@ -172,11 +172,17 @@ function collectSourceFiles(absDir, packageRoot, acc = []) {
 
 /**
  * Per-file LOC ceiling for a package's source tree (MC-5 / DZUPAGENT-CODE-L-04).
- * Flags any source file over `maxFileLines` unless it is on the legacy
- * `fileLineAllowlist` or has an exact `fileLineDebtPins` entry. New debt pins
- * bind the accepted line count to the file bytes, source commit, rationale,
- * and finite review date so later edits fail closed instead of inheriting an
- * open-ended exception.
+ * Flags any source file over `maxFileLines` unless it has an exact
+ * `fileLineDebtPins` entry. Debt pins bind the accepted line count to the file
+ * bytes, source commit, rationale, and finite review date so later edits fail
+ * closed.
+ *
+ * There is deliberately NO boolean exemption list here. The former
+ * `fileLineAllowlist` skipped measurement entirely, which let listed files grow
+ * without limit while the gate stayed green; it was removed by RF-03
+ * (DZUPAGENT-ARCH-H-07 / DZUPAGENT-CODE-H-06) and every entry migrated to a
+ * source-bound `fileLineDebtPins` entry. Do not reintroduce an uncapped
+ * exemption: an unmeasured file is an unenforced file.
  */
 function evaluateFileLineCeiling({ root, packageDir, budget, now }) {
   const messages = [];
@@ -186,14 +192,18 @@ function evaluateFileLineCeiling({ root, packageDir, budget, now }) {
   if (typeof ceiling !== 'number' || !Number.isFinite(ceiling) || ceiling <= 0) {
     throw new Error('maxFileLines budget must be a positive number');
   }
-  const allowlist = new Set(budget.fileLineAllowlist ?? []);
+  if (budget.fileLineAllowlist !== undefined) {
+    throw new Error(
+      'fileLineAllowlist was removed by RF-03 because it exempted files from measurement entirely. '
+      + 'Use a source-bound fileLineDebtPins entry (maxLines + sourceSha256 + sourceCommit + reviewBy + rationale) instead.',
+    );
+  }
   const fileLineDebtPins = budget.fileLineDebtPins ?? {};
   if (typeof fileLineDebtPins !== 'object' || Array.isArray(fileLineDebtPins)) {
     throw new Error('fileLineDebtPins must be an object');
   }
   const srcDir = path.join(root, packageDir, 'src');
   for (const relFromPackage of collectSourceFiles(srcDir, path.join(root, packageDir))) {
-    if (allowlist.has(relFromPackage)) continue;
     const sourceText = readText(path.join(root, packageDir, relFromPackage));
     const measured = countLines(sourceText);
     if (measured !== undefined && measured > ceiling) {

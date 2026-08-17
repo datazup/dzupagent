@@ -12,12 +12,11 @@
     "  maxRootIndexLines            - line count of src/index.ts",
     "  auxiliarySourceLineBudgets   - per-file line caps for specific non-index source modules re-exported by the barrel",
     "  maxFileLines                 - per-file LOC ceiling applied to every src/**/*.ts (excl. tests/.d.ts) in the package",
-    "  fileLineAllowlist            - package-relative paths exempt from maxFileLines (pre-existing debt, pinned)",
     "  rootDebtPin                  - exact source hash/commit/review-bound temporary ceiling above a root target",
     "  fileLineDebtPins             - exact source hash/commit/review-bound temporary ceilings for oversized files",
     "Removing or renaming a root export is a published-consumer breakage and is NOT how you lower these numbers;",
     "lower them only by relocating a cluster to a subpath while keeping a root re-export, which leaves counts flat.",
-    "Lower maxFileLines debt by extracting cohesive sub-modules, then shrinking the allowlist.",
+    "Lower maxFileLines debt by extracting cohesive sub-modules, then deleting that file's fileLineDebtPins entry.",
     "2026-06-23 Phase-0 re-pin (audit full-dzupagent-2026-06-23/run-001): @dzupagent/core budgets ratcheted",
     "876->885/136->138/1238->1256 for intentional shipped root exports (BaseChatModel re-export 5620e656,",
     "MCP stdio hardening, runtime primitives); relocating them now would break consumers per the rule above.",
@@ -139,7 +138,8 @@
     "2026-08-04 consolidation re-pin: origin/main had already published token-measurement, provider-capability, memory-outcome, authentication-mode, adapter-port, and task-lease surfaces after the 2026-07-31 snapshot. The coolify-codev merge also adds structured memory logging and subagent lease exports. Preserve those public contracts and pin the resulting root sizes with zero slack: core explicitExports 935 / maxRootIndexLines 1327; memory 643; agent-adapters 870; runtime-contracts 92; adapter-types 28; subagents 212. Added runtime-contracts/src/ai-execution.ts to the time-boxed file debt allowlist; decomposition remains required. reviewBy: 2026-10-31.",
     "2026-08-05 C3 ai-economics re-pin: @dzupagent/runtime-contracts root grew 92->115 lines when ffff6eb5 (C3 slice 2) published the AI economics contract cluster (AI_TARIFF_SCHEMA, AI_QUOTA_SCHEMA, selectTariffRates, validateAiTariff, validateAiQuotaTruth, MICROS_PER_CENT plus nine types) from src/ai-economics.js. Re-pinned rather than relocated to a subpath because this package is governed root-first: config/public-api-allowlists.json lists ./ai-economics.js under stableRoot (added in the same C3 pass by af370471) and its migrationWindow states runtime contract ROOT exports are the stable neutral contract surface, requiring only that an allowlist rule precede a new contract module -- which it did. runtime-contracts has an EMPTY transitionalRoot, so unlike @dzupagent/core (whose ./middleware/ IS transitional, so its duplicate pricing re-export was DELETED in this same pass, clearing all three core budgets with no bump) there is no migration obligation to move this off the root. Pinned with zero slack to the measured 115. reviewBy: 2026-10-31.",
     "2026-08-09 Q7 qualification repair: do not silently re-pin stale target budgets. rootDebtPin and fileLineDebtPins retain the lower architecture target while accepting only exact reviewed bytes at clean source 49921e7ec9b1987c53cebba5e8327266669903be. A changed digest, higher metric, malformed provenance, or expired review date fails closed. reviewBy: 2026-09-09.",
-    "The root pins cover shipped compatibility surfaces in memory, agent-adapters, runtime-contracts, adapter-types, and flow-ast. The file pins cover five post-baseline modules that require per-concern decomposition. These are visible finite debts, not general growth licenses; remove each pin when the matching decomposition or public-surface migration lands."
+    "The root pins cover shipped compatibility surfaces in memory, agent-adapters, runtime-contracts, adapter-types, and flow-ast. The file pins cover five post-baseline modules that require per-concern decomposition. These are visible finite debts, not general growth licenses; remove each pin when the matching decomposition or public-surface migration lands.",
+    "2026-08-14 RF-03 allowlist retirement (audit full-dzupagent-2026-08-12/run-001, DZUPAGENT-ARCH-H-07 + DZUPAGENT-CODE-H-06): the uncapped boolean \"fileLineAllowlist\" mechanism is REMOVED from both config/barrel-budgets.json and scripts/check-barrel-budgets.mjs. It skipped measurement entirely, so a listed file could grow without limit with the gate green (runtime-contracts/src/ai-execution.ts reached 2496 LOC and agent/src/orchestration/delegating-supervisor.ts 979 LOC under it). All 21 surviving entries were converted to fails-closed \"fileLineDebtPins\" at their measured LOC, bound to the exact source sha256 at commit 2abed60034de57e0e55cac180ac77b1905c29ceb with an enforced reviewBy 2026-11-14. Any further edit to a pinned file now fails the gate until the pin is deliberately re-cut or the file is shrunk below the 500-LOC ceiling. INTENDED TARGET for every pinned file is maxFileLines (500); pins are a countdown, not a budget. No root budget was re-pinned upward by RF-03."
   ],
   "packages": {
     "@dzupagent/core": {
@@ -150,21 +150,62 @@
     },
     "@dzupagent/security": {
       "maxRootIndexLines": 78,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/agent": {
       "maxRootIndexLines": 732,
       "maxFileLines": 500,
-      "fileLineAllowlist": [
-        "src/index.ts",
-        "src/orchestration/contract-net/contract-net-manager.ts",
-        "src/orchestration/delegating-supervisor.ts",
-        "src/orchestration/fleet/fleet-supervisor.ts",
-        "src/orchestration/topology/topology-executor.ts",
-        "src/self-correction/learning-dashboard.ts",
-        "src/self-correction/performance-optimizer.ts"
-      ]
+      "fileLineDebtPins": {
+        "src/index.ts": {
+          "maxLines": 732,
+          "sourceSha256": "a4bd1bfd57a3007ab362da610857157016c4a73d138cfb9667de2bf0d53def74",
+          "sourceCommit": "2abed60034de57e0e55cac180ac77b1905c29ceb",
+          "reviewBy": "2026-11-14",
+          "rationale": "Migrated from the uncapped fileLineAllowlist by RF-03 (DZUPAGENT-ARCH-H-07 / DZUPAGENT-CODE-H-06). Frozen at 732 LOC and bound to these exact source bytes; intended target is the 500-LOC package ceiling via cohesive sub-module extraction."
+        },
+        "src/orchestration/contract-net/contract-net-manager.ts": {
+          "maxLines": 644,
+          "sourceSha256": "6805a14244508d2e772404b7bb35a8638e019b939196d0eecadfa956b2d1c3f4",
+          "sourceCommit": "2abed60034de57e0e55cac180ac77b1905c29ceb",
+          "reviewBy": "2026-11-14",
+          "rationale": "Migrated from the uncapped fileLineAllowlist by RF-03 (DZUPAGENT-ARCH-H-07 / DZUPAGENT-CODE-H-06). Frozen at 644 LOC and bound to these exact source bytes; intended target is the 500-LOC package ceiling via cohesive sub-module extraction."
+        },
+        "src/orchestration/delegating-supervisor.ts": {
+          "maxLines": 979,
+          "sourceSha256": "a37e734baabcb3e1107f78197a5d7276061ab253ad8b4e6acc3b370a33d8af54",
+          "sourceCommit": "2abed60034de57e0e55cac180ac77b1905c29ceb",
+          "reviewBy": "2026-11-14",
+          "rationale": "Migrated from the uncapped fileLineAllowlist by RF-03 (DZUPAGENT-ARCH-H-07 / DZUPAGENT-CODE-H-06). Frozen at 979 LOC and bound to these exact source bytes; intended target is the 500-LOC package ceiling via cohesive sub-module extraction."
+        },
+        "src/orchestration/fleet/fleet-supervisor.ts": {
+          "maxLines": 660,
+          "sourceSha256": "edb315ec9310fe8d3369c49f39cd7a13ee8ef01d2187b4068dd4eb73c7dae1fa",
+          "sourceCommit": "2abed60034de57e0e55cac180ac77b1905c29ceb",
+          "reviewBy": "2026-11-14",
+          "rationale": "Migrated from the uncapped fileLineAllowlist by RF-03 (DZUPAGENT-ARCH-H-07 / DZUPAGENT-CODE-H-06). Frozen at 660 LOC and bound to these exact source bytes; intended target is the 500-LOC package ceiling via cohesive sub-module extraction."
+        },
+        "src/orchestration/topology/topology-executor.ts": {
+          "maxLines": 560,
+          "sourceSha256": "67e0b3a31f6a3f17965bfe7cfb53dc686e83d968466a07a362594e8ffd8a4eb8",
+          "sourceCommit": "2abed60034de57e0e55cac180ac77b1905c29ceb",
+          "reviewBy": "2026-11-14",
+          "rationale": "Migrated from the uncapped fileLineAllowlist by RF-03 (DZUPAGENT-ARCH-H-07 / DZUPAGENT-CODE-H-06). Frozen at 560 LOC and bound to these exact source bytes; intended target is the 500-LOC package ceiling via cohesive sub-module extraction."
+        },
+        "src/self-correction/learning-dashboard.ts": {
+          "maxLines": 587,
+          "sourceSha256": "b3e964d7c53a771a4db876a40035a2c52fda5a927f2f57ee8d06b58aba30fac2",
+          "sourceCommit": "2abed60034de57e0e55cac180ac77b1905c29ceb",
+          "reviewBy": "2026-11-14",
+          "rationale": "Migrated from the uncapped fileLineAllowlist by RF-03 (DZUPAGENT-ARCH-H-07 / DZUPAGENT-CODE-H-06). Frozen at 587 LOC and bound to these exact source bytes; intended target is the 500-LOC package ceiling via cohesive sub-module extraction."
+        },
+        "src/self-correction/performance-optimizer.ts": {
+          "maxLines": 508,
+          "sourceSha256": "fef588d979dc5297bacae4db76128f6de5c9a9f07f60a7098db3e63230433914",
+          "sourceCommit": "2abed60034de57e0e55cac180ac77b1905c29ceb",
+          "reviewBy": "2026-11-14",
+          "rationale": "Migrated from the uncapped fileLineAllowlist by RF-03 (DZUPAGENT-ARCH-H-07 / DZUPAGENT-CODE-H-06). Frozen at 508 LOC and bound to these exact source bytes; intended target is the 500-LOC package ceiling via cohesive sub-module extraction."
+        }
+      }
     },
     "@dzupagent/memory": {
       "maxRootIndexLines": 643,
@@ -176,27 +217,43 @@
         "rationale": "Freeze the already-shipped memory compatibility barrel while its subpath migration is reviewed."
       },
       "maxFileLines": 500,
-      "fileLineAllowlist": [
-        "src/index.ts",
-        "src/observational-memory.ts"
-      ]
+      "fileLineDebtPins": {
+        "src/index.ts": {
+          "maxLines": 665,
+          "sourceSha256": "a5895f8063650b07eaacdcfb11ae307b5bcb6b2cf4f4a614b176df909febcda3",
+          "sourceCommit": "2abed60034de57e0e55cac180ac77b1905c29ceb",
+          "reviewBy": "2026-11-14",
+          "rationale": "Migrated from the uncapped fileLineAllowlist by RF-03 (DZUPAGENT-ARCH-H-07 / DZUPAGENT-CODE-H-06). Frozen at 665 LOC and bound to these exact source bytes; intended target is the 500-LOC package ceiling via cohesive sub-module extraction."
+        },
+        "src/observational-memory.ts": {
+          "maxLines": 990,
+          "sourceSha256": "d10b0aaab21b6bdde04558c10eb8dc5e3b7f3d06fed92209781ac8112381eda0",
+          "sourceCommit": "2abed60034de57e0e55cac180ac77b1905c29ceb",
+          "reviewBy": "2026-11-14",
+          "rationale": "Migrated from the uncapped fileLineAllowlist by RF-03 (DZUPAGENT-ARCH-H-07 / DZUPAGENT-CODE-H-06). Frozen at 990 LOC and bound to these exact source bytes; intended target is the 500-LOC package ceiling via cohesive sub-module extraction."
+        }
+      }
     },
     "@dzupagent/context": {
       "maxRootIndexLines": 127,
       "maxFileLines": 500,
-      "fileLineAllowlist": [
-        "src/message-manager.ts"
-      ]
+      "fileLineDebtPins": {
+        "src/message-manager.ts": {
+          "maxLines": 641,
+          "sourceSha256": "1d9f3ed0520cb1cc86e3dc244fdefb4ad5198c11349351e59289d7f3685930ca",
+          "sourceCommit": "2abed60034de57e0e55cac180ac77b1905c29ceb",
+          "reviewBy": "2026-11-14",
+          "rationale": "Migrated from the uncapped fileLineAllowlist by RF-03 (DZUPAGENT-ARCH-H-07 / DZUPAGENT-CODE-H-06). Frozen at 641 LOC and bound to these exact source bytes; intended target is the 500-LOC package ceiling via cohesive sub-module extraction."
+        }
+      }
     },
     "@dzupagent/rag": {
       "maxRootIndexLines": 75,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/connectors": {
       "maxRootIndexLines": 95,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/agent-adapters": {
       "maxRootIndexLines": 870,
@@ -208,10 +265,6 @@
         "rationale": "Freeze the shipped adapter monitoring compatibility exports while subpath adoption is completed."
       },
       "maxFileLines": 500,
-      "fileLineAllowlist": [
-        "src/index.ts",
-        "src/model-discovery.ts"
-      ],
       "fileLineDebtPins": {
         "src/codex/codex-adapter.ts": {
           "maxLines": 520,
@@ -220,24 +273,36 @@
           "reviewBy": "2026-09-09",
           "rationale": "Freeze the current Codex adapter bytes pending extraction of its request and event mapping concerns."
         },
+        "src/index.ts": {
+          "maxLines": 957,
+          "sourceSha256": "7770641cd2a8e5d13d79cde223f148e0dbad96af358fc0928e4031bdfa073983",
+          "sourceCommit": "2abed60034de57e0e55cac180ac77b1905c29ceb",
+          "reviewBy": "2026-11-14",
+          "rationale": "Migrated from the uncapped fileLineAllowlist by RF-03 (DZUPAGENT-ARCH-H-07 / DZUPAGENT-CODE-H-06). Frozen at 957 LOC and bound to these exact source bytes; intended target is the 500-LOC package ceiling via cohesive sub-module extraction."
+        },
         "src/integration/run-agent-execution.ts": {
           "maxLines": 589,
           "sourceSha256": "26ecfd11913e873cf027e945e4ed37173fff457ecd85be67b85d5ef027d04f0f",
           "sourceCommit": "49921e7ec9b1987c53cebba5e8327266669903be",
           "reviewBy": "2026-09-09",
           "rationale": "Freeze the execution bridge pending extraction of validation, transcript, and completion concerns."
+        },
+        "src/model-discovery.ts": {
+          "maxLines": 1349,
+          "sourceSha256": "f1d9500334b57847927d97c36fe78a6eda3d05dad4610967afae6ea409bd3cb2",
+          "sourceCommit": "2abed60034de57e0e55cac180ac77b1905c29ceb",
+          "reviewBy": "2026-11-14",
+          "rationale": "Migrated from the uncapped fileLineAllowlist by RF-03 (DZUPAGENT-ARCH-H-07 / DZUPAGENT-CODE-H-06). Frozen at 1349 LOC and bound to these exact source bytes; intended target is the 500-LOC package ceiling via cohesive sub-module extraction."
         }
       }
     },
     "@dzupagent/otel": {
       "maxRootIndexLines": 83,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/codegen": {
       "maxRootIndexLines": 465,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/runtime-contracts": {
       "maxRootIndexLines": 115,
@@ -249,54 +314,78 @@
         "rationale": "Freeze the reviewed runtime contract compatibility surface while consumers move to package subpaths."
       },
       "maxFileLines": 500,
-      "fileLineAllowlist": [
-        "src/agent-review.ts",
-        "src/ai-execution.ts",
-        "src/rag.ts"
-      ],
       "fileLineDebtPins": {
+        "src/agent-review.ts": {
+          "maxLines": 729,
+          "sourceSha256": "dff8ef2da72b1667900011456e3e8991199abb2a9a71a08f8e02f0177a317b30",
+          "sourceCommit": "2abed60034de57e0e55cac180ac77b1905c29ceb",
+          "reviewBy": "2026-11-14",
+          "rationale": "Migrated from the uncapped fileLineAllowlist by RF-03 (DZUPAGENT-ARCH-H-07 / DZUPAGENT-CODE-H-06). Frozen at 729 LOC and bound to these exact source bytes; intended target is the 500-LOC package ceiling via cohesive sub-module extraction."
+        },
+        "src/ai-execution.ts": {
+          "maxLines": 2496,
+          "sourceSha256": "e994e1cd7124f3687888aa42cb50ccd8a9c52485fe59b6af62d7d88437307342",
+          "sourceCommit": "2abed60034de57e0e55cac180ac77b1905c29ceb",
+          "reviewBy": "2026-11-14",
+          "rationale": "Migrated from the uncapped fileLineAllowlist by RF-03 (DZUPAGENT-ARCH-H-07 / DZUPAGENT-CODE-H-06). Frozen at 2496 LOC and bound to these exact source bytes; intended target is the 500-LOC package ceiling via cohesive sub-module extraction."
+        },
         "src/flow-runtime-input.ts": {
           "maxLines": 787,
           "sourceSha256": "8920d22b33c37fac184f4db77538c7399b4ec33d2b9a700266fa753448c05c8f",
           "sourceCommit": "49921e7ec9b1987c53cebba5e8327266669903be",
           "reviewBy": "2026-09-09",
           "rationale": "Freeze the flow runtime input contract pending a behavior-preserving per-concern type split."
+        },
+        "src/rag.ts": {
+          "maxLines": 605,
+          "sourceSha256": "8ee71f0b0c629f82acfaca58166cf09cdf543970624e9699dbea10aa19692899",
+          "sourceCommit": "2abed60034de57e0e55cac180ac77b1905c29ceb",
+          "reviewBy": "2026-11-14",
+          "rationale": "Migrated from the uncapped fileLineAllowlist by RF-03 (DZUPAGENT-ARCH-H-07 / DZUPAGENT-CODE-H-06). Frozen at 605 LOC and bound to these exact source bytes; intended target is the 500-LOC package ceiling via cohesive sub-module extraction."
         }
       }
     },
     "@dzupagent/execution-contracts": {
       "maxRootIndexLines": 16,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/agent-types": {
       "maxRootIndexLines": 53,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/eval-contracts": {
       "maxRootIndexLines": 13,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/dialogue-core": {
       "maxRootIndexLines": 114,
       "maxFileLines": 500,
-      "fileLineAllowlist": [
-        "src/dialogue-scheduler.ts"
-      ]
+      "fileLineDebtPins": {
+        "src/dialogue-scheduler.ts": {
+          "maxLines": 841,
+          "sourceSha256": "09ac71386f25dc1fe4c3a9a4a178f48e4e7396b5456c46c7d8743e825db5b993",
+          "sourceCommit": "2abed60034de57e0e55cac180ac77b1905c29ceb",
+          "reviewBy": "2026-11-14",
+          "rationale": "Migrated from the uncapped fileLineAllowlist by RF-03 (DZUPAGENT-ARCH-H-07 / DZUPAGENT-CODE-H-06). Frozen at 841 LOC and bound to these exact source bytes; intended target is the 500-LOC package ceiling via cohesive sub-module extraction."
+        }
+      }
     },
     "@dzupagent/dialogue-core-replay": {
       "maxRootIndexLines": 50,
       "maxFileLines": 500,
-      "fileLineAllowlist": [
-        "src/continuation-conformance-validation.ts"
-      ]
+      "fileLineDebtPins": {
+        "src/continuation-conformance-validation.ts": {
+          "maxLines": 778,
+          "sourceSha256": "2f87459542ab09a2a6f8dd1a5062be6e4bf372d8c459454eecab5d1be33f8ac0",
+          "sourceCommit": "2abed60034de57e0e55cac180ac77b1905c29ceb",
+          "reviewBy": "2026-11-14",
+          "rationale": "Migrated from the uncapped fileLineAllowlist by RF-03 (DZUPAGENT-ARCH-H-07 / DZUPAGENT-CODE-H-06). Frozen at 778 LOC and bound to these exact source bytes; intended target is the 500-LOC package ceiling via cohesive sub-module extraction."
+        }
+      }
     },
     "@dzupagent/cache": {
       "maxRootIndexLines": 12,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/adapter-types": {
       "maxRootIndexLines": 28,
@@ -307,23 +396,19 @@
         "reviewBy": "2026-09-11",
         "rationale": "Freeze the consolidated provider-session compatibility export with zero slack while future contracts remain subpath-only."
       },
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/adapter-rules": {
       "maxRootIndexLines": 30,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/connectors-browser": {
       "maxRootIndexLines": 60,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/connectors-documents": {
       "maxRootIndexLines": 33,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/express": {
       "maxRootIndexLines": 34,
@@ -334,8 +419,7 @@
         "reviewBy": "2026-09-11",
         "rationale": "Freeze the consolidated current stateless MCP compatibility export with zero slack while future contracts remain subpath-only."
       },
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/flow-ast": {
       "maxRootBarrelExplicitExports": 7,
@@ -350,12 +434,10 @@
         "reviewBy": "2026-09-09",
         "rationale": "Freeze the shipped AST compatibility barrel pending an explicit-export consolidation review."
       },
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/flow-compiler": {
       "maxFileLines": 500,
-      "fileLineAllowlist": [],
       "fileLineDebtPins": {
         "src/compile-orchestrator/pipeline.ts": {
           "maxLines": 529,
@@ -376,52 +458,68 @@
     "@dzupagent/flow-dsl": {
       "maxRootIndexLines": 15,
       "maxFileLines": 500,
-      "fileLineAllowlist": [
-        "src/dsl-source-map-projection.ts",
-        "src/primitives/built-ins-v2.ts",
-        "src/primitives/composite-expansion.ts",
-        "src/v2-authoring/migration.ts"
-      ]
+      "fileLineDebtPins": {
+        "src/dsl-source-map-projection.ts": {
+          "maxLines": 653,
+          "sourceSha256": "d60e9ca8b0ffc2d5237857f0057f16ed6650592a047d3d5c12134a20dd3867dd",
+          "sourceCommit": "2abed60034de57e0e55cac180ac77b1905c29ceb",
+          "reviewBy": "2026-11-14",
+          "rationale": "Migrated from the uncapped fileLineAllowlist by RF-03 (DZUPAGENT-ARCH-H-07 / DZUPAGENT-CODE-H-06). Frozen at 653 LOC and bound to these exact source bytes; intended target is the 500-LOC package ceiling via cohesive sub-module extraction."
+        },
+        "src/primitives/built-ins-v2.ts": {
+          "maxLines": 513,
+          "sourceSha256": "62c4d4f391f05c5e54f06b89db7d275b1b30de748af1ca5414156229bd6f148b",
+          "sourceCommit": "2abed60034de57e0e55cac180ac77b1905c29ceb",
+          "reviewBy": "2026-11-14",
+          "rationale": "Migrated from the uncapped fileLineAllowlist by RF-03 (DZUPAGENT-ARCH-H-07 / DZUPAGENT-CODE-H-06). Frozen at 513 LOC and bound to these exact source bytes; intended target is the 500-LOC package ceiling via cohesive sub-module extraction."
+        },
+        "src/primitives/composite-expansion.ts": {
+          "maxLines": 508,
+          "sourceSha256": "3a9a22bc3cf34cc213e67b12c1e2079c718bf9acfb65ecb7e99dd66758b2927b",
+          "sourceCommit": "2abed60034de57e0e55cac180ac77b1905c29ceb",
+          "reviewBy": "2026-11-14",
+          "rationale": "Migrated from the uncapped fileLineAllowlist by RF-03 (DZUPAGENT-ARCH-H-07 / DZUPAGENT-CODE-H-06). Frozen at 508 LOC and bound to these exact source bytes; intended target is the 500-LOC package ceiling via cohesive sub-module extraction."
+        },
+        "src/v2-authoring/migration.ts": {
+          "maxLines": 521,
+          "sourceSha256": "13887918736febd050eecbdb7a33f4cfc9f1e696e17d1420072fd169ec617fd5",
+          "sourceCommit": "2abed60034de57e0e55cac180ac77b1905c29ceb",
+          "reviewBy": "2026-11-14",
+          "rationale": "Migrated from the uncapped fileLineAllowlist by RF-03 (DZUPAGENT-ARCH-H-07 / DZUPAGENT-CODE-H-06). Frozen at 521 LOC and bound to these exact source bytes; intended target is the 500-LOC package ceiling via cohesive sub-module extraction."
+        }
+      }
     },
     "@dzupagent/memory-ipc": {
       "maxRootIndexLines": 207,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/scraper": {
       "maxRootIndexLines": 10,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/server": {
       "maxRootIndexLines": 273,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/evals": {
       "maxRootIndexLines": 250,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/app-tools": {
       "maxRootIndexLines": 65,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/code-edit-kit": {
       "maxRootIndexLines": 29,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/hitl-kit": {
       "maxRootIndexLines": 5,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/subagents": {
       "maxRootIndexLines": 212,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     }
   }
 }

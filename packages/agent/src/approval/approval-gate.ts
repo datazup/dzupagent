@@ -157,7 +157,15 @@ export class ApprovalGate {
       }
 
       const unsubGrant = this.eventBus.on('approval:granted', (event) => {
-        if (event.runId === runId && !resolved) {
+        // A grant must name THIS run, and -- when it names a contact at all --
+        // it must name THIS contact. Without the second half, a grant issued
+        // for one outstanding request satisfies a different pending approval
+        // on the same run (DZUPAGENT-AGENT-H-14).
+        if (
+          event.runId === runId &&
+          grantMatchesContact(event.contactId, contactId) &&
+          !resolved
+        ) {
           cleanup()
           resolve('approved')
         }
@@ -260,9 +268,20 @@ export class ApprovalGate {
    * `approval:granted` or `approval:rejected` event so any in-process
    * listeners that survived restart can react.
    *
-   * @throws if no pending approval exists for `runId`.
+   * The `resumeToken` minted by {@link requestApproval} (and carried on the
+   * {@link ApprovalSuspendedError}) is required and is checked against the
+   * persisted token. A mismatching token is rejected *before* the pending
+   * state is deleted, so a wrong guess cannot destroy a live approval. A
+   * replayed token is rejected too: the state is deleted on the first
+   * successful resume, so the second attempt finds nothing pending.
+   *
+   * @throws if no pending approval exists for `runId`, or the token mismatches.
    */
-  async resume(runId: string, decision: ApprovalDecision): Promise<void> {
+  async resume(
+    runId: string,
+    decision: ApprovalDecision,
+    resumeToken: string,
+  ): Promise<void> {
     const store = this.config.checkpointStore
     if (store === undefined) {
       throw new Error('ApprovalGate.resume requires a checkpointStore on the config')
@@ -271,10 +290,18 @@ export class ApprovalGate {
     if (!state) {
       throw new Error(`No pending approval for runId: ${runId}`)
     }
+    // Compare BEFORE deleting: a bad token must not consume the pending state.
+    if (typeof resumeToken !== 'string' || !timingSafeEquals(resumeToken, state.resumeToken)) {
+      throw new Error(`Invalid resumeToken for runId: ${runId}`)
+    }
     await store.delete(runId, APPROVAL_PENDING_KEY)
 
     if (decision.decision === 'approved') {
-      this.eventBus.emit({ type: 'approval:granted', runId })
+      this.eventBus.emit({
+        type: 'approval:granted',
+        runId,
+        contactId: state.contactId,
+      })
     } else {
       this.eventBus.emit(omitUndefined({
         type: 'approval:rejected' as const,
@@ -378,6 +405,31 @@ export class ApprovalGate {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Decide whether an `approval:granted` event may satisfy a pending approval.
+ *
+ * A grant that names a contact only satisfies THAT contact. A grant that names
+ * no contact is run-scoped (e.g. `POST /api/runs/:id/approve`) and satisfies
+ * any pending approval on the run.
+ */
+export function grantMatchesContact(
+  eventContactId: string | undefined,
+  pendingContactId: string,
+): boolean {
+  if (eventContactId === undefined) return true
+  return eventContactId === pendingContactId
+}
+
+/** Length-independent constant-time-ish string comparison for secrets. */
+function timingSafeEquals(a: string, b: string): boolean {
+  if (a.length !== b.length) return false
+  let diff = 0
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
+  }
+  return diff === 0
+}
 
 /**
  * JSON.stringify that degrades gracefully on circular references or

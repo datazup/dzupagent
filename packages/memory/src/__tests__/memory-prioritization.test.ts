@@ -45,52 +45,6 @@ function makeEntry(
 }
 
 // ---------------------------------------------------------------------------
-// Simple priority queue helper (self-contained — tests data structures, not
-// production code. The framework has no standalone PriorityQueue class, so we
-// implement one here to exercise priority-ordering scenarios.)
-// ---------------------------------------------------------------------------
-
-interface PriorityItem<T> {
-  value: T;
-  priority: number;
-  insertedAt: number;
-}
-
-class PriorityQueue<T> {
-  private items: PriorityItem<T>[] = [];
-  private counter = 0;
-
-  push(value: T, priority: number): void {
-    this.items.push({ value, priority, insertedAt: this.counter++ });
-    this.items.sort((a, b) => {
-      if (b.priority !== a.priority) return b.priority - a.priority;
-      // Tie-break: earlier insertion order wins (FIFO for equal priority)
-      return a.insertedAt - b.insertedAt;
-    });
-  }
-
-  pop(): T | undefined {
-    return this.items.shift()?.value;
-  }
-
-  peek(): T | undefined {
-    return this.items[0]?.value;
-  }
-
-  get size(): number {
-    return this.items.length;
-  }
-
-  isEmpty(): boolean {
-    return this.items.length === 0;
-  }
-
-  toArray(): T[] {
-    return this.items.map((i) => i.value);
-  }
-}
-
-// ---------------------------------------------------------------------------
 // 1. Importance scoring — importance weight creates initial strength
 // ---------------------------------------------------------------------------
 
@@ -225,156 +179,40 @@ describe("importance factors", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. Priority queue — insertion
-// ---------------------------------------------------------------------------
-
-describe("priority queue insertion", () => {
-  it("inserted item appears in queue", () => {
-    const pq = new PriorityQueue<string>();
-    pq.push("task-a", 0.5);
-    expect(pq.size).toBe(1);
-  });
-
-  it("multiple insertions grow the queue", () => {
-    const pq = new PriorityQueue<string>();
-    pq.push("a", 0.9);
-    pq.push("b", 0.5);
-    pq.push("c", 0.1);
-    expect(pq.size).toBe(3);
-  });
-
-  it("item is inserted with the provided priority", () => {
-    const pq = new PriorityQueue<string>();
-    pq.push("high", 0.99);
-    expect(pq.peek()).toBe("high");
-  });
-
-  it("lower-priority item inserted first still ends up behind higher-priority", () => {
-    const pq = new PriorityQueue<string>();
-    pq.push("low", 0.1);
-    pq.push("high", 0.9);
-    expect(pq.peek()).toBe("high");
-  });
+/**
+ * COVERAGE GAP — deliberately skipped suite (DZUPAGENT-TEST-C-14).
+ *
+ * This file previously held 20 `it()` blocks whose entire subject under test
+ * was `PriorityQueue` — a class DEFINED LOCALLY in this file. Five top-level
+ * describes ("priority queue insertion" 4, "priority queue ordering" 3,
+ * "priority queue pop" 3, "priority queue peek" 3, "priority tie-breaking" 2)
+ * plus 5 of the 7 blocks in "empty priority queue edge cases" asserted only
+ * against the local queue's own push/pop/peek/size/toArray/isEmpty. (The
+ * audit enumerated 15; the 5 in the edge-cases describe were undercounted and
+ * are removed here too — the 2 blocks in that describe that drive real
+ * `findWeakMemories` / `pruneStaleMemories` are kept.) A grep for
+ * `PriorityQueue` over all non-test source in all 36 packages returns
+ * nothing: no priority queue ships anywhere. The file's own header (`:49`)
+ * already admitted this.
+ *
+ * The remaining 44 `it()` blocks in this file are NOT affected: they
+ * legitimately exercise the real `decay-engine` (`scoreWithDecay`,
+ * `findWeakMemories`) and `staleness-pruner` (`computeStaleness`,
+ * `pruneStaleMemories`) modules.
+ *
+ * UNTESTED PRODUCTION SYMBOLS — memory ranking as actually shipped is
+ * score-based, not queue-based; there is no shipped priority-queue data
+ * structure to point at. Ordering/tie-breaking behaviour that DOES ship
+ * lives in `scoreWithDecay` / `findWeakMemories`
+ * (packages/memory/src/decay-engine.ts), which the surviving describes in
+ * this file already cover.
+ *
+ * Removed 2026-08-14 (DZUPAGENT-TEST-C-14 / RF-07).
+ */
+describe.skip("priority queue (no production priority-queue symbol ships in @dzupagent/memory)", () => {
+  it("needs a shipped queue symbol before insertion/ordering/pop/peek/tie-breaking can be covered", () => {});
 });
 
-// ---------------------------------------------------------------------------
-// 5. Priority queue ordering — highest priority returned first
-// ---------------------------------------------------------------------------
-
-describe("priority queue ordering", () => {
-  it("items come out in descending priority order", () => {
-    const pq = new PriorityQueue<string>();
-    pq.push("medium", 0.5);
-    pq.push("low", 0.1);
-    pq.push("high", 0.9);
-
-    expect(pq.pop()).toBe("high");
-    expect(pq.pop()).toBe("medium");
-    expect(pq.pop()).toBe("low");
-  });
-
-  it("toArray reflects descending priority order", () => {
-    const pq = new PriorityQueue<number>();
-    pq.push(3, 0.3);
-    pq.push(1, 0.1);
-    pq.push(2, 0.2);
-
-    expect(pq.toArray()).toEqual([3, 2, 1]);
-  });
-
-  it("queue with single item returns it first", () => {
-    const pq = new PriorityQueue<string>();
-    pq.push("only", 0.7);
-    expect(pq.pop()).toBe("only");
-    expect(pq.size).toBe(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 6. Priority queue pop — removing top item updates queue
-// ---------------------------------------------------------------------------
-
-describe("priority queue pop", () => {
-  it("pop removes the top item from the queue", () => {
-    const pq = new PriorityQueue<string>();
-    pq.push("a", 0.9);
-    pq.push("b", 0.5);
-    pq.pop();
-    expect(pq.size).toBe(1);
-    expect(pq.peek()).toBe("b");
-  });
-
-  it("successive pops drain the queue", () => {
-    const pq = new PriorityQueue<number>();
-    pq.push(1, 0.1);
-    pq.push(2, 0.2);
-    pq.push(3, 0.3);
-    pq.pop();
-    pq.pop();
-    pq.pop();
-    expect(pq.isEmpty()).toBe(true);
-  });
-
-  it("pop returns undefined on empty queue", () => {
-    const pq = new PriorityQueue<string>();
-    expect(pq.pop()).toBeUndefined();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 7. Priority queue peek — view top without removing
-// ---------------------------------------------------------------------------
-
-describe("priority queue peek", () => {
-  it("peek returns top item without removing it", () => {
-    const pq = new PriorityQueue<string>();
-    pq.push("a", 0.9);
-    pq.push("b", 0.1);
-    const top = pq.peek();
-    expect(top).toBe("a");
-    expect(pq.size).toBe(2);
-  });
-
-  it("peek on empty queue returns undefined", () => {
-    const pq = new PriorityQueue<string>();
-    expect(pq.peek()).toBeUndefined();
-  });
-
-  it("successive peeks return the same item", () => {
-    const pq = new PriorityQueue<string>();
-    pq.push("top", 0.8);
-    expect(pq.peek()).toBe("top");
-    expect(pq.peek()).toBe("top");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 8. Priority tie-breaking — same priority → FIFO (insertion order)
-// ---------------------------------------------------------------------------
-
-describe("priority tie-breaking", () => {
-  it("equal priority items come out in insertion order (FIFO)", () => {
-    const pq = new PriorityQueue<string>();
-    pq.push("first", 0.5);
-    pq.push("second", 0.5);
-    pq.push("third", 0.5);
-
-    expect(pq.pop()).toBe("first");
-    expect(pq.pop()).toBe("second");
-    expect(pq.pop()).toBe("third");
-  });
-
-  it("tie between two items: earlier insert wins", () => {
-    const pq = new PriorityQueue<string>();
-    pq.push("earlier", 0.7);
-    pq.push("later", 0.7);
-    expect(pq.peek()).toBe("earlier");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 9. Priority-based retrieval — search returns results ordered by priority
-// ---------------------------------------------------------------------------
 
 describe("priority-based retrieval", () => {
   it("memories ranked by scoreWithDecay return highest score first", () => {
@@ -855,34 +693,7 @@ describe("priority serialization", () => {
 // 16. Empty priority queue — edge cases handled gracefully
 // ---------------------------------------------------------------------------
 
-describe("empty priority queue edge cases", () => {
-  it("isEmpty returns true on new queue", () => {
-    const pq = new PriorityQueue<string>();
-    expect(pq.isEmpty()).toBe(true);
-  });
-
-  it("size is 0 on new queue", () => {
-    const pq = new PriorityQueue<string>();
-    expect(pq.size).toBe(0);
-  });
-
-  it("pop on empty queue returns undefined without throwing", () => {
-    const pq = new PriorityQueue<string>();
-    expect(() => pq.pop()).not.toThrow();
-    expect(pq.pop()).toBeUndefined();
-  });
-
-  it("peek on empty queue returns undefined without throwing", () => {
-    const pq = new PriorityQueue<string>();
-    expect(() => pq.peek()).not.toThrow();
-    expect(pq.peek()).toBeUndefined();
-  });
-
-  it("toArray on empty queue returns empty array", () => {
-    const pq = new PriorityQueue<string>();
-    expect(pq.toArray()).toEqual([]);
-  });
-
+describe("empty priority-queue-adjacent edge cases (production helpers only)", () => {
   it("findWeakMemories on empty records returns empty array", () => {
     const result = findWeakMemories([], 0.5);
     expect(result).toEqual([]);

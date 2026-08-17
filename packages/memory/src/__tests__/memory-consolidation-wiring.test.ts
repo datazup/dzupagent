@@ -211,13 +211,16 @@ describe('MemoryService.consolidateAfterRun (M-14 wiring)', () => {
       expect.objectContaining({
         operation: 'search',
         impact: 'source-unavailable',
-        reason: 'search failed',
+        reason: 'backend-error',
       }),
     ])
     expect(events).toEqual([
       expect.objectContaining({
         type: 'memory:error',
-        error: 'search: search failed',
+        // ERR-C-30: a stable code plus the opaque errorId — never driver text.
+        error: expect.stringMatching(
+          /^search: backend-error \[errorId=[0-9a-f-]{36}\]$/,
+        ),
       }),
     ])
     expect(events.some((event) => event.type === 'memory:consolidated')).toBe(false)

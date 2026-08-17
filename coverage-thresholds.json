@@ -219,646 +219,648 @@
   ],
   "packages": {
     "adapter-rules": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+      "thresholds": {
+        "statements": 93.84,
+        "branches": 93.08,
+        "functions": 99,
+        "lines": 93.84
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-09-01",
-        "thresholds": {
-          "statements": 93.84,
-          "branches": 93.08,
-          "functions": 99.0,
-          "lines": 93.84
-        },
-        "targets": [
-          {
-            "by": "2026-09-01",
-            "thresholds": {
-              "statements": 70,
-              "branches": 60,
-              "functions": 60,
-              "lines": 70
-            }
-          }
-        ]
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 94.84,
+          "branches": 94.08,
+          "functions": 100,
+          "lines": 94.84
+        }
       }
     },
     "adapter-types": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+      "thresholds": {
+        "statements": 82.04,
+        "branches": 82.84,
+        "functions": 79,
+        "lines": 82.04
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-09-01",
-        "thresholds": {
-          "statements": 82.04,
-          "branches": 82.84,
-          "functions": 79.0,
-          "lines": 82.04
-        },
-        "targets": [
-          {
-            "by": "2026-09-01",
-            "thresholds": {
-              "statements": 70,
-              "branches": 60,
-              "functions": 60,
-              "lines": 70
-            }
-          }
-        ]
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 83.04,
+          "branches": 83.84,
+          "functions": 80,
+          "lines": 83.04
+        }
       }
     },
     "agent": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): converted from unpinned top-level thresholds to an enforced, measured baseline floor.",
+      "thresholds": {
+        "statements": 91.42,
+        "branches": 88.49,
+        "functions": 95.15,
+        "lines": 91.42
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-12-01",
-        "thresholds": {
-          "statements": 91.42,
-          "branches": 88.49,
-          "functions": 95.15,
-          "lines": 91.42
-        },
-        "targets": []
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 92.42,
+          "branches": 89.49,
+          "functions": 96.15,
+          "lines": 92.42
+        }
       }
     },
     "agent-adapters": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): converted from unpinned top-level thresholds to an enforced, measured baseline floor.",
+      "thresholds": {
+        "statements": 88.86,
+        "branches": 83.83,
+        "functions": 93.21,
+        "lines": 88.86
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-12-01",
-        "thresholds": {
-          "statements": 88.86,
-          "branches": 83.83,
-          "functions": 93.21,
-          "lines": 88.86
-        },
-        "targets": []
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 89.86,
+          "branches": 84.83,
+          "functions": 94.21,
+          "lines": 89.86
+        }
       }
     },
     "memory": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): converted from unpinned top-level thresholds to an enforced, measured baseline floor.",
+      "thresholds": {
+        "statements": 94.67,
+        "branches": 88.59,
+        "functions": 97.66,
+        "lines": 94.67
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-12-22",
-        "thresholds": {
-          "statements": 94.67,
-          "branches": 88.59,
-          "functions": 97.66,
-          "lines": 94.67
-        },
-        "targets": []
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 95.67,
+          "branches": 89.59,
+          "functions": 98.66,
+          "lines": 95.67
+        }
       }
     },
     "agent-types": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+      "thresholds": {
+        "statements": 91.76,
+        "branches": 90.01,
+        "functions": 94.45,
+        "lines": 91.76
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-09-01",
-        "thresholds": {
-          "statements": 91.76,
-          "branches": 90.01,
-          "functions": 94.45,
-          "lines": 91.76
-        },
-        "targets": [
-          {
-            "by": "2026-09-01",
-            "thresholds": {
-              "statements": 70,
-              "branches": 60,
-              "functions": 60,
-              "lines": 70
-            }
-          }
-        ]
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 92.76,
+          "branches": 91.01,
+          "functions": 95.45,
+          "lines": 92.76
+        }
       }
     },
     "app-tools": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+      "thresholds": {
+        "statements": 97.61,
+        "branches": 87.63,
+        "functions": 94.6,
+        "lines": 97.61
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-09-01",
-        "thresholds": {
-          "statements": 97.61,
-          "branches": 87.63,
-          "functions": 94.6,
-          "lines": 97.61
-        },
-        "targets": [
-          {
-            "by": "2026-09-01",
-            "thresholds": {
-              "statements": 70,
-              "branches": 60,
-              "functions": 60,
-              "lines": 70
-            }
-          }
-        ]
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 98.61,
+          "branches": 88.63,
+          "functions": 95.6,
+          "lines": 98.61
+        }
       }
     },
     "cache": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+      "thresholds": {
+        "statements": 99,
+        "branches": 99,
+        "functions": 99,
+        "lines": 99
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-09-01",
-        "thresholds": {
-          "statements": 99.0,
-          "branches": 99.0,
-          "functions": 99.0,
-          "lines": 99.0
-        },
-        "targets": [
-          {
-            "by": "2026-09-01",
-            "thresholds": {
-              "statements": 70,
-              "branches": 60,
-              "functions": 60,
-              "lines": 70
-            }
-          }
-        ]
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 100,
+          "branches": 100,
+          "functions": 100,
+          "lines": 100
+        }
       }
     },
     "code-edit-kit": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+      "thresholds": {
+        "statements": 87.47,
+        "branches": 74.47,
+        "functions": 92.47,
+        "lines": 87.47
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-09-01",
-        "thresholds": {
-          "statements": 87.47,
-          "branches": 74.47,
-          "functions": 92.47,
-          "lines": 87.47
-        },
-        "targets": [
-          {
-            "by": "2026-09-01",
-            "thresholds": {
-              "statements": 70,
-              "branches": 60,
-              "functions": 60,
-              "lines": 70
-            }
-          }
-        ]
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 88.47,
+          "branches": 75.47,
+          "functions": 93.47,
+          "lines": 88.47
+        }
       }
     },
     "core": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): converted from unpinned top-level thresholds to an enforced, measured baseline floor.",
+      "thresholds": {
+        "statements": 86.14,
+        "branches": 87.41,
+        "functions": 91.89,
+        "lines": 86.14
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-12-01",
-        "thresholds": {
-          "statements": 86.14,
-          "branches": 87.41,
-          "functions": 91.89,
-          "lines": 86.14
-        },
-        "targets": []
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 87.14,
+          "branches": 88.41,
+          "functions": 92.89,
+          "lines": 87.14
+        }
       }
     },
     "codegen": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+      "thresholds": {
+        "statements": 89.62,
+        "branches": 90.05,
+        "functions": 95.88,
+        "lines": 89.62
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-09-01",
-        "thresholds": {
-          "statements": 89.62,
-          "branches": 90.05,
-          "functions": 95.88,
-          "lines": 89.62
-        },
-        "targets": [
-          {
-            "by": "2026-09-01",
-            "thresholds": {
-              "statements": 90,
-              "branches": 90,
-              "functions": 95,
-              "lines": 90
-            }
-          }
-        ]
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 90.62,
+          "branches": 91.05,
+          "functions": 96.88,
+          "lines": 90.62
+        }
       }
     },
     "connectors": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): converted from unpinned top-level thresholds to an enforced, measured baseline floor.",
+      "thresholds": {
+        "statements": 97.42,
+        "branches": 96.02,
+        "functions": 96.26,
+        "lines": 97.42
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-12-01",
-        "thresholds": {
-          "statements": 97.42,
-          "branches": 96.02,
-          "functions": 96.26,
-          "lines": 97.42
-        },
-        "targets": []
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 98.42,
+          "branches": 97.02,
+          "functions": 97.26,
+          "lines": 98.42
+        }
       }
     },
     "connectors-browser": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+      "thresholds": {
+        "statements": 86.94,
+        "branches": 80.11,
+        "functions": 92.82,
+        "lines": 86.94
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-09-01",
-        "thresholds": {
-          "statements": 86.94,
-          "branches": 80.11,
-          "functions": 92.82,
-          "lines": 86.94
-        },
-        "targets": [
-          {
-            "by": "2026-09-01",
-            "thresholds": {
-              "statements": 70,
-              "branches": 60,
-              "functions": 60,
-              "lines": 70
-            }
-          }
-        ]
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 87.94,
+          "branches": 81.11,
+          "functions": 93.82,
+          "lines": 87.94
+        }
       }
     },
     "connectors-documents": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+      "thresholds": {
+        "statements": 97.75,
+        "branches": 90.8,
+        "functions": 99,
+        "lines": 97.75
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-09-22",
-        "thresholds": {
-          "statements": 97.75,
-          "branches": 90.8,
-          "functions": 99.0,
-          "lines": 97.75
-        },
-        "targets": [
-          {
-            "by": "2026-09-22",
-            "thresholds": {
-              "statements": 70,
-              "branches": 60,
-              "functions": 60,
-              "lines": 70
-            }
-          }
-        ]
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 98.75,
+          "branches": 91.8,
+          "functions": 100,
+          "lines": 98.75
+        }
       }
     },
     "context": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+      "thresholds": {
+        "statements": 96.98,
+        "branches": 93.24,
+        "functions": 98.94,
+        "lines": 96.98
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-09-22",
-        "thresholds": {
-          "statements": 96.98,
-          "branches": 93.24,
-          "functions": 98.94,
-          "lines": 96.98
-        },
-        "targets": [
-          {
-            "by": "2026-09-22",
-            "thresholds": {
-              "statements": 99,
-              "branches": 97,
-              "functions": 100,
-              "lines": 99
-            }
-          }
-        ]
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 99,
+          "branches": 97,
+          "functions": 100,
+          "lines": 99
+        }
       }
     },
     "create-dzupagent": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+      "thresholds": {
+        "statements": 82.98,
+        "branches": 78.08,
+        "functions": 70.42,
+        "lines": 82.98
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-09-22",
-        "thresholds": {
-          "statements": 82.98,
-          "branches": 78.08,
-          "functions": 70.42,
-          "lines": 82.98
-        },
-        "targets": [
-          {
-            "by": "2026-09-22",
-            "thresholds": {
-              "statements": 70,
-              "branches": 60,
-              "functions": 60,
-              "lines": 70
-            }
-          }
-        ]
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 83.98,
+          "branches": 79.08,
+          "functions": 71.42,
+          "lines": 83.98
+        }
       }
     },
     "dialogue-core": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): converted from unpinned top-level thresholds to an enforced, measured baseline floor.",
+      "thresholds": {
+        "statements": 84.98,
+        "branches": 80.95,
+        "functions": 94.32,
+        "lines": 84.98
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-12-01",
-        "thresholds": {
-          "statements": 84.98,
-          "branches": 80.95,
-          "functions": 94.32,
-          "lines": 84.98
-        },
-        "targets": []
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 85.98,
+          "branches": 81.95,
+          "functions": 95.32,
+          "lines": 85.98
+        }
       }
     },
     "dialogue-core-replay": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): converted from unpinned top-level thresholds to an enforced, measured baseline floor.",
+      "thresholds": {
+        "statements": 82.87,
+        "branches": 66.2,
+        "functions": 81.35,
+        "lines": 82.87
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-12-01",
-        "thresholds": {
-          "statements": 82.87,
-          "branches": 66.2,
-          "functions": 81.35,
-          "lines": 82.87
-        },
-        "targets": []
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 83.87,
+          "branches": 67.2,
+          "functions": 82.35,
+          "lines": 83.87
+        }
       }
     },
     "subagents": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+      "thresholds": {
+        "statements": 91.18,
+        "branches": 84.75,
+        "functions": 88.36,
+        "lines": 91.18
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-10-15",
-        "thresholds": {
-          "statements": 91.18,
-          "branches": 84.75,
-          "functions": 88.36,
-          "lines": 91.18
-        },
-        "targets": [
-          {
-            "by": "2026-10-15",
-            "thresholds": {
-              "statements": 70,
-              "branches": 60,
-              "functions": 60,
-              "lines": 70
-            }
-          }
-        ]
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 92.18,
+          "branches": 85.75,
+          "functions": 89.36,
+          "lines": 92.18
+        }
       }
     },
     "eval-contracts": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+      "thresholds": {
+        "statements": 99,
+        "branches": 99,
+        "functions": 99,
+        "lines": 99
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-09-22",
-        "thresholds": {
-          "statements": 99.0,
-          "branches": 99.0,
-          "functions": 99.0,
-          "lines": 99.0
-        },
-        "targets": [
-          {
-            "by": "2026-09-22",
-            "thresholds": {
-              "statements": 70,
-              "branches": 60,
-              "functions": 60,
-              "lines": 70
-            }
-          }
-        ]
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 100,
+          "branches": 100,
+          "functions": 100,
+          "lines": 100
+        }
       }
     },
     "evals": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): converted from unpinned top-level thresholds to an enforced, measured baseline floor.",
+      "thresholds": {
+        "statements": 96.56,
+        "branches": 94.02,
+        "functions": 98.69,
+        "lines": 96.56
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-12-22",
-        "thresholds": {
-          "statements": 96.56,
-          "branches": 94.02,
-          "functions": 98.69,
-          "lines": 96.56
-        },
-        "targets": []
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 97.56,
+          "branches": 95.02,
+          "functions": 99.69,
+          "lines": 97.56
+        }
       }
     },
     "express": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+      "thresholds": {
+        "statements": 89.9,
+        "branches": 82.67,
+        "functions": 99,
+        "lines": 89.9
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-10-15",
-        "thresholds": {
-          "statements": 89.9,
-          "branches": 82.67,
-          "functions": 99.0,
-          "lines": 89.9
-        },
-        "targets": [
-          {
-            "by": "2026-10-15",
-            "thresholds": {
-              "statements": 70,
-              "branches": 60,
-              "functions": 60,
-              "lines": 70
-            }
-          }
-        ]
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 90.9,
+          "branches": 83.67,
+          "functions": 100,
+          "lines": 90.9
+        }
       }
     },
     "flow-ast": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): converted from unpinned top-level thresholds to an enforced, measured baseline floor.",
+      "thresholds": {
+        "statements": 77.31,
+        "branches": 77.22,
+        "functions": 93.59,
+        "lines": 77.31
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-12-22",
-        "thresholds": {
-          "statements": 77.31,
-          "branches": 77.22,
-          "functions": 93.59,
-          "lines": 77.31
-        },
-        "targets": []
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 78.31,
+          "branches": 78.22,
+          "functions": 94.59,
+          "lines": 78.31
+        }
       }
     },
     "flow-compiler": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+      "thresholds": {
+        "statements": 85.05,
+        "branches": 78.71,
+        "functions": 95.07,
+        "lines": 85.05
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-10-15",
-        "thresholds": {
-          "statements": 85.05,
-          "branches": 78.71,
-          "functions": 95.07,
-          "lines": 85.05
-        },
-        "targets": [
-          {
-            "by": "2026-10-15",
-            "thresholds": {
-              "statements": 70,
-              "branches": 60,
-              "functions": 60,
-              "lines": 70
-            }
-          }
-        ]
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 86.05,
+          "branches": 79.71,
+          "functions": 96.07,
+          "lines": 86.05
+        }
       }
     },
     "flow-dsl": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+      "thresholds": {
+        "statements": 82.95,
+        "branches": 79.46,
+        "functions": 95.29,
+        "lines": 82.95
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-10-15",
-        "thresholds": {
-          "statements": 82.95,
-          "branches": 79.46,
-          "functions": 95.29,
-          "lines": 82.95
-        },
-        "targets": [
-          {
-            "by": "2026-10-15",
-            "thresholds": {
-              "statements": 70,
-              "branches": 60,
-              "functions": 60,
-              "lines": 70
-            }
-          }
-        ]
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 83.95,
+          "branches": 80.46,
+          "functions": 96.29,
+          "lines": 83.95
+        }
       }
     },
     "hitl-kit": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+      "thresholds": {
+        "statements": 94.34,
+        "branches": 89.21,
+        "functions": 99,
+        "lines": 94.34
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-10-15",
-        "thresholds": {
-          "statements": 94.34,
-          "branches": 89.21,
-          "functions": 99.0,
-          "lines": 94.34
-        },
-        "targets": [
-          {
-            "by": "2026-10-15",
-            "thresholds": {
-              "statements": 70,
-              "branches": 60,
-              "functions": 60,
-              "lines": 70
-            }
-          }
-        ]
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 95.34,
+          "branches": 90.21,
+          "functions": 100,
+          "lines": 95.34
+        }
       }
     },
     "memory-ipc": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): converted from unpinned top-level thresholds to an enforced, measured baseline floor.",
+      "thresholds": {
+        "statements": 95,
+        "branches": 93.81,
+        "functions": 96.12,
+        "lines": 95
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-12-22",
-        "thresholds": {
-          "statements": 95,
-          "branches": 93.81,
-          "functions": 96.12,
-          "lines": 95
-        },
-        "targets": []
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 96,
+          "branches": 94.81,
+          "functions": 97.12,
+          "lines": 96
+        }
       }
     },
     "otel": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): converted from unpinned top-level thresholds to an enforced, measured baseline floor.",
+      "thresholds": {
+        "statements": 93.72,
+        "branches": 95.89,
+        "functions": 94.45,
+        "lines": 93.72
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-12-22",
-        "thresholds": {
-          "statements": 93.72,
-          "branches": 95.89,
-          "functions": 94.45,
-          "lines": 93.72
-        },
-        "targets": []
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 94.72,
+          "branches": 96.89,
+          "functions": 95.45,
+          "lines": 94.72
+        }
       }
     },
     "rag": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): converted from unpinned top-level thresholds to an enforced, measured baseline floor.",
+      "thresholds": {
+        "statements": 91.6,
+        "branches": 89.85,
+        "functions": 97.05,
+        "lines": 91.6
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-12-22",
-        "thresholds": {
-          "statements": 91.6,
-          "branches": 89.85,
-          "functions": 97.05,
-          "lines": 91.6
-        },
-        "targets": []
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 92.6,
+          "branches": 90.85,
+          "functions": 98.05,
+          "lines": 92.6
+        }
       }
     },
     "runtime-contracts": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+      "thresholds": {
+        "statements": 78.53,
+        "branches": 72.6,
+        "functions": 95.55,
+        "lines": 78.53
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-09-22",
-        "thresholds": {
-          "statements": 78.53,
-          "branches": 72.6,
-          "functions": 95.55,
-          "lines": 78.53
-        },
-        "targets": [
-          {
-            "by": "2026-09-22",
-            "thresholds": {
-              "statements": 70,
-              "branches": 60,
-              "functions": 60,
-              "lines": 70
-            }
-          }
-        ]
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 79.53,
+          "branches": 73.6,
+          "functions": 96.55,
+          "lines": 79.53
+        }
       }
     },
     "scraper": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+      "thresholds": {
+        "statements": 97.01,
+        "branches": 90.52,
+        "functions": 99,
+        "lines": 97.01
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-09-22",
-        "thresholds": {
-          "statements": 97.01,
-          "branches": 90.52,
-          "functions": 99.0,
-          "lines": 97.01
-        },
-        "targets": [
-          {
-            "by": "2026-09-22",
-            "thresholds": {
-              "statements": 70,
-              "branches": 60,
-              "functions": 60,
-              "lines": 70
-            }
-          }
-        ]
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 98.01,
+          "branches": 91.52,
+          "functions": 100,
+          "lines": 98.01
+        }
       }
     },
     "server": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): converted from unpinned top-level thresholds to an enforced, measured baseline floor.",
+      "thresholds": {
+        "statements": 85.01,
+        "branches": 84.55,
+        "functions": 90.77,
+        "lines": 85.01
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-12-22",
-        "thresholds": {
-          "statements": 85.01,
-          "branches": 84.55,
-          "functions": 90.77,
-          "lines": 85.01
-        },
-        "targets": []
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 86.01,
+          "branches": 85.55,
+          "functions": 91.77,
+          "lines": 86.01
+        }
       }
     },
     "test-utils": {
       "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values. RF-09: staged target repaired - it previously pointed below this package's own floor on branches, which would have graded a regression as progress.",
         "since": "2026-08-04",
         "reviewBy": "2026-09-22",
         "thresholds": {
@@ -872,7 +874,7 @@
             "by": "2026-09-22",
             "thresholds": {
               "statements": 70,
-              "branches": 60,
+              "branches": 90.22,
               "functions": 60,
               "lines": 70
             }
@@ -881,75 +883,63 @@
       }
     },
     "testing": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+      "thresholds": {
+        "statements": 95.25,
+        "branches": 87.89,
+        "functions": 93.33,
+        "lines": 95.25
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-09-22",
-        "thresholds": {
-          "statements": 95.25,
-          "branches": 87.89,
-          "functions": 93.33,
-          "lines": 95.25
-        },
-        "targets": [
-          {
-            "by": "2026-09-22",
-            "thresholds": {
-              "statements": 100,
-              "branches": 100,
-              "functions": 100,
-              "lines": 100
-            }
-          }
-        ]
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 100,
+          "branches": 100,
+          "functions": 100,
+          "lines": 100
+        }
       }
     },
     "execution-contracts": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+      "thresholds": {
+        "statements": 86.59,
+        "branches": 66.61,
+        "functions": 89.32,
+        "lines": 86.59
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-11-15",
-        "thresholds": {
-          "statements": 86.59,
-          "branches": 66.61,
-          "functions": 89.32,
-          "lines": 86.59
-        },
-        "targets": [
-          {
-            "by": "2026-11-15",
-            "thresholds": {
-              "statements": 70,
-              "branches": 60,
-              "functions": 60,
-              "lines": 70
-            }
-          }
-        ]
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 87.59,
+          "branches": 67.61,
+          "functions": 90.32,
+          "lines": 87.59
+        }
       }
     },
     "security": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+      "thresholds": {
+        "statements": 79.34,
+        "branches": 85.95,
+        "functions": 80.57,
+        "lines": 79.34
+      },
+      "ratchet": {
         "since": "2026-08-04",
+        "enforcedOn": "2026-08-14",
         "reviewBy": "2026-11-15",
-        "thresholds": {
-          "statements": 79.34,
-          "branches": 85.95,
-          "functions": 80.57,
-          "lines": 79.34
-        },
-        "targets": [
-          {
-            "by": "2026-11-15",
-            "thresholds": {
-              "statements": 70,
-              "branches": 60,
-              "functions": 60,
-              "lines": 70
-            }
-          }
-        ]
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "target": {
+          "statements": 80.34,
+          "branches": 86.95,
+          "functions": 81.57,
+          "lines": 80.34
+        }
       }
     }
   }

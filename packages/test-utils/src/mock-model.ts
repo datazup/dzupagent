@@ -56,6 +56,22 @@ export interface MockResponse {
    * previous single-chunk behaviour.
    */
   stream_chunks?: MockStreamChunk[]
+  /**
+   * Fail this turn instead of answering it. A `string` is wrapped in an
+   * `Error`; an `Error` is thrown as given so tests can assert on a specific
+   * subclass or on `cause`.
+   *
+   * Provider failure is a first-class fixture concern, not an edge case: a
+   * large share of the local mocks this class replaces existed *only* because
+   * they needed `mockRejectedValue`. Without this, deduplicating them would
+   * have meant deleting their failure coverage.
+   *
+   * The throw happens AFTER the call is logged and the cursor advances, so a
+   * failing turn is still visible in `callLog`/`callCount` and a subsequent
+   * response in the script is reached on retry — which is exactly what
+   * retry/fallback tests need to observe.
+   */
+  error?: Error | string
 }
 
 export class MockChatModel extends BaseChatModel {
@@ -86,6 +102,7 @@ export class MockChatModel extends BaseChatModel {
 
     const response = this.responses[this.callIndex % this.responses.length]!
     this.callIndex++
+    throwIfFailure(response)
 
     const fields: {
       content: string
@@ -126,6 +143,7 @@ export class MockChatModel extends BaseChatModel {
 
     const response = this.responses[this.callIndex % this.responses.length]!
     this.callIndex++
+    throwIfFailure(response)
 
     for (const delta of response.stream_chunks ?? synthesizeSingleDelta(response)) {
       const text = delta.content ?? ''
@@ -178,6 +196,33 @@ export class MockChatModel extends BaseChatModel {
     return 'mock'
   }
 
+  /**
+   * Accept tool bindings and return the same model.
+   *
+   * `bindTools` is OPTIONAL on `BaseChatModel` and the base class does not
+   * implement it, so without this override any consumer that binds tools —
+   * every tool-loop, supervisor and orchestrator path — fails with
+   * "Chat model must implement .bindTools()". That made the base class unusable
+   * as a drop-in for the local mocks, most of which stubbed exactly this.
+   *
+   * Returning `this` rather than a bound clone is deliberate: the local mocks
+   * it replaces all did the same, and it keeps `callLog`/`callCount` observable
+   * from the original reference after binding. Bound tools are recorded on
+   * `boundTools` so a test can assert WHICH tools were offered — a check the
+   * `vi.fn(() => this)` stubs could not express.
+   */
+  override bindTools(tools: unknown[]): this {
+    this._boundTools = [...tools]
+    return this
+  }
+
+  private _boundTools: unknown[] = []
+
+  /** Tools passed to the most recent `bindTools()` call. */
+  get boundTools(): unknown[] {
+    return this._boundTools
+  }
+
   /** Get the log of all calls made to this model */
   get callLog(): Array<{ messages: BaseMessage[]; timestamp: number }> {
     return this._callLog
@@ -188,11 +233,24 @@ export class MockChatModel extends BaseChatModel {
     return this._callLog.length
   }
 
-  /** Reset call counter and log */
+  /** Reset call counter, log, and bound tools */
   reset(): void {
     this.callIndex = 0
     this._callLog = []
+    this._boundTools = []
   }
+}
+
+/**
+ * Throw the scripted failure for a turn, if it declares one.
+ *
+ * Kept as a free function so `_generate` and `_streamResponseChunks` fail
+ * identically — a mock that rejects on invoke but streams happily is exactly
+ * the kind of asymmetric fixture that hides real bugs.
+ */
+function throwIfFailure(response: MockResponse): void {
+  if (response.error === undefined) return
+  throw typeof response.error === 'string' ? new Error(response.error) : response.error
 }
 
 /**

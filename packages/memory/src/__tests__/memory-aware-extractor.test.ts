@@ -206,7 +206,8 @@ describe('MemoryAwareExtractor', () => {
         {
           operation: 'search',
           impact: 'fallback-used',
-          reason: 'search failed',
+          reason: 'backend-error',
+          errorId: expect.any(String),
           target: 'observations',
         },
       ])
@@ -236,14 +237,15 @@ describe('MemoryAwareExtractor', () => {
       expect(result.failed[0]).toMatchObject({
         observation: expect.objectContaining({ text: 'Use strict TypeScript' }),
         key: expect.stringMatching(/^obs-\d+-0$/),
-        reason: 'put failed',
+        reason: 'backend-error',
+        errorId: expect.any(String),
       })
       expect(result.status).toBe('degraded')
       expect(result.degradations).toEqual([
         expect.objectContaining({
           operation: 'put',
           impact: 'partial-result',
-          reason: 'put failed',
+          reason: 'backend-error',
         }),
       ])
     })

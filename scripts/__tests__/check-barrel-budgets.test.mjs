@@ -89,7 +89,7 @@ test('fails when a source file exceeds the per-file LOC ceiling', () => {
       root,
       budgetConfig: {
         packages: {
-          '@dzupagent/alpha': { maxFileLines: 500, fileLineAllowlist: [] },
+          '@dzupagent/alpha': { maxFileLines: 500 },
         },
       },
     })
@@ -100,22 +100,23 @@ test('fails when a source file exceeds the per-file LOC ceiling', () => {
   }
 })
 
-test('a file on fileLineAllowlist is exempt from the per-file LOC ceiling (debt-pin)', () => {
+test('fileLineAllowlist is rejected outright (RF-03: no uncapped exemptions)', () => {
   const root = createFixtureRoot({
     indexLines: 3,
     extraFiles: { 'big-module.ts': 600 },
   })
   try {
-    const result = evaluateBarrelBudgets({
-      root,
-      budgetConfig: {
-        packages: {
-          '@dzupagent/alpha': { maxFileLines: 500, fileLineAllowlist: ['src/big-module.ts'] },
+    assert.throws(
+      () => evaluateBarrelBudgets({
+        root,
+        budgetConfig: {
+          packages: {
+            '@dzupagent/alpha': { maxFileLines: 500, fileLineAllowlist: ['src/big-module.ts'] },
+          },
         },
-      },
-    })
-    assert.equal(result.ok, true)
-    assert.deepEqual(result.messages, [])
+      }),
+      /fileLineAllowlist was removed by RF-03/,
+    )
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

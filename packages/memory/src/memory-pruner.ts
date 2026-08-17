@@ -181,6 +181,9 @@ export class MemoryPruner {
                 `(${items.length} entries scanned)`,
             ),
             namespace.join("/"),
+            // Internally-raised, not a backend failure: classify explicitly so
+            // the public code says what happened instead of "backend-error".
+            { reason: "scan-budget-exhausted", component: "memory-pruner" },
           ),
         );
         scanComplete = false;

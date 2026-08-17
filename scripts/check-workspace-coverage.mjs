@@ -67,6 +67,77 @@ export function loadCoverageThresholdConfig(repoRoot, configPath = join(repoRoot
   }
 }
 
+const METRICS = Object.freeze(['statements', 'branches', 'functions', 'lines'])
+
+// RF-09 / DZUPAGENT-TEST-C-15: the gate previously accepted staged `targets` that pointed
+// *below* their own package floor, so "meeting the target" would have been a regression graded
+// as progress. A ratchet only ratchets in one direction; a config that says "improve to a worse
+// number" is a defect in the config, not a coverage result, and must fail the gate outright --
+// including under `--report-only`, because a malformed ratchet is not a measurement.
+export function validateCoverageConfig(config) {
+  const errors = []
+  const packages = config?.packages && typeof config.packages === 'object' ? config.packages : {}
+  const defaults = normalizeThresholds(config?.defaultThresholds)
+  // Partial blocks inherit the same defaults resolvePackageRule uses, so the comparison the
+  // guard makes is the comparison the gate will actually enforce.
+  const resolveThresholds = (input) => normalizeThresholds({ ...defaults, ...input })
+
+  for (const [packageName, rule] of Object.entries(packages)) {
+    if (!rule || typeof rule !== 'object') continue
+
+    const floors = []
+
+    if (rule.thresholds && typeof rule.thresholds === 'object') {
+      floors.push({ label: 'thresholds', values: resolveThresholds(rule.thresholds) })
+    }
+
+    if (rule.baseline && typeof rule.baseline === 'object' && rule.baseline.thresholds) {
+      const floor = resolveThresholds(rule.baseline.thresholds)
+      floors.push({ label: 'baseline.thresholds', values: floor })
+
+      const targets = Array.isArray(rule.baseline.targets) ? rule.baseline.targets : []
+      let previous = { label: 'baseline.thresholds', values: floor }
+      targets.forEach((target, index) => {
+        if (!target || typeof target !== 'object' || !target.thresholds) return
+        const values = resolveThresholds(target.thresholds)
+        const label = `baseline.targets[${index}]`
+        // Every staged target must sit at or above the floor it is staged from, and each
+        // successive target must not walk back the one before it.
+        const sources = previous.label === 'baseline.thresholds'
+          ? [previous]
+          : [{ label: 'baseline.thresholds', values: floor }, previous]
+        for (const source of sources) {
+          for (const metric of METRICS) {
+            if (values[metric] < source.values[metric]) {
+              errors.push(
+                `${packageName}: ${label} ${metric} ${formatPct(values[metric])} is below ` +
+                  `${source.label} ${metric} ${formatPct(source.values[metric])} — a ratchet target may not point below its floor`,
+              )
+            }
+          }
+        }
+        previous = { label, values }
+      })
+    }
+
+    if (rule.ratchet && typeof rule.ratchet === 'object' && rule.ratchet.target) {
+      const target = resolveThresholds(rule.ratchet.target)
+      for (const floor of floors) {
+        for (const metric of METRICS) {
+          if (target[metric] < floor.values[metric]) {
+            errors.push(
+              `${packageName}: ratchet.target ${metric} ${formatPct(target[metric])} is below ` +
+                `${floor.label} ${metric} ${formatPct(floor.values[metric])} — a ratchet target may not point below its floor`,
+            )
+          }
+        }
+      }
+    }
+  }
+
+  return errors
+}
+
 export function discoverTrackedPackages(repoRoot) {
   const packagesDir = join(repoRoot, 'packages')
   if (!fileExists(packagesDir)) return []
@@ -322,6 +393,7 @@ export function runCoverageGate({
   reportOnly = false,
 } = {}) {
   const config = loadCoverageThresholdConfig(repoRoot, configPath)
+  const configErrors = validateCoverageConfig(config)
   const discovered = discoverTrackedPackages(repoRoot)
   const tracked = new Set([...discovered, ...(config.trackedPackages ?? [])])
   const testWithoutCoverage = discoverPackagesWithTestButNoCoverage(repoRoot)
@@ -492,17 +564,28 @@ export function runCoverageGate({
   }
 
   const totals = summarizeReport(rows)
-  const exitCode = reportOnly
-    ? 0
-    : totals.fail > 0 || totals.missing > 0 || totals.expired > 0
-      ? 1
-      : 0
+  // A config-level ratchet inversion is not a measurement, so `--report-only` does not soften
+  // it: the config is wrong no matter what coverage says, and the gate must refuse it.
+  const exitCode = configErrors.length > 0
+    ? 1
+    : reportOnly
+      ? 0
+      : totals.fail > 0 || totals.missing > 0 || totals.expired > 0
+        ? 1
+        : 0
 
-  return { rows, totals, exitCode }
+  return { rows, totals, exitCode, configErrors }
 }
 
 function printReport(report) {
   console.log('Workspace coverage gate:')
+
+  if (report.configErrors && report.configErrors.length > 0) {
+    console.error('Coverage config is invalid (ratchet inversion):')
+    for (const message of report.configErrors) {
+      console.error(`- ${message}`)
+    }
+  }
 
   if (report.rows.length === 0) {
     console.log('- no tracked coverage packages found')
@@ -546,7 +629,10 @@ function printReport(report) {
       `${report.totals.baseline} baselined, ` +
       `${report.totals.missing} missing, ` +
       `${report.totals.expired} expired, ` +
-      `${report.totals.fail} failed`,
+      `${report.totals.fail} failed` +
+      (report.configErrors && report.configErrors.length > 0
+        ? `, ${report.configErrors.length} config errors`
+        : ''),
   )
 }
 
@@ -641,7 +727,7 @@ async function main() {
 
   printReport(report)
 
-  if (!reportOnly && report.exitCode !== 0) {
+  if (report.exitCode !== 0 && (!reportOnly || report.configErrors.length > 0)) {
     process.exitCode = report.exitCode
   }
 }

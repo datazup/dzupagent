@@ -94,10 +94,15 @@ describe("prune finalizer degradation reporting", () => {
       agentId: "agent-test",
       namespace: "test-ns",
     });
-    // The message must carry the failing operation and the underlying reason,
+    // The message must carry the failing operation and a stable reason code,
     // otherwise the event says "something broke" without saying what.
+    // ERR-C-30: it must NOT carry the raw driver message — that text embeds
+    // table/column/constraint names and this event reaches LLM context. The
+    // opaque errorId is the join key to the structured server-side log line.
     expect(String(errors[0]?.["message"])).toContain("search");
-    expect(String(errors[0]?.["message"])).toContain("store offline");
+    expect(String(errors[0]?.["message"])).toContain("backend-error");
+    expect(String(errors[0]?.["message"])).toMatch(/errorId=[0-9a-f-]{36}/);
+    expect(String(errors[0]?.["message"])).not.toContain("store offline");
   });
 
   it("prunes the exact tuple the write path builds (name first, then scope values)", async () => {

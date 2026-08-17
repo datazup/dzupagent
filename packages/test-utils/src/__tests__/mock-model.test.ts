@@ -80,6 +80,72 @@ describe("MockChatModel", () => {
 });
 
 /**
+ * Failure injection and tool binding. Both exist so the local `createMockModel`
+ * copies scattered across the workspace can be deleted WITHOUT dropping the
+ * coverage they carried: 22 of them existed to reject, and 27 stubbed
+ * `bindTools`. A dedup that lost either would weaken the suite.
+ */
+describe("MockChatModel failure injection", () => {
+  it("throws the scripted Error instance for a failing turn", async () => {
+    const boom = new TypeError("provider exploded");
+    const model = new MockChatModel([{ content: "", error: boom }]);
+    await expect(model.invoke([new HumanMessage("hi")])).rejects.toBe(boom);
+  });
+
+  it("wraps a string failure in an Error", async () => {
+    const model = new MockChatModel([{ content: "", error: "rate limited" }]);
+    await expect(model.invoke([new HumanMessage("hi")])).rejects.toThrow(
+      "rate limited",
+    );
+  });
+
+  it("logs the failing call and advances so the next turn can succeed", async () => {
+    const model = new MockChatModel([
+      { content: "", error: "transient" },
+      { content: "recovered" },
+    ]);
+    await expect(model.invoke([new HumanMessage("hi")])).rejects.toThrow(
+      "transient",
+    );
+    expect(model.callCount).toBe(1);
+    const retry = await model.invoke([new HumanMessage("hi")]);
+    expect(retry.content).toBe("recovered");
+  });
+
+  it("fails on stream() too, not just invoke()", async () => {
+    const model = new MockChatModel([{ content: "", error: "stream died" }]);
+    await expect(async () => {
+      for await (const _ of await model.stream([new HumanMessage("hi")])) {
+        // drain
+      }
+    }).rejects.toThrow("stream died");
+  });
+});
+
+describe("MockChatModel.bindTools()", () => {
+  it("returns the same model so callLog stays observable after binding", async () => {
+    const model = new MockChatModel(["answer"]);
+    const bound = model.bindTools([{ name: "search" }]);
+    expect(bound).toBe(model);
+    await bound.invoke([new HumanMessage("hi")]);
+    expect(model.callCount).toBe(1);
+  });
+
+  it("records which tools were offered", () => {
+    const model = new MockChatModel(["answer"]);
+    model.bindTools([{ name: "search" }, { name: "write" }]);
+    expect(model.boundTools).toEqual([{ name: "search" }, { name: "write" }]);
+  });
+
+  it("reset() clears bound tools", () => {
+    const model = new MockChatModel(["answer"]);
+    model.bindTools([{ name: "search" }]);
+    model.reset();
+    expect(model.boundTools).toEqual([]);
+  });
+});
+
+/**
  * C-03 — a mock that yields ONE chunk lets a consumer that overwrites
  * (instead of concatenating) deltas pass every streaming test. These
  * cover the multi-delta script that makes such a bug observable.

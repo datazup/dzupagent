@@ -49,6 +49,20 @@ import {
   type ApprovalPendingState,
 } from "../approval/approval-types.js";
 
+/**
+ * Fetch the persisted resumeToken for a run so tests can call
+ * ApprovalGate.resume(), which now requires it (DZUPAGENT-AGENT-H-14).
+ * Falls back to a sentinel when nothing is pending, so "no pending approval"
+ * cases still exercise the pre-token error path.
+ */
+async function tokenFor(
+  gate: ApprovalGate,
+  runId: string,
+): Promise<string> {
+  return (await gate.loadPending(runId))?.resumeToken ?? "missing-resume-token"
+}
+
+
 // ---------------------------------------------------------------------------
 // Shared test double
 // ---------------------------------------------------------------------------
@@ -466,7 +480,7 @@ describe("ApprovalGate.requestApproval() — concurrent different runIds", () =>
     await gate.requestApproval({ runId: "iso-Y", plan: "py" }).catch(() => {});
 
     // Resume only iso-X
-    await gate.resume("iso-X", { decision: "approved" });
+    await gate.resume("iso-X", { decision: "approved" }, await tokenFor(gate, "iso-X"));
 
     // iso-Y state must still be present
     const stateY = await store.load("iso-Y", APPROVAL_PENDING_KEY);
@@ -495,7 +509,7 @@ describe("ApprovalGate.loadPending() after rejection resume", () => {
     await gate
       .requestApproval({ runId: "run-rej-lp", plan: "x" })
       .catch(() => {});
-    await gate.resume("run-rej-lp", { decision: "rejected", reason: "denied" });
+    await gate.resume("run-rej-lp", { decision: "rejected", reason: "denied" }, await tokenFor(gate, "run-rej-lp"));
 
     const state = await gate.loadPending("run-rej-lp");
     expect(state).toBeNull();
@@ -519,7 +533,7 @@ describe("ApprovalGate.requestApproval() — sequential on same runId", () => {
     await gate
       .requestApproval({ runId: "run-overwrite", plan: "first" })
       .catch(() => {});
-    await gate.resume("run-overwrite", { decision: "approved" });
+    await gate.resume("run-overwrite", { decision: "approved" }, await tokenFor(gate, "run-overwrite"));
 
     // Second request on same runId — fresh state
     await gate
@@ -550,7 +564,7 @@ describe("ApprovalGate.resume() approved event shape", () => {
     await gate
       .requestApproval({ runId: "run-grant-shape", plan: "p" })
       .catch(() => {});
-    await gate.resume("run-grant-shape", { decision: "approved" });
+    await gate.resume("run-grant-shape", { decision: "approved" }, await tokenFor(gate, "run-grant-shape"));
 
     const evt = granted[0] as Record<string, unknown>;
     expect(evt["reason"]).toBeUndefined();
@@ -569,7 +583,7 @@ describe("ApprovalGate.resume() approved event shape", () => {
     await gate
       .requestApproval({ runId: "run-grant-rid", plan: "p" })
       .catch(() => {});
-    await gate.resume("run-grant-rid", { decision: "approved" });
+    await gate.resume("run-grant-rid", { decision: "approved" }, await tokenFor(gate, "run-grant-rid"));
 
     expect(granted[0]).toMatchObject({
       type: "approval:granted",
@@ -755,11 +769,11 @@ describe("ApprovalGate.resume() idempotency", () => {
     await gate
       .requestApproval({ runId: "run-idem", plan: "p" })
       .catch(() => {});
-    await gate.resume("run-idem", { decision: "approved" });
+    await gate.resume("run-idem", { decision: "approved" }, await tokenFor(gate, "run-idem"));
 
     // Second resume must fail because the state was deleted
     await expect(
-      gate.resume("run-idem", { decision: "approved" }),
+      gate.resume("run-idem", { decision: "approved" }, await tokenFor(gate, "run-idem")),
     ).rejects.toThrow(/No pending approval/);
   });
 
@@ -777,8 +791,8 @@ describe("ApprovalGate.resume() idempotency", () => {
     await gate
       .requestApproval({ runId: "run-idem2", plan: "p" })
       .catch(() => {});
-    await gate.resume("run-idem2", { decision: "approved" });
-    await gate.resume("run-idem2", { decision: "approved" }).catch(() => {});
+    await gate.resume("run-idem2", { decision: "approved" }, await tokenFor(gate, "run-idem2"));
+    await gate.resume("run-idem2", { decision: "approved" }, await tokenFor(gate, "run-idem2")).catch(() => {});
 
     expect(granted).toHaveLength(1);
   });

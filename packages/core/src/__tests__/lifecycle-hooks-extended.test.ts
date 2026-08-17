@@ -41,12 +41,19 @@
  * - run context eventBus field does not interfere with hook runner bus
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { runHooks, runModifierHook, mergeHooks } from "../hooks/hook-runner.js";
 import { createEventBus } from "../events/event-bus.js";
 import type { AgentHooks, HookContext } from "../hooks/hook-types.js";
 import type { DzupEvent, BudgetUsage } from "../events/event-types.js";
 import type { DzupEventBus } from "../events/event-bus.js";
+
+// Several tests below install fake timers to drive load-bearing hook delays at
+// zero wall cost. Restore real timers globally so they can never leak into a
+// neighbouring test.
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -300,6 +307,10 @@ describe("chained runModifierHook — pipeline composition", () => {
 
 describe("runHooks — sequential execution is strictly serial", () => {
   it("hook B does not start until hook A fully resolves", async () => {
+    // Fake timers: the delay below is a load-bearing fixture (it is what makes
+    // the ordering question meaningful), not a wait for settlement, so it is
+    // driven by the fake clock instead of removed.
+    vi.useFakeTimers();
     const timeline: string[] = [];
 
     const hookA = vi.fn(async () => {
@@ -311,7 +322,9 @@ describe("runHooks — sequential execution is strictly serial", () => {
       timeline.push("B:start");
     });
 
-    await runHooks([hookA, hookB], undefined, "test");
+    const p = runHooks([hookA, hookB], undefined, "test");
+    await vi.advanceTimersByTimeAsync(50);
+    await p;
 
     expect(timeline).toEqual(["A:start", "A:end", "B:start"]);
   });
@@ -329,6 +342,10 @@ describe("runHooks — sequential execution is strictly serial", () => {
   });
 
   it("async delay in middle hook does not reorder subsequent hooks", async () => {
+    // Fake timers: the delay below is a load-bearing fixture (it is what makes
+    // the ordering question meaningful), not a wait for settlement, so it is
+    // driven by the fake clock instead of removed.
+    vi.useFakeTimers();
     const order: string[] = [];
     const hooks = [
       vi.fn(async () => {
@@ -342,7 +359,9 @@ describe("runHooks — sequential execution is strictly serial", () => {
         order.push("third");
       }),
     ];
-    await runHooks(hooks, undefined, "test");
+    const p = runHooks(hooks, undefined, "test");
+    await vi.advanceTimersByTimeAsync(50);
+    await p;
     expect(order).toEqual(["first", "second", "third"]);
   });
 });
@@ -900,6 +919,10 @@ describe("hooks registered in a loop", () => {
 
 describe("async hook with delayed throw — error isolation", () => {
   it("delayed-throw hook does not block subsequent hooks", async () => {
+    // Fake timers: the delay below is a load-bearing fixture (it is what makes
+    // the ordering question meaningful), not a wait for settlement, so it is
+    // driven by the fake clock instead of removed.
+    vi.useFakeTimers();
     const calls: string[] = [];
     const delayedThrower = vi.fn(async () => {
       await new Promise((r) => setTimeout(r, 10));
@@ -909,7 +932,9 @@ describe("async hook with delayed throw — error isolation", () => {
       calls.push("after");
     });
 
-    await runHooks([delayedThrower, afterThrower], undefined, "test");
+    const p = runHooks([delayedThrower, afterThrower], undefined, "test");
+    await vi.advanceTimersByTimeAsync(50);
+    await p;
     expect(calls).toEqual(["after"]);
   });
 
@@ -942,17 +967,23 @@ describe("async hook with delayed throw — error isolation", () => {
 
 describe("runModifierHook — async delay correctness", () => {
   it("async modifier with 20ms delay returns transformed value", async () => {
+    // Fake timers: the delay below is a load-bearing fixture (it is what makes
+    // the ordering question meaningful), not a wait for settlement, so it is
+    // driven by the fake clock instead of removed.
+    vi.useFakeTimers();
     const hook = vi.fn(async (input: string) => {
       await new Promise((r) => setTimeout(r, 20));
       return input.toUpperCase();
     });
-    const result = await runModifierHook(
+    const pending = runModifierHook(
       hook as never,
       undefined,
       "test",
       "hello",
       "hello"
     );
+    await vi.advanceTimersByTimeAsync(50);
+    const result = await pending;
     expect(result).toBe("HELLO");
   });
 
@@ -1102,6 +1133,10 @@ describe("onBudgetExceeded — reason and usage", () => {
 
 describe("concurrent runHooks invocations", () => {
   it("two concurrent calls do not interfere with each other", async () => {
+    // Fake timers: the delay below is a load-bearing fixture (it is what makes
+    // the ordering question meaningful), not a wait for settlement, so it is
+    // driven by the fake clock instead of removed.
+    vi.useFakeTimers();
     const callsA: string[] = [];
     const callsB: string[] = [];
 
@@ -1113,10 +1148,12 @@ describe("concurrent runHooks invocations", () => {
       callsB.push("B");
     });
 
-    await Promise.all([
+    const both = Promise.all([
       runHooks([hookA], undefined, "test"),
       runHooks([hookB], undefined, "test"),
     ]);
+    await vi.advanceTimersByTimeAsync(50);
+    await both;
 
     expect(callsA).toEqual(["A"]);
     expect(callsB).toEqual(["B"]);

@@ -32,6 +32,20 @@ import type {
 import { InMemoryPipelineCheckpointStore } from "../pipeline/in-memory-checkpoint-store.js";
 import type { PipelineCheckpoint } from "@dzupagent/core/pipeline";
 
+/**
+ * Fetch the persisted resumeToken for a run so tests can call
+ * ApprovalGate.resume(), which now requires it (DZUPAGENT-AGENT-H-14).
+ * Falls back to a sentinel when nothing is pending, so "no pending approval"
+ * cases still exercise the pre-token error path.
+ */
+async function tokenFor(
+  gate: ApprovalGate,
+  runId: string,
+): Promise<string> {
+  return (await gate.loadPending(runId))?.resumeToken ?? "missing-resume-token"
+}
+
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -437,7 +451,7 @@ describe("ApprovalGate — resume", () => {
       bus,
     );
     await gate.requestApproval({ runId: "res-1", plan: "p" }).catch(() => {});
-    await gate.resume("res-1", { decision: "approved" });
+    await gate.resume("res-1", { decision: "approved" }, await tokenFor(gate, "res-1"));
     expect(granted).toHaveLength(1);
     expect((granted[0] as Record<string, unknown>)["runId"]).toBe("res-1");
   });
@@ -457,7 +471,7 @@ describe("ApprovalGate — resume", () => {
     await gate.resume("res-2", {
       decision: "rejected",
       reason: "security concern",
-    });
+    }, await tokenFor(gate, "res-2"));
     const evt = rejected[0] as Record<string, unknown>;
     expect(evt["runId"]).toBe("res-2");
     expect(evt["reason"]).toBe("security concern");
@@ -472,7 +486,7 @@ describe("ApprovalGate — resume", () => {
     );
     await gate.requestApproval({ runId: "res-3", plan: "p" }).catch(() => {});
     expect(await store.load("res-3", APPROVAL_PENDING_KEY)).not.toBeNull();
-    await gate.resume("res-3", { decision: "approved" });
+    await gate.resume("res-3", { decision: "approved" }, await tokenFor(gate, "res-3"));
     expect(await store.load("res-3", APPROVAL_PENDING_KEY)).toBeNull();
   });
 
@@ -484,14 +498,14 @@ describe("ApprovalGate — resume", () => {
       bus,
     );
     await expect(
-      gate.resume("nonexistent", { decision: "approved" }),
+      gate.resume("nonexistent", { decision: "approved" }, await tokenFor(gate, "nonexistent")),
     ).rejects.toThrow("No pending approval for runId: nonexistent");
   });
 
   it("throws when no checkpointStore is configured on resume", async () => {
     const bus = createEventBus();
     const gate = new ApprovalGate({ mode: "required" }, bus);
-    await expect(gate.resume("r", { decision: "approved" })).rejects.toThrow(
+    await expect(gate.resume("r", { decision: "approved" }, await tokenFor(gate, "r"))).rejects.toThrow(
       "checkpointStore",
     );
   });
@@ -517,7 +531,7 @@ describe("ApprovalGate — resume", () => {
       { mode: "required", durableResume: true, checkpointStore: store },
       bus2,
     );
-    await gate2.resume("res-4", { decision: "approved" });
+    await gate2.resume("res-4", { decision: "approved" }, await tokenFor(gate2, "res-4"));
     expect(granted).toHaveLength(1);
   });
 });
@@ -564,7 +578,7 @@ describe("ApprovalGate — loadPending", () => {
       bus,
     );
     await gate.requestApproval({ runId: "lp-2", plan: "x" }).catch(() => {});
-    await gate.resume("lp-2", { decision: "approved" });
+    await gate.resume("lp-2", { decision: "approved" }, await tokenFor(gate, "lp-2"));
     expect(await gate.loadPending("lp-2")).toBeNull();
   });
 });
@@ -588,7 +602,7 @@ describe("ApprovalGate — sequential gates", () => {
     expect(firstToken).toBeDefined();
 
     // Resume first gate
-    await gate.resume("seq-1", { decision: "approved" });
+    await gate.resume("seq-1", { decision: "approved" }, await tokenFor(gate, "seq-1"));
     expect(await store.load("seq-1", APPROVAL_PENDING_KEY)).toBeNull();
 
     // Second gate suspend — same run, next phase

@@ -73,7 +73,27 @@ export type OrchestrationDomainEvent =
       request?: unknown;
       tenantId?: string;
     }
-  | { type: "approval:granted"; runId: string; approvedBy?: string }
+  /**
+   * An approval was granted.
+   *
+   * `contactId` scopes the grant to the specific outstanding approval request
+   * it answers (the `contactId` carried on the matching `approval:requested`).
+   * Consumers MUST refuse to satisfy a pending approval whose `contactId`
+   * differs from the one on the grant -- otherwise a grant issued for one
+   * contact silently satisfies a different pending approval on the same run.
+   *
+   * It stays optional because run-scoped approval endpoints (e.g.
+   * `POST /api/runs/:id/approve`) answer the run as a whole and have no
+   * per-contact request to name. Any emitter that IS answering a specific
+   * contact request must set it -- omitting it produces an unqualified grant
+   * that matches every pending approval on the run.
+   */
+  | {
+      type: "approval:granted";
+      runId: string;
+      contactId?: string;
+      approvedBy?: string;
+    }
   | { type: "approval:rejected"; runId: string; reason?: string }
   | {
       type: "approval:timed_out";

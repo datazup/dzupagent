@@ -191,7 +191,8 @@ describe('MultiNetworkMemory', () => {
         {
           operation: 'search',
           impact: 'partial-result',
-          reason: 'opinion network down',
+          reason: 'backend-error',
+          errorId: expect.any(String),
           target: 'opinion',
         },
       ])
@@ -304,7 +305,7 @@ describe('MultiNetworkMemory', () => {
         expect(s.degradations[0]).toMatchObject({
           operation: 'get',
           impact: 'source-unavailable',
-          reason: 'store error',
+          reason: 'backend-error',
           target: s.network,
         })
       }
@@ -351,7 +352,8 @@ describe('MultiNetworkMemory', () => {
         {
           operation: 'search',
           impact: 'partial-result',
-          reason: 'entity network down',
+          reason: 'backend-error',
+          errorId: expect.any(String),
           target: 'entity',
         },
       ])
