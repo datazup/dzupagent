@@ -106,8 +106,11 @@ export async function scanToolResultSecurity(
     const scan = await scanner.scan(content);
 
     if (scan.verdict === "block") {
+      const promptInjectionBlocked =
+        promptInjection === "block" && scan.findings.length > 0;
+      const piiBlocked = pii === "block" && scan.piiTypes.length > 0;
       const reason: ToolResultSecurityBlockReason =
-        scan.findings.length > 0 ? "prompt_injection" : "pii";
+        promptInjectionBlocked || !piiBlocked ? "prompt_injection" : "pii";
       const findingCount =
         reason === "prompt_injection"
           ? scan.findings.length
@@ -142,18 +145,20 @@ export async function scanToolResultSecurity(
     }
 
     if (scan.verdict === "sanitize") {
-      const category =
-        scan.findings.length > 0
-          ? "tool_result_prompt_injection"
-          : "tool_result_pii";
-      emitViolation(ctx, {
-        category,
-        severity: "warning",
-        message:
-          scan.findings.length > 0
-            ? `Tool "${ctx.toolName}" output sanitized: prompt-injection markers rewritten (${scan.findings.length} finding(s))`
-            : `Tool "${ctx.toolName}" output sanitized: PII redacted (${scan.piiTypes.length} type(s))`,
-      });
+      if (scan.findings.length > 0) {
+        emitViolation(ctx, {
+          category: "tool_result_prompt_injection",
+          severity: "warning",
+          message: `Tool "${ctx.toolName}" output sanitized: prompt-injection markers rewritten (${scan.findings.length} finding(s))`,
+        });
+      }
+      if (scan.piiTypes.length > 0) {
+        emitViolation(ctx, {
+          category: "tool_result_pii",
+          severity: "warning",
+          message: `Tool "${ctx.toolName}" output sanitized: PII redacted (${scan.piiTypes.length} type(s))`,
+        });
+      }
       return { kind: "sanitize", content: scan.sanitized };
     }
 

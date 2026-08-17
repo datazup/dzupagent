@@ -265,6 +265,38 @@ describe("public security config -> tool-result runtime policy", () => {
     ).not.toContain("private scanner detail");
   });
 
+  it("attributes a combined warn-plus-block disposition to the blocking PII policy", async () => {
+    const { model, getTurns } = makeToolCallingModel("generate");
+    const { bus, events } = captureSecurityEvents();
+    const agent = new DzupAgent({
+      id: "combined-pii-block",
+      instructions: "test",
+      model,
+      tools: [makeTool(`${POISONED}\n${PII}`)],
+      eventBus: bus,
+      security: {
+        promptInjection: "off",
+        promptInjectionToolResults: "warn",
+        piiToolResults: "block",
+      },
+    });
+
+    const result = await agent.generate([new HumanMessage("run lookup")]);
+
+    expect(getTurns()).toBe(1);
+    expect(result.stopReason).toBe("error");
+    expect(toolMessageContent(result.messages)).toBe(
+      "[blocked: tool result contained PII]"
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "safety:violation",
+        category: "tool_result_pii",
+        severity: "critical",
+      })
+    );
+  });
+
   it("preserves legacy behavior when no tool-result security policy exists", async () => {
     const generateModel = makeToolCallingModel("generate");
     const generateAgent = new DzupAgent({
