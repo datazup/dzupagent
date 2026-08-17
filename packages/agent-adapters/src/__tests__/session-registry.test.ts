@@ -3,10 +3,6 @@ import { createEventBus } from '@dzupagent/core'
 import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 import { SessionRegistry } from '../session/session-registry.js'
-import type {
-  ConversationEntry,
-  SessionRegistryConfig,
-} from '../session/session-registry.js'
 import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
@@ -21,7 +17,7 @@ import type {
 
 function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
   const events: DzupEvent[] = []
-  bus.onAny((e) => events.push(e))
+  bus.onAny((e) => { events.push(e) })
   return events
 }
 

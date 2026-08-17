@@ -110,7 +110,7 @@ function createFailingRegistry(
 
 function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
   const events: DzupEvent[] = []
-  bus.onAny((e) => events.push(e))
+  bus.onAny((e) => { events.push(e) })
   return events
 }
 

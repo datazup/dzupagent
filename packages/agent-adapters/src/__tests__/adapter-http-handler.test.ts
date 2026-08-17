@@ -867,7 +867,7 @@ describe("AdapterHttpHandler", () => {
     it("emits error event on event bus", async () => {
       const bus = createEventBus();
       const emitted: unknown[] = [];
-      bus.onAny((e) => emitted.push(e));
+      bus.onAny((e) => { emitted.push(e); });
 
       const failingOrch = createMockOrchestrator({
         run: vi.fn().mockRejectedValue(new Error("boom")),

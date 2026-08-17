@@ -170,7 +170,7 @@ describe("AdapterGuardrails", () => {
   beforeEach(() => {
     bus = createEventBus();
     emitted = [];
-    bus.onAny((e) => emitted.push(e));
+    bus.onAny((e) => { emitted.push(e); });
   });
 
   it("passes through events when within limits", async () => {

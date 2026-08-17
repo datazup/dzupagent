@@ -805,7 +805,7 @@ describe('AdapterLearningLoop branch coverage', () => {
   it('record emits quality:adjusted event via event bus', () => {
     const bus = createEventBus()
     const received: string[] = []
-    bus.onAny((e) => received.push(e.type))
+    bus.onAny((e) => { received.push(e.type) })
     const loop = new AdapterLearningLoop({ eventBus: bus })
     loop.record(record('claude'))
     expect(received).toContain('quality:adjusted')

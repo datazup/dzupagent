@@ -477,7 +477,7 @@ describe('AdapterTracer', () => {
     it('emits tool:latency events on span end', async () => {
       const bus = createEventBus()
       const emitted: unknown[] = []
-      bus.onAny((e) => emitted.push(e))
+      bus.onAny((e) => { emitted.push(e) })
 
       const busTracer = new AdapterTracer({ eventBus: bus })
 

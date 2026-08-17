@@ -43,7 +43,7 @@ const APPROVAL_STATE_KEY = 'approval:pending'
 /** Collect all events emitted on a DzupEventBus. */
 function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
   const collected: DzupEvent[] = []
-  bus.onAny((e) => collected.push(e))
+  bus.onAny((e) => { collected.push(e) })
   return collected
 }
 

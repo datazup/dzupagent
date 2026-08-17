@@ -30,7 +30,7 @@ async function* eventStream(events: AgentEvent[]): AsyncGenerator<AgentEvent> {
 
 function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
   const events: DzupEvent[] = [];
-  bus.onAny((e) => events.push(e));
+  bus.onAny((e) => { events.push(e); });
   return events;
 }
 
