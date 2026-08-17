@@ -33,6 +33,53 @@ function parseScope(scope: string): string {
   throw new Error(`Invalid scope: ${scope}`);
 }
 
+// `KnowledgeKind` is a compile-time union and is erased at runtime, so nothing
+// re-checks it once an envelope has been through JSON. Declared as
+// `Record<KnowledgeKind, true>` on purpose: adding a member to the union breaks
+// this initialiser until the member is listed here, so the runtime table cannot
+// silently fall behind the contract it mirrors.
+const KNOWLEDGE_KIND_SET: Readonly<Record<KnowledgeKind, true>> = {
+  contract: true,
+  finding: true,
+  "task-state": true,
+  lesson: true,
+  decision: true,
+};
+
+// Deliberately a membership test rather than a truthiness or `typeof` test.
+// `isKnowledgeEnvelope` in the shared contract only asserts
+// `typeof kind === "string"`, so it admits a misspelled kind — and a misspelled
+// kind is the case that matters, because `kind` is what discriminates
+// `KnowledgePayload`. An entry whose kind is outside the union carries a
+// payload no consumer can interpret.
+function isKnowledgeKind(value: unknown): value is KnowledgeKind {
+  return (
+    typeof value === "string" &&
+    Object.prototype.hasOwnProperty.call(KNOWLEDGE_KIND_SET, value)
+  );
+}
+
+// Persisted knowledge is handed to consumers as trusted, so an entry whose
+// `kind` is absent, misspelled, or not a string is corruption rather than a
+// value to pass through.
+//
+// THROW, not skip. This follows the convention the store already has for input
+// it cannot use: `parseScope` throws, and a malformed JSON line already throws
+// straight out of `JSON.parse` in the same loop. Skipping instead would give
+// the *more* recoverable corruption (parseable but semantically wrong) quieter
+// handling than the less recoverable one, and would turn a corrupt log into a
+// silently short result set — the same silent-swallow that `checkCollision`
+// refuses below.
+function assertKnowledgeKind(parsed: unknown, source: string): void {
+  const kind = (parsed as { kind?: unknown } | null)?.kind;
+  if (isKnowledgeKind(kind)) return;
+  const shown = kind === undefined ? "undefined" : JSON.stringify(kind);
+  throw new Error(
+    `Corrupt knowledge entry in ${source}: kind must be one of ` +
+      `${Object.keys(KNOWLEDGE_KIND_SET).join(", ")}; got ${shown}`
+  );
+}
+
 export class FilesystemKnowledgeStore implements KnowledgeStore {
   private readonly rootDir: string;
   private readonly bus = new EventEmitter();
@@ -84,7 +131,9 @@ export class FilesystemKnowledgeStore implements KnowledgeStore {
     const file = snapshotPath(this.rootDir, scopeKey, kind, key);
     try {
       const buf = await fs.readFile(file, "utf8");
-      return JSON.parse(buf) as T;
+      const parsed = JSON.parse(buf) as unknown;
+      assertKnowledgeKind(parsed, file);
+      return parsed as T;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
       throw err;
@@ -97,9 +146,10 @@ export class FilesystemKnowledgeStore implements KnowledgeStore {
         "filter.scope is required for FilesystemKnowledgeStore.query"
       );
     const scopeKey = parseScope(filter.scope);
+    const entriesFile = entriesPath(this.rootDir, scopeKey);
     let raw: string;
     try {
-      raw = await fs.readFile(entriesPath(this.rootDir, scopeKey), "utf8");
+      raw = await fs.readFile(entriesFile, "utf8");
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
       throw err;
@@ -107,6 +157,9 @@ export class FilesystemKnowledgeStore implements KnowledgeStore {
     for (const line of raw.split("\n")) {
       if (!line) continue;
       const env = JSON.parse(line) as KnowledgeEnvelope;
+      // Checked before the filters on purpose: filtering first would make
+      // whether corruption is detected depend on the caller's filter.
+      assertKnowledgeKind(env, entriesFile);
       if (filter.kind && env.kind !== filter.kind) continue;
       if (filter.key && env.key !== filter.key) continue;
       if (filter.repo !== undefined && env.repo !== filter.repo) continue;
