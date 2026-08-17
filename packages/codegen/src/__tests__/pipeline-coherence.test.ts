@@ -15,6 +15,11 @@ import type {
   ExecutorConfig,
 } from "../pipeline/pipeline-executor.js";
 import { GenPipelineBuilder } from "../pipeline/gen-pipeline-builder.js";
+// A real shipped dimension. The fixture previously passed the string
+// "correctness", which is neither a QualityDimension nor the name of any
+// dimension this package defines — the five built-ins are typeStrictness,
+// eslintClean, hasTests, codeCompleteness and hasJsDoc.
+import { typeStrictness } from "../quality/quality-dimensions.js";
 import {
   runGuardrailGate,
   summarizeGateResult,
@@ -946,21 +951,21 @@ describe("GenPipelineBuilder", () => {
   });
 
   it("addValidationPhase appends a validation phase with threshold", () => {
-    builder.addValidationPhase({ dimensions: ["correctness"], threshold: 0.8 });
+    builder.addValidationPhase({ dimensions: [typeStrictness], threshold: 0.8 });
     const phase = builder.getPhases()[0]!;
     expect(phase.type).toBe("validation");
     expect(phase.threshold).toBe(0.8);
   });
 
   it('addValidationPhase uses "validate" as default name', () => {
-    builder.addValidationPhase({ dimensions: ["correctness"], threshold: 0.7 });
+    builder.addValidationPhase({ dimensions: [typeStrictness], threshold: 0.7 });
     expect(builder.getPhases()[0]!.name).toBe("validate");
   });
 
   it("addValidationPhase respects custom name", () => {
     builder.addValidationPhase({
       name: "lint-check",
-      dimensions: ["correctness"],
+      dimensions: [typeStrictness],
       threshold: 0.9,
     });
     expect(builder.getPhases()[0]!.name).toBe("lint-check");
@@ -1023,7 +1028,7 @@ describe("GenPipelineBuilder", () => {
   it("getPhaseNames returns names in insertion order", () => {
     builder
       .addPhase({ name: "gen", promptType: "code" })
-      .addValidationPhase({ dimensions: ["correctness"], threshold: 0.8 })
+      .addValidationPhase({ dimensions: [typeStrictness], threshold: 0.8 })
       .addFixPhase()
       .addReviewPhase();
     expect(builder.getPhaseNames()).toEqual([
@@ -1037,7 +1042,7 @@ describe("GenPipelineBuilder", () => {
   it("getGenerationPhases returns only generation and subagent types", () => {
     builder
       .addPhase({ name: "gen", promptType: "code" })
-      .addValidationPhase({ dimensions: ["correctness"], threshold: 0.8 })
+      .addValidationPhase({ dimensions: [typeStrictness], threshold: 0.8 })
       .addSubAgentPhase({ name: "sub", promptType: "sub" })
       .addFixPhase();
     const genPhases = builder.getGenerationPhases();
@@ -1059,7 +1064,7 @@ describe("GenPipelineBuilder", () => {
   it("building a full pipeline preserves declaration order", () => {
     builder
       .addPhase({ name: "p1", promptType: "code" })
-      .addValidationPhase({ dimensions: ["correctness"], threshold: 0.7 })
+      .addValidationPhase({ dimensions: [typeStrictness], threshold: 0.7 })
       .addFixPhase({ name: "fix1" })
       .addReviewPhase({ name: "approve" })
       .withGuardrails({ engine: makePassEngine() });

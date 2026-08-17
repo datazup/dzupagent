@@ -12,6 +12,9 @@ import {
   GenPipelineBuilder,
   type PipelinePhase,
 } from '../pipeline/gen-pipeline-builder.js'
+// A real shipped dimension — "correctness" was neither a QualityDimension nor
+// the name of any dimension this package defines.
+import { typeStrictness } from '../quality/quality-dimensions.js'
 import {
   getEscalationStrategy,
   DEFAULT_ESCALATION,
@@ -66,7 +69,7 @@ describe('GenPipelineBuilder', () => {
 
   it('addValidationPhase uses default name "validate"', () => {
     const b = new GenPipelineBuilder()
-    b.addValidationPhase({ dimensions: ['correctness'], threshold: 80 })
+    b.addValidationPhase({ dimensions: [typeStrictness], threshold: 80 })
     expect(b.getPhases()[0]).toMatchObject({ name: 'validate', type: 'validation', threshold: 80 })
   })
 
