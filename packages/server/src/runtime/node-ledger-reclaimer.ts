@@ -55,10 +55,36 @@ export interface NodeLedgerReclaimerConfig {
   /**
    * Host-provided seam that puts the run back on the queue so a live worker
    * picks it up. Decouples the reclaimer from the concrete queue. May be sync
-   * or async; the reclaimer awaits it. A throw is caught and routed to
-   * `onError` so one bad run does not abort the sweep.
+   * or async; the reclaimer awaits it. A throw (or a rejected promise) is
+   * caught and routed to `onError` so one bad run does not abort the sweep.
+   *
+   * Declared `=> unknown`, deliberately — neither `=> void | Promise<void>`
+   * nor plain `=> void`.
+   *
+   * The union it replaced was *less* permissive than it looked. TypeScript's
+   * void-returning-function leniency lets a callback that returns a value
+   * satisfy a `=> void` position, so an expression-bodied supplier such as
+   * `reEnqueueRun: (id) => enqueued.push(id)` is fine against `void` even
+   * though `push` returns `number`. That leniency does not survive a union:
+   * under `=> void | Promise<void>` the same expression is rejected with TS2322
+   * ("Type 'number' is not assignable to type 'void | Promise<void>'"), which
+   * is why every supplier in this package had to be written with a block body.
+   *
+   * Plain `=> void` is not the right narrowing *here*, though it is elsewhere.
+   * A `void` return position means "this value is discarded", and the seam's
+   * real production supplier (`buildRunReEnqueuer`) returns `Promise<void>`
+   * which `tick()` genuinely awaits — so declaring `void` draws a correct
+   * `@typescript-eslint/no-misused-promises` error at the composition site
+   * ("Promise-returning function provided to property where a void return was
+   * expected"). Unlike an event-bus handler, this callback's promise is NOT
+   * fire-and-forget: the await below is load-bearing for reclaim correctness.
+   *
+   * `unknown` states the true contract — "return whatever you like; if it is
+   * thenable the reclaimer awaits it" — and admits every supplier shape: an
+   * expression-bodied arrow, an `async` function, a plain `void` function, and
+   * the production `=> Promise<void>` builder.
    */
-  reEnqueueRun: (runId: string) => void | Promise<void>
+  reEnqueueRun: (runId: string) => unknown
   /** Event bus used to emit `node:reclaimed` (one per stale node). */
   eventBus: EventEmitter
   /** Sweep interval in milliseconds. Defaults to 15s. */
@@ -75,7 +101,12 @@ export interface NodeLedgerReclaimerConfig {
 
 export class NodeLedgerReclaimer {
   private readonly ledger: LedgerDependency
-  private readonly reEnqueueRun: (runId: string) => void | Promise<void>
+  /**
+   * Mirrors the `=> unknown` option type documented on
+   * {@link NodeLedgerReclaimerConfig.reEnqueueRun}, so that `tick()` can
+   * `await` whatever the supplier actually returned.
+   */
+  private readonly reEnqueueRun: (runId: string) => unknown
   private readonly eventBus: EventEmitter
   private readonly intervalMs: number
   private readonly batchSize: number

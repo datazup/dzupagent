@@ -282,4 +282,109 @@ describe('NodeLedgerReclaimer', () => {
     await reclaimer.tick()
     expect(findStale).toHaveBeenCalledTimes(1)
   })
+
+  // 8. Supplier-shape lock. `reEnqueueRun` is declared `(runId) => unknown`
+  //    precisely so that ANY supplier shape is accepted. This test is a
+  //    type-level lock as much as a runtime one: the expression-bodied arrow
+  //    below returns `number` (Array.prototype.push), which was rejected with
+  //    TS2322 ("Type 'number' is not assignable to type 'void | Promise<void>'")
+  //    under the previous `=> void | Promise<void>` declaration. Every other
+  //    supplier in this file had to be written with a block body for that
+  //    reason. Note the contrast one line down: `eventBus.emit` is declared
+  //    plain `=> void`, so its expression body was always legal.
+  it('accepts an expression-bodied reEnqueueRun supplier', async () => {
+    const ledger = new InMemoryDurableNodeLedger()
+    await seedLeases(ledger, 'run-A', ['n1'], 'worker-A', 1_000, 0)
+
+    const enqueued: string[] = []
+    const events: DzupEvent[] = []
+    const reclaimer = new NodeLedgerReclaimer({
+      ledger,
+      reEnqueueRun: (runId) => enqueued.push(runId),
+      eventBus: { emit: (e) => events.push(e) },
+      now: () => 10_000,
+    })
+
+    const result = await reclaimer.tick()
+    expect(enqueued).toEqual(['run-A'])
+    expect(result).toEqual({ reclaimed: 1 })
+  })
+
+  // 9. The await on `reEnqueueRun` is load-bearing: a run must not be reported
+  //    reclaimed before it has actually been handed back to the queue. Drop the
+  //    `await` in tick() and this fails — tick() settles while the supplier is
+  //    still in flight, so `settled` is true before the gate is released.
+  it('does not settle tick() until an async reEnqueueRun has completed', async () => {
+    const ledger = new InMemoryDurableNodeLedger()
+    await seedLeases(ledger, 'run-A', ['n1'], 'worker-A', 1_000, 0)
+
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+
+    const enqueued: string[] = []
+    const reclaimer = new NodeLedgerReclaimer({
+      ledger,
+      reEnqueueRun: async (runId) => {
+        await gate
+        enqueued.push(runId)
+      },
+      eventBus: { emit: () => {} },
+      now: () => 10_000,
+    })
+
+    let settled = false
+    const inFlight = reclaimer.tick()
+    void inFlight.then(() => {
+      settled = true
+    })
+
+    // Two macrotask turns flush every pending microtask. If tick() were not
+    // awaiting reEnqueueRun it would have resolved during them.
+    await new Promise((resolve) => setImmediate(resolve))
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(settled).toBe(false)
+    expect(enqueued).toEqual([])
+
+    release()
+    const result = await inFlight
+    expect(enqueued).toEqual(['run-A'])
+    expect(result).toEqual({ reclaimed: 1 })
+  })
+
+  // 10. Companion to test 3, which throws SYNCHRONOUSLY — a sync throw is
+  //     caught by tick()'s try/catch even without the await, so it does not
+  //     exercise it. An async rejection only reaches the catch (and only stays
+  //     out of the `reclaimed` count) because the call is awaited.
+  it('routes an async reEnqueueRun rejection to onError without counting it', async () => {
+    const ledger = new InMemoryDurableNodeLedger()
+    await seedLeases(ledger, 'run-bad', ['n1'], 'worker-X', 1_000, 0)
+    await seedLeases(ledger, 'run-good', ['n2'], 'worker-Y', 1_000, 0)
+
+    const enqueued: string[] = []
+    const errors: unknown[] = []
+    const reclaimer = new NodeLedgerReclaimer({
+      ledger,
+      reEnqueueRun: async (runId) => {
+        await Promise.resolve()
+        if (runId === 'run-bad') {
+          throw new Error('queue is down (async)')
+        }
+        enqueued.push(runId)
+      },
+      eventBus: { emit: () => {} },
+      onError: (err) => errors.push(err),
+      now: () => 10_000,
+    })
+
+    const result = await reclaimer.tick()
+
+    expect(enqueued).toEqual(['run-good'])
+    expect(errors).toHaveLength(1)
+    expect((errors[0] as Error).message).toBe('queue is down (async)')
+    // The rejected run's node must NOT be counted as reclaimed.
+    expect(result).toEqual({ reclaimed: 1 })
+  })
 })
