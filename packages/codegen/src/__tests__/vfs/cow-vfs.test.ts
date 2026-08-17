@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { VirtualFS } from '../../vfs/virtual-fs.js'
 import { CopyOnWriteVFS } from '../../vfs/cow-vfs.js'
-import { sample, selectBest, commitBest, sampleAndCommitBest } from '../../vfs/parallel-sampling.js'
+import { sample, selectBest, sampleAndCommitBest } from '../../vfs/parallel-sampling.js'
 import type { SampleResult } from '../../vfs/vfs-types.js'
 
 describe('CopyOnWriteVFS', () => {

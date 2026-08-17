@@ -4,7 +4,7 @@ import {
   detectLanguageFromFiles,
   getLanguagePrompt,
 } from '../adaptation/languages/language-config.js'
-import type { SupportedLanguage, LanguageConfig } from '../adaptation/languages/language-config.js'
+import type { SupportedLanguage } from '../adaptation/languages/language-config.js'
 import { PathMapper } from '../adaptation/path-mapper.js'
 import { FrameworkAdapter } from '../adaptation/framework-adapter.js'
 

@@ -4,8 +4,6 @@ import type {
   CodeEvaluator,
   CodeFixer,
   EvaluationResult,
-  Reflection,
-  CorrectionContext,
   CorrectionIterationEvent,
   CorrectionFixedEvent,
   CorrectionExhaustedEvent,

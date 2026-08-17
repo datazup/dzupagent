@@ -30,7 +30,6 @@ import {
   writeFile,
   readFile,
   chmod,
-  stat,
   rename,
   unlink,
   mkdir,
@@ -38,13 +37,12 @@ import {
 } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve, sep } from "node:path";
+import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { randomBytes } from "node:crypto";
 
 import { DiskWorkspaceFS } from "../vfs/workspace-fs.js";
 import { VirtualFS } from "../vfs/virtual-fs.js";
-import { InMemoryWorkspaceFS } from "../vfs/workspace-fs.js";
 import { PathSecurityError } from "../vfs/path-security-error.js";
 
 // ---------------------------------------------------------------------------

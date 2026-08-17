@@ -13,7 +13,6 @@ import {
   buildTestPath,
   generateTestSpecs,
   type TestTarget,
-  type ExportInfo,
 } from '../generation/test-generator.js'
 import { sample, selectBest, commitBest } from '../vfs/parallel-sampling.js'
 import type { SampleResult } from '../vfs/vfs-types.js'

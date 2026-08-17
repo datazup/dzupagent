@@ -32,8 +32,9 @@ function createMockSandbox(overrides?: Partial<SandboxProtocol>): MockSandbox {
     async downloadFiles(paths: string[]): Promise<Record<string, string>> {
       const result: Record<string, string> = {}
       for (const p of paths) {
-        if (p in mock.sandboxFiles) {
-          result[p] = mock.sandboxFiles[p]
+        const content = mock.sandboxFiles[p]
+        if (content !== undefined) {
+          result[p] = content
         }
       }
       return result
@@ -90,7 +91,7 @@ describe('WorkspaceRunner', () => {
     expect(result.stdout).toBe('test output')
     expect(result.stderr).toBe('')
     expect(sandbox.executedCalls).toHaveLength(1)
-    expect(sandbox.executedCalls[0].command).toBe('npm test')
+    expect(sandbox.executedCalls[0]!.command).toBe('npm test')
   })
 
   it('reports success for exit code 0', async () => {
@@ -126,7 +127,8 @@ describe('WorkspaceRunner', () => {
       timeoutMs: 30_000,
     })
 
-    expect(sandbox.executedCalls[0].options).toEqual({
+    expect(sandbox.executedCalls).toHaveLength(1)
+    expect(sandbox.executedCalls[0]!.options).toEqual({
       cwd: '/workspace/src',
       timeoutMs: 30_000,
     })
@@ -135,7 +137,8 @@ describe('WorkspaceRunner', () => {
   it('uses default timeout of 60_000 when not specified', async () => {
     await runner.run(vfs, { command: 'npm test' })
 
-    expect(sandbox.executedCalls[0].options?.timeoutMs).toBe(60_000)
+    expect(sandbox.executedCalls).toHaveLength(1)
+    expect(sandbox.executedCalls[0]!.options?.timeoutMs).toBe(60_000)
   })
 
   it('propagates timedOut flag', async () => {

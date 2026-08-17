@@ -3,9 +3,6 @@ import { LessonExtractor } from '../correction/lesson-extractor.js'
 import { ReflectionNode, ReflectionSchema } from '../correction/reflection-node.js'
 import type {
   CorrectionIteration,
-  EvaluationResult,
-  Reflection,
-  ErrorCategory,
   CorrectionContext,
 } from '../correction/correction-types.js'
 import type { TokenUsage } from '@dzupagent/core'

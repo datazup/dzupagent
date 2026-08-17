@@ -22,7 +22,11 @@ import type { CIFailure } from '../ci/ci-monitor.js'
 import { getEscalationStrategy } from '../pipeline/fix-escalation.js'
 import { FrameworkAdapter } from '../adaptation/framework-adapter.js'
 
-function makeConv(name: string, confidence = 0.9, category = 'formatting'): DetectedConvention {
+function makeConv(
+  name: string,
+  confidence = 0.9,
+  category: DetectedConvention['category'] = 'formatting',
+): DetectedConvention {
   return { name, category, description: `Convention: ${name}`, examples: [], confidence }
 }
 

@@ -16,7 +16,6 @@ import {
 import {
   toDockerSecurityFlags,
   detectEscapeAttempt,
-  type HardenedSandboxConfig,
 } from '../sandbox/sandbox-hardening.js'
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { SelfCorrectionLoop } from '../correction/self-correction-loop.js'
 import { LessonExtractor } from '../correction/lesson-extractor.js'
 import { ReflectionNode } from '../correction/reflection-node.js'

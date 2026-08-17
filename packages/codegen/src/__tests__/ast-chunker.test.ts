@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { chunkByAST, type CodeChunk, type ASTChunkerConfig } from '../chunking/ast-chunker.js'
+import { chunkByAST, type ASTChunkerConfig } from '../chunking/ast-chunker.js'
 
 // ---------------------------------------------------------------------------
 // These tests work regardless of tree-sitter availability.

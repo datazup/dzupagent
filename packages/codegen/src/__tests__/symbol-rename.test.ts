@@ -26,7 +26,7 @@
  * 20. Edge cases — empty file, single occurrence, identifier at line start
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import {
   renameSymbol,
   RenameCollisionError,

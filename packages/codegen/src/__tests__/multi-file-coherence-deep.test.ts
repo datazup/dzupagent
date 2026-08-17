@@ -20,11 +20,7 @@ import {
   type ContractIssue,
   type ContractValidationResult,
 } from "../quality/contract-validator.js";
-import {
-  validateImports,
-  type ImportValidationResult,
-  type ImportIssue,
-} from "../quality/import-validator.js";
+import { validateImports } from "../quality/import-validator.js";
 
 // =============================================================================
 // extractEndpoints — comprehensive extraction coverage

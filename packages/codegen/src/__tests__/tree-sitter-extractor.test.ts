@@ -6,7 +6,6 @@ import {
   EXTENSION_MAP,
   _resetTreeSitterCache,
   type ASTSymbol,
-  type SupportedLanguage,
 } from '../repomap/tree-sitter-extractor.js'
 import { extractSymbols } from '../repomap/symbol-extractor.js'
 

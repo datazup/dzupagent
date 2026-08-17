@@ -33,7 +33,11 @@ import { buildRepoMap } from '../repomap/repo-map-builder.js'
 import { extractSymbols } from '../repomap/symbol-extractor.js'
 import { buildImportGraph } from '../repomap/import-graph.js'
 import { gatherGitContext, formatGitContext, type GitContext } from '../git/git-middleware.js'
-import { PipelineExecutor, type PhaseConfig } from '../pipeline/pipeline-executor.js'
+import {
+  PipelineExecutor,
+  type ExecutorConfig,
+  type PhaseConfig,
+} from '../pipeline/pipeline-executor.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -918,7 +922,12 @@ describe('PipelineExecutor — deep coverage', () => {
   })
 
   it('checkpoints are not taken for failed phases', async () => {
-    const onCheckpoint = vi.fn(async () => {})
+    // Declare the real (phaseId, state) signature: a zero-arg `vi.fn()`
+    // records every call as an empty tuple, which makes the `calls[0][0]`
+    // assertion below unfalsifiable.
+    const onCheckpoint = vi.fn<NonNullable<ExecutorConfig['onCheckpoint']>>(
+      async () => {},
+    )
     const ex = new PipelineExecutor({ onCheckpoint })
     const phases: PhaseConfig[] = [
       makePhase('ok', async () => ({ x: 1 })),

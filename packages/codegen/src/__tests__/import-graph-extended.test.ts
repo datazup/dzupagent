@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildImportGraph, type ImportEdge } from '../repomap/import-graph.js'
+import { buildImportGraph } from '../repomap/import-graph.js'
 import { extractSymbols } from '../repomap/symbol-extractor.js'
 import { buildRepoMap } from '../repomap/repo-map-builder.js'
 

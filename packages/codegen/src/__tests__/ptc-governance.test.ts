@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import type { ToolGovernance, DzupEventBus } from '@dzupagent/core'
 import { checkPtcAccess, buildBlockedPtcResult } from '../sandbox/ptc/ptc-governance-adapter.js'
 import type { PtcRequest } from '../sandbox/ptc/ptc-types.js'

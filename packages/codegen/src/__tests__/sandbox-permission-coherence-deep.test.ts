@@ -51,6 +51,7 @@ import type {
 } from "../workspace/types.js";
 import {
   PipelineExecutor,
+  type ExecutorConfig,
   type PhaseConfig,
 } from "../pipeline/pipeline-executor.js";
 
@@ -881,7 +882,12 @@ describe("Pipeline three-stage coherence", () => {
   });
 
   it("does not checkpoint a failed stage", async () => {
-    const onCheckpoint = vi.fn(async () => {});
+    // Declare the real (phaseId, state) signature: a zero-arg `vi.fn()`
+    // records every call as an empty tuple, which would make the
+    // `calls[0][0]` assertion below unfalsifiable.
+    const onCheckpoint = vi.fn<NonNullable<ExecutorConfig["onCheckpoint"]>>(
+      async () => {}
+    );
     const ex = new PipelineExecutor({ onCheckpoint });
     const phases: PhaseConfig[] = [
       makePhase("s1", async () => ({ ok: true })),

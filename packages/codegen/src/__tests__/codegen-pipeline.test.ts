@@ -34,6 +34,8 @@ import {
 
 import { GenPipelineBuilder } from "../pipeline/gen-pipeline-builder.js";
 
+import { GuardrailEngine } from "../guardrails/guardrail-engine.js";
+
 import {
   hasKey,
   previousSucceeded,
@@ -869,10 +871,7 @@ describe("GenPipelineBuilder — template registry", () => {
 
   it("registers a guardrail phase via withGuardrails", () => {
     const builder = new GenPipelineBuilder();
-    builder.withGuardrails({
-      rules: [],
-      projectStructure: { files: [], packages: [] },
-    });
+    builder.withGuardrails({ engine: new GuardrailEngine() });
     const phase = builder.getPhase("guardrail-gate");
     expect(phase).toBeDefined();
     expect(phase!.type).toBe("guardrail");
@@ -880,7 +879,7 @@ describe("GenPipelineBuilder — template registry", () => {
 
   it("returns guardrail config via getGuardrailConfig", () => {
     const builder = new GenPipelineBuilder();
-    const config = { rules: [], projectStructure: { files: [], packages: [] } };
+    const config = { engine: new GuardrailEngine() };
     builder.withGuardrails(config);
     expect(builder.getGuardrailConfig()).toBe(config);
   });

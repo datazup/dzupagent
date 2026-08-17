@@ -10,7 +10,6 @@ import {
 import type {
   AgentSandboxResource,
   AgentSandboxSpec,
-  AgentSandboxPhase,
 } from "../sandbox/k8s/operator-types.js";
 import { createAgentSandboxResource } from "../sandbox/k8s/operator-types.js";
 import { K8sClient } from "../sandbox/k8s/k8s-client.js";
@@ -35,14 +34,16 @@ let AgentSandboxReconciler:
 // `beforeAll` hook left the vars undefined at collection time, so the operator
 // suites always registered as `describe.skip` even when the operator workspace
 // was present (DZUPAGENT-TEST-M-02).
+// The operator lives in a sibling workspace that is not part of this
+// package's compilation unit. The specifier is therefore assembled at run
+// time: a literal path would be a hard compile error in every checkout that
+// does not vendor the operator.
+const OPERATOR_SRC = "../../../../k8s/operator/src";
+
 try {
-  const podBuilder = await import("../../../../k8s/operator/src/pod-builder.js");
-  const netpolBuilder = await import(
-    "../../../../k8s/operator/src/netpol-builder.js"
-  );
-  const reconcilerModule = await import(
-    "../../../../k8s/operator/src/reconciler.js"
-  );
+  const podBuilder = await import(OPERATOR_SRC + "/pod-builder.js");
+  const netpolBuilder = await import(OPERATOR_SRC + "/netpol-builder.js");
+  const reconcilerModule = await import(OPERATOR_SRC + "/reconciler.js");
 
   buildPodSpec = podBuilder.buildPodSpec as typeof buildPodSpec;
   buildNetworkPolicy =
@@ -53,7 +54,7 @@ try {
   // Operator module is optional in this workspace; operator-specific suites are skipped.
 }
 
-const describeOperator = (): typeof describe =>
+const describeOperator = () =>
   buildPodSpec && buildNetworkPolicy && AgentSandboxReconciler
     ? describe
     : describe.skip;

@@ -14,7 +14,6 @@
 
 import { describe, it, expect, vi } from "vitest";
 import { quickSyntaxCheck, sandboxLintCheck } from "../tools/lint-validator.js";
-import type { LintResult, LintError } from "../tools/lint-validator.js";
 import type {
   SandboxProtocol,
   ExecResult,

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import type { ToolGovernance } from '@dzupagent/core'
 import { createPtcTool } from '../sandbox/ptc/ptc-tool.js'
 

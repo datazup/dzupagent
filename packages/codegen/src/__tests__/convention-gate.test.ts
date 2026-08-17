@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { ConventionGate } from '../quality/convention-gate.js'
-import type { LearnedConvention, ConventionGateResult } from '../quality/convention-gate.js'
+import type { LearnedConvention } from '../quality/convention-gate.js'
 
 // ---------------------------------------------------------------------------
 // Helpers

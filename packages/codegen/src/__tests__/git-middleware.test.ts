@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { formatGitContext } from '../git/git-middleware.js'
 import type { GitContext } from '../git/git-middleware.js'
 

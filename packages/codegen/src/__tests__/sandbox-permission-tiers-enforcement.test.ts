@@ -776,7 +776,7 @@ describe("actionable error messages", () => {
   it("validation errors are human-readable strings", () => {
     const r = validateTierConfig({ maxCpus: 0 });
     expect(typeof r.errors[0]).toBe("string");
-    expect(r.errors[0].length).toBeGreaterThan(0);
+    expect(r.errors[0]!.length).toBeGreaterThan(0);
   });
 });
 

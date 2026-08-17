@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { formatGitContext, type GitContext } from '../git/git-middleware.js'
 import { createGitBranchTool, createGitCommitTool } from '../git/git-tools.js'
 import type { GitExecutor } from '../git/git-executor.js'
@@ -8,7 +8,6 @@ import {
   buildPRDescription,
   type PRState,
   type PRContext,
-  type PREvent,
 } from '../pr/pr-manager.js'
 import {
   classifyCommentSeverity,

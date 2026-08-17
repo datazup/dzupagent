@@ -21,11 +21,7 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { validateImports } from "../quality/import-validator.js";
-import {
-  validateContracts,
-  extractEndpoints,
-  extractAPICalls,
-} from "../quality/contract-validator.js";
+import { validateContracts } from "../quality/contract-validator.js";
 import { VirtualFS } from "../vfs/virtual-fs.js";
 import { createMultiEditTool } from "../tools/multi-edit.tool.js";
 import { buildImportGraph } from "../repomap/import-graph.js";
@@ -199,11 +195,13 @@ describe("Unused exports — detected via import graph", () => {
     ];
     const graph = buildImportGraph(
       files.map((f) => ({ path: f.path, content: f.content })),
-      "/",
+      rootDir,
     );
     // orphan and main both have no imports → both are roots
     const roots = graph.roots();
     expect(roots.length).toBeGreaterThanOrEqual(2);
+    // the un-imported file specifically must be present, not just the count
+    expect(roots).toContain("/proj/orphan.ts");
   });
 
   it('barrel re-exports a symbol: symbol is "used" transitively via import graph', () => {

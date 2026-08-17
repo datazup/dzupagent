@@ -3,7 +3,6 @@ import { describe, it, expect } from 'vitest'
 import {
   TIER_DEFAULTS,
   MIN_MEMORY_MB,
-  MIN_CPUS,
   MIN_TIMEOUT_MS,
   tierToDockerFlags,
   validateTierConfig,

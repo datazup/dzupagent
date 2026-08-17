@@ -39,6 +39,20 @@ vi.mock("node:child_process", async (importOriginal) => {
 // Import AFTER the mock is registered so the module under test binds the mock.
 const { DockerSandbox } = await import("../sandbox/docker-sandbox.js");
 
+/**
+ * Read a recorded `docker` invocation. Fails with a message that names the
+ * missing call instead of throwing a bare TypeError on `undefined`.
+ */
+function invocation(index: number): string[] {
+  const recorded = calls[index];
+  if (!recorded) {
+    throw new Error(
+      `expected a docker invocation at index ${index}, but only ${calls.length} were recorded`
+    );
+  }
+  return recorded;
+}
+
 describe("DockerSandbox argv execution (SEC-H-02)", () => {
   let sandbox: InstanceType<typeof DockerSandbox>;
 
@@ -61,7 +75,7 @@ describe("DockerSandbox argv execution (SEC-H-02)", () => {
 
   it('does not interpret "; rm -rf /" as a command separator', async () => {
     await sandbox.execute(["echo", "safe; rm -rf /"]);
-    const dockerArgs = calls[0];
+    const dockerArgs = invocation(0);
     // The entire dangerous string is a single, independent argv element.
     expect(dockerArgs).toContain("safe; rm -rf /");
     // It is NOT wrapped in `sh -c`.
@@ -71,7 +85,7 @@ describe("DockerSandbox argv execution (SEC-H-02)", () => {
 
   it("passes each argv element as an independent docker argument", async () => {
     await sandbox.execute(["node", "-e", "console.log(1)"]);
-    const dockerArgs = calls[0];
+    const dockerArgs = invocation(0);
     const sep = dockerArgs.indexOf("--");
     expect(sep).toBeGreaterThan(-1);
     // Elements after `--` match argv positionally — none merged or split.
@@ -80,14 +94,14 @@ describe("DockerSandbox argv execution (SEC-H-02)", () => {
 
   it("uses the -- terminator and no sh -c in argv mode", async () => {
     await sandbox.execute(["ls", "-la"]);
-    const dockerArgs = calls[0];
+    const dockerArgs = invocation(0);
     expect(dockerArgs).toContain("--");
     expect(dockerArgs).not.toContain("sh");
   });
 
   it("includes the secure flag matrix in the docker invocation", async () => {
     await sandbox.execute(["echo", "hi"]);
-    const dockerArgs = calls[0];
+    const dockerArgs = invocation(0);
     expect(dockerArgs).toContain("--network=none");
     expect(dockerArgs).toContain("--security-opt=no-new-privileges");
     expect(dockerArgs).toContain("--read-only");
@@ -97,7 +111,7 @@ describe("DockerSandbox argv execution (SEC-H-02)", () => {
 
   it("still supports legacy string commands via explicit sh -c", async () => {
     await sandbox.execute("echo hi");
-    const dockerArgs = calls[0];
+    const dockerArgs = invocation(0);
     // Backward-compat: a string opts into the shell path.
     expect(dockerArgs).toContain("sh");
     expect(dockerArgs).toContain("-c");
@@ -108,7 +122,7 @@ describe("DockerSandbox argv execution (SEC-H-02)", () => {
 
   it("drops network and adds cap-drop in secure session args too", async () => {
     await sandbox.startSession();
-    const sessionArgs = calls[0];
+    const sessionArgs = invocation(0);
     expect(sessionArgs).toContain("--network=none");
     expect(sessionArgs).toContain("--cap-drop=ALL");
     expect(sessionArgs).toContain("--security-opt=no-new-privileges");

@@ -46,10 +46,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import {
-  organizeImports,
-  type OrganizeResult,
-} from "../refactor/import-organizer.js";
+import { organizeImports } from "../refactor/import-organizer.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

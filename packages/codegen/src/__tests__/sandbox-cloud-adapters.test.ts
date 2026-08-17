@@ -5,7 +5,7 @@
  * Docker or network access.
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi, type MockInstance } from 'vitest'
 import { DockerSandbox } from '../sandbox/docker-sandbox.js'
 import { E2BSandbox } from '../sandbox/e2b-sandbox.js'
 import { FlySandbox } from '../sandbox/fly-sandbox.js'
@@ -154,7 +154,7 @@ describe('DockerSandbox', () => {
 // ===========================================================================
 
 describe('E2BSandbox', () => {
-  let fetchSpy: ReturnType<typeof vi.spyOn>
+  let fetchSpy: MockInstance<typeof globalThis.fetch>
 
   beforeEach(() => {
     fetchSpy = vi.spyOn(globalThis, 'fetch')
@@ -299,7 +299,7 @@ describe('E2BSandbox', () => {
 // ===========================================================================
 
 describe('FlySandbox', () => {
-  let fetchSpy: ReturnType<typeof vi.spyOn>
+  let fetchSpy: MockInstance<typeof globalThis.fetch>
 
   beforeEach(() => {
     fetchSpy = vi.spyOn(globalThis, 'fetch')

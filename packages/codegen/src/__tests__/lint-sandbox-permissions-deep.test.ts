@@ -57,7 +57,6 @@
 import { describe, it, expect, vi } from "vitest";
 
 import { quickSyntaxCheck, sandboxLintCheck } from "../tools/lint-validator.js";
-import type { LintResult } from "../tools/lint-validator.js";
 
 import {
   TIER_DEFAULTS,
@@ -83,7 +82,6 @@ import {
   toDockerSecurityFlags,
   detectEscapeAttempt,
 } from "../sandbox/sandbox-hardening.js";
-import type { HardenedSandboxConfig } from "../sandbox/sandbox-hardening.js";
 
 import {
   SECURITY_PROFILES,

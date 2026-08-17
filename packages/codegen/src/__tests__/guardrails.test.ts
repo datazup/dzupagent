@@ -368,7 +368,7 @@ describe('TypeSafetyRule', () => {
     const result = rule.check(makeContext([
       { path: 'src/service.ts', content: '// @ts-expect-error — intentional\nconst x = 1' },
     ]))
-    // @ts-expect-error is a warning, not an error
+    // A `@ts-expect-error` comment is a warning, not an error
     expect(result.passed).toBe(true)
     expect(result.violations[0]!.severity).toBe('warning')
   })

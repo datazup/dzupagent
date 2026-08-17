@@ -14,7 +14,7 @@ import {
   detectLanguageFromFiles,
   getLanguagePrompt,
 } from '../adaptation/languages/language-config.js'
-import type { SupportedLanguage, LanguageConfig } from '../adaptation/languages/language-config.js'
+import type { SupportedLanguage } from '../adaptation/languages/language-config.js'
 
 // ---------------------------------------------------------------------------
 // PathMapper — edge cases

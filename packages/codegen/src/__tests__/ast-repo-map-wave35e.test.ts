@@ -11,17 +11,9 @@
  */
 
 import { describe, it, expect } from "vitest";
-import * as path from "node:path";
-import {
-  extractSymbols,
-  type ExtractedSymbol,
-} from "../repomap/symbol-extractor.js";
-import { buildImportGraph, type ImportEdge } from "../repomap/import-graph.js";
-import {
-  buildRepoMap,
-  type RepoMap,
-  type RepoMapConfig,
-} from "../repomap/repo-map-builder.js";
+import { extractSymbols } from "../repomap/symbol-extractor.js";
+import { buildImportGraph } from "../repomap/import-graph.js";
+import { buildRepoMap } from "../repomap/repo-map-builder.js";
 
 // ============================================================================
 // extractSymbols — untested declaration patterns
