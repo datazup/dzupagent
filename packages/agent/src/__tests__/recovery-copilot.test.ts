@@ -69,7 +69,9 @@ describe('RecoveryCopilot', () => {
         dryRun: opts.dryRun ?? false,
         maxAttempts: opts.maxAttempts ?? 3,
       },
-      strategyGenerator: opts.strategyGenerator,
+      ...(opts.strategyGenerator !== undefined
+        ? { strategyGenerator: opts.strategyGenerator }
+        : {}),
     })
   }
 

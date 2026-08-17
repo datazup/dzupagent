@@ -79,7 +79,10 @@ function extractImportSpecifiers(source: string): string[] {
   for (const re of [importRegex, exportFromRegex, dynamicRegex]) {
     let match: RegExpExecArray | null
     while ((match = re.exec(stripped)) !== null) {
-      specs.push(match[1])
+      // Every pattern above has exactly one capture group, so group 1 is always
+      // present on a successful match; the guard is what proves that to tsc.
+      const specifier = match[1]
+      if (specifier !== undefined) specs.push(specifier)
     }
   }
   return specs

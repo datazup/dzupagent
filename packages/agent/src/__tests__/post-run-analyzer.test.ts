@@ -82,7 +82,7 @@ function makeRun(overrides: Partial<RunAnalysis> = {}): RunAnalysis {
     taskType: overrides.taskType ?? 'crud',
     riskClass: overrides.riskClass ?? 'standard',
     approved: overrides.approved ?? true,
-    feedback: overrides.feedback,
+    ...(overrides.feedback !== undefined ? { feedback: overrides.feedback } : {}),
   }
 }
 

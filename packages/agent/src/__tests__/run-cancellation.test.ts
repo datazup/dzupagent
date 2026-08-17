@@ -42,7 +42,10 @@ class RunCancellationHarness {
         return this.cancelledResult();
       }
 
-      this.inFlight = { id: tool.id, cleanup: tool.cleanup };
+      this.inFlight = {
+        id: tool.id,
+        ...(tool.cleanup !== undefined ? { cleanup: tool.cleanup } : {}),
+      };
 
       if (tool.cancelBeforeOutput) {
         this.cancel(`cancel before ${tool.id}`);
