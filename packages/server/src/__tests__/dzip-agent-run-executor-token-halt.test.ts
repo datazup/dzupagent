@@ -26,6 +26,7 @@ import type {
   RunExecutionContext,
   RunExecutorResult,
 } from "../runtime/run-worker.js";
+import { isStructuredResult } from "../runtime/utils.js";
 
 let streamedEvents: Array<{ type: string; data: Record<string, unknown> }> = [];
 
@@ -110,7 +111,12 @@ describe("dzip-agent-run-executor token exhaustion halt", () => {
     const emitSpy = vi.spyOn(ctx.eventBus, "emit");
 
     const executor = createDzupAgentRunExecutor();
-    const result = await executor(ctx);
+    const raw = await executor(ctx);
+    // `RunExecutor` may return a bare output OR a structured result; production
+    // narrows with this same guard (run-stages-execution.ts), so asserting it
+    // here also pins that this executor takes the structured branch.
+    if (!isStructuredResult(raw)) throw new Error('expected a structured result');
+    const result: RunExecutorResult = raw;
 
     const haltedEvent = emitSpy.mock.calls
       .map((call) => call[0])
@@ -161,7 +167,12 @@ describe("dzip-agent-run-executor token exhaustion halt", () => {
     const emitSpy = vi.spyOn(ctx.eventBus, "emit");
 
     const executor = createDzupAgentRunExecutor();
-    const result = await executor(ctx);
+    const raw = await executor(ctx);
+    // `RunExecutor` may return a bare output OR a structured result; production
+    // narrows with this same guard (run-stages-execution.ts), so asserting it
+    // here also pins that this executor takes the structured branch.
+    if (!isStructuredResult(raw)) throw new Error('expected a structured result');
+    const result: RunExecutorResult = raw;
 
     const haltedEvent = emitSpy.mock.calls
       .map((call) => call[0])
