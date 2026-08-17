@@ -107,13 +107,16 @@ describe('createSamplingHandler', () => {
     expect(options.model).toBe('claude-3-sonnet')
   })
 
-  it('skips hints without names and uses default', async () => {
+  it('skips hints with empty or absent names and uses default', async () => {
     const llm = createMockLLM()
     const handler = createSamplingHandler(llm, { defaultModel: 'default-model' })
 
     await handler(baseRequest({
       modelPreferences: {
-        hints: [{ name: undefined }, {}],
+        // Both runtime forms of "no usable name" must be skipped: an empty
+        // string (distinct from absent -- selectModel screens on truthiness,
+        // not on `!== undefined`) and an absent `name`.
+        hints: [{ name: '' }, {}],
       },
     }))
 

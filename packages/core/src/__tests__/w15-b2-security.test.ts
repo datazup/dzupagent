@@ -299,7 +299,12 @@ describe('Safety Monitor — attach/detach', () => {
     const monitor = createSafetyMonitor()
     monitor.attach(bus)
 
-    bus.emit({ type: 'tool:error', toolName: 'test_tool', message: 'sudo something bad' })
+    bus.emit({
+      type: 'tool:error',
+      toolName: 'test_tool',
+      errorCode: 'TOOL_EXECUTION_FAILED',
+      message: 'sudo something bad',
+    })
 
     // The tool error content should have been scanned
     const violations = monitor.getViolations()
@@ -314,7 +319,12 @@ describe('Safety Monitor — attach/detach', () => {
     monitor.attach(bus)
     monitor.detach()
 
-    bus.emit({ type: 'tool:error', toolName: 'test', message: 'sudo rm' })
+    bus.emit({
+      type: 'tool:error',
+      toolName: 'test',
+      errorCode: 'TOOL_EXECUTION_FAILED',
+      message: 'sudo rm',
+    })
     // After detach, no new violations should be recorded
     expect(monitor.getViolations()).toHaveLength(0)
   })

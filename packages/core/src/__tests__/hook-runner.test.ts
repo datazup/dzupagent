@@ -195,7 +195,12 @@ describe("mergeHooks", () => {
   it("skips non-function values in hook sets", () => {
     type Hooks = { beforeRun: () => Promise<void> };
 
-    const merged = mergeHooks<Hooks>({ beforeRun: undefined });
+    // Deliberately models an untyped caller: exactOptionalPropertyTypes
+    // forbids the literal, but `{ beforeRun: undefined }` is a real runtime
+    // shape mergeHooks must skip.
+    const merged = mergeHooks<Hooks>({
+      beforeRun: undefined,
+    } as unknown as Partial<Hooks>);
     // beforeRun should not exist since the value was undefined
     expect(merged.beforeRun).toBeUndefined();
   });

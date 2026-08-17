@@ -20,8 +20,10 @@ function createMockAdapter(protocol: string): ProtocolAdapter & {
   sendMock: ReturnType<typeof vi.fn>
   subscribeMock: ReturnType<typeof vi.fn>
 } {
-  const sendMock = vi.fn<[ForgeMessage, SendOptions?], Promise<ForgeMessage>>()
-  const subscribeMock = vi.fn<[string, MessageHandler], Subscription>()
+  const sendMock =
+    vi.fn<(message: ForgeMessage, options?: SendOptions) => Promise<ForgeMessage>>()
+  const subscribeMock =
+    vi.fn<(pattern: string, handler: MessageHandler) => Subscription>()
 
   const adapter: ProtocolAdapter & {
     lastSent: ForgeMessage | undefined

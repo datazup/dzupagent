@@ -51,6 +51,7 @@ import { createEventBus } from "../events/event-bus.js";
 import type { DzupEventBus } from "../events/event-bus.js";
 import type { DzupEvent } from "../events/event-types.js";
 import type { ModelRegistry } from "../llm/model-registry.js";
+import type { HookContext } from "../hooks/hook-types.js";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -238,7 +239,9 @@ describe("PluginRegistry — onRegister context access", () => {
     const ctx = makeCtx(bus);
     const registry = new PluginRegistry(bus);
     const events: DzupEvent[] = [];
-    bus.onAny((e) => events.push(e));
+    bus.onAny((e) => {
+      events.push(e);
+    });
     await registry.register(
       plug({
         name: "emits-in-init",
@@ -332,7 +335,9 @@ describe("PluginRegistry — register-unregister-register cycle", () => {
 
   it("re-registered plugin fires event handlers again", async () => {
     const calls: number[] = [];
-    const handler = () => calls.push(1);
+    const handler = () => {
+      calls.push(1);
+    };
     await registry.register(
       plug({ name: "cycle", eventHandlers: { "agent:started": handler } }),
       ctx,
@@ -652,18 +657,21 @@ describe("PluginRegistry — lifecycle: hooks context shape", () => {
     expect(hookSet?.onRunComplete).toBeDefined();
   });
 
-  it("onRunError hook receives error object from caller", async () => {
+  it("onRunError hook receives the hook context and the error object", async () => {
     const bus = createEventBus();
     const ctx = makeCtx(bus);
     const registry = new PluginRegistry(bus);
 
-    const errors: unknown[] = [];
+    // The declared contract is `onRunError(ctx: HookContext, error: Error)`.
+    // Capture BOTH positions: a single-parameter hook invoked with a single
+    // argument would silently record the context in the error slot.
+    const received: Array<{ hookCtx: HookContext; error: Error }> = [];
     await registry.register(
       plug({
         name: "err-hook",
         hooks: {
-          onRunError: async (error) => {
-            errors.push(error);
+          onRunError: async (hookCtx, error) => {
+            received.push({ hookCtx, error });
           },
         },
       }),
@@ -671,11 +679,18 @@ describe("PluginRegistry — lifecycle: hooks context shape", () => {
     );
 
     const [hookSet] = registry.getHooks();
+    expect(hookSet?.onRunError).toBeDefined();
     const testErr = new Error("test-failure");
-    if (hookSet?.onRunError) {
-      await hookSet.onRunError(testErr);
-    }
-    expect(errors[0]).toBe(testErr);
+    const runCtx: HookContext = {
+      agentId: "agent-1",
+      runId: "run-1",
+      metadata: {},
+    };
+    await hookSet!.onRunError!(runCtx, testErr);
+
+    expect(received).toHaveLength(1);
+    expect(received[0]!.error).toBe(testErr);
+    expect(received[0]!.hookCtx).toBe(runCtx);
   });
 });
 

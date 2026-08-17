@@ -45,7 +45,9 @@ function makeCtx(overrides?: Partial<HookContext>): HookContext {
 
 function collectEvents(bus: DzupEventBus): DzupEvent[] {
   const events: DzupEvent[] = [];
-  bus.onAny((e) => events.push(e));
+  bus.onAny((e) => {
+    events.push(e);
+  });
   return events;
 }
 
@@ -798,8 +800,12 @@ describe("multiple agent instances — hook isolation", () => {
     const busB = createEventBus();
     const eventsA: DzupEvent[] = [];
     const eventsB: DzupEvent[] = [];
-    busA.onAny((e) => eventsA.push(e));
-    busB.onAny((e) => eventsB.push(e));
+    busA.onAny((e) => {
+      eventsA.push(e);
+    });
+    busB.onAny((e) => {
+      eventsB.push(e);
+    });
 
     busA.emit({ type: "hook:error", hookName: "h", message: "from-A" });
     expect(eventsA).toHaveLength(1);
@@ -1004,7 +1010,12 @@ describe("hook composition via mergeHooks", () => {
 
   it("skips undefined values within a hook set", () => {
     type Hooks = { onRunStart: () => Promise<void> };
-    const merged = mergeHooks<Hooks>({ onRunStart: undefined });
+    // Deliberately models an untyped caller: exactOptionalPropertyTypes
+    // forbids the literal, but `{ onRunStart: undefined }` is a real runtime
+    // shape mergeHooks must skip.
+    const merged = mergeHooks<Hooks>({
+      onRunStart: undefined,
+    } as unknown as Partial<Hooks>);
     expect(merged.onRunStart).toBeUndefined();
   });
 
@@ -1034,7 +1045,15 @@ describe("hook composition via mergeHooks", () => {
         },
       }
     );
-    await runHooks(merged.onRunStart, undefined, "onRunStart", makeCtx());
+    await runHooks(
+      // mergeHooks() types its entries as `(...args: never[]) => Promise<unknown>`
+      // while runHooks() declares `Promise<void>`; the cast bridges that
+      // signature gap between the two exports of hook-runner.ts.
+      merged.onRunStart as Array<() => Promise<void>>,
+      undefined,
+      "onRunStart",
+      makeCtx(),
+    );
     expect(order).toEqual([1, 2, 3]);
   });
 });
@@ -1270,12 +1289,24 @@ describe("integration — full run lifecycle hook sequence", () => {
         calls.push(2);
       },
     });
+    const aHook = agentAHooks.onRunStart?.[0];
+    const bHook = agentBHooks.onRunStart?.[0];
+    expect(aHook).toBeDefined();
+    expect(bHook).toBeDefined();
     const combined = mergeHooks<Hooks>(
-      { onRunStart: agentAHooks.onRunStart?.[0] },
-      { onRunStart: agentBHooks.onRunStart?.[0] }
+      { onRunStart: aHook as () => Promise<void> },
+      { onRunStart: bHook as () => Promise<void> }
     );
 
-    await runHooks(combined.onRunStart, undefined, "onRunStart", makeCtx());
+    await runHooks(
+      // mergeHooks() types its entries as `(...args: never[]) => Promise<unknown>`
+      // while runHooks() declares `Promise<void>`; the cast bridges that
+      // signature gap between the two exports of hook-runner.ts.
+      combined.onRunStart as Array<() => Promise<void>>,
+      undefined,
+      "onRunStart",
+      makeCtx(),
+    );
     expect(calls).toEqual([1, 2]);
   });
 

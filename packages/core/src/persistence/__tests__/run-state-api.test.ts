@@ -2,11 +2,12 @@ import { describe, it, expect } from "vitest";
 import { createRunStateApi } from "../run-state-api.js";
 import { InMemoryRunStateStore } from "../in-memory-run-state-store.js";
 import { InMemoryRunJournal } from "../in-memory-run-journal.js";
+import type { DzupRunState } from "../run-state-store.js";
 
 describe("RunStateApi", () => {
   it("getState returns undefined for an unknown run", async () => {
     const runStateStore = new InMemoryRunStateStore();
-    const runJournal = new InMemoryRunJournal();
+    const runJournal = new InMemoryRunJournal<DzupRunState>();
     const api = createRunStateApi({ runStateStore, runJournal });
 
     const result = await api.getState("unknown-run-id");
@@ -15,7 +16,7 @@ describe("RunStateApi", () => {
 
   it("getState returns the snapshot when runStateStore has one", async () => {
     const runStateStore = new InMemoryRunStateStore();
-    const runJournal = new InMemoryRunJournal();
+    const runJournal = new InMemoryRunJournal<DzupRunState>();
     const api = createRunStateApi({ runStateStore, runJournal });
 
     const state = {
@@ -40,7 +41,7 @@ describe("RunStateApi", () => {
 
   it("getStateHistory returns journal entries mapped to summaries", async () => {
     const runStateStore = new InMemoryRunStateStore();
-    const runJournal = new InMemoryRunJournal();
+    const runJournal = new InMemoryRunJournal<DzupRunState>();
     const api = createRunStateApi({ runStateStore, runJournal });
 
     await runJournal.append("run-2", {

@@ -30,14 +30,24 @@ import {
 import type { OpenAIFunctionDefinition } from '../openai-function-types.js'
 import { parseAgentsMdV2, generateAgentsMd, toLegacyConfig } from '../agents-md-parser-v2.js'
 
+/**
+ * LangChain's `withStructuredOutput()` returns a RunnableSequence whose `first`
+ * leg is the bound model; the `response_format` payload these tests assert on
+ * lives on that leg's `defaultOptions`. Neither field is part of the public
+ * `Runnable` type, so every peek goes through `as unknown as` deliberately.
+ */
+type StructuredOutputPeek = {
+  first: { defaultOptions?: { response_format?: Record<string, unknown> } }
+}
+
 function extractOpenAIResponseSchema(
   config: ConstructorParameters<typeof ChatOpenAI>[0],
   schema: Record<string, unknown>,
 ): Record<string, unknown> | undefined {
   const model = new ChatOpenAI(config)
-  const structured = model.withStructuredOutput(schema, { method: 'jsonSchema' }) as {
-    first: { defaultOptions?: { response_format?: Record<string, unknown> } }
-  }
+  const structured = model.withStructuredOutput(schema, {
+    method: 'jsonSchema',
+  }) as unknown as StructuredOutputPeek
   const responseFormat = structured.first.defaultOptions?.response_format as {
     json_schema?: { schema?: Record<string, unknown> }
   }
@@ -587,9 +597,9 @@ describe('OpenAI structured-output contract', () => {
       apiKey: 'test',
       model: 'gpt-4o-mini',
     })
-    const structured = model.withStructuredOutput(schema, { method: 'jsonSchema' }) as {
-      first: { defaultOptions?: { response_format?: Record<string, unknown> } }
-    }
+    const structured = model.withStructuredOutput(schema, {
+      method: 'jsonSchema',
+    }) as unknown as StructuredOutputPeek
     const responseFormat = structured.first.defaultOptions?.response_format as {
       json_schema?: { schema?: Record<string, unknown> }
     }
@@ -607,9 +617,9 @@ describe('OpenAI structured-output contract', () => {
       apiKey: 'test',
       model: 'gpt-4o-mini',
     })
-    const structured = model.withStructuredOutput(providerSchema, { method: 'jsonSchema' }) as {
-      first: { defaultOptions?: { response_format?: Record<string, unknown> } }
-    }
+    const structured = model.withStructuredOutput(providerSchema, {
+      method: 'jsonSchema',
+    }) as unknown as StructuredOutputPeek
     const responseFormat = structured.first.defaultOptions?.response_format as {
       json_schema?: { schema?: Record<string, unknown> }
     }
@@ -666,9 +676,9 @@ describe('OpenAI structured-output contract', () => {
     })
     const providerSchema = toStructuredOutputJsonSchema(schema, { provider: 'openai' })
     const model = new ChatOpenAI(config)
-    const structured = model.withStructuredOutput(providerSchema, { method: 'jsonSchema' }) as {
-      first: { defaultOptions?: { response_format?: Record<string, unknown> } }
-    }
+    const structured = model.withStructuredOutput(providerSchema, {
+      method: 'jsonSchema',
+    }) as unknown as StructuredOutputPeek
     const responseFormat = structured.first.defaultOptions?.response_format as {
       json_schema?: { schema?: Record<string, unknown> }
     }

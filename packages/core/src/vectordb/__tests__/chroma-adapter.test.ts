@@ -152,7 +152,7 @@ describe('ChromaDBAdapter', () => {
 
       await adapter.upsert('docs', [
         { id: 'doc-1', vector: [0.1, 0.2], metadata: { source: 'test' }, text: 'hello' },
-        { id: 'doc-2', vector: [0.3, 0.4], metadata: {}, text: undefined },
+        { id: 'doc-2', vector: [0.3, 0.4], metadata: {} },
       ])
 
       // Should have 2 calls: getCollectionId + upsert

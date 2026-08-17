@@ -14,7 +14,6 @@
  * No live LLM calls. All tests are deterministic.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type * as RetryModule from "../llm/retry.js";
 import {
   AIMessage,
   HumanMessage,
@@ -860,7 +859,7 @@ describe("Multi-turn accumulation — budget tracking", () => {
     }
 
     for (let i = 0; i < 5; i++) {
-      expect(budgetsAfter[i]).toBeLessThan(budgetsBefore[i]);
+      expect(budgetsAfter[i]!).toBeLessThan(budgetsBefore[i]!);
     }
   });
 
@@ -1322,7 +1321,7 @@ describe("extractTokenUsage — post-invocation context budget updates", () => {
     }
     if (overrides.usage_metadata) {
       (
-        msg as AIMessage & { usage_metadata: Record<string, unknown> }
+        msg as unknown as { usage_metadata: Record<string, unknown> }
       ).usage_metadata = overrides.usage_metadata;
     }
     return msg;

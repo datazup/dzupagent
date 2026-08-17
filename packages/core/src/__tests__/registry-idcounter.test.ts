@@ -6,7 +6,9 @@ function makeInput(name: string): RegisterAgentInput {
   return {
     name,
     description: `Test agent ${name}`,
-    capabilities: [{ name: 'test-cap', version: '1.0.0' }],
+    capabilities: [
+      { name: 'test-cap', version: '1.0.0', description: 'Test capability' },
+    ],
   }
 }
 

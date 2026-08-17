@@ -265,7 +265,14 @@ describe('PolicyEvaluator — extended coverage', () => {
       const ps = makePolicySet([
         allowRule('r1', ['runs.create'], { resources: ['project/*'] }),
       ])
-      const ctx = makeContext({ resource: undefined })
+      // Built inline rather than via makeContext: the helper defaults
+       // `resource` to 'project/my-app', and under exactOptionalPropertyTypes
+       // the property must be ABSENT (not `undefined`) to model "no resource".
+      const ctx: PolicyContext = {
+        principal: { type: 'agent', id: 'agent-1' },
+        action: 'runs.create',
+        environment: {},
+      }
       expect(evaluator.evaluate(ps, ctx).effect).toBe('deny')
     })
 

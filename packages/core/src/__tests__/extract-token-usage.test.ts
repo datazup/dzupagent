@@ -20,7 +20,7 @@ function makeAIMessage(overrides: {
       overrides.response_metadata
   }
   if (overrides.usage_metadata) {
-    ;(msg as AIMessage & { usage_metadata: Record<string, unknown> }).usage_metadata =
+    ;(msg as unknown as { usage_metadata: Record<string, unknown> }).usage_metadata =
       overrides.usage_metadata
   }
   return msg

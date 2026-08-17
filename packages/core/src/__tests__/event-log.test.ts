@@ -160,7 +160,12 @@ describe('EventLogSink', () => {
     const sink = new EventLogSink(log)
     const bus = createEventBus()
 
-    const unsub = sink.attach(bus, 'run-42')
+    // See note in core.integration.test.ts: EventBusLike's index-signature
+    // handler param makes DzupEventBus structurally incompatible.
+    const unsub = sink.attach(
+      bus as unknown as Parameters<EventLogSink['attach']>[0],
+      'run-42',
+    )
 
     bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'run-42' } as never)
     bus.emit({ type: 'tool:called', toolName: 'bash', input: {} } as never)
@@ -202,7 +207,10 @@ describe('EventLogSink', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sink = new EventLogSink(rejectingStore as any, logger)
       const bus = createEventBus()
-      const unsub = sink.attach(bus, 'run-99')
+      const unsub = sink.attach(
+        bus as unknown as Parameters<EventLogSink['attach']>[0],
+        'run-99',
+      )
 
       bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'run-99' } as never)
 

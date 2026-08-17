@@ -1355,12 +1355,13 @@ describe("DzupEventBus — no-handler emit never throws", () => {
         type: "budget:warning",
         level: "warn",
         usage: {
-          tokens: 100,
+          tokensUsed: 100,
+          tokensLimit: 1000,
           costCents: 1,
+          costLimitCents: 10,
           iterations: 1,
-          tokenBudget: 1000,
-          costCentsBudget: 10,
-          iterationBudget: 10,
+          iterationsLimit: 10,
+          percent: 10,
         },
       },
     ];

@@ -579,7 +579,7 @@ describe("instanceof checks", () => {
   });
 
   it("null does not throw when used in instanceof check", () => {
-    expect(null instanceof ForgeError).toBe(false);
+    expect((null as unknown) instanceof ForgeError).toBe(false);
   });
 
   it("wrapped error is instanceof ForgeError", () => {

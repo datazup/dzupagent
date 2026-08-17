@@ -6,11 +6,13 @@ import { join } from 'node:path'
 // Mock node:fs/promises
 // ---------------------------------------------------------------------------
 
-const mockMkdir = vi.fn(async () => undefined)
-const mockWriteFile = vi.fn(async () => undefined)
-const mockRename = vi.fn(async () => undefined)
-const mockReadFile = vi.fn(async (): Promise<string> => { throw new Error('ENOENT') })
-const mockUnlink = vi.fn(async () => undefined)
+const mockMkdir = vi.fn(async (..._args: unknown[]) => undefined)
+const mockWriteFile = vi.fn(async (..._args: unknown[]) => undefined)
+const mockRename = vi.fn(async (..._args: unknown[]) => undefined)
+const mockReadFile = vi.fn(async (..._args: unknown[]): Promise<string> => {
+  throw new Error('ENOENT')
+})
+const mockUnlink = vi.fn(async (..._args: unknown[]) => undefined)
 
 vi.mock('node:fs/promises', () => ({
   writeFile: (...args: unknown[]) => mockWriteFile(...args),

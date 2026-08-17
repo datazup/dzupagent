@@ -26,7 +26,7 @@ function makeRecord(key: string, id: string, expiresAt?: Date): APIKeyRecord {
   return {
     keyHash: hashAPIKey(key),
     identity: makeIdentity(id),
-    expiresAt,
+    ...(expiresAt !== undefined ? { expiresAt } : {}),
   }
 }
 

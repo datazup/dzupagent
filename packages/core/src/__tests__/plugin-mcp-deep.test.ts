@@ -193,7 +193,7 @@ describe('PluginRegistry', () => {
     })
     await registry.register(plugin, ctx)
     bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'r1' })
-    bus.emit({ type: 'agent:completed', agentId: 'a1', runId: 'r1' })
+    bus.emit({ type: 'agent:completed', agentId: 'a1', runId: 'r1', durationMs: 0 })
     await Promise.resolve()
     expect(onStarted).toHaveBeenCalledTimes(1)
     expect(onCompleted).toHaveBeenCalledTimes(1)

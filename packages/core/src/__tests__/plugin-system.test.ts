@@ -516,7 +516,12 @@ describe("PluginRegistry — full lifecycle simulation", () => {
       ctx,
     );
     registry.unregisterPlugin("full-teardown");
-    bus.emit({ type: "agent:completed", agentId: "a", runId: "r" });
+    bus.emit({
+      type: "agent:completed",
+      agentId: "a",
+      runId: "r",
+      durationMs: 0,
+    });
     await Promise.resolve();
     expect(handler).not.toHaveBeenCalled();
     expect(registry.has("full-teardown")).toBe(false);

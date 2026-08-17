@@ -888,7 +888,7 @@ describe("Pagination", () => {
     const all: RunJournalEntry[] = [];
     do {
       const page = await journal.query("r1", {
-        afterSeq: cursor,
+        ...(cursor !== undefined ? { afterSeq: cursor } : {}),
         limit: 2,
       });
       all.push(...page.entries);

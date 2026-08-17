@@ -237,7 +237,7 @@ describe('TurbopufferAdapter', () => {
       const { fetchFn, calls } = mockFetch([{ status: 200, body: {} }])
       adapter = createAdapter(fetchFn, { namespacePrefix: 'tenant1' })
 
-      await adapter.upsert('memories', [sampleEntries[0]])
+      await adapter.upsert('memories', [sampleEntries[0]!])
       expect(calls[0]!.url).toBe('https://api.turbopuffer.com/v1/vectors/tenant1_memories')
     })
   })

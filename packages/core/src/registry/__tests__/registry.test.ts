@@ -22,7 +22,7 @@ function makeCapability(name: string, version = '1.0.0', tags?: string[]): Forge
     name,
     version,
     description: `Capability: ${name}`,
-    tags,
+    ...(tags !== undefined ? { tags } : {}),
   }
 }
 

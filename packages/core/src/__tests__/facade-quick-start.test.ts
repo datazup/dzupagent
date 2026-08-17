@@ -308,9 +308,14 @@ describe('config helpers via quick-start facade', () => {
   it('mergeConfigs produces a valid config from config layers', () => {
     const merged = mergeConfigs(
       { name: 'base', priority: 0, config: {} },
-      { name: 'override', priority: 1, config: { verbose: true } },
+      { name: 'override', priority: 1, config: { custom: { verbose: true } } },
     )
-    expect(merged).toBeDefined()
-    expect(typeof merged).toBe('object')
+    // The override layer's key must survive...
+    expect(merged.custom).toEqual({ verbose: true })
+    // ...and DEFAULT_CONFIG must still supply every key no layer set, so the
+    // result is a complete ForgeConfig rather than just the merged layers.
+    expect(merged.models).toEqual(DEFAULT_CONFIG.models)
+    expect(merged.providers).toEqual(DEFAULT_CONFIG.providers)
+    expect(merged.security).toEqual(DEFAULT_CONFIG.security)
   })
 })

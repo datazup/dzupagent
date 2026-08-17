@@ -70,16 +70,21 @@ function makeCtx(overrides?: Partial<HookContext>): HookContext {
 
 function collectEvents(bus: DzupEventBus): DzupEvent[] {
   const events: DzupEvent[] = [];
-  bus.onAny((e) => events.push(e));
+  bus.onAny((e) => {
+    events.push(e);
+  });
   return events;
 }
 
 function makeBudget(overrides?: Partial<BudgetUsage>): BudgetUsage {
   return {
-    tokensBudget: 1000,
     tokensUsed: 500,
-    costBudgetUsd: 1.0,
-    costUsedUsd: 0.5,
+    tokensLimit: 1000,
+    costCents: 50,
+    costLimitCents: 100,
+    iterations: 2,
+    iterationsLimit: 10,
+    percent: 50,
     ...overrides,
   };
 }
@@ -607,11 +612,11 @@ describe("mergeHooks — advanced scenarios", () => {
     type Hooks = { onRunStart: () => Promise<void> };
     const fns = Array.from({ length: 5 }, () => async () => {});
     const merged = mergeHooks<Hooks>(
-      { onRunStart: fns[0] },
-      { onRunStart: fns[1] },
-      { onRunStart: fns[2] },
-      { onRunStart: fns[3] },
-      { onRunStart: fns[4] }
+      { onRunStart: fns[0]! },
+      { onRunStart: fns[1]! },
+      { onRunStart: fns[2]! },
+      { onRunStart: fns[3]! },
+      { onRunStart: fns[4]! }
     );
     expect(merged.onRunStart).toHaveLength(5);
     for (let i = 0; i < 5; i++) {
@@ -1006,9 +1011,9 @@ describe("runModifierHook — async delay correctness", () => {
 // ---------------------------------------------------------------------------
 
 describe("onBudgetWarning — BudgetUsage shape", () => {
-  it("receives all four budget fields", async () => {
+  it("receives every BudgetUsage field unmodified", async () => {
     const ctx = makeCtx();
-    const usage = makeBudget({ tokensUsed: 800, costUsedUsd: 0.8 });
+    const usage = makeBudget({ tokensUsed: 800, costCents: 80, percent: 80 });
     let capturedUsage: BudgetUsage | undefined;
     const hook = vi.fn(async (_level: string, u: BudgetUsage) => {
       capturedUsage = u;
@@ -1023,11 +1028,14 @@ describe("onBudgetWarning — BudgetUsage shape", () => {
       ctx
     );
 
-    expect(capturedUsage).toMatchObject({
-      tokensBudget: 1000,
+    expect(capturedUsage).toEqual({
       tokensUsed: 800,
-      costBudgetUsd: 1.0,
-      costUsedUsd: 0.8,
+      tokensLimit: 1000,
+      costCents: 80,
+      costLimitCents: 100,
+      iterations: 2,
+      iterationsLimit: 10,
+      percent: 80,
     });
   });
 
@@ -1067,7 +1075,7 @@ describe("onBudgetWarning — BudgetUsage shape", () => {
 describe("onBudgetExceeded — reason and usage", () => {
   it("receives cost-exceeded reason", async () => {
     const ctx = makeCtx();
-    const usage = makeBudget({ costUsedUsd: 2.5 });
+    const usage = makeBudget({ costCents: 250 });
     let reason: string | undefined;
     const hook = vi.fn(async (r: string) => {
       reason = r;
@@ -1107,7 +1115,7 @@ describe("onBudgetExceeded — reason and usage", () => {
 
   it("receives correct usage when budget is exceeded", async () => {
     const ctx = makeCtx();
-    const usage = makeBudget({ tokensUsed: 1200, costUsedUsd: 1.5 });
+    const usage = makeBudget({ tokensUsed: 1200, costCents: 150 });
     let capturedUsage: BudgetUsage | undefined;
     const hook = vi.fn(async (_r: string, u: BudgetUsage) => {
       capturedUsage = u;
@@ -1123,7 +1131,7 @@ describe("onBudgetExceeded — reason and usage", () => {
     );
 
     expect(capturedUsage!.tokensUsed).toBe(1200);
-    expect(capturedUsage!.costUsedUsd).toBe(1.5);
+    expect(capturedUsage!.costCents).toBe(150);
   });
 });
 

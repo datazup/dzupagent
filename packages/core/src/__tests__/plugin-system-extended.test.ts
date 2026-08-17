@@ -187,7 +187,9 @@ describe("PluginRegistry — plugin:registered event", () => {
   beforeEach(() => {
     bus = createEventBus();
     events = [];
-    bus.onAny((e) => events.push(e));
+    bus.onAny((e) => {
+      events.push(e);
+    });
     ctx = stubContext(bus);
     registry = new PluginRegistry(bus);
   });
@@ -358,20 +360,32 @@ describe("PluginRegistry — multiple event types per plugin", () => {
       makePlugin({
         name: "multi-evt",
         eventHandlers: {
-          "agent:started": () => fired.push("started"),
-          "agent:completed": () => fired.push("completed"),
-          "agent:failed": () => fired.push("failed"),
+          "agent:started": () => {
+            fired.push("started");
+          },
+          "agent:completed": () => {
+            fired.push("completed");
+          },
+          "agent:failed": () => {
+            fired.push("failed");
+          },
         },
       }),
       ctx,
     );
     bus.emit({ type: "agent:started", agentId: "a", runId: "r" });
-    bus.emit({ type: "agent:completed", agentId: "a", runId: "r" });
+    bus.emit({
+      type: "agent:completed",
+      agentId: "a",
+      runId: "r",
+      durationMs: 0,
+    });
     bus.emit({
       type: "agent:failed",
       agentId: "a",
       runId: "r",
-      error: new Error("e"),
+      errorCode: "AGENT_ABORTED",
+      message: "e",
     });
     await Promise.resolve();
     expect(fired).toContain("started");
@@ -385,22 +399,33 @@ describe("PluginRegistry — multiple event types per plugin", () => {
       makePlugin({
         name: "dispose-multi",
         eventHandlers: {
-          "agent:started": () => fired.push("started"),
-          "agent:completed": () => fired.push("completed"),
+          "agent:started": () => {
+            fired.push("started");
+          },
+          "agent:completed": () => {
+            fired.push("completed");
+          },
         },
       }),
       ctx,
     );
     registry.disposePlugin("dispose-multi");
     bus.emit({ type: "agent:started", agentId: "a", runId: "r" });
-    bus.emit({ type: "agent:completed", agentId: "a", runId: "r" });
+    bus.emit({
+      type: "agent:completed",
+      agentId: "a",
+      runId: "r",
+      durationMs: 0,
+    });
     await Promise.resolve();
     expect(fired).toHaveLength(0);
   });
 
   it("disposePlugin then re-register wires event handlers again", async () => {
     const calls: number[] = [];
-    const handler = () => calls.push(1);
+    const handler = () => {
+      calls.push(1);
+    };
     await registry.register(
       makePlugin({
         name: "rewire",
@@ -554,7 +579,9 @@ describe("runHooks — additional coverage", () => {
   it("emits hook:error event with hookName and message when hook throws", async () => {
     const bus = createEventBus();
     const events: DzupEvent[] = [];
-    bus.onAny((e) => events.push(e));
+    bus.onAny((e) => {
+      events.push(e);
+    });
     const hooks = [
       async () => {
         throw new Error("hook-boom");
@@ -571,7 +598,9 @@ describe("runHooks — additional coverage", () => {
   it("emits hook:error with string representation for non-Error throws", async () => {
     const bus = createEventBus();
     const events: DzupEvent[] = [];
-    bus.onAny((e) => events.push(e));
+    bus.onAny((e) => {
+      events.push(e);
+    });
     const hooks = [
       async () => {
         throw "string-error";
@@ -600,7 +629,9 @@ describe("runHooks — additional coverage", () => {
   it("does not emit hook:error when no error occurs", async () => {
     const bus = createEventBus();
     const events: DzupEvent[] = [];
-    bus.onAny((e) => events.push(e));
+    bus.onAny((e) => {
+      events.push(e);
+    });
     const hooks = [async () => {}];
     await runHooks(hooks, bus, "clean-hook");
     expect(events.find((e) => e.type === "hook:error")).toBeUndefined();
@@ -661,7 +692,9 @@ describe("runModifierHook — additional coverage", () => {
   it("emits hook:error when hook throws", async () => {
     const bus = createEventBus();
     const events: DzupEvent[] = [];
-    bus.onAny((e) => events.push(e));
+    bus.onAny((e) => {
+      events.push(e);
+    });
     const hook = async (): Promise<string | void> => {
       throw new Error("modifier-error");
     };
@@ -721,7 +754,10 @@ describe("mergeHooks", () => {
   it("merges non-overlapping keys from two hook sets", () => {
     const fn1 = vi.fn(async () => {});
     const fn2 = vi.fn(async () => {});
-    const merged = mergeHooks({ onRunStart: fn1 }, { onRunError: fn2 });
+    const merged = mergeHooks<{
+      onRunStart: () => Promise<void>;
+      onRunError: () => Promise<void>;
+    }>({ onRunStart: fn1 }, { onRunError: fn2 });
     expect(merged.onRunStart).toHaveLength(1);
     expect(merged.onRunError).toHaveLength(1);
   });
@@ -1157,7 +1193,10 @@ describe("Plugin composition — hooks chaining via getHooks + runHooks", () => 
     const merged = mergeHooks({ beforeToolCall: fn1 }, { beforeToolCall: fn2 });
     const hooksCtx = { agentId: "a", runId: "r", metadata: {} };
     await runHooks(
-      merged.beforeToolCall,
+      // mergeHooks() types its entries as `(...args: never[]) => Promise<unknown>`
+      // while runHooks() declares `Promise<void>`; the cast bridges that
+      // signature gap between the two exports of hook-runner.ts.
+      merged.beforeToolCall as Array<() => Promise<void>>,
       bus,
       "beforeToolCall",
       "my-tool",

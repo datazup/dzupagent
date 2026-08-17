@@ -264,6 +264,9 @@ describe('PolicyEvaluator', () => {
         priority: 20,
       },
     ],
+    active: true,
+    createdAt: '2025-01-01T00:00:00.000Z',
+    updatedAt: '2025-01-01T00:00:00.000Z',
   }
 
   const baseContext: PolicyContext = {
@@ -300,6 +303,9 @@ describe('PolicyEvaluator', () => {
       name: '',
       version: 'bad' as unknown as number,
       rules: [],
+      active: true,
+      createdAt: '2025-01-01T00:00:00.000Z',
+      updatedAt: '2025-01-01T00:00:00.000Z',
     })
     expect(result.valid).toBe(false)
     expect(result.errors.length).toBeGreaterThan(0)
@@ -329,16 +335,18 @@ describe('createSafetyMonitor', () => {
       rules: [
         {
           id: 'test-rule',
-          category: 'content_injection',
-          severity: 'high',
+          category: 'prompt_injection',
+          severity: 'critical',
+          action: 'block',
           check: (content) => {
             if (content.includes('EVIL')) {
               return {
-                ruleId: 'test-rule',
-                category: 'content_injection',
-                severity: 'high',
+                category: 'prompt_injection',
+                severity: 'critical',
                 action: 'block',
                 message: 'Evil content detected',
+                evidence: 'EVIL',
+                timestamp: new Date(),
               }
             }
             return null
@@ -359,14 +367,16 @@ describe('createSafetyMonitor', () => {
       replaceBuiltInRules: true,
       rules: [{
         id: 'r1',
-        category: 'content_injection',
-        severity: 'low',
+        category: 'prompt_injection',
+        severity: 'info',
+        action: 'log',
         check: () => ({
-          ruleId: 'r1',
-          category: 'content_injection',
-          severity: 'low',
-          action: 'warn',
+          category: 'prompt_injection',
+          severity: 'info',
+          action: 'log',
           message: 'test',
+          evidence: 'test',
+          timestamp: new Date(),
         }),
       }],
     })

@@ -138,7 +138,7 @@ describe('DzupEventBus — wildcard and error', () => {
     const unsub = bus.onAny((e) => { types.push(e.type) })
     bus.emit({ type: 'agent:started', agentId: 'a', runId: 'r' })
     unsub()
-    bus.emit({ type: 'agent:completed', agentId: 'a', runId: 'r', output: '' })
+    bus.emit({ type: 'agent:completed', agentId: 'a', runId: 'r', durationMs: 0 })
     expect(types).toEqual(['agent:started'])
   })
 })
@@ -152,10 +152,17 @@ describe('config helpers', () => {
 
   it('mergeConfigs respects priority ordering', () => {
     const merged = mergeConfigs(
-      { name: 'low', priority: 0, config: { a: 1 } },
-      { name: 'high', priority: 10, config: { a: 2 } },
+      { name: 'low', priority: 0, config: { custom: { a: 1 } } },
+      { name: 'high', priority: 10, config: { custom: { a: 2 } } },
     )
-    expect(merged).toBeDefined()
+    expect(merged.custom).toEqual({ a: 2 })
+    // Same layers, reversed ARGUMENT order: the winner must still be the
+    // higher-priority layer, which is what "respects priority ordering" means.
+    const reversed = mergeConfigs(
+      { name: 'high', priority: 10, config: { custom: { a: 2 } } },
+      { name: 'low', priority: 0, config: { custom: { a: 1 } } },
+    )
+    expect(reversed.custom).toEqual({ a: 2 })
   })
 
   it('DEFAULT_CONFIG contains expected top-level keys', () => {
@@ -248,16 +255,16 @@ describe('InMemoryRunStore — additional', () => {
 describe('InMemoryAgentStore — additional', () => {
   it('save overwrites existing agent with same id', async () => {
     const store = new InMemoryAgentStore()
-    await store.save({ id: 'a1', name: 'V1', active: true, createdAt: new Date(), updatedAt: new Date() })
-    await store.save({ id: 'a1', name: 'V2', active: true, createdAt: new Date(), updatedAt: new Date() })
+    await store.save({ id: 'a1', name: 'V1', instructions: 'do the thing', modelTier: 'standard', active: true, createdAt: new Date(), updatedAt: new Date() })
+    await store.save({ id: 'a1', name: 'V2', instructions: 'do the thing', modelTier: 'standard', active: true, createdAt: new Date(), updatedAt: new Date() })
     const a = await store.get('a1')
     expect(a!.name).toBe('V2')
   })
 
   it('list without filter returns all', async () => {
     const store = new InMemoryAgentStore()
-    await store.save({ id: 'a1', name: 'A', active: true, createdAt: new Date(), updatedAt: new Date() })
-    await store.save({ id: 'a2', name: 'B', active: false, createdAt: new Date(), updatedAt: new Date() })
+    await store.save({ id: 'a1', name: 'A', instructions: 'do the thing', modelTier: 'standard', active: true, createdAt: new Date(), updatedAt: new Date() })
+    await store.save({ id: 'a2', name: 'B', instructions: 'do the thing', modelTier: 'standard', active: false, createdAt: new Date(), updatedAt: new Date() })
     const all = await store.list()
     expect(all).toHaveLength(2)
   })
@@ -280,7 +287,7 @@ describe('Protocol messaging via orchestration facade', () => {
       type: 'request',
       from: 'agent-a',
       to: 'agent-b',
-      payload: { content: 'hello' },
+      payload: { type: 'text', content: 'hello' },
     })
     expect(msg.id).toBeDefined()
     expect(msg.from).toBe('agent-a')
@@ -293,9 +300,9 @@ describe('Protocol messaging via orchestration facade', () => {
       type: 'request',
       from: 'a',
       to: 'b',
-      payload: { content: 'q' },
+      payload: { type: 'text', content: 'q' },
     })
-    const response = createResponse(original, { content: 'a' })
+    const response = createResponse(original, { type: 'text', content: 'a' })
     expect(response.type).toBe('response')
     expect(response.to).toBe(original.from)
   })
@@ -305,9 +312,18 @@ describe('Protocol messaging via orchestration facade', () => {
       type: 'request',
       from: 'a',
       to: 'b',
-      payload: { content: 'q' },
+      payload: { type: 'text', content: 'q' },
     })
-    const errResp = createErrorResponse(original, 'something failed')
+    const errResp = createErrorResponse(
+      original,
+      'VALIDATION_FAILED',
+      'something failed',
+    )
+    expect(errResp.payload).toEqual({
+      type: 'error',
+      code: 'VALIDATION_FAILED',
+      message: 'something failed',
+    })
     expect(errResp.type).toBe('error')
   })
 
@@ -316,7 +332,7 @@ describe('Protocol messaging via orchestration facade', () => {
       type: 'request',
       from: 'a',
       to: 'b',
-      payload: { content: 'q' },
+      payload: { type: 'text', content: 'q' },
     })
     expect(isMessageAlive(msg)).toBe(true)
   })
@@ -333,14 +349,20 @@ describe('CostAwareRouter helpers via facade', () => {
     expect(['simple', 'moderate', 'complex']).toContain(level)
   })
 
-  it('calculateCostCents returns a number', () => {
+  it('calculateCostCents rounds sub-cent usage up and scales with tokens', () => {
     const cost = calculateCostCents({
+      model: 'gpt-4o-mini',
       inputTokens: 1000,
       outputTokens: 500,
-      modelName: 'gpt-4o-mini',
     })
-    expect(typeof cost).toBe('number')
-    expect(cost).toBeGreaterThanOrEqual(0)
+    expect(cost).toBe(1)
+    // Cost must scale with token count, not be a constant floor.
+    const bigCost = calculateCostCents({
+      model: 'gpt-4o-mini',
+      inputTokens: 1_000_000,
+      outputTokens: 500_000,
+    })
+    expect(bigCost).toBe(45)
   })
 })
 

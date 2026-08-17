@@ -28,17 +28,19 @@ import { describe, it, expect, vi } from 'vitest'
 import { RunJournalBridgeRunStore } from '../persistence/run-journal-bridge.js'
 import { InMemoryRunStore } from '../persistence/in-memory-store.js'
 import { InMemoryRunJournal } from '../persistence/in-memory-run-journal.js'
-import type { RunJournal, RunJournalEntryInput } from '../persistence/run-journal-types.js'
+import type { RunJournal } from '../persistence/run-journal-types.js'
 
+// Only `append` is exercised — the rest exist so the double satisfies the
+// current RunJournal surface (append/query/getAll/compact/needsCompaction).
 function makeFailingJournal(): RunJournal {
   return {
-    async append(_runId: string, _entry: RunJournalEntryInput): Promise<void> {
+    async append(): Promise<number> {
       throw new Error('journal backend down')
     },
+    async query() { return { entries: [], hasMore: false } },
     async getAll() { return [] },
-    async getFrom() { return [] },
-    async getLatest() { return null },
-    async count() { return 0 },
+    async compact() { /* noop */ },
+    async needsCompaction() { return false },
   }
 }
 
@@ -165,6 +167,7 @@ describe('RunJournalBridge — buildJournalData optional branches', () => {
 
 import { ProtocolBridge } from '../protocol/protocol-bridge.js'
 import { createForgeMessage } from '../protocol/message-factory.js'
+import type { MessageHandler } from '../protocol/adapter.js'
 
 describe('ProtocolBridge.a2aToMcp — fallback branches', () => {
   it('wraps text payload without correlationId using generated callId', () => {
@@ -274,7 +277,7 @@ describe('ProtocolBridge.bridge() — without transform branch', () => {
 
 describe('ProtocolBridge.start() — no-transform branch', () => {
   it('forwards received message to target using default protocol rewriting', async () => {
-    let capturedHandler: ((m: unknown) => Promise<unknown>) | undefined
+    let capturedHandler: MessageHandler | undefined
     const target = {
       protocol: 'a2a' as const,
       sent: null as unknown,
@@ -292,7 +295,7 @@ describe('ProtocolBridge.start() — no-transform branch', () => {
     const source = {
       ...target,
       protocol: 'mcp' as const,
-      subscribe: (_p: string, h: (m: unknown) => Promise<unknown>) => {
+      subscribe: (_p: string, h: MessageHandler) => {
         capturedHandler = h
         return { unsubscribe: () => {} }
       },

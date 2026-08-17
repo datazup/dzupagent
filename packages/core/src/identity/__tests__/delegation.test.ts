@@ -19,7 +19,7 @@ function createManager(
   return new DelegationManager({
     store: store ?? new InMemoryDelegationTokenStore(),
     signingSecret: SIGNING_SECRET,
-    maxDepth: opts?.maxDepth,
+    ...(opts?.maxDepth !== undefined ? { maxDepth: opts.maxDepth } : {}),
   })
 }
 
@@ -32,8 +32,10 @@ function makeIdentityRef(
     id,
     uri,
     displayName: id,
-    capabilities: opts?.capabilities,
-    role: opts?.role,
+    ...(opts?.capabilities !== undefined
+      ? { capabilities: opts.capabilities }
+      : {}),
+    ...(opts?.role !== undefined ? { role: opts.role } : {}),
   }
 }
 

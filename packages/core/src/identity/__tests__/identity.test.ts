@@ -486,11 +486,12 @@ describe('createUriResolver', () => {
   })
 
   it('registry resolver fetches endpoint URL from registry JSON', async () => {
-    const fetchImpl = vi.fn(async () =>
-      makeRegistryResponse(
-        200,
-        JSON.stringify({ endpoint: 'https://acme.example.com/reviewer' }),
-      ),
+    const fetchImpl = vi.fn(
+      async (_input: string, _init?: { signal?: AbortSignal }) =>
+        makeRegistryResponse(
+          200,
+          JSON.stringify({ endpoint: 'https://acme.example.com/reviewer' }),
+        ),
     )
     const resolver = createUriResolver('registry', {
       registryUrl: 'https://reg.forge.dev',
@@ -558,7 +559,10 @@ describe('createUriResolver', () => {
   it('registry resolver retries on timeout but stops at the configured bound', async () => {
     vi.useFakeTimers()
 
-    const fetchImpl = vi.fn(() => new Promise(() => {}))
+    const fetchImpl = vi.fn(
+      (_input: string, _init?: { signal?: AbortSignal }) =>
+        new Promise<never>(() => {}),
+    )
     const resolver = createUriResolver('registry', {
       registryUrl: 'https://reg.forge.dev',
       fetchImpl,

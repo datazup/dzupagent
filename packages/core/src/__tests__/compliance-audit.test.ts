@@ -21,9 +21,11 @@ describe("InMemoryAuditStore", () => {
       action: overrides.action ?? "tool.execute",
       result: overrides.result ?? "success",
       details: overrides.details ?? {},
-      resource: overrides.resource,
-      traceId: overrides.traceId,
-      spanId: overrides.spanId,
+      ...(overrides.resource !== undefined
+        ? { resource: overrides.resource }
+        : {}),
+      ...(overrides.traceId !== undefined ? { traceId: overrides.traceId } : {}),
+      ...(overrides.spanId !== undefined ? { spanId: overrides.spanId } : {}),
     };
   }
 
@@ -522,14 +524,10 @@ describe("ComplianceAuditLogger", () => {
         partial: Omit<ComplianceAuditEntry, "seq" | "previousHash" | "hash">
       ): Promise<ComplianceAuditEntry> => {
         return new Promise<ComplianceAuditEntry>((resolve) => {
-          resolveAppend = (entry) =>
-            resolve({
-              ...partial,
-              seq: 1,
-              previousHash: "",
-              hash: "h",
-              ...entry,
-            });
+          // `entry` is a complete ComplianceAuditEntry supplied by the test,
+          // so it supersedes every field it carries; only the append-time
+          // extras on `partial` (resource/traceId/spanId) survive from it.
+          resolveAppend = (entry) => resolve({ ...partial, ...entry });
         });
       },
       search: async () => [],

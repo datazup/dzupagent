@@ -218,7 +218,7 @@ describe('InMemoryAgentStore', () => {
   })
 
   it('save and get an agent definition', async () => {
-    await store.save({ id: 'a1', name: 'Agent One', active: true, createdAt: new Date(), updatedAt: new Date() })
+    await store.save({ id: 'a1', name: 'Agent One', instructions: 'do the thing', modelTier: 'standard', active: true, createdAt: new Date(), updatedAt: new Date() })
     const fetched = await store.get('a1')
     expect(fetched).not.toBeNull()
     expect(fetched!.name).toBe('Agent One')
@@ -229,14 +229,14 @@ describe('InMemoryAgentStore', () => {
   })
 
   it('delete removes agent', async () => {
-    await store.save({ id: 'a1', name: 'A', active: true, createdAt: new Date(), updatedAt: new Date() })
+    await store.save({ id: 'a1', name: 'A', instructions: 'do the thing', modelTier: 'standard', active: true, createdAt: new Date(), updatedAt: new Date() })
     await store.delete('a1')
     expect(await store.get('a1')).toBeNull()
   })
 
   it('list filters by active flag', async () => {
-    await store.save({ id: 'a1', name: 'A', active: true, createdAt: new Date(), updatedAt: new Date() })
-    await store.save({ id: 'a2', name: 'B', active: false, createdAt: new Date(), updatedAt: new Date() })
+    await store.save({ id: 'a1', name: 'A', instructions: 'do the thing', modelTier: 'standard', active: true, createdAt: new Date(), updatedAt: new Date() })
+    await store.save({ id: 'a2', name: 'B', instructions: 'do the thing', modelTier: 'standard', active: false, createdAt: new Date(), updatedAt: new Date() })
     const actives = await store.list({ active: true })
     expect(actives).toHaveLength(1)
     expect(actives[0]!.id).toBe('a1')

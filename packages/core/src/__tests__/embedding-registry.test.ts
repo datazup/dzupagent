@@ -15,7 +15,9 @@ function makeEntry(overrides?: Partial<EmbeddingModelEntry>): EmbeddingModelEntr
     dimensions: overrides?.dimensions ?? 768,
     maxBatchSize: overrides?.maxBatchSize ?? 100,
     costPer1kTokens: overrides?.costPer1kTokens ?? 0.0001,
-    description: overrides?.description,
+    ...(overrides?.description !== undefined
+      ? { description: overrides.description }
+      : {}),
   }
 }
 

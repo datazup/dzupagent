@@ -6,7 +6,12 @@ import type { ForgeCapability } from '../../identity/index.js'
 // --- Helpers ---
 
 function makeCap(name: string, description?: string, tags?: string[]): ForgeCapability {
-  return { name, version: '1.0.0', description: description ?? `Cap: ${name}`, tags }
+  return {
+    name,
+    version: '1.0.0',
+    description: description ?? `Cap: ${name}`,
+    ...(tags !== undefined ? { tags } : {}),
+  }
 }
 
 function makeAgent(id: string, name: string, caps: ForgeCapability[]): RegisteredAgent {

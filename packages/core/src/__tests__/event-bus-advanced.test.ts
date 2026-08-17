@@ -190,12 +190,13 @@ describe("DzupEventBus — typed pub/sub across event domains", () => {
       type: "budget:warning",
       level: "critical",
       usage: {
-        tokens: 9000,
+        tokensUsed: 9000,
+        tokensLimit: 10000,
         costCents: 90,
+        costLimitCents: 100,
         iterations: 10,
-        tokenBudget: 10000,
-        costCentsBudget: 100,
-        iterationBudget: 20,
+        iterationsLimit: 20,
+        percent: 90,
       },
     });
     expect(handler).toHaveBeenCalledWith(
@@ -211,12 +212,13 @@ describe("DzupEventBus — typed pub/sub across event domains", () => {
       type: "budget:exceeded",
       reason: "token cap",
       usage: {
-        tokens: 10001,
+        tokensUsed: 10001,
+        tokensLimit: 10000,
         costCents: 100,
+        costLimitCents: 100,
         iterations: 15,
-        tokenBudget: 10000,
-        costCentsBudget: 100,
-        iterationBudget: 20,
+        iterationsLimit: 20,
+        percent: 100,
       },
     });
     expect(handler).toHaveBeenCalledWith(

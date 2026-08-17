@@ -63,7 +63,7 @@ function createSpan(name: string, parent?: Span): Span {
   return {
     traceId,
     spanId,
-    parentSpanId: parent?.spanId,
+    ...(parent !== undefined ? { parentSpanId: parent.spanId } : {}),
     name,
     attributes: {},
     events: [],

@@ -19,7 +19,14 @@ describe('core integration', () => {
       metadata: { source: 'integration-test' },
     })
 
-    const unsubscribe = sink.attach(bus, run.id)
+    // `EventBusLike` in persistence/event-log.ts declares its handler
+    // parameter with an index signature, which makes DzupEventBus structurally
+    // incompatible under strictFunctionTypes even though it is the intended
+    // argument. Cast until that interface is widened.
+    const unsubscribe = sink.attach(
+      bus as unknown as Parameters<EventLogSink['attach']>[0],
+      run.id,
+    )
 
     bus.emit({
       type: 'agent:started',

@@ -13,11 +13,11 @@ function makeCountingSignal(): { signal: AbortSignal; count: () => number; abort
   let attached = 0
   const origAdd = ctrl.signal.addEventListener.bind(ctrl.signal)
   const origRemove = ctrl.signal.removeEventListener.bind(ctrl.signal)
-  ctrl.signal.addEventListener = ((type: string, listener: EventListenerOrEventListenerObject | null, opts?: AddEventListenerOptions | boolean) => {
+  ctrl.signal.addEventListener = ((type: string, listener: EventListenerOrEventListenerObject, opts?: AddEventListenerOptions | boolean) => {
     if (type === 'abort') attached++
     return origAdd(type, listener, opts)
   }) as typeof ctrl.signal.addEventListener
-  ctrl.signal.removeEventListener = ((type: string, listener: EventListenerOrEventListenerObject | null, opts?: EventListenerOptions | boolean) => {
+  ctrl.signal.removeEventListener = ((type: string, listener: EventListenerOrEventListenerObject, opts?: EventListenerOptions | boolean) => {
     if (type === 'abort') attached--
     return origRemove(type, listener, opts)
   }) as typeof ctrl.signal.removeEventListener
