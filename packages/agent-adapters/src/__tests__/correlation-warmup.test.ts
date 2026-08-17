@@ -209,7 +209,7 @@ describe('Correlation ID Propagation', () => {
 
     // Events should not have correlationId
     for (const event of events) {
-      expect((event as Record<string, unknown>)['correlationId']).toBeUndefined()
+      expect(event.correlationId).toBeUndefined()
     }
   })
 })

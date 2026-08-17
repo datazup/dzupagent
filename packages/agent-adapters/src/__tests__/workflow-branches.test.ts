@@ -498,6 +498,8 @@ describe('AdapterWorkflow branch coverage', () => {
       .step(
         typedStep<{ name: string }>({
           id: 'greet',
+          // Never reached: promptFn wins in adapter-workflow-execution.ts:248.
+          prompt: 'UNUSED FALLBACK',
           promptFn: (state) => `hello ${state.name}`,
           tags: ['general'],
         }),

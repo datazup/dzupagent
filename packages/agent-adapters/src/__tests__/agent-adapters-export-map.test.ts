@@ -271,7 +271,11 @@ describe('agent-adapters export map', () => {
           npm_config_cache: join(tempDir, '.npm-cache'),
         },
       })
-      const [{ filename }] = JSON.parse(stdout) as Array<{ filename: string }>
+      const [packed] = JSON.parse(stdout) as Array<{ filename: string }>
+      if (!packed) {
+        throw new Error(`npm pack --json returned no entries: ${stdout}`)
+      }
+      const { filename } = packed
       await execFileAsync('tar', ['-xzf', join(tempDir, filename), '-C', tempDir])
 
       const packageRoot = join(tempDir, 'package')

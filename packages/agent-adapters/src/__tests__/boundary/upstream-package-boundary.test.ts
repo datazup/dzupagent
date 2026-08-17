@@ -66,7 +66,11 @@ function extractImportSpecifiers(source: string): string[] {
   for (const re of [importRegex, exportFromRegex, dynamicRegex]) {
     let match: RegExpExecArray | null
     while ((match = re.exec(stripped)) !== null) {
-      specs.push(match[1])
+      const spec = match[1]
+      if (spec === undefined) {
+        throw new Error(`import regex matched without a capture group: ${match[0]}`)
+      }
+      specs.push(spec)
     }
   }
   return specs

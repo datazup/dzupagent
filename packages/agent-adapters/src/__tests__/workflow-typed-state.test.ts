@@ -3,7 +3,7 @@ import { typedStep } from '../workflow/adapter-workflow.js'
 
 describe('Typed Workflow State', () => {
   it('typedStep creates a step config with promptFn', () => {
-    interface MyState { research: string }
+    type MyState = { research: string }
     const step = typedStep<MyState>({
       id: 'plan',
       prompt: 'fallback',
