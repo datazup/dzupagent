@@ -24,6 +24,7 @@ import type {
   AgentStreamEvent,
 } from "./agent-types.js";
 import type { AgentMiddlewareRuntime } from "./middleware-runtime.js";
+import type { StopReason } from "./tool-loop.js";
 import { streamRun } from "./streaming-run.js";
 import {
   executeGenerateRun,
@@ -64,6 +65,42 @@ function resolveStructuredOutputCapabilities(
     }
   ).structuredOutputCapabilities;
 }
+
+/**
+ * Which terminal {@link StopReason}s may persist a run's final content to
+ * long-term memory.
+ *
+ * Deliberately a TOTAL `Record<StopReason, boolean>`: adding a member to
+ * `StopReason` makes this map incomplete and fails the build, forcing an
+ * explicit decision here instead of letting the new member fall silently into
+ * the write-back path.
+ *
+ * This replaced `(result.stopReason as string) !== "failed"`. `"failed"` is
+ * not a `StopReason` member and has no producer anywhere in the repo -- it
+ * belongs to the unrelated `RunStatus` / `StreamingStatus` / pipeline-state
+ * vocabularies -- so the `as string` cast silenced the compiler and left the
+ * guard unconditionally true: every errored, aborted, stuck, budget-exhausted,
+ * token-exhausted and compression-failed run wrote its partial content into
+ * long-term memory.
+ *
+ * Only `"complete"` writes back. That is not a new policy: it is the rule the
+ * streaming half of this same feature already applies inline -- both
+ * `streaming-run-fallback.ts` and `streaming-run-iteration.ts` gate
+ * `maybeWriteBackMemory` on `stopReason === 'complete'` -- so `generate()` and
+ * `stream()` now agree. Every other member describes a run that stopped before
+ * it finished answering, so its content is partial by construction.
+ */
+const MEMORY_WRITE_BACK_BY_STOP_REASON: Record<StopReason, boolean> = {
+  complete: true,
+  iteration_limit: false,
+  budget_exceeded: false,
+  aborted: false,
+  error: false,
+  stuck: false,
+  token_exhausted: false,
+  compression_failed: false,
+  approval_pending: false,
+};
 
 /**
  * Dependency bundle for {@link runGenerate}, sourced from the owning
