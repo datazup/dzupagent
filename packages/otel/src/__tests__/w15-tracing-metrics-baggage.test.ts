@@ -9,18 +9,17 @@
  * - Edge cases in tracer, bridge, and context store
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
+import type { MetricMapping } from '../event-metric-map/types.js'
 import { createEventBus } from '@dzupagent/core'
 import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 import { DzupTracer } from '../tracer.js'
-import type { ForgeTraceSnapshot } from '../tracer.js'
-import { NoopSpan, NoopTracer } from '../noop.js'
+import { NoopSpan } from '../noop.js'
 import { ForgeSpanAttr } from '../span-attributes.js'
 import { SpanStatusCode, SpanKind } from '../otel-types.js'
 import type { OTelSpan, OTelTracer, OTelSpanOptions, OTelContext } from '../otel-types.js'
 import {
-  forgeContextStore,
   withForgeContext,
   currentForgeContext,
   type ForgeTraceContext,
@@ -28,7 +27,6 @@ import {
 import { OTelBridge, InMemoryMetricSink } from '../otel-bridge.js'
 import type { MetricSink } from '../otel-bridge.js'
 import { platformIdentityMetricMap } from '../event-metric-map/platform-identity.js'
-import { EVENT_METRIC_MAP } from '../event-metric-map.js'
 
 // ------------------------------------------------------------------ Helpers
 
@@ -60,7 +58,7 @@ class RecordingSpan implements OTelSpan {
   }
 
   addEvent(n: string, a?: Record<string, string | number | boolean>): this {
-    this.events.push({ name: n, attributes: a })
+    this.events.push({ name: n, ...(a === undefined ? {} : { attributes: a }) })
     return this
   }
 
@@ -320,12 +318,12 @@ describe('Metrics — OTelBridge event-to-metric recording', () => {
   })
 
   it('records tool:error counter metric', () => {
-    bus.emit({ type: 'tool:error', toolName: 'write_file', errorCode: 'PERM', message: 'denied' })
-    expect(sink.getCounter('forge_tool_errors_total', { tool_name: 'write_file', error_code: 'PERM' })).toBe(1)
+    bus.emit({ type: 'tool:error', toolName: 'write_file', errorCode: 'TOOL_PERMISSION_DENIED', message: 'denied' })
+    expect(sink.getCounter('forge_tool_errors_total', { tool_name: 'write_file', error_code: 'TOOL_PERMISSION_DENIED' })).toBe(1)
   })
 
   it('records memory:written counter', () => {
-    bus.emit({ type: 'memory:written', namespace: 'user', key: 'prefs', scope: 'local' })
+    bus.emit({ type: 'memory:written', namespace: 'user', key: 'prefs', scopeKeys: ['local'] })
     expect(sink.getCounter('forge_memory_writes_total', { namespace: 'user' })).toBe(1)
   })
 
@@ -385,17 +383,17 @@ describe('Metrics — OTelBridge span events for lifecycle events', () => {
   })
 
   it('agent:failed creates span with error status', () => {
-    bus.emit({ type: 'agent:failed', agentId: 'a1', runId: 'r1', errorCode: 'TIMEOUT', message: 'timed out' })
+    bus.emit({ type: 'agent:failed', agentId: 'a1', runId: 'r1', errorCode: 'PROVIDER_TIMEOUT', message: 'timed out' })
     const s = rec.spans[0]!
     expect(s.status!.code).toBe(SpanStatusCode.ERROR)
     expect(s.status!.message).toBe('timed out')
-    expect(s.attrs[ForgeSpanAttr.ERROR_CODE]).toBe('TIMEOUT')
+    expect(s.attrs[ForgeSpanAttr.ERROR_CODE]).toBe('PROVIDER_TIMEOUT')
     expect(s.events[0]!.name).toBe('agent.failed')
     expect(s.ended).toBe(true)
   })
 
   it('tool:error creates span with error status', () => {
-    bus.emit({ type: 'tool:error', toolName: 'exec', errorCode: 'ERR', message: 'crash' })
+    bus.emit({ type: 'tool:error', toolName: 'exec', errorCode: 'TOOL_EXECUTION_FAILED', message: 'crash' })
     const s = rec.spans[0]!
     expect(s.name).toBe('tool:exec')
     expect(s.status!.code).toBe(SpanStatusCode.ERROR)
@@ -641,7 +639,7 @@ describe('Baggage — context propagation', () => {
 
 describe('Platform-identity metric map — remaining extract functions', () => {
   it('mcp:connected extracts server and status=connected', () => {
-    const mappings = platformIdentityMetricMap['mcp:connected']
+    const mappings: MetricMapping[] = platformIdentityMetricMap['mcp:connected']
     const result = mappings[0]!.extract({
       type: 'mcp:connected',
       serverName: 'code-tools',
@@ -652,7 +650,7 @@ describe('Platform-identity metric map — remaining extract functions', () => {
   })
 
   it('mcp:disconnected extracts server and status=disconnected', () => {
-    const mappings = platformIdentityMetricMap['mcp:disconnected']
+    const mappings: MetricMapping[] = platformIdentityMetricMap['mcp:disconnected']
     const result = mappings[0]!.extract({
       type: 'mcp:disconnected',
       serverName: 'code-tools',
@@ -663,49 +661,49 @@ describe('Platform-identity metric map — remaining extract functions', () => {
   })
 
   it('mcp:server_updated produces registry mutation counter', () => {
-    const mappings = platformIdentityMetricMap['mcp:server_updated']
+    const mappings: MetricMapping[] = platformIdentityMetricMap['mcp:server_updated']
     const result = mappings[0]!.extract({ type: 'mcp:server_updated' } as DzupEvent)
     expect(result.value).toBe(1)
     expect(result.labels.operation).toBe('updated')
   })
 
   it('mcp:server_removed produces registry mutation counter', () => {
-    const mappings = platformIdentityMetricMap['mcp:server_removed']
+    const mappings: MetricMapping[] = platformIdentityMetricMap['mcp:server_removed']
     const result = mappings[0]!.extract({ type: 'mcp:server_removed' } as DzupEvent)
     expect(result.value).toBe(1)
     expect(result.labels.operation).toBe('removed')
   })
 
   it('mcp:server_enabled produces registry mutation counter', () => {
-    const mappings = platformIdentityMetricMap['mcp:server_enabled']
+    const mappings: MetricMapping[] = platformIdentityMetricMap['mcp:server_enabled']
     const result = mappings[0]!.extract({ type: 'mcp:server_enabled' } as DzupEvent)
     expect(result.value).toBe(1)
     expect(result.labels.operation).toBe('enabled')
   })
 
   it('mcp:server_disabled produces registry mutation counter', () => {
-    const mappings = platformIdentityMetricMap['mcp:server_disabled']
+    const mappings: MetricMapping[] = platformIdentityMetricMap['mcp:server_disabled']
     const result = mappings[0]!.extract({ type: 'mcp:server_disabled' } as DzupEvent)
     expect(result.value).toBe(1)
     expect(result.labels.operation).toBe('disabled')
   })
 
   it('mcp:test_passed produces connectivity test counter', () => {
-    const mappings = platformIdentityMetricMap['mcp:test_passed']
+    const mappings: MetricMapping[] = platformIdentityMetricMap['mcp:test_passed']
     const result = mappings[0]!.extract({ type: 'mcp:test_passed' } as DzupEvent)
     expect(result.value).toBe(1)
     expect(result.labels.result).toBe('passed')
   })
 
   it('mcp:test_failed produces connectivity test counter', () => {
-    const mappings = platformIdentityMetricMap['mcp:test_failed']
+    const mappings: MetricMapping[] = platformIdentityMetricMap['mcp:test_failed']
     const result = mappings[0]!.extract({ type: 'mcp:test_failed' } as DzupEvent)
     expect(result.value).toBe(1)
     expect(result.labels.result).toBe('failed')
   })
 
   it('provider:failed extracts provider and tier labels', () => {
-    const mappings = platformIdentityMetricMap['provider:failed']
+    const mappings: MetricMapping[] = platformIdentityMetricMap['provider:failed']
     const result = mappings[0]!.extract({
       type: 'provider:failed',
       provider: 'anthropic',
@@ -717,7 +715,7 @@ describe('Platform-identity metric map — remaining extract functions', () => {
   })
 
   it('provider:circuit_opened sets gauge to 1', () => {
-    const mappings = platformIdentityMetricMap['provider:circuit_opened']
+    const mappings: MetricMapping[] = platformIdentityMetricMap['provider:circuit_opened']
     const result = mappings[0]!.extract({
       type: 'provider:circuit_opened',
       provider: 'openai',
@@ -727,7 +725,7 @@ describe('Platform-identity metric map — remaining extract functions', () => {
   })
 
   it('provider:circuit_closed sets gauge to 0', () => {
-    const mappings = platformIdentityMetricMap['provider:circuit_closed']
+    const mappings: MetricMapping[] = platformIdentityMetricMap['provider:circuit_closed']
     const result = mappings[0]!.extract({
       type: 'provider:circuit_closed',
       provider: 'openai',
@@ -737,7 +735,7 @@ describe('Platform-identity metric map — remaining extract functions', () => {
   })
 
   it('identity:resolved extracts agent_id and status=resolved', () => {
-    const mappings = platformIdentityMetricMap['identity:resolved']
+    const mappings: MetricMapping[] = platformIdentityMetricMap['identity:resolved']
     const result = mappings[0]!.extract({
       type: 'identity:resolved',
       agentId: 'agent-x',
@@ -748,7 +746,7 @@ describe('Platform-identity metric map — remaining extract functions', () => {
   })
 
   it('identity:failed extracts agent_id and status=failed', () => {
-    const mappings = platformIdentityMetricMap['identity:failed']
+    const mappings: MetricMapping[] = platformIdentityMetricMap['identity:failed']
     const result = mappings[0]!.extract({
       type: 'identity:failed',
       agentId: 'agent-y',
@@ -759,7 +757,7 @@ describe('Platform-identity metric map — remaining extract functions', () => {
   })
 
   it('identity:credential_expired extracts agent_id and credential_type', () => {
-    const mappings = platformIdentityMetricMap['identity:credential_expired']
+    const mappings: MetricMapping[] = platformIdentityMetricMap['identity:credential_expired']
     const result = mappings[0]!.extract({
       type: 'identity:credential_expired',
       agentId: 'agent-z',
@@ -771,7 +769,7 @@ describe('Platform-identity metric map — remaining extract functions', () => {
   })
 
   it('identity:trust_updated extracts agent_id', () => {
-    const mappings = platformIdentityMetricMap['identity:trust_updated']
+    const mappings: MetricMapping[] = platformIdentityMetricMap['identity:trust_updated']
     const result = mappings[0]!.extract({
       type: 'identity:trust_updated',
       agentId: 'agent-trust',
@@ -781,7 +779,7 @@ describe('Platform-identity metric map — remaining extract functions', () => {
   })
 
   it('identity:delegation_issued extracts delegator', () => {
-    const mappings = platformIdentityMetricMap['identity:delegation_issued']
+    const mappings: MetricMapping[] = platformIdentityMetricMap['identity:delegation_issued']
     const result = mappings[0]!.extract({
       type: 'identity:delegation_issued',
       delegator: 'admin-agent',
