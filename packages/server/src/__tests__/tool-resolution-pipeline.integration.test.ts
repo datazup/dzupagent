@@ -43,10 +43,12 @@ let fakeClient: FakeMcpClient = new FakeMcpClient()
  * Build a minimal mcpToolToLangChain stub that round-trips through the
  * fake client — same shape as the real bridge.
  */
+// The return type is inferred: `ReturnType<typeof tool>` resolves the generic
+// `tool()` at its constraints, which is not the specialised tool this returns.
 function stubMcpToolToLangChain(
   descriptor: MCPToolDescriptor,
   _client: unknown,
-): ReturnType<typeof tool> {
+) {
   const shape: Record<string, unknown> = {}
   for (const [key, param] of Object.entries(descriptor.inputSchema.properties)) {
     shape[key] = (param as { type: string }).type === 'number'

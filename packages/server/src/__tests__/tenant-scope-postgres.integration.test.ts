@@ -163,7 +163,14 @@ describe.skipIf(integrationGate.shouldSkip)('tenant-scope Postgres migration and
     const { drizzle } = await import('drizzle-orm/node-postgres')
     db = drizzle(pgClient) as unknown as PostgresJsDatabase
     catalogStore = new DrizzleCatalogStore(db)
-    clusterStore = new DrizzleClusterStore(db)
+    // `DrizzleStoreDatabase` models `select()` as already filterable/awaitable,
+    // but the real drizzle builder only exposes `from` and then REMOVES `where`
+    // after one call (`Omit<PgSelectBase, "where">`), so a real
+    // `PostgresJsDatabase` cannot satisfy the port it exists to abstract.
+    // Modelling drizzle's phase-typed builder is a separate change; widen here.
+    clusterStore = new DrizzleClusterStore(
+      db as unknown as ConstructorParameters<typeof DrizzleClusterStore>[0],
+    )
   }, 120_000)
 
   afterAll(async () => {
