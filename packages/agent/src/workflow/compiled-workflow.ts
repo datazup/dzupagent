@@ -111,6 +111,12 @@ export class CompiledWorkflow {
     return this;
   }
 
+  /** Create one isolated detector for each runtime, or omit it when disabled. */
+  private createStuckDetectorForRuntime(): PipelineStuckDetector | undefined {
+    if (this.stuckDetectorConfig === false) return undefined;
+    return new PipelineStuckDetector(this.stuckDetectorConfig);
+  }
+
   /** Inspect the compiled canonical pipeline definition. */
   toPipelineDefinition() {
     return structuredClone(this.compilation.definition);
@@ -204,14 +210,6 @@ export class CompiledWorkflow {
     // Wrap the caller's emit to also write journal entries
     const journalEmit = makeJournalEmit(journal, runId, emit);
 
-    // Auto-wire stuck detector (one per run, unless explicitly disabled)
-    const stuckDetector =
-      this.stuckDetectorConfig === false
-        ? undefined
-        : new PipelineStuckDetector(
-            this.stuckDetectorConfig as Partial<PipelineStuckConfig> | undefined
-          );
-
     let latestObservedState: Record<string, unknown> = { ...initialState };
     let pipelineFailure: string | null = null;
 
@@ -276,7 +274,7 @@ export class CompiledWorkflow {
         pipelineFailure = err;
       },
       signal: options?.signal,
-      stuckDetector,
+      stuckDetector: this.createStuckDetectorForRuntime(),
     });
 
     return driveToTerminal(
@@ -414,6 +412,7 @@ export class CompiledWorkflow {
         pipelineFailure = err;
       },
       signal: options?.signal,
+      stuckDetector: this.createStuckDetectorForRuntime(),
     });
 
     return driveToTerminal(

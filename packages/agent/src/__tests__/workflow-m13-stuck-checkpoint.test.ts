@@ -29,6 +29,23 @@ function step(
   return { id, execute: async (input) => fn(input as Record<string, unknown>) };
 }
 
+function suspendedCheckpoint(
+  pipelineRunId: string,
+  pipelineId: string,
+  suspendedAtNodeId: string
+): PipelineCheckpoint {
+  return {
+    pipelineRunId,
+    pipelineId,
+    version: 1,
+    schemaVersion: "1.0.0",
+    completedNodeIds: [],
+    state: {},
+    suspendedAtNodeId,
+    createdAt: "2026-08-18T00:00:00.000Z",
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Test 1 — Crash recovery: nodes 1+2 skip, only node 3 runs on resume
 // ---------------------------------------------------------------------------
@@ -170,6 +187,129 @@ describe("M-13 stuck detection", () => {
         (e as { stepId: string }).stepId.includes("node3")
     );
     expect(n3StepStarted).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T2-7 — Resume continuity: every resumed runtime receives a fresh detector
+// ---------------------------------------------------------------------------
+describe("M-13 checkpoint resume stuck detection", () => {
+  it("applies the configured detector when resuming a supplied checkpoint", async () => {
+    const events: WorkflowEvent[] = [];
+    let attempts = 0;
+    const workflow = createWorkflow({ id: "direct-resume-stuck" })
+      .suspend("approval")
+      .then(
+        step("fails-after-resume", () => {
+          attempts++;
+          throw new Error("resume failure");
+        })
+      )
+      .build()
+      .withStuckDetector({ maxNodeFailures: 1, maxTotalRetries: 5 });
+    const definition = workflow.toPipelineDefinition();
+    const suspendNode = definition.nodes.find((node) => node.type === "suspend");
+    expect(suspendNode).toBeDefined();
+
+    await workflow
+      .resume(
+        suspendedCheckpoint("direct-resume-run", definition.id, suspendNode!.id),
+        {},
+        { onEvent: (event) => events.push(event) }
+      )
+      .catch(() => undefined);
+
+    expect(attempts).toBe(1);
+    expect(events.some((event) => event.type === "workflow:stuck")).toBe(true);
+  });
+
+  it("applies the configured detector when run() resumes a stored checkpoint", async () => {
+    const events: WorkflowEvent[] = [];
+    const checkpointStore = new InMemoryPipelineCheckpointStore();
+    let attempts = 0;
+    const workflow = createWorkflow({ id: "stored-resume-stuck" })
+      .suspend("approval")
+      .then(
+        step("fails-after-recovery", () => {
+          attempts++;
+          throw new Error("recovery failure");
+        })
+      )
+      .build()
+      .withCheckpointStore(checkpointStore)
+      .withStuckDetector({ maxNodeFailures: 1, maxTotalRetries: 5 });
+    const definition = workflow.toPipelineDefinition();
+    const suspendNode = definition.nodes.find((node) => node.type === "suspend");
+    expect(suspendNode).toBeDefined();
+    await checkpointStore.save(
+      suspendedCheckpoint("stored-resume-run", definition.id, suspendNode!.id)
+    );
+
+    await workflow
+      .run(
+        {},
+        {
+          workflowRunId: "stored-resume-run",
+          onEvent: (event) => events.push(event),
+        }
+      )
+      .catch(() => undefined);
+
+    expect(attempts).toBe(1);
+    expect(events.some((event) => event.type === "workflow:stuck")).toBe(true);
+  });
+
+  it("preserves withStuckDetector(false) for resumed runtimes", async () => {
+    const events: WorkflowEvent[] = [];
+    const workflow = createWorkflow({ id: "resume-stuck-disabled" })
+      .suspend("approval")
+      .then(
+        step("fails-with-detector-disabled", () => {
+          throw new Error("expected failure");
+        })
+      )
+      .build()
+      .withStuckDetector(false);
+    const definition = workflow.toPipelineDefinition();
+    const suspendNode = definition.nodes.find((node) => node.type === "suspend");
+    expect(suspendNode).toBeDefined();
+
+    await workflow
+      .resume(
+        suspendedCheckpoint("disabled-resume-run", definition.id, suspendNode!.id),
+        {},
+        { onEvent: (event) => events.push(event) }
+      )
+      .catch(() => undefined);
+
+    expect(events.some((event) => event.type === "workflow:stuck")).toBe(false);
+  });
+
+  it("creates a fresh detector for each resumed runtime", async () => {
+    const workflow = createWorkflow({ id: "fresh-resume-detector" })
+      .suspend("approval")
+      .then(
+        step("one-failure-per-runtime", () => {
+          throw new Error("expected failure");
+        })
+      )
+      .build()
+      .withStuckDetector({ maxNodeFailures: 2 });
+    const definition = workflow.toPipelineDefinition();
+    const suspendNode = definition.nodes.find((node) => node.type === "suspend");
+    expect(suspendNode).toBeDefined();
+
+    for (const runId of ["fresh-detector-run-1", "fresh-detector-run-2"]) {
+      const events: WorkflowEvent[] = [];
+      await workflow
+        .resume(
+          suspendedCheckpoint(runId, definition.id, suspendNode!.id),
+          {},
+          { onEvent: (event) => events.push(event) }
+        )
+        .catch(() => undefined);
+      expect(events.some((event) => event.type === "workflow:stuck")).toBe(false);
+    }
   });
 });
 
