@@ -69,6 +69,48 @@ function normalizeEvent(event: AgentEvent): Record<string, unknown> {
         total: event.total,
         message: event.message,
       }
+    case 'adapter:memory_recalled':
+      return {
+        type: event.type,
+        providerId: event.providerId,
+        entries: event.entries,
+        totalTokens: event.totalTokens,
+        durationMs: event.durationMs,
+      }
+    case 'adapter:skills_compiled':
+      return {
+        type: event.type,
+        providerId: event.providerId,
+        skills: event.skills,
+        durationMs: event.durationMs,
+      }
+    case 'adapter:interaction_required':
+      return {
+        type: event.type,
+        providerId: event.providerId,
+        interactionId: event.interactionId,
+        question: event.question,
+        kind: event.kind,
+      }
+    case 'adapter:interaction_resolved':
+      return {
+        type: event.type,
+        providerId: event.providerId,
+        interactionId: event.interactionId,
+        question: event.question,
+        answer: event.answer,
+        resolvedBy: event.resolvedBy,
+      }
+    case 'adapter:cache_stats':
+      return {
+        type: event.type,
+        providerId: event.providerId,
+        sessionId: event.sessionId,
+        cacheReadTokens: event.cacheReadTokens,
+        cacheWriteTokens: event.cacheWriteTokens,
+        totalInputTokens: event.totalInputTokens,
+        cacheHitRatio: event.cacheHitRatio,
+      }
     default: {
       const _exhaustive: never = event
       return _exhaustive

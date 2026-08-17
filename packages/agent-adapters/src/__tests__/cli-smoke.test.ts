@@ -11,6 +11,14 @@ interface SmokeProbeResult {
   stderr: string
 }
 
+/**
+ * Narrows a `spawnSync` failure to Node's errno-carrying Error shape. The base
+ * `Error` type does not declare `code`, but Node attaches it (e.g. `ETIMEDOUT`).
+ */
+function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && 'code' in error
+}
+
 function runProbe(binary: string, args: string[]): SmokeProbeResult {
   const result = spawnSync(binary, args, {
     encoding: 'utf8',
@@ -21,7 +29,7 @@ function runProbe(binary: string, args: string[]): SmokeProbeResult {
   return {
     status: result.status,
     signal: result.signal,
-    timedOut: result.error?.code === 'ETIMEDOUT',
+    timedOut: isErrnoException(result.error) && result.error.code === 'ETIMEDOUT',
     stdout: result.stdout ?? '',
     stderr: result.stderr ?? '',
   }

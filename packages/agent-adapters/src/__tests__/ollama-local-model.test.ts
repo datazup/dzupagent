@@ -317,7 +317,7 @@ describe('direct Ollama local-model backend', () => {
         'data: {"choices":[],"usage":{"prompt_tokens":4,"completion_tokens":1}}',
         'data: [DONE]',
       ], 'text/event-stream')
-    }) as typeof fetch
+    })
     const adapter = new OllamaAdapter({
       baseURL: 'http://gateway.lan:8080/v1',
       approvedLocalHosts: ['gateway.lan:8080'],
