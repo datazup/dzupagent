@@ -1,5 +1,5 @@
 {
-  "totalErrors": 1356,
+  "totalErrors": 1352,
   "note": "Test-file typecheck baseline (tsconfig.flipcheck.json per package). Ratchets down only. Bump only via --update-baseline after FIXING errors, never to accommodate new ones. Enforced per package AND per file, so a fix in one place cannot mask a regression in another. totalErrors and perCode are informational; the per-file budgets are what fail the build.",
   "packages": {
     "adapter-rules": {
@@ -373,17 +373,9 @@
       "perFile": {}
     },
     "memory": {
-      "maxErrors": 4,
-      "perCode": {
-        "TS6059": 3,
-        "TS2307": 1
-      },
-      "perFile": {
-        "../agent-types/src/orchestration/fleet/__tests__/knowledge-store-contract.test.ts": 1,
-        "../agent-types/src/orchestration/fleet/knowledge-store.ts": 1,
-        "src/__tests__/build-config.test.ts": 1,
-        "src/knowledge/__tests__/filesystem-knowledge-store.test.ts": 1
-      }
+      "maxErrors": 0,
+      "perCode": {},
+      "perFile": {}
     },
     "otel": {
       "maxErrors": 0,
