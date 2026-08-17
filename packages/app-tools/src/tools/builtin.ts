@@ -81,10 +81,21 @@ export interface BuiltinToolRegistryBundle {
 export interface BuiltinToolOptions {
   /** Root directory for project_docs.* tools. Defaults to `process.cwd()`. */
   rootDir?: string;
-  /** Callback invoked when human.clarify is executed. */
-  onClarify?: (payload: ClarificationPayload) => void | Promise<void>;
-  /** Callback invoked when human.approve is executed. */
-  onApprove?: (payload: ApprovalPayload) => void | Promise<void>;
+  /**
+   * Callback invoked when human.clarify is executed.
+   *
+   * Declared `=> void`, not `=> void | Promise<void>`: the union defeats
+   * TypeScript's void-return leniency and rejects expression-bodied suppliers
+   * such as `(p) => seen.push(p)` with TS2322. `void` still accepts `async`
+   * callbacks and they are still awaited — see the note in `./human.js`.
+   */
+  onClarify?: (payload: ClarificationPayload) => void;
+  /**
+   * Callback invoked when human.approve is executed.
+   *
+   * Declared `=> void` for the same reason as {@link BuiltinToolOptions.onClarify}.
+   */
+  onApprove?: (payload: ApprovalPayload) => void;
   /** Inject a custom PM task store; defaults to {@link InMemoryPmTaskStore}. */
   pmStore?: PmTaskStore;
   /** Id factory for new PM tasks; defaults to a monotonically increasing counter. */
