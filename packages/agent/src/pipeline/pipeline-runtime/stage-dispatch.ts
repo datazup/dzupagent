@@ -47,6 +47,7 @@ import type {
 } from "../loop-executor/types.js";
 import type { ForkState, LoopState } from "./executor-state-types.js";
 import type { PipelineForEachItemFrame } from "@dzupagent/core/pipeline";
+import { isTerminalItemOutcome } from "@dzupagent/core/pipeline";
 import type { BudgetTrackerState } from "./iteration-budget-tracker.js";
 import {
   persistCheckpointWithIntegrityBoundary,
@@ -774,6 +775,90 @@ export function assertForEachCursorWithinSource(
           "item(s) the source resolves to."
       );
     }
+    assertItemFrameOutcomeCoherent(loopNodeId, runId, itemFrame);
+  }
+}
+
+/**
+ * Reject a frame whose durable outcome and economics contradict each other
+ * (24-F, doc 27 §8 proof 5's outcome and economics sub-parts).
+ *
+ * The checkpoint schema already enforces every fact that is checkable on ONE
+ * field: the outcome vocabulary is closed, and costs are non-negative
+ * integers. What it cannot express is agreement *between* fields, which is
+ * where item corruption actually shows up — money that disagrees with the
+ * lifecycle state it is filed under, or with the item that opened it.
+ *
+ * Fail closed for the same reason the cursor guard does: a stranded run is
+ * operator-recoverable, whereas resuming an item whose economics are already
+ * self-contradictory settles committed work against the wrong ledger row and
+ * cannot be undone.
+ *
+ * Absence is UNPROVABLE, never agreement. A pre-24-F frame carries no outcome
+ * and no economics, and an unpriced host records a terminal outcome with no
+ * economics at all; both resume untouched. Only a frame that positively states
+ * two facts which cannot both hold is refused.
+ */
+function assertItemFrameOutcomeCoherent(
+  loopNodeId: string,
+  runId: string,
+  itemFrame: PipelineForEachItemFrame
+): void {
+  const { economics, outcome, itemIndex } = itemFrame;
+  if (economics === undefined) return;
+
+  // A settled amount is what a TERMINAL item produces. Carrying one under a
+  // non-terminal outcome means the ledger closed this item's spend while the
+  // frame still invites a re-dispatch — resuming would charge it twice.
+  if (
+    economics.settledCostCents !== undefined &&
+    outcome !== undefined &&
+    !isTerminalItemOutcome(outcome)
+  ) {
+    throw new PipelineForEachCursorCorruptError(
+      `Cannot resume loop "${loopNodeId}" in run "${runId}": item ` +
+        `${itemIndex} records a settled cost of ` +
+        `${economics.settledCostCents} cent(s) while its outcome is ` +
+        `"${outcome}", which is not terminal. A settled item cannot still be ` +
+        "awaiting dispatch."
+    );
+  }
+
+  // Settling above the reservation is the breach `settleItem` fails the live
+  // loop closed on. A checkpoint that already records one must not be resumed
+  // back into the run as though the ceiling held.
+  if (
+    economics.settledCostCents !== undefined &&
+    economics.settledCostCents > economics.reservedCostCents
+  ) {
+    throw new PipelineForEachCursorCorruptError(
+      `Cannot resume loop "${loopNodeId}" in run "${runId}": item ` +
+        `${itemIndex} settled ${economics.settledCostCents} cent(s) against ` +
+        `a ${economics.reservedCostCents}-cent reservation, exceeding the ` +
+        "ceiling authored for it."
+    );
+  }
+
+  // `deriveItemReservationId` embeds the item index, so the id is checkable
+  // against the frame holding it. A mismatch proves a frame and a ledger row
+  // have been crossed — the money belongs to a different item.
+  //
+  // Checked by SUFFIX rather than by re-deriving the whole id: the derivation
+  // also folds in the run id and attempt, and a resume must not reject a frame
+  // merely because it cannot reproduce those inputs. This tests the one
+  // segment the frame itself is authoritative about.
+  const indexSegment = `:item:${loopNodeId}:${itemIndex}`;
+  if (
+    economics.reservationId.includes(`:item:${loopNodeId}:`) &&
+    !economics.reservationId.endsWith(indexSegment) &&
+    !economics.reservationId.includes(`${indexSegment}:attempt:`)
+  ) {
+    throw new PipelineForEachCursorCorruptError(
+      `Cannot resume loop "${loopNodeId}" in run "${runId}": item ` +
+        `${itemIndex} holds reservation "${economics.reservationId}", which ` +
+        "was minted for a different item. Resuming would settle this item's " +
+        "work against another item's reservation."
+    );
   }
 }
 
