@@ -3,7 +3,7 @@
   "packet": "MEM-P000",
   "sourceIdentity": {
     "kind": "content-digest-set",
-    "digest": "sha256:845e8517fcb53e12f33ab02fcd8ee031f6fcff2d6c3bf8414be9c05658045804",
+    "digest": "sha256:8fd585ccb8151864bbf0744804000a71853346b71e4949ee88a44c8ef2c11e18",
     "inputs": [
       {
         "path": "config/memory-api-census.v1.json",
@@ -28,7 +28,7 @@
       },
       {
         "path": "packages/agent-types/package.json",
-        "sha256": "sha256:ca63090e4a10af064fb3e7b71c29d69c2e624da13a46b274b8a96ed417fdf0ff"
+        "sha256": "sha256:0a5f9b1a5e61aba6c20ffb6208649a9e9d6b2442d739b3f37fb20ba74648b597"
       },
       {
         "path": "packages/agent-types/src/index.ts",
@@ -188,7 +188,7 @@
       },
       {
         "path": "packages/memory/src/__tests__/namespace-isolation.test.ts",
-        "sha256": "sha256:6e9d3482bf38938bbd383c1c1f51f5ae976161adb632ce0e171d94492f51ebd0"
+        "sha256": "sha256:2d4010016fc9429bfcf911142439de8a9fd6cae9e86f84c16b575b9900824cf5"
       },
       {
         "path": "packages/memory/src/__tests__/observation-candidate-store-truthfulness.test.ts",
@@ -212,11 +212,11 @@
       },
       {
         "path": "packages/memory/src/__tests__/rrf-fusion.test.ts",
-        "sha256": "sha256:9d44cdd84f4a8d5eae62bfc16e8d84aeac28e3cc55c82abf18cb505688436416"
+        "sha256": "sha256:38270a2808c1814f4a7a8cba9e4cd643947815d9b6e4abb21b06d3fb6e48f4fe"
       },
       {
         "path": "packages/memory/src/__tests__/search-retrieval.test.ts",
-        "sha256": "sha256:6d0566560320a309f6976201e22c0141c219507438391bfd5d4bd8af908656fe"
+        "sha256": "sha256:a1f007485aeebdd9ac89ed2066e289c0efed21635b4da5f3f35c87bc8ff15ad2"
       },
       {
         "path": "packages/memory/src/__tests__/service-export-map.test.ts",
@@ -228,7 +228,7 @@
       },
       {
         "path": "packages/memory/src/__tests__/temporal.test.ts",
-        "sha256": "sha256:39679e0f5a777ceff62ce5d1e5784557bc105b41b410e8230e8b112b9f0a63f2"
+        "sha256": "sha256:385ee5cca5f3e32c74c878ffc4b27f34efa2bbac5b0b881811d5d64e0c1eecab"
       },
       {
         "path": "packages/memory/src/__tests__/testing-export-map.test.ts",
@@ -304,7 +304,7 @@
       },
       {
         "path": "packages/memory/src/memory-service.ts",
-        "sha256": "sha256:f561357d8a37215aab974b9e30f7f1edae67c8de74f0ec83903e60e1a85e308a"
+        "sha256": "sha256:b40237cffdd795394d1a3ffcfcd884be937ba7fa0c2eb0e962836ca6ff69dd03"
       },
       {
         "path": "packages/memory/src/observation-candidate-store.ts",
