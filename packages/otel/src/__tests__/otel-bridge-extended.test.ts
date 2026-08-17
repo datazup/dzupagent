@@ -6,7 +6,7 @@
  * - metricSink getter
  * - Error swallowing in event handler
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { createEventBus } from '@dzupagent/core'
 import type { DzupEventBus } from '@dzupagent/core'
 import { DzupTracer } from '../tracer.js'
@@ -39,7 +39,7 @@ describe('OTelBridge extended', () => {
 
   describe('identity metrics', () => {
     it('records identity:resolved counter', () => {
-      bus.emit({ type: 'identity:resolved', agentId: 'agent-1', method: 'jwt' })
+      bus.emit({ type: 'identity:resolved', agentId: 'agent-1', uri: 'did:example:agent-1' })
       expect(sink.getCounter('forge_identity_operations_total', {
         agent_id: 'agent-1',
         status: 'resolved',
@@ -47,7 +47,7 @@ describe('OTelBridge extended', () => {
     })
 
     it('records identity:failed counter', () => {
-      bus.emit({ type: 'identity:failed', agentId: 'agent-2', reason: 'expired' })
+      bus.emit({ type: 'identity:failed', agentId: 'agent-2', error: 'expired' })
       expect(sink.getCounter('forge_identity_operations_total', {
         agent_id: 'agent-2',
         status: 'failed',
@@ -82,8 +82,8 @@ describe('OTelBridge extended', () => {
       bus.emit({
         type: 'identity:delegation_issued',
         delegator: 'parent-agent',
-        delegate: 'child-agent',
-        scopes: ['read', 'write'],
+        delegatee: 'child-agent',
+        tokenId: 'tok-1',
       })
       expect(sink.getCounter('forge_identity_delegations_total', {
         delegator: 'parent-agent',
@@ -107,14 +107,14 @@ describe('OTelBridge extended', () => {
     })
 
     it('records registry:agent_registered counter', () => {
-      bus.emit({ type: 'registry:agent_registered', agentId: 'a1', capabilities: [] })
+      bus.emit({ type: 'registry:agent_registered', agentId: 'a1', name: 'agent-one' })
       expect(sink.getCounter('forge_registry_operations_total', {
         operation: 'registered',
       })).toBe(1)
     })
 
     it('records registry:agent_deregistered counter', () => {
-      bus.emit({ type: 'registry:agent_deregistered', agentId: 'a1' })
+      bus.emit({ type: 'registry:agent_deregistered', agentId: 'a1', reason: 'shutdown' })
       expect(sink.getCounter('forge_registry_operations_total', {
         operation: 'deregistered',
       })).toBe(1)
@@ -158,7 +158,7 @@ describe('OTelBridge extended', () => {
         type: 'protocol:message_sent',
         protocol: 'a2a',
         messageType: 'task',
-        targetAgent: 'worker',
+        to: 'worker',
       })
       expect(sink.getCounter('forge_protocol_messages_total', {
         protocol: 'a2a',
@@ -171,7 +171,7 @@ describe('OTelBridge extended', () => {
         type: 'protocol:message_received',
         protocol: 'mcp',
         messageType: 'response',
-        sourceAgent: 'tool-server',
+        from: 'tool-server',
       })
       expect(sink.getCounter('forge_protocol_messages_total', {
         protocol: 'mcp',
@@ -183,8 +183,7 @@ describe('OTelBridge extended', () => {
       bus.emit({
         type: 'protocol:error',
         protocol: 'a2a',
-        message: 'timeout',
-        errorCode: 'TIMEOUT',
+        error: 'timeout',
       })
       expect(sink.getCounter('forge_protocol_errors_total', {
         protocol: 'a2a',
@@ -195,7 +194,7 @@ describe('OTelBridge extended', () => {
       bus.emit({
         type: 'protocol:connected',
         protocol: 'a2a',
-        remoteAgent: 'worker-1',
+        endpoint: 'worker-1',
       })
       expect(sink.getCounter('forge_protocol_connections_total', {
         protocol: 'a2a',
@@ -207,8 +206,7 @@ describe('OTelBridge extended', () => {
       bus.emit({
         type: 'protocol:disconnected',
         protocol: 'a2a',
-        remoteAgent: 'worker-1',
-        reason: 'timeout',
+        endpoint: 'worker-1',
       })
       expect(sink.getCounter('forge_protocol_connections_total', {
         protocol: 'a2a',
@@ -247,6 +245,7 @@ describe('OTelBridge extended', () => {
       bus.emit({
         type: 'pipeline:node_started',
         pipelineId: 'pipe-1',
+        runId: 'run-1',
         nodeId: 'n1',
         nodeType: 'agent',
       })
@@ -261,6 +260,7 @@ describe('OTelBridge extended', () => {
       bus.emit({
         type: 'pipeline:node_completed',
         pipelineId: 'pipe-1',
+        runId: 'run-1',
         nodeId: 'n1',
         durationMs: 2500,
       })
@@ -276,8 +276,9 @@ describe('OTelBridge extended', () => {
       bus.emit({
         type: 'pipeline:node_failed',
         pipelineId: 'pipe-1',
+        runId: 'run-1',
         nodeId: 'n2',
-        message: 'timeout',
+        error: 'timeout',
       })
       expect(sink.getCounter('forge_pipeline_node_failures_total', {
         pipeline_id: 'pipe-1',
@@ -289,6 +290,7 @@ describe('OTelBridge extended', () => {
       bus.emit({
         type: 'pipeline:node_skipped',
         pipelineId: 'pipe-1',
+        runId: 'run-1',
         nodeId: 'n3',
         reason: 'condition_false',
       })
@@ -302,7 +304,8 @@ describe('OTelBridge extended', () => {
       bus.emit({
         type: 'pipeline:suspended',
         pipelineId: 'pipe-1',
-        reason: 'approval_needed',
+        runId: 'run-1',
+        nodeId: 'n1',
       })
       expect(sink.getCounter('forge_pipeline_suspensions_total', {
         pipeline_id: 'pipe-1',
@@ -313,6 +316,8 @@ describe('OTelBridge extended', () => {
       bus.emit({
         type: 'pipeline:resumed',
         pipelineId: 'pipe-1',
+        runId: 'run-1',
+        nodeId: 'n1',
       })
       expect(sink.getCounter('forge_pipeline_resumptions_total', {
         pipeline_id: 'pipe-1',
@@ -323,6 +328,7 @@ describe('OTelBridge extended', () => {
       bus.emit({
         type: 'pipeline:loop_iteration',
         pipelineId: 'pipe-1',
+        runId: 'run-1',
         nodeId: 'loop-1',
         iteration: 3,
       })
@@ -336,7 +342,8 @@ describe('OTelBridge extended', () => {
       bus.emit({
         type: 'pipeline:checkpoint_saved',
         pipelineId: 'pipe-1',
-        nodeId: 'n1',
+        runId: 'run-1',
+        version: 1,
       })
       expect(sink.getCounter('forge_pipeline_checkpoints_total', {
         pipeline_id: 'pipe-1',
@@ -367,7 +374,7 @@ describe('OTelBridge extended', () => {
         type: 'pipeline:run_failed',
         pipelineId: 'pipe-1',
         runId: 'run-1',
-        message: 'error',
+        error: 'error',
       })
       expect(sink.getCounter('forge_pipeline_runs_total', {
         pipeline_id: 'pipe-1',
@@ -414,6 +421,7 @@ describe('OTelBridge extended', () => {
         type: 'policy:denied',
         policySetId: 'ps-1',
         action: 'memory:write',
+        principalId: 'agent-1',
         reason: 'unauthorized',
       })
       expect(sink.getCounter('forge_policy_denials_total', {
@@ -453,7 +461,6 @@ describe('OTelBridge extended', () => {
         category: 'data_exfiltration',
         action: 'tool:call',
         agentId: 'a1',
-        message: 'blocked',
       })
       expect(sink.getCounter('forge_safety_blocks_total', {
         category: 'data_exfiltration',
@@ -477,7 +484,7 @@ describe('OTelBridge extended', () => {
         type: 'memory:threat_detected',
         threatType: 'poisoning',
         namespace: 'lessons',
-        message: 'suspicious write',
+        key: 'lesson-42',
       })
       expect(sink.getCounter('forge_memory_threats_total', {
         threat_type: 'poisoning',
@@ -584,12 +591,12 @@ describe('OTelBridge extended', () => {
 
   describe('streaming events produce no metrics', () => {
     it('agent:stream_delta produces no metrics', () => {
-      bus.emit({ type: 'agent:stream_delta', agentId: 'a1', runId: 'r1', delta: 'hello' })
+      bus.emit({ type: 'agent:stream_delta', agentId: 'a1', runId: 'r1', content: 'hello' })
       // Should not throw; no metric to check
     })
 
     it('agent:stream_done produces no metrics', () => {
-      bus.emit({ type: 'agent:stream_done', agentId: 'a1', runId: 'r1' })
+      bus.emit({ type: 'agent:stream_done', agentId: 'a1', runId: 'r1', finalContent: 'hello' })
       // Should not throw; no metric to check
     })
   })
@@ -613,7 +620,7 @@ describe('OTelBridge extended', () => {
         type: 'agent:failed',
         agentId: 'a1',
         runId: 'r1',
-        errorCode: 'ERR',
+        errorCode: 'PROVIDER_TIMEOUT',
         message: 'fail',
       })
 
