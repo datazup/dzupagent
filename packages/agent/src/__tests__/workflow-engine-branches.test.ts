@@ -34,45 +34,25 @@ function step(
   fn: (
     state: Record<string, unknown>,
     ctx?: WorkflowContext,
-  ) => Record<string, unknown> | void,
+  ) =>
+    | Record<string, unknown>
+    | void
+    | Promise<Record<string, unknown> | void>,
 ): WorkflowStep {
   return {
     id,
+    // `fn` is awaited before the `?? {}` fallback is applied. Most callers here
+    // are async (they await barriers and delays to exercise real parallelism),
+    // and an un-awaited call returns a Promise — which is never nullish, so a
+    // step that resolved to nothing would slip past the fallback as `undefined`
+    // instead of the empty state object the sequential path produces.
     execute: async (input, ctx) =>
-      (fn(input as Record<string, unknown>, ctx) ?? {}) as Record<
-        string,
-        unknown
-      >,
+      (await fn(input as Record<string, unknown>, ctx)) ?? {},
   };
 }
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function collectEvents(
-  wf: ReturnType<typeof createWorkflow> extends infer W
-    ? W extends { build(): infer C }
-      ? C
-      : never
-    : never,
-  initialState: Record<string, unknown> = {},
-  opts?: { signal?: AbortSignal },
-): Promise<{
-  result: Record<string, unknown> | null;
-  events: WorkflowEvent[];
-  error: Error | null;
-}> {
-  const events: WorkflowEvent[] = [];
-  try {
-    const result = await wf.run(initialState, {
-      ...opts,
-      onEvent: (e) => events.push(e),
-    });
-    return { result, events, error: null };
-  } catch (err) {
-    return { result: null, events, error: err as Error };
-  }
 }
 
 // ===========================================================================
@@ -197,8 +177,6 @@ describe("parallel branch execution", () => {
       ])
       .build();
 
-    await collectEvents(wf.run ? wf : wf);
-    // Re-collect properly
     const evts: WorkflowEvent[] = [];
     await wf.run({}, { onEvent: (e) => evts.push(e) });
 
