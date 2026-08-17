@@ -8,11 +8,18 @@ import type { AgentHooks, HookContext } from "./hook-types.js";
  * Each hook is called in order. If a hook throws, the error is caught
  * and emitted via the event bus (if provided). Subsequent hooks still run.
  *
+ * Hook return values are awaited and then discarded, so the parameter accepts
+ * `Promise<unknown>` rather than `Promise<void>`. That is what makes the
+ * documented `runHooks(mergeHooks(...).someKey, ...)` composition typecheck
+ * without a cast — `mergeHooks` produces `Promise<unknown>` entries.
+ *
  * For hooks that can modify values (beforeToolCall, afterToolCall),
  * use `runModifierHook()` instead.
  */
 export async function runHooks(
-  hooks: Array<((...args: never[]) => Promise<void>) | undefined> | undefined,
+  hooks:
+    | Array<((...args: never[]) => Promise<unknown>) | undefined>
+    | undefined,
   eventBus: DzupEventBus | undefined,
   hookName: string,
   ...args: unknown[]
@@ -21,7 +28,7 @@ export async function runHooks(
   for (const hook of hooks) {
     if (!hook) continue;
     try {
-      await (hook as (...a: unknown[]) => Promise<void>)(...args);
+      await (hook as (...a: unknown[]) => Promise<unknown>)(...args);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       eventBus?.emit({ type: "hook:error", hookName, message });

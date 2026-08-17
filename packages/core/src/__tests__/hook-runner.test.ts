@@ -213,6 +213,111 @@ describe("mergeHooks", () => {
   });
 });
 
+describe("mergeHooks + runHooks composition", () => {
+  // The `mergeHooks` JSDoc promises "each hook key becomes an array; `runHooks`
+  // iterates them all". These tests exercise that exact composition with NO
+  // cast between the two exports — a cast here would prove nothing, because the
+  // whole point is that the two signatures line up.
+  type ToolHooks = {
+    beforeToolCall: (toolName: string) => Promise<unknown>;
+    afterToolCall: (toolName: string) => Promise<unknown>;
+  };
+
+  it("feeds a mergeHooks() result straight into runHooks() with no cast", async () => {
+    const order: string[] = [];
+    // Value-returning hooks: mergeHooks admits `Promise<unknown>`, and runHooks
+    // discards return values, so this is the honest shape of a merged hook.
+    const before1 = vi.fn(async (toolName: string) => {
+      order.push(`before1:${toolName}`);
+      return "replacement-input";
+    });
+    const before2 = vi.fn(async (toolName: string) => {
+      order.push(`before2:${toolName}`);
+    });
+    const after1 = vi.fn(async (toolName: string) => {
+      order.push(`after1:${toolName}`);
+      return 42;
+    });
+
+    const merged = mergeHooks<ToolHooks>(
+      { beforeToolCall: before1, afterToolCall: after1 },
+      { beforeToolCall: before2 }
+    );
+
+    await runHooks(
+      merged.beforeToolCall,
+      undefined,
+      "beforeToolCall",
+      "git_status"
+    );
+    await runHooks(
+      merged.afterToolCall,
+      undefined,
+      "afterToolCall",
+      "git_status"
+    );
+
+    // Assert the fixtures actually fired — not merely that nothing threw.
+    expect(before1).toHaveBeenCalledTimes(1);
+    expect(before2).toHaveBeenCalledTimes(1);
+    expect(after1).toHaveBeenCalledTimes(1);
+    expect(before1).toHaveBeenCalledWith("git_status");
+    expect(before2).toHaveBeenCalledWith("git_status");
+    expect(after1).toHaveBeenCalledWith("git_status");
+    expect(order).toEqual([
+      "before1:git_status",
+      "before2:git_status",
+      "after1:git_status",
+    ]);
+  });
+
+  it("keeps error isolation across a merged hook array", async () => {
+    const bus = createEventBus();
+    const events: DzupEvent[] = [];
+    bus.onAny((event) => {
+      events.push(event);
+    });
+
+    const order: string[] = [];
+    const boom = vi.fn(async (toolName: string) => {
+      order.push(`boom:${toolName}`);
+      throw new Error("merged hook exploded");
+    });
+    const survivor = vi.fn(async (toolName: string) => {
+      order.push(`survivor:${toolName}`);
+      return "still ran";
+    });
+
+    const merged = mergeHooks<ToolHooks>(
+      { beforeToolCall: boom },
+      { beforeToolCall: survivor }
+    );
+
+    await runHooks(merged.beforeToolCall, bus, "beforeToolCall", "write_file");
+
+    expect(order).toEqual(["boom:write_file", "survivor:write_file"]);
+    expect(boom).toHaveBeenCalledTimes(1);
+    expect(survivor).toHaveBeenCalledTimes(1);
+    expect(events).toHaveLength(1);
+    const hookError = events[0] as Extract<DzupEvent, { type: "hook:error" }>;
+    expect(hookError.hookName).toBe("beforeToolCall");
+    expect(hookError.message).toBe("merged hook exploded");
+  });
+
+  it("accepts an absent merged key (undefined) without running anything", async () => {
+    const only = vi.fn(async (toolName: string) => {
+      return toolName;
+    });
+    const merged = mergeHooks<ToolHooks>({ beforeToolCall: only });
+
+    // `afterToolCall` was never contributed, so it is `undefined` — runHooks
+    // must accept that directly off the Partial<Record<...>>.
+    await runHooks(merged.afterToolCall, undefined, "afterToolCall", "noop");
+
+    expect(only).not.toHaveBeenCalled();
+  });
+});
+
 describe("runBeforeModelCall", () => {
   it("replaces messages when a hook returns a new array", async () => {
     const original: BaseMessage[] = [new HumanMessage("hi")];
