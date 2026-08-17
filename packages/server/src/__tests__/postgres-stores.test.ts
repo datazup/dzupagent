@@ -4,11 +4,16 @@
  * API. No real database connection is required.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import type { Mock } from 'vitest'
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import {
   PostgresRunStore,
   PostgresAgentStore,
 } from '../persistence/postgres-stores.js'
 import type { AgentExecutionSpec, LogEntry } from '@dzupagent/core'
+
+/** Mirrors the private `DB` alias in ../persistence/postgres-stores.ts. */
+type DB = PostgresJsDatabase<Record<string, never>>
 
 // ---------------------------------------------------------------------------
 // Chainable Drizzle mock
@@ -27,7 +32,46 @@ function isTerminal<T>(v: unknown): v is Terminal<T> {
   return typeof v === 'object' && v !== null && 'thenValue' in (v as object)
 }
 
-function makeChain(terminal: unknown, onCall?: (fnName: string, args: unknown[]) => void): object {
+/**
+ * The chain node the Proxy stands in for: every builder method the stores call
+ * returns another node, and the node itself is awaitable. A Proxy cannot be
+ * proven structurally, so {@link makeChain} carries the one assertion.
+ */
+interface MockChain extends PromiseLike<unknown[]> {
+  from(table: unknown): MockChain
+  where(condition: unknown): MockChain
+  orderBy(...expressions: unknown[]): MockChain
+  limit(limit: number): MockChain
+  offset(offset: number): MockChain
+  values(values: unknown): MockChain
+  set(values: unknown): MockChain
+  returning(selection?: unknown): MockChain
+  onConflictDoNothing(config?: unknown): MockChain
+  onConflictDoUpdate(config: unknown): MockChain
+}
+
+type ChainMock = Mock<(...args: unknown[]) => MockChain>
+
+/** The query-builder subset of `DB` that these two stores actually touch. */
+interface MockDb {
+  select: ChainMock
+  selectDistinct: ChainMock
+  insert: ChainMock
+  update: ChainMock
+  delete: ChainMock
+}
+
+/**
+ * Widen the mock to the driver type the stores declare. `DB` is the full
+ * postgres-js `PostgresJsDatabase`, whose remaining ~15 members (`_`, `query`,
+ * `$with`, `$count`, transaction plumbing, ...) are never reached by these
+ * stores, so there is nothing to complete — only a boundary to name.
+ */
+function asDb(db: MockDb): DB {
+  return db as unknown as DB
+}
+
+function makeChain(terminal: unknown, onCall?: (fnName: string, args: unknown[]) => void): MockChain {
   const seen: Record<string, unknown> = {}
   const handler: ProxyHandler<() => unknown> = {
     get(_target, prop: string) {
@@ -48,7 +92,7 @@ function makeChain(terminal: unknown, onCall?: (fnName: string, args: unknown[])
       return makeChain(terminal, onCall)
     },
   }
-  return new Proxy(function proxyFn() {}, handler)
+  return new Proxy(function proxyFn() {}, handler) as unknown as MockChain
 }
 
 /**
@@ -62,10 +106,10 @@ function buildMockDb(options: {
   updateRows?: unknown[]
   deleteRows?: unknown[]
   log?: Array<{ op: string; fn: string; args: unknown[] }>
-} = {}): object {
+} = {}): MockDb {
   const log = options.log ?? []
 
-  const makeOp = (op: string, rows: unknown[]) => {
+  const makeOp = (op: string, rows: unknown[]): MockChain => {
     const onCall = (fn: string, args: unknown[]): void => {
       log.push({ op, fn, args })
     }
@@ -73,11 +117,13 @@ function buildMockDb(options: {
   }
 
   return {
-    select: vi.fn(() => makeOp('select', options.selectRows ?? [])),
-    selectDistinct: vi.fn(() => makeOp('selectDistinct', options.selectRows ?? [])),
-    insert: vi.fn(() => makeOp('insert', options.insertRows ?? [])),
-    update: vi.fn(() => makeOp('update', options.updateRows ?? [])),
-    delete: vi.fn(() => makeOp('delete', options.deleteRows ?? [])),
+    select: vi.fn((..._args: unknown[]) => makeOp('select', options.selectRows ?? [])),
+    selectDistinct: vi.fn((..._args: unknown[]) =>
+      makeOp('selectDistinct', options.selectRows ?? []),
+    ),
+    insert: vi.fn((..._args: unknown[]) => makeOp('insert', options.insertRows ?? [])),
+    update: vi.fn((..._args: unknown[]) => makeOp('update', options.updateRows ?? [])),
+    delete: vi.fn((..._args: unknown[]) => makeOp('delete', options.deleteRows ?? [])),
   }
 }
 
@@ -104,7 +150,7 @@ describe('PostgresRunStore', () => {
         completedAt: null,
       }
       const db = buildMockDb({ insertRows: [mockRow] })
-      const store = new PostgresRunStore(db)
+      const store = new PostgresRunStore(asDb(db))
 
       const run = await store.create({ agentId: 'agent-1', input: { q: 'hello' } })
 
@@ -133,7 +179,7 @@ describe('PostgresRunStore', () => {
       }
       const log: Array<{ op: string; fn: string; args: unknown[] }> = []
       const db = buildMockDb({ insertRows: [mockRow], log })
-      const store = new PostgresRunStore(db)
+      const store = new PostgresRunStore(asDb(db))
 
       await store.create({ agentId: 'agent-2', input: 'raw input' })
 
@@ -153,7 +199,7 @@ describe('PostgresRunStore', () => {
       }
       const log: Array<{ op: string; fn: string; args: unknown[] }> = []
       const db = buildMockDb({ insertRows: [mockRow], log })
-      const store = new PostgresRunStore(db)
+      const store = new PostgresRunStore(asDb(db))
 
       await store.create({ agentId: 'a', input: null, metadata: { foo: 'bar' } })
 
@@ -166,7 +212,7 @@ describe('PostgresRunStore', () => {
   describe('update()', () => {
     it('issues no update when no fields are provided', async () => {
       const db = buildMockDb()
-      const store = new PostgresRunStore(db)
+      const store = new PostgresRunStore(asDb(db))
 
       await store.update('run-1', {})
 
@@ -176,7 +222,7 @@ describe('PostgresRunStore', () => {
     it('updates status field only when provided', async () => {
       const log: Array<{ op: string; fn: string; args: unknown[] }> = []
       const db = buildMockDb({ log })
-      const store = new PostgresRunStore(db)
+      const store = new PostgresRunStore(asDb(db))
 
       await store.update('run-1', { status: 'completed' })
 
@@ -189,7 +235,7 @@ describe('PostgresRunStore', () => {
     it('splits tokenUsage into tokenUsageInput + tokenUsageOutput', async () => {
       const log: Array<{ op: string; fn: string; args: unknown[] }> = []
       const db = buildMockDb({ log })
-      const store = new PostgresRunStore(db)
+      const store = new PostgresRunStore(asDb(db))
 
       await store.update('run-1', { tokenUsage: { input: 100, output: 50 } })
 
@@ -202,7 +248,7 @@ describe('PostgresRunStore', () => {
     it('propagates error, plan, output, costCents, completedAt, metadata', async () => {
       const log: Array<{ op: string; fn: string; args: unknown[] }> = []
       const db = buildMockDb({ log })
-      const store = new PostgresRunStore(db)
+      const store = new PostgresRunStore(asDb(db))
       const completedAt = new Date('2026-04-02')
 
       await store.update('run-9', {
@@ -236,7 +282,7 @@ describe('PostgresRunStore', () => {
         completedAt: new Date('2026-04-02'),
       }
       const db = buildMockDb({ selectRows: [row] })
-      const store = new PostgresRunStore(db)
+      const store = new PostgresRunStore(asDb(db))
 
       const run = await store.get('run-7')
 
@@ -249,7 +295,7 @@ describe('PostgresRunStore', () => {
 
     it('returns null when no row is found', async () => {
       const db = buildMockDb({ selectRows: [] })
-      const store = new PostgresRunStore(db)
+      const store = new PostgresRunStore(asDb(db))
 
       const run = await store.get('missing')
 
@@ -263,7 +309,7 @@ describe('PostgresRunStore', () => {
         error: null, metadata: null, startedAt: new Date(), completedAt: null,
       }
       const db = buildMockDb({ selectRows: [row] })
-      const store = new PostgresRunStore(db)
+      const store = new PostgresRunStore(asDb(db))
 
       const run = await store.get('r')
 
@@ -274,7 +320,7 @@ describe('PostgresRunStore', () => {
   describe('list()', () => {
     it('returns an empty array when no rows exist', async () => {
       const db = buildMockDb({ selectRows: [] })
-      const store = new PostgresRunStore(db)
+      const store = new PostgresRunStore(asDb(db))
 
       const runs = await store.list()
 
@@ -287,7 +333,7 @@ describe('PostgresRunStore', () => {
         { id: 'b', agentId: 'ag', status: 'failed', input: null, output: null, plan: null, tokenUsageInput: 0, tokenUsageOutput: 0, costCents: null, error: 'boom', metadata: null, startedAt: new Date(), completedAt: null },
       ]
       const db = buildMockDb({ selectRows: rows })
-      const store = new PostgresRunStore(db)
+      const store = new PostgresRunStore(asDb(db))
 
       const runs = await store.list()
 
@@ -299,7 +345,7 @@ describe('PostgresRunStore', () => {
     it('applies limit and offset from filter', async () => {
       const log: Array<{ op: string; fn: string; args: unknown[] }> = []
       const db = buildMockDb({ selectRows: [], log })
-      const store = new PostgresRunStore(db)
+      const store = new PostgresRunStore(asDb(db))
 
       await store.list({ limit: 5, offset: 10 })
 
@@ -312,7 +358,7 @@ describe('PostgresRunStore', () => {
     it('defaults to limit=50 offset=0 when not provided', async () => {
       const log: Array<{ op: string; fn: string; args: unknown[] }> = []
       const db = buildMockDb({ selectRows: [], log })
-      const store = new PostgresRunStore(db)
+      const store = new PostgresRunStore(asDb(db))
 
       await store.list()
 
@@ -324,7 +370,7 @@ describe('PostgresRunStore', () => {
 
     it('applies agentId and status filters via where clause', async () => {
       const db = buildMockDb({ selectRows: [] })
-      const store = new PostgresRunStore(db)
+      const store = new PostgresRunStore(asDb(db))
 
       await store.list({ agentId: 'a1', status: 'running' })
 
@@ -337,7 +383,7 @@ describe('PostgresRunStore', () => {
     it('inserts a single log entry', async () => {
       const log: Array<{ op: string; fn: string; args: unknown[] }> = []
       const db = buildMockDb({ log })
-      const store = new PostgresRunStore(db)
+      const store = new PostgresRunStore(asDb(db))
       const entry: LogEntry = { level: 'info', message: 'hi' }
 
       await store.addLog('r1', entry)
@@ -355,7 +401,7 @@ describe('PostgresRunStore', () => {
     it('uses provided timestamp and phase when supplied', async () => {
       const log: Array<{ op: string; fn: string; args: unknown[] }> = []
       const db = buildMockDb({ log })
-      const store = new PostgresRunStore(db)
+      const store = new PostgresRunStore(asDb(db))
       const ts = new Date('2026-01-01')
 
       await store.addLog('r1', { level: 'error', message: 'boom', phase: 'plan', timestamp: ts })
@@ -369,7 +415,7 @@ describe('PostgresRunStore', () => {
   describe('addLogs()', () => {
     it('no-ops when the input array is empty', async () => {
       const db = buildMockDb()
-      const store = new PostgresRunStore(db)
+      const store = new PostgresRunStore(asDb(db))
 
       await store.addLogs('r1', [])
 
@@ -379,7 +425,7 @@ describe('PostgresRunStore', () => {
     it('inserts all entries in a single call', async () => {
       const log: Array<{ op: string; fn: string; args: unknown[] }> = []
       const db = buildMockDb({ log })
-      const store = new PostgresRunStore(db)
+      const store = new PostgresRunStore(asDb(db))
 
       await store.addLogs('r1', [
         { level: 'info', message: 'a' },
@@ -397,7 +443,7 @@ describe('PostgresRunStore', () => {
   describe('getLogs()', () => {
     it('returns an empty array when no logs exist', async () => {
       const db = buildMockDb({ selectRows: [] })
-      const store = new PostgresRunStore(db)
+      const store = new PostgresRunStore(asDb(db))
 
       expect(await store.getLogs('r1')).toEqual([])
     })
@@ -410,7 +456,7 @@ describe('PostgresRunStore', () => {
           { level: 'error', phase: null, message: 'bad', data: null, timestamp: now },
         ],
       })
-      const store = new PostgresRunStore(db)
+      const store = new PostgresRunStore(asDb(db))
 
       const logs = await store.getLogs('r1')
 
@@ -437,7 +483,7 @@ describe('PostgresAgentStore', () => {
   describe('save()', () => {
     it('inserts a new agent when no row exists', async () => {
       const db = buildMockDb({ selectRows: [] })
-      const store = new PostgresAgentStore(db)
+      const store = new PostgresAgentStore(asDb(db))
 
       await store.save(baseAgent)
 
@@ -454,7 +500,7 @@ describe('PostgresAgentStore', () => {
       }
       const log: Array<{ op: string; fn: string; args: unknown[] }> = []
       const db = buildMockDb({ selectRows: [existing], log })
-      const store = new PostgresAgentStore(db)
+      const store = new PostgresAgentStore(asDb(db))
 
       await store.save(baseAgent)
 
@@ -467,7 +513,7 @@ describe('PostgresAgentStore', () => {
     it('defaults tools, metadata, approval, active when omitted in input', async () => {
       const log: Array<{ op: string; fn: string; args: unknown[] }> = []
       const db = buildMockDb({ selectRows: [], log })
-      const store = new PostgresAgentStore(db)
+      const store = new PostgresAgentStore(asDb(db))
 
       await store.save(baseAgent)
 
@@ -489,7 +535,7 @@ describe('PostgresAgentStore', () => {
       }
       const log: Array<{ op: string; fn: string; args: unknown[] }> = []
       const db = buildMockDb({ selectRows: [existing], log })
-      const store = new PostgresAgentStore(db)
+      const store = new PostgresAgentStore(asDb(db))
 
       await store.save(baseAgent)
 
@@ -508,7 +554,7 @@ describe('PostgresAgentStore', () => {
         createdAt: new Date(), updatedAt: new Date(),
       }
       const db = buildMockDb({ selectRows: [row] })
-      const store = new PostgresAgentStore(db)
+      const store = new PostgresAgentStore(asDb(db))
 
       const agent = await store.get('a1')
 
@@ -521,7 +567,7 @@ describe('PostgresAgentStore', () => {
 
     it('returns null when no row is found', async () => {
       const db = buildMockDb({ selectRows: [] })
-      const store = new PostgresAgentStore(db)
+      const store = new PostgresAgentStore(asDb(db))
 
       expect(await store.get('missing')).toBeNull()
     })
@@ -531,7 +577,7 @@ describe('PostgresAgentStore', () => {
     it('defaults limit to 100', async () => {
       const log: Array<{ op: string; fn: string; args: unknown[] }> = []
       const db = buildMockDb({ selectRows: [], log })
-      const store = new PostgresAgentStore(db)
+      const store = new PostgresAgentStore(asDb(db))
 
       await store.list()
 
@@ -542,7 +588,7 @@ describe('PostgresAgentStore', () => {
     it('respects filter.limit and filter.active', async () => {
       const log: Array<{ op: string; fn: string; args: unknown[] }> = []
       const db = buildMockDb({ selectRows: [], log })
-      const store = new PostgresAgentStore(db)
+      const store = new PostgresAgentStore(asDb(db))
 
       await store.list({ limit: 5, active: false })
 
@@ -558,7 +604,7 @@ describe('PostgresAgentStore', () => {
         createdAt: new Date(), updatedAt: new Date(),
       }
       const db = buildMockDb({ selectRows: [row] })
-      const store = new PostgresAgentStore(db)
+      const store = new PostgresAgentStore(asDb(db))
 
       const agents = await store.list()
 
@@ -571,7 +617,7 @@ describe('PostgresAgentStore', () => {
     it('performs a soft delete by setting active=false', async () => {
       const log: Array<{ op: string; fn: string; args: unknown[] }> = []
       const db = buildMockDb({ log })
-      const store = new PostgresAgentStore(db)
+      const store = new PostgresAgentStore(asDb(db))
 
       await store.delete('a1')
 
