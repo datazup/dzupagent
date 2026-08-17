@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
 import { CommunityDetector } from '../retrieval/community-detector.js'
-import type { CommunityDetectorConfig } from '../retrieval/community-detector.js'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 
 // ---------------------------------------------------------------------------

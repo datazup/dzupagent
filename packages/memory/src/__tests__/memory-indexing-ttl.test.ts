@@ -13,7 +13,7 @@
  *  - TemporalMemoryService expiry and active filtering
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { MemoryPruner } from "../memory-pruner.js";
 import type {
   ConsolidationStore,

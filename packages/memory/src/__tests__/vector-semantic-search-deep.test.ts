@@ -11,7 +11,7 @@
  * All embedding calls are mocked — no real embedding APIs are invoked.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { StoreVectorSearch } from "../retrieval/vector-search.js";
 import { VectorStoreSearch } from "../retrieval/vector-store-search.js";
 import {

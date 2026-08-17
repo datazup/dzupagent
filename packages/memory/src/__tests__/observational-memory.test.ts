@@ -829,11 +829,12 @@ describe('ObservationalMemory', () => {
       memoryService.put.mockRejectedValue(new Error('write failed'))
       sut = createOM({ observerThreshold: 1 })
 
-      // This should not throw — the outer try/catch in observe() handles it
+      // persistObservation awaits provenanceWriter.put unguarded, so the
+      // rejection propagates out of runObserver to observe()'s try/catch.
+      // The write failure is therefore total, not partial: no ObserverResult
+      // is returned and nothing is reported as persisted.
       const result = await sut.observe(makeMessages(2))
-      // It either returns null (caught) or partial result
-      // The key assertion is no uncaught exception
-      expect(true).toBe(true)
+      expect(result).toBeNull()
     })
 
     it('should return empty array from getObservations() on error', async () => {

@@ -12,7 +12,7 @@
  *   - Memory read/write through linked transport round-trips
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { WebSocketSyncTransport } from "../sync/ws-transport.js";
 import type { WebSocketLike } from "../sync/ws-transport.js";
 import { SyncProtocol } from "../sync/sync-protocol.js";

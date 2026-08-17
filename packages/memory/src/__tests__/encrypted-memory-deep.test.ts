@@ -19,7 +19,7 @@
  * conversion, record shaping), so a spy's call log is the correct assertion
  * surface and a stateful store would add nothing. The no-blind-memory-mock
  * warning keys on a missing `getKeyed`, which cannot apply to this contract. */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { randomBytes } from "node:crypto";
 import { memoryServiceToClient } from "../memory-service-adapter.js";
 import type { MemoryServiceLike } from "../memory-service-adapter.js";

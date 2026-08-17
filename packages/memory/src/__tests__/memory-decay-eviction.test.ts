@@ -11,7 +11,7 @@
  *   - Edge cases (capacity=0, malformed decay meta, etc.)
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   calculateStrength,
   reinforceMemory,

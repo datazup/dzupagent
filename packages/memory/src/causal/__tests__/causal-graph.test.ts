@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { CausalGraph } from '../causal-graph.js'
-import type { CausalRelation } from '../types.js'
 import type { MemoryService } from '../../memory-service.js'
 
 // ---------------------------------------------------------------------------

@@ -20,7 +20,7 @@
  *  - Trigger with empty memory set (no-op)
  *  - Post-consolidation state (memories merged/summarized correctly)
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   ConsolidationEngine,
   type ConsolidationStore,

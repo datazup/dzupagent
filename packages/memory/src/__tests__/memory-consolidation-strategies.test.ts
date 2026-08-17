@@ -23,7 +23,7 @@
  * No real database — all store operations use in-memory Map implementations.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { createMemoryHarness } from "../testing/index.js";
 import {
   consolidateNamespace,

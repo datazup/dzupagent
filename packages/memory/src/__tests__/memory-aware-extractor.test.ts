@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { HumanMessage, AIMessage } from '@langchain/core/messages'
 import { MemoryAwareExtractor } from '../memory-aware-extractor.js'
 import type { MemoryService } from '../memory-service.js'

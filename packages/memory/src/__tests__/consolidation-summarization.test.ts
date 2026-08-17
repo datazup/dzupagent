@@ -13,7 +13,7 @@
  * All mocks are local to this file; no live LLM calls, no network.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   ConsolidationEngine,
   type ConsolidationStore,

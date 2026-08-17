@@ -19,7 +19,7 @@
  *   8. onError receives the correct operation name string.
  */
 
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
   RedisReferenceTracker,
   createReferenceTracker,

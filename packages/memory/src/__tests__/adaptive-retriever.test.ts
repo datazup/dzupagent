@@ -3,8 +3,6 @@ import {
   AdaptiveRetriever,
   classifyIntent,
   DEFAULT_STRATEGIES,
-  type RetrievalProviders,
-  type QueryIntent,
   type RetrievalStrategy,
 } from '../retrieval/adaptive-retriever.js'
 

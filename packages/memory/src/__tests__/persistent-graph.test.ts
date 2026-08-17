@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { PersistentEntityGraph } from '../retrieval/persistent-graph.js'
-import type { EntityNode, GraphTraversalResult } from '../retrieval/persistent-graph.js'
 import type { BaseStore } from '@langchain/langgraph'
 
 // ---------------------------------------------------------------------------

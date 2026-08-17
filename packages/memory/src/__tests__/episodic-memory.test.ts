@@ -13,7 +13,7 @@
  *   - Serialization / deserialization
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   EpisodicMemory,
   type EpisodicEvent,
