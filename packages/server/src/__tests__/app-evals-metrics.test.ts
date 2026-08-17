@@ -24,7 +24,8 @@ function req(
   if (body !== undefined) {
     init.body = JSON.stringify(body)
   }
-  return app.request(path, init)
+  // Hono's `request` overload resolves to `Response | Promise<Response>`.
+  return Promise.resolve(app.request(path, init))
 }
 
 const exactMatchScorer: EvalScorer = {

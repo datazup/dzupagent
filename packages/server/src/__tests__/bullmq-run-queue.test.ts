@@ -6,13 +6,20 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { waitForCondition } from '@dzupagent/testing'
 
 // Mock bullmq module
-const mockAdd = vi.fn(async () => ({ id: 'bull-job-1' }))
+/** The bull job shape the adapter's worker callback reads (`bullJob.data`). */
+type BullJobLike = { data: unknown }
+type BullProcessor = (job: BullJobLike) => Promise<void>
+
+// Declare `add`'s real (name, data, opts) arity so `mock.calls[0]` is a tuple.
+const mockAdd = vi.fn(
+  async (_name: string, _data: unknown, _opts?: unknown) => ({ id: 'bull-job-1' }),
+)
 const mockGetJobCounts = vi.fn(async () => ({ waiting: 3, active: 1, completed: 10, failed: 2 }))
 const mockGetJobs = vi.fn(async () => [])
 const mockQueueClose = vi.fn(async () => {})
 const mockQueueObliterate = vi.fn(async () => {})
 
-const mockWorkerProcess = vi.fn()
+const mockWorkerProcess = vi.fn<BullProcessor>()
 const mockWorkerClose = vi.fn(async () => {})
 const mockWorkerOn = vi.fn()
 
@@ -24,7 +31,7 @@ vi.mock('bullmq', () => ({
     close: mockQueueClose,
     obliterate: mockQueueObliterate,
   })),
-  Worker: vi.fn().mockImplementation((_name: string, processor: Function) => {
+  Worker: vi.fn().mockImplementation((_name: string, processor: BullProcessor) => {
     mockWorkerProcess.mockImplementation(processor)
     return {
       close: mockWorkerClose,

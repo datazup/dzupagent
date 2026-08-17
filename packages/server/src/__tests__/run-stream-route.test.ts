@@ -443,7 +443,7 @@ describe('GET /api/runs/:id/stream — SSE integration', () => {
         type: 'agent:failed',
         agentId: 'agent-stream',
         runId,
-        errorCode: 'LLM_TIMEOUT',
+        errorCode: 'PROVIDER_TIMEOUT',
         message: 'LLM timed out',
       })
     }, 30)

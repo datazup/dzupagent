@@ -33,7 +33,10 @@ function makeAuthConfig(
 }
 
 function bearerGet(app: ReturnType<typeof createForgeApp>, path: string): Promise<Response> {
-  return app.request(path, { headers: { Authorization: 'Bearer tok' } })
+  // Hono's `request` overload resolves to `Response | Promise<Response>`.
+  return Promise.resolve(
+    app.request(path, { headers: { Authorization: 'Bearer tok' } }),
+  )
 }
 
 // ---------------------------------------------------------------------------

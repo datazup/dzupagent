@@ -239,7 +239,13 @@ describe('createWsControlHandler branch coverage', () => {
 
     ws.sent = []
     bus.emit({ type: 'tool:called', toolName: 't', input: {} })
-    bus.emit({ type: 'agent:failed', agentId: 'a1', runId: 'r1', errorCode: 'E', message: 'x' })
+    bus.emit({
+      type: 'agent:failed',
+      agentId: 'a1',
+      runId: 'r1',
+      errorCode: 'INTERNAL_ERROR',
+      message: 'x',
+    })
     await Promise.resolve()
 
     expect(ws.sent).toHaveLength(1)

@@ -37,10 +37,10 @@ describe('TracePrinter.formatEvent branch coverage', () => {
       type: 'agent:failed',
       agentId: 'a1',
       runId: 'r1',
-      errorCode: 'TIMEOUT',
+      errorCode: 'PROVIDER_TIMEOUT',
       message: 'boom',
     })
-    expect(line).toContain('error=TIMEOUT: boom')
+    expect(line).toContain('error=PROVIDER_TIMEOUT: boom')
   })
 
   it('formats tool:called', () => {
@@ -63,10 +63,10 @@ describe('TracePrinter.formatEvent branch coverage', () => {
     const line = format({
       type: 'tool:error',
       toolName: 'search',
-      errorCode: 'TOOL_INPUT_INVALID',
+      errorCode: 'TOOL_EXECUTION_FAILED',
       message: 'bad',
-    } as DzupEvent)
-    expect(line).toContain('error=TOOL_INPUT_INVALID: bad')
+    })
+    expect(line).toContain('error=TOOL_EXECUTION_FAILED: bad')
   })
 
   it('formats memory:written', () => {
@@ -162,7 +162,8 @@ describe('TracePrinter.formatEvent branch coverage', () => {
   })
 
   it('formats approval:requested', () => {
-    const line = format({ type: 'approval:requested', runId: 'r1', agentId: 'a1' } as DzupEvent)
+    // `plan` is required on approval:requested, so no cast is needed.
+    const line = format({ type: 'approval:requested', runId: 'r1', plan: null })
     expect(line).toContain('runId=r1')
   })
 

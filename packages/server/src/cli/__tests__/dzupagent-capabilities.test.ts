@@ -119,15 +119,15 @@ import { createProgram } from '../dzup.js'
 
 /** Returns the first-argument string from each console.log call so far. */
 function logLines(): string[] {
-  return (console.log as ReturnType<typeof vi.spyOn>).mock.calls.map(
-    (args: unknown[]) => String(args[0] ?? ''),
+  return vi.mocked(console.log).mock.calls.map(
+    (args) => String(args[0] ?? ''),
   )
 }
 
 /** Returns the first-argument string from each console.error call so far. */
 function errorLines(): string[] {
-  return (console.error as ReturnType<typeof vi.spyOn>).mock.calls.map(
-    (args: unknown[]) => String(args[0] ?? ''),
+  return vi.mocked(console.error).mock.calls.map(
+    (args) => String(args[0] ?? ''),
   )
 }
 
@@ -335,9 +335,11 @@ describe('dzupagent capabilities — action behaviour', () => {
 
   // 14. process.exit is not called when the skill is found successfully
   it('does not call process.exit on success', async () => {
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((_code?: number) => {
-      throw new Error(`process.exit called with code ${String(_code)}`)
-    })
+    const exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((_code?: number | string | null) => {
+        throw new Error(`process.exit called with code ${String(_code)}`)
+      })
 
     try {
       const program = createProgram()

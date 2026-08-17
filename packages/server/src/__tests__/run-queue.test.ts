@@ -312,7 +312,7 @@ describe("InMemoryRunQueue", () => {
     it("CODE-M-03: a second cancel() still locates a job that is mid-abort", async () => {
       queue = new InMemoryRunQueue({ concurrency: 1 });
 
-      let release: (() => void) | null = null;
+      let release: (() => void) | undefined;
       let jobStarted = false;
       queue.start(async () => {
         jobStarted = true;
