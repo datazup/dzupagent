@@ -103,6 +103,10 @@ export async function* handleStreamToolCalls(
       data: { name: toolCall.name, result: execution.eventResult },
     }
 
+    if (execution.securityBlocked) {
+      return { status: 'stop', stopReason: 'aborted' }
+    }
+
     if (execution.approvalPending) {
       return { status: 'stop', stopReason: 'approval_pending' }
     }

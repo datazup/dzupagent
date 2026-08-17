@@ -24,6 +24,8 @@ export interface ToolCallResult {
    * `stopReason === 'approval_pending'`.
    */
   approvalPending?: boolean
+  /** Public tool-result security policy blocked output; no next model turn. */
+  securityBlocked?: boolean
 }
 
 export type StatGetter = (

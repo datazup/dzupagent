@@ -11,62 +11,68 @@
 import type { GenerateOptions } from './agent-types.js'
 import type { StreamingToolPolicyOptions } from './run-engine.js'
 import type { StreamRunContext } from './streaming-run-types.js'
+import { projectToolResultSecurityPolicy } from './tool-result-security-policy.js'
 
 /**
  * Build a {@link StreamingToolPolicyOptions} from the agent's
- * `toolExecution` config and the active run options. Returns `undefined`
- * when the agent did not opt in to the public tool-execution surface so
- * the legacy "lite" executor behaviour is preserved bit-for-bit.
+ * `toolExecution` / `security` config and the active run options. Returns
+ * `undefined` when neither surface configures tool-result policy so the
+ * legacy "lite" executor behaviour is preserved bit-for-bit.
  */
 export function buildStreamingToolPolicy(
   ctx: StreamRunContext,
   options?: GenerateOptions,
 ): StreamingToolPolicyOptions | undefined {
   const toolExec = ctx.config.toolExecution
-  if (!toolExec) return undefined
+  const toolResultSecurityPolicy = projectToolResultSecurityPolicy(
+    ctx.config.security,
+  )
+  if (!toolExec && !toolResultSecurityPolicy) return undefined
 
-  const resolvedSafetyMonitor = toolExec.safetyMonitor ?? toolExec.resultScanner
+  const resolvedSafetyMonitor =
+    toolExec?.safetyMonitor ?? toolExec?.resultScanner
 
   return {
-    ...(toolExec.governance !== undefined
+    ...(toolResultSecurityPolicy ?? {}),
+    ...(toolExec?.governance !== undefined
       ? { toolGovernance: toolExec.governance }
       : {}),
-    ...(toolExec.permissionPolicy !== undefined
+    ...(toolExec?.permissionPolicy !== undefined
       ? { toolPermissionPolicy: toolExec.permissionPolicy }
       : {}),
-    ...(toolExec.argumentValidator !== undefined
+    ...(toolExec?.argumentValidator !== undefined
       ? { validateToolArgs: toolExec.argumentValidator }
       : {}),
-    ...(toolExec.timeouts !== undefined
+    ...(toolExec?.timeouts !== undefined
       ? { toolTimeouts: toolExec.timeouts }
       : {}),
     ...(resolvedSafetyMonitor !== undefined
       ? { safetyMonitor: resolvedSafetyMonitor }
       : {}),
-    ...(toolExec.scanToolResults !== undefined
+    ...(toolExec?.scanToolResults !== undefined
       ? { scanToolResults: toolExec.scanToolResults }
       : {}),
-    ...(toolExec.scanFailureMode !== undefined
+    ...(toolExec?.scanFailureMode !== undefined
       ? { scanFailureMode: toolExec.scanFailureMode }
       : {}),
     // MC-3 — forward the prompt-injection guardrail so stream() wraps tool
     // results identically to generate() (parity, MJ-AGENT-02).
-    ...(toolExec.promptInjectionGuard !== undefined
+    ...(toolExec?.promptInjectionGuard !== undefined
       ? { promptInjectionGuard: toolExec.promptInjectionGuard }
       : {}),
-    ...(toolExec.wrapToolResults !== undefined
+    ...(toolExec?.wrapToolResults !== undefined
       ? { wrapToolResults: toolExec.wrapToolResults }
       : {}),
-    ...(toolExec.tracer !== undefined ? { tracer: toolExec.tracer } : {}),
+    ...(toolExec?.tracer !== undefined ? { tracer: toolExec.tracer } : {}),
     // agentId / runId mirror the executeGenerateRun fallback: when
     // `toolExecution` is provided, fall back to the surrounding agent id
     // so canonical lifecycle events carry provenance.
-    agentId: toolExec.agentId ?? ctx.agentId,
-    ...(toolExec.runId !== undefined ? { runId: toolExec.runId } : {}),
+    agentId: toolExec?.agentId ?? ctx.agentId,
+    ...(toolExec?.runId !== undefined ? { runId: toolExec.runId } : {}),
     // Route policy/lifecycle events to the same bus the agent uses for
     // `tool:latency` / `llm:invoked`, only when `toolExecution` is
-    // configured (preserves the pre-MJ-AGENT-02 surface for unconfigured
-    // callers).
+    // configured (preserves the pre-MJ-AGENT-02 surface for callers with
+    // neither toolExecution nor tool-result security policy).
     ...(ctx.config.eventBus !== undefined
       ? { eventBus: ctx.config.eventBus }
       : {}),

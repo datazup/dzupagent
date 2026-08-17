@@ -36,16 +36,21 @@ import {
   openStreamWithProviderFailover,
   type StreamableModel,
 } from './streaming-run-provider.js'
+import { shouldWriteBackMemory } from './memory-write-back-policy.js'
+import { applyOutputFilter } from './run-engine.js'
 import type { StreamRunContext } from './streaming-run-types.js'
+import type { StopReason } from './tool-loop.js'
 
-export type StreamStopReason =
-  | 'complete'
-  | 'iteration_limit'
-  | 'budget_exceeded'
-  | 'aborted'
-  | 'stuck'
-  | 'approval_pending'
-  | 'token_exhausted'
+/**
+ * Native streaming throws model/runtime errors instead of finalizing them and
+ * does not currently produce the generate loop's compression-failure reason.
+ * Derive every other member from the canonical union so the stream surface
+ * cannot drift as a hand-maintained duplicate.
+ */
+export type StreamStopReason = Exclude<
+  StopReason,
+  'error' | 'compression_failed'
+>
 
 /**
  * Build the run-finalizer for the streaming coordinator. Captures the
@@ -60,8 +65,17 @@ export function createStreamRunFinalizer(args: {
   allMessages: BaseMessage[]
   toolStats: ToolStatTracker
   getLlmCalls: () => number
+  getPartialContent: () => string
 }): (stopReason: StreamStopReason, content?: string) => Promise<void> {
-  const { ctx, options, runState, allMessages, toolStats, getLlmCalls } = args
+  const {
+    ctx,
+    options,
+    runState,
+    allMessages,
+    toolStats,
+    getLlmCalls,
+    getPartialContent,
+  } = args
   return async (stopReason, content) => {
     if (stopReason === 'token_exhausted') {
       ctx.config.eventBus?.emit({
@@ -77,9 +91,13 @@ export function createStreamRunFinalizer(args: {
       toolStats: toolStats.toArray(),
     })
     await ctx.maybeUpdateSummary(allMessages, runState.memoryFrame)
-    if (stopReason === 'complete') {
+    if (shouldWriteBackMemory(stopReason)) {
       const runId = options?.runId ?? ctx.config.toolExecution?.runId
-      await ctx.maybeWriteBackMemory(content ?? '', runId)
+      const writeBackContent = content ?? await applyOutputFilter(
+        ctx.config,
+        getPartialContent(),
+      )
+      await ctx.maybeWriteBackMemory(writeBackContent, runId)
     }
   }
 }

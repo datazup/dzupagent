@@ -24,7 +24,10 @@ import type {
   AgentStreamEvent,
 } from "./agent-types.js";
 import type { AgentMiddlewareRuntime } from "./middleware-runtime.js";
-import type { StopReason } from "./tool-loop.js";
+import {
+  MEMORY_WRITE_BACK_BY_STOP_REASON,
+  shouldWriteBackMemory,
+} from "./memory-write-back-policy.js";
 import { streamRun } from "./streaming-run.js";
 import {
   executeGenerateRun,
@@ -97,25 +100,11 @@ function resolveStructuredOutputCapabilities(
  *    re-driven by an external resume path, so persisting here would double-write
  *    the same run once it resumes.
  *
- * KNOWN DIVERGENCE, deliberately not resolved in this lane: the streaming half
- * of this feature gates write-back on `stopReason === 'complete'` inline, in
- * `streaming-run-fallback.ts` and `streaming-run-iteration.ts`. Those files are
- * outside this lane's claim, so `stream()` currently keeps LESS partial work
- * than `generate()` on the three cut-short reasons. Reconciling them means
- * routing both consumers through THIS exported map -- never a second copy of
- * the literal, which is exactly how the original drift happened.
+ * The table lives in a cycle-free leaf module so generate(), the streaming
+ * fallback, and native streaming all consume the same decision. Re-export it
+ * here to preserve the module surface introduced with the original fix.
  */
-export const MEMORY_WRITE_BACK_BY_STOP_REASON: Record<StopReason, boolean> = {
-  complete: true,
-  iteration_limit: true,
-  budget_exceeded: true,
-  aborted: false,
-  error: false,
-  stuck: false,
-  token_exhausted: true,
-  compression_failed: false,
-  approval_pending: false,
-};
+export { MEMORY_WRITE_BACK_BY_STOP_REASON };
 
 /**
  * Dependency bundle for {@link runGenerate}, sourced from the owning
@@ -207,7 +196,7 @@ export async function runGenerate(
       })
     );
 
-    if (MEMORY_WRITE_BACK_BY_STOP_REASON[result.stopReason]) {
+    if (shouldWriteBackMemory(result.stopReason)) {
       const runId = deps.resolveMemoryRunId();
       await maybeWriteBackMemoryFinalizer({
         agentId: deps.agentId,

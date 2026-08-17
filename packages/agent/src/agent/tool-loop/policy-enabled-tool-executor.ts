@@ -97,7 +97,7 @@ export async function executePolicyEnabledToolCall(
       ? await config.transformToolResult(toolName, validatedArgs, rawResultStr)
       : rawResultStr;
 
-    const safetyOutcome = applySafetyScan(transformedStr, {
+    const safetyOutcome = await applySafetyScan(transformedStr, {
       toolName,
       toolCallId,
       validatedKeys,
@@ -107,7 +107,7 @@ export async function executePolicyEnabledToolCall(
       stat,
     });
     if (safetyOutcome.shortCircuit) {
-      return { message: safetyOutcome.shortCircuit.message };
+      return safetyOutcome.shortCircuit;
     }
     const resultStr = safetyOutcome.resultStr;
 

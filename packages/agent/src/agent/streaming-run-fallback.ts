@@ -20,6 +20,7 @@ import {
   type PreparedRunState,
 } from './run-engine.js'
 import { omitUndefined } from '../utils/exact-optional.js'
+import { shouldWriteBackMemory } from './memory-write-back-policy.js'
 import type { StreamRunContext } from './streaming-run-types.js'
 
 /**
@@ -48,7 +49,7 @@ export async function* runStreamFallback(
   if (result.content) {
     yield { type: 'text', data: { content: result.content } }
   }
-  if (result.stopReason === 'complete') {
+  if (shouldWriteBackMemory(result.stopReason)) {
     const runId = options?.runId ?? ctx.config.toolExecution?.runId
     await ctx.maybeWriteBackMemory(result.content, runId)
   }

@@ -102,7 +102,7 @@ async function scheduleSequential(
   for (let i = 0; i < toolCalls.length; i++) {
     const r = await execute(toolCalls[i]!, i)
     out.push(r)
-    if (r.approvalPending || r.stuckBreak) break
+    if (r.approvalPending || r.securityBlocked || r.stuckBreak) break
   }
   return out
 }
