@@ -10,10 +10,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 import { PipelineExecutor } from "../pipeline/pipeline-executor.js";
-import type {
-  PhaseConfig,
-  ExecutorConfig,
-} from "../pipeline/pipeline-executor.js";
+import type { PhaseConfig } from "../pipeline/pipeline-executor.js";
 import { GenPipelineBuilder } from "../pipeline/gen-pipeline-builder.js";
 // A real shipped dimension. The fixture previously passed the string
 // "correctness", which is neither a QualityDimension nor the name of any
@@ -46,14 +43,48 @@ function makePhase(
   return { id, name: id, execute, ...overrides };
 }
 
+/**
+ * A complete GuardrailContext.
+ *
+ * The fixtures here used to be `{ files: [] }`. GuardrailContext also requires
+ * projectStructure and conventions, and the omission survived because every
+ * engine in this file is a stub that returns a canned report without reading
+ * the context — a real GuardrailEngine dereferences both.
+ */
+function makeGuardrailContext(
+  files: GuardrailContext["files"] = []
+): GuardrailContext {
+  return {
+    files,
+    projectStructure: { packages: new Map(), rootDir: "/repo" },
+    conventions: {
+      fileNaming: "kebab-case",
+      exportNaming: {
+        classCase: "PascalCase",
+        functionCase: "camelCase",
+        constCase: "UPPER_SNAKE",
+      },
+      importStyle: { indexOnly: false, separateTypeImports: true },
+      requiredPatterns: [],
+    },
+  };
+}
+
 function makePassEngine(overrides?: Partial<GuardrailReport>): GuardrailEngine {
-  const report: GuardrailReport = {
+  const base: GuardrailReport = {
     violations: [],
     errorCount: 0,
     warningCount: 0,
     infoCount: 0,
+    totalViolations: 0,
+    ruleResults: new Map(),
+    passed: true,
     ...overrides,
   };
+  // GuardrailEngine derives passed from errorCount (guardrail-engine.ts:106).
+  // Deriving it here too stops an overridden errorCount from producing a report
+  // the real engine could never emit.
+  const report: GuardrailReport = { ...base, passed: base.errorCount === 0 };
   return { evaluate: () => report } as unknown as GuardrailEngine;
 }
 
@@ -64,12 +95,16 @@ function makeFailEngine(errorCount = 1): GuardrailEngine {
         severity: "error",
         file: "src/a.ts",
         message: "critical issue",
-        rule: "no-bad",
+        ruleId: "no-bad",
+        autoFixable: false,
       },
     ],
     errorCount,
     warningCount: 0,
     infoCount: 0,
+    totalViolations: 1,
+    ruleResults: new Map(),
+    passed: errorCount === 0,
   };
   return { evaluate: () => report } as unknown as GuardrailEngine;
 }
@@ -81,12 +116,16 @@ function makeWarnEngine(): GuardrailEngine {
         severity: "warning",
         file: "src/b.ts",
         message: "warning issue",
-        rule: "no-warn",
+        ruleId: "no-warn",
+        autoFixable: false,
       },
     ],
     errorCount: 0,
     warningCount: 1,
     infoCount: 0,
+    totalViolations: 1,
+    ruleResults: new Map(),
+    passed: true,
   };
   return { evaluate: () => report } as unknown as GuardrailEngine;
 }
@@ -691,9 +730,10 @@ describe("PipelineExecutor — guardrail gate integration", () => {
     const engine = makePassEngine();
     const ex = new PipelineExecutor({
       guardrailGate: { engine },
-      buildGuardrailContext: (_phaseId, state): GuardrailContext => ({
-        files: [{ path: "src/a.ts", content: String(state["content"] ?? "") }],
-      }),
+      buildGuardrailContext: (_phaseId, state): GuardrailContext =>
+        makeGuardrailContext([
+          { path: "src/a.ts", content: String(state["content"] ?? "") },
+        ]),
     });
     const result = await ex.execute(
       [makePhase("gen", async () => ({ content: "export const x = 1" }))],
@@ -707,9 +747,8 @@ describe("PipelineExecutor — guardrail gate integration", () => {
     const engine = makeFailEngine();
     const ex = new PipelineExecutor({
       guardrailGate: { engine },
-      buildGuardrailContext: (_phaseId, _state): GuardrailContext => ({
-        files: [{ path: "src/a.ts", content: "bad code" }],
-      }),
+      buildGuardrailContext: (_phaseId, _state): GuardrailContext =>
+        makeGuardrailContext([{ path: "src/a.ts", content: "bad code" }]),
     });
     const result = await ex.execute(
       [makePhase("gen", async () => ({ content: "bad code" }))],
@@ -723,9 +762,7 @@ describe("PipelineExecutor — guardrail gate integration", () => {
     const engine = makePassEngine();
     const ex = new PipelineExecutor({
       guardrailGate: { engine },
-      buildGuardrailContext: (): GuardrailContext => ({
-        files: [],
-      }),
+      buildGuardrailContext: (): GuardrailContext => makeGuardrailContext(),
     });
     const result = await ex.execute([makePhase("gen", async () => ({}))], {});
     const guardrailState = result.state["__phase_gen_guardrail"] as Record<
@@ -741,7 +778,7 @@ describe("PipelineExecutor — guardrail gate integration", () => {
     const engine = makeWarnEngine();
     const ex = new PipelineExecutor({
       guardrailGate: { engine, strictMode: true },
-      buildGuardrailContext: (): GuardrailContext => ({ files: [] }),
+      buildGuardrailContext: (): GuardrailContext => makeGuardrailContext(),
     });
     const result = await ex.execute([makePhase("gen", async () => ({}))], {});
     expect(result.status).toBe("failed");
@@ -751,7 +788,7 @@ describe("PipelineExecutor — guardrail gate integration", () => {
     const engine = makeWarnEngine();
     const ex = new PipelineExecutor({
       guardrailGate: { engine, strictMode: false },
-      buildGuardrailContext: (): GuardrailContext => ({ files: [] }),
+      buildGuardrailContext: (): GuardrailContext => makeGuardrailContext(),
     });
     const result = await ex.execute([makePhase("gen", async () => ({}))], {});
     expect(result.status).toBe("completed");
@@ -775,7 +812,7 @@ describe("PipelineExecutor — guardrail gate integration", () => {
 // ---------------------------------------------------------------------------
 
 describe("runGuardrailGate", () => {
-  const dummyContext: GuardrailContext = { files: [] };
+  const dummyContext: GuardrailContext = makeGuardrailContext();
 
   it("passes when errorCount is 0 (normal mode)", () => {
     const config: GuardrailGateConfig = { engine: makePassEngine() };
@@ -840,28 +877,28 @@ describe("runGuardrailGate", () => {
 describe("summarizeGateResult", () => {
   it("produces a PASSED summary when the gate passed", () => {
     const engine = makePassEngine();
-    const result = runGuardrailGate({ engine }, { files: [] });
+    const result = runGuardrailGate({ engine }, makeGuardrailContext());
     const summary = summarizeGateResult(result);
     expect(summary).toContain("PASSED");
   });
 
   it("produces a FAILED summary when the gate failed", () => {
     const engine = makeFailEngine();
-    const result = runGuardrailGate({ engine }, { files: [] });
+    const result = runGuardrailGate({ engine }, makeGuardrailContext());
     const summary = summarizeGateResult(result);
     expect(summary).toContain("FAILED");
   });
 
   it("includes error and warning counts in the summary", () => {
     const engine = makeFailEngine(2);
-    const result = runGuardrailGate({ engine }, { files: [] });
+    const result = runGuardrailGate({ engine }, makeGuardrailContext());
     const summary = summarizeGateResult(result);
     expect(summary).toContain("2 error");
   });
 
   it("lists violation details for failed gate", () => {
     const engine = makeFailEngine();
-    const result = runGuardrailGate({ engine }, { files: [] });
+    const result = runGuardrailGate({ engine }, makeGuardrailContext());
     const summary = summarizeGateResult(result);
     expect(summary).toContain("src/a.ts");
   });
