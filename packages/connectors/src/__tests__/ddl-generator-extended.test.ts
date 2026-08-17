@@ -19,7 +19,7 @@ function makeColumn(overrides: Partial<ColumnInfo> = {}): ColumnInfo {
     isPrimaryKey: false,
     defaultValue: null,
     description: null,
-    sampleValues: [],
+    maxLength: null,
     ...overrides,
   }
 }
@@ -30,7 +30,7 @@ function makeFK(overrides: Partial<ForeignKey> = {}): ForeignKey {
     columnName: 'user_id',
     referencedTable: 'users',
     referencedColumn: 'id',
-    referencedSchema: null,
+    referencedSchema: '',
     ...overrides,
   }
 }
@@ -41,8 +41,12 @@ function makeTable(overrides: Partial<TableSchema> = {}): TableSchema {
     schemaName: 'public',
     columns: [makeColumn()],
     foreignKeys: [],
-    rowCountEstimate: null,
+    rowCountEstimate: 0,
     description: null,
+    // Required by TableSchema and absent here: the stray `sampleValues` on the
+    // column literal above was the single error tsc reported per object, so it
+    // masked this omission for as long as it stood.
+    sampleValues: {},
     ...overrides,
   }
 }
