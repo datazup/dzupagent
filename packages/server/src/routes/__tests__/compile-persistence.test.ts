@@ -14,6 +14,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Hono } from 'hono'
 import { createCompileRoutes } from '../compile.js'
 import type { RunEventStore } from '@dzupagent/agent-adapters'
+import type * as FlowCompilerModule from '@dzupagent/flow-compiler'
+import type { DzupEventBus } from '@dzupagent/core'
 
 // ---------------------------------------------------------------------------
 // Mock flow-compiler
@@ -23,10 +25,22 @@ const mockCompile = vi.fn()
 
 // mockCreateFlowCompiler allows SSE tests to capture the eventBus option
 // injected by the SSE branch so they can emit synthetic lifecycle events.
-const mockCreateFlowCompiler = vi.fn(() => ({ compile: mockCompile }))
+/**
+ * The real `createFlowCompiler` takes exactly one `CompilerOptions` argument.
+ * Declaring it here — rather than leaving `vi.fn()` at zero parameters — is
+ * what lets `mock.calls[n]` be a tuple and `mockImplementationOnce` accept a
+ * callback that reads `cfg.eventBus`.
+ */
+type FlowCompilerOptions = Parameters<
+  typeof FlowCompilerModule.createFlowCompiler
+>[0]
+
+const mockCreateFlowCompiler = vi.fn((_opts: FlowCompilerOptions) => ({
+  compile: mockCompile,
+}))
 
 vi.mock('@dzupagent/flow-compiler', () => ({
-  createFlowCompiler: (...args: unknown[]) => mockCreateFlowCompiler(...args),
+  createFlowCompiler: (opts: FlowCompilerOptions) => mockCreateFlowCompiler(opts),
 }))
 
 // Mock spawn-compiler-bridge so we don't spin up subprocesses
@@ -246,11 +260,11 @@ describe('compile route — RunEventStore persistence', () => {
   it('SSE branch: calls appendArtifact once with correct runId on success', async () => {
     // Capture the eventBus injected into the compiler so we can emit synthetic
     // lifecycle events that drive the SSE drain loop to completion.
-    let capturedBus: { emit: (e: unknown) => void } | null = null
+    let capturedBus: DzupEventBus | null = null
     const TEST_RUN_ID = 'run-sse-42'
 
     mockCreateFlowCompiler.mockImplementationOnce(
-      (cfg: { eventBus?: typeof capturedBus }) => {
+      (cfg: FlowCompilerOptions) => {
         capturedBus = cfg.eventBus ?? null
         return {
           compile: vi.fn().mockImplementationOnce(async () => {
@@ -300,10 +314,10 @@ describe('compile route — RunEventStore persistence', () => {
   })
 
   it('SSE branch: does NOT call appendArtifact when compiler returns errors', async () => {
-    let capturedBus: { emit: (e: unknown) => void } | null = null
+    let capturedBus: DzupEventBus | null = null
 
     mockCreateFlowCompiler.mockImplementationOnce(
-      (cfg: { eventBus?: typeof capturedBus }) => {
+      (cfg: FlowCompilerOptions) => {
         capturedBus = cfg.eventBus ?? null
         return {
           compile: vi.fn().mockImplementationOnce(async () => {
@@ -342,10 +356,10 @@ describe('compile route — RunEventStore persistence', () => {
   })
 
   it('SSE branch: does NOT call appendArtifact when runId query param is missing', async () => {
-    let capturedBus: { emit: (e: unknown) => void } | null = null
+    let capturedBus: DzupEventBus | null = null
 
     mockCreateFlowCompiler.mockImplementationOnce(
-      (cfg: { eventBus?: typeof capturedBus }) => {
+      (cfg: FlowCompilerOptions) => {
         capturedBus = cfg.eventBus ?? null
         return {
           compile: vi.fn().mockImplementationOnce(async () => {
@@ -396,10 +410,10 @@ describe('SSE compile — X-Run-Id response header', () => {
   })
 
   it('sets X-Run-Id header when runId query param is provided', async () => {
-    let capturedBus: { emit: (e: unknown) => void } | null = null
+    let capturedBus: DzupEventBus | null = null
 
     mockCreateFlowCompiler.mockImplementationOnce(
-      (cfg: { eventBus?: typeof capturedBus }) => {
+      (cfg: FlowCompilerOptions) => {
         capturedBus = cfg.eventBus ?? null
         return {
           compile: vi.fn().mockImplementationOnce(async () => {
@@ -433,10 +447,10 @@ describe('SSE compile — X-Run-Id response header', () => {
   })
 
   it('does not set X-Run-Id header when runId is absent', async () => {
-    let capturedBus: { emit: (e: unknown) => void } | null = null
+    let capturedBus: DzupEventBus | null = null
 
     mockCreateFlowCompiler.mockImplementationOnce(
-      (cfg: { eventBus?: typeof capturedBus }) => {
+      (cfg: FlowCompilerOptions) => {
         capturedBus = cfg.eventBus ?? null
         return {
           compile: vi.fn().mockImplementationOnce(async () => {

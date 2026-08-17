@@ -32,13 +32,25 @@ import type { AppEnv } from '../types.js'
 // the compile outcome.
 // ---------------------------------------------------------------------------
 const mockCompile = vi.fn()
-const mockCreateFlowCompiler = vi.fn(() => ({ compile: mockCompile }))
+/**
+ * The real `createFlowCompiler` takes exactly one `CompilerOptions` argument.
+ * Declaring it here — rather than leaving `vi.fn()` at zero parameters — is
+ * what lets `mock.calls[n]` be a tuple and `mockImplementationOnce` accept a
+ * callback that reads `cfg.eventBus`.
+ */
+type FlowCompilerOptions = Parameters<
+  typeof FlowCompilerModule.createFlowCompiler
+>[0]
+
+const mockCreateFlowCompiler = vi.fn((_opts: FlowCompilerOptions) => ({
+  compile: mockCompile,
+}))
 
 vi.mock('@dzupagent/flow-compiler', async (importOriginal) => {
   const actual = await importOriginal<typeof FlowCompilerModule>()
   return {
     ...actual,
-    createFlowCompiler: (...args: unknown[]) => mockCreateFlowCompiler(...args),
+    createFlowCompiler: (opts: FlowCompilerOptions) => mockCreateFlowCompiler(opts),
   }
 })
 
