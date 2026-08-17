@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { SkillRegistryEntry } from '@dzupagent/core'
 
 import { SkillProjector } from '../skills/skill-projector.js'
-import type { SkillProjection, ProjectionOptions } from '../skills/skill-projector.js'
+import type { SkillProjection } from '../skills/skill-projector.js'
 import type { AdapterProviderId, AgentInput } from '../types.js'
 import type { AdapterSkillBundle } from '../skills/adapter-skill-types.js'
 

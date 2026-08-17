@@ -5,7 +5,6 @@ import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 import {
   ExecutionTraceCapture,
   AdapterRecoveryCopilot,
-  type RecoveryConfig,
 } from '../recovery/adapter-recovery.js'
 import {
   createCancelledRecoveryResult,

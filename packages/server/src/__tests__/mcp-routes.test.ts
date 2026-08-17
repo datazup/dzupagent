@@ -13,6 +13,7 @@ import {
   InMemoryMcpManager,
 } from "@dzupagent/core";
 import type { Hono } from "hono";
+import type { AppEnv } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -28,7 +29,12 @@ function createTestConfig(mcpManager?: InMemoryMcpManager): ForgeServerConfig {
   };
 }
 
-async function req(app: Hono, method: string, path: string, body?: unknown) {
+async function req(
+  app: Hono<AppEnv>,
+  method: string,
+  path: string,
+  body?: unknown
+) {
   const init: RequestInit = {
     method,
     headers: { "Content-Type": "application/json" },
@@ -42,7 +48,7 @@ async function req(app: Hono, method: string, path: string, body?: unknown) {
 // ---------------------------------------------------------------------------
 
 describe("MCP routes", () => {
-  let app: Hono;
+  let app: Hono<AppEnv>;
   let mcpManager: InMemoryMcpManager;
 
   beforeEach(() => {
@@ -479,6 +485,7 @@ describe("MCP routes", () => {
         id: "http-srv",
         transport: "http",
         endpoint: "https://93.184.216.34",
+        enabled: true,
       });
       const guardedApp = createForgeApp({
         ...createTestConfig(mcpManager),
@@ -498,6 +505,7 @@ describe("MCP routes", () => {
         id: "srv-change",
         transport: "http",
         endpoint: "https://93.184.216.34",
+        enabled: true,
       });
       const guardedApp = createForgeApp({
         ...createTestConfig(mcpManager),
@@ -522,6 +530,7 @@ describe("MCP routes", () => {
         id: "srv-ok",
         transport: "http",
         endpoint: "https://93.184.216.34",
+        enabled: true,
       });
       const guardedApp = createForgeApp({
         ...createTestConfig(mcpManager),
@@ -544,6 +553,7 @@ describe("MCP routes", () => {
         id: "stdio-srv",
         transport: "stdio",
         endpoint: "npx",
+        enabled: true,
       });
       const guardedApp = createForgeApp({
         ...createTestConfig(mcpManager),
@@ -565,6 +575,7 @@ describe("MCP routes", () => {
         id: "stdio-safe",
         transport: "stdio",
         endpoint: "npx",
+        enabled: true,
       });
       const guardedApp = createForgeApp({
         ...createTestConfig(mcpManager),
@@ -654,6 +665,7 @@ describe("MCP routes", () => {
         transport: "stdio",
         endpoint: "node",
         args: ["./server.js"],
+        enabled: true,
       });
       const guardedApp = createForgeApp({
         ...createTestConfig(mcpManager),

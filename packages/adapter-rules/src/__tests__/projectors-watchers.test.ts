@@ -9,13 +9,17 @@ import type { AdapterRule, CompileContext, WatcherRegistration } from '../types.
 function rule(
   partial: Partial<AdapterRule> & { id: string; appliesToProviders: string[] },
 ): AdapterRule {
+  // Spread first: the defaults below must win over an explicitly-passed
+  // `undefined`. With `...partial` last, `rule({ id, appliesToProviders, effects: undefined })`
+  // overwrote `effects: []` with `undefined` — TS2783 flagged only
+  // `appliesToProviders` because it is the one key the signature proves present.
   return {
+    ...partial,
     name: partial.name ?? partial.id,
     scope: partial.scope ?? 'project',
     appliesToProviders: partial.appliesToProviders,
     match: partial.match,
     effects: partial.effects ?? [],
-    ...partial,
   }
 }
 

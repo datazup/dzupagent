@@ -183,12 +183,17 @@ describe('WebScraper - scrapeMany edge cases', () => {
   it('batches URLs according to concurrency setting', async () => {
     const scraper = new WebScraper({ mode: 'http' })
     const callOrder: number[] = []
-    let batchCount = 0
+    let maxConcurrent = 0
+    let current = 0
 
     wireUpMocks(scraper, {
       httpFetch: vi.fn().mockImplementation(async (url: string) => {
         const idx = parseInt(url.split('/').pop()!, 10)
         callOrder.push(idx)
+        current++
+        maxConcurrent = Math.max(maxConcurrent, current)
+        await new Promise((r) => setTimeout(r, 5))
+        current--
         return { ...baseResult, url }
       }),
     })
@@ -196,8 +201,12 @@ describe('WebScraper - scrapeMany edge cases', () => {
     const urls = Array.from({ length: 7 }, (_, i) => `https://example.com/${i}`)
     await scraper.scrapeMany(urls, { concurrency: 3 })
 
-    // 7 URLs with concurrency 3 → 3 batches: [0,1,2], [3,4,5], [6]
+    // 7 URLs with concurrency 3 → 3 batches: [0,1,2], [3,4,5], [6].
+    // Peak in-flight is the only observation that distinguishes batching from
+    // either extreme: `toHaveLength(7)` alone passes whether scrapeMany runs all
+    // seven at once or strictly serially, which is why the count is not enough.
     expect(callOrder).toHaveLength(7)
+    expect(maxConcurrent).toBe(3)
   })
 
   it('default concurrency is 5', async () => {

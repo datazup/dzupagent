@@ -12,7 +12,6 @@ import type { DzupEventBus } from '@dzupagent/core'
 
 import {
   defineWorkflow,
-  AdapterWorkflow,
   typedStep,
 } from '../workflow/adapter-workflow.js'
 import type { AdapterWorkflowEvent } from '../workflow/adapter-workflow.js'

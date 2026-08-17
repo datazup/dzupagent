@@ -250,7 +250,7 @@ beforeEach(() => {
         }
         return { ok: true, url: parsed, resolvedAddresses: [] }
       },
-      mcpToolToLangChain: (descriptor: MCPToolDescriptor, client: unknown) => {
+      mcpToolToLangChain: (descriptor: MCPToolDescriptor, _client: unknown) => {
         // client is the proxy instance, but we use mockClient directly
         return mockMcpToolToLangChain(descriptor, mockClient)
       },
@@ -283,7 +283,7 @@ describe('MCP integration with tool-resolver', { timeout: 120_000 }, () => {
       )
 
       expect(result.tools).toHaveLength(1)
-      expect(result.tools[0].name).toBe('echo')
+      expect(result.tools[0]!.name).toBe('echo')
       expect(result.warnings.every(w => !w.includes('failed to connect'))).toBe(true)
     })
 
@@ -362,7 +362,7 @@ describe('MCP integration with tool-resolver', { timeout: 120_000 }, () => {
 
       // Only alpha's tools should be discovered; beta should not even connect
       expect(result.tools).toHaveLength(1)
-      expect(result.tools[0].name).toBe('alpha_tool')
+      expect(result.tools[0]!.name).toBe('alpha_tool')
     })
 
     it('filters tools by specific tool name (mcp:server-name:tool-name)', async () => {
@@ -383,7 +383,7 @@ describe('MCP integration with tool-resolver', { timeout: 120_000 }, () => {
       )
 
       expect(result.tools).toHaveLength(1)
-      expect(result.tools[0].name).toBe('wanted')
+      expect(result.tools[0]!.name).toBe('wanted')
     })
 
     it('handles server with no tools', async () => {
@@ -415,8 +415,8 @@ describe('MCP integration with tool-resolver', { timeout: 120_000 }, () => {
 
       // MockMCPClient.getEagerTools respects maxEagerTools
       expect(result.tools).toHaveLength(2)
-      expect(result.tools[0].name).toBe('tool_0')
-      expect(result.tools[1].name).toBe('tool_1')
+      expect(result.tools[0]!.name).toBe('tool_0')
+      expect(result.tools[1]!.name).toBe('tool_1')
     })
   })
 
@@ -443,7 +443,7 @@ describe('MCP integration with tool-resolver', { timeout: 120_000 }, () => {
       )
 
       expect(result.tools).toHaveLength(1)
-      const greetTool = result.tools[0]
+      const greetTool = result.tools[0]!
 
       // Actually invoke the tool — it should route to MockMcpServer
       const output = await greetTool.invoke({ name: 'World' })
@@ -466,12 +466,12 @@ describe('MCP integration with tool-resolver', { timeout: 120_000 }, () => {
         makeContext(['mcp:arg-srv'], [{ id: 'arg-srv', url: 'http://mock:8000' }]),
       )
 
-      const calcTool = result.tools[0]
+      const calcTool = result.tools[0]!
       await calcTool.invoke({ a: 10, b: 20 })
 
       expect(server.callHistory).toHaveLength(1)
-      expect(server.callHistory[0].tool).toBe('calc')
-      expect(server.callHistory[0].args).toEqual({ a: 10, b: 20 })
+      expect(server.callHistory[0]!.tool).toBe('calc')
+      expect(server.callHistory[0]!.args).toEqual({ a: 10, b: 20 })
     })
 
     it('handles tool execution errors', async () => {
@@ -491,7 +491,7 @@ describe('MCP integration with tool-resolver', { timeout: 120_000 }, () => {
         makeContext(['mcp:err-srv'], [{ id: 'err-srv', url: 'http://mock:8000' }]),
       )
 
-      const failTool = result.tools[0]
+      const failTool = result.tools[0]!
       const output = await failTool.invoke({})
       expect(output).toContain('Error')
       expect(output).toContain('Something went wrong')
@@ -554,7 +554,7 @@ describe('MCP integration with tool-resolver', { timeout: 120_000 }, () => {
 
       // Should still get tools from the good server
       expect(result.tools).toHaveLength(1)
-      expect(result.tools[0].name).toBe('good_tool')
+      expect(result.tools[0]!.name).toBe('good_tool')
       // Should warn about the bad server
       expect(result.warnings.some(w => w.includes('bad') && w.includes('failed to connect'))).toBe(true)
     })
@@ -624,7 +624,7 @@ describe('MCP integration with tool-resolver', { timeout: 120_000 }, () => {
         makeContext(['mcp:lc-srv'], [{ id: 'lc-srv', url: 'http://mock:8000' }]),
       )
 
-      const lcTool = result.tools[0]
+      const lcTool = result.tools[0]!
       // StructuredToolInterface shape checks
       expect(lcTool.name).toBe('my_tool')
       expect(typeof lcTool.description).toBe('string')
@@ -646,7 +646,7 @@ describe('MCP integration with tool-resolver', { timeout: 120_000 }, () => {
         makeContext(['mcp:desc-srv'], [{ id: 'desc-srv', url: 'http://mock:8000' }]),
       )
 
-      expect(result.tools[0].description).toBe('A tool that does something very specific and important')
+      expect(result.tools[0]!.description).toBe('A tool that does something very specific and important')
     })
 
     it('schema properties are correctly mapped', async () => {
@@ -665,7 +665,7 @@ describe('MCP integration with tool-resolver', { timeout: 120_000 }, () => {
         makeContext(['mcp:schema-srv'], [{ id: 'schema-srv', url: 'http://mock:8000' }]),
       )
 
-      const lcTool = result.tools[0]
+      const lcTool = result.tools[0]!
       // The schema should be a Zod object schema
       expect(lcTool.schema).toBeDefined()
       // Tool should be invocable with matching args
@@ -810,7 +810,7 @@ describe('MCP integration with tool-resolver', { timeout: 120_000 }, () => {
       // Only one tool with that name
       const matching = result.tools.filter(t => t.name === 'shared_name')
       expect(matching).toHaveLength(1)
-      expect(matching[0].description).toBe('Custom override of MCP tool')
+      expect(matching[0]!.description).toBe('Custom override of MCP tool')
 
       const activated = result.activated.find(a => a.name === 'shared_name')
       expect(activated?.source).toBe('custom')
@@ -878,7 +878,7 @@ describe('MCP integration with tool-resolver', { timeout: 120_000 }, () => {
       )
 
       expect(result.tools).toHaveLength(1)
-      expect(result.tools[0].name).toBe('allowed_private_tool')
+      expect(result.tools[0]!.name).toBe('allowed_private_tool')
     })
 
     it('bare mcp token resolves all servers', async () => {
@@ -893,7 +893,7 @@ describe('MCP integration with tool-resolver', { timeout: 120_000 }, () => {
       )
 
       expect(result.tools).toHaveLength(1)
-      expect(result.tools[0].name).toBe('bare_tool')
+      expect(result.tools[0]!.name).toBe('bare_tool')
       expect(result.unresolved).not.toContain('mcp')
     })
   })
@@ -926,7 +926,7 @@ describe('MCP integration with tool-resolver', { timeout: 120_000 }, () => {
 
       // Only target's tools
       expect(result.tools).toHaveLength(1)
-      expect(result.tools[0].name).toBe('t1')
+      expect(result.tools[0]!.name).toBe('t1')
     })
 
     it('mcp:server:tool filters to exactly one tool on one server', async () => {
@@ -947,7 +947,7 @@ describe('MCP integration with tool-resolver', { timeout: 120_000 }, () => {
       )
 
       expect(result.tools).toHaveLength(1)
-      expect(result.tools[0].name).toBe('keep')
+      expect(result.tools[0]!.name).toBe('keep')
     })
 
     it('multiple mcp patterns combine results', async () => {

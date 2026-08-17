@@ -5,7 +5,6 @@ import type { DzupEvent, DzupEventBus } from "@dzupagent/core";
 import {
   AdapterApprovalGate,
   type ApprovalContext,
-  type ApprovalMode,
 } from "../approval/adapter-approval.js";
 import type { AdapterProviderId, AgentEvent } from "../types.js";
 import { collectEvents } from "./test-helpers.js";

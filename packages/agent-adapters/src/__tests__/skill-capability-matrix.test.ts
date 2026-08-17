@@ -4,7 +4,6 @@ import type { AdapterSkillBundle } from '../skills/adapter-skill-types.js'
 import { createDefaultSkillRegistry, AdapterSkillRegistry } from '../skills/adapter-skill-registry.js'
 import {
   SkillCapabilityMatrixBuilder,
-  type SkillCapabilityMatrix,
   type ProviderCapabilityRow,
 } from '../skills/skill-capability-matrix.js'
 

@@ -4,7 +4,6 @@ import {
   withMemoryEnrichment,
   withHierarchicalMemoryEnrichment,
   type MemoryServiceLike,
-  type HierarchicalMemoryEnrichmentOptions,
 } from "../middleware/memory-enrichment.js";
 import type { AgentCLIAdapter, AgentEvent, AgentInput } from "../types.js";
 

@@ -45,51 +45,51 @@ describe('applyHubDampening', () => {
     const results = [makeResult('a', 1.0)]
     const dampened = applyHubDampening(results)
     // log2(2 + 0) = log2(2) = 1.0
-    expect(dampened[0].score).toBeCloseTo(1.0, 5)
-    expect(dampened[0].dampeningFactor).toBeCloseTo(1.0, 5)
-    expect(dampened[0].originalScore).toBe(1.0)
-    expect(dampened[0].accessCount).toBe(0)
+    expect(dampened[0]!.score).toBeCloseTo(1.0, 5)
+    expect(dampened[0]!.dampeningFactor).toBeCloseTo(1.0, 5)
+    expect(dampened[0]!.originalScore).toBe(1.0)
+    expect(dampened[0]!.accessCount).toBe(0)
   })
 
   it('dampens 1-access memory correctly', () => {
     const results = [makeResult('a', 1.0, { _decay: { accessCount: 1 } })]
     const dampened = applyHubDampening(results)
     // log2(2 + 1) = log2(3) ~ 1.585
-    expect(dampened[0].dampeningFactor).toBeCloseTo(Math.log2(3), 3)
-    expect(dampened[0].score).toBeCloseTo(1.0 / Math.log2(3), 3)
+    expect(dampened[0]!.dampeningFactor).toBeCloseTo(Math.log2(3), 3)
+    expect(dampened[0]!.score).toBeCloseTo(1.0 / Math.log2(3), 3)
   })
 
   it('dampens 5-access memory correctly', () => {
     const results = [makeResult('a', 1.0, { _accessCount: 5 })]
     const dampened = applyHubDampening(results)
     // log2(2 + 5) = log2(7) ~ 2.807
-    expect(dampened[0].dampeningFactor).toBeCloseTo(Math.log2(7), 3)
-    expect(dampened[0].score).toBeCloseTo(1.0 / Math.log2(7), 3)
+    expect(dampened[0]!.dampeningFactor).toBeCloseTo(Math.log2(7), 3)
+    expect(dampened[0]!.score).toBeCloseTo(1.0 / Math.log2(7), 3)
   })
 
   it('dampens 10-access memory correctly', () => {
     const results = [makeResult('a', 1.0, { _decay: { accessCount: 10 } })]
     const dampened = applyHubDampening(results)
     // log2(12) ~ 3.585
-    expect(dampened[0].dampeningFactor).toBeCloseTo(Math.log2(12), 3)
-    expect(dampened[0].score).toBeCloseTo(1.0 / Math.log2(12), 3)
+    expect(dampened[0]!.dampeningFactor).toBeCloseTo(Math.log2(12), 3)
+    expect(dampened[0]!.score).toBeCloseTo(1.0 / Math.log2(12), 3)
   })
 
   it('dampens 50-access memory correctly', () => {
     const results = [makeResult('a', 1.0, { _decay: { accessCount: 50 } })]
     const dampened = applyHubDampening(results)
     // log2(52) ~ 5.700
-    expect(dampened[0].dampeningFactor).toBeCloseTo(Math.log2(52), 3)
-    expect(dampened[0].score).toBeCloseTo(1.0 / Math.log2(52), 3)
+    expect(dampened[0]!.dampeningFactor).toBeCloseTo(Math.log2(52), 3)
+    expect(dampened[0]!.score).toBeCloseTo(1.0 / Math.log2(52), 3)
   })
 
   it('preserves original score and value in output', () => {
     const value = { text: 'hello', _accessCount: 3 }
     const results = [makeResult('k1', 0.9, value)]
     const dampened = applyHubDampening(results)
-    expect(dampened[0].originalScore).toBe(0.9)
-    expect(dampened[0].key).toBe('k1')
-    expect(dampened[0].value).toBe(value)
+    expect(dampened[0]!.originalScore).toBe(0.9)
+    expect(dampened[0]!.key).toBe('k1')
+    expect(dampened[0]!.value).toBe(value)
   })
 
   it('handles multiple results and preserves input order', () => {
@@ -100,9 +100,9 @@ describe('applyHubDampening', () => {
     const dampened = applyHubDampening(results)
     expect(dampened).toHaveLength(2)
     // low: 0.5 / 1.0 = 0.5
-    expect(dampened[0].score).toBeCloseTo(0.5, 5)
+    expect(dampened[0]!.score).toBeCloseTo(0.5, 5)
     // high: 0.9 / log2(52) ~ 0.158
-    expect(dampened[1].score).toBeCloseTo(0.9 / Math.log2(52), 3)
+    expect(dampened[1]!.score).toBeCloseTo(0.9 / Math.log2(52), 3)
   })
 
   it('dampened scores can re-order results (hub node drops below less-accessed node)', () => {
@@ -115,11 +115,11 @@ describe('applyHubDampening', () => {
     const dampened = applyHubDampening(results)
     // hub: 0.8 / log2(52) ~ 0.140
     // fresh: 0.5 / 1.0 = 0.5
-    expect(dampened[0].score).toBeLessThan(dampened[1].score)
+    expect(dampened[0]!.score).toBeLessThan(dampened[1]!.score)
     // Caller can re-sort by dampened score:
     const sorted = [...dampened].sort((a, b) => b.score - a.score)
-    expect(sorted[0].key).toBe('fresh')
-    expect(sorted[1].key).toBe('hub')
+    expect(sorted[0]!.key).toBe('fresh')
+    expect(sorted[1]!.key).toBe('hub')
   })
 
   it('returns empty array for empty input', () => {
@@ -131,15 +131,15 @@ describe('applyHubDampening', () => {
       const cfg: HubDampeningConfig = { minAccessCount: 5 }
       const results = [makeResult('a', 1.0, { _accessCount: 3 })]
       const dampened = applyHubDampening(results, cfg)
-      expect(dampened[0].score).toBe(1.0)
-      expect(dampened[0].dampeningFactor).toBe(1)
+      expect(dampened[0]!.score).toBe(1.0)
+      expect(dampened[0]!.dampeningFactor).toBe(1)
     })
 
     it('applies dampening when accessCount >= minAccessCount', () => {
       const cfg: HubDampeningConfig = { minAccessCount: 5 }
       const results = [makeResult('a', 1.0, { _accessCount: 5 })]
       const dampened = applyHubDampening(results, cfg)
-      expect(dampened[0].dampeningFactor).toBeCloseTo(Math.log2(7), 3)
+      expect(dampened[0]!.dampeningFactor).toBeCloseTo(Math.log2(7), 3)
     })
   })
 
@@ -149,8 +149,8 @@ describe('applyHubDampening', () => {
       const results = [makeResult('a', 1.0, { _accessCount: 8 })]
       const dampened = applyHubDampening(results, cfg)
       // log10(2 + 8) = log10(10) = 1.0
-      expect(dampened[0].dampeningFactor).toBeCloseTo(1.0, 5)
-      expect(dampened[0].score).toBeCloseTo(1.0, 5)
+      expect(dampened[0]!.dampeningFactor).toBeCloseTo(1.0, 5)
+      expect(dampened[0]!.score).toBeCloseTo(1.0, 5)
     })
 
     it('uses custom offset', () => {
@@ -158,8 +158,8 @@ describe('applyHubDampening', () => {
       const results = [makeResult('a', 1.0, { _accessCount: 0 })]
       const dampened = applyHubDampening(results, cfg)
       // log2(4 + 0) = log2(4) = 2.0
-      expect(dampened[0].dampeningFactor).toBeCloseTo(2.0, 5)
-      expect(dampened[0].score).toBeCloseTo(0.5, 5)
+      expect(dampened[0]!.dampeningFactor).toBeCloseTo(2.0, 5)
+      expect(dampened[0]!.score).toBeCloseTo(0.5, 5)
     })
   })
 })

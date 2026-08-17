@@ -9,7 +9,7 @@ import { ForgeError } from '@dzupagent/core/events'
 import { CodexAdapter } from '../codex/codex-adapter.js'
 import { CodexCliAdapter } from '../codex/codex-cli-adapter.js'
 import { createCodexBackendAdapter } from '../codex/codex-backend.js'
-import type { AgentInput, AgentStreamEvent } from '../types.js'
+import type { AgentStreamEvent } from '../types.js'
 
 function createChild(): ChildProcess & { stdout: PassThrough; stderr: PassThrough; stdin: PassThrough } {
   const child = new EventEmitter() as ChildProcess & {

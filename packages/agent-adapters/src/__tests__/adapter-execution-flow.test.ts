@@ -15,12 +15,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { collectEvents } from './test-helpers.js'
 import type {
   AgentEvent,
-  AgentInput,
-  AgentCompletedEvent,
-  AgentMessageEvent,
-  AgentStartedEvent,
-  AgentFailedEvent,
-  TokenUsage,
 } from '../types.js'
 
 // ---------------------------------------------------------------------------

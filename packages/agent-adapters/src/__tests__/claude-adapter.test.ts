@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ForgeError } from '@dzupagent/core'
 import { collectEvents } from './test-helpers.js'
-import type { AgentEvent, AgentInput } from '../types.js'
+import type { AgentEvent } from '../types.js'
 
 // ---------------------------------------------------------------------------
 // SDK mock setup

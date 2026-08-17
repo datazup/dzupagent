@@ -21,6 +21,20 @@ vi.mock('puppeteer-extra', () => {
   }
 })
 
+/**
+ * The shape the mock above installs — not the shape the real package declares.
+ *
+ * `puppeteer-extra` is CommonJS, so TS types the dynamic-import namespace's
+ * `.default` as the whole `module.exports` (`typeof import('puppeteer-extra')`),
+ * which carries neither `use` nor `launch`. `browser-pool.ts` unwraps that at
+ * runtime with `pExtra.default ?? pExtra` and the factory above returns the
+ * already-unwrapped shape, so the accesses below are right at runtime and only
+ * the static type disagrees. Assert the mocked shape rather than widening to `any`.
+ */
+type MockedPuppeteerExtra = {
+  default: { use: ReturnType<typeof vi.fn>; launch: ReturnType<typeof vi.fn> }
+}
+
 vi.mock('puppeteer-extra-plugin-stealth', () => {
   return {
     default: vi.fn(() => ({})),
@@ -463,10 +477,10 @@ describe('BrowserPool - puppeteer not installed error path', () => {
 
   it('throws descriptive error when both puppeteer-extra and puppeteer imports fail', async () => {
     const pool = new BrowserPool({ stealth: true, maxConcurrency: 1 })
-    const puppeteerExtra = await import('puppeteer-extra')
+    const puppeteerExtra = (await import('puppeteer-extra')) as unknown as MockedPuppeteerExtra
     const puppeteer = await import('puppeteer')
 
-    ;(puppeteerExtra.default.use as ReturnType<typeof vi.fn>).mockImplementation(() => {
+    puppeteerExtra.default.use.mockImplementation(() => {
       throw new Error('puppeteer-extra use failed')
     })
     ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockImplementation(() => {

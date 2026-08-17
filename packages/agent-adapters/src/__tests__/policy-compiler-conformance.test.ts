@@ -6,7 +6,6 @@ import {
 } from '../policy/policy-compiler.js'
 import type {
   AdapterPolicy,
-  CompiledPolicyOverrides,
 } from '../policy/policy-compiler.js'
 import { PolicyConformanceChecker } from '../policy/policy-conformance.js'
 import type { AdapterProviderId } from '../types.js'

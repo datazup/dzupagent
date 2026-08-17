@@ -1,9 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { wireProject } from '../bridge.js'
-import type { WireBridgeResult } from '../bridge.js'
 import { generateProject } from '../generator.js'
 import type { ProjectConfig } from '../types.js'
 
@@ -265,9 +264,13 @@ describe('wireProject error handling', () => {
   })
 
   it('error field contains a message when wiring fails', async () => {
-    // Force an error by mocking the dynamic import to fail
-    const originalImport = globalThis.import
-    // We test this indirectly: if agent-adapters is present, success=true with no error
+    // ⚠️ This asserts a property of BOTH branches, so it cannot fail on the
+    // behaviour its name describes — it never forces wiring to fail. Doing so
+    // deterministically means making `loadAgentAdapters` (bridge.ts:135) throw,
+    // which needs `vi.doMock('@dzupagent/agent-adapters/dzupagent')` plus
+    // `vi.resetModules()` — `vi.mock` is hoisted file-wide and would break the
+    // sibling tests that need the real module. Left as-is deliberately; the
+    // abandoned `globalThis.import` capture that used to sit here was dead code.
     const projectDir = join(tempDir, 'err-project')
     await mkdir(projectDir, { recursive: true })
 

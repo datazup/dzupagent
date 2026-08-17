@@ -1,11 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { createEventBus } from '@dzupagent/core'
 import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 import { CostOptimizationEngine } from '../middleware/cost-optimization.js'
 import type {
   ProviderPerformanceRecord,
-  CostOptimizationConfig,
 } from '../middleware/cost-optimization.js'
 import type {
   AdapterProviderId,

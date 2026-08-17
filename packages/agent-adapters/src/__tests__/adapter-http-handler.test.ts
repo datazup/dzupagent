@@ -10,7 +10,6 @@ import {
   type HttpResponse,
   type HttpStreamResponse,
   type AdapterApprovalGate as HttpApprovalGate,
-  type AdapterHttpConfig,
 } from "../http/adapter-http-handler.js";
 import type { OrchestratorFacade } from "../facade/orchestrator-facade.js";
 import { StreamingHandler } from "../streaming/streaming-handler.js";

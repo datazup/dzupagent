@@ -3,7 +3,6 @@ import { ForgeError } from '@dzupagent/core'
 
 import {
   AdapterRecoveryCopilot,
-  type RecoveryConfig,
 } from '../recovery/adapter-recovery.js'
 import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {

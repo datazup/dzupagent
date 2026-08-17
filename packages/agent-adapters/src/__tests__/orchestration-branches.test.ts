@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import { createEventBus, ForgeError } from '@dzupagent/core'
+import { createEventBus } from '@dzupagent/core'
 import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 import {
@@ -25,7 +25,6 @@ import {
   StaticBidStrategy,
 } from '../orchestration/contract-net.js'
 import type {
-  Bid,
   BidStrategy,
 } from '../orchestration/contract-net.js'
 import {
@@ -34,7 +33,6 @@ import {
 } from '../orchestration/supervisor.js'
 import type {
   SubTask,
-  TaskDecomposer,
 } from '../orchestration/supervisor.js'
 import { ParallelExecutor } from '../orchestration/parallel-executor.js'
 import type { ProviderResult } from '../orchestration/parallel-executor.js'

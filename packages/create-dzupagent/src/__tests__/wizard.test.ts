@@ -290,8 +290,8 @@ describe('runWizard — custom flow', () => {
     expect(capturedValidate).toBeDefined()
     // validateProjectName returns an error string → validate returns error string
     expect(capturedValidate!('Invalid Name')).toBe('Name must be lowercase')
-    // validateProjectName returns undefined → validate returns true
-    vi.mocked(validateProjectName).mockReturnValue(undefined)
+    // validateProjectName returns null (its documented "valid" value) → validate returns true
+    vi.mocked(validateProjectName).mockReturnValue(null)
     expect(capturedValidate!('valid-name')).toBe(true)
   })
 })

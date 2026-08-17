@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { createEventBus } from '@dzupagent/core'
 import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
@@ -11,13 +11,10 @@ import type {
   Chunker,
   MapperFn,
   ReducerFn,
-  MapChunkResult,
 } from '../orchestration/map-reduce.js'
 import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
-  AgentCLIAdapter,
-  AgentEvent,
   AgentInput,
   TaskDescriptor,
 } from '../types.js'

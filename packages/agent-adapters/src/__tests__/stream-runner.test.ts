@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { AdapterStreamRunner } from '../base/stream-runner.js'
 import type { AdapterStreamSource, StreamContext } from '../base/stream-runner.js'
 import type { AgentEvent, AgentInput } from '../types.js'

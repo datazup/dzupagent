@@ -18,7 +18,6 @@ import {
 } from '../orchestration/map-reduce.js'
 import type {
   MapperFn,
-  ReducerFn,
 } from '../orchestration/map-reduce.js'
 import {
   ContractNetOrchestrator,

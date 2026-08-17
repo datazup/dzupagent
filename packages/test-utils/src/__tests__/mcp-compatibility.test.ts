@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, vi } from 'vitest'
+import { beforeEach, expect, vi } from 'vitest'
 import { describeMcpPublisherCompatibilitySuite } from '../mcp-compatibility.js'
 
 type FakeResponse = {

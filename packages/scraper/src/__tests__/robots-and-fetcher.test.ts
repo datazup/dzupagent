@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { HttpFetcher, RobotsDisallowedError } from '../http-fetcher.js'
 
 function makeResponse(body: string, init?: { status?: number; headers?: Record<string, string>; url?: string }): Response {
