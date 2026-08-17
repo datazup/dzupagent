@@ -40,18 +40,22 @@ interface MockPrunerStore extends ConsolidationStore {
   deleteCalls: Array<[string[], string]>;
 }
 
+// `createdAt` admits `string`: MemoryPruner's coerceWrapperTimestamp takes
+// Date | string | number and Date.parse()es strings, and the "by-string" case
+// below exercises exactly that branch. The narrower Date | number made a
+// supported input untypeable.
 function makePrunerStore(
   records: Array<{
     key: string;
     value: Record<string, unknown>;
-    createdAt?: Date | number;
+    createdAt?: Date | string | number;
   }> = []
 ): MockPrunerStore {
   const data = new Map<string, Record<string, unknown>>();
   const itemsWithMeta: Array<{
     key: string;
     value: Record<string, unknown>;
-    createdAt?: Date | number;
+    createdAt?: Date | string | number;
   }> = [];
   for (const r of records) {
     data.set(r.key, r.value);

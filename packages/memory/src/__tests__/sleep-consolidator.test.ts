@@ -111,10 +111,26 @@ describe('SleepConsolidator', () => {
       expect(report.totalLLMCalls).toBe(0)
     })
 
-    it('should default to all phases', () => {
+    it('should default to all phases', async () => {
+      const store = createMockStore([{ key: 'r1', value: { text: 'hello' } }])
       const consolidator = new SleepConsolidator(createConfig())
-      // We test indirectly via the report
-      // The phasesRun should include all 4
+
+      // Previously this test had NO assertion at all — it constructed a
+      // consolidator and stopped, with a comment claiming "phasesRun should
+      // include all 4". There are seven phases, so the comment was stale as
+      // well as unasserted. Asserted in order, since phasesRun mirrors the
+      // ALL_PHASES default the run executes in.
+      const report = await consolidator.run(store, [['test', 'ns']])
+      const allPhases: SleepPhase[] = [
+        'dedup',
+        'decay-prune',
+        'contradiction-resolve',
+        'heal',
+        'lesson-dedup',
+        'convention-extract',
+        'staleness-prune',
+      ]
+      expect(report.phasesRun).toEqual(allPhases)
     })
   })
 
@@ -502,7 +518,6 @@ describe('SleepConsolidator', () => {
 
     it('should fall back to standard path when Arrow import fails', async () => {
       // We mock the dynamic import to fail
-      const originalImport = vi.fn()
       vi.mock('@dzupagent/memory-ipc', () => {
         throw new Error('Module not found')
       })

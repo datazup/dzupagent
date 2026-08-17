@@ -41,7 +41,7 @@ describe("ERR-L-04 — skill-pack loader failure telemetry", () => {
     const store = {
       // meta get (isPackLoaded) -> not loaded, entry puts, meta put
       get: vi.fn().mockResolvedValue(undefined),
-      put: vi.fn().mockImplementation((ns: string[], key: string) => {
+      put: vi.fn().mockImplementation((_ns: string[], _key: string) => {
         // fail the first ENTRY write (skill namespace), succeed the rest incl. meta
         call++;
         if (call === 1) return Promise.reject(new Error("entry boom"));
@@ -69,7 +69,7 @@ describe("ERR-L-04 — skill-pack loader failure telemetry", () => {
   it("logs when the metadata write rejects", async () => {
     const store = {
       get: vi.fn().mockResolvedValue(undefined),
-      put: vi.fn().mockImplementation((ns: string[]) => {
+      put: vi.fn().mockImplementation((_ns: string[]) => {
         // fail only the meta write (namespace ends with packs-meta marker) — detect by 3rd call
         return Promise.resolve();
       }),

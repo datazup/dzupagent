@@ -44,10 +44,10 @@ function makeSpace(
     name: "Space One",
     owner: "forge://agent/owner",
     participants: [],
-    conflictResolution: "last-write-wins",
+    conflictResolution: "lww",
     createdAt: new Date(0).toISOString(),
     ...(retentionPolicy ? { retentionPolicy } : {}),
-  } as SharedMemorySpace;
+  };
 }
 
 /** A record old enough that any positive `maxAgeMs` prunes it. */

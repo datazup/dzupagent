@@ -25,7 +25,6 @@ import type { StoreQueryOptions } from "../store-factory.js";
 import type { BaseStore } from "@langchain/langgraph";
 import {
   AdaptiveRetriever,
-  WeightLearner,
   type RetrievalWeights,
 } from "../retrieval/adaptive-retriever.js";
 import { ProviderHealthTracker } from "../retrieval/adaptive-retriever-health.js";

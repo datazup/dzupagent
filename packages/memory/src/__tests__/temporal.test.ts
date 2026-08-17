@@ -7,7 +7,7 @@ import {
   filterByTemporal,
   TemporalMemoryService,
 } from '../temporal.js'
-import type { TemporalMetadata, TemporalQuery } from '../temporal.js'
+import type { TemporalMetadata } from '../temporal.js'
 import type { MemoryService } from '../memory-service.js'
 
 // ---------------------------------------------------------------------------

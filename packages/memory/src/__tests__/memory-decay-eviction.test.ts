@@ -1155,7 +1155,8 @@ describe("pruneStaleMemoriesWithGraph — causal graph integration", () => {
     const result = await pruneStaleMemoriesWithGraph(entries, {
       maxStaleness: 30,
       now,
-      causalGraph: { removeNode } as NonNullable<
+      // Partial double: pruneStaleMemoriesWithGraph only calls removeNode().
+      causalGraph: { removeNode } as unknown as NonNullable<
         Parameters<typeof pruneStaleMemoriesWithGraph>[1]
       >["causalGraph"],
       causalNamespace: "default",

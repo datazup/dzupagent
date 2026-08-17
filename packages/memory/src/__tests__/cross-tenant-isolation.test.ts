@@ -825,7 +825,7 @@ describe("ScopedMemoryService — ACL enforcement between tenants", () => {
 
     expect(sharedMemory.put).toHaveBeenCalledTimes(1);
     const [, , , written] = (sharedMemory.put as ReturnType<typeof vi.fn>).mock
-      .calls[0];
+      .calls[0]!;
     expect((written as Record<string, unknown>)["_agent"]).toBe("agent-A");
     expect((written as Record<string, unknown>)["_tag_tenant"]).toBe(
       "tenant-A",
