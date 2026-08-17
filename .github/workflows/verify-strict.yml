@@ -121,9 +121,17 @@ jobs:
       - name: Check Turbo typecheck build order
         run: yarn check:turbo:typecheck-order
 
-      # Runs the same 22 gates as `verify:strict:ci:no-circular`, in the same
+      # Runs the same gates as `verify:strict:ci:no-circular`, in the same
       # order, but reports the status of EVERY gate instead of stopping at the
-      # first red one. The `&&` chain surfaced exactly one failure per run,
+      # first red one.
+      #
+      # That parity is now asserted rather than asserted-in-a-comment. This
+      # comment used to claim "the same 22 gates"; the chain had 24 and the
+      # profile ran 21, because the profile is a hand-transcribed copy and the
+      # transcription silently dropped three of them. They never ran in CI once,
+      # and two had rotted red. `scripts/__tests__/run-gates.test.mjs` compares
+      # the profile against the chain in package.json, and `test:scripts` is
+      # itself one of the gates below. The `&&` chain surfaced exactly one failure per run,
       # which is why DZUPAGENT-TEST-C-13 recurred as C-14: `check:test-typecheck`
       # sat at position 16, and while it was red nobody could see that the gates
       # after it were also broken. Decomposing it immediately exposed three
