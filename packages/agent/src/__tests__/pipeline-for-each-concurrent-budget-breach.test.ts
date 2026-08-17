@@ -98,21 +98,25 @@ describe("24-I — a budget breach halts in-flight for_each items", () => {
       nodeExecutor: executor,
       loopIterationBudgetReservation: {
         itemBudgetCents: 100,
-        reserve: (input: { itemIndex: number }) => {
-          // Item 1 ('b') cannot be afforded: this is the breach.
+        // The parameter types are INFERRED from the host-config contract rather
+        // than re-declared narrowly: an explicit `{ itemIndex: number }` is not
+        // assignable to the contract's wider input and made this mock a type
+        // error. `itemIndex` is optional there, hence the `?? -1` below.
+        reserve: (input) => {
+          // Item 1 ('b') cannot be afforded: this is the breach. `unknown` is
+          // the contract's denial status — `denied` is a runtime CLASSIFICATION
+          // derived in `for-each-loop.ts`, never a value a host may return.
           if (input.itemIndex === 1) {
             itemBDenied.release();
-            return { status: "denied" as const };
+            return { status: "unknown" as const };
           }
           return { status: "reserved" as const, reservedCostCents: 50 };
         },
-        settle: (input: { itemIndex: number }) => {
-          settled.push(input.itemIndex);
-          return { status: "settled" as const };
+        settle: (input) => {
+          settled.push(input.itemIndex ?? -1);
         },
-        release: (input: { itemIndex: number }) => {
-          released.push(input.itemIndex);
-          return { status: "released" as const };
+        release: (input) => {
+          released.push(input.itemIndex ?? -1);
         },
       },
     });
@@ -176,19 +180,18 @@ describe("24-I — a budget breach halts in-flight for_each items", () => {
       nodeExecutor: executor,
       loopIterationBudgetReservation: {
         itemBudgetCents: 100,
-        reserve: async (input: { itemIndex: number }) => {
+        reserve: async (input) => {
           if (input.itemIndex === 1) {
             // Deny 'b' only once 'a' is parked inside its body node.
             await itemAFailed.promise;
             itemBDenied.release();
-            return { status: "denied" as const };
+            return { status: "unknown" as const };
           }
           return { status: "reserved" as const, reservedCostCents: 50 };
         },
-        settle: () => ({ status: "settled" as const }),
-        release: (input: { itemIndex: number; reason: string }) => {
-          releasedWith.push(`${input.itemIndex}:${input.reason}`);
-          return { status: "released" as const };
+        settle: () => {},
+        release: (input) => {
+          releasedWith.push(`${input.itemIndex ?? -1}:${input.reason}`);
         },
       },
     });
@@ -228,10 +231,9 @@ describe("24-I — a budget breach halts in-flight for_each items", () => {
       loopIterationBudgetReservation: {
         itemBudgetCents: 100,
         reserve: () => ({ status: "reserved" as const, reservedCostCents: 50 }),
-        settle: () => ({ status: "settled" as const }),
-        release: (input: { itemIndex: number; reason: string }) => {
-          releasedWith.push(`${input.itemIndex}:${input.reason}`);
-          return { status: "released" as const };
+        settle: () => {},
+        release: (input) => {
+          releasedWith.push(`${input.itemIndex ?? -1}:${input.reason}`);
         },
       },
     });

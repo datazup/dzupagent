@@ -6,7 +6,10 @@ import {
   projectLoopBodyContainmentTargets,
   projectValidationEdgeTargets,
 } from "../pipeline/loop-executor/edge-target-projections.js";
-import { getErrorTarget, getNextNodeIds } from "../pipeline/pipeline-runtime/edge-resolution.js";
+import {
+  getErrorTarget,
+  getNextNodeIds,
+} from "../pipeline/pipeline-runtime/edge-resolution.js";
 
 describe("pipeline edge-target projections", () => {
   const sequential: PipelineEdge = {
@@ -29,13 +32,19 @@ describe("pipeline edge-target projections", () => {
 
   it("projects every structural target during definition validation", () => {
     expect(projectValidationEdgeTargets(sequential)).toEqual(["next"]);
-    expect(projectValidationEdgeTargets(conditional)).toEqual(["left", "right"]);
+    expect(projectValidationEdgeTargets(conditional)).toEqual([
+      "left",
+      "right",
+    ]);
     expect(projectValidationEdgeTargets(error)).toEqual(["recover"]);
   });
 
   it("projects every target when proving a loop body cannot escape", () => {
     expect(projectLoopBodyContainmentTargets(sequential)).toEqual(["next"]);
-    expect(projectLoopBodyContainmentTargets(conditional)).toEqual(["left", "right"]);
+    expect(projectLoopBodyContainmentTargets(conditional)).toEqual([
+      "left",
+      "right",
+    ]);
     expect(projectLoopBodyContainmentTargets(error)).toEqual(["recover"]);
   });
 
@@ -48,9 +57,13 @@ describe("pipeline edge-target projections", () => {
       getNextNodeIds(
         "source",
         normalEdges,
+        // Returns the BRANCH KEY, not a boolean: `getNextNodeIds` stringifies
+        // the result and looks it up in `branches`, which here is keyed
+        // `left`/`right`. Narrowing this to `true` selected no branch and
+        // dropped "right" from the expected targets.
         { route: () => "right" },
-        {},
-      ),
+        {}
+      )
     ).toEqual(["next", "right"]);
     expect(getErrorTarget("source", errorEdges, "RETRYABLE")).toBe("recover");
   });

@@ -1,5 +1,5 @@
 {
-  "totalErrors": 2667,
+  "totalErrors": 2663,
   "note": "Test-file typecheck baseline (tsconfig.flipcheck.json per package). Ratchets down only. Bump only via --update-baseline after FIXING errors, never to accommodate new ones. Enforced per package AND per file, so a fix in one place cannot mask a regression in another. totalErrors and perCode are informational; the per-file budgets are what fail the build.",
   "packages": {
     "adapter-rules": {
@@ -12,10 +12,10 @@
       }
     },
     "agent": {
-      "maxErrors": 202,
+      "maxErrors": 198,
       "perCode": {
         "TS2345": 44,
-        "TS2322": 39,
+        "TS2322": 37,
         "TS2379": 23,
         "TS2375": 14,
         "TS2339": 14,
@@ -31,7 +31,6 @@
         "TS2739": 2,
         "TS2365": 2,
         "TS2558": 2,
-        "TS2307": 2,
         "TS2719": 1,
         "TS2349": 1,
         "TS2677": 1,
@@ -74,7 +73,6 @@
         "src/__tests__/playground-ui-utils.test.ts": 4,
         "src/__tests__/policy-enabled-tool-executor.test.ts": 1,
         "src/__tests__/post-run-analyzer.test.ts": 1,
-        "src/__tests__/postgres-checkpoint-store.test.ts": 2,
         "src/__tests__/recovery-copilot.test.ts": 1,
         "src/__tests__/resume-utils.test.ts": 8,
         "src/__tests__/run-cancellation.test.ts": 1,
@@ -120,7 +118,7 @@
         "src/pipeline/__tests__/pipeline-executor-deep.test.ts": 1,
         "src/pipeline/__tests__/runtime-tool-handlers.test.ts": 2,
         "src/pipeline/__tests__/step-type-registry.test.ts": 1,
-        "src/skill-chain-executor/__tests__/skill-step-resolver-cache.test.ts": 5,
+        "src/skill-chain-executor/__tests__/skill-step-resolver-cache.test.ts": 3,
         "src/workflow/__tests__/compiled-workflow-deep.test.ts": 6
       }
     },

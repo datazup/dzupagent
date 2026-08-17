@@ -79,8 +79,18 @@ function sequentialApprovalDefinition(): PipelineDefinition {
     entryNodeId: "first-gate",
     checkpointStrategy: "on_suspend",
     nodes: [
-      { id: "first-gate", type: "gate", gateType: "approval", interaction: first },
-      { id: "second-gate", type: "gate", gateType: "approval", interaction: second },
+      {
+        id: "first-gate",
+        type: "gate",
+        gateType: "approval",
+        interaction: first,
+      },
+      {
+        id: "second-gate",
+        type: "gate",
+        gateType: "approval",
+        interaction: second,
+      },
       { id: "first-rejected", type: "agent", agentId: "first-rejected" },
       { id: "second-approved", type: "agent", agentId: "second-approved" },
       { id: "second-rejected", type: "agent", agentId: "second-rejected" },
@@ -111,7 +121,7 @@ function sequentialApprovalDefinition(): PipelineDefinition {
 function receiptFor(
   pending: PipelinePendingInteractionV1,
   decision: "approved" | "rejected",
-  receiptId = `receipt-${decision}`,
+  receiptId = `receipt-${decision}`
 ) {
   return createPipelineInteractionResumeV1({
     ...pending,
@@ -124,7 +134,7 @@ function receiptFor(
 function pendingWithOccurrence(
   pending: PipelinePendingInteractionV1,
   occurrence: number,
-  expectedCheckpointVersion = pending.expectedCheckpointVersion,
+  expectedCheckpointVersion = pending.expectedCheckpointVersion
 ): PipelinePendingInteractionV1 {
   return createPipelinePendingInteractionV1({
     kind: pending.kind,
@@ -178,12 +188,16 @@ describe("PipelineRuntime checkpoint-bound interactions", () => {
 
       const committed = (await store.load(`run-${decision}`))!;
       expect(committed.pendingInteraction).toBeUndefined();
-      expect(committed.interactionReceipts?.[pending.interactionId]).toEqual(receipt);
+      expect(committed.interactionReceipts?.[pending.interactionId]).toEqual(
+        receipt
+      );
       expect(committed.interactionResumeCursor).toBeUndefined();
       expect(committed.completedNodeIds).toEqual(["gate", decision]);
       expect(committed.state).not.toHaveProperty("injected");
 
-      await expect(runtime.resumeInteraction(checkpoint, receipt)).resolves.toMatchObject({
+      await expect(
+        runtime.resumeInteraction(checkpoint, receipt)
+      ).resolves.toMatchObject({
         state: "completed",
       });
       expect(calls).toEqual([decision]);
@@ -191,12 +205,14 @@ describe("PipelineRuntime checkpoint-bound interactions", () => {
       const conflict = receiptFor(
         pending,
         decision === "approved" ? "rejected" : "approved",
-        "conflicting-receipt",
+        "conflicting-receipt"
       );
-      await expect(runtime.resumeInteraction(checkpoint, conflict)).rejects.toMatchObject({
+      await expect(
+        runtime.resumeInteraction(checkpoint, conflict)
+      ).rejects.toMatchObject({
         code: "INTERACTION_RECEIPT_CONFLICT",
       });
-    },
+    }
   );
 
   it("validates clarification and writes only the authored output key", async () => {
@@ -250,7 +266,9 @@ describe("PipelineRuntime checkpoint-bound interactions", () => {
       response: { kind: "clarification", value: "staging" },
     });
     await runtime.resumeInteraction(checkpoint, receipt);
-    expect(observedStates).toEqual([{ retained: "yes", environment: "staging" }]);
+    expect(observedStates).toEqual([
+      { retained: "yes", environment: "staging" },
+    ]);
     expect((await store.load("clarification-run"))?.state).toEqual({
       retained: "yes",
       environment: "staging",
@@ -285,6 +303,12 @@ describe("PipelineRuntime checkpoint-bound interactions", () => {
         edges: [],
       },
       checkpointStore: store,
+      // Required by the config and omitted here alone among this file's cases.
+      // The only node is a `suspend`, which never dispatches to the executor,
+      // so throwing is both a valid stub and an assertion that it stays unused.
+      nodeExecutor: async (nodeId) => {
+        throw new Error(`unexpected executor dispatch for "${nodeId}"`);
+      },
       interaction: { now: () => new Date("2026-08-14T20:00:00.000Z") },
     });
     await runtime.execute({}, { runId: "terminal-clarification-run" });
@@ -298,14 +322,14 @@ describe("PipelineRuntime checkpoint-bound interactions", () => {
     });
 
     await expect(
-      runtime.resumeInteraction(checkpoint, receipt),
+      runtime.resumeInteraction(checkpoint, receipt)
     ).resolves.toMatchObject({ state: "completed" });
     const completed = (await store.load("terminal-clarification-run"))!;
     expect(completed.completedNodeIds).toEqual(["clarify"]);
     expect(completed.state).toEqual({ finalNote: "complete" });
     expect(completed.interactionResumeCursor).toBeUndefined();
     await expect(
-      runtime.resumeInteraction(checkpoint, receipt),
+      runtime.resumeInteraction(checkpoint, receipt)
     ).resolves.toMatchObject({ state: "completed" });
   });
 
@@ -335,11 +359,11 @@ describe("PipelineRuntime checkpoint-bound interactions", () => {
     const firstReceipt = receiptFor(
       firstCheckpoint.pendingInteraction!,
       "approved",
-      "first-approved-receipt",
+      "first-approved-receipt"
     );
     const secondSuspension = await runtime.resumeInteraction(
       firstCheckpoint,
-      firstReceipt,
+      firstReceipt
     );
     expect(secondSuspension.state).toBe("suspended");
     const secondCheckpoint = (await store.load("sequential-approval-run"))!;
@@ -366,7 +390,7 @@ describe("PipelineRuntime checkpoint-bound interactions", () => {
     expect(restarted.getRunState()).toBe("idle");
     const replayed = await restarted.resumeInteraction(
       firstCheckpoint,
-      firstReceipt,
+      firstReceipt
     );
     expect(replayed).toMatchObject({
       state: "suspended",
@@ -374,8 +398,9 @@ describe("PipelineRuntime checkpoint-bound interactions", () => {
     });
     expect(restarted.getRunState()).toBe("suspended");
     expect(calls).toEqual([]);
-    expect((await store.load("sequential-approval-run"))?.pendingInteraction)
-      .toEqual(secondCheckpoint.pendingInteraction);
+    expect(
+      (await store.load("sequential-approval-run"))?.pendingInteraction
+    ).toEqual(secondCheckpoint.pendingInteraction);
   });
 
   it("rejects expired and mismatched receipts before dispatch", async () => {
@@ -401,12 +426,14 @@ describe("PipelineRuntime checkpoint-bound interactions", () => {
       submittedAt: "2026-08-14T20:00:00.100Z",
       response: { kind: "approval", decision: "approved" },
     });
-    await expect(runtime.resumeInteraction(checkpoint, mismatched)).rejects.toMatchObject({
+    await expect(
+      runtime.resumeInteraction(checkpoint, mismatched)
+    ).rejects.toMatchObject({
       code: "INTERACTION_BINDING_MISMATCH",
     });
     now = new Date("2026-08-14T20:00:02.000Z");
     await expect(
-      runtime.resumeInteraction(checkpoint, receiptFor(pending, "approved")),
+      runtime.resumeInteraction(checkpoint, receiptFor(pending, "approved"))
     ).rejects.toMatchObject({ code: "INTERACTION_EXPIRED" });
     expect(calls).toEqual([]);
   });
@@ -429,7 +456,7 @@ describe("PipelineRuntime checkpoint-bound interactions", () => {
     const forgedPending = pendingWithOccurrence(
       checkpoint.pendingInteraction!,
       1,
-      forgedVersion,
+      forgedVersion
     );
     const forgedCheckpoint = {
       ...checkpoint,
@@ -439,13 +466,13 @@ describe("PipelineRuntime checkpoint-bound interactions", () => {
     await store.save(forgedCheckpoint);
 
     expect(forgedPending.interactionId).not.toBe(
-      checkpoint.pendingInteraction!.interactionId,
+      checkpoint.pendingInteraction!.interactionId
     );
     await expect(
       runtime.resumeInteraction(
         forgedCheckpoint,
-        receiptFor(forgedPending, "approved", "forged-occurrence-receipt"),
-      ),
+        receiptFor(forgedPending, "approved", "forged-occurrence-receipt")
+      )
     ).rejects.toMatchObject({ code: "INTERACTION_BINDING_MISMATCH" });
     expect(calls).toEqual([]);
   });
@@ -469,21 +496,21 @@ describe("PipelineRuntime checkpoint-bound interactions", () => {
       const receipt = receiptFor(suspended.pendingInteraction!, "approved");
 
       await expect(
-        runtime.resumeInteraction(suspended, receipt),
+        runtime.resumeInteraction(suspended, receipt)
       ).rejects.toThrow("injected interaction commit failure");
       expect(calls).toEqual([]);
 
       await expect(
-        runtime.resumeInteraction(suspended, receipt),
+        runtime.resumeInteraction(suspended, receipt)
       ).resolves.toMatchObject({ state: "completed" });
       expect(calls).toEqual(["approved"]);
       expect(
-        (await store.load(`failure-${failureMode}`))?.interactionResumeCursor,
+        (await store.load(`failure-${failureMode}`))?.interactionResumeCursor
       ).toBeUndefined();
 
       await runtime.resumeInteraction(suspended, receipt);
       expect(calls).toEqual(["approved"]);
-    },
+    }
   );
 
   it("rejects cursor corruption and same-id definition drift before dispatch", async () => {
@@ -503,7 +530,7 @@ describe("PipelineRuntime checkpoint-bound interactions", () => {
     const suspended = (await store.load("corrupt-cursor"))!;
     const receipt = receiptFor(suspended.pendingInteraction!, "approved");
     await expect(runtime.resumeInteraction(suspended, receipt)).rejects.toThrow(
-      "injected interaction commit failure",
+      "injected interaction commit failure"
     );
     const committed = (await store.load("corrupt-cursor"))!;
     expect(committed.interactionResumeCursor).toBeDefined();
@@ -526,7 +553,7 @@ describe("PipelineRuntime checkpoint-bound interactions", () => {
       },
     });
     await expect(
-      driftedRuntime.resumeInteraction(suspended, receipt),
+      driftedRuntime.resumeInteraction(suspended, receipt)
     ).rejects.toMatchObject({ code: "INTERACTION_BINDING_MISMATCH" });
     expect(calls).toEqual([]);
   });

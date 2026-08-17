@@ -10,7 +10,10 @@ import {
   PostgresPipelineCheckpointStore,
   type PostgresClientLike,
 } from "../pipeline/postgres-checkpoint-store.js";
-import type { PipelineCheckpoint } from "@dzupagent/core";
+import type {
+  PipelineCheckpoint,
+  PipelineCheckpointSourceBinding,
+} from "@dzupagent/core";
 import {
   createPipelineInteractionResumeV1,
   createPipelineInteractionSpecV1,
@@ -37,13 +40,17 @@ function createMockClient(responders: Array<(call: RecordedCall) => unknown>) {
   let idx = 0;
 
   const client: PostgresClientLike = {
+    // `vi.fn` erases the generic call signature, so the mock is not assignable
+    // to `query`'s `<T>(...) => Promise<{ rows: T[] }>` without this cast. The
+    // cast is on the PROPERTY, so the mock itself keeps its `vi.fn`
+    // introspection (`mock.calls`) that these tests rely on.
     query: vi.fn(async <T>(text: string, params: unknown[] = []) => {
       const call: RecordedCall = { text, params };
       calls.push(call);
       const responder = responders[idx++];
       const result = responder ? responder(call) : { rows: [] };
       return result as { rows: T[] };
-    }),
+    }) as PostgresClientLike["query"],
   };
 
   return { client, calls };
@@ -89,6 +96,10 @@ function createStatefulCompatibilityClient(tableName: string) {
   };
 
   const client: PostgresClientLike = {
+    // `vi.fn` erases the generic call signature, so the mock is not assignable
+    // to `query`'s `<T>(...) => Promise<{ rows: T[] }>` without this cast. The
+    // cast is on the PROPERTY, so the mock itself keeps its `vi.fn`
+    // introspection (`mock.calls`) that these tests rely on.
     query: vi.fn(async <T>(text: string, params: unknown[] = []) => {
       calls.push({ text, params });
 
@@ -151,7 +162,7 @@ function createStatefulCompatibilityClient(tableName: string) {
       }
 
       return { rows: [] as T[] };
-    }),
+    }) as PostgresClientLike["query"],
   };
 
   return { client, calls, table };
@@ -300,8 +311,9 @@ describe("PostgresPipelineCheckpointStore", () => {
     });
 
     it("migrates a pre-existing table without provider_session_refs while preserving legacy rows", async () => {
-      const { client, table } =
-        createStatefulCompatibilityClient("pipeline_checkpoints");
+      const { client, table } = createStatefulCompatibilityClient(
+        "pipeline_checkpoints"
+      );
       const store = new PostgresPipelineCheckpointStore({ client });
 
       expect(table.columns.has("provider_session_refs")).toBe(false);
@@ -344,20 +356,23 @@ describe("PostgresPipelineCheckpointStore", () => {
     });
 
     it("round-trips a committed interaction receipt and exact successor cursor", async () => {
-      const { client } =
-        createStatefulCompatibilityClient("pipeline_checkpoints");
+      const { client } = createStatefulCompatibilityClient(
+        "pipeline_checkpoints"
+      );
       const store = new PostgresPipelineCheckpointStore({ client });
       const { receipt, cursor } = makeCommittedInteraction("committed-run");
 
       await store.setup();
-      await store.save(makeCheckpoint({
-        pipelineRunId: "committed-run",
-        version: 2,
-        schemaVersion: "1.1.0",
-        completedNodeIds: ["start", "clarify"],
-        interactionReceipts: { [receipt.interactionId]: receipt },
-        interactionResumeCursor: cursor,
-      }));
+      await store.save(
+        makeCheckpoint({
+          pipelineRunId: "committed-run",
+          version: 2,
+          schemaVersion: "1.1.0",
+          completedNodeIds: ["start", "clarify"],
+          interactionReceipts: { [receipt.interactionId]: receipt },
+          interactionResumeCursor: cursor,
+        })
+      );
 
       expect(await store.load("committed-run")).toMatchObject({
         interactionReceipts: { [receipt.interactionId]: receipt },
@@ -462,7 +477,7 @@ describe("PostgresPipelineCheckpointStore", () => {
         makeCheckpoint({
           schemaVersion: "1.1.0",
           pendingInteraction,
-        }),
+        })
       );
 
       expect(calls[0]!.params[15]).toBe(
@@ -470,7 +485,7 @@ describe("PostgresPipelineCheckpointStore", () => {
           pendingInteraction,
           interactionReceipts: undefined,
           interactionResumeCursor: undefined,
-        }),
+        })
       );
     });
   });
@@ -539,7 +554,7 @@ describe("PostgresPipelineCheckpointStore", () => {
       const store = new PostgresPipelineCheckpointStore({ client });
 
       await expect(store.load("run-1")).rejects.toThrow(
-        "Invalid pipeline checkpoint row",
+        "Invalid pipeline checkpoint row"
       );
     });
 
@@ -575,7 +590,11 @@ describe("PostgresPipelineCheckpointStore", () => {
       // wholesale, so a new field is silently DROPPED unless it is threaded
       // into the insert, the upsert, and the row->checkpoint mapping. The
       // in-memory and Redis stores would hide that, hence this proof.
-      const binding = {
+      // Annotated, because the digests are a TEMPLATE LITERAL type
+      // (`sha256:${string}`) and an unannotated `${}` expression widens to
+      // plain `string`. The values were already correct; only the inferred
+      // type was wrong.
+      const binding: PipelineCheckpointSourceBinding = {
         definitionDigest: `sha256:${"a".repeat(64)}`,
         loopSourceDigests: { "loop-items": `sha256:${"b".repeat(64)}` },
       };
@@ -780,6 +799,7 @@ describe("PostgresPipelineCheckpointStore", () => {
       const rows: Array<{ pipeline_run_id: string; version: number }> = [];
 
       const client: PostgresClientLike = {
+        // Same `vi.fn` generic-erasure cast as `createMockClient` above.
         query: vi.fn(async <T>(text: string, params: unknown[] = []) => {
           calls.push({ text, params });
 
@@ -796,7 +816,7 @@ describe("PostgresPipelineCheckpointStore", () => {
             const runId = params[0] as string;
             const version = params[2] as number;
             const clash = rows.some(
-              (r) => r.pipeline_run_id === runId && r.version === version,
+              (r) => r.pipeline_run_id === runId && r.version === version
             );
             if (clash) {
               // Real Postgres semantics: DO NOTHING affects zero rows, whereas
@@ -812,7 +832,7 @@ describe("PostgresPipelineCheckpointStore", () => {
           }
 
           return { rows: [] as T[], rowCount: 0 };
-        }),
+        }) as PostgresClientLike["query"],
       };
 
       return { client, calls, rows };
@@ -822,7 +842,10 @@ describe("PostgresPipelineCheckpointStore", () => {
       const { client } = createUniqueEnforcingClient();
       const store = new PostgresPipelineCheckpointStore({ client });
 
-      const receipt = await store.saveIfVersion(makeCheckpoint({ version: 1 }), 0);
+      const receipt = await store.saveIfVersion(
+        makeCheckpoint({ version: 1 }),
+        0
+      );
 
       expect(receipt).toEqual({ committed: true, observedVersion: 1 });
     });
@@ -834,7 +857,9 @@ describe("PostgresPipelineCheckpointStore", () => {
       await store.saveIfVersion(makeCheckpoint({ version: 1 }), 0);
 
       const insert = calls.find((c) => c.text.includes("INSERT INTO"))!;
-      expect(insert.text).toContain("ON CONFLICT (pipeline_run_id, version) DO NOTHING");
+      expect(insert.text).toContain(
+        "ON CONFLICT (pipeline_run_id, version) DO NOTHING"
+      );
       expect(insert.text).not.toContain("DO UPDATE SET");
     });
 
@@ -850,11 +875,9 @@ describe("PostgresPipelineCheckpointStore", () => {
       const originalQuery = client.query;
       let interleaved = false;
       client.query = (async <T>(text: string, params: unknown[] = []) => {
-        const result = await (originalQuery as PostgresClientLike["query"]).call(
-          client,
-          text,
-          params,
-        );
+        const result = await (
+          originalQuery as PostgresClientLike["query"]
+        ).call(client, text, params);
         // After the loser reads an empty run, let the winner commit v1.
         if (!interleaved && text.includes("MAX(version)")) {
           interleaved = true;
@@ -863,7 +886,10 @@ describe("PostgresPipelineCheckpointStore", () => {
         return result as { rows: T[] };
       }) as PostgresClientLike["query"];
 
-      const conflict = await store.saveIfVersion(makeCheckpoint({ version: 1 }), 0);
+      const conflict = await store.saveIfVersion(
+        makeCheckpoint({ version: 1 }),
+        0
+      );
 
       expect(conflict.committed).toBe(false);
       // The loser observes the winner's version, not its own attempt.
@@ -877,7 +903,10 @@ describe("PostgresPipelineCheckpointStore", () => {
       const store = new PostgresPipelineCheckpointStore({ client });
       await store.saveIfVersion(makeCheckpoint({ version: 1 }), 0);
 
-      const conflict = await store.saveIfVersion(makeCheckpoint({ version: 1 }), 0);
+      const conflict = await store.saveIfVersion(
+        makeCheckpoint({ version: 1 }),
+        0
+      );
 
       expect(conflict).toEqual({ committed: false, observedVersion: 1 });
     });
@@ -886,12 +915,19 @@ describe("PostgresPipelineCheckpointStore", () => {
       const { client, calls } = createUniqueEnforcingClient();
       const store = new PostgresPipelineCheckpointStore({ client });
       await store.saveIfVersion(makeCheckpoint({ version: 1 }), 0);
-      const insertsBefore = calls.filter((c) => c.text.includes("INSERT INTO")).length;
+      const insertsBefore = calls.filter((c) =>
+        c.text.includes("INSERT INTO")
+      ).length;
 
-      const conflict = await store.saveIfVersion(makeCheckpoint({ version: 2 }), 0);
+      const conflict = await store.saveIfVersion(
+        makeCheckpoint({ version: 2 }),
+        0
+      );
 
       expect(conflict).toEqual({ committed: false, observedVersion: 1 });
-      const insertsAfter = calls.filter((c) => c.text.includes("INSERT INTO")).length;
+      const insertsAfter = calls.filter((c) =>
+        c.text.includes("INSERT INTO")
+      ).length;
       expect(insertsAfter).toBe(insertsBefore);
     });
 
@@ -907,7 +943,7 @@ describe("PostgresPipelineCheckpointStore", () => {
           version: 1,
           sourceBinding: { definitionDigest: `sha256:${"a".repeat(64)}` },
         }),
-        0,
+        0
       );
 
       const insert = calls.find((c) => c.text.includes("INSERT INTO"))!;

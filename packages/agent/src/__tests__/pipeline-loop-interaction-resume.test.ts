@@ -17,7 +17,7 @@ import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
 function pendingWithOccurrence(
   pending: PipelinePendingInteractionV1,
   occurrence: number,
-  expectedCheckpointVersion = pending.expectedCheckpointVersion,
+  expectedCheckpointVersion = pending.expectedCheckpointVersion
 ): PipelinePendingInteractionV1 {
   return createPipelinePendingInteractionV1({
     kind: pending.kind,
@@ -145,7 +145,7 @@ function terminalLoopDefinition(): PipelineDefinition {
 }
 
 function compositeLoopDefinition(
-  shape: "branch" | "catch",
+  shape: "branch" | "catch"
 ): PipelineDefinition {
   const branchInteraction = createPipelineInteractionSpecV1({
     kind: "approval",
@@ -170,59 +170,61 @@ function compositeLoopDefinition(
       maxLength: 256,
     },
   });
-  const loop: LoopNode = shape === "branch"
-    ? {
-        id: "loop",
-        type: "loop",
-        bodyNodeIds: ["decision", "review", "approved", "rejected", "skip"],
-        bodyGraph: {
-          entryNodeId: "decision",
-          normalExitNodeIds: ["approved", "rejected", "skip"],
-          suspendedExitNodeIds: [],
-          suspensionSiteNodeIds: ["review"],
-          terminalExitNodeIds: [],
-          errorExitNodeIds: [],
-        },
-        maxIterations: 1,
-        continuePredicateName: "stop-loop",
-      }
-    : {
-        id: "loop",
-        type: "loop",
-        bodyNodeIds: ["fail", "clarify", "handled"],
-        bodyGraph: {
-          entryNodeId: "fail",
-          normalExitNodeIds: ["handled"],
-          suspendedExitNodeIds: [],
-          suspensionSiteNodeIds: ["clarify"],
-          terminalExitNodeIds: [],
-          errorExitNodeIds: [],
-        },
-        maxIterations: 1,
-        continuePredicateName: "stop-loop",
-      };
-  const nodes: PipelineNode[] = shape === "branch"
-    ? [
-        loop,
-        { id: "decision", type: "gate", gateType: "quality" },
-        {
-          id: "review",
-          type: "gate",
-          gateType: "approval",
-          interaction: branchInteraction,
-        },
-        { id: "approved", type: "agent", agentId: "approved" },
-        { id: "rejected", type: "agent", agentId: "rejected" },
-        { id: "skip", type: "agent", agentId: "skip" },
-        { id: "after", type: "agent", agentId: "after" },
-      ]
-    : [
-        loop,
-        { id: "fail", type: "agent", agentId: "fail" },
-        { id: "clarify", type: "suspend", interaction: catchInteraction },
-        { id: "handled", type: "agent", agentId: "handled" },
-        { id: "after", type: "agent", agentId: "after" },
-      ];
+  const loop: LoopNode =
+    shape === "branch"
+      ? {
+          id: "loop",
+          type: "loop",
+          bodyNodeIds: ["decision", "review", "approved", "rejected", "skip"],
+          bodyGraph: {
+            entryNodeId: "decision",
+            normalExitNodeIds: ["approved", "rejected", "skip"],
+            suspendedExitNodeIds: [],
+            suspensionSiteNodeIds: ["review"],
+            terminalExitNodeIds: [],
+            errorExitNodeIds: [],
+          },
+          maxIterations: 1,
+          continuePredicateName: "stop-loop",
+        }
+      : {
+          id: "loop",
+          type: "loop",
+          bodyNodeIds: ["fail", "clarify", "handled"],
+          bodyGraph: {
+            entryNodeId: "fail",
+            normalExitNodeIds: ["handled"],
+            suspendedExitNodeIds: [],
+            suspensionSiteNodeIds: ["clarify"],
+            terminalExitNodeIds: [],
+            errorExitNodeIds: [],
+          },
+          maxIterations: 1,
+          continuePredicateName: "stop-loop",
+        };
+  const nodes: PipelineNode[] =
+    shape === "branch"
+      ? [
+          loop,
+          { id: "decision", type: "gate", gateType: "quality" },
+          {
+            id: "review",
+            type: "gate",
+            gateType: "approval",
+            interaction: branchInteraction,
+          },
+          { id: "approved", type: "agent", agentId: "approved" },
+          { id: "rejected", type: "agent", agentId: "rejected" },
+          { id: "skip", type: "agent", agentId: "skip" },
+          { id: "after", type: "agent", agentId: "after" },
+        ]
+      : [
+          loop,
+          { id: "fail", type: "agent", agentId: "fail" },
+          { id: "clarify", type: "suspend", interaction: catchInteraction },
+          { id: "handled", type: "agent", agentId: "handled" },
+          { id: "after", type: "agent", agentId: "after" },
+        ];
   return {
     id: `loop-${shape}-interaction`,
     name: `loop ${shape} interaction`,
@@ -231,27 +233,32 @@ function compositeLoopDefinition(
     entryNodeId: "loop",
     checkpointStrategy: "after_each_node",
     nodes,
-    edges: shape === "branch"
-      ? [
-          {
-            type: "conditional",
-            sourceNodeId: "decision",
-            predicateName: "choose-review",
-            branches: { true: "review", false: "skip" },
-          },
-          {
-            type: "conditional",
-            sourceNodeId: "review",
-            predicateName: "must-not-run",
-            branches: { approved: "approved", rejected: "rejected" },
-          },
-          { type: "sequential", sourceNodeId: "loop", targetNodeId: "after" },
-        ]
-      : [
-          { type: "error", sourceNodeId: "fail", targetNodeId: "clarify" },
-          { type: "sequential", sourceNodeId: "clarify", targetNodeId: "handled" },
-          { type: "sequential", sourceNodeId: "loop", targetNodeId: "after" },
-        ],
+    edges:
+      shape === "branch"
+        ? [
+            {
+              type: "conditional",
+              sourceNodeId: "decision",
+              predicateName: "choose-review",
+              branches: { true: "review", false: "skip" },
+            },
+            {
+              type: "conditional",
+              sourceNodeId: "review",
+              predicateName: "must-not-run",
+              branches: { approved: "approved", rejected: "rejected" },
+            },
+            { type: "sequential", sourceNodeId: "loop", targetNodeId: "after" },
+          ]
+        : [
+            { type: "error", sourceNodeId: "fail", targetNodeId: "clarify" },
+            {
+              type: "sequential",
+              sourceNodeId: "clarify",
+              targetNodeId: "handled",
+            },
+            { type: "sequential", sourceNodeId: "loop", targetNodeId: "after" },
+          ],
   };
 }
 
@@ -417,9 +424,13 @@ describe("structured loop interaction resume", () => {
       iteration: 1,
     });
     expect(pending2.interactionId).not.toBe(pending1.interactionId);
-    expect(checkpoint2.interactionReceipts?.[pending1.interactionId]).toEqual(receipt1);
+    expect(checkpoint2.interactionReceipts?.[pending1.interactionId]).toEqual(
+      receipt1
+    );
 
-    await expect(runtime.resumeInteraction(checkpoint1, receipt1)).resolves.toMatchObject({
+    await expect(
+      runtime.resumeInteraction(checkpoint1, receipt1)
+    ).resolves.toMatchObject({
       state: "suspended",
       pendingInteraction: pending2,
     });
@@ -486,25 +497,26 @@ describe("structured loop interaction resume", () => {
         ...pending,
         receiptId: `${shape}-receipt`,
         submittedAt: "2026-08-14T20:00:01.000Z",
-        response: shape === "branch"
-          ? { kind: "approval", decision: "approved" }
-          : { kind: "clarification", value: "retry safely" },
+        response:
+          shape === "branch"
+            ? { kind: "approval", decision: "approved" }
+            : { kind: "clarification", value: "retry safely" },
       });
 
       await expect(
-        runtime.resumeInteraction(checkpoint, receipt),
+        runtime.resumeInteraction(checkpoint, receipt)
       ).resolves.toMatchObject({ state: "completed" });
       expect(calls).toEqual(
         shape === "branch"
           ? ["decision", "approved", "after"]
-          : ["fail", "handled", "after"],
+          : ["fail", "handled", "after"]
       );
       if (shape === "catch") {
         expect((await store.load(runId))?.state).toMatchObject({
           recoveryAnswer: "retry safely",
         });
       }
-    },
+    }
   );
 
   it("resumes an interaction in a try body without entering its catch path", async () => {
@@ -530,7 +542,7 @@ describe("structured loop interaction resume", () => {
     });
 
     await expect(
-      runtime.resumeInteraction(checkpoint, receipt),
+      runtime.resumeInteraction(checkpoint, receipt)
     ).resolves.toMatchObject({ state: "completed" });
     expect(calls).toEqual(["handled", "after"]);
     expect((await store.load("loop-try-run"))?.state).toMatchObject({
@@ -563,7 +575,7 @@ describe("structured loop interaction resume", () => {
     store.corruptReads = true;
 
     await expect(
-      runtime.resumeInteraction(checkpoint, receipt),
+      runtime.resumeInteraction(checkpoint, receipt)
     ).rejects.toMatchObject({ code: "INVALID_PENDING_INTERACTION" });
     expect(calls).toEqual(["prefix"]);
   });
@@ -591,7 +603,7 @@ describe("structured loop interaction resume", () => {
     const forgedPending = pendingWithOccurrence(
       pending,
       pending.scope.iteration + 1,
-      forgedVersion,
+      forgedVersion
     );
     const forgedCheckpoint = {
       ...checkpoint,
@@ -608,7 +620,7 @@ describe("structured loop interaction resume", () => {
 
     expect(forgedPending.interactionId).not.toBe(pending.interactionId);
     await expect(
-      runtime.resumeInteraction(forgedCheckpoint, receipt),
+      runtime.resumeInteraction(forgedCheckpoint, receipt)
     ).rejects.toMatchObject({ code: "INTERACTION_BINDING_MISMATCH" });
     expect(calls).toEqual(["prefix"]);
   });
@@ -634,12 +646,10 @@ describe("structured loop interaction resume", () => {
       submittedAt: "2026-08-14T20:00:01.000Z",
       response: { kind: "approval", decision: "approved" },
     });
-    await expect(
-      runtime.resumeInteraction(suspended, receipt),
-    ).rejects.toThrow("injected loop interaction commit failure");
-    const corrupt = structuredClone(
-      (await store.load("nested-cursor-drift"))!,
+    await expect(runtime.resumeInteraction(suspended, receipt)).rejects.toThrow(
+      "injected loop interaction commit failure"
     );
+    const corrupt = structuredClone((await store.load("nested-cursor-drift"))!);
     const graph = corrupt.loopState?.["loop"]?.bodyGraphState;
     if (graph === undefined) throw new Error("expected retained loop graph");
     graph.nextNodeId = "rejected";
@@ -683,19 +693,21 @@ describe("structured loop interaction resume", () => {
       });
 
       await expect(
-        runtime.resumeInteraction(suspended, receipt),
+        runtime.resumeInteraction(suspended, receipt)
       ).rejects.toThrow("injected loop interaction commit failure");
       expect(calls).toEqual(["prefix"]);
 
       await expect(
-        runtime.resumeInteraction(suspended, receipt),
+        runtime.resumeInteraction(suspended, receipt)
       ).resolves.toMatchObject({ state: "completed" });
       expect(calls).toEqual(["prefix", "approved", "after"]);
-      expect((await store.load(runId))?.interactionResumeCursor).toBeUndefined();
+      expect(
+        (await store.load(runId))?.interactionResumeCursor
+      ).toBeUndefined();
 
       await runtime.resumeInteraction(suspended, receipt);
       expect(calls).toEqual(["prefix", "approved", "after"]);
-    },
+    }
   );
 
   it("continues the loop and outer graph once after the selected-successor checkpoint saves then throws", async () => {
@@ -725,7 +737,7 @@ describe("structured loop interaction resume", () => {
     });
 
     await expect(
-      runtime.resumeInteraction(suspended, receipt),
+      runtime.resumeInteraction(suspended, receipt)
     ).resolves.toMatchObject({ state: "failed" });
     expect(calls).toEqual(["prefix", "approved"]);
     const committed = (await store.load("selected-successor-save-then-throw"))!;
@@ -733,7 +745,7 @@ describe("structured loop interaction resume", () => {
     expect(committed.completedNodeIds).not.toContain("loop");
 
     await expect(
-      runtime.resumeInteraction(suspended, receipt),
+      runtime.resumeInteraction(suspended, receipt)
     ).resolves.toMatchObject({ state: "completed" });
     expect(calls).toEqual(["prefix", "approved", "after"]);
   });
@@ -766,17 +778,17 @@ describe("structured loop interaction resume", () => {
     });
 
     await expect(
-      runtime.resumeInteraction(suspended, receipt),
+      runtime.resumeInteraction(suspended, receipt)
     ).resolves.toMatchObject({ state: "failed" });
     expect(calls).toEqual(["selected"]);
     const committed = (await store.load("selected-error-save-then-throw"))!;
     expect(committed.interactionResumeCursor).toBeUndefined();
-    expect(
-      committed.loopState?.["loop"]?.bodyGraphState?.nextNodeId,
-    ).toBe("caught");
+    expect(committed.loopState?.["loop"]?.bodyGraphState?.nextNodeId).toBe(
+      "caught"
+    );
 
     await expect(
-      runtime.resumeInteraction(suspended, receipt),
+      runtime.resumeInteraction(suspended, receipt)
     ).resolves.toMatchObject({ state: "completed" });
     expect(calls).toEqual(["selected", "caught", "after"]);
   });
@@ -810,14 +822,14 @@ describe("structured loop interaction resume", () => {
     });
 
     await expect(
-      runtime.resumeInteraction(suspended, receipt),
+      runtime.resumeInteraction(suspended, receipt)
     ).resolves.toMatchObject({ state: "failed" });
     expect(calls).toEqual(["prefix"]);
     const committedTerminal = (await store.load("terminal-save-then-throw"))!;
     expect(committedTerminal.interactionResumeCursor).toBeUndefined();
     expect(committedTerminal.completedNodeIds).toContain("loop");
     expect(
-      committedTerminal.loopState?.["loop"]?.bodyGraphState?.outcome,
+      committedTerminal.loopState?.["loop"]?.bodyGraphState?.outcome
     ).toEqual({ kind: "terminal", exitNodeId: "complete" });
 
     const restarted = new PipelineRuntime({
@@ -833,7 +845,7 @@ describe("structured loop interaction resume", () => {
       state: "completed",
     });
     await expect(
-      restarted.resumeInteraction(suspended, receipt),
+      restarted.resumeInteraction(suspended, receipt)
     ).resolves.toMatchObject({ state: "completed" });
     expect(calls).toEqual(["prefix"]);
   });
@@ -926,7 +938,14 @@ class SelectedErrorEdgeSaveThenThrowStore extends InMemoryPipelineCheckpointStor
       Object.keys(checkpoint.interactionReceipts ?? {}).length === 1 &&
       checkpoint.interactionResumeCursor === undefined &&
       !checkpoint.completedNodeIds.includes("loop") &&
-      graph?.nodeResults["selected"]?.error !== undefined &&
+      // `nodeResults` is `Record<string, unknown>` by contract — a body result
+      // is opaque to the checkpoint type — so reading `.error` needs the shape
+      // named here rather than assumed. The explicit `graph !== undefined` is
+      // what the old optional chain narrowed implicitly; the cast severs that
+      // narrowing, so `graph.nextNodeId` below needs it stated.
+      graph !== undefined &&
+      (graph.nodeResults["selected"] as { error?: unknown } | undefined)
+        ?.error !== undefined &&
       graph.nextNodeId === "caught"
     ) {
       this.failed = true;

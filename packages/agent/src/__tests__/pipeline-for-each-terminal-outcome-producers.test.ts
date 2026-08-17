@@ -76,7 +76,10 @@ function threeBodyForEachPipeline(failFast = true): PipelineDefinition {
 }
 
 /** Executor that returns an ordinary body FAILURE for one named item. */
-function failingExecutor(failOn?: { item: string; nodeId: string }): NodeExecutor {
+function failingExecutor(failOn?: {
+  item: string;
+  nodeId: string;
+}): NodeExecutor {
   return async (nodeId: string, _node: PipelineNode, ctx) => {
     const item = ctx.state["item"] as { id: string };
     if (failOn && item.id === failOn.item && nodeId === failOn.nodeId) {
@@ -139,7 +142,14 @@ function denyingHost(denyIndex: number) {
 const THREE_ITEMS = [{ id: "a" }, { id: "b" }, { id: "c" }];
 
 function outcomesOf(
-  checkpoint: { loopState?: Record<string, { itemOutcomes?: unknown }> } | null,
+  // `PipelineCheckpointStore.load` resolves `undefined` for an absent run, not
+  // `null`. Accepting only `null` made every call site a type error while the
+  // body — a `?.` chain — already handled both, so this widens the parameter
+  // rather than casting at nine call sites.
+  checkpoint:
+    | { loopState?: Record<string, { itemOutcomes?: unknown }> }
+    | null
+    | undefined
 ): Record<string, { outcome: string; economics?: Record<string, unknown> }> {
   return (checkpoint?.loopState?.["loop-items"]?.itemOutcomes ?? {}) as Record<
     string,
@@ -324,8 +334,7 @@ describe("24-G: proof 8 — the terminal set covers every index", () => {
     // operator reconciling the ledger would see settled work reported as
     // never having run.
     const store = new InMemoryPipelineCheckpointStore();
-    const failingOnB = () =>
-      failingExecutor({ item: "b", nodeId: "step-a" });
+    const failingOnB = () => failingExecutor({ item: "b", nodeId: "step-a" });
 
     const first = new PipelineRuntime({
       definition: threeBodyForEachPipeline(true),

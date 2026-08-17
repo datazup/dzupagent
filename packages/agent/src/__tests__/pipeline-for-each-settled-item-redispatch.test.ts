@@ -72,7 +72,9 @@ function threeBodyForEachPipeline(): PipelineDefinition {
           order: "input",
           concurrency: 1,
           failFast: false,
-          collect: { from: "$.item.id", into: "$.gathered" },
+          // `order` is required and admits only "input"; omitting it built a
+          // definition the serialization schema would have rejected.
+          collect: { from: "$.item.id", into: "$.gathered", order: "input" },
           empty: { body: "skip", aggregate: "empty-array" },
         },
       },
