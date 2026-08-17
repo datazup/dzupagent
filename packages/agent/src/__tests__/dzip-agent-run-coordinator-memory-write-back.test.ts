@@ -10,11 +10,18 @@
  * budget-exhausted, token-exhausted and compression-failed run persisted its
  * partial content into long-term memory.
  *
- * The rule asserted here is not invented for this suite: the streaming half of
- * the same feature already gates `maybeWriteBackMemory` on
- * `stopReason === 'complete'` in BOTH `streaming-run-fallback.ts` and
- * `streaming-run-iteration.ts`. `generate()` now matches it, and the last test
- * pins that parity directly.
+ * The rule asserted here is the operator-ratified "keep partial work" policy:
+ * `complete`, `iteration_limit`, `budget_exceeded` and `token_exhausted` write
+ * back (real content, merely cut short by a ceiling); `aborted`, `error`,
+ * `stuck`, `compression_failed` and `approval_pending` suppress (no
+ * trustworthy content, or the run resumes later and would double-write).
+ *
+ * The streaming half of the feature gates write-back on
+ * `stopReason === 'complete'` inline in `streaming-run-fallback.ts` and
+ * `streaming-run-iteration.ts`, which are outside this lane's claim. That
+ * DIVERGENCE is real and is pinned by the last test in this file rather than
+ * left for someone to discover: `stream()` keeps less partial work than
+ * `generate()` on the three cut-short reasons.
  *
  * Two deliberate anti-vacuity properties:
  *
@@ -73,12 +80,12 @@ void FAILED_IS_NOT_A_STOP_REASON;
  */
 const WRITE_BACK_EXPECTATION: Record<StopReason, boolean> = {
   complete: true,
-  iteration_limit: false,
-  budget_exceeded: false,
+  iteration_limit: true,
+  budget_exceeded: true,
   aborted: false,
   error: false,
   stuck: false,
-  token_exhausted: false,
+  token_exhausted: true,
   compression_failed: false,
   approval_pending: false,
 };
@@ -152,9 +159,9 @@ describe("runGenerate memory write-back stop-reason guard", () => {
     });
   });
 
-  it('suppresses write-back when the REAL tool loop reports "iteration_limit"', async () => {
+  it('writes back when the REAL tool loop reports "iteration_limit"', async () => {
     const memory = makeMockMemoryService();
-    const partial = "partial answer that must never reach long-term memory";
+    const partial = "partial answer that was merely cut short by the ceiling";
     const agent = new DzupAgent({
       ...memoryAgentConfig(
         "wb-iteration-limit",
@@ -168,12 +175,17 @@ describe("runGenerate memory write-back stop-reason guard", () => {
       maxIterations: 2,
     });
 
-    // Produced by the real loop.
+    // Produced by the real loop, not by a fixture.
     expect(result.stopReason).toBe("iteration_limit");
-    // Non-vacuity: content is non-empty, so `maybeWriteBackMemory`'s
-    // empty-content early return cannot be what suppressed the write.
     expect(result.content).not.toBe("");
-    expect(memory.put).not.toHaveBeenCalled();
+
+    // "Keep partial work": a run stopped by the iteration ceiling still made
+    // real progress, so its content is persisted.
+    expect(memory.put).toHaveBeenCalledTimes(1);
+    expect(memory.put.mock.calls[0]![3]).toMatchObject({
+      text: partial,
+      agentId: "wb-iteration-limit",
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -226,43 +238,67 @@ describe("runGenerate memory write-back stop-reason guard", () => {
   }
 
   // -------------------------------------------------------------------------
-  // Parity with the streaming path, which is the evidence for the rule above.
+  // The streaming path does NOT share this table. Pin the divergence.
   // -------------------------------------------------------------------------
 
-  it("matches stream() write-back behaviour for the same run outcomes", async () => {
-    const completeMemory = makeMockMemoryService();
-    const completeAgent = new DzupAgent(
+  it("PINS the known divergence: stream() keeps LESS partial work than generate()", async () => {
+    // Both halves agree on `complete`.
+    const streamComplete = makeMockMemoryService();
+    const streamCompleteAgent = new DzupAgent(
       memoryAgentConfig(
-        "parity-complete",
+        "divergence-stream-complete",
         makeMockModel("streamed answer"),
-        completeMemory
+        streamComplete
       )
     );
-    for await (const _event of completeAgent.stream([
+    for await (const _event of streamCompleteAgent.stream([
       new HumanMessage("hi"),
     ])) {
       // drain
     }
+    expect(streamComplete.put).toHaveBeenCalledTimes(1);
 
-    const limitMemory = makeMockMemoryService();
-    const partial = "partial streamed answer";
-    const limitAgent = new DzupAgent({
+    // They DISAGREE on `iteration_limit`. `streaming-run-fallback.ts` and
+    // `streaming-run-iteration.ts` gate write-back on `stopReason ===
+    // 'complete'` inline; `generate()` uses the operator's keep-partial-work
+    // table. Those two files are outside this lane's claim, so the divergence
+    // is asserted rather than silently tolerated: whoever reconciles them must
+    // come here and flip this expectation deliberately.
+    const partial = "partial answer produced before the ceiling";
+
+    const streamLimit = makeMockMemoryService();
+    const streamLimitAgent = new DzupAgent({
       ...memoryAgentConfig(
-        "parity-iteration-limit",
+        "divergence-stream-iteration-limit",
         makeAlwaysToolCallingModel(partial),
-        limitMemory
+        streamLimit
       ),
       tools: [loopTool],
     });
-    for await (const _event of limitAgent.stream([new HumanMessage("go")], {
+    for await (const _event of streamLimitAgent.stream([new HumanMessage("go")], {
       maxIterations: 2,
     })) {
       // drain
     }
 
-    // stream() has always written back only on `complete`; generate() now
-    // agrees, which is exactly the rule this suite pins.
-    expect(completeMemory.put).toHaveBeenCalled();
-    expect(limitMemory.put).not.toHaveBeenCalled();
+    const generateLimit = makeMockMemoryService();
+    const generateLimitAgent = new DzupAgent({
+      ...memoryAgentConfig(
+        "divergence-generate-iteration-limit",
+        makeAlwaysToolCallingModel(partial),
+        generateLimit
+      ),
+      tools: [loopTool],
+    });
+    const generateResult = await generateLimitAgent.generate(
+      [new HumanMessage("go")],
+      { maxIterations: 2 }
+    );
+
+    // Same run outcome on both halves...
+    expect(generateResult.stopReason).toBe("iteration_limit");
+    // ...opposite write-back decisions. THIS IS THE BUG-SHAPED GAP, pinned.
+    expect(streamLimit.put).not.toHaveBeenCalled();
+    expect(generateLimit.put).toHaveBeenCalledTimes(1);
   });
 });

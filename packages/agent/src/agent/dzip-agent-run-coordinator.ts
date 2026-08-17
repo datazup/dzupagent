@@ -83,21 +83,36 @@ function resolveStructuredOutputCapabilities(
  * token-exhausted and compression-failed run wrote its partial content into
  * long-term memory.
  *
- * Only `"complete"` writes back. That is not a new policy: it is the rule the
- * streaming half of this same feature already applies inline -- both
- * `streaming-run-fallback.ts` and `streaming-run-iteration.ts` gate
- * `maybeWriteBackMemory` on `stopReason === 'complete'` -- so `generate()` and
- * `stream()` now agree. Every other member describes a run that stopped before
- * it finished answering, so its content is partial by construction.
+ * The policy is the operator-ratified "keep partial work" rule:
+ *
+ *  - `complete`, `iteration_limit`, `budget_exceeded` and `token_exhausted`
+ *    WRITE BACK. Each produced real content that was merely cut short by a
+ *    ceiling -- it is incomplete, not untrustworthy, and discarding it throws
+ *    away work the run has already paid for.
+ *  - `aborted`, `error`, `stuck` and `compression_failed` SUPPRESS. Each
+ *    either produced no content at all or produced content that the failure
+ *    itself casts doubt on.
+ *  - `approval_pending` SUPPRESSES for a different reason: the run is not
+ *    over. The loop halted with the approval-required tool NOT executed and is
+ *    re-driven by an external resume path, so persisting here would double-write
+ *    the same run once it resumes.
+ *
+ * KNOWN DIVERGENCE, deliberately not resolved in this lane: the streaming half
+ * of this feature gates write-back on `stopReason === 'complete'` inline, in
+ * `streaming-run-fallback.ts` and `streaming-run-iteration.ts`. Those files are
+ * outside this lane's claim, so `stream()` currently keeps LESS partial work
+ * than `generate()` on the three cut-short reasons. Reconciling them means
+ * routing both consumers through THIS exported map -- never a second copy of
+ * the literal, which is exactly how the original drift happened.
  */
-const MEMORY_WRITE_BACK_BY_STOP_REASON: Record<StopReason, boolean> = {
+export const MEMORY_WRITE_BACK_BY_STOP_REASON: Record<StopReason, boolean> = {
   complete: true,
-  iteration_limit: false,
-  budget_exceeded: false,
+  iteration_limit: true,
+  budget_exceeded: true,
   aborted: false,
   error: false,
   stuck: false,
-  token_exhausted: false,
+  token_exhausted: true,
   compression_failed: false,
   approval_pending: false,
 };
