@@ -22,6 +22,7 @@ import type {
   EvalScorer,
   BenchmarkRunStore,
   BenchmarkRunRecord,
+  BenchmarkResult,
   BenchmarkRunListFilter,
   BenchmarkRunListPage,
   BenchmarkBaselineRecord,
@@ -1629,15 +1630,13 @@ import {
   RegressionGateError,
 } from "../orchestrator/benchmark-orchestrator.js";
 
-function buildBenchmarkResult(scores: Record<string, number>) {
+function buildBenchmarkResult(scores: Record<string, number>): BenchmarkResult {
   return {
     suiteId: "suite-a",
-    averageScore:
-      Object.values(scores).reduce((a, b) => a + b, 0) /
-      Object.values(scores).length,
-    passRate: 1,
+    timestamp: new Date().toISOString(),
     scores,
-    caseResults: [],
+    passedBaseline: true,
+    regressions: [],
   };
 }
 

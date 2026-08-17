@@ -265,7 +265,7 @@ const adapters: AdapterEntry[] = [
 
 interface ContractFailure {
   testId: string;
-  error?: string;
+  error?: string | undefined;
 }
 
 function getFailures(
@@ -274,7 +274,7 @@ function getFailures(
 ): ContractFailure[] {
   return report.tests
     .filter((t) => (category ? t.category === category : true) && t.status === 'failed')
-    .map((t) => ({ testId: t.testId, error: t.error ?? undefined }));
+    .map((t) => ({ testId: t.testId, error: t.error }));
 }
 
 function logFailures(title: string, failures: ContractFailure[]): void {

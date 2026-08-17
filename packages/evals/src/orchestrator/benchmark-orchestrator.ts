@@ -87,8 +87,13 @@ export interface RegressionGateOptions {
   /**
    * The baseline benchmark run to compare against.
    * Obtain this from {@link BenchmarkOrchestrator.getBaseline} / a prior saved run.
+   *
+   * `getBaseline` returns a {@link BenchmarkBaselineRecord}, which carries the
+   * same `result` payload as a {@link BenchmarkRunRecord} but no `id`/
+   * `createdAt`/`strict`. The gate only reads `result.scores`, so both records
+   * are accepted rather than forcing callers to synthesise the missing fields.
    */
-  baselineRun: BenchmarkRunRecord;
+  baselineRun: BenchmarkRunRecord | BenchmarkBaselineRecord;
   /**
    * Maximum allowed score drop before a suite is considered regressed.
    * E.g. 0.05 means a 5-percentage-point drop is acceptable; anything

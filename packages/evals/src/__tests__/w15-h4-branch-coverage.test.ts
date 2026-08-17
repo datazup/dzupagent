@@ -1388,6 +1388,7 @@ describe('benchmark-runner llm-judge branches', () => {
       id: 'test',
       name: 'Test',
       description: 'test',
+      category: 'qa',
       dataset: [
         { id: 'e0', input: 'What?', expectedOutput: 'answer' },
       ],
@@ -1424,6 +1425,7 @@ describe('benchmark-runner llm-judge branches', () => {
       id: 'test',
       name: 'Test',
       description: 'test',
+      category: 'qa',
       dataset: [
         { id: 'e0', input: 'What?', expectedOutput: 'answer' },
       ],
@@ -1452,6 +1454,7 @@ describe('benchmark-runner llm-judge branches', () => {
       id: 'test',
       name: 'Test',
       description: 'test',
+      category: 'qa',
       dataset: [
         { id: 'e0', input: 'What?', expectedOutput: 'answer' },
       ],
@@ -1469,6 +1472,7 @@ describe('benchmark-runner llm-judge branches', () => {
       id: 'test',
       name: 'Test',
       description: 'test',
+      category: 'qa',
       dataset: [
         { id: 'e0', input: 'q', expectedOutput: 'apple banana cherry' },
       ],
@@ -1489,6 +1493,7 @@ describe('benchmark-runner llm-judge branches', () => {
       id: 'test',
       name: 'Test',
       description: 'test',
+      category: 'qa',
       dataset: [
         { id: 'e0', input: 'q' }, // no expectedOutput
       ],
@@ -1505,6 +1510,7 @@ describe('benchmark-runner llm-judge branches', () => {
       id: 'test',
       name: 'T',
       description: 'd',
+      category: 'qa',
       dataset: [{ id: 'e0', input: 'q' }],
       scorers: [{ id: 'c', name: 'c', type: 'custom' }],
       baselineThresholds: {},
@@ -1519,6 +1525,7 @@ describe('benchmark-runner llm-judge branches', () => {
       id: 'test',
       name: 'T',
       description: 'd',
+      category: 'qa',
       dataset: [{ id: 'e0', input: 'q' }],
       scorers: [{ id: 'c', name: 'c', type: 'custom' }],
       baselineThresholds: {},
@@ -1533,6 +1540,7 @@ describe('benchmark-runner llm-judge branches', () => {
       id: 'test',
       name: 'T',
       description: 'd',
+      category: 'qa',
       dataset: [{ id: 'e0', input: 'q' }],
       scorers: [{ id: 'u', name: 'u', type: 'unknown-type' as never }],
       baselineThresholds: {},
@@ -1547,6 +1555,7 @@ describe('benchmark-runner llm-judge branches', () => {
       id: 'test',
       name: 'T',
       description: 'd',
+      category: 'qa',
       dataset: [{ id: 'e0', input: 'q', expectedOutput: 'a b c' }], // all short
       scorers: [{ id: 'd', name: 'd', type: 'deterministic' }],
       baselineThresholds: {},
@@ -1561,6 +1570,7 @@ describe('benchmark-runner llm-judge branches', () => {
       id: 'test',
       name: 'T',
       description: 'd',
+      category: 'qa',
       dataset: [{ id: 'e0', input: 'q' }], // no reference
       scorers: [{ id: 'd', name: 'd', type: 'deterministic' }],
       baselineThresholds: {},
