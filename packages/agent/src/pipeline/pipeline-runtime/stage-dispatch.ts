@@ -65,10 +65,22 @@ import { PipelineSourceBindingMismatchError } from "../pipeline-runtime-lifecycl
  * Exported for direct testing: the run aborts immediately after a lost
  * item-boundary commit and writes no further checkpoint, so this rollback has
  * no *end-to-end* observation point — a mutant deleting it survives every
- * suite. That mirrors the G1 mid-item merge, and for the same underlying
- * reason: the state it protects only becomes readable once a lost commit can
- * be followed by another write against the same frame, which requires the N>1
- * admission. It is unit-tested here and owes an end-to-end test to that slice.
+ * suite.
+ *
+ * 24-I RESOLVED THIS AS UNPAYABLE, not as pending. The pre-24-I text said the
+ * debt would come due once a lost commit could be followed by another write
+ * against the same frame, and expected the N>1 admission to supply it. It does
+ * not: the caller below THROWS `PipelineCheckpointCommitConflictError` on the
+ * line after this call, the throw propagates out of the worker and aborts the
+ * run, and nothing writes against the frame again — at any concurrency.
+ * Failing closed is precisely what prevents the second write. A mutant
+ * deleting the call was confirmed to survive a real concurrent-run test
+ * (`pipeline-for-each-lost-commit-rollback-e2e.test.ts`, which records the
+ * finding). Unlike the G1 mid-item merge, which N>1 genuinely did make
+ * killable, this one is subsumed by the throw on every reachable path.
+ *
+ * Its unit tests here are therefore the honest and final coverage. Do not
+ * re-attempt an end-to-end test for it.
  *
  * Correctness still matters today: leaving the retired-frame/advanced-cursor
  * entry in memory would mean any future caller that persists this frame writes
@@ -420,11 +432,13 @@ export async function dispatchLoopStage(
         // progress was lost — on resume it restarted at body node 0 and
         // re-ran committed side effects.
         //
-        // NOT COVERED BY A KILLING TEST, deliberately: at `concurrency: 1`
-        // only one item is ever in flight, so merging and overwriting are
-        // observationally identical and a mutant dropping this spread
-        // survives. It becomes observable — and must gain a test — in the
-        // slice that admits N>1.
+        // 24-I: NOW COVERED. This spread was uncovered at `concurrency: 1`,
+        // where only one item is ever in flight and merging is
+        // observationally identical to overwriting. The N>1 admission made it
+        // killable, and `pipeline-for-each-concurrent-frame-preservation.test.ts`
+        // kills it: with two items parked in flight together, dropping this
+        // spread collapses the persisted frame sets from ["0","1"] to
+        // singletons. That test is doc 27 §8 proof 3.
         itemFrames: {
           ...readItemFrames(previousBoundary),
           [String(progress.itemIndex)]: {
