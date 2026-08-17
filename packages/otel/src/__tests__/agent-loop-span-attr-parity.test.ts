@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -60,7 +61,15 @@ async function readLabAttributes(): Promise<Record<string, string>> {
   return Object.fromEntries(entries);
 }
 
-describe("agent-loop span attribute parity with the lab emitter", () => {
+// This is deliberately a workspace-level contract: the lab adapter belongs to
+// the sibling scripts repository and is not part of a standalone DzupAgent
+// checkout. Run the real parity assertions whenever that external source is
+// present, while keeping DzupAgent's own clean-checkout coverage lane hermetic.
+const describeLabParity = existsSync(LAB_ADAPTER_PATH)
+  ? describe
+  : describe.skip;
+
+describeLabParity("agent-loop span attribute parity with the lab emitter", () => {
   it("finds a non-trivial ATTR table in the lab adapter", async () => {
     // Anti-vacuity: every assertion below is over this table, so an empty or
     // near-empty parse would make them all trivially true.
