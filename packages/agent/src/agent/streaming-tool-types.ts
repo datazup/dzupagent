@@ -3,8 +3,8 @@ import type { DzupEventBus } from "@dzupagent/core/events";
 import type { SafetyMonitor } from "@dzupagent/core/security";
 import type { ToolGovernance } from "@dzupagent/core/tools";
 import type { ToolPermissionPolicy } from "@dzupagent/agent-types";
-import type { PiiMode, PromptInjectionMode } from "@dzupagent/security";
 import type { ToolArgValidatorConfig } from "./tool-arg-validator.js";
+import type { ToolResultSecurityPolicy } from "./tool-result-security-policy.js";
 import type {
   ToolLoopTracer,
   ToolResultScanFailureMode,
@@ -19,6 +19,8 @@ export interface StreamingToolExecutionResult {
   stuckRecovery?: string;
   repeatedTool?: string;
   shouldStop?: boolean;
+  /** Public tool-result security policy blocked output; no next model turn. */
+  securityBlocked?: boolean;
   stuckNudge?: ToolMessage;
 }
 
@@ -33,7 +35,7 @@ export interface ToolStatTracker {
  * same governance / permission / validation / timeout / safety stack as the
  * sequential `tool-loop.ts` path.
  */
-export interface StreamingToolPolicyOptions {
+export interface StreamingToolPolicyOptions extends ToolResultSecurityPolicy {
   toolGovernance?: ToolGovernance;
   toolPermissionPolicy?: ToolPermissionPolicy;
   validateToolArgs?: boolean | ToolArgValidatorConfig;
@@ -46,19 +48,6 @@ export interface StreamingToolPolicyOptions {
   safetyMonitor?: SafetyMonitor;
   scanToolResults?: boolean;
   scanFailureMode?: ToolResultScanFailureMode;
-  /**
-   * RF-15 — prompt-injection scanning on tool results.
-   *
-   * When set, `ContentScanner` runs against every tool result after the
-   * `safetyMonitor` pass. On `'block'`, the result is replaced with a
-   * sanitized placeholder before reaching the model. On `'warn'`, matched
-   * spans are rewritten and a `safety:violation` event is emitted.
-   */
-  promptInjectionToolResults?: PromptInjectionMode;
-  /**
-   * PII scanning on tool results — mirrors `promptInjectionToolResults` for PII.
-   */
-  piiToolResults?: PiiMode;
   /**
    * MC-3 (AGENT-H-06 / SEC-M-06) — prompt-injection guardrail. Mirrors
    * `ToolLoopConfig.promptInjectionGuard` so the streaming tool path wraps a

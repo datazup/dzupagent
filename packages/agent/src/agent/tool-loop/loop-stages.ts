@@ -222,6 +222,11 @@ export async function handleToolResults(
   for (const r of results) {
     state.messages.push(r.message);
 
+    if (r.securityBlocked) {
+      halt = "error";
+      break;
+    }
+
     if (r.approvalPending) {
       // Hard gate (RF-AGENT-04): drain remaining messages but suppress
       // further escalation handling. Loop terminates after this drain.

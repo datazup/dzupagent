@@ -23,8 +23,9 @@ import { type ToolArgValidatorConfig } from "../../tool-arg-validator.js";
 import type { ToolOutputValidator } from "../output-validator.js";
 import type { ToolResultScanFailureMode, ToolRetryConfig } from "./retry.js";
 import type { ToolLoopTracer } from "./tracer.js";
+import type { ToolResultSecurityPolicy } from "../../tool-result-security-policy.js";
 
-export interface ToolLoopConfig {
+export interface ToolLoopConfig extends ToolResultSecurityPolicy {
   maxIterations: number;
   budget?: IterationBudget;
   onUsage?: (usage: TokenUsage) => void;

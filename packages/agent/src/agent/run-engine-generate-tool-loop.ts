@@ -40,6 +40,10 @@ import {
 } from "./run-engine-generate-snapshot.js";
 import { wrapInvokeModelWithAudit } from "./run-engine-generate-audit.js";
 import { enforceAgentHardBudget } from "./runtime-hard-budget.js";
+import {
+  projectToolResultSecurityPolicy,
+  type ToolResultSecurityPolicy,
+} from "./tool-result-security-policy.js";
 
 /**
  * Output of {@link prepareGuardPrelude}. Threads the compression log
@@ -49,6 +53,7 @@ import { enforceAgentHardBudget } from "./runtime-hard-budget.js";
 export interface GuardPrelude {
   compressionLog: CompressionLogEntry[];
   toolExec: DzupAgentConfig["toolExecution"];
+  toolResultSecurityPolicy: ToolResultSecurityPolicy | undefined;
   /**
    * `safetyMonitor` takes precedence over the public-surface alias
    * `resultScanner`; pre-resolved here so the loop config builder
@@ -73,9 +78,17 @@ export interface GuardPrelude {
 export function prepareGuardPrelude(config: DzupAgentConfig): GuardPrelude {
   const compressionLog: CompressionLogEntry[] = [];
   const toolExec = config.toolExecution;
+  const toolResultSecurityPolicy = projectToolResultSecurityPolicy(
+    config.security
+  );
   const resolvedSafetyMonitor =
     toolExec?.safetyMonitor ?? toolExec?.resultScanner;
-  return { compressionLog, toolExec, resolvedSafetyMonitor };
+  return {
+    compressionLog,
+    toolExec,
+    toolResultSecurityPolicy,
+    resolvedSafetyMonitor,
+  };
 }
 
 /**
@@ -95,8 +108,9 @@ function buildPolicyConfig(
   params: ExecuteGenerateRunParams,
   prelude: GuardPrelude
 ): Partial<ToolLoopConfig> {
-  const { toolExec, resolvedSafetyMonitor } = prelude;
+  const { toolExec, toolResultSecurityPolicy, resolvedSafetyMonitor } = prelude;
   return {
+    ...(toolResultSecurityPolicy ?? {}),
     ...(toolExec?.governance !== undefined
       ? { toolGovernance: toolExec.governance }
       : {}),
@@ -124,7 +138,9 @@ function buildPolicyConfig(
     // agentId: fall back to the agent's own id ONLY when toolExecution is
     // provided, so the pre-MJ-AGENT-01 surface (no toolExecution) is
     // bit-for-bit identical to the previous behaviour.
-    ...(toolExec ? { agentId: toolExec.agentId ?? params.agentId } : {}),
+    ...(toolExec || toolResultSecurityPolicy
+      ? { agentId: toolExec?.agentId ?? params.agentId }
+      : {}),
     ...(toolExec?.runId !== undefined ? { runId: toolExec.runId } : {}),
     ...(toolExec?.argumentValidator !== undefined
       ? { validateToolArgs: toolExec.argumentValidator }
@@ -136,7 +152,8 @@ function buildPolicyConfig(
     // configured. Without `toolExecution`, the loop continues to operate
     // without lifecycle telemetry — matching pre-MJ-AGENT-01 behaviour
     // exactly.
-    ...(toolExec && params.config.eventBus !== undefined
+    ...((toolExec || toolResultSecurityPolicy) &&
+    params.config.eventBus !== undefined
       ? { eventBus: params.config.eventBus }
       : {}),
   };

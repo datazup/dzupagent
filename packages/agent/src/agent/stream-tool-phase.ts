@@ -8,7 +8,6 @@
  */
 import { ToolMessage } from "@langchain/core/messages";
 import type { StructuredToolInterface } from "@langchain/core/tools";
-import { ContentScanner } from "@dzupagent/security";
 import { omitUndefined } from "../utils/exact-optional.js";
 import {
   emitToolCalled,
@@ -30,6 +29,7 @@ import type {
   StreamPhaseResult,
   StreamingToolCall,
 } from "./run-engine/types.js";
+import { scanToolResultSecurity } from "./tool-result-security-policy.js";
 
 export type { StreamPhaseResult } from "./run-engine/types.js";
 
@@ -297,91 +297,63 @@ export async function runToolStreamingPhase(args: {
     }
   }
 
-  // RF-15 — prompt-injection + PII scan on tool results.
-  const piMode = policy?.promptInjectionToolResults;
-  const piiMode = policy?.piiToolResults;
-  if (
-    (piMode !== undefined && piMode !== "off") ||
-    (piiMode !== undefined && piiMode !== "off")
-  ) {
-    try {
-      const scanner = new ContentScanner({
-        promptInjection: piMode ?? "off",
-        pii: piiMode ?? "off",
-      });
-      const scan = await scanner.scan(transformedResult);
-      if (scan.verdict === "block") {
-        const blockedContent =
-          "[blocked: tool result contained prompt-injection markers]";
-        const durationMs = recordToolLatencyOutcome(
-          omitUndefined({
-            statTracker,
-            onToolLatency,
-            toolName,
-            startMs,
-            errorTag: "prompt-injection",
-          })
-        );
-        policy?.eventBus?.emit({
-          type: "safety:violation",
-          category: "tool_result_prompt_injection",
-          severity: "critical",
-          ...(policy?.agentId !== undefined ? { agentId: policy.agentId } : {}),
-          message: `Tool "${toolName}" output blocked: prompt-injection markers detected (${scan.findings.length} finding(s))`,
-        });
-        emitToolError(policy, {
-          toolName,
-          toolCallId,
-          durationMs,
-          inputMetadataKeys: validatedKeys,
-          errorCode: "TOOL_EXECUTION_FAILED",
-          errorMessage: "Tool result blocked: prompt-injection detected",
-          status: "denied",
-        });
-        if (span) {
-          try {
-            span.setAttribute("durationMs", durationMs);
-            span.setAttribute("outputSize", blockedContent.length);
-            span.setAttribute("blocked", true);
-            span.setAttribute("blockReason", "prompt_injection");
-            span.end();
-          } catch {
-            // Tracer failures must not abort the streaming loop
-          }
-        }
-        return {
-          kind: "short-circuit",
-          result: {
-            message: new ToolMessage({
-              content: blockedContent,
-              tool_call_id: toolCallId,
-              name: toolName,
-            }),
-            eventResult: blockedContent,
-          },
-        };
+  // RF-15 — shared prompt-injection + PII scan used by both native stream
+  // and the generate/tool-loop path. Public policy blocks halt before the
+  // next model turn; direct internal callers keep the historical placeholder
+  // behavior unless they explicitly set the halt flag.
+  const resultSecurity = await scanToolResultSecurity(transformedResult, {
+    policy,
+    ...(policy?.eventBus !== undefined ? { eventBus: policy.eventBus } : {}),
+    ...(policy?.agentId !== undefined ? { agentId: policy.agentId } : {}),
+    toolName,
+  });
+  if (resultSecurity.kind === "block") {
+    const durationMs = recordToolLatencyOutcome(
+      omitUndefined({
+        statTracker,
+        onToolLatency,
+        toolName,
+        startMs,
+        errorTag: resultSecurity.errorTag,
+      })
+    );
+    emitToolError(policy, {
+      toolName,
+      toolCallId,
+      durationMs,
+      inputMetadataKeys: validatedKeys,
+      errorCode: "TOOL_EXECUTION_FAILED",
+      errorMessage: resultSecurity.errorMessage,
+      status: resultSecurity.reason === "scanner_failure" ? "error" : "denied",
+    });
+    if (span) {
+      try {
+        span.setAttribute("durationMs", durationMs);
+        span.setAttribute("outputSize", resultSecurity.content.length);
+        span.setAttribute("blocked", true);
+        span.setAttribute("blockReason", resultSecurity.reason);
+        span.end();
+      } catch {
+        // Tracer failures must not abort the streaming loop
       }
-      if (scan.verdict === "sanitize") {
-        policy?.eventBus?.emit({
-          type: "safety:violation",
-          category: "tool_result_prompt_injection",
-          severity: "warning",
-          ...(policy?.agentId !== undefined ? { agentId: policy.agentId } : {}),
-          message: `Tool "${toolName}" output sanitized: prompt-injection markers rewritten (${scan.findings.length} finding(s))`,
-        });
-        transformedResult = scan.sanitized;
-      }
-    } catch {
-      // Scanner exceptions are non-fatal — emit a violation event and
-      // continue with the original output.
-      policy?.eventBus?.emit({
-        type: "safety:violation",
-        category: "tool_result_prompt_injection_scanner_failure",
-        severity: "warning",
-        ...(policy?.agentId !== undefined ? { agentId: policy.agentId } : {}),
-        message: "Tool result prompt-injection scanner failed",
-      });
     }
+    return {
+      kind: "short-circuit",
+      result: {
+        message: new ToolMessage({
+          content: resultSecurity.content,
+          tool_call_id: toolCallId,
+          name: toolName,
+        }),
+        eventResult: resultSecurity.content,
+        ...(policy?.haltOnToolResultSecurityBlock === true
+          ? { securityBlocked: true }
+          : {}),
+      },
+    };
+  }
+  if (resultSecurity.kind === "sanitize") {
+    transformedResult = resultSecurity.content;
   }
 
   // Successful path: record latency, emit `tool:result`, end span.

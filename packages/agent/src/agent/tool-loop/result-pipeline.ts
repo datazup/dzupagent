@@ -4,6 +4,7 @@ import type { ToolResultGuardLike } from "@dzupagent/security";
 import { emitToolError, statusFromError } from "../tool-lifecycle-policy.js";
 import type { ToolLoopConfig } from "./types.js";
 import type { StuckStatus } from "../../guardrails/stuck-detector.js";
+import { scanToolResultSecurity } from "../tool-result-security-policy.js";
 
 /**
  * MC-3 (AGENT-H-06 / SEC-M-06 / QF-04 / DZUPAGENT-AGENT-C-22) — translate a
@@ -141,7 +142,7 @@ export interface SafetyScanContext {
 
 export interface SafetyScanOutcome {
   /** When set, the caller should return this short-circuit result. */
-  shortCircuit?: { message: ToolMessage };
+  shortCircuit?: { message: ToolMessage; securityBlocked?: boolean };
   /** When `shortCircuit` is unset, the (possibly transformed) result string. */
   resultStr: string;
 }
@@ -152,93 +153,141 @@ export interface SafetyScanOutcome {
  * `scanFailureMode`. On pass, returns the original (or replaced) result
  * string.
  */
-export function applySafetyScan(
+export async function applySafetyScan(
   resultStr: string,
   ctx: SafetyScanContext
-): SafetyScanOutcome {
+): Promise<SafetyScanOutcome> {
   const { config, toolName, toolCallId, validatedKeys, startMs, span, stat } =
     ctx;
-  if (!config.safetyMonitor || config.scanToolResults === false) {
-    return { resultStr };
-  }
-  try {
-    const violations = config.safetyMonitor.scanContent(resultStr, {
-      source: "tool:result",
-      toolName,
-    });
-    const hardBlock = violations.find(
-      (v) =>
-        v.action === "block" || v.action === "kill" || v.severity === "critical"
-    );
-    if (hardBlock) {
-      const blockedStr = `[blocked] Tool result contained potentially unsafe content (${hardBlock.category}): ${hardBlock.message}`;
-      config.onToolResult?.(toolName, "[blocked: unsafe tool output]");
-      const message = new ToolMessage({
-        content: blockedStr,
-        tool_call_id: toolCallId,
-        name: toolName,
-      });
-      const durationMs = Date.now() - startMs;
-      stat.calls++;
-      stat.totalMs += durationMs;
-      config.onToolLatency?.(toolName, durationMs, "unsafe-result");
-      emitToolError(config, {
+  if (config.safetyMonitor && config.scanToolResults !== false) {
+    try {
+      const violations = config.safetyMonitor.scanContent(resultStr, {
+        source: "tool:result",
         toolName,
-        toolCallId,
-        durationMs,
-        inputMetadataKeys: validatedKeys,
-        errorCode: "TOOL_EXECUTION_FAILED",
-        errorMessage: `Tool result blocked: ${hardBlock.category} — ${hardBlock.message}`,
-        status: "denied",
       });
-      endSpan(span, {
-        durationMs,
-        outputSize: blockedStr.length,
-        blocked: true,
+      const hardBlock = violations.find(
+        (v) =>
+          v.action === "block" ||
+          v.action === "kill" ||
+          v.severity === "critical"
+      );
+      if (hardBlock) {
+        const blockedStr = `[blocked] Tool result contained potentially unsafe content (${hardBlock.category}): ${hardBlock.message}`;
+        config.onToolResult?.(toolName, "[blocked: unsafe tool output]");
+        const message = new ToolMessage({
+          content: blockedStr,
+          tool_call_id: toolCallId,
+          name: toolName,
+        });
+        const durationMs = Date.now() - startMs;
+        stat.calls++;
+        stat.totalMs += durationMs;
+        config.onToolLatency?.(toolName, durationMs, "unsafe-result");
+        emitToolError(config, {
+          toolName,
+          toolCallId,
+          durationMs,
+          inputMetadataKeys: validatedKeys,
+          errorCode: "TOOL_EXECUTION_FAILED",
+          errorMessage: `Tool result blocked: ${hardBlock.category} — ${hardBlock.message}`,
+          status: "denied",
+        });
+        endSpan(span, {
+          durationMs,
+          outputSize: blockedStr.length,
+          blocked: true,
+        });
+        return { shortCircuit: { message }, resultStr: blockedStr };
+      }
+    } catch {
+      // RF-11 / DZUPAGENT-AGENT-M-01 — resolve the effective failure mode
+      // once. `fail-open` remains an explicit legacy override for this older
+      // SafetyMonitor surface; the public ContentScanner policy below is
+      // independently fail-closed.
+      const effectiveMode = config.scanFailureMode ?? "fail-closed";
+      config.eventBus?.emit({
+        type: "safety:violation",
+        category: "tool_result_scanner_failure",
+        severity: effectiveMode === "fail-closed" ? "critical" : "warning",
+        ...(config.agentId !== undefined ? { agentId: config.agentId } : {}),
+        message: "Tool result safety scanner failed",
       });
-      return { shortCircuit: { message }, resultStr: blockedStr };
-    }
-    return { resultStr };
-  } catch {
-    // RF-11 / DZUPAGENT-AGENT-M-01 — resolve the effective failure mode once.
-    // A bare DzupAgent (no explicit `scanFailureMode`) is fail-closed: a
-    // crashing scanner must NOT silently leak tool output. `fail-open` remains
-    // available only as an explicit, opt-in legacy override.
-    const effectiveMode = config.scanFailureMode ?? "fail-closed";
-    config.eventBus?.emit({
-      type: "safety:violation",
-      category: "tool_result_scanner_failure",
-      severity: effectiveMode === "fail-closed" ? "critical" : "warning",
-      ...(config.agentId !== undefined ? { agentId: config.agentId } : {}),
-      message: "Tool result safety scanner failed",
-    });
 
-    if (effectiveMode === "fail-closed") {
-      const blockedStr = "[blocked: tool result safety scanner failed]";
-      config.onToolResult?.(toolName, blockedStr);
-      const message = new ToolMessage({
-        content: blockedStr,
-        tool_call_id: toolCallId,
-        name: toolName,
-      });
-      const durationMs = Date.now() - startMs;
-      stat.calls++;
-      stat.totalMs += durationMs;
-      config.onToolLatency?.(toolName, durationMs, "scanner-failure");
-      emitToolError(config, {
-        toolName,
-        toolCallId,
-        durationMs,
-        inputMetadataKeys: validatedKeys,
-        errorCode: "TOOL_EXECUTION_FAILED",
-        errorMessage: "Tool result safety scanner failed; output withheld",
-        status: "error",
-      });
-      endSpan(span, { durationMs, scannerFailure: true });
-      return { shortCircuit: { message }, resultStr: blockedStr };
+      if (effectiveMode === "fail-closed") {
+        const blockedStr = "[blocked: tool result safety scanner failed]";
+        config.onToolResult?.(toolName, blockedStr);
+        const message = new ToolMessage({
+          content: blockedStr,
+          tool_call_id: toolCallId,
+          name: toolName,
+        });
+        const durationMs = Date.now() - startMs;
+        stat.calls++;
+        stat.totalMs += durationMs;
+        config.onToolLatency?.(toolName, durationMs, "scanner-failure");
+        emitToolError(config, {
+          toolName,
+          toolCallId,
+          durationMs,
+          inputMetadataKeys: validatedKeys,
+          errorCode: "TOOL_EXECUTION_FAILED",
+          errorMessage: "Tool result safety scanner failed; output withheld",
+          status: "error",
+        });
+        endSpan(span, { durationMs, scannerFailure: true });
+        return { shortCircuit: { message }, resultStr: blockedStr };
+      }
     }
-    return { resultStr };
   }
+
+  const resultSecurity = await scanToolResultSecurity(resultStr, {
+    policy: config,
+    ...(config.eventBus !== undefined ? { eventBus: config.eventBus } : {}),
+    ...(config.agentId !== undefined ? { agentId: config.agentId } : {}),
+    toolName,
+  });
+  if (resultSecurity.kind === "block") {
+    const blockedStr = resultSecurity.content;
+    config.onToolResult?.(toolName, blockedStr);
+    const message = new ToolMessage({
+      content: blockedStr,
+      tool_call_id: toolCallId,
+      name: toolName,
+    });
+    const durationMs = Date.now() - startMs;
+    stat.calls++;
+    stat.totalMs += durationMs;
+    config.onToolLatency?.(toolName, durationMs, resultSecurity.errorTag);
+    emitToolError(config, {
+      toolName,
+      toolCallId,
+      durationMs,
+      inputMetadataKeys: validatedKeys,
+      errorCode: "TOOL_EXECUTION_FAILED",
+      errorMessage: resultSecurity.errorMessage,
+      status:
+        resultSecurity.reason === "scanner_failure" ? "error" : "denied",
+    });
+    endSpan(span, {
+      durationMs,
+      outputSize: blockedStr.length,
+      blocked: true,
+      blockReason: resultSecurity.reason,
+    });
+    return {
+      shortCircuit: {
+        message,
+        ...(config.haltOnToolResultSecurityBlock === true
+          ? { securityBlocked: true }
+          : {}),
+      },
+      resultStr: blockedStr,
+    };
+  }
+  return {
+    resultStr:
+      resultSecurity.kind === "sanitize" ? resultSecurity.content : resultStr,
+  };
 }
 
 export interface ToolErrorContext {

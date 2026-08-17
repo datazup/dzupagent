@@ -101,6 +101,7 @@ export async function* streamRun(
   const allMessages = [...runState.preparedMessages]
   const toolStats = createToolStatTracker()
   let llmCalls = 0
+  let partialContent = ''
   const finalizeRun = createStreamRunFinalizer({
     ctx,
     options,
@@ -108,6 +109,7 @@ export async function* streamRun(
     allMessages,
     toolStats,
     getLlmCalls: () => llmCalls,
+    getPartialContent: () => partialContent,
   })
   const streamingPolicy = buildStreamingToolPolicy(ctx, options)
 
@@ -173,6 +175,7 @@ export async function* streamRun(
     }
     if (!fullResponse) continue
 
+    partialContent = chunks.join('')
     allMessages.push(fullResponse)
 
     // WS3 Task 3.2 — success seam: afterModelCall fires ONCE with the
