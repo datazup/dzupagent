@@ -13,7 +13,6 @@
  *   state.__skills_prompt_<phaseName> — pre-formatted prompt section (string)
  */
 
-import type { SkillRegistry, SkillLoader } from '@dzupagent/core/pipeline'
 import type { SkillResolutionContext } from '@dzupagent/core/pipeline'
 
 export interface ResolvedSkill {
@@ -22,11 +21,37 @@ export interface ResolvedSkill {
   source: 'registry' | 'loader'
 }
 
+/**
+ * The part of a skill registry this resolver uses.
+ *
+ * Declared structurally rather than as core's `SkillRegistry` because
+ * `resolveSkills` only ever reads `instructions` off the result of `get`.
+ * `SkillRegistry` keeps its skills in a `private readonly` Map, so a position
+ * typed as the class cannot be satisfied by any alternative implementation —
+ * every caller and test had to reach for `as unknown as SkillRegistry`, which
+ * silences real mismatches along with the private-state one.
+ *
+ * The real `SkillRegistry` satisfies this port; `skill-resolver.test.ts`
+ * asserts that against a live instance rather than trusting the shape here.
+ */
+export interface SkillInstructionSource {
+  get(id: string): { instructions: string } | undefined
+}
+
+/**
+ * The part of a skill loader this resolver uses — structural for the same
+ * reason as {@link SkillInstructionSource}: core's `SkillLoader` takes its
+ * source paths as a private constructor field.
+ */
+export interface SkillContentLoader {
+  loadSkillContent(skillName: string): Promise<string | null>
+}
+
 export interface SkillResolverConfig {
   /** Optional in-memory skill registry (checked first) */
-  registry?: SkillRegistry | undefined
+  registry?: SkillInstructionSource | undefined
   /** Optional filesystem skill loader (checked second) */
-  loader?: SkillLoader | undefined
+  loader?: SkillContentLoader | undefined
 }
 
 /**
