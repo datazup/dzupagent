@@ -22,14 +22,14 @@ interface StoredDataset {
   createdAt: Date;
   updatedAt: Date;
   tags: string[];
-  description?: string;
+  description?: string | undefined;
 }
 
 interface DatasetVersion {
   version: number;
   dataset: EvalDataset;
   snapshotAt: Date;
-  changeNote?: string;
+  changeNote?: string | undefined;
 }
 
 class DatasetStore {

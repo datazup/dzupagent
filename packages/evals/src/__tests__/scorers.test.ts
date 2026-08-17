@@ -838,7 +838,7 @@ describe('CompositeScorer (gap coverage)', () => {
     });
 
     it('passes input/output/reference through to component scorers', async () => {
-      const seen: Array<{ input: string; output: string; ref?: string }> = [];
+      const seen: Array<{ input: string; output: string; ref?: string | undefined }> = [];
       const sniff: EvalScorer = {
         name: 'sniff',
         score: async (input, output, reference) => {

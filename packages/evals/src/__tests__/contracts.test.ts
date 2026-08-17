@@ -36,7 +36,7 @@ import type {
 
 /** A minimal in-memory VectorStore that passes all contract tests */
 function createMockVectorStore() {
-  const collections = new Map<string, Map<string, { vector: number[]; metadata: Record<string, unknown>; text?: string }>>();
+  const collections = new Map<string, Map<string, { vector: number[]; metadata: Record<string, unknown>; text?: string | undefined }>>();
 
   return {
     provider: 'mock',

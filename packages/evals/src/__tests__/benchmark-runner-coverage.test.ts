@@ -176,7 +176,7 @@ describe('runBenchmark', () => {
 
   it('unknown scorer type: returns 1.0 for non-empty', async () => {
     const suite = makeSuite({
-      scorers: [{ id: 'u', name: 'U', type: 'unknown-type', description: 'test' }],
+      scorers: [{ id: 'u', name: 'U', type: 'unknown-type' as never, description: 'test' }],
       baselineThresholds: {},
     });
 

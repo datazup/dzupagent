@@ -51,7 +51,7 @@ describe('a scorer that inspected nothing must not report a clean pass', () => {
           rules: [
             {
               id: 'no-secrets',
-              category: 'privacy' as const,
+              category: 'data_privacy' as const,
               description: 'must not leak credentials',
               violationPatterns: [/api[_-]?key/i],
             },

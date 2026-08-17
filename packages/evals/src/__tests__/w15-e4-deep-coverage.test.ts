@@ -30,7 +30,7 @@ import type { ComplianceReport } from '../contracts/contract-types.js';
 function makeReport(overrides: Partial<ComplianceReport> = {}): ComplianceReport {
   return {
     suiteName: 'test-suite',
-    adapterType: 'MockAdapter',
+    adapterType: 'vector-store',
     timestamp: '2026-04-16T00:00:00Z',
     totalDuration: 123.456,
     summary: { total: 5, passed: 3, failed: 1, skipped: 1 },
@@ -1046,7 +1046,15 @@ function makeMockVersionStore(): PromptVersionStore {
   const allVersions = new Map<string, PromptVersion>();
   let counter = 0;
 
-  const store: PromptVersionStore = {
+  const unsupported = (method: string) => () => {
+    throw new Error(`makeMockVersionStore: ${method}() is not implemented`);
+  };
+
+  // PromptVersionStore is a class with private state, so a structural literal
+  // can never satisfy it nominally — the cast below bridges only that. Every
+  // public method PromptOptimizerPersistence does not use throws, so a new
+  // call site cannot pass silently against a lenient double.
+  const store = {
     getActive: vi.fn().mockImplementation(async (promptKey: string) => {
       for (const v of allVersions.values()) {
         if (v.promptKey === promptKey && v.active) return v;
@@ -1097,9 +1105,12 @@ function makeMockVersionStore(): PromptVersionStore {
         v.active = true;
       }
     }),
-    getHistory: vi.fn().mockResolvedValue([]),
-    getVersion: vi.fn().mockResolvedValue(null),
-  };
+    getById: unsupported('getById'),
+    listVersions: unsupported('listVersions'),
+    rollback: unsupported('rollback'),
+    compare: unsupported('compare'),
+    listPromptKeys: unsupported('listPromptKeys'),
+  } as unknown as PromptVersionStore;
   return store;
 }
 

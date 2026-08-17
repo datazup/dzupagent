@@ -892,6 +892,24 @@ describe("eval-orchestrator-recovery", () => {
 // ── eval-orchestrator-metrics ────────────────────────────────────────────────
 
 import { QueueMetricsTracker } from "../orchestrator/eval-orchestrator-metrics.js";
+import { MetricsCollector } from "@dzupagent/core/utils";
+
+/**
+ * A REAL MetricsCollector with spies on the three methods QueueMetricsTracker
+ * emits through. MetricsCollector carries private state, so a bare object
+ * literal can never satisfy the config type; spying on a real instance keeps
+ * the double complete (and checks the real method signatures) while leaving
+ * the existing `toHaveBeenCalledWith` assertions intact.
+ */
+const makeSpyMetrics = () => {
+  const collector = new MetricsCollector();
+  return {
+    collector,
+    increment: vi.spyOn(collector, "increment"),
+    observe: vi.spyOn(collector, "observe"),
+    gauge: vi.spyOn(collector, "gauge"),
+  };
+};
 
 describe("QueueMetricsTracker", () => {
   const makeTracker = (
@@ -900,11 +918,7 @@ describe("QueueMetricsTracker", () => {
       pendingSet?: Set<string>;
       activeControllers?: Map<string, AbortController>;
       store?: EvalRunStore;
-      metrics?: {
-        increment: ReturnType<typeof vi.fn>;
-        observe: ReturnType<typeof vi.fn>;
-        gauge: ReturnType<typeof vi.fn>;
-      };
+      metrics?: MetricsCollector;
     } = {},
   ) => {
     const store = opts.store ?? new MockRunStore();
@@ -945,12 +959,8 @@ describe("QueueMetricsTracker", () => {
   });
 
   it("recordQueueEvent calls metrics.increment", () => {
-    const mockMetrics = {
-      increment: vi.fn(),
-      observe: vi.fn(),
-      gauge: vi.fn(),
-    };
-    const tracker = makeTracker({ metrics: mockMetrics });
+    const mockMetrics = makeSpyMetrics();
+    const tracker = makeTracker({ metrics: mockMetrics.collector });
     tracker.recordQueueEvent("forge_eval_queue_enqueued_total");
     expect(mockMetrics.increment).toHaveBeenCalledWith(
       "forge_eval_queue_enqueued_total",
@@ -963,12 +973,8 @@ describe("QueueMetricsTracker", () => {
   });
 
   it("recordQueueHistogram calls metrics.observe for valid positive values", () => {
-    const mockMetrics = {
-      increment: vi.fn(),
-      observe: vi.fn(),
-      gauge: vi.fn(),
-    };
-    const tracker = makeTracker({ metrics: mockMetrics });
+    const mockMetrics = makeSpyMetrics();
+    const tracker = makeTracker({ metrics: mockMetrics.collector });
     tracker.recordQueueHistogram("forge_eval_queue_wait_ms", 500);
     expect(mockMetrics.observe).toHaveBeenCalledWith(
       "forge_eval_queue_wait_ms",
@@ -982,24 +988,16 @@ describe("QueueMetricsTracker", () => {
   });
 
   it("recordQueueHistogram skips non-finite values", () => {
-    const mockMetrics = {
-      increment: vi.fn(),
-      observe: vi.fn(),
-      gauge: vi.fn(),
-    };
-    const tracker = makeTracker({ metrics: mockMetrics });
+    const mockMetrics = makeSpyMetrics();
+    const tracker = makeTracker({ metrics: mockMetrics.collector });
     tracker.recordQueueHistogram("test", NaN);
     tracker.recordQueueHistogram("test", Infinity);
     expect(mockMetrics.observe).not.toHaveBeenCalled();
   });
 
   it("recordQueueHistogram skips negative values", () => {
-    const mockMetrics = {
-      increment: vi.fn(),
-      observe: vi.fn(),
-      gauge: vi.fn(),
-    };
-    const tracker = makeTracker({ metrics: mockMetrics });
+    const mockMetrics = makeSpyMetrics();
+    const tracker = makeTracker({ metrics: mockMetrics.collector });
     tracker.recordQueueHistogram("test", -1);
     expect(mockMetrics.observe).not.toHaveBeenCalled();
   });
@@ -1103,12 +1101,8 @@ describe("QueueMetricsTracker", () => {
     });
 
     it("emits pending, active, and oldest age gauges", async () => {
-      const mockMetrics = {
-        increment: vi.fn(),
-        observe: vi.fn(),
-        gauge: vi.fn(),
-      };
-      const tracker = makeTracker({ metrics: mockMetrics });
+      const mockMetrics = makeSpyMetrics();
+      const tracker = makeTracker({ metrics: mockMetrics.collector });
       await tracker.refreshQueueMetrics();
       expect(mockMetrics.gauge).toHaveBeenCalledWith(
         "forge_eval_queue_pending",

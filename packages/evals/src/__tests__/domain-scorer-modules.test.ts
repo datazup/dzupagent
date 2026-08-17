@@ -24,7 +24,11 @@ describe('domain-scorer helper modules', () => {
     expect(config.domain).toBe('code')
     expect(config.name).toBe(DOMAIN_CONFIGS.code.name)
     expect(totalWeight).toBeCloseTo(1)
-    expect(weights.typeCorrectness / weights.testCoverage).toBeCloseTo(2)
+    const typeCorrectness = weights['typeCorrectness']
+    const testCoverage = weights['testCoverage']
+    expect(typeCorrectness).toBeDefined()
+    expect(testCoverage).toBeDefined()
+    expect(typeCorrectness! / testCoverage!).toBeCloseTo(2)
   })
 
   it('applies custom config overrides without mutating the built-in config map', () => {

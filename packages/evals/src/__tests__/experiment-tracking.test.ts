@@ -263,8 +263,9 @@ describe("Experiment metadata", () => {
     await store.saveRun(run);
     const after = new Date().toISOString();
     const fetched = await store.getRun("r1");
-    expect(fetched?.createdAt >= before).toBe(true);
-    expect(fetched?.createdAt <= after).toBe(true);
+    expect(fetched).not.toBeNull();
+    expect(fetched!.createdAt >= before).toBe(true);
+    expect(fetched!.createdAt <= after).toBe(true);
   });
 
   it("result.timestamp is stored in the BenchmarkResult", async () => {

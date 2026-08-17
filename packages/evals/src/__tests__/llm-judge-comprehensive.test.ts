@@ -992,7 +992,7 @@ describe("J. Inter-judge agreement coefficient", () => {
   });
 
   it("agreement from 5-dim scorer panel can be computed from overall scores", async () => {
-    const scorePairs = [
+    const scorePairs: Array<[number, number, number, number, number]> = [
       [8, 8, 8, 8, 8],
       [9, 9, 9, 9, 9],
     ];

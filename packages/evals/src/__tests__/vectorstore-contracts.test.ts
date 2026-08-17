@@ -30,7 +30,7 @@ import type { ComplianceReport } from '../contracts/index.js';
 function createInlineMockVectorStore() {
   const collections = new Map<
     string,
-    Map<string, { vector: number[]; metadata: Record<string, unknown>; text?: string }>
+    Map<string, { vector: number[]; metadata: Record<string, unknown>; text?: string | undefined }>
   >();
 
   return {
