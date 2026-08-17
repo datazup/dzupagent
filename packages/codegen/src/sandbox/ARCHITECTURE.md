@@ -40,10 +40,25 @@ The scope includes:
   - `security-profile.ts`: profile model and conversion to Docker flags.
   - `sandbox-hardening.ts`: hardening config and Docker security flag generation, escape detection.
 
-- Kubernetes support:
+- Kubernetes support (client side only):
   - `k8s/operator-types.ts`: `AgentSandbox` CRD data model and helper.
   - `k8s/k8s-client.ts`: direct REST client for CRD CRUD, phase wait, and pod exec.
+  - `k8s/k8s-sandbox.ts`: `SandboxProtocol` implementation over the CRD.
   - `k8s/index.ts`: K8s export surface.
+
+  This package ships only the **client** half of the K8s flow: it creates and
+  reads `AgentSandbox` resources. The **operator** that reconciles them — pod
+  spec building, NetworkPolicy generation, the reconcile loop — is a cluster-side
+  component that lives outside this repo, as recorded under Environment
+  prerequisites below.
+
+  `__tests__/k8s-sandbox.test.ts` used to carry 27 tests for that operator
+  (`buildPodSpec`, `buildNetworkPolicy`, `AgentSandboxReconciler`), loaded through
+  an optional `await import('../../../../k8s/operator/src/...')`. No such path has
+  ever existed in this repository and those three symbols appear in no source
+  file, so the suites had been `describe.skip` since the day they were written —
+  27 tests that read as coverage and asserted nothing. They were deleted
+  2026-08-17; recover them from history if the operator is ever vendored here.
 
 - Operational extensions:
   - `audit/audit-types.ts`, `audit/memory-audit-store.ts`, `audit/audited-sandbox.ts`.
