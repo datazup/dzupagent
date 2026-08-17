@@ -28,13 +28,13 @@ S2=$(git status --porcelain | md5sum); H2=$(git rev-parse HEAD)
 
 | Package | Status | Claimed by | Note |
 |---|---|---|---|
-| `codegen` | **claimed** | core-slice session (2026-08-17 PM) | next slice; 154 errors at claim time |
+| `codegen` | **in use** | other session (took it 2026-08-17 16:50, `e015b741`) | claim released — the other session entered first; do not take without re-probing |
 | `core` | free | — | 384 → 126 shipped (`8b7bbe0c`, `0f401bdb`, `337c31fa`); baseline ratcheted to 126. Remainder needs two contract reads: renamed `RunJournalEntryInput`, `ProtocolAdapter` mock shape |
 | `connectors` | **in use** | other session (observed editing 2026-08-17 PM) | do not take without re-probing |
-| `server` | free | — | 575 errors. `3969e4df` repaired a committed regression here; the `RunExecutor` contract note lives in `run-worker-types.ts` |
-| `agent` | free | — | 198 errors |
+| `server` | free | — | 664 errors (budget, re-read 2026-08-17 PM; the 575 figure was measured mid-edit). `3969e4df` repaired a committed regression here; the `RunExecutor` contract note lives in `run-worker-types.ts` |
+| `agent` | **claimed** | agent-slice session (2026-08-17 PM) | 198 errors at claim time; re-derived, not inherited |
 | `evals` | free | — | 188 errors |
-| `agent-adapters` | free | — | 166 errors |
+| `agent-adapters` | free | — | 144 errors (ratcheted `0be1333a`) |
 | `memory` | free | — | 4 errors |
 
 Packages at zero (do not regress): `adapter-rules`, `cache`,
