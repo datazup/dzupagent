@@ -32,10 +32,15 @@ const mockRuntimeRequire = vi.fn((specifier: string) => {
   throw Object.assign(new Error(`Cannot find module '${specifier}'`), { code: 'MODULE_NOT_FOUND' })
 }) as unknown as NodeRequire
 
-mockRuntimeRequire.resolve = vi.fn((specifier: string) => {
+// The mock keeps its own binding instead of being reached back through
+// `mockRuntimeRequire.resolve`: that property is typed `RequireResolve`, so a
+// test wanting the mock controls could only get at them by asserting between two
+// non-overlapping types.
+const mockRequireResolve = vi.fn((specifier: string) => {
   if (specifier === 'snowflake-sdk') return '/fake/path/snowflake-sdk'
   throw Object.assign(new Error(`Cannot find module '${specifier}'`), { code: 'MODULE_NOT_FOUND' })
-}) as unknown as NodeRequire['resolve']
+})
+mockRuntimeRequire.resolve = mockRequireResolve as unknown as NodeRequire['resolve']
 
 vi.mock('node:module', () => ({
   createRequire: vi.fn(() => mockRuntimeRequire),
@@ -109,8 +114,8 @@ describe('SnowflakeConnector', () => {
     })
 
     it('throws when snowflake-sdk is not installed', () => {
-      const savedResolve = (mockRuntimeRequire.resolve as ReturnType<typeof vi.fn>).getMockImplementation()
-      ;(mockRuntimeRequire.resolve as ReturnType<typeof vi.fn>).mockImplementation((spec: string) => {
+      const savedResolve = mockRequireResolve.getMockImplementation()
+      mockRequireResolve.mockImplementation((spec: string) => {
         throw Object.assign(new Error(`Cannot find module '${spec}'`), { code: 'MODULE_NOT_FOUND' })
       })
 
@@ -118,7 +123,7 @@ describe('SnowflakeConnector', () => {
         'SnowflakeConnector requires the optional dependency "snowflake-sdk"',
       )
 
-      ;(mockRuntimeRequire.resolve as ReturnType<typeof vi.fn>).mockImplementation(savedResolve!)
+      mockRequireResolve.mockImplementation(savedResolve!)
     })
   })
 

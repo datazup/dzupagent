@@ -13,7 +13,12 @@ const mockRelease = vi.fn()
 const mockGetConnection = vi.fn()
 const mockEnd = vi.fn()
 
-const mockCreatePool = vi.fn(() => ({
+// Declaring the options parameter is what makes the assertions below legal:
+// with `vi.fn(() => ...)` every recorded call is the empty tuple `[]`, so
+// `calls[0]?.[0]` is a type error whose `undefined` result then had to be cast
+// to `Record<string, unknown>` to compile. mysql.createPool receives exactly one
+// options object (mysql.ts:68).
+const mockCreatePool = vi.fn((_options: Record<string, unknown>) => ({
   getConnection: mockGetConnection,
   end: mockEnd,
 }))
@@ -62,7 +67,7 @@ describe('MySQLConnector', () => {
   describe('constructor', () => {
     it('creates a pool with correct config', () => {
       new MySQLConnector(baseConfig)
-      const call = mockCreatePool.mock.calls[0]?.[0] as Record<string, unknown>
+      const call = mockCreatePool.mock.calls[0]![0]
       expect(call).toMatchObject({
         host: '127.0.0.1',
         port: 3306,
