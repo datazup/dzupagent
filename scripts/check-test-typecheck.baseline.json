@@ -1,5 +1,5 @@
 {
-  "totalErrors": 1072,
+  "totalErrors": 884,
   "note": "Test-file typecheck baseline (tsconfig.flipcheck.json per package). Ratchets down only. Bump only via --update-baseline after FIXING errors, never to accommodate new ones. Enforced per package AND per file, so a fix in one place cannot mask a regression in another. totalErrors and perCode are informational; the per-file budgets are what fail the build.",
   "packages": {
     "adapter-rules": {
@@ -187,54 +187,9 @@
       "perFile": {}
     },
     "evals": {
-      "maxErrors": 188,
-      "perCode": {
-        "TS2345": 62,
-        "TS6133": 43,
-        "TS2322": 36,
-        "TS6196": 20,
-        "TS2741": 10,
-        "TS2379": 6,
-        "TS18048": 4,
-        "TS2375": 3,
-        "TS2739": 3,
-        "TS2353": 1
-      },
-      "perFile": {
-        "src/__tests__/benchmark-runner-coverage.test.ts": 1,
-        "src/__tests__/contracts.test.ts": 3,
-        "src/__tests__/dataset-and-registry-coverage.test.ts": 1,
-        "src/__tests__/dataset-management.test.ts": 5,
-        "src/__tests__/dataset.test.ts": 2,
-        "src/__tests__/domain-scorer-modules.test.ts": 2,
-        "src/__tests__/enhanced-runner-coverage.test.ts": 2,
-        "src/__tests__/eval-runner-enhanced.test.ts": 1,
-        "src/__tests__/experiment-tracking.test.ts": 4,
-        "src/__tests__/factuality-eval.test.ts": 94,
-        "src/__tests__/learning-curve-benchmark.test.ts": 1,
-        "src/__tests__/llm-as-judge.test.ts": 3,
-        "src/__tests__/llm-judge-comprehensive.test.ts": 6,
-        "src/__tests__/llm-judge-scorer.test.ts": 1,
-        "src/__tests__/multi-turn-eval.test.ts": 3,
-        "src/__tests__/prompt-experiment-coverage.test.ts": 4,
-        "src/__tests__/prompt-experiment-judge-enhanced-deep.test.ts": 1,
-        "src/__tests__/prompt-optimizer.test.ts": 2,
-        "src/__tests__/prompt-version-store.test.ts": 5,
-        "src/__tests__/regression-eval-suites.test.ts": 4,
-        "src/__tests__/sandbox-contracts.test.ts": 2,
-        "src/__tests__/scorer-combinators-calibration-deep.test.ts": 1,
-        "src/__tests__/scorer-composition.test.ts": 4,
-        "src/__tests__/scorers.test.ts": 1,
-        "src/__tests__/self-correction-benchmark.test.ts": 1,
-        "src/__tests__/tool-use-eval.test.ts": 4,
-        "src/__tests__/unmeasured-scorer-gates.test.ts": 1,
-        "src/__tests__/vectorstore-contracts.test.ts": 2,
-        "src/__tests__/w15-e4-deep-coverage.test.ts": 3,
-        "src/__tests__/w15-h4-branch-coverage.test.ts": 10,
-        "src/__tests__/w15-scorers-runner-comprehensive.test.ts": 6,
-        "src/__tests__/w26-c-orchestrator-coverage.test.ts": 7,
-        "src/__tests__/w35-d-regression-tracking.test.ts": 1
-      }
+      "maxErrors": 0,
+      "perCode": {},
+      "perFile": {}
     },
     "express": {
       "maxErrors": 0,
