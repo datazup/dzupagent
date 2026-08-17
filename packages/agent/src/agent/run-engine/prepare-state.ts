@@ -251,7 +251,28 @@ export async function prepareRunState(
     params.config.tokenLifecyclePlugin.trackPhase("prompt", promptTokens);
   }
 
-  await params.runBeforeAgentHooks();
+  // `AgentMiddleware.beforeAgent` is documented as "run before agent starts —
+  // can modify initial state". Historically this seam passed a literal `{}` and
+  // threw the returned patch away, so neither direction was reachable. We now
+  // hand the middleware chain the run facts that are settled at this point —
+  // the final transcript, the resolved iteration cap, and the tool names the
+  // model will actually be offered — and keep the merged result on the run
+  // state so it reaches `GenerateResult.middlewareState`.
+  const beforeAgentRunId = params.runId ?? params.options?.runId;
+  const initialMiddlewareState: Record<string, unknown> = {
+    agentId: params.config.id,
+    ...(beforeAgentRunId !== undefined ? { runId: beforeAgentRunId } : {}),
+    messages: finalMessages,
+    maxIterations,
+    tools: tools.map((tool) => tool.name),
+  };
+  const beforeAgentResult = await params.runBeforeAgentHooks(
+    initialMiddlewareState
+  );
+  const middlewareState =
+    beforeAgentResult !== undefined && beforeAgentResult !== null
+      ? beforeAgentResult
+      : undefined;
 
   const stuckDetector =
     params.config.guardrails?.stuckDetector === false
@@ -278,6 +299,7 @@ export async function prepareRunState(
     model,
     stuckDetector,
     memoryFrame,
+    middlewareState,
   });
 }
 

@@ -67,7 +67,7 @@ export async function* streamRun(
     prepareMessages: (inputMessages) => ctx.prepareMessages(inputMessages),
     getTools: () => ctx.getTools(),
     bindTools: (model, tools) => ctx.bindTools(model, tools),
-    runBeforeAgentHooks: () => ctx.runBeforeAgentHooks(),
+    runBeforeAgentHooks: (initialState) => ctx.runBeforeAgentHooks(initialState),
   }))
   const usesModelWrapper = ctx.config.middleware?.some(
     middleware => typeof middleware.wrapModelCall === 'function',

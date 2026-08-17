@@ -29,6 +29,14 @@ export interface PreparedRunState {
    * clobber each other's frame reference.
    */
   memoryFrame?: unknown
+  /**
+   * State produced by the `beforeAgent` middleware chain: the initial run
+   * state this engine handed in, with every middleware's returned patch merged
+   * over it. Surfaced on `GenerateResult.middlewareState` so the documented
+   * "can modify initial state" capability is reachable from a real run instead
+   * of being discarded at the seam.
+   */
+  middlewareState?: Record<string, unknown>
 }
 
 export interface PrepareRunStateParams {
@@ -41,7 +49,16 @@ export interface PrepareRunStateParams {
   ) => Promise<{ messages: BaseMessage[]; memoryFrame?: unknown }>
   getTools: () => StructuredToolInterface[]
   bindTools: (model: BaseChatModel, tools: StructuredToolInterface[]) => BaseChatModel
-  runBeforeAgentHooks: () => Promise<void>
+  /**
+   * Run the `beforeAgent` middleware chain with the engine's initial run
+   * state, returning the state with every middleware patch merged in.
+   *
+   * The `| void` arm keeps pre-existing stub implementations (`async () => {}`)
+   * assignable; a `void` return is treated as "no state produced".
+   */
+  runBeforeAgentHooks: (
+    initialState: Record<string, unknown>,
+  ) => Promise<Record<string, unknown> | void>
   /**
    * Optional journal used for resume rehydration. When `options._resume.lastStateSeq`
    * is set, the run engine will pull entries up to that seq and reconstruct the

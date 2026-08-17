@@ -142,6 +142,16 @@ export interface GenerateResult {
    */
   memoryFrame?: unknown;
   /**
+   * Run state after the `beforeAgent` middleware chain: the initial state the
+   * run engine supplied (`agentId`, `runId`, `messages`, `maxIterations`,
+   * `tools`) with every middleware's returned patch shallow-merged over it.
+   *
+   * `AgentMiddleware.beforeAgent` is documented as "can modify initial state";
+   * this is where that modification becomes observable. Absent when no
+   * middleware is configured on a code path that supplies one.
+   */
+  middlewareState?: Record<string, unknown>;
+  /**
    * Log of compression events that fired during this run.
    *
    * Populated by the run engine's `onCompressed` wiring; only present when

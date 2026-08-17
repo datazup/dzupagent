@@ -25,18 +25,50 @@ export class AgentMiddlewareRuntime {
     return resolvedTools;
   }
 
-  async runBeforeAgentHooks(): Promise<void> {
+  /**
+   * Run every middleware's `beforeAgent` hook, threading run state through the
+   * chain.
+   *
+   * `AgentMiddleware.beforeAgent` is documented as "run before agent starts —
+   * can modify initial state", and is typed
+   * `(state) => Promise<Partial<Record<string, unknown>>>`. Both halves of that
+   * contract used to be unreachable: this method passed a literal `{}` (no
+   * state in) and discarded the returned partial (no state out).
+   *
+   * Now:
+   *  - each hook receives the ACCUMULATED state — the caller's `initialState`
+   *    plus every patch merged so far, so a later middleware observes what an
+   *    earlier one contributed;
+   *  - a returned object is shallow-merged over the accumulated state (later
+   *    keys win) and the final state is returned to the caller;
+   *  - a hook returning a non-object (or nothing) is a documented no-op patch;
+   *  - a THROWING hook stays non-fatal and contributes no patch — the state
+   *    accumulated so far is preserved and the chain continues.
+   *
+   * The state object is passed by reference, so in-place mutation works too;
+   * the spread merge picks it up either way.
+   */
+  async runBeforeAgentHooks(
+    initialState: Record<string, unknown> = {}
+  ): Promise<Record<string, unknown>> {
+    let state: Record<string, unknown> = { ...initialState };
+
     for (const middleware of this.config.middleware ?? []) {
       if (!middleware.beforeAgent) {
         continue;
       }
 
       try {
-        await middleware.beforeAgent({});
+        const patch = await middleware.beforeAgent(state);
+        if (patch !== null && typeof patch === "object") {
+          state = { ...state, ...patch };
+        }
       } catch {
-        // Middleware failures are non-fatal.
+        // Middleware failures are non-fatal; the accumulated state survives.
       }
     }
+
+    return state;
   }
 
   /**

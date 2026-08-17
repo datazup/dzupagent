@@ -27,7 +27,21 @@ export interface AgentMiddleware {
     result: string,
   ) => Promise<string>
 
-  /** Run before agent starts — can modify initial state */
+  /**
+   * Run before the agent starts — can modify initial state.
+   *
+   * `state` is the run's accumulated initial state, not an empty placeholder:
+   * the run engine seeds it with the facts settled at that point (`agentId`,
+   * `runId` when known, the final `messages` transcript, `maxIterations`, and
+   * the `tools` names the model will be offered), and each middleware in the
+   * chain additionally sees every patch contributed by the middlewares before
+   * it.
+   *
+   * The returned object is a PATCH: it is shallow-merged over the accumulated
+   * state (later keys win) and the merged result is surfaced on
+   * `GenerateResult.middlewareState`. Return `{}` to contribute nothing.
+   * A throwing hook is non-fatal and contributes no patch.
+   */
   beforeAgent?: (
     state: Record<string, unknown>,
   ) => Promise<Partial<Record<string, unknown>>>

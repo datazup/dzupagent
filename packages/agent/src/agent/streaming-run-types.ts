@@ -55,7 +55,15 @@ export interface StreamRunContext {
     model: BaseChatModel,
     tools: StructuredToolInterface[],
   ) => BaseChatModel
-  runBeforeAgentHooks: () => Promise<void>
+  /**
+   * Run the `beforeAgent` middleware chain with the engine's initial run
+   * state, returning the state with every middleware patch merged in. Mirrors
+   * `PrepareRunStateParams['runBeforeAgentHooks']`; the `| void` arm keeps
+   * pre-existing stubs (`async () => {}`) assignable.
+   */
+  runBeforeAgentHooks: (
+    initialState: Record<string, unknown>,
+  ) => Promise<Record<string, unknown> | void>
   invokeModelWithMiddleware: (
     model: BaseChatModel,
     messages: BaseMessage[],

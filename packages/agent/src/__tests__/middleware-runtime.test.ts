@@ -5,10 +5,24 @@ import type { StructuredToolInterface } from '@langchain/core/tools'
 import { AgentMiddlewareRuntime } from '../agent/middleware-runtime.js'
 
 describe('AgentMiddlewareRuntime', () => {
-  it('runs beforeAgent hooks and ignores hook failures', async () => {
-    const first = vi.fn().mockResolvedValue({})
-    const second = vi.fn().mockRejectedValue(new Error('boom'))
-    const third = vi.fn().mockResolvedValue({})
+  it('threads state through the beforeAgent chain, merges patches, and ignores hook failures', async () => {
+    // Each hook records the state it OBSERVED, so the assertions below pin what
+    // flowed in — not merely that the hook was called. The middle hook throws;
+    // its failure must neither abort the chain nor discard the accumulated
+    // state contributed before it.
+    const observed: Array<Record<string, unknown>> = []
+    const first = vi.fn(async (state: Record<string, unknown>) => {
+      observed.push({ ...state })
+      return { fromFirst: 1, shared: 'first' }
+    })
+    const second = vi.fn(async (state: Record<string, unknown>) => {
+      observed.push({ ...state })
+      throw new Error('boom')
+    })
+    const third = vi.fn(async (state: Record<string, unknown>) => {
+      observed.push({ ...state })
+      return { fromThird: 3, shared: 'third' }
+    })
     const runtime = new AgentMiddlewareRuntime({
       agentId: 'agent-1',
       middleware: [
@@ -18,11 +32,37 @@ describe('AgentMiddlewareRuntime', () => {
       ],
     })
 
-    await expect(runtime.runBeforeAgentHooks()).resolves.toBeUndefined()
+    const seed = { seeded: 'yes' }
+    const merged = await runtime.runBeforeAgentHooks(seed)
 
-    expect(first).toHaveBeenCalledWith({})
-    expect(second).toHaveBeenCalledWith({})
-    expect(third).toHaveBeenCalledWith({})
+    // --- state IN: the seed reaches hook 1, and hook 1's patch reaches hook 3
+    expect(observed).toHaveLength(3)
+    expect(observed[0]).toEqual({ seeded: 'yes' })
+    expect(observed[1]).toEqual({ seeded: 'yes', fromFirst: 1, shared: 'first' })
+    expect(observed[2]).toEqual({ seeded: 'yes', fromFirst: 1, shared: 'first' })
+
+    // --- state OUT: patches merged, later keys win, thrower contributed nothing
+    expect(merged).toEqual({
+      seeded: 'yes',
+      fromFirst: 1,
+      fromThird: 3,
+      shared: 'third',
+    })
+
+    // The caller's own object is never mutated in place.
+    expect(seed).toEqual({ seeded: 'yes' })
+    expect(merged).not.toBe(seed)
+  })
+
+  it('defaults the seed state to an empty object when the caller supplies none', async () => {
+    const hook = vi.fn(async () => ({ added: true }))
+    const runtime = new AgentMiddlewareRuntime({
+      agentId: 'agent-1b',
+      middleware: [{ name: 'only', beforeAgent: hook }],
+    })
+
+    await expect(runtime.runBeforeAgentHooks()).resolves.toEqual({ added: true })
+    expect(hook).toHaveBeenCalledWith({})
   })
 
   it('uses the first wrapModelCall middleware and skips model.invoke fallback', async () => {

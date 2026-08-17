@@ -160,6 +160,10 @@ export async function processGeneratedRun(
     // the public `RunResult` via `runInBackground`) can inspect which
     // memory context was attached to this run.
     memoryFrame: params.runState.memoryFrame,
+    // Surface the merged `beforeAgent` middleware state so the documented
+    // "can modify initial state" capability is reachable end-to-end from a
+    // real `generate()` call (previously the returned patch was discarded).
+    middlewareState: params.runState.middlewareState,
     // Only expose the compression log when at least one compression event
     // fired; leave undefined otherwise to avoid cluttering result payloads
     // for runs that never compacted.

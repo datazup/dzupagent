@@ -217,6 +217,7 @@ describe('DzupAgent generate()/stream() parity', () => {
   it('falls back through the shared generate runner when streaming is unavailable', async () => {
     const model = createMockModel([new AIMessage('model-result')], { stream: false })
     let beforeAgentCalls = 0
+    let beforeAgentState: Record<string, unknown> | undefined
 
     const agent = new DzupAgent({
       id: 'parity-fallback',
@@ -225,10 +226,12 @@ describe('DzupAgent generate()/stream() parity', () => {
       middleware: [
         {
           name: 'before-agent',
-          beforeAgent: async () => {
+          beforeAgent: async state => {
             beforeAgentCalls += 1
-            // beforeAgent is typed to return a state patch; the runtime
-            // discards it (see runBeforeAgentHooks).
+            // beforeAgent receives the run's initial state and returns a patch
+            // that the runtime merges back in (see runBeforeAgentHooks). The
+            // streaming path threads it exactly like generate() does.
+            beforeAgentState = { ...state }
             return {}
           },
         },
@@ -243,6 +246,10 @@ describe('DzupAgent generate()/stream() parity', () => {
     const doneEvent = streamEvents.findLast(event => event.type === 'done')
 
     expect(beforeAgentCalls).toBe(1)
+    // The seam used to hand `beforeAgent` a literal `{}`; it now receives the
+    // real initial run state.
+    expect(beforeAgentState).toMatchObject({ agentId: 'parity-fallback' })
+    expect(Array.isArray(beforeAgentState?.['messages'])).toBe(true)
     expect(model.invoke).not.toHaveBeenCalled()
     expect(doneEvent?.data).toMatchObject({
       content: 'wrapped-result',

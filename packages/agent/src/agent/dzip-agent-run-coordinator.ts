@@ -41,6 +41,14 @@ import {
 import { generateStructured as generateStructuredRun } from "./structured-generate.js";
 import { omitUndefined } from "../utils/exact-optional.js";
 import { bindTools as bindToolsHelper } from "./provider-selection.js";
+import { resolveMemoryRunId } from "./dzip-agent-resolvers.js";
+import {
+  buildRunHookContext,
+  dispatchOnRunComplete,
+  dispatchOnRunError,
+  dispatchOnRunStart,
+  toRunError,
+} from "./run-lifecycle-hooks.js";
 
 /**
  * Read the optional per-model structured-output capability descriptor.
@@ -86,57 +94,83 @@ export interface RunGenerateDeps {
  * Execute a single non-streaming agent run: prepare run state, run the
  * ReAct loop through the run engine, and finalise memory write-back.
  *
- * Extracted verbatim from `DzupAgent#runGenerate`.
+ * This is the run boundary for the `onRunStart` / `onRunComplete` /
+ * `onRunError` lifecycle hooks:
+ *
+ *  - `onRunStart` fires BEFORE any run state is prepared, so a hook observes
+ *    the run even when `prepareMessages` or a security scan aborts it;
+ *  - `onRunComplete` fires AFTER memory write-back, so hooks observe a fully
+ *    finalised run — and fires for every returned result regardless of
+ *    `stopReason` (see `dispatchOnRunComplete`);
+ *  - `onRunError` fires for anything thrown out of the run — including a
+ *    throwing write-back — and the original error is then RE-THROWN
+ *    unchanged.
+ *
+ * All three are error-isolated: a hook that throws cannot break the run.
  */
 export async function runGenerate(
   deps: RunGenerateDeps,
   messages: BaseMessage[],
   options?: GenerateOptions
 ): Promise<GenerateResult> {
-  const runState = await prepareRunState(
-    omitUndefined<PrepareRunStateParams>({
-      config: deps.config,
-      resolvedModel: deps.resolvedModel,
-      messages,
-      options,
-      prepareMessages: (inputMessages) => deps.prepareMessages(inputMessages),
-      getTools: () => deps.getTools(),
-      bindTools: bindToolsHelper,
-      runBeforeAgentHooks: () => deps.middlewareRuntime.runBeforeAgentHooks(),
-    })
+  const hookCtx = buildRunHookContext(
+    deps.config,
+    deps.agentId,
+    deps.resolveMemoryRunId()
   );
+  await dispatchOnRunStart(deps.config, hookCtx);
 
-  const result = await executeGenerateRun(
-    omitUndefined<ExecuteGenerateRunParams>({
-      agentId: deps.agentId,
-      config: deps.config,
-      options,
-      runState,
-      invokeModel: (model, preparedMessages) =>
-        deps.invokeModel(model, preparedMessages, runState.tools),
-      transformToolResult: (toolName, input, result) =>
-        transformToolResultWithMiddlewareCoord(
-          deps.middlewareRuntime,
-          toolName,
-          input,
-          result
-        ),
-      maybeUpdateSummary: (allMessages, memoryFrame) =>
-        deps.maybeUpdateSummary(allMessages, memoryFrame),
-    })
-  );
+  try {
+    const runState = await prepareRunState(
+      omitUndefined<PrepareRunStateParams>({
+        config: deps.config,
+        resolvedModel: deps.resolvedModel,
+        messages,
+        options,
+        prepareMessages: (inputMessages) => deps.prepareMessages(inputMessages),
+        getTools: () => deps.getTools(),
+        bindTools: bindToolsHelper,
+        runBeforeAgentHooks: (initialState) =>
+          deps.middlewareRuntime.runBeforeAgentHooks(initialState),
+      })
+    );
 
-  if ((result.stopReason as string) !== "failed") {
-    const runId = deps.resolveMemoryRunId();
-    await maybeWriteBackMemoryFinalizer({
-      agentId: deps.agentId,
-      ...(runId !== undefined ? { runId } : {}),
-      config: deps.config,
-      content: result.content,
-    });
+    const result = await executeGenerateRun(
+      omitUndefined<ExecuteGenerateRunParams>({
+        agentId: deps.agentId,
+        config: deps.config,
+        options,
+        runState,
+        invokeModel: (model, preparedMessages) =>
+          deps.invokeModel(model, preparedMessages, runState.tools),
+        transformToolResult: (toolName, input, result) =>
+          transformToolResultWithMiddlewareCoord(
+            deps.middlewareRuntime,
+            toolName,
+            input,
+            result
+          ),
+        maybeUpdateSummary: (allMessages, memoryFrame) =>
+          deps.maybeUpdateSummary(allMessages, memoryFrame),
+      })
+    );
+
+    if ((result.stopReason as string) !== "failed") {
+      const runId = deps.resolveMemoryRunId();
+      await maybeWriteBackMemoryFinalizer({
+        agentId: deps.agentId,
+        ...(runId !== undefined ? { runId } : {}),
+        config: deps.config,
+        content: result.content,
+      });
+    }
+
+    await dispatchOnRunComplete(deps.config, hookCtx, result);
+    return result;
+  } catch (error) {
+    await dispatchOnRunError(deps.config, hookCtx, toRunError(error));
+    throw error;
   }
-
-  return result;
 }
 
 /**
@@ -159,7 +193,17 @@ export interface RunGenerateStructuredDeps {
 /**
  * Generate a response with structured output validated against a Zod schema.
  *
- * Extracted verbatim from `DzupAgent#generateStructured`.
+ * DELIBERATELY dispatches NO run-lifecycle hooks of its own. `structured-generate`
+ * has two paths: a native structured-output path (a single bound model call) and
+ * a text fallback that delegates to `deps.generate(...)` — i.e. straight back
+ * into {@link runGenerate}. Dispatching here would fire `onRunStart` /
+ * `onRunComplete` TWICE for every fallback run. Suppressing the inner dispatch
+ * instead would need a re-entrancy flag threaded through the public
+ * `GenerateOptions`, which is a larger contract change than this repair.
+ *
+ * Consequence, stated plainly: `generateStructured` emits run-lifecycle hooks
+ * exactly when it routes through `generate` (the text fallback), and none on
+ * the native structured-output path.
  */
 export async function runGenerateStructured<T>(
   deps: RunGenerateStructuredDeps,
@@ -267,41 +311,75 @@ export interface RunStreamDeps {
  * Stream agent events, assembling the {@link StreamRunContext} the streaming
  * loop requires from the owning agent's dependency bundle.
  *
- * Extracted verbatim from `DzupAgent#stream`.
+ * Dispatches the same run-lifecycle hooks as {@link runGenerate}, so a hook set
+ * observes `generate()` and `stream()` symmetrically:
+ *
+ *  - `onRunStart` fires on the FIRST `next()` (this stays a lazy generator —
+ *    merely calling `agent.stream(...)` without iterating starts nothing);
+ *  - `onRunComplete` fires once the event stream is exhausted, carrying the
+ *    payload of the last `done` event (the closest streaming analogue of a
+ *    `GenerateResult`);
+ *  - `onRunError` fires for anything thrown out of the loop, which is then
+ *    re-thrown.
+ *
+ * A consumer that abandons the iterator early (`break` / `return`) fires
+ * NEITHER terminal hook — the run neither completed nor errored, and inventing
+ * a completion for a partially-consumed stream would misreport it.
  */
-export function runStream(
+export async function* runStream(
   deps: RunStreamDeps,
   messages: BaseMessage[],
   options?: GenerateOptions
 ): AsyncGenerator<AgentStreamEvent> {
-  return streamRun(
-    {
-      agentId: deps.agentId,
-      config: deps.config,
-      resolvedModel: deps.resolvedModel,
-      resolvedProvider: deps.resolvedProvider,
-      resolvedTier: deps.resolvedTier,
-      registry: deps.config.registry,
-      getProviderAttempts: (tools) => deps.getProviderAttempts(tools),
-      prepareMessages: (inputMessages) => deps.prepareMessages(inputMessages),
-      getTools: () => deps.getTools(),
-      bindTools: bindToolsHelper,
-      runBeforeAgentHooks: () => deps.middlewareRuntime.runBeforeAgentHooks(),
-      invokeModelWithMiddleware: (model, preparedMessages) =>
-        deps.invokeModel(model, preparedMessages),
-      transformToolResultWithMiddleware: (toolName, input, result) =>
-        transformToolResultWithMiddlewareCoord(
-          deps.middlewareRuntime,
-          toolName,
-          input,
-          result
-        ),
-      maybeUpdateSummary: (allMessages, memoryFrame) =>
-        deps.maybeUpdateSummary(allMessages, memoryFrame),
-      maybeWriteBackMemory: (content, runId) =>
-        deps.maybeWriteBackMemory(content, runId),
-    },
-    messages,
-    options
+  const hookCtx = buildRunHookContext(
+    deps.config,
+    deps.agentId,
+    resolveMemoryRunId(deps.config, options)
   );
+  await dispatchOnRunStart(deps.config, hookCtx);
+
+  let lastDoneData: unknown;
+  try {
+    const events = streamRun(
+      {
+        agentId: deps.agentId,
+        config: deps.config,
+        resolvedModel: deps.resolvedModel,
+        resolvedProvider: deps.resolvedProvider,
+        resolvedTier: deps.resolvedTier,
+        registry: deps.config.registry,
+        getProviderAttempts: (tools) => deps.getProviderAttempts(tools),
+        prepareMessages: (inputMessages) => deps.prepareMessages(inputMessages),
+        getTools: () => deps.getTools(),
+        bindTools: bindToolsHelper,
+        runBeforeAgentHooks: (initialState) =>
+          deps.middlewareRuntime.runBeforeAgentHooks(initialState),
+        invokeModelWithMiddleware: (model, preparedMessages) =>
+          deps.invokeModel(model, preparedMessages),
+        transformToolResultWithMiddleware: (toolName, input, result) =>
+          transformToolResultWithMiddlewareCoord(
+            deps.middlewareRuntime,
+            toolName,
+            input,
+            result
+          ),
+        maybeUpdateSummary: (allMessages, memoryFrame) =>
+          deps.maybeUpdateSummary(allMessages, memoryFrame),
+        maybeWriteBackMemory: (content, runId) =>
+          deps.maybeWriteBackMemory(content, runId),
+      },
+      messages,
+      options
+    );
+
+    for await (const event of events) {
+      if (event.type === "done") lastDoneData = event.data;
+      yield event;
+    }
+
+    await dispatchOnRunComplete(deps.config, hookCtx, lastDoneData);
+  } catch (error) {
+    await dispatchOnRunError(deps.config, hookCtx, toRunError(error));
+    throw error;
+  }
 }
