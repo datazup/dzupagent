@@ -29,6 +29,7 @@ import {
   createEventBus,
 } from '@dzupagent/core'
 import { InMemoryRunTraceStore } from '../../persistence/run-trace-store.js'
+import { recordPendingContact } from '../../runtime/pending-contacts.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -249,6 +250,11 @@ describe('MJ-SEC-02 run-guard: POST /api/runs/:id/human-contact/:cid/respond', (
       ownerId: 'owner-A', tenantId: 'owner-A',
     })
     await cfg.runStore.update(run.id, { status: 'suspended' })
+    // DZUPAGENT-AGENT-H-14: the route fails closed on a contact id it never
+    // issued for this run, so the ownership check can only be reached once the
+    // contact is actually outstanding. Without this the test asserted 200 on a
+    // path that now (correctly) 404s before the guard runs.
+    await recordPendingContact(cfg.runStore, run.id, 'contact-1')
 
     const app = createForgeApp(cfg)
     const res = await app.request(
