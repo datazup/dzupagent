@@ -41,7 +41,10 @@ import {
   type GuardrailGateConfig,
 } from '../pipeline/guardrail-gate.js'
 import type { GuardrailEngine } from '../guardrails/guardrail-engine.js'
+import { GuardrailReporter } from '../guardrails/guardrail-reporter.js'
 import type { GuardrailReport, GuardrailContext } from '../guardrails/guardrail-types.js'
+import { SkillLoader, SkillRegistry } from '@dzupagent/core/pipeline'
+import type { SkillResolutionContext } from '@dzupagent/core/pipeline'
 
 // ---------------------------------------------------------------------------
 // GenPipelineBuilder
@@ -312,16 +315,23 @@ describe('phase-conditions', () => {
 // ---------------------------------------------------------------------------
 
 describe('skill-resolver', () => {
-  const makeRegistry = (entries: Record<string, string>) => ({
-    get: (name: string) => {
-      if (name in entries) return { instructions: entries[name]! }
-      return undefined
-    },
-  })
+  // SkillRegistry and SkillLoader are classes holding private state, so no object
+  // literal can ever stand in for them. Use the real classes: register real
+  // entries in a real registry, and stub only the loader's public read method
+  // (the alternative is laying SKILL.md files on disk for a unit test).
+  const makeRegistry = (entries: Record<string, string>): SkillRegistry => {
+    const registry = new SkillRegistry()
+    for (const [id, instructions] of Object.entries(entries)) {
+      registry.register({ id, name: id, description: `test skill ${id}`, instructions })
+    }
+    return registry
+  }
 
-  const makeLoader = (entries: Record<string, string | null>) => ({
-    loadSkillContent: async (name: string) => entries[name] ?? null,
-  })
+  const makeLoader = (entries: Record<string, string | null>): SkillLoader => {
+    const loader = new SkillLoader([])
+    vi.spyOn(loader, 'loadSkillContent').mockImplementation(async (name: string) => entries[name] ?? null)
+    return loader
+  }
 
   describe('resolveSkills', () => {
     it('resolves from registry first', async () => {
@@ -362,7 +372,8 @@ describe('skill-resolver', () => {
     it('handles loader throwing by skipping the skill', async () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       const registry = makeRegistry({})
-      const loader = { loadSkillContent: async (_: string) => { throw new Error('disk error') } }
+      const loader = new SkillLoader([])
+      vi.spyOn(loader, 'loadSkillContent').mockRejectedValue(new Error('disk error'))
       const result = await resolveSkills(['x'], { registry, loader })
       expect(result).toHaveLength(0)
       warnSpy.mockRestore()
@@ -412,8 +423,11 @@ describe('skill-resolver', () => {
 
     it('injects __skill_context when provided', () => {
       const state: Record<string, unknown> = {}
-      injectSkillsIntoState(state, 'p', [], { agentId: 'a1', projectRoot: '/tmp', skills: [] })
-      expect(state['__skill_context']).toMatchObject({ agentId: 'a1' })
+      // agentId/projectRoot/skills were never fields of SkillResolutionContext;
+      // the real shape is a required phase plus optional feature/task/persona/risk.
+      const context: SkillResolutionContext = { phase: 'p', personaId: 'a1', riskClass: 'high' }
+      injectSkillsIntoState(state, 'p', [], context)
+      expect(state['__skill_context']).toMatchObject({ phase: 'p', personaId: 'a1' })
     })
   })
 
@@ -457,11 +471,36 @@ function makeEngine(overrides: Partial<GuardrailReport> = {}): GuardrailEngine {
   } as GuardrailEngine
 }
 
-describe('runGuardrailGate', () => {
-  const ctx: GuardrailContext = {
-    files: new Map([['src/a.ts', 'const x = 1']]),
-    metadata: {},
+/**
+ * A complete GuardrailContext.
+ *
+ * The fixtures here used to be `{ files: new Map(...), metadata: {} }`:
+ * GuardrailContext.files is a GeneratedFile[], there is no `metadata` field, and
+ * projectStructure/conventions are both required. The mismatch survived because
+ * every engine in this file is a stub that returns a canned report without ever
+ * reading the context — a real GuardrailEngine dereferences all three.
+ */
+function makeGuardrailContext(files: GuardrailContext['files'] = []): GuardrailContext {
+  return {
+    files,
+    projectStructure: { packages: new Map(), rootDir: '/repo' },
+    conventions: {
+      fileNaming: 'kebab-case',
+      exportNaming: {
+        classCase: 'PascalCase',
+        functionCase: 'camelCase',
+        constCase: 'UPPER_SNAKE',
+      },
+      importStyle: { indexOnly: false, separateTypeImports: true },
+      requiredPatterns: [],
+    },
   }
+}
+
+describe('runGuardrailGate', () => {
+  const ctx: GuardrailContext = makeGuardrailContext([
+    { path: 'src/a.ts', content: 'const x = 1' },
+  ])
 
   it('passes when no violations', () => {
     const result = runGuardrailGate({ engine: makeEngine() }, ctx)
@@ -488,23 +527,22 @@ describe('runGuardrailGate', () => {
   })
 
   it('calls reporter when provided', () => {
-    const reporter = { format: vi.fn(() => 'report-output') }
+    // GuardrailReporter is a class with private state; stub its public format().
+    const reporter = new GuardrailReporter()
+    const formatSpy = vi.spyOn(reporter, 'format').mockReturnValue('report-output')
     const config: GuardrailGateConfig = {
       engine: makeEngine(),
       reporter,
     }
     const result = runGuardrailGate(config, ctx)
-    expect(reporter.format).toHaveBeenCalledOnce()
+    expect(formatSpy).toHaveBeenCalledOnce()
     expect(result.formattedReport).toBe('report-output')
   })
 })
 
 describe('summarizeGateResult', () => {
   it('includes PASSED for clean result', () => {
-    const result = runGuardrailGate({ engine: makeEngine() }, {
-      files: new Map(),
-      metadata: {},
-    })
+    const result = runGuardrailGate({ engine: makeEngine() }, makeGuardrailContext())
     const summary = summarizeGateResult(result)
     expect(summary).toContain('PASSED')
     expect(summary).toContain('0 error(s)')
@@ -519,7 +557,7 @@ describe('summarizeGateResult', () => {
         { ruleId: 'r1', file: 'src/x.ts', message: 'bad pattern', severity: 'error', autoFixable: false },
       ],
     })
-    const result = runGuardrailGate({ engine }, { files: new Map(), metadata: {} })
+    const result = runGuardrailGate({ engine }, makeGuardrailContext())
     const summary = summarizeGateResult(result)
     expect(summary).toContain('FAILED')
     expect(summary).toContain('[ERROR]')
@@ -535,7 +573,7 @@ describe('summarizeGateResult', () => {
       autoFixable: false,
     }))
     const engine = makeEngine({ passed: false, errorCount: 15, totalViolations: 15, violations })
-    const result = runGuardrailGate({ engine }, { files: new Map(), metadata: {} })
+    const result = runGuardrailGate({ engine }, makeGuardrailContext())
     const summary = summarizeGateResult(result)
     expect(summary).toContain('and 5 more')
   })
