@@ -62,7 +62,13 @@ export interface DzupPlugin {
   /** Middleware to inject into agents */
   middleware?: AgentMiddleware[]
 
-  /** Lifecycle hooks to merge with agent hooks */
+  /**
+   * Lifecycle hooks to merge with agent hooks.
+   *
+   * The merge is performed by `PluginRegistry.toAgentHooks()`, whose result
+   * goes on the agent config as `hooks`. Registering a plugin alone does NOT
+   * dispatch these — nothing reads `getHooks()` implicitly.
+   */
   hooks?: Partial<AgentHooks>
 
   /** Event handlers to subscribe to the event bus */

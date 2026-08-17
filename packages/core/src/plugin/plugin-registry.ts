@@ -10,6 +10,7 @@ import type { DzupEventBus } from '../events/event-bus.js'
 import type { DzupEvent } from '../events/event-types.js'
 import type { AgentMiddleware } from '../middleware/types.js'
 import type { AgentHooks } from '../hooks/hook-types.js'
+import { composeAgentHooks } from './plugin-hooks.js'
 
 interface RegisteredPlugin {
   plugin: DzupPlugin
@@ -189,6 +190,44 @@ export class PluginRegistry {
       if (plugin.plugin.hooks) result.push(plugin.plugin.hooks)
     }
     return result
+  }
+
+  /**
+   * Collapse every registered plugin's hooks — plus the agent's own — into a
+   * SINGLE `AgentHooks` object suitable for `DzupAgentConfig.hooks`.
+   *
+   * This is the consumer `getHooks()` never had. `getHooks()` returns an
+   * ARRAY of partial hook sets while `AgentHooks` declares each key as one
+   * optional function, so a plugin's `hooks` could be registered and
+   * aggregated but never handed to an agent — and therefore never dispatched.
+   * Feed the result to the agent config and the existing run-boundary dispatch
+   * runs plugin hooks with no further wiring:
+   *
+   * ```ts
+   * const agent = new DzupAgent({
+   *   hooks: registry.toAgentHooks(myOwnHooks),
+   *   eventBus,
+   * })
+   * ```
+   *
+   * Order is **plugins in registration order, then `agentHooks` last**, so for
+   * the value-returning hooks the application's own hook has the final say
+   * over any ambient plugin. See {@link composeAgentHooks}.
+   *
+   * Hook errors are isolated and reported on the registry's own event bus by
+   * default — the same bus that receives `plugin:registered`. Pass
+   * `options.eventBus` when the agent runs on a different bus.
+   *
+   * Keys nothing contributed are OMITTED rather than set to a no-op, so an
+   * unregistered hook stays observably distinct from a registered one.
+   */
+  toAgentHooks(
+    agentHooks?: Partial<AgentHooks>,
+    options?: { eventBus?: DzupEventBus },
+  ): AgentHooks {
+    return composeAgentHooks([...this.getHooks(), agentHooks], {
+      eventBus: options?.eventBus ?? this.eventBus,
+    })
   }
 
   /** Get a specific plugin by name */
