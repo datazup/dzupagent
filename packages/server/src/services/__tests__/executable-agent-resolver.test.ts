@@ -13,7 +13,20 @@ describe('AgentStoreExecutableAgentResolver', () => {
       instructions: 'test',
       modelTier: 'chat',
     })
-    const store = { get } as AgentExecutionSpecStore
+    // The resolver only reads; the remaining members throw so a future call
+    // cannot silently succeed against a no-op double.
+    const store: AgentExecutionSpecStore = {
+      get,
+      save: () => {
+        throw new Error('AgentExecutionSpecStore double: save() is not implemented')
+      },
+      list: () => {
+        throw new Error('AgentExecutionSpecStore double: list() is not implemented')
+      },
+      delete: () => {
+        throw new Error('AgentExecutionSpecStore double: delete() is not implemented')
+      },
+    }
 
     const resolver = new AgentStoreExecutableAgentResolver(store)
     const resolved = await resolver.resolve('agent-1')

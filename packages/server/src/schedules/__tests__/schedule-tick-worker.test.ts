@@ -44,7 +44,7 @@ describe("ScheduleTickWorker", () => {
     await seed(store, "s1", "2026-06-17T10:05:00.000Z");
 
     const fired: string[] = [];
-    const events: Array<{ type: string; scheduleId: string }> = [];
+    const events: Array<{ type: string; scheduleId?: unknown }> = [];
     const worker = new ScheduleTickWorker({
       store,
       claimerId: "node-a",
@@ -52,7 +52,9 @@ describe("ScheduleTickWorker", () => {
         fired.push(claimed.id);
         return `run-${claimed.id}`;
       },
-      emit: (e) => events.push(e),
+      emit: (e) => {
+        events.push(e as { type: string; scheduleId?: unknown });
+      },
       now: () => now,
     });
 

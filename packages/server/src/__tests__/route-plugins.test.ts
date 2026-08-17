@@ -33,8 +33,10 @@ describe("Route plugins", () => {
     const pluginApp = new Hono();
     pluginApp.get("/ping", (c) => c.json({ ok: true }));
 
-    const createRoutes = vi.fn(() => pluginApp);
-    const onMount = vi.fn();
+    const createRoutes = vi.fn((_ctx: ServerRoutePluginContext) => pluginApp);
+    const onMount = vi.fn(
+      (_config: ForgeServerConfig, _ctx: ServerRoutePluginContext) => {},
+    );
 
     const app = createForgeApp(
       createTestConfig([
@@ -57,17 +59,19 @@ describe("Route plugins", () => {
     // optional auth/metrics, and a declaredServices capability map — and NOT
     // the full ForgeServerConfig. There must be no `serverConfig` kitchen-sink
     // field and no host stores reachable through the context.
-    const createCtx = createRoutes.mock
-      .calls[0]?.[0] as ServerRoutePluginContext;
+    const createCtx = createRoutes.mock.calls[0]![0];
     expect(createCtx.eventBus).toBeDefined();
     expect(createCtx.declaredServices).toEqual({ auth: false, metrics: false });
-    expect((createCtx as Record<string, unknown>).serverConfig).toBeUndefined();
-    expect((createCtx as Record<string, unknown>).runStore).toBeUndefined();
+    // The point of these two is that the fields are ABSENT from the context, so
+    // they are read through an index-signature view rather than the interface.
+    const ctxKeys = createCtx as unknown as Record<string, unknown>;
+    expect(ctxKeys['serverConfig']).toBeUndefined();
+    expect(ctxKeys['runStore']).toBeUndefined();
 
     // onMount keeps the lifecycle escape hatch: arg[0] is the mounted host
     // config (broad), arg[1] is the SAME narrow context createRoutes received.
-    const mountedConfig = onMount.mock.calls[0]?.[0] as ForgeServerConfig;
-    const mountCtx = onMount.mock.calls[0]?.[1] as ServerRoutePluginContext;
+    const mountedConfig = onMount.mock.calls[0]![0];
+    const mountCtx = onMount.mock.calls[0]![1];
     expect(mountedConfig.runStore).toBeDefined();
     expect(mountedConfig.runExecutor).toBeDefined();
     expect(mountCtx).toBe(createCtx);

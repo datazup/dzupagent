@@ -49,6 +49,7 @@ class InMemoryApiKeyStore {
       name,
       role: options.role ?? "operator",
       rateLimitTier: tier,
+      tenantId: "default",
       createdAt: new Date(),
       expiresAt:
         options.expiresAt ??

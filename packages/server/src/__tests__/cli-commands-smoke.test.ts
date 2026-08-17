@@ -578,7 +578,21 @@ describe('CLI: trace-printer', () => {
     const { TracePrinter } = await import('../cli/trace-printer.js')
     const printer = new TracePrinter(false)
 
-    const event = { type: 'budget:exceeded' as const, reason: 'Token limit' }
+    // `budget:exceeded` requires `usage`; the printer only reads `reason`, but
+    // omitting it made the fixture a shape no emitter produces.
+    const event = {
+      type: 'budget:exceeded' as const,
+      reason: 'Token limit',
+      usage: {
+        tokensUsed: 100,
+        tokensLimit: 100,
+        costCents: 10,
+        costLimitCents: 10,
+        iterations: 1,
+        iterationsLimit: 1,
+        percent: 100,
+      },
+    }
     const output = printer.formatEvent(event)
     expect(output).toContain('[--------]')
     expect(output).toContain('Token limit')

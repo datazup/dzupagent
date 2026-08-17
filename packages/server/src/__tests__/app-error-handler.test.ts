@@ -82,7 +82,11 @@ describe('Shutdown guard middleware', () => {
       config: {},
     }
 
-    const config = createTestConfig({ shutdown: mockShutdown as ForgeServerConfig['shutdown'] })
+    // Only the two guard reads are exercised; the rest of GracefulShutdown is
+    // unreachable here, so the widening is explicit.
+    const config = createTestConfig({
+      shutdown: mockShutdown as unknown as ForgeServerConfig['shutdown'],
+    })
     await config.agentStore.save({ id: 'a1', name: 'A', instructions: 'i', modelTier: 'chat' })
 
     const app = createForgeApp(config)
@@ -104,7 +108,11 @@ describe('Shutdown guard middleware', () => {
       config: {},
     }
 
-    const config = createTestConfig({ shutdown: mockShutdown as ForgeServerConfig['shutdown'] })
+    // Only the two guard reads are exercised; the rest of GracefulShutdown is
+    // unreachable here, so the widening is explicit.
+    const config = createTestConfig({
+      shutdown: mockShutdown as unknown as ForgeServerConfig['shutdown'],
+    })
     const app = createForgeApp(config)
 
     const res = await app.request('/api/runs')

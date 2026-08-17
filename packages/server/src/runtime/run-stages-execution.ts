@@ -1,4 +1,4 @@
-import type { RunContextTransfer } from "@dzupagent/core/llm";
+import type { RunContextTransferLike } from "./run-worker-types.js";
 import type { AgentExecutionSpec, RunStore } from "@dzupagent/core/persistence";
 import { withForgeContext, type ForgeTraceContext } from "@dzupagent/otel";
 import type { RunJob } from "../queue/run-queue.js";
@@ -107,7 +107,7 @@ export async function dispatchExecutionStage(options: {
 }
 
 async function loadPriorContext(options: {
-  contextTransfer?: RunContextTransfer;
+  contextTransfer?: RunContextTransferLike;
   runStore: RunStore;
   job: RunJob;
   agent: AgentExecutionSpec;

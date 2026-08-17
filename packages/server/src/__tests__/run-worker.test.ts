@@ -5,6 +5,7 @@ import {
   ModelRegistry,
   createEventBus,
 } from '@dzupagent/core'
+import type { LogEntry } from '@dzupagent/core'
 import { currentForgeContext } from '@dzupagent/otel'
 import { waitForCondition } from '@dzupagent/testing'
 import { InMemoryRunQueue } from '../queue/run-queue.js'
@@ -2498,7 +2499,7 @@ describe('run-worker — escalation policy edge cases', () => {
     const originalAddLog = baseRunStore.addLog.bind(baseRunStore)
     let addLogCallCount = 0
     const patchedRunStore = Object.create(baseRunStore) as InMemoryRunStore
-    patchedRunStore.addLog = async (runId: string, log: { level: string; phase?: string; message: string; data?: unknown }) => {
+    patchedRunStore.addLog = async (runId: string, log: LogEntry) => {
       addLogCallCount++
       // Let the escalation warning log fail (phase=escalation, level=warn)
       if (log.phase === 'escalation' && log.level === 'warn') {

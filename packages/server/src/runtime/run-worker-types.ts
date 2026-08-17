@@ -106,6 +106,27 @@ export interface ReflectionInput {
   retryCount?: number;
 }
 
+/**
+ * The two `RunContextTransfer` methods the worker calls. Declared as a port so a
+ * host can pass its own implementation instead of the concrete class, whose
+ * private fields (`store`, `namespacePrefix`, `maxAgeMs`) make it impossible to
+ * substitute.
+ */
+export type RunContextTransferLike = Pick<
+  RunContextTransfer,
+  "loadForIntent" | "save"
+>;
+
+/** The two `MetricsCollector` methods the telemetry stage calls. */
+export type RunMetricsLike = Pick<MetricsCollector, "increment" | "observe">;
+
+/**
+ * The one `ResourceQuotaManager` method the worker calls. Enforcement lives at
+ * the HTTP boundary (`routes/runs/create-handler.ts`), which still takes the
+ * full manager; the worker only attributes consumption after completion.
+ */
+export type RunResourceQuotaLike = Pick<ResourceQuotaManager, "recordUsage">;
+
 /** Structural type matching RunReflector.score() without importing the class. */
 export interface RunReflectorLike {
   score(input: ReflectionInput): ReflectionScore;
@@ -155,10 +176,15 @@ export interface StartRunWorkerOptions {
   runExecutor: RunExecutor;
   shutdown?: GracefulShutdown;
   /** Optional cross-intent context transfer. When provided, context is
-   *  loaded before each run and saved after successful completion. */
-  contextTransfer?: RunContextTransfer;
-  /** Optional metrics collector for run-level observability */
-  metrics?: MetricsCollector;
+   *  loaded before each run and saved after successful completion.
+   *
+   *  Narrowed to the two methods the worker calls (`run-stages-execution.ts`
+   *  and `run-stages-persistence/learning.ts`) so a host is not forced to build
+   *  the concrete class — the same convention as {@link RunReflectorLike}. */
+  contextTransfer?: RunContextTransferLike;
+  /** Optional metrics collector for run-level observability. Narrowed to the
+   *  two methods `run-stages-persistence/telemetry.ts` calls. */
+  metrics?: RunMetricsLike;
   /** Optional run reflector — scores every completed run for quality tracking.
    *  Uses structural typing to avoid a hard dependency on @dzupagent/agent. */
   reflector?: RunReflectorLike;
@@ -200,7 +226,7 @@ export interface StartRunWorkerOptions {
    * enforcement itself lives at the HTTP boundary — the worker only
    * attributes consumption after completion.
    */
-  resourceQuota?: ResourceQuotaManager;
+  resourceQuota?: RunResourceQuotaLike;
   /**
    * Stage 4-D: Optional per-tenant concurrent-run cap. When provided, the
    * admission stage checks the tenant's active count before admitting a run

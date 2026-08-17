@@ -11,6 +11,13 @@ describe('buildCompileResultEvent', () => {
         schema: 'dzupagent.flowCompileEvidence/v1',
         sourceKind: 'flow-object',
         sourceHash: 'sha256:abc',
+        // Required by FlowCompileEvidence: requirement identity and
+        // canonical-artifact identity are separate from source identity.
+        semanticHash: 'sha256:sem',
+        canonicalArtifact: {
+          schema: 'dzupagent.flowCanonicalArtifact/v1',
+          hash: 'sha256:canon',
+        },
         compileId: 'c-1',
         canonicalNodeIds: ['n1'],
         canonicalNodePaths: { root: { type: 'action', id: 'n1' } },
@@ -34,6 +41,13 @@ describe('buildCompileResultEvent', () => {
         schema: 'dzupagent.flowCompileEvidence/v1',
         sourceKind: 'flow-object',
         sourceHash: 'sha256:abc',
+        // Required by FlowCompileEvidence: requirement identity and
+        // canonical-artifact identity are separate from source identity.
+        semanticHash: 'sha256:sem',
+        canonicalArtifact: {
+          schema: 'dzupagent.flowCanonicalArtifact/v1',
+          hash: 'sha256:canon',
+        },
         compileId: 'c-1',
         canonicalNodeIds: ['n1'],
         canonicalNodePaths: { root: { type: 'action', id: 'n1' } },

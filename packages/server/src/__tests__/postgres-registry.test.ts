@@ -416,7 +416,7 @@ describe('PostgresRegistry — discover()', () => {
     await reg.register(makeInput({ name: 'b', capabilities: [cap('pong')] }))
 
     const page = await reg.discover({
-      capabilityExact: { name: 'ping', version: '1.0.0' },
+      capabilityExact: { name: 'ping', minVersion: '1.0.0' },
     })
 
     const matched = page.results.find((r) => r.agent.id === a.id)

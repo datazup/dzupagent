@@ -17,6 +17,7 @@ function makeMockStore(options: MockStoreOptions): PostgresApiKeyStore {
     name: 'test',
     role: options.role ?? 'operator',
     rateLimitTier: 'standard',
+    tenantId: 'default',
     createdAt: new Date(),
     expiresAt: null,
     revokedAt: null,

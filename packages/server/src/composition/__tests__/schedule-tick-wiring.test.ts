@@ -17,14 +17,20 @@ import { InMemoryScheduleStore } from "../../schedules/schedule-store.js";
 import type { GracefulShutdown } from "../../lifecycle/graceful-shutdown.js";
 import type { ForgeServerConfig } from "../types.js";
 
-function makeShutdown(): GracefulShutdown & {
-  config: { onDrain?: () => Promise<void> };
-} {
-  return {
-    config: {},
-  } as unknown as GracefulShutdown & {
-    config: { onDrain?: () => Promise<void> };
-  };
+/**
+ * View onto `GracefulShutdown`'s PRIVATE `config`, mirroring what
+ * `registerShutdownDrainHook` does (see composition/utils.ts). Intersecting the
+ * class with a public `config` collapses that member to `never`, so the peek has
+ * to go through a separate view type.
+ */
+type ShutdownConfigView = { config: { onDrain?: () => Promise<void> } };
+
+function makeShutdown(): GracefulShutdown {
+  return { config: {} } as unknown as GracefulShutdown;
+}
+
+function shutdownConfig(shutdown: GracefulShutdown): ShutdownConfigView['config'] {
+  return (shutdown as unknown as ShutdownConfigView).config;
 }
 
 function baseConfig(
@@ -118,7 +124,7 @@ describe("maybeStartScheduleTickWorker", () => {
     );
     const stopSpy = vi
       .spyOn(ScheduleTickWorker.prototype, "stop")
-      .mockImplementation(() => {});
+      .mockImplementation(async () => {});
 
     const store = new InMemoryScheduleStore();
     const shutdown = makeShutdown();
@@ -136,9 +142,9 @@ describe("maybeStartScheduleTickWorker", () => {
     maybeStartScheduleTickWorker(config);
 
     // registerShutdownDrainHook patches shutdown.config.onDrain
-    expect(shutdown.config.onDrain).toBeDefined();
+    expect(shutdownConfig(shutdown).onDrain).toBeDefined();
     // invoking it should call worker.stop()
-    return shutdown.config.onDrain!().then(() => {
+    return shutdownConfig(shutdown).onDrain!().then(() => {
       expect(stopSpy).toHaveBeenCalledTimes(1);
     });
   });

@@ -516,7 +516,7 @@ describe("toVercelHandler", () => {
     const expectedResponse = new Response("direct", { status: 200 });
     const app = new Hono();
     const fetchSpy = vi
-      .fn<[Request], Promise<Response>>()
+      .fn<(request: Request, ...rest: unknown[]) => Promise<Response>>()
       .mockResolvedValue(expectedResponse);
     app.fetch = fetchSpy;
 
