@@ -512,6 +512,41 @@ describe('AdapterWorkflow branch coverage', () => {
     expect(result.stepResults[0]!.result).toBe('hello world')
   })
 
+  it('typedStep runs a step that supplies NO prompt at all', async () => {
+    // The test above has to pass 'UNUSED FALLBACK' for a field its own comment
+    // says is never reached. typedStep always sets promptFn, so requiring
+    // `prompt` only ever bought callers a string the executor discards -- and
+    // typedStep's own JSDoc example omits it, so the documented usage did not
+    // compile. This is the end-to-end proof that omitting it is safe.
+    const echoing = mockAdapter('claude', async function* (input) {
+      yield {
+        type: 'adapter:completed',
+        providerId: 'claude',
+        sessionId: 's',
+        result: input.prompt,
+        durationMs: 1,
+        timestamp: Date.now(),
+      }
+    })
+    const registry = createRegistry([echoing])
+    const workflow = defineWorkflow({ id: 'typed-no-prompt' })
+      .step(
+        typedStep<{ name: string }>({
+          id: 'greet',
+          promptFn: (state) => `hello ${state.name}`,
+          tags: ['general'],
+        }),
+      )
+      .build()
+    const result = await workflow.run(registry, {
+      initialState: { name: 'world' },
+    })
+    expect(result.success).toBe(true)
+    // The adapter echoes the prompt it actually received, so this asserts the
+    // executor resolved promptFn rather than the defaulted empty template.
+    expect(result.stepResults[0]!.result).toBe('hello world')
+  })
+
   it('promptFn takes precedence over prompt string when both provided', async () => {
     const echoing = mockAdapter('claude', async function* (input) {
       yield {

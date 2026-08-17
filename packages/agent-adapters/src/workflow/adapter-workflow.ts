@@ -370,12 +370,23 @@ export function defineWorkflow(config: AdapterWorkflowConfig): AdapterWorkflowBu
  * ```
  */
 export function typedStep<TState extends Record<string, unknown> = Record<string, unknown>>(
-  config: Omit<AdapterStepConfig, 'promptFn'> & {
+  config: Omit<AdapterStepConfig, 'promptFn' | 'prompt'> & {
     promptFn: (state: TState) => string
+    /**
+     * Optional, and unread whenever `promptFn` is set — which `typedStep` always
+     * does. Kept accepted so a string step can be converted in place without
+     * deleting its old template in the same edit.
+     */
+    prompt?: string | undefined
   },
 ): AdapterStepConfig {
   return {
     ...config,
+    // `AdapterStepConfig.prompt` is required, but `adapter-workflow-execution.ts`
+    // resolves `promptFn` first and never falls through to the template when one
+    // is present. Defaulting here is what lets the JSDoc example above — which
+    // omits `prompt` — actually compile.
+    prompt: config.prompt ?? '',
     promptFn: config.promptFn as (state: Record<string, unknown>) => string,
   }
 }
