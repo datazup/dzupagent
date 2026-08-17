@@ -1,5 +1,5 @@
 {
-  "totalErrors": 686,
+  "totalErrors": 664,
   "note": "Test-file typecheck baseline (tsconfig.flipcheck.json per package). Ratchets down only. Bump only via --update-baseline after FIXING errors, never to accommodate new ones. Enforced per package AND per file, so a fix in one place cannot mask a regression in another. totalErrors and perCode are informational; the per-file budgets are what fail the build.",
   "packages": {
     "adapter-rules": {
@@ -13,37 +13,9 @@
       "perFile": {}
     },
     "agent-adapters": {
-      "maxErrors": 22,
-      "perCode": {
-        "TS2322": 7,
-        "TS2345": 5,
-        "TS2353": 4,
-        "TS2339": 3,
-        "TS2352": 1,
-        "TS7031": 1,
-        "TS2344": 1
-      },
-      "perFile": {
-        "src/__tests__/adapter-conformance.contract.test.ts": 1,
-        "src/__tests__/adapter-event-contracts.test.ts": 1,
-        "src/__tests__/agent-adapters-export-map.test.ts": 1,
-        "src/__tests__/boundary/upstream-package-boundary.test.ts": 1,
-        "src/__tests__/claude-adapter-deep.test.ts": 1,
-        "src/__tests__/claude-adapter.test.ts": 1,
-        "src/__tests__/cli-smoke.test.ts": 1,
-        "src/__tests__/conversation-compressor.test.ts": 2,
-        "src/__tests__/correlation-warmup.test.ts": 1,
-        "src/__tests__/cross-provider-handoff.test.ts": 1,
-        "src/__tests__/dry-run-reporter.test.ts": 1,
-        "src/__tests__/dzupagent-config.test.ts": 1,
-        "src/__tests__/memory-enrichment.test.ts": 1,
-        "src/__tests__/ollama-local-model.test.ts": 2,
-        "src/__tests__/openai-adapter.test.ts": 1,
-        "src/__tests__/orchestrator-facade.test.ts": 2,
-        "src/__tests__/workflow-branches.test.ts": 1,
-        "src/__tests__/workflow-typed-state.test.ts": 1,
-        "src/dzupagent/__tests__/dry-run-reporter.test.ts": 1
-      }
+      "maxErrors": 0,
+      "perCode": {},
+      "perFile": {}
     },
     "cache": {
       "maxErrors": 0,
