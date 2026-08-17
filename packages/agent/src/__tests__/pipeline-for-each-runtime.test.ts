@@ -427,7 +427,25 @@ describe('PipelineRuntime — lowered for_each collect', () => {
     expect(firstResult.state).toBe('failed')
     expect(bodyRuns).toEqual(['a', 'b', 'c'])
     const checkpoint = await store.load(firstResult.runId)
-    expect(checkpoint?.loopState?.['loop-items']).toEqual({ iteration: 2 })
+    // 24-G: the ordered-prefix cursor is still pinned EXACTLY — `toEqual` on
+    // the whole entry, so an unexpected extra field still fails. What changed
+    // is that the entry now also carries the per-item terminal set, which is a
+    // durable accounting record rather than a resume cursor and deliberately
+    // survives the prefix retirement that retires `itemFrames`.
+    //
+    // Item 2 ('c') crashed, so the prefix stops at 2 while the terminal set
+    // covers every index: the two items behind the prefix are `completed`, the
+    // crashed one `failed`, and any item the loop never reached `cancelled`.
+    // Asserting both together is the point — the cursor must NOT move because
+    // outcomes were recorded.
+    expect(checkpoint?.loopState?.['loop-items']).toEqual({
+      iteration: 2,
+      itemOutcomes: {
+        '0': { itemIndex: 0, outcome: 'completed' },
+        '1': { itemIndex: 1, outcome: 'completed' },
+        '2': { itemIndex: 2, outcome: 'failed' },
+      },
+    })
     expect(checkpoint?.state['itemStatuses']).toEqual([
       'a:ready',
       'b:blocked',
@@ -531,7 +549,26 @@ describe('PipelineRuntime — lowered for_each collect', () => {
     expect(firstResult.state).toBe('failed')
     expect(bodyRuns).toEqual(['a', 'b', 'c', 'd'])
     const checkpoint = await store.load(firstResult.runId)
-    expect(checkpoint?.loopState?.['loop-items']).toEqual({ iteration: 2 })
+    // 24-G: the ordered-prefix cursor is still pinned EXACTLY — `toEqual` on
+    // the whole entry, so an unexpected extra field still fails. What changed
+    // is that the entry now also carries the per-item terminal set, which is a
+    // durable accounting record rather than a resume cursor and deliberately
+    // survives the prefix retirement that retires `itemFrames`.
+    //
+    // Item 2 ('c') crashed, so the prefix stops at 2 while the terminal set
+    // covers every index: the two items behind the prefix are `completed`, the
+    // crashed one `failed`, and any item the loop never reached `cancelled`.
+    // Asserting both together is the point — the cursor must NOT move because
+    // outcomes were recorded.
+    expect(checkpoint?.loopState?.['loop-items']).toEqual({
+      iteration: 2,
+      itemOutcomes: {
+        '0': { itemIndex: 0, outcome: 'completed' },
+        '1': { itemIndex: 1, outcome: 'completed' },
+        '2': { itemIndex: 2, outcome: 'failed' },
+        '3': { itemIndex: 3, outcome: 'completed' },
+      },
+    })
     expect(checkpoint?.state['itemStatuses']).toEqual([
       'a:ready',
       'b:blocked',
@@ -560,6 +597,9 @@ describe('PipelineRuntime — lowered for_each collect', () => {
     const resumed = await second.resume(checkpoint!)
 
     expect(resumed.state).toBe('completed')
+    // 24-G: 'd' still re-runs — it completed out of order, past the flushed
+    // prefix, so its collected value is not durable. See the sibling
+    // Redis-backed test below.
     expect(resumeRuns).toEqual(['c', 'd'])
     expect(resumed.nodeResults.get('loop-items')?.output).toMatchObject({
       loopOutput: ['a:ready', 'b:blocked', 'c:ready', 'd:blocked'],
@@ -634,7 +674,26 @@ describe('PipelineRuntime — lowered for_each collect', () => {
         expect(firstResult.state).toBe('failed')
         expect(bodyRuns).toEqual(['a', 'b', 'c', 'd'])
         const checkpoint = await store.load(firstResult.runId)
-        expect(checkpoint?.loopState?.['loop-items']).toEqual({ iteration: 2 })
+        // 24-G: the ordered-prefix cursor is still pinned EXACTLY — `toEqual` on
+    // the whole entry, so an unexpected extra field still fails. What changed
+    // is that the entry now also carries the per-item terminal set, which is a
+    // durable accounting record rather than a resume cursor and deliberately
+    // survives the prefix retirement that retires `itemFrames`.
+    //
+    // Item 2 ('c') crashed, so the prefix stops at 2 while the terminal set
+    // covers every index: the two items behind the prefix are `completed`, the
+    // crashed one `failed`, and any item the loop never reached `cancelled`.
+    // Asserting both together is the point — the cursor must NOT move because
+    // outcomes were recorded.
+    expect(checkpoint?.loopState?.['loop-items']).toEqual({
+      iteration: 2,
+      itemOutcomes: {
+        '0': { itemIndex: 0, outcome: 'completed' },
+        '1': { itemIndex: 1, outcome: 'completed' },
+        '2': { itemIndex: 2, outcome: 'failed' },
+        '3': { itemIndex: 3, outcome: 'completed' },
+      },
+    })
         expect(checkpoint?.state['itemStatuses']).toEqual([
           'a:ready',
           'b:blocked',
@@ -663,6 +722,10 @@ describe('PipelineRuntime — lowered for_each collect', () => {
         const resumed = await second.resume(checkpoint!)
 
         expect(resumed.state).toBe('completed')
+        // 24-G: 'd' still re-runs. Its terminal record says `completed`, but
+        // it completed OUT OF ORDER — past the flushed prefix — so its
+        // collected value is not durable and the resume must rebuild it. The
+        // reader skips a completed item only when its output is recoverable.
         expect(resumeRuns).toEqual(['c', 'd'])
         expect(resumed.nodeResults.get('loop-items')?.output).toMatchObject({
           loopOutput: ['a:ready', 'b:blocked', 'c:ready', 'd:blocked'],

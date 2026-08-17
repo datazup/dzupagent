@@ -82,7 +82,7 @@ export const GateNodeSchema = PipelineNodeBaseSchema.extend({
         const result = validatePipelineInteractionSpecV1(value);
         return result.valid && result.value.kind === "approval";
       },
-      { message: "invalid approval interaction specification" },
+      { message: "invalid approval interaction specification" }
     )
     .optional(),
 }).strict();
@@ -166,7 +166,7 @@ export const SuspendNodeSchema = PipelineNodeBaseSchema.extend({
         const result = validatePipelineInteractionSpecV1(value);
         return result.valid && result.value.kind === "clarification";
       },
-      { message: "invalid clarification interaction specification" },
+      { message: "invalid clarification interaction specification" }
     )
     .optional(),
 }).strict();
@@ -264,7 +264,8 @@ const PipelineLoopBodyGraphCheckpointStateSchema = z
     const suspendedCursorInvalid =
       isSuspended && (graph.completed || graph.nextNodeId !== undefined);
     const completedOutcomeInvalid =
-      isCompletedOutcome && (!graph.completed || graph.nextNodeId !== undefined);
+      isCompletedOutcome &&
+      (!graph.completed || graph.nextNodeId !== undefined);
     if (legacyCursorInvalid) {
       context.addIssue({
         code: "custom",
@@ -323,6 +324,21 @@ const PipelineForEachItemFrameSchema = z.object({
   economics: PipelineForEachItemEconomicsSchema.optional(),
 });
 
+/**
+ * 24-G: terminal accounting record for one item. `.strict()` for the same
+ * reason the economics schema is: an unrecognised key here is a writer
+ * disagreeing with this contract, and silently dropping it would let a
+ * checkpoint claim an accounting fact no reader honours.
+ */
+const PipelineForEachItemTerminalRecordSchema = z
+  .object({
+    itemIndex: z.number().int().nonnegative(),
+    outcome: z.enum(PIPELINE_FOR_EACH_ITEM_OUTCOMES),
+    economics: PipelineForEachItemEconomicsSchema.optional(),
+    attempt: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+
 const PipelineLoopCheckpointStateSchema = z
   .object({
     iteration: z.number().int().nonnegative(),
@@ -334,7 +350,15 @@ const PipelineLoopCheckpointStateSchema = z
         z.string().regex(/^(0|[1-9][0-9]*)$/, {
           message: "itemFrames keys must be decimal item indices",
         }),
-        PipelineForEachItemFrameSchema,
+        PipelineForEachItemFrameSchema
+      )
+      .optional(),
+    itemOutcomes: z
+      .record(
+        z.string().regex(/^(0|[1-9][0-9]*)$/, {
+          message: "itemOutcomes keys must be decimal item indices",
+        }),
+        PipelineForEachItemTerminalRecordSchema
       )
       .optional(),
     bodyGraphState: PipelineLoopBodyGraphCheckpointStateSchema.optional(),
@@ -348,9 +372,7 @@ const PipelineLoopCheckpointStateSchema = z
     if (hasNextBodyNodeIndex !== hasBodyResults) {
       context.addIssue({
         code: "custom",
-        path: hasNextBodyNodeIndex
-          ? ["bodyResults"]
-          : ["nextBodyNodeIndex"],
+        path: hasNextBodyNodeIndex ? ["bodyResults"] : ["nextBodyNodeIndex"],
         message:
           "nextBodyNodeIndex and bodyResults must be present or absent together",
       });
@@ -363,7 +385,8 @@ const PipelineLoopCheckpointStateSchema = z
       context.addIssue({
         code: "custom",
         path: ["bodyGraphState"],
-        message: "bodyGraphState is mutually exclusive with the flat body cursor",
+        message:
+          "bodyGraphState is mutually exclusive with the flat body cursor",
       });
     }
 
@@ -394,16 +417,33 @@ const PipelineLoopCheckpointStateSchema = z
         }
       }
     }
+
+    // 24-G: same rule for the terminal set, for the same reason. A key
+    // disagreeing with the record it holds would attribute one item's outcome
+    // — and its settled cost — to a different item.
+    if (cursor.itemOutcomes !== undefined) {
+      for (const [key, record] of Object.entries(cursor.itemOutcomes)) {
+        if (String(record.itemIndex) !== key) {
+          context.addIssue({
+            code: "custom",
+            path: ["itemOutcomes", key, "itemIndex"],
+            message:
+              `itemOutcomes key "${key}" does not match its record's ` +
+              `itemIndex ${record.itemIndex}`,
+          });
+        }
+      }
+    }
   });
 
 const PipelinePendingInteractionSchema = z.custom<PipelinePendingInteractionV1>(
   (value) => validatePipelinePendingInteractionV1(value).valid,
-  { message: "invalid pending pipeline interaction" },
+  { message: "invalid pending pipeline interaction" }
 );
 
 const PipelineInteractionResumeSchema = z.custom<PipelineInteractionResumeV1>(
   (value) => validatePipelineInteractionResumeV1(value).valid,
-  { message: "invalid pipeline interaction receipt" },
+  { message: "invalid pipeline interaction receipt" }
 );
 
 const PipelineInteractionScopeSchema = z.discriminatedUnion("kind", [
@@ -417,311 +457,378 @@ const PipelineInteractionScopeSchema = z.discriminatedUnion("kind", [
     .strict(),
 ]) satisfies z.ZodType<PipelineInteractionScopeV1>;
 
-export const PipelineCheckpointSchema = z.object({
-  pipelineRunId: z.string().min(1),
-  pipelineId: z.string().min(1),
-  version: z.number().int().nonnegative(),
-  schemaVersion: z.enum(PIPELINE_SCHEMA_VERSIONS),
-  sourceBinding: z
-    .object({
-      definitionDigest: PipelineSha256DigestSchema,
-      loopSourceDigests: z
-        .record(z.string(), PipelineSha256DigestSchema)
-        .optional(),
-    })
-    .strict()
-    .optional(),
-  completedNodeIds: z.array(z.string()),
-  nodeIdempotencyKeys: z.record(z.string(), z.string()).optional(),
-  loopState: z
-    .record(z.string(), PipelineLoopCheckpointStateSchema)
-    .optional(),
-  forkState: PipelineForkCheckpointStateSchema.optional(),
-  state: z.record(z.string(), z.unknown()),
-  suspendedAtNodeId: z.string().optional(),
-  pendingInteraction: PipelinePendingInteractionSchema.optional(),
-  interactionReceipts: z
-    .record(z.string().min(1), PipelineInteractionResumeSchema)
-    .optional(),
-  interactionResumeCursor: z
-    .object({
-      interactionId: z.string().min(1),
-      receiptHash: z.string().min(1),
-      definitionDigest: z.string().min(1),
-      nodeId: z.string().min(1),
-      scope: PipelineInteractionScopeSchema,
-      selectedSuccessorNodeId: z.string().min(1).optional(),
-      nextNodeId: z.string().min(1).optional(),
-    })
-    .strict()
-    .optional(),
-  budgetState: z
-    .object({
-      tokensUsed: z.number().nonnegative(),
-      costCents: z.number().nonnegative(),
-    })
-    .optional(),
-  recoveryAttemptsUsed: z.number().int().nonnegative().optional(),
-  events: z.array(z.record(z.string(), z.unknown()).and(z.object({
-    type: z.string().min(1),
-  }))).optional(),
-  executionLog: z
-    .object({
-      storeRef: z.string().optional(),
-      eventHistory: z.enum(["compact", "full"]),
-      events: z.array(z.record(z.string(), z.unknown()).and(z.object({
-        type: z.string().min(1),
-      }))),
-    })
-    .optional(),
-  providerSessionRefs: z
-    .array(
-      z.object({
+export const PipelineCheckpointSchema = z
+  .object({
+    pipelineRunId: z.string().min(1),
+    pipelineId: z.string().min(1),
+    version: z.number().int().nonnegative(),
+    schemaVersion: z.enum(PIPELINE_SCHEMA_VERSIONS),
+    sourceBinding: z
+      .object({
+        definitionDigest: PipelineSha256DigestSchema,
+        loopSourceDigests: z
+          .record(z.string(), PipelineSha256DigestSchema)
+          .optional(),
+      })
+      .strict()
+      .optional(),
+    completedNodeIds: z.array(z.string()),
+    nodeIdempotencyKeys: z.record(z.string(), z.string()).optional(),
+    loopState: z
+      .record(z.string(), PipelineLoopCheckpointStateSchema)
+      .optional(),
+    forkState: PipelineForkCheckpointStateSchema.optional(),
+    state: z.record(z.string(), z.unknown()),
+    suspendedAtNodeId: z.string().optional(),
+    pendingInteraction: PipelinePendingInteractionSchema.optional(),
+    interactionReceipts: z
+      .record(z.string().min(1), PipelineInteractionResumeSchema)
+      .optional(),
+    interactionResumeCursor: z
+      .object({
+        interactionId: z.string().min(1),
+        receiptHash: z.string().min(1),
+        definitionDigest: z.string().min(1),
         nodeId: z.string().min(1),
-        provider: z.string().min(1),
-        sessionId: z.string().min(1),
-        label: z.string().optional(),
-        metadata: z.record(z.string(), z.unknown()).optional(),
-      }),
-    )
-    .optional(),
-  createdAt: z.string().min(1),
-}).strict().superRefine((checkpoint, context) => {
-  const hasInteractionState =
-    checkpoint.pendingInteraction !== undefined ||
-    checkpoint.interactionResumeCursor !== undefined ||
-    Object.keys(checkpoint.interactionReceipts ?? {}).length > 0;
-  if (checkpoint.schemaVersion === "1.0.0" && hasInteractionState) {
-    context.addIssue({
-      code: "custom",
-      path: ["schemaVersion"],
-      message: "pipeline interaction state requires checkpoint schemaVersion 1.1.0",
-    });
-  }
-  const pending = checkpoint.pendingInteraction;
-  if (pending !== undefined) {
-    if (pending.pipelineId !== checkpoint.pipelineId) {
+        scope: PipelineInteractionScopeSchema,
+        selectedSuccessorNodeId: z.string().min(1).optional(),
+        nextNodeId: z.string().min(1).optional(),
+      })
+      .strict()
+      .optional(),
+    budgetState: z
+      .object({
+        tokensUsed: z.number().nonnegative(),
+        costCents: z.number().nonnegative(),
+      })
+      .optional(),
+    recoveryAttemptsUsed: z.number().int().nonnegative().optional(),
+    events: z
+      .array(
+        z.record(z.string(), z.unknown()).and(
+          z.object({
+            type: z.string().min(1),
+          })
+        )
+      )
+      .optional(),
+    executionLog: z
+      .object({
+        storeRef: z.string().optional(),
+        eventHistory: z.enum(["compact", "full"]),
+        events: z.array(
+          z.record(z.string(), z.unknown()).and(
+            z.object({
+              type: z.string().min(1),
+            })
+          )
+        ),
+      })
+      .optional(),
+    providerSessionRefs: z
+      .array(
+        z.object({
+          nodeId: z.string().min(1),
+          provider: z.string().min(1),
+          sessionId: z.string().min(1),
+          label: z.string().optional(),
+          metadata: z.record(z.string(), z.unknown()).optional(),
+        })
+      )
+      .optional(),
+    createdAt: z.string().min(1),
+  })
+  .strict()
+  .superRefine((checkpoint, context) => {
+    const hasInteractionState =
+      checkpoint.pendingInteraction !== undefined ||
+      checkpoint.interactionResumeCursor !== undefined ||
+      Object.keys(checkpoint.interactionReceipts ?? {}).length > 0;
+    if (checkpoint.schemaVersion === "1.0.0" && hasInteractionState) {
       context.addIssue({
         code: "custom",
-        path: ["pendingInteraction", "pipelineId"],
-        message: "pending interaction pipeline binding does not match checkpoint",
+        path: ["schemaVersion"],
+        message:
+          "pipeline interaction state requires checkpoint schemaVersion 1.1.0",
       });
     }
-    if (pending.runId !== checkpoint.pipelineRunId) {
+
+    // 24-G: the per-item terminal set follows the interaction-state precedent
+    // directly above rather than being exempted from it.
+    //
+    // 24-F's frame fields (`outcome`/`economics`) were additive-and-optional
+    // and shipped ungated, which left a `1.0.0` checkpoint able to carry state
+    // a `1.0.0` reader has no rule for. That is tolerable only while nothing
+    // acts on the field. 24-G makes the terminal set load-bearing — for
+    // accounting, and for the resume reader that now refuses to re-dispatch a
+    // terminally-settled item — so a checkpoint carrying it is no longer
+    // readable under the old contract. Requiring `1.1.0` surfaces that at the
+    // parse boundary rather than at the point a stale reader silently
+    // re-dispatches a settled item and opens a second ledger row.
+    //
+    // Absence stays unprovable in the other direction: a `1.0.0` checkpoint
+    // carrying no terminal set is untouched by this rule and keeps resuming.
+    const hasForEachTerminalSet = Object.values(checkpoint.loopState ?? {}).some(
+      (cursor) => cursor.itemOutcomes !== undefined,
+    );
+    if (checkpoint.schemaVersion === "1.0.0" && hasForEachTerminalSet) {
       context.addIssue({
         code: "custom",
-        path: ["pendingInteraction", "runId"],
-        message: "pending interaction run binding does not match checkpoint",
+        path: ["schemaVersion"],
+        message:
+          "for_each per-item terminal outcomes require checkpoint schemaVersion 1.1.0",
       });
     }
-    if (pending.expectedCheckpointVersion !== checkpoint.version) {
-      context.addIssue({
-        code: "custom",
-        path: ["pendingInteraction", "expectedCheckpointVersion"],
-        message: "pending interaction version binding does not match checkpoint",
-      });
-    }
-    if (checkpoint.interactionResumeCursor !== undefined) {
-      context.addIssue({
-        code: "custom",
-        path: ["interactionResumeCursor"],
-        message: "a checkpoint cannot be both pending and post-consumption",
-      });
-    }
-    if (checkpoint.interactionReceipts?.[pending.interactionId] !== undefined) {
-      context.addIssue({
-        code: "custom",
-        path: ["interactionReceipts", pending.interactionId],
-        message: "a pending interaction cannot already have a committed receipt",
-      });
-    }
-    if (pending.scope.kind === "loop") {
-      const loop = checkpoint.loopState?.[pending.scope.loopNodeId];
-      if (loop === undefined || loop.iteration !== pending.scope.iteration) {
+
+    const pending = checkpoint.pendingInteraction;
+    if (pending !== undefined) {
+      if (pending.pipelineId !== checkpoint.pipelineId) {
         context.addIssue({
           code: "custom",
-          path: ["pendingInteraction", "scope"],
-          message: "pending loop interaction scope does not match the checkpoint loop cursor",
+          path: ["pendingInteraction", "pipelineId"],
+          message:
+            "pending interaction pipeline binding does not match checkpoint",
         });
       }
-    }
-  }
-
-  for (const [interactionId, receipt] of Object.entries(
-    checkpoint.interactionReceipts ?? {},
-  )) {
-    if (interactionId !== receipt.interactionId) {
-      context.addIssue({
-        code: "custom",
-        path: ["interactionReceipts", interactionId],
-        message: "interaction receipt map key must equal receipt.interactionId",
-      });
-    }
-    if (
-      receipt.pipelineId !== checkpoint.pipelineId ||
-      receipt.runId !== checkpoint.pipelineRunId
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["interactionReceipts", interactionId],
-        message: "interaction receipt pipeline/run binding does not match checkpoint",
-      });
-    }
-    if (receipt.expectedCheckpointVersion >= checkpoint.version) {
-      context.addIssue({
-        code: "custom",
-        path: ["interactionReceipts", interactionId, "expectedCheckpointVersion"],
-        message: "committed receipt must bind a checkpoint version before the current checkpoint",
-      });
-    }
-  }
-
-  const cursor = checkpoint.interactionResumeCursor;
-  if (cursor !== undefined) {
-    const receipt = checkpoint.interactionReceipts?.[cursor.interactionId];
-    if (receipt === undefined) {
-      context.addIssue({
-        code: "custom",
-        path: ["interactionResumeCursor", "interactionId"],
-        message: "interaction resume cursor requires its committed receipt",
-      });
-    } else if (
-      receipt.receiptHash !== cursor.receiptHash ||
-      receipt.definitionDigest !== cursor.definitionDigest ||
-      receipt.nodeId !== cursor.nodeId ||
-      JSON.stringify(receipt.scope) !== JSON.stringify(cursor.scope)
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["interactionResumeCursor"],
-        message: "interaction resume cursor does not match its committed receipt",
-      });
-    }
-    if (
-      cursor.scope.kind === "pipeline" &&
-      cursor.nextNodeId !== cursor.selectedSuccessorNodeId
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["interactionResumeCursor", "nextNodeId"],
-        message: "pipeline interaction cursor must resume at its selected successor",
-      });
-    }
-    if (cursor.scope.kind === "loop") {
-      const loop = checkpoint.loopState?.[cursor.scope.loopNodeId];
+      if (pending.runId !== checkpoint.pipelineRunId) {
+        context.addIssue({
+          code: "custom",
+          path: ["pendingInteraction", "runId"],
+          message: "pending interaction run binding does not match checkpoint",
+        });
+      }
+      if (pending.expectedCheckpointVersion !== checkpoint.version) {
+        context.addIssue({
+          code: "custom",
+          path: ["pendingInteraction", "expectedCheckpointVersion"],
+          message:
+            "pending interaction version binding does not match checkpoint",
+        });
+      }
+      if (checkpoint.interactionResumeCursor !== undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["interactionResumeCursor"],
+          message: "a checkpoint cannot be both pending and post-consumption",
+        });
+      }
       if (
-        cursor.nextNodeId !== cursor.scope.loopNodeId ||
-        loop?.iteration !== cursor.scope.iteration ||
-        loop?.bodyGraphState === undefined
+        checkpoint.interactionReceipts?.[pending.interactionId] !== undefined
       ) {
         context.addIssue({
           code: "custom",
-          path: ["interactionResumeCursor", "scope"],
-          message: "loop interaction cursor must bind the exact retained loop iteration",
+          path: ["interactionReceipts", pending.interactionId],
+          message:
+            "a pending interaction cannot already have a committed receipt",
+        });
+      }
+      if (pending.scope.kind === "loop") {
+        const loop = checkpoint.loopState?.[pending.scope.loopNodeId];
+        if (loop === undefined || loop.iteration !== pending.scope.iteration) {
+          context.addIssue({
+            code: "custom",
+            path: ["pendingInteraction", "scope"],
+            message:
+              "pending loop interaction scope does not match the checkpoint loop cursor",
+          });
+        }
+      }
+    }
+
+    for (const [interactionId, receipt] of Object.entries(
+      checkpoint.interactionReceipts ?? {}
+    )) {
+      if (interactionId !== receipt.interactionId) {
+        context.addIssue({
+          code: "custom",
+          path: ["interactionReceipts", interactionId],
+          message:
+            "interaction receipt map key must equal receipt.interactionId",
+        });
+      }
+      if (
+        receipt.pipelineId !== checkpoint.pipelineId ||
+        receipt.runId !== checkpoint.pipelineRunId
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["interactionReceipts", interactionId],
+          message:
+            "interaction receipt pipeline/run binding does not match checkpoint",
+        });
+      }
+      if (receipt.expectedCheckpointVersion >= checkpoint.version) {
+        context.addIssue({
+          code: "custom",
+          path: [
+            "interactionReceipts",
+            interactionId,
+            "expectedCheckpointVersion",
+          ],
+          message:
+            "committed receipt must bind a checkpoint version before the current checkpoint",
         });
       }
     }
-  }
-});
+
+    const cursor = checkpoint.interactionResumeCursor;
+    if (cursor !== undefined) {
+      const receipt = checkpoint.interactionReceipts?.[cursor.interactionId];
+      if (receipt === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["interactionResumeCursor", "interactionId"],
+          message: "interaction resume cursor requires its committed receipt",
+        });
+      } else if (
+        receipt.receiptHash !== cursor.receiptHash ||
+        receipt.definitionDigest !== cursor.definitionDigest ||
+        receipt.nodeId !== cursor.nodeId ||
+        JSON.stringify(receipt.scope) !== JSON.stringify(cursor.scope)
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["interactionResumeCursor"],
+          message:
+            "interaction resume cursor does not match its committed receipt",
+        });
+      }
+      if (
+        cursor.scope.kind === "pipeline" &&
+        cursor.nextNodeId !== cursor.selectedSuccessorNodeId
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["interactionResumeCursor", "nextNodeId"],
+          message:
+            "pipeline interaction cursor must resume at its selected successor",
+        });
+      }
+      if (cursor.scope.kind === "loop") {
+        const loop = checkpoint.loopState?.[cursor.scope.loopNodeId];
+        if (
+          cursor.nextNodeId !== cursor.scope.loopNodeId ||
+          loop?.iteration !== cursor.scope.iteration ||
+          loop?.bodyGraphState === undefined
+        ) {
+          context.addIssue({
+            code: "custom",
+            path: ["interactionResumeCursor", "scope"],
+            message:
+              "loop interaction cursor must bind the exact retained loop iteration",
+          });
+        }
+      }
+    }
+  });
 
 // ---------------------------------------------------------------------------
 // Pipeline definition schema
 // ---------------------------------------------------------------------------
 
-export const PipelineDefinitionSchema = z.object({
-  id: z.string().min(1),
-  name: z.string().min(1),
-  version: z.string().min(1),
-  description: z.string().optional(),
-  schemaVersion: z.enum(PIPELINE_SCHEMA_VERSIONS),
-  entryNodeId: z.string().min(1),
-  nodes: z.array(PipelineNodeSchema).min(1),
-  edges: z.array(PipelineEdgeSchema),
-  budgetLimitCents: z.number().nonnegative().optional(),
-  tokenLimit: z.number().int().positive().optional(),
-  checkpointStrategy: z
-    .enum(["after_each_node", "on_suspend", "manual", "none"])
-    .optional(),
-  checkpoint: z
-    .object({
-      storeRef: z.string().optional(),
-      includeEvents: z.boolean().optional(),
-      includeProviderSessionRefs: z.boolean().optional(),
-      retention: z
-        .object({
-          ttlMs: z.number().int().nonnegative().optional(),
-          maxVersions: z.number().int().positive().optional(),
-        })
-        .optional(),
-    })
-    .optional(),
-  resume: z
-    .object({
-      onProcessRestart: z
-        .enum(["fail_running", "resume_from_checkpoint", "redeliver_running"])
-        .optional(),
-      requireResumePoint: z.boolean().optional(),
-      maxReplayNodes: z.number().int().nonnegative().optional(),
-    })
-    .optional(),
-  executionLog: z
-    .object({
-      storeRef: z.string().optional(),
-      eventHistory: z.enum(["none", "compact", "full"]).optional(),
-    })
-    .optional(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-  classificationEnvelope: z.record(z.string(), z.unknown()).optional(),
-  tags: z.array(z.string()).optional(),
-}).strict().superRefine((definition, context) => {
-  const interactionNodes = definition.nodes.filter(
-    (node) =>
-      (node.type === "gate" || node.type === "suspend") &&
-      node.interaction !== undefined,
-  );
-  if (definition.schemaVersion === "1.0.0" && interactionNodes.length > 0) {
-    context.addIssue({
-      code: "custom",
-      path: ["schemaVersion"],
-      message: "pipeline interaction specifications require schemaVersion 1.1.0",
-    });
-  }
-  for (const node of interactionNodes) {
-    if (node.type === "gate") {
-      if (node.gateType !== "approval") {
-        context.addIssue({
-          code: "custom",
-          path: ["nodes", definition.nodes.indexOf(node), "gateType"],
-          message: "approval interaction specifications require an approval gate",
-        });
-        continue;
-      }
-      const edges = definition.edges.filter(
-        (candidate) => candidate.type === "conditional" && candidate.sourceNodeId === node.id,
-      );
-      const edge = edges[0];
-      const branchKeys = edge?.type === "conditional"
-        ? Object.keys(edge.branches).sort()
-        : [];
-      if (
-        edges.length !== 1 ||
-        edge === undefined ||
-        edge.type !== "conditional" ||
-        branchKeys.length !== 2 ||
-        branchKeys[0] !== "approved" ||
-        branchKeys[1] !== "rejected" ||
-        edge.branches.approved !== node.interaction?.outcomeToSuccessor.approved ||
-        edge.branches.rejected !== node.interaction?.outcomeToSuccessor.rejected
-      ) {
-        context.addIssue({
-          code: "custom",
-          path: ["nodes", definition.nodes.indexOf(node), "interaction"],
-          message: "approval interaction outcome mapping must agree with exactly one conditional graph edge containing exact approved/rejected keys",
-        });
+export const PipelineDefinitionSchema = z
+  .object({
+    id: z.string().min(1),
+    name: z.string().min(1),
+    version: z.string().min(1),
+    description: z.string().optional(),
+    schemaVersion: z.enum(PIPELINE_SCHEMA_VERSIONS),
+    entryNodeId: z.string().min(1),
+    nodes: z.array(PipelineNodeSchema).min(1),
+    edges: z.array(PipelineEdgeSchema),
+    budgetLimitCents: z.number().nonnegative().optional(),
+    tokenLimit: z.number().int().positive().optional(),
+    checkpointStrategy: z
+      .enum(["after_each_node", "on_suspend", "manual", "none"])
+      .optional(),
+    checkpoint: z
+      .object({
+        storeRef: z.string().optional(),
+        includeEvents: z.boolean().optional(),
+        includeProviderSessionRefs: z.boolean().optional(),
+        retention: z
+          .object({
+            ttlMs: z.number().int().nonnegative().optional(),
+            maxVersions: z.number().int().positive().optional(),
+          })
+          .optional(),
+      })
+      .optional(),
+    resume: z
+      .object({
+        onProcessRestart: z
+          .enum(["fail_running", "resume_from_checkpoint", "redeliver_running"])
+          .optional(),
+        requireResumePoint: z.boolean().optional(),
+        maxReplayNodes: z.number().int().nonnegative().optional(),
+      })
+      .optional(),
+    executionLog: z
+      .object({
+        storeRef: z.string().optional(),
+        eventHistory: z.enum(["none", "compact", "full"]).optional(),
+      })
+      .optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+    classificationEnvelope: z.record(z.string(), z.unknown()).optional(),
+    tags: z.array(z.string()).optional(),
+  })
+  .strict()
+  .superRefine((definition, context) => {
+    const interactionNodes = definition.nodes.filter(
+      (node) =>
+        (node.type === "gate" || node.type === "suspend") &&
+        node.interaction !== undefined
+    );
+    if (definition.schemaVersion === "1.0.0" && interactionNodes.length > 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["schemaVersion"],
+        message:
+          "pipeline interaction specifications require schemaVersion 1.1.0",
+      });
+    }
+    for (const node of interactionNodes) {
+      if (node.type === "gate") {
+        if (node.gateType !== "approval") {
+          context.addIssue({
+            code: "custom",
+            path: ["nodes", definition.nodes.indexOf(node), "gateType"],
+            message:
+              "approval interaction specifications require an approval gate",
+          });
+          continue;
+        }
+        const edges = definition.edges.filter(
+          (candidate) =>
+            candidate.type === "conditional" &&
+            candidate.sourceNodeId === node.id
+        );
+        const edge = edges[0];
+        const branchKeys =
+          edge?.type === "conditional" ? Object.keys(edge.branches).sort() : [];
+        if (
+          edges.length !== 1 ||
+          edge === undefined ||
+          edge.type !== "conditional" ||
+          branchKeys.length !== 2 ||
+          branchKeys[0] !== "approved" ||
+          branchKeys[1] !== "rejected" ||
+          edge.branches.approved !==
+            node.interaction?.outcomeToSuccessor.approved ||
+          edge.branches.rejected !==
+            node.interaction?.outcomeToSuccessor.rejected
+        ) {
+          context.addIssue({
+            code: "custom",
+            path: ["nodes", definition.nodes.indexOf(node), "interaction"],
+            message:
+              "approval interaction outcome mapping must agree with exactly one conditional graph edge containing exact approved/rejected keys",
+          });
+        }
       }
     }
-  }
-});
+  });
 
 // ---------------------------------------------------------------------------
 // Serialization / deserialization

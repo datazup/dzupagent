@@ -7,7 +7,10 @@
  * @module pipeline/pipeline-runtime/executor-state-types
  */
 
-import type { PipelineForEachItemFrame } from "@dzupagent/core/pipeline";
+import type {
+  PipelineForEachItemFrame,
+  PipelineForEachItemTerminalRecord,
+} from "@dzupagent/core/pipeline";
 
 import type { LoopBodyGraphCheckpointState } from "../loop-executor/types.js";
 
@@ -31,6 +34,16 @@ export interface LoopCheckpointState {
    * Mirrors `PipelineLoopCheckpointState.itemFrames` in the core contract.
    */
   itemFrames?: Record<string, PipelineForEachItemFrame>;
+  /**
+   * Terminal outcome per `for_each` item (24-G), keyed the same way as
+   * {@link itemFrames}. Mirrors `PipelineLoopCheckpointState.itemOutcomes`.
+   *
+   * Unlike `itemFrames` this SURVIVES prefix retirement: a frame answers
+   * "where do I resume?" and is retired once the prefix covers its item, while
+   * a terminal outcome answers "what happened, and what did it cost?" — a
+   * question asked mostly about items already behind the prefix.
+   */
+  itemOutcomes?: Record<string, PipelineForEachItemTerminalRecord>;
   previousOutput?: unknown;
   progressDigest?: `sha256:${string}`;
 }

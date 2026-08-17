@@ -71,6 +71,31 @@ export interface PipelineLoopCheckpointState {
    */
   itemFrames?: Record<string, PipelineForEachItemFrame>;
   /**
+   * Terminal accounting record for every `for_each` item the loop resolved
+   * (24-G, doc 27 §8 proof 8), keyed by the item's zero-based index in the
+   * same decimal spelling as {@link itemFrames}.
+   *
+   * Deliberately SEPARATE from `itemFrames` rather than an extra field on it,
+   * because the two structures have opposite lifetimes and overloading one
+   * with both is what made the terminal set unrecordable before 24-G:
+   *
+   * - `itemFrames` is a RESUME cursor. Its contract is to be retired once the
+   *   ordered prefix passes the item — `retainInFlightItemFrames` drops every
+   *   frame with `itemIndex < completedIterations` at each item boundary — and
+   *   no frame is written for an item's last body node at all, because doing so
+   *   would contradict the ordered-prefix cursor.
+   * - `itemOutcomes` is an ACCOUNTING record. It must survive exactly that
+   *   retirement, because "what happened to item 7" is a question asked *after*
+   *   item 7 is behind the prefix, and most often about a run that stopped.
+   *
+   * Complete over `0..n-1` once the loop returns: items the loop never reached
+   * because it stopped early are recorded `cancelled` rather than left absent,
+   * which is what makes "every index has a terminal outcome" assertable at all.
+   * Absent entirely for predicate loops and for a for-each loop that has not
+   * yet retired an item.
+   */
+  itemOutcomes?: Record<string, PipelineForEachItemTerminalRecord>;
+  /**
    * Scoped canonical-executor frame for a compiler-lowered graph body.
    * Mutually exclusive with the legacy flat-list cursor above.
    */
@@ -146,6 +171,48 @@ export interface PipelineForEachItemFrame {
    * record.
    */
   economics?: PipelineForEachItemEconomics;
+}
+
+/**
+ * Terminal accounting record for one `for_each` item (24-G).
+ *
+ * Distinct from {@link PipelineForEachItemFrame} because it answers a different
+ * question at a different time. A frame answers "where do I resume this item?"
+ * and is retired the moment the ordered prefix passes it; this record answers
+ * "what finally happened to this item, and what did it cost?" and must outlive
+ * exactly that retirement.
+ *
+ * It carries no body cursor for the same reason: a terminal item has nowhere to
+ * resume to, so `nextBodyNodeIndex`/`bodyResults` would be dead weight on every
+ * checkpoint. Keeping the two records disjoint is what lets `itemFrames` stay
+ * strictly in-flight and hold its exact boundary pins.
+ */
+export interface PipelineForEachItemTerminalRecord {
+  /** Zero-based index of the item within the resolved source. */
+  itemIndex: number;
+  /**
+   * The item's final state for this run.
+   *
+   * Usually terminal per {@link isTerminalItemOutcome}, but deliberately typed
+   * as the full vocabulary so `outcome_unknown` is recordable: an item holding
+   * an unproven reservation is precisely the one an operator most needs a
+   * durable pointer to, and refusing to record it because it is not terminal
+   * would erase the only trace of a stranded ledger row.
+   */
+  outcome: PipelineForEachItemOutcome;
+  /**
+   * Economics as of the terminal state. Absent when the host authored no
+   * ceiling, and equally when the item never dispatched — a `cancelled` or
+   * `denied` item opened no ledger row, and recording a zero reservation for
+   * it would assert one that never existed.
+   */
+  economics?: PipelineForEachItemEconomics;
+  /**
+   * Attempt this record describes; omitted at 0, matching the frame and
+   * reservation-id conventions so a record, its frame, and its ledger row all
+   * name the same attempt the same way.
+   */
+  attempt?: number;
 }
 
 /**
@@ -533,7 +600,7 @@ export interface PipelineCheckpointStore {
    */
   saveIfVersion?(
     checkpoint: PipelineCheckpoint,
-    expectedVersion: number,
+    expectedVersion: number
   ): Promise<PipelineCheckpointCommitReceipt>;
 
   /** Load the latest checkpoint for a run (undefined if no checkpoint exists) */
@@ -542,7 +609,7 @@ export interface PipelineCheckpointStore {
   /** Load a specific version of a checkpoint */
   loadVersion(
     pipelineRunId: string,
-    version: number,
+    version: number
   ): Promise<PipelineCheckpoint | undefined>;
 
   /** List all checkpoint versions for a run, ordered by version ascending */

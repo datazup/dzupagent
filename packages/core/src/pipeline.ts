@@ -318,6 +318,7 @@ export type {
   PipelineExecutionScope,
   PipelineForEachItemEconomics,
   PipelineForEachItemFrame,
+  PipelineForEachItemTerminalRecord,
   PipelineForEachItemOutcome,
   PipelineLedgerUnavailablePolicy,
   PipelineInteractionResumeCursor,

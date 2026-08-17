@@ -58,6 +58,33 @@ export interface ForEachItemCheckpointProgress {
   economics?: PipelineForEachItemEconomics;
 }
 
+/**
+ * 24-G: one item's terminal classification, reported as the item leaves the
+ * loop for good.
+ *
+ * Separate from {@link ForEachItemCheckpointProgress} because it carries no
+ * body cursor: an item reporting a terminal outcome has nowhere to resume to,
+ * and reusing the in-flight shape would invite a reader to resume from a record
+ * that exists precisely to say the item must not be resumed.
+ */
+export interface ForEachItemTerminalOutcome {
+  /** Zero-based index of the item within the resolved source. */
+  itemIndex: number;
+  /** The classification the loop observed at the item's exit. */
+  outcome: PipelineForEachItemOutcome;
+  /**
+   * The reservation the item's final attempt held, when one existed. Omitted
+   * when the host authored no ceiling, and for an item that never dispatched.
+   */
+  economics?: {
+    reservationId: string;
+    reservedCostCents: number;
+    settledCostCents?: number;
+  };
+  /** Attempt this outcome describes; omitted at 0. */
+  attempt?: number;
+}
+
 /** Iteration output/progress retained at a completed iteration boundary. */
 export interface LoopIterationCheckpointProgress {
   /** Final body-node output exposed as `loop.previous` next iteration. */
@@ -421,6 +448,20 @@ export interface LoopResumeOptions {
    */
   onItemBodyNodeComplete?: (
     progress: ForEachItemCheckpointProgress
+  ) => Promise<void>;
+  /**
+   * 24-G: invoked once per item as it reaches a terminal state, including for
+   * items the loop never dispatched because it stopped early.
+   *
+   * Distinct from `onItemBodyNodeComplete` because the runtime persists it to a
+   * different place for a different lifetime: `itemFrames` is retired the
+   * moment the ordered prefix passes an item, whereas
+   * `loopState[loopId].itemOutcomes[itemIndex]` must survive that retirement.
+   * Routing terminal outcomes through the in-flight callback would have them
+   * erased by the very next item boundary.
+   */
+  onItemTerminalOutcome?: (
+    outcome: ForEachItemTerminalOutcome
   ) => Promise<void>;
   /**
    * Invoked after each fully-completed iteration with the running iteration

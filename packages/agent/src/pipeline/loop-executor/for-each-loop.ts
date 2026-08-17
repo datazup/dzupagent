@@ -6,7 +6,11 @@
  * @module pipeline/loop-executor/for-each-loop
  */
 
-import type { LoopNode, PipelineNode } from "@dzupagent/core/pipeline";
+import type {
+  LoopNode,
+  PipelineForEachItemOutcome,
+  PipelineNode,
+} from "@dzupagent/core/pipeline";
 import type {
   NodeExecutor,
   NodeExecutionContext,
@@ -343,7 +347,16 @@ export async function executeForEachLoop(
   const settleItem = async (
     held: HeldItemReservation | undefined,
     bodyResults: Readonly<Record<string, NodeResult>>
-  ): Promise<string | undefined | { outcomeUnknown: string }> => {
+  ): Promise<
+    | string
+    | undefined
+    | { outcomeUnknown: string }
+    // 24-G: a clean settle now reports what was ACTUALLY settled, so the
+    // terminal record carries the real charged amount rather than re-deriving
+    // it from the reservation. Re-deriving would silently report the reserved
+    // amount whenever an extractor returned something smaller.
+    | { settledCostCents: number }
+  > => {
     if (held === undefined) return undefined;
     // Absent an extractor, actual spend is treated as the full reservation:
     // conservative, never under-charges, and never reports a false overrun.
@@ -383,7 +396,7 @@ export async function executeForEachLoop(
     return actualCostCents > held.reservedCostCents
       ? `Loop "${loopNode.id}" item ${held.itemIndex} settled ${actualCostCents} cents, ` +
           `exceeding its ${held.reservedCostCents}-cent reservation`
-      : undefined;
+      : { settledCostCents: actualCostCents };
   };
 
   /**
@@ -418,7 +431,75 @@ export async function executeForEachLoop(
     return undefined;
   };
 
+  // 24-G: every index that reaches a terminal state, recorded here so the
+  // never-dispatched tail can be completed once the worker loop stops. Held
+  // loop-locally as well as reported, because "which indices are still absent"
+  // is only answerable against the whole set.
+  const terminalOutcomes = new Set<number>();
+
+  /**
+   * 24-G: record one item's terminal classification.
+   *
+   * Every exit of `runIteration` routes through here rather than writing a
+   * frame, because a frame is an IN-FLIGHT record that `retainInFlightItemFrames`
+   * retires at the next item boundary — which is exactly when a terminal
+   * outcome becomes the only remaining evidence about the item.
+   */
+  const recordTerminalOutcome = async (
+    index: number,
+    outcome: PipelineForEachItemOutcome,
+    held: HeldItemReservation | undefined,
+    settledCostCents?: number
+  ): Promise<void> => {
+    terminalOutcomes.add(index);
+    await resume?.onItemTerminalOutcome?.({
+      itemIndex: index,
+      outcome,
+      ...(held === undefined
+        ? {}
+        : {
+            economics: {
+              reservationId: held.reservationId,
+              reservedCostCents: held.reservedCostCents,
+              ...(settledCostCents === undefined ? {} : { settledCostCents }),
+            },
+          }),
+      ...(held !== undefined && held.attempt > 0
+        ? { attempt: held.attempt }
+        : {}),
+    });
+  };
+
   const runIteration = async (index: number): Promise<void> => {
+    // 24-G: THE READER — the first consumer of `outcome` that makes a
+    // scheduling decision.
+    //
+    // 24-G: NO READER SHIPS HERE, deliberately.
+    //
+    // The obvious next step was for a resume to skip an item whose durable
+    // outcome is already `completed`, so it never re-runs settled work. That
+    // guard was built, and then proved to be DEAD CODE — disabling it entirely
+    // killed zero tests across the whole for_each lane.
+    //
+    // The reason is structural, not a gap in coverage: `nextIndex` starts at
+    // `startIndex`, so the worker loop never dispatches an item below the
+    // ordered prefix at all. `runIteration` is only ever entered for items the
+    // prefix does not cover, and for those the durable outcome is `failed`,
+    // `cancelled`, or (out of order) `completed` — instrumented and confirmed.
+    // The existing cursor already subsumes the skip completely.
+    //
+    // The one case the cursor does NOT cover is an item that completed OUT OF
+    // ORDER, past the prefix (index 3 completing after index 2 failed). That
+    // item genuinely is re-run today. It cannot be skipped from this record
+    // alone, because `itemOutcomes` stores what HAPPENED to an item and never
+    // what it PRODUCED, while only the flushed prefix persists collected
+    // values — skipping it would mark it complete and leave a hole in the
+    // aggregate, turning `[a, b, c, d]` into `[a, b, c, undefined]`.
+    //
+    // Closing that properly needs a durable per-item OUTPUT record, which is a
+    // contract widening in its own right. Recording that here is worth more
+    // than shipping a guard that reads as protection and does nothing.
+
     const iteration = index + 1;
     const iterStart = Date.now();
     onEvent?.({
@@ -493,6 +574,16 @@ export async function executeForEachLoop(
           durationMs: Date.now() - startTime,
           error: blocked,
         };
+        // 24-G exit 0. The reservation's state could not be proven, so this is
+        // `outcome_unknown` and NOT terminal — `isTerminalItemOutcome` excludes
+        // it deliberately, because accounting must not close over an
+        // outstanding ledger row. It is still recorded: an unproven reservation
+        // is the one an operator most needs a durable pointer to, and leaving
+        // it absent would erase the only trace of the stranded row.
+        //
+        // No economics is attached: `held` is the marker object here, not a
+        // reservation, so there is no id or amount the loop can honestly claim.
+        await recordTerminalOutcome(index, "outcome_unknown", undefined);
         iterationDurations[index] = Date.now() - iterStart;
         return;
       }
@@ -509,6 +600,10 @@ export async function executeForEachLoop(
           `Loop "${loopNode.id}" item ${index} budget is unknown: ` +
           "its reservation failed and was reconciled as not outstanding",
       };
+      // 24-G exit 0b. Reconciliation proved nothing is outstanding, so unlike
+      // the branch above this IS terminal — the item never dispatched and holds
+      // no reservation.
+      await recordTerminalOutcome(index, "denied", undefined);
       iterationDurations[index] = Date.now() - iterStart;
       return;
     }
@@ -524,6 +619,10 @@ export async function executeForEachLoop(
           `Loop "${loopNode.id}" item ${index} budget is unknown: ` +
           "no authoritative conservative reservation is available",
       };
+      // 24-G exit 0b. A denied item never dispatched and opened no ledger row,
+      // so it carries no economics. Recording a zero-cent reservation here
+      // would assert a row that does not exist.
+      await recordTerminalOutcome(index, "denied", undefined);
       iterationDurations[index] = Date.now() - iterStart;
       return;
     }
@@ -625,6 +724,7 @@ export async function executeForEachLoop(
       // fact: a failed item is an expected outcome the author can handle,
       // whereas money in an unknown state is an operator-visible integrity
       // breach. Reporting the body error here would hide it.
+      let releaseUnresolved = false;
       if (releaseOutcome !== undefined) {
         const blocked = await reconcileUnknownReservation(
           index,
@@ -633,6 +733,7 @@ export async function executeForEachLoop(
           "release"
         );
         if (blocked !== undefined) {
+          releaseUnresolved = true;
           budgetBreached = true;
           firstError = {
             nodeId: loopNode.id,
@@ -642,6 +743,28 @@ export async function executeForEachLoop(
           };
         }
       }
+      // 24-G exits 1 and 2. `aborted` and `failed` are kept distinct for the
+      // same reason `denied` is: a cancelled item was stopped by a signal
+      // while a failed one ran and its body reported an error, and an operator
+      // reconciling work against spend needs to tell those apart.
+      //
+      // An unresolvable release outranks both. The item's work did stop, but
+      // its reservation's state is unproven, and reporting a clean `failed`
+      // over money in an unknown state is precisely what G2d fails closed on.
+      // This mirrors the `firstError` overwrite directly above.
+      await recordTerminalOutcome(
+        index,
+        releaseUnresolved
+          ? "outcome_unknown"
+          : context.signal?.aborted === true
+            ? "cancelled"
+            : "failed",
+        // The reservation was released rather than settled, so it carries no
+        // settled cost — a released reservation charged nothing.
+        held === undefined || typeof held === "string" || "outcomeUnknown" in held
+          ? undefined
+          : held
+      );
       iterationDurations[index] = Date.now() - iterStart;
       return;
     }
@@ -654,7 +777,14 @@ export async function executeForEachLoop(
     // is DONE and was charged, so this is not a release path — refunding could
     // return money the host already took. Only reconciliation can prove the
     // reservation's terminal state, and until it does the loop fails closed.
-    if (typeof overrun === "object" && overrun !== null) {
+    // 24-G: narrowed on the marker key rather than on `typeof === "object"`,
+    // because a clean settle now also returns an object. Matching on the shape
+    // alone would route every successful settlement into reconciliation.
+    if (
+      typeof overrun === "object" &&
+      overrun !== null &&
+      "outcomeUnknown" in overrun
+    ) {
       const blocked = await reconcileUnknownReservation(
         index,
         attempt,
@@ -685,9 +815,38 @@ export async function executeForEachLoop(
         durationMs: Date.now() - startTime,
         error: overrun,
       };
+      // 24-G: the item's body succeeded but it settled past its authored
+      // ceiling, which fails the loop closed. It is `failed` rather than
+      // `completed`: the work finished, but the item did not complete within
+      // the terms it was admitted under, and reporting `completed` would let
+      // accounting close over a breach.
+      await recordTerminalOutcome(
+        index,
+        "failed",
+        held === undefined ||
+          typeof held === "string" ||
+          "outcomeUnknown" in held
+          ? undefined
+          : held
+      );
       iterationDurations[index] = Date.now() - iterStart;
       return;
     }
+
+    // 24-G exit 3. The item completed and settled, so its economics is
+    // terminal too — this is the only exit that records a settled cost.
+    await recordTerminalOutcome(
+      index,
+      "completed",
+      held === undefined || typeof held === "string" || "outcomeUnknown" in held
+        ? undefined
+        : held,
+      typeof overrun === "object" &&
+        overrun !== null &&
+        "settledCostCents" in overrun
+        ? overrun.settledCostCents
+        : undefined
+    );
 
     results[index] = lastBodyResult;
     if (contract.collect !== undefined) {
@@ -747,6 +906,30 @@ export async function executeForEachLoop(
   await Promise.all(workers);
   await flushQueue;
   await flushCompletedPrefix();
+
+  // 24-G (doc 27 §8 proof 8): complete the terminal set.
+  //
+  // The worker loop stops on `failFast`/`budgetBreached`/`aborted`, leaving
+  // every index at or beyond `nextIndex` never visited — no frame, no outcome,
+  // `iterationDurations` left undefined. Those items were ABSENT rather than
+  // terminal, which is why "every index in 0..n-1 has a terminal outcome" was
+  // not assertable at all: absence is indistinguishable from a producer that
+  // simply failed to write.
+  //
+  // `cancelled` is the vocabulary for "terminal for this run, but it never
+  // ran". These items took no reservation, so they carry no economics —
+  // recording one would assert a ledger row that was never opened.
+  //
+  // Ordered by index so the durable record reads in source order regardless of
+  // the order items were abandoned in.
+  for (let index = 0; index < items.length; index++) {
+    if (terminalOutcomes.has(index)) continue;
+    // Items behind the resumed start index were settled by an earlier run,
+    // which already recorded their outcomes. Re-recording them here would
+    // overwrite a `completed` with a `cancelled` on every resume.
+    if (index < startIndex) continue;
+    await recordTerminalOutcome(index, "cancelled", undefined);
+  }
 
   const completedIterations = iterationDurations.filter(
     (duration): duration is number => duration !== undefined

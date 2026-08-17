@@ -56,10 +56,19 @@ export function createPipelineCheckpoint(options: {
     pipelineRunId: options.pipelineRunId,
     pipelineId: options.pipelineId,
     version: options.version,
+    // 24-G: a checkpoint carrying the `for_each` per-item terminal set declares
+    // `1.1.0` for the same reason interaction state does — the fields are
+    // load-bearing for accounting and for the resume reader, so a `1.0.0`
+    // reader would silently re-dispatch a terminally-settled item. The
+    // validator enforces the same rule at the parse boundary; this is the
+    // writer half, so the two cannot disagree.
     schemaVersion:
       options.pendingInteraction !== undefined ||
       options.interactionResumeCursor !== undefined ||
-      Object.keys(options.interactionReceipts ?? {}).length > 0
+      Object.keys(options.interactionReceipts ?? {}).length > 0 ||
+      Object.values(options.loopState ?? {}).some(
+        (cursor) => cursor.itemOutcomes !== undefined
+      )
         ? "1.1.0"
         : "1.0.0",
     sourceBinding: options.sourceBinding

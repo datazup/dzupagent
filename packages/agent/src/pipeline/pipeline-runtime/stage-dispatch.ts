@@ -443,6 +443,55 @@ export async function dispatchLoopStage(
               : { economics: progress.economics }),
           },
         },
+        // 24-G: this callback REBUILDS the loop-state entry, so the terminal
+        // set has to be carried across explicitly. Omitting it would silently
+        // erase every recorded outcome at the next mid-body checkpoint — the
+        // same class of bug G1 fixed for `itemFrames`.
+        ...(previousBoundary?.itemOutcomes === undefined
+          ? {}
+          : { itemOutcomes: previousBoundary.itemOutcomes }),
+        ...(previousBoundary?.previousOutput !== undefined
+          ? { previousOutput: previousBoundary.previousOutput }
+          : {}),
+        ...(previousBoundary?.progressDigest !== undefined
+          ? { progressDigest: previousBoundary.progressDigest }
+          : {}),
+      };
+      await ctx.saveCheckpoint(frame);
+    },
+    /**
+     * 24-G: persist one item's terminal outcome.
+     *
+     * Written to `itemOutcomes`, NOT to `itemFrames`, because the two have
+     * opposite lifetimes: `retainInFlightItemFrames` retires a frame the moment
+     * the ordered prefix passes its item, which is precisely when the terminal
+     * outcome becomes the only remaining evidence about that item. Routing
+     * these through the frame collection would have them erased by the very
+     * next item boundary.
+     */
+    onItemTerminalOutcome: async (outcome) => {
+      const previousBoundary = frame.loopState[loopNode.id];
+      const liveItemFrames = readItemFrames(previousBoundary);
+      frame.loopState[loopNode.id] = {
+        // A terminal outcome is not an item-boundary advance — the ordered
+        // prefix is owned by `onIterationComplete` alone. Recording an outcome
+        // must never move the cursor, or a failed item would be reported as
+        // durably completed.
+        iteration: previousBoundary?.iteration ?? 0,
+        ...(liveItemFrames === undefined ? {} : { itemFrames: liveItemFrames }),
+        itemOutcomes: {
+          ...(previousBoundary?.itemOutcomes ?? {}),
+          [String(outcome.itemIndex)]: {
+            itemIndex: outcome.itemIndex,
+            outcome: outcome.outcome,
+            ...(outcome.economics === undefined
+              ? {}
+              : { economics: outcome.economics }),
+            ...(outcome.attempt === undefined
+              ? {}
+              : { attempt: outcome.attempt }),
+          },
+        },
         ...(previousBoundary?.previousOutput !== undefined
           ? { previousOutput: previousBoundary.previousOutput }
           : {}),
@@ -475,6 +524,16 @@ export async function dispatchLoopStage(
         ...(retainedItemFrames === undefined
           ? {}
           : { itemFrames: retainedItemFrames }),
+        // 24-G: the terminal set survives prefix retirement, unlike the frames
+        // retired directly above. That asymmetry IS the design: a frame answers
+        // "where do I resume this item?" and is meaningless once the prefix
+        // covers it, whereas "what happened to this item, and what did it
+        // cost?" is asked mostly about items already behind the prefix.
+        // Carrying it through here is what makes the terminal set outlive the
+        // very mechanism that made it unrecordable before this packet.
+        ...(previousLoopState?.itemOutcomes === undefined
+          ? {}
+          : { itemOutcomes: previousLoopState.itemOutcomes }),
         ...(progress?.previousOutput !== undefined
           ? { previousOutput: progress.previousOutput }
           : {}),
@@ -635,7 +694,24 @@ export async function dispatchLoopStage(
     };
   }
   // Loop finished — clear its cursor so resume does not treat it as mid-flight.
-  delete frame.loopState[loopNode.id];
+  //
+  // 24-G: the RESUME cursor is what must go; the terminal set must not. This is
+  // the same lifetime conflict as `retainInFlightItemFrames`, one level up:
+  // deleting the whole entry here would erase every per-item outcome at exactly
+  // the moment the loop succeeds, so a fully-successful run — the case where
+  // every item settled and the accounting is most complete — would be the one
+  // run that recorded nothing. `iteration` is reset to 0 alongside it because a
+  // finished loop has no cursor to resume from, and leaving the count would
+  // read as mid-flight progress.
+  const finishedOutcomes = frame.loopState[loopNode.id]?.itemOutcomes;
+  if (finishedOutcomes === undefined) {
+    delete frame.loopState[loopNode.id];
+  } else {
+    frame.loopState[loopNode.id] = {
+      iteration: 0,
+      itemOutcomes: finishedOutcomes,
+    };
+  }
   nodeResults.set(loopNode.id, loopResult);
   completedNodeIds.push(loopNode.id);
   ctx.recordIdempotencyKey(nodeIdempotencyKeys, runId, loopNode);
