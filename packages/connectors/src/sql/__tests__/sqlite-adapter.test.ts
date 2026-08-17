@@ -13,7 +13,11 @@ const mockGet = vi.fn()
 const mockPragma = vi.fn()
 const mockClose = vi.fn()
 
-const mockPrepare = vi.fn(() => ({
+// `prepare` receives the SQL string — sqlite.ts:133 and every other call site
+// pass exactly one argument. Declaring the parameter is not cosmetic: with
+// `vi.fn(() => ...)` each recorded call is the empty tuple `[]`, so `call[0]` is
+// a type error and the assertions below had to launder it through `as string`.
+const mockPrepare = vi.fn((_sql: string) => ({
   all: mockAll,
   get: mockGet,
 }))
@@ -31,11 +35,15 @@ const mockRuntimeRequire = vi.fn((specifier: string) => {
   throw Object.assign(new Error(`Cannot find module '${specifier}'`), { code: 'MODULE_NOT_FOUND' })
 }) as unknown as NodeRequire
 
-// Also mock resolve for assertSqliteDriverInstalled
-mockRuntimeRequire.resolve = vi.fn((specifier: string) => {
+// Also mock resolve for assertSqliteDriverInstalled. The mock keeps its own
+// binding instead of being reached back through `mockRuntimeRequire.resolve`:
+// that property is typed `RequireResolve`, so a test wanting the mock controls
+// could only get at them by asserting between two non-overlapping types.
+const mockRequireResolve = vi.fn((specifier: string) => {
   if (specifier === 'better-sqlite3') return '/fake/path/better-sqlite3'
   throw Object.assign(new Error(`Cannot find module '${specifier}'`), { code: 'MODULE_NOT_FOUND' })
-}) as unknown as NodeRequire['resolve']
+})
+mockRuntimeRequire.resolve = mockRequireResolve as unknown as NodeRequire['resolve']
 
 vi.mock('node:module', () => ({
   createRequire: vi.fn(() => mockRuntimeRequire),
@@ -84,8 +92,8 @@ describe('SQLiteConnector', () => {
     })
 
     it('throws when better-sqlite3 is not installed', () => {
-      const savedResolve = (mockRuntimeRequire.resolve as ReturnType<typeof vi.fn>).getMockImplementation()
-      ;(mockRuntimeRequire.resolve as ReturnType<typeof vi.fn>).mockImplementation((spec: string) => {
+      const savedResolve = mockRequireResolve.getMockImplementation()
+      mockRequireResolve.mockImplementation((spec: string) => {
         throw Object.assign(new Error(`Cannot find module '${spec}'`), { code: 'MODULE_NOT_FOUND' })
       })
 
@@ -93,7 +101,7 @@ describe('SQLiteConnector', () => {
         'SQLiteConnector requires the optional dependency "better-sqlite3"',
       )
 
-      ;(mockRuntimeRequire.resolve as ReturnType<typeof vi.fn>).mockImplementation(savedResolve!)
+      mockRequireResolve.mockImplementation(savedResolve!)
     })
   })
 
@@ -197,7 +205,7 @@ describe('SQLiteConnector', () => {
       await connector.executeQuery('SELECT * FROM t LIMIT 5')
 
       const calledSql = mockPrepare.mock.calls.find(
-        (call) => typeof call[0] === 'string' && (call[0] as string).includes('SELECT'),
+        (call) => call[0].includes('SELECT'),
       )
       expect(calledSql?.[0]).toBe('SELECT * FROM t LIMIT 5')
     })
@@ -209,7 +217,7 @@ describe('SQLiteConnector', () => {
       await connector.executeQuery('SELECT * FROM t', { maxRows: 10 })
 
       const calledSql = mockPrepare.mock.calls.find(
-        (call) => typeof call[0] === 'string' && (call[0] as string).includes('SELECT'),
+        (call) => call[0].includes('SELECT'),
       )
       expect(calledSql?.[0]).toContain('LIMIT 11')
     })
@@ -221,7 +229,7 @@ describe('SQLiteConnector', () => {
       await connector.executeQuery('SELECT * FROM t;', { maxRows: 10 })
 
       const calledSql = mockPrepare.mock.calls.find(
-        (call) => typeof call[0] === 'string' && (call[0] as string).includes('SELECT'),
+        (call) => call[0].includes('SELECT'),
       )
       expect(calledSql?.[0]).not.toContain(';')
       expect(calledSql?.[0]).toContain('LIMIT 11')
@@ -451,7 +459,7 @@ describe('SQLiteConnector', () => {
 
       // Verify that a DISTINCT sample query was prepared with LIMIT
       const samplePrepareCall = mockPrepare.mock.calls.find(
-        (call) => typeof call[0] === 'string' && (call[0] as string).includes('DISTINCT'),
+        (call) => call[0].includes('DISTINCT'),
       )
       expect(samplePrepareCall).toBeDefined()
       expect(samplePrepareCall![0]).toContain('LIMIT')

@@ -22,7 +22,13 @@ import { BigQueryConnector } from "../sql/adapters/bigquery.js";
 import { SQLiteConnector } from "../sql/adapters/sqlite.js";
 import { SQLServerConnector } from "../sql/adapters/sqlserver.js";
 import { DuckDBConnector } from "../sql/adapters/duckdb.js";
-import type { SQLConnectionConfig } from "../sql/types.js";
+import type {
+  ColumnInfo,
+  ForeignKey,
+  SchemaDiscoveryOptions,
+  SQLConnectionConfig,
+  TableSchema,
+} from "../sql/types.js";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -47,6 +53,28 @@ type Priv = Record<string, unknown> & {
   wrapWithLimit(sql: string, n: number): string;
   getDialect(): string;
   getDefaultSchema(): string;
+  // The five protected introspection hooks, mirrored from the signatures every
+  // adapter implements (base-sql-connector.ts:62-66). Reaching them through the
+  // index signature instead typed each one `unknown`, so all 25 call sites below
+  // failed to compile and their results had to be re-declared inline with
+  // `as Array<{ ... }>` — which also meant those assertions were checked against
+  // a shape the test invented rather than the contract the adapters return.
+  discoverTables(
+    schemaName: string,
+    options?: SchemaDiscoveryOptions
+  ): Promise<TableSchema[]>;
+  discoverColumns(tableName: string, schemaName: string): Promise<ColumnInfo[]>;
+  discoverForeignKeys(
+    tableName: string,
+    schemaName: string
+  ): Promise<ForeignKey[]>;
+  discoverRowCount(tableName: string, schemaName: string): Promise<number>;
+  discoverSampleValues(
+    tableName: string,
+    schemaName: string,
+    columnName: string,
+    limit: number
+  ): Promise<unknown[]>;
 };
 
 const priv = (c: unknown): Priv => c as unknown as Priv;
@@ -177,7 +205,7 @@ describe("PostgreSQLConnector", () => {
     expect(flat(call.text)).toContain("FROM information_schema.tables");
     expect(call.text).toContain("$1");
     expect(call.values).toEqual(["public"]);
-    expect((tables as Array<{ tableName: string }>)[0]!.tableName).toBe(
+    expect(tables[0]!.tableName).toBe(
       "orders"
     );
   });
@@ -199,7 +227,7 @@ describe("PostgreSQLConnector", () => {
     expect(call.text).toContain("$1");
     expect(call.text).toContain("$2");
     expect(call.values).toEqual(["public", "orders"]);
-    expect((cols as Array<{ isPrimaryKey: boolean }>)[0]!.isPrimaryKey).toBe(
+    expect(cols[0]!.isPrimaryKey).toBe(
       true
     );
   });
@@ -370,7 +398,7 @@ describe("MySQLConnector", () => {
     )!;
     expect(dataCall.sql).toContain("?");
     expect(dataCall.params).toEqual(["shop"]);
-    expect((tables as Array<{ tableName: string }>)[0]!.tableName).toBe(
+    expect(tables[0]!.tableName).toBe(
       "orders"
     );
   });
@@ -393,7 +421,7 @@ describe("MySQLConnector", () => {
     )!;
     expect((dataCall.sql.match(/\?/g) ?? []).length).toBe(2);
     expect(dataCall.params).toEqual(["shop", "orders"]);
-    expect((cols as Array<{ isPrimaryKey: boolean }>)[0]!.isPrimaryKey).toBe(
+    expect(cols[0]!.isPrimaryKey).toBe(
       true
     );
   });
@@ -544,9 +572,7 @@ describe("SQLServerConnector", () => {
     const c = makeMs();
     (c as unknown as { pool: unknown }).pool = { request: () => request };
     // loadMSSQLModule is called for the VarChar type — provide it through the cached promise.
-    const cols = (await priv(c).discoverColumns("Orders", "dbo")) as Array<{
-      dataType: string;
-    }>;
+    const cols = await priv(c).discoverColumns("Orders", "dbo");
     expect(capturedSql).toContain("@schemaName");
     expect(capturedSql).toContain("@tableName");
     expect(inputs.map((i) => i.name)).toContain("schemaName");
@@ -666,7 +692,7 @@ describe("SnowflakeConnector", () => {
     const tables = await priv(c).discoverTables("PUBLIC");
     expect(flat(sqls.at(-1)!)).toContain("FROM INFORMATION_SCHEMA.TABLES");
     expect(sqls.at(-1)!).toContain("?");
-    expect((tables as Array<{ tableName: string }>)[0]!.tableName).toBe("O");
+    expect(tables[0]!.tableName).toBe("O");
   });
 
   it("discoverColumns maps DATA_TYPE through the normalizer", async () => {
@@ -681,10 +707,7 @@ describe("SnowflakeConnector", () => {
         COMMENT: null,
       },
     ]);
-    const cols = (await priv(c).discoverColumns("O", "PUBLIC")) as Array<{
-      dataType: string;
-      isNullable: boolean;
-    }>;
+    const cols = await priv(c).discoverColumns("O", "PUBLIC");
     expect(cols[0]!.dataType).toBe("VARIANT");
     expect(cols[0]!.isNullable).toBe(true);
   });
@@ -851,10 +874,7 @@ describe("BigQueryConnector", () => {
         description: null,
       },
     ]);
-    const cols = (await priv(c).discoverColumns("events", "ds")) as Array<{
-      columnName: string;
-      dataType: string;
-    }>;
+    const cols = await priv(c).discoverColumns("events", "ds");
     expect(cols).toHaveLength(2);
     expect(cols[0]!.dataType).toBe("ARRAY<STRING>");
     expect(cols[1]!.dataType).toBe("STRUCT<city STRING>");
@@ -976,7 +996,7 @@ describe("ClickHouseConnector", () => {
       "engine NOT IN ('View', 'MaterializedView', 'LiveView')"
     );
     expect(call.query_params).toEqual({ schemaName: "default" });
-    expect((tables as Array<{ tableName: string }>)[0]!.tableName).toBe(
+    expect(tables[0]!.tableName).toBe(
       "events"
     );
   });
@@ -1000,10 +1020,7 @@ describe("ClickHouseConnector", () => {
         is_in_primary_key: 0,
       },
     ]);
-    const cols = (await priv(c).discoverColumns("events", "default")) as Array<{
-      isPrimaryKey: boolean;
-      isNullable: boolean;
-    }>;
+    const cols = await priv(c).discoverColumns("events", "default");
     expect(cols[0]!.isPrimaryKey).toBe(true);
     expect(cols[0]!.isNullable).toBe(false);
     expect(cols[1]!.isNullable).toBe(true);
@@ -1083,7 +1100,7 @@ describe("DuckDBConnector", () => {
     const tables = await priv(c).discoverTables("ma'in");
     expect(flat(sqls.at(-1)!)).toContain("FROM information_schema.tables");
     expect(sqls.at(-1)!).toContain("table_schema = 'ma''in'");
-    expect((tables as Array<{ tableName: string }>)[0]!.tableName).toBe(
+    expect(tables[0]!.tableName).toBe(
       "events"
     );
   });
@@ -1112,11 +1129,7 @@ describe("DuckDBConnector", () => {
           },
         ];
       });
-    const cols = (await priv(c).discoverColumns("events", "main")) as Array<{
-      columnName: string;
-      isPrimaryKey: boolean;
-      dataType: string;
-    }>;
+    const cols = await priv(c).discoverColumns("events", "main");
     expect(cols.find((x) => x.columnName === "id")!.isPrimaryKey).toBe(true);
     expect(cols.find((x) => x.columnName === "name")!.isPrimaryKey).toBe(false);
     expect(cols[0]!.dataType).toBe("integer");
@@ -1186,7 +1199,7 @@ describe("SQLiteConnector", () => {
     const tables = await priv(c).discoverTables("main");
     expect(flat(prepared.at(-1)!)).toContain("FROM sqlite_master");
     expect(prepared.at(-1)!).toContain("name NOT LIKE 'sqlite_%'");
-    expect((tables as Array<{ tableName: string }>)[0]!.tableName).toBe(
+    expect(tables[0]!.tableName).toBe(
       "users"
     );
   });
@@ -1203,12 +1216,7 @@ describe("SQLiteConnector", () => {
       },
       { cid: 1, name: "email", type: "", notnull: 0, dflt_value: null, pk: 0 },
     ]);
-    const cols = (await priv(c).discoverColumns("users", "main")) as Array<{
-      columnName: string;
-      isPrimaryKey: boolean;
-      isNullable: boolean;
-      dataType: string;
-    }>;
+    const cols = await priv(c).discoverColumns("users", "main");
     expect(prepared.at(-1)!).toContain('PRAGMA table_info("users")');
     expect(cols[0]!.isPrimaryKey).toBe(true);
     expect(cols[0]!.isNullable).toBe(false);
@@ -1220,10 +1228,7 @@ describe("SQLiteConnector", () => {
     const { c, prepared } = makeLite([
       { id: 0, seq: 0, table: "orgs", from: "org_id", to: "id" },
     ]);
-    const fks = (await priv(c).discoverForeignKeys("users", "main")) as Array<{
-      constraintName: string;
-      referencedTable: string;
-    }>;
+    const fks = await priv(c).discoverForeignKeys("users", "main");
     expect(prepared.at(-1)!).toContain('PRAGMA foreign_key_list("users")');
     expect(fks[0]!.referencedTable).toBe("orgs");
     expect(fks[0]!.constraintName).toContain("fk_users_org_id");

@@ -17,7 +17,10 @@ import type {
   StreamContext,
 } from "../base/stream-runner.js";
 import type { AgentEvent, AgentInput } from "../types.js";
-import type { ToolCallAuditRecord } from "@dzupagent/core/events";
+import type {
+  ToolCallAuditRecord,
+  ToolCallAuditSink,
+} from "@dzupagent/core/events";
 
 // --------------------------------------------------------------------------
 // Helpers
@@ -122,7 +125,7 @@ function completed(): AgentEvent {
 
 describe("AdapterStreamRunner — tool-call audit (M-12)", () => {
   it("emits two ToolCallAuditRecords for two sequential tool calls", async () => {
-    const sink = vi.fn<[ToolCallAuditRecord], void>();
+    const sink = vi.fn<ToolCallAuditSink>();
     const runner = new AdapterStreamRunner({ toolCallAuditSink: sink });
 
     const source = makeEventSource([
@@ -155,7 +158,7 @@ describe("AdapterStreamRunner — tool-call audit (M-12)", () => {
   });
 
   it("emits resultStatus:error for a tool call whose stream throws before result", async () => {
-    const sink = vi.fn<[ToolCallAuditRecord], void>();
+    const sink = vi.fn<ToolCallAuditSink>();
     const runner = new AdapterStreamRunner({ toolCallAuditSink: sink });
 
     // Source emits a tool_call then throws — no tool_result is ever emitted
@@ -191,7 +194,7 @@ describe("AdapterStreamRunner — tool-call audit (M-12)", () => {
   });
 
   it("audits resultStatus:error for a non-throwing tool_result carrying an error marker (AGENT-L-17)", async () => {
-    const sink = vi.fn<[ToolCallAuditRecord], void>();
+    const sink = vi.fn<ToolCallAuditSink>();
     const runner = new AdapterStreamRunner({ toolCallAuditSink: sink });
 
     const source = makeEventSource([
@@ -254,7 +257,7 @@ describe("AdapterStreamRunner — tool-call audit (M-12)", () => {
   });
 
   it("populates argsHash and toolCallId on the audit record", async () => {
-    const sink = vi.fn<[ToolCallAuditRecord], void>();
+    const sink = vi.fn<ToolCallAuditSink>();
     const runner = new AdapterStreamRunner({ toolCallAuditSink: sink });
 
     const source = makeEventSource([
@@ -274,7 +277,7 @@ describe("AdapterStreamRunner — tool-call audit (M-12)", () => {
   });
 
   it("argsHash reflects tool INPUT args, not the tool output (M-12)", async () => {
-    const sink = vi.fn<[ToolCallAuditRecord], void>();
+    const sink = vi.fn<ToolCallAuditSink>();
     const runner = new AdapterStreamRunner({ toolCallAuditSink: sink });
 
     // Use clearly distinct input and output so we can assert which one was hashed.
