@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-08-16
+Date: 2026-08-17
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -187,7 +187,7 @@ Root index: `packages/core/src/index.ts`
 | `deprecated-transitional` | `./protocol/index.js` | 62 | `prefix:./protocol/` | `ForgeMessageUriSchema`, `ForgeMessageMetadataSchema`, `ForgePayloadSchema`, `ForgeMessageSchema` |
 | `deprecated-transitional` | `./registry/index.js` | 31 | `prefix:./registry/` | `InMemoryRegistry`, `CapabilityMatcher`, `compareSemver`, `STANDARD_CAPABILITIES` |
 | `deprecated-transitional` | `./flow/index.js` | 10 | `prefix:./flow/` | `SkillHandle`, `McpToolHandle`, `WorkflowHandle`, `ResolvedAgentHandle` |
-| `deprecated-transitional` | `./pipeline/index.js` | 53 | `prefix:./pipeline/` | `NodeRetryPolicy`, `PipelineNodeSource`, `PipelineNodeBase`, `AgentNode` |
+| `deprecated-transitional` | `./pipeline/index.js` | 59 | `prefix:./pipeline/` | `NodeRetryPolicy`, `PipelineNodeSource`, `PipelineNodeBase`, `AgentNode` |
 | `deprecated-transitional` | `./formats/index.js` | 62 | `prefix:./formats/` | `// Agent Card V2
   AgentCardV2Schema`, `validateAgentCard`, `// Tool Format Adapters
   zodToJsonSchema`, `jsonSchemaToZod` |
@@ -309,7 +309,7 @@ Root index: `packages/agent/src/index.ts`
 | `deprecated-transitional` | `./pipeline/pipeline-runtime.js` | 1 | `prefix:./pipeline/` | `PipelineRuntime` |
 | `deprecated-transitional` | `./pipeline/pipeline-interaction-runtime.js` | 2 | `prefix:./pipeline/` | `PipelineInteractionRuntimeError`, `PipelineInteractionRuntimeErrorCode` |
 | `deprecated-transitional` | `./pipeline/runtime-tool-handlers.js` | 5 | `prefix:./pipeline/` | `RUNTIME_TOOL_PREFIX`, `createRuntimeToolNodeExecutor`, `isRuntimeToolNode`, `RuntimeToolHandler` |
-| `deprecated-transitional` | `./pipeline/loop-executor.js` | 4 | `prefix:./pipeline/` | `executeLoop`, `stateFieldTruthy`, `qualityBelow`, `hasErrors` |
+| `deprecated-transitional` | `./pipeline/loop-executor.js` | 13 | `prefix:./pipeline/` | `executeLoop`, `stateFieldTruthy`, `qualityBelow`, `hasErrors` |
 | `deprecated-transitional` | `./pipeline/pipeline-runtime-types.js` | 12 | `prefix:./pipeline/` | `PipelineState`, `NodeResult`, `PipelineRunResult`, `NodeExecutor` |
 | `deprecated-transitional` | `./pipeline/step-type-registry.js` | 4 | `prefix:./pipeline/` | `StepTypeRegistry`, `defaultStepTypeRegistry`, `StepContext`, `StepTypeDescriptor` |
 | `deprecated-transitional` | `./pipeline/retry-policy.js` | 4 | `prefix:./pipeline/` | `DEFAULT_RETRY_POLICY`, `calculateBackoff`, `isRetryable`, `resolveRetryPolicy` |
