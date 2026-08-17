@@ -59,7 +59,7 @@ const definitionDigest = digestPipelineDefinition(definition);
 
 function pendingForOccurrence(
   scope: PipelineInteractionScopeV1,
-  occurrence: number,
+  occurrence: number
 ): PipelinePendingInteractionV1 {
   return createPipelinePendingInteractionV1({
     kind: "approval",
@@ -80,13 +80,15 @@ const pending = pendingForOccurrence({ kind: "pipeline" }, 0);
 const noncanonicalOccurrences: readonly [
   name: string,
   scope: PipelineInteractionScopeV1,
-  occurrence: number,
+  occurrence: number
 ][] = [
   ["pipeline", { kind: "pipeline" }, 1],
   ["loop", { kind: "loop", loopNodeId: "loop", iteration: 2 }, 3],
 ];
 
-function checkpoint(overrides: Partial<PipelineCheckpoint> = {}): PipelineCheckpoint {
+function checkpoint(
+  overrides: Partial<PipelineCheckpoint> = {}
+): PipelineCheckpoint {
   return {
     pipelineRunId: "run",
     pipelineId: "pipeline",
@@ -100,7 +102,7 @@ function checkpoint(overrides: Partial<PipelineCheckpoint> = {}): PipelineCheckp
 }
 
 function retainedScopeState(
-  scope: PipelineInteractionScopeV1,
+  scope: PipelineInteractionScopeV1
 ): Partial<PipelineCheckpoint> {
   if (scope.kind === "pipeline") return {};
   return {
@@ -121,7 +123,9 @@ function retainedScopeState(
 
 describe("pipeline interaction artifact and checkpoint schemas", () => {
   it("round-trips an approval interaction specification on a pipeline node", () => {
-    expect(deserializePipeline(serializePipeline(definition))).toEqual(definition);
+    expect(deserializePipeline(serializePipeline(definition))).toEqual(
+      definition
+    );
   });
 
   it("rejects interaction artifacts on schema 1.0 and routing drift", () => {
@@ -129,7 +133,7 @@ describe("pipeline interaction artifact and checkpoint schemas", () => {
       serializePipeline.bind(undefined, {
         ...definition,
         schemaVersion: "1.0.0",
-      }),
+      })
     ).toThrow(/interaction specifications require schemaVersion 1\.1\.0/);
     expect(
       serializePipeline.bind(undefined, {
@@ -142,7 +146,7 @@ describe("pipeline interaction artifact and checkpoint schemas", () => {
             branches: { approved: "no", rejected: "yes" },
           },
         ],
-      }),
+      })
     ).toThrow(/outcome mapping must agree/);
   });
 
@@ -151,22 +155,30 @@ describe("pipeline interaction artifact and checkpoint schemas", () => {
       serializePipeline({
         ...definition,
         edges: [...definition.edges, ...definition.edges],
-      }),
+      })
     ).toThrow(/exactly one conditional graph edge/);
     expect(() =>
       serializePipeline({
         ...definition,
-        edges: [{
-          ...definition.edges[0]!,
-          type: "conditional",
-          branches: {
-            approved: "yes",
-            rejected: "no",
-            true: "yes",
-            false: "no",
-          },
-        }],
-      }),
+        // Deliberately invalid: spreading edge[0] (a UNION member that may
+        // carry `targetNodeId`) and forcing `type: "conditional"` produces a
+        // shape no `PipelineEdge` member admits. That is the point — the
+        // assertion is that `serializePipeline` REJECTS the extra branch keys
+        // — so the cast declares the invalidity instead of the compiler
+        // reporting it as an accident.
+        edges: [
+          {
+            ...definition.edges[0]!,
+            type: "conditional",
+            branches: {
+              approved: "yes",
+              rejected: "no",
+              true: "yes",
+              false: "no",
+            },
+          } as unknown as (typeof definition.edges)[number],
+        ],
+      })
     ).toThrow(/exact approved\/rejected keys/);
   });
 
@@ -175,15 +187,15 @@ describe("pipeline interaction artifact and checkpoint schemas", () => {
       PipelineCheckpointSchema.safeParse({
         ...checkpoint(),
         arbitraryStateMerge: true,
-      }).success,
+      }).success
     ).toBe(false);
     expect(() =>
       serializePipeline({
         ...definition,
         nodes: definition.nodes.map((node) =>
-          node.id === "gate" ? { ...node, arbitraryDecision: true } : node,
+          node.id === "gate" ? { ...node, arbitraryDecision: true } : node
         ) as PipelineDefinition["nodes"],
-      }),
+      })
     ).toThrow(/Unrecognized key/);
   });
 
@@ -192,11 +204,11 @@ describe("pipeline interaction artifact and checkpoint schemas", () => {
       checkpoint({
         suspendedAtNodeId: "gate",
         pendingInteraction: pending,
-      }),
+      })
     );
     expect(result.success).toBe(true);
     expect(result.data).toEqual(
-      expect.objectContaining({ pendingInteraction: pending }),
+      expect.objectContaining({ pendingInteraction: pending })
     );
   });
 
@@ -208,7 +220,7 @@ describe("pipeline interaction artifact and checkpoint schemas", () => {
     const result = PipelineCheckpointSchema.safeParse(
       checkpoint({
         pendingInteraction: { ...pending, ...mutation },
-      }),
+      })
     );
     expect(result.success).toBe(false);
   });
@@ -223,10 +235,10 @@ describe("pipeline interaction artifact and checkpoint schemas", () => {
           checkpoint({
             ...retainedScopeState(scope),
             pendingInteraction: forgedPending,
-          }),
-        ).success,
+          })
+        ).success
       ).toBe(false);
-    },
+    }
   );
 
   it("accepts a committed receipt and exact post-consumption cursor", () => {
@@ -259,8 +271,8 @@ describe("pipeline interaction artifact and checkpoint schemas", () => {
             selectedSuccessorNodeId: "yes",
             nextNodeId: "yes",
           },
-        }),
-      ).success,
+        })
+      ).success
     ).toBe(true);
   });
 
@@ -290,10 +302,10 @@ describe("pipeline interaction artifact and checkpoint schemas", () => {
               selectedSuccessorNodeId: "yes",
               nextNodeId: scope.kind === "pipeline" ? "yes" : scope.loopNodeId,
             },
-          }),
-        ).success,
+          })
+        ).success
       ).toBe(false);
-    },
+    }
   );
 
   it("rejects a cursor without its immutable receipt", () => {
@@ -302,15 +314,16 @@ describe("pipeline interaction artifact and checkpoint schemas", () => {
         checkpoint({
           interactionResumeCursor: {
             interactionId: pending.interactionId,
-            receiptHash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            receiptHash:
+              "sha256:0000000000000000000000000000000000000000000000000000000000000000",
             definitionDigest,
             nodeId: "gate",
             scope: { kind: "pipeline" },
             selectedSuccessorNodeId: "yes",
             nextNodeId: "yes",
           },
-        }),
-      ).success,
+        })
+      ).success
     ).toBe(false);
   });
 
@@ -343,8 +356,8 @@ describe("pipeline interaction artifact and checkpoint schemas", () => {
             selectedSuccessorNodeId: "yes",
             nextNodeId: "yes",
           },
-        }),
-      ).success,
+        })
+      ).success
     ).toBe(false);
   });
 });

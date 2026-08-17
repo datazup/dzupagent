@@ -14,12 +14,8 @@ import type {
   PipelineValidationResult,
 } from "../pipeline-definition.js";
 import type { PipelineCheckpoint } from "../pipeline-checkpoint-store.js";
-import type {
-  PipelineLoopBodyGraphCheckpointState as NestedPipelineLoopBodyGraphCheckpointState,
-} from "../index.js";
-import type {
-  PipelineLoopBodyGraphCheckpointState as PublicPipelineLoopBodyGraphCheckpointState,
-} from "../../pipeline.js";
+import type { PipelineLoopBodyGraphCheckpointState as NestedPipelineLoopBodyGraphCheckpointState } from "../index.js";
+import type { PipelineLoopBodyGraphCheckpointState as PublicPipelineLoopBodyGraphCheckpointState } from "../../pipeline.js";
 import {
   PipelineDefinitionSchema,
   LoopNodeSchema,
@@ -80,7 +76,9 @@ function makeSequentialForEachPipeline(): PipelineDefinition {
 // 24-I: the invalid vehicle moved from 2 (now admitted) to 0. Renamed so the
 // helper says what it actually builds rather than "concurrent".
 function invalidConcurrencyForEachPipeline(): PipelineDefinition {
-  const definition = structuredClone(makeSequentialForEachPipeline()) as unknown as {
+  const definition = structuredClone(
+    makeSequentialForEachPipeline()
+  ) as unknown as {
     nodes: Array<{ forEach?: { concurrency: number } }>;
   };
   definition.nodes[0]!.forEach!.concurrency = 0;
@@ -89,7 +87,9 @@ function invalidConcurrencyForEachPipeline(): PipelineDefinition {
 
 /** A for_each artifact at an admitted concurrency greater than one. */
 function concurrentForEachPipeline(concurrency: number): PipelineDefinition {
-  const definition = structuredClone(makeSequentialForEachPipeline()) as unknown as {
+  const definition = structuredClone(
+    makeSequentialForEachPipeline()
+  ) as unknown as {
     nodes: Array<{ forEach?: { concurrency: number } }>;
   };
   definition.nodes[0]!.forEach!.concurrency = concurrency;
@@ -440,8 +440,19 @@ describe("PipelineDefinition", () => {
 // ---------------------------------------------------------------------------
 
 describe("PipelineCheckpoint", () => {
+  /**
+   * `overrides` is deliberately wider than `Partial<PipelineCheckpoint>`.
+   * Several tests below feed MALFORMED values — a non-sha256 digest, an unknown
+   * `sourceDigest` key, an item frame missing `nextBodyNodeIndex` — because
+   * what they assert is that `PipelineCheckpointSchema` REJECTS them. Typing
+   * the parameter strictly made those probes type errors, i.e. the compiler
+   * objecting to the invalidity that is the test's subject.
+   *
+   * The RETURN type stays `PipelineCheckpoint`, so the valid callers are
+   * unchanged and a typo in the envelope below is still caught.
+   */
   function makeCheckpoint(
-    overrides: Partial<PipelineCheckpoint> = {}
+    overrides: Partial<Record<keyof PipelineCheckpoint, unknown>> = {}
   ): PipelineCheckpoint {
     return {
       pipelineRunId: "run-1",
@@ -451,12 +462,28 @@ describe("PipelineCheckpoint", () => {
       completedNodeIds: ["n1", "n2"],
       state: { lastOutput: "hello" },
       createdAt: "2026-03-25T10:00:00.000Z",
+      // Cast, not `satisfies`: the spread of intentionally-invalid overrides is
+      // what several callers below need, so the widened values are re-asserted
+      // to the declared return type here — at ONE place — rather than at each
+      // malformed call site.
       ...overrides,
-    };
+    } as PipelineCheckpoint;
   }
 
+  /**
+   * Overrides admit an explicit `undefined` per property. Callers below pass
+   * `nextNodeId: undefined` to mean "a terminal state has no next node", which
+   * `exactOptionalPropertyTypes` rejects against a plain `Partial<...>` —
+   * there, an optional property may be OMITTED but not explicitly undefined.
+   * Writing it out is clearer at those call sites than omitting it, since the
+   * absence is the fact under test.
+   */
   function makeBodyGraphCheckpointState(
-    overrides: Partial<NestedPipelineLoopBodyGraphCheckpointState> = {}
+    overrides: {
+      [K in keyof NestedPipelineLoopBodyGraphCheckpointState]?:
+        | NestedPipelineLoopBodyGraphCheckpointState[K]
+        | undefined;
+    } = {}
   ): NestedPipelineLoopBodyGraphCheckpointState {
     return {
       completed: false,
@@ -464,8 +491,11 @@ describe("PipelineCheckpoint", () => {
       completedNodeIds: ["prepare"],
       nodeResults: {},
       nodeIdempotencyKeys: {},
+      // Cast for the same reason as `makeCheckpoint`: spreading overrides that
+      // may carry an explicit `undefined` widens the required fields, so the
+      // declared return type is re-asserted once here rather than at each site.
       ...overrides,
-    };
+    } as NestedPipelineLoopBodyGraphCheckpointState;
   }
 
   function expectCheckpointIssues(
@@ -571,7 +601,9 @@ describe("PipelineCheckpoint", () => {
     // whole point of the frame — a frame without it would re-run body nodes.
     const result = PipelineCheckpointSchema.safeParse(
       makeCheckpoint({
-        loopState: { "loop-items": { iteration: 2, itemFrame: { itemIndex: 2 } } },
+        loopState: {
+          "loop-items": { iteration: 2, itemFrame: { itemIndex: 2 } },
+        },
       })
     );
     expect(result.success).toBe(false);
@@ -823,12 +855,7 @@ describe("PipelineCheckpoint", () => {
       [
         {
           code: "custom",
-          path: [
-            "loopState",
-            "poll",
-            "bodyGraphState",
-            "nextNodeId",
-          ],
+          path: ["loopState", "poll", "bodyGraphState", "nextNodeId"],
           message:
             "completed graph cursors omit nextNodeId; incomplete cursors require it",
         },
@@ -854,12 +881,7 @@ describe("PipelineCheckpoint", () => {
       [
         {
           code: "custom",
-          path: [
-            "loopState",
-            "poll",
-            "bodyGraphState",
-            "nextNodeId",
-          ],
+          path: ["loopState", "poll", "bodyGraphState", "nextNodeId"],
           message:
             "completed graph cursors omit nextNodeId; incomplete cursors require it",
         },
@@ -882,13 +904,7 @@ describe("PipelineCheckpoint", () => {
       [
         {
           code: "custom",
-          path: [
-            "loopState",
-            "poll",
-            "bodyGraphState",
-            "completedNodeIds",
-            1,
-          ],
+          path: ["loopState", "poll", "bodyGraphState", "completedNodeIds", 1],
           message: 'completedNodeIds contains duplicate node ID "prepare"',
         },
       ]
@@ -978,8 +994,7 @@ describe("serializePipeline / deserializePipeline", () => {
         expect.arrayContaining([
           expect.objectContaining({
             path: ["nodes", 0, "forEach", "concurrency"],
-            message:
-              "for_each.concurrency must be a positive integer",
+            message: "for_each.concurrency must be a positive integer",
           }),
         ])
       );

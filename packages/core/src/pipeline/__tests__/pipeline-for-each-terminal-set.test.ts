@@ -30,9 +30,18 @@ function checkpointWith(
     version: 1,
     schemaVersion,
     completedNodeIds: [],
-    loopState,
     state: {},
     createdAt: new Date(0).toISOString(),
+    // `loopState` is cast at the FIELD rather than the whole object: these
+    // tests pass malformed loop states precisely to assert the SCHEMA rejects
+    // them, so the argument cannot be a real
+    // `Record<string, PipelineLoopCheckpointState>`. Narrowing the escape
+    // hatch to this one field keeps `satisfies` checking every other envelope
+    // field, instead of a blanket cast that would let a typo in
+    // `pipelineRunId` through unnoticed.
+    // `NonNullable` because `loopState` is optional on the checkpoint and
+    // `exactOptionalPropertyTypes` forbids writing `undefined` explicitly.
+    loopState: loopState as NonNullable<PipelineCheckpoint["loopState"]>,
   } satisfies Partial<PipelineCheckpoint> as Record<string, unknown>;
 }
 

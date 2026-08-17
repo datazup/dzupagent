@@ -1,5 +1,5 @@
 {
-  "totalErrors": 2663,
+  "totalErrors": 2660,
   "note": "Test-file typecheck baseline (tsconfig.flipcheck.json per package). Ratchets down only. Bump only via --update-baseline after FIXING errors, never to accommodate new ones. Enforced per package AND per file, so a fix in one place cannot mask a regression in another. totalErrors and perCode are informational; the per-file budgets are what fail the build.",
   "packages": {
     "adapter-rules": {
@@ -398,7 +398,7 @@
       }
     },
     "core": {
-      "maxErrors": 387,
+      "maxErrors": 384,
       "perCode": {
         "TS6133": 78,
         "TS2532": 77,
@@ -420,13 +420,12 @@
         "TS2698": 2,
         "TS2554": 2,
         "TS2769": 2,
-        "TS2724": 2,
-        "TS7016": 2,
         "TS2558": 2,
         "TS2358": 1,
         "TS2739": 1,
         "TS2412": 1,
-        "TS2741": 1
+        "TS2741": 1,
+        "TS2724": 1
       },
       "perFile": {
         "src/__tests__/circuit-breaker-extended.test.ts": 1,
@@ -477,8 +476,6 @@
         "src/__tests__/w15-h2-branch-coverage.test.ts": 36,
         "src/__tests__/workflow-command-parser.test.ts": 1,
         "src/formats/__tests__/formats.test.ts": 4,
-        "src/identity/__tests__/authority-classes.test.ts": 1,
-        "src/identity/__tests__/authority-envelope.test.ts": 1,
         "src/identity/__tests__/delegation.test.ts": 2,
         "src/identity/__tests__/identity.test.ts": 2,
         "src/identity/__tests__/resolver.test.ts": 1,
@@ -487,7 +484,6 @@
         "src/mcp/__tests__/mcp-sampling.test.ts": 1,
         "src/persistence/__tests__/run-journal.test.ts": 7,
         "src/persistence/__tests__/run-state-api.test.ts": 3,
-        "src/pipeline/__tests__/pipeline.test.ts": 1,
         "src/protocol/__tests__/a2a-push-notification.test.ts": 1,
         "src/protocol/__tests__/a2a-sse.test.ts": 2,
         "src/protocol/__tests__/adapters.test.ts": 2,
