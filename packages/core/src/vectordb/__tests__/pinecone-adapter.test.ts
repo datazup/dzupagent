@@ -32,7 +32,7 @@ describe('PineconeAdapter', () => {
       expect.objectContaining({ method: 'POST' }),
     )
 
-    const body = JSON.parse(fetchFn.mock.calls[0][1].body as string) as Record<string, unknown>
+    const body = JSON.parse(fetchFn.mock.calls[0]![1]!.body as string) as Record<string, unknown>
     expect(body['name']).toBe('my-index')
     expect(body['dimension']).toBe(1536)
     expect(body['metric']).toBe('cosine')
@@ -47,7 +47,7 @@ describe('PineconeAdapter', () => {
       metric: 'dot_product',
     })
 
-    const body = JSON.parse(fetchFn.mock.calls[0][1].body as string) as Record<string, unknown>
+    const body = JSON.parse(fetchFn.mock.calls[0]![1]!.body as string) as Record<string, unknown>
     expect(body['metric']).toBe('dotproduct')
   })
 
@@ -57,7 +57,7 @@ describe('PineconeAdapter', () => {
       metric: 'euclidean',
     })
 
-    const body = JSON.parse(fetchFn.mock.calls[0][1].body as string) as Record<string, unknown>
+    const body = JSON.parse(fetchFn.mock.calls[0]![1]!.body as string) as Record<string, unknown>
     expect(body['metric']).toBe('euclidean')
   })
 
@@ -74,7 +74,7 @@ describe('PineconeAdapter', () => {
       expect.objectContaining({ method: 'POST' }),
     )
 
-    const body = JSON.parse(fetchFn.mock.calls[0][1].body as string) as {
+    const body = JSON.parse(fetchFn.mock.calls[0]![1]!.body as string) as {
       vectors: Array<{ id: string; values: number[]; metadata: Record<string, unknown> }>
     }
     expect(body.vectors).toHaveLength(2)
@@ -115,7 +115,7 @@ describe('PineconeAdapter', () => {
       expect.objectContaining({ method: 'POST' }),
     )
 
-    const body = JSON.parse(fetchFn.mock.calls[0][1].body as string) as Record<string, unknown>
+    const body = JSON.parse(fetchFn.mock.calls[0]![1]!.body as string) as Record<string, unknown>
     expect(body['topK']).toBe(5)
     expect(body['filter']).toEqual({ cat: { $eq: 'auth' } })
     expect(body['includeMetadata']).toBe(true)
@@ -170,7 +170,7 @@ describe('PineconeAdapter', () => {
       includeVectors: true,
     })
 
-    const body = JSON.parse(fetchFn.mock.calls[0][1].body as string) as Record<string, unknown>
+    const body = JSON.parse(fetchFn.mock.calls[0]![1]!.body as string) as Record<string, unknown>
     expect(body['includeValues']).toBe(true)
     expect(results[0]?.vector).toEqual([0.1, 0.2])
   })
@@ -185,7 +185,7 @@ describe('PineconeAdapter', () => {
       expect.objectContaining({ method: 'POST' }),
     )
 
-    const body = JSON.parse(fetchFn.mock.calls[0][1].body as string) as Record<string, unknown>
+    const body = JSON.parse(fetchFn.mock.calls[0]![1]!.body as string) as Record<string, unknown>
     expect(body).toEqual({ ids: ['v1', 'v2'] })
   })
 
@@ -194,7 +194,7 @@ describe('PineconeAdapter', () => {
       filter: { field: 'expired', op: 'eq', value: true },
     })
 
-    const body = JSON.parse(fetchFn.mock.calls[0][1].body as string) as Record<string, unknown>
+    const body = JSON.parse(fetchFn.mock.calls[0]![1]!.body as string) as Record<string, unknown>
     expect(body).toEqual({ filter: { expired: { $eq: true } } })
   })
 
@@ -319,7 +319,7 @@ describe('PineconeAdapter', () => {
 
     await adapter.listCollections()
 
-    const headers = fetchFn.mock.calls[0][1].headers as Record<string, string>
+    const headers = fetchFn.mock.calls[0]![1]!.headers as Record<string, string>
     expect(headers['Api-Key']).toBe('pc-test-key')
   })
 

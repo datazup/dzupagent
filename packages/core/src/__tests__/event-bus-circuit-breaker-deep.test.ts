@@ -302,13 +302,13 @@ describe("DzupEventBus — deep coverage", () => {
       const bus = createEventBus();
       const counts = [0, 0, 0];
       bus.onAny(() => {
-        counts[0]++;
+        counts[0] = counts[0]! + 1;
       });
       bus.onAny(() => {
-        counts[1]++;
+        counts[1] = counts[1]! + 1;
       });
       bus.onAny(() => {
-        counts[2]++;
+        counts[2] = counts[2]! + 1;
       });
       bus.emit({ type: "agent:started", agentId: "a", runId: "r" });
       bus.emit({ type: "tool:called", toolName: "t", input: {} });

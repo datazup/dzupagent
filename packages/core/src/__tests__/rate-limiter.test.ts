@@ -99,8 +99,8 @@ describe("RateLimiter construction and reset", () => {
   it("derives refill and capacity from requestsPerMinute sugar", () => {
     const limiter = limiterFor({ openai: { requestsPerMinute: 60, maxInWindow: 100 } });
     const drained = consume(limiter, 60);
-    expect(drained[59].allowed).toBe(true);
-    expect(drained[59].remainingTokens).toBe(0);
+    expect(drained[59]!.allowed).toBe(true);
+    expect(drained[59]!.remainingTokens).toBe(0);
     expect(limiter.check(request()).allowed).toBe(false);
 
     // 60 rpm == 0.001 tokens/ms, so one token returns after 1_000ms.
@@ -112,7 +112,7 @@ describe("RateLimiter construction and reset", () => {
     const limiter = limiterFor({
       openai: { requestsPerMinute: 60, capacity: 2, refillPerMs: 0.01, maxInWindow: 20 },
     });
-    expect(consume(limiter, 2)[1].remainingTokens).toBe(0);
+    expect(consume(limiter, 2)[1]!.remainingTokens).toBe(0);
     expect(limiter.check(request()).allowed).toBe(false);
 
     vi.advanceTimersByTime(100);
@@ -187,9 +187,9 @@ describe("RateLimiter sliding window enforcement matrix", () => {
       });
       if (entry.allowed) expect(results.map((result) => result.allowed)).toEqual(entry.allowed);
       const last = results[results.length - 1];
-      if (entry.retryAfterMs !== undefined) expect(last.retryAfterMs).toBe(entry.retryAfterMs);
-      if (entry.remaining !== undefined) expect(last.remainingTokens).toBe(entry.remaining);
-      if (entry.windowCount !== undefined) expect(last.windowCount).toBe(entry.windowCount);
+      if (entry.retryAfterMs !== undefined) expect(last!.retryAfterMs).toBe(entry.retryAfterMs);
+      if (entry.remaining !== undefined) expect(last!.remainingTokens).toBe(entry.remaining);
+      if (entry.windowCount !== undefined) expect(last!.windowCount).toBe(entry.windowCount);
     });
   });
 });
@@ -237,7 +237,7 @@ describe("RateLimiter per-provider limit matrix", () => {
       if (entry.anthropicCalls) consume(limiter, entry.anthropicCalls, request("anthropic", entry.sameKey ?? "default"));
 
       if (entry.allowed) expect(results.map((result) => result.allowed)).toEqual(entry.allowed);
-      if (entry.retryAfterMs !== undefined) expect(results[results.length - 1].retryAfterMs).toBe(entry.retryAfterMs);
+      if (entry.retryAfterMs !== undefined) expect(results[results.length - 1]!.retryAfterMs).toBe(entry.retryAfterMs);
       if (entry.anthropicAllowed !== undefined) expect(limiter.check(request(entry.finalProvider ?? "anthropic", entry.sameKey ?? "default")).allowed).toBe(entry.anthropicAllowed);
       if (entry.openaiAllowed !== undefined) expect(limiter.check(request("openai", entry.sameKey ?? "default")).allowed).toBe(entry.openaiAllowed);
       if (entry.openaiOtherKeyAllowed !== undefined) expect(limiter.check(request("openai", "other")).allowed).toBe(entry.openaiOtherKeyAllowed);
@@ -270,8 +270,8 @@ describe("RateLimiter burst allowance matrix", () => {
       if (entry.finalCost) results.push(limiter.check(request(provider, "default", entry.finalCost)));
       if (entry.otherProvider) results.push(limiter.check(request(entry.otherProvider)));
       if (entry.allowed) expect(results.map((result) => result.allowed)).toEqual(entry.allowed);
-      if (entry.finalAllowed !== undefined) expect(results[results.length - 1].allowed).toBe(entry.finalAllowed);
-      if (entry.reason) expect(results[results.length - 1].reason).toBe(entry.reason);
+      if (entry.finalAllowed !== undefined) expect(results[results.length - 1]!.allowed).toBe(entry.finalAllowed);
+      if (entry.reason) expect(results[results.length - 1]!.reason).toBe(entry.reason);
     });
   });
 });

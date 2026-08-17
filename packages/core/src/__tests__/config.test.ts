@@ -77,8 +77,8 @@ describe('loadEnvConfig', () => {
     ]);
     const config = loadEnvConfig();
     expect(config.providers).toHaveLength(1);
-    expect(config.providers![0].provider).toBe('anthropic');
-    expect(config.providers![0].structuredOutputDefaults).toEqual({
+    expect(config.providers![0]!.provider).toBe('anthropic');
+    expect(config.providers![0]!.structuredOutputDefaults).toEqual({
       preferredStrategy: 'anthropic-tool-use',
       schemaProvider: 'generic',
       fallbackStrategies: ['generic-parse', 'fallback-prompt'],

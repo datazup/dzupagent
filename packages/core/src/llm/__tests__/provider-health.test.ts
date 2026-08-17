@@ -76,7 +76,7 @@ describe("ProviderHealthTracker — EMA convergence", () => {
     const t = new ProviderHealthTracker({ alpha: 0.5, minSamples: 1 });
     for (let i = 0; i < 50; i++) t.recordSuccess("p");
     expect(t.getWeight("p")).toBeGreaterThan(0.99);
-    expect(t.snapshot().p.successRate).toBeGreaterThan(0.99);
+    expect(t.snapshot().p!.successRate).toBeGreaterThan(0.99);
   });
 
   it("converges toward 0 under sustained failure", () => {
@@ -112,7 +112,7 @@ describe("ProviderHealthTracker — warm-up neutrality", () => {
     const t = new ProviderHealthTracker({ minSamples: 5 });
     // 4 failures — a very unhealthy provider, but still in warm-up.
     for (let i = 0; i < 4; i++) t.recordFailure("p");
-    expect(t.snapshot().p.samples).toBe(4);
+    expect(t.snapshot().p!.samples).toBe(4);
     expect(t.getWeight("p")).toBe(1);
   });
 
@@ -207,10 +207,10 @@ describe("ModelRegistry weighted selection — same priority tie-break", () => {
       registry.recordProviderFailure("anthropic", notTransient);
 
     const health = registry.getProviderHealth();
-    expect(health.anthropic.state).toBe("closed");
-    expect(health.anthropic.samples).toBe(10);
-    expect(health.anthropic.successRate).toBeLessThan(0.5);
-    expect(health.anthropic.weight).toBeLessThan(0.5);
+    expect(health.anthropic!.state).toBe("closed");
+    expect(health.anthropic!.samples).toBe(10);
+    expect(health.anthropic!.successRate).toBeLessThan(0.5);
+    expect(health.anthropic!.weight).toBeLessThan(0.5);
   });
 });
 

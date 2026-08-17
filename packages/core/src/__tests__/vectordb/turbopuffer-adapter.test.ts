@@ -140,8 +140,8 @@ describe('TurbopufferAdapter', () => {
 
       await adapter.deleteCollection('test')
       expect(calls).toHaveLength(1)
-      expect(calls[0].url).toBe('https://api.turbopuffer.com/v1/vectors/test')
-      expect(calls[0].init.method).toBe('DELETE')
+      expect(calls[0]!.url).toBe('https://api.turbopuffer.com/v1/vectors/test')
+      expect(calls[0]!.init.method).toBe('DELETE')
     })
   })
 
@@ -206,10 +206,10 @@ describe('TurbopufferAdapter', () => {
       await adapter.upsert('test', sampleEntries)
 
       expect(calls).toHaveLength(1)
-      expect(calls[0].url).toBe('https://api.turbopuffer.com/v1/vectors/test')
-      expect(calls[0].init.method).toBe('POST')
+      expect(calls[0]!.url).toBe('https://api.turbopuffer.com/v1/vectors/test')
+      expect(calls[0]!.init.method).toBe('POST')
 
-      const body = JSON.parse(calls[0].init.body as string) as Record<string, unknown>
+      const body = JSON.parse(calls[0]!.init.body as string) as Record<string, unknown>
       expect(body['ids']).toEqual(['v1', 'v2'])
       expect(body['vectors']).toEqual([[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]])
 
@@ -238,7 +238,7 @@ describe('TurbopufferAdapter', () => {
       adapter = createAdapter(fetchFn, { namespacePrefix: 'tenant1' })
 
       await adapter.upsert('memories', [sampleEntries[0]])
-      expect(calls[0].url).toBe('https://api.turbopuffer.com/v1/vectors/tenant1_memories')
+      expect(calls[0]!.url).toBe('https://api.turbopuffer.com/v1/vectors/tenant1_memories')
     })
   })
 
@@ -262,7 +262,7 @@ describe('TurbopufferAdapter', () => {
       }
       const results = await adapter.search('test', query)
 
-      expect(calls[0].url).toBe('https://api.turbopuffer.com/v1/vectors/test/query')
+      expect(calls[0]!.url).toBe('https://api.turbopuffer.com/v1/vectors/test/query')
       expect(results).toHaveLength(2)
       expect(results[0]).toEqual({
         id: 'v1',
@@ -288,7 +288,7 @@ describe('TurbopufferAdapter', () => {
       })
 
       expect(results).toHaveLength(1)
-      expect(results[0].id).toBe('v1')
+      expect(results[0]!.id).toBe('v1')
     })
 
     it('includes vectors when requested', async () => {
@@ -305,9 +305,9 @@ describe('TurbopufferAdapter', () => {
         includeVectors: true,
       })
 
-      const body = JSON.parse(calls[0].init.body as string) as Record<string, unknown>
+      const body = JSON.parse(calls[0]!.init.body as string) as Record<string, unknown>
       expect(body['include_vectors']).toBe(true)
-      expect(results[0].vector).toEqual([0.1, 0.2, 0.3])
+      expect(results[0]!.vector).toEqual([0.1, 0.2, 0.3])
     })
 
     it('applies metadata filter', async () => {
@@ -320,7 +320,7 @@ describe('TurbopufferAdapter', () => {
         filter: { field: 'topic', op: 'eq', value: 'ai' },
       })
 
-      const body = JSON.parse(calls[0].init.body as string) as Record<string, unknown>
+      const body = JSON.parse(calls[0]!.init.body as string) as Record<string, unknown>
       expect(body['filters']).toEqual(['topic', 'Eq', 'ai'])
     })
   })
@@ -332,8 +332,8 @@ describe('TurbopufferAdapter', () => {
 
       await adapter.delete('test', { ids: ['v1', 'v2'] })
 
-      expect(calls[0].url).toBe('https://api.turbopuffer.com/v1/vectors/test/delete')
-      const body = JSON.parse(calls[0].init.body as string) as Record<string, unknown>
+      expect(calls[0]!.url).toBe('https://api.turbopuffer.com/v1/vectors/test/delete')
+      const body = JSON.parse(calls[0]!.init.body as string) as Record<string, unknown>
       expect(body['ids']).toEqual(['v1', 'v2'])
     })
 
@@ -345,7 +345,7 @@ describe('TurbopufferAdapter', () => {
         filter: { field: 'topic', op: 'eq', value: 'old' },
       })
 
-      const body = JSON.parse(calls[0].init.body as string) as Record<string, unknown>
+      const body = JSON.parse(calls[0]!.init.body as string) as Record<string, unknown>
       expect(body['filters']).toEqual(['topic', 'Eq', 'old'])
     })
   })
@@ -485,7 +485,7 @@ describe('TurbopufferAdapter', () => {
 
       await adapter.healthCheck()
 
-      const headers = calls[0].init.headers as Record<string, string>
+      const headers = calls[0]!.init.headers as Record<string, string>
       expect(headers['Authorization']).toBe('Bearer tp-test-key')
     })
   })

@@ -38,21 +38,21 @@ describe('QdrantAdapter', () => {
   it('createCollection defaults metric to cosine', async () => {
     await adapter.createCollection('docs', { dimensions: 768 })
 
-    const body = JSON.parse(fetchFn.mock.calls[0][1].body as string) as Record<string, unknown>
+    const body = JSON.parse(fetchFn.mock.calls[0]![1]!.body as string) as Record<string, unknown>
     expect(body).toEqual({ vectors: { size: 768, distance: 'Cosine' } })
   })
 
   it('createCollection maps euclidean metric', async () => {
     await adapter.createCollection('docs', { dimensions: 384, metric: 'euclidean' })
 
-    const body = JSON.parse(fetchFn.mock.calls[0][1].body as string) as Record<string, unknown>
+    const body = JSON.parse(fetchFn.mock.calls[0]![1]!.body as string) as Record<string, unknown>
     expect(body).toEqual({ vectors: { size: 384, distance: 'Euclid' } })
   })
 
   it('createCollection maps dot_product metric', async () => {
     await adapter.createCollection('docs', { dimensions: 384, metric: 'dot_product' })
 
-    const body = JSON.parse(fetchFn.mock.calls[0][1].body as string) as Record<string, unknown>
+    const body = JSON.parse(fetchFn.mock.calls[0]![1]!.body as string) as Record<string, unknown>
     expect(body).toEqual({ vectors: { size: 384, distance: 'Dot' } })
   })
 
@@ -69,7 +69,7 @@ describe('QdrantAdapter', () => {
       expect.objectContaining({ method: 'PUT' }),
     )
 
-    const body = JSON.parse(fetchFn.mock.calls[0][1].body as string) as {
+    const body = JSON.parse(fetchFn.mock.calls[0]![1]!.body as string) as {
       points: Array<{ id: string; vector: number[]; payload: Record<string, unknown> }>
     }
     expect(body.points).toHaveLength(2)
@@ -105,7 +105,7 @@ describe('QdrantAdapter', () => {
       filter: { field: 'cat', op: 'eq', value: 'auth' },
     })
 
-    const body = JSON.parse(fetchFn.mock.calls[0][1].body as string) as Record<string, unknown>
+    const body = JSON.parse(fetchFn.mock.calls[0]![1]!.body as string) as Record<string, unknown>
     expect(body['filter']).toEqual({ must: [{ key: 'cat', match: { value: 'auth' } }] })
     expect(body['limit']).toBe(5)
     expect(body['with_payload']).toBe(true)
@@ -164,7 +164,7 @@ describe('QdrantAdapter', () => {
       minScore: 0.7,
     })
 
-    const body = JSON.parse(fetchFn.mock.calls[0][1].body as string) as Record<string, unknown>
+    const body = JSON.parse(fetchFn.mock.calls[0]![1]!.body as string) as Record<string, unknown>
     expect(body['score_threshold']).toBe(0.7)
   })
 
@@ -178,7 +178,7 @@ describe('QdrantAdapter', () => {
       expect.objectContaining({ method: 'POST' }),
     )
 
-    const body = JSON.parse(fetchFn.mock.calls[0][1].body as string) as Record<string, unknown>
+    const body = JSON.parse(fetchFn.mock.calls[0]![1]!.body as string) as Record<string, unknown>
     expect(body).toEqual({ points: ['v1', 'v2'] })
   })
 
@@ -187,7 +187,7 @@ describe('QdrantAdapter', () => {
       filter: { field: 'expired', op: 'eq', value: true },
     })
 
-    const body = JSON.parse(fetchFn.mock.calls[0][1].body as string) as Record<string, unknown>
+    const body = JSON.parse(fetchFn.mock.calls[0]![1]!.body as string) as Record<string, unknown>
     expect(body).toEqual({
       filter: { must: [{ key: 'expired', match: { value: true } }] },
     })
@@ -299,7 +299,7 @@ describe('QdrantAdapter', () => {
 
     await adapter.listCollections()
 
-    const headers = fetchFn.mock.calls[0][1].headers as Record<string, string>
+    const headers = fetchFn.mock.calls[0]![1]!.headers as Record<string, string>
     expect(headers['api-key']).toBe('test-key')
   })
 
@@ -317,7 +317,7 @@ describe('QdrantAdapter', () => {
 
     await noKeyAdapter.listCollections()
 
-    const headers = fetchFn.mock.calls[0][1].headers as Record<string, string>
+    const headers = fetchFn.mock.calls[0]![1]!.headers as Record<string, string>
     expect(headers['api-key']).toBeUndefined()
   })
 

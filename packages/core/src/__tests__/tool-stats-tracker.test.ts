@@ -99,10 +99,10 @@ describe('ToolStatsTracker', () => {
 
     const ranking = tracker.getTopTools()
     expect(ranking.length).toBe(2)
-    expect(ranking[0].toolName).toBe('fast_good')
-    expect(ranking[0].score).toBeGreaterThan(ranking[1].score)
-    expect(ranking[0].successRate).toBe(1)
-    expect(ranking[1].successRate).toBe(0.5)
+    expect(ranking[0]!.toolName).toBe('fast_good')
+    expect(ranking[0]!.score).toBeGreaterThan(ranking[1]!.score)
+    expect(ranking[0]!.successRate).toBe(1)
+    expect(ranking[1]!.successRate).toBe(0.5)
   })
 
   it('respects limit parameter', () => {
@@ -124,13 +124,13 @@ describe('ToolStatsTracker', () => {
 
     const debugRanking = tracker.getTopTools(10, 'debug')
     expect(debugRanking.length).toBe(1)
-    expect(debugRanking[0].toolName).toBe('search')
-    expect(debugRanking[0].callCount).toBe(2)
+    expect(debugRanking[0]!.toolName).toBe('search')
+    expect(debugRanking[0]!.callCount).toBe(2)
 
     const codegenRanking = tracker.getTopTools(10, 'codegen')
     expect(codegenRanking.length).toBe(2)
     // compile should rank higher (faster + same success rate)
-    expect(codegenRanking[0].toolName).toBe('compile')
+    expect(codegenRanking[0]!.toolName).toBe('compile')
   })
 
   it('returns empty ranking for unknown intent', () => {
@@ -264,7 +264,7 @@ describe('ToolStatsTracker', () => {
 
     const ranking = speedTracker.getTopTools()
     // fast_flaky should rank first because only speed matters
-    expect(ranking[0].toolName).toBe('fast_flaky')
+    expect(ranking[0]!.toolName).toBe('fast_flaky')
   })
 
   // ---------- Edge: single tool normalizedSpeed ----------
@@ -274,7 +274,7 @@ describe('ToolStatsTracker', () => {
     const ranking = tracker.getTopTools()
     expect(ranking).toHaveLength(1)
     // normalizedSpeed = 1 - (100/100) = 0, score = 1*0.7 + 0*0.3 = 0.7
-    expect(ranking[0].score).toBeCloseTo(0.7)
-    expect(ranking[0].successRate).toBe(1)
+    expect(ranking[0]!.score).toBeCloseTo(0.7)
+    expect(ranking[0]!.successRate).toBe(1)
   })
 })

@@ -669,8 +669,8 @@ describe("ModelRegistry — extended coverage", () => {
         makeProvider({ provider: "openai", priority: 2, apiKey: "oai" })
       );
       const health = registry.getProviderHealth();
-      expect(health["anthropic"].state).toBe("closed");
-      expect(health["openai"].state).toBe("closed");
+      expect(health["anthropic"]!.state).toBe("closed");
+      expect(health["openai"]!.state).toBe("closed");
     });
 
     it("includes provider name in health record", () => {
@@ -678,7 +678,7 @@ describe("ModelRegistry — extended coverage", () => {
         makeProvider({ provider: "google", apiKey: "goog", priority: 1 })
       );
       const health = registry.getProviderHealth();
-      expect(health["google"].provider).toBe("google");
+      expect(health["google"]!.provider).toBe("google");
     });
 
     it("recordProviderSuccess does not throw", () => {
@@ -691,7 +691,7 @@ describe("ModelRegistry — extended coverage", () => {
       registry.recordProviderFailure("anthropic", new Error("not-transient"));
       const health = registry.getProviderHealth();
       // Non-transient errors are ignored by the breaker per isTransientError mock
-      expect(health["anthropic"].state).toBe("closed");
+      expect(health["anthropic"]!.state).toBe("closed");
     });
 
     it("recordProviderFailure with transient error opens circuit after repeated calls", () => {
@@ -785,9 +785,9 @@ describe("ModelRegistry — extended coverage", () => {
         })
       );
       const candidates = registry.getModelFallbackCandidates("chat");
-      expect(candidates[0].provider).toBe("anthropic");
-      expect(candidates[0].modelName).toBe("haiku");
-      expect(candidates[0].model).toBeDefined();
+      expect(candidates[0]!.provider).toBe("anthropic");
+      expect(candidates[0]!.modelName).toBe("haiku");
+      expect(candidates[0]!.model).toBeDefined();
     });
 
     it("applies model name override to candidates", () => {
@@ -799,7 +799,7 @@ describe("ModelRegistry — extended coverage", () => {
       const candidates = registry.getModelFallbackCandidates("chat", {
         model: "haiku-override",
       });
-      expect(candidates[0].modelName).toBe("haiku-override");
+      expect(candidates[0]!.modelName).toBe("haiku-override");
     });
 
     it("excludes providers for which factory throws", () => {

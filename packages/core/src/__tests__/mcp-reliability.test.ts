@@ -149,7 +149,7 @@ describe('McpReliabilityManager', () => {
     manager.cacheDiscovery('s1', tools)
     const cached = manager.getCachedDiscovery('s1')
     expect(cached).toHaveLength(2)
-    expect(cached![0].name).toBe('read')
+    expect(cached![0]!.name).toBe('read')
   })
 
   it('getCachedDiscovery returns undefined when no cache exists', () => {

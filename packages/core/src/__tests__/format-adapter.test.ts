@@ -101,16 +101,16 @@ describe('FORMAT_ADAPTERS', () => {
     const expected = ['json', 'yaml', 'markdown', 'html', 'mermaid', 'openapi', 'prisma', 'sql', 'plain']
     for (const fmt of expected) {
       expect(FORMAT_ADAPTERS[fmt]).toBeDefined()
-      expect(FORMAT_ADAPTERS[fmt].format).toBe(fmt)
+      expect(FORMAT_ADAPTERS[fmt]!.format).toBe(fmt)
     }
   })
 
   it('json adapter extracts parsed data', () => {
-    const data = FORMAT_ADAPTERS['json'].extract('{"a": 1}')
+    const data = FORMAT_ADAPTERS['json']!.extract('{"a": 1}')
     expect(data).toEqual({ a: 1 })
   })
 
   it('json adapter returns null for invalid JSON', () => {
-    expect(FORMAT_ADAPTERS['json'].extract('not json')).toBeNull()
+    expect(FORMAT_ADAPTERS['json']!.extract('not json')).toBeNull()
   })
 })

@@ -46,10 +46,10 @@ describe("InMemoryRunJournal", () => {
         data: { input: "x" },
       });
       const entries = await journal.getAll("run-1");
-      expect(entries[0].v).toBe(1);
-      expect(entries[0].seq).toBe(1);
-      expect(entries[0].runId).toBe("run-1");
-      expect(typeof entries[0].ts).toBe("string");
+      expect(entries[0]!.v).toBe(1);
+      expect(entries[0]!.seq).toBe(1);
+      expect(entries[0]!.runId).toBe("run-1");
+      expect(typeof entries[0]!.ts).toBe("string");
     });
 
     it("validates state schema on state_updated entries without rejecting", async () => {
@@ -112,7 +112,7 @@ describe("InMemoryRunJournal", () => {
     it("supports cursor-based pagination with afterSeq", async () => {
       const page = await journal.query("run-1", { afterSeq: 2 });
       expect(page.entries).toHaveLength(2);
-      expect(page.entries[0].seq).toBe(3);
+      expect(page.entries[0]!.seq).toBe(3);
     });
 
     it("respects limit and sets hasMore + nextCursor", async () => {
@@ -125,8 +125,8 @@ describe("InMemoryRunJournal", () => {
     it("combines afterSeq and limit", async () => {
       const page = await journal.query("run-1", { afterSeq: 1, limit: 2 });
       expect(page.entries).toHaveLength(2);
-      expect(page.entries[0].seq).toBe(2);
-      expect(page.entries[1].seq).toBe(3);
+      expect(page.entries[0]!.seq).toBe(2);
+      expect(page.entries[1]!.seq).toBe(3);
       expect(page.hasMore).toBe(true);
       expect(page.nextCursor).toBe(3);
     });
