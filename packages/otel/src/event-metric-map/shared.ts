@@ -1,6 +1,5 @@
-import type { DzupEvent } from '@dzupagent/core/events'
 
-import type { MetricMapping } from './types.js'
+import type { MetricMapFragment, MetricMapping } from './types.js'
 export { asEvent } from './types.js'
 
 function createMetricMapping(
@@ -46,9 +45,19 @@ export function gauge(
   return createMetricMapping('gauge', metricName, description, labelKeys, extract)
 }
 
-export function getAllMetricNames(map: Record<DzupEvent['type'], MetricMapping[]>): string[] {
+/**
+ * Collect the distinct metric names declared by a map.
+ *
+ * Takes a fragment (partial map) rather than a complete
+ * `Record<DzupEvent['type'], MetricMapping[]>`: the body only iterates the
+ * values present, and every map in this package — including the assembled
+ * `EVENT_METRIC_MAP` — is built from partial fragments, so the stricter
+ * signature rejected its own callers.
+ */
+export function getAllMetricNames(map: MetricMapFragment): string[] {
   const names = new Set<string>()
   for (const mappings of Object.values(map)) {
+    if (!mappings) continue
     for (const mapping of mappings) {
       names.add(mapping.metricName)
     }

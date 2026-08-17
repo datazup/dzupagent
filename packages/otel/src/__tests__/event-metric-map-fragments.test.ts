@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import type { MetricMapping } from '../event-metric-map/types.js'
 import { adapterRuntimeMetricMap } from '../event-metric-map/adapter-runtime.js'
 import { agentLifecycleMetricMap } from '../event-metric-map/agent-lifecycle.js'
 import { toolLifecycleMetricMap } from '../event-metric-map/tool-lifecycle.js'
@@ -11,8 +12,6 @@ import { flowCompileMetricMap } from '../event-metric-map/flow-compile.js'
 import { supervisorMetricMap } from '../event-metric-map/supervisor.js'
 import { pipelineRuntimeMetricMap } from '../event-metric-map/pipeline-runtime.js'
 import { telemetryMetricMap } from '../event-metric-map/telemetry.js'
-import { pipelineRetryMetricMap } from '../event-metric-map/pipeline-retry.js'
-import { memoryRetrievalSourcesMetricMap } from '../event-metric-map/memory-retrieval-sources.js'
 import { emptyEventMetricMap } from '../event-metric-map/empty-events.js'
 import { counter, histogram, gauge, getAllMetricNames } from '../event-metric-map/shared.js'
 import { asEvent } from '../event-metric-map/types.js'
@@ -29,7 +28,7 @@ function extractFirst(mappings: { extract: (e: DzupEvent) => { value: number; la
 
 describe('agent-lifecycle metric map', () => {
   it('agent:started produces counter with agent_id and status=started', () => {
-    const mappings = agentLifecycleMetricMap['agent:started']
+    const mappings: MetricMapping[] = agentLifecycleMetricMap['agent:started']!
     const result = extractFirst(mappings, { type: 'agent:started', agentId: 'planner', runId: 'r1' } as DzupEvent)
     expect(result.value).toBe(1)
     expect(result.labels.agent_id).toBe('planner')
@@ -37,7 +36,7 @@ describe('agent-lifecycle metric map', () => {
   })
 
   it('agent:completed produces counter and histogram', () => {
-    const mappings = agentLifecycleMetricMap['agent:completed']
+    const mappings: MetricMapping[] = agentLifecycleMetricMap['agent:completed']!
     expect(mappings).toHaveLength(2)
 
     const counterResult = mappings[0]!.extract({ type: 'agent:completed', agentId: 'coder', runId: 'r1', durationMs: 2500 } as DzupEvent)
@@ -49,14 +48,14 @@ describe('agent-lifecycle metric map', () => {
   })
 
   it('agent:failed produces counter with error_code label', () => {
-    const mappings = agentLifecycleMetricMap['agent:failed']
-    const result = extractFirst(mappings, { type: 'agent:failed', agentId: 'a1', runId: 'r1', errorCode: 'TIMEOUT', message: 'timed out' } as DzupEvent)
+    const mappings: MetricMapping[] = agentLifecycleMetricMap['agent:failed']!
+    const result = extractFirst(mappings, { type: 'agent:failed', agentId: 'a1', runId: 'r1', errorCode: 'PROVIDER_TIMEOUT', message: 'timed out' } as DzupEvent)
     expect(result.value).toBe(1)
-    expect(result.labels.error_code).toBe('TIMEOUT')
+    expect(result.labels.error_code).toBe('PROVIDER_TIMEOUT')
   })
 
   it('agent:tools-filtered records audit and tool count metrics', () => {
-    const mappings = agentLifecycleMetricMap['agent:tools-filtered']
+    const mappings: MetricMapping[] = agentLifecycleMetricMap['agent:tools-filtered']!
     expect(mappings).toHaveLength(4)
 
     const event = {
@@ -90,7 +89,7 @@ describe('agent-lifecycle metric map', () => {
 
 describe('tool-lifecycle metric map', () => {
   it('tool:called increments forge_tool_calls_total', () => {
-    const mappings = toolLifecycleMetricMap['tool:called']
+    const mappings: MetricMapping[] = toolLifecycleMetricMap['tool:called']
     const result = extractFirst(mappings, { type: 'tool:called', toolName: 'read_file', input: {} } as DzupEvent)
     expect(result.value).toBe(1)
     expect(result.labels.tool_name).toBe('read_file')
@@ -98,7 +97,7 @@ describe('tool-lifecycle metric map', () => {
   })
 
   it('tool:result records duration in seconds', () => {
-    const mappings = toolLifecycleMetricMap['tool:result']
+    const mappings: MetricMapping[] = toolLifecycleMetricMap['tool:result']
     const result = extractFirst(mappings, { type: 'tool:result', toolName: 'write_file', durationMs: 350 } as DzupEvent)
     expect(result.value).toBeCloseTo(0.35)
     expect(result.labels.tool_name).toBe('write_file')
@@ -106,9 +105,9 @@ describe('tool-lifecycle metric map', () => {
   })
 
   it('tool:error records error_code label', () => {
-    const mappings = toolLifecycleMetricMap['tool:error']
-    const result = extractFirst(mappings, { type: 'tool:error', toolName: 'exec', errorCode: 'PERMISSION_DENIED', message: 'no' } as DzupEvent)
-    expect(result.labels.error_code).toBe('PERMISSION_DENIED')
+    const mappings: MetricMapping[] = toolLifecycleMetricMap['tool:error']
+    const result = extractFirst(mappings, { type: 'tool:error', toolName: 'exec', errorCode: 'TOOL_PERMISSION_DENIED', message: 'no' } as DzupEvent)
+    expect(result.labels.error_code).toBe('TOOL_PERMISSION_DENIED')
     expect(result.labels.tool_name).toBe('exec')
   })
 })
@@ -148,14 +147,14 @@ describe('budget metric map', () => {
 
 describe('governance metric map', () => {
   it('policy:evaluated records evaluation with effect label', () => {
-    const mappings = governanceMetricMap['policy:evaluated']
+    const mappings: MetricMapping[] = governanceMetricMap['policy:evaluated']
     expect(mappings).toHaveLength(2)
     const result = mappings[0]!.extract({ type: 'policy:evaluated', policySetId: 'ps1', action: 'tool:call', effect: 'deny', durationUs: 200 } as DzupEvent)
     expect(result.labels.effect).toBe('deny')
   })
 
   it('policy:evaluated histogram records durationUs', () => {
-    const mappings = governanceMetricMap['policy:evaluated']
+    const mappings: MetricMapping[] = governanceMetricMap['policy:evaluated']
     const result = mappings[1]!.extract({ type: 'policy:evaluated', policySetId: 'ps1', action: 'tool:call', effect: 'allow', durationUs: 150 } as DzupEvent)
     expect(result.value).toBe(150)
   })
@@ -196,7 +195,7 @@ describe('governance metric map', () => {
 
 describe('vector metric map', () => {
   it('vector:search_completed produces 3 mappings (counter, latency hist, result count hist)', () => {
-    const mappings = vectorMetricMap['vector:search_completed']
+    const mappings: MetricMapping[] = vectorMetricMap['vector:search_completed']
     expect(mappings).toHaveLength(3)
 
     const event = { type: 'vector:search_completed', provider: 'qdrant', collection: 'docs', latencyMs: 25, resultCount: 8 } as DzupEvent
@@ -212,7 +211,7 @@ describe('vector metric map', () => {
   })
 
   it('vector:upsert_completed records count as value', () => {
-    const mappings = vectorMetricMap['vector:upsert_completed']
+    const mappings: MetricMapping[] = vectorMetricMap['vector:upsert_completed']
     const event = { type: 'vector:upsert_completed', provider: 'pinecone', collection: 'c1', count: 42, latencyMs: 100 } as DzupEvent
     const result = mappings[0]!.extract(event)
     expect(result.value).toBe(42)
@@ -238,7 +237,7 @@ describe('delegation metric map', () => {
   })
 
   it('delegation:completed produces counter and histogram', () => {
-    const mappings = delegationMetricMap['delegation:completed']
+    const mappings: MetricMapping[] = delegationMetricMap['delegation:completed']
     expect(mappings).toHaveLength(2)
 
     const event = { type: 'delegation:completed', parentRunId: 'r1', targetAgentId: 'w', delegationId: 'd1', durationMs: 5000, success: true } as DzupEvent
@@ -306,7 +305,7 @@ describe('pipeline-runtime metric map', () => {
   })
 
   it('pipeline:run_completed produces counter with status=completed and histogram', () => {
-    const mappings = pipelineRuntimeMetricMap['pipeline:run_completed']
+    const mappings: MetricMapping[] = pipelineRuntimeMetricMap['pipeline:run_completed']
     expect(mappings).toHaveLength(2)
     const event = { type: 'pipeline:run_completed', pipelineId: 'p1', runId: 'r1', durationMs: 10000 } as DzupEvent
     expect(mappings[0]!.extract(event).labels.status).toBe('completed')
@@ -314,7 +313,7 @@ describe('pipeline-runtime metric map', () => {
   })
 
   it('pipeline:run_failed labels with status=failed', () => {
-    const result = extractFirst(pipelineRuntimeMetricMap['pipeline:run_failed'], { type: 'pipeline:run_failed', pipelineId: 'p1', runId: 'r1', message: 'err' } as DzupEvent)
+    const result = extractFirst(pipelineRuntimeMetricMap['pipeline:run_failed'], { type: 'pipeline:run_failed', pipelineId: 'p1', runId: 'r1', error: 'err' } as DzupEvent)
     expect(result.labels.status).toBe('failed')
   })
 
@@ -324,7 +323,7 @@ describe('pipeline-runtime metric map', () => {
   })
 
   it('pipeline:suspended records pipeline_id', () => {
-    const result = extractFirst(pipelineRuntimeMetricMap['pipeline:suspended'], { type: 'pipeline:suspended', pipelineId: 'p2', reason: 'approval' } as DzupEvent)
+    const result = extractFirst(pipelineRuntimeMetricMap['pipeline:suspended'], { type: 'pipeline:suspended', pipelineId: 'p2', runId: 'r1', nodeId: 'n1' } as DzupEvent)
     expect(result.labels.pipeline_id).toBe('p2')
   })
 
@@ -346,7 +345,7 @@ describe('flow-compile metric map', () => {
   })
 
   it('flow:compile_result records warning and reason counts', () => {
-    const mappings = flowCompileMetricMap['flow:compile_result']
+    const mappings: MetricMapping[] = flowCompileMetricMap['flow:compile_result']
     expect(mappings).toHaveLength(3)
 
     const event = {
@@ -364,7 +363,7 @@ describe('flow-compile metric map', () => {
   })
 
   it('flow:compile_failed records stage and duration', () => {
-    const mappings = flowCompileMetricMap['flow:compile_failed']
+    const mappings: MetricMapping[] = flowCompileMetricMap['flow:compile_failed']
     expect(mappings).toHaveLength(3)
 
     const event = {
@@ -395,7 +394,7 @@ describe('adapter-runtime metric map', () => {
   })
 
   it('mapreduce:completed records total and reduce duration', () => {
-    const mappings = adapterRuntimeMetricMap['mapreduce:completed']
+    const mappings: MetricMapping[] = adapterRuntimeMetricMap['mapreduce:completed']
     expect(mappings).toHaveLength(3)
 
     const event = {
