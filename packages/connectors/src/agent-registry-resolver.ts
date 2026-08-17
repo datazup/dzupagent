@@ -15,8 +15,11 @@
  *    refreshes happen lazily on the next `resolve()` once the TTL elapses.
  */
 import type { AsyncToolResolver, ResolvedTool } from '@dzupagent/flow-ast'
-import type { AgentHandle, AgentInvocation, AgentInvocationResult } from '@dzupagent/core/pipeline'
-import type { JSONSchema7 } from 'json-schema'
+import type {
+  ResolvedAgentHandle,
+  AgentInvocation,
+  AgentInvocationResult,
+} from '@dzupagent/core/pipeline'
 import {
   fetchWithOutboundUrlPolicy,
   type OutboundUrlSecurityPolicy,
@@ -41,6 +44,13 @@ export type FetchLike = (
   statusText: string
   json(): Promise<unknown>
 }>
+
+/**
+ * The exact `ResolvedTool` this resolver produces. Every agent resolution
+ * carries a fully-typed {@link ResolvedAgentHandle}; callers can invoke
+ * `resolved.handle.invoke(...)` without re-declaring the handle shape.
+ */
+export type ResolvedAgentTool = ResolvedTool<'agent', ResolvedAgentHandle>
 
 /** Options for the AgentRegistryAsyncToolResolver. */
 export interface AgentRegistryAsyncToolResolverOptions {
@@ -129,7 +139,7 @@ export class AgentRegistryAsyncToolResolver implements AsyncToolResolver {
     return this.cachedRefs.slice()
   }
 
-  async resolve(ref: string): Promise<ResolvedTool | null> {
+  async resolve(ref: string): Promise<ResolvedAgentTool | null> {
     if (!ref) return null
 
     // Lazy refresh on TTL expiry so `listAvailable()` eventually reflects
@@ -153,7 +163,7 @@ export class AgentRegistryAsyncToolResolver implements AsyncToolResolver {
       }
     }
 
-    const handle: AgentHandle = {
+    const handle: ResolvedAgentHandle = {
       kind: 'agent',
       id: descriptor.id,
       displayName: descriptor.displayName ?? descriptor.name ?? descriptor.id,
@@ -165,7 +175,10 @@ export class AgentRegistryAsyncToolResolver implements AsyncToolResolver {
     return {
       ref,
       kind: 'agent',
-      inputSchema: (descriptor.inputSchema ?? {}) as JSONSchema7,
+      // Deliberately un-cast: this is an unvalidated remote payload and
+      // `ResolvedTool.inputSchema` is honestly `unknown`. Asserting a schema
+      // type here would be a claim the compiler cannot check.
+      inputSchema: descriptor.inputSchema ?? {},
       outputSchema: descriptor.outputSchema,
       handle,
     }

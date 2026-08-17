@@ -128,13 +128,7 @@ describe("MCPAsyncToolResolver", () => {
     const resolved = await resolver.resolve("srv-a/search");
     expect(resolved).not.toBeNull();
 
-    interface InvokableHandle {
-      invoke: (input: unknown) => Promise<{
-        content: ReadonlyArray<{ type: string; value: unknown }>;
-        isError: boolean;
-      }>;
-    }
-    const handle = resolved!.handle as InvokableHandle;
+    const handle = resolved!.handle;
     const result = await handle.invoke({ query: "hi" });
     expect(invokeSpy).toHaveBeenCalledWith("search", { query: "hi" });
     expect(result.isError).toBe(false);
@@ -165,13 +159,7 @@ describe("MCPAsyncToolResolver", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const resolved = await resolver.resolve("srv-a/search");
-    interface InvokableHandle {
-      invoke: (input: unknown) => Promise<{
-        content: ReadonlyArray<{ type: string; value: unknown }>;
-        isError: boolean;
-      }>;
-    }
-    const handle = resolved!.handle as InvokableHandle;
+    const handle = resolved!.handle;
     const result = await handle.invoke({ query: 123 });
     // The structured error flag still propagates for consumers to branch on...
     expect(result.isError).toBe(true);
@@ -199,13 +187,7 @@ describe("MCPAsyncToolResolver", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const resolved = await resolver.resolve("srv-a/search");
-    interface InvokableHandle {
-      invoke: (input: unknown) => Promise<{
-        content: ReadonlyArray<{ type: string; value: unknown }>;
-        isError: boolean;
-      }>;
-    }
-    const handle = resolved!.handle as InvokableHandle;
+    const handle = resolved!.handle;
     const result = await handle.invoke({ query: "hi" });
     expect(result.content[0]?.value).toContain('source="tool_result"');
     expect(result.content[0]?.value).toContain(injection);
@@ -220,10 +202,7 @@ describe("MCPAsyncToolResolver", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const resolved = await resolver.resolve("srv-a/search");
-    interface InvokableHandle {
-      invoke: (input: unknown) => Promise<unknown>;
-    }
-    const handle = resolved!.handle as InvokableHandle;
+    const handle = resolved!.handle;
 
     await expect(handle.invoke({})).rejects.toThrow(
       /MCP tool invocation failed.*network down/

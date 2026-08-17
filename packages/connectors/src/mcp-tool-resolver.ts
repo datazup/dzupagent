@@ -36,6 +36,13 @@ import { fenceToolResult } from "@dzupagent/security";
 // (@dzupagent/security) so this resolver cannot drift from the tool loop,
 // the sub-agent spawner, or the MCP tool bridge.
 
+/**
+ * The exact `ResolvedTool` this resolver produces. Every MCP resolution
+ * carries a fully-typed {@link McpToolHandle}; callers can invoke
+ * `resolved.handle.invoke(...)` without re-declaring the handle shape.
+ */
+export type ResolvedMcpTool = ResolvedTool<"mcp-tool", McpToolHandle>;
+
 /** Options for the MCPAsyncToolResolver. */
 export interface MCPAsyncToolResolverOptions {
   /**
@@ -90,7 +97,7 @@ export class MCPAsyncToolResolver implements AsyncToolResolver {
     return this.cachedRefs.slice();
   }
 
-  async resolve(ref: string): Promise<ResolvedTool | null> {
+  async resolve(ref: string): Promise<ResolvedMcpTool | null> {
     // Lazy TTL refresh: keeps the cache fresh without requiring callers to
     // wire up a background timer.
     if (Date.now() - this.lastRefreshAt >= this.ttlMs) {

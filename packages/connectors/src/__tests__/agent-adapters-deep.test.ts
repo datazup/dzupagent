@@ -200,13 +200,6 @@ function makeClient(opts: {
   } as unknown as MCPClient;
 }
 
-type InvokableHandle = {
-  invoke: (input: unknown) => Promise<{
-    content: ReadonlyArray<{ type: string; value: unknown }>;
-    isError: boolean;
-  }>;
-};
-
 // ============================================================================
 // AgentRegistryAsyncToolResolver — additional deep coverage
 // ============================================================================
@@ -234,10 +227,7 @@ describe("AgentRegistryAsyncToolResolver — invoke body forwarding", () => {
     const resolver = makeResolver({}, stub.fetch);
     await resolver.refreshCatalogue();
     const result = await resolver.resolve("a");
-    type H = {
-      invoke: (i: { prompt: string; context: unknown }) => Promise<unknown>;
-    };
-    await (result!.handle as H).invoke({
+    await result!.handle.invoke({
       prompt: "go",
       context: { tenant: "acme" },
     });
@@ -261,10 +251,7 @@ describe("AgentRegistryAsyncToolResolver — invoke body forwarding", () => {
     const resolver = makeResolver({}, stub.fetch);
     await resolver.refreshCatalogue();
     const result = await resolver.resolve("b");
-    type H = {
-      invoke: (i: { prompt: string; parentRunId: string }) => Promise<unknown>;
-    };
-    await (result!.handle as H).invoke({
+    await result!.handle.invoke({
       prompt: "run",
       parentRunId: "parent-abc",
     });
@@ -288,8 +275,7 @@ describe("AgentRegistryAsyncToolResolver — invoke body forwarding", () => {
     const resolver = makeResolver({}, stub.fetch);
     await resolver.refreshCatalogue();
     const result = await resolver.resolve("c");
-    type H = { invoke: (i: { prompt: string }) => Promise<unknown> };
-    await (result!.handle as H).invoke({ prompt: "minimal" });
+    await result!.handle.invoke({ prompt: "minimal" });
     const call = stub.calls.find((c) => c.url.includes("/invoke"));
     const body = JSON.parse(call!.init!.body!);
     // prompt is always present; context/parentRunId only when provided
@@ -325,9 +311,8 @@ describe("AgentRegistryAsyncToolResolver — invoke error paths", () => {
     const resolver = makeResolver({}, stub.fetch);
     await resolver.refreshCatalogue();
     const result = await resolver.resolve("a");
-    type H = { invoke: (i: { prompt: string }) => Promise<unknown> };
     await expect(
-      (result!.handle as H).invoke({ prompt: "bad" })
+      result!.handle.invoke({ prompt: "bad" })
     ).rejects.toThrow(/400/);
   });
 
@@ -350,9 +335,8 @@ describe("AgentRegistryAsyncToolResolver — invoke error paths", () => {
     const resolver = makeResolver({}, stub.fetch);
     await resolver.refreshCatalogue();
     const result = await resolver.resolve("x");
-    type H = { invoke: (i: { prompt: string }) => Promise<unknown> };
     await expect(
-      (result!.handle as H).invoke({ prompt: "fail" })
+      result!.handle.invoke({ prompt: "fail" })
     ).rejects.toThrow();
   });
 
@@ -374,9 +358,8 @@ describe("AgentRegistryAsyncToolResolver — invoke error paths", () => {
     const resolver = makeResolver({}, fn);
     await resolver.refreshCatalogue();
     const result = await resolver.resolve("a");
-    type H = { invoke: (i: { prompt: string }) => Promise<unknown> };
     await expect(
-      (result!.handle as H).invoke({ prompt: "crash" })
+      result!.handle.invoke({ prompt: "crash" })
     ).rejects.toThrow(/AgentRegistry request failed/);
   });
 });
@@ -590,7 +573,7 @@ describe("AgentRegistryAsyncToolResolver — minimal descriptor", () => {
     const resolver = makeResolver({}, f);
     await resolver.refreshCatalogue();
     const result = await resolver.resolve("min2");
-    expect((result?.handle as { id: string }).id).toBe("min2");
+    expect(result!.handle.id).toBe("min2");
   });
 });
 
@@ -806,7 +789,7 @@ describe("MCPAsyncToolResolver — handle.invoke arg handling", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const result = await resolver.resolve("srv/run");
-    await (result!.handle as InvokableHandle).invoke(null);
+    await result!.handle.invoke(null);
     // invokeTool called with empty object (null ?? {} → {})
     expect(invokeSpy).toHaveBeenCalledWith("run", {});
   });
@@ -822,7 +805,7 @@ describe("MCPAsyncToolResolver — handle.invoke arg handling", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const result = await resolver.resolve("srv/run");
-    await (result!.handle as InvokableHandle).invoke(undefined);
+    await result!.handle.invoke(undefined);
     expect(invokeSpy).toHaveBeenCalledWith("run", {});
   });
 
@@ -834,7 +817,7 @@ describe("MCPAsyncToolResolver — handle.invoke arg handling", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const result = await resolver.resolve("db/query");
-    await (result!.handle as InvokableHandle).invoke({
+    await result!.handle.invoke({
       sql: "SELECT 1",
       limit: 10,
     });
@@ -856,7 +839,7 @@ describe("MCPAsyncToolResolver — content part mapping", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const result = await resolver.resolve("srv/t");
-    const inv = await (result!.handle as InvokableHandle).invoke({});
+    const inv = await result!.handle.invoke({});
     expect(inv.content).toEqual([
       { type: "text", value: fence("hello world") },
     ]);
@@ -872,7 +855,7 @@ describe("MCPAsyncToolResolver — content part mapping", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const result = await resolver.resolve("srv/snap");
-    const inv = await (result!.handle as InvokableHandle).invoke({});
+    const inv = await result!.handle.invoke({});
     expect(inv.content).toEqual([{ type: "image", value: "abc123" }]);
   });
 
@@ -886,7 +869,7 @@ describe("MCPAsyncToolResolver — content part mapping", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const result = await resolver.resolve("srv/raw");
-    const inv = await (result!.handle as InvokableHandle).invoke({});
+    const inv = await result!.handle.invoke({});
     expect(inv.content[0]?.type).toBe("json");
     expect((inv.content[0]?.value as { type: string }).type).toBe("binary");
   });
@@ -898,7 +881,7 @@ describe("MCPAsyncToolResolver — content part mapping", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const result = await resolver.resolve("srv/noop");
-    const inv = await (result!.handle as InvokableHandle).invoke({});
+    const inv = await result!.handle.invoke({});
     expect(inv.content).toEqual([]);
   });
 
@@ -912,7 +895,7 @@ describe("MCPAsyncToolResolver — content part mapping", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const result = await resolver.resolve("srv/silent");
-    const inv = await (result!.handle as InvokableHandle).invoke({});
+    const inv = await result!.handle.invoke({});
     expect(inv.content).toEqual([]);
   });
 
@@ -926,7 +909,7 @@ describe("MCPAsyncToolResolver — content part mapping", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const result = await resolver.resolve("srv/fail");
-    const inv = await (result!.handle as InvokableHandle).invoke({});
+    const inv = await result!.handle.invoke({});
     expect(inv.isError).toBe(true);
   });
 
@@ -940,7 +923,7 @@ describe("MCPAsyncToolResolver — content part mapping", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const result = await resolver.resolve("srv/blank");
-    const inv = await (result!.handle as InvokableHandle).invoke({});
+    const inv = await result!.handle.invoke({});
     expect(inv.content[0]).toEqual({ type: "text", value: fence("") });
   });
 
@@ -954,7 +937,7 @@ describe("MCPAsyncToolResolver — content part mapping", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const result = await resolver.resolve("srv/nodata");
-    const inv = await (result!.handle as InvokableHandle).invoke({});
+    const inv = await result!.handle.invoke({});
     expect(inv.content[0]).toEqual({ type: "image", value: "" });
   });
 
@@ -972,7 +955,7 @@ describe("MCPAsyncToolResolver — content part mapping", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const result = await resolver.resolve("srv/multi");
-    const inv = await (result!.handle as InvokableHandle).invoke({});
+    const inv = await result!.handle.invoke({});
     expect(inv.content).toEqual([
       { type: "text", value: fence("first") },
       { type: "image", value: "imgdata" },
@@ -992,7 +975,7 @@ describe("MCPAsyncToolResolver — invoke error surface", () => {
     const resolver = new MCPAsyncToolResolver(client);
     const result = await resolver.resolve("srv/boom");
     await expect(
-      (result!.handle as InvokableHandle).invoke({})
+      result!.handle.invoke({})
     ).rejects.toThrow(/MCP tool invocation failed.*EPIPE/);
   });
 
@@ -1006,7 +989,7 @@ describe("MCPAsyncToolResolver — invoke error surface", () => {
     const resolver = new MCPAsyncToolResolver(client);
     const result = await resolver.resolve("srv/crash");
     await expect(
-      (result!.handle as InvokableHandle).invoke({})
+      result!.handle.invoke({})
     ).rejects.toThrow(/MCP tool invocation failed/);
   });
 });
@@ -1122,21 +1105,21 @@ describe("MCPAsyncToolResolver — ResolvedTool shape", () => {
     const client = makeClient({ eager: [makeEager("calc", "math")] });
     const resolver = new MCPAsyncToolResolver(client);
     const result = await resolver.resolve("math/calc");
-    expect((result?.handle as { id: string }).id).toBe("math/calc");
+    expect(result!.handle.id).toBe("math/calc");
   });
 
   it("handle.serverId equals the tool serverId", async () => {
     const client = makeClient({ eager: [makeEager("run", "runner")] });
     const resolver = new MCPAsyncToolResolver(client);
     const result = await resolver.resolve("runner/run");
-    expect((result?.handle as { serverId: string }).serverId).toBe("runner");
+    expect(result!.handle.serverId).toBe("runner");
   });
 
   it("handle.toolName equals the tool name", async () => {
     const client = makeClient({ eager: [makeEager("execute", "exec-srv")] });
     const resolver = new MCPAsyncToolResolver(client);
     const result = await resolver.resolve("exec-srv/execute");
-    expect((result?.handle as { toolName: string }).toolName).toBe("execute");
+    expect(result!.handle.toolName).toBe("execute");
   });
 });
 
@@ -1187,7 +1170,7 @@ describe("MCPAsyncToolResolver — invokeTool called with tool name not ref", ()
     });
     const resolver = new MCPAsyncToolResolver(client);
     const result = await resolver.resolve("my_server/my_tool");
-    await (result!.handle as InvokableHandle).invoke({ key: "value" });
+    await result!.handle.invoke({ key: "value" });
     // Should be called with just "my_tool", not "my_server/my_tool"
     expect(invokeSpy).toHaveBeenCalledWith("my_tool", { key: "value" });
   });

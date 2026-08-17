@@ -225,7 +225,7 @@ describe("MCPAsyncToolResolver — tool schema retrieval", () => {
     const resolver = new MCPAsyncToolResolver(client);
     const result = await resolver.resolve("server-1/lookup");
     expect(result).not.toBeNull();
-    const handle = result!.handle as { toolName: string; serverId: string };
+    const handle = result!.handle;
     expect(handle.toolName).toBe("lookup");
     expect(handle.serverId).toBe("server-1");
   });
@@ -310,9 +310,7 @@ describe("MCPAsyncToolResolver — tool invocation", () => {
     const resolved = await resolver.resolve("server-1/search");
     expect(resolved).not.toBeNull();
 
-    const handle = resolved!.handle as {
-      invoke: (input: unknown) => Promise<unknown>;
-    };
+    const handle = resolved!.handle;
     await handle.invoke({ input: "hello" });
 
     expect(invokeTool).toHaveBeenCalledWith("search", { input: "hello" });
@@ -330,11 +328,7 @@ describe("MCPAsyncToolResolver — tool invocation", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const resolved = await resolver.resolve("server-1/search");
-    const handle = resolved!.handle as {
-      invoke: (
-        input: unknown
-      ) => Promise<{ content: unknown[]; isError: boolean }>;
-    };
+    const handle = resolved!.handle;
     const result = await handle.invoke({ input: "hello" });
 
     expect(result.content).toBeInstanceOf(Array);
@@ -357,11 +351,7 @@ describe("MCPAsyncToolResolver — tool invocation", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const resolved = await resolver.resolve("server-1/search");
-    const handle = resolved!.handle as {
-      invoke: (
-        input: unknown
-      ) => Promise<{ content: unknown[]; isError: boolean }>;
-    };
+    const handle = resolved!.handle;
     const result = await handle.invoke({ input: "fail" });
 
     expect(result.isError).toBe(true);
@@ -385,9 +375,7 @@ describe("MCPAsyncToolResolver — tool invocation", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const resolved = await resolver.resolve("server-1/ping");
-    const handle = resolved!.handle as {
-      invoke: (input: unknown) => Promise<unknown>;
-    };
+    const handle = resolved!.handle;
     await handle.invoke(null);
 
     expect(invokeTool).toHaveBeenCalledWith("ping", {});
@@ -405,9 +393,7 @@ describe("MCPAsyncToolResolver — tool invocation", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const resolved = await resolver.resolve("server-1/ping");
-    const handle = resolved!.handle as {
-      invoke: (input: unknown) => Promise<unknown>;
-    };
+    const handle = resolved!.handle;
     await handle.invoke(undefined);
 
     expect(invokeTool).toHaveBeenCalledWith("ping", {});
@@ -431,9 +417,7 @@ describe("MCPAsyncToolResolver — complex parameter invocation", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const resolved = await resolver.resolve("server-1/db-query");
-    const handle = resolved!.handle as {
-      invoke: (input: unknown) => Promise<unknown>;
-    };
+    const handle = resolved!.handle;
 
     const params = {
       query: "SELECT * FROM users",
@@ -468,9 +452,7 @@ describe("MCPAsyncToolResolver — complex parameter invocation", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const resolved = await resolver.resolve("server-1/batch-process");
-    const handle = resolved!.handle as {
-      invoke: (input: unknown) => Promise<unknown>;
-    };
+    const handle = resolved!.handle;
     await handle.invoke({ items: ["a", "b", "c"] });
 
     expect(invokeTool).toHaveBeenCalledWith("batch-process", {
@@ -499,11 +481,7 @@ describe("MCPAsyncToolResolver — tool result format", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const resolved = await resolver.resolve("server-1/read");
-    const handle = resolved!.handle as {
-      invoke: (
-        input: unknown
-      ) => Promise<{ content: Array<{ type: string; value: unknown }> }>;
-    };
+    const handle = resolved!.handle;
     const result = await handle.invoke({ input: "test" });
 
     expect(result.content).toHaveLength(2);
@@ -529,11 +507,7 @@ describe("MCPAsyncToolResolver — tool result format", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const resolved = await resolver.resolve("server-1/screenshot");
-    const handle = resolved!.handle as {
-      invoke: (
-        input: unknown
-      ) => Promise<{ content: Array<{ type: string; value: unknown }> }>;
-    };
+    const handle = resolved!.handle;
     const result = await handle.invoke({ input: "page" });
 
     expect(result.content[0]).toEqual({
@@ -559,11 +533,7 @@ describe("MCPAsyncToolResolver — tool result format", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const resolved = await resolver.resolve("server-1/raw-data");
-    const handle = resolved!.handle as {
-      invoke: (
-        input: unknown
-      ) => Promise<{ content: Array<{ type: string; value: unknown }> }>;
-    };
+    const handle = resolved!.handle;
     const result = await handle.invoke({ input: "x" });
 
     expect(result.content[0]).toMatchObject({ type: "json", value: rawPart });
@@ -581,9 +551,7 @@ describe("MCPAsyncToolResolver — tool result format", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const resolved = await resolver.resolve("server-1/noop");
-    const handle = resolved!.handle as {
-      invoke: (input: unknown) => Promise<{ content: unknown[] }>;
-    };
+    const handle = resolved!.handle;
     const result = await handle.invoke({});
 
     expect(result.content).toEqual([]);
@@ -601,9 +569,7 @@ describe("MCPAsyncToolResolver — tool result format", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const resolved = await resolver.resolve("server-1/odd-tool");
-    const handle = resolved!.handle as {
-      invoke: (input: unknown) => Promise<{ content: unknown[] }>;
-    };
+    const handle = resolved!.handle;
     const result = await handle.invoke({});
 
     expect(result.content).toEqual([]);
@@ -621,11 +587,7 @@ describe("MCPAsyncToolResolver — tool result format", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const resolved = await resolver.resolve("server-1/sparse-tool");
-    const handle = resolved!.handle as {
-      invoke: (
-        input: unknown
-      ) => Promise<{ content: Array<{ type: string; value: unknown }> }>;
-    };
+    const handle = resolved!.handle;
     const result = await handle.invoke({});
 
     expect(result.content[0]).toEqual({ type: "text", value: fence("") });
@@ -646,9 +608,7 @@ describe("MCPAsyncToolResolver — error handling", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const resolved = await resolver.resolve("server-1/flaky");
-    const handle = resolved!.handle as {
-      invoke: (input: unknown) => Promise<unknown>;
-    };
+    const handle = resolved!.handle;
 
     await expect(handle.invoke({ input: "x" })).rejects.toThrow(
       "network timeout"
@@ -664,9 +624,7 @@ describe("MCPAsyncToolResolver — error handling", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const resolved = await resolver.resolve("server-1/flaky");
-    const handle = resolved!.handle as {
-      invoke: (input: unknown) => Promise<unknown>;
-    };
+    const handle = resolved!.handle;
 
     await expect(handle.invoke({ input: "x" })).rejects.toThrow(
       "string error from server"
@@ -712,12 +670,8 @@ describe("MCPAsyncToolResolver — multiple tools sequential invocation", () => 
     expect(resolvedA).not.toBeNull();
     expect(resolvedB).not.toBeNull();
 
-    const handleA = resolvedA!.handle as {
-      invoke: (i: unknown) => Promise<{ content: Array<{ value: unknown }> }>;
-    };
-    const handleB = resolvedB!.handle as {
-      invoke: (i: unknown) => Promise<{ content: Array<{ value: unknown }> }>;
-    };
+    const handleA = resolvedA!.handle;
+    const handleB = resolvedB!.handle;
 
     const resultA = await handleA.invoke({ input: "x" });
     const resultB = await handleB.invoke({ input: "y" });
@@ -751,8 +705,8 @@ describe("MCPAsyncToolResolver — multiple tools sequential invocation", () => 
 
     expect(r1).not.toBeNull();
     expect(r2).not.toBeNull();
-    expect((r1!.handle as { serverId: string }).serverId).toBe("server-1");
-    expect((r2!.handle as { serverId: string }).serverId).toBe("server-2");
+    expect(r1!.handle.serverId).toBe("server-1");
+    expect(r2!.handle.serverId).toBe("server-2");
   });
 });
 
@@ -850,7 +804,7 @@ describe("MCPAsyncToolResolver — handle structure", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const result = await resolver.resolve("server-1/search");
-    const handle = result!.handle as { kind: string };
+    const handle = result!.handle;
     expect(handle.kind).toBe("mcp-tool");
   });
 
@@ -861,7 +815,7 @@ describe("MCPAsyncToolResolver — handle structure", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const result = await resolver.resolve("server-1/search");
-    const handle = result!.handle as { id: string };
+    const handle = result!.handle;
     expect(handle.id).toBe("server-1/search");
   });
 
@@ -872,7 +826,7 @@ describe("MCPAsyncToolResolver — handle structure", () => {
     });
     const resolver = new MCPAsyncToolResolver(client);
     const result = await resolver.resolve("server-1/search");
-    const handle = result!.handle as { invoke: unknown };
+    const handle = result!.handle;
     expect(typeof handle.invoke).toBe("function");
   });
 
@@ -945,8 +899,8 @@ describe("MCPAsyncToolResolver — edge cases", () => {
     expect(r1).not.toBeNull();
     expect(r2).not.toBeNull();
 
-    const h1 = r1!.handle as { invoke: (i: unknown) => Promise<unknown> };
-    const h2 = r2!.handle as { invoke: (i: unknown) => Promise<unknown> };
+    const h1 = r1!.handle;
+    const h2 = r2!.handle;
 
     await h1.invoke({ input: "a" });
     await h2.invoke({ input: "b" });

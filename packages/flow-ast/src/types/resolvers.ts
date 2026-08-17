@@ -59,29 +59,70 @@ export interface AsyncToolResolver {
 
 export type ResolvedToolKind = "mcp-tool" | "skill" | "workflow" | "agent";
 
-export interface ResolvedTool {
+/**
+ * A resolved reference plus the runtime handle used to invoke it.
+ *
+ * `ResolvedTool` is parameterised over BOTH halves of its discriminant pair —
+ * the `kind` tag and the handle it implies — so a producer can publish the
+ * exact handle shape it builds instead of erasing it to `unknown`:
+ *
+ * ```ts
+ * // producer side: the handle type survives all the way to callers
+ * resolve(ref: string): Promise<ResolvedTool<"agent", ResolvedAgentHandle> | null>
+ * ```
+ *
+ * The defaults reproduce the previous un-parameterised contract exactly, so a
+ * bare `ResolvedTool` still means "some resolved tool, handle opaque". That
+ * default is deliberate, not an omission: per Wave 11 ADR §5.3 flow-ast must
+ * not depend on the runtime handle shapes (they live in `@dzupagent/core`),
+ * and Stage 3/4 of the compiler never dereferences a handle — it threads it
+ * through to the runtime untouched. Consumers that DO invoke handles
+ * (connectors, host runtimes, codev-app) instantiate the parameters at the
+ * boundary where the shape is actually known and narrow on `kind` without a
+ * cast.
+ *
+ * @typeParam TKind - The `ResolvedToolKind` discriminant this tool carries.
+ * @typeParam THandle - The handle shape implied by `TKind`.
+ */
+export interface ResolvedTool<
+  TKind extends ResolvedToolKind = ResolvedToolKind,
+  THandle = unknown,
+> {
   /** The original opaque ref string as it appeared in the flow source. */
   ref: string;
   /** What the ref actually points at — drives compiler lowering choices. */
-  kind: ResolvedToolKind;
+  kind: TKind;
   /** JSON-Schema (or Zod-derived schema) describing accepted input. */
   inputSchema: unknown;
   /** Optional JSON-Schema for declared output shape. */
   outputSchema?: unknown;
-  /** Opaque, stable handle the runtime uses to invoke the resolved entity. */
-  handle: unknown;
+  /**
+   * Stable handle the runtime uses to invoke the resolved entity. Opaque to
+   * the compiler; fully typed for producers that parameterise `THandle`.
+   */
+  handle: THandle;
   /** Optional generic metadata surfaced by host registries for planning tools. */
   meta?: Record<string, unknown>;
   /** Reviewed classification, credential, effect, output, and evidence policy. */
   securityPolicy?: FlowToolSecurityPolicy;
 }
 
-export interface HostToolRegistryEntry {
+/**
+ * A host-registry entry, parameterised the same way as {@link ResolvedTool}
+ * so a registry that knows its handle shape can declare it. Note the handle is
+ * OPTIONAL here: `createHostToolRegistry` synthesises a placeholder for
+ * entries that omit it, so an instantiated `THandle` is a claim about entries
+ * that supply one, not a guarantee that every resolved tool carries it.
+ */
+export interface HostToolRegistryEntry<
+  TKind extends ResolvedToolKind = ResolvedToolKind,
+  THandle = unknown,
+> {
   ref: string;
-  kind: ResolvedToolKind;
+  kind: TKind;
   inputSchema: unknown;
   outputSchema?: unknown;
-  handle?: unknown;
+  handle?: THandle;
   aliases?: string[];
   description?: string;
   meta?: Record<string, unknown>;

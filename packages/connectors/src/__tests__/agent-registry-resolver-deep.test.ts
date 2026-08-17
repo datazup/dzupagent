@@ -382,7 +382,7 @@ describe("resolve() — handle shape", () => {
     const resolver = makeResolver({}, f);
     await resolver.refreshCatalogue();
     const result = await resolver.resolve("x");
-    expect((result?.handle as { kind: string }).kind).toBe("agent");
+    expect(result!.handle.kind).toBe("agent");
   });
 
   it("handle.id matches descriptor id", async () => {
@@ -390,7 +390,7 @@ describe("resolve() — handle shape", () => {
     const resolver = makeResolver({}, f);
     await resolver.refreshCatalogue();
     const result = await resolver.resolve("my-agent");
-    expect((result?.handle as { id: string }).id).toBe("my-agent");
+    expect(result!.handle.id).toBe("my-agent");
   });
 
   it("displayName uses displayName field when present", async () => {
@@ -398,7 +398,7 @@ describe("resolve() — handle shape", () => {
     const resolver = makeResolver({}, f);
     await resolver.refreshCatalogue();
     const result = await resolver.resolve("a");
-    expect((result?.handle as { displayName: string }).displayName).toBe(
+    expect(result!.handle.displayName).toBe(
       "Alpha"
     );
   });
@@ -408,7 +408,7 @@ describe("resolve() — handle shape", () => {
     const resolver = makeResolver({}, f);
     await resolver.refreshCatalogue();
     const result = await resolver.resolve("b");
-    expect((result?.handle as { displayName: string }).displayName).toBe(
+    expect(result!.handle.displayName).toBe(
       "Beta Agent"
     );
   });
@@ -418,7 +418,7 @@ describe("resolve() — handle shape", () => {
     const resolver = makeResolver({}, f);
     await resolver.refreshCatalogue();
     const result = await resolver.resolve("gamma");
-    expect((result?.handle as { displayName: string }).displayName).toBe(
+    expect(result!.handle.displayName).toBe(
       "gamma"
     );
   });
@@ -442,11 +442,7 @@ describe("resolve() — handle shape", () => {
     const resolver = makeResolver({}, stub.fetch);
     await resolver.refreshCatalogue();
     const result = await resolver.resolve("agent1");
-    const handle = result!.handle as {
-      invoke: (inv: {
-        prompt: string;
-      }) => Promise<{ output: unknown; runId: string; durationMs: number }>;
-    };
+    const handle = result!.handle;
     const inv = await handle.invoke({ prompt: "do something" });
     expect(inv).toEqual({
       output: { done: true },
@@ -775,9 +771,7 @@ describe("HTTP request construction", () => {
     const resolver = makeResolver({}, stub.fetch);
     await resolver.refreshCatalogue();
     const result = await resolver.resolve("agent1");
-    const handle = result!.handle as {
-      invoke: (inv: { prompt: string }) => Promise<unknown>;
-    };
+    const handle = result!.handle;
     await handle.invoke({ prompt: "hello" });
     const invokeCall = stub.calls.find((c) => c.url.includes("/invoke"));
     expect(invokeCall?.init?.method).toBe("POST");
@@ -983,7 +977,7 @@ describe("parseDescriptor() — field handling", () => {
     const resolver = makeResolver({}, f);
     await resolver.refreshCatalogue();
     const result = await resolver.resolve("x");
-    expect((result?.handle as { displayName: string }).displayName).toBe(
+    expect(result!.handle.displayName).toBe(
       "Agent X"
     );
   });
@@ -994,7 +988,7 @@ describe("parseDescriptor() — field handling", () => {
     await resolver.refreshCatalogue();
     const result = await resolver.resolve("x");
     // displayName is present and valid
-    expect((result?.handle as { displayName: string }).displayName).toBe(
+    expect(result!.handle.displayName).toBe(
       "Proper Name"
     );
   });
@@ -1004,7 +998,7 @@ describe("parseDescriptor() — field handling", () => {
     const resolver = makeResolver({}, f);
     await resolver.refreshCatalogue();
     const result = await resolver.resolve("x");
-    expect((result?.handle as { displayName: string }).displayName).toBe(
+    expect(result!.handle.displayName).toBe(
       "Fallback"
     );
   });
@@ -1059,9 +1053,7 @@ describe("invokeAgent() — response field defaults", () => {
     const resolver = makeResolver({}, stub.fetch);
     await resolver.refreshCatalogue();
     const result = await resolver.resolve("a");
-    const handle = result!.handle as {
-      invoke: (inv: { prompt: string }) => Promise<{ output: unknown }>;
-    };
+    const handle = result!.handle;
     const inv = await handle.invoke({ prompt: "go" });
     expect(inv.output).toBeNull();
   });
@@ -1085,9 +1077,7 @@ describe("invokeAgent() — response field defaults", () => {
     const resolver = makeResolver({}, stub.fetch);
     await resolver.refreshCatalogue();
     const result = await resolver.resolve("a");
-    const handle = result!.handle as {
-      invoke: (inv: { prompt: string }) => Promise<{ runId: string }>;
-    };
+    const handle = result!.handle;
     const inv = await handle.invoke({ prompt: "go" });
     expect(inv.runId).toMatch(/^a-\d+$/);
   });
@@ -1107,9 +1097,7 @@ describe("invokeAgent() — response field defaults", () => {
     const resolver = makeResolver({}, stub.fetch);
     await resolver.refreshCatalogue();
     const result = await resolver.resolve("a");
-    const handle = result!.handle as {
-      invoke: (inv: { prompt: string }) => Promise<{ durationMs: number }>;
-    };
+    const handle = result!.handle;
     const inv = await handle.invoke({ prompt: "go" });
     expect(typeof inv.durationMs).toBe("number");
     expect(inv.durationMs).toBeGreaterThanOrEqual(0);
@@ -1129,14 +1117,7 @@ describe("invokeAgent() — response field defaults", () => {
     const resolver = makeResolver({}, stub.fetch);
     await resolver.refreshCatalogue();
     const result = await resolver.resolve("a");
-    type FullHandle = {
-      invoke: (inv: {
-        prompt: string;
-        context?: unknown;
-        parentRunId?: string;
-      }) => Promise<unknown>;
-    };
-    const handle = result!.handle as FullHandle;
+    const handle = result!.handle;
     await handle.invoke({
       prompt: "test",
       context: { key: "val" },
@@ -1229,9 +1210,9 @@ describe("multiple agents in catalogue", () => {
     const a = await resolver.resolve("alpha");
     const b = await resolver.resolve("beta");
     const g = await resolver.resolve("gamma");
-    expect((a?.handle as { displayName: string }).displayName).toBe("Alpha");
-    expect((b?.handle as { displayName: string }).displayName).toBe("Beta");
-    expect((g?.handle as { displayName: string }).displayName).toBe("Gamma");
+    expect(a!.handle.displayName).toBe("Alpha");
+    expect(b!.handle.displayName).toBe("Beta");
+    expect(g!.handle.displayName).toBe("Gamma");
   });
 
   it("catalogue refs are sorted alphabetically", async () => {

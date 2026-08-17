@@ -128,14 +128,7 @@ describe('AgentRegistryAsyncToolResolver', () => {
       displayName: 'Planner',
     })
 
-    interface InvokableHandle {
-      invoke: (input: { prompt: string }) => Promise<{
-        output: unknown
-        runId: string
-        durationMs: number
-      }>
-    }
-    const handle = resolved!.handle as InvokableHandle
+    const handle = resolved!.handle
     const result = await handle.invoke({ prompt: 'plan me a quest' })
     expect(result).toEqual({ output: { plan: 'ok' }, runId: 'run-1', durationMs: 42 })
   })
