@@ -1,5 +1,5 @@
 {
-  "totalErrors": 1544,
+  "totalErrors": 1459,
   "note": "Test-file typecheck baseline (tsconfig.flipcheck.json per package). Ratchets down only. Bump only via --update-baseline after FIXING errors, never to accommodate new ones. Enforced per package AND per file, so a fix in one place cannot mask a regression in another. totalErrors and perCode are informational; the per-file budgets are what fail the build.",
   "packages": {
     "adapter-rules": {
@@ -282,41 +282,9 @@
       }
     },
     "connectors": {
-      "maxErrors": 85,
-      "perCode": {
-        "TS2571": 25,
-        "TS2493": 14,
-        "TS2352": 13,
-        "TS6133": 12,
-        "TS2339": 10,
-        "TS2322": 4,
-        "TS18046": 3,
-        "TS6196": 2,
-        "TS2345": 1,
-        "TS2353": 1
-      },
-      "perFile": {
-        "src/__tests__/agent-adapters-deep.test.ts": 3,
-        "src/__tests__/agent-registry-resolver-deep.test.ts": 2,
-        "src/__tests__/agent-registry-resolver.test.ts": 1,
-        "src/__tests__/connector-contract.test.ts": 1,
-        "src/__tests__/database-connector-qe.test.ts": 3,
-        "src/__tests__/database-connector-wave36.test.ts": 1,
-        "src/__tests__/db-connection-pool.test.ts": 6,
-        "src/__tests__/ddl-generator-extended.test.ts": 3,
-        "src/__tests__/duckdb-sqlite-clickhouse-deep.test.ts": 3,
-        "src/__tests__/github-connector-new.test.ts": 3,
-        "src/__tests__/http-connector-auth-retry.test.ts": 1,
-        "src/__tests__/http-connector.test.ts": 1,
-        "src/__tests__/slack-connector-extended2.test.ts": 1,
-        "src/__tests__/slack-connector-new-features.test.ts": 1,
-        "src/__tests__/sql-adapters-deep.test.ts": 26,
-        "src/sql/__tests__/duckdb-adapter.test.ts": 4,
-        "src/sql/__tests__/mysql-adapter.test.ts": 2,
-        "src/sql/__tests__/snowflake-adapter.test.ts": 3,
-        "src/sql/__tests__/sql-adapters.test.ts": 4,
-        "src/sql/__tests__/sqlite-adapter.test.ts": 16
-      }
+      "maxErrors": 0,
+      "perCode": {},
+      "perFile": {}
     },
     "connectors-browser": {
       "maxErrors": 0,
@@ -326,25 +294,25 @@
     "core": {
       "maxErrors": 126,
       "perCode": {
-        "TS2300": 2,
         "TS2322": 39,
-        "TS2339": 4,
         "TS2345": 25,
-        "TS2352": 6,
         "TS2353": 13,
-        "TS2358": 1,
         "TS2375": 9,
+        "TS2352": 6,
         "TS2379": 6,
-        "TS2412": 1,
-        "TS2493": 3,
-        "TS2554": 2,
         "TS2556": 5,
+        "TS2339": 4,
+        "TS2493": 3,
+        "TS2783": 3,
+        "TS2300": 2,
+        "TS2554": 2,
         "TS2558": 2,
+        "TS2769": 2,
+        "TS2358": 1,
+        "TS2412": 1,
         "TS2724": 1,
         "TS2739": 1,
-        "TS2741": 1,
-        "TS2769": 2,
-        "TS2783": 3
+        "TS2741": 1
       },
       "perFile": {
         "src/__tests__/compliance-audit.test.ts": 4,
