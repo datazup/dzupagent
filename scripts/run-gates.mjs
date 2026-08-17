@@ -45,8 +45,10 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
  * whose output every later gate inspects. Everything else runs unconditionally
  * so a single red gate cannot hide the rest.
  */
+export const BUILD_GATE_NAME = "build+typecheck+lint+test";
+
 const BUILD_STEP = {
-  name: "build+typecheck+lint+test",
+  name: BUILD_GATE_NAME,
   // Run through `yarn` like every other gate (see `asGate`): `turbo` is a
   // Yarn-managed binary and is NOT on PATH, so spawning this string with bare
   // `node` fails with "build-custody: spawn turbo ENOENT" — which, because this
@@ -64,6 +66,8 @@ const STATIC_CHECKS = [
   "check:gitleaks-allowlist",
   "check:waiver-expiry",
   "check:capability-matrix",
+  "check:memory-api-census",
+  "check:memory-conformance",
   "check:package-tiers",
   "check:domain-boundaries",
   "check:layer-boundaries",
@@ -76,6 +80,10 @@ const STATIC_CHECKS = [
   "test:scripts",
 ];
 
+// Runs after the build because the corpus round-trip loads compiled flow
+// packages; it is not an artifact check, hence its own list.
+const POST_BUILD_CHECKS = ["check:flow-corpus-losslessness"];
+
 const ARTIFACT_CHECKS = [
   "check:build-artifact-integrity",
   "check:package-export-artifacts",
@@ -85,13 +93,69 @@ const ARTIFACT_CHECKS = [
 
 const asGate = (script) => ({ name: script, run: `yarn ${script}` });
 
-const PROFILES = {
+export const PROFILES = {
   "strict-ci": [
     ...STATIC_CHECKS.map(asGate),
     BUILD_STEP,
+    ...POST_BUILD_CHECKS.map(asGate),
     ...ARTIFACT_CHECKS.map(asGate),
   ],
 };
+
+/**
+ * The `&&` chain in package.json is the human-authored source of truth for
+ * which gates exist. The profile above is a hand-transcribed copy of it, and a
+ * hand-transcribed copy drifts: `check:memory-api-census`,
+ * `check:memory-conformance` and `check:flow-corpus-losslessness` were dropped
+ * when this runner was first written and were never noticed, because CI runs
+ * ONLY the profile. Two of the three had rotted red by the time anyone looked.
+ *
+ * `compareProfileToChain` is the guard that makes that class of drift
+ * impossible to reintroduce silently; `scripts/__tests__/run-gates.test.mjs`
+ * asserts it against the real package.json, and `test:scripts` is itself a gate
+ * in the profile.
+ */
+export function parseChainGates(script) {
+  return script
+    .split("&&")
+    .map((clause) => clause.trim())
+    .filter(Boolean)
+    .map((clause) =>
+      // The build clause is spelled out inline rather than as a `yarn <script>`
+      // indirection, so it is identified by what it runs, not by its prefix.
+      clause.includes("turbo run build:verify")
+        ? BUILD_GATE_NAME
+        : clause.startsWith("yarn ")
+          ? clause.slice("yarn ".length).trim()
+          : clause
+    );
+}
+
+export function compareProfileToChain(gates, chainScript) {
+  const chain = parseChainGates(chainScript);
+  const profile = gates.map((g) => g.name);
+  const messages = [];
+
+  for (const name of chain) {
+    if (!profile.includes(name)) {
+      messages.push(
+        `gate "${name}" is in the verify chain but NOT in the profile — CI runs the profile, so this gate never runs`
+      );
+    }
+  }
+  for (const name of profile) {
+    if (!chain.includes(name)) {
+      messages.push(`gate "${name}" is in the profile but NOT in the verify chain`);
+    }
+  }
+  if (messages.length === 0 && profile.join("\u0000") !== chain.join("\u0000")) {
+    messages.push(
+      `profile and verify chain hold the same gates in a different order:\n  profile: ${profile.join(", ")}\n  chain:   ${chain.join(", ")}`
+    );
+  }
+
+  return { ok: messages.length === 0, messages };
+}
 
 function parseArgs(argv) {
   return {
@@ -170,4 +234,6 @@ function main() {
   console.log(`\n[run-gates] OK — ${results.length} gate(s) passed.`);
 }
 
-main();
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main();
+}
