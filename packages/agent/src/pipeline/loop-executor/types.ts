@@ -10,6 +10,10 @@ import type {
   NodeResult,
   PipelineState,
 } from "@dzupagent/runtime-contracts";
+import type {
+  PipelineForEachItemEconomics,
+  PipelineForEachItemOutcome,
+} from "@dzupagent/core/pipeline";
 
 /** A predicate loop's durable position after one body node completes. */
 export interface LoopBodyCheckpointProgress {
@@ -37,6 +41,21 @@ export interface ForEachItemCheckpointProgress {
   bodyResults: Readonly<Record<string, NodeResult>>;
   /** Attempt counter for this item; omitted on the first attempt. */
   attempt?: number;
+  /**
+   * 24-F: durable lifecycle state of this item at the moment of the
+   * checkpoint. Omitted by callers that cannot classify the item, so a
+   * checkpoint never claims an outcome it did not observe.
+   */
+  outcome?: PipelineForEachItemOutcome;
+  /**
+   * 24-F: the reservation this item holds when the checkpoint is taken.
+   *
+   * Reported by the loop rather than derived by the runtime writer: the loop
+   * is the only layer that knows whether a reserve actually succeeded, and
+   * re-deriving the id downstream would reproduce the *current* attempt's id
+   * rather than the one the host actually opened.
+   */
+  economics?: PipelineForEachItemEconomics;
 }
 
 /** Iteration output/progress retained at a completed iteration boundary. */

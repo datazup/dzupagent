@@ -15,6 +15,7 @@ import {
   type PipelineInteractionScopeV1,
   type PipelinePendingInteractionV1,
 } from "@dzupagent/runtime-contracts";
+import { PIPELINE_FOR_EACH_ITEM_OUTCOMES } from "./pipeline-checkpoint-store.js";
 import type { PipelineDefinition } from "./pipeline-definition.js";
 import { PIPELINE_SCHEMA_VERSIONS } from "./pipeline-definition.js";
 
@@ -296,12 +297,30 @@ const PipelineLoopBodyGraphCheckpointStateSchema = z
 
 const PipelineSha256DigestSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/);
 
+/**
+ * 24-F: durable per-item economics. Costs are integer cents and never
+ * negative; a fractional or negative amount is corrupt rather than merely
+ * unusual, so it is rejected at the parse boundary instead of being rounded.
+ */
+const PipelineForEachItemEconomicsSchema = z
+  .object({
+    reservationId: z.string().min(1),
+    reservedCostCents: z.number().int().nonnegative(),
+    settledCostCents: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+
 /** Mid-item durable progress for an in-flight for-each item (E0 frame). */
 const PipelineForEachItemFrameSchema = z.object({
   itemIndex: z.number().int().nonnegative(),
   nextBodyNodeIndex: z.number().int().nonnegative(),
   bodyResults: z.record(z.string(), z.unknown()).optional(),
   attempt: z.number().int().nonnegative().optional(),
+  // 24-F: the outcome vocabulary is closed. An unrecognised state is corrupt,
+  // not forward-compatible: admitting it would let a reader fall through every
+  // terminal check and treat a settled item as still running.
+  outcome: z.enum(PIPELINE_FOR_EACH_ITEM_OUTCOMES).optional(),
+  economics: PipelineForEachItemEconomicsSchema.optional(),
 });
 
 const PipelineLoopCheckpointStateSchema = z

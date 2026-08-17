@@ -40,7 +40,9 @@ export type {
   PipelineCheckpointCommitReceipt,
   PipelineCheckpointSourceBinding,
   PipelineExecutionScope,
+  PipelineForEachItemEconomics,
   PipelineForEachItemFrame,
+  PipelineForEachItemOutcome,
   PipelineLedgerUnavailablePolicy,
   PipelineInteractionResumeCursor,
   PipelineLoopBodyGraphCheckpointOutcome,
@@ -55,6 +57,10 @@ export type {
 
 // --- Serialization ---
 export { PIPELINE_SCHEMA_VERSIONS } from "./pipeline-definition.js";
+export {
+  PIPELINE_FOR_EACH_ITEM_OUTCOMES,
+  isTerminalItemOutcome,
+} from "./pipeline-checkpoint-store.js";
 
 export {
   // Zod schemas

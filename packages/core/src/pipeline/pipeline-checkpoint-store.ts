@@ -112,6 +112,110 @@ export interface PipelineForEachItemFrame {
    * execution scope so a retry derives a distinct idempotency key.
    */
   attempt?: number;
+  /**
+   * Durable lifecycle state of this item (24-F, doc 27 §8 prereq 2).
+   *
+   * Before 24-F a frame existed *only* while an item was mid-body and still in
+   * flight, so "what happened to item 7" had no durable answer: a failed,
+   * denied, aborted or settled item returned early and left no frame at all.
+   * That is why doc 27 §8 proof 5's outcome sub-part was unrepresentable
+   * rather than merely unwritten — there was no field to corrupt, so there was
+   * nothing to reject.
+   *
+   * Monotonic: an item advances `reserved → running → {completed | failed |
+   * cancelled | denied | outcome_unknown}` and never moves backwards. The
+   * terminal members are terminal for the *attempt*; a re-dispatch opens a new
+   * attempt rather than reopening a settled one. {@link isTerminalItemOutcome}
+   * is the single reader of that classification.
+   *
+   * Optional for backward compatibility: a checkpoint written before 24-F
+   * carries no outcome, and absence must stay UNPROVABLE rather than be read
+   * as agreement — an absent outcome means "this checkpoint predates the
+   * field", never "this item is running". Every guard here follows that rule
+   * so pre-24-F checkpoints keep resuming.
+   */
+  outcome?: PipelineForEachItemOutcome;
+  /**
+   * Durable per-item economics (24-F, doc 27 §8 proof 5's economics sub-part).
+   *
+   * Reservation identity and settled cost existed only in loop-local memory,
+   * so a crash lost the link between an item and the ledger row it opened, and
+   * a corrupted economics field could not be rejected because none was stored.
+   * Absent when the host authored no `itemBudgetCents` ceiling, in which case
+   * `for_each` takes no reservation at all and there is genuinely nothing to
+   * record.
+   */
+  economics?: PipelineForEachItemEconomics;
+}
+
+/**
+ * Durable lifecycle state of one `for_each` item attempt.
+ *
+ * `denied` and `outcome_unknown` are distinct from `failed` on purpose. A
+ * `failed` item ran and its body reported an error; a `denied` item never
+ * dispatched because its ceiling could not be authorized; an
+ * `outcome_unknown` item holds a reservation whose terminal state the host
+ * could not prove. Collapsing the last into `failed` would report a clean
+ * failure over money in an unknown state — the exact fact G2d fails closed on.
+ */
+export type PipelineForEachItemOutcome =
+  | "reserved"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "denied"
+  | "outcome_unknown";
+
+/** Every value {@link PipelineForEachItemOutcome} admits, for validation. */
+export const PIPELINE_FOR_EACH_ITEM_OUTCOMES: readonly PipelineForEachItemOutcome[] =
+  [
+    "reserved",
+    "running",
+    "completed",
+    "failed",
+    "cancelled",
+    "denied",
+    "outcome_unknown",
+  ];
+
+/**
+ * True when an outcome is terminal for its attempt.
+ *
+ * `outcome_unknown` is deliberately NOT terminal: the item's reservation state
+ * is unproven, so treating it as settled would let accounting close over an
+ * outstanding ledger row. Reconciliation must resolve it first.
+ */
+export function isTerminalItemOutcome(
+  outcome: PipelineForEachItemOutcome
+): boolean {
+  return (
+    outcome === "completed" ||
+    outcome === "failed" ||
+    outcome === "cancelled" ||
+    outcome === "denied"
+  );
+}
+
+/**
+ * Durable economics for one `for_each` item attempt.
+ *
+ * `reservationId` is the deterministic id `deriveItemReservationId` produces,
+ * so an operator can join a stranded checkpoint to its ledger row, and a
+ * resume can prove the reservation it is about to reconcile is the one this
+ * item actually opened.
+ */
+export interface PipelineForEachItemEconomics {
+  /** Deterministic reservation id this item's attempt opened. */
+  reservationId: string;
+  /** Integer cents admitted by the host for this item, `>= 0`. */
+  reservedCostCents: number;
+  /**
+   * Integer cents actually settled, `>= 0`. Absent until the item settles —
+   * a reserved-but-unsettled item has no actual spend yet, which is different
+   * from having settled zero.
+   */
+  settledCostCents?: number;
 }
 
 export interface PipelineLoopBodyGraphCheckpointState {
