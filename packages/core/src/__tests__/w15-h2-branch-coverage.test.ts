@@ -1719,7 +1719,7 @@ describe('safety-monitor — branch coverage', () => {
     m.detach()
     // No throw
     expect(() =>
-      bus.emit({ type: 'tool:error', toolName: 't', message: 'm', errorCode: 'e' }),
+      bus.emit({ type: 'tool:error', toolName: 't', message: 'm', errorCode: 'TOOL_EXECUTION_FAILED' }),
     ).not.toThrow()
     m.dispose()
   })
@@ -2001,7 +2001,7 @@ describe('InMemoryRunRecordStore — filter branches', () => {
   it('deleteRun returns true for existing id and clears events', async () => {
     const s = new InMemoryRunRecordStore()
     await s.createRun(mkRec({ id: 'a' }))
-    await s.storeEvent('a', { kind: 'llm_start', ts: 1, data: {} })
+    await s.storeEvent('a', { id: 'e1', runId: 'a', type: 'llm_start', timestamp: 1, data: {} })
     expect(await s.deleteRun('a')).toBe(true)
     expect(await s.getEvents('a')).toEqual([])
   })
@@ -2009,15 +2009,15 @@ describe('InMemoryRunRecordStore — filter branches', () => {
   it('storeEvent appends to existing event list', async () => {
     const s = new InMemoryRunRecordStore()
     await s.createRun(mkRec({ id: 'a' }))
-    await s.storeEvent('a', { kind: 'llm_start', ts: 1, data: {} })
-    await s.storeEvent('a', { kind: 'llm_end', ts: 2, data: {} })
+    await s.storeEvent('a', { id: 'e1', runId: 'a', type: 'llm_start', timestamp: 1, data: {} })
+    await s.storeEvent('a', { id: 'e2', runId: 'a', type: 'llm_end', timestamp: 2, data: {} })
     const evts = await s.getEvents('a')
     expect(evts).toHaveLength(2)
   })
 
   it('storeEvent on unknown run id still creates event list', async () => {
     const s = new InMemoryRunRecordStore()
-    await s.storeEvent('nope', { kind: 'llm_start', ts: 1, data: {} })
+    await s.storeEvent('nope', { id: 'e1', runId: 'nope', type: 'llm_start', timestamp: 1, data: {} })
     expect(await s.getEvents('nope')).toHaveLength(1)
   })
 
@@ -2025,7 +2025,7 @@ describe('InMemoryRunRecordStore — filter branches', () => {
     const s = new InMemoryRunRecordStore()
     await s.createRun(mkRec({ id: 'a' }))
     for (let i = 0; i < 5; i++) {
-      await s.storeEvent('a', { kind: 'llm_start', ts: i, data: {} })
+      await s.storeEvent('a', { id: `e${i}`, runId: 'a', type: 'llm_start', timestamp: i, data: {} })
     }
     const evts = await s.getEvents('a', { offset: 1, limit: 2 })
     expect(evts).toHaveLength(2)
