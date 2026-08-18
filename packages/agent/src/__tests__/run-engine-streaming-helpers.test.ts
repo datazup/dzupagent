@@ -11,7 +11,7 @@
  * have zero direct test coverage in the existing suite.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { ToolMessage } from '@langchain/core/messages'
+import { HumanMessage, ToolMessage } from '@langchain/core/messages'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import type { ToolGovernance, DzupEventBus } from '@dzupagent/core'
 import type { ToolPermissionPolicy } from '@dzupagent/agent-types'
@@ -22,7 +22,12 @@ import {
   recordToolLatencyOutcome,
   applyBudgetGate,
 } from '../agent/run-engine-streaming-helpers.js'
-import { createToolStatTracker } from '../agent/run-engine.js'
+import {
+  createToolStatTracker,
+  type PreparedRunState,
+} from '../agent/run-engine.js'
+import { createStreamRunFinalizer } from '../agent/streaming-run-iteration.js'
+import type { StreamRunContext } from '../agent/streaming-run-types.js'
 import { IterationBudget } from '../guardrails/iteration-budget.js'
 import { StuckDetector } from '../guardrails/stuck-detector.js'
 
@@ -588,5 +593,70 @@ describe('applyBudgetGate', () => {
     })
 
     expect(decision.kind).toBe('continue')
+  })
+})
+
+describe('createStreamRunFinalizer — learning continuity', () => {
+  it.each([
+    'complete',
+    'aborted',
+    'stuck',
+    'budget_exceeded',
+    'token_exhausted',
+    'iteration_limit',
+  ] as const)('completes learning exactly once for %s', async (stopReason) => {
+    const budget = new IterationBudget({ maxTokens: 1_000 })
+    budget.recordUsage({ model: 'test-model', inputTokens: 12, outputTokens: 4 })
+    const hook = {
+      onLoopComplete: vi.fn(async (input: {
+        llmCalls: number
+        totalInputTokens: number
+        totalOutputTokens: number
+        stopReason: typeof stopReason
+        toolStats: unknown[]
+      }) => ({
+        ...input,
+        skillMetrics: [],
+        skillsNeedingReview: [],
+        optimizableSkills: [],
+        wasStuck: input.stopReason === 'stuck',
+      })),
+    }
+    const runState = {
+      budget,
+      learningHook: hook,
+    } as unknown as PreparedRunState & { learningHook: typeof hook }
+    const ctx = {
+      agentId: 'stream-learning-agent',
+      config: {
+        id: 'stream-learning-agent',
+        instructions: '',
+        model: 'gpt-4',
+      },
+      maybeUpdateSummary: vi.fn(async () => {}),
+      maybeWriteBackMemory: vi.fn(async () => {}),
+    } as unknown as StreamRunContext
+
+    const finalize = createStreamRunFinalizer({
+      ctx,
+      options: undefined,
+      runState,
+      allMessages: [new HumanMessage('hello')],
+      toolStats: createToolStatTracker(),
+      getLlmCalls: () => 3,
+      getPartialContent: () => 'partial',
+    })
+
+    const learnings = await finalize(stopReason, 'partial')
+
+    expect(hook.onLoopComplete).toHaveBeenCalledOnce()
+    expect(hook.onLoopComplete).toHaveBeenCalledWith({
+      llmCalls: 3,
+      totalInputTokens: 12,
+      totalOutputTokens: 4,
+      stopReason,
+      toolStats: [],
+    })
+    expect(learnings).toMatchObject({ stopReason, llmCalls: 3 })
   })
 })

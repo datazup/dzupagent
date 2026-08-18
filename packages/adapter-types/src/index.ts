@@ -29,4 +29,5 @@ export * from "./provider-execution-port.js";
 export * from "./pipeline-executor-port.js";
 export * from "./ai-execution-port.js";
 export * from "./provider-session.js";
+export * from "./provider-session-explorer.js";
 export * from "./utils/correlation.js";

@@ -76,6 +76,7 @@ export async function* handleStreamToolCalls(
               durationMs,
               ...(error !== undefined ? { error } : {}),
             })
+            runState.learningHook?.recordToolExecution(name, durationMs, error)
           },
           statTracker: toolStats,
           ...(options?.signal !== undefined ? { signal: options.signal } : {}),

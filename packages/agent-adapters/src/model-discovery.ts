@@ -3,6 +3,12 @@ import { execFile } from "node:child_process";
 import { spawn } from "node:child_process";
 import { promisify } from "node:util";
 
+import {
+  validateProviderCatalogSnapshotV2,
+  type ProviderCapabilitySupport,
+  type ProviderCatalogSnapshotV2,
+} from "@dzupagent/adapter-types/provider-session-explorer";
+
 const execFileAsync = promisify(execFile);
 
 export type DiscoverableProviderId = "codex" | "claude" | "gemini" | "qwen";
@@ -61,6 +67,91 @@ export interface ProviderModelCatalogSourceEvidence {
   installationId: string;
   backendId: string;
   sourceRevision?: string | undefined;
+}
+
+export interface ProviderCatalogV2ProjectionOptions {
+  /** Bounded freshness selected by the product policy; ISO-8601. */
+  expiresAt: string;
+  /** Connector-qualified resume truth. Unknown is the fail-closed default. */
+  nativeResumeSupport?: ProviderCapabilitySupport | undefined;
+  nativeResumeQualifiedVersion?: string | undefined;
+}
+
+/**
+ * Projects provider discovery into the shared browser-safe catalog boundary.
+ * Returns null when installation identity, timestamps, or public fields do not
+ * satisfy that boundary; it never invents a model, effort, or resume claim.
+ */
+export function projectProviderModelCatalogV2(
+  catalog: ProviderModelCatalog,
+  options: ProviderCatalogV2ProjectionOptions,
+): ProviderCatalogSnapshotV2 | null {
+  if (!catalog.installationId || !catalog.backendId) return null;
+  const nativeResumeSupport = options.nativeResumeSupport ?? "unknown";
+  const models = catalog.models.map((model) => {
+    const efforts = (model.supportedReasoningEfforts ?? []).map((effort) => ({
+      effortId: effort,
+      displayName: effort,
+      nativeValue: effort,
+      source: catalog.source,
+      confidence: "observed" as const,
+    }));
+    const defaultEffortId =
+      model.defaultReasoningEffort && efforts.some((effort) => effort.effortId === model.defaultReasoningEffort)
+        ? model.defaultReasoningEffort
+        : undefined;
+    return {
+      modelId: model.id,
+      displayName: model.displayName,
+      isDefault: model.isDefault === true,
+      ...(model.hidden !== undefined ? { hidden: model.hidden } : {}),
+      efforts,
+      ...(defaultEffortId ? { defaultEffortId } : {}),
+      ...(model.maxInputTokens !== undefined ? { maxInputTokens: model.maxInputTokens } : {}),
+      ...(model.maxOutputTokens !== undefined ? { maxOutputTokens: model.maxOutputTokens } : {}),
+    };
+  });
+  const modelCatalogSupport: ProviderCapabilitySupport =
+    catalog.authenticated === true && models.length > 0 ? "supported" : "unknown";
+  const projected: ProviderCatalogSnapshotV2 = {
+    schemaVersion: "codev/provider-catalog/v2",
+    providerId: catalog.providerId,
+    installationId: catalog.installationId,
+    backendId: catalog.backendId,
+    source: catalog.source,
+    ...(catalog.sourceRevision ? { sourceRevision: catalog.sourceRevision } : {}),
+    observedAt: catalog.discoveredAt,
+    expiresAt: options.expiresAt,
+    fingerprint: catalog.fingerprint,
+    authenticated: catalog.authenticated,
+    completeness:
+      catalog.completeness === "account-catalog"
+        ? "account"
+        : catalog.completeness === "runtime-catalog"
+          ? "runtime"
+          : "aliases",
+    confidence: "observed",
+    models,
+    capabilities: {
+      modelCatalog: {
+        support: modelCatalogSupport,
+        source: catalog.source,
+        observedAt: catalog.discoveredAt,
+        expiresAt: options.expiresAt,
+      },
+      native_resume: {
+        support: nativeResumeSupport,
+        source: catalog.source,
+        observedAt: catalog.discoveredAt,
+        expiresAt: options.expiresAt,
+        ...(options.nativeResumeQualifiedVersion
+          ? { qualifiedVersion: options.nativeResumeQualifiedVersion }
+          : {}),
+      },
+    },
+    warnings: catalog.warnings,
+  };
+  return validateProviderCatalogSnapshotV2(projected).valid ? projected : null;
 }
 
 export interface ModelAvailabilityAssessment {

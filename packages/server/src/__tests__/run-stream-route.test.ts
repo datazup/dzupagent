@@ -877,6 +877,67 @@ describe('GET /api/runs/:id/stream — SSE integration', () => {
     }
   })
 
+  it('preserves failure after a slow consumer fills the real 100-event cap', async () => {
+    const { runId } = await setupRunForStream(config, { runStatus: 'running' })
+    const res = await app.request(`/api/runs/${runId}/stream`)
+
+    for (let i = 0; i < 100; i++) {
+      eventBus.emit({
+        type: 'agent:stream_delta',
+        agentId: 'agent-stream',
+        runId,
+        content: `chunk-${i}`,
+      })
+    }
+    eventBus.emit({
+      type: 'agent:failed',
+      agentId: 'agent-stream',
+      runId,
+      errorCode: 'UPSTREAM_FAILED',
+      message: 'upstream failed at capacity',
+    })
+
+    const events = parseSSEEvents(await readSSELines(res, 5000))
+    expect(events.filter(event => event.event === 'text_delta')).toHaveLength(100)
+    const failures = events.filter(event => event.event === 'error')
+    expect(failures).toHaveLength(1)
+    expect(JSON.parse(failures[0]!.data)).toMatchObject({
+      type: 'error',
+      error: { name: 'Error', message: 'upstream failed at capacity' },
+    })
+    expect(events.at(-1)?.event).toBe('error')
+  })
+
+  it('preserves normal completion after a slow consumer fills the real 100-event cap', async () => {
+    const { runId } = await setupRunForStream(config, { runStatus: 'running' })
+    const res = await app.request(`/api/runs/${runId}/stream`)
+
+    for (let i = 0; i < 100; i++) {
+      eventBus.emit({
+        type: 'agent:stream_delta',
+        agentId: 'agent-stream',
+        runId,
+        content: `chunk-${i}`,
+      })
+    }
+    eventBus.emit({
+      type: 'agent:stream_done',
+      agentId: 'agent-stream',
+      runId,
+      finalContent: 'complete at capacity',
+    })
+
+    const events = parseSSEEvents(await readSSELines(res, 5000))
+    expect(events.filter(event => event.event === 'text_delta')).toHaveLength(100)
+    const completions = events.filter(event => event.event === 'done')
+    expect(completions).toHaveLength(1)
+    expect(JSON.parse(completions[0]!.data)).toMatchObject({
+      type: 'done',
+      finalOutput: 'complete at capacity',
+    })
+    expect(events.at(-1)?.event).toBe('done')
+  })
+
   // ──────────────────────────────────────────────────────────────────
   // 19. done event includes finalOutput
   // ──────────────────────────────────────────────────────────────────

@@ -2,6 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { StreamingRunHandle } from '../streaming/streaming-run-handle.js'
 import type { StreamEvent } from '../streaming/streaming-types.js'
 
+async function collectEvents(handle: StreamingRunHandle): Promise<StreamEvent[]> {
+  const events: StreamEvent[] = []
+  for await (const event of handle.events()) events.push(event)
+  return events
+}
+
 describe('StreamingRunHandle', () => {
   describe('push and events', () => {
     it('yields pushed events in order', async () => {
@@ -145,28 +151,87 @@ describe('StreamingRunHandle', () => {
   })
 
   describe('buffer overflow', () => {
-    it('drops events beyond maxBufferSize', () => {
-      const handle = new StreamingRunHandle({ maxBufferSize: 3 })
+    it('preserves the original failure after a full ordinary buffer', async () => {
+      const handle = new StreamingRunHandle({ maxBufferSize: 2 })
+      const upstreamError = new TypeError('upstream failed')
 
       handle.push({ type: 'text_delta', content: '1' })
       handle.push({ type: 'text_delta', content: '2' })
-      handle.push({ type: 'text_delta', content: '3' })
-      handle.push({ type: 'text_delta', content: '4' }) // Should be dropped
+      handle.fail(upstreamError)
+
+      const events = await collectEvents(handle)
+      expect(handle.status).toBe('failed')
+      expect(events.map(event => event.type)).toEqual(['text_delta', 'text_delta', 'error'])
+      expect(events[2]).toEqual({ type: 'error', error: upstreamError })
+    })
+
+    it('fails closed with one stable overflow error at exact capacity', async () => {
+      const handle = new StreamingRunHandle({ maxBufferSize: 2 })
+
+      handle.push({ type: 'text_delta', content: '1' })
+      handle.push({ type: 'text_delta', content: '2' })
+      handle.push({ type: 'text_delta', content: 'overflow' })
+
+      expect(handle.status).toBe('failed')
+      const events = await collectEvents(handle)
+      expect(events.map(event => event.type)).toEqual(['text_delta', 'text_delta', 'error'])
+      const terminal = events[2]
+      expect(terminal).toMatchObject({
+        type: 'error',
+        error: {
+          name: 'StreamBufferOverflowError',
+          message: 'stream_buffer_overflow',
+        },
+      })
+    })
+
+    it('retains one done event outside a full ordinary buffer', async () => {
+      const handle = new StreamingRunHandle({ maxBufferSize: 2 })
+
+      handle.push({ type: 'text_delta', content: '1' })
+      handle.push({ type: 'text_delta', content: '2' })
+      handle.push({ type: 'done', finalOutput: '12' })
       handle.complete()
 
-      let count = 0
-      const iter = handle.events()[Symbol.asyncIterator]()
-      const drain = async () => {
-        while (true) {
-          const { done } = await iter.next()
-          if (done) break
-          count++
-        }
-      }
+      const events = await collectEvents(handle)
+      expect(handle.status).toBe('completed')
+      expect(events).toEqual([
+        { type: 'text_delta', content: '1' },
+        { type: 'text_delta', content: '2' },
+        { type: 'done', finalOutput: '12' },
+      ])
+    })
 
-      return drain().then(() => {
-        expect(count).toBe(3) // Only 3 events, 4th was dropped
-      })
+    it('retains no synthetic terminal event when a full buffer is cancelled', async () => {
+      const handle = new StreamingRunHandle({ maxBufferSize: 2 })
+
+      handle.push({ type: 'text_delta', content: '1' })
+      handle.push({ type: 'text_delta', content: '2' })
+      handle.cancel()
+
+      const events = await collectEvents(handle)
+      expect(handle.status).toBe('cancelled')
+      expect(events).toEqual([
+        { type: 'text_delta', content: '1' },
+        { type: 'text_delta', content: '2' },
+      ])
+    })
+
+    it('delivers only the first terminal event across duplicate attempts', async () => {
+      const handle = new StreamingRunHandle({ maxBufferSize: 1 })
+
+      handle.push({ type: 'text_delta', content: 'accepted' })
+      handle.push({ type: 'done', finalOutput: 'first' })
+      expect(() => handle.push({ type: 'done', finalOutput: 'second' }))
+        .toThrow('Cannot push events to a completed stream')
+      handle.complete()
+      handle.fail(new Error('late failure'))
+
+      const events = await collectEvents(handle)
+      expect(events).toEqual([
+        { type: 'text_delta', content: 'accepted' },
+        { type: 'done', finalOutput: 'first' },
+      ])
     })
   })
 
@@ -194,15 +259,19 @@ describe('StreamingRunHandle', () => {
   })
 
   describe('default options', () => {
-    it('uses default maxBufferSize of 1000', () => {
+    it('uses default ordinary capacity of exactly 1000', async () => {
       const handle = new StreamingRunHandle()
-      // Push many events -- up to 1000 should be buffered
       for (let i = 0; i < 1001; i++) {
         handle.push({ type: 'text_delta', content: `event-${i}` })
       }
-      handle.complete()
-      // If we got here without error, the 1001st was just silently dropped
-      expect(handle.status).toBe('completed')
+
+      expect(handle.status).toBe('failed')
+      const events = await collectEvents(handle)
+      expect(events).toHaveLength(1001)
+      expect(events.at(-1)).toMatchObject({
+        type: 'error',
+        error: { name: 'StreamBufferOverflowError' },
+      })
     })
   })
 })

@@ -55,10 +55,11 @@ export async function* runStreamFallback(
   }
   yield {
     type: 'done',
-    data: {
+    data: omitUndefined({
       content: result.content,
       stopReason: result.stopReason,
+      learnings: result.learnings,
       ...(result.hitIterationLimit ? { hitIterationLimit: true } : {}),
-    },
+    }),
   }
 }

@@ -406,6 +406,54 @@ describe('streamRunHandleToSSE', () => {
     expect(stream.written.map(w => w.event)).toEqual(['text_delta', 'text_delta', 'done'])
   })
 
+  it('delivers a full-buffer failure once after a blocked first SSE write', async () => {
+    const blockedHandle = new StreamingRunHandle({ maxBufferSize: 2 })
+    let releaseFirstWrite: (() => void) | undefined
+    let markFirstWriteStarted: (() => void) | undefined
+    const firstWriteStarted = new Promise<void>((resolve) => {
+      markFirstWriteStarted = resolve
+    })
+    const firstWriteGate = new Promise<void>((resolve) => {
+      releaseFirstWrite = resolve
+    })
+    const written: Array<{ data: string; event?: string }> = []
+    const blockedStream: SSEStreamLike = {
+      async writeSSE(message) {
+        written.push(message)
+        if (written.length === 1) {
+          markFirstWriteStarted?.()
+          await firstWriteGate
+        }
+      },
+      onAbort() { /* noop */ },
+    }
+
+    const adapterPromise = streamRunHandleToSSE(blockedHandle, blockedStream, {
+      keepAliveIntervalMs: 0,
+    })
+    blockedHandle.push({ type: 'text_delta', content: 'in-flight' })
+    await firstWriteStarted
+
+    blockedHandle.push({ type: 'text_delta', content: 'buffered-1' })
+    blockedHandle.push({ type: 'text_delta', content: 'buffered-2' })
+    blockedHandle.fail(new TypeError('upstream failed'))
+    releaseFirstWrite?.()
+    await adapterPromise
+
+    expect(written.map(message => message.event)).toEqual([
+      'text_delta',
+      'text_delta',
+      'text_delta',
+      'error',
+    ])
+    const failures = written.filter(message => message.event === 'error')
+    expect(failures).toHaveLength(1)
+    expect(JSON.parse(failures[0]!.data)).toMatchObject({
+      type: 'error',
+      error: { name: 'TypeError', message: 'upstream failed' },
+    })
+  })
+
   // --- handle already completed ---
 
   it('resolves immediately when handle is already completed before iteration', async () => {

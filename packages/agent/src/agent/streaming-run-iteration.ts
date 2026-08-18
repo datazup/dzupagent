@@ -45,6 +45,7 @@ import { shouldWriteBackMemory } from './memory-write-back-policy.js'
 import { applyOutputFilter } from './run-engine.js'
 import type { StreamRunContext } from './streaming-run-types.js'
 import type { StopReason } from './tool-loop.js'
+import type { RunLearnings } from './tool-loop-learning.js'
 
 /**
  * Native streaming throws model/runtime errors instead of finalizing them and
@@ -71,7 +72,10 @@ export function createStreamRunFinalizer(args: {
   toolStats: ToolStatTracker
   getLlmCalls: () => number
   getPartialContent: () => string
-}): (stopReason: StreamStopReason, content?: string) => Promise<void> {
+}): (
+  stopReason: StreamStopReason,
+  content?: string,
+) => Promise<RunLearnings | undefined> {
   const {
     ctx,
     options,
@@ -104,6 +108,16 @@ export function createStreamRunFinalizer(args: {
       )
       await ctx.maybeWriteBackMemory(writeBackContent, runId)
     }
+    if (!runState.learningHook) return undefined
+
+    const budgetState = runState.budget?.getState()
+    return runState.learningHook.onLoopComplete({
+      llmCalls: getLlmCalls(),
+      totalInputTokens: budgetState?.totalInputTokens ?? 0,
+      totalOutputTokens: budgetState?.totalOutputTokens ?? 0,
+      stopReason,
+      toolStats: toolStats.toArray(),
+    })
   }
 }
 

@@ -26,8 +26,22 @@ import type { StreamEvent } from './streaming-types.js'
 /** Run status for a streaming execution. */
 export type StreamingStatus = 'running' | 'completed' | 'failed' | 'cancelled'
 
+type TerminalStreamEvent = Extract<StreamEvent, { type: 'done' | 'error' }>
+type OrdinaryStreamEvent = Exclude<StreamEvent, TerminalStreamEvent>
+
+class StreamBufferOverflowError extends Error {
+  constructor() {
+    super('stream_buffer_overflow')
+    this.name = 'StreamBufferOverflowError'
+  }
+}
+
+function isTerminalEvent(event: StreamEvent): event is TerminalStreamEvent {
+  return event.type === 'done' || event.type === 'error'
+}
+
 export interface StreamingRunHandleOptions {
-  /** Maximum number of events to buffer before the consumer reads them (default: 1000). */
+  /** Maximum ordinary events to buffer; one terminal slot is reserved separately (default: 1000). */
   maxBufferSize?: number
 }
 
@@ -39,8 +53,9 @@ export interface StreamingRunHandleOptions {
  */
 export class StreamingRunHandle {
   private _status: StreamingStatus = 'running'
-  private readonly eventQueue: StreamEvent[] = []
+  private readonly eventQueue: OrdinaryStreamEvent[] = []
   private readonly maxBuffer: number
+  private terminalEvent: TerminalStreamEvent | null = null
   private waiter: {
     resolve: (value: IteratorResult<StreamEvent>) => void
   } | null = null
@@ -65,6 +80,11 @@ export class StreamingRunHandle {
       throw new Error(`Cannot push events to a ${this._status} stream`)
     }
 
+    if (isTerminalEvent(event)) {
+      this.acceptTerminal(event, event.type === 'done' ? 'completed' : 'failed')
+      return
+    }
+
     // If a consumer is waiting, deliver directly
     if (this.waiter) {
       const w = this.waiter
@@ -73,11 +93,17 @@ export class StreamingRunHandle {
       return
     }
 
-    // Otherwise buffer (with overflow protection)
+    // maxBuffer is the exact ordinary-event capacity. Terminal events use a
+    // separate reserved slot so overflow or upstream failure stays observable.
     if (this.eventQueue.length < this.maxBuffer) {
       this.eventQueue.push(event)
+      return
     }
-    // Events beyond maxBuffer are silently dropped to prevent memory leaks
+
+    this.acceptTerminal(
+      { type: 'error', error: new StreamBufferOverflowError() },
+      'failed',
+    )
   }
 
   /**
@@ -97,17 +123,7 @@ export class StreamingRunHandle {
    */
   fail(error: Error): void {
     if (this._status !== 'running') return
-    // Push the error event before transitioning to terminal state
-    const errorEvent: StreamEvent = { type: 'error', error }
-    if (this.waiter) {
-      const w = this.waiter
-      this.waiter = null
-      w.resolve({ value: errorEvent, done: false })
-    } else if (this.eventQueue.length < this.maxBuffer) {
-      this.eventQueue.push(errorEvent)
-    }
-    this._status = 'failed'
-    this.resolveWaiter()
+    this.acceptTerminal({ type: 'error', error }, 'failed')
   }
 
   /**
@@ -137,6 +153,12 @@ export class StreamingRunHandle {
               return Promise.resolve({ value: event, done: false })
             }
 
+            if (this.terminalEvent) {
+              const event = this.terminalEvent
+              this.terminalEvent = null
+              return Promise.resolve({ value: event, done: false })
+            }
+
             // If terminal and no more buffered events, we are done.
             // `IteratorReturnResult` allows `value: undefined`, so no cast
             // is needed — explicitly type the resolution as the return form.
@@ -155,19 +177,32 @@ export class StreamingRunHandle {
     }
   }
 
+  /** Reserve and expose exactly one done/error event, outside ordinary capacity. */
+  private acceptTerminal(event: TerminalStreamEvent, status: 'completed' | 'failed'): void {
+    this.terminalEvent = event
+    this._status = status
+    this.resolveWaiter()
+  }
+
   /** Resolve a pending waiter with done=true (used when transitioning to terminal). */
   private resolveWaiter(): void {
-    if (this.waiter) {
-      const w = this.waiter
-      this.waiter = null
-      // Don't signal done yet if there are buffered events — the consumer's
-      // next() call will drain them first, then see terminal status.
-      if (this.eventQueue.length === 0) {
-        const result: IteratorReturnResult<undefined> = { value: undefined, done: true }
-        w.resolve(result)
-      }
-      // If there are buffered events, the waiter should never be set
-      // (the queue drain path handles it), so this branch is defensive.
+    if (!this.waiter) return
+
+    const w = this.waiter
+    this.waiter = null
+    if (this.eventQueue.length > 0) {
+      w.resolve({ value: this.eventQueue.shift()!, done: false })
+      return
+    }
+    if (this.terminalEvent) {
+      const event = this.terminalEvent
+      this.terminalEvent = null
+      w.resolve({ value: event, done: false })
+      return
+    }
+    if (this._status !== 'running') {
+      const result: IteratorReturnResult<undefined> = { value: undefined, done: true }
+      w.resolve(result)
     }
   }
 }

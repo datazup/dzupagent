@@ -8,6 +8,7 @@ import type {
 } from '../agent-types.js'
 import type { IterationBudget } from '../../guardrails/iteration-budget.js'
 import type { StuckDetector } from '../../guardrails/stuck-detector.js'
+import type { ToolLoopLearningHook } from '../tool-loop-learning.js'
 import type {
   StreamingToolExecutionResult,
   StreamingToolPolicyOptions,
@@ -22,6 +23,8 @@ export interface PreparedRunState {
   toolMap: Map<string, StructuredToolInterface>
   model: BaseChatModel
   stuckDetector?: StuckDetector
+  /** Per-run self-learning lifecycle; absent when self-learning is disabled. */
+  learningHook?: ToolLoopLearningHook
   /**
    * Per-run memory frame snapshot captured during `prepareMessages`.
    * Threaded through the run state (instead of stored on the agent instance)

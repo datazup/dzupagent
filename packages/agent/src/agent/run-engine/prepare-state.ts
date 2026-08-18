@@ -298,6 +298,7 @@ export async function prepareRunState(
     toolMap: new Map(tools.map((tool) => [tool.name, tool])),
     model,
     stuckDetector,
+    learningHook,
     memoryFrame,
     middlewareState,
   });

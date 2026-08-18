@@ -530,6 +530,28 @@ describe('prepareRunState', () => {
       expect(loadFn).toHaveBeenCalledOnce()
     })
 
+    it('retains the exact initialized hook on the prepared run state', async () => {
+      const hook = {
+        loadSpecialistConfig: vi.fn(async () => undefined),
+        recordToolExecution: vi.fn(),
+        onLoopComplete: vi.fn(),
+      }
+      mockCreateToolLoopLearningHook.mockReturnValue(hook)
+
+      const state = await prepareRunState(basePrepareParams({
+        config: {
+          id: 'learning-continuity-agent',
+          instructions: '',
+          model: 'gpt-4',
+          selfLearning: { enabled: true },
+        },
+      }))
+
+      expect(hook.loadSpecialistConfig).toHaveBeenCalledOnce()
+      expect((state as PreparedRunState & { learningHook?: unknown }).learningHook)
+        .toBe(hook)
+    })
+
     it('suppresses loadSpecialistConfig errors (non-fatal)', async () => {
       const loadFn = vi.fn(async () => {
         throw new Error('registry unavailable')
@@ -739,6 +761,94 @@ describe('executeGenerateRun', () => {
 
     const result = await executeGenerateRun(baseExecuteParams(runState))
     expect(result.toolStats).toBe(stats)
+  })
+
+  it('records tool latency and surfaces the exact completed run learnings', async () => {
+    const stats: ToolStat[] = [
+      { name: 'search', calls: 1, errors: 0, totalMs: 12, avgMs: 12 },
+    ]
+    const learnings = {
+      llmCalls: 2,
+      totalInputTokens: 30,
+      totalOutputTokens: 9,
+      stopReason: 'complete' as const,
+      toolStats: stats,
+      skillMetrics: [],
+      skillsNeedingReview: [],
+      optimizableSkills: [],
+      wasStuck: false,
+    }
+    const hook = {
+      recordToolExecution: vi.fn(),
+      onLoopComplete: vi.fn(async () => learnings),
+    }
+    const runState = makeRunState()
+    runState.learningHook = hook as unknown as NonNullable<
+      PreparedRunState['learningHook']
+    >
+    mockRunToolLoop.mockImplementation(async (_model, _messages, _tools, config) => {
+      config.onToolLatency?.('search', 12)
+      return makeToolLoopResult({
+        llmCalls: 2,
+        totalInputTokens: 30,
+        totalOutputTokens: 9,
+        toolStats: stats,
+      })
+    })
+    mockExtractFinalAiMessageContent.mockReturnValue('done')
+
+    const result = await executeGenerateRun(baseExecuteParams(runState))
+
+    expect(hook.recordToolExecution).toHaveBeenCalledOnce()
+    expect(hook.recordToolExecution).toHaveBeenCalledWith('search', 12, undefined)
+    expect(hook.onLoopComplete).toHaveBeenCalledOnce()
+    expect(hook.onLoopComplete).toHaveBeenCalledWith({
+      llmCalls: 2,
+      totalInputTokens: 30,
+      totalOutputTokens: 9,
+      stopReason: 'complete',
+      toolStats: stats,
+    })
+    expect(result.learnings).toBe(learnings)
+  })
+
+  it.each([
+    'stuck',
+    'budget_exceeded',
+    'iteration_limit',
+  ] as const)('completes learning once for a %s generate result', async (stopReason) => {
+    const hook = {
+      recordToolExecution: vi.fn(),
+      onLoopComplete: vi.fn(async (input: {
+        llmCalls: number
+        totalInputTokens: number
+        totalOutputTokens: number
+        stopReason: typeof stopReason
+        toolStats: ToolStat[]
+      }) => ({
+        ...input,
+        skillMetrics: [],
+        skillsNeedingReview: [],
+        optimizableSkills: [],
+        wasStuck: input.stopReason === 'stuck',
+      })),
+    }
+    const runState = makeRunState()
+    runState.learningHook = hook as unknown as NonNullable<
+      PreparedRunState['learningHook']
+    >
+    mockRunToolLoop.mockResolvedValue(makeToolLoopResult({
+      stopReason,
+      hitIterationLimit: stopReason !== 'stuck',
+    }))
+
+    const result = await executeGenerateRun(baseExecuteParams(runState))
+
+    expect(hook.onLoopComplete).toHaveBeenCalledOnce()
+    expect(hook.onLoopComplete).toHaveBeenCalledWith(expect.objectContaining({
+      stopReason,
+    }))
+    expect(result.learnings).toMatchObject({ stopReason })
   })
 
   it('passes stuckError through', async () => {

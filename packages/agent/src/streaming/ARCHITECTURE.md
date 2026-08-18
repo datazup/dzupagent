@@ -58,14 +58,18 @@ Execution behavior:
 Producer/consumer queue flow:
 
 1. Producer calls `push(event)` while status is `running`.
-2. If a consumer is waiting, event resolves immediately.
-3. Otherwise event is enqueued up to `maxBufferSize` (default `1000`); overflow is dropped.
-4. Consumer iterates `for await (const event of handle.events())`.
-5. Terminal calls (`complete`, `fail`, `cancel`) stop new pushes and eventually end iteration after buffered events are drained.
+2. If a consumer is waiting, an ordinary event resolves immediately.
+3. Otherwise ordinary events are enqueued up to exactly `maxBufferSize` (default `1000`).
+4. One separate slot retains exactly one terminal `done` or `error` event, so maximum retained events are bounded by `maxBufferSize + 1`.
+5. The first ordinary event beyond capacity transitions the handle to `failed` and reserves a stable `StreamBufferOverflowError` (`stream_buffer_overflow`) instead of silently losing data.
+6. Consumer iterates `for await (const event of handle.events())`.
+7. Accepted ordinary events drain in order, followed by the terminal slot, then iteration ends.
+8. Terminal calls (`complete`, `fail`, `cancel`) are idempotent; cancellation ends after accepted ordinary events without fabricating a `done` or `error` event.
 
 Failure path:
 
-- `fail(error)` enqueues/delivers an `error` `StreamEvent` before transitioning to `failed`.
+- `fail(error)` reserves the original `error` `StreamEvent` independently of ordinary capacity before reporting `failed`.
+- Pushing a `done` or `error` event claims the terminal slot and transitions to its matching terminal status immediately; a following `complete()` or `fail()` remains an idempotent compatibility call.
 
 ### `TextDeltaBuffer`
 Text buffering flow:
@@ -145,7 +149,7 @@ Dedicated tests for this module:
 Covered behavior includes:
 
 - `TextDeltaBuffer`: partial token accumulation, whitespace/newline boundaries, flush/reset/peek behavior.
-- `StreamingRunHandle`: status transitions, waiter handoff, terminal semantics, push-after-terminal errors, fail-path error event delivery, buffer overflow dropping.
+- `StreamingRunHandle`: status transitions, waiter handoff, reserved terminal delivery, push-after-terminal errors, observable bounded overflow, full-buffer failure/completion, and cancellation without synthetic events.
 - `StreamActionParser`: multimodal text extraction, chunked tool-call assembly, ID fallback behavior, duplicate suppression, parse edge cases, unknown/missing tools, tool exceptions, sequential vs parallel limits, and `flush()` drain behavior.
 
 Observability in module code:
@@ -155,11 +159,11 @@ Observability in module code:
 
 ## Risks and TODOs
 - `StreamActionParser` fallback IDs for missing `tool_calls[].id` are nondeterministic (`Date.now()` + `Math.random()`), which can complicate deterministic replay or correlation.
-- `StreamingRunHandle` silently drops events beyond `maxBufferSize`; this prevents unbounded growth but can hide data loss under slow consumers.
+- `StreamingRunHandle` fails closed on the first ordinary event beyond `maxBufferSize`; consumers must treat `StreamBufferOverflowError` as an incomplete stream and must not retry writes to the terminal handle.
 - `StreamActionParser` retains `pending` and `fired` entries for the parser lifetime; long-lived parser instances can accumulate state unless recreated per run.
 - `tryParseJson` only accepts object-shaped JSON (`{...}`); arrays/primitives in streamed args are treated as unparseable and degrade to `{}` in non-streaming `tool_calls` string mode.
 - There are three streaming event surfaces in this package (`StreamActionEvent`, `StreamEvent`, `AgentStreamEvent`) with different shapes and semantics; adapter glue must remain explicit to avoid contract drift.
 
 ## Changelog
+- 2026-08-18: terminal events moved to a reserved slot; ordinary overflow now fails closed with a stable observable error.
 - 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
-

@@ -404,6 +404,11 @@ export async function setupModelCall(
             durationMs,
             ...(error !== undefined ? { error } : {}),
           });
+          params.runState.learningHook?.recordToolExecution(
+            name,
+            durationMs,
+            error
+          );
         },
         shouldHalt: params.config.tokenLifecyclePlugin
           ? () => params.config.tokenLifecyclePlugin!.shouldHalt()

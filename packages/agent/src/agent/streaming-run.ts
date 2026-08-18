@@ -116,15 +116,25 @@ export async function* streamRun(
 
   for (let iteration = 0; iteration < runState.maxIterations; iteration++) {
     if (options?.signal?.aborted) {
-      await finalizeRun('aborted')
-      yield { type: 'done', data: { stopReason: 'aborted' } }
+      const learnings = await finalizeRun('aborted')
+      yield {
+        type: 'done',
+        data: omitUndefined({ stopReason: 'aborted', learnings }),
+      }
       return
     }
 
     const budgetStatus = yield* checkBudgetForIteration(runState)
     if (budgetStatus === 'exceeded') {
-      await finalizeRun('budget_exceeded')
-      yield { type: 'done', data: { stopReason: 'budget_exceeded', hitIterationLimit: true } }
+      const learnings = await finalizeRun('budget_exceeded')
+      yield {
+        type: 'done',
+        data: omitUndefined({
+          stopReason: 'budget_exceeded',
+          hitIterationLimit: true,
+          learnings,
+        }),
+      }
       return
     }
 
@@ -222,8 +232,11 @@ export async function* streamRun(
     // Token lifecycle halt check — evaluated after compression adoption but
     // before tool execution, matching generate() parity for exhausted tokens.
     if (tokenPlugin?.shouldHalt()) {
-      await finalizeRun('token_exhausted')
-      yield { type: 'done', data: { stopReason: 'token_exhausted' } }
+      const learnings = await finalizeRun('token_exhausted')
+      yield {
+        type: 'done',
+        data: omitUndefined({ stopReason: 'token_exhausted', learnings }),
+      }
       return
     }
 
@@ -235,8 +248,11 @@ export async function* streamRun(
 
     if (!toolCalls || toolCalls.length === 0) {
       const content = await applyOutputFilter(ctx.config, chunks.join(''))
-      await finalizeRun('complete', content)
-      yield { type: 'done', data: { content, stopReason: 'complete' } }
+      const learnings = await finalizeRun('complete', content)
+      yield {
+        type: 'done',
+        data: omitUndefined({ content, stopReason: 'complete', learnings }),
+      }
       return
     }
 
@@ -248,19 +264,32 @@ export async function* streamRun(
       options,
     })
     if (outcome.status === 'stop') {
-      await finalizeRun(outcome.stopReason)
-      yield { type: 'done', data: { stopReason: outcome.stopReason } }
+      const learnings = await finalizeRun(outcome.stopReason)
+      yield {
+        type: 'done',
+        data: omitUndefined({ stopReason: outcome.stopReason, learnings }),
+      }
       return
     }
 
     const idleStatus = yield* checkIdleStuck(ctx, runState, toolCalls.length)
     if (idleStatus === 'stuck') {
-      await finalizeRun('stuck')
-      yield { type: 'done', data: { stopReason: 'stuck' } }
+      const learnings = await finalizeRun('stuck')
+      yield {
+        type: 'done',
+        data: omitUndefined({ stopReason: 'stuck', learnings }),
+      }
       return
     }
   }
 
-  await finalizeRun('iteration_limit')
-  yield { type: 'done', data: { hitIterationLimit: true, stopReason: 'iteration_limit' } }
+  const learnings = await finalizeRun('iteration_limit')
+  yield {
+    type: 'done',
+    data: omitUndefined({
+      hitIterationLimit: true,
+      stopReason: 'iteration_limit',
+      learnings,
+    }),
+  }
 }

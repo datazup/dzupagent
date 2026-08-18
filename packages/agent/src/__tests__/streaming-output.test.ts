@@ -209,19 +209,28 @@ describe("StreamingRunHandle — backpressure and slow consumer", () => {
     }
   });
 
-  it("events beyond maxBufferSize are silently dropped (high-watermark protection)", async () => {
+  it("fails closed once when an ordinary event exceeds maxBufferSize", async () => {
     const handle = new StreamingRunHandle({ maxBufferSize: 5 });
 
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 5; i++) {
       handle.push({ type: "text_delta", content: `e${i}` });
     }
-    handle.complete();
+    handle.push({ type: "text_delta", content: "overflow" });
+    expect(() => handle.push({ type: "text_delta", content: "late" })).toThrow(
+      "Cannot push events to a failed stream",
+    );
 
     const events = await drainHandle(handle);
-    // Only the first 5 arrive; the last 3 are dropped
-    expect(events).toHaveLength(5);
+    expect(events).toHaveLength(6);
     const first = events[0] as { type: string; content: string };
     expect(first.content).toBe("e0");
+    expect(events.at(-1)).toMatchObject({
+      type: "error",
+      error: {
+        name: "StreamBufferOverflowError",
+        message: "stream_buffer_overflow",
+      },
+    });
   });
 
   it("slow consumer that awaits between reads still drains all events", async () => {
@@ -287,15 +296,18 @@ describe("StreamingRunHandle — backpressure and slow consumer", () => {
     handle.complete();
   });
 
-  it("maxBufferSize of 1 only keeps the single most recently buffered event", async () => {
+  it("maxBufferSize of 1 retains one ordinary event plus the overflow error", async () => {
     const handle = new StreamingRunHandle({ maxBufferSize: 1 });
     handle.push({ type: "text_delta", content: "first" });
-    handle.push({ type: "text_delta", content: "second" }); // dropped
-    handle.complete();
+    handle.push({ type: "text_delta", content: "overflow" });
 
     const events = await drainHandle(handle);
-    expect(events).toHaveLength(1);
+    expect(events).toHaveLength(2);
     expect((events[0] as { content: string }).content).toBe("first");
+    expect(events[1]).toMatchObject({
+      type: "error",
+      error: { name: "StreamBufferOverflowError" },
+    });
   });
 });
 
@@ -1779,17 +1791,19 @@ describe("StreamingRunHandle — large volume stress tests", () => {
     expect(events).toHaveLength(1000);
   });
 
-  it("events 1001+ are dropped when maxBufferSize=1000", async () => {
+  it("event 1001 produces one terminal overflow error when maxBufferSize=1000", async () => {
     const handle = new StreamingRunHandle({ maxBufferSize: 1000 });
-    for (let i = 0; i < 1005; i++) {
+    for (let i = 0; i < 1001; i++) {
       handle.push({ type: "text_delta", content: `e${i}` });
     }
-    handle.complete();
 
     const events = await drainHandle(handle);
-    // Last 5 dropped
-    expect(events).toHaveLength(1000);
+    expect(events).toHaveLength(1001);
     expect((events[999] as { content: string }).content).toBe("e999");
+    expect(events[1000]).toMatchObject({
+      type: "error",
+      error: { name: "StreamBufferOverflowError" },
+    });
   });
 });
 
@@ -1994,12 +2008,15 @@ describe("StreamActionParser — reset / re-use semantics", () => {
     expect(complete!.data.toolCall?.id).toBe("rc1");
   });
 
-  it("StreamingRunHandle maxBufferSize=0 drops every pushed event", async () => {
+  it("StreamingRunHandle maxBufferSize=0 turns the first event into overflow", async () => {
     const handle = new StreamingRunHandle({ maxBufferSize: 0 });
-    handle.push({ type: "text_delta", content: "dropped" });
-    handle.complete();
+    handle.push({ type: "text_delta", content: "overflow" });
 
     const events = await drainHandle(handle);
-    expect(events).toHaveLength(0);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "error",
+      error: { name: "StreamBufferOverflowError" },
+    });
   });
 });

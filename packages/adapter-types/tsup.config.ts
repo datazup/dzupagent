@@ -9,6 +9,7 @@ export default defineConfig({
     'src/monitoring/posture.ts',
     'src/monitoring/dashboard.ts',
     'src/provider-session.ts',
+    'src/provider-session-explorer.ts',
   ],
   format: ['esm'],
   dts: false,

@@ -144,6 +144,16 @@ export async function processGeneratedRun(
     }
   }
 
+  const learnings = params.runState.learningHook
+    ? await params.runState.learningHook.onLoopComplete({
+        llmCalls: result.llmCalls,
+        totalInputTokens: result.totalInputTokens,
+        totalOutputTokens: result.totalOutputTokens,
+        stopReason: result.stopReason,
+        toolStats: result.toolStats,
+      })
+    : undefined
+
   return omitUndefined({
     content,
     messages: result.messages,
@@ -156,6 +166,7 @@ export async function processGeneratedRun(
     stopReason: result.stopReason,
     toolStats: result.toolStats,
     stuckError: result.stuckError,
+    learnings,
     // Surface the per-run memory frame for observability so callers (and
     // the public `RunResult` via `runInBackground`) can inspect which
     // memory context was attached to this run.

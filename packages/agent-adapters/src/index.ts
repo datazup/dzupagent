@@ -106,6 +106,7 @@ export {
   discoverQwenModels,
   parseAcpModelCatalogObservation,
   parseClaudeCliModelAliases,
+  projectProviderModelCatalogV2,
 } from "./model-discovery.js";
 export { inspectProviderRequestCapabilities } from "./provider-request-capability-inspection.js";
 export type {
@@ -129,6 +130,7 @@ export type {
   ProviderModelCatalogSource,
   ProviderModelCatalogSourceEvidence,
   ProviderModelDiscoveryOptions,
+  ProviderCatalogV2ProjectionOptions,
   QwenModelDiscoveryOptions,
 } from "./model-discovery.js";
 
