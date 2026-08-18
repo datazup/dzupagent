@@ -590,6 +590,7 @@ describe('AgentOrchestrator.supervisor', () => {
         content: 'done',
         availableSpecialists: ['api'],
         filteredSpecialists: [],
+        routingDecisionId: expect.any(String),
       })
 
       const circuitDiagnostic = events.find((event) =>

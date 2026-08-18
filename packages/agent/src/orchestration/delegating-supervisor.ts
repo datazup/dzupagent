@@ -619,7 +619,8 @@ export class DelegatingSupervisor implements SubOrchestratorChild {
           subtasks,
           this.routingPolicy,
           toAgentSpecs(this.specialists, this.circuitBreaker),
-          this.eventBus
+          this.eventBus,
+          options?.routingTask
         )
       : matchSubtasksToSpecialists(subtasks, this.specialists);
 

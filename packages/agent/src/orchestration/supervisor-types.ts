@@ -10,7 +10,10 @@ import type { DzupAgent } from "../agent/dzip-agent.js";
 import type { AgentCircuitBreaker } from "./circuit-breaker.js";
 import type { OrchestrationMergeStrategy } from "./orchestration-merge-strategy-types.js";
 import type { ProviderExecutionPort } from "./provider-adapter/provider-execution-port.js";
-import type { RoutingPolicy } from "./routing-policy-types.js";
+import type {
+  RoutingPolicy,
+  RoutingTaskInput,
+} from "./routing-policy-types.js";
 
 export interface SupervisorConfig extends BaseSupervisorContract<DzupAgent> {
   /** The manager agent that coordinates specialists */
@@ -42,6 +45,8 @@ export interface SupervisorConfig extends BaseSupervisorContract<DzupAgent> {
    * When set, filters/selects specialists before exposing them to the manager.
    */
   routingPolicy?: RoutingPolicy;
+  /** Optional stable identity, requirements, and metadata for routing. */
+  routingTask?: RoutingTaskInput;
   /**
    * Pluggable merge strategy for combining parallel agent results.
    * Used by the `parallel` method when provided.

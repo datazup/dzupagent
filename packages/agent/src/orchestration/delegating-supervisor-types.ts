@@ -19,6 +19,7 @@
 
 import type { DelegationContext, DelegationResult } from "./delegation.js";
 import type { StructuredLLM } from "../structured/structured-output-engine.js";
+import type { RoutingTaskInput } from "./routing-policy-types.js";
 
 /** Options for LLM-powered planAndDelegate. */
 export interface PlanAndDelegateOptions {
@@ -26,6 +27,8 @@ export interface PlanAndDelegateOptions {
   llm?: StructuredLLM;
   /** Abort signal for cancellation */
   signal?: AbortSignal;
+  /** Optional stable identity, requirements, and metadata for policy routing. */
+  routingTask?: RoutingTaskInput;
   /**
    * Explicitly acknowledge unresolved LLM planning nodes/dependencies.
    *

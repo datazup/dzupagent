@@ -20,10 +20,15 @@ import type { DzupEventBus } from '@dzupagent/core/events'
 import type { AgentCircuitBreaker } from './circuit-breaker.js'
 import type {
   AgentSpec,
-  AgentTask,
   RoutingPolicy,
+  RoutingTaskInput,
 } from './routing-policy-types.js'
 import { omitUndefined } from '../utils/exact-optional.js'
+import { normalizeRoutingDecision } from './routing/decision-identity.js'
+import {
+  buildRoutingTask,
+  ROUTING_KEYWORD_TAG_MAP,
+} from './routing/task-identity.js'
 
 /** A single task assignment created by the matchers. */
 export interface SelectionAssignment {
@@ -36,14 +41,7 @@ export interface SelectionAssignment {
  * Simple keyword map used by `matchSubtasksToSpecialists` to bridge sub-task
  * fragments to specialists based on metadata tags. Case-insensitive.
  */
-export const KEYWORD_TAG_MAP: ReadonlyMap<string, readonly string[]> = new Map([
-  ['database', ['database', 'db', 'sql', 'schema', 'migration']],
-  ['api', ['api', 'backend', 'rest', 'endpoint', 'route', 'server']],
-  ['ui', ['ui', 'frontend', 'component', 'page', 'view', 'css', 'style']],
-  ['test', ['test', 'testing', 'spec', 'coverage', 'assertion']],
-  ['security', ['security', 'auth', 'authentication', 'authorization', 'rbac']],
-  ['deploy', ['deploy', 'deployment', 'ci', 'cd', 'infrastructure', 'devops']],
-])
+export const KEYWORD_TAG_MAP = ROUTING_KEYWORD_TAG_MAP
 
 /**
  * Project the specialist registry into `AgentSpec[]` and apply optional
@@ -178,18 +176,26 @@ export function routeSubtasksViaPolicy(
   routingPolicy: RoutingPolicy,
   candidates: AgentSpec[],
   eventBus?: DzupEventBus,
+  routingTask?: RoutingTaskInput,
 ): SelectionAssignment[] {
   if (candidates.length === 0) return []
 
   const assignments: SelectionAssignment[] = []
 
-  for (const subtask of subtasks) {
-    const task: AgentTask = {
-      taskId: `subtask-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  for (const [ordinal, subtask] of subtasks.entries()) {
+    const task = buildRoutingTask({
+      scope: 'subtask',
       content: subtask,
-    }
+      ordinal,
+      input: routingTask,
+    })
 
-    const decision = routingPolicy.select(task, candidates)
+    const decision = normalizeRoutingDecision(
+      task,
+      candidates,
+      routingPolicy.select(task, candidates),
+      'delegation',
+    )
 
     const selectedCandidates =
       decision.diagnostics?.selectedIds ?? decision.selected.map((agent) => agent.id)
@@ -200,12 +206,14 @@ export function routeSubtasksViaPolicy(
       const routingEvent = omitUndefined({
         type: 'supervisor:routing_decision',
         agentId: selected.id,
+        taskId: task.taskId,
         strategy: decision.strategy,
         reason: decision.reason,
         fallbackReason: decision.fallbackReason,
         selectedCandidates,
         candidateSpecialists,
         source: 'delegating-supervisor',
+        routingDecisionId: decision.routingDecisionId,
       } as const)
       eventBus?.emit(routingEvent)
     }

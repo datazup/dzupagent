@@ -6,10 +6,7 @@ import type {
   RoutingPolicy,
   RuleBasedRoutingConfig,
 } from "../routing-policy-types.js";
-
-function makeDecisionId(strategy: string, taskId: string): string {
-  return `${strategy}-${taskId}-${Date.now()}`;
-}
+import { createRoutingDecisionId } from "./decision-identity.js";
 
 export class RuleBasedRouting implements RoutingPolicy {
   constructor(private readonly config: RuleBasedRoutingConfig) {}
@@ -45,7 +42,7 @@ export class RuleBasedRouting implements RoutingPolicy {
                 rule.description ??
                 `Rule match: tag '${tag}' → agent '${rule.agentId}'`,
               strategy: "rule",
-              routingDecisionId: makeDecisionId("rule", task.taskId),
+              routingDecisionId: createRoutingDecisionId("rule", task.taskId),
               diagnostics,
             };
           }
@@ -81,7 +78,7 @@ export class RuleBasedRouting implements RoutingPolicy {
           reason: "Fallback rule (no tag match)",
           strategy: "rule",
           fallbackReason: "no tag match",
-          routingDecisionId: makeDecisionId("rule", task.taskId),
+          routingDecisionId: createRoutingDecisionId("rule", task.taskId),
           diagnostics,
         };
       }
@@ -108,7 +105,7 @@ export class RuleBasedRouting implements RoutingPolicy {
         selected: [first],
         reason: "No matching rule or fallback; selected first candidate",
         strategy: "rule",
-        routingDecisionId: makeDecisionId("rule", task.taskId),
+        routingDecisionId: createRoutingDecisionId("rule", task.taskId),
         diagnostics,
       };
     }
@@ -117,7 +114,7 @@ export class RuleBasedRouting implements RoutingPolicy {
       selected: [],
       reason: "No candidates available",
       strategy: "rule",
-      routingDecisionId: makeDecisionId("rule", task.taskId),
+      routingDecisionId: createRoutingDecisionId("rule", task.taskId),
       diagnostics: { candidateIds: [], selectedIds: [] },
     };
   }

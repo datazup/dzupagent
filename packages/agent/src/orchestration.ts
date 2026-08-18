@@ -132,6 +132,7 @@ export type {
 export type {
   AgentSpec,
   AgentTask,
+  RoutingTaskInput,
   RoutingDecision,
   RoutingPolicy,
   RuleBasedRoutingConfig,

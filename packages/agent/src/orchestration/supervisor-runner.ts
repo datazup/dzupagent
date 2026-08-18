@@ -15,7 +15,9 @@ import { defaultLogger } from "@dzupagent/core/utils";
 import { DzupAgent } from "../agent/dzip-agent.js";
 import { omitUndefined } from "../utils/exact-optional.js";
 import { OrchestrationError } from "./orchestration-error.js";
-import type { AgentSpec, AgentTask } from "./routing-policy-types.js";
+import type { AgentSpec } from "./routing-policy-types.js";
+import { normalizeRoutingDecision } from "./routing/decision-identity.js";
+import { buildRoutingTask } from "./routing/task-identity.js";
 import { instrumentSpecialistTool } from "./specialist-tool-instrumentation.js";
 import type { SupervisorConfig, SupervisorResult } from "./supervisor-types.js";
 
@@ -108,6 +110,15 @@ export async function runSupervisor(
     );
   }
 
+  const routingTask =
+    routingPolicy
+      ? buildRoutingTask({
+          scope: "supervisor",
+          content: task,
+          input: config.routingTask,
+        })
+      : undefined;
+
   // Capture the routingDecisionId of whichever selection step ran so it can be
   // persisted on the SupervisorResult for replay/audit (W7 routing-decision
   // tracing). The circuit-breaker step sets it first; a routing policy (more
@@ -168,11 +179,13 @@ export async function runSupervisor(
       tags: [],
     }));
     const candidateSpecialists = candidates.map((s) => s.id);
-    const agentTask: AgentTask = {
-      taskId: `supervisor-${Date.now()}`,
-      content: task,
-    };
-    const decision = routingPolicy.select(agentTask, candidates);
+    const agentTask = routingTask!;
+    const decision = normalizeRoutingDecision(
+      agentTask,
+      candidates,
+      routingPolicy.select(agentTask, candidates),
+      "supervisor"
+    );
     capturedRoutingDecisionId = decision.routingDecisionId;
     const selectedIds = new Set(decision.selected.map((a) => a.id));
     specialists = specialists.filter((s) => selectedIds.has(s.id));

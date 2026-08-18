@@ -5,6 +5,7 @@ import type {
   RoutingPolicy,
   HashRoutingConfig,
 } from "../routing-policy-types.js";
+import { createRoutingDecisionId } from "./decision-identity.js";
 
 /** Simple djb2-style hash for consistent routing */
 function hashString(str: string): number {
@@ -29,7 +30,7 @@ export class HashRouting implements RoutingPolicy {
         selected: [],
         reason: "No candidates available",
         strategy: "hash",
-        routingDecisionId: `hash-${task.taskId}-${Date.now()}`,
+        routingDecisionId: createRoutingDecisionId("hash", task.taskId),
         diagnostics: { candidateIds: [], selectedIds: [] },
       };
     }
@@ -55,7 +56,7 @@ export class HashRouting implements RoutingPolicy {
       selected: [agent],
       reason: `Hash routing: key '${key}' → index ${index} → agent '${agent.id}'`,
       strategy: "hash",
-      routingDecisionId: `hash-${task.taskId}-${Date.now()}`,
+      routingDecisionId: createRoutingDecisionId("hash", task.taskId),
       diagnostics: {
         candidateIds,
         selectedIds: [agent.id],

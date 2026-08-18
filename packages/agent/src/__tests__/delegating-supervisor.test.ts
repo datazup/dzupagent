@@ -1141,7 +1141,9 @@ describe("DelegatingSupervisor", () => {
       }
 
       expect(thrown).toBeInstanceOf(OrchestrationError);
-      expect((thrown as Error).message).toContain("No specialists matched");
+      expect((thrown as Error).message).toContain(
+        "Routing policy must select at least one candidate"
+      );
     });
   });
 

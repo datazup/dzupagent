@@ -4,6 +4,7 @@ import type {
   RoutingDecision,
   RoutingPolicy,
 } from "../routing-policy-types.js";
+import { createRoutingDecisionId } from "./decision-identity.js";
 
 export class RoundRobinRouting implements RoutingPolicy {
   private counter = 0;
@@ -14,7 +15,10 @@ export class RoundRobinRouting implements RoutingPolicy {
         selected: [],
         reason: "No candidates available",
         strategy: "round-robin",
-        routingDecisionId: `round-robin-${task.taskId}-${Date.now()}`,
+        routingDecisionId: createRoutingDecisionId(
+          "round-robin",
+          task.taskId
+        ),
         diagnostics: { candidateIds: [], selectedIds: [] },
       };
     }
@@ -34,7 +38,7 @@ export class RoundRobinRouting implements RoutingPolicy {
       selected: [agent],
       reason: `Round-robin: slot ${index} → agent '${agent.id}'`,
       strategy: "round-robin",
-      routingDecisionId: `round-robin-${task.taskId}-${Date.now()}`,
+      routingDecisionId: createRoutingDecisionId("round-robin", task.taskId),
       diagnostics: {
         candidateIds,
         selectedIds: [agent.id],

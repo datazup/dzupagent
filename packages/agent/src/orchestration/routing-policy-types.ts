@@ -65,6 +65,16 @@ export interface AgentTask {
   metadata?: Record<string, unknown>;
 }
 
+/** Optional caller-owned context used to construct a production routing task. */
+export interface RoutingTaskInput {
+  /** Stable caller identity. Must be non-blank when supplied. */
+  taskId?: string;
+  /** Explicit task requirements, augmented with deterministic content tags. */
+  tags?: readonly string[];
+  /** Caller metadata passed through to routing policies unchanged. */
+  metadata?: Record<string, unknown>;
+}
+
 /** The result of a routing decision */
 export interface RoutingDecision {
   /** The selected agent(s) to delegate to */
@@ -78,9 +88,10 @@ export interface RoutingDecision {
   /** Machine-readable routing diagnostics for observability */
   diagnostics?: RoutingDiagnostics;
   /**
-   * Stable identifier for this routing decision (W7). Persisted on the run
-   * record so LLM-routed supervisors can be replayed and audited post-mortem.
-   * Format: `<strategy>-<taskId>-<timestamp>`.
+   * Per-invocation identifier for this routing decision (W7). Persisted on the
+   * run record so routed supervisors can be correlated and audited
+   * post-mortem. Unlike `AgentTask.taskId`, this value is intentionally unique
+   * for every policy invocation, including repeated decisions for one task.
    */
   routingDecisionId?: string;
 }

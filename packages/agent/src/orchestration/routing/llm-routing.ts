@@ -6,6 +6,7 @@ import type {
   RoutingDiagnostics,
   RoutingPolicy,
 } from "../routing-policy-types.js";
+import { createRoutingDecisionId } from "./decision-identity.js";
 
 /**
  * LLMRouting -- provider-neutral adapter for model-selected routing.
@@ -165,7 +166,7 @@ export class LLMRouting implements RoutingPolicy {
     return {
       ...decision,
       ...(fallbackReason ? { fallbackReason } : {}),
-      routingDecisionId: `llm-${taskId}-${Date.now()}`,
+      routingDecisionId: createRoutingDecisionId("llm", taskId),
       diagnostics,
     };
   }
