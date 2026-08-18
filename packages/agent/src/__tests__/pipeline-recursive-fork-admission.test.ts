@@ -282,6 +282,9 @@ describe("W3-C5A public recursive conditional fork admission", () => {
       (value) => {
         value.recursiveForkCompletions!.fork!.selectedContinuationNodeId = "then";
       },
+      (value) => {
+        value.recursiveForkCompletions!.fork!.checkpointVersion = value.version;
+      },
     ];
     for (const mutate of mutations) {
       const changed = structuredClone(checkpoint);

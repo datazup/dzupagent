@@ -23,6 +23,7 @@ type Scenario =
   | "branch-single"
   | "branch-left-last"
   | "branch-right-last"
+  | "public-branch"
   | "item"
   | "control-single"
   | "control-terminal"
@@ -36,6 +37,9 @@ interface WorkerSummary {
   readonly decisionIdentity?: string;
   readonly mergeIdentity?: string;
   readonly orderedResults?: readonly unknown[];
+  readonly checkpointVersion?: number;
+  readonly receiptCheckpointVersion?: number;
+  readonly completedNodeIds?: readonly string[];
   readonly progress?: {
     readonly skippedBodyCompleteChildScopeIds?: readonly string[];
     readonly skippedCommittedChildScopeIds?: readonly string[];
@@ -370,6 +374,72 @@ describe.sequential("recursive independent-process crash windows", () => {
         count(beforeRestart, "executor-executed"),
       );
     }));
+
+  it.each([
+    "public-parent-completion-before-write",
+    "public-parent-completion-after-write",
+  ])(
+    "restores the public PipelineRuntime exactly once after SIGKILL at %s",
+    async (point) =>
+      withState(async (rootDirectory) => {
+        const interrupted = await runWorker(
+          rootDirectory,
+          "public-branch",
+          "initial",
+          point,
+        );
+        expect(interrupted).toEqual({
+          kind: "crashed",
+          point,
+          signal: "SIGKILL",
+        });
+        const beforeRestart = await events(rootDirectory);
+        expect(count(beforeRestart, "public-node-executed", "decision")).toBe(1);
+        expect(count(beforeRestart, "public-node-executed", "then")).toBe(1);
+        expect(count(beforeRestart, "public-node-executed", "else")).toBe(0);
+        expect(count(beforeRestart, "public-node-executed", "sibling")).toBe(1);
+        expect(count(beforeRestart, "public-node-executed", "after")).toBe(0);
+
+        const resumed = await result(
+          rootDirectory,
+          "public-branch",
+          "restart",
+        );
+        expect(resumed).toMatchObject({
+          status: "completed",
+          checkpointVersion: 2,
+          receiptCheckpointVersion: 1,
+          completedNodeIds: expect.arrayContaining([
+            "fork",
+            "join",
+            "after",
+          ]),
+        });
+        const afterResume = await events(rootDirectory);
+        expect(count(afterResume, "public-node-executed", "decision")).toBe(1);
+        expect(count(afterResume, "public-node-executed", "then")).toBe(1);
+        expect(count(afterResume, "public-node-executed", "else")).toBe(0);
+        expect(count(afterResume, "public-node-executed", "sibling")).toBe(1);
+        expect(count(afterResume, "public-node-executed", "after")).toBe(1);
+
+        const replayed = await result(
+          rootDirectory,
+          "public-branch",
+          "restart",
+        );
+        expect(replayed).toMatchObject({
+          status: "completed",
+          checkpointVersion: 2,
+          receiptCheckpointVersion: 1,
+        });
+        const afterReplay = await events(rootDirectory);
+        for (const nodeId of ["decision", "then", "else", "sibling", "after"]) {
+          expect(count(afterReplay, "public-node-executed", nodeId)).toBe(
+            count(afterResume, "public-node-executed", nodeId),
+          );
+        }
+      }),
+  );
 
   it("keeps merge identity independent of fresh-process completion order", async () => {
     const leftRoot = await mkdtemp(join(tmpdir(), "dzupagent-recursive-order-"));

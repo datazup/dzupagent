@@ -3,13 +3,21 @@ import {
   mkdir,
   open,
   readFile,
+  readdir,
   rename,
+  rm,
   unlink,
   writeFile,
   type FileHandle,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import type {
+  PipelineCheckpoint,
+  PipelineCheckpointCommitReceipt,
+  PipelineCheckpointStore,
+  PipelineCheckpointSummary,
+} from "@dzupagent/core/pipeline";
 import type { RecursiveScopedSha256Digest } from "@dzupagent/runtime-contracts/recursive-scope";
 
 import type {
@@ -91,6 +99,203 @@ function processIsAlive(pid: number): boolean {
       "code" in error &&
       error.code === "ESRCH"
     );
+  }
+}
+
+async function acquireCrashLock(
+  lockPath: string,
+): Promise<FileHandle | undefined> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const lock = await open(lockPath, "wx");
+      await lock.writeFile(String(process.pid), "utf8");
+      return lock;
+    } catch (error) {
+      if (
+        !(
+          error instanceof Error &&
+          "code" in error &&
+          error.code === "EEXIST"
+        )
+      ) {
+        throw error;
+      }
+      let owner = Number.NaN;
+      try {
+        owner = Number.parseInt(await readFile(lockPath, "utf8"), 10);
+      } catch {
+        // A killed process can leave the lock before its PID is flushed.
+      }
+      if (Number.isInteger(owner) && processIsAlive(owner)) return undefined;
+      await unlink(lockPath).catch(() => undefined);
+    }
+  }
+  return undefined;
+}
+
+function pipelineCheckpointBoundary(checkpoint: PipelineCheckpoint): string {
+  if (Object.keys(checkpoint.recursiveForkCompletions ?? {}).length === 0) {
+    return "pipeline-checkpoint";
+  }
+  return checkpoint.completedNodeIds.includes("after")
+    ? "public-continuation"
+    : "public-parent-completion";
+}
+
+/**
+ * Test-only independent-process checkpoint store.
+ *
+ * Every version is immutable so public recursive-receipt validation can prove
+ * the exact parent-completion boundary after later checkpoints have committed.
+ */
+export class FilePipelineCrashCheckpointStore
+  implements PipelineCheckpointStore
+{
+  constructor(
+    private readonly rootDirectory: string,
+    private readonly crash: RecursiveCrashController,
+  ) {}
+
+  async save(checkpoint: PipelineCheckpoint): Promise<void> {
+    const current = await this.load(checkpoint.pipelineRunId);
+    const receipt = await this.saveIfVersion(
+      checkpoint,
+      current?.version ?? 0,
+    );
+    if (!receipt.committed) {
+      throw new Error("Pipeline crash checkpoint save lost its CAS boundary.");
+    }
+  }
+
+  async saveIfVersion(
+    checkpoint: PipelineCheckpoint,
+    expectedVersion: number,
+  ): Promise<PipelineCheckpointCommitReceipt> {
+    const boundary = pipelineCheckpointBoundary(checkpoint);
+    await this.crash.hit(`${boundary}-before-write`);
+
+    const directory = this.runDirectory(checkpoint.pipelineRunId);
+    await mkdir(directory, { recursive: true });
+    const lockPath = join(directory, ".lock");
+    const lock = await acquireCrashLock(lockPath);
+    if (lock === undefined) {
+      return {
+        committed: false,
+        observedVersion: (await this.load(checkpoint.pipelineRunId))?.version ?? 0,
+      };
+    }
+
+    try {
+      const observedVersion =
+        (await this.load(checkpoint.pipelineRunId))?.version ?? 0;
+      if (observedVersion !== expectedVersion) {
+        return { committed: false, observedVersion };
+      }
+      if (checkpoint.version !== expectedVersion + 1) {
+        throw new Error(
+          `Pipeline crash checkpoint version ${checkpoint.version} does not follow ${expectedVersion}.`,
+        );
+      }
+      const target = this.versionPath(
+        checkpoint.pipelineRunId,
+        checkpoint.version,
+      );
+      const temporary = `${target}.${process.pid}.tmp`;
+      await writeFile(temporary, JSON.stringify(checkpoint), {
+        encoding: "utf8",
+        flag: "wx",
+      });
+      await rename(temporary, target);
+    } finally {
+      await lock.close();
+      await unlink(lockPath).catch(() => undefined);
+    }
+
+    await appendRecursiveCrashEvent(this.rootDirectory, {
+      event: `${boundary}-saved`,
+      childScopeId: checkpoint.pipelineRunId,
+      detail: String(checkpoint.version),
+    });
+    await this.crash.hit(`${boundary}-after-write`);
+    return { committed: true, observedVersion: checkpoint.version };
+  }
+
+  async load(pipelineRunId: string): Promise<PipelineCheckpoint | undefined> {
+    const versions = await this.listVersions(pipelineRunId);
+    const latest = versions.at(-1);
+    return latest === undefined
+      ? undefined
+      : this.loadVersion(pipelineRunId, latest.version);
+  }
+
+  async loadVersion(
+    pipelineRunId: string,
+    version: number,
+  ): Promise<PipelineCheckpoint | undefined> {
+    try {
+      return JSON.parse(
+        await readFile(this.versionPath(pipelineRunId, version), "utf8"),
+      ) as PipelineCheckpoint;
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+        return undefined;
+      }
+      throw error;
+    }
+  }
+
+  async listVersions(
+    pipelineRunId: string,
+  ): Promise<PipelineCheckpointSummary[]> {
+    let names: string[];
+    try {
+      names = await readdir(this.runDirectory(pipelineRunId));
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+        return [];
+      }
+      throw error;
+    }
+    const versions = names
+      .map((name) => /^([1-9][0-9]*)\.json$/.exec(name)?.[1])
+      .filter((value): value is string => value !== undefined)
+      .map((value) => Number.parseInt(value, 10))
+      .sort((left, right) => left - right);
+    const summaries: PipelineCheckpointSummary[] = [];
+    for (const version of versions) {
+      const checkpoint = await this.loadVersion(pipelineRunId, version);
+      if (checkpoint === undefined) continue;
+      summaries.push({
+        pipelineRunId,
+        version,
+        createdAt: checkpoint.createdAt,
+        completedNodeCount: checkpoint.completedNodeIds.length,
+      });
+    }
+    return summaries;
+  }
+
+  async delete(pipelineRunId: string): Promise<void> {
+    await rm(this.runDirectory(pipelineRunId), {
+      recursive: true,
+      force: true,
+    });
+  }
+
+  async prune(_maxAgeMs: number): Promise<number> {
+    return 0;
+  }
+
+  private runDirectory(pipelineRunId: string): string {
+    return join(
+      this.rootDirectory,
+      "pipeline-checkpoints",
+      Buffer.from(pipelineRunId).toString("base64url"),
+    );
+  }
+
+  private versionPath(pipelineRunId: string, version: number): string {
+    return join(this.runDirectory(pipelineRunId), `${version}.json`);
   }
 }
 
@@ -268,7 +473,7 @@ export class FileRecursiveCrashPort
     const target = join(this.rootDirectory, collection, encoded(key));
     await mkdir(dirname(target), { recursive: true });
     const lockPath = `${target}.lock`;
-    const lock = await this.acquireLock(lockPath);
+    const lock = await acquireCrashLock(lockPath);
     if (lock === undefined) return { status: "conflict" };
     try {
       const current = await this.load(collection, key);
@@ -290,32 +495,4 @@ export class FileRecursiveCrashPort
     return { status: "committed", storedIdentity: nextIdentity };
   }
 
-  private async acquireLock(lockPath: string): Promise<FileHandle | undefined> {
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      try {
-        const lock = await open(lockPath, "wx");
-        await lock.writeFile(String(process.pid), "utf8");
-        return lock;
-      } catch (error) {
-        if (
-          !(
-            error instanceof Error &&
-            "code" in error &&
-            error.code === "EEXIST"
-          )
-        ) {
-          throw error;
-        }
-        let owner = Number.NaN;
-        try {
-          owner = Number.parseInt(await readFile(lockPath, "utf8"), 10);
-        } catch {
-          // A killed process can leave the lock before its PID is flushed.
-        }
-        if (Number.isInteger(owner) && processIsAlive(owner)) return undefined;
-        await unlink(lockPath).catch(() => undefined);
-      }
-    }
-    return undefined;
-  }
 }

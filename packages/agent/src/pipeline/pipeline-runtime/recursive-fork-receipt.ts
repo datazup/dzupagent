@@ -1,10 +1,14 @@
-import type {
-  PipelineCheckpoint,
-  PipelineEdge,
-  PipelineNode,
-  PipelineRecursiveForkCompletionV1,
+import {
+  PipelineCheckpointSchema,
+  type PipelineCheckpoint,
+  type PipelineEdge,
+  type PipelineNode,
+  type PipelineRecursiveForkCompletionV1,
 } from "@dzupagent/core/pipeline";
-import { digestPipelineDefinition } from "@dzupagent/runtime-contracts";
+import {
+  canonicalInputDigest,
+  digestPipelineDefinition,
+} from "@dzupagent/runtime-contracts";
 import { mergeRecursiveScopedCommitsV1 } from "@dzupagent/runtime-contracts/recursive-scope";
 
 import { findAdmittedRecursiveForkGraph } from "../loop-executor/definition-validation/graph-helpers.js";
@@ -61,6 +65,10 @@ export async function validateRecursiveForkCompletionReceipts(
   if (durable === undefined) {
     failReceipt("recursive durable custody is unavailable");
   }
+  const checkpointStore = config.checkpointStore;
+  if (checkpointStore === undefined) {
+    failReceipt("parent checkpoint custody is unavailable");
+  }
   const nodeMap = new Map<string, PipelineNode>(
     config.definition.nodes.map((node) => [node.id, node])
   );
@@ -111,11 +119,43 @@ export async function validateRecursiveForkCompletionReceipts(
     ) {
       failReceipt(`public checkpoint boundary drift at fork "${forkNodeId}"`);
     }
+
+    const storedBoundary = await checkpointStore.loadVersion(
+      checkpoint.pipelineRunId,
+      receipt.checkpointVersion
+    );
+    if (storedBoundary === undefined) {
+      failReceipt(
+        `parent checkpoint version ${receipt.checkpointVersion} is missing at fork "${forkNodeId}"`
+      );
+    }
+    const parsedBoundary = PipelineCheckpointSchema.safeParse(storedBoundary);
+    if (!parsedBoundary.success) {
+      failReceipt(
+        `parent checkpoint version ${receipt.checkpointVersion} is corrupt at fork "${forkNodeId}"`
+      );
+    }
+    const completionCheckpoint = parsedBoundary.data as PipelineCheckpoint;
+    const storedReceipt =
+      completionCheckpoint.recursiveForkCompletions?.[forkNodeId];
+    if (
+      completionCheckpoint.pipelineRunId !== checkpoint.pipelineRunId ||
+      completionCheckpoint.version !== receipt.checkpointVersion ||
+      !completionCheckpoint.completedNodeIds.includes(forkNode.id) ||
+      !completionCheckpoint.completedNodeIds.includes(joinNode.id) ||
+      completionCheckpoint.forkState?.[forkNode.forkId] !== undefined ||
+      storedReceipt === undefined ||
+      canonicalInputDigest(storedReceipt) !== canonicalInputDigest(receipt)
+    ) {
+      failReceipt(
+        `parent checkpoint version binding drift at fork "${forkNodeId}"`
+      );
+    }
     const expectedContinuation = getNextNodeIds(
       joinNode.id,
       outgoingEdges,
       config.predicates,
-      checkpoint.state
+      completionCheckpoint.state
     )[0];
     if (receipt.selectedContinuationNodeId !== expectedContinuation) {
       failReceipt(`continuation drift at fork "${forkNodeId}"`);

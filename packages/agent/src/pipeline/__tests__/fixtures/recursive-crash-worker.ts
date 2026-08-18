@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import type { PipelineDefinition } from "@dzupagent/core/pipeline";
 import { canonicalInputDigest } from "@dzupagent/runtime-contracts";
 import type {
   RecursiveAcknowledgementEvidenceInputV1,
@@ -19,7 +20,12 @@ import {
   type RecursiveForEachItemPlanInputV1,
 } from "../../recursive-scope/index.js";
 import {
+  PipelineRuntime,
+  type NodeExecutor,
+} from "../../../pipeline.js";
+import {
   appendRecursiveCrashEvent,
+  FilePipelineCrashCheckpointStore,
   FileRecursiveCrashPort,
   RecursiveCrashController,
 } from "./recursive-crash-test-port.js";
@@ -29,6 +35,7 @@ type Scenario =
   | "branch-single"
   | "branch-left-last"
   | "branch-right-last"
+  | "public-branch"
   | "item"
   | "control-single"
   | "control-terminal"
@@ -43,6 +50,7 @@ if (
     "branch-single",
     "branch-left-last",
     "branch-right-last",
+    "public-branch",
     "item",
     "control-single",
     "control-terminal",
@@ -57,6 +65,10 @@ const mode = modeArgument;
 const stateDirectory = rootDirectory as string;
 const crash = new RecursiveCrashController(stateDirectory, crashPoint);
 const durable = new FileRecursiveCrashPort(stateDirectory, crash);
+const checkpointStore = new FilePipelineCrashCheckpointStore(
+  stateDirectory,
+  crash,
+);
 
 const sha = (character: string) =>
   `sha256:${character.repeat(64)}` as RecursiveScopedSha256Digest;
@@ -140,6 +152,41 @@ function itemPlan(): RecursiveForEachItemPlanInputV1 {
         },
       };
     }),
+  };
+}
+
+function publicDefinition(): PipelineDefinition {
+  return {
+    id: "recursive-public-fork",
+    name: "RecursivePublicFork",
+    version: "1.0.0",
+    schemaVersion: "1.0.0",
+    entryNodeId: "fork",
+    checkpointStrategy: "after_each_node",
+    resume: { onProcessRestart: "resume_from_checkpoint" },
+    nodes: [
+      { id: "fork", type: "fork", forkId: "parallel" },
+      { id: "decision", type: "gate", gateType: "quality" },
+      { id: "then", type: "agent", agentId: "then" },
+      { id: "else", type: "agent", agentId: "else" },
+      { id: "sibling", type: "agent", agentId: "sibling" },
+      { id: "join", type: "join", forkId: "parallel" },
+      { id: "after", type: "agent", agentId: "after" },
+    ],
+    edges: [
+      { type: "sequential", sourceNodeId: "fork", targetNodeId: "decision" },
+      { type: "sequential", sourceNodeId: "fork", targetNodeId: "sibling" },
+      {
+        type: "conditional",
+        sourceNodeId: "decision",
+        predicateName: "choose",
+        branches: { true: "then", false: "else" },
+      },
+      { type: "sequential", sourceNodeId: "then", targetNodeId: "join" },
+      { type: "sequential", sourceNodeId: "else", targetNodeId: "join" },
+      { type: "sequential", sourceNodeId: "sibling", targetNodeId: "join" },
+      { type: "sequential", sourceNodeId: "join", targetNodeId: "after" },
+    ],
   };
 }
 
@@ -391,6 +438,44 @@ async function runItems(): Promise<unknown> {
   );
 }
 
+async function runPublicBranch(): Promise<Readonly<Record<string, unknown>>> {
+  const nodeExecutor: NodeExecutor = async (nodeId, _node, context) => {
+    await appendRecursiveCrashEvent(stateDirectory, {
+      event: "public-node-executed",
+      childScopeId: nodeId,
+    });
+    context.state[nodeId] = true;
+    return { nodeId, output: { nodeId }, durationMs: 1 };
+  };
+  const runtime = new PipelineRuntime({
+    definition: publicDefinition(),
+    nodeExecutor,
+    predicates: { choose: () => true },
+    checkpointStore,
+    recursiveFork: { durable },
+  });
+  const runId = "public-recursive-run";
+  const retained =
+    mode === "restart" ? await checkpointStore.load(runId) : undefined;
+  const outcome =
+    retained === undefined
+      ? await runtime.execute({}, { runId })
+      : await runtime.resume(retained);
+  const latest = await checkpointStore.load(runId);
+  return {
+    status: outcome.state,
+    ...(outcome.error === undefined ? {} : { reason: outcome.error }),
+    ...(latest === undefined
+      ? {}
+      : {
+          checkpointVersion: latest.version,
+          completedNodeIds: latest.completedNodeIds,
+          receiptCheckpointVersion:
+            latest.recursiveForkCompletions?.fork?.checkpointVersion,
+        }),
+  };
+}
+
 function summarize(outcome: unknown): Readonly<Record<string, unknown>> {
   if (typeof outcome !== "object" || outcome === null || !("status" in outcome)) {
     throw new Error("Recursive crash worker returned an invalid outcome.");
@@ -425,8 +510,16 @@ function summarize(outcome: unknown): Readonly<Record<string, unknown>> {
   };
 }
 
-const outcome = scenario === "item" ? await runItems() : await runBranch();
-const summary = summarize(outcome);
+const outcome =
+  scenario === "public-branch"
+    ? await runPublicBranch()
+    : scenario === "item"
+      ? await runItems()
+      : await runBranch();
+const summary =
+  scenario === "public-branch"
+    ? (outcome as Readonly<Record<string, unknown>>)
+    : summarize(outcome);
 await writeFile(
   join(stateDirectory, "last-summary.json"),
   JSON.stringify(summary),
@@ -435,7 +528,7 @@ await writeFile(
 await appendRecursiveCrashEvent(stateDirectory, {
   event: `outcome-${String(summary.status)}`,
 });
-if (summary.status === "completed") {
+if (scenario !== "public-branch" && summary.status === "completed") {
   await crash.hit("parent-merge-after-materialize");
 }
 process.stdout.write(`RESULT:${JSON.stringify(summary)}\n`);
