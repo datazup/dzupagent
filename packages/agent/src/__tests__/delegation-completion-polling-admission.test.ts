@@ -131,16 +131,9 @@ describe("SimpleDelegationTracker completion polling admission", () => {
   it("preserves terminal producer output, error, and token usage", async () => {
     vi.useFakeTimers();
     const store = new InMemoryRunStore();
+    let enqueuedRunId: string | undefined;
     const executor: DelegationExecutor = async (runId) => {
-      setTimeout(() => {
-        void store.update(runId, {
-          status: "failed",
-          output: 0,
-          error: "producer-terminal-error",
-          tokenUsage: { input: 13, output: 0 },
-          completedAt: new Date(),
-        });
-      }, 30);
+      enqueuedRunId = runId;
     };
     const tracker = new SimpleDelegationTracker({
       runStore: store,
@@ -150,7 +143,19 @@ describe("SimpleDelegationTracker completion polling admission", () => {
     });
 
     const delegation = tracker.delegate(makeRequest());
-    await vi.advanceTimersByTimeAsync(30);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(enqueuedRunId).toBeDefined();
+    if (enqueuedRunId === undefined) {
+      throw new Error("executor did not enqueue the delegation run");
+    }
+    await store.update(enqueuedRunId, {
+      status: "failed",
+      output: 0,
+      error: "producer-terminal-error",
+      tokenUsage: { input: 13, output: 0 },
+      completedAt: new Date(),
+    });
+    await vi.advanceTimersByTimeAsync(10);
 
     await expect(delegation).resolves.toMatchObject({
       success: false,
@@ -166,6 +171,37 @@ describe("SimpleDelegationTracker completion polling admission", () => {
       tokenUsage: { input: 13, output: 0 },
     });
   });
+
+  it.each([
+    ["completed", true],
+    ["halted", false],
+    ["failed", false],
+    ["rejected", false],
+    ["cancelled", false],
+  ] as const)(
+    "recognizes producer status %s as terminal",
+    async (status, success) => {
+      const store = new InMemoryRunStore();
+      const tracker = new SimpleDelegationTracker({
+        runStore: store,
+        executor: async (runId) => {
+          await store.update(runId, {
+            status,
+            output: `output:${status}`,
+            ...(success ? {} : { error: `error:${status}` }),
+            completedAt: new Date(),
+          });
+        },
+        pollIntervalMs: 1,
+      });
+
+      await expect(tracker.delegate(makeRequest())).resolves.toMatchObject({
+        success,
+        output: `output:${status}`,
+        ...(success ? {} : { error: `error:${status}` }),
+      });
+    }
+  );
 
   it("times out a still-running enqueued run exactly once", async () => {
     vi.useFakeTimers();

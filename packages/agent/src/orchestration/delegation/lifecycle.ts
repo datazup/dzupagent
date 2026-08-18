@@ -8,7 +8,7 @@
  * private methods.
  */
 
-import type { RunStore } from "@dzupagent/core/persistence";
+import type { RunStatus, RunStore } from "@dzupagent/core/persistence";
 import type { DzupEventBus } from "@dzupagent/core/events";
 import { OrchestrationError } from "../orchestration-error.js";
 import { omitUndefined } from "../../utils/exact-optional.js";
@@ -18,6 +18,14 @@ import type {
   DelegationRequest,
   DelegationResult,
 } from "./types.js";
+
+const TERMINAL_RUN_STATUSES: ReadonlySet<RunStatus> = new Set([
+  "completed",
+  "halted",
+  "failed",
+  "rejected",
+  "cancelled",
+]);
 
 /**
  * Create the run record, register the active-delegation entry, and emit the
@@ -267,40 +275,111 @@ export async function finalizeFailure(
 }
 
 /**
- * Wait for the executor to finish, then read the final run state.
- * If the executor updates the run store directly, we read it back.
- * Respects the abort signal for cancellation/timeout.
+ * Wait for the executor to finish, then poll until its run reaches a terminal
+ * store status. Queue-style executors may resolve after enqueueing while a
+ * worker still owns the active run, so executor resolution alone is not a
+ * completion signal. Respects the abort signal for cancellation/timeout.
  */
 export async function waitForCompletion(
   runStore: RunStore,
   runId: string,
   executorPromise: Promise<void>,
-  signal: AbortSignal
+  signal: AbortSignal,
+  pollIntervalMs: number
 ): Promise<DelegationResult> {
   // Wait for executor, but throw on abort
-  await Promise.race([executorPromise, waitForAbort(signal)]);
+  await raceWithAbort(executorPromise, signal);
 
-  // Read final state from run store
-  const run = await runStore.get(runId);
-  if (!run) {
-    throw new OrchestrationError(
-      `Run ${runId} not found after execution`,
-      "delegation",
-      { runId }
+  while (true) {
+    const run = await raceWithAbort(runStore.get(runId), signal);
+    if (!run) {
+      throw new OrchestrationError(
+        `Run ${runId} not found after execution`,
+        "delegation",
+        { runId }
+      );
+    }
+
+    if (TERMINAL_RUN_STATUSES.has(run.status)) {
+      const success = run.status === "completed";
+      return omitUndefined({
+        success,
+        output: run.output ?? null,
+        error: run.error,
+        metadata: run.tokenUsage
+          ? {
+              durationMs: 0, // will be overwritten by caller
+              tokenUsage: run.tokenUsage,
+            }
+          : undefined,
+      });
+    }
+
+    await waitForPollInterval(pollIntervalMs, signal);
+  }
+}
+
+/** Resolve/reject with an operation while retaining exactly one abort waiter. */
+function raceWithAbort<T>(
+  operation: Promise<T>,
+  signal: AbortSignal
+): Promise<T> {
+  if (signal.aborted) {
+    return Promise.reject(
+      signal.reason ?? new DOMException("Aborted", "AbortError")
     );
   }
 
-  const success = run.status === "completed";
-  return omitUndefined({
-    success,
-    output: run.output ?? null,
-    error: run.error,
-    metadata: run.tokenUsage
-      ? {
-          durationMs: 0, // will be overwritten by caller
-          tokenUsage: run.tokenUsage,
-        }
-      : undefined,
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+    };
+
+    signal.addEventListener("abort", onAbort, { once: true });
+    operation.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      }
+    );
+  });
+}
+
+/** Sleep for one polling interval, rejecting promptly when aborted. */
+function waitForPollInterval(
+  pollIntervalMs: number,
+  signal: AbortSignal
+): Promise<void> {
+  if (signal.aborted) {
+    return Promise.reject(
+      signal.reason ?? new DOMException("Aborted", "AbortError")
+    );
+  }
+
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, pollIntervalMs);
+
+    signal.addEventListener("abort", onAbort, { once: true });
   });
 }
 

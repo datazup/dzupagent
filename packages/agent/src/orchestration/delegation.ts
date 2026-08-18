@@ -56,6 +56,7 @@ export class SimpleDelegationTracker implements DelegationTracker {
   private readonly runStore: RunStore;
   private readonly eventBus: DzupEventBus | undefined;
   private readonly executor: DelegationExecutor;
+  private readonly pollIntervalMs: number;
   private readonly defaultTimeoutMs: number;
 
   /** Map of delegationId -> active delegation state */
@@ -68,9 +69,17 @@ export class SimpleDelegationTracker implements DelegationTracker {
   private readonly cancelledByUser = new Set<string>();
 
   constructor(config: SimpleDelegationTrackerConfig) {
+    const pollIntervalMs = config.pollIntervalMs ?? 100;
+    if (!Number.isFinite(pollIntervalMs) || pollIntervalMs <= 0) {
+      throw new RangeError(
+        "SimpleDelegationTracker pollIntervalMs must be a positive finite number"
+      );
+    }
+
     this.runStore = config.runStore;
     this.eventBus = config.eventBus;
     this.executor = config.executor;
+    this.pollIntervalMs = pollIntervalMs;
     this.defaultTimeoutMs = config.defaultTimeoutMs ?? 300_000;
   }
 
@@ -119,7 +128,8 @@ export class SimpleDelegationTracker implements DelegationTracker {
         this.runStore,
         run.id,
         executorPromise,
-        abortController.signal
+        abortController.signal,
+        this.pollIntervalMs
       );
 
       return await finalizeSuccess(
