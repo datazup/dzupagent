@@ -361,6 +361,34 @@ export interface PipelineCheckpointSourceBinding {
   loopSourceDigests?: Record<string, PipelineSha256Digest>;
 }
 
+export interface PipelineRecursiveForkCompletionChildV1 {
+  childScopeId: string;
+  frameIdentity: PipelineSha256Digest;
+  commitIdentity: PipelineSha256Digest;
+  normalExitNodeId: string;
+}
+
+/**
+ * Atomic parent-completion receipt for the first public recursive fork shape.
+ * It is written inside the same CAS checkpoint that marks the owning join
+ * complete, so neither a child aggregate nor its selected continuation can be
+ * acknowledged independently of the public resume cursor.
+ */
+export interface PipelineRecursiveForkCompletionV1 {
+  schema: "dzupagent.pipelineRecursiveForkCompletion/v1";
+  definitionDigest: PipelineSha256Digest;
+  ownerPath: string[];
+  forkNodeId: string;
+  forkId: string;
+  joinNodeId: string;
+  parentCommitIdentity: PipelineSha256Digest;
+  mergeIdentity: PipelineSha256Digest;
+  childCommitIdentities: PipelineSha256Digest[];
+  children: PipelineRecursiveForkCompletionChildV1[];
+  checkpointVersion: number;
+  selectedContinuationNodeId?: string;
+}
+
 /**
  * Identity of one durable unit of loop work.
  *
@@ -427,6 +455,11 @@ export interface PipelineCheckpoint {
    * as unprovable rather than as agreement.
    */
   sourceBinding?: PipelineCheckpointSourceBinding;
+  /**
+   * Completed recursive fork parents, keyed by their definition-owned fork
+   * node ID. Present only from checkpoint schema 1.2.0 onward.
+   */
+  recursiveForkCompletions?: Record<string, PipelineRecursiveForkCompletionV1>;
   /** IDs of nodes that have completed execution */
   completedNodeIds: string[];
   /**

@@ -35,6 +35,8 @@ import {
   pipelineCompletedEvent,
   pipelineFailedEvent,
   pipelineSuspendedEvent,
+  nodeCompletedEvent,
+  nodeStartedEvent,
 } from "./runtime-events.js";
 import { findJoinNode } from "./edge-resolution.js";
 import type { BranchExecutionResult } from "./branch-merge.js";
@@ -57,6 +59,11 @@ import { lastWriteLostCommit } from "./checkpoint-writer.js";
 import { createRuntimePendingInteraction } from "../pipeline-interaction-runtime.js";
 import { resolveStatePath } from "../loop-executor/state-path.js";
 import { PipelineSourceBindingMismatchError } from "../pipeline-runtime-lifecycle/resume-context.js";
+import { findAdmittedRecursiveForkGraph } from "../loop-executor/definition-validation/graph-helpers.js";
+import {
+  executeAdmittedRecursiveFork,
+  type RecursiveForkRuntimeDeps,
+} from "./recursive-fork-runtime.js";
 
 /**
  * Roll a loop's in-memory entry back to what the store still holds, after a
@@ -126,6 +133,7 @@ export interface StageContext {
   errorEdgeFor: (nodeId: string, error: unknown) => string | undefined;
   /** Build the dependency bag for fork/branch fan-out. */
   forkDeps: (runId: string) => Parameters<typeof handleForkNode>[0];
+  recursiveForkDeps: () => RecursiveForkRuntimeDeps;
   /** Mutable global cost accumulator shared with standard-node dispatch. */
   budgetTracker: BudgetTrackerState;
   emit: (event: PipelineRuntimeEvent) => void;
@@ -168,6 +176,9 @@ export interface RunFrame {
    * absent — absence is "unprovable", never "agreement".
    */
   loopSourceDigests?: Record<string, PipelineSha256Digest>;
+  recursiveForkCompletions: NonNullable<
+    import("@dzupagent/core/pipeline").PipelineCheckpoint["recursiveForkCompletions"]
+  >;
   startTime: number;
 }
 
@@ -189,6 +200,56 @@ export async function dispatchForkStage(
     nodeIdempotencyKeys,
   } = frame;
   const forkId = forkNode.forkId;
+  const joinNode = findJoinNode(forkId, ctx.config.definition.nodes);
+  const recursiveGraph =
+    joinNode === undefined
+      ? undefined
+      : findAdmittedRecursiveForkGraph(
+          forkNode.id,
+          joinNode.id,
+          ctx.nodeMap,
+          ctx.config.definition.edges
+        );
+
+  if (recursiveGraph !== undefined) {
+    if (joinNode === undefined) {
+      throw new Error(`Recursive fork "${forkNode.id}" has no owning join.`);
+    }
+    ctx.emit(nodeStartedEvent(forkNode.id, "fork"));
+    if (!completedNodeIds.includes(forkNode.id)) {
+      completedNodeIds.push(forkNode.id);
+    }
+    const recursiveConfig = ctx.config.recursiveFork;
+    if (recursiveConfig === undefined) {
+      throw new Error(
+        `Recursive fork "${forkNode.id}" requires PipelineRuntimeConfig.recursiveFork.durable.`
+      );
+    }
+    const result = await executeAdmittedRecursiveFork(
+      ctx.recursiveForkDeps(),
+      forkNode,
+      recursiveGraph,
+      frame,
+      recursiveConfig.durable
+    );
+    ctx.emit(nodeCompletedEvent(forkNode.id, 0));
+    completedNodeIds.push(joinNode.id);
+    ctx.recordIdempotencyKey(nodeIdempotencyKeys, runId, joinNode);
+    const selectedContinuationNodeId = ctx.next(joinNode.id, runState);
+    frame.recursiveForkCompletions[forkNode.id] = {
+      ...result.receipt,
+      checkpointVersion: frame.versionTracker.version + 1,
+      ...(selectedContinuationNodeId === undefined
+        ? {}
+        : { selectedContinuationNodeId }),
+    };
+    await persistCheckpointWithIntegrityBoundary({
+      nodeId: joinNode.id,
+      boundary: "fork_join_completion",
+      save: () => ctx.saveCheckpoint(frame),
+    });
+    return { nextNodeId: selectedContinuationNodeId };
+  }
 
   // Restore branches that completed before a crash (W4): rehydrate each saved
   // nodeResults object back into a Map for the merge.
@@ -229,7 +290,6 @@ export async function dispatchForkStage(
   );
 
   delete frame.forkState[forkId];
-  const joinNode = findJoinNode(forkId, ctx.config.definition.nodes);
   if (joinNode) {
     completedNodeIds.push(joinNode.id);
     ctx.recordIdempotencyKey(nodeIdempotencyKeys, runId, joinNode);

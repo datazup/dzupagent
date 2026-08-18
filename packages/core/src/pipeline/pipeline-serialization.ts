@@ -474,6 +474,38 @@ export const PipelineCheckpointSchema = z
       })
       .strict()
       .optional(),
+    recursiveForkCompletions: z
+      .record(
+        z.string().min(1),
+        z
+          .object({
+            schema: z.literal("dzupagent.pipelineRecursiveForkCompletion/v1"),
+            definitionDigest: PipelineSha256DigestSchema,
+            ownerPath: z.array(z.string().min(1)).min(1),
+            forkNodeId: z.string().min(1),
+            forkId: z.string().min(1),
+            joinNodeId: z.string().min(1),
+            parentCommitIdentity: PipelineSha256DigestSchema,
+            mergeIdentity: PipelineSha256DigestSchema,
+            childCommitIdentities: z.array(PipelineSha256DigestSchema).min(1),
+            children: z
+              .array(
+                z
+                  .object({
+                    childScopeId: z.string().min(1),
+                    frameIdentity: PipelineSha256DigestSchema,
+                    commitIdentity: PipelineSha256DigestSchema,
+                    normalExitNodeId: z.string().min(1),
+                  })
+                  .strict()
+              )
+              .min(1),
+            checkpointVersion: z.number().int().positive(),
+            selectedContinuationNodeId: z.string().min(1).optional(),
+          })
+          .strict()
+      )
+      .optional(),
     completedNodeIds: z.array(z.string()),
     nodeIdempotencyKeys: z.record(z.string(), z.string()).optional(),
     loopState: z
@@ -542,6 +574,98 @@ export const PipelineCheckpointSchema = z
   })
   .strict()
   .superRefine((checkpoint, context) => {
+    const recursiveForkCompletions = Object.entries(
+      checkpoint.recursiveForkCompletions ?? {}
+    );
+    if (
+      checkpoint.schemaVersion !== "1.2.0" &&
+      recursiveForkCompletions.length > 0
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["schemaVersion"],
+        message:
+          "recursive fork completion receipts require checkpoint schemaVersion 1.2.0",
+      });
+    }
+    for (const [forkNodeId, receipt] of recursiveForkCompletions) {
+      if (forkNodeId !== receipt.forkNodeId) {
+        context.addIssue({
+          code: "custom",
+          path: ["recursiveForkCompletions", forkNodeId, "forkNodeId"],
+          message: "recursive fork completion key must equal forkNodeId",
+        });
+      }
+      if (receipt.ownerPath.at(-1) !== receipt.forkNodeId) {
+        context.addIssue({
+          code: "custom",
+          path: ["recursiveForkCompletions", forkNodeId, "ownerPath"],
+          message: "recursive fork completion ownerPath must end at forkNodeId",
+        });
+      }
+      if (receipt.checkpointVersion > checkpoint.version) {
+        context.addIssue({
+          code: "custom",
+          path: [
+            "recursiveForkCompletions",
+            forkNodeId,
+            "checkpointVersion",
+          ],
+          message:
+            "recursive fork completion cannot bind a future checkpoint version",
+        });
+      }
+      if (
+        checkpoint.sourceBinding !== undefined &&
+        receipt.definitionDigest !== checkpoint.sourceBinding.definitionDigest
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: [
+            "recursiveForkCompletions",
+            forkNodeId,
+            "definitionDigest",
+          ],
+          message:
+            "recursive fork completion definition digest must match checkpoint source binding",
+        });
+      }
+      const sortedCommitIdentities = [...receipt.childCommitIdentities].sort();
+      if (
+        new Set(receipt.childCommitIdentities).size !==
+          receipt.childCommitIdentities.length ||
+        receipt.childCommitIdentities.some(
+          (identity, index) => identity !== sortedCommitIdentities[index]
+        )
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: [
+            "recursiveForkCompletions",
+            forkNodeId,
+            "childCommitIdentities",
+          ],
+          message:
+            "recursive fork child commit identities must be unique and canonically sorted",
+        });
+      }
+      const childCommitIdentities = receipt.children
+        .map((child) => child.commitIdentity)
+        .sort();
+      if (
+        receipt.children.length !== receipt.childCommitIdentities.length ||
+        childCommitIdentities.some(
+          (identity, index) => identity !== receipt.childCommitIdentities[index]
+        )
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["recursiveForkCompletions", forkNodeId, "children"],
+          message:
+            "recursive fork children must bind the exact child commit identity set",
+        });
+      }
+    }
     const hasInteractionState =
       checkpoint.pendingInteraction !== undefined ||
       checkpoint.interactionResumeCursor !== undefined ||

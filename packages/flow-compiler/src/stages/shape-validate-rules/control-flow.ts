@@ -135,6 +135,12 @@ export const controlFlowValidators: ShapeRulePartial<ControlFlowKind> = {
         )
       );
     }
+    const admittedRecursiveBranchCount = node.branches.filter((branch, bIdx) =>
+      isAdmittedParallelConditionalBranch(
+        branch,
+        `${path}.branches[${bIdx}]`
+      )
+    ).length;
     node.branches.forEach((branch, bIdx) => {
       const branchPath = `${path}.branches[${bIdx}]`;
       const interaction = findParallelInteraction(
@@ -171,7 +177,13 @@ export const controlFlowValidators: ShapeRulePartial<ControlFlowKind> = {
             branch,
             branchPath
           );
-          if (recursiveControl !== undefined) {
+          if (
+            recursiveControl !== undefined &&
+            !(
+              admittedRecursiveBranchCount === 1 &&
+              isAdmittedParallelConditionalBranch(branch, branchPath)
+            )
+          ) {
             errors.push({
               nodeType: recursiveControl.node.type,
               nodePath: recursiveControl.path,
@@ -441,6 +453,29 @@ function findParallelControlBoundary(
     }
   }
   return undefined;
+}
+
+/** W3-C5A: exactly one direct branch with two normal-only leaf arms. */
+function isAdmittedParallelConditionalBranch(
+  nodes: readonly FlowNode[],
+  parentPath: string
+): boolean {
+  if (nodes.length !== 1) return false;
+  const node = nodes[0];
+  if (
+    node?.type !== "branch" ||
+    node.then.length === 0 ||
+    node.else === undefined ||
+    node.else.length === 0
+  ) {
+    return false;
+  }
+  return (
+    findParallelRecursiveControl(node.then, `${parentPath}[0].then`) ===
+      undefined &&
+    findParallelRecursiveControl(node.else, `${parentPath}[0].else`) ===
+      undefined
+  );
 }
 
 type ParallelRecursiveControlNode = Extract<

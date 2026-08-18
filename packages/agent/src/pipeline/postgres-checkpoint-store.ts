@@ -66,6 +66,7 @@ interface CheckpointRow {
   recovery_attempts_used: number | null;
   provider_session_refs: PipelineCheckpoint["providerSessionRefs"] | null;
   source_binding: PipelineCheckpoint["sourceBinding"] | null;
+  recursive_fork_completions: PipelineCheckpoint["recursiveForkCompletions"] | null;
   interaction_state: {
     pendingInteraction?: PipelineCheckpoint["pendingInteraction"];
     interactionReceipts?: PipelineCheckpoint["interactionReceipts"];
@@ -106,11 +107,12 @@ const CHECKPOINT_INSERT_COLUMNS = [
   "provider_session_refs",
   "interaction_state",
   "source_binding",
+  "recursive_fork_completions",
 ].join(", ");
 
 /** JSONB-cast positional placeholders matching {@link CHECKPOINT_INSERT_COLUMNS}. */
 const CHECKPOINT_INSERT_PLACEHOLDERS =
-  "$1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb, $9, $10, $11::jsonb, $12::jsonb, $13::jsonb, $14, $15::jsonb, $16::jsonb, $17::jsonb";
+  "$1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb, $9, $10, $11::jsonb, $12::jsonb, $13::jsonb, $14, $15::jsonb, $16::jsonb, $17::jsonb, $18::jsonb";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -173,6 +175,7 @@ export class PostgresPipelineCheckpointStore
         provider_session_refs JSONB,
         interaction_state JSONB,
         source_binding JSONB,
+        recursive_fork_completions JSONB,
         state JSONB NOT NULL,
         suspended_at_node_id TEXT,
         budget_state JSONB,
@@ -194,6 +197,7 @@ export class PostgresPipelineCheckpointStore
     const addInteractionStateCol = `ALTER TABLE ${this.tableName} ADD COLUMN IF NOT EXISTS interaction_state JSONB`;
     // E0: run-level binding to the exact compiled artifact / for-each source.
     const addSourceBindingCol = `ALTER TABLE ${this.tableName} ADD COLUMN IF NOT EXISTS source_binding JSONB`;
+    const addRecursiveForkCompletionsCol = `ALTER TABLE ${this.tableName} ADD COLUMN IF NOT EXISTS recursive_fork_completions JSONB`;
 
     await this.client.query(createTable);
     await this.client.query(addIdempotencyCol);
@@ -203,6 +207,7 @@ export class PostgresPipelineCheckpointStore
     await this.client.query(addProviderSessionRefsCol);
     await this.client.query(addInteractionStateCol);
     await this.client.query(addSourceBindingCol);
+    await this.client.query(addRecursiveForkCompletionsCol);
     await this.client.query(createRunIdx);
     await this.client.query(createExpiryIdx);
   }
@@ -226,7 +231,8 @@ export class PostgresPipelineCheckpointStore
         recovery_attempts_used = EXCLUDED.recovery_attempts_used,
         provider_session_refs = EXCLUDED.provider_session_refs,
         interaction_state = EXCLUDED.interaction_state,
-        source_binding = EXCLUDED.source_binding
+        source_binding = EXCLUDED.source_binding,
+        recursive_fork_completions = EXCLUDED.recursive_fork_completions
     `;
 
     await this.client.query(sql, this.insertParams(checkpoint));
@@ -339,6 +345,9 @@ export class PostgresPipelineCheckpointStore
         : null,
       checkpoint.sourceBinding
         ? JSON.stringify(checkpoint.sourceBinding)
+        : null,
+      checkpoint.recursiveForkCompletions
+        ? JSON.stringify(checkpoint.recursiveForkCompletions)
         : null,
     ];
   }
@@ -489,6 +498,12 @@ function rowToCheckpoint(row: CheckpointRow): PipelineCheckpoint {
   }
   if (row.source_binding && typeof row.source_binding === "object") {
     cp.sourceBinding = row.source_binding;
+  }
+  if (
+    row.recursive_fork_completions &&
+    typeof row.recursive_fork_completions === "object"
+  ) {
+    cp.recursiveForkCompletions = row.recursive_fork_completions;
   }
   if (row.interaction_state && typeof row.interaction_state === "object") {
     if (row.interaction_state.pendingInteraction !== undefined) {

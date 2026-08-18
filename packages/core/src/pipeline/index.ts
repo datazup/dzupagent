@@ -39,6 +39,8 @@ export type {
   PipelineCheckpoint,
   PipelineCheckpointCommitReceipt,
   PipelineCheckpointSourceBinding,
+  PipelineRecursiveForkCompletionChildV1,
+  PipelineRecursiveForkCompletionV1,
   PipelineExecutionScope,
   PipelineForEachItemEconomics,
   PipelineForEachItemFrame,

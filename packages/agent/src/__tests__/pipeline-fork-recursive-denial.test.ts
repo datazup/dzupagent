@@ -16,6 +16,7 @@ function unsupportedDefinition(): PipelineDefinition {
     entryNodeId: "fork",
     nodes: [
       { id: "fork", type: "fork", forkId: "parallel" },
+      { id: "prefix", type: "agent", agentId: "prefix" },
       { id: "decision", type: "gate", gateType: "quality" },
       { id: "left", type: "agent", agentId: "left" },
       { id: "right", type: "agent", agentId: "right" },
@@ -23,8 +24,9 @@ function unsupportedDefinition(): PipelineDefinition {
       { id: "join", type: "join", forkId: "parallel" },
     ],
     edges: [
-      { type: "sequential", sourceNodeId: "fork", targetNodeId: "decision" },
+      { type: "sequential", sourceNodeId: "fork", targetNodeId: "prefix" },
       { type: "sequential", sourceNodeId: "fork", targetNodeId: "sibling" },
+      { type: "sequential", sourceNodeId: "prefix", targetNodeId: "decision" },
       {
         type: "conditional",
         sourceNodeId: "decision",

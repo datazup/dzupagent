@@ -24,6 +24,7 @@ import type {
   PipelineNode,
   ToolNode,
   PipelineCheckpointStore,
+  PipelineCheckpoint,
   PipelineCheckpointExecutionLog,
   PipelineCheckpointProviderSessionRef,
   PipelineInteractionResumeCursor,
@@ -46,6 +47,7 @@ import type { RedisClientLike } from "./redis-checkpoint-store.js";
 import type { PostgresClientLike } from "./postgres-checkpoint-store.js";
 import type { LoopState } from "./pipeline-runtime/executor-state-types.js";
 import type { LoopBudgetHost } from "./loop-executor/types.js";
+import type { RecursiveScopedDurablePortV1 } from "./recursive-scope/types.js";
 
 // ---------------------------------------------------------------------------
 // Re-exported pure runtime contracts (REC-H-10 BC shim)
@@ -202,6 +204,15 @@ export interface PipelineTracer {
 // Runtime configuration
 // ---------------------------------------------------------------------------
 
+export interface PipelineRecursiveForkRuntimeConfig {
+  /**
+   * Host-owned CAS custody for definition-bound recursive child frames and
+   * commits. The Agent package intentionally supplies no implicit or
+   * production default for this port.
+   */
+  durable: RecursiveScopedDurablePortV1;
+}
+
 export interface PipelineRuntimeConfig {
   /** Pipeline definition to execute */
   definition: PipelineDefinition;
@@ -236,6 +247,11 @@ export interface PipelineRuntimeConfig {
    * that store takes precedence over `checkpointStore`.
    */
   checkpointStores?: Record<string, PipelineCheckpointStore>;
+  /**
+   * Opt-in custody for the one admitted recursive fork shape: a normal-only
+   * conditional branch nested directly under one fork child.
+   */
+  recursiveFork?: PipelineRecursiveForkRuntimeConfig;
   /**
    * Named execution-log sinks addressable by `definition.executionLog.storeRef`.
    * When the definition declares both `storeRef` and `eventHistory`, checkpoint
@@ -439,6 +455,9 @@ export interface PipelineRunContext {
    * as each loop resolves, so a changed source is detectable.
    */
   loopSourceDigests?: Record<string, PipelineSha256Digest>;
+  recursiveForkCompletions: NonNullable<
+    PipelineCheckpoint["recursiveForkCompletions"]
+  >;
   eventLog: PipelineRuntimeEvent[];
   versionTracker: { version: number };
   pendingInteraction?: PipelinePendingInteractionV1;

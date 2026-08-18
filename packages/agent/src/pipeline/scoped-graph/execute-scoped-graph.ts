@@ -334,6 +334,7 @@ export async function executeScopedGraph<
       nodeIdempotencyKeys,
       loopState: {},
       forkState,
+      recursiveForkCompletions: {},
       eventLog: [],
       versionTracker: { version: 0 },
       interactionReceipts: outerFrame.interactionReceipts,

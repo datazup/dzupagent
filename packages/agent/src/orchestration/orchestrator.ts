@@ -36,6 +36,14 @@ import {
 } from "./concurrency-runner.js";
 import { clearSupervisorCache, runSupervisor } from "./supervisor-runner.js";
 import type {
+  DebateInvocationObserver,
+  DebateInvocationOutcome,
+  DebateInvocationStart,
+  DebateOptions,
+  DebateParticipantRole,
+  DebateResult,
+} from "./debate-types.js";
+import type {
   MergeFn,
   SupervisorConfig,
   SupervisorResult,
@@ -46,9 +54,108 @@ export type {
   SupervisorConfig,
   SupervisorResult,
 } from "./supervisor-types.js";
+export type {
+  DebateInvocationObserver,
+  DebateInvocationOutcome,
+  DebateInvocationStart,
+  DebateOptions,
+  DebateParticipantRole,
+  DebateResult,
+} from "./debate-types.js";
 
 const defaultMerge: MergeFn = (results) =>
   results.map((r, i) => `--- Agent ${i + 1} ---\n${r}`).join("\n\n");
+
+interface DebateInvocationState {
+  nextInvocationIndex: number;
+  readonly invocations: DebateInvocationOutcome[];
+  readonly observer: DebateInvocationObserver | undefined;
+}
+
+interface DebateAgentInvocation {
+  readonly role: DebateParticipantRole;
+  readonly round?: number;
+  readonly signal?: AbortSignal;
+}
+
+async function invokeDebateAgent(
+  agent: DzupAgent,
+  input: string,
+  state: DebateInvocationState,
+  invocation: DebateAgentInvocation
+): Promise<string> {
+  const messages = [new HumanMessage(input)];
+  const invocationIndex = state.nextInvocationIndex++;
+  const start: DebateInvocationStart =
+    invocation.round === undefined
+      ? {
+          agentId: agent.id,
+          role: invocation.role,
+          invocationIndex,
+        }
+      : {
+          agentId: agent.id,
+          role: invocation.role,
+          invocationIndex,
+          round: invocation.round,
+        };
+  notifyDebateObserver(state.observer?.onStart, start);
+  const startedAt = Date.now();
+
+  try {
+    const result = await agent.generate(
+      messages,
+      invocation.signal ? { signal: invocation.signal } : undefined
+    );
+    const outcome: DebateInvocationOutcome = {
+      ...start,
+      success: true,
+      durationMs: elapsedSince(startedAt),
+      content: result.content,
+    };
+    state.invocations.push(outcome);
+    notifyDebateObserver(state.observer?.onComplete, outcome);
+    return result.content;
+  } catch (error: unknown) {
+    const outcome: DebateInvocationOutcome = {
+      ...start,
+      success: false,
+      durationMs: elapsedSince(startedAt),
+      error: normalizeDebateError(error),
+    };
+    state.invocations.push(outcome);
+    notifyDebateObserver(state.observer?.onComplete, outcome);
+    throw error;
+  }
+}
+
+function elapsedSince(startedAt: number): number {
+  const elapsed = Date.now() - startedAt;
+  return Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : 0;
+}
+
+function normalizeDebateError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function notifyDebateObserver<T>(
+  callback: ((value: T) => unknown) | undefined,
+  value: T
+): void {
+  if (!callback) return;
+  try {
+    const result = callback(value);
+    if (
+      result !== null &&
+      (typeof result === "object" || typeof result === "function") &&
+      "then" in result
+    ) {
+      void Promise.resolve(result).catch(() => {});
+    }
+  } catch {
+    // Debate observation is evidence-only and must never alter execution.
+  }
+}
 
 export class AgentOrchestrator {
   /**
@@ -229,11 +336,36 @@ export class AgentOrchestrator {
     proposers: DzupAgent[],
     judge: DzupAgent,
     task: string,
-    options?: { rounds?: number; signal?: AbortSignal; maxConcurrency?: number }
+    options?: DebateOptions
   ): Promise<string> {
+    const result = await this.debateDetailed(proposers, judge, task, options);
+    return result.content;
+  }
+
+  /**
+   * Run a debate and return truthful evidence for every model invocation that
+   * actually started and settled.
+   *
+   * Invocation callbacks are best-effort and receive only the minimal public
+   * evidence contract. Failures still reject with the exact original value;
+   * callers that need failure-path evidence can retain observer completions.
+   */
+  static async debateDetailed(
+    proposers: DzupAgent[],
+    judge: DzupAgent,
+    task: string,
+    options?: DebateOptions
+  ): Promise<DebateResult> {
+    const startedAt = Date.now();
     const rounds = options?.rounds ?? 1;
     const signal = options?.signal;
     let proposals: string[] = [];
+    let roundsExecuted = 0;
+    const state: DebateInvocationState = {
+      nextInvocationIndex: 0,
+      invocations: [],
+      observer: options?.invocationObserver,
+    };
 
     // Fail fast before spawning any proposer work, mirroring the
     // supervisor/contract-net guards.
@@ -265,15 +397,17 @@ export class AgentOrchestrator {
       const results = await runAllConcurrently(
         proposers.map(
           (agent) => (taskSignal?: AbortSignal) =>
-            agent.generate(
-              [new HumanMessage(roundInput)],
-              taskSignal ? { signal: taskSignal } : undefined
-            )
+            invokeDebateAgent(agent, roundInput, state, {
+              role: "proposer",
+              round,
+              ...(taskSignal ? { signal: taskSignal } : {}),
+            })
         ),
         options?.maxConcurrency ?? DEFAULT_ORCHESTRATION_FANOUT,
         signal ? { signal } : undefined
       );
-      proposals = results.map((r) => r.content);
+      proposals = results;
+      roundsExecuted += 1;
     }
 
     // Judge selects the best
@@ -281,18 +415,26 @@ export class AgentOrchestrator {
       .map((p, i) => `## Proposal ${i + 1}\n${p}`)
       .join("\n\n");
 
-    const judgeResult = await judge.generate(
-      [
-        new HumanMessage(
-          `Evaluate these proposals for the following task:\n\n**Task:** ${task}\n\n${judgeInput}\n\n` +
-            `Select the best proposal (or synthesize the best parts of multiple proposals). ` +
-            `Explain your reasoning briefly, then provide the final answer.`
-        ),
-      ],
-      signal ? { signal } : undefined
+    const content = await invokeDebateAgent(
+      judge,
+      `Evaluate these proposals for the following task:\n\n**Task:** ${task}\n\n${judgeInput}\n\n` +
+        `Select the best proposal (or synthesize the best parts of multiple proposals). ` +
+        `Explain your reasoning briefly, then provide the final answer.`,
+      state,
+      {
+        role: "judge",
+        ...(signal ? { signal } : {}),
+      }
     );
 
-    return judgeResult.content;
+    return {
+      content,
+      invocations: [...state.invocations].sort(
+        (left, right) => left.invocationIndex - right.invocationIndex
+      ),
+      roundsExecuted,
+      durationMs: elapsedSince(startedAt),
+    };
   }
 
   /**

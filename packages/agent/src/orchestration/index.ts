@@ -6,6 +6,12 @@
  */
 export { AgentOrchestrator } from "./orchestrator.js";
 export type {
+  DebateInvocationObserver,
+  DebateInvocationOutcome,
+  DebateInvocationStart,
+  DebateOptions,
+  DebateParticipantRole,
+  DebateResult,
   MergeFn,
   SupervisorConfig,
   SupervisorResult,

@@ -566,7 +566,7 @@ describe("TeamRuntime — supervisor pattern", () => {
     expect(result.agentResults).toHaveLength(1);
   });
 
-  it("emits participant events for manager and all specialists", async () => {
+  it("omits specialist events when the manager delegates to none", async () => {
     const def = buildDefinition("sup-events", "supervisor", [
       { id: "mgr", role: "supervisor" },
       { id: "s1", role: "specialist" },
@@ -592,8 +592,8 @@ describe("TeamRuntime — supervisor pattern", () => {
           .participantId,
     );
     expect(startedIds).toContain("mgr");
-    expect(startedIds).toContain("s1");
-    expect(startedIds).toContain("s2");
+    expect(startedIds).not.toContain("s1");
+    expect(startedIds).not.toContain("s2");
   });
 
   it("emits participant_completed with success=false when supervisor call throws", async () => {

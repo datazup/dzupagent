@@ -74,6 +74,11 @@ import {
   type InteractionResumeHost,
 } from "./pipeline-runtime-lifecycle/interaction-resume.js";
 import { PipelineInteractionRuntimeError } from "./pipeline-interaction-runtime.js";
+import {
+  definitionHasRecursiveFork,
+  validateRecursiveForkCompletionReceipts,
+} from "./pipeline-runtime/recursive-fork-runtime.js";
+import { resolveCheckpointStore } from "./pipeline-runtime-lifecycle/checkpoint-store-resolution.js";
 
 // ---------------------------------------------------------------------------
 // Pipeline Runtime
@@ -111,6 +116,31 @@ export class PipelineRuntime {
   private readonly interactionResumeHost: InteractionResumeHost;
 
   constructor(config: PipelineRuntimeConfig) {
+    if (definitionHasRecursiveFork(config)) {
+      const durable = config.recursiveFork?.durable;
+      if (
+        durable === undefined ||
+        typeof durable.loadFrame !== "function" ||
+        typeof durable.compareAndSaveFrame !== "function" ||
+        typeof durable.loadCommittedChild !== "function" ||
+        typeof durable.compareAndSaveCommittedChild !== "function"
+      ) {
+        throw new Error(
+          "Recursive fork admission requires an explicit PipelineRuntimeConfig.recursiveFork.durable CAS port."
+        );
+      }
+      const explicitCheckpointStore = resolveCheckpointStore(config);
+      if (explicitCheckpointStore?.saveIfVersion === undefined) {
+        throw new Error(
+          "Recursive fork admission requires an explicit checkpoint store with saveIfVersion CAS support."
+        );
+      }
+      if (config.definition.checkpointStrategy !== "after_each_node") {
+        throw new Error(
+          "Recursive fork admission requires checkpointStrategy=after_each_node for atomic parent completion."
+        );
+      }
+    }
     const { config: normalized, eventLog } = normalizeRuntimeConfig(config);
     this.config = normalized;
     this.eventLog = eventLog;
@@ -200,6 +230,7 @@ export class PipelineRuntime {
           nodeIdempotencyKeys: ctx.nodeIdempotencyKeys,
           loopState: ctx.loopState,
           forkState: ctx.forkState,
+          recursiveForkCompletions: ctx.recursiveForkCompletions,
           eventLog: ctx.eventLog,
           versionTracker: ctx.versionTracker,
           recoveryAttemptsUsed: this.recoveryAttemptsUsed,
@@ -242,6 +273,7 @@ export class PipelineRuntime {
     const nodeIdempotencyKeys: Record<string, string> = {};
     const loopState: LoopState = {};
     const forkState: ForkRuntimeState = {};
+    const recursiveForkCompletions = {};
     const versionTracker = { version: 0 };
 
     this.state = "running";
@@ -260,6 +292,7 @@ export class PipelineRuntime {
       nodeIdempotencyKeys,
       loopState,
       forkState,
+      recursiveForkCompletions,
       eventLog: this.eventLog,
       versionTracker,
       interactionReceipts: {},
@@ -282,6 +315,10 @@ export class PipelineRuntime {
           .join("; ")}`,
       );
     }
+    await validateRecursiveForkCompletionReceipts(
+      this.config,
+      parsed.data as PipelineCheckpoint
+    );
     return resumeFromCheckpoint(
       this.resumeHost,
       parsed.data as PipelineCheckpoint,

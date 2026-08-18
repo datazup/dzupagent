@@ -225,6 +225,11 @@ export class PipelineExecutor {
         this.recordIdempotencyKey(keys, runId, node),
       errorEdgeFor: (nodeId, error) => this.errorEdgeFor(nodeId, error),
       forkDeps: (runId) => this.forkDeps(runId),
+      recursiveForkDeps: () => ({
+        config: this.config,
+        coordinator: this.coordinator,
+        Executor: PipelineExecutor,
+      }),
       budgetTracker: this.coordinator.getBudgetTracker(),
       emit: this.emit.bind(this),
       setState: (next) => this.coordinator.setState(next),
@@ -428,6 +433,7 @@ export class PipelineExecutor {
         nodeIdempotencyKeys: frame.nodeIdempotencyKeys,
         loopState: frame.loopState,
         forkState: frame.forkState,
+        recursiveForkCompletions: frame.recursiveForkCompletions,
         ...(frame.loopSourceDigests === undefined
           ? {}
           : { loopSourceDigests: frame.loopSourceDigests }),
@@ -469,6 +475,7 @@ export class PipelineExecutor {
       nodeIdempotencyKeys: frame.nodeIdempotencyKeys,
       loopState: frame.loopState,
       forkState: frame.forkState,
+      recursiveForkCompletions: frame.recursiveForkCompletions,
       ...(frame.loopSourceDigests === undefined
         ? {}
         : { loopSourceDigests: frame.loopSourceDigests }),

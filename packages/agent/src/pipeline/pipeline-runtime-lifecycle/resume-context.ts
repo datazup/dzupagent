@@ -64,6 +64,9 @@ export interface RestoredContext {
   nodeIdempotencyKeys: Record<string, string>;
   loopState: LoopState;
   forkState: ForkRuntimeState;
+  recursiveForkCompletions: NonNullable<
+    PipelineCheckpoint["recursiveForkCompletions"]
+  >;
   /** Per-loop item-source digests recorded on the checkpoint's binding (E3). */
   loopSourceDigests?: Record<string, PipelineSha256Digest>;
   pendingInteraction?: PipelinePendingInteractionV1;
@@ -174,6 +177,9 @@ export function restoreRunContextFromCheckpoint(
       nodeIdempotencyKeys,
       loopState,
       forkState,
+      recursiveForkCompletions: structuredClone(
+        checkpoint.recursiveForkCompletions ?? {}
+      ),
       ...(checkpoint.sourceBinding?.loopSourceDigests === undefined
         ? {}
         : {
@@ -199,6 +205,9 @@ export function restoreRunContextFromCheckpoint(
     nodeIdempotencyKeys,
     loopState: {},
     forkState: {},
+    recursiveForkCompletions: structuredClone(
+      checkpoint.recursiveForkCompletions ?? {}
+    ),
     ...(checkpoint.pendingInteraction === undefined
       ? {}
       : { pendingInteraction: checkpoint.pendingInteraction }),

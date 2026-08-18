@@ -149,6 +149,12 @@ export type {
 // --- Orchestration ---
 export { AgentOrchestrator } from "./orchestration/orchestrator.js";
 export type {
+  DebateInvocationObserver,
+  DebateInvocationOutcome,
+  DebateInvocationStart,
+  DebateOptions,
+  DebateParticipantRole,
+  DebateResult,
   MergeFn,
   SupervisorConfig,
   SupervisorResult,

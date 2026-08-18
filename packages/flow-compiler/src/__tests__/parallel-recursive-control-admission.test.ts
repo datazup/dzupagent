@@ -78,18 +78,29 @@ describe("Packet 24-B parallel recursive-control admission", () => {
     );
   });
 
-  it.each([
-    [
-      "branch",
-      {
+  it("admits one direct normal-only conditional branch under parallel", async () => {
+    const result = await createFlowCompiler({ toolResolver }).compileDocument(
+      documentWithParallelBranch({
         type: "branch",
         id: "nested-branch",
         condition: "true",
         then: [setNode("then")],
         else: [setNode("else")],
-      },
-      "root.nodes[0].branches[0][0]",
-    ],
+      })
+    );
+
+    expect("errors" in result ? JSON.stringify(result.errors) : "ok").toBe(
+      "ok"
+    );
+    if ("errors" in result) return;
+    expect(PipelineDefinitionSchema.safeParse(result.artifact).success).toBe(
+      true
+    );
+    expect(result.artifact.nodes.filter((node) => node.type === "fork")).toHaveLength(1);
+    expect(result.artifact.nodes.filter((node) => node.type === "gate")).toHaveLength(1);
+  });
+
+  it.each([
     [
       "try/catch",
       {
@@ -240,7 +251,7 @@ describe("Packet 24-B parallel recursive-control admission", () => {
     );
   });
 
-  it("applies the recursive denial through raw-flow and DSL frontends", async () => {
+  it("applies the exact admission through raw-flow and DSL frontends", async () => {
     const compiler = createFlowCompiler({ toolResolver });
     const document = documentWithParallelBranch({
       type: "branch",
@@ -284,16 +295,52 @@ describe("Packet 24-B parallel recursive-control admission", () => {
       await compiler.compileDsl(dsl),
     ];
     for (const result of results) {
-      expect("errors" in result).toBe(true);
-      if (!("errors" in result)) continue;
-      expect(result.errors).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            stage: 2,
-            code: "PARALLEL_RECURSIVE_CONTROL_UNSUPPORTED",
-          }),
-        ])
+      expect("errors" in result ? JSON.stringify(result.errors) : "ok").toBe(
+        "ok"
       );
     }
+  });
+
+  it("retains the recursive diagnostic when two parallel children branch", async () => {
+    const branch = (id: string) => ({
+      type: "branch",
+      id,
+      condition: "true",
+      then: [setNode(`${id}-then`)],
+      else: [setNode(`${id}-else`)],
+    });
+    const result = await createFlowCompiler({ toolResolver }).compileDocument({
+      dsl: "dzupflow/v1",
+      id: "two-recursive-children",
+      version: 1,
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "parallel",
+            id: "fork",
+            branches: [[branch("first")], [branch("second")]],
+          },
+        ],
+      },
+    });
+
+    expect("errors" in result).toBe(true);
+    if (!("errors" in result)) return;
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          stage: 2,
+          code: "PARALLEL_RECURSIVE_CONTROL_UNSUPPORTED",
+          nodePath: "root.nodes[0].branches[0][0]",
+        }),
+        expect.objectContaining({
+          stage: 2,
+          code: "PARALLEL_RECURSIVE_CONTROL_UNSUPPORTED",
+          nodePath: "root.nodes[0].branches[1][0]",
+        }),
+      ])
+    );
   });
 });

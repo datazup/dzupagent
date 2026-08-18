@@ -32,6 +32,7 @@ export function createPipelineCheckpoint(options: {
    * rather than as agreement.
    */
   sourceBinding?: PipelineCheckpoint["sourceBinding"];
+  recursiveForkCompletions?: PipelineCheckpoint["recursiveForkCompletions"];
   /** Per-fork branch progress for durable fork/branch resume (W4). */
   forkState?: Record<
     string,
@@ -63,17 +64,25 @@ export function createPipelineCheckpoint(options: {
     // validator enforces the same rule at the parse boundary; this is the
     // writer half, so the two cannot disagree.
     schemaVersion:
-      options.pendingInteraction !== undefined ||
+      options.recursiveForkCompletions !== undefined &&
+      Object.keys(options.recursiveForkCompletions).length > 0
+        ? "1.2.0"
+        : options.pendingInteraction !== undefined ||
       options.interactionResumeCursor !== undefined ||
       Object.keys(options.interactionReceipts ?? {}).length > 0 ||
       Object.values(options.loopState ?? {}).some(
         (cursor) => cursor.itemOutcomes !== undefined
       )
-        ? "1.1.0"
-        : "1.0.0",
+          ? "1.1.0"
+          : "1.0.0",
     sourceBinding: options.sourceBinding
       ? structuredClone(options.sourceBinding)
       : undefined,
+    recursiveForkCompletions:
+      options.recursiveForkCompletions &&
+      Object.keys(options.recursiveForkCompletions).length > 0
+        ? structuredClone(options.recursiveForkCompletions)
+        : undefined,
     completedNodeIds: [...options.completedNodeIds],
     // Snapshot the map so later mutations don't leak into a saved checkpoint.
     nodeIdempotencyKeys:

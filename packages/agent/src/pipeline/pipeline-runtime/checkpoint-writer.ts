@@ -52,6 +52,7 @@ export interface CheckpointWriteInput {
    * to the definition digest alone.
    */
   loopSourceDigests?: Record<string, PipelineSha256Digest>;
+  recursiveForkCompletions?: PipelineCheckpoint["recursiveForkCompletions"];
   eventLog: PipelineRuntimeEvent[];
   versionTracker: { version: number };
   /** Current cumulative recovery-attempt counter to persist. */
@@ -189,6 +190,7 @@ export async function writeCheckpoint(
     loopState,
     forkState,
     loopSourceDigests,
+    recursiveForkCompletions,
     eventLog,
     versionTracker,
     recoveryAttemptsUsed,
@@ -227,6 +229,7 @@ export async function writeCheckpoint(
         ? { loopSourceDigests }
         : {}),
     },
+    recursiveForkCompletions,
     events: checkpointEvents(config, eventLog, savedEvent),
     executionLog,
     providerSessionRefs: checkpointProviderSessionRefs(config, nodeResults),
