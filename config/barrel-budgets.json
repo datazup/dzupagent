@@ -204,14 +204,6 @@
       },
       "maxFileLines": 500,
       "fileLineDebtPins": {
-        "src/runner/runner-values.ts": {
-          "maxLines": 509,
-          "sourceSha256": "b4a419df7b8c1d638969ecfd424f8d9d5f32734cfbe7572b9abcdc4cd3c92301",
-          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
-          "reviewBy": "2026-09-14",
-          "rationale": "Freeze the consolidated structured runner value contracts pending a behavior-preserving type-family split.",
-          "shrinkTarget": 500
-        },
         "src/agent/dzip-agent.ts": {
           "maxLines": 512,
           "shrinkTarget": 500,
