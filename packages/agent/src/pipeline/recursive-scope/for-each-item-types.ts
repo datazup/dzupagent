@@ -52,6 +52,7 @@ export interface RecursiveForEachPlannedItemV1 {
   readonly itemIdentity: RecursiveScopedSha256Digest;
   readonly itemValue: RecursiveScopedJsonValue;
   readonly itemValueDigest: RecursiveScopedSha256Digest;
+  readonly economicsDigest: RecursiveScopedSha256Digest;
   readonly frame: RecursiveScopedFrameV1;
   readonly economics?: RecursiveForEachItemEconomicsBindingV1;
 }

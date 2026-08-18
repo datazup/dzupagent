@@ -19,6 +19,7 @@ interface RecursiveForEachItemCheckpointBaseV1 {
   readonly itemIdentity: RecursiveScopedSha256Digest;
   readonly itemOrdinal: number;
   readonly itemValueDigest: RecursiveScopedSha256Digest;
+  readonly economicsDigest: RecursiveScopedSha256Digest;
   readonly executorCheckpoint: RecursiveScopedJsonObject;
 }
 
@@ -80,7 +81,7 @@ export function initialRecursiveForEachItemCheckpointV1(
   collectionSourceDigest: RecursiveScopedSha256Digest,
   item: Pick<
     RecursiveForEachPlannedItemV1,
-    "itemIdentity" | "itemOrdinal" | "itemValueDigest"
+    "itemIdentity" | "itemOrdinal" | "itemValueDigest" | "economicsDigest"
   >,
   executorCheckpoint: RecursiveScopedJsonObject,
 ): RecursiveScopedJsonObject {
@@ -91,6 +92,7 @@ export function initialRecursiveForEachItemCheckpointV1(
     itemIdentity: item.itemIdentity,
     itemOrdinal: item.itemOrdinal,
     itemValueDigest: item.itemValueDigest,
+    economicsDigest: item.economicsDigest,
     executorCheckpoint,
   };
 }
@@ -106,6 +108,7 @@ export function inFlightRecursiveForEachItemCheckpointV1(
     itemIdentity: previous.itemIdentity,
     itemOrdinal: previous.itemOrdinal,
     itemValueDigest: previous.itemValueDigest,
+    economicsDigest: previous.economicsDigest,
     executorCheckpoint,
   };
 }
@@ -122,6 +125,7 @@ export function bodyCompleteRecursiveForEachItemCheckpointV1(
     itemIdentity: previous.itemIdentity,
     itemOrdinal: previous.itemOrdinal,
     itemValueDigest: previous.itemValueDigest,
+    economicsDigest: previous.economicsDigest,
     executorCheckpoint: previous.executorCheckpoint,
     orderedResult,
     commit: commit as unknown as RecursiveScopedJsonObject,
@@ -133,7 +137,7 @@ export function parseRecursiveForEachItemCheckpointV1(
   collectionSourceDigest: RecursiveScopedSha256Digest,
   item: Pick<
     RecursiveForEachPlannedItemV1,
-    "itemIdentity" | "itemOrdinal" | "itemValueDigest"
+    "itemIdentity" | "itemOrdinal" | "itemValueDigest" | "economicsDigest"
   >,
 ): RecursiveForEachItemCheckpointParseV1 {
   const value = frame.checkpoint;
@@ -153,6 +157,7 @@ export function parseRecursiveForEachItemCheckpointV1(
           "itemIdentity",
           "itemOrdinal",
           "itemValueDigest",
+          "economicsDigest",
           "executorCheckpoint",
         ]
       : [
@@ -162,6 +167,7 @@ export function parseRecursiveForEachItemCheckpointV1(
           "itemIdentity",
           "itemOrdinal",
           "itemValueDigest",
+          "economicsDigest",
           "executorCheckpoint",
           "orderedResult",
           "commit",
@@ -171,7 +177,8 @@ export function parseRecursiveForEachItemCheckpointV1(
     value.collectionSourceDigest !== collectionSourceDigest ||
     value.itemIdentity !== item.itemIdentity ||
     value.itemOrdinal !== item.itemOrdinal ||
-    value.itemValueDigest !== item.itemValueDigest
+    value.itemValueDigest !== item.itemValueDigest ||
+    value.economicsDigest !== item.economicsDigest
   ) {
     return { status: "drift" };
   }

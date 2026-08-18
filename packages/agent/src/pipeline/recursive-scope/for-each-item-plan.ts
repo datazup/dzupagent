@@ -20,13 +20,17 @@ export class RecursiveForEachItemPlanError extends Error {
 }
 
 function digest(value: unknown): RecursiveScopedSha256Digest {
-  return canonicalInputDigest(value) as RecursiveScopedSha256Digest;
+  return `sha256:${canonicalInputDigest(value)}`;
 }
 
 function requireNonEmpty(value: string, field: string): void {
   if (value.length === 0) {
     throw new RecursiveForEachItemPlanError(`${field} must be non-empty.`);
   }
+}
+
+function isSha256(value: string): value is RecursiveScopedSha256Digest {
+  return /^sha256:[0-9a-f]{64}$/.test(value);
 }
 
 export function deriveRecursiveForEachItemIdentityV1(input: {
@@ -52,6 +56,11 @@ function validateEconomics(
   if (economics === undefined) return;
   requireNonEmpty(economics.chargeKey, `items[${index}].economics.chargeKey`);
   requireNonEmpty(economics.currency, `items[${index}].economics.currency`);
+  if (!isSha256(economics.reservationIdentity)) {
+    throw new RecursiveForEachItemPlanError(
+      `items[${index}].economics.reservationIdentity must be SHA-256.`,
+    );
+  }
   if (
     !Number.isSafeInteger(economics.hardCeilingMicros) ||
     economics.hardCeilingMicros < 0
@@ -123,6 +132,7 @@ export function materializeRecursiveForEachItemPlanV1(
     validateEconomics(item, index);
 
     const itemValueDigest = digest(item.itemValue);
+    const economicsDigest = digest(item.economics ?? null);
     const expectedItemIdentity = deriveRecursiveForEachItemIdentityV1({
       collectionSourceDigest: input.collectionSourceDigest,
       forEachNodeId: input.forEachNodeId,
@@ -160,6 +170,7 @@ export function materializeRecursiveForEachItemPlanV1(
       itemOrdinal: item.itemOrdinal,
       itemIdentity: item.itemIdentity,
       itemValueDigest,
+      economicsDigest,
     };
     const materialized = materializeRecursiveScopedFrameV1({
       frameKind: "for-each-item",
@@ -198,6 +209,7 @@ export function materializeRecursiveForEachItemPlanV1(
       itemIdentity: item.itemIdentity,
       itemValue: item.itemValue,
       itemValueDigest,
+      economicsDigest,
       frame,
       ...(item.economics === undefined ? {} : { economics: item.economics }),
     };

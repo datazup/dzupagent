@@ -16,7 +16,6 @@ import {
 import type {
   RecursiveBranchBlockedReasonV1,
   RecursiveBranchCorruptReasonV1,
-  RecursiveDurableWriteResultV1,
   RecursiveScopedDurablePortV1,
 } from "./types.js";
 
@@ -392,10 +391,4 @@ export async function prepareRecursiveChildV1(
   assertRecursiveAcknowledgementsKnownV1(committed);
   skippedCommittedChildScopeIds.push(planned.childScopeId);
   return { frame, committed };
-}
-
-export function isRecursiveDurableWriteResultV1(
-  value: unknown,
-): value is RecursiveDurableWriteResultV1 {
-  return typeof value === "object" && value !== null && "status" in value;
 }
