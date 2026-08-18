@@ -270,6 +270,14 @@ export interface PipelineRuntimeConfig {
   recoveryCopilot?: {
     /** The RecoveryCopilot instance to use for recovery attempts */
     copilot: RecoveryCopilot;
+    /**
+     * Recovery-learning ownership for failures originating in this pipeline.
+     * Omitted and `legacy-default` preserve compatibility by selecting the
+     * `default` tenant; `scoped` requires a non-blank tenant ID.
+     */
+    tenantScope?:
+      | { mode: "legacy-default" }
+      | { mode: "scoped"; tenantId: string };
     /** Only attempt recovery for these node IDs (if empty/unset, all nodes are eligible) */
     enabledForNodes?: string[];
     /** Max total recovery attempts per pipeline run (default: 3) */

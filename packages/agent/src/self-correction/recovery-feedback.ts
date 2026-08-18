@@ -37,6 +37,7 @@ import {
   hydrateLesson,
   serializeLesson,
 } from "./recovery-feedback/recovery-feedback-serialization.js";
+import { normalizeRecoveryTenantId } from "../recovery/recovery-types.js";
 
 // ---------------------------------------------------------------------------
 // Re-exports (preserve the public surface after decomposition)
@@ -107,12 +108,17 @@ export class RecoveryFeedback {
     actor: "system" | "operator" = "system",
     detail = "Recovery outcome staged for review"
   ): string {
+    const normalizedTenantId = normalizeRecoveryTenantId(lesson.tenantId);
+    const scopedLesson: RecoveryLesson =
+      lesson.tenantId === undefined || lesson.tenantId === null
+        ? { ...lesson }
+        : { ...lesson, tenantId: normalizedTenantId };
     this.candidateCounter++;
     const candidateId = `cand_${Date.now()}_${this.candidateCounter}`;
     const now = new Date();
     const auditEntry: Omit<AuditEntry, "candidateId"> = {
-      runId: lesson.id,
-      nodeId: lesson.nodeId,
+      runId: scopedLesson.id,
+      nodeId: scopedLesson.nodeId,
       event: "staged",
       actor,
       detail,
@@ -120,7 +126,7 @@ export class RecoveryFeedback {
     };
     const candidate: LearningCandidate = {
       id: candidateId,
-      lesson,
+      lesson: scopedLesson,
       status: "pending",
       createdAt: now,
       auditTrail: [],
@@ -148,9 +154,10 @@ export class RecoveryFeedback {
    */
   async promoteCandidate(
     candidateId: string,
-    reviewedBy = "operator"
+    reviewedBy = "operator",
+    tenantId = "default"
   ): Promise<boolean> {
-    return (await this.promoteCandidateDetailed(candidateId, reviewedBy))
+    return (await this.promoteCandidateDetailed(candidateId, reviewedBy, tenantId))
       .accepted;
   }
 
@@ -163,9 +170,10 @@ export class RecoveryFeedback {
    */
   async promoteCandidateDetailed(
     candidateId: string,
-    reviewedBy = "operator"
+    reviewedBy = "operator",
+    tenantId = "default"
   ): Promise<{ accepted: boolean; persisted: boolean }> {
-    const candidate = this.candidateStore.get(candidateId);
+    const candidate = this.getCandidateForTenant(candidateId, tenantId);
     if (!candidate || candidate.status !== "pending") {
       return { accepted: false, persisted: false };
     }
@@ -199,8 +207,12 @@ export class RecoveryFeedback {
    * Reject a pending candidate. The lesson is NOT written to the durable store.
    * Returns false if candidate not found or already reviewed.
    */
-  rejectCandidate(candidateId: string, reviewedBy = "operator"): boolean {
-    const candidate = this.candidateStore.get(candidateId);
+  rejectCandidate(
+    candidateId: string,
+    reviewedBy = "operator",
+    tenantId = "default"
+  ): boolean {
+    const candidate = this.getCandidateForTenant(candidateId, tenantId);
     if (!candidate || candidate.status !== "pending") return false;
 
     const now = new Date();
@@ -231,9 +243,14 @@ export class RecoveryFeedback {
    * when the candidate is no longer pending or doesn't exist.
    */
   async recordValidationOutcome(
-    outcome: CandidateValidationOutcome
+    outcome: CandidateValidationOutcome,
+    tenantId = "default"
   ): Promise<ValidationOutcomeResult> {
-    const candidate = this.candidateStore.get(outcome.candidateId);
+    const normalizedTenantId = normalizeRecoveryTenantId(tenantId);
+    const candidate = this.getCandidateForTenant(
+      outcome.candidateId,
+      normalizedTenantId
+    );
     if (!candidate) {
       return {
         candidateId: outcome.candidateId,
@@ -293,9 +310,16 @@ export class RecoveryFeedback {
       newAvg >= policy.minScore
     ) {
       this.candidateStore.update(candidate);
-      const ok = await this.promoteCandidate(candidate.id, "auto-validator");
+      const ok = await this.promoteCandidate(
+        candidate.id,
+        "auto-validator",
+        normalizedTenantId
+      );
       if (ok) {
-        const promoted = this.candidateStore.get(candidate.id);
+        const promoted = this.getCandidateForTenant(
+          candidate.id,
+          normalizedTenantId
+        );
         if (promoted) {
           appendAuditEntry(promoted, {
             runId: outcome.runId,
@@ -315,9 +339,16 @@ export class RecoveryFeedback {
       }
     } else if (candidate.failureRunCount >= policy.maxFailureRuns) {
       this.candidateStore.update(candidate);
-      const ok = this.rejectCandidate(candidate.id, "auto-validator");
+      const ok = this.rejectCandidate(
+        candidate.id,
+        "auto-validator",
+        normalizedTenantId
+      );
       if (ok) {
-        const rejected = this.candidateStore.get(candidate.id);
+        const rejected = this.getCandidateForTenant(
+          candidate.id,
+          normalizedTenantId
+        );
         if (rejected) {
           appendAuditEntry(rejected, {
             runId: outcome.runId,
@@ -335,7 +366,10 @@ export class RecoveryFeedback {
       this.candidateStore.update(candidate);
     }
 
-    const finalCandidate = this.candidateStore.get(candidate.id);
+    const finalCandidate = this.getCandidateForTenant(
+      candidate.id,
+      normalizedTenantId
+    );
     return {
       candidateId: candidate.id,
       status: finalCandidate?.status ?? "pending",
@@ -349,15 +383,23 @@ export class RecoveryFeedback {
   /**
    * List all pending LearningCandidates awaiting operator review.
    */
-  listPendingCandidates(): LearningCandidate[] {
-    return this.candidateStore.listByStatus("pending");
+  listPendingCandidates(tenantId = "default"): LearningCandidate[] {
+    const normalizedTenantId = normalizeRecoveryTenantId(tenantId);
+    return this.candidateStore
+      .listByStatus("pending")
+      .filter((candidate) =>
+        this.lessonBelongsToTenant(candidate.lesson, normalizedTenantId)
+      );
   }
 
   /**
    * Get a specific LearningCandidate by ID.
    */
-  getCandidate(candidateId: string): LearningCandidate | undefined {
-    return this.candidateStore.get(candidateId);
+  getCandidate(
+    candidateId: string,
+    tenantId = "default"
+  ): LearningCandidate | undefined {
+    return this.getCandidateForTenant(candidateId, tenantId);
   }
 
   /**
@@ -366,9 +408,10 @@ export class RecoveryFeedback {
    */
   appendCandidateAuditEntry(
     candidateId: string,
-    entry: Omit<AuditEntry, "candidateId">
+    entry: Omit<AuditEntry, "candidateId">,
+    tenantId = "default"
   ): void {
-    const candidate = this.candidateStore.get(candidateId);
+    const candidate = this.getCandidateForTenant(candidateId, tenantId);
     if (!candidate) return;
     appendAuditEntry(candidate, entry);
     this.candidateStore.update(candidate);
@@ -384,8 +427,10 @@ export class RecoveryFeedback {
   async retrieveSimilar(
     errorType: string,
     nodeId: string,
-    limit = 5
+    limit = 5,
+    tenantId = "default"
   ): Promise<RecoveryLesson[]> {
+    const normalizedTenantId = normalizeRecoveryTenantId(tenantId);
     const lessons: RecoveryLesson[] = [];
     const seen = new Set<string>();
 
@@ -393,7 +438,7 @@ export class RecoveryFeedback {
     if (this.store) {
       const results = await this.store.search(this.namespace, {
         filter: { errorType },
-        limit: limit * 3, // over-fetch to filter by nodeId client-side
+        limit: Math.max(limit * 3, 1000),
       });
 
       for (const item of results) {
@@ -404,8 +449,10 @@ export class RecoveryFeedback {
         ) {
           continue;
         }
-        seen.add(item.value.id);
-        lessons.push(hydrateLesson(item.value));
+        const lesson = hydrateLesson(item.value);
+        if (!this.lessonBelongsToTenant(lesson, normalizedTenantId)) continue;
+        seen.add(lesson.id);
+        lessons.push(lesson);
       }
     }
 
@@ -414,6 +461,7 @@ export class RecoveryFeedback {
     for (const candidate of this.candidateStore.listByStatus("pending")) {
       const lesson = candidate.lesson;
       if (lesson.errorType !== errorType) continue;
+      if (!this.lessonBelongsToTenant(lesson, normalizedTenantId)) continue;
       if (seen.has(lesson.id)) continue;
       seen.add(lesson.id);
       lessons.push(lesson);
@@ -421,6 +469,7 @@ export class RecoveryFeedback {
     for (const candidate of this.candidateStore.listByStatus("promoted")) {
       const lesson = candidate.lesson;
       if (lesson.errorType !== errorType) continue;
+      if (!this.lessonBelongsToTenant(lesson, normalizedTenantId)) continue;
       if (seen.has(lesson.id)) continue;
       seen.add(lesson.id);
       lessons.push(lesson);
@@ -441,11 +490,12 @@ export class RecoveryFeedback {
    * Get the durable success rate for a given error type.
    * Returns `{ total: 0, successes: 0, rate: 0 }` if no store or no data.
    */
-  async getSuccessRate(errorType: string): Promise<{
+  async getSuccessRate(errorType: string, tenantId = "default"): Promise<{
     total: number;
     successes: number;
     rate: number;
   }> {
+    const normalizedTenantId = normalizeRecoveryTenantId(tenantId);
     if (!this.store) return { total: 0, successes: 0, rate: 0 };
 
     const results = await this.store.search(this.namespace, {
@@ -458,6 +508,8 @@ export class RecoveryFeedback {
 
     for (const item of results) {
       if (!isLessonRecord(item.value)) continue;
+      const lesson = hydrateLesson(item.value);
+      if (!this.lessonBelongsToTenant(lesson, normalizedTenantId)) continue;
       if (
         item.value.outcome !== "success" &&
         item.value.outcome !== "failure"
@@ -465,7 +517,7 @@ export class RecoveryFeedback {
         continue;
       }
       total++;
-      if (item.value.outcome === "success") successes++;
+      if (lesson.outcome === "success") successes++;
     }
 
     return {
@@ -481,5 +533,31 @@ export class RecoveryFeedback {
   generateLessonId(): string {
     this.lessonCounter++;
     return `lesson_${Date.now()}_${this.lessonCounter}`;
+  }
+
+  private getCandidateForTenant(
+    candidateId: string,
+    tenantId: string
+  ): LearningCandidate | undefined {
+    const normalizedTenantId = normalizeRecoveryTenantId(tenantId);
+    const candidate = this.candidateStore.get(candidateId);
+    if (
+      !candidate ||
+      !this.lessonBelongsToTenant(candidate.lesson, normalizedTenantId)
+    ) {
+      return undefined;
+    }
+    return candidate;
+  }
+
+  private lessonBelongsToTenant(
+    lesson: RecoveryLesson,
+    normalizedTenantId: string
+  ): boolean {
+    try {
+      return normalizeRecoveryTenantId(lesson.tenantId) === normalizedTenantId;
+    } catch {
+      return false;
+    }
   }
 }

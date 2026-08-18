@@ -15,7 +15,11 @@ import type {
   PipelineRuntimeConfig,
   PipelineRuntimeEvent,
 } from '../pipeline-runtime-types.js'
-import type { FailureContext } from '../../recovery/recovery-types.js'
+import {
+  DEFAULT_RECOVERY_TENANT_ID,
+  normalizeRecoveryTenantId,
+  type FailureContext,
+} from '../../recovery/recovery-types.js'
 import {
   stuckDetectedEvent,
   nodeOutputRecordedEvent,
@@ -230,6 +234,11 @@ export async function attemptRecovery(
   const rc = config.recoveryCopilot
   if (!rc) return false
 
+  const tenantId =
+    rc.tenantScope?.mode === 'scoped'
+      ? normalizeRecoveryTenantId(rc.tenantScope.tenantId)
+      : DEFAULT_RECOVERY_TENANT_ID
+
   // Check per-node eligibility
   if (rc.enabledForNodes && rc.enabledForNodes.length > 0) {
     if (!rc.enabledForNodes.includes(nodeId)) return false
@@ -252,6 +261,7 @@ export async function attemptRecovery(
     nodeId,
     timestamp: new Date(),
     previousAttempts: attemptsUsed - 1,
+    tenantId,
   }
 
   try {

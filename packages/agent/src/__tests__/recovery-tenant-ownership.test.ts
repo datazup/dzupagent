@@ -21,6 +21,8 @@ interface TestStore extends BaseStore {
 function makeStore(): TestStore {
   const rows = new Map<string, Record<string, unknown>>()
 
+  // This is a LangGraph BaseStore contract double, not a MemoryService spy.
+  // eslint-disable-next-line no-restricted-syntax
   return {
     rows,
     async put(namespace: string[], key: string, value: Record<string, unknown>) {

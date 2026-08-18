@@ -55,17 +55,11 @@ export interface RejectResult {
 export class LearningCandidateService {
   constructor(private readonly feedback: RecoveryFeedback) {}
 
-  private matchesTenant(candidate: LearningCandidate, tenantId: string): boolean {
-    return (candidate.lesson.tenantId ?? 'default') === tenantId
-  }
-
   /**
    * List all pending candidates awaiting operator review.
    */
   listPending(tenantId = 'default'): LearningCandidate[] {
-    return this.feedback
-      .listPendingCandidates()
-      .filter((candidate) => this.matchesTenant(candidate, tenantId))
+    return this.feedback.listPendingCandidates(tenantId)
   }
 
   /**
@@ -73,9 +67,7 @@ export class LearningCandidateService {
    * Returns undefined if not found.
    */
   get(candidateId: string, tenantId = 'default'): LearningCandidate | undefined {
-    const candidate = this.feedback.getCandidate(candidateId)
-    if (!candidate || !this.matchesTenant(candidate, tenantId)) return undefined
-    return candidate
+    return this.feedback.getCandidate(candidateId, tenantId)
   }
 
   /**
@@ -97,6 +89,7 @@ export class LearningCandidateService {
     const { accepted, persisted } = await this.feedback.promoteCandidateDetailed(
       candidateId,
       reviewedBy,
+      tenantId,
     )
     return accepted
       ? { success: true, candidateId, persisted }
@@ -112,18 +105,7 @@ export class LearningCandidateService {
     outcome: CandidateValidationOutcome,
     tenantId = 'default',
   ): Promise<ValidationOutcomeResult> {
-    const candidate = this.feedback.getCandidate(outcome.candidateId)
-    if (!candidate || !this.matchesTenant(candidate, tenantId)) {
-      return Promise.resolve({
-        candidateId: outcome.candidateId,
-        status: 'pending',
-        autoActioned: false,
-        successRunCount: 0,
-        failureRunCount: 0,
-        avgValidationScore: 0,
-      })
-    }
-    return this.feedback.recordValidationOutcome(outcome)
+    return this.feedback.recordValidationOutcome(outcome, tenantId)
   }
 
   /**
@@ -138,7 +120,7 @@ export class LearningCandidateService {
       return { success: false, candidateId, reason: `Candidate already ${candidate.status}` }
     }
 
-    const ok = this.feedback.rejectCandidate(candidateId, reviewedBy)
+    const ok = this.feedback.rejectCandidate(candidateId, reviewedBy, tenantId)
     return ok
       ? { success: true, candidateId }
       : { success: false, candidateId, reason: 'Rejection failed' }
