@@ -10,7 +10,7 @@ Schema: `dzupagent.flowConformanceMatrix/v1`
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `sequence` | yes | yes | supported | native | `skill-chain` | `dzup.core@1` | dzupagent | none |  |
 | `action` | yes | yes | supported | native | `skill-chain` | `dzup.core@1` | dzupagent | none |  |
-| `for_each` | yes | yes | supported | native | `pipeline` | `dzup.core@1` | dzupagent | none |  |
+| `for_each` | yes | yes | supported | native | `pipeline` | `dzup.core@1` | dzupagent | none | Executable admission accepts positive concurrency. PipelineRuntime uses bounded concurrent item workers with durable per-item frames, aggregate receipts, and strict settlement for hard per-item ceilings; recursive item control remains denied. |
 | `branch` | yes | yes | supported | native | `workflow-builder` | `dzup.core@1` | dzupagent | none |  |
 | `approval` | yes | yes | supported | native | `workflow-builder` | `dzup.core@1` | dzupagent | none |  |
 | `clarification` | yes | yes | supported | native | `workflow-builder` | `dzup.core@1` | dzupagent | none |  |

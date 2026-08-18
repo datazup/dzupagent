@@ -103,7 +103,7 @@ export const FLOW_NODE_CAPABILITY_REGISTRY = {
     "for_each",
     "pipeline",
     "dzup.core@1",
-    "Executable admission is sequential-only (concurrency 1) until a durable per-item frame and economic settlement protocol exist."
+    "Executable admission accepts positive concurrency. PipelineRuntime uses bounded concurrent item workers with durable per-item frames, aggregate receipts, and strict settlement for hard per-item ceilings; recursive item control remains denied."
   ),
   branch: native("branch", "workflow-builder"),
   approval: native("approval", "workflow-builder"),

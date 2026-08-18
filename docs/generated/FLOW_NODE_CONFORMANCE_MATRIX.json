@@ -39,7 +39,8 @@
       "validator": "supported",
       "runtimeCapabilities": [],
       "extensionCandidate": false,
-      "deprecated": false
+      "deprecated": false,
+      "notes": "Executable admission accepts positive concurrency. PipelineRuntime uses bounded concurrent item workers with durable per-item frames, aggregate receipts, and strict settlement for hard per-item ceilings; recursive item control remains denied."
     },
     {
       "kind": "branch",
