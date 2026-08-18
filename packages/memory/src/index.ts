@@ -114,10 +114,12 @@ export type {
 } from "./memory-pruner.js";
 
 // --- Best-effort operation outcomes ---
+// `MemoryDegradationReason` types `reason` on the public `MemoryOperationDegradation`/`ExtractionFailure` (ERR-C-30).
 export type {
   MemoryOperationStatus,
   MemoryOperation,
   MemoryDegradationImpact,
+  MemoryDegradationReason,
   MemoryOperationDegradation,
   MemoryOperationOutcome,
   MemoryOperationResult,

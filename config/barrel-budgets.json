@@ -329,21 +329,21 @@
     "@dzupagent/memory": {
       "maxRootIndexLines": 643,
       "rootDebtPin": {
-        "maxRootIndexLines": 665,
-        "sourceSha256": "a5895f8063650b07eaacdcfb11ae307b5bcb6b2cf4f4a614b176df909febcda3",
-        "sourceCommit": "49921e7ec9b1987c53cebba5e8327266669903be",
+        "maxRootIndexLines": 667,
+        "sourceSha256": "c85cccff86df0299583ae4a9931783b69a4ae2aa4e49101abebe3d4222e65f95",
+        "sourceCommit": "ae399f0508247ee4e56539ca686aa8eb3b453711",
         "reviewBy": "2026-09-09",
-        "rationale": "Freeze the already-shipped memory compatibility barrel while its subpath migration is reviewed."
+        "rationale": "Freeze the already-shipped memory compatibility barrel while its subpath migration is reviewed. +2 lines re-pinned to export MemoryDegradationReason, which already types the public MemoryOperationDegradation.reason and ExtractionFailure.reason but was unnameable by consumers. The reviewBy deadline is deliberately NOT extended: the subpath decision is still due on the original date."
       },
       "maxFileLines": 500,
       "fileLineDebtPins": {
         "src/index.ts": {
-          "maxLines": 665,
+          "maxLines": 667,
           "shrinkTarget": 500,
-          "sourceSha256": "a5895f8063650b07eaacdcfb11ae307b5bcb6b2cf4f4a614b176df909febcda3",
-          "sourceCommit": "839382326674ab01b33dfed9a411b32cf152032f",
+          "sourceSha256": "c85cccff86df0299583ae4a9931783b69a4ae2aa4e49101abebe3d4222e65f95",
+          "sourceCommit": "ae399f0508247ee4e56539ca686aa8eb3b453711",
           "reviewBy": "2026-11-16",
-          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 665 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 667 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target. The +2 over the original 665 re-pins the forgotten MemoryDegradationReason export (see rootDebtPin)."
         },
         "src/observational-memory.ts": {
           "maxLines": 990,

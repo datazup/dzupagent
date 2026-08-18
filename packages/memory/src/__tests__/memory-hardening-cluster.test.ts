@@ -20,6 +20,12 @@ import {
   classifyDegradationReason,
 } from '../operation-outcome.js'
 import type { FrameworkLogger } from '../error-log.js'
+// Imported from the package barrel on purpose — see the nameability test below.
+import type {
+  MemoryDegradationReason as BarrelDegradationReason,
+  MemoryOperationDegradation as BarrelOperationDegradation,
+  ExtractionFailure as BarrelExtractionFailure,
+} from '../index.js'
 
 const SEARCHABLE: NamespaceConfig = {
   name: 'lessons',
@@ -371,5 +377,22 @@ describe('DZUPAGENT-ERR-C-30 — degradation() keeps driver text off public resu
     )
     expect(result.reason).toBe('scan-budget-exhausted')
     expect(logger.lines).toHaveLength(1)
+  })
+
+  it('exposes the reason code type on the package barrel, not just its values', () => {
+    // A forgotten export: `reason` was readable on two public shapes, but its
+    // type lived only behind a deep import, so no consumer could declare a
+    // variable, narrow a switch, or type a handler parameter against it.
+    // These assignments are the real assertion — they fail at typecheck
+    // (`yarn typecheck`, scripts/check-test-typecheck.mjs) if the barrel
+    // export is ever dropped again. The runtime expects only keep vitest happy.
+    const fromDegradation: BarrelDegradationReason =
+      null as unknown as BarrelOperationDegradation['reason']
+    const fromExtraction: BarrelDegradationReason =
+      null as unknown as BarrelExtractionFailure['reason']
+    const narrowed: BarrelDegradationReason = 'scan-budget-exhausted'
+
+    expect([fromDegradation, fromExtraction]).toHaveLength(2)
+    expect(narrowed).toBe('scan-budget-exhausted')
   })
 })
