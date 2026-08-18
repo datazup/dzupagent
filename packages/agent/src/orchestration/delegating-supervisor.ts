@@ -54,6 +54,25 @@ import type {
 } from "./delegating-supervisor-types.js";
 import { assertDepthAllowed as assertOrchestrationDepthAllowed } from "./delegating-supervisor-types.js";
 
+function supervisorAbortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException("Aborted", "AbortError");
+}
+
+function throwIfSupervisorAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw supervisorAbortReason(signal);
+  }
+}
+
+function isAbortLike(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "name" in error &&
+      (error.name === "AbortError" || error.name === "ModelCancellationError")
+  );
+}
+
 export type { DuplicateSpecialistAssignmentIdMode } from "./assignment-validator.js";
 export type {
   AggregatedDelegationResult,
@@ -471,8 +490,9 @@ export class DelegatingSupervisor implements SubOrchestratorChild {
    */
   async delegateAndCollect(
     tasks: TaskAssignment[],
-    options?: { maxConcurrency?: number }
+    options?: { maxConcurrency?: number; signal?: AbortSignal }
   ): Promise<AggregatedDelegationResult> {
+    throwIfSupervisorAborted(options?.signal);
     const start = Date.now();
 
     // Filter tasks through circuit breaker if configured
@@ -527,10 +547,19 @@ export class DelegatingSupervisor implements SubOrchestratorChild {
     // depends on to pair `settled[i]` with `assignments[i]`.
     const settled = await runConcurrently(
       effectiveTasks.map(
-        (t) => () => this.delegateTask(t.task, t.specialistId, t.input)
+        (t) => (runnerSignal) => {
+          throwIfSupervisorAborted(runnerSignal);
+          return runnerSignal
+            ? this.delegateTask(t.task, t.specialistId, t.input, {
+                signal: runnerSignal,
+              })
+            : this.delegateTask(t.task, t.specialistId, t.input);
+        }
       ),
-      options?.maxConcurrency ?? DEFAULT_ORCHESTRATION_FANOUT
+      options?.maxConcurrency ?? DEFAULT_ORCHESTRATION_FANOUT,
+      options?.signal ? { signal: options.signal } : undefined
     );
+    throwIfSupervisorAborted(options?.signal);
 
     return aggregateSettledResults(
       omitUndefined({
@@ -560,30 +589,57 @@ export class DelegatingSupervisor implements SubOrchestratorChild {
     goal: string,
     options?: PlanAndDelegateOptions
   ): Promise<AggregatedDelegationResult> {
-    if (options?.llm) {
-      try {
-        const { PlanningAgent } = await import("./planning-agent.js");
-        const planner = new PlanningAgent({ supervisor: this });
-        const plan = await planner.decompose(
-          goal,
-          options.llm,
-          omitUndefined({
-            signal: options.signal,
-            acknowledgeUnresolvedNodes: options.acknowledgeUnresolvedNodes,
-          })
-        );
+    throwIfSupervisorAborted(options?.signal);
 
+    if (options?.llm) {
+      const planned = await (async () => {
+        try {
+          const { PlanningAgent } = await import("./planning-agent.js");
+          const planner = new PlanningAgent({ supervisor: this });
+          const plan = await planner.decompose(
+            goal,
+            options.llm!,
+            omitUndefined({
+              signal: options.signal,
+              acknowledgeUnresolvedNodes: options.acknowledgeUnresolvedNodes,
+            })
+          );
+          return { planner, plan };
+        } catch (err: unknown) {
+          if (options.signal?.aborted) {
+            throw supervisorAbortReason(options.signal);
+          }
+          if (isAbortLike(err)) {
+            throw err;
+          }
+          // Fall back to keyword splitting on genuine decomposition failure.
+          this.eventBus?.emit({
+            type: "supervisor:llm_decompose_fallback",
+            goal,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return undefined;
+        }
+      })();
+
+      if (planned) {
+        throwIfSupervisorAborted(options.signal);
         this.eventBus?.emit({
           type: "supervisor:plan_created",
           goal,
-          assignments: plan.nodes.map((n) => ({
+          assignments: planned.plan.nodes.map((n) => ({
             task: n.task,
             specialistId: n.specialistId,
           })),
           source: "llm",
         });
 
-        const result = await planner.executePlan(plan);
+        const result = options.signal
+          ? await planned.planner.executePlan(planned.plan, {
+              signal: options.signal,
+            })
+          : await planned.planner.executePlan(planned.plan);
+        throwIfSupervisorAborted(options.signal);
 
         // Convert PlanExecutionResult to AggregatedDelegationResult
         const succeeded: string[] = [];
@@ -602,16 +658,10 @@ export class DelegatingSupervisor implements SubOrchestratorChild {
           failed,
           totalDurationMs: result.totalDurationMs,
         };
-      } catch (err: unknown) {
-        // Fall back to keyword splitting on LLM failure
-        this.eventBus?.emit({
-          type: "supervisor:llm_decompose_fallback",
-          goal,
-          error: err instanceof Error ? err.message : String(err),
-        });
       }
     }
 
+    throwIfSupervisorAborted(options?.signal);
     // Use routing policy if configured, otherwise fall back to keyword matching
     const subtasks = decomposeGoal(goal);
     const assignments: TaskAssignment[] = this.routingPolicy
@@ -632,6 +682,7 @@ export class DelegatingSupervisor implements SubOrchestratorChild {
       );
     }
 
+    throwIfSupervisorAborted(options?.signal);
     this.eventBus?.emit({
       type: "supervisor:plan_created",
       goal,
@@ -642,7 +693,11 @@ export class DelegatingSupervisor implements SubOrchestratorChild {
       source: "keyword",
     });
 
-    return this.delegateAndCollect(assignments);
+    const result = options?.signal
+      ? await this.delegateAndCollect(assignments, { signal: options.signal })
+      : await this.delegateAndCollect(assignments);
+    throwIfSupervisorAborted(options?.signal);
+    return result;
   }
 
   // -------------------------------------------------------------------------

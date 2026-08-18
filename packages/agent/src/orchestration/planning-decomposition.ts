@@ -116,6 +116,7 @@ export async function decomposeGoal(
     schemaProvider: 'generic',
     schemaName: 'DecompositionPlan',
     schemaDescription: 'A directed acyclic graph of tasks assigned to specialist agents',
+    ...(options?.signal ? { signal: options.signal } : {}),
   })
 
   return refineDecomposition(goal, result.data, specialistIds, options)

@@ -112,7 +112,10 @@ export interface PlanningDecompositionDiagnostics {
 export interface PlanningSupervisor {
   specialistIds: string[]
   getSpecialist(id: string): AgentExecutionSpec | undefined
-  delegateAndCollect(tasks: TaskAssignment[]): Promise<AggregatedDelegationResult>
+  delegateAndCollect(
+    tasks: TaskAssignment[],
+    options?: { maxConcurrency?: number; signal?: AbortSignal },
+  ): Promise<AggregatedDelegationResult>
 }
 
 /** Configuration for PlanningAgent. */
@@ -121,6 +124,12 @@ export interface PlanningAgentConfig {
   supervisor: PlanningSupervisor
   /** Maximum parallel delegations per level (default: 5) */
   maxParallelism?: number
+}
+
+/** Options for execution of an already-built plan. */
+export interface PlanExecutionOptions {
+  /** Abort signal for validation, levels, chunks, and delegated work. */
+  signal?: AbortSignal
 }
 
 /** Options for the LLM-powered decompose method. */

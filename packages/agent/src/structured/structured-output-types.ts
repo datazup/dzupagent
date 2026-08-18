@@ -46,6 +46,8 @@ export interface StructuredOutputConfig<T = unknown> {
   schemaDescription?: string
   /** Provider-oriented schema normalization target. */
   schemaProvider?: 'generic' | 'openai'
+  /** Abort signal for model invocation, retry, and strategy cancellation. */
+  signal?: AbortSignal
 }
 
 /**

@@ -18,6 +18,14 @@ import type {
 export interface PlanExecutorOptions {
   /** Maximum parallel delegations per level (default: 5) */
   maxParallelism?: number
+  /** Abort signal for validation, levels, chunks, and delegated work. */
+  signal?: AbortSignal
+}
+
+function throwIfPlanningAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw signal.reason ?? new DOMException('Aborted', 'AbortError')
+  }
 }
 
 /**
@@ -32,6 +40,7 @@ export async function executePlanWithSupervisor(
   plan: ExecutionPlan,
   options: PlanExecutorOptions = {},
 ): Promise<PlanExecutionResult> {
+  throwIfPlanningAborted(options.signal)
   const start = Date.now()
   const maxParallelism = options.maxParallelism ?? 5
 
@@ -53,6 +62,7 @@ export async function executePlanWithSupervisor(
   const failedAncestors = new Set<string>()
 
   for (const level of plan.executionLevels) {
+    throwIfPlanningAborted(options.signal)
     const runnableIds = partitionRunnable(
       level,
       nodeMap,
@@ -63,9 +73,13 @@ export async function executePlanWithSupervisor(
 
     // Execute runnable nodes in chunks of maxParallelism
     for (let i = 0; i < runnableIds.length; i += maxParallelism) {
+      throwIfPlanningAborted(options.signal)
       const chunk = runnableIds.slice(i, i + maxParallelism)
       const assignments = buildAssignments(chunk, nodeMap, results)
-      const aggregated = await supervisor.delegateAndCollect(assignments)
+      const aggregated = options.signal
+        ? await supervisor.delegateAndCollect(assignments, { signal: options.signal })
+        : await supervisor.delegateAndCollect(assignments)
+      throwIfPlanningAborted(options.signal)
 
       collectChunkResults(
         chunk,
@@ -77,6 +91,8 @@ export async function executePlanWithSupervisor(
       )
     }
   }
+
+  throwIfPlanningAborted(options.signal)
 
   return {
     plan,

@@ -22,7 +22,10 @@ export {
 
 /** Minimal LLM interface required by the structured output engine. */
 export interface StructuredLLM {
-  invoke(messages: unknown[]): Promise<{ content: string }>
+  invoke(
+    messages: unknown[],
+    options?: { signal?: AbortSignal },
+  ): Promise<{ content: string }>
 }
 
 /** Extended LLM interface with model name for strategy detection. */
@@ -31,6 +34,55 @@ export interface StructuredLLMWithMeta extends StructuredLLM {
   modelName?: string
   name?: string
   structuredOutputCapabilities?: StructuredOutputCapabilities
+}
+
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException('Aborted', 'AbortError')
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw abortReason(signal)
+  }
+}
+
+function isAbortLike(error: unknown): boolean {
+  if (!error || typeof error !== 'object' || !('name' in error)) {
+    return false
+  }
+  return error.name === 'AbortError' || error.name === 'ModelCancellationError'
+}
+
+async function invokeWithSignal(
+  llm: StructuredLLM,
+  messages: unknown[],
+  signal: AbortSignal | undefined,
+): Promise<{ content: string }> {
+  if (!signal) {
+    return llm.invoke(messages)
+  }
+
+  throwIfAborted(signal)
+
+  let rejectForAbort: (() => void) | undefined
+  const aborted = new Promise<never>((_resolve, reject) => {
+    rejectForAbort = () => reject(abortReason(signal))
+  })
+  const onAbort = (): void => rejectForAbort?.()
+  signal.addEventListener('abort', onAbort, { once: true })
+
+  try {
+    if (signal.aborted) {
+      onAbort()
+    }
+    const invocation = Promise.resolve().then(() => {
+      throwIfAborted(signal)
+      return llm.invoke(messages, { signal })
+    })
+    return await Promise.race([invocation, aborted])
+  } finally {
+    signal.removeEventListener('abort', onAbort)
+  }
 }
 
 
@@ -128,7 +180,9 @@ async function tryStrategy<T>(
       initialState: initialMessages,
       maxRetries,
       invoke: async (currentMessages) => {
-        const response = await llm.invoke(currentMessages)
+        throwIfAborted(config.signal)
+        const response = await invokeWithSignal(llm, currentMessages, config.signal)
+        throwIfAborted(config.signal)
         return {
           raw: typeof response.content === 'string'
             ? response.content
@@ -167,6 +221,12 @@ async function tryStrategy<T>(
       },
     }
   } catch (err) {
+    if (config.signal?.aborted) {
+      throw abortReason(config.signal)
+    }
+    if (isAbortLike(err)) {
+      throw err
+    }
     return {
       kind: 'error',
       error: err instanceof Error ? err : new Error(String(err)),
@@ -188,6 +248,7 @@ export async function generateStructured<T>(
   messages: unknown[],
   config: StructuredOutputConfig<T>,
 ): Promise<StructuredOutputResult<T>> {
+  throwIfAborted(config.signal)
   const maxRetries = config.maxRetries ?? 2
   const capabilities = resolveStructuredOutputCapabilities(
     llm as StructuredLLMWithMeta,
@@ -228,11 +289,13 @@ export async function generateStructured<T>(
   }
 
   for (const strategy of strategies) {
+    throwIfAborted(config.signal)
     const attempt = await tryStrategy(llm, messages, {
       ...config,
       schemaName,
       schemaProvider,
     }, strategy, maxRetries, schemaContract)
+    throwIfAborted(config.signal)
     if (attempt.kind === 'success') {
       return attempt.result
     }

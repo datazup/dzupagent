@@ -23,6 +23,7 @@ import { executePlanWithSupervisor } from './planning-executor.js'
 import type {
   DecomposeOptions,
   ExecutionPlan,
+  PlanExecutionOptions,
   PlanExecutionResult,
   PlanNode,
   PlanningAgentConfig,
@@ -34,6 +35,7 @@ export type {
   DanglingPlanDependencyDiagnostic,
   DecomposeOptions,
   ExecutionPlan,
+  PlanExecutionOptions,
   PlanExecutionResult,
   PlanNode,
   PlanningAgentConfig,
@@ -71,9 +73,13 @@ export class PlanningAgent {
    * Results from completed nodes are passed as `_predecessorResults`
    * in the input of dependent nodes.
    */
-  async executePlan(plan: ExecutionPlan): Promise<PlanExecutionResult> {
+  async executePlan(
+    plan: ExecutionPlan,
+    options?: PlanExecutionOptions,
+  ): Promise<PlanExecutionResult> {
     return executePlanWithSupervisor(this.supervisor, plan, {
       maxParallelism: this.maxParallelism,
+      ...(options?.signal ? { signal: options.signal } : {}),
     })
   }
 
