@@ -1,3 +1,9 @@
+/**
+ * Public agent-coordination runtime surface: agent/provider sequencing,
+ * delegation, supervision, team patterns, routing, and result merging.
+ * Repository delivery, product workflow state, and reusable Datazup
+ * orchestration-kernel semantics are separate bounded contexts.
+ */
 export { AgentOrchestrator } from "./orchestrator.js";
 export type {
   MergeFn,

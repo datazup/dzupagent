@@ -2,7 +2,10 @@
 
 ## Scope
 
-This document describes the current orchestration subsystem in `packages/agent/src/orchestration` within `@dzupagent/agent`.
+This document describes the current agent-coordination runtime in
+`packages/agent/src/orchestration` within `@dzupagent/agent`. It coordinates
+agents and providers; it does not own repository delivery, product workflow
+state, or the reusable Datazup orchestration kernel.
 
 Included code surface:
 
