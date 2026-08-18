@@ -486,14 +486,6 @@
       },
       "maxFileLines": 500,
       "fileLineDebtPins": {
-        "src/flow-runtime-input.ts": {
-          "maxLines": 787,
-          "sourceSha256": "8920d22b33c37fac184f4db77538c7399b4ec33d2b9a700266fa753448c05c8f",
-          "sourceCommit": "49921e7ec9b1987c53cebba5e8327266669903be",
-          "reviewBy": "2026-09-09",
-          "rationale": "Freeze the flow runtime input contract pending a behavior-preserving per-concern type split.",
-          "shrinkTarget": 500
-        },
         "src/agent-review.ts": {
           "maxLines": 729,
           "shrinkTarget": 500,
