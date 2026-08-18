@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import path from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -132,6 +133,43 @@ test('a baselined file that was not linted in this run is not called stale', () 
     lintedFiles: [],
   })
   assert.deepEqual(problems, [])
+})
+
+/**
+ * `yarn lint:baseline:update` rewrites only the data block and preserves the
+ * prose header verbatim, so the header's summary numbers cannot self-correct.
+ * They are parsed back out here and asserted against the data, which is the only
+ * thing stopping the header from drifting away from the counts it describes —
+ * as it did (742/313, 382/139/205 against a real 699/310, 361/135/203).
+ */
+test('the header summary in eslint.baseline.js matches the recorded counts', () => {
+  const source = fs.readFileSync(path.join(repoRoot, 'eslint.baseline.js'), 'utf8')
+  const header = source.slice(0, source.indexOf('export const TEST_QUALITY_BASELINE_COUNTS'))
+
+  const totals = { files: Object.keys(TEST_QUALITY_BASELINE_COUNTS).length, violations: 0 }
+  const perRule = Object.fromEntries(TEST_QUALITY_RULE_IDS.map((id) => [id, 0]))
+  for (const counts of Object.values(TEST_QUALITY_BASELINE_COUNTS)) {
+    for (const [id, n] of Object.entries(counts)) {
+      perRule[id] += n
+      totals.violations += n
+    }
+  }
+
+  const summary = header.match(/—\s*(\d+)\s+violations across\s+(\d+)\s+files/)
+  assert.notEqual(summary, null, 'header is missing its "N violations across M files" summary line')
+  assert.equal(Number(summary[1]), totals.violations, 'header violation total is stale')
+  assert.equal(Number(summary[2]), totals.files, 'header file total is stale')
+
+  const stated = {}
+  for (const line of header.split('\n')) {
+    const match = line.match(/^\s*\*\s+-\s+`([a-z-]+)`.*?—\s*(\d+)\s+instances\s*$/)
+    if (match) stated[match[1]] = Number(match[2])
+  }
+  assert.deepEqual(
+    stated,
+    perRule,
+    'header per-rule instance counts are stale — rerun the numbers after `yarn lint:baseline:update`',
+  )
 })
 
 test('the --max-warnings=baseline budget is the recorded total for the scope', () => {
