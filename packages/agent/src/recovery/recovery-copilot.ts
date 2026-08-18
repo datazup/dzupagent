@@ -23,11 +23,12 @@ import type { ApprovalGate } from '../approval/approval-gate.js'
 import { FailureAnalyzer } from './failure-analyzer.js'
 import { StrategyRanker } from './strategy-ranker.js'
 import { RecoveryExecutor, type ActionHandler } from './recovery-executor.js'
-import type {
-  FailureContext,
-  RecoveryPlan,
-  RecoveryCopilotConfig,
-  RecoveryResult,
+import {
+  normalizeRecoveryTenantId,
+  type FailureContext,
+  type RecoveryPlan,
+  type RecoveryCopilotConfig,
+  type RecoveryResult,
 } from './recovery-types.js'
 import type { RecoveryFeedback, RecoveryLesson } from '../self-correction/recovery-feedback.js'
 import { omitUndefined } from '../utils/exact-optional.js'
@@ -158,20 +159,26 @@ export class RecoveryCopilot {
 
   /** One-shot: create a plan, execute it, and record the outcome as a lesson. */
   async recover(failureContext: FailureContext): Promise<RecoveryResult> {
-    const analysis = this.analyzer.analyze(failureContext)
+    const scopedFailureContext: FailureContext = {
+      ...failureContext,
+      tenantId: normalizeRecoveryTenantId(failureContext.tenantId),
+    }
+    const analysis = this.analyzer.analyze(scopedFailureContext)
     let pastLessons: RecoveryLesson[] = []
 
     if (this.feedback) {
       pastLessons = await this.feedback.retrieveSimilar(
         analysis.type,
-        failureContext.nodeId ?? '',
+        scopedFailureContext.nodeId ?? '',
+        5,
+        scopedFailureContext.tenantId,
       )
     }
 
-    const plan = this.createPlan(failureContext, pastLessons)
+    const plan = this.createPlan(scopedFailureContext, pastLessons)
 
     if (plan.status === 'failed') {
-      await this.persistFeedback(analysis, failureContext, plan, false)
+      await this.persistFeedback(analysis, scopedFailureContext, plan, false)
       return {
         plan,
         success: false,
@@ -181,7 +188,13 @@ export class RecoveryCopilot {
     }
 
     const result = await this.executePlan(plan)
-    await this.persistFeedback(analysis, failureContext, plan, result.success, result.summary)
+    await this.persistFeedback(
+      analysis,
+      scopedFailureContext,
+      plan,
+      result.success,
+      result.summary,
+    )
     return result
   }
 

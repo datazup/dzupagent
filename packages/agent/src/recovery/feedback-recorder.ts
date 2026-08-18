@@ -10,7 +10,11 @@ import type {
   RecoveryFeedback,
   RecoveryLesson,
 } from '../self-correction/recovery-feedback.js'
-import type { FailureContext, RecoveryPlan } from './recovery-types.js'
+import {
+  normalizeRecoveryTenantId,
+  type FailureContext,
+  type RecoveryPlan,
+} from './recovery-types.js'
 
 /**
  * Record a recovery outcome as a {@link RecoveryLesson}. Failures in
@@ -26,6 +30,7 @@ export async function recordRecoveryFeedback(opts: {
   summary?: string
 }): Promise<void> {
   const { feedback, analysis, failureContext, plan, success, summary } = opts
+  const tenantId = normalizeRecoveryTenantId(failureContext.tenantId)
 
   const lesson: RecoveryLesson = {
     id: feedback.generateLessonId(),
@@ -36,20 +41,25 @@ export async function recordRecoveryFeedback(opts: {
     outcome: success ? 'success' : 'failure',
     summary: summary ?? (success ? 'Recovery succeeded' : 'Recovery failed'),
     timestamp: new Date(),
+    tenantId,
   }
 
   try {
     const candidateId = await feedback.recordOutcome(lesson)
     // Append a policy_applied audit entry so the decision chain is traceable:
     // plan.id → strategy → candidateId → run → node
-    feedback.appendCandidateAuditEntry(candidateId, {
-      runId: failureContext.runId,
-      nodeId: failureContext.nodeId ?? '',
-      event: 'policy_applied',
-      actor: 'system',
-      detail: `Plan ${plan.id} selected strategy "${plan.selectedStrategy?.name ?? 'none'}" (confidence ${plan.selectedStrategy?.confidence?.toFixed(2) ?? 'n/a'})`,
-      timestamp: new Date(),
-    })
+    feedback.appendCandidateAuditEntry(
+      candidateId,
+      {
+        runId: failureContext.runId,
+        nodeId: failureContext.nodeId ?? '',
+        event: 'policy_applied',
+        actor: 'system',
+        detail: `Plan ${plan.id} selected strategy "${plan.selectedStrategy?.name ?? 'none'}" (confidence ${plan.selectedStrategy?.confidence?.toFixed(2) ?? 'n/a'})`,
+        timestamp: new Date(),
+      },
+      tenantId,
+    )
   } catch {
     // Feedback recording is best-effort — don't fail recovery over it
   }

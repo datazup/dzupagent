@@ -19,6 +19,28 @@ export type FailureType =
   | 'timeout'
   | 'resource_exhaustion'
 
+/** Compatibility scope used by recovery callers that do not opt into tenancy. */
+export const DEFAULT_RECOVERY_TENANT_ID = 'default'
+
+/**
+ * Resolve one canonical tenant identity for recovery reads and writes.
+ * Missing legacy scope maps to `default`; blank or non-string runtime input
+ * fails closed before recovery execution or persistence.
+ */
+export function normalizeRecoveryTenantId(
+  tenantId?: string | null,
+): string {
+  if (tenantId !== undefined && tenantId !== null && typeof tenantId !== 'string') {
+    throw new Error('Recovery tenantId must be a non-empty string')
+  }
+
+  const normalized = (tenantId ?? DEFAULT_RECOVERY_TENANT_ID).trim()
+  if (normalized.length === 0) {
+    throw new Error('Recovery tenantId must be a non-empty string')
+  }
+  return normalized
+}
+
 /** Full context about a failure that needs recovery. */
 export interface FailureContext {
   /** Classified failure type. */
@@ -35,6 +57,8 @@ export interface FailureContext {
   timestamp: Date
   /** How many times recovery has already been attempted for this failure. */
   previousAttempts: number
+  /** Owning recovery-learning tenant. Missing legacy scope resolves to `default`. */
+  tenantId?: string
   /** Additional metadata from the failing context. */
   metadata?: Record<string, unknown>
 }
