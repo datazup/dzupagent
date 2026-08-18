@@ -438,14 +438,6 @@
           "rationale": "Freeze the consolidated Codex app-server client pending extraction of transport, protocol, and request correlation concerns.",
           "shrinkTarget": 500
         },
-        "src/codex/codex-goal-capability.ts": {
-          "maxLines": 1260,
-          "sourceSha256": "99243baf7b1f8bef04d60ded8af3d46a8aad228be1ce12bc8683e41ffe9a73b1",
-          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
-          "reviewBy": "2026-09-14",
-          "rationale": "Freeze the consolidated Codex goal capability pending extraction of discovery, admission, and execution-policy concerns.",
-          "shrinkTarget": 500
-        },
         "src/index.ts": {
           "maxLines": 957,
           "shrinkTarget": 500,
