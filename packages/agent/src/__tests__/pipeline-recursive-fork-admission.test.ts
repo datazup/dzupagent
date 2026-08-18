@@ -10,12 +10,12 @@ import {
   InMemoryPipelineCheckpointStore,
   PipelineRuntime,
   type NodeExecutor,
-  type RecursiveCommitCompareAndSaveInputV1,
-  type RecursiveFrameCompareAndSaveInputV1,
-  type RecursiveScopedDurablePortV1,
+  type PipelineRecursiveForkCommitSaveInput,
+  type PipelineRecursiveForkDurablePort,
+  type PipelineRecursiveForkFrameSaveInput,
 } from "../pipeline.js";
 
-class MemoryRecursivePort implements RecursiveScopedDurablePortV1 {
+class MemoryRecursivePort implements PipelineRecursiveForkDurablePort {
   readonly frames = new Map<
     string,
     { identity: `sha256:${string}`; serialized: string }
@@ -29,7 +29,7 @@ class MemoryRecursivePort implements RecursiveScopedDurablePortV1 {
     return this.frames.get(childScopeId)?.serialized;
   }
 
-  async compareAndSaveFrame(input: RecursiveFrameCompareAndSaveInputV1) {
+  async compareAndSaveFrame(input: PipelineRecursiveForkFrameSaveInput) {
     const current = this.frames.get(input.childScopeId);
     if (current?.identity !== input.expectedFrameIdentity) {
       return { status: "conflict" as const };
@@ -49,7 +49,7 @@ class MemoryRecursivePort implements RecursiveScopedDurablePortV1 {
   }
 
   async compareAndSaveCommittedChild(
-    input: RecursiveCommitCompareAndSaveInputV1
+    input: PipelineRecursiveForkCommitSaveInput
   ) {
     const current = this.commits.get(input.childScopeId);
     if (current?.identity !== input.expectedCommitIdentity) {
@@ -165,7 +165,7 @@ describe("W3-C5A public recursive conditional fork admission", () => {
       expect(result.nodeResults.has(skipped)).toBe(false);
       const checkpoint = await store.load(`selection-${String(choose)}`);
       expect(checkpoint?.schemaVersion).toBe("1.2.0");
-      expect(checkpoint?.recursiveForkCompletions?.fork.children).toHaveLength(2);
+      expect(checkpoint?.recursiveForkCompletions?.fork?.children).toHaveLength(2);
     }
   );
 
@@ -190,6 +190,18 @@ describe("W3-C5A public recursive conditional fork admission", () => {
           predicates: { choose: () => true },
         })
     ).toThrow("explicit checkpoint store");
+    const { checkpointStrategy: _checkpointStrategy, ...withoutStrategy } =
+      definition();
+    expect(
+      () =>
+        new PipelineRuntime({
+          definition: withoutStrategy,
+          nodeExecutor,
+          checkpointStore,
+          recursiveFork: { durable: new MemoryRecursivePort() },
+          predicates: { choose: () => true },
+        })
+    ).toThrow("checkpointStrategy=after_each_node");
     expect(nodeExecutor).not.toHaveBeenCalled();
   });
 
@@ -257,18 +269,18 @@ describe("W3-C5A public recursive conditional fork admission", () => {
 
     const mutations: Array<(value: PipelineCheckpoint) => void> = [
       (value) => {
-        value.recursiveForkCompletions!.fork.parentCommitIdentity =
+        value.recursiveForkCompletions!.fork!.parentCommitIdentity =
           `sha256:${"1".repeat(64)}`;
       },
       (value) => {
-        value.recursiveForkCompletions!.fork.mergeIdentity =
+        value.recursiveForkCompletions!.fork!.mergeIdentity =
           `sha256:${"2".repeat(64)}`;
       },
       (value) => {
-        value.recursiveForkCompletions!.fork.children[0]!.normalExitNodeId = "else";
+        value.recursiveForkCompletions!.fork!.children[0]!.normalExitNodeId = "else";
       },
       (value) => {
-        value.recursiveForkCompletions!.fork.selectedContinuationNodeId = "then";
+        value.recursiveForkCompletions!.fork!.selectedContinuationNodeId = "then";
       },
     ];
     for (const mutate of mutations) {
@@ -283,37 +295,71 @@ describe("W3-C5A public recursive conditional fork admission", () => {
   });
 
   it("keeps merge and receipt bytes independent of sibling completion order", async () => {
-    const run = async (delayedNodeId: string) => {
+    const run = async (firstToFinish: "then" | "sibling") => {
       const port = new MemoryRecursivePort();
       const store = new InMemoryPipelineCheckpointStore();
       const calls: string[] = [];
+      const started = new Set<string>();
+      let releaseStarted!: () => void;
+      const bothStarted = new Promise<void>((resolve) => {
+        releaseStarted = resolve;
+      });
+      const releases = new Map<string, () => void>();
+      const gates = new Map(
+        ["then", "sibling"].map((nodeId) => [
+          nodeId,
+          new Promise<void>((resolve) => releases.set(nodeId, resolve)),
+        ])
+      );
       const nodeExecutor: NodeExecutor = async (nodeId, _node, context) => {
         calls.push(nodeId);
-        if (nodeId === delayedNodeId) await Promise.resolve();
+        if (gates.has(nodeId)) {
+          started.add(nodeId);
+          if (started.size === 2) releaseStarted();
+          await gates.get(nodeId);
+        }
         context.state[nodeId] = true;
         return { nodeId, output: { nodeId }, durationMs: 1 };
       };
-      const result = await new PipelineRuntime({
+      const execution = new PipelineRuntime({
         definition: definition(),
         nodeExecutor,
         predicates: { choose: () => true },
         checkpointStore: store,
         recursiveFork: { durable: port },
       }).execute({}, { runId: "completion-order" });
+      await bothStarted;
+      releases.get(firstToFinish)!();
+      for (let turn = 0; turn < 100 && port.commits.size === 0; turn += 1) {
+        await Promise.resolve();
+      }
+      expect(port.commits.size).toBe(1);
+      releases.get(firstToFinish === "then" ? "sibling" : "then")!();
+      const result = await execution;
       expect(result.state).toBe("completed");
-      return (await store.load("completion-order"))!.recursiveForkCompletions!.fork;
+      return {
+        receipt: (await store.load("completion-order"))!
+          .recursiveForkCompletions!.fork!,
+        commits: [...port.commits.values()].map(({ serialized }) =>
+          JSON.parse(serialized)
+        ).sort(
+          (left, right) =>
+            left.ownership.branchOrdinal - right.ownership.branchOrdinal
+        ),
+      };
     };
 
-    const slowConditional = await run("then");
-    const slowSibling = await run("sibling");
+    const conditionalFirst = await run("then");
+    const siblingFirst = await run("sibling");
+    expect(conditionalFirst.commits).toEqual(siblingFirst.commits);
     expect({
-      mergeIdentity: slowConditional.mergeIdentity,
-      childCommitIdentities: slowConditional.childCommitIdentities,
-      children: slowConditional.children.map(({ normalExitNodeId }) => ({ normalExitNodeId })),
+      mergeIdentity: conditionalFirst.receipt.mergeIdentity,
+      childCommitIdentities: conditionalFirst.receipt.childCommitIdentities,
+      children: conditionalFirst.receipt.children.map(({ normalExitNodeId }) => ({ normalExitNodeId })),
     }).toEqual({
-      mergeIdentity: slowSibling.mergeIdentity,
-      childCommitIdentities: slowSibling.childCommitIdentities,
-      children: slowSibling.children.map(({ normalExitNodeId }) => ({ normalExitNodeId })),
+      mergeIdentity: siblingFirst.receipt.mergeIdentity,
+      childCommitIdentities: siblingFirst.receipt.childCommitIdentities,
+      children: siblingFirst.receipt.children.map(({ normalExitNodeId }) => ({ normalExitNodeId })),
     });
   });
 });

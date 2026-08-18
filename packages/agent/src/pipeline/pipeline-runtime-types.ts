@@ -47,7 +47,6 @@ import type { RedisClientLike } from "./redis-checkpoint-store.js";
 import type { PostgresClientLike } from "./postgres-checkpoint-store.js";
 import type { LoopState } from "./pipeline-runtime/executor-state-types.js";
 import type { LoopBudgetHost } from "./loop-executor/types.js";
-import type { RecursiveScopedDurablePortV1 } from "./recursive-scope/types.js";
 
 // ---------------------------------------------------------------------------
 // Re-exported pure runtime contracts (REC-H-10 BC shim)
@@ -204,13 +203,43 @@ export interface PipelineTracer {
 // Runtime configuration
 // ---------------------------------------------------------------------------
 
+export type PipelineRecursiveForkDurableWriteResult =
+  | { readonly status: "committed"; readonly storedIdentity: `sha256:${string}` }
+  | { readonly status: "acknowledgement-lost" }
+  | { readonly status: "conflict" };
+
+export interface PipelineRecursiveForkFrameSaveInput {
+  readonly childScopeId: string;
+  readonly expectedFrameIdentity: `sha256:${string}` | undefined;
+  readonly frameIdentity: `sha256:${string}`;
+  readonly serializedFrame: string;
+}
+
+export interface PipelineRecursiveForkCommitSaveInput {
+  readonly childScopeId: string;
+  readonly expectedCommitIdentity: `sha256:${string}` | undefined;
+  readonly commitIdentity: `sha256:${string}`;
+  readonly serializedCommit: string;
+}
+
+export interface PipelineRecursiveForkDurablePort {
+  loadFrame(childScopeId: string): Promise<string | undefined>;
+  compareAndSaveFrame(
+    input: PipelineRecursiveForkFrameSaveInput
+  ): Promise<PipelineRecursiveForkDurableWriteResult>;
+  loadCommittedChild(childScopeId: string): Promise<string | undefined>;
+  compareAndSaveCommittedChild(
+    input: PipelineRecursiveForkCommitSaveInput
+  ): Promise<PipelineRecursiveForkDurableWriteResult>;
+}
+
 export interface PipelineRecursiveForkRuntimeConfig {
   /**
    * Host-owned CAS custody for definition-bound recursive child frames and
    * commits. The Agent package intentionally supplies no implicit or
    * production default for this port.
    */
-  durable: RecursiveScopedDurablePortV1;
+  durable: PipelineRecursiveForkDurablePort;
 }
 
 export interface PipelineRuntimeConfig {
@@ -455,7 +484,7 @@ export interface PipelineRunContext {
    * as each loop resolves, so a changed source is detectable.
    */
   loopSourceDigests?: Record<string, PipelineSha256Digest>;
-  recursiveForkCompletions: NonNullable<
+  recursiveForkCompletions?: NonNullable<
     PipelineCheckpoint["recursiveForkCompletions"]
   >;
   eventLog: PipelineRuntimeEvent[];

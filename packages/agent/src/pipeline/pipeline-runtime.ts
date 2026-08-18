@@ -77,7 +77,7 @@ import { PipelineInteractionRuntimeError } from "./pipeline-interaction-runtime.
 import {
   definitionHasRecursiveFork,
   validateRecursiveForkCompletionReceipts,
-} from "./pipeline-runtime/recursive-fork-runtime.js";
+} from "./pipeline-runtime/recursive-fork-receipt.js";
 import { resolveCheckpointStore } from "./pipeline-runtime-lifecycle/checkpoint-store-resolution.js";
 
 // ---------------------------------------------------------------------------

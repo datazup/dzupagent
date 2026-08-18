@@ -1,7 +1,7 @@
 import type { LoopNode } from "@dzupagent/core/pipeline";
 
 import { loopBoundary } from "../../loop-body-graph-checkpoint-validator.js";
-import type { RunFrame } from "../../pipeline-runtime/stage-dispatch.js";
+import type { RunFrame } from "../../pipeline-runtime/run-frame.js";
 import type {
   ScopedGraphExecutorDeps,
   ScopedGraphFrameCodec,

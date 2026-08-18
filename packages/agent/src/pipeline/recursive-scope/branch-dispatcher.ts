@@ -177,8 +177,9 @@ async function runChild(
 }
 
 /**
- * Dispatch a definition-bound normal branch/fork packet. No public pipeline
- * admission calls this function in W3-C1/W3-C2.
+ * Dispatch a definition-bound normal branch/fork packet. W3-C5A admits this
+ * dispatcher only through the exact public normal-conditional fork adapter;
+ * the broader recursive surface remains private and denied.
  */
 export async function dispatchRecursiveBranchesV1(
   deps: RecursiveBranchDispatcherDepsV1,

@@ -261,7 +261,7 @@ describe("PostgresPipelineCheckpointStore", () => {
 
       await store.setup();
 
-      expect(calls).toHaveLength(10);
+      expect(calls).toHaveLength(11);
       expect(calls[0]!.text).toContain(
         "CREATE TABLE IF NOT EXISTS my_checkpoints"
       );
@@ -292,9 +292,12 @@ describe("PostgresPipelineCheckpointStore", () => {
         "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS source_binding"
       );
       expect(calls[8]!.text).toContain(
-        "CREATE INDEX IF NOT EXISTS my_checkpoints_run_idx"
+        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS recursive_fork_completions"
       );
       expect(calls[9]!.text).toContain(
+        "CREATE INDEX IF NOT EXISTS my_checkpoints_run_idx"
+      );
+      expect(calls[10]!.text).toContain(
         "CREATE INDEX IF NOT EXISTS my_checkpoints_expiry_idx"
       );
     });
@@ -934,7 +937,7 @@ describe("PostgresPipelineCheckpointStore", () => {
     it("persists every mapped column — a dropped field would vanish only in Postgres", async () => {
       // In-memory and Redis serialize the checkpoint wholesale, so they cannot
       // catch a column the explicit mapping forgot. This pins the CAS insert to
-      // the same 17-column shape `save` writes.
+      // the same 18-column shape `save` writes.
       const { client, calls } = createUniqueEnforcingClient();
       const store = new PostgresPipelineCheckpointStore({ client });
 
@@ -942,16 +945,19 @@ describe("PostgresPipelineCheckpointStore", () => {
         makeCheckpoint({
           version: 1,
           sourceBinding: { definitionDigest: `sha256:${"a".repeat(64)}` },
+          recursiveForkCompletions: {},
         }),
         0
       );
 
       const insert = calls.find((c) => c.text.includes("INSERT INTO"))!;
       expect(insert.text).toContain("source_binding");
-      expect(insert.params).toHaveLength(17);
+      expect(insert.text).toContain("recursive_fork_completions");
+      expect(insert.params).toHaveLength(18);
       expect(JSON.parse(insert.params[16] as string)).toEqual({
         definitionDigest: `sha256:${"a".repeat(64)}`,
       });
+      expect(JSON.parse(insert.params[17] as string)).toEqual({});
     });
   });
 });

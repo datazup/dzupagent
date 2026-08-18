@@ -93,11 +93,15 @@ describe("Packet 24-B parallel recursive-control admission", () => {
       "ok"
     );
     if ("errors" in result) return;
-    expect(PipelineDefinitionSchema.safeParse(result.artifact).success).toBe(
-      true
+    const parsed = PipelineDefinitionSchema.safeParse(result.artifact);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.nodes.filter((node) => node.type === "fork")).toHaveLength(
+      1
     );
-    expect(result.artifact.nodes.filter((node) => node.type === "fork")).toHaveLength(1);
-    expect(result.artifact.nodes.filter((node) => node.type === "gate")).toHaveLength(1);
+    expect(parsed.data.nodes.filter((node) => node.type === "gate")).toHaveLength(
+      1
+    );
   });
 
   it.each([

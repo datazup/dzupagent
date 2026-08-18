@@ -15,7 +15,10 @@ import {
   type PipelineInteractionScopeV1,
   type PipelinePendingInteractionV1,
 } from "@dzupagent/runtime-contracts";
-import { PIPELINE_FOR_EACH_ITEM_OUTCOMES } from "./pipeline-checkpoint-store.js";
+import {
+  PIPELINE_CHECKPOINT_SCHEMA_VERSIONS,
+  PIPELINE_FOR_EACH_ITEM_OUTCOMES,
+} from "./pipeline-checkpoint-store.js";
 import type { PipelineDefinition } from "./pipeline-definition.js";
 import { PIPELINE_SCHEMA_VERSIONS } from "./pipeline-definition.js";
 
@@ -464,7 +467,7 @@ export const PipelineCheckpointSchema = z
     pipelineRunId: z.string().min(1),
     pipelineId: z.string().min(1),
     version: z.number().int().nonnegative(),
-    schemaVersion: z.enum(PIPELINE_SCHEMA_VERSIONS),
+    schemaVersion: z.enum(PIPELINE_CHECKPOINT_SCHEMA_VERSIONS),
     sourceBinding: z
       .object({
         definitionDigest: PipelineSha256DigestSchema,

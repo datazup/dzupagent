@@ -51,8 +51,8 @@ import {
   dispatchForkStage,
   dispatchLoopStage,
   type StageContext,
-  type RunFrame,
 } from "./pipeline-runtime/stage-dispatch.js";
+import type { RunFrame } from "./pipeline-runtime/run-frame.js";
 import {
   nodeIdempotencyKey,
   nodeIdempotencyContext,

@@ -2,7 +2,7 @@ import type { PipelineEdge, PipelineNode } from "@dzupagent/core/pipeline";
 import type { NodeExecutionContext } from "@dzupagent/runtime-contracts";
 
 import type { BudgetTrackerState } from "../pipeline-runtime/iteration-budget-tracker.js";
-import type { RunFrame } from "../pipeline-runtime/stage-dispatch.js";
+import type { RunFrame } from "../pipeline-runtime/run-frame.js";
 import type {
   NodeResult,
   PipelineRunResult,

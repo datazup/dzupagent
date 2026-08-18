@@ -94,6 +94,10 @@ export type {
   PipelineExecuteOptions,
   PipelineRuntimeConfig,
   PipelineRecursiveForkRuntimeConfig,
+  PipelineRecursiveForkCommitSaveInput,
+  PipelineRecursiveForkDurablePort,
+  PipelineRecursiveForkDurableWriteResult,
+  PipelineRecursiveForkFrameSaveInput,
   PipelineRuntimeEvent,
   PipelineExecutionLogEntry,
   PipelineExecutionLogStore,
@@ -102,12 +106,6 @@ export type {
   OTelSpanLike,
   PipelineTracer,
 } from './pipeline/pipeline-runtime-types.js'
-export type {
-  RecursiveCommitCompareAndSaveInputV1,
-  RecursiveDurableWriteResultV1,
-  RecursiveFrameCompareAndSaveInputV1,
-  RecursiveScopedDurablePortV1,
-} from './pipeline/recursive-scope/types.js'
 
 // --- Step type registry ---
 export { StepTypeRegistry, defaultStepTypeRegistry } from './pipeline/step-type-registry.js'

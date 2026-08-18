@@ -12,7 +12,15 @@ import type {
   PipelinePendingInteractionV1,
   PipelineSha256Digest,
 } from "@dzupagent/runtime-contracts";
-import type { PipelineSchemaVersion } from "./pipeline-definition.js";
+
+export const PIPELINE_CHECKPOINT_SCHEMA_VERSIONS = [
+  "1.0.0",
+  "1.1.0",
+  "1.2.0",
+] as const;
+
+export type PipelineCheckpointSchemaVersion =
+  (typeof PIPELINE_CHECKPOINT_SCHEMA_VERSIONS)[number];
 
 // ---------------------------------------------------------------------------
 // Checkpoint types
@@ -448,7 +456,7 @@ export interface PipelineCheckpoint {
   /** Monotonically increasing version number for this run */
   version: number;
   /** Schema version for forward compatibility */
-  schemaVersion: PipelineSchemaVersion;
+  schemaVersion: PipelineCheckpointSchemaVersion;
   /**
    * Exact artifact/source this checkpoint was produced from. Optional for
    * backward compatibility; absence means "unbound", which resume must treat

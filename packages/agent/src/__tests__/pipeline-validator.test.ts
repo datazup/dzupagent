@@ -286,25 +286,6 @@ describe('validatePipeline', () => {
 
   it.each([
     {
-      name: 'conditional branch',
-      nodeId: 'decision',
-      branchEdges: [
-        {
-          type: 'conditional' as const,
-          sourceNodeId: 'decision',
-          predicateName: 'choose',
-          branches: { true: 'left', false: 'right' },
-        },
-        { type: 'sequential' as const, sourceNodeId: 'left', targetNodeId: 'join' },
-        { type: 'sequential' as const, sourceNodeId: 'right', targetNodeId: 'join' },
-      ],
-      extraNodes: [
-        { id: 'decision', type: 'gate' as const, gateType: 'quality' as const },
-        { id: 'left', type: 'agent' as const, agentId: 'left' },
-        { id: 'right', type: 'agent' as const, agentId: 'right' },
-      ],
-    },
-    {
       name: 'try/catch error edge',
       nodeId: 'work',
       branchEdges: [
@@ -342,6 +323,40 @@ describe('validatePipeline', () => {
         nodeId,
       }),
     )
+  })
+
+  it('accepts one direct two-arm conditional fork child', () => {
+    const result = validatePipeline(
+      makePipeline({
+        entryNodeId: 'fork',
+        nodes: [
+          { id: 'fork', type: 'fork', forkId: 'parallel' },
+          { id: 'decision', type: 'gate', gateType: 'quality' },
+          { id: 'left', type: 'agent', agentId: 'left' },
+          { id: 'right', type: 'agent', agentId: 'right' },
+          { id: 'sibling', type: 'agent', agentId: 'sibling' },
+          { id: 'join', type: 'join', forkId: 'parallel' },
+        ],
+        edges: [
+          { type: 'sequential', sourceNodeId: 'fork', targetNodeId: 'decision' },
+          { type: 'sequential', sourceNodeId: 'fork', targetNodeId: 'sibling' },
+          {
+            type: 'conditional',
+            sourceNodeId: 'decision',
+            predicateName: 'choose',
+            branches: { true: 'left', false: 'right' },
+          },
+          { type: 'sequential', sourceNodeId: 'left', targetNodeId: 'join' },
+          { type: 'sequential', sourceNodeId: 'right', targetNodeId: 'join' },
+          { type: 'sequential', sourceNodeId: 'sibling', targetNodeId: 'join' },
+        ],
+      }),
+    )
+
+    expect(result.errors).not.toContainEqual(
+      expect.objectContaining({ code: 'UNSUPPORTED_FORK_BRANCH_CONTROL' }),
+    )
+    expect(result.valid).toBe(true)
   })
 
   it('accepts disjoint leaf-only fork branches with sequential leaf chains', () => {

@@ -368,7 +368,7 @@ export interface PipelineExecutionLogPolicy {
  * producers/migrations fails typecheck instead of sliding through one
  * hand-written literal at a time. Exactly one version exists today.
  */
-export const PIPELINE_SCHEMA_VERSIONS = ["1.0.0", "1.1.0", "1.2.0"] as const;
+export const PIPELINE_SCHEMA_VERSIONS = ["1.0.0", "1.1.0"] as const;
 
 export type PipelineSchemaVersion = (typeof PIPELINE_SCHEMA_VERSIONS)[number];
 

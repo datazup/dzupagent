@@ -37,6 +37,7 @@ export type {
 // --- Checkpoint store types ---
 export type {
   PipelineCheckpoint,
+  PipelineCheckpointSchemaVersion,
   PipelineCheckpointCommitReceipt,
   PipelineCheckpointSourceBinding,
   PipelineRecursiveForkCompletionChildV1,
@@ -61,6 +62,7 @@ export type {
 // --- Serialization ---
 export { PIPELINE_SCHEMA_VERSIONS } from "./pipeline-definition.js";
 export {
+  PIPELINE_CHECKPOINT_SCHEMA_VERSIONS,
   PIPELINE_FOR_EACH_ITEM_OUTCOMES,
   isTerminalItemOutcome,
 } from "./pipeline-checkpoint-store.js";

@@ -17,13 +17,7 @@ import type {
   ForkNode,
   LoopNode,
 } from "@dzupagent/core/pipeline";
-import type {
-  PipelineInteractionResumeV1,
-  PipelinePendingInteractionV1,
-  PipelineSha256Digest,
-} from "@dzupagent/runtime-contracts";
 import { digestPipelineDefinition } from "@dzupagent/runtime-contracts";
-import type { PipelineInteractionResumeCursor } from "@dzupagent/core/pipeline";
 import type {
   PipelineState,
   NodeResult,
@@ -47,7 +41,7 @@ import type {
   LoopBodyGraphScheduleInput,
   LoopBodyGraphScheduleResult,
 } from "../loop-executor/types.js";
-import type { ForkState, LoopState } from "./executor-state-types.js";
+import type { LoopState } from "./executor-state-types.js";
 import type { PipelineForEachItemFrame } from "@dzupagent/core/pipeline";
 import { isTerminalItemOutcome } from "@dzupagent/core/pipeline";
 import type { BudgetTrackerState } from "./iteration-budget-tracker.js";
@@ -64,6 +58,9 @@ import {
   executeAdmittedRecursiveFork,
   type RecursiveForkRuntimeDeps,
 } from "./recursive-fork-runtime.js";
+import type { RunFrame } from "./run-frame.js";
+
+export type { RunFrame } from "./run-frame.js";
 
 /**
  * Roll a loop's in-memory entry back to what the store still holds, after a
@@ -154,34 +151,6 @@ export interface StageContext {
   ) => Promise<LoopBodyGraphScheduleResult>;
 }
 
-/** Per-run mutable state threaded through a single stage dispatch. */
-export interface RunFrame {
-  runId: string;
-  runState: Record<string, unknown>;
-  nodeResults: Map<string, NodeResult>;
-  completedNodeIds: string[];
-  nodeIdempotencyKeys: Record<string, string>;
-  loopState: LoopState;
-  forkState: ForkState;
-  eventLog: PipelineRuntimeEvent[];
-  versionTracker: { version: number };
-  pendingInteraction?: PipelinePendingInteractionV1;
-  interactionReceipts: Record<string, PipelineInteractionResumeV1>;
-  interactionResumeCursor?: PipelineInteractionResumeCursor;
-  /**
-   * Per-loop digest of each `for_each` loop's resolved item source (E3),
-   * recorded when the loop resolves its items. Carried onto the checkpoint's
-   * `sourceBinding` so a resume can prove the retained ordered prefix still
-   * refers to the same items in the same order. Loops not yet reached are
-   * absent — absence is "unprovable", never "agreement".
-   */
-  loopSourceDigests?: Record<string, PipelineSha256Digest>;
-  recursiveForkCompletions: NonNullable<
-    import("@dzupagent/core/pipeline").PipelineCheckpoint["recursiveForkCompletions"]
-  >;
-  startTime: number;
-}
-
 /**
  * Fork stage: restore branches that completed before a crash, fan out the
  * remaining branches, then route to the join node (checkpointing along the
@@ -236,7 +205,7 @@ export async function dispatchForkStage(
     completedNodeIds.push(joinNode.id);
     ctx.recordIdempotencyKey(nodeIdempotencyKeys, runId, joinNode);
     const selectedContinuationNodeId = ctx.next(joinNode.id, runState);
-    frame.recursiveForkCompletions[forkNode.id] = {
+    (frame.recursiveForkCompletions ??= {})[forkNode.id] = {
       ...result.receipt,
       checkpointVersion: frame.versionTracker.version + 1,
       ...(selectedContinuationNodeId === undefined
