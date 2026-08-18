@@ -402,6 +402,12 @@ export async function dispatchLoopStage(
     ...(savedLoopState?.progressDigest !== undefined
       ? { progressDigest: savedLoopState.progressDigest }
       : {}),
+    ...(savedLoopState?.iterationOutcome !== undefined
+      ? { iterationOutcome: savedLoopState.iterationOutcome }
+      : {}),
+    ...(savedLoopState?.iterationEconomics !== undefined
+      ? { iterationEconomics: savedLoopState.iterationEconomics }
+      : {}),
     ...(loopNode.bodyGraph === undefined
       ? {}
       : {
@@ -423,8 +429,72 @@ export async function dispatchLoopStage(
         ...(previousBoundary?.progressDigest !== undefined
           ? { progressDigest: previousBoundary.progressDigest }
           : {}),
+        ...(previousBoundary?.iterationEconomics === undefined
+          ? {}
+          : {
+              iterationOutcome:
+                previousBoundary.iterationEconomics.settledCostCents ===
+                undefined
+                  ? ("running" as const)
+                  : (previousBoundary.iterationOutcome ?? "completed"),
+              iterationEconomics: previousBoundary.iterationEconomics,
+            }),
       };
-      await ctx.saveCheckpoint(frame);
+      await persistCheckpointWithIntegrityBoundary({
+        nodeId: loopNode.id,
+        boundary: "loop_resume_cursor",
+        save: () => ctx.saveCheckpoint(frame),
+      });
+      if (lastWriteLostCommit(frame.versionTracker)) {
+        restoreLoopStateAfterLostCommit(
+          frame.loopState,
+          loopNode.id,
+          previousBoundary
+        );
+        throw new PipelineCheckpointCommitConflictError(loopNode.id, {
+          completedIterations: progress.completedIterations,
+          observedVersion: frame.versionTracker.version,
+        });
+      }
+    },
+    onIterationBudgetCheckpoint: async (progress) => {
+      const previousBoundary = frame.loopState[loopNode.id];
+      frame.loopState[loopNode.id] = {
+        iteration: progress.completedIterations,
+        ...(previousBoundary?.nextBodyNodeIndex === undefined
+          ? {}
+          : { nextBodyNodeIndex: previousBoundary.nextBodyNodeIndex }),
+        ...(previousBoundary?.bodyResults === undefined
+          ? {}
+          : { bodyResults: previousBoundary.bodyResults }),
+        ...(previousBoundary?.bodyGraphState === undefined
+          ? {}
+          : { bodyGraphState: previousBoundary.bodyGraphState }),
+        ...(previousBoundary?.previousOutput === undefined
+          ? {}
+          : { previousOutput: previousBoundary.previousOutput }),
+        ...(previousBoundary?.progressDigest === undefined
+          ? {}
+          : { progressDigest: previousBoundary.progressDigest }),
+        iterationOutcome: progress.outcome,
+        iterationEconomics: progress.economics,
+      };
+      await persistCheckpointWithIntegrityBoundary({
+        nodeId: loopNode.id,
+        boundary: "loop_resume_cursor",
+        save: () => ctx.saveCheckpoint(frame),
+      });
+      if (lastWriteLostCommit(frame.versionTracker)) {
+        restoreLoopStateAfterLostCommit(
+          frame.loopState,
+          loopNode.id,
+          previousBoundary
+        );
+        throw new PipelineCheckpointCommitConflictError(loopNode.id, {
+          completedIterations: progress.completedIterations,
+          observedVersion: frame.versionTracker.version,
+        });
+      }
     },
     onBodyGraphCheckpoint: async (progress) => {
       retainBodyGraphState(
@@ -785,6 +855,15 @@ function retainBodyGraphState(
     ...(previousBoundary?.progressDigest !== undefined
       ? { progressDigest: previousBoundary.progressDigest }
       : {}),
+    ...(previousBoundary?.iterationEconomics === undefined
+      ? {}
+      : {
+          iterationOutcome:
+            previousBoundary.iterationEconomics.settledCostCents === undefined
+              ? ("running" as const)
+              : (previousBoundary.iterationOutcome ?? "completed"),
+          iterationEconomics: previousBoundary.iterationEconomics,
+        }),
   };
 }
 

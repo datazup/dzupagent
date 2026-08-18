@@ -22,10 +22,13 @@ import type {
 import { executeForEachLoop } from "./for-each-loop.js";
 import { createLoopIterationDeadline } from "./iteration-deadline.js";
 import {
+  isPipelineCheckpointCommitConflictError,
+  isPipelineCheckpointIntegrityError,
+} from "../pipeline-runtime/checkpoint-integrity-error.js";
+import {
   captureLoopBinding,
   completePredicateLoop,
   digestProgressOutput,
-  enforceIterationReservation,
   isLoopIterationCancelled,
   isLoopIterationTimeout,
   loopBodyFailure,
@@ -34,6 +37,15 @@ import {
   withoutLoopBinding,
   type LoopBindingSnapshot,
 } from "./predicate-loop-helpers.js";
+import {
+  admitPredicateIteration,
+  checkpointSettledPredicateIteration,
+  releasePredicateIteration,
+  settlePredicateIteration,
+  validatePredicateBudgetHost,
+  type HeldPredicateIterationReservation,
+  type PredicateBudgetFailure,
+} from "./predicate-loop-economics.js";
 
 /**
  * Execute a loop node: runs body nodes in sequence per iteration,
@@ -88,6 +100,23 @@ async function executePredicateLoop(
 ): Promise<LoopExecutionResult> {
   const startTime = Date.now();
   const iterationDurations: number[] = [];
+  const budgetHostError = validatePredicateBudgetHost(loopNode, resume);
+  if (budgetHostError !== undefined) {
+    return {
+      result: {
+        nodeId: loopNode.id,
+        output: null,
+        durationMs: Date.now() - startTime,
+        error: budgetHostError,
+      },
+      metrics: {
+        iterationCount: 0,
+        iterationDurations,
+        converged: false,
+        terminationReason: "budget_unknown",
+      },
+    };
+  }
   // Resume cursor: iterations already completed before this call (W3).
   const startIteration = Math.max(0, resume?.startIteration ?? 0);
   const startBodyNodeIndex = resume?.startBodyNodeIndex ?? 0;
@@ -139,7 +168,30 @@ async function executePredicateLoop(
   // run. If the cursor already reached maxIterations, or the continue predicate
   // is already satisfied against the resumed state, skip straight to terminal
   // handling without re-running the body.
-  if (startIteration > 0 && startBodyNodeIndex === 0) {
+  if (
+    resume?.iterationEconomics !== undefined &&
+    startIteration >= loopNode.maxIterations
+  ) {
+    return predicateBudgetFailureResult({
+      loopNode,
+      failure: {
+        status: "blocked",
+        reason: "budget_unknown",
+        error:
+          `Loop "${loopNode.id}" iteration ${startIteration + 1} checkpoint ` +
+          "carries a reservation beyond maxIterations; redispatch is blocked",
+      },
+      lastBodyResult,
+      loopStartedAt: startTime,
+      iterationCount,
+      iterationDurations,
+    });
+  }
+  if (
+    startIteration > 0 &&
+    startBodyNodeIndex === 0 &&
+    resume?.iterationEconomics === undefined
+  ) {
     context.state["loop"] = {
       index: startIteration - 1,
       iteration: startIteration,
@@ -181,20 +233,88 @@ async function executePredicateLoop(
       maxIterations: loopNode.maxIterations,
     });
 
-    const reservationFailure = await enforceIterationReservation({
+    const bodyStartIndex = i === startIteration ? startBodyNodeIndex : 0;
+    const resumedBodyGraphState =
+      i === startIteration ? resume?.bodyGraphState : undefined;
+    const admission = await admitPredicateIteration({
       loopNode,
       bodyNodes,
-      context,
+      state: context.state,
       resume,
-      iterationCount,
-      iterationDurations,
-      iterationStartedAt: iterStart,
-      loopStartedAt: startTime,
-      lastBodyResult,
+      iteration: iterationCount,
+      completedIterations: i,
+      bodyComplete: graphBody
+        ? resumedBodyGraphState?.completed === true
+        : bodyStartIndex === bodyNodes.length,
+      ...(i !== startIteration || resume?.iterationOutcome === undefined
+        ? {}
+        : { retainedOutcome: resume.iterationOutcome }),
+      ...(i !== startIteration || resume?.iterationEconomics === undefined
+        ? {}
+        : { retainedEconomics: resume.iterationEconomics }),
     });
-    if (reservationFailure !== undefined) return reservationFailure;
+    if (admission.status === "blocked") {
+      iterationDurations.push(Date.now() - iterStart);
+      return predicateBudgetFailureResult({
+        loopNode,
+        failure: admission,
+        lastBodyResult,
+        loopStartedAt: startTime,
+        iterationCount,
+        iterationDurations,
+      });
+    }
+    const held: HeldPredicateIterationReservation | undefined =
+      admission.status === "held" || admission.status === "settled"
+        ? admission.held
+        : undefined;
+    let settledCostCents =
+      admission.status === "settled"
+        ? admission.settledCostCents
+        : undefined;
+    const releaseOutstanding = async (
+      outcome: "failed" | "cancelled" | "denied",
+      reason: "aborted" | "failed"
+    ): Promise<PredicateBudgetFailure | undefined> => {
+      if (held === undefined || settledCostCents !== undefined) return undefined;
+      const released = await releasePredicateIteration({
+        loopNode,
+        resume,
+        completedIterations: i,
+        held,
+        outcome,
+        reason,
+      });
+      return released.status === "blocked" ? released : undefined;
+    };
+    const settleOutstanding = async (
+      bodyResults: Readonly<Record<string, NodeResult>>
+    ): Promise<PredicateBudgetFailure | undefined> => {
+      if (held === undefined || settledCostCents !== undefined) return undefined;
+      const settlement = await settlePredicateIteration({
+        loopNode,
+        resume,
+        completedIterations: i,
+        held,
+        bodyResults,
+      });
+      if (settlement.status === "blocked") return settlement;
+      settledCostCents = settlement.settledCostCents;
+      if (settlement.overrun === undefined) return undefined;
+      await checkpointSettledPredicateIteration({
+        resume,
+        completedIterations: i,
+        outcome: "failed",
+        held,
+        settledCostCents,
+      });
+      return {
+        status: "blocked",
+        reason: "budget_exceeded",
+        error: settlement.overrun,
+      };
+    };
 
-    const bodyStartIndex = i === startIteration ? startBodyNodeIndex : 0;
     const iterationBodyResults = new Map<string, NodeResult>();
     if (i === startIteration) {
       for (const result of retainedBodyResults) {
@@ -212,8 +332,6 @@ async function executePredicateLoop(
       ...context,
       ...(deadline.signal === undefined ? {} : { signal: deadline.signal }),
     };
-    const resumedBodyGraphState =
-      i === startIteration ? resume?.bodyGraphState : undefined;
     try {
       if (graphBody) {
         let scheduled: LoopBodyGraphScheduleResult;
@@ -254,7 +372,21 @@ async function executePredicateLoop(
             };
           }
           if (isLoopIterationTimeout(error)) {
+            const releaseFailure = await releaseOutstanding(
+              "cancelled",
+              "aborted"
+            );
             iterationDurations.push(Date.now() - iterStart);
+            if (releaseFailure !== undefined) {
+              return predicateBudgetFailureResult({
+                loopNode,
+                failure: releaseFailure,
+                lastBodyResult,
+                loopStartedAt: startTime,
+                iterationCount,
+                iterationDurations,
+              });
+            }
             return {
               result: {
                 nodeId: loopNode.id,
@@ -281,13 +413,10 @@ async function executePredicateLoop(
 
         if (scheduled.outcome.kind === "cancelled") {
           terminationReason = "cancelled";
-        } else if (
-          scheduled.outcome.kind === "suspended" ||
-          scheduled.outcome.kind === "terminal"
-        ) {
+        } else if (scheduled.outcome.kind === "suspended") {
           if (scheduled.checkpointState === undefined) {
             throw new Error(
-              `Loop node "${loopNode.id}": ${scheduled.outcome.kind} body outcome omitted its durable graph frame`
+              `Loop node "${loopNode.id}": suspended body outcome omitted its durable graph frame`
             );
           }
           iterationDurations.push(Date.now() - iterStart);
@@ -309,9 +438,70 @@ async function executePredicateLoop(
               completedIterations: i,
             },
           };
+        } else if (scheduled.outcome.kind === "terminal") {
+          if (scheduled.checkpointState === undefined) {
+            throw new Error(
+              `Loop node "${loopNode.id}": terminal body outcome omitted its durable graph frame`
+            );
+          }
+          const settlementFailure = await settleOutstanding(
+            Object.fromEntries(iterationBodyResults)
+          );
+          iterationDurations.push(Date.now() - iterStart);
+          if (settlementFailure !== undefined) {
+            return predicateBudgetFailureResult({
+              loopNode,
+              failure: settlementFailure,
+              lastBodyResult,
+              loopStartedAt: startTime,
+              iterationCount,
+              iterationDurations,
+            });
+          }
+          if (
+            held !== undefined &&
+            settledCostCents !== undefined
+          ) {
+            await checkpointSettledPredicateIteration({
+              resume,
+              completedIterations: i,
+              outcome: "completed",
+              held,
+              settledCostCents,
+            });
+          }
+          return {
+            result: {
+              nodeId: loopNode.id,
+              output: scheduled.lastResult?.output ?? null,
+              durationMs: Date.now() - startTime,
+            },
+            metrics: {
+              iterationCount,
+              iterationDurations,
+              converged: false,
+              terminationReason: "terminal",
+            },
+            control: {
+              outcome: scheduled.outcome,
+              checkpointState: scheduled.checkpointState,
+              completedIterations: i,
+            },
+          };
         } else if (scheduled.outcome.kind !== "normal") {
           const error = scheduled.outcome.error;
+          const releaseFailure = await releaseOutstanding("failed", "failed");
           iterationDurations.push(Date.now() - iterStart);
+          if (releaseFailure !== undefined) {
+            return predicateBudgetFailureResult({
+              loopNode,
+              failure: releaseFailure,
+              lastBodyResult,
+              loopStartedAt: startTime,
+              iterationCount,
+              iterationDurations,
+            });
+          }
           return loopBodyFailure(
             loopNode,
             scheduled.lastResult,
@@ -346,7 +536,21 @@ async function executePredicateLoop(
             break;
           }
           if (isLoopIterationTimeout(error)) {
+            const releaseFailure = await releaseOutstanding(
+              "cancelled",
+              "aborted"
+            );
             iterationDurations.push(Date.now() - iterStart);
+            if (releaseFailure !== undefined) {
+              return predicateBudgetFailureResult({
+                loopNode,
+                failure: releaseFailure,
+                lastBodyResult,
+                loopStartedAt: startTime,
+                iterationCount,
+                iterationDurations,
+              });
+            }
             return {
               result: {
                 nodeId: loopNode.id,
@@ -368,7 +572,21 @@ async function executePredicateLoop(
           lastBodyResult = bodyResult;
 
           if (bodyResult.error) {
+            const releaseFailure = await releaseOutstanding(
+              "failed",
+              "failed"
+            );
             iterationDurations.push(Date.now() - iterStart);
+            if (releaseFailure !== undefined) {
+              return predicateBudgetFailureResult({
+                loopNode,
+                failure: releaseFailure,
+                lastBodyResult: bodyResult,
+                loopStartedAt: startTime,
+                iterationCount,
+                iterationDurations,
+              });
+            }
             return loopBodyFailure(
               loopNode,
               bodyResult,
@@ -401,7 +619,27 @@ async function executePredicateLoop(
       // cancellation at the iteration boundary as well.
       if (isLoopIterationCancelled(error)) {
         terminationReason = "cancelled";
+      } else if (
+        isPipelineCheckpointIntegrityError(error) ||
+        isPipelineCheckpointCommitConflictError(error)
+      ) {
+        // A checkpoint transport/CAS boundary may follow committed body work.
+        // Preserve the durable hold so restart can reconcile it; releasing here
+        // would refund work whose effect receipt may already be committed.
+        throw error;
       } else {
+        const releaseFailure = await releaseOutstanding("failed", "failed");
+        if (releaseFailure !== undefined) {
+          iterationDurations.push(Date.now() - iterStart);
+          return predicateBudgetFailureResult({
+            loopNode,
+            failure: releaseFailure,
+            lastBodyResult,
+            loopStartedAt: startTime,
+            iterationCount,
+            iterationDurations,
+          });
+        }
         throw error;
       }
     } finally {
@@ -413,7 +651,32 @@ async function executePredicateLoop(
     // An interrupted body is not a completed iteration. Leave the most recent
     // body-node cursor intact so a later resume continues at the next node.
     if (terminationReason === "cancelled") {
+      const releaseFailure = await releaseOutstanding("cancelled", "aborted");
+      if (releaseFailure !== undefined) {
+        return predicateBudgetFailureResult({
+          loopNode,
+          failure: releaseFailure,
+          lastBodyResult,
+          loopStartedAt: startTime,
+          iterationCount,
+          iterationDurations,
+        });
+      }
       break;
+    }
+
+    const settlementFailure = await settleOutstanding(
+      Object.fromEntries(iterationBodyResults)
+    );
+    if (settlementFailure !== undefined) {
+      return predicateBudgetFailureResult({
+        loopNode,
+        failure: settlementFailure,
+        lastBodyResult,
+        loopStartedAt: startTime,
+        iterationCount,
+        iterationDurations,
+      });
     }
 
     const completedOutput = lastBodyResult?.output;
@@ -425,6 +688,15 @@ async function executePredicateLoop(
       progressDigest !== undefined &&
       previousProgressDigest === progressDigest
     ) {
+      if (held !== undefined && settledCostCents !== undefined) {
+        await checkpointSettledPredicateIteration({
+          resume,
+          completedIterations: i,
+          outcome: "failed",
+          held,
+          settledCostCents,
+        });
+      }
       return {
         result: {
           nodeId: loopNode.id,
@@ -483,4 +755,28 @@ async function executePredicateLoop(
     iterationDurations,
     terminationReason,
   });
+}
+
+function predicateBudgetFailureResult(input: {
+  readonly loopNode: LoopNode;
+  readonly failure: PredicateBudgetFailure;
+  readonly lastBodyResult: NodeResult | undefined;
+  readonly loopStartedAt: number;
+  readonly iterationCount: number;
+  readonly iterationDurations: number[];
+}): LoopExecutionResult {
+  return {
+    result: {
+      nodeId: input.loopNode.id,
+      output: input.lastBodyResult?.output ?? null,
+      durationMs: Date.now() - input.loopStartedAt,
+      error: input.failure.error,
+    },
+    metrics: {
+      iterationCount: input.iterationCount,
+      iterationDurations: input.iterationDurations,
+      converged: false,
+      terminationReason: input.failure.reason,
+    },
+  };
 }

@@ -83,6 +83,7 @@ describe("F-R4 — typed loop onExhausted runtime branch", () => {
   it("plumbs a host-authoritative iteration reservation before body dispatch", async () => {
     const bodyRuns: string[] = [];
     const reservations: unknown[] = [];
+    const settlements: unknown[] = [];
     const budgetedLoop = loop("continue", false);
     budgetedLoop.typedWhile = {
       ...budgetedLoop.typedWhile!,
@@ -100,10 +101,17 @@ describe("F-R4 — typed loop onExhausted runtime branch", () => {
       },
       predicates: { always: () => true },
       loopIterationBudgetReservation: {
+        mode: "strict",
         reserve: (input) => {
           reservations.push(input);
           return { status: "reserved", reservedCostCents: 8 };
         },
+        settle: (input) => {
+          settlements.push(input);
+        },
+        release: () => undefined,
+        reconcile: () => ({ status: "unknown" }),
+        measureItemCost: () => ({ status: "known", costCents: 3 }),
       },
       nodeExecutor: async (nodeId) => {
         bodyRuns.push(nodeId);
@@ -121,6 +129,17 @@ describe("F-R4 — typed loop onExhausted runtime branch", () => {
       iteration: 1,
       budgetCents: 10,
       bodyNodeIds: ["body"],
+      reservationId: expect.stringContaining(
+        ":iteration:loop:1"
+      ),
     });
+    expect(settlements).toEqual([
+      expect.objectContaining({
+        loopNodeId: "loop",
+        iteration: 1,
+        reservedCostCents: 8,
+        actualCostCents: 3,
+      }),
+    ]);
   });
 });

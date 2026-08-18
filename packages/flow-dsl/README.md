@@ -657,15 +657,22 @@ Standalone validation gate (referenced suite or inline commands).
 
 ### `persona` — inheritance semantics
 
-Wraps a body of steps with a persona binding. If the bound persona has a
-`systemPromptTemplate`, runtime inheritance currently applies to nested
-`prompt` nodes only. A nested `prompt.systemPrompt` wins over the inherited
-template. Nested `agent` and `adapter.*` nodes do not inherit that binding at
-runtime; set `instructions` / `persona` explicitly on those nodes. Nested
-personas override the outer binding inside their own body for prompt nodes.
+Wraps a body of steps with a persona binding. The DSL scopes the active persona;
+the consuming host owns prompt composition and must document its precedence.
 
-When inheritance fires for a prompt node, the journal records
-`persona_systemprompt_applied { personaId }`.
+The current Codev host writes a resolved `systemPromptTemplate` to
+`ctx.systemPromptOverride`. A nested `prompt.systemPrompt` wins over that
+override. Adapter nodes prefer an explicit `systemPrompt`, then their own
+`persona`, then the inherited override, with `instructions` additive. Canonical
+agent nodes prefer `instructions` and otherwise fall back to the override;
+current textual `dzupflow/v1alpha-agent` authoring still requires
+`instructions`, so that fallback is reachable through canonical/programmatic
+input rather than by omitting the textual field. Nested personas replace the
+outer active binding inside their body.
+
+Codev journals `persona_systemprompt_applied { personaId }` when the inherited
+prompt layer is used. Other hosts must verify or declare equivalent behavior;
+explicit node prompt fields remain the portable authoring choice.
 
 ```yaml
 - persona:

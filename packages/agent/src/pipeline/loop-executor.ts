@@ -22,6 +22,7 @@ export type {
   LoopBodyGraphScheduleOutcome,
   LoopBodyGraphScheduleResult,
   LoopExecutionResult,
+  LoopIterationBudgetCheckpointProgress,
   LoopBudgetCompatibilityHost,
   LoopBudgetCostEvidence,
   LoopBudgetCostMeasurementInput,

@@ -8,6 +8,8 @@
  */
 
 import type {
+  PipelineForEachItemEconomics,
+  PipelineForEachItemOutcome,
   PipelineForEachItemFrame,
   PipelineForEachItemTerminalRecord,
 } from "@dzupagent/core/pipeline";
@@ -20,6 +22,10 @@ export interface LoopCheckpointState {
   nextBodyNodeIndex?: number;
   bodyResults?: Record<string, unknown>;
   bodyGraphState?: LoopBodyGraphCheckpointState;
+  /** Strict predicate-loop reservation state for the current iteration. */
+  iterationOutcome?: PipelineForEachItemOutcome;
+  /** Exact reservation/settlement bytes shared with the for_each contract. */
+  iterationEconomics?: PipelineForEachItemEconomics;
   /**
    * Pre-G1 singular spelling, still read so checkpoints written before G1
    * resume. Never written; normalised into `itemFrames` on read.

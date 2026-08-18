@@ -93,6 +93,23 @@ export interface LoopIterationCheckpointProgress {
   progressDigest?: `sha256:${string}`;
 }
 
+/**
+ * Durable strict-economics state for the predicate-loop iteration currently
+ * named by the loop cursor.
+ *
+ * Reuses the exact `for_each` outcome/economics vocabulary. The callback is
+ * separate from body progress because the reservation must be committed before
+ * the first body node dispatches, when no body node has completed yet.
+ */
+export interface LoopIterationBudgetCheckpointProgress {
+  /** Number of full iterations completed before this in-flight iteration. */
+  completedIterations: number;
+  /** Lifecycle state observed by the predicate-loop executor. */
+  outcome: PipelineForEachItemOutcome;
+  /** Exact reservation bytes, including actual cost after settlement. */
+  economics: PipelineForEachItemEconomics;
+}
+
 export type LoopIterationBudgetReservation =
   | {
       /** A host-authoritative conservative upper bound was reserved. */
@@ -345,7 +362,12 @@ export interface LoopBudgetCompatibilityHost extends LoopBudgetLifecycle {
  */
 export interface LoopBudgetStrictHost extends LoopBudgetLifecycle {
   mode: "strict";
-  itemBudgetCents: number;
+  /**
+   * Optional host-authored `for_each` item ceiling. Predicate loops take their
+   * ceiling from `typedWhile.iterationBudgetCents`, so a strict host serving
+   * only predicate loops does not need to invent an unrelated item value.
+   */
+  itemBudgetCents?: number;
   settle(input: LoopBudgetSettlementInput): void | Promise<void>;
   release(input: LoopBudgetReleaseInput): void | Promise<void>;
   reconcile(
@@ -500,6 +522,10 @@ export interface LoopResumeOptions {
   previousOutput?: unknown;
   /** Previous completed iteration's canonical progress digest. */
   progressDigest?: `sha256:${string}`;
+  /** Durable lifecycle state for the current predicate-loop iteration. */
+  iterationOutcome?: PipelineForEachItemOutcome;
+  /** Exact durable reservation bytes for that predicate-loop iteration. */
+  iterationEconomics?: PipelineForEachItemEconomics;
   /** Host admission hook for an authored hard per-iteration ceiling. */
   reserveIterationBudget?: (
     input: LoopIterationBudgetReservationInput
@@ -567,6 +593,13 @@ export interface LoopResumeOptions {
    * For-each loops continue to checkpoint only their completed ordered prefix.
    */
   onBodyNodeComplete?: (progress: LoopBodyCheckpointProgress) => Promise<void>;
+  /**
+   * Persist predicate-loop reservation state before body dispatch and at each
+   * terminal settlement/release boundary.
+   */
+  onIterationBudgetCheckpoint?: (
+    progress: LoopIterationBudgetCheckpointProgress
+  ) => Promise<void>;
   /**
    * Invoked after each successful `for_each` body node while the item is still
    * in flight (E3) — never on the item's last body node, whose durable cursor

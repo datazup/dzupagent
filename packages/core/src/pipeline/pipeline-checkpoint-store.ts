@@ -53,6 +53,24 @@ export interface PipelineLoopCheckpointState {
   nextBodyNodeIndex?: number;
   bodyResults?: Record<string, unknown>;
   /**
+   * Predicate-loop lifecycle state for the iteration named by `iteration`.
+   *
+   * The vocabulary is deliberately shared with `for_each`: `reserved` and
+   * `running` retain an outstanding hold, `completed` carries a settled cost,
+   * and `failed`/`cancelled`/`denied` describe a terminal non-success path.
+   * `outcome_unknown` keeps the iteration blocked until the host reconciles
+   * the exact reservation. Absent for loops without an authored hard ceiling.
+   */
+  iterationOutcome?: PipelineForEachItemOutcome;
+  /**
+   * Durable reservation bytes for one predicate-loop iteration.
+   *
+   * This intentionally reuses the exact `for_each` economics shape rather
+   * than introducing a second reservation/cost vocabulary. The positional
+   * owner is the enclosing loop cursor's `iteration` instead of an item key.
+   */
+  iterationEconomics?: PipelineForEachItemEconomics;
+  /**
    * Mid-item progress for a for-each loop, singular (E3 shape).
    *
    * @deprecated G1 superseded this with {@link itemFrames}, which can hold

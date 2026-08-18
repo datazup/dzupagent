@@ -543,6 +543,105 @@ describe("PipelineCheckpoint", () => {
     expect(PipelineCheckpointSchema.safeParse(cp).success).toBe(true);
   });
 
+  it("accepts exact predicate-loop reservation and settlement bytes", () => {
+    const reserved = makeCheckpoint({
+      loopState: {
+        loop: {
+          iteration: 0,
+          nextBodyNodeIndex: 0,
+          bodyResults: {},
+          iterationOutcome: "reserved",
+          iterationEconomics: {
+            reservationId: "resv:v1:run-1:iteration:loop:1",
+            reservedCostCents: 8,
+          },
+        },
+      },
+    });
+    expect(PipelineCheckpointSchema.safeParse(reserved).success).toBe(true);
+
+    const completed = makeCheckpoint({
+      loopState: {
+        loop: {
+          iteration: 0,
+          bodyGraphState: makeBodyGraphCheckpointState({
+            completed: true,
+            nextNodeId: undefined,
+            outcome: { kind: "terminal", exitNodeId: "complete" },
+          }),
+          iterationOutcome: "completed",
+          iterationEconomics: {
+            reservationId: "resv:v1:run-1:iteration:loop:1",
+            reservedCostCents: 8,
+            settledCostCents: 3,
+          },
+        },
+      },
+    });
+    expect(PipelineCheckpointSchema.safeParse(completed).success).toBe(true);
+  });
+
+  it("rejects incomplete or contradictory predicate-loop economics", () => {
+    const missingEconomics = makeCheckpoint({
+      loopState: { loop: { iteration: 0, iterationOutcome: "running" } },
+    });
+    expect(PipelineCheckpointSchema.safeParse(missingEconomics).success).toBe(
+      false
+    );
+
+    const completedWithoutCost = makeCheckpoint({
+      loopState: {
+        loop: {
+          iteration: 0,
+          iterationOutcome: "completed",
+          iterationEconomics: {
+            reservationId: "resv:v1:run-1:iteration:loop:1",
+            reservedCostCents: 8,
+          },
+        },
+      },
+    });
+    expect(
+      PipelineCheckpointSchema.safeParse(completedWithoutCost).success
+    ).toBe(false);
+
+    const runningWithSettledCost = makeCheckpoint({
+      loopState: {
+        loop: {
+          iteration: 0,
+          iterationOutcome: "running",
+          iterationEconomics: {
+            reservationId: "resv:v1:run-1:iteration:loop:1",
+            reservedCostCents: 8,
+            settledCostCents: 3,
+          },
+        },
+      },
+    });
+    expect(
+      PipelineCheckpointSchema.safeParse(runningWithSettledCost).success
+    ).toBe(false);
+  });
+
+  it("rejects predicate economics mixed with for_each item state", () => {
+    const mixed = makeCheckpoint({
+      loopState: {
+        loop: {
+          iteration: 0,
+          iterationOutcome: "reserved",
+          iterationEconomics: {
+            reservationId: "resv:v1:run-1:iteration:loop:1",
+            reservedCostCents: 8,
+          },
+          itemFrames: {
+            "0": { itemIndex: 0, nextBodyNodeIndex: 0 },
+          },
+        },
+      },
+    });
+    expect(PipelineCheckpointSchema.safeParse(mixed).success).toBe(false);
+  });
+
   it("rejects a source-binding digest that is not a canonical sha256", () => {
     const result = PipelineCheckpointSchema.safeParse(
       makeCheckpoint({

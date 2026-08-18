@@ -349,6 +349,8 @@ const PipelineLoopCheckpointStateSchema = z
     iteration: z.number().int().nonnegative(),
     nextBodyNodeIndex: z.number().int().nonnegative().optional(),
     bodyResults: z.record(z.string(), z.unknown()).optional(),
+    iterationOutcome: z.enum(PIPELINE_FOR_EACH_ITEM_OUTCOMES).optional(),
+    iterationEconomics: PipelineForEachItemEconomicsSchema.optional(),
     itemFrame: PipelineForEachItemFrameSchema.optional(),
     itemFrames: z
       .record(
@@ -392,6 +394,60 @@ const PipelineLoopCheckpointStateSchema = z
         path: ["bodyGraphState"],
         message:
           "bodyGraphState is mutually exclusive with the flat body cursor",
+      });
+    }
+
+    if (
+      (cursor.iterationOutcome === undefined) !==
+      (cursor.iterationEconomics === undefined)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path:
+          cursor.iterationOutcome === undefined
+            ? ["iterationOutcome"]
+            : ["iterationEconomics"],
+        message:
+          "predicate-loop iterationOutcome and iterationEconomics must be present or absent together",
+      });
+    }
+
+    if (
+      cursor.iterationEconomics !== undefined &&
+      (cursor.itemFrame !== undefined ||
+        cursor.itemFrames !== undefined ||
+        cursor.itemOutcomes !== undefined)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["iterationEconomics"],
+        message:
+          "predicate-loop iteration economics is mutually exclusive with for_each item state",
+      });
+    }
+
+    if (
+      cursor.iterationOutcome === "completed" &&
+      cursor.iterationEconomics?.settledCostCents === undefined
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["iterationEconomics", "settledCostCents"],
+        message:
+          "a completed predicate-loop iteration requires an authoritative settled cost",
+      });
+    }
+
+    if (
+      (cursor.iterationOutcome === "reserved" ||
+        cursor.iterationOutcome === "running") &&
+      cursor.iterationEconomics?.settledCostCents !== undefined
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["iterationEconomics", "settledCostCents"],
+        message:
+          "a reserved or running predicate-loop iteration cannot already carry settled cost",
       });
     }
 

@@ -26,6 +26,8 @@ import {
 import type { PipelineCheckpoint, PipelineDefinition } from "@dzupagent/core";
 import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
 import { InMemoryPipelineCheckpointStore } from "../pipeline/in-memory-checkpoint-store.js";
+import type { LoopBudgetStrictHost } from "../pipeline/loop-executor.js";
+import { deriveIterationReservationId } from "../pipeline/loop-executor/predicate-loop-economics.js";
 import type { NodeExecutor } from "../pipeline/pipeline-runtime-types.js";
 
 const fixtureExecutionBinding = (
@@ -194,6 +196,173 @@ function executor(input: {
 }
 
 describe("pipeline loop + effect receipt restart join", () => {
+  it("reconciles the retained iteration hold without repeating a committed effect or charge", async () => {
+    class FailBeforeEffectCursorStore extends InMemoryPipelineCheckpointStore {
+      private failed = false;
+
+      override async save(checkpoint: PipelineCheckpoint): Promise<void> {
+        if (
+          !this.failed &&
+          checkpoint.loopState?.["L"]?.nextBodyNodeIndex === 1
+        ) {
+          this.failed = true;
+          throw new Error("simulated process loss before loop cursor write");
+        }
+        await super.save(checkpoint);
+      }
+    }
+
+    const budgetedDefinition: PipelineDefinition = {
+      ...definition,
+      nodes: definition.nodes.map((node) =>
+        node.id !== "L"
+          ? node
+          : {
+              ...node,
+              typedWhile: {
+                conditionSchema: "dzupagent.flowTypedCondition/v1",
+                condition: { op: "literal", value: true },
+                onExhausted: "continue",
+                iterationBudgetCents: 10,
+              },
+            }
+      ),
+    };
+    const makeBudgetHost = (calls: {
+      reserves: unknown[];
+      settles: unknown[];
+      releases: unknown[];
+      reconciles: unknown[];
+    }): LoopBudgetStrictHost => ({
+      mode: "strict",
+      reserve: (input) => {
+        calls.reserves.push(input);
+        return { status: "reserved", reservedCostCents: 8 };
+      },
+      settle: (input) => {
+        calls.settles.push(input);
+      },
+      release: (input) => {
+        calls.releases.push(input);
+      },
+      reconcile: (input) => {
+        calls.reconciles.push(input);
+        return { status: "reserved", reservedCostCents: 8 };
+      },
+      measureItemCost: () => ({ status: "known", costCents: 3 }),
+    });
+
+    const runId = "strict-effect-restart";
+    const checkpointStore = new FailBeforeEffectCursorStore();
+    const journal = new SharedEffectJournal();
+    const externalDispatches: string[] = [];
+    const calls = {
+      reserves: [] as unknown[],
+      settles: [] as unknown[],
+      releases: [] as unknown[],
+      reconciles: [] as unknown[],
+    };
+    const first = await new PipelineRuntime({
+      definition: budgetedDefinition,
+      checkpointStore,
+      predicates: { notDone: (state) => state["done"] !== true },
+      nodeExecutor: executor({
+        journal,
+        runId,
+        externalDispatches,
+        crashAfterFirstCommit: false,
+      }),
+      loopIterationBudgetReservation: makeBudgetHost(calls),
+    }).execute(undefined, { runId });
+
+    expect(first.state).toBe("failed");
+    expect(externalDispatches).toEqual([runId]);
+    expect(calls.reserves).toHaveLength(1);
+    expect(calls.settles).toEqual([]);
+    expect(calls.releases).toEqual([]);
+    const checkpoint = await checkpointStore.load(runId);
+    expect(checkpoint?.loopState?.["L"]).toMatchObject({
+      iteration: 0,
+      iterationOutcome: "reserved",
+      iterationEconomics: {
+        reservationId: `resv:v1:${runId}:iteration:L:1`,
+        reservedCostCents: 8,
+      },
+    });
+    expect(checkpoint?.loopState?.["L"]?.nextBodyNodeIndex).toBeUndefined();
+
+    const resumed = await new PipelineRuntime({
+      definition: budgetedDefinition,
+      checkpointStore,
+      predicates: { notDone: (state) => state["done"] !== true },
+      nodeExecutor: executor({
+        journal,
+        runId,
+        externalDispatches,
+        crashAfterFirstCommit: false,
+      }),
+      loopIterationBudgetReservation: makeBudgetHost(calls),
+    }).resume(checkpoint!);
+
+    expect(resumed.state).toBe("completed");
+    expect(externalDispatches).toEqual([runId]);
+    expect(calls.reserves).toHaveLength(1);
+    expect(calls.reconciles).toEqual([
+      expect.objectContaining({ boundary: "reserve" }),
+    ]);
+    expect(calls.settles).toHaveLength(1);
+    expect(calls.releases).toEqual([]);
+
+    const controlRunId = "strict-effect-empty-control";
+    const controlCheckpoint = structuredClone(checkpoint!);
+    controlCheckpoint.pipelineRunId = controlRunId;
+    const controlEconomics = (
+      controlCheckpoint.loopState?.["L"] as
+        | (NonNullable<PipelineCheckpoint["loopState"]>[string] & {
+            iterationEconomics?: {
+              reservationId: string;
+              reservedCostCents: number;
+              settledCostCents?: number;
+            };
+          })
+        | undefined
+    )?.iterationEconomics;
+    if (controlEconomics === undefined) {
+      throw new Error("test setup omitted retained iteration economics");
+    }
+    controlEconomics.reservationId = deriveIterationReservationId({
+      runId: controlRunId,
+      loopNodeId: "L",
+      iteration: 1,
+    });
+    const controlJournal = new SharedEffectJournal();
+    const controlDispatches: string[] = [];
+    const controlCalls = {
+      reserves: [] as unknown[],
+      settles: [] as unknown[],
+      releases: [] as unknown[],
+      reconciles: [] as unknown[],
+    };
+    const control = await new PipelineRuntime({
+      definition: budgetedDefinition,
+      checkpointStore: new InMemoryPipelineCheckpointStore(),
+      predicates: { notDone: (state) => state["done"] !== true },
+      nodeExecutor: executor({
+        journal: controlJournal,
+        runId: controlRunId,
+        externalDispatches: controlDispatches,
+        crashAfterFirstCommit: false,
+      }),
+      loopIterationBudgetReservation: makeBudgetHost(controlCalls),
+    }).resume(controlCheckpoint);
+
+    expect(control.state).toBe("completed");
+    expect(controlDispatches).toEqual([controlRunId]);
+    expect(controlCalls.reserves).toEqual([]);
+    expect(controlCalls.reconciles).toHaveLength(1);
+    expect(controlCalls.settles).toHaveLength(1);
+  });
+
   it("replays a committed bound effect and dispatches an empty-journal control", async () => {
     const checkpointStore = new InMemoryPipelineCheckpointStore();
     const committedJournal = new SharedEffectJournal();

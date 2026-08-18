@@ -147,7 +147,9 @@ export async function handleLoop(
                 }
             : {
                 budgetMode: "strict" as const,
-                itemBudgetCents: strictBudgetHost.itemBudgetCents,
+                ...(strictBudgetHost.itemBudgetCents === undefined
+                  ? {}
+                  : { itemBudgetCents: strictBudgetHost.itemBudgetCents }),
                 measureItemCost: (input) =>
                   strictBudgetHost.measureItemCost(input),
               }),
