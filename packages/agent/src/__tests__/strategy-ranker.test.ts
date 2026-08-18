@@ -114,15 +114,14 @@ describe('StrategyRanker', () => {
       expect(best?.name).toBe('b')
     })
 
-    it('respects minConfidence threshold', () => {
+    it('returns null when every fresh strategy is below minConfidence', () => {
       const strategies = [
         makeStrategy({ name: 'a', confidence: 0.3 }),
         makeStrategy({ name: 'b', confidence: 0.4 }),
       ]
 
       const best = ranker.selectBest(strategies, 0.5)
-      // Both are below threshold, but selectBest falls back to first unattempted
-      expect(best).not.toBeNull()
+      expect(best).toBeNull()
     })
 
     it('skips attempted strategies when a fresh one meets threshold', () => {

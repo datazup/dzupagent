@@ -32,7 +32,7 @@
   ],
   "scripts": {
     "build": "node ../../scripts/run-with-build-custody.mjs --shell \"node ../../scripts/prepare-build-artifact-manifest.mjs && tsup && node ../../scripts/write-build-artifact-manifest.mjs\"",
-    "build:verify": "node ../../scripts/run-with-build-custody.mjs node ../../scripts/check-build-artifact-integrity.mjs",
+    "build:verify": "node ../../scripts/run-with-build-custody.mjs node ../../scripts/check-build-artifact-integrity.mjs && node ../../scripts/check-agent-types-implementation-deprecation.mjs",
     "lint": "node ../../scripts/run-package-lint.mjs",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",

@@ -14,6 +14,7 @@ import type {
   RecoveryResult,
   RecoveryCopilotConfig,
 } from './recovery-types.js'
+import { isHumanEscalationStrategy } from './recovery-types.js'
 
 // ---------------------------------------------------------------------------
 // Action handler
@@ -75,6 +76,19 @@ export class RecoveryExecutor {
     }
 
     const strategy = plan.selectedStrategy
+
+    if (isHumanEscalationStrategy(strategy)) {
+      plan.status = 'failed'
+      plan.executionError = 'Human escalation is terminal and requires operator intervention'
+      plan.completedAt = new Date()
+      this.emitEvent(plan, 'recovery:human_escalation_required')
+      return {
+        plan,
+        success: false,
+        summary: 'Recovery requires human escalation; automated execution was not attempted',
+        durationMs: Date.now() - startTime,
+      }
+    }
 
     // --- Approval gate for high-risk strategies ---
     if (

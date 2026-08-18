@@ -1,16 +1,31 @@
 import type { ImplementationPlan } from "./types.js";
 
+/**
+ * @deprecated Repository-delivery compatibility only. New delivery plans belong
+ * to Scripts DeliveryBundle/ExecutionPlan contracts; use AgentTask for the
+ * generic DzupAgent runtime boundary.
+ */
 export interface PlanValidationIssue {
   path: string;
   code: string;
   message: string;
 }
 
+/**
+ * @deprecated Repository-delivery compatibility only. New delivery plans belong
+ * to Scripts DeliveryBundle/ExecutionPlan contracts; use AgentTask for the
+ * generic DzupAgent runtime boundary.
+ */
 export interface PlanValidationResult {
   ok: boolean;
   issues: PlanValidationIssue[];
 }
 
+/**
+ * @deprecated Repository-delivery compatibility only. New delivery plans belong
+ * to Scripts DeliveryBundle/ExecutionPlan contracts; use AgentTask for the
+ * generic DzupAgent runtime boundary.
+ */
 export function validateImplementationPlan(
   plan: ImplementationPlan,
 ): PlanValidationResult {

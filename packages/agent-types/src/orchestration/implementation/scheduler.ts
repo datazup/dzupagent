@@ -1,10 +1,20 @@
 import type { ImplementationBatch, ImplementationPlan } from "./types.js";
 
+/**
+ * @deprecated Repository-delivery compatibility only. New delivery plans belong
+ * to Scripts DeliveryBundle/ExecutionPlan contracts; use AgentTask for the
+ * generic DzupAgent runtime boundary.
+ */
 export interface ScheduledRepoLane {
   repoId: string;
   taskIds: string[];
 }
 
+/**
+ * @deprecated Repository-delivery compatibility only. New delivery plans belong
+ * to Scripts DeliveryBundle/ExecutionPlan contracts; use AgentTask for the
+ * generic DzupAgent runtime boundary.
+ */
 export interface ScheduledBatch {
   id: string;
   title: string;
@@ -12,6 +22,11 @@ export interface ScheduledBatch {
   lanes: ScheduledRepoLane[];
 }
 
+/**
+ * @deprecated Repository-delivery compatibility only. New delivery plans belong
+ * to Scripts DeliveryBundle/ExecutionPlan contracts; use AgentTask for the
+ * generic DzupAgent runtime boundary.
+ */
 export function buildImplementationSchedule(
   plan: ImplementationPlan,
   completedTaskIds: ReadonlySet<string>,

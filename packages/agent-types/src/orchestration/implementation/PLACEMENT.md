@@ -1,7 +1,9 @@
 # Implementation Orchestration Placement
 
-Status: superseded placement decision; NC-03A disposition complete;
-compatibility-only pending the bounded NC-03B deprecation packet.
+Status: superseded placement decision; NC-03A disposition complete and NC-03B
+source/declaration deprecation implemented as a compatibility candidate.
+Stable-to-transitional API governance remains blocked by an unrelated
+Adapter Types allowlist gap.
 
 Historical decision: `@dzupagent/agent-types`.
 
@@ -32,8 +34,16 @@ It classifies all 18 public exports and every interface field:
   orchestration semantics.
 
 The existing `AgentTask` boundary under `agent-types/fleet` remains the generic
-DzupAgent task contract. NC-03B should deprecate this complete implementation
-subpath in place without inventing a replacement DzupAgent alias. Scripts must
+DzupAgent task contract. Every export in this implementation subpath now carries
+the same `@deprecated` migration diagnostic. A semantic compiler test verifies
+all 18 exports, including the root schema-constant alias, and the package
+post-build verifier checks the bundled declarations without changing the four
+runtime exports.
+
+The remaining NC-03B API-governance step must wait until the independently red
+`@dzupagent/adapter-types` provider-session-explorer root export is classified.
+Do not manually edit generated API documentation or present the implementation
+root rule as transitional while that generator cannot run. Scripts must
 continue to own and evolve its independent delivery contracts rather than
 importing this compatibility plan.
 

@@ -1,3 +1,8 @@
+/**
+ * @deprecated Repository-delivery compatibility only. New delivery plans belong
+ * to Scripts DeliveryBundle/ExecutionPlan contracts; use AgentTask for the
+ * generic DzupAgent runtime boundary.
+ */
 export const IMPLEMENTATION_ORCHESTRATION_SCHEMA_VERSION = 1 as const;
 
 export { mapImplementationTaskToAgentTask } from "./agent-task-mapper.js";

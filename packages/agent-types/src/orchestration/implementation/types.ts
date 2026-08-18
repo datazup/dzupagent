@@ -5,6 +5,11 @@ import type {
   ValidationResult,
 } from "../fleet/index.js";
 
+/**
+ * @deprecated Repository-delivery compatibility only. New delivery plans belong
+ * to Scripts DeliveryBundle/ExecutionPlan contracts; use AgentTask for the
+ * generic DzupAgent runtime boundary.
+ */
 export type ImplementationRunStatus =
   | "draft"
   | "running"
@@ -13,12 +18,22 @@ export type ImplementationRunStatus =
   | "blocked"
   | "cancelled";
 
+/**
+ * @deprecated Repository-delivery compatibility only. New delivery plans belong
+ * to Scripts DeliveryBundle/ExecutionPlan contracts; use AgentTask for the
+ * generic DzupAgent runtime boundary.
+ */
 export interface ImplementationRepoRef {
   id: string;
   path: string;
   instructions?: string[];
 }
 
+/**
+ * @deprecated Repository-delivery compatibility only. New delivery plans belong
+ * to Scripts DeliveryBundle/ExecutionPlan contracts; use AgentTask for the
+ * generic DzupAgent runtime boundary.
+ */
 export interface ImplementationTask {
   id: string;
   repoId: string;
@@ -35,6 +50,11 @@ export interface ImplementationTask {
   tags?: string[];
 }
 
+/**
+ * @deprecated Repository-delivery compatibility only. New delivery plans belong
+ * to Scripts DeliveryBundle/ExecutionPlan contracts; use AgentTask for the
+ * generic DzupAgent runtime boundary.
+ */
 export interface ImplementationBatch {
   id: string;
   title: string;
@@ -43,12 +63,22 @@ export interface ImplementationBatch {
   dependsOn?: string[];
 }
 
+/**
+ * @deprecated Repository-delivery compatibility only. New delivery plans belong
+ * to Scripts DeliveryBundle/ExecutionPlan contracts; use AgentTask for the
+ * generic DzupAgent runtime boundary.
+ */
 export interface ImplementationPlanPolicy {
   maxAttemptsPerTask: number;
   repoConcurrency: number;
   highRiskRequiresApproval: boolean;
 }
 
+/**
+ * @deprecated Repository-delivery compatibility only. New delivery plans belong
+ * to Scripts DeliveryBundle/ExecutionPlan contracts; use AgentTask for the
+ * generic DzupAgent runtime boundary.
+ */
 export interface ImplementationPlan {
   schemaVersion: 1;
   id: string;
@@ -59,6 +89,11 @@ export interface ImplementationPlan {
   policy: ImplementationPlanPolicy;
 }
 
+/**
+ * @deprecated Repository-delivery compatibility only. New delivery plans belong
+ * to Scripts DeliveryBundle/ExecutionPlan contracts; use AgentTask for the
+ * generic DzupAgent runtime boundary.
+ */
 export interface TaskAttempt {
   taskId: string;
   attempt: number;
@@ -69,6 +104,11 @@ export interface TaskAttempt {
   summary: string;
 }
 
+/**
+ * @deprecated Repository-delivery compatibility only. New delivery plans belong
+ * to Scripts DeliveryBundle/ExecutionPlan contracts; use AgentTask for the
+ * generic DzupAgent runtime boundary.
+ */
 export type EvaluationDecisionKind =
   | "accepted"
   | "needs-repair"
@@ -76,6 +116,11 @@ export type EvaluationDecisionKind =
   | "needs-human-review"
   | "rejected-out-of-scope";
 
+/**
+ * @deprecated Repository-delivery compatibility only. New delivery plans belong
+ * to Scripts DeliveryBundle/ExecutionPlan contracts; use AgentTask for the
+ * generic DzupAgent runtime boundary.
+ */
 export interface EvaluationDecision {
   schemaVersion: 1;
   taskId: string;

@@ -110,6 +110,13 @@ export interface RecoveryStrategy {
   actions: RecoveryAction[]
 }
 
+/** Whether a strategy crosses the terminal human-escalation boundary. */
+export function isHumanEscalationStrategy(
+  strategy: RecoveryStrategy,
+): boolean {
+  return strategy.actions.some(action => action.type === 'human_escalation')
+}
+
 // ---------------------------------------------------------------------------
 // Recovery plan
 // ---------------------------------------------------------------------------

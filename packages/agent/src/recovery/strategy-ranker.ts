@@ -30,6 +30,15 @@ const DEFAULT_WEIGHTS: RankingWeights = {
   cost: 0.2,
 }
 
+/** Validate the automatic-recovery admission threshold. */
+export function assertRecoveryConfidenceThreshold(value: number): void {
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    throw new RangeError(
+      'minAutoExecuteConfidence must be a finite number between 0 and 1',
+    )
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Risk numeric mapping
 // ---------------------------------------------------------------------------
@@ -96,6 +105,7 @@ export class StrategyRanker {
     strategies: RecoveryStrategy[],
     minConfidence = 0,
   ): RecoveryStrategy | null {
+    assertRecoveryConfidenceThreshold(minConfidence)
     const ranked = this.rank(strategies)
 
     for (const strategy of ranked) {
@@ -104,13 +114,6 @@ export class StrategyRanker {
         if (!this.attemptedStrategies.has(strategy.name)) {
           return strategy
         }
-      }
-    }
-
-    // All non-attempted strategies are below threshold; return first unattempted
-    for (const strategy of ranked) {
-      if (!this.attemptedStrategies.has(strategy.name)) {
-        return strategy
       }
     }
 

@@ -1,11 +1,21 @@
 import type { AgentTask } from "../fleet/index.js";
 import type { ImplementationRepoRef, ImplementationTask } from "./types.js";
 
+/**
+ * @deprecated Repository-delivery compatibility only. New delivery plans belong
+ * to Scripts DeliveryBundle/ExecutionPlan contracts; use AgentTask for the
+ * generic DzupAgent runtime boundary.
+ */
 export interface MapImplementationTaskToAgentTaskInput {
   task: ImplementationTask;
   repo: ImplementationRepoRef;
 }
 
+/**
+ * @deprecated Repository-delivery compatibility only. New delivery plans belong
+ * to Scripts DeliveryBundle/ExecutionPlan contracts; use AgentTask for the
+ * generic DzupAgent runtime boundary.
+ */
 export function mapImplementationTaskToAgentTask({
   task,
   repo,

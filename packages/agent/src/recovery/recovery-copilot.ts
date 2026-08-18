@@ -21,10 +21,14 @@ import type { DzupEventBus } from '@dzupagent/core/events'
 import type { StuckStatus } from '../guardrails/stuck-detector.js'
 import type { ApprovalGate } from '../approval/approval-gate.js'
 import { FailureAnalyzer } from './failure-analyzer.js'
-import { StrategyRanker } from './strategy-ranker.js'
+import {
+  assertRecoveryConfidenceThreshold,
+  StrategyRanker,
+} from './strategy-ranker.js'
 import { RecoveryExecutor, type ActionHandler } from './recovery-executor.js'
 import {
   normalizeRecoveryTenantId,
+  isHumanEscalationStrategy,
   type FailureContext,
   type RecoveryPlan,
   type RecoveryCopilotConfig,
@@ -37,7 +41,10 @@ import {
   defaultStrategyGenerator,
   type StrategyGenerator,
 } from './default-strategy-generator.js'
-import { buildEscalationPlan } from './escalation-plan.js'
+import {
+  buildEscalationPlan,
+  buildHumanEscalationStrategy,
+} from './escalation-plan.js'
 import { recordRecoveryFeedback } from './feedback-recorder.js'
 
 export type { StrategyGenerator } from './default-strategy-generator.js'
@@ -70,7 +77,9 @@ export class RecoveryCopilot {
     /** Optional feedback module for persisting recovery outcomes as lessons. */
     feedback?: RecoveryFeedback
   }) {
-    this.config = { ...DEFAULT_CONFIG, ...opts.config }
+    const config = { ...DEFAULT_CONFIG, ...opts.config }
+    assertRecoveryConfidenceThreshold(config.minAutoExecuteConfidence)
+    this.config = config
     this.eventBus = opts.eventBus
     this.analyzer = new FailureAnalyzer()
     this.ranker = new StrategyRanker()
@@ -106,23 +115,34 @@ export class RecoveryCopilot {
       strategies = applyLessonBoosts(strategies, pastLessons)
     }
 
-    if (strategies.length > this.config.maxStrategies) {
-      strategies = strategies.slice(0, this.config.maxStrategies)
-    }
-
-    strategies = this.ranker.rank(strategies)
+    const humanEscalation = strategies.find(isHumanEscalationStrategy)
+      ?? buildHumanEscalationStrategy({
+        failureContext,
+        description: 'No automated recovery strategy was admitted — escalating to human operator',
+        reason: 'no_automated_recovery_strategy_admitted',
+      })
+    const automatedLimit = Math.max(this.config.maxStrategies - 1, 0)
+    const automatedStrategies = this.ranker
+      .rank(strategies.filter(strategy => !isHumanEscalationStrategy(strategy)))
+      .slice(0, automatedLimit)
+    strategies = [...automatedStrategies, humanEscalation]
     const selected = this.ranker.selectBest(
-      strategies,
+      automatedStrategies,
       this.config.minAutoExecuteConfidence,
     )
+    const executionError = selected === null
+      ? `No automated recovery strategy met minAutoExecuteConfidence `
+        + `${this.config.minAutoExecuteConfidence}; human escalation required`
+      : undefined
 
     const plan: RecoveryPlan = {
       id: this.generatePlanId(),
       failureContext,
       strategies,
       selectedStrategy: selected,
-      status: 'proposed',
+      status: selected === null ? 'failed' : 'proposed',
       createdAt: new Date(),
+      ...(executionError !== undefined ? { executionError } : {}),
     }
 
     this.plans.set(plan.id, plan)
@@ -131,7 +151,7 @@ export class RecoveryCopilot {
       type: 'agent:stuck_detected',
       agentId: failureContext.runId,
       reason: `Recovery plan created: ${plan.id} with ${strategies.length} strategies`,
-      recovery: selected?.name ?? 'none_selected',
+      recovery: selected?.name ?? humanEscalation.name,
       timestamp: Date.now(),
     })
 
@@ -150,7 +170,10 @@ export class RecoveryCopilot {
         : undefined,
     )
 
-    if (plan.selectedStrategy) {
+    if (
+      plan.selectedStrategy
+      && !isHumanEscalationStrategy(plan.selectedStrategy)
+    ) {
       this.ranker.markAttempted(plan.selectedStrategy.name)
     }
 
