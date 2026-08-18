@@ -2,8 +2,12 @@
 
 Status: superseded placement decision; NC-03A disposition complete and NC-03B
 source/declaration deprecation implemented as a compatibility candidate.
-Stable-to-transitional API governance remains blocked by an unrelated
-Adapter Types allowlist gap.
+NC-03B2 classifies the root source and explicit subpath as
+deprecated-transitional while preserving runtime/package compatibility.
+NC-03B3 records the retained Runtime Contracts recursive-scope subpath as a
+stable versioned contract surface after its owner removed the accidental root
+re-export. NC-03B4 regenerated and qualified the public API and capability
+documents after the independent Agent routing source owner released custody.
 
 Historical decision: `@dzupagent/agent-types`.
 
@@ -40,12 +44,19 @@ all 18 exports, including the root schema-constant alias, and the package
 post-build verifier checks the bundled declarations without changing the four
 runtime exports.
 
-The remaining NC-03B API-governance step must wait until the independently red
-`@dzupagent/adapter-types` provider-session-explorer root export is classified.
-Do not manually edit generated API documentation or present the implementation
-root rule as transitional while that generator cannot run. Scripts must
-continue to own and evolve its independent delivery contracts rather than
-importing this compatibility plan.
+NC-03B2 records the implementation root source and `./implementation` subpath
+as deprecated-transitional. The independently added Adapter Types Provider
+Session Explorer root re-export is also transitional because its accepted
+canonical boundary is the stable
+`@dzupagent/adapter-types/provider-session-explorer` subpath. Package export
+keys and runtime exports remain unchanged.
+
+The governed API document is generated from
+`config/public-api-allowlists.json`; do not edit it manually. Runtime Contracts
+exposes recursive-scope only through the stable explicit subpath, and that
+contract lifecycle does not admit recursive execution. Scripts must continue
+to own and evolve its independent delivery contracts rather than importing
+this compatibility plan.
 
 ## Historical Package Options
 

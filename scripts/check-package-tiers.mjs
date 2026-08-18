@@ -4,6 +4,8 @@ import path from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 
+import { normalizePublicApiSubpaths } from './public-api-allowlist.mjs';
+
 async function readJson(filePath) {
   return JSON.parse(await readFile(filePath, 'utf8'));
 }
@@ -67,6 +69,8 @@ function ruleMatches(source, rule) {
 
 function classifyRootSource(source, packageConfig) {
   const stableMatches = (packageConfig.stableRoot ?? []).filter((rule) => ruleMatches(source, rule));
+  const transitionalMatches = (packageConfig.transitionalRoot ?? []).filter((rule) => ruleMatches(source, rule));
+
   if (stableMatches.length > 0) {
     return {
       rootClass: 'stable',
@@ -74,7 +78,6 @@ function classifyRootSource(source, packageConfig) {
     };
   }
 
-  const transitionalMatches = (packageConfig.transitionalRoot ?? []).filter((rule) => ruleMatches(source, rule));
   if (transitionalMatches.length > 0) {
     return {
       rootClass: 'deprecated-transitional',
@@ -197,7 +200,18 @@ export async function checkPackageTiers({ root = process.cwd() } = {}) {
     const packageJsonPath = path.join(root, packageConfig.packageDir, 'package.json');
     const packageJson = await readJson(packageJsonPath);
     const packageExports = new Set(Object.keys(packageJson.exports ?? {}));
-    const missingSubpaths = Object.keys(packageConfig.subpaths ?? {}).filter((subpath) => !packageExports.has(subpath));
+    let normalizedSubpaths = [];
+    try {
+      normalizedSubpaths = normalizePublicApiSubpaths(
+        packageConfig.packageName,
+        packageConfig.subpaths,
+      );
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
+    const missingSubpaths = normalizedSubpaths
+      .map((entry) => entry.subpath)
+      .filter((subpath) => !packageExports.has(subpath));
 
     if (missingSubpaths.length > 0) {
       fail(

@@ -26,9 +26,18 @@ function makeRepo(structure) {
   for (const [dirName, packageName] of Object.entries(structure.workspacePackages)) {
     const packageRoot = path.join(root, 'packages', dirName);
     mkdirSync(packageRoot, { recursive: true });
+    const packageExports = structure.packageExports?.[dirName];
     writeFileSync(
       path.join(packageRoot, 'package.json'),
-      JSON.stringify({ name: packageName, private: true }, null, 2),
+      JSON.stringify(
+        {
+          name: packageName,
+          private: true,
+          ...(packageExports ? { exports: packageExports } : {}),
+        },
+        null,
+        2,
+      ),
     );
 
     const sourceFiles = structure.sourceFiles?.[dirName] ?? {};
@@ -199,6 +208,101 @@ test('fails when a configured public API subpath is missing from package exports
     const result = await checkPackageTiers({ root: repoRoot });
     assert.equal(result.ok, false);
     assert.match(result.messages.join('\n'), /declares subpaths missing from package\.json exports: \.\/stable/);
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test('accepts legacy stable subpaths and lifecycle-aware subpaths', async () => {
+  const repoRoot = makeRepo({
+    packageMap: {
+      '@dzupagent/core': { tier: 1, status: 'supported', roadmapDriver: true, owners: ['help'] },
+    },
+    workspacePackages: {
+      core: '@dzupagent/core',
+    },
+    packageExports: {
+      core: {
+        '.': './dist/index.js',
+        './stable': './dist/stable.js',
+        './compat': './dist/compat.js',
+      },
+    },
+    publicApiAllowlists: {
+      packages: [
+        {
+          packageName: '@dzupagent/core',
+          packageDir: 'packages/core',
+          rootIndex: 'packages/core/src/index.ts',
+          stableRoot: [{ match: 'exact', pattern: './stable.js' }],
+          transitionalRoot: [],
+          subpaths: {
+            './stable': 'legacy stable facade',
+            './compat': {
+              purpose: 'retained compatibility facade',
+              lifecycle: 'deprecated-transitional',
+            },
+          },
+        },
+      ],
+    },
+    sourceFiles: {
+      core: {
+        'src/index.ts': `export { createStableThing } from './stable.js'`,
+      },
+    },
+  });
+
+  try {
+    const result = await checkPackageTiers({ root: repoRoot });
+    assert.equal(result.ok, true, result.messages.join('\n'));
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test('rejects invalid subpath lifecycle metadata', async () => {
+  const repoRoot = makeRepo({
+    packageMap: {
+      '@dzupagent/core': { tier: 1, status: 'supported', roadmapDriver: true, owners: ['help'] },
+    },
+    workspacePackages: {
+      core: '@dzupagent/core',
+    },
+    packageExports: {
+      core: {
+        '.': './dist/index.js',
+        './preview': './dist/preview.js',
+      },
+    },
+    publicApiAllowlists: {
+      packages: [
+        {
+          packageName: '@dzupagent/core',
+          packageDir: 'packages/core',
+          rootIndex: 'packages/core/src/index.ts',
+          stableRoot: [{ match: 'exact', pattern: './stable.js' }],
+          transitionalRoot: [],
+          subpaths: {
+            './preview': {
+              purpose: 'preview facade',
+              lifecycle: 'preview',
+            },
+          },
+        },
+      ],
+    },
+    sourceFiles: {
+      core: {
+        'src/index.ts': `export { createStableThing } from './stable.js'`,
+      },
+    },
+  });
+
+  try {
+    const result = await checkPackageTiers({ root: repoRoot });
+    assert.equal(result.ok, false);
+    assert.match(result.messages.join('\n'), /invalid lifecycle preview/);
   } finally {
     rmSync(repoRoot, { recursive: true, force: true });
   }

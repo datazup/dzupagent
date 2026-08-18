@@ -564,9 +564,13 @@
         "./agent-blueprint": "provider-neutral agent blueprint, catalog, compiled descriptor, and validation contracts",
         "./canonical-execution": "canonical execution route decisions, runtime requests, gate decisions, and effect vocabulary",
         "./ai-budget-reservation": "conservative offer-bound AI money reservation and hard-ceiling admission",
-        "./effect-receipt": "canonical effect intent, receipt, journal, and fail-closed replay contracts"
+        "./effect-receipt": "canonical effect intent, receipt, journal, and fail-closed replay contracts",
+        "./recursive-scope": {
+          "purpose": "versioned definition-bound recursive frame, ownership, commit, merge, serialization, and validation contracts; runtime admission remains separate",
+          "lifecycle": "stable"
+        }
       },
-      "migrationWindow": "Runtime contract root exports are stable neutral contracts; add allowlist rules before exposing new contract modules."
+      "migrationWindow": "Runtime contract root exports are stable neutral contracts. New domain contracts use governed subpaths; the stable ./recursive-scope contract surface does not admit recursive execution."
     },
     {
       "packageName": "@dzupagent/execution-contracts",
@@ -639,18 +643,25 @@
         {
           "match": "exact",
           "pattern": "./orchestration/dynamic-workflow/index.js"
-        },
+        }
+      ],
+      "transitionalRoot": [
         {
           "match": "exact",
           "pattern": "./orchestration/implementation/index.js"
         }
       ],
-      "transitionalRoot": [],
       "subpaths": {
-        "./implementation": "implementation orchestration plan contracts and pure helpers",
-        "./run": "draft JSON-safe AgentRunner item, invocation, interaction, event, and state contracts"
+        "./implementation": {
+          "purpose": "repository-delivery compatibility contracts and pure helpers; new delivery plans belong to Scripts",
+          "lifecycle": "deprecated-transitional"
+        },
+        "./run": {
+          "purpose": "draft JSON-safe AgentRunner item, invocation, interaction, event, and state contracts",
+          "lifecycle": "experimental"
+        }
       },
-      "migrationWindow": "Agent type root exports are stable Layer 0 contracts. The draft ./run subpath remains experimental until the AgentRunner, compare-and-swap store, and exact-resume conformance suite adopt it. Add allowlist rules before exposing new type modules."
+      "migrationWindow": "Stable Agent type root exports remain Layer 0 contracts. The implementation root source and ./implementation subpath remain deprecated compatibility surfaces through 0.x; new repository-delivery plans belong to Scripts and generic runtime work uses AgentTask. Removal requires separate release-window and consumer evidence. The draft ./run subpath remains experimental until the AgentRunner, compare-and-swap store, and exact-resume conformance suite adopt it."
     },
     {
       "packageName": "@dzupagent/eval-contracts",
@@ -693,9 +704,16 @@
         { "match": "exact", "pattern": "./utils/correlation.js" },
         { "match": "exact", "pattern": "./provider-session.js" }
       ],
-      "transitionalRoot": [],
-      "subpaths": {},
-      "migrationWindow": "Adapter type root exports are stable Layer 0 contracts; add allowlist rules before exposing new root modules."
+      "transitionalRoot": [
+        { "match": "exact", "pattern": "./provider-session-explorer.js" }
+      ],
+      "subpaths": {
+        "./provider-session-explorer": {
+          "purpose": "minimum shared provider installation, session identity, catalog, observation, and continuation contracts",
+          "lifecycle": "stable"
+        }
+      },
+      "migrationWindow": "Stable Adapter type root exports remain Layer 0 contracts. Provider Session Explorer is canonical at ./provider-session-explorer; its root-barrel re-export remains deprecated transitional through 0.x for compatibility and requires separate consumer evidence and release-window approval before removal."
     },
     {
       "packageName": "@dzupagent/adapter-rules",

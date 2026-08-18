@@ -1,6 +1,12 @@
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import ts from 'typescript'
+
+import {
+  PUBLIC_API_SUBPATH_LIFECYCLES,
+  normalizePublicApiSubpaths,
+} from './public-api-allowlist.mjs'
 
 const repoRoot = path.resolve(import.meta.dirname, '..')
 const workspaceRoot = path.resolve(repoRoot, '..')
@@ -22,7 +28,7 @@ function parseExportNames(spec) {
     .map((part) => part.replace(/\s+as\s+\w+$/, '').replace(/^type\s+/, '').trim())
 }
 
-function parseServerIndex(indexText) {
+export function parseRootIndex(indexText) {
   const entries = []
   // Module specifier may be single- or double-quoted (the repo's prettier
   // config quotes with double quotes); match either so reformatting a barrel
@@ -34,6 +40,14 @@ function parseServerIndex(indexText) {
     entries.push({
       source: match[2],
       exportNames: parseExportNames(match[1]),
+    })
+  }
+
+  const exportStarRe = /export(?:\s+type)?\s+\*\s+from\s*['"]([^'"]+)['"]/g
+  while ((match = exportStarRe.exec(indexText)) !== null) {
+    entries.push({
+      source: match[1],
+      exportNames: ['*'],
     })
   }
 
@@ -87,6 +101,10 @@ function matchRule(source, rules) {
 function classifyRootSource(source, packageConfig) {
   const stableMatches = packageConfig.stableRoot.filter((rule) => ruleMatches(source, rule))
   if (stableMatches.length > 0) {
+    if (stableMatches.length > 1) {
+      const formatted = stableMatches.map((rule) => `${rule.match}:${rule.pattern}`).join(', ')
+      throw new Error(`${packageConfig.packageName}: root export source ${source} matches multiple stable public API allowlist rules: ${formatted}`)
+    }
     return {
       rootClass: 'stable',
       rule: stableMatches[0],
@@ -95,6 +113,10 @@ function classifyRootSource(source, packageConfig) {
 
   const transitionalMatches = packageConfig.transitionalRoot.filter((rule) => ruleMatches(source, rule))
   if (transitionalMatches.length > 0) {
+    if (transitionalMatches.length > 1) {
+      const formatted = transitionalMatches.map((rule) => `${rule.match}:${rule.pattern}`).join(', ')
+      throw new Error(`${packageConfig.packageName}: root export source ${source} matches multiple transitional public API allowlist rules: ${formatted}`)
+    }
     return {
       rootClass: 'deprecated-transitional',
       rule: transitionalMatches[0],
@@ -111,7 +133,7 @@ function readPackageExports(packageDir) {
 
 function inventoryPackageRoot(packageConfig) {
   const rootText = readFileSync(path.join(repoRoot, packageConfig.rootIndex), 'utf8')
-  const entries = summarizeBySource(parseServerIndex(rootText))
+  const entries = summarizeBySource(parseRootIndex(rootText))
   const inventory = entries.map((entry) => {
     const classification = classifyRootSource(entry.source, packageConfig)
     return {
@@ -122,7 +144,13 @@ function inventoryPackageRoot(packageConfig) {
   })
 
   const packageExports = readPackageExports(packageConfig.packageDir)
-  const missingSubpaths = Object.keys(packageConfig.subpaths ?? {}).filter((subpath) => !packageExports.includes(subpath))
+  const subpaths = normalizePublicApiSubpaths(
+    packageConfig.packageName,
+    packageConfig.subpaths,
+  )
+  const missingSubpaths = subpaths
+    .map((entry) => entry.subpath)
+    .filter((subpath) => !packageExports.includes(subpath))
 
   if (missingSubpaths.length > 0) {
     throw new Error(`${packageConfig.packageName}: package.json is missing configured subpaths: ${missingSubpaths.join(', ')}`)
@@ -132,7 +160,7 @@ function inventoryPackageRoot(packageConfig) {
     packageName: packageConfig.packageName,
     rootIndex: packageConfig.rootIndex,
     inventory,
-    subpaths: packageConfig.subpaths ?? {},
+    subpaths,
     migrationWindow: packageConfig.migrationWindow,
   }
 }
@@ -331,7 +359,7 @@ function buildMarkdown({ inventory, rootUsage, generatedOn }) {
 
 function serverInventoryFromTierConfig(config) {
   const serverIndex = readFileSync(serverIndexPath, 'utf8')
-  const entries = summarizeBySource(parseServerIndex(serverIndex))
+  const entries = summarizeBySource(parseRootIndex(serverIndex))
   return entries.map((entry) => {
     const rule = matchRule(entry.source, config.rules)
     return {
@@ -374,12 +402,12 @@ function serverAsAllowlistPackage(serverInventory) {
       rootClass: serverRootClass(entry),
       matchedRule: `${entry.tier}/${entry.area}/${entry.recommendedRootExposure}`,
     })),
-    subpaths: {
+    subpaths: normalizePublicApiSubpaths('@dzupagent/server', {
       './ops': 'operational diagnostics and scorecards',
       './runtime': 'run workers, executors, trace stores, and control-plane helpers',
       './compat': 'OpenAI-compatible HTTP surface',
       './features': 'opt-in feature-plane routes, stores, and helpers'
-    },
+    }),
     migrationWindow: 'The server root is contracted to keep-root sources; advanced and feature-specific imports must use ops/runtime/compat/features subpaths.',
   }
 }
@@ -392,7 +420,7 @@ function serverRootClass(entry) {
   throw new Error(`Unreviewed @dzupagent/server root exposure for ${entry.source}: ${entry.recommendedRootExposure}`)
 }
 
-function buildPublicAllowlistMarkdown({ packages, generatedOn }) {
+export function buildPublicAllowlistMarkdown({ packages, generatedOn }) {
   const lines = []
   lines.push('# Public API Surface Allowlists')
   lines.push('')
@@ -406,6 +434,7 @@ function buildPublicAllowlistMarkdown({ packages, generatedOn }) {
   lines.push('- `deprecated-transitional` root exports remain available for compatibility during the 0.x migration window and should move to explicit subpaths in new code.')
   lines.push('- `internal-only-candidate` root exports are accidental or implementation-oriented exposures that remain temporarily visible only for staged removal.')
   lines.push('- New consumers should prefer the listed subpaths for domain-specific imports.')
+  lines.push('- Legacy subpath purpose strings are treated as `stable`; lifecycle objects may classify a subpath as `stable`, `deprecated-transitional`, or `experimental`.')
   lines.push('- Every current root export source must match exactly one allowlist rule; unreviewed sources fail `yarn check:server-api-surface`.')
   lines.push('')
 
@@ -422,19 +451,29 @@ function buildPublicAllowlistMarkdown({ packages, generatedOn }) {
     lines.push(`- Internal-only root candidates: \`${internalOnlyCount}\``)
     lines.push(`- Migration window: ${packageInfo.migrationWindow}`)
     lines.push('')
-    lines.push('### Stable Subpaths')
-    lines.push('')
-    const subpaths = Object.entries(packageInfo.subpaths)
-    if (subpaths.length === 0) {
-      lines.push('No stable subpaths configured.')
-    } else {
-      lines.push('| Subpath | Purpose |')
-      lines.push('| --- | --- |')
-      for (const [subpath, purpose] of subpaths) {
-        lines.push(`| \`${packageInfo.packageName}${subpath.slice(1)}\` | ${purpose} |`)
+    for (const lifecycle of PUBLIC_API_SUBPATH_LIFECYCLES) {
+      const subpaths = packageInfo.subpaths.filter(
+        (entry) => entry.lifecycle === lifecycle,
+      )
+      if (lifecycle !== 'stable' && subpaths.length === 0) continue
+
+      const title = lifecycle
+        .split('-')
+        .map((part) => `${part[0].toUpperCase()}${part.slice(1)}`)
+        .join(' ')
+      lines.push(`### ${title} Subpaths`)
+      lines.push('')
+      if (subpaths.length === 0) {
+        lines.push(`No ${lifecycle} subpaths configured.`)
+      } else {
+        lines.push('| Subpath | Purpose |')
+        lines.push('| --- | --- |')
+        for (const { subpath, purpose } of subpaths) {
+          lines.push(`| \`${packageInfo.packageName}${subpath.slice(1)}\` | ${purpose} |`)
+        }
       }
+      lines.push('')
     }
-    lines.push('')
     lines.push('### Root Allowlist')
     lines.push('')
     lines.push('| Root Class | Source Module | Export Count | Matched Rule | Sample Exports |')
@@ -518,4 +557,6 @@ function main() {
   console.log(`Wrote ${path.relative(repoRoot, publicOutputPath)}`)
 }
 
-main()
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main()
+}
