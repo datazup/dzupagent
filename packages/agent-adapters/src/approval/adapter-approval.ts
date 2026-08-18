@@ -30,13 +30,12 @@
  * ```
  */
 
-import { fetchWithOutboundUrlPolicy } from "@dzupagent/core/security";
 import { defaultLogger } from "@dzupagent/core/utils";
 import type { DzupEvent } from "@dzupagent/core/events";
-import type { OutboundUrlSecurityPolicy } from "@dzupagent/core/security";
 
 import type { AgentEvent, AgentStreamEvent } from "../types.js";
 import { validateWebhookUrl } from "../utils/url-validator.js";
+import { notifyApprovalWebhook } from "./approval-webhook.js";
 import { InMemoryApprovalAuditStore } from "./approval-audit.js";
 import type {
   ApprovalAuditEntry,
@@ -194,7 +193,7 @@ export class AdapterApprovalGate {
 
     // 6. Fire-and-forget webhook notification
     if (this.config.webhookUrl) {
-      this.notifyWebhook(requestId, context).catch((err: unknown) => {
+      notifyApprovalWebhook(this.config, requestId, context).catch((err: unknown) => {
         // ERR-M-11: webhook delivery is how a human is told a gate is pending.
         // Non-critical (must not block the approval flow), but a silent drop
         // means the gate stalls until TTL expiry with no signal to anyone.
@@ -226,11 +225,9 @@ export class AdapterApprovalGate {
             reason: `Timed out after ${String(this.timeoutMs)}ms`,
             mode: this.config.mode,
           });
-          // NOTE: a timeout is reported as `approval:rejected` rather than
-          // `approval:timed_out`. That conflation predates this change and is
-          // left alone deliberately -- switching the event type would change
-          // what existing consumers observe. Qualifying it is safe and
-          // strictly narrows which pending approvals it can resolve.
+          // NOTE: a timeout reports as `approval:rejected`, not
+          // `approval:timed_out`. That conflation predates this change;
+          // switching the type would alter what consumers observe.
           this.emitEvent({
             type: "approval:rejected",
             runId: context.runId,
@@ -441,12 +438,10 @@ export class AdapterApprovalGate {
   }
 
   /**
-   * Every event this gate emits answers exactly one `requestId`, so all of
-   * them carry it as `contactId` -- the field consumers use to decide whether
-   * a decision is about the approval they are waiting on. Emitting a decision
-   * without it produces an *unqualified* answer that satisfies every pending
-   * approval on the run, which is the hole DZUPAGENT-AGENT-H-14 closed for
-   * grants and its mirror closed for rejections.
+   * Every event here answers exactly one `requestId`, so all carry it as
+   * `contactId` -- how consumers tell whether a decision is about the approval
+   * they await. Unqualified, a decision satisfies every pending approval on the
+   * run (DZUPAGENT-AGENT-H-14 for grants; its mirror for rejections).
    */
   private emitEvent(
     event:
@@ -472,44 +467,5 @@ export class AdapterApprovalGate {
     if (this.config.eventBus) {
       this.config.eventBus.emit(event as DzupEvent);
     }
-  }
-
-  private async notifyWebhook(
-    requestId: string,
-    context: ApprovalContext
-  ): Promise<void> {
-    if (!this.config.webhookUrl) return;
-
-    // Re-validate at call time in case the URL was mutated after construction
-    validateWebhookUrl(
-      this.config.webhookUrl,
-      this.config.webhookUrlValidation
-    );
-    const urlPolicy: OutboundUrlSecurityPolicy | undefined =
-      this.config.webhookUrlValidation;
-
-    await fetchWithOutboundUrlPolicy(
-      this.config.webhookUrl,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "approval_requested",
-          requestId,
-          runId: context.runId,
-          description: context.description,
-          providerId: context.providerId,
-          estimatedCostCents: context.estimatedCostCents,
-          tags: context.tags,
-          metadata: context.metadata,
-        }),
-      },
-      {
-        policy: urlPolicy,
-        ...(this.config.webhookFetchImpl !== undefined
-          ? { fetchImpl: this.config.webhookFetchImpl }
-          : {}),
-      }
-    );
   }
 }
