@@ -5,7 +5,10 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentOrchestrator } from "../../../orchestrator.js";
-import type { SupervisorResult } from "../../../supervisor-types.js";
+import type {
+  SpecialistInvocationObserver,
+  SupervisorResult,
+} from "../../../supervisor-types.js";
 import { supervisorPattern } from "../supervisor-pattern.js";
 import { buildContext, buildResolved } from "./test-helpers.js";
 
@@ -17,8 +20,27 @@ import { buildContext, buildResolved } from "./test-helpers.js";
  * one and rejects a `SupervisorResult` mock value. These tests exercise the
  * config-object form, so the spy is narrowed to its return type.
  */
-const mockSupervisor = (value: SupervisorResult) =>
-  vi.spyOn(AgentOrchestrator, "supervisor").mockResolvedValue(value as never);
+const mockSupervisor = (
+  value: SupervisorResult,
+  invokedSpecialists = value.availableSpecialists
+) =>
+  vi.spyOn(AgentOrchestrator, "supervisor").mockImplementation(
+    (async (rawConfig: unknown) => {
+      const observer = (
+        rawConfig as { invocationObserver?: SpecialistInvocationObserver }
+      ).invocationObserver;
+      for (const [invocationIndex, specialistId] of invokedSpecialists.entries()) {
+        await observer?.onStart?.({ specialistId, invocationIndex });
+        await observer?.onComplete?.({
+          specialistId,
+          invocationIndex,
+          success: true,
+          durationMs: 0,
+        });
+      }
+      return value;
+    }) as never
+  );
 
 
 afterEach(() => {

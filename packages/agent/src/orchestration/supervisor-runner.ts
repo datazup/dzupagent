@@ -19,7 +19,11 @@ import type { AgentSpec } from "./routing-policy-types.js";
 import { normalizeRoutingDecision } from "./routing/decision-identity.js";
 import { buildRoutingTask } from "./routing/task-identity.js";
 import { instrumentSpecialistTool } from "./specialist-tool-instrumentation.js";
-import type { SupervisorConfig, SupervisorResult } from "./supervisor-types.js";
+import type {
+  SpecialistInvocationOutcome,
+  SupervisorConfig,
+  SupervisorResult,
+} from "./supervisor-types.js";
 
 /**
  * Cache of manager-with-tools `DzupAgent` instances keyed by manager object
@@ -65,6 +69,22 @@ export async function runSupervisor(
     circuitBreaker,
   } = config;
   const eventBus = config.eventBus ?? manager.agentConfig.eventBus;
+  const specialistInvocations: SpecialistInvocationOutcome[] = [];
+  let nextInvocationIndex = 0;
+  const instrumentation = config.invocationObserver
+    ? {
+        nextInvocationIndex: () => nextInvocationIndex++,
+        observer: {
+          onStart: (invocation: Parameters<
+            NonNullable<typeof config.invocationObserver.onStart>
+          >[0]) => config.invocationObserver?.onStart?.(invocation),
+          onComplete: (outcome: SpecialistInvocationOutcome) => {
+            specialistInvocations.push(outcome);
+            return config.invocationObserver?.onComplete?.(outcome);
+          },
+        },
+      }
+    : undefined;
   let { specialists } = config;
 
   // Provider-adapter execution mode: route through the injected port.
@@ -89,6 +109,7 @@ export async function runSupervisor(
       content: portResult.content,
       availableSpecialists: specialists.map((s) => s.id),
       filteredSpecialists: [],
+      ...(config.invocationObserver ? { specialistInvocations: [] } : {}),
     };
   }
 
@@ -262,7 +283,10 @@ export async function runSupervisor(
     a.id.localeCompare(b.id)
   );
   const sortedSpecialistIds = canonicalSpecialists.map((s) => s.id);
-  const cacheKey = circuitBreaker ? undefined : sortedSpecialistIds.join(",");
+  const cacheKey =
+    circuitBreaker || instrumentation
+      ? undefined
+      : sortedSpecialistIds.join(",");
   const managerCache = cacheKey ? supervisorAgentCache.get(manager) : undefined;
   const cachedEntry = cacheKey ? managerCache?.get(cacheKey) : undefined;
 
@@ -280,7 +304,12 @@ export async function runSupervisor(
     // Convert each specialist into a LangChain tool
     const specialistTools = await Promise.all(
       specialists.map(async (s) =>
-        instrumentSpecialistTool(await s.asTool(), s.id, circuitBreaker)
+        instrumentSpecialistTool(
+          await s.asTool(),
+          s.id,
+          circuitBreaker,
+          instrumentation
+        )
       )
     );
 
@@ -334,6 +363,13 @@ export async function runSupervisor(
     filteredSpecialists,
     ...(capturedRoutingDecisionId !== undefined
       ? { routingDecisionId: capturedRoutingDecisionId }
+      : {}),
+    ...(config.invocationObserver
+      ? {
+          specialistInvocations: specialistInvocations.toSorted(
+            (a, b) => a.invocationIndex - b.invocationIndex
+          ),
+        }
       : {}),
   };
 }

@@ -14,6 +14,7 @@
  */
 
 import { AgentOrchestrator } from "../../orchestrator.js";
+import type { SpecialistInvocationOutcome } from "../../supervisor-types.js";
 import { omitUndefined } from "../../../utils/exact-optional.js";
 import type {
   TeamPattern,
@@ -40,59 +41,35 @@ export const supervisorPattern: TeamPattern = {
     }
 
     ctx.hooks.emitParticipantStart(managerEntry.participant);
-    for (const s of specialists) ctx.hooks.emitParticipantStart(s.participant);
+    const specialistById = new Map(
+      specialists.map((entry) => [entry.spawned.agent.id, entry] as const)
+    );
+    const invocationOutcomes: SpecialistInvocationOutcome[] = [];
+    const invocationObserver = {
+      onStart: ({ specialistId }: { specialistId: string }) => {
+        const entry = specialistById.get(specialistId);
+        if (entry) ctx.hooks.emitParticipantStart(entry.participant);
+      },
+      onComplete: (outcome: SpecialistInvocationOutcome) => {
+        invocationOutcomes.push(outcome);
+      },
+    };
 
+    let result;
     try {
       // `omitUndefined` keeps unset runtime plumbing genuinely absent, so a run
       // with neither signal nor bus produces exactly the three-field config
       // this call used before.
-      const result = await AgentOrchestrator.supervisor(
+      result = await AgentOrchestrator.supervisor(
         omitUndefined({
           manager: managerEntry.spawned.agent,
           specialists: specialists.map((s) => s.spawned.agent),
           task: ctx.task,
           signal: ctx.signal,
           eventBus: ctx.eventBus,
+          invocationObserver,
         })
       );
-
-      const durationMs = Date.now() - startTime;
-      ctx.hooks.emitParticipantComplete(
-        managerEntry.participant,
-        true,
-        durationMs
-      );
-      for (const s of specialists) {
-        ctx.hooks.emitParticipantComplete(s.participant, true, durationMs);
-      }
-
-      return {
-        content: result.content,
-        agentResults: [
-          {
-            agentId: managerEntry.spawned.agent.id,
-            role: managerEntry.spawned.role,
-            content: result.content,
-            success: true,
-            durationMs,
-          },
-          ...specialists.map((s) => ({
-            agentId: s.spawned.agent.id,
-            role: s.spawned.role,
-            content: "",
-            success: true,
-            durationMs,
-          })),
-        ],
-        durationMs,
-        pattern: "supervisor" as const,
-        // Surface the routing decision on the run record when a routing policy
-        // narrowed specialist selection (W7 routing-decision tracing). Omitted
-        // for direct selection so the field stays absent rather than undefined.
-        ...(result.routingDecisionId !== undefined
-          ? { routingDecisionId: result.routingDecisionId }
-          : {}),
-      };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       const durationMs = Date.now() - startTime;
@@ -102,15 +79,107 @@ export const supervisorPattern: TeamPattern = {
         durationMs,
         message
       );
-      for (const s of specialists) {
-        ctx.hooks.emitParticipantComplete(
-          s.participant,
-          false,
-          durationMs,
-          message
-        );
-      }
+      emitSpecialistCompletions(
+        aggregateInvocations(invocationOutcomes, specialistById),
+        ctx
+      );
       throw err;
     }
+
+    const durationMs = Date.now() - startTime;
+    const specialistResults = aggregateInvocations(
+      invocationOutcomes,
+      specialistById
+    );
+    ctx.hooks.emitParticipantComplete(
+      managerEntry.participant,
+      true,
+      durationMs
+    );
+    emitSpecialistCompletions(specialistResults, ctx);
+
+    return {
+      content: result.content,
+      agentResults: [
+        {
+          agentId: managerEntry.spawned.agent.id,
+          role: managerEntry.spawned.role,
+          content: result.content,
+          success: true,
+          durationMs,
+        },
+        ...specialistResults.map(({ entry, success, durationMs, error }) => ({
+          agentId: entry.spawned.agent.id,
+          role: entry.spawned.role,
+          content: "",
+          success,
+          durationMs,
+          ...(error !== undefined ? { error } : {}),
+        })),
+      ],
+      durationMs,
+      pattern: "supervisor" as const,
+      // Surface the routing decision on the run record when a routing policy
+      // narrowed specialist selection (W7 routing-decision tracing). Omitted
+      // for direct selection so the field stays absent rather than undefined.
+      ...(result.routingDecisionId !== undefined
+        ? { routingDecisionId: result.routingDecisionId }
+        : {}),
+    };
   },
 };
+
+type SpecialistEntry = TeamPatternContext["participants"][number];
+
+interface AggregatedSpecialistResult {
+  entry: SpecialistEntry;
+  success: boolean;
+  durationMs: number;
+  error?: string;
+}
+
+function aggregateInvocations(
+  outcomes: SpecialistInvocationOutcome[],
+  specialistById: ReadonlyMap<string, SpecialistEntry>
+): AggregatedSpecialistResult[] {
+  const aggregated = new Map<string, AggregatedSpecialistResult>();
+  for (const outcome of outcomes.toSorted(
+    (a, b) => a.invocationIndex - b.invocationIndex
+  )) {
+    const entry = specialistById.get(outcome.specialistId);
+    if (!entry) continue;
+    const current = aggregated.get(outcome.specialistId);
+    if (!current) {
+      aggregated.set(outcome.specialistId, {
+        entry,
+        success: outcome.success,
+        durationMs: outcome.durationMs,
+        ...(outcome.error !== undefined ? { error: outcome.error } : {}),
+      });
+      continue;
+    }
+
+    current.durationMs += outcome.durationMs;
+    if (!outcome.success) {
+      current.success = false;
+      if (current.error === undefined && outcome.error !== undefined) {
+        current.error = outcome.error;
+      }
+    }
+  }
+  return [...aggregated.values()];
+}
+
+function emitSpecialistCompletions(
+  results: AggregatedSpecialistResult[],
+  ctx: TeamPatternContext
+): void {
+  for (const result of results) {
+    ctx.hooks.emitParticipantComplete(
+      result.entry.participant,
+      result.success,
+      result.durationMs,
+      result.error
+    );
+  }
+}

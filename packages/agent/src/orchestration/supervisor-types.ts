@@ -15,6 +15,35 @@ import type {
   RoutingTaskInput,
 } from "./routing-policy-types.js";
 
+/** Start evidence for one real specialist-tool invocation. */
+export interface SpecialistInvocationStart {
+  /** Stable ID of the specialist whose tool is being invoked. */
+  readonly specialistId: string;
+  /** Zero-based order in which this run started specialist invocations. */
+  readonly invocationIndex: number;
+}
+
+/** Completed evidence for one real specialist-tool invocation. */
+export interface SpecialistInvocationOutcome extends SpecialistInvocationStart {
+  /** Whether the specialist tool invocation returned successfully. */
+  readonly success: boolean;
+  /** Non-negative elapsed wall-clock duration for the tool invocation. */
+  readonly durationMs: number;
+  /** Normalized failure text. Absent for successful invocations. */
+  readonly error?: string;
+}
+
+/**
+ * Best-effort lifecycle observer for real specialist-tool invocations.
+ *
+ * Callback failures are isolated by the supervisor and cannot replace a tool
+ * result or exception. Arguments and tool output are deliberately excluded.
+ */
+export interface SpecialistInvocationObserver {
+  onStart?(invocation: SpecialistInvocationStart): unknown;
+  onComplete?(outcome: SpecialistInvocationOutcome): unknown;
+}
+
 export interface SupervisorConfig extends BaseSupervisorContract<DzupAgent> {
   /** The manager agent that coordinates specialists */
   manager: DzupAgent;
@@ -57,6 +86,12 @@ export interface SupervisorConfig extends BaseSupervisorContract<DzupAgent> {
    * When set, specialists with tripped circuits are filtered out.
    */
   circuitBreaker?: AgentCircuitBreaker;
+  /**
+   * Observe real local specialist-tool calls for this run. Supplying an
+   * observer disables synthesized-manager cache reuse so callbacks cannot leak
+   * across runs.
+   */
+  invocationObserver?: SpecialistInvocationObserver;
 }
 
 export interface SupervisorResult {
@@ -68,6 +103,11 @@ export interface SupervisorResult {
   filteredSpecialists: string[];
   /** ID of the routing decision when a routing policy was applied. Undefined for direct selection. */
   routingDecisionId?: string;
+  /**
+   * Ordered completed invocation evidence when `invocationObserver` was
+   * supplied. Absent when local invocation observation was not requested.
+   */
+  specialistInvocations?: SpecialistInvocationOutcome[];
 }
 
 export type MergeFn = (results: string[]) => string | Promise<string>;
