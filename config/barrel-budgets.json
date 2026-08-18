@@ -468,14 +468,6 @@
           "rationale": "Freeze the flow runtime input contract pending a behavior-preserving per-concern type split.",
           "shrinkTarget": 500
         },
-        "src/provider-session.ts": {
-          "maxLines": 556,
-          "sourceSha256": "79af6e66530f7b1bd4757d1ba8a12579526c263697b19087ebce0cd2fba0a0c4",
-          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
-          "reviewBy": "2026-09-14",
-          "rationale": "Freeze the consolidated provider-session contracts pending a behavior-preserving split of lifecycle and persistence types.",
-          "shrinkTarget": 500
-        },
         "src/agent-review.ts": {
           "maxLines": 729,
           "shrinkTarget": 500,
