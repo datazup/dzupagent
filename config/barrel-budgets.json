@@ -642,14 +642,6 @@
           "rationale": "Freeze the consolidated semantic dispatcher pending a behavior-preserving interaction helper extraction.",
           "shrinkTarget": 500
         },
-        "src/types.ts": {
-          "maxLines": 506,
-          "sourceSha256": "747d912269651a053d4d4ca18ed15b1bd629fe56c7828b18471c98a0cf2e8d11",
-          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
-          "reviewBy": "2026-09-14",
-          "rationale": "Freeze the consolidated compiler type surface pending a behavior-preserving split of interaction and diagnostic contracts.",
-          "shrinkTarget": 500
-        },
         "src/stages/shape-validate-rules/control-flow.ts": {
           "maxLines": 666,
           "shrinkTarget": 500,
