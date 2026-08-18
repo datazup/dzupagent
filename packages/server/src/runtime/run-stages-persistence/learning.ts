@@ -1,8 +1,10 @@
 import type { PersistedIntentContext } from "@dzupagent/core/llm";
 import type { AgentExecutionSpec, RunStore } from "@dzupagent/core/persistence";
-import type {
-  RunReflectionStore,
-  ReflectionSummary,
+import {
+  ReflectionAnalyzer,
+  type ReflectionPattern,
+  type RunReflectionStore,
+  type ReflectionSummary,
 } from "@dzupagent/agent/reflection";
 import type { RunJob } from "../../queue/run-queue.js";
 import { reportRetrievalFeedback } from "../retrieval-feedback-hook.js";
@@ -147,6 +149,88 @@ async function scoreRunReflection(options: {
   }
 }
 
+type ReflectionWorkflowEvents = Parameters<ReflectionAnalyzer["analyze"]>[1];
+
+interface SanitizedToolEvidence {
+  stepId: string;
+  failed: boolean;
+  durationMs: number;
+}
+
+/**
+ * Retain only an identifier that already has the shape of a bounded tool ID.
+ * Invalid values are replaced wholesale so prompts, URLs, arguments, or
+ * diagnostics cannot be smuggled into analyzer-authored descriptions.
+ */
+function sanitizeReflectionStepId(value: unknown): string {
+  if (typeof value !== "string") return "tool:unknown";
+  const trimmed = value.trim();
+  if (!/^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,63}$/.test(trimmed)) {
+    return "tool:unknown";
+  }
+  return `tool:${trimmed}`;
+}
+
+/**
+ * Project executor logs into the minimal event vocabulary consumed by the
+ * reflection analyzer. Both passes retain the original log order: starts are
+ * emitted first so repeated-tool detection sees the call sequence, followed
+ * by ordered outcomes so failure loops and successful strategies remain
+ * detectable. No raw message or arbitrary data field crosses this boundary.
+ */
+function buildSanitizedReflectionEvents(
+  logs: NonNullable<RunExecutorResult["logs"]>
+): ReflectionWorkflowEvents {
+  const evidence: SanitizedToolEvidence[] = [];
+
+  for (const log of logs) {
+    if (log.phase !== "tool_call" || !log.data || typeof log.data !== "object") {
+      continue;
+    }
+    const data = log.data as Record<string, unknown>;
+    const rawDuration = data["durationMs"];
+    evidence.push({
+      stepId: sanitizeReflectionStepId(data["toolName"]),
+      failed: data["success"] === false || log.level === "error",
+      durationMs:
+        typeof rawDuration === "number"
+        && Number.isFinite(rawDuration)
+        && rawDuration >= 0
+          ? rawDuration
+          : 0,
+    });
+  }
+
+  const events: ReflectionWorkflowEvents = evidence.map(({ stepId }) => ({
+    type: "step:started",
+    stepId,
+  }));
+  for (const item of evidence) {
+    events.push(
+      item.failed
+        ? { type: "step:failed", stepId: item.stepId, error: "Tool step failed" }
+        : {
+            type: "step:completed",
+            stepId: item.stepId,
+            durationMs: item.durationMs,
+          }
+    );
+  }
+  return events;
+}
+
+function deriveReflectionPatterns(options: {
+  runId: string;
+  additionalLogs: NonNullable<RunExecutorResult["logs"]>;
+}): ReflectionPattern[] {
+  return new ReflectionAnalyzer()
+    .analyze(
+      options.runId,
+      buildSanitizedReflectionEvents(options.additionalLogs)
+    )
+    .patterns;
+}
+
 async function persistReflectionSummary(options: {
   reflectionStore?: RunReflectionStore;
   runStore: RunStore;
@@ -187,7 +271,10 @@ async function persistReflectionSummary(options: {
       totalSteps: options.additionalLogs.length,
       toolCallCount: toolCallLogs.length,
       errorCount: options.errorCount,
-      patterns: [],
+      patterns: deriveReflectionPatterns({
+        runId: options.job.runId,
+        additionalLogs: options.additionalLogs,
+      }),
       qualityScore: options.qualityScore,
       ...(tenantId !== undefined ? { tenantId } : {}),
       ...(ownerId !== undefined ? { ownerId } : {}),

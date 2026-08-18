@@ -22,6 +22,7 @@ import { ReflectionAnalyzer } from '../reflection/reflection-analyzer.js'
 import { buildWorkflowEventsFromToolStats } from '../reflection/learning-bridge.js'
 import { omitUndefined } from '../utils/exact-optional.js'
 import { applyOutputFilterChain } from './output-filter.js'
+import { resolveRunStateRunId } from './run-engine-generate-snapshot.js'
 
 /**
  * Apply the legacy `guardrails.outputFilter` callback to a content
@@ -98,6 +99,11 @@ export async function processGeneratedRun(
     params.config,
     extractFinalAiMessageContent(result.messages),
   )
+  const runId = resolveRunStateRunId(
+    params.agentId,
+    params.options,
+    params.config.toolExecution?.runId,
+  )
 
   // M-13 — pluggable output filter chain. Runs after the legacy
   // guardrails.outputFilter so existing callers are unaffected.
@@ -108,7 +114,7 @@ export async function processGeneratedRun(
         {
           agentId: params.agentId,
           tenantId: params.config.memoryScope?.['tenantId'] ?? 'default',
-          runId: params.options?.runId ?? params.config.toolExecution?.runId ?? '',
+          runId,
         },
       )
     : rawContent
@@ -123,10 +129,7 @@ export async function processGeneratedRun(
         result.toolStats,
         result.stopReason,
       )
-      const summary = analyzer.analyze(
-        params.agentId + ':' + Date.now().toString(36),
-        events,
-      )
+      const summary = analyzer.analyze(runId, events)
       await params.config.onReflectionComplete(summary)
     } catch (error) {
       // Reflection callback errors must NEVER affect the run result, but they
