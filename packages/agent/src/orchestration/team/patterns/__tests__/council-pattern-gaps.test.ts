@@ -15,7 +15,6 @@ afterEach(() => {
 describe("councilPattern — gap coverage", () => {
   describe("hook wiring", () => {
     it("fires emitParticipantStart for every participant including the judge", async () => {
-      vi.spyOn(AgentOrchestrator, "debate").mockResolvedValue("verdict");
       const { ctx, calls } = buildContext("council", [
         buildResolved("judge", { role: "judge", model: "claude-opus-4-7" }),
         buildResolved("p1", { role: "proposer" }),
@@ -29,55 +28,64 @@ describe("councilPattern — gap coverage", () => {
     });
 
     it("fires emitParticipantComplete with success=true for every participant on happy path", async () => {
-      vi.spyOn(AgentOrchestrator, "debate").mockResolvedValue("verdict");
       const { ctx, calls } = buildContext("council", [
         buildResolved("judge", { role: "judge", model: "claude-opus-4-7" }),
         buildResolved("p1", { role: "proposer" }),
       ]);
       await councilPattern.execute(ctx);
       expect(calls.completes).toHaveLength(2);
-      expect(calls.completes.every((c) => c.success)).toBe(true);
+      expect(calls.completes.every((call) => call.success)).toBe(true);
     });
 
     it("passes a non-negative durationMs to emitParticipantComplete", async () => {
-      vi.spyOn(AgentOrchestrator, "debate").mockResolvedValue("ok");
       const { ctx, calls } = buildContext("council", [
         buildResolved("j", { role: "judge", model: "claude-opus-4-7" }),
         buildResolved("p", { role: "proposer" }),
       ]);
       await councilPattern.execute(ctx);
       expect(calls.completes.length).toBeGreaterThan(0)
-      expect(calls.completes.every((c) => c.durationMs >= 0)).toBe(true);
+      expect(calls.completes.every((call) => call.durationMs >= 0)).toBe(true);
     });
 
-    it("fires emitParticipantComplete with success=false and error message when debate throws", async () => {
-      vi.spyOn(AgentOrchestrator, "debate").mockRejectedValue(
-        new Error("debate exploded")
-      );
+    it("records only the judge failure when the judge throws", async () => {
       const { ctx, calls } = buildContext("council", [
-        buildResolved("j", { role: "judge", model: "claude-opus-4-7" }),
-        buildResolved("p", { role: "proposer" }),
+        buildResolved("j", {
+          role: "judge",
+          model: "claude-opus-4-7",
+          shouldThrow: true,
+        }),
+        buildResolved("p", { role: "proposer", response: "proposal" }),
       ]);
       await expect(councilPattern.execute(ctx)).rejects.toThrow(
-        "debate exploded"
+        "mock model failed"
       );
-      expect(calls.completes.length).toBeGreaterThan(0)
-      expect(calls.completes.every((c) => c.success === false)).toBe(true);
-      expect(calls.completes.every((c) => c.error === "debate exploded")).toBe(
-        true
-      );
+      expect(calls.completes).toEqual([
+        expect.objectContaining({ id: "p", success: true }),
+        expect.objectContaining({
+          id: "j",
+          success: false,
+          error: "mock model failed",
+        }),
+      ]);
+      expect(calls.completes.length).toBeGreaterThan(0);
+      expect(calls.completes.every((call) => Number.isFinite(call.durationMs)))
+        .toBe(true);
+      expect(calls.completes.every((call) => call.durationMs >= 0)).toBe(true);
     });
   });
 
   describe("agentResults shape", () => {
-    it("judge agentResult carries the verdict content; proposers have empty content", async () => {
-      vi.spyOn(AgentOrchestrator, "debate").mockResolvedValue("final-verdict");
+    it("judge and proposer agentResults carry their exact generated content", async () => {
       const { ctx } = buildContext(
         "council",
         [
-          buildResolved("j", { role: "judge", model: "claude-opus-4-7" }),
-          buildResolved("pa", { role: "proposer" }),
-          buildResolved("pb", { role: "proposer" }),
+          buildResolved("j", {
+            role: "judge",
+            model: "claude-opus-4-7",
+            response: "final-verdict",
+          }),
+          buildResolved("pa", { role: "proposer", response: "proposal-a" }),
+          buildResolved("pb", { role: "proposer", response: "proposal-b" }),
         ],
         { policies: { governance: { judgeModel: "claude-opus-4-7" } } }
       );
@@ -85,22 +93,20 @@ describe("councilPattern — gap coverage", () => {
       const judge = result.agentResults.find((r) => r.agentId === "j")!;
       const pa = result.agentResults.find((r) => r.agentId === "pa")!;
       expect(judge.content).toBe("final-verdict");
-      expect(pa.content).toBe("");
+      expect(pa.content).toBe("proposal-a");
     });
 
     it("all agentResults have success=true on the happy path", async () => {
-      vi.spyOn(AgentOrchestrator, "debate").mockResolvedValue("ok");
       const { ctx } = buildContext("council", [
         buildResolved("j", { role: "judge", model: "claude-opus-4-7" }),
         buildResolved("p1", { role: "proposer" }),
       ]);
       const result = await councilPattern.execute(ctx);
       expect(result.agentResults.length).toBeGreaterThan(0)
-      expect(result.agentResults.every((r) => r.success)).toBe(true);
+      expect(result.agentResults.every((item) => item.success)).toBe(true);
     });
 
     it("result.durationMs is non-negative", async () => {
-      vi.spyOn(AgentOrchestrator, "debate").mockResolvedValue("ok");
       const { ctx } = buildContext("council", [
         buildResolved("j", { role: "judge", model: "claude-opus-4-7" }),
         buildResolved("p", { role: "proposer" }),
@@ -110,7 +116,6 @@ describe("councilPattern — gap coverage", () => {
     });
 
     it("result contains all participant ids in agentResults", async () => {
-      vi.spyOn(AgentOrchestrator, "debate").mockResolvedValue("ok");
       const { ctx } = buildContext("council", [
         buildResolved("j", { role: "judge", model: "claude-opus-4-7" }),
         buildResolved("p1", { role: "proposer" }),
@@ -124,12 +129,17 @@ describe("councilPattern — gap coverage", () => {
 
   describe("single-proposer council", () => {
     it("runs debate with one proposer and produces a result", async () => {
-      const spy = vi
-        .spyOn(AgentOrchestrator, "debate")
-        .mockResolvedValue("solo-verdict");
+      const spy = vi.spyOn(AgentOrchestrator, "debateDetailed");
       const { ctx } = buildContext("council", [
-        buildResolved("j", { role: "judge", model: "claude-opus-4-7" }),
-        buildResolved("only-proposer", { role: "proposer" }),
+        buildResolved("j", {
+          role: "judge",
+          model: "claude-opus-4-7",
+          response: "solo-verdict",
+        }),
+        buildResolved("only-proposer", {
+          role: "proposer",
+          response: "only proposal",
+        }),
       ]);
       const result = await councilPattern.execute(ctx);
       expect(spy).toHaveBeenCalledOnce();

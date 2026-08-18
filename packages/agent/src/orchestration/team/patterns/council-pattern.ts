@@ -2,16 +2,18 @@
  * Council coordination pattern.
  *
  * Proposers contribute candidate answers; a designated judge picks the
- * best one. Delegates to `AgentOrchestrator.debate`. The judge is selected
+ * best one. Delegates to `AgentOrchestrator.debateDetailed`. The judge is selected
  * by matching `policies.governance.judgeModel` against participant
  * `model` fields (falling back to the first participant when no match).
  *
- * `ctx.signal` rides on `debate`'s options bag (the positional signature is
- * public API), making a team-run council cancellable: an already-aborted signal
- * rejects before any proposer runs, and an abort mid-flight cancels the
- * in-flight proposer/judge generations. The rejection lands in the catch below,
- * so participants still get a matching `participant_completed` with
- * `success=false`.
+ * `ctx.signal` rides on `debateDetailed`'s options bag. The invocation observer
+ * translates real model starts and settled outcomes into participant lifecycle
+ * evidence without retaining prompts, messages, or provider data.
+ *
+ * This keeps a team-run council cancellable: an already-aborted signal rejects
+ * before any proposer runs, and an abort mid-flight cancels the in-flight
+ * proposer/judge generations. On rejection, only outcomes already observed as
+ * terminal are completed; pending and never-started work is omitted.
  *
  * `ctx.eventBus` is deliberately NOT forwarded — `debate` accepts no bus and
  * there is no `council:*`/`debate:*` event taxonomy to emit into. See the
@@ -19,7 +21,9 @@
  */
 
 import { AgentOrchestrator } from "../../orchestrator.js";
+import type { DebateInvocationOutcome } from "../../debate-types.js";
 import type {
+  ResolvedParticipant,
   TeamPattern,
   TeamPatternContext,
   TeamPatternResult,
@@ -28,6 +32,73 @@ import { runSingleParticipant } from "./pattern-utils.js";
 
 /** Default model used when no `governance.judgeModel` policy is set. */
 export const DEFAULT_GOVERNANCE_MODEL = "claude-opus-4-7";
+
+interface AggregatedCouncilResult {
+  entry: ResolvedParticipant;
+  success: boolean;
+  durationMs: number;
+  content: string;
+  error?: string;
+}
+
+function addFiniteDuration(total: number, next: number): number {
+  const finiteNext = Number.isFinite(next) && next >= 0 ? next : 0;
+  const sum = total + finiteNext;
+  return Number.isFinite(sum) ? sum : Number.MAX_SAFE_INTEGER;
+}
+
+function aggregateInvocations(
+  outcomes: readonly DebateInvocationOutcome[],
+  participantByAgentId: ReadonlyMap<string, ResolvedParticipant>
+): AggregatedCouncilResult[] {
+  const aggregated = new Map<string, AggregatedCouncilResult>();
+  for (const outcome of outcomes.toSorted(
+    (left, right) => left.invocationIndex - right.invocationIndex
+  )) {
+    const entry = participantByAgentId.get(outcome.agentId);
+    if (!entry) continue;
+    const current = aggregated.get(outcome.agentId);
+    if (!current) {
+      aggregated.set(outcome.agentId, {
+        entry,
+        success: outcome.success,
+        durationMs: addFiniteDuration(0, outcome.durationMs),
+        content: outcome.content ?? "",
+        ...(outcome.error !== undefined ? { error: outcome.error } : {}),
+      });
+      continue;
+    }
+
+    current.durationMs = addFiniteDuration(
+      current.durationMs,
+      outcome.durationMs
+    );
+    if (outcome.success && outcome.content !== undefined) {
+      current.content = outcome.content;
+    }
+    if (!outcome.success) {
+      current.success = false;
+      if (current.error === undefined && outcome.error !== undefined) {
+        current.error = outcome.error;
+      }
+    }
+  }
+  return [...aggregated.values()];
+}
+
+function emitParticipantCompletions(
+  results: readonly AggregatedCouncilResult[],
+  ctx: TeamPatternContext
+): void {
+  for (const result of results) {
+    ctx.hooks.emitParticipantComplete(
+      result.entry.participant,
+      result.success,
+      result.durationMs,
+      result.error
+    );
+  }
+}
 
 export const councilPattern: TeamPattern = {
   id: "council",
@@ -54,44 +125,70 @@ export const councilPattern: TeamPattern = {
       return runSingleParticipant(judgeEntry, ctx.task, startTime);
     }
 
-    for (const s of spawned) ctx.hooks.emitParticipantStart(s.participant);
+    const participantByAgentId = new Map(
+      spawned.map((entry) => [entry.spawned.agent.id, entry] as const)
+    );
+    const observedOutcomes: DebateInvocationOutcome[] = [];
+    const invocationObserver = {
+      onStart: ({ agentId }: { agentId: string }) => {
+        const entry = participantByAgentId.get(agentId);
+        if (entry) ctx.hooks.emitParticipantStart(entry.participant);
+      },
+      onComplete: (outcome: DebateInvocationOutcome) => {
+        observedOutcomes.push(outcome);
+      },
+    };
 
     try {
-      const content = await AgentOrchestrator.debate(
+      const result = await AgentOrchestrator.debateDetailed(
         proposers.map((p) => p.spawned.agent),
         judgeEntry.spawned.agent,
         ctx.task,
-        ctx.signal ? { signal: ctx.signal } : undefined
+        {
+          ...(ctx.signal ? { signal: ctx.signal } : {}),
+          invocationObserver,
+        }
       );
 
       const durationMs = Date.now() - startTime;
-      for (const s of spawned) {
-        ctx.hooks.emitParticipantComplete(s.participant, true, durationMs);
-      }
+      const participantResults = aggregateInvocations(
+        result.invocations,
+        participantByAgentId
+      );
+      emitParticipantCompletions(participantResults, ctx);
+      const resultByEntry = new Map(
+        participantResults.map((participantResult) => [
+          participantResult.entry,
+          participantResult,
+        ])
+      );
 
       return {
-        content,
-        agentResults: spawned.map((s) => ({
-          agentId: s.spawned.agent.id,
-          role: s.spawned.role,
-          content: s === judgeEntry ? content : "",
-          success: true,
-          durationMs,
-        })),
+        content: result.content,
+        agentResults: spawned.flatMap((entry) => {
+          const participantResult = resultByEntry.get(entry);
+          if (!participantResult) return [];
+          return [
+            {
+              agentId: entry.spawned.agent.id,
+              role: entry.spawned.role,
+              content: participantResult.content,
+              success: participantResult.success,
+              durationMs: participantResult.durationMs,
+              ...(participantResult.error !== undefined
+                ? { error: participantResult.error }
+                : {}),
+            },
+          ];
+        }),
         durationMs,
         pattern: "council",
       };
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      const durationMs = Date.now() - startTime;
-      for (const s of spawned) {
-        ctx.hooks.emitParticipantComplete(
-          s.participant,
-          false,
-          durationMs,
-          message
-        );
-      }
+      emitParticipantCompletions(
+        aggregateInvocations(observedOutcomes, participantByAgentId),
+        ctx
+      );
       throw err;
     }
   },

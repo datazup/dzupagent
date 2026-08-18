@@ -130,12 +130,33 @@ describe('TeamRuntime result pattern labels', () => {
       ],
       expectedPattern: 'contract-net',
       setup: () => {
-        vi.spyOn(ContractNetManager, 'execute').mockResolvedValue({
-          cfpId: 'cfp-1',
-          agentId: 's1',
-          success: true,
-          result: 'contract result',
-          actualDurationMs: 1,
+        vi.spyOn(ContractNetManager, 'executeDetailed').mockImplementation(async (config) => {
+          const invocations = [
+            {
+              agentId: 's1', phase: 'bid' as const, attempt: 0,
+              invocationIndex: 0, success: true, durationMs: 1,
+              content: 'accepted bid',
+            },
+            {
+              agentId: 's1', phase: 'execute' as const,
+              invocationIndex: 1, success: true, durationMs: 1,
+              content: 'contract result',
+            },
+          ]
+          for (const invocation of invocations) {
+            void config.invocationObserver?.onStart?.(invocation)
+            void config.invocationObserver?.onComplete?.(invocation)
+          }
+          return {
+            result: {
+              cfpId: 'cfp-1',
+              agentId: 's1',
+              success: true,
+              result: 'contract result',
+              actualDurationMs: 1,
+            },
+            invocations,
+          }
         })
       },
     },

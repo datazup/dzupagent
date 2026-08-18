@@ -24,16 +24,83 @@ import type {
   ContractBid,
   CallForProposals,
   ContractNetState,
+  ContractNetDetailedResult,
+  ContractNetInvocationFailureKind,
+  ContractNetInvocationObserver,
+  ContractNetInvocationOutcome,
+  ContractNetInvocationPhase,
+  ContractNetInvocationStart,
 } from "./contract-net-types.js";
 import { omitUndefined } from "../../utils/exact-optional.js";
 
 const DEFAULT_BID_DEADLINE_MS = 30_000;
 const REMOVED_MANAGER_FIELD_MESSAGE =
   "ContractNetConfig.manager was removed because ContractNetManager does not use a manager agent; omit manager and configure specialists, task, and strategy instead.";
+const INVALID_BID_ERROR = "Invalid bid response";
+const BID_DEADLINE_ERROR = "Bid deadline exceeded";
+const BID_CANCELLED_ERROR = "Bid cancelled";
+
+interface ContractNetInvocationState {
+  nextInvocationIndex: number;
+  invocations: ContractNetInvocationOutcome[];
+  observer: ContractNetInvocationObserver | undefined;
+}
 
 /** Generate a unique CFP identifier. */
 function generateCfpId(): string {
   return `cfp_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function elapsedSince(startedAt: number): number {
+  const duration = Date.now() - startedAt;
+  return Number.isFinite(duration) && duration > 0 ? duration : 0;
+}
+
+function normalizeInvocationError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function notifyInvocationObserver<T>(
+  callback: ((value: T) => unknown) | undefined,
+  value: T
+): void {
+  if (!callback) return;
+  try {
+    const result = callback(value);
+    if (
+      result !== null &&
+      (typeof result === "object" || typeof result === "function") &&
+      "then" in result
+    ) {
+      void Promise.resolve(result).catch(() => {});
+    }
+  } catch {
+    // Contract-net observation is evidence-only and cannot alter execution.
+  }
+}
+
+function startInvocation(
+  state: ContractNetInvocationState,
+  agentId: string,
+  phase: ContractNetInvocationPhase,
+  attempt?: number
+): ContractNetInvocationStart {
+  const start: ContractNetInvocationStart = omitUndefined({
+    agentId,
+    phase,
+    invocationIndex: state.nextInvocationIndex++,
+    attempt,
+  });
+  notifyInvocationObserver(state.observer?.onStart, start);
+  return start;
+}
+
+function completeInvocation(
+  state: ContractNetInvocationState,
+  outcome: ContractNetInvocationOutcome
+): void {
+  state.invocations.push(outcome);
+  notifyInvocationObserver(state.observer?.onComplete, outcome);
 }
 
 /**
@@ -114,7 +181,9 @@ function parseBid(
 async function collectBid(
   specialist: DzupAgent,
   cfp: CallForProposals,
-  signal: AbortSignal | undefined
+  signal: AbortSignal | undefined,
+  invocationState: ContractNetInvocationState,
+  attempt: number
 ): Promise<ContractBid | null> {
   const bidPrompt = [
     `You are being asked to bid on a task. Respond ONLY with a JSON object (no markdown, no explanation) containing your bid:`,
@@ -145,22 +214,63 @@ async function collectBid(
     .filter(Boolean)
     .join("\n");
 
-  // Create a deadline-scoped abort controller
-  const deadlineController = new AbortController();
-  const timer = setTimeout(() => deadlineController.abort(), cfp.bidDeadlineMs);
+  // Queued bounded work cancelled before it starts has no invocation evidence.
+  if (signal?.aborted) return null;
 
-  // If external signal is already aborted, abort immediately
-  const onExternalAbort = (): void => deadlineController.abort();
-  signal?.addEventListener("abort", onExternalAbort, { once: true });
+  // Create a deadline-scoped abort controller.
+  const deadlineController = new AbortController();
+  let abortKind: Extract<
+    ContractNetInvocationFailureKind,
+    "deadline" | "cancelled"
+  > = "deadline";
+  const timer = setTimeout(() => {
+    if (deadlineController.signal.aborted) return;
+    abortKind = "deadline";
+    deadlineController.abort();
+  }, cfp.bidDeadlineMs);
+
+  const onExternalAbort = (): void => {
+    if (deadlineController.signal.aborted) return;
+    abortKind = "cancelled";
+    deadlineController.abort(signal?.reason);
+  };
+  if (signal?.aborted) onExternalAbort();
+  else signal?.addEventListener("abort", onExternalAbort, { once: true });
+
+  if (deadlineController.signal.aborted) {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", onExternalAbort);
+    return null;
+  }
+
+  const start = startInvocation(
+    invocationState,
+    specialist.id,
+    "bid",
+    attempt
+  );
+  const startedAt = Date.now();
 
   try {
-    // Race the generate call against the deadline to enforce hard timeout.
-    // model.invoke() may not respect AbortSignal internally, so we need
-    // an explicit race to guarantee deadline enforcement.
-    const deadlinePromise = new Promise<null>((resolve) => {
-      const onAbort = (): void => resolve(null);
+    type BidTerminal =
+      | { type: "generated"; content: string }
+      | { type: "model_error"; error: unknown }
+      | {
+          type: "aborted";
+          failureKind: Extract<
+            ContractNetInvocationFailureKind,
+            "deadline" | "cancelled"
+          >;
+        };
+
+    // The explicit abort branch terminalizes a deadline even when a provider
+    // ignores AbortSignal. The generated promise handles its own later reject,
+    // so a post-deadline settlement cannot emit a second outcome.
+    const abortPromise = new Promise<BidTerminal>((resolve) => {
+      const onAbort = (): void =>
+        resolve({ type: "aborted", failureKind: abortKind });
       if (deadlineController.signal.aborted) {
-        resolve(null);
+        onAbort();
         return;
       }
       deadlineController.signal.addEventListener("abort", onAbort, {
@@ -168,14 +278,60 @@ async function collectBid(
       });
     });
 
-    const generatePromise = specialist
+    const generatePromise: Promise<BidTerminal> = specialist
       .generate([new HumanMessage(bidPrompt)], {
         signal: deadlineController.signal,
       })
-      .then((result) => parseBid(specialist.id, cfp.cfpId, result.content));
+      .then(
+        (result) => ({ type: "generated", content: result.content }),
+        (error: unknown) => ({ type: "model_error", error })
+      );
 
-    return await Promise.race([generatePromise, deadlinePromise]);
-  } catch {
+    const terminal = await Promise.race([generatePromise, abortPromise]);
+    const durationMs = elapsedSince(startedAt);
+
+    if (terminal.type === "generated") {
+      const parsed = parseBid(specialist.id, cfp.cfpId, terminal.content);
+      if (parsed) {
+        completeInvocation(invocationState, {
+          ...start,
+          success: true,
+          durationMs,
+          content: terminal.content,
+        });
+        return parsed;
+      }
+      completeInvocation(invocationState, {
+        ...start,
+        success: false,
+        durationMs,
+        failureKind: "invalid_bid",
+        error: INVALID_BID_ERROR,
+      });
+      return null;
+    }
+
+    const failureKind: ContractNetInvocationFailureKind =
+      terminal.type === "aborted"
+        ? terminal.failureKind
+        : deadlineController.signal.aborted
+          ? abortKind
+          : "model_error";
+    const error =
+      failureKind === "deadline"
+        ? BID_DEADLINE_ERROR
+        : failureKind === "cancelled"
+          ? BID_CANCELLED_ERROR
+          : terminal.type === "model_error"
+            ? normalizeInvocationError(terminal.error)
+            : BID_CANCELLED_ERROR;
+    completeInvocation(invocationState, {
+      ...start,
+      success: false,
+      durationMs,
+      failureKind,
+      error,
+    });
     return null;
   } finally {
     clearTimeout(timer);
@@ -190,10 +346,17 @@ export class ContractNetManager {
    * This is a thin orchestrator over cohesive phase helpers:
    *  - {@link initState}      — validate config, build CFP + initial state.
    *  - {@link runBiddingPhase} — announce, collect bids (with optional retry).
-   *  - {@link selectWinner}   — evaluate/rank bids, award, resolve winner agent.
-   *  - {@link runExecutionPhase} — run the winning specialist, assemble result.
-   */
+  *  - {@link selectWinner}   — evaluate/rank bids, award, resolve winner agent.
+  *  - {@link runExecutionPhase} — run the winning specialist, assemble result.
+  */
   static async execute(config: ContractNetConfig): Promise<ContractResult> {
+    return (await ContractNetManager.executeDetailed(config)).result;
+  }
+
+  /** Execute once and retain ordered evidence for every settled model call. */
+  static async executeDetailed(
+    config: ContractNetConfig
+  ): Promise<ContractNetDetailedResult> {
     if ("manager" in config) {
       throw new OrchestrationError(
         REMOVED_MANAGER_FIELD_MESSAGE,
@@ -204,6 +367,11 @@ export class ContractNetManager {
     const { task, signal, eventBus } = config;
     const { state, cfp } = ContractNetManager.initState(config);
     const cfpId = cfp.cfpId;
+    const invocationState: ContractNetInvocationState = {
+      nextInvocationIndex: 0,
+      invocations: [],
+      observer: config.invocationObserver,
+    };
 
     // Check abort before starting
     if (signal?.aborted) {
@@ -215,7 +383,7 @@ export class ContractNetManager {
     }
 
     // Phase 1 + 2: Announce and collect bids (with optional retry-on-no-bids).
-    await ContractNetManager.runBiddingPhase(state, config);
+    await ContractNetManager.runBiddingPhase(state, config, invocationState);
 
     // Phase 3 + 4: Evaluate, award, and resolve the winning specialist agent.
     const { winningBid, winner } = ContractNetManager.selectWinner(
@@ -233,14 +401,21 @@ export class ContractNetManager {
     }
 
     // Phase 5: Execute the task with the winning specialist.
-    return ContractNetManager.runExecutionPhase({
+    const result = await ContractNetManager.runExecutionPhase({
       state,
       winner,
       winningBid,
       task,
       signal,
       eventBus,
+      invocationState,
     });
+    return {
+      result,
+      invocations: [...invocationState.invocations].sort(
+        (left, right) => left.invocationIndex - right.invocationIndex
+      ),
+    };
   }
 
   /**
@@ -279,7 +454,8 @@ export class ContractNetManager {
    */
   private static async runBiddingPhase(
     state: ContractNetState,
-    config: ContractNetConfig
+    config: ContractNetConfig,
+    invocationState: ContractNetInvocationState
   ): Promise<void> {
     const {
       specialists,
@@ -296,7 +472,13 @@ export class ContractNetManager {
 
     // Phase 2: Collect bids
     state.phase = "bidding";
-    const bids = await ContractNetManager.collectBids(specialists, cfp, signal);
+    const bids = await ContractNetManager.collectBids(
+      specialists,
+      cfp,
+      signal,
+      invocationState,
+      0
+    );
     ContractNetManager.recordBids(state, bids, eventBus);
 
     if (bids.length > 0) return;
@@ -318,7 +500,9 @@ export class ContractNetManager {
     const retryBids = await ContractNetManager.collectBids(
       specialists,
       { ...cfp, bidDeadlineMs: cfp.bidDeadlineMs * 2 },
-      signal
+      signal,
+      invocationState,
+      1
     );
     ContractNetManager.recordBids(state, retryBids, eventBus);
 
@@ -555,12 +739,26 @@ export class ContractNetManager {
     task: string;
     signal: AbortSignal | undefined;
     eventBus: DzupEventBus | undefined;
+    invocationState: ContractNetInvocationState;
   }): Promise<ContractResult> {
-    const { state, winner, winningBid, task, signal, eventBus } = args;
+    const {
+      state,
+      winner,
+      winningBid,
+      task,
+      signal,
+      eventBus,
+      invocationState,
+    } = args;
     const cfpId = state.cfp.cfpId;
 
     state.phase = "executing";
-    const startTime = Date.now();
+    const start = startInvocation(
+      invocationState,
+      winningBid.agentId,
+      "execute"
+    );
+    const startedAt = Date.now();
 
     try {
       const execResult = await winner.generate(
@@ -572,7 +770,13 @@ export class ContractNetManager {
         omitUndefined({ signal })
       );
 
-      const durationMs = Date.now() - startTime;
+      const durationMs = elapsedSince(startedAt);
+      completeInvocation(invocationState, {
+        ...start,
+        success: true,
+        durationMs,
+        content: execResult.content,
+      });
 
       state.phase = "completed";
       const contractResult: ContractResult = {
@@ -593,8 +797,18 @@ export class ContractNetManager {
 
       return contractResult;
     } catch (err: unknown) {
-      const durationMs = Date.now() - startTime;
-      const errorMessage = err instanceof Error ? err.message : String(err);
+      const durationMs = elapsedSince(startedAt);
+      const cancelled = signal?.aborted === true;
+      const errorMessage = cancelled
+        ? "Execution cancelled"
+        : normalizeInvocationError(err);
+      completeInvocation(invocationState, {
+        ...start,
+        success: false,
+        durationMs,
+        failureKind: cancelled ? "cancelled" : "model_error",
+        error: errorMessage,
+      });
 
       state.phase = "failed";
       const contractResult: ContractResult = {
@@ -625,6 +839,8 @@ export class ContractNetManager {
     specialists: DzupAgent[],
     cfp: CallForProposals,
     signal: AbortSignal | undefined,
+    invocationState: ContractNetInvocationState,
+    attempt: number,
     maxConcurrency: number = DEFAULT_ORCHESTRATION_FANOUT
   ): Promise<ContractBid[]> {
     // ORCH-DSL-L1-H-07 — bounded fan-out. One model call per specialist was
@@ -634,7 +850,13 @@ export class ContractNetManager {
     const results = await runAllConcurrently(
       specialists.map(
         (specialist) => (taskSignal?: AbortSignal) =>
-          collectBid(specialist, cfp, taskSignal ?? signal)
+          collectBid(
+            specialist,
+            cfp,
+            taskSignal ?? signal,
+            invocationState,
+            attempt
+          )
       ),
       maxConcurrency,
       signal ? { signal } : undefined

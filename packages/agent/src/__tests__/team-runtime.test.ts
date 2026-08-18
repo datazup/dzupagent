@@ -921,7 +921,7 @@ describe("TeamRuntime — contract_net pattern", () => {
     expect(result.agentResults).toHaveLength(1);
   });
 
-  it("emits participant_started for all contract_net participants", async () => {
+  it("emits participant_started only for invoked contract_net participants", async () => {
     // The contract net manager calls specialists; we provide mock models that
     // return valid-ish bid JSON so the protocol can proceed.
     const def = buildDefinition("cn-events", "contract_net", [
@@ -958,11 +958,7 @@ describe("TeamRuntime — contract_net pattern", () => {
       { onEvent: (e) => events.push(e) },
     );
 
-    try {
-      await runtime.execute("task");
-    } catch {
-      // contract_net may throw if bid parsing fails; we only check events
-    }
+    await runtime.execute("task");
 
     const started = events.filter((e) => e.type === "participant_started");
     const startedIds = started.map(
@@ -970,8 +966,7 @@ describe("TeamRuntime — contract_net pattern", () => {
         (e as Extract<TeamRuntimeEvent, { type: "participant_started" }>)
           .participantId,
     );
-    expect(startedIds).toContain("mgr");
-    expect(startedIds).toContain("s1");
+    expect(startedIds).toEqual(["s1"]);
   });
 });
 

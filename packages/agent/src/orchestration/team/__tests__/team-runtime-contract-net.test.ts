@@ -120,7 +120,8 @@ describe("TeamRuntime — contract_net configuration", () => {
       expect(winner.success).toBe(true);
       // The over-budget specialist never won, so it never executed.
       const loser = result.agentResults.find((r) => r.agentId === "pricey")!;
-      expect(loser.content).toBe("");
+      expect(loser.content).toContain('"estimatedCostCents":500');
+      expect(loser.success).toBe(true);
     });
 
     it("fails the run when EVERY bid exceeds the ceiling", async () => {

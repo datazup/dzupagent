@@ -2,7 +2,8 @@
  * Contract-net coordination pattern.
  *
  * Specialists bid on a CFP, the configured award strategy selects a winner,
- * and the winner executes. Delegates to `ContractNetManager.execute`.
+ * and the winner executes. Delegates to `ContractNetManager.executeDetailed`
+ * so team lifecycle evidence reflects actual bid/execution model calls.
  *
  * The negotiation is configured from two places, split by whether the knob is
  * expressible as data:
@@ -18,13 +19,97 @@
  */
 
 import { ContractNetManager } from "../../contract-net/contract-net-manager.js";
+import type { ContractNetInvocationOutcome } from "../../contract-net/contract-net-types.js";
 import { omitUndefined } from "../../../utils/exact-optional.js";
 import type {
+  ResolvedParticipant,
   TeamPattern,
   TeamPatternContext,
   TeamPatternResult,
 } from "./team-pattern.js";
 import { runSingleParticipant } from "./pattern-utils.js";
+
+interface AggregatedContractNetResult {
+  entry: ResolvedParticipant;
+  success: boolean;
+  durationMs: number;
+  content: string;
+  error?: string;
+}
+
+function addFiniteDuration(total: number, next: number): number {
+  const finiteNext = Number.isFinite(next) && next >= 0 ? next : 0;
+  const sum = total + finiteNext;
+  return Number.isFinite(sum) ? sum : Number.MAX_SAFE_INTEGER;
+}
+
+function assertUniqueSpawnedAgentIds(
+  entries: readonly ResolvedParticipant[]
+): void {
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    const agentId = entry.spawned.agent.id;
+    if (seen.has(agentId)) {
+      throw new Error(
+        `TeamRuntime[contract_net]: duplicate spawned agent id "${agentId}"`
+      );
+    }
+    seen.add(agentId);
+  }
+}
+
+function aggregateInvocations(
+  outcomes: readonly ContractNetInvocationOutcome[],
+  participantByAgentId: ReadonlyMap<string, ResolvedParticipant>
+): AggregatedContractNetResult[] {
+  const aggregated = new Map<string, AggregatedContractNetResult>();
+  for (const outcome of outcomes.toSorted(
+    (left, right) => left.invocationIndex - right.invocationIndex
+  )) {
+    const entry = participantByAgentId.get(outcome.agentId);
+    if (!entry) continue;
+    const current = aggregated.get(outcome.agentId);
+    if (!current) {
+      aggregated.set(outcome.agentId, {
+        entry,
+        success: outcome.success,
+        durationMs: addFiniteDuration(0, outcome.durationMs),
+        content: outcome.content ?? "",
+        ...(outcome.error !== undefined ? { error: outcome.error } : {}),
+      });
+      continue;
+    }
+
+    current.durationMs = addFiniteDuration(
+      current.durationMs,
+      outcome.durationMs
+    );
+    if (outcome.success && outcome.content !== undefined) {
+      current.content = outcome.content;
+    }
+    if (!outcome.success) {
+      current.success = false;
+      if (current.error === undefined && outcome.error !== undefined) {
+        current.error = outcome.error;
+      }
+    }
+  }
+  return [...aggregated.values()];
+}
+
+function emitParticipantCompletions(
+  results: readonly AggregatedContractNetResult[],
+  ctx: TeamPatternContext
+): void {
+  for (const result of results) {
+    ctx.hooks.emitParticipantComplete(
+      result.entry.participant,
+      result.success,
+      result.durationMs,
+      result.error
+    );
+  }
+}
 
 export const contractNetPattern: TeamPattern = {
   id: "contract_net",
@@ -42,7 +127,23 @@ export const contractNetPattern: TeamPattern = {
       return runSingleParticipant(managerEntry, ctx.task, startTime);
     }
 
-    for (const s of spawned) ctx.hooks.emitParticipantStart(s.participant);
+    assertUniqueSpawnedAgentIds(spawned);
+    const participantByAgentId = new Map(
+      specialists.map((entry) => [entry.spawned.agent.id, entry] as const)
+    );
+    const startedParticipants = new Set<string>();
+    const observedOutcomes: ContractNetInvocationOutcome[] = [];
+    const invocationObserver = {
+      onStart: ({ agentId }: { agentId: string }) => {
+        const entry = participantByAgentId.get(agentId);
+        if (!entry || startedParticipants.has(agentId)) return;
+        startedParticipants.add(agentId);
+        ctx.hooks.emitParticipantStart(entry.participant);
+      },
+      onComplete: (outcome: ContractNetInvocationOutcome) => {
+        observedOutcomes.push(outcome);
+      },
+    };
 
     // Thread the full ContractNetConfig surface the manager supports.
     //
@@ -54,60 +155,62 @@ export const contractNetPattern: TeamPattern = {
     // policy and no runtime plumbing produces exactly the two-field config
     // this call used before.
     const policy = ctx.policies.contractNet;
-    const contractResult = await ContractNetManager.execute(
-      omitUndefined({
-        specialists: specialists.map((s) => s.spawned.agent),
-        task: ctx.task,
-        maxCostCents: policy?.maxCostCents,
-        requiredCapabilities: policy?.requiredCapabilities,
-        bidDeadlineMs: policy?.bidDeadlineMs,
-        retryOnNoBids: policy?.retryOnNoBids,
-        strategy: ctx.contractNet?.strategy,
-        signal: ctx.signal,
-        eventBus: ctx.eventBus,
-      })
-    );
-
-    const durationMs = Date.now() - startTime;
-    for (const s of spawned) {
-      const success =
-        s.spawned.agent.id === contractResult.agentId
-          ? contractResult.success
-          : true;
-      ctx.hooks.emitParticipantComplete(
-        s.participant,
-        success,
-        durationMs,
-        contractResult.error
-      );
-    }
-
-    return {
-      content: contractResult.result ?? "",
-      agentResults: spawned.map((s) =>
+    try {
+      const detailed = await ContractNetManager.executeDetailed(
         omitUndefined({
-          agentId: s.spawned.agent.id,
-          role: s.spawned.role,
-          content:
-            s.spawned.agent.id === contractResult.agentId
-              ? contractResult.result ?? ""
-              : "",
-          success:
-            s.spawned.agent.id === contractResult.agentId
-              ? contractResult.success
-              : true,
-          error:
-            s.spawned.agent.id === contractResult.agentId
-              ? contractResult.error
-              : undefined,
-          durationMs:
-            s.spawned.agent.id === contractResult.agentId
-              ? contractResult.actualDurationMs ?? durationMs
-              : 0,
+          specialists: specialists.map((s) => s.spawned.agent),
+          task: ctx.task,
+          maxCostCents: policy?.maxCostCents,
+          requiredCapabilities: policy?.requiredCapabilities,
+          bidDeadlineMs: policy?.bidDeadlineMs,
+          retryOnNoBids: policy?.retryOnNoBids,
+          strategy: ctx.contractNet?.strategy,
+          signal: ctx.signal,
+          eventBus: ctx.eventBus,
+          invocationObserver,
         })
-      ),
-      durationMs,
-      pattern: "contract-net",
-    };
+      );
+
+      const durationMs = Date.now() - startTime;
+      const participantResults = aggregateInvocations(
+        detailed.invocations,
+        participantByAgentId
+      );
+      emitParticipantCompletions(participantResults, ctx);
+      const resultByEntry = new Map(
+        participantResults.map((participantResult) => [
+          participantResult.entry,
+          participantResult,
+        ])
+      );
+
+      return {
+        content: detailed.result.result ?? "",
+        agentResults: spawned.flatMap((entry) => {
+          const participantResult = resultByEntry.get(entry);
+          if (!participantResult) return [];
+          return [
+            {
+              agentId: entry.spawned.agent.id,
+              role: entry.spawned.role,
+              content: participantResult.content,
+              success: participantResult.success,
+              durationMs: participantResult.durationMs,
+              ...(participantResult.error !== undefined
+                ? { error: participantResult.error }
+                : {}),
+            },
+          ];
+        }),
+        durationMs,
+        pattern: "contract-net",
+      };
+    } catch (error: unknown) {
+      emitParticipantCompletions(
+        aggregateInvocations(observedOutcomes, participantByAgentId),
+        ctx
+      );
+      throw error;
+    }
   },
 };

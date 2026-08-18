@@ -14,6 +14,7 @@ import { ContractNetManager } from "../../../contract-net/contract-net-manager.j
 import type {
   BidEvaluationStrategy,
   ContractNetConfig,
+  ContractNetInvocationOutcome,
 } from "../../../contract-net/contract-net-types.js";
 import { contractNetPattern } from "../contract-net-pattern.js";
 import { buildContext, buildResolved } from "./test-helpers.js";
@@ -25,16 +26,53 @@ afterEach(() => {
 /** Spy on the manager, capturing the exact config the pattern passes it. */
 function spyOnManager(): { configs: ContractNetConfig[] } {
   const configs: ContractNetConfig[] = [];
-  vi.spyOn(ContractNetManager, "execute").mockImplementation(async (config) => {
-    configs.push(config);
-    return {
-      cfpId: "cfp-cfg",
-      agentId: "s1",
-      success: true,
-      result: "ok",
-      actualDurationMs: 1,
-    };
-  });
+  vi.spyOn(ContractNetManager, "executeDetailed").mockImplementation(
+    async (config) => {
+      configs.push(config);
+      const invocations: ContractNetInvocationOutcome[] = [
+        {
+          agentId: "s1",
+          phase: "bid",
+          attempt: 0,
+          invocationIndex: 0,
+          success: true,
+          durationMs: 1,
+          content: "s1 bid",
+        },
+        {
+          agentId: "s2",
+          phase: "bid",
+          attempt: 0,
+          invocationIndex: 1,
+          success: true,
+          durationMs: 1,
+          content: "s2 bid",
+        },
+        {
+          agentId: "s1",
+          phase: "execute",
+          invocationIndex: 2,
+          success: true,
+          durationMs: 1,
+          content: "ok",
+        },
+      ];
+      for (const invocation of invocations) {
+        void config.invocationObserver?.onStart?.(invocation);
+        void config.invocationObserver?.onComplete?.(invocation);
+      }
+      return {
+        result: {
+          cfpId: "cfp-cfg",
+          agentId: "s1",
+          success: true,
+          result: "ok",
+          actualDurationMs: 1,
+        },
+        invocations,
+      };
+    }
+  );
   return { configs };
 }
 
@@ -46,7 +84,7 @@ const TWO_SPECIALISTS = () => [
 
 describe("contractNetPattern — ContractNetConfig threading", () => {
   describe("regression guard: no policy, no runtime plumbing", () => {
-    it("passes exactly the pre-existing two-field config", async () => {
+    it("adds only the required observer to the pre-existing config", async () => {
       const { configs } = spyOnManager();
       const { ctx } = buildContext("contract_net", TWO_SPECIALISTS());
 
@@ -56,12 +94,16 @@ describe("contractNetPattern — ContractNetConfig threading", () => {
       // The whole point: no extra keys leak in as `undefined`. A config with
       // `maxCostCents: undefined` present would still be a behaviour change for
       // anything doing `'maxCostCents' in config`.
-      expect(Object.keys(config).sort()).toEqual(["specialists", "task"]);
+      expect(Object.keys(config).sort()).toEqual([
+        "invocationObserver",
+        "specialists",
+        "task",
+      ]);
       expect(config.task).toBe("mock task");
       expect(config.specialists.map((s) => s.id)).toEqual(["s1", "s2"]);
     });
 
-    it("leaves the returned team result shape unchanged", async () => {
+    it("returns truthful bidder and winner results", async () => {
       spyOnManager();
       const { ctx, calls } = buildContext("contract_net", TWO_SPECIALISTS());
 
@@ -69,12 +111,12 @@ describe("contractNetPattern — ContractNetConfig threading", () => {
 
       expect(result.pattern).toBe("contract-net");
       expect(result.content).toBe("ok");
-      expect(calls.starts).toEqual(["mgr", "s1", "s2"]);
+      expect(calls.starts).toEqual(["s1", "s2"]);
       expect(result.agentResults.find((r) => r.agentId === "s1")!.content).toBe(
         "ok"
       );
       expect(result.agentResults.find((r) => r.agentId === "s2")!.content).toBe(
-        ""
+        "s2 bid"
       );
     });
 

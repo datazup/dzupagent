@@ -37,17 +37,19 @@ describe('councilPattern', () => {
     expect(result.content).toBe('verdict')
   })
 
-  it('delegates to AgentOrchestrator.debate and emits policy_applied when judgeModel is set', async () => {
-    const debateSpy = vi
-      .spyOn(AgentOrchestrator, 'debate')
-      .mockResolvedValue('verdict')
+  it('delegates to AgentOrchestrator.debateDetailed and emits policy_applied when judgeModel is set', async () => {
+    const debateSpy = vi.spyOn(AgentOrchestrator, 'debateDetailed')
 
     const { ctx, calls } = buildContext(
       'council',
       [
-        buildResolved('judge', { role: 'judge', model: 'claude-opus-4-7' }),
-        buildResolved('p1', { role: 'proposer' }),
-        buildResolved('p2', { role: 'proposer' }),
+        buildResolved('judge', {
+          role: 'judge',
+          model: 'claude-opus-4-7',
+          response: 'verdict',
+        }),
+        buildResolved('p1', { role: 'proposer', response: 'proposal-one' }),
+        buildResolved('p2', { role: 'proposer', response: 'proposal-two' }),
       ],
       {
         policies: { governance: { judgeModel: 'claude-opus-4-7' } },
@@ -61,15 +63,14 @@ describe('councilPattern', () => {
     expect(calls.policyApplied).toEqual([
       { group: 'governance', field: 'judgeModel' },
     ])
-    // Only the judge entry surfaces the verdict in `content`; proposers stay empty.
+    // Every settled participant surfaces its own exact generated content.
     const judge = result.agentResults.find((r) => r.agentId === 'judge')!
     const proposer = result.agentResults.find((r) => r.agentId === 'p1')!
     expect(judge.content).toBe('verdict')
-    expect(proposer.content).toBe('')
+    expect(proposer.content).toBe('proposal-one')
   })
 
   it('falls back to the first participant when no model matches the judgeModel policy', async () => {
-    vi.spyOn(AgentOrchestrator, 'debate').mockResolvedValue('verdict')
     const { ctx } = buildContext(
       'council',
       [
@@ -81,16 +82,26 @@ describe('councilPattern', () => {
     )
     const result = await councilPattern.execute(ctx)
     const first = result.agentResults.find((r) => r.agentId === 'first')!
-    expect(first.content).toBe('verdict')
+    expect(first.content).toBe('first-result')
   })
 
-  it('emits failed completes for everyone when debate throws', async () => {
-    vi.spyOn(AgentOrchestrator, 'debate').mockRejectedValue(new Error('judge died'))
+  it('keeps settled proposers successful when the judge throws', async () => {
     const { ctx, calls } = buildContext('council', [
-      buildResolved('judge', { role: 'judge', model: 'claude-opus-4-7' }),
-      buildResolved('p1', { role: 'proposer' }),
+      buildResolved('judge', {
+        role: 'judge',
+        model: 'claude-opus-4-7',
+        shouldThrow: true,
+      }),
+      buildResolved('p1', { role: 'proposer', response: 'proposal' }),
     ])
-    await expect(councilPattern.execute(ctx)).rejects.toThrow('judge died')
-    expect(calls.completes.map((c) => c.success)).toEqual([false, false])
+    await expect(councilPattern.execute(ctx)).rejects.toThrow('mock model failed')
+    expect(calls.completes).toEqual([
+      expect.objectContaining({ id: 'p1', success: true }),
+      expect.objectContaining({
+        id: 'judge',
+        success: false,
+        error: 'mock model failed',
+      }),
+    ])
   })
 })

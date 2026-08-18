@@ -93,6 +93,51 @@ export interface ContractResult {
   error?: string;
 }
 
+/** The concrete model-call phase represented by contract-net evidence. */
+export type ContractNetInvocationPhase = "bid" | "execute";
+
+/** Why an actual contract-net model invocation failed protocol admission. */
+export type ContractNetInvocationFailureKind =
+  | "model_error"
+  | "invalid_bid"
+  | "deadline"
+  | "cancelled";
+
+/** Evidence emitted immediately before an actual model invocation starts. */
+export interface ContractNetInvocationStart {
+  readonly agentId: string;
+  readonly phase: ContractNetInvocationPhase;
+  readonly invocationIndex: number;
+  /** Zero-based bid attempt. Absent for winner execution. */
+  readonly attempt?: number;
+}
+
+/** Terminal evidence for one actual bid or winner-execution invocation. */
+export interface ContractNetInvocationOutcome
+  extends ContractNetInvocationStart {
+  readonly success: boolean;
+  /** Finite, non-negative elapsed wall-clock duration. */
+  readonly durationMs: number;
+  /** Exact generated content, retained only for a successful invocation. */
+  readonly content?: string;
+  /** Normalized failure text, retained only for a failed invocation. */
+  readonly error?: string;
+  /** Structured failure reason, retained only for a failed invocation. */
+  readonly failureKind?: ContractNetInvocationFailureKind;
+}
+
+/** Best-effort evidence callbacks; observer failures never alter execution. */
+export interface ContractNetInvocationObserver {
+  onStart?(start: ContractNetInvocationStart): unknown;
+  onComplete?(outcome: ContractNetInvocationOutcome): unknown;
+}
+
+/** Legacy contract result plus every settled invocation in start order. */
+export interface ContractNetDetailedResult {
+  result: ContractResult;
+  invocations: ContractNetInvocationOutcome[];
+}
+
 export interface ContractNetState {
   phase: ContractNetPhase;
   cfp: CallForProposals;
@@ -134,4 +179,5 @@ export interface ContractNetConfig extends BaseContractNetContract<DzupAgent> {
   retryOnNoBids?: boolean;
   signal?: AbortSignal;
   eventBus?: DzupEventBus;
+  invocationObserver?: ContractNetInvocationObserver;
 }
