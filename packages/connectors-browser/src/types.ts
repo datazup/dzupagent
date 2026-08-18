@@ -181,6 +181,33 @@ export interface ScreenshotResult {
   height: number;
 }
 
+/**
+ * A single hostname-to-address pin applied to the browser's own DNS resolver.
+ *
+ * This is the browser-side other half of {@link BrowserNavigationPolicy}. The
+ * policy resolves and validates a hostname *in Node*; without a pin the browser
+ * resolves the same hostname again independently, so an attacker-controlled DNS
+ * record can return a public address to Node and an internal one to Chromium
+ * (DNS-rebinding TOCTOU). Pinning binds the navigation to the address the
+ * policy actually validated.
+ *
+ * `address` MUST be an IP literal — a hostname replacement would simply
+ * reintroduce the second, unvalidated resolution this exists to eliminate.
+ *
+ * Not re-exported from the package root barrel, which is growth-frozen (see
+ * config/barrel-budgets.json). Consumers pass object literals through
+ * {@link BrowserLaunchOptions.hostResolverRules}, or name the type structurally
+ * as `NonNullable<BrowserLaunchOptions["hostResolverRules"]>[number]`.
+ */
+export interface BrowserHostResolverRule {
+  /** Hostname to pin. Exact match, no wildcards. */
+  host: string;
+  /** IPv4 or IPv6 literal the hostname must resolve to. */
+  address: string;
+  /** Optional port override (1-65535). Omit to keep the request's own port. */
+  port?: number | undefined;
+}
+
 export interface BrowserLaunchOptions {
   headless?: boolean | undefined;
   viewport?: { width: number; height: number } | undefined;
@@ -190,4 +217,19 @@ export interface BrowserLaunchOptions {
    * must observe and transform every application request.
    */
   serviceWorkers?: "allow" | "block" | undefined;
+  /**
+   * Hostname pins installed into the browser's DNS resolver at launch, rendered
+   * by the manager into Chromium's `--host-resolver-rules` flag.
+   *
+   * Deliberately NOT a general Chromium argument channel: arbitrary launch args
+   * (`--disable-web-security`, `--no-sandbox`, `--remote-debugging-port`, …)
+   * are themselves an attack surface, and this package exposes none.
+   *
+   * Whether a given address is an *allowed* target stays the job of
+   * {@link BrowserNavigationPolicy} (`allowPrivateNetwork` and friends) — a pin
+   * only guarantees the browser goes where Node already looked. Rules are
+   * validated fail-closed: an invalid host, a non-literal address, or an
+   * out-of-range port throws from `launch()` rather than being dropped.
+   */
+  hostResolverRules?: readonly BrowserHostResolverRule[] | undefined;
 }

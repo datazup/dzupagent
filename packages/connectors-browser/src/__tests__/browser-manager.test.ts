@@ -40,6 +40,60 @@ describe('BrowserManager', () => {
     expect(chromium.launch).toHaveBeenCalledWith({ headless: false })
   })
 
+  it('does not pass an args array when no typed launch option needs one', async () => {
+    const manager = new BrowserManager()
+    await manager.launch({ headless: true, viewport: { width: 800, height: 600 } })
+
+    const { chromium } = await import('playwright')
+    expect(chromium.launch).toHaveBeenCalledWith({ headless: true })
+  })
+
+  it('forwards hostResolverRules to chromium as --host-resolver-rules', async () => {
+    const manager = new BrowserManager()
+    await manager.launch({
+      headless: true,
+      hostResolverRules: [
+        { host: 'target.example.com', address: '93.184.216.34' },
+      ],
+    })
+
+    const { chromium } = await import('playwright')
+    expect(chromium.launch).toHaveBeenCalledWith({
+      headless: true,
+      args: ['--host-resolver-rules=MAP target.example.com 93.184.216.34'],
+    })
+  })
+
+  it('renders every pin into a single comma-joined flag', async () => {
+    const manager = new BrowserManager()
+    await manager.launch({
+      hostResolverRules: [
+        { host: 'a.example.com', address: '1.2.3.4' },
+        { host: 'b.example.com', address: '::1', port: 8443 },
+      ],
+    })
+
+    const { chromium } = await import('playwright')
+    expect(chromium.launch).toHaveBeenCalledWith({
+      headless: true,
+      args: ['--host-resolver-rules=MAP a.example.com 1.2.3.4,MAP b.example.com [::1]:8443'],
+    })
+  })
+
+  it('throws before launching when a pin is invalid (fail-closed)', async () => {
+    const manager = new BrowserManager()
+    await expect(
+      manager.launch({
+        hostResolverRules: [
+          { host: 'target.example.com', address: 'attacker.example.com' },
+        ],
+      })
+    ).rejects.toThrow(/address must be an IPv4 or IPv6 literal/)
+
+    const { chromium } = await import('playwright')
+    expect(chromium.launch).not.toHaveBeenCalled()
+  })
+
   it('does not launch twice if already launched', async () => {
     const manager = new BrowserManager()
     await manager.launch()
