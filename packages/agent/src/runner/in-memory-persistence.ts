@@ -27,7 +27,7 @@ import {
   type AgentToolInvocationState,
 } from '@dzupagent/agent-types/run'
 
-import { assertDurableJson, cloneDurableJson, digestRunnerJson } from './runner-values.js'
+import { assertDurableJson, cloneDurableJson, digestRunnerJson } from './runner-durable-json.js'
 import { assertAgentRunnerStructuredOutputRequest } from './model-port-values.js'
 
 export class InMemoryAgentRunStore implements AgentRunStore {

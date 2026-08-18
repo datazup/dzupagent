@@ -43,8 +43,11 @@ import {
   digestRunnerJson,
 } from './runner-durable-json.js'
 
-// Re-exported so `runner-values.js` stays the single import site for the
-// durable-JSON surface after the split.
+// PUBLIC API, not an internal convenience: `src/runner.ts` reaches the package
+// barrel via `export * from './runner/runner-values.js'`, so dropping this
+// re-export would silently remove `AgentRunnerSerializationError` and friends
+// from the published surface. Internal modules import them from
+// `./runner-durable-json.js` directly so the split boundary is real.
 export {
   AgentRunnerSerializationError,
   assertDurableJson,
