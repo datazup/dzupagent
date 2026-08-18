@@ -5,6 +5,11 @@ export {
   materializeRecursiveForEachItemPlanV1,
 } from "./for-each-item-plan.js";
 export { dispatchRecursiveForEachItemsV1 } from "./for-each-item-dispatcher.js";
+export {
+  recursiveControlScopeIdentityV1,
+  restoreRecursiveControlDecisionV1,
+  settleRecursiveControlDecisionV1,
+} from "./control-ownership.js";
 export type {
   RecursiveBranchBlockedReasonV1,
   RecursiveBranchChildCommitPayloadV1,
@@ -45,3 +50,21 @@ export type {
   RecursiveForEachItemPlanV1,
   RecursiveForEachPlannedItemV1,
 } from "./for-each-item-types.js";
+export type {
+  RecursiveControlBlockedReasonV1,
+  RecursiveControlCandidateSetCompareAndSaveInputV1,
+  RecursiveControlCandidateSetEntryV1,
+  RecursiveControlCandidateSetV1,
+  RecursiveControlCancellationCompareAndSaveInputV1,
+  RecursiveControlCancellationV1,
+  RecursiveControlCatchRouteV1,
+  RecursiveControlCoordinatorV1,
+  RecursiveControlCorruptReasonV1,
+  RecursiveControlDecisionCompareAndSaveInputV1,
+  RecursiveControlDecisionV1,
+  RecursiveControlDurablePortV1,
+  RecursiveControlDurableWriteResultV1,
+  RecursiveControlIntentV1,
+  RecursiveControlPolicyV1,
+  RecursiveControlScopeBindingV1,
+} from "./control-types.js";

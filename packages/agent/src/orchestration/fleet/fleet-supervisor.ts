@@ -1,5 +1,7 @@
 import { ulid } from "ulidx";
+import { isContractPayload } from "@dzupagent/agent-types/fleet";
 import type {
+  ContractPayload,
   EscalationOutcome,
   EscalationReason,
   FleetRunResult,
@@ -133,6 +135,7 @@ export class FleetSupervisor implements FleetSupervisorApi {
     try {
       const outcomes: RepoAgentResult[] = [];
       const budget = this.newBudgetTracker(spec);
+      const observedContractIds = new Set<string>();
       // Set once an escalation resolved to human-handoff; makes the run's
       // terminal status `escalated` rather than the usual completed/failed.
       let escalated = false;
@@ -143,7 +146,15 @@ export class FleetSupervisor implements FleetSupervisorApi {
       const isFanOut =
         spec.scenario === "audit-fanout" || policy.id === "fan-out";
 
-      if (isFanOut) {
+      escalated = await this.reconcileContractChanges(
+        spec.runId,
+        policy,
+        repoAgents,
+        observedContractIds
+      );
+      if (escalated) truncated = spec.tasks.length > 0;
+
+      if (!escalated && isFanOut) {
         for (const task of spec.tasks) {
           // Deadline is checked *before* dispatch, and only for tasks after the
           // first: a run must never be a zero-work no-op just because the
@@ -173,6 +184,18 @@ export class FleetSupervisor implements FleetSupervisorApi {
           });
           const results = await Promise.all(runs);
 
+          const contractEscalated = await this.reconcileContractChanges(
+            spec.runId,
+            policy,
+            repoAgents,
+            observedContractIds
+          );
+          if (contractEscalated) {
+            escalated = true;
+            truncated = task !== spec.tasks[spec.tasks.length - 1];
+            break;
+          }
+
           if (budget.recordAndCheckToolCalls(results)) {
             escalated = await this.escalate(
               spec.runId,
@@ -186,7 +209,7 @@ export class FleetSupervisor implements FleetSupervisorApi {
             break;
           }
         }
-      } else {
+      } else if (!escalated) {
         // Sequential branch. `pending` is a work queue rather than a plain
         // iteration over spec.tasks: DependencyTrackerPolicy.assignTask throws
         // when a task's dependencies are unmet, and its documented contract is
@@ -243,6 +266,19 @@ export class FleetSupervisor implements FleetSupervisorApi {
             }
             outcomes.push(result);
 
+            const contractEscalated = await this.reconcileContractChanges(
+              spec.runId,
+              policy,
+              repoAgents,
+              observedContractIds
+            );
+            if (contractEscalated) {
+              escalated = true;
+              truncated = outcomes.length < spec.tasks.length;
+              stop = true;
+              break;
+            }
+
             if (budget.recordAndCheckToolCalls([result])) {
               escalated = await this.escalate(
                 spec.runId,
@@ -279,6 +315,15 @@ export class FleetSupervisor implements FleetSupervisorApi {
 
           pending = deferred;
         }
+      }
+
+      if (!escalated) {
+        escalated = await this.reconcileContractChanges(
+          spec.runId,
+          policy,
+          repoAgents,
+          observedContractIds
+        );
       }
 
       const allOk =
@@ -477,6 +522,79 @@ export class FleetSupervisor implements FleetSupervisorApi {
       outcome
     );
     return outcome.kind === "human-handoff";
+  }
+
+  /**
+   * Reconciles proposed contract envelopes that have appeared since the last
+   * safe run boundary. Envelope ids provide per-run at-most-once processing;
+   * query order determines both surface order and proposal order.
+   */
+  private async reconcileContractChanges(
+    runId: string,
+    policy: FleetPolicy,
+    repoAgents: Map<string, RepoAgentSlot>,
+    observedContractIds: Set<string>
+  ): Promise<boolean> {
+    const groups = new Map<
+      string,
+      { proposals: ContractPayload[]; envelopeIds: string[] }
+    >();
+
+    for await (const entry of this.deps.knowledge.query({
+      scope: "run:" + runId,
+      kind: "contract",
+    })) {
+      if (observedContractIds.has(entry.id)) continue;
+      observedContractIds.add(entry.id);
+
+      if (
+        entry.kind !== "contract" ||
+        entry.runId !== runId ||
+        !isContractPayload(entry.payload) ||
+        entry.payload.status !== "proposed"
+      ) {
+        continue;
+      }
+
+      const group = groups.get(entry.payload.surface);
+      if (group) {
+        group.proposals.push(entry.payload);
+        group.envelopeIds.push(entry.id);
+      } else {
+        groups.set(entry.payload.surface, {
+          proposals: [entry.payload],
+          envelopeIds: [entry.id],
+        });
+      }
+    }
+
+    for (const [surface, group] of groups) {
+      const fleet = [...repoAgents.values()].map((slot) => slot.ref);
+      const plan = await policy.onContractChange(
+        { surface, proposals: group.proposals },
+        fleet
+      );
+      await this.writeDecision(
+        runId,
+        "reconciliation",
+        policy.id,
+        [surface, ...group.envelopeIds],
+        plan
+      );
+
+      if (plan.escalate) {
+        const handedOff = await this.escalate(
+          runId,
+          policy,
+          "contract-conflict",
+          "escalation",
+          ["reconciliation", surface, ...group.envelopeIds]
+        );
+        if (handedOff) return true;
+      }
+    }
+
+    return false;
   }
 
   /**

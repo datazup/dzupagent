@@ -9,6 +9,15 @@ import type {
   RecursiveScopedSha256Digest,
 } from "@dzupagent/runtime-contracts/recursive-scope";
 
+import type {
+  RecursiveControlBlockedReasonV1,
+  RecursiveControlCoordinatorV1,
+  RecursiveControlCorruptReasonV1,
+  RecursiveControlDecisionV1,
+  RecursiveControlIntentV1,
+  RecursiveControlPolicyV1,
+} from "./control-types.js";
+
 export type RecursiveBranchFrameKindV1 = Extract<
   RecursiveScopedFrameKindV1,
   "branch" | "fork-branch"
@@ -106,6 +115,9 @@ export type RecursiveBranchChildExecutionV1 =
       readonly status: "suspended-for-later";
       readonly control: RecursiveDeferredControlV1;
       readonly checkpoint?: RecursiveScopedJsonObject;
+      /** W3-C3 definition-bound evidence. Omission retains the W3-C1 boundary. */
+      readonly intent?: RecursiveControlIntentV1;
+      readonly commit?: RecursiveBranchChildCommitPayloadV1;
     }
   | {
       readonly status: "blocked";
@@ -132,11 +144,13 @@ export type RecursiveBranchChildExecutorFactoryV1 = (
 export interface RecursiveBranchDispatcherDepsV1 {
   readonly durable: RecursiveBranchDurablePortV1;
   readonly createChildExecutor: RecursiveBranchChildExecutorFactoryV1;
+  readonly control?: RecursiveControlCoordinatorV1;
 }
 
 export interface RecursiveBranchDispatchInputV1 {
   readonly mode: "initial" | "restart";
   readonly plan: RecursiveBranchPlanInputV1;
+  readonly controlPolicy?: RecursiveControlPolicyV1;
 }
 
 export interface RecursiveBranchDispatchProgressV1 {
@@ -155,7 +169,8 @@ export type RecursiveBranchBlockedReasonV1 =
   | "storage-error"
   | "child-execution-failed"
   | "child-policy-blocked"
-  | "merge-conflict";
+  | "merge-conflict"
+  | RecursiveControlBlockedReasonV1;
 
 export type RecursiveBranchCorruptReasonV1 =
   | "invalid-plan"
@@ -163,7 +178,8 @@ export type RecursiveBranchCorruptReasonV1 =
   | "frame-drift"
   | "commit-corrupt"
   | "commit-drift"
-  | "child-commit-corrupt";
+  | "child-commit-corrupt"
+  | RecursiveControlCorruptReasonV1;
 
 export type RecursiveBranchDispatchOutcomeV1 =
   | {
@@ -183,6 +199,7 @@ export type RecursiveBranchDispatchOutcomeV1 =
       readonly progress: RecursiveBranchDispatchProgressV1;
       readonly childScopeId: string;
       readonly control: RecursiveDeferredControlV1;
+      readonly decision?: RecursiveControlDecisionV1;
     }
   | {
       readonly status: "blocked";

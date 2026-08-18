@@ -15,6 +15,12 @@ import type {
   RecursiveDeferredControlV1,
   RecursiveScopedDurablePortV1,
 } from "./types.js";
+import type {
+  RecursiveControlCoordinatorV1,
+  RecursiveControlDecisionV1,
+  RecursiveControlIntentV1,
+  RecursiveControlPolicyV1,
+} from "./control-types.js";
 
 export interface RecursiveForEachItemEconomicsBindingV1 {
   readonly chargeKey: string;
@@ -85,6 +91,9 @@ export type RecursiveForEachItemExecutionV1 =
       readonly status: "suspended-for-later";
       readonly control: RecursiveDeferredControlV1;
       readonly checkpoint?: RecursiveScopedJsonObject;
+      /** W3-C3 definition-bound evidence. Omission retains the W3-C2 boundary. */
+      readonly intent?: RecursiveControlIntentV1;
+      readonly commit?: RecursiveForEachItemCommitPayloadV1;
     }
   | {
       readonly status: "blocked";
@@ -117,11 +126,13 @@ export type RecursiveForEachItemExecutorFactoryV1 = (
 export interface RecursiveForEachItemDispatcherDepsV1 {
   readonly durable: RecursiveScopedDurablePortV1;
   readonly createItemExecutor: RecursiveForEachItemExecutorFactoryV1;
+  readonly control?: RecursiveControlCoordinatorV1;
 }
 
 export interface RecursiveForEachItemDispatchInputV1 {
   readonly mode: "initial" | "restart";
   readonly plan: RecursiveForEachItemPlanInputV1;
+  readonly controlPolicy?: RecursiveControlPolicyV1;
 }
 
 export interface RecursiveForEachItemDispatchProgressV1 {
@@ -160,6 +171,7 @@ export type RecursiveForEachItemDispatchOutcomeV1 =
       readonly progress: RecursiveForEachItemDispatchProgressV1;
       readonly childScopeId: string;
       readonly control: RecursiveDeferredControlV1;
+      readonly decision?: RecursiveControlDecisionV1;
     }
   | {
       readonly status: "blocked";

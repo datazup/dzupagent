@@ -7,6 +7,16 @@ import {
 } from "@dzupagent/runtime-contracts/recursive-scope";
 
 import {
+  RecursiveControlAbort,
+  restoreRecursiveControlDecisionV1,
+  settleRecursiveControlDecisionV1,
+} from "./control-ownership.js";
+import type {
+  RecursiveControlCandidateV1,
+  RecursiveControlPreparedChildV1,
+  RecursiveControlScopeBindingV1,
+} from "./control-types.js";
+import {
   RecursiveScopedDispatchAbort,
   assertRecursiveAcknowledgementsKnownV1,
   prepareRecursiveChildV1,
@@ -73,9 +83,17 @@ interface CompletedItem {
 }
 
 type ItemRunResult =
-  | ({ readonly status: "completed" } & CompletedItem)
+  | ({
+      readonly status: "completed";
+      readonly frame: RecursiveForEachPlannedItemV1["frame"];
+    } & CompletedItem)
+  | {
+      readonly status: "structured-control";
+      readonly candidate: RecursiveControlCandidateV1;
+    }
   | {
       readonly status: "suspended-for-later";
+      readonly frame: RecursiveForEachPlannedItemV1["frame"];
       readonly childScopeId: string;
       readonly control: RecursiveDeferredControlV1;
     }
@@ -272,9 +290,35 @@ async function runItem(
           currentFrame,
           next,
         );
+        currentCheckpoint = parseItemCheckpoint(
+          currentFrame,
+          { collectionSourceDigest: prepared.checkpoint.collectionSourceDigest },
+          prepared.planned,
+        );
+      }
+      if (result.intent !== undefined) {
+        if (result.intent.kind !== result.control) {
+          return {
+            status: "aborted",
+            abort: new RecursiveForEachItemDispatchAbort({
+              status: "corrupt",
+              childScopeId: currentFrame.childScopeId,
+              reason: "control-intent-corrupt",
+            }),
+          };
+        }
+        return {
+          status: "structured-control",
+          candidate: {
+            frame: currentFrame,
+            intent: result.intent,
+            ...(result.commit === undefined ? {} : { commit: result.commit }),
+          },
+        };
       }
       return {
         status: "suspended-for-later",
+        frame: currentFrame,
         childScopeId: currentFrame.childScopeId,
         control: result.control,
       };
@@ -340,7 +384,7 @@ async function runItem(
       checkpoint: currentCheckpoint,
     };
     const finalized = await finalizeBodyComplete(deps, completed);
-    return { status: "completed", ...finalized };
+    return { status: "completed", frame: currentFrame, ...finalized };
   } catch (error) {
     return {
       status: "aborted",
@@ -410,6 +454,17 @@ export async function dispatchRecursiveForEachItemsV1(
     };
   }
 
+  if (
+    (deps.control === undefined) !== (input.controlPolicy === undefined)
+  ) {
+    return {
+      status: "blocked",
+      childScopeId: undefined,
+      reason: "control-policy-unavailable",
+      progress: progress(),
+    };
+  }
+
   const prepared: PreparedItem[] = [];
   try {
     for (const planned of plan.items) {
@@ -421,7 +476,15 @@ export async function dispatchRecursiveForEachItemsV1(
         skippedCommittedChildScopeIds,
       );
       const checkpoint = parseItemCheckpoint(child.frame, plan, planned);
-      if (child.committed !== undefined && checkpoint.phase !== "body-complete") {
+      if (
+        child.committed !== undefined &&
+        checkpoint.phase !== "body-complete" &&
+        !(
+          deps.control !== undefined &&
+          input.controlPolicy !== undefined &&
+          child.committed.intentClaims.length === 1
+        )
+      ) {
         return outcomeFromAbort(
           new RecursiveForEachItemDispatchAbort({
             status: "corrupt",
@@ -450,8 +513,51 @@ export async function dispatchRecursiveForEachItemsV1(
     return outcomeFromAbort(asItemAbort(error));
   }
 
+  const controlBinding: RecursiveControlScopeBindingV1 = {
+    rootDefinitionDigest: plan.rootDefinitionDigest,
+    ownerPath: plan.ownerPath,
+    parentCommitIdentity: plan.parentCommitIdentity,
+  };
+  if (deps.control !== undefined && input.controlPolicy !== undefined) {
+    const controlChildren: RecursiveControlPreparedChildV1[] = prepared.map(
+      (item) => ({
+        frame: item.frame,
+        committed:
+          completedByScope.get(item.frame.childScopeId)?.commit ?? item.committed,
+      }),
+    );
+    try {
+      const restored = await restoreRecursiveControlDecisionV1(
+        { durable: deps.durable, control: deps.control },
+        controlBinding,
+        input.controlPolicy,
+        controlChildren,
+      );
+      if (restored.status === "restored") {
+        return {
+          status: "suspended-for-later",
+          childScopeId: restored.decision.ownerChildScopeId,
+          control: restored.decision.kind,
+          decision: restored.decision,
+          progress: progress(),
+        };
+      }
+    } catch (error) {
+      if (error instanceof RecursiveControlAbort) {
+        return { ...error.state, progress: progress() };
+      }
+      return {
+        status: "blocked",
+        childScopeId: undefined,
+        reason: "storage-error",
+        progress: progress(),
+      };
+    }
+  }
+
   const eligible = prepared.filter(
-    ({ checkpoint }) => checkpoint.phase === "in-flight",
+    ({ checkpoint, committed }) =>
+      checkpoint.phase === "in-flight" && committed === undefined,
   );
   dispatchedChildScopeIds.push(
     ...eligible.map(({ frame }) => frame.childScopeId),
@@ -466,12 +572,96 @@ export async function dispatchRecursiveForEachItemsV1(
       result.status === "aborted",
   );
   if (stopped !== undefined) return outcomeFromAbort(stopped.abort);
+  const structured = runResults.filter(
+    (
+      result,
+    ): result is Extract<ItemRunResult, { status: "structured-control" }> =>
+      result.status === "structured-control",
+  );
   const suspended = runResults.find(
     (
       result,
     ): result is Extract<ItemRunResult, { status: "suspended-for-later" }> =>
       result.status === "suspended-for-later",
   );
+  if (structured.length > 0) {
+    if (
+      deps.control === undefined ||
+      input.controlPolicy === undefined
+    ) {
+      return {
+        status: "blocked",
+        childScopeId: undefined,
+        reason: "control-policy-unavailable",
+        progress: progress(),
+      };
+    }
+    const soleStructured = structured.length === 1 ? structured[0] : undefined;
+    if (
+      suspended !== undefined &&
+      soleStructured?.candidate.intent.kind !== "terminal"
+    ) {
+      return {
+        status: "blocked",
+        childScopeId: undefined,
+        reason: "ambiguous-control-owner",
+        progress: progress(),
+      };
+    }
+    const latestByScope = new Map<string, RecursiveControlPreparedChildV1>();
+    for (const result of runResults) {
+      if (result.status === "completed") {
+        latestByScope.set(result.frame.childScopeId, {
+          frame: result.frame,
+          committed: result.commit,
+        });
+      } else if (result.status === "structured-control") {
+        latestByScope.set(result.candidate.frame.childScopeId, {
+          frame: result.candidate.frame,
+          committed: undefined,
+        });
+      } else if (result.status === "suspended-for-later") {
+        latestByScope.set(result.frame.childScopeId, {
+          frame: result.frame,
+          committed: undefined,
+        });
+      }
+    }
+    const controlChildren: RecursiveControlPreparedChildV1[] = prepared.map(
+      (item) =>
+        latestByScope.get(item.frame.childScopeId) ?? {
+          frame: item.frame,
+          committed:
+            completedByScope.get(item.frame.childScopeId)?.commit ?? item.committed,
+        },
+    );
+    try {
+      const decision = await settleRecursiveControlDecisionV1(
+        { durable: deps.durable, control: deps.control },
+        controlBinding,
+        input.controlPolicy,
+        controlChildren,
+        structured.map(({ candidate }) => candidate),
+      );
+      return {
+        status: "suspended-for-later",
+        childScopeId: decision.ownerChildScopeId,
+        control: decision.kind,
+        decision,
+        progress: progress(),
+      };
+    } catch (error) {
+      if (error instanceof RecursiveControlAbort) {
+        return { ...error.state, progress: progress() };
+      }
+      return {
+        status: "blocked",
+        childScopeId: undefined,
+        reason: "storage-error",
+        progress: progress(),
+      };
+    }
+  }
   if (suspended !== undefined) {
     return {
       status: "suspended-for-later",
