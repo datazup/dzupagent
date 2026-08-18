@@ -634,14 +634,6 @@
           "rationale": "Freeze the consolidated compile pipeline pending extraction of its interaction manifest and validation phase helpers.",
           "shrinkTarget": 500
         },
-        "src/stages/semantic-walk/dispatch.ts": {
-          "maxLines": 504,
-          "sourceSha256": "7672c47e34efbb028eb89b1fcfdb7e8525dfdc06e6804f5e6fcc19e6454a186f",
-          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
-          "reviewBy": "2026-09-14",
-          "rationale": "Freeze the consolidated semantic dispatcher pending a behavior-preserving interaction helper extraction.",
-          "shrinkTarget": 500
-        },
         "src/stages/shape-validate-rules/control-flow.ts": {
           "maxLines": 666,
           "shrinkTarget": 500,
