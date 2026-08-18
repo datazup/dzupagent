@@ -21,13 +21,21 @@
  * Unlike `check:dts-budgets`, this gate is build-free: it inspects source only,
  * so it can run in any working tree without a dist/ build.
  *
+ * It ALSO ratchets the budget file against its own committed base. Measuring the
+ * source was never enough: a pin could be re-pinned upward at will, and between
+ * 2026-08-04 and 2026-08-18 the checked-in numbers moved UP 16 times against ONE
+ * decrease. Any number that moves away from its shrink target now needs an
+ * `acceptedGrowth` signature. See `evaluateBudgetRatchet`.
+ *
  * Usage:
  *   node scripts/check-barrel-budgets.mjs           # enforce budgets (default)
  *   node scripts/check-barrel-budgets.mjs --report  # print measured metrics, never fails
  *   node scripts/check-barrel-budgets.mjs --json     # machine-readable output
  *   node scripts/check-barrel-budgets.mjs --budget-file <path>
+ *   node scripts/check-barrel-budgets.mjs --base-ref origin/main   # ratchet base
  */
 
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -37,6 +45,15 @@ import { pathToFileURL } from 'node:url';
 import { summarizeRootBarrel } from './measure-dts-build.mjs';
 
 const DEFAULT_BUDGET_FILE = 'config/barrel-budgets.json';
+const DEFAULT_BASE_REF = 'HEAD';
+
+/**
+ * An acceptedGrowth signature authorises ONE transition and then goes stale.
+ * Records are kept as an audit log, but an old one cannot silently re-authorise
+ * the same growth months later.
+ */
+export const ACCEPTED_GROWTH_MAX_AGE_DAYS = 30;
+const MILLISECONDS_PER_DAY = 86_400_000;
 
 /**
  * Budget metrics that read directly from the root barrel summary.
@@ -53,6 +70,7 @@ function parseArgs(argv) {
     report: false,
     json: false,
     budgetFile: DEFAULT_BUDGET_FILE,
+    baseRef: process.env['BARREL_BUDGET_BASE_REF'] || DEFAULT_BASE_REF,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -74,6 +92,15 @@ function parseArgs(argv) {
       index += 1;
       continue;
     }
+    if (arg === '--base-ref') {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new Error(`${arg} requires a value`);
+      }
+      options.baseRef = value;
+      index += 1;
+      continue;
+    }
     if (arg === '--help' || arg === '-h') {
       options.help = true;
       continue;
@@ -89,10 +116,16 @@ function printHelp() {
 
 Growth-halt gate for large public root barrels. Reads source only (build-free).
 
+Also ratchets the budget file itself against its committed base: any number that
+moves AWAY from its shrink target needs an acceptedGrowth signature.
+
 Options:
   --report                Print measured metrics without failing
   --json                  Print machine-readable JSON
   --budget-file <path>    Budget file (default: ${DEFAULT_BUDGET_FILE})
+  --base-ref <ref>        Git ref the ratchet compares against
+                          (default: ${DEFAULT_BASE_REF}; env BARREL_BUDGET_BASE_REF).
+                          Use the merge base on a PR, e.g. --base-ref origin/main
   -h, --help              Show this help`);
 }
 
@@ -112,13 +145,44 @@ function sha256(text) {
   return text === undefined ? undefined : createHash('sha256').update(text).digest('hex');
 }
 
-function validateDebtPin({ debtPin, label, measured, metric, sourceSha256, now }) {
+/**
+ * The shrink target of a pin is not a free-text aspiration: it is the budget the
+ * gate already enforces, which is by construction below the pin (a pin only
+ * exists because the metric exceeded that budget). So the target is DERIVED from
+ * `target` rather than declared, and a declared copy that disagrees is rejected
+ * — a second number nobody reads is how a pin drifts into looking legitimate
+ * while the real ceiling walks upward.
+ */
+function readDeclaredShrinkTarget(debtPin, metric) {
+  const perMetric = debtPin.shrinkTargets;
+  if (perMetric !== undefined && typeof perMetric === 'object' && !Array.isArray(perMetric)
+    && perMetric[metric] !== undefined) {
+    return perMetric[metric];
+  }
+  return debtPin.shrinkTarget;
+}
+
+function validateDebtPin({ debtPin, label, measured, metric, target, sourceSha256, now }) {
   if (!debtPin || typeof debtPin !== 'object' || Array.isArray(debtPin)) {
     return { ok: false, message: `${label}: ${metric} exceeds its target without a source-bound debt pin` };
   }
   const pinnedLimit = debtPin[metric];
   if (typeof pinnedLimit !== 'number' || !Number.isFinite(pinnedLimit) || pinnedLimit < 0) {
     return { ok: false, message: `${label}: debt pin ${metric} must be a non-negative number` };
+  }
+  const declaredShrinkTarget = readDeclaredShrinkTarget(debtPin, metric);
+  if (declaredShrinkTarget !== undefined) {
+    if (typeof declaredShrinkTarget !== 'number' || !Number.isFinite(declaredShrinkTarget)) {
+      return { ok: false, message: `${label}: debt pin shrink target for ${metric} must be a number` };
+    }
+    if (declaredShrinkTarget !== target) {
+      return {
+        ok: false,
+        message: `${label}: debt pin declares a shrink target of ${declaredShrinkTarget} for ${metric} `
+          + `but the enforced budget is ${target}. The shrink target IS the budget — `
+          + `set it to ${target} or delete the field; it is never a third, softer number`,
+      };
+    }
   }
   if (measured > pinnedLimit) {
     return {
@@ -156,7 +220,7 @@ function validateDebtPin({ debtPin, label, measured, metric, sourceSha256, now }
   if (typeof debtPin.rationale !== 'string' || debtPin.rationale.trim().length < 20) {
     return { ok: false, message: `${label}: debt pin rationale must explain the retained debt` };
   }
-  return { ok: true, pinnedLimit };
+  return { ok: true, pinnedLimit, shrinkTarget: target };
 }
 
 /**
@@ -224,6 +288,7 @@ function evaluateFileLineCeiling({ root, packageDir, budget, now }) {
         label,
         measured,
         metric: 'maxLines',
+        target: ceiling,
         sourceSha256: sha256(sourceText),
         now,
       });
@@ -233,6 +298,7 @@ function evaluateFileLineCeiling({ root, packageDir, budget, now }) {
           label,
           measured,
           target: ceiling,
+          shrinkTarget: pinResult.shrinkTarget,
           pinnedLimit: pinResult.pinnedLimit,
           reviewBy: fileLineDebtPins[relFromPackage].reviewBy,
           sourceCommit: fileLineDebtPins[relFromPackage].sourceCommit,
@@ -287,6 +353,7 @@ function evaluateMetric({ messages, debtPins, packageName, metric, measured, lim
       label: packageName,
       measured,
       metric,
+      target: limit,
       sourceSha256,
       now,
     });
@@ -297,6 +364,7 @@ function evaluateMetric({ messages, debtPins, packageName, metric, measured, lim
         metric,
         measured,
         target: limit,
+        shrinkTarget: pinResult.shrinkTarget,
         pinnedLimit: pinResult.pinnedLimit,
         reviewBy: rootDebtPin.reviewBy,
         sourceCommit: rootDebtPin.sourceCommit,
@@ -400,6 +468,165 @@ export function evaluateBarrelBudgets({ root, budgetConfig, now = new Date() }) 
   };
 }
 
+/**
+ * Every number under `packages` is a ceiling or a target, so a generic walk is
+ * both sufficient and fail-safe: a knob added later is ratcheted automatically
+ * instead of silently escaping. Arrays ($comment prose) carry no budgets.
+ */
+function collectNumericLeaves(value, prefix, accumulator) {
+  if (typeof value === 'number') {
+    accumulator.set(prefix, value);
+    return accumulator;
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return accumulator;
+  for (const [key, entry] of Object.entries(value)) {
+    collectNumericLeaves(entry, prefix === '' ? key : `${prefix}/${key}`, accumulator);
+  }
+  return accumulator;
+}
+
+function validateAcceptedGrowthRecord({ record, approvers, now }) {
+  if (typeof record.reason !== 'string' || record.reason.trim().length < 20) {
+    return 'its reason must explain why the growth is accepted';
+  }
+  if (typeof record.approvedBy !== 'string' || record.approvedBy.trim().length === 0) {
+    return 'its approvedBy must name the person or role accepting the debt';
+  }
+  if (approvers !== undefined && !approvers.includes(record.approvedBy)) {
+    return `approvedBy "${record.approvedBy}" is not in acceptedGrowthApprovers `
+      + `(${approvers.join(', ')})`;
+  }
+  if (typeof record.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(record.date)) {
+    return 'its date must be an ISO date';
+  }
+  const signedAt = Date.parse(`${record.date}T00:00:00.000Z`);
+  if (!Number.isFinite(signedAt)) return 'its date must be an ISO date';
+  if (signedAt > now.getTime()) return `it is dated in the future (${record.date})`;
+  const ageDays = (now.getTime() - signedAt) / MILLISECONDS_PER_DAY;
+  if (ageDays > ACCEPTED_GROWTH_MAX_AGE_DAYS) {
+    return `its signature is ${Math.floor(ageDays)} days old, past the `
+      + `${ACCEPTED_GROWTH_MAX_AGE_DAYS}-day limit — re-sign it for the growth happening now`;
+  }
+  return undefined;
+}
+
+/**
+ * The ratchet (RF-03 follow-up).
+ *
+ * The budgets were only ever a growth-halt at the point of MEASUREMENT: a pin
+ * could be re-pinned upward at will, so between 2026-08-04 and 2026-08-18 the
+ * checked-in numbers moved UP 16 times against ONE decrease. `shrinkTarget`
+ * existed but was never parsed by anything — it appeared exactly once in the
+ * whole tree, inside an error-message template — so "move the number toward
+ * shrinkTarget, never away from it" was prose in a failure string, not a gate.
+ *
+ * This compares the budget file against its committed base and requires an
+ * explicit signature for any number that moved AWAY from its target. Since a
+ * target is always below its pin, "away" means "up". Moving a number DOWN, or
+ * deleting a satisfied pin, needs nothing.
+ *
+ * Each record authorises exactly one `{ key, from, to }` transition and is
+ * consumed once, so one signature cannot cover two raises.
+ */
+export function evaluateBudgetRatchet({ budgetConfig, baseBudgetConfig, now = new Date() }) {
+  const records = budgetConfig?.acceptedGrowth ?? [];
+  if (!Array.isArray(records)) {
+    throw new Error(
+      'acceptedGrowth must be an array of { key, from, to, reason, approvedBy, date } records',
+    );
+  }
+  const approvers = budgetConfig?.acceptedGrowthApprovers;
+  if (approvers !== undefined
+    && (!Array.isArray(approvers)
+      || approvers.some((entry) => typeof entry !== 'string' || entry.trim() === ''))) {
+    throw new Error('acceptedGrowthApprovers must be an array of non-empty strings');
+  }
+
+  const current = collectNumericLeaves(budgetConfig?.packages ?? {}, '', new Map());
+  const base = collectNumericLeaves(baseBudgetConfig?.packages ?? {}, '', new Map());
+
+  const growth = [];
+  for (const [key, value] of current) {
+    const previous = base.get(key);
+    if (previous === undefined || value <= previous) continue;
+    growth.push({ key, from: previous, to: value });
+  }
+
+  const messages = [];
+  const accepted = [];
+  const consumed = new Set();
+  for (const move of growth) {
+    const index = records.findIndex((record, position) => !consumed.has(position)
+      && record?.key === move.key
+      && record?.from === move.from
+      && record?.to === move.to);
+    if (index === -1) {
+      messages.push(
+        `${move.key}: moved AWAY from its shrink target (${move.from} -> ${move.to}) `
+        + `with no acceptedGrowth signature. A budget or pin may move DOWN freely; moving it UP `
+        + `is accepting debt. Either bring it back to ${move.from} by relocating or extracting `
+        + `code instead of re-pinning, or add this to "acceptedGrowth" in the budget file: `
+        + `{ "key": "${move.key}", "from": ${move.from}, "to": ${move.to}, `
+        + `"reason": "<why this growth is accepted>", "approvedBy": "<signer>", `
+        + `"date": "<YYYY-MM-DD>" }`,
+      );
+      continue;
+    }
+    consumed.add(index);
+    const problem = validateAcceptedGrowthRecord({ record: records[index], approvers, now });
+    if (problem !== undefined) {
+      messages.push(
+        `${move.key}: its acceptedGrowth record (${move.from} -> ${move.to}) is not usable — ${problem}`,
+      );
+      continue;
+    }
+    accepted.push({ ...move, ...records[index] });
+  }
+
+  return {
+    ok: messages.length === 0,
+    messages,
+    growth,
+    accepted,
+    unusedRecords: records.filter((_, position) => !consumed.has(position)),
+    approversConfigured: Array.isArray(approvers),
+  };
+}
+
+/**
+ * Reads the budget file as of `baseRef`. Never throws: an unavailable base is
+ * reported so the caller can say out loud that the ratchet did not run, rather
+ * than passing silently (a silent skip reads as "no growth", which is the exact
+ * failure this gate exists to prevent).
+ */
+export function readBaseBudgetConfig({ root, budgetPath, baseRef }) {
+  const relativePath = path.relative(root, budgetPath).split(path.sep).join('/');
+  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    return { available: false, reason: `${budgetPath} is outside the repository root` };
+  }
+  const shown = spawnSync('git', ['show', `${baseRef}:${relativePath}`], {
+    cwd: root,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (shown.error !== undefined) {
+    return { available: false, reason: `git show failed: ${shown.error.message}` };
+  }
+  if (shown.status !== 0) {
+    const detail = (shown.stderr ?? '').trim().split('\n')[0] ?? `exit ${shown.status}`;
+    return { available: false, reason: `git show ${baseRef}:${relativePath} failed — ${detail}` };
+  }
+  try {
+    return { available: true, config: JSON.parse(shown.stdout), relativePath };
+  } catch (error) {
+    return {
+      available: false,
+      reason: `the ${baseRef} copy of ${relativePath} is not valid JSON: `
+        + `${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
 function printReport(measurements) {
   for (const measurement of measurements) {
     console.log(`\n${measurement.packageName} (${measurement.packageDir})`);
@@ -422,7 +649,19 @@ async function main() {
   const root = process.cwd();
   const budgetPath = path.resolve(root, options.budgetFile);
   const budgetConfig = JSON.parse(readFileSync(budgetPath, 'utf8'));
-  const result = evaluateBarrelBudgets({ root, budgetConfig });
+  const measured = evaluateBarrelBudgets({ root, budgetConfig });
+
+  const base = readBaseBudgetConfig({ root, budgetPath, baseRef: options.baseRef });
+  const ratchet = base.available
+    ? evaluateBudgetRatchet({ budgetConfig, baseBudgetConfig: base.config })
+    : { ok: true, skipped: true, reason: base.reason, messages: [], growth: [], accepted: [], unusedRecords: [] };
+
+  const result = {
+    ...measured,
+    ok: measured.ok && ratchet.ok,
+    messages: [...measured.messages, ...ratchet.messages],
+    ratchet: { baseRef: options.baseRef, ...ratchet },
+  };
 
   if (options.json) {
     console.log(JSON.stringify(
@@ -436,6 +675,32 @@ async function main() {
 
   printReport(result.measurements);
 
+  if (ratchet.skipped === true) {
+    console.warn(
+      `\nNOTE: the shrink-target ratchet did NOT run — ${ratchet.reason}. `
+      + `Budget growth is UNCHECKED in this run.`,
+    );
+  } else {
+    if (ratchet.accepted.length > 0) {
+      console.log(`\nAccepted budget growth vs ${options.baseRef}: ${ratchet.accepted.length}`);
+      for (const move of ratchet.accepted) {
+        console.log(`  - ${move.key}: ${move.from} -> ${move.to} (${move.approvedBy}, ${move.date})`);
+      }
+    }
+    if (ratchet.unusedRecords.length > 0) {
+      console.log(
+        `\nacceptedGrowth records that did not apply this run: ${ratchet.unusedRecords.length} `
+        + `(historical signatures; each authorises one exact from -> to transition)`,
+      );
+    }
+    if (!ratchet.approversConfigured && ratchet.accepted.length > 0) {
+      console.warn(
+        'NOTE: "acceptedGrowthApprovers" is not configured, so any non-empty approvedBy is '
+        + 'accepted. Add the list to the budget file to restrict who may sign.',
+      );
+    }
+  }
+
   if (options.report) {
     return;
   }
@@ -448,7 +713,7 @@ async function main() {
         const metric = pin.metric === undefined ? '' : ` ${pin.metric}`;
         console.log(
           `  - ${pin.label}${metric}: ${pin.measured} > target ${pin.target}; `
-          + `review by ${pin.reviewBy}`,
+          + `shrink to ${pin.shrinkTarget}; review by ${pin.reviewBy}`,
         );
       }
     }
@@ -467,6 +732,8 @@ async function main() {
   console.error('    and import it from that subpath, leaving the root barrel unchanged.');
   console.error('  - Do NOT lower a budget by removing/renaming a root export — that breaks published consumers.');
   console.error('  - If a deliberate relocation moved a cluster to a subpath (root re-export kept), the counts stay flat.');
+  console.error('  - Re-pinning a number UPWARD is no longer self-service: it needs an acceptedGrowth');
+  console.error(`    signature in the budget file (ratchet base: ${options.baseRef}).`);
   process.exitCode = 1;
 }
 
