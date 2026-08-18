@@ -1,24 +1,20 @@
 import {
-  deserializeRecursiveScopedCommitV1,
-  deserializeRecursiveScopedFrameV1,
   materializeRecursiveScopedCommitV1,
-  materializeRecursiveScopedFrameV1,
   mergeRecursiveScopedCommitsV1,
-  recursiveScopedFrameBindingV1,
-  resolveRecursiveAcknowledgementLossV1,
-  serializeRecursiveScopedCommitV1,
-  serializeRecursiveScopedFrameV1,
-  type RecursiveScopedCommitBindingV1,
   type RecursiveScopedCommitV1,
-  type RecursiveScopedFrameV1,
-  type RecursiveScopedJsonObject,
-  type RecursiveScopedOwnershipInputV1,
 } from "@dzupagent/runtime-contracts/recursive-scope";
 
 import { materializeRecursiveBranchPlanV1 } from "./branch-plan.js";
+import {
+  RecursiveScopedDispatchAbort,
+  assertRecursiveAcknowledgementsKnownV1,
+  prepareRecursiveChildV1,
+  reconcileRecursiveCheckpointSaveV1,
+  reconcileRecursiveCommitSaveV1,
+  recursiveFrameWithCheckpointV1,
+  type RecursivePreparedChildV1,
+} from "./durable-child.js";
 import type {
-  RecursiveBranchBlockedReasonV1,
-  RecursiveBranchCorruptReasonV1,
   RecursiveBranchDispatchInputV1,
   RecursiveBranchDispatchOutcomeV1,
   RecursiveBranchDispatchProgressV1,
@@ -26,44 +22,14 @@ import type {
   RecursiveDeferredControlV1,
 } from "./types.js";
 
-type DispatchAbortState =
-  | {
-      readonly status: "retryable-before-dispatch";
-      readonly childScopeId: string;
-      readonly reason: "frame-acknowledgement-lost-without-evidence";
-    }
-  | {
-      readonly status: "blocked";
-      readonly childScopeId: string | undefined;
-      readonly reason: RecursiveBranchBlockedReasonV1;
-    }
-  | {
-      readonly status: "corrupt";
-      readonly childScopeId: string | undefined;
-      readonly reason: RecursiveBranchCorruptReasonV1;
-    };
-
-class RecursiveBranchDispatchAbort extends Error {
-  override readonly name = "RecursiveBranchDispatchAbort";
-
-  constructor(readonly state: DispatchAbortState) {
-    super(`${state.status}:${state.reason}`);
-  }
-}
-
-interface PreparedChild {
-  readonly frame: RecursiveScopedFrameV1;
-  readonly committed: RecursiveScopedCommitV1 | undefined;
-}
-
-type ChildRunResult =
+type BranchChildRunResult =
   | { readonly status: "completed"; readonly commit: RecursiveScopedCommitV1 }
   | {
       readonly status: "suspended-for-later";
       readonly childScopeId: string;
       readonly control: RecursiveDeferredControlV1;
     }
-  | { readonly status: "aborted"; readonly abort: RecursiveBranchDispatchAbort };
+  | { readonly status: "aborted"; readonly abort: RecursiveScopedDispatchAbort };
 
 function snapshotProgress(
   dispatched: readonly string[],
@@ -78,359 +44,24 @@ function snapshotProgress(
 }
 
 function outcomeFromAbort(
-  abort: RecursiveBranchDispatchAbort,
+  abort: RecursiveScopedDispatchAbort,
   progress: RecursiveBranchDispatchProgressV1,
 ): RecursiveBranchDispatchOutcomeV1 {
   return { ...abort.state, progress };
 }
 
-function abort(state: DispatchAbortState): never {
-  throw new RecursiveBranchDispatchAbort(state);
-}
-
-async function storageCall<T>(
-  childScopeId: string,
-  operation: () => Promise<T>,
-): Promise<T> {
-  try {
-    return await operation();
-  } catch {
-    return abort({
-      status: "blocked",
-      childScopeId,
-      reason: "storage-error",
-    });
-  }
-}
-
-function parseFrame(
-  serialized: string,
-  expected: RecursiveScopedFrameV1,
-): RecursiveScopedFrameV1 {
-  try {
-    return deserializeRecursiveScopedFrameV1(
-      serialized,
-      recursiveScopedFrameBindingV1(expected),
-    );
-  } catch (error) {
-    const drift = error instanceof Error && error.message.includes("binding failed");
-    return abort({
-      status: "corrupt",
-      childScopeId: expected.childScopeId,
-      reason: drift ? "frame-drift" : "frame-corrupt",
-    });
-  }
-}
-
-function commitBindingFor(
-  frame: RecursiveScopedFrameV1,
-): RecursiveScopedCommitBindingV1 {
-  return {
-    rootDefinitionDigest: frame.definition.rootDefinitionDigest,
-    ownerPath: frame.ownerPath,
-    childScopeId: frame.childScopeId,
-    childScopeIdentity: frame.childScopeIdentity,
-    frameKind: frame.frameKind,
-    ownership: frame.ownership,
-    frameIdentity: frame.frameIdentity,
-    parentCommitIdentity: frame.parentCommitIdentity,
-  };
-}
-
-function parseCommit(
-  serialized: string,
-  frame: RecursiveScopedFrameV1,
-): RecursiveScopedCommitV1 {
-  try {
-    return deserializeRecursiveScopedCommitV1(
-      serialized,
-      commitBindingFor(frame),
-    );
-  } catch (error) {
-    const drift = error instanceof Error && error.message.includes("binding failed");
-    return abort({
-      status: "corrupt",
-      childScopeId: frame.childScopeId,
-      reason: drift ? "commit-drift" : "commit-corrupt",
-    });
-  }
-}
-
-function assertAcknowledgementsKnown(commit: RecursiveScopedCommitV1): void {
-  const evidence = [
-    ...Object.values(commit.effects).map((entry) => entry.acknowledgement),
-    ...Object.values(commit.charges).map((entry) => entry.acknowledgement),
-  ];
-  if (
-    evidence.some(
-      (entry) => resolveRecursiveAcknowledgementLossV1(entry).status === "blocked",
-    )
-  ) {
-    abort({
-      status: "blocked",
-      childScopeId: commit.childScopeId,
-      reason: "operation-acknowledgement-unknown",
-    });
-  }
-}
-
-function ownershipInputFor(
-  frame: RecursiveScopedFrameV1,
-): RecursiveScopedOwnershipInputV1 {
-  if (frame.ownership.kind === "branch") {
-    return {
-      kind: "branch",
-      branchNodeId: frame.ownership.branchNodeId,
-      branchOrdinal: frame.ownership.branchOrdinal,
-      branchIdentity: frame.ownership.branchIdentity,
-    };
-  }
-  if (frame.ownership.kind === "fork-branch") {
-    return {
-      kind: "fork-branch",
-      forkNodeId: frame.ownership.forkNodeId,
-      branchOrdinal: frame.ownership.branchOrdinal,
-      branchIdentity: frame.ownership.branchIdentity,
-    };
-  }
-  return abort({
-    status: "corrupt",
-    childScopeId: frame.childScopeId,
-    reason: "frame-drift",
-  });
-}
-
-function frameWithCheckpoint(
-  frame: RecursiveScopedFrameV1,
-  checkpoint: RecursiveScopedJsonObject,
-): RecursiveScopedFrameV1 {
-  try {
-    return materializeRecursiveScopedFrameV1({
-      frameKind: frame.frameKind,
-      definition: frame.definition,
-      ownerPath: frame.ownerPath,
-      childScopeId: frame.childScopeId,
-      ownership: ownershipInputFor(frame),
-      nodeInventory: frame.nodeInventory,
-      continuation: frame.continuation,
-      parentCommitIdentity: frame.parentCommitIdentity,
-      checkpoint,
-    });
-  } catch {
-    return abort({
-      status: "corrupt",
-      childScopeId: frame.childScopeId,
-      reason: "frame-corrupt",
-    });
-  }
-}
-
-async function reconcileInitialFrameSave(
-  deps: RecursiveBranchDispatcherDepsV1,
-  frame: RecursiveScopedFrameV1,
-): Promise<RecursiveScopedFrameV1> {
-  const write = await storageCall(frame.childScopeId, () =>
-    deps.durable.compareAndSaveFrame({
-      childScopeId: frame.childScopeId,
-      expectedFrameIdentity: undefined,
-      frameIdentity: frame.frameIdentity,
-      serializedFrame: serializeRecursiveScopedFrameV1(frame),
-    }),
-  );
-  if (write.status === "committed") {
-    if (write.storedIdentity !== frame.frameIdentity) {
-      return abort({
-        status: "blocked",
-        childScopeId: frame.childScopeId,
-        reason: "frame-save-conflict",
-      });
-    }
-    return frame;
-  }
-
-  const observed = await storageCall(frame.childScopeId, () =>
-    deps.durable.loadFrame(frame.childScopeId),
-  );
-  if (observed === undefined) {
-    if (write.status === "acknowledgement-lost") {
-      return abort({
-        status: "retryable-before-dispatch",
-        childScopeId: frame.childScopeId,
-        reason: "frame-acknowledgement-lost-without-evidence",
-      });
-    }
-    return abort({
-      status: "blocked",
-      childScopeId: frame.childScopeId,
-      reason: "frame-save-conflict",
-    });
-  }
-  const restored = parseFrame(observed, frame);
-  if (restored.frameIdentity !== frame.frameIdentity) {
-    return abort({
-      status: "blocked",
-      childScopeId: frame.childScopeId,
-      reason: "frame-save-conflict",
-    });
-  }
-  return restored;
-}
-
-async function reconcileCheckpointSave(
-  deps: RecursiveBranchDispatcherDepsV1,
-  previous: RecursiveScopedFrameV1,
-  next: RecursiveScopedFrameV1,
-): Promise<RecursiveScopedFrameV1> {
-  const write = await storageCall(next.childScopeId, () =>
-    deps.durable.compareAndSaveFrame({
-      childScopeId: next.childScopeId,
-      expectedFrameIdentity: previous.frameIdentity,
-      frameIdentity: next.frameIdentity,
-      serializedFrame: serializeRecursiveScopedFrameV1(next),
-    }),
-  );
-  if (write.status === "committed") {
-    if (write.storedIdentity !== next.frameIdentity) {
-      return abort({
-        status: "blocked",
-        childScopeId: next.childScopeId,
-        reason: "frame-save-conflict",
-      });
-    }
-    return next;
-  }
-
-  const observed = await storageCall(next.childScopeId, () =>
-    deps.durable.loadFrame(next.childScopeId),
-  );
-  if (observed === undefined) {
-    return abort({
-      status: "blocked",
-      childScopeId: next.childScopeId,
-      reason:
-        write.status === "acknowledgement-lost"
-          ? "frame-acknowledgement-unknown-after-dispatch"
-          : "frame-save-conflict",
-    });
-  }
-  const restored = parseFrame(observed, next);
-  if (restored.frameIdentity !== next.frameIdentity) {
-    return abort({
-      status: "blocked",
-      childScopeId: next.childScopeId,
-      reason:
-        write.status === "acknowledgement-lost"
-          ? "frame-acknowledgement-unknown-after-dispatch"
-          : "frame-save-conflict",
-    });
-  }
-  return restored;
-}
-
-async function reconcileCommitSave(
-  deps: RecursiveBranchDispatcherDepsV1,
-  frame: RecursiveScopedFrameV1,
-  commit: RecursiveScopedCommitV1,
-): Promise<RecursiveScopedCommitV1> {
-  const write = await storageCall(frame.childScopeId, () =>
-    deps.durable.compareAndSaveCommittedChild({
-      childScopeId: frame.childScopeId,
-      expectedCommitIdentity: undefined,
-      commitIdentity: commit.commitIdentity,
-      serializedCommit: serializeRecursiveScopedCommitV1(commit),
-    }),
-  );
-  if (write.status === "committed") {
-    if (write.storedIdentity !== commit.commitIdentity) {
-      return abort({
-        status: "blocked",
-        childScopeId: frame.childScopeId,
-        reason: "commit-save-conflict",
-      });
-    }
-    return commit;
-  }
-
-  const observed = await storageCall(frame.childScopeId, () =>
-    deps.durable.loadCommittedChild(frame.childScopeId),
-  );
-  if (observed === undefined) {
-    return abort({
-      status: "blocked",
-      childScopeId: frame.childScopeId,
-      reason:
-        write.status === "acknowledgement-lost"
-          ? "commit-acknowledgement-unknown"
-          : "commit-save-conflict",
-    });
-  }
-  const restored = parseCommit(observed, frame);
-  if (restored.commitIdentity !== commit.commitIdentity) {
-    return abort({
-      status: "blocked",
-      childScopeId: frame.childScopeId,
-      reason: "commit-save-conflict",
-    });
-  }
-  assertAcknowledgementsKnown(restored);
-  return restored;
-}
-
-async function prepareChild(
-  deps: RecursiveBranchDispatcherDepsV1,
-  mode: RecursiveBranchDispatchInputV1["mode"],
-  planned: RecursiveScopedFrameV1,
-  restoredChildScopeIds: string[],
-  skippedCommittedChildScopeIds: string[],
-): Promise<PreparedChild> {
-  const storedFrame = await storageCall(planned.childScopeId, () =>
-    deps.durable.loadFrame(planned.childScopeId),
-  );
-  let frame: RecursiveScopedFrameV1;
-  if (storedFrame === undefined) {
-    if (mode === "restart") {
-      return abort({
-        status: "blocked",
-        childScopeId: planned.childScopeId,
-        reason: "missing-frame",
-      });
-    }
-    frame = await reconcileInitialFrameSave(deps, planned);
-  } else {
-    frame = parseFrame(storedFrame, planned);
-    if (mode === "initial" && frame.frameIdentity !== planned.frameIdentity) {
-      return abort({
-        status: "blocked",
-        childScopeId: planned.childScopeId,
-        reason: "frame-save-conflict",
-      });
-    }
-    restoredChildScopeIds.push(planned.childScopeId);
-  }
-
-  const storedCommit = await storageCall(planned.childScopeId, () =>
-    deps.durable.loadCommittedChild(planned.childScopeId),
-  );
-  if (storedCommit === undefined) return { frame, committed: undefined };
-
-  const committed = parseCommit(storedCommit, frame);
-  assertAcknowledgementsKnown(committed);
-  skippedCommittedChildScopeIds.push(planned.childScopeId);
-  return { frame, committed };
-}
-
 async function runChild(
   deps: RecursiveBranchDispatcherDepsV1,
-  prepared: PreparedChild,
-): Promise<ChildRunResult> {
+  prepared: RecursivePreparedChildV1,
+): Promise<BranchChildRunResult> {
   let currentFrame = prepared.frame;
   try {
     const executor = deps.createChildExecutor({ frame: currentFrame });
     const result = await executor.execute({
       frame: currentFrame,
       persistCheckpoint: async (checkpoint) => {
-        const next = frameWithCheckpoint(currentFrame, checkpoint);
-        currentFrame = await reconcileCheckpointSave(
+        const next = recursiveFrameWithCheckpointV1(currentFrame, checkpoint);
+        currentFrame = await reconcileRecursiveCheckpointSaveV1(
           deps,
           currentFrame,
           next,
@@ -442,7 +73,7 @@ async function runChild(
     if (result.status === "blocked") {
       return {
         status: "aborted",
-        abort: new RecursiveBranchDispatchAbort({
+        abort: new RecursiveScopedDispatchAbort({
           status: "blocked",
           childScopeId: currentFrame.childScopeId,
           reason: "child-policy-blocked",
@@ -451,8 +82,11 @@ async function runChild(
     }
     if (result.status === "suspended-for-later") {
       if (result.checkpoint !== undefined) {
-        const next = frameWithCheckpoint(currentFrame, result.checkpoint);
-        currentFrame = await reconcileCheckpointSave(
+        const next = recursiveFrameWithCheckpointV1(
+          currentFrame,
+          result.checkpoint,
+        );
+        currentFrame = await reconcileRecursiveCheckpointSaveV1(
           deps,
           currentFrame,
           next,
@@ -474,25 +108,25 @@ async function runChild(
     } catch {
       return {
         status: "aborted",
-        abort: new RecursiveBranchDispatchAbort({
+        abort: new RecursiveScopedDispatchAbort({
           status: "corrupt",
           childScopeId: currentFrame.childScopeId,
           reason: "child-commit-corrupt",
         }),
       };
     }
-    assertAcknowledgementsKnown(commit);
+    assertRecursiveAcknowledgementsKnownV1(commit);
     return {
       status: "completed",
-      commit: await reconcileCommitSave(deps, currentFrame, commit),
+      commit: await reconcileRecursiveCommitSaveV1(deps, currentFrame, commit),
     };
   } catch (error) {
     return {
       status: "aborted",
       abort:
-        error instanceof RecursiveBranchDispatchAbort
+        error instanceof RecursiveScopedDispatchAbort
           ? error
-          : new RecursiveBranchDispatchAbort({
+          : new RecursiveScopedDispatchAbort({
               status: "blocked",
               childScopeId: currentFrame.childScopeId,
               reason: "child-execution-failed",
@@ -503,7 +137,7 @@ async function runChild(
 
 /**
  * Dispatch a definition-bound normal branch/fork packet. No public pipeline
- * admission calls this function in W3-C1.
+ * admission calls this function in W3-C1/W3-C2.
  */
 export async function dispatchRecursiveBranchesV1(
   deps: RecursiveBranchDispatcherDepsV1,
@@ -531,11 +165,11 @@ export async function dispatchRecursiveBranchesV1(
     };
   }
 
-  const prepared: PreparedChild[] = [];
+  const prepared: RecursivePreparedChildV1[] = [];
   try {
     for (const frame of plan.frames) {
       prepared.push(
-        await prepareChild(
+        await prepareRecursiveChildV1(
           deps,
           input.mode,
           frame,
@@ -546,9 +180,9 @@ export async function dispatchRecursiveBranchesV1(
     }
   } catch (error) {
     const known =
-      error instanceof RecursiveBranchDispatchAbort
+      error instanceof RecursiveScopedDispatchAbort
         ? error
-        : new RecursiveBranchDispatchAbort({
+        : new RecursiveScopedDispatchAbort({
             status: "blocked",
             childScopeId: undefined,
             reason: "storage-error",
@@ -560,7 +194,7 @@ export async function dispatchRecursiveBranchesV1(
     committed === undefined ? [] : [committed],
   );
   const eligible = prepared.filter(
-    (child): child is PreparedChild & { committed: undefined } =>
+    (child): child is RecursivePreparedChildV1 & { committed: undefined } =>
       child.committed === undefined,
   );
   dispatchedChildScopeIds.push(
@@ -571,7 +205,7 @@ export async function dispatchRecursiveBranchesV1(
     eligible.map((child) => runChild(deps, child)),
   );
   const stopped = childResults.find(
-    (result): result is Extract<ChildRunResult, { status: "aborted" }> =>
+    (result): result is Extract<BranchChildRunResult, { status: "aborted" }> =>
       result.status === "aborted",
   );
   if (stopped !== undefined) {
@@ -581,7 +215,7 @@ export async function dispatchRecursiveBranchesV1(
     (
       result,
     ): result is Extract<
-      ChildRunResult,
+      BranchChildRunResult,
       { status: "suspended-for-later" }
     > => result.status === "suspended-for-later",
   );

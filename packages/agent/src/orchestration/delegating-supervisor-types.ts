@@ -20,6 +20,7 @@
 import type { DelegationContext, DelegationResult } from "./delegation.js";
 import type { StructuredLLM } from "../structured/structured-output-engine.js";
 import type { RoutingTaskInput } from "./routing-policy-types.js";
+import type { MergedResult } from "./orchestration-merge-strategy-types.js";
 
 /** Options for LLM-powered planAndDelegate. */
 export interface PlanAndDelegateOptions {
@@ -61,6 +62,8 @@ export interface AggregatedDelegationResult {
   failed: string[];
   /** Total wall-clock time for the parallel batch (ms) */
   totalDurationMs: number;
+  /** Complete result from the configured parallel merge strategy, when invoked. */
+  merged?: MergedResult;
 }
 
 /** Options for a single delegated task execution. */

@@ -69,10 +69,10 @@ export interface RecursiveCommitCompareAndSaveInputV1 {
 }
 
 /**
- * Minimal durable boundary for W3-C1. Implementations own transport and CAS;
- * this packet deliberately provides no database or host adapter.
+ * Minimal durable child-scope boundary. Implementations own transport and CAS;
+ * this private seam deliberately provides no database or host adapter.
  */
-export interface RecursiveBranchDurablePortV1 {
+export interface RecursiveScopedDurablePortV1 {
   loadFrame(childScopeId: string): Promise<string | undefined>;
   compareAndSaveFrame(
     input: RecursiveFrameCompareAndSaveInputV1,
@@ -82,6 +82,9 @@ export interface RecursiveBranchDurablePortV1 {
     input: RecursiveCommitCompareAndSaveInputV1,
   ): Promise<RecursiveDurableWriteResultV1>;
 }
+
+/** W3-C1 compatibility name retained for the qualified branch dispatcher. */
+export type RecursiveBranchDurablePortV1 = RecursiveScopedDurablePortV1;
 
 export type RecursiveBranchChildCommitPayloadV1 = Omit<
   RecursiveScopedCommitInputV1,

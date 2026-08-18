@@ -20,6 +20,7 @@ import type { AgentCircuitBreaker } from './circuit-breaker.js'
 import type { DelegationResult } from './delegation.js'
 import type {
   AgentResult,
+  MergedResult,
   OrchestrationMergeStrategy,
 } from './orchestration-merge-strategy-types.js'
 import { hasCircuitBreakerRecorded, recordCircuitBreakerFailure } from './circuit-breaker-recorder.js'
@@ -52,6 +53,7 @@ export function aggregateSettledResults(
   const results = new Map<string, DelegationResult>()
   const succeeded: string[] = []
   const failed: string[] = []
+  let merged: MergedResult | undefined
 
   for (const [i, outcome] of settled.entries()) {
     const assignment = assignments[i]!
@@ -94,7 +96,7 @@ export function aggregateSettledResults(
     failed.push(resultKey)
   }
 
-  if (mergeStrategy && results.size > 0) {
+  if (mergeStrategy) {
     const agentResults: AgentResult[] = [...results.entries()].map(([agentId, dr]) =>
       omitUndefined({
         agentId,
@@ -108,7 +110,7 @@ export function aggregateSettledResults(
         durationMs: dr.metadata?.durationMs,
       }),
     )
-    const merged = mergeStrategy.merge(agentResults)
+    merged = mergeStrategy.merge(agentResults)
     eventBus?.emit({
       type: 'supervisor:merge_complete',
       mergeStatus: merged.status,
@@ -122,5 +124,6 @@ export function aggregateSettledResults(
     succeeded,
     failed,
     totalDurationMs: Date.now() - startedAt,
+    ...(merged === undefined ? {} : { merged }),
   }
 }
