@@ -15,10 +15,10 @@
  * Regenerate after fixing violations: `yarn lint:baseline:update`
  * (preview the diff with `yarn lint:baseline:check`).
  *
- * The gated rules — 699 violations across 310 files:
+ * The gated rules — 698 violations across 309 files:
  *   - `real-set-timeout`        — real `setTimeout` in a test (prefer fake timers)   — 361 instances
  *   - `stateless-memory-double` — `{get,put}` spy, no `getKeyed`                     — 135 instances
- *   - `vacuous-every`           — `expect(xs.every(p)).toBe(true)`, true on empty    — 203 instances
+ *   - `vacuous-every`           — `expect(xs.every(p)).toBe(true)`, true on empty    — 202 instances
  *
  * Those four numbers are NOT prose: scripts/__tests__/test-quality-baseline.test.mjs
  * parses them back out of this comment and asserts they equal the totals of the
