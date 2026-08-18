@@ -116,6 +116,7 @@ export function createHumanContactRoutes(config: ForgeServerConfig): Hono<AppEnv
         eventBus.emit({
           type: 'approval:rejected',
           runId,
+          contactId,
           reason: typeof body['comment'] === 'string' ? body['comment'] : 'Rejected via human contact',
         })
       }

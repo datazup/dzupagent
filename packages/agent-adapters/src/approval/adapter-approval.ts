@@ -188,6 +188,7 @@ export class AdapterApprovalGate {
     this.emitEvent({
       type: "approval:requested",
       runId: context.runId,
+      contactId: requestId,
       plan: context,
     });
 
@@ -225,9 +226,15 @@ export class AdapterApprovalGate {
             reason: `Timed out after ${String(this.timeoutMs)}ms`,
             mode: this.config.mode,
           });
+          // NOTE: a timeout is reported as `approval:rejected` rather than
+          // `approval:timed_out`. That conflation predates this change and is
+          // left alone deliberately -- switching the event type would change
+          // what existing consumers observe. Qualifying it is safe and
+          // strictly narrows which pending approvals it can resolve.
           this.emitEvent({
             type: "approval:rejected",
             runId: context.runId,
+            contactId: requestId,
             reason: `Approval timed out after ${String(this.timeoutMs)}ms`,
           });
           resolve("timeout");
@@ -270,6 +277,7 @@ export class AdapterApprovalGate {
     this.emitEvent({
       type: "approval:granted",
       runId: request.runId,
+      contactId: requestId,
       approvedBy,
     });
 
@@ -306,6 +314,7 @@ export class AdapterApprovalGate {
     this.emitEvent({
       type: "approval:rejected",
       runId: request.runId,
+      contactId: requestId,
       reason,
     });
 
@@ -431,17 +440,32 @@ export class AdapterApprovalGate {
     this.resolvers.delete(requestId);
   }
 
+  /**
+   * Every event this gate emits answers exactly one `requestId`, so all of
+   * them carry it as `contactId` -- the field consumers use to decide whether
+   * a decision is about the approval they are waiting on. Emitting a decision
+   * without it produces an *unqualified* answer that satisfies every pending
+   * approval on the run, which is the hole DZUPAGENT-AGENT-H-14 closed for
+   * grants and its mirror closed for rejections.
+   */
   private emitEvent(
     event:
-      | { type: "approval:requested"; runId: string; plan: unknown }
+      | {
+          type: "approval:requested";
+          runId: string;
+          contactId: string;
+          plan: unknown;
+        }
       | {
           type: "approval:granted";
           runId: string;
+          contactId: string;
           approvedBy?: string | undefined;
         }
       | {
           type: "approval:rejected";
           runId: string;
+          contactId: string;
           reason?: string | undefined;
         }
   ): void {
