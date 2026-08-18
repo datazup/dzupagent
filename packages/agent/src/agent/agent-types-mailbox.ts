@@ -6,6 +6,7 @@
  */
 import type { DzupEventBus } from '@dzupagent/core/events'
 import type { MailboxStore } from '../mailbox/types.js'
+import type { MailboxTenantScope } from '../mailbox/agent-mailbox.js'
 
 /** Configuration for enabling the inter-agent mailbox on a DzupAgent. */
 export interface AgentMailboxConfig {
@@ -13,4 +14,6 @@ export interface AgentMailboxConfig {
   store?: MailboxStore
   /** Event bus for real-time mail notifications. Falls back to the agent's own eventBus. */
   eventBus?: DzupEventBus
+  /** Tenant ownership for the installed mailbox facade. */
+  tenantScope?: MailboxTenantScope
 }

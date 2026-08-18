@@ -27,7 +27,10 @@ import { DistributedRateLimiter } from '../guardrails/distributed-rate-limiter.j
 import { DistributedCostLedger } from '../guardrails/distributed-budget.js'
 import type { DzupAgentConfig } from './agent-types.js'
 import type { AgentMailbox } from '../mailbox/types.js'
-import { AgentMailboxImpl } from '../mailbox/agent-mailbox.js'
+import {
+  AgentMailboxImpl,
+  type AgentMailboxOptions,
+} from '../mailbox/agent-mailbox.js'
 import { InMemoryMailboxStore } from '../mailbox/in-memory-mailbox-store.js'
 import { createSendMailTool, createCheckMailTool } from '../mailbox/mail-tools.js'
 import { AgentInstructionResolver } from './instruction-resolution.js'
@@ -104,7 +107,14 @@ export function installEventBus(
   if (config.mailbox) {
     const store = config.mailbox.store ?? new InMemoryMailboxStore()
     const eventBus = config.mailbox.eventBus ?? config.eventBus
-    const mailboxImpl = new AgentMailboxImpl(agentId, store, eventBus)
+    const mailboxImpl = new AgentMailboxImpl(
+      agentId,
+      store,
+      omitUndefined<AgentMailboxOptions>({
+        eventBus,
+        tenantScope: config.mailbox.tenantScope,
+      }),
+    )
     mailbox = mailboxImpl
     mailboxTools = [
       createSendMailTool({ mailbox: mailboxImpl }),

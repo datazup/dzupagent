@@ -20,9 +20,16 @@ import type { DeadLetterStore } from './dead-letter-store.js'
 import type { RateLimiter } from './rate-limiter.js'
 import { MailRateLimitedError } from './rate-limiter.js'
 
+/** Explicit mailbox ownership mode for shared-store deployments. */
+export type MailboxTenantScope =
+  | { mode: 'legacy-default' }
+  | { mode: 'scoped'; tenantId: string }
+
 /** Options accepted by {@link AgentMailboxImpl}. */
 export interface AgentMailboxOptions {
   eventBus?: DzupEventBus
+  /** Tenant ownership for every mailbox read, write, ack, and event. */
+  tenantScope?: MailboxTenantScope
   /**
    * Total number of delivery (store.save) attempts before a message is
    * moved to the DLQ. Must be >= 1. Defaults to 3.
@@ -38,6 +45,7 @@ export interface AgentMailboxOptions {
 }
 
 const DEFAULT_MAX_DELIVERY_ATTEMPTS = 3
+const DEFAULT_MAILBOX_TENANT_ID = 'default'
 
 export class AgentMailboxImpl implements AgentMailbox {
   readonly agentId: string
@@ -46,6 +54,7 @@ export class AgentMailboxImpl implements AgentMailbox {
   private readonly maxDeliveryAttempts: number
   private readonly deadLetterStore: DeadLetterStore | undefined
   private readonly rateLimiter: RateLimiter | undefined
+  private readonly tenantId: string
 
   /**
    * @param agentId  The agent this mailbox belongs to.
@@ -63,6 +72,7 @@ export class AgentMailboxImpl implements AgentMailbox {
     this.store = store
 
     const options = normalizeOptions(eventBusOrOptions)
+    this.tenantId = normalizeMailboxTenantScope(options.tenantScope)
     this.eventBus = options.eventBus
     this.deadLetterStore = options.deadLetterStore
     this.rateLimiter = options.rateLimiter
@@ -98,6 +108,7 @@ export class AgentMailboxImpl implements AgentMailbox {
       subject,
       body,
       createdAt: Date.now(),
+      tenantId: this.tenantId,
     }
 
     await this.deliverWithRetry(message)
@@ -112,6 +123,7 @@ export class AgentMailboxImpl implements AgentMailbox {
           subject: message.subject,
           body: message.body,
           createdAt: message.createdAt,
+          tenantId: this.tenantId,
         },
       })
     }
@@ -120,7 +132,7 @@ export class AgentMailboxImpl implements AgentMailbox {
   }
 
   async receive(query?: MailboxQuery): Promise<MailMessage[]> {
-    return this.store.findByRecipient(this.agentId, query)
+    return this.store.findByRecipient(this.agentId, query, this.tenantId)
   }
 
   subscribe(handler: (message: MailMessage) => void): () => void {
@@ -129,7 +141,10 @@ export class AgentMailboxImpl implements AgentMailbox {
     }
 
     return this.eventBus.on('mail:received', (event) => {
-      if (event.message.to === this.agentId) {
+      if (
+        event.message.to === this.agentId &&
+        (event.message.tenantId ?? DEFAULT_MAILBOX_TENANT_ID) === this.tenantId
+      ) {
         // Capture async handler rejections so they never escape as an
         // unhandled rejection. Handler failures are non-fatal.
         void Promise.resolve(handler(event.message as MailMessage)).catch(
@@ -146,7 +161,7 @@ export class AgentMailboxImpl implements AgentMailbox {
   }
 
   async ack(messageId: string): Promise<void> {
-    return this.store.markRead(messageId)
+    return this.store.markRead(messageId, this.tenantId)
   }
 
   /**
@@ -186,6 +201,23 @@ function normalizeOptions(
     return { eventBus: input }
   }
   return input
+}
+
+function normalizeMailboxTenantScope(
+  scope: MailboxTenantScope | undefined,
+): string {
+  if (scope === undefined || scope.mode === 'legacy-default') {
+    return DEFAULT_MAILBOX_TENANT_ID
+  }
+  if (scope.mode !== 'scoped' || typeof scope.tenantId !== 'string') {
+    throw new Error('Mailbox tenantId must be a non-empty string')
+  }
+
+  const tenantId = scope.tenantId.trim()
+  if (tenantId.length === 0) {
+    throw new Error('Mailbox tenantId must be a non-empty string')
+  }
+  return tenantId
 }
 
 function isEventBusLike(value: unknown): value is DzupEventBus {

@@ -170,6 +170,8 @@ export type DomainLifecycleEvent =
         subject: string;
         body: Record<string, unknown>;
         createdAt: number;
+        /** Owning mailbox tenant. Missing legacy events belong to `default`. */
+        tenantId?: string;
       };
     }
   | {

@@ -116,7 +116,7 @@ describe("AgentMailboxImpl", () => {
 
       await mailbox.receive(query);
 
-      expect(findSpy).toHaveBeenCalledWith("agent-a", query);
+      expect(findSpy).toHaveBeenCalledWith("agent-a", query, "default");
     });
   });
 
