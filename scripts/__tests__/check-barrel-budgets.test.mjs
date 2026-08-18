@@ -89,7 +89,7 @@ test('fails when a source file exceeds the per-file LOC ceiling', () => {
       root,
       budgetConfig: {
         packages: {
-          '@dzupagent/alpha': { maxFileLines: 500, fileLineAllowlist: [] },
+          '@dzupagent/alpha': { maxFileLines: 500 },
         },
       },
     })
@@ -100,22 +100,86 @@ test('fails when a source file exceeds the per-file LOC ceiling', () => {
   }
 })
 
-test('a file on fileLineAllowlist is exempt from the per-file LOC ceiling (debt-pin)', () => {
+test('fileLineAllowlist is rejected outright — no uncapped per-file exemption exists (RF-03)', () => {
   const root = createFixtureRoot({
     indexLines: 3,
     extraFiles: { 'big-module.ts': 600 },
   })
   try {
-    const result = evaluateBarrelBudgets({
-      root,
-      budgetConfig: {
-        packages: {
-          '@dzupagent/alpha': { maxFileLines: 500, fileLineAllowlist: ['src/big-module.ts'] },
+    assert.throws(
+      () => evaluateBarrelBudgets({
+        root,
+        budgetConfig: {
+          packages: {
+            '@dzupagent/alpha': { maxFileLines: 500, fileLineAllowlist: ['src/big-module.ts'] },
+          },
+        },
+      }),
+      /fileLineAllowlist has been removed/,
+    )
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('an empty fileLineAllowlist is rejected too, so the key cannot creep back in', () => {
+  const root = createFixtureRoot({ indexLines: 3 })
+  try {
+    assert.throws(
+      () => evaluateBarrelBudgets({
+        root,
+        budgetConfig: {
+          packages: {
+            '@dzupagent/alpha': { maxFileLines: 500, fileLineAllowlist: [] },
+          },
+        },
+      }),
+      /fileLineAllowlist has been removed/,
+    )
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a debt-pinned file fails closed as soon as one line is appended (RF-03)', () => {
+  const root = createFixtureRoot({
+    indexLines: 3,
+    extraFiles: { 'big-module.ts': 600 },
+  })
+  try {
+    const target = join(root, 'packages', 'alpha', 'src', 'big-module.ts')
+    const original = readFileSync(target, 'utf8')
+    const budgetConfig = {
+      packages: {
+        '@dzupagent/alpha': {
+          maxFileLines: 500,
+          fileLineDebtPins: {
+            'src/big-module.ts': {
+              maxLines: 600,
+              shrinkTarget: 500,
+              sourceSha256: createHash('sha256').update(original).digest('hex'),
+              sourceCommit: 'a'.repeat(40),
+              reviewBy: '2999-01-01',
+              rationale: 'Fixture pin standing in for pre-existing per-file debt under test.',
+            },
+          },
         },
       },
-    })
-    assert.equal(result.ok, true)
-    assert.deepEqual(result.messages, [])
+    }
+
+    const before = evaluateBarrelBudgets({ root, budgetConfig })
+    assert.equal(before.ok, true)
+    assert.equal(before.debtPins.length, 1)
+
+    writeFileSync(target, `${original}// one appended line\n`)
+    const after = evaluateBarrelBudgets({ root, budgetConfig })
+    assert.equal(after.ok, false)
+    // Zero-slack pin: the appended line trips the line cap first; a same-length
+    // edit would trip the content digest instead. Either way it fails closed.
+    assert.match(
+      after.messages.join('\n'),
+      /maxLines exceeded its source-bound debt pin \(measured 601, pin 600\)/,
+    )
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

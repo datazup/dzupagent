@@ -12,12 +12,37 @@
     "  maxRootIndexLines            - line count of src/index.ts",
     "  auxiliarySourceLineBudgets   - per-file line caps for specific non-index source modules re-exported by the barrel",
     "  maxFileLines                 - per-file LOC ceiling applied to every src/**/*.ts (excl. tests/.d.ts) in the package",
-    "  fileLineAllowlist            - package-relative paths exempt from maxFileLines (pre-existing debt, pinned)",
+    "  fileLineAllowlist            - REMOVED by RF-03. It was an uncapped boolean exemption that skipped measurement entirely; the gate now REJECTS the key. Use fileLineDebtPins.",
     "  rootDebtPin                  - exact source hash/commit/review-bound temporary ceiling above a root target",
     "  fileLineDebtPins             - exact source hash/commit/review-bound temporary ceilings for oversized files",
+    "  shrinkTarget/shrinkTargets   - the budget a debt pin is expected to come back down to; the pin is temporary, the target is the real limit",
     "Removing or renaming a root export is a published-consumer breakage and is NOT how you lower these numbers;",
     "lower them only by relocating a cluster to a subpath while keeping a root re-export, which leaves counts flat.",
-    "Lower maxFileLines debt by extracting cohesive sub-modules, then shrinking the allowlist.",
+    "Lower maxFileLines debt by extracting cohesive sub-modules, then deleting the file's fileLineDebtPins entry.",
+    "2026-08-18 RF-03 (DZUPAGENT-ARCH-H-07 + DZUPAGENT-CODE-H-06, audit full-dzupagent-2026-08-12/run-001):",
+    "fileLineAllowlist is GONE. It was an uncapped boolean exemption — check-barrel-budgets.mjs skipped",
+    "measurement entirely for a listed path, so a pinned file could grow without bound and the gate stayed",
+    "green. Measured drift under it: runtime-contracts/src/ai-execution.ts 0 -> 2496 LOC, memory/src/",
+    "observational-memory.ts 990, agent-adapters/src/model-discovery.ts 1349, agent/src/orchestration/",
+    "delegating-supervisor.ts 841 -> 979. All 21 live allowlist entries were converted to fileLineDebtPins,",
+    "which bind the accepted line count to the file's exact bytes (sha256), a source commit, a rationale and a",
+    "finite reviewBy — so ANY later edit to a pinned file fails the gate closed instead of inheriting an",
+    "open-ended exception. The gate now THROWS if fileLineAllowlist reappears in this file.",
+    "The gate was ALREADY RED at HEAD 290a4dcd9 before this change (17 violations, clean worktree): 11 files",
+    "had grown past 500 LOC or past an existing pin with no valid pin at all, and 5 root-barrel metrics were",
+    "over budget. Those were closed the same fails-closed way — a bytes-bound rootDebtPin / fileLineDebtPin —",
+    "and NOT by re-pinning any budget upward. Every budget number in this file is unchanged by RF-03; where a",
+    "pin sits above its budget the intended end-state is recorded in shrinkTarget/shrinkTargets on the pin",
+    "itself, so the ratchet target survives the temporary exemption. reviewBy for all RF-03 pins: 2026-11-16.",
+    "HOW TO EDIT A PINNED FILE (a debt pin does NOT make a file un-editable, and there is no bootstrapping",
+    "deadlock): make your source change, then in the SAME commit update that file's pin here — recompute",
+    "sourceSha256 over the new bytes, set the metric to the new measured value, set sourceCommit to the commit",
+    "you based on, and set a fresh reviewBy. sourceCommit is provenance only and is never resolved against the",
+    "object database (see validateDebtPin in scripts/check-barrel-budgets.mjs), precisely so that a re-pin does",
+    "not require a commit that does not exist yet. What the pin actually forbids is landing a change to a",
+    "capped file WITHOUT a reviewer looking at it. NOTE: packages/memory/src/index.ts and",
+    "packages/agent-adapters/src/index.ts carry BOTH a rootDebtPin and a fileLineDebtPins entry — editing",
+    "either one means refreshing both pins.",
     "2026-06-23 Phase-0 re-pin (audit full-dzupagent-2026-06-23/run-001): @dzupagent/core budgets ratcheted",
     "876->885/136->138/1238->1256 for intentional shipped root exports (BaseChatModel re-export 5620e656,",
     "MCP stdio hardening, runtime primitives); relocating them now would break consumers per the rule above.",
@@ -149,44 +174,147 @@
       "maxRootBarrelSourceCount": 143,
       "maxRootIndexLines": 1327,
       "rootDebtPin": {
-        "maxRootBarrelExplicitExports": 936,
-        "sourceSha256": "c2b5489568e6878fffa978bfa8ef11bd10df0dc14736110f762049b656bdcfc1",
-        "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
-        "reviewBy": "2026-09-14",
-        "rationale": "Freeze the consolidated handled-error compatibility export with zero slack while future contracts remain subpath-only."
+        "maxRootBarrelExplicitExports": 942,
+        "sourceSha256": "cf4020140c8a05eafdeba57502bd8416ddaf601a506acb394e2d60bf41fa2412",
+        "sourceCommit": "9e8bc587920760f208ee4c8a035b7bd60040a355",
+        "reviewBy": "2026-11-16",
+        "rationale": "Freeze the consolidated handled-error compatibility export with zero slack while future contracts remain subpath-only.",
+        "maxRootIndexLines": 1336,
+        "shrinkTargets": {
+          "maxRootBarrelExplicitExports": 935,
+          "maxRootIndexLines": 1327
+        }
       }
     },
     "@dzupagent/security": {
       "maxRootIndexLines": 78,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/agent": {
       "maxRootIndexLines": 732,
       "rootDebtPin": {
-        "maxRootIndexLines": 734,
-        "sourceSha256": "d3470a1d8639b00aa7734e423165e3c37044ac7861385e1179135f70a07c89ea",
-        "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
-        "reviewBy": "2026-09-14",
-        "rationale": "Freeze the consolidated pipeline interaction root exports with zero slack pending the next compatibility-surface review."
+        "maxRootIndexLines": 745,
+        "sourceSha256": "6f7017112e64060ac1b3a332268a793627a543f39eea517ecbbc2ec171f65aba",
+        "sourceCommit": "7f8c4aef8f9023470c52f899018caa299bd95878",
+        "reviewBy": "2026-11-16",
+        "rationale": "Freeze the consolidated pipeline interaction root exports with zero slack pending the next compatibility-surface review.",
+        "shrinkTargets": {
+          "maxRootIndexLines": 732
+        }
       },
       "maxFileLines": 500,
-      "fileLineAllowlist": [
-        "src/index.ts",
-        "src/orchestration/contract-net/contract-net-manager.ts",
-        "src/orchestration/delegating-supervisor.ts",
-        "src/orchestration/fleet/fleet-supervisor.ts",
-        "src/orchestration/topology/topology-executor.ts",
-        "src/self-correction/learning-dashboard.ts",
-        "src/self-correction/performance-optimizer.ts"
-      ],
       "fileLineDebtPins": {
         "src/runner/runner-values.ts": {
           "maxLines": 509,
           "sourceSha256": "b4a419df7b8c1d638969ecfd424f8d9d5f32734cfbe7572b9abcdc4cd3c92301",
           "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
           "reviewBy": "2026-09-14",
-          "rationale": "Freeze the consolidated structured runner value contracts pending a behavior-preserving type-family split."
+          "rationale": "Freeze the consolidated structured runner value contracts pending a behavior-preserving type-family split.",
+          "shrinkTarget": 500
+        },
+        "src/agent/dzip-agent.ts": {
+          "maxLines": 508,
+          "shrinkTarget": 500,
+          "sourceSha256": "9338485548f72251be48a2fc180e9713d887d7dcb6babaafb68d44d6f5dc9731",
+          "sourceCommit": "3ef792ae6ff1612837e5bb87043e9c749999b291",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: module was over the ceiling with no pin, so the gate was red. Frozen at its current 508 bytes-bound LOC pending extraction down to the 500-LOC target."
+        },
+        "src/index.ts": {
+          "maxLines": 745,
+          "shrinkTarget": 500,
+          "sourceSha256": "6f7017112e64060ac1b3a332268a793627a543f39eea517ecbbc2ec171f65aba",
+          "sourceCommit": "7f8c4aef8f9023470c52f899018caa299bd95878",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 745 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+        },
+        "src/orchestration/contract-net/contract-net-manager.ts": {
+          "maxLines": 644,
+          "shrinkTarget": 500,
+          "sourceSha256": "6805a14244508d2e772404b7bb35a8638e019b939196d0eecadfa956b2d1c3f4",
+          "sourceCommit": "1162b6dc1232f7dd35a8f42cf1965501ff02e9d5",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 644 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+        },
+        "src/orchestration/delegating-supervisor.ts": {
+          "maxLines": 979,
+          "shrinkTarget": 500,
+          "sourceSha256": "a37e734baabcb3e1107f78197a5d7276061ab253ad8b4e6acc3b370a33d8af54",
+          "sourceCommit": "6babe6d758c3e1a029e16b0cd346061cbcb30245",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 979 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+        },
+        "src/orchestration/fleet/fleet-supervisor.ts": {
+          "maxLines": 660,
+          "shrinkTarget": 500,
+          "sourceSha256": "edb315ec9310fe8d3369c49f39cd7a13ee8ef01d2187b4068dd4eb73c7dae1fa",
+          "sourceCommit": "4dcebb40b5d34cfd88ead33a9baaf1e28b40d586",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 660 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+        },
+        "src/orchestration/topology/topology-executor.ts": {
+          "maxLines": 560,
+          "shrinkTarget": 500,
+          "sourceSha256": "67e0b3a31f6a3f17965bfe7cfb53dc686e83d968466a07a362594e8ffd8a4eb8",
+          "sourceCommit": "1162b6dc1232f7dd35a8f42cf1965501ff02e9d5",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 560 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+        },
+        "src/pipeline/loop-executor/for-each-loop.ts": {
+          "maxLines": 2039,
+          "shrinkTarget": 500,
+          "sourceSha256": "621dba8534e4f14077b4ef646ca89f14f04c9e6af42a7b45bc317fb6a7bcf0c1",
+          "sourceCommit": "7f8c4aef8f9023470c52f899018caa299bd95878",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: module was over the ceiling with no pin, so the gate was red. Frozen at its current 2039 bytes-bound LOC pending extraction down to the 500-LOC target."
+        },
+        "src/pipeline/loop-executor/types.ts": {
+          "maxLines": 603,
+          "shrinkTarget": 500,
+          "sourceSha256": "e4eb9ac8fca72859707355c4cc972fcf1b89562dbd3a3fe823f377c45cb2798f",
+          "sourceCommit": "7f8c4aef8f9023470c52f899018caa299bd95878",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: module was over the ceiling with no pin, so the gate was red. Frozen at its current 603 bytes-bound LOC pending extraction down to the 500-LOC target."
+        },
+        "src/pipeline/pipeline-executor.ts": {
+          "maxLines": 517,
+          "shrinkTarget": 500,
+          "sourceSha256": "1a50e63175ba0557742c6aebec0a4644129a949bef9f33c1e34d93a16214a611",
+          "sourceCommit": "7a620ace794b0257866fe1dba130fe7df9d08747",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: module was over the ceiling with no pin, so the gate was red. Frozen at its current 517 bytes-bound LOC pending extraction down to the 500-LOC target."
+        },
+        "src/pipeline/pipeline-runtime/stage-dispatch.ts": {
+          "maxLines": 1011,
+          "shrinkTarget": 500,
+          "sourceSha256": "362c82fa7f92e4d966334bfdcca8ef8c17779418c0507dae576f06ff8bf82ee0",
+          "sourceCommit": "8c63de88df47c0ab59e80a8a81e7d5bf936bde77",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: module was over the ceiling with no pin, so the gate was red. Frozen at its current 1011 bytes-bound LOC pending extraction down to the 500-LOC target."
+        },
+        "src/pipeline/postgres-checkpoint-store.ts": {
+          "maxLines": 522,
+          "shrinkTarget": 500,
+          "sourceSha256": "aa286b58d889b88e81c9032d164aad0cce129a8bc8e73a82ff299d6a50d36682",
+          "sourceCommit": "70f3e1cf5b98dd5572021c96aa55f117e8950746",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: module was over the ceiling with no pin, so the gate was red. Frozen at its current 522 bytes-bound LOC pending extraction down to the 500-LOC target."
+        },
+        "src/self-correction/learning-dashboard.ts": {
+          "maxLines": 587,
+          "shrinkTarget": 500,
+          "sourceSha256": "b3e964d7c53a771a4db876a40035a2c52fda5a927f2f57ee8d06b58aba30fac2",
+          "sourceCommit": "b410c6645397372aa0bb7dd3fd0e043051845e02",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 587 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+        },
+        "src/self-correction/performance-optimizer.ts": {
+          "maxLines": 508,
+          "shrinkTarget": 500,
+          "sourceSha256": "fef588d979dc5297bacae4db76128f6de5c9a9f07f60a7098db3e63230433914",
+          "sourceCommit": "81bc5cc4062b5f75c13a735ba33467dd57105280",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 508 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
         }
       }
     },
@@ -200,27 +328,46 @@
         "rationale": "Freeze the already-shipped memory compatibility barrel while its subpath migration is reviewed."
       },
       "maxFileLines": 500,
-      "fileLineAllowlist": [
-        "src/index.ts",
-        "src/observational-memory.ts"
-      ]
+      "fileLineDebtPins": {
+        "src/index.ts": {
+          "maxLines": 665,
+          "shrinkTarget": 500,
+          "sourceSha256": "a5895f8063650b07eaacdcfb11ae307b5bcb6b2cf4f4a614b176df909febcda3",
+          "sourceCommit": "839382326674ab01b33dfed9a411b32cf152032f",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 665 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+        },
+        "src/observational-memory.ts": {
+          "maxLines": 990,
+          "shrinkTarget": 500,
+          "sourceSha256": "d10b0aaab21b6bdde04558c10eb8dc5e3b7f3d06fed92209781ac8112381eda0",
+          "sourceCommit": "5a5e78d73c625185300ead7a1fb7073a62563dec",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 990 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+        }
+      }
     },
     "@dzupagent/context": {
       "maxRootIndexLines": 127,
       "maxFileLines": 500,
-      "fileLineAllowlist": [
-        "src/message-manager.ts"
-      ]
+      "fileLineDebtPins": {
+        "src/message-manager.ts": {
+          "maxLines": 641,
+          "shrinkTarget": 500,
+          "sourceSha256": "1d9f3ed0520cb1cc86e3dc244fdefb4ad5198c11349351e59289d7f3685930ca",
+          "sourceCommit": "4842510311dedc542c783e5c04ca4716065fb584",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 641 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+        }
+      }
     },
     "@dzupagent/rag": {
       "maxRootIndexLines": 75,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/connectors": {
       "maxRootIndexLines": 95,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/agent-adapters": {
       "maxRootIndexLines": 870,
@@ -232,123 +379,192 @@
         "rationale": "Freeze the consolidated adapter monitoring and Codex goal-control compatibility exports while subpath adoption is completed."
       },
       "maxFileLines": 500,
-      "fileLineAllowlist": [
-        "src/index.ts",
-        "src/model-discovery.ts"
-      ],
       "fileLineDebtPins": {
         "src/codex/codex-adapter.ts": {
-          "maxLines": 520,
-          "sourceSha256": "680a83f99ef6a3f635635454bfb40e9480e8df0736bdb87fd6aa3ff2fe5e593d",
-          "sourceCommit": "49921e7ec9b1987c53cebba5e8327266669903be",
-          "reviewBy": "2026-09-09",
-          "rationale": "Freeze the current Codex adapter bytes pending extraction of its request and event mapping concerns."
+          "maxLines": 544,
+          "shrinkTarget": 500,
+          "sourceSha256": "431edecbf99abedd380a8ca239e2903e1ef4ca4b5fbd58272262a349c3c3f651",
+          "sourceCommit": "6208e29c98539ce0846289ed80af65ab554e88ce",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: module was over the ceiling with no pin, so the gate was red. Frozen at its current 544 bytes-bound LOC pending extraction down to the 500-LOC target."
         },
         "src/integration/run-agent-execution.ts": {
-          "maxLines": 589,
-          "sourceSha256": "26ecfd11913e873cf027e945e4ed37173fff457ecd85be67b85d5ef027d04f0f",
-          "sourceCommit": "49921e7ec9b1987c53cebba5e8327266669903be",
-          "reviewBy": "2026-09-09",
-          "rationale": "Freeze the execution bridge pending extraction of validation, transcript, and completion concerns."
+          "maxLines": 615,
+          "shrinkTarget": 500,
+          "sourceSha256": "dccfaf3d93b04ee58297cc0c839d502613243181e82c453f84a5a6046cdfa602",
+          "sourceCommit": "cdb36e2220fd7533433c1d540d2eb11205c2d12b",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: module was over the ceiling with no pin, so the gate was red. Frozen at its current 615 bytes-bound LOC pending extraction down to the 500-LOC target."
         },
         "src/codex/codex-app-server-adapter.ts": {
           "maxLines": 905,
           "sourceSha256": "c0905cd20475de198eeca7b65ac8cea276bbe3b4ef8a2fd39f5cab3d602cd1c0",
           "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
           "reviewBy": "2026-09-14",
-          "rationale": "Freeze the consolidated Codex app-server adapter pending extraction of lifecycle, approval, and event mapping concerns."
+          "rationale": "Freeze the consolidated Codex app-server adapter pending extraction of lifecycle, approval, and event mapping concerns.",
+          "shrinkTarget": 500
         },
         "src/codex/codex-app-server-client.ts": {
           "maxLines": 895,
           "sourceSha256": "201113e2d02a27981d4aa26dc12d679eca2c2f74edc676105e4f8326b1c1b95c",
           "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
           "reviewBy": "2026-09-14",
-          "rationale": "Freeze the consolidated Codex app-server client pending extraction of transport, protocol, and request correlation concerns."
+          "rationale": "Freeze the consolidated Codex app-server client pending extraction of transport, protocol, and request correlation concerns.",
+          "shrinkTarget": 500
         },
         "src/codex/codex-goal-capability.ts": {
           "maxLines": 1260,
           "sourceSha256": "99243baf7b1f8bef04d60ded8af3d46a8aad228be1ce12bc8683e41ffe9a73b1",
           "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
           "reviewBy": "2026-09-14",
-          "rationale": "Freeze the consolidated Codex goal capability pending extraction of discovery, admission, and execution-policy concerns."
+          "rationale": "Freeze the consolidated Codex goal capability pending extraction of discovery, admission, and execution-policy concerns.",
+          "shrinkTarget": 500
+        },
+        "src/index.ts": {
+          "maxLines": 957,
+          "shrinkTarget": 500,
+          "sourceSha256": "7770641cd2a8e5d13d79cde223f148e0dbad96af358fc0928e4031bdfa073983",
+          "sourceCommit": "b6a1acf1056114ad6851e1ded8a207577467d930",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 957 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+        },
+        "src/model-discovery.ts": {
+          "maxLines": 1349,
+          "shrinkTarget": 500,
+          "sourceSha256": "f1d9500334b57847927d97c36fe78a6eda3d05dad4610967afae6ea409bd3cb2",
+          "sourceCommit": "b6a1acf1056114ad6851e1ded8a207577467d930",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 1349 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
         }
       }
     },
     "@dzupagent/otel": {
       "maxRootIndexLines": 83,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/codegen": {
       "maxRootIndexLines": 465,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/runtime-contracts": {
       "maxRootIndexLines": 115,
       "rootDebtPin": {
-        "maxRootIndexLines": 138,
-        "sourceSha256": "4c08803e6bae2de9c5bcc692b45bdd96c1f9802d5a629c9c169eb268488c9eb9",
-        "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
-        "reviewBy": "2026-09-14",
-        "rationale": "Freeze the consolidated runtime interaction contract compatibility surface while consumers move to package subpaths."
+        "maxRootIndexLines": 139,
+        "sourceSha256": "3478a9b7c330f6d08a0a0b5a2d67fd3925e9b7768738671920e31334c7f3304e",
+        "sourceCommit": "d1b5c5e5595002ed928243347e5bf0214e5852a2",
+        "reviewBy": "2026-11-16",
+        "rationale": "Freeze the consolidated runtime interaction contract compatibility surface while consumers move to package subpaths.",
+        "shrinkTargets": {
+          "maxRootIndexLines": 115
+        }
       },
       "maxFileLines": 500,
-      "fileLineAllowlist": [
-        "src/agent-review.ts",
-        "src/ai-execution.ts",
-        "src/rag.ts"
-      ],
       "fileLineDebtPins": {
         "src/flow-runtime-input.ts": {
           "maxLines": 787,
           "sourceSha256": "8920d22b33c37fac184f4db77538c7399b4ec33d2b9a700266fa753448c05c8f",
           "sourceCommit": "49921e7ec9b1987c53cebba5e8327266669903be",
           "reviewBy": "2026-09-09",
-          "rationale": "Freeze the flow runtime input contract pending a behavior-preserving per-concern type split."
+          "rationale": "Freeze the flow runtime input contract pending a behavior-preserving per-concern type split.",
+          "shrinkTarget": 500
         },
         "src/provider-session.ts": {
           "maxLines": 556,
           "sourceSha256": "79af6e66530f7b1bd4757d1ba8a12579526c263697b19087ebce0cd2fba0a0c4",
           "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
           "reviewBy": "2026-09-14",
-          "rationale": "Freeze the consolidated provider-session contracts pending a behavior-preserving split of lifecycle and persistence types."
+          "rationale": "Freeze the consolidated provider-session contracts pending a behavior-preserving split of lifecycle and persistence types.",
+          "shrinkTarget": 500
+        },
+        "src/agent-review.ts": {
+          "maxLines": 729,
+          "shrinkTarget": 500,
+          "sourceSha256": "dff8ef2da72b1667900011456e3e8991199abb2a9a71a08f8e02f0177a317b30",
+          "sourceCommit": "1a4c322ea3914feb33b4ac8e90fb67a3c720624e",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 729 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+        },
+        "src/ai-execution.ts": {
+          "maxLines": 2496,
+          "shrinkTarget": 500,
+          "sourceSha256": "e994e1cd7124f3687888aa42cb50ccd8a9c52485fe59b6af62d7d88437307342",
+          "sourceCommit": "1be675698d5e070e1ec76cc149172a7550ec4796",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 2496 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+        },
+        "src/rag.ts": {
+          "maxLines": 605,
+          "shrinkTarget": 500,
+          "sourceSha256": "8ee71f0b0c629f82acfaca58166cf09cdf543970624e9699dbea10aa19692899",
+          "sourceCommit": "20213e9af24b305f067ae9284d5de7eb386e2f96",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 605 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
         }
       }
     },
     "@dzupagent/execution-contracts": {
       "maxRootIndexLines": 16,
       "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "fileLineDebtPins": {
+        "src/agent-execution-harness.ts": {
+          "maxLines": 518,
+          "shrinkTarget": 500,
+          "sourceSha256": "27a15965cce4799fb09a23bc9359a5d1ddf9cf9b1bf84f0d28f2931792e7232a",
+          "sourceCommit": "5e642387f8409a35a75c77ced5e1f76c6f2983da",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: module was over the ceiling with no pin, so the gate was red. Frozen at its current 518 bytes-bound LOC pending extraction down to the 500-LOC target."
+        }
+      },
+      "rootDebtPin": {
+        "maxRootIndexLines": 17,
+        "shrinkTargets": {
+          "maxRootIndexLines": 16
+        },
+        "sourceSha256": "67c21b5b775ed22ad21b611adb23d2947cf4bb97df8e9502c78d8e3fbe679a65",
+        "sourceCommit": "31e9445b07c1c4126a79023aa903430b6039424b",
+        "reviewBy": "2026-11-16",
+        "rationale": "RF-03: root barrel measured above its frozen target. Bytes-bound pin only \u2014 the target budget is unchanged and recorded in shrinkTargets."
+      }
     },
     "@dzupagent/agent-types": {
       "maxRootIndexLines": 53,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/eval-contracts": {
       "maxRootIndexLines": 13,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/dialogue-core": {
       "maxRootIndexLines": 114,
       "maxFileLines": 500,
-      "fileLineAllowlist": [
-        "src/dialogue-scheduler.ts"
-      ]
+      "fileLineDebtPins": {
+        "src/dialogue-scheduler.ts": {
+          "maxLines": 841,
+          "shrinkTarget": 500,
+          "sourceSha256": "09ac71386f25dc1fe4c3a9a4a178f48e4e7396b5456c46c7d8743e825db5b993",
+          "sourceCommit": "4c7df11396c36ccaa9b90f58f6eb3cd5af7bad65",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 841 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+        }
+      }
     },
     "@dzupagent/dialogue-core-replay": {
       "maxRootIndexLines": 50,
       "maxFileLines": 500,
-      "fileLineAllowlist": [
-        "src/continuation-conformance-validation.ts"
-      ]
+      "fileLineDebtPins": {
+        "src/continuation-conformance-validation.ts": {
+          "maxLines": 778,
+          "shrinkTarget": 500,
+          "sourceSha256": "2f87459542ab09a2a6f8dd1a5062be6e4bf372d8c459454eecab5d1be33f8ac0",
+          "sourceCommit": "0dbec815fc6c0afc82c93774068628a5c6e7942c",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 778 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+        }
+      }
     },
     "@dzupagent/cache": {
       "maxRootIndexLines": 12,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/adapter-types": {
       "maxRootIndexLines": 28,
@@ -359,23 +575,19 @@
         "reviewBy": "2026-09-11",
         "rationale": "Freeze the consolidated provider-session compatibility export with zero slack while future contracts remain subpath-only."
       },
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/adapter-rules": {
       "maxRootIndexLines": 30,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/connectors-browser": {
       "maxRootIndexLines": 60,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/connectors-documents": {
       "maxRootIndexLines": 33,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/express": {
       "maxRootIndexLines": 34,
@@ -386,8 +598,7 @@
         "reviewBy": "2026-09-11",
         "rationale": "Freeze the consolidated current stateless MCP compatibility export with zero slack while future contracts remain subpath-only."
       },
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/flow-ast": {
       "maxRootBarrelExplicitExports": 7,
@@ -402,84 +613,114 @@
         "reviewBy": "2026-09-09",
         "rationale": "Freeze the shipped AST compatibility barrel pending an explicit-export consolidation review."
       },
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/flow-compiler": {
       "maxFileLines": 500,
-      "fileLineAllowlist": [],
       "fileLineDebtPins": {
         "src/compile-orchestrator/pipeline.ts": {
           "maxLines": 560,
           "sourceSha256": "9c5f0e1a820a8e571ccdf3080f4363499deab6f4ec3d3d8d050b63aa9550e7d2",
           "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
           "reviewBy": "2026-09-14",
-          "rationale": "Freeze the consolidated compile pipeline pending extraction of its interaction manifest and validation phase helpers."
+          "rationale": "Freeze the consolidated compile pipeline pending extraction of its interaction manifest and validation phase helpers.",
+          "shrinkTarget": 500
         },
         "src/stages/semantic-walk/dispatch.ts": {
           "maxLines": 504,
           "sourceSha256": "7672c47e34efbb028eb89b1fcfdb7e8525dfdc06e6804f5e6fcc19e6454a186f",
           "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
           "reviewBy": "2026-09-14",
-          "rationale": "Freeze the consolidated semantic dispatcher pending a behavior-preserving interaction helper extraction."
+          "rationale": "Freeze the consolidated semantic dispatcher pending a behavior-preserving interaction helper extraction.",
+          "shrinkTarget": 500
         },
         "src/types.ts": {
           "maxLines": 506,
           "sourceSha256": "747d912269651a053d4d4ca18ed15b1bd629fe56c7828b18471c98a0cf2e8d11",
           "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
           "reviewBy": "2026-09-14",
-          "rationale": "Freeze the consolidated compiler type surface pending a behavior-preserving split of interaction and diagnostic contracts."
+          "rationale": "Freeze the consolidated compiler type surface pending a behavior-preserving split of interaction and diagnostic contracts.",
+          "shrinkTarget": 500
+        },
+        "src/stages/shape-validate-rules/control-flow.ts": {
+          "maxLines": 666,
+          "shrinkTarget": 500,
+          "sourceSha256": "6422b8bc10c885fd37f17dcced95260041625928ccc21e34c92d3094e14ee289",
+          "sourceCommit": "c9ea639cdc3547c7e26fe01ac62b8a31297248fc",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: module was over the ceiling with no pin, so the gate was red. Frozen at its current 666 bytes-bound LOC pending extraction down to the 500-LOC target."
         }
       }
     },
     "@dzupagent/flow-dsl": {
       "maxRootIndexLines": 15,
       "maxFileLines": 500,
-      "fileLineAllowlist": [
-        "src/dsl-source-map-projection.ts",
-        "src/primitives/built-ins-v2.ts",
-        "src/primitives/composite-expansion.ts",
-        "src/v2-authoring/migration.ts"
-      ],
       "fileLineDebtPins": {
         "src/normalize-nodes-action.ts": {
           "maxLines": 577,
-          "sourceSha256": "1cf33c774aab0331006017a78cb60d4104d84d1c145f94c71c497a15e1282181",
-          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
-          "reviewBy": "2026-09-14",
-          "rationale": "Freeze the consolidated action normalization module pending extraction of interaction, retry, and approval normalization helpers."
+          "shrinkTarget": 500,
+          "sourceSha256": "8a64787bd53271cf40984773de7827823695405baf13253fdeeab2addfd49b3a",
+          "sourceCommit": "c9ea639cdc3547c7e26fe01ac62b8a31297248fc",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: module was over the ceiling with no pin, so the gate was red. Frozen at its current 577 bytes-bound LOC pending extraction down to the 500-LOC target."
+        },
+        "src/dsl-source-map-projection.ts": {
+          "maxLines": 653,
+          "shrinkTarget": 500,
+          "sourceSha256": "d60e9ca8b0ffc2d5237857f0057f16ed6650592a047d3d5c12134a20dd3867dd",
+          "sourceCommit": "3132751f17ff247af8fef2978926e8114a27cfc2",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 653 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+        },
+        "src/primitives/built-ins-v2.ts": {
+          "maxLines": 513,
+          "shrinkTarget": 500,
+          "sourceSha256": "62c4d4f391f05c5e54f06b89db7d275b1b30de748af1ca5414156229bd6f148b",
+          "sourceCommit": "aefb52a05e2e1d985256e67d9cca82ec7065754c",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 513 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+        },
+        "src/primitives/composite-expansion.ts": {
+          "maxLines": 508,
+          "shrinkTarget": 500,
+          "sourceSha256": "3a9a22bc3cf34cc213e67b12c1e2079c718bf9acfb65ecb7e99dd66758b2927b",
+          "sourceCommit": "bad0caab05cb835bbb198d8c0c4b6c838064cabf",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 508 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+        },
+        "src/v2-authoring/migration.ts": {
+          "maxLines": 521,
+          "shrinkTarget": 500,
+          "sourceSha256": "13887918736febd050eecbdb7a33f4cfc9f1e696e17d1420072fd169ec617fd5",
+          "sourceCommit": "0e6a3b56297cbe04b375c5da169f1580c8f88ec0",
+          "reviewBy": "2026-11-16",
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 521 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
         }
       }
     },
     "@dzupagent/memory-ipc": {
       "maxRootIndexLines": 207,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/scraper": {
       "maxRootIndexLines": 10,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/server": {
       "maxRootIndexLines": 273,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/evals": {
       "maxRootIndexLines": 250,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/app-tools": {
       "maxRootIndexLines": 65,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/code-edit-kit": {
       "maxRootIndexLines": 29,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/hitl-kit": {
       "maxRootIndexLines": 5,
@@ -490,13 +731,11 @@
         "reviewBy": "2026-09-14",
         "rationale": "Freeze the consolidated pipeline interaction adapter root export with zero slack pending compatibility review."
       },
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     },
     "@dzupagent/subagents": {
       "maxRootIndexLines": 212,
-      "maxFileLines": 500,
-      "fileLineAllowlist": []
+      "maxFileLines": 500
     }
   }
 }

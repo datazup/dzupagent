@@ -131,8 +131,18 @@ function validateDebtPin({ debtPin, label, measured, metric, sourceSha256, now }
     return { ok: false, message: `${label}: debt pin sourceSha256 must be a lowercase SHA-256 digest` };
   }
   if (sourceSha256 !== debtPin.sourceSha256) {
-    return { ok: false, message: `${label}: source-bound debt pin hash mismatch` };
+    return {
+      ok: false,
+      message: `${label}: source-bound debt pin hash mismatch — the pinned bytes changed. `
+        + `This is not a deadlock: re-pin in the SAME commit by setting sourceSha256 to ${sourceSha256}, `
+        + `${metric} to the new measured value, sourceCommit to the commit you are basing on, `
+        + `and a fresh reviewBy. Move the number toward the pin's shrinkTarget, never away from it`,
+    };
   }
+  // sourceCommit is provenance only and is deliberately NOT resolved against the
+  // object database: requiring a commit that already contains the new bytes would
+  // make every re-pin a chicken-and-egg deadlock. Any full 40-hex SHA of the commit
+  // you are basing the change on is accepted, so pin and edit land together.
   if (typeof debtPin.sourceCommit !== 'string' || !/^[a-f0-9]{40}$/.test(debtPin.sourceCommit)) {
     return { ok: false, message: `${label}: debt pin sourceCommit must be a full lowercase Git SHA` };
   }
@@ -172,28 +182,39 @@ function collectSourceFiles(absDir, packageRoot, acc = []) {
 
 /**
  * Per-file LOC ceiling for a package's source tree (MC-5 / DZUPAGENT-CODE-L-04).
- * Flags any source file over `maxFileLines` unless it is on the legacy
- * `fileLineAllowlist` or has an exact `fileLineDebtPins` entry. New debt pins
- * bind the accepted line count to the file bytes, source commit, rationale,
- * and finite review date so later edits fail closed instead of inheriting an
- * open-ended exception.
+ * Flags any source file over `maxFileLines` unless it has an exact
+ * `fileLineDebtPins` entry. Every debt pin binds the accepted line count to the
+ * file bytes, source commit, rationale, and finite review date, so later edits
+ * fail closed instead of inheriting an open-ended exception.
+ *
+ * There is deliberately NO uncapped exemption. The former `fileLineAllowlist`
+ * was a boolean escape hatch that skipped measurement entirely, letting pinned
+ * files grow without limit while the gate stayed green
+ * (RF-03 / DZUPAGENT-ARCH-H-07 + DZUPAGENT-CODE-H-06). It has been removed and
+ * is now rejected outright so it cannot be reintroduced.
  */
 function evaluateFileLineCeiling({ root, packageDir, budget, now }) {
   const messages = [];
   const debtPins = [];
+  // Checked before the maxFileLines early-return so the removed key is rejected
+  // even on a package that carries no per-file ceiling.
+  if (budget.fileLineAllowlist !== undefined) {
+    throw new Error(
+      'fileLineAllowlist has been removed: it was an uncapped exemption that skipped measurement. '
+      + 'Use fileLineDebtPins (source-hash + commit + reviewBy bound) instead.',
+    );
+  }
   const ceiling = budget.maxFileLines;
   if (ceiling === undefined) return { messages, debtPins };
   if (typeof ceiling !== 'number' || !Number.isFinite(ceiling) || ceiling <= 0) {
     throw new Error('maxFileLines budget must be a positive number');
   }
-  const allowlist = new Set(budget.fileLineAllowlist ?? []);
   const fileLineDebtPins = budget.fileLineDebtPins ?? {};
   if (typeof fileLineDebtPins !== 'object' || Array.isArray(fileLineDebtPins)) {
     throw new Error('fileLineDebtPins must be an object');
   }
   const srcDir = path.join(root, packageDir, 'src');
   for (const relFromPackage of collectSourceFiles(srcDir, path.join(root, packageDir))) {
-    if (allowlist.has(relFromPackage)) continue;
     const sourceText = readText(path.join(root, packageDir, relFromPackage));
     const measured = countLines(sourceText);
     if (measured !== undefined && measured > ceiling) {
