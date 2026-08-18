@@ -130,19 +130,41 @@ export class SkillChainExecutor {
               subSteps.map(sub => sub.execute(state, ctx) as Promise<Record<string, unknown>>),
             )
 
-            // Merge results back into state
-            let merged = { ...state }
-            if (mergeStrategy === 'last-wins') {
-              for (const r of results) {
-                merged = { ...merged, ...r }
+            // Accumulate the output ledger independently from the selected
+            // top-level merge strategy. Promise.all preserves the declared
+            // sub-skill order, so nested collisions are deterministic.
+            const previousOutputs = {
+              ...((state['previousOutputs'] as Record<string, string> | undefined) ?? {}),
+            }
+            for (let resultIndex = 0; resultIndex < results.length; resultIndex++) {
+              const result = results[resultIndex]!
+              const nestedOutputs = result['previousOutputs']
+              if (nestedOutputs && typeof nestedOutputs === 'object' && !Array.isArray(nestedOutputs)) {
+                Object.assign(previousOutputs, nestedOutputs)
               }
-            } else {
-              // merge-objects: same as last-wins but explicit intent
-              for (const r of results) {
-                merged = { ...merged, ...r }
+
+              const subSkillId = parallelSkills[resultIndex]!
+              const outputText = result[subSkillId]
+              if (typeof outputText === 'string') {
+                previousOutputs[subSkillId] = outputText
               }
             }
-            return merged
+
+            // Merge ordinary result fields using the same distinction as the
+            // workflow compiler. previousOutputs is handled above so one
+            // branch cannot replace the accumulated ledger.
+            let merged = { ...state }
+            const selectedResults = mergeStrategy === 'last-wins'
+              ? results.slice(-1)
+              : results
+            for (const result of selectedResults) {
+              for (const [key, value] of Object.entries(result)) {
+                if (key !== 'previousOutputs') {
+                  merged[key] = value
+                }
+              }
+            }
+            return { ...merged, previousOutputs }
           },
         })
 
@@ -346,10 +368,20 @@ export class SkillChainExecutor {
         onEvent,
       }))
 
-      // Set lastOutput to the final step's output
-      const lastSkillId = chain.steps[chain.steps.length - 1]?.skillName
+      // A terminal parallel group has a synthetic step name, so its selected
+      // textual output is the final declared sub-skill's output.
+      const lastStep = chain.steps[chain.steps.length - 1]
+      const parallelSkills = lastStep?.parallelSkills
+      const lastSkillId = parallelSkills && parallelSkills.length > 0
+        ? parallelSkills[parallelSkills.length - 1]
+        : lastStep?.skillName
       const previousOutputs = result['previousOutputs'] as Record<string, string> | undefined
-      const lastOutput = lastSkillId && previousOutputs ? previousOutputs[lastSkillId] : undefined
+      const lastOutputCandidate = lastSkillId && previousOutputs
+        ? previousOutputs[lastSkillId]
+        : undefined
+      const lastOutput = typeof lastOutputCandidate === 'string'
+        ? lastOutputCandidate
+        : undefined
 
       return { ...result, lastOutput }
     } catch (err) {
