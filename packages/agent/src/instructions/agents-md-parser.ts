@@ -176,7 +176,7 @@ function extractListField(body: string, fieldName: string): string[] | undefined
  * Normalise a heading into a kebab-case agent ID.
  * `"Code Reviewer"` -> `"code-reviewer"`
  */
-function normalizeAgentId(heading: string): string {
+export function normalizeAgentId(heading: string): string {
   return heading
     // Insert hyphen before uppercase letters preceded by lowercase (camelCase split)
     .replace(/([a-z])([A-Z])/g, '$1-$2')

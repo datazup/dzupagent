@@ -6,7 +6,7 @@
  * to produce a single unified system prompt.
  */
 
-import type { AgentsMdSection } from './agents-md-parser.js'
+import { normalizeAgentId, type AgentsMdSection } from './agents-md-parser.js'
 
 /** Result of merging instructions from multiple sources. */
 export interface MergedInstructions {
@@ -33,9 +33,9 @@ export function mergeInstructions(
   agentId?: string,
   sources?: string[],
 ): MergedInstructions {
-  const relevantSections = agentId
-    ? filterSectionsForAgent(agentsSections, agentId)
-    : agentsSections
+  const relevantSections = agentId === undefined
+    ? agentsSections
+    : filterSectionsForAgent(agentsSections, normalizeAgentId(agentId))
 
   const parts: string[] = [staticInstructions]
 
