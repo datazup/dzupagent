@@ -13,6 +13,7 @@ export default defineConfig({
     'src/agent-review.ts',
     'src/agent-blueprint.ts',
     'src/provider-session.ts',
+    'src/recursive-scope/index.ts',
   ],
   format: ['esm'],
   dts: false,

@@ -50,6 +50,10 @@
       "import": "./dist/provider-session.js",
       "types": "./dist/provider-session.d.ts"
     },
+    "./recursive-scope": {
+      "import": "./dist/recursive-scope/index.js",
+      "types": "./dist/recursive-scope/index.d.ts"
+    },
     "./fixtures/agent-review-conformance-v1.json": {
       "types": "./fixtures/agent-review-conformance-v1.d.ts",
       "default": "./fixtures/agent-review-conformance-v1.json"
