@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-08-17
+Date: 2026-08-18
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -10,6 +10,7 @@ Generated from package root facades plus `config/public-api-allowlists.json` and
 - `deprecated-transitional` root exports remain available for compatibility during the 0.x migration window and should move to explicit subpaths in new code.
 - `internal-only-candidate` root exports are accidental or implementation-oriented exposures that remain temporarily visible only for staged removal.
 - New consumers should prefer the listed subpaths for domain-specific imports.
+- Legacy subpath purpose strings are treated as `stable`; lifecycle objects may classify a subpath as `stable`, `deprecated-transitional`, or `experimental`.
 - Every current root export source must match exactly one allowlist rule; unreviewed sources fail `yarn check:server-api-surface`.
 
 ## @dzupagent/security
@@ -272,7 +273,7 @@ Root index: `packages/agent/src/index.ts`
 | `deprecated-transitional` | `./orchestration/topology/topology-analyzer.js` | 1 | `prefix:./orchestration/` | `TopologyAnalyzer` |
 | `deprecated-transitional` | `./orchestration/topology/topology-executor.js` | 4 | `prefix:./orchestration/` | `TopologyExecutor`, `MeshResult`, `RingResult`, `ExecuteResult` |
 | `deprecated-transitional` | `./orchestration/topology/topology-types.js` | 5 | `prefix:./orchestration/` | `TopologyType`, `TaskCharacteristics`, `TopologyRecommendation`, `TopologyMetrics` |
-| `deprecated-transitional` | `./orchestration/routing-policy-types.js` | 6 | `prefix:./orchestration/` | `AgentSpec`, `AgentTask`, `RoutingDecision`, `RoutingPolicy` |
+| `deprecated-transitional` | `./orchestration/routing-policy-types.js` | 7 | `prefix:./orchestration/` | `AgentSpec`, `AgentTask`, `RoutingTaskInput`, `RoutingDecision` |
 | `deprecated-transitional` | `./orchestration/orchestration-merge-strategy-types.js` | 4 | `prefix:./orchestration/` | `AgentResult`, `MergedResult`, `OrchestrationMergeStrategy`, `BuiltInMergeStrategyName` |
 | `deprecated-transitional` | `./orchestration/routing/rule-based-routing.js` | 1 | `prefix:./orchestration/` | `RuleBasedRouting` |
 | `deprecated-transitional` | `./orchestration/routing/hash-routing.js` | 1 | `prefix:./orchestration/` | `HashRouting` |
@@ -603,7 +604,7 @@ Root index: `packages/context/src/index.ts`
 
 Root index: `packages/rag/src/index.ts`
 
-- Stable root sources: `9`
+- Stable root sources: `10`
 - Deprecated transitional root sources: `3`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x; provider-specific RAG wiring should move to explicit provider subpaths before a future 1.0 root contraction.
@@ -630,12 +631,13 @@ Root index: `packages/rag/src/index.ts`
 | `deprecated-transitional` | `./qdrant-factory.js` | 3 | `exact:./qdrant-factory.js` | `createQdrantRagPipeline`, `ensureTenantCollection`, `QdrantRagConfig` |
 | `deprecated-transitional` | `./folder-context-generator.js` | 5 | `exact:./folder-context-generator.js` | `FolderContextGenerator`, `FolderContextConfig`, `FileScore`, `ContextSnapshot` |
 | `deprecated-transitional` | `./providers/qdrant.js` | 11 | `prefix:./providers/` | `QdrantVectorStore`, `QdrantCorpusStore`, `createQdrantRetriever`, `loadQdrantClient` |
+| `stable` | `./types.js` | 1 | `exact:./types.js` | `*` |
 
 ## @dzupagent/connectors
 
 Root index: `packages/connectors/src/index.ts`
 
-- Stable root sources: `8`
+- Stable root sources: `9`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
 - Migration window: Connector root exports are currently the contracted compatibility surface; new connector families should prefer explicit subpaths before root promotion.
@@ -657,6 +659,7 @@ Root index: `packages/connectors/src/index.ts`
 | `stable` | `./slack/index.js` | 3 | `prefix:./slack/` | `createSlackConnector`, `createSlackConnectorToolkit`, `SlackConnectorConfig` |
 | `stable` | `./database/index.js` | 8 | `prefix:./database/` | `createDatabaseConnector`, `createDatabaseOperations`, `createDatabaseConnectorToolkit`, `DatabaseConnectorConfig` |
 | `stable` | `./sql/index.js` | 25 | `prefix:./sql/` | `createSQLConnector`, `createSQLTools`, `BaseSQLConnector`, `generateDDL` |
+| `stable` | `./security-manifest.js` | 1 | `exact:./security-manifest.js` | `*` |
 | `stable` | `<local>:dzupagent_CONNECTORS_VERSION` | 1 | `exact:<local>:dzupagent_CONNECTORS_VERSION` | `dzupagent_CONNECTORS_VERSION` |
 
 ## @dzupagent/agent-adapters
@@ -664,7 +667,7 @@ Root index: `packages/connectors/src/index.ts`
 Root index: `packages/agent-adapters/src/index.ts`
 
 - Stable root sources: `25`
-- Deprecated transitional root sources: `98`
+- Deprecated transitional root sources: `99`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x with new code expected to use providers/orchestration/workflow/http/persistence/rules/learning/recovery subpaths before a future 1.0 root contraction.
 
@@ -704,7 +707,7 @@ Root index: `packages/agent-adapters/src/index.ts`
 | `deprecated-transitional` | `./ollama/ollama-adapter.js` | 5 | `exact:./ollama/ollama-adapter.js` | `OllamaAdapter`, `createOllamaAdapter`, `resolveLocalModelEndpoint`, `OllamaAdapterConfig` |
 | `deprecated-transitional` | `./openrouter/openrouter-adapter.js` | 2 | `prefix:./openrouter/` | `OpenRouterAdapter`, `OpenRouterConfig` |
 | `deprecated-transitional` | `./openai/openai-adapter.js` | 3 | `prefix:./openai/` | `OpenAIAdapter`, `OpenAIConfig`, `OpenAIRunResult` |
-| `deprecated-transitional` | `./model-discovery.js` | 23 | `exact:./model-discovery.js` | `assessModelAvailability`, `discoverClaudeModels`, `discoverCodexModels`, `discoverGeminiModels` |
+| `deprecated-transitional` | `./model-discovery.js` | 25 | `exact:./model-discovery.js` | `assessModelAvailability`, `discoverClaudeModels`, `discoverCodexModels`, `discoverGeminiModels` |
 | `deprecated-transitional` | `./provider-request-capability-inspection.js` | 5 | `exact:./provider-request-capability-inspection.js` | `inspectProviderRequestCapabilities`, `ProviderRequestCapabilityBlocker`, `ProviderRequestCapabilityInspection`, `ProviderRequestCapabilityInspectionInput` |
 | `deprecated-transitional` | `./prompts/system-prompt-builder.js` | 9 | `prefix:./prompts/` | `SystemPromptBuilder`, `SystemPromptPayload`, `ClaudeAppendPayload`, `ClaudeReplacePayload` |
 | `deprecated-transitional` | `./prompts/thinking-history.js` | 1 | `prefix:./prompts/` | `stripThinkingBlocks` |
@@ -811,6 +814,7 @@ Root index: `packages/agent-adapters/src/index.ts`
 | `stable` | `./provider-catalog.js` | 10 | `exact:./provider-catalog.js` | `PROVIDER_CATALOG`, `HTTP_ROUTABLE_PROVIDER_IDS`, `assertProviderCatalogEntry`, `getDefaultMonitorStatus` |
 | `stable` | `./normalize.js` | 2 | `exact:./normalize.js` | `normalizeEvent`, `Provider` |
 | `deprecated-transitional` | `./enrichment/enrichment-pipeline.js` | 3 | `prefix:./enrichment/` | `EnrichmentPipeline`, `EnrichmentContext`, `EnrichmentResult` |
+| `deprecated-transitional` | `./events/index.js` | 1 | `prefix:./events/` | `*` |
 
 ## @dzupagent/otel
 
@@ -849,10 +853,10 @@ Root index: `packages/otel/src/index.ts`
 
 Root index: `packages/runtime-contracts/src/index.ts`
 
-- Stable root sources: `6`
+- Stable root sources: `13`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
-- Migration window: Runtime contract root exports are stable neutral contracts; add allowlist rules before exposing new contract modules.
+- Migration window: Runtime contract root exports are stable neutral contracts. New domain contracts use governed subpaths; the stable ./recursive-scope contract surface does not admit recursive execution.
 
 ### Stable Subpaths
 
@@ -863,6 +867,7 @@ Root index: `packages/runtime-contracts/src/index.ts`
 | `@dzupagent/runtime-contracts/canonical-execution` | canonical execution route decisions, runtime requests, gate decisions, and effect vocabulary |
 | `@dzupagent/runtime-contracts/ai-budget-reservation` | conservative offer-bound AI money reservation and hard-ceiling admission |
 | `@dzupagent/runtime-contracts/effect-receipt` | canonical effect intent, receipt, journal, and fail-closed replay contracts |
+| `@dzupagent/runtime-contracts/recursive-scope` | versioned definition-bound recursive frame, ownership, commit, merge, serialization, and validation contracts; runtime admission remains separate |
 
 ### Root Allowlist
 
@@ -874,12 +879,19 @@ Root index: `packages/runtime-contracts/src/index.ts`
 | `stable` | `./idempotency.js` | 5 | `exact:./idempotency.js` | `CANONICAL_JSON_VERSION`, `canonicalJson`, `canonicalInputDigest`, `materializeIdempotencyKey` |
 | `stable` | `./flow-runtime-input.js` | 16 | `exact:./flow-runtime-input.js` | `DEFAULT_FLOW_RUNTIME_INPUT_LIMITS`, `FLOW_CREDENTIAL_HANDLE_REF_SCHEMA`, `FLOW_RUNTIME_INPUT_CONTRACT`, `sha256Text` |
 | `stable` | `./ai-economics.js` | 19 | `exact:./ai-economics.js` | `AI_COST_UNKNOWN_REASONS`, `AI_PRICE_SOURCE_KINDS`, `AI_QUOTA_SCHEMA`, `AI_QUOTA_UNITS` |
+| `stable` | `./planning.js` | 1 | `exact:./planning.js` | `*` |
+| `stable` | `./execution.js` | 1 | `exact:./execution.js` | `*` |
+| `stable` | `./ledger.js` | 1 | `exact:./ledger.js` | `*` |
+| `stable` | `./schedule.js` | 1 | `exact:./schedule.js` | `*` |
+| `stable` | `./script-runs.js` | 1 | `exact:./script-runs.js` | `*` |
+| `stable` | `./pipeline.js` | 1 | `exact:./pipeline.js` | `*` |
+| `stable` | `./pipeline-interaction.js` | 1 | `exact:./pipeline-interaction.js` | `*` |
 
 ## @dzupagent/execution-contracts
 
 Root index: `packages/execution-contracts/src/index.ts`
 
-- Stable root sources: `1`
+- Stable root sources: `8`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
 - Migration window: Execution isolation and qualification contracts are stable at the package root; product identities remain in consuming applications.
@@ -893,6 +905,13 @@ No stable subpaths configured.
 | Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
 | --- | --- | ---: | --- | --- |
 | `stable` | `./enforcement-driver.js` | 6 | `exact:./enforcement-driver.js` | `UnsupportedEnforcementDriver`, `ApplyEnforcementParams`, `EnforcementOutcome`, `EnforcementResult` |
+| `stable` | `./resource-policy.js` | 1 | `exact:./resource-policy.js` | `*` |
+| `stable` | `./command-catalog.js` | 1 | `exact:./command-catalog.js` | `*` |
+| `stable` | `./egress-policy.js` | 1 | `exact:./egress-policy.js` | `*` |
+| `stable` | `./host-capabilities.js` | 1 | `exact:./host-capabilities.js` | `*` |
+| `stable` | `./isolation-receipt.js` | 1 | `exact:./isolation-receipt.js` | `*` |
+| `stable` | `./fleet-qualification.js` | 1 | `exact:./fleet-qualification.js` | `*` |
+| `stable` | `./agent-execution-harness.js` | 1 | `exact:./agent-execution-harness.js` | `*` |
 
 ## @dzupagent/dialogue-core
 
@@ -961,16 +980,25 @@ No stable subpaths configured.
 
 Root index: `packages/agent-types/src/index.ts`
 
-- Stable root sources: `7`
-- Deprecated transitional root sources: `0`
+- Stable root sources: `6`
+- Deprecated transitional root sources: `1`
 - Internal-only root candidates: `0`
-- Migration window: Agent type root exports are stable Layer 0 contracts. The draft ./run subpath remains experimental until the AgentRunner, compare-and-swap store, and exact-resume conformance suite adopt it. Add allowlist rules before exposing new type modules.
+- Migration window: Stable Agent type root exports remain Layer 0 contracts. The implementation root source and ./implementation subpath remain deprecated compatibility surfaces through 0.x; new repository-delivery plans belong to Scripts and generic runtime work uses AgentTask. Removal requires separate release-window and consumer evidence. The draft ./run subpath remains experimental until the AgentRunner, compare-and-swap store, and exact-resume conformance suite adopt it.
 
 ### Stable Subpaths
 
+No stable subpaths configured.
+
+### Deprecated Transitional Subpaths
+
 | Subpath | Purpose |
 | --- | --- |
-| `@dzupagent/agent-types/implementation` | implementation orchestration plan contracts and pure helpers |
+| `@dzupagent/agent-types/implementation` | repository-delivery compatibility contracts and pure helpers; new delivery plans belong to Scripts |
+
+### Experimental Subpaths
+
+| Subpath | Purpose |
+| --- | --- |
 | `@dzupagent/agent-types/run` | draft JSON-safe AgentRunner item, invocation, interaction, event, and state contracts |
 
 ### Root Allowlist
@@ -983,13 +1011,13 @@ Root index: `packages/agent-types/src/index.ts`
 | `stable` | `./orchestration-contracts.js` | 4 | `exact:./orchestration-contracts.js` | `BaseSupervisorContract`, `BaseMapReduceContract`, `BaseContractNetContract`, `BaseTeamCoordinationContract` |
 | `stable` | `./memory-client.js` | 9 | `exact:./memory-client.js` | `MemoryClient`, `MemoryScope`, `MemoryQuery`, `MemoryRecord` |
 | `stable` | `./orchestration/dynamic-workflow/index.js` | 18 | `exact:./orchestration/dynamic-workflow/index.js` | `DYNAMIC_WORKFLOW_SCHEMA_VERSION`, `DynamicWorkflowApprovalPolicy`, `DynamicWorkflowArtifactKind`, `DynamicWorkflowArtifactRequirement` |
-| `stable` | `./orchestration/implementation/index.js` | 1 | `exact:./orchestration/implementation/index.js` | `IMPLEMENTATION_ORCHESTRATION_SCHEMA_VERSION` |
+| `deprecated-transitional` | `./orchestration/implementation/index.js` | 1 | `exact:./orchestration/implementation/index.js` | `IMPLEMENTATION_ORCHESTRATION_SCHEMA_VERSION` |
 
 ## @dzupagent/eval-contracts
 
 Root index: `packages/eval-contracts/src/index.ts`
 
-- Stable root sources: `0`
+- Stable root sources: `4`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
 - Migration window: Eval contract root exports are stable neutral contracts; add allowlist rules before exposing new contract modules.
@@ -1002,6 +1030,10 @@ No stable subpaths configured.
 
 | Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
 | --- | --- | ---: | --- | --- |
+| `stable` | `./eval-types.js` | 1 | `exact:./eval-types.js` | `*` |
+| `stable` | `./benchmark-types.js` | 1 | `exact:./benchmark-types.js` | `*` |
+| `stable` | `./store-contracts.js` | 1 | `exact:./store-contracts.js` | `*` |
+| `stable` | `./orchestrator-contracts.js` | 1 | `exact:./orchestrator-contracts.js` | `*` |
 
 ## @dzupagent/cache
 
@@ -1030,25 +1062,53 @@ No stable subpaths configured.
 
 Root index: `packages/adapter-types/src/index.ts`
 
-- Stable root sources: `0`
-- Deprecated transitional root sources: `0`
+- Stable root sources: `25`
+- Deprecated transitional root sources: `1`
 - Internal-only root candidates: `0`
-- Migration window: Adapter type root exports are stable Layer 0 contracts; add allowlist rules before exposing new root modules.
+- Migration window: Stable Adapter type root exports remain Layer 0 contracts. Provider Session Explorer is canonical at ./provider-session-explorer; its root-barrel re-export remains deprecated transitional through 0.x for compatibility and requires separate consumer evidence and release-window approval before removal.
 
 ### Stable Subpaths
 
-No stable subpaths configured.
+| Subpath | Purpose |
+| --- | --- |
+| `@dzupagent/adapter-types/provider-session-explorer` | minimum shared provider installation, session identity, catalog, observation, and continuation contracts |
 
 ### Root Allowlist
 
 | Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
 | --- | --- | ---: | --- | --- |
+| `stable` | `./contracts/provider.js` | 1 | `prefix:./contracts/` | `*` |
+| `stable` | `./contracts/interaction.js` | 1 | `prefix:./contracts/` | `*` |
+| `stable` | `./contracts/execution.js` | 1 | `prefix:./contracts/` | `*` |
+| `stable` | `./contracts/controlled-execution.js` | 1 | `prefix:./contracts/` | `*` |
+| `stable` | `./contracts/events.js` | 1 | `prefix:./contracts/` | `*` |
+| `stable` | `./contracts/routing.js` | 1 | `prefix:./contracts/` | `*` |
+| `stable` | `./contracts/capabilities.js` | 1 | `prefix:./contracts/` | `*` |
+| `stable` | `./contracts/adapter-monitor-dashboard.js` | 1 | `prefix:./contracts/` | `*` |
+| `stable` | `./contracts/dzupagent.js` | 1 | `prefix:./contracts/` | `*` |
+| `stable` | `./contracts/run-store.js` | 1 | `prefix:./contracts/` | `*` |
+| `stable` | `./contracts/provider-origin.js` | 1 | `prefix:./contracts/` | `*` |
+| `stable` | `./contracts/collab-task.js` | 1 | `prefix:./contracts/` | `*` |
+| `stable` | `./contracts/command-gate.js` | 1 | `prefix:./contracts/` | `*` |
+| `stable` | `./contracts/circuit-gate.js` | 1 | `prefix:./contracts/` | `*` |
+| `stable` | `./contracts/validation.js` | 1 | `prefix:./contracts/` | `*` |
+| `stable` | `./contracts/interrupt.js` | 1 | `prefix:./contracts/` | `*` |
+| `stable` | `./contracts/installation.js` | 1 | `prefix:./contracts/` | `*` |
+| `stable` | `./contracts/posture.js` | 1 | `prefix:./contracts/` | `*` |
+| `stable` | `./contracts/health.js` | 1 | `prefix:./contracts/` | `*` |
+| `stable` | `./contracts/lifecycle.js` | 1 | `prefix:./contracts/` | `*` |
+| `stable` | `./provider-execution-port.js` | 1 | `exact:./provider-execution-port.js` | `*` |
+| `stable` | `./pipeline-executor-port.js` | 1 | `exact:./pipeline-executor-port.js` | `*` |
+| `stable` | `./ai-execution-port.js` | 1 | `exact:./ai-execution-port.js` | `*` |
+| `stable` | `./provider-session.js` | 1 | `exact:./provider-session.js` | `*` |
+| `deprecated-transitional` | `./provider-session-explorer.js` | 1 | `exact:./provider-session-explorer.js` | `*` |
+| `stable` | `./utils/correlation.js` | 1 | `exact:./utils/correlation.js` | `*` |
 
 ## @dzupagent/adapter-rules
 
 Root index: `packages/adapter-rules/src/index.ts`
 
-- Stable root sources: `4`
+- Stable root sources: `5`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
 - Migration window: Adapter rule root exports are stable rule contract and projection primitives; add allowlist rules before exposing new root modules.
@@ -1065,12 +1125,13 @@ No stable subpaths configured.
 | `stable` | `./loader.js` | 4 | `exact:./loader.js` | `RuleLoader`, `RuleLoadDiagnostic`, `RuleLoadDiagnosticCode`, `RuleLoadResult` |
 | `stable` | `./projectors/index.js` | 8 | `prefix:./projectors/` | `projectProviderConfig`, `projectClaudeConfig`, `projectCodexConfig`, `projectCrushConfig` |
 | `stable` | `./projectors/watchers.js` | 2 | `prefix:./projectors/` | `buildDefaultWatcherRegistrations`, `buildWatcherRegistrations` |
+| `stable` | `./types.js` | 1 | `exact:./types.js` | `*` |
 
 ## @dzupagent/flow-ast
 
 Root index: `packages/flow-ast/src/index.ts`
 
-- Stable root sources: `2`
+- Stable root sources: `9`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
 - Migration window: Flow AST root exports are stable Layer 0 parser, validator, and contract primitives; add allowlist rules before exposing new root modules.
@@ -1088,6 +1149,13 @@ Root index: `packages/flow-ast/src/index.ts`
 | --- | --- | ---: | --- | --- |
 | `stable` | `./fragments.js` | 5 | `exact:./fragments.js` | `FlowFragmentCatalog`, `FlowFragmentCatalogEntry`, `FlowFragmentDsl`, `FlowFragmentExportSpec` |
 | `stable` | `./expressions.js` | 2 | `exact:./expressions.js` | `FlowExpression`, `FlowExpressionAnalysis` |
+| `stable` | `./types.js` | 1 | `exact:./types.js` | `*` |
+| `stable` | `./parse.js` | 1 | `exact:./parse.js` | `*` |
+| `stable` | `./validate.js` | 1 | `exact:./validate.js` | `*` |
+| `stable` | `./condition-expression.js` | 1 | `exact:./condition-expression.js` | `*` |
+| `stable` | `./output-key-uniqueness.js` | 1 | `exact:./output-key-uniqueness.js` | `*` |
+| `stable` | `./unreachable-after-complete.js` | 1 | `exact:./unreachable-after-complete.js` | `*` |
+| `stable` | `./policy-numbers.js` | 1 | `exact:./policy-numbers.js` | `*` |
 
 ## @dzupagent/memory-ipc
 
@@ -1132,7 +1200,7 @@ No stable subpaths configured.
 
 Root index: `packages/hitl-kit/src/index.ts`
 
-- Stable root sources: `0`
+- Stable root sources: `6`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
 - Migration window: HITL kit root exports are stable Layer 0 human-in-the-loop contracts and store primitives; add allowlist rules before exposing new root modules.
@@ -1145,6 +1213,12 @@ No stable subpaths configured.
 
 | Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
 | --- | --- | ---: | --- | --- |
+| `stable` | `./types.js` | 1 | `exact:./types.js` | `*` |
+| `stable` | `./approval-state-store.js` | 1 | `exact:./approval-state-store.js` | `*` |
+| `stable` | `./postgres-approval-store.js` | 1 | `exact:./postgres-approval-store.js` | `*` |
+| `stable` | `./approval-gate.js` | 1 | `exact:./approval-gate.js` | `*` |
+| `stable` | `./runtime-approval-bridge.js` | 1 | `exact:./runtime-approval-bridge.js` | `*` |
+| `stable` | `./pipeline-interaction-adapter.js` | 1 | `exact:./pipeline-interaction-adapter.js` | `*` |
 
 ## @dzupagent/connectors-documents
 
