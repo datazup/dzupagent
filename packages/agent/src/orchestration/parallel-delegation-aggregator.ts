@@ -96,7 +96,7 @@ export function aggregateSettledResults(
     failed.push(resultKey)
   }
 
-  if (mergeStrategy) {
+  if (mergeStrategy && results.size > 0) {
     const agentResults: AgentResult[] = [...results.entries()].map(([agentId, dr]) =>
       omitUndefined({
         agentId,

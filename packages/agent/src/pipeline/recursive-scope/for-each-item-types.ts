@@ -93,6 +93,7 @@ export type RecursiveForEachItemExecutionV1 =
 export interface RecursiveForEachItemExecutionInputV1 {
   readonly frame: RecursiveScopedFrameV1;
   readonly itemValue: RecursiveScopedJsonValue;
+  readonly checkpoint: RecursiveScopedJsonObject;
   readonly persistCheckpoint: (
     checkpoint: RecursiveScopedJsonObject,
   ) => Promise<RecursiveScopedFrameV1>;
@@ -108,6 +109,7 @@ export type RecursiveForEachItemExecutorFactoryV1 = (
   input: Readonly<{
     frame: RecursiveScopedFrameV1;
     itemValue: RecursiveScopedJsonValue;
+    checkpoint: RecursiveScopedJsonObject;
   }>,
 ) => RecursiveForEachItemExecutorV1;
 

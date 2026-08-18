@@ -61,7 +61,9 @@ function exactKeys(
   );
 }
 
-function commitPayload(value: unknown): value is RecursiveForEachItemCommitPayloadV1 {
+export function isRecursiveForEachItemCommitPayloadV1(
+  value: unknown,
+): value is RecursiveForEachItemCommitPayloadV1 {
   if (!record(value)) return false;
   const allowed = [
     "state",
@@ -173,7 +175,10 @@ export function parseRecursiveForEachItemCheckpointV1(
   ) {
     return { status: "drift" };
   }
-  if (value.phase === "body-complete" && !commitPayload(value.commit)) {
+  if (
+    value.phase === "body-complete" &&
+    !isRecursiveForEachItemCommitPayloadV1(value.commit)
+  ) {
     return { status: "corrupt" };
   }
   return {
