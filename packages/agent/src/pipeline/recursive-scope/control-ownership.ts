@@ -586,6 +586,58 @@ function parseCancellation(
   return value as unknown as RecursiveControlCancellationV1;
 }
 
+async function saveCandidateSet(
+  coordinator: RecursiveControlCoordinatorV1,
+  binding: RecursiveControlScopeBindingV1,
+  policy: RecursiveControlPolicyV1,
+  children: readonly RecursiveControlPreparedChildV1[],
+  candidateSet: RecursiveControlCandidateSetV1,
+): Promise<RecursiveControlCandidateSetV1> {
+  const write = await storageCall(undefined, () =>
+    coordinator.durable.compareAndSaveControlCandidateSet({
+      controlScopeIdentity: candidateSet.controlScopeIdentity,
+      expectedCandidateSetIdentity: undefined,
+      candidateSetIdentity: candidateSet.candidateSetIdentity,
+      serializedCandidateSet: serialize(candidateSet),
+    }),
+  );
+  if (
+    write.status === "committed" &&
+    write.storedIdentity === candidateSet.candidateSetIdentity
+  ) {
+    return candidateSet;
+  }
+  const observed = await storageCall(undefined, () =>
+    coordinator.durable.loadControlCandidateSet(
+      candidateSet.controlScopeIdentity,
+    ),
+  );
+  if (observed === undefined) {
+    return abort({
+      status: "blocked",
+      childScopeId: undefined,
+      reason:
+        write.status === "acknowledgement-lost"
+          ? "control-candidate-set-acknowledgement-unknown"
+          : "control-candidate-set-save-conflict",
+    });
+  }
+  const restored = parseCandidateSet(
+    observed,
+    binding,
+    policy,
+    children,
+  ).candidateSet;
+  if (restored.candidateSetIdentity !== candidateSet.candidateSetIdentity) {
+    return abort({
+      status: "blocked",
+      childScopeId: undefined,
+      reason: "control-candidate-set-save-conflict",
+    });
+  }
+  return restored;
+}
+
 async function saveDecision(
   coordinator: RecursiveControlCoordinatorV1,
   decision: RecursiveControlDecisionV1,
@@ -811,6 +863,48 @@ function candidateFromClaim(
   };
 }
 
+async function reconcileCandidateSetCommits(
+  deps: ControlDeps,
+  candidates: readonly RecursiveControlCandidateV1[],
+): Promise<readonly RecursiveControlCandidateV1[]> {
+  const reconciled: RecursiveControlCandidateV1[] = [];
+  for (const candidate of candidates) {
+    const expected = candidate.committed;
+    if (expected === undefined) {
+      return abort({
+        status: "corrupt",
+        childScopeId: candidate.frame.childScopeId,
+        reason: "control-candidate-set-corrupt",
+      });
+    }
+    assertRecursiveAcknowledgementsKnownV1(expected);
+    const committed = await reconcileRecursiveCommitSaveV1(
+      { durable: deps.durable },
+      candidate.frame,
+      expected,
+    );
+    reconciled.push({ ...candidate, committed });
+  }
+  return reconciled;
+}
+
+function childrenWithCandidateCommits(
+  children: readonly RecursiveControlPreparedChildV1[],
+  candidates: readonly RecursiveControlCandidateV1[],
+): readonly RecursiveControlPreparedChildV1[] {
+  const commits = new Map(
+    candidates.flatMap((candidate) =>
+      candidate.committed === undefined
+        ? []
+        : [[candidate.frame.childScopeId, candidate.committed] as const],
+    ),
+  );
+  return children.map((child) => ({
+    ...child,
+    committed: commits.get(child.frame.childScopeId) ?? child.committed,
+  }));
+}
+
 async function loadCancellationsWithoutDecision(
   coordinator: RecursiveControlCoordinatorV1,
   children: readonly RecursiveControlPreparedChildV1[],
@@ -836,14 +930,73 @@ export async function restoreRecursiveControlDecisionV1(
   children: readonly RecursiveControlPreparedChildV1[],
 ): Promise<RecursiveControlRestoreV1> {
   const controlScopeIdentity = recursiveControlScopeIdentityV1(binding);
-  const serialized = await storageCall(undefined, () =>
+  const serializedCandidateSet = await storageCall(undefined, () =>
+    deps.control.durable.loadControlCandidateSet(controlScopeIdentity),
+  );
+  const parsedCandidateSet =
+    serializedCandidateSet === undefined
+      ? undefined
+      : parseCandidateSet(
+          serializedCandidateSet,
+          binding,
+          policy,
+          children,
+        );
+  const serializedDecision = await storageCall(undefined, () =>
     deps.control.durable.loadControlDecision(controlScopeIdentity),
   );
-  if (serialized !== undefined) {
-    const decision = parseDecision(serialized, binding);
-    assertDecisionOwner(policy, decision, children);
-    await reconcileCancellations(deps.control, decision, children);
+  if (serializedDecision !== undefined) {
+    if (parsedCandidateSet === undefined) {
+      return abort({
+        status: "corrupt",
+        childScopeId: undefined,
+        reason: "control-candidate-set-missing",
+      });
+    }
+    if (parsedCandidateSet.candidates.length !== 1) {
+      return abort({
+        status: "corrupt",
+        childScopeId: undefined,
+        reason: "control-candidate-set-drift",
+      });
+    }
+    const candidates = await reconcileCandidateSetCommits(
+      deps,
+      parsedCandidateSet.candidates,
+    );
+    const settledChildren = childrenWithCandidateCommits(children, candidates);
+    const decision = parseDecision(serializedDecision, binding);
+    if (
+      parsedCandidateSet.candidateSet.candidates[0]?.commitIdentity !==
+      decision.ownerCommitIdentity
+    ) {
+      return abort({
+        status: "corrupt",
+        childScopeId: decision.ownerChildScopeId,
+        reason: "control-candidate-set-drift",
+      });
+    }
+    assertDecisionOwner(policy, decision, settledChildren);
+    await reconcileCancellations(deps.control, decision, settledChildren);
     return { status: "restored", decision };
+  }
+
+  if (parsedCandidateSet !== undefined) {
+    const candidates = await reconcileCandidateSetCommits(
+      deps,
+      parsedCandidateSet.candidates,
+    );
+    const settledChildren = childrenWithCandidateCommits(children, candidates);
+    return {
+      status: "restored",
+      decision: await settleRecursiveControlDecisionV1(
+        deps,
+        binding,
+        policy,
+        settledChildren,
+        candidates,
+      ),
+    };
   }
 
   const candidates = children.flatMap((child) => {
@@ -862,16 +1015,14 @@ export async function restoreRecursiveControlDecisionV1(
     await loadCancellationsWithoutDecision(deps.control, children);
     return { status: "none" };
   }
-  return {
-    status: "restored",
-    decision: await settleRecursiveControlDecisionV1(
-      deps,
-      binding,
-      policy,
-      children,
-      candidates,
-    ),
-  };
+  for (const candidate of candidates) {
+    validateIntent(policy, candidate.frame, candidate.intent);
+  }
+  return abort({
+    status: "corrupt",
+    childScopeId: undefined,
+    reason: "control-candidate-set-missing",
+  });
 }
 
 export async function settleRecursiveControlDecisionV1(
@@ -911,12 +1062,7 @@ export async function settleRecursiveControlDecisionV1(
     return { candidate, catchRoute };
   });
 
-  const persisted: Array<{
-    readonly candidate: RecursiveControlCandidateV1;
-    readonly catchRoute: RecursiveControlCatchRouteV1 | null;
-    readonly commit: RecursiveScopedCommitV1;
-  }> = [];
-  for (const entry of validated) {
+  const materialized: MaterializedControlCandidate[] = validated.map((entry) => {
     let commit = entry.candidate.committed;
     if (commit === undefined) {
       try {
@@ -932,13 +1078,27 @@ export async function settleRecursiveControlDecisionV1(
           reason: "control-intent-corrupt",
         });
       }
-      assertRecursiveAcknowledgementsKnownV1(commit);
-      commit = await reconcileRecursiveCommitSaveV1(
-        { durable: deps.durable },
-        entry.candidate.frame,
-        commit,
-      );
     }
+    assertRecursiveAcknowledgementsKnownV1(commit);
+    return { ...entry, commit };
+  });
+
+  const candidateSet = materializeCandidateSet(binding, materialized);
+  await saveCandidateSet(
+    deps.control,
+    binding,
+    policy,
+    children,
+    candidateSet,
+  );
+
+  const persisted: MaterializedControlCandidate[] = [];
+  for (const entry of materialized) {
+    const commit = await reconcileRecursiveCommitSaveV1(
+      { durable: deps.durable },
+      entry.candidate.frame,
+      entry.commit,
+    );
     persisted.push({ ...entry, commit });
   }
 
