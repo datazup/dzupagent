@@ -15,25 +15,34 @@
  * Regenerate after fixing violations: `yarn lint:baseline:update`
  * (preview the diff with `yarn lint:baseline:check`).
  *
- * The gated rules, as measured 2026-08-14 — 742 violations across 313 files:
- *   - real `setTimeout` in a test (prefer fake timers)          — 382 instances
- *   - stateless memory doubles: `{get,put}` spy, no `getKeyed`  — 139 instances
- *   - vacuous `expect(xs.every(p)).toBe(true)`, true on empty   — 205 instances
+ * The gated rules — 698 violations across 309 files:
+ *   - `real-set-timeout`        — real `setTimeout` in a test (prefer fake timers)   — 361 instances
+ *   - `stateless-memory-double` — `{get,put}` spy, no `getKeyed`                     — 135 instances
+ *   - `vacuous-every`           — `expect(xs.every(p)).toBe(true)`, true on empty    — 202 instances
+ *
+ * Those four numbers are NOT prose: scripts/__tests__/test-quality-baseline.test.mjs
+ * parses them back out of this comment and asserts they equal the totals of the
+ * data below. `yarn lint:baseline:update` rewrites only the data block and
+ * preserves this header verbatim, so without that test the header silently rots —
+ * it drifted to "742 across 313 / 382 / 139 / 205" exactly that way while the
+ * recorded counts were being ratcheted down beneath it.
  *
  * Each surfaces a defect class a passing test cannot rule out: a spy that cannot
  * disagree with the code driving it, an assertion satisfied by an empty
  * collection, a timer that makes the suite non-deterministic.
  *
- * A bulk migration was measured and rejected: 742 findings across 316 files, and
- * ~15% of the vacuity hits are negative predicates where an empty collection is
- * a fair pass — those need judgement, not a codemod.
+ * A bulk migration was measured and rejected when the ratchet was built (then:
+ * 742 findings across 316 files), because ~15% of the vacuity hits are negative
+ * predicates where an empty collection is a fair pass — those need judgement,
+ * not a codemod. That figure is historical and is deliberately not asserted.
  *
  * THIS LIST MUST ONLY EVER SHRINK. That was previously a comment and nothing
  * else: the list was file-granular, so any listed file could accrue unlimited
  * new violations at `warn` while `yarn lint` stayed exit 0 — the
  * stateless-memory-double total drifted 135 -> 139 exactly that way, with the
  * gate green throughout (DZUPAGENT-CODE-H-09). The per-rule counts below are
- * what turns the comment into a gate. Fix the violations in a file you are
+ * what turns the comment into a gate; with it enforced the same total has since
+ * been ratcheted back down to 135. Fix the violations in a file you are
  * already touching, rerun `yarn lint:baseline:update`, and let the number drop.
  *
  * NOTE ON LAYERING: ESLint REPLACES a rule's config rather than merging when a

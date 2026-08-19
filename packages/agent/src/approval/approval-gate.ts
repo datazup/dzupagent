@@ -172,7 +172,15 @@ export class ApprovalGate {
       })
 
       const unsubReject = this.eventBus.on('approval:rejected', (event) => {
-        if (event.runId === runId && !resolved) {
+        // A rejection is qualified exactly like a grant: when it names a
+        // contact, it answers only THAT contact's request. Matching on runId
+        // alone lets a denial for one contact reject a different pending
+        // approval on the same run.
+        if (
+          event.runId === runId &&
+          grantMatchesContact(event.contactId, contactId) &&
+          !resolved
+        ) {
           cleanup()
           resolve('rejected')
         }
@@ -306,6 +314,7 @@ export class ApprovalGate {
       this.eventBus.emit(omitUndefined({
         type: 'approval:rejected' as const,
         runId,
+        contactId: state.contactId,
         reason: decision.reason,
       }))
     }

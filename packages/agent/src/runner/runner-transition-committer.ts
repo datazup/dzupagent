@@ -16,7 +16,7 @@ import {
   type AgentStructuredOutputRequest,
 } from '@dzupagent/agent-types/run'
 
-import { assertDurableJson } from './runner-values.js'
+import { assertDurableJson } from './runner-durable-json.js'
 import { assertAgentRunnerStructuredOutputRequest } from './model-port-values.js'
 import {
   assertValidSessionSnapshot,

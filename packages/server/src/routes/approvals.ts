@@ -76,9 +76,15 @@ export function createApprovalsRoutes(config: ApprovalRoutesConfig): Hono<AppEnv
       throw err
     }
 
+    // This endpoint answers ONE `(runId, approvalId)` pair, so the decision is
+    // qualified with that approvalId as its `contactId`. Emitted unqualified,
+    // it would satisfy every pending approval on the run -- the same hole
+    // DZUPAGENT-AGENT-H-14 closed on the human-contact route, which survived
+    // here because this route keys on `approvalId` rather than `contactId`.
     eventBus?.emit({
       type: 'approval:granted',
       runId,
+      contactId: approvalId,
       ...(typeof body.approvedBy === 'string' ? { approvedBy: body.approvedBy } : {}),
     })
 
@@ -119,7 +125,9 @@ export function createApprovalsRoutes(config: ApprovalRoutesConfig): Hono<AppEnv
       throw err
     }
 
-    eventBus?.emit({ type: 'approval:rejected', runId, reason })
+    // Qualified with the approvalId it answers, for the same reason as the
+    // grant branch above.
+    eventBus?.emit({ type: 'approval:rejected', runId, contactId: approvalId, reason })
 
     return c.json({ data: { runId, approvalId, decision: 'rejected', reason } })
   })

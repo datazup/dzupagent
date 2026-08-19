@@ -28,6 +28,10 @@ import type {
   CompilationWarning,
 } from "./diagnostic-types.js";
 import type { LoweredPorts } from "./lower/_shared-types.js";
+import type {
+  StrictReferenceMigrationReport,
+  StrictReferenceMigrationSource,
+} from "./strict-reference-migration-types.js";
 
 export type { FlowReferenceValueType } from "./reference-value-types.js";
 export type {
@@ -43,6 +47,13 @@ export type {
   FlowDiagnosticTextEdit,
   FlowEditorDiagnostic,
 } from "./diagnostic-types.js";
+export type {
+  StrictReferenceMigrationItem,
+  StrictReferenceMigrationReport,
+  StrictReferenceMigrationSource,
+  StrictReferenceMigrationStatus,
+  StrictReferenceMigrationSummary,
+} from "./strict-reference-migration-types.js";
 /** Compile-time admission posture; unattended flows fail closed. */
 export type FlowAdmissionProfile = "interactive" | "unattended";
 
@@ -412,41 +423,6 @@ export interface FlowReferenceAuthoringOptions {
   referencePortBindings?: FlowReferencePortBindings;
   referenceClassificationBindings?: FlowReferenceClassificationBindings;
   referencePortClassificationBindings?: FlowReferencePortClassificationBindings;
-}
-
-export type StrictReferenceMigrationSource =
-  | { id: string; kind: "flow"; input: ParseInput }
-  | { id: string; kind: "document"; input: unknown }
-  | { id: string; kind: "dsl"; input: unknown };
-
-export type StrictReferenceMigrationStatus =
-  | "ready"
-  | "changes-required"
-  | "invalid";
-
-export interface StrictReferenceMigrationItem {
-  id: string;
-  kind: StrictReferenceMigrationSource["kind"];
-  status: StrictReferenceMigrationStatus;
-  compatibilityDiagnostics: CompilationDiagnostic[];
-  compatibilityWarnings: CompilationWarning[];
-  strictDiagnostics: CompilationDiagnostic[];
-  blockingReferenceCodes: string[];
-}
-
-export interface StrictReferenceMigrationSummary {
-  total: number;
-  ready: number;
-  changesRequired: number;
-  invalid: number;
-  diagnosticsByCode: Record<string, number>;
-  compilerDiagnosticsByCode: Record<string, number>;
-}
-
-export interface StrictReferenceMigrationReport {
-  schema: "dzupagent.strictReferenceMigration/v1";
-  summary: StrictReferenceMigrationSummary;
-  items: StrictReferenceMigrationItem[];
 }
 
 export interface FlowCompileEvidenceNode {

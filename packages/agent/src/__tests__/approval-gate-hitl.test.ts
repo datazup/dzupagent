@@ -1488,6 +1488,73 @@ describe("ApprovalGate grant scoping (DZUPAGENT-AGENT-H-14)", () => {
   });
 });
 
+describe("ApprovalGate rejection scoping (mirror of DZUPAGENT-AGENT-H-14)", () => {
+  it("a rejection for contact X does not resolve contact Y on the same run", async () => {
+    const bus = createEventBus();
+    const gate = new ApprovalGate({ mode: "required", timeoutMs: 200 }, bus);
+
+    let pendingContactId: string | undefined;
+    bus.on("approval:requested", (e) => {
+      pendingContactId = e.contactId;
+    });
+
+    const pending = gate.waitForApproval("run-reject-scope", "deploy prod");
+    expect(pendingContactId).toBeDefined();
+
+    // A denial answering a DIFFERENT outstanding contact on the same run.
+    // Before the fix this resolved as "rejected": the handler matched on
+    // runId alone, so one contact's denial killed another contact's request.
+    bus.emit({
+      type: "approval:rejected",
+      runId: "run-reject-scope",
+      contactId: "some-other-contact",
+    });
+
+    await expect(pending).resolves.toBe("timeout");
+  });
+
+  it("a rejection naming the pending contact does resolve it", async () => {
+    const bus = createEventBus();
+    const gate = new ApprovalGate({ mode: "required", timeoutMs: 500 }, bus);
+
+    let pendingContactId: string | undefined;
+    bus.on("approval:requested", (e) => {
+      pendingContactId = e.contactId;
+    });
+
+    const pending = gate.waitForApproval("run-reject-match", "deploy prod");
+    bus.emit({
+      type: "approval:rejected",
+      runId: "run-reject-match",
+      contactId: pendingContactId!,
+    });
+
+    await expect(pending).resolves.toBe("rejected");
+  });
+
+  it("an unqualified (run-scoped) rejection still resolves a pending approval", async () => {
+    // POST /api/runs/:id/reject denies the run as a whole and has no contact
+    // to name; that path must keep working.
+    const bus = createEventBus();
+    const gate = new ApprovalGate({ mode: "required", timeoutMs: 500 }, bus);
+
+    const pending = gate.waitForApproval("run-reject-unqualified", "deploy prod");
+    bus.emit({ type: "approval:rejected", runId: "run-reject-unqualified" });
+
+    await expect(pending).resolves.toBe("rejected");
+  });
+
+  it("a rejection for run A does not resolve a pending approval for run B", async () => {
+    const bus = createEventBus();
+    const gate = new ApprovalGate({ mode: "required", timeoutMs: 80 }, bus);
+
+    const pending = gate.waitForApproval("run-B", "deploy prod");
+    bus.emit({ type: "approval:rejected", runId: "run-A" });
+
+    await expect(pending).resolves.toBe("timeout");
+  });
+});
+
 describe("ApprovalGate.resume() token verification (DZUPAGENT-AGENT-H-14)", () => {
   function durableGate(store: InMemoryApprovalStore, bus: ReturnType<typeof createEventBus>) {
     return new ApprovalGate(

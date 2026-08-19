@@ -24,7 +24,7 @@ import {
   AGENT_RUNNER_STRUCTURED_OUTPUT_EVIDENCE_SCHEMA,
 } from './runner-ports.js'
 import { AGENT_STRUCTURED_OUTPUT_REQUEST_SCHEMA } from '@dzupagent/agent-types/run'
-import { assertDurableJson, digestRunnerJson } from './runner-values.js'
+import { assertDurableJson, digestRunnerJson } from './runner-durable-json.js'
 
 const MODEL_ERROR_CATEGORIES = new Set([
   'authentication',

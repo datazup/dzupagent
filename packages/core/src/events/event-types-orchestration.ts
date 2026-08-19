@@ -94,7 +94,29 @@ export type OrchestrationDomainEvent =
       contactId?: string;
       approvedBy?: string;
     }
-  | { type: "approval:rejected"; runId: string; reason?: string }
+  /**
+   * A rejection carries the same contact qualification as a grant, and for the
+   * same reason: consumers MUST refuse to resolve a pending approval whose
+   * `contactId` differs from the one on the rejection. Without it, a denial
+   * issued for contact X resolves a pending approval for contact Y on the same
+   * run -- the mirror of the grant hole closed by DZUPAGENT-AGENT-H-14.
+   *
+   * This direction fails *safe* rather than open (the victim is denied, not
+   * admitted), so it is a correctness and availability defect rather than a
+   * privilege bypass -- but a run can still be denied by an answer that was
+   * never about it.
+   *
+   * As with grants it stays optional, because run-scoped endpoints (e.g.
+   * `POST /api/runs/:id/reject`) deny the run as a whole and have no
+   * per-contact request to name. Any emitter answering a specific contact
+   * request must set it.
+   */
+  | {
+      type: "approval:rejected";
+      runId: string;
+      contactId?: string;
+      reason?: string;
+    }
   | {
       type: "approval:timed_out";
       runId: string;

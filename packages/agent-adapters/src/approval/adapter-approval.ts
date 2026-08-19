@@ -30,13 +30,12 @@
  * ```
  */
 
-import { fetchWithOutboundUrlPolicy } from "@dzupagent/core/security";
 import { defaultLogger } from "@dzupagent/core/utils";
 import type { DzupEvent } from "@dzupagent/core/events";
-import type { OutboundUrlSecurityPolicy } from "@dzupagent/core/security";
 
 import type { AgentEvent, AgentStreamEvent } from "../types.js";
 import { validateWebhookUrl } from "../utils/url-validator.js";
+import { notifyApprovalWebhook } from "./approval-webhook.js";
 import { InMemoryApprovalAuditStore } from "./approval-audit.js";
 import type {
   ApprovalAuditEntry,
@@ -188,12 +187,13 @@ export class AdapterApprovalGate {
     this.emitEvent({
       type: "approval:requested",
       runId: context.runId,
+      contactId: requestId,
       plan: context,
     });
 
     // 6. Fire-and-forget webhook notification
     if (this.config.webhookUrl) {
-      this.notifyWebhook(requestId, context).catch((err: unknown) => {
+      notifyApprovalWebhook(this.config, requestId, context).catch((err: unknown) => {
         // ERR-M-11: webhook delivery is how a human is told a gate is pending.
         // Non-critical (must not block the approval flow), but a silent drop
         // means the gate stalls until TTL expiry with no signal to anyone.
@@ -225,9 +225,13 @@ export class AdapterApprovalGate {
             reason: `Timed out after ${String(this.timeoutMs)}ms`,
             mode: this.config.mode,
           });
+          // NOTE: a timeout reports as `approval:rejected`, not
+          // `approval:timed_out`. That conflation predates this change;
+          // switching the type would alter what consumers observe.
           this.emitEvent({
             type: "approval:rejected",
             runId: context.runId,
+            contactId: requestId,
             reason: `Approval timed out after ${String(this.timeoutMs)}ms`,
           });
           resolve("timeout");
@@ -270,6 +274,7 @@ export class AdapterApprovalGate {
     this.emitEvent({
       type: "approval:granted",
       runId: request.runId,
+      contactId: requestId,
       approvedBy,
     });
 
@@ -306,6 +311,7 @@ export class AdapterApprovalGate {
     this.emitEvent({
       type: "approval:rejected",
       runId: request.runId,
+      contactId: requestId,
       reason,
     });
 
@@ -431,61 +437,35 @@ export class AdapterApprovalGate {
     this.resolvers.delete(requestId);
   }
 
+  /**
+   * Every event here answers exactly one `requestId`, so all carry it as
+   * `contactId` -- how consumers tell whether a decision is about the approval
+   * they await. Unqualified, a decision satisfies every pending approval on the
+   * run (DZUPAGENT-AGENT-H-14 for grants; its mirror for rejections).
+   */
   private emitEvent(
     event:
-      | { type: "approval:requested"; runId: string; plan: unknown }
+      | {
+          type: "approval:requested";
+          runId: string;
+          contactId: string;
+          plan: unknown;
+        }
       | {
           type: "approval:granted";
           runId: string;
+          contactId: string;
           approvedBy?: string | undefined;
         }
       | {
           type: "approval:rejected";
           runId: string;
+          contactId: string;
           reason?: string | undefined;
         }
   ): void {
     if (this.config.eventBus) {
       this.config.eventBus.emit(event as DzupEvent);
     }
-  }
-
-  private async notifyWebhook(
-    requestId: string,
-    context: ApprovalContext
-  ): Promise<void> {
-    if (!this.config.webhookUrl) return;
-
-    // Re-validate at call time in case the URL was mutated after construction
-    validateWebhookUrl(
-      this.config.webhookUrl,
-      this.config.webhookUrlValidation
-    );
-    const urlPolicy: OutboundUrlSecurityPolicy | undefined =
-      this.config.webhookUrlValidation;
-
-    await fetchWithOutboundUrlPolicy(
-      this.config.webhookUrl,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "approval_requested",
-          requestId,
-          runId: context.runId,
-          description: context.description,
-          providerId: context.providerId,
-          estimatedCostCents: context.estimatedCostCents,
-          tags: context.tags,
-          metadata: context.metadata,
-        }),
-      },
-      {
-        policy: urlPolicy,
-        ...(this.config.webhookFetchImpl !== undefined
-          ? { fetchImpl: this.config.webhookFetchImpl }
-          : {}),
-      }
-    );
   }
 }

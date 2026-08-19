@@ -365,6 +365,12 @@ async function waitForApprovalDecision(
 
     const unsubReject = eventBus.on("approval:rejected", (event) => {
       if (event.runId !== runId) return;
+      // A rejection naming a different contact is answering a different
+      // request and must not deny this run -- the mirror of the grant rule
+      // above (DZUPAGENT-AGENT-H-14).
+      if (event.contactId !== undefined && event.contactId !== contactId) {
+        return;
+      }
       unsubGrant();
       unsubReject();
       clearTimeout(timer);
