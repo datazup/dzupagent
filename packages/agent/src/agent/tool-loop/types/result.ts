@@ -24,6 +24,17 @@ export type StopReason =
   | "iteration_limit"
   | "budget_exceeded"
   | "aborted"
+  /**
+   * The public tool-result security policy blocked a tool's output (or the
+   * scanner itself failed in `block` mode), so the loop halted without a
+   * further model turn. Produced in `../loop-stages.ts` (`handleToolResults`:
+   * `securityBlocked` -> `halt = "error"`) — note the producer assigns via
+   * the local `halt` variable, so a grep for `stopReason: "error"` will NOT
+   * find it. The native streaming path deliberately excludes this member
+   * (`StreamStopReason`) and maps `securityBlocked` to `"aborted"` instead.
+   * Consumers: memory write-back tables classify it as non-persisting;
+   * `buildWorkflowEventsFromToolStats` maps it to `workflow:failed`.
+   */
   | "error"
   | "stuck"
   | "token_exhausted"

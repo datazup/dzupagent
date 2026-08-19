@@ -273,3 +273,18 @@ Files I will touch:
 
 - packages/agent/src/pipeline/loop-executor/types.ts
 - packages/agent/src/pipeline/loop-executor/__tests__/ (signature-lock + await-drop specs, as needed)
+
+**RESOLVED 2026-08-19 ~21:55 — premise refuted; no behavioral change needed.**
+`"error"` HAS a live producer: `packages/agent/src/agent/tool-loop/loop-stages.ts`
+`handleToolResults` — `if (r.securityBlocked) { halt = "error"; break; }` (assigned
+via the local `halt` variable, so the lane's grep for `stopReason: "error"` /
+`stopReason = "error"` could not see it — the grep-one-access-form trap). Live
+end-to-end on the generate path: `src/__tests__/tool-result-security-public-config.test.ts`
+asserts `result.stopReason === "error"` from real `agent.generate()` runs (4 sites).
+The streaming path deliberately excludes the member (`StreamStopReason = Exclude<...,
+'error' | 'compression_failed'>`) and maps `securityBlocked` to `"aborted"`.
+Consumer branches (learning-bridge:151, write-back tables `error: false`) are LIVE,
+tested (learning-bridge.test.ts, dzip-agent-run-coordinator-memory-write-back.test.ts).
+Mutation-proved: `halt = "error"` -> `halt = "aborted"` kills 3 tests; restored, residual
+diff empty. Only change shipped: doc comment on the `"error"` member in
+`tool-loop/types/result.ts` naming the producer so the next grep-based audit finds it.
