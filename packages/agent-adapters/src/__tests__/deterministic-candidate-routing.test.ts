@@ -60,7 +60,7 @@ function policy(
 }
 
 describe('deterministic candidate routing', () => {
-  it.each(['weighted', 'hash', 'round-robin', 'llm-rank'] as const)(
+  it.each(['round-robin', 'llm-rank'] as const)(
     'fails closed before selection for unsupported %s strategy metadata',
     (strategy) => {
       expect(() => selectExecutionRoute(

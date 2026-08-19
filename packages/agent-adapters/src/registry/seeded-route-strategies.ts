@@ -196,6 +196,12 @@ export function drawWeightedCandidate(
  * candidates join or leave the eligible set. The pick depends on the seed, the
  * routing key and the candidate id only: deliberately not on the request id, so
  * the same key routes to the same candidate across requests.
+ *
+ * The candidate id leads the digest input because it is the only component that
+ * varies within a draw, and FNV-1a mixes leading bytes through every subsequent
+ * round while trailing bytes barely move the high bits the comparison reads.
+ * Scoring `seed | key | id` instead collapses nearly every key onto one
+ * candidate, which was measured before this ordering was fixed.
  */
 export function drawHashCandidate(
   eligible: readonly ExecutionRouteCandidate[],
@@ -206,7 +212,7 @@ export function drawHashCandidate(
   let winningScore = -1;
   for (const candidate of eligible) {
     const score = fnv1a32(
-      [seed, routingKey, candidate.id].join(FIELD_SEPARATOR),
+      [candidate.id, seed, routingKey].join(FIELD_SEPARATOR),
     );
     if (
       winner === undefined ||

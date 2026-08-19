@@ -1,0 +1,205 @@
+{
+  "weighted-seed-0": {
+    "schema": "dzupagent.agentAdapters.routeSelectionReceipt/v1",
+    "decision": {
+      "id": "route-policy:request-1",
+      "policyId": "route-policy",
+      "requestId": "request-1",
+      "eligibleCandidateIds": [
+        "alpha:sdk",
+        "bravo:sdk",
+        "charlie:sdk"
+      ],
+      "rejected": [],
+      "selectedCandidateId": "charlie:sdk",
+      "fallbackCandidateIds": [
+        "alpha:sdk",
+        "bravo:sdk"
+      ],
+      "transitions": [],
+      "strategy": "weighted",
+      "reasoningSummary": "Seeded weighted route selected charlie:sdk; 0 candidate(s) rejected",
+      "decidedAt": "2026-07-12T12:00:00.000Z"
+    },
+    "seed": "seed-0",
+    "routingKey": null,
+    "candidateWeights": [
+      [
+        "alpha:sdk",
+        1
+      ],
+      [
+        "bravo:sdk",
+        3
+      ],
+      [
+        "charlie:sdk",
+        6
+      ]
+    ]
+  },
+  "weighted-seed-2": {
+    "schema": "dzupagent.agentAdapters.routeSelectionReceipt/v1",
+    "decision": {
+      "id": "route-policy:request-1",
+      "policyId": "route-policy",
+      "requestId": "request-1",
+      "eligibleCandidateIds": [
+        "alpha:sdk",
+        "bravo:sdk",
+        "charlie:sdk"
+      ],
+      "rejected": [],
+      "selectedCandidateId": "alpha:sdk",
+      "fallbackCandidateIds": [
+        "bravo:sdk",
+        "charlie:sdk"
+      ],
+      "transitions": [],
+      "strategy": "weighted",
+      "reasoningSummary": "Seeded weighted route selected alpha:sdk; 0 candidate(s) rejected",
+      "decidedAt": "2026-07-12T12:00:00.000Z"
+    },
+    "seed": "seed-2",
+    "routingKey": null,
+    "candidateWeights": [
+      [
+        "alpha:sdk",
+        1
+      ],
+      [
+        "bravo:sdk",
+        3
+      ],
+      [
+        "charlie:sdk",
+        6
+      ]
+    ]
+  },
+  "weighted-excludes-ineligible": {
+    "schema": "dzupagent.agentAdapters.routeSelectionReceipt/v1",
+    "decision": {
+      "id": "route-policy:request-1",
+      "policyId": "route-policy",
+      "requestId": "request-1",
+      "eligibleCandidateIds": [
+        "alpha:sdk",
+        "charlie:sdk"
+      ],
+      "rejected": [
+        {
+          "candidateId": "bravo:sdk",
+          "codes": [
+            "AUTH_SOURCE_UNAVAILABLE"
+          ],
+          "reasons": [
+            "Authentication source is unavailable"
+          ]
+        }
+      ],
+      "selectedCandidateId": "charlie:sdk",
+      "fallbackCandidateIds": [
+        "alpha:sdk"
+      ],
+      "transitions": [],
+      "strategy": "weighted",
+      "reasoningSummary": "Seeded weighted route selected charlie:sdk; 1 candidate(s) rejected",
+      "decidedAt": "2026-07-12T12:00:00.000Z"
+    },
+    "seed": "seed-0",
+    "routingKey": null,
+    "candidateWeights": [
+      [
+        "alpha:sdk",
+        1
+      ],
+      [
+        "bravo:sdk",
+        3
+      ],
+      [
+        "charlie:sdk",
+        6
+      ]
+    ]
+  },
+  "hash-tenant-42": {
+    "schema": "dzupagent.agentAdapters.routeSelectionReceipt/v1",
+    "decision": {
+      "id": "route-policy:request-1",
+      "policyId": "route-policy",
+      "requestId": "request-1",
+      "eligibleCandidateIds": [
+        "alpha:sdk",
+        "bravo:sdk",
+        "charlie:sdk"
+      ],
+      "rejected": [],
+      "selectedCandidateId": "bravo:sdk",
+      "fallbackCandidateIds": [
+        "alpha:sdk",
+        "charlie:sdk"
+      ],
+      "transitions": [],
+      "strategy": "hash",
+      "reasoningSummary": "Seeded hash route selected bravo:sdk; 0 candidate(s) rejected",
+      "decidedAt": "2026-07-12T12:00:00.000Z"
+    },
+    "seed": "seed-alpha",
+    "routingKey": "tenant-42",
+    "candidateWeights": null
+  },
+  "hash-tenant-99": {
+    "schema": "dzupagent.agentAdapters.routeSelectionReceipt/v1",
+    "decision": {
+      "id": "route-policy:request-1",
+      "policyId": "route-policy",
+      "requestId": "request-1",
+      "eligibleCandidateIds": [
+        "alpha:sdk",
+        "bravo:sdk",
+        "charlie:sdk"
+      ],
+      "rejected": [],
+      "selectedCandidateId": "alpha:sdk",
+      "fallbackCandidateIds": [
+        "bravo:sdk",
+        "charlie:sdk"
+      ],
+      "transitions": [],
+      "strategy": "hash",
+      "reasoningSummary": "Seeded hash route selected alpha:sdk; 0 candidate(s) rejected",
+      "decidedAt": "2026-07-12T12:00:00.000Z"
+    },
+    "seed": "seed-alpha",
+    "routingKey": "tenant-99",
+    "candidateWeights": null
+  },
+  "rule-baseline": {
+    "schema": "dzupagent.agentAdapters.routeSelectionReceipt/v1",
+    "decision": {
+      "id": "route-policy:request-1",
+      "policyId": "route-policy",
+      "requestId": "request-1",
+      "eligibleCandidateIds": [
+        "alpha:sdk",
+        "bravo:sdk",
+        "charlie:sdk"
+      ],
+      "rejected": [],
+      "selectedCandidateId": "alpha:sdk",
+      "fallbackCandidateIds": [
+        "bravo:sdk",
+        "charlie:sdk"
+      ],
+      "transitions": [],
+      "strategy": "rule",
+      "reasoningSummary": "Ordered rule selected alpha:sdk; 0 candidate(s) rejected",
+      "decidedAt": "2026-07-12T12:00:00.000Z"
+    },
+    "seed": null,
+    "routingKey": null,
+    "candidateWeights": null
+  }
+}

@@ -1,0 +1,157 @@
+import { describe, expect, it } from "vitest";
+import { readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import {
+  DeterministicRouteSelectionAdmissionError,
+  replayRouteSelectionReceipt,
+  selectExecutionRouteWithReceipt,
+  type RouteSelectionReceipt,
+} from "../registry/deterministic-candidate-selector.js";
+import { SEEDED_ROUTE_REPLAY_SCENARIOS } from "./fixtures/seeded-route-replay-scenarios.js";
+
+const FIXTURE_PATH = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "fixtures",
+  "seeded-route-replay-receipts.json",
+);
+
+/** Serialization used for every byte comparison and for the committed file. */
+function serialize(value: unknown): string {
+  return `${JSON.stringify(value, null, 2)}\n`;
+}
+
+function recordAllScenarios(): Record<string, RouteSelectionReceipt> {
+  const recorded: Record<string, RouteSelectionReceipt> = {};
+  for (const scenario of SEEDED_ROUTE_REPLAY_SCENARIOS) {
+    recorded[scenario.name] = selectExecutionRouteWithReceipt(
+      scenario.policy,
+      scenario.options,
+    );
+  }
+  return recorded;
+}
+
+// Set DZUP_RECORD_ROUTE_REPLAY_FIXTURE=1 to deliberately rewrite the fixture.
+// It is never set in CI, so an unintended change in the seeded pick fails here
+// instead of quietly rebaselining itself.
+if (process.env.DZUP_RECORD_ROUTE_REPLAY_FIXTURE === "1") {
+  writeFileSync(FIXTURE_PATH, serialize(recordAllScenarios()), "utf8");
+}
+
+const committedBytes = readFileSync(FIXTURE_PATH, "utf8");
+const committed = JSON.parse(committedBytes) as Record<
+  string,
+  RouteSelectionReceipt
+>;
+
+describe("seeded route selection replay fixtures", () => {
+  it("reproduces every committed receipt byte for byte", () => {
+    expect(serialize(recordAllScenarios())).toBe(committedBytes);
+  });
+
+  it("covers every scenario and nothing else", () => {
+    expect(Object.keys(committed).sort()).toEqual(
+      SEEDED_ROUTE_REPLAY_SCENARIOS.map((scenario) => scenario.name).sort(),
+    );
+  });
+
+  it.each(
+    SEEDED_ROUTE_REPLAY_SCENARIOS.map(
+      (scenario) => [scenario.name, scenario] as const,
+    ),
+  )("replays %s from the receipt alone", (_name, scenario) => {
+    const recorded = committed[scenario.name] as RouteSelectionReceipt;
+
+    // The receipt carries decidedAt, seed and routing key, so nothing but the
+    // policy and the receipt is needed to reproduce the decision.
+    const replayed = replayRouteSelectionReceipt(scenario.policy, recorded);
+
+    expect(serialize(replayed)).toBe(serialize(recorded));
+  });
+
+  it("keeps the seed load-bearing for the weighted draw", () => {
+    const seed0 = committed["weighted-seed-0"] as RouteSelectionReceipt;
+    const seed2 = committed["weighted-seed-2"] as RouteSelectionReceipt;
+
+    // Same policy, same candidates, same eligibility — only the seed differs.
+    expect(seed0.decision.eligibleCandidateIds).toEqual(
+      seed2.decision.eligibleCandidateIds,
+    );
+    expect(seed0.seed).not.toBe(seed2.seed);
+    expect(seed0.decision.selectedCandidateId).not.toBe(
+      seed2.decision.selectedCandidateId,
+    );
+  });
+
+  it("does not let the weighted pick collapse onto the first eligible candidate", () => {
+    const seed0 = committed["weighted-seed-0"] as RouteSelectionReceipt;
+
+    // A draw that ignored the seed and returned eligible[0] would still satisfy
+    // "deterministic", so the fixture pins a winner that is not eligible[0].
+    expect(seed0.decision.selectedCandidateId).not.toBe(
+      seed0.decision.eligibleCandidateIds[0],
+    );
+  });
+
+  it("routes two different keys to two different candidates under one seed", () => {
+    const tenant42 = committed["hash-tenant-42"] as RouteSelectionReceipt;
+    const tenant99 = committed["hash-tenant-99"] as RouteSelectionReceipt;
+
+    expect(tenant42.seed).toBe(tenant99.seed);
+    expect(tenant42.routingKey).not.toBe(tenant99.routingKey);
+    expect(tenant42.decision.selectedCandidateId).not.toBe(
+      tenant99.decision.selectedCandidateId,
+    );
+  });
+
+  it("records no seed, key or weights for an unseeded strategy", () => {
+    const baseline = committed["rule-baseline"] as RouteSelectionReceipt;
+
+    expect(baseline.seed).toBeNull();
+    expect(baseline.routingKey).toBeNull();
+    expect(baseline.candidateWeights).toBeNull();
+  });
+
+  it.each([
+    {
+      name: "weighted without a seed",
+      scenario: "weighted-seed-0",
+      options: { decidedAt: "2026-07-12T12:00:00.000Z" },
+      code: "SEEDED_STRATEGY_REQUIRES_SEED",
+    },
+    {
+      name: "hash without a seed",
+      scenario: "hash-tenant-42",
+      options: {
+        decidedAt: "2026-07-12T12:00:00.000Z",
+        routingKey: "tenant-42",
+      },
+      code: "SEEDED_STRATEGY_REQUIRES_SEED",
+    },
+    {
+      name: "hash without a routing key",
+      scenario: "hash-tenant-42",
+      options: {
+        decidedAt: "2026-07-12T12:00:00.000Z",
+        seed: "seed-alpha",
+      },
+      code: "HASH_STRATEGY_REQUIRES_ROUTING_KEY",
+    },
+  ] as const)("fails closed for $name", ({ scenario, options, code }) => {
+    const definition = SEEDED_ROUTE_REPLAY_SCENARIOS.find(
+      (item) => item.name === scenario,
+    );
+    expect(definition).toBeDefined();
+
+    expect(() =>
+      selectExecutionRouteWithReceipt(definition!.policy, options),
+    ).toThrow(
+      expect.objectContaining<Partial<DeterministicRouteSelectionAdmissionError>>({
+        name: "DeterministicRouteSelectionAdmissionError",
+        code,
+      }),
+    );
+  });
+});

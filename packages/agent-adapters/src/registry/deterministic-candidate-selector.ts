@@ -10,6 +10,18 @@ import type {
   ExecutionRouteTransitionKind,
 } from '@dzupagent/runtime-contracts'
 
+import {
+  drawHashCandidate,
+  drawWeightedCandidate,
+  readPolicyCandidateWeights,
+  requireRoutingKey,
+  requireSeed,
+} from './seeded-route-strategies.js'
+import type {
+  SeededRouteStrategyFailureCode,
+  SeededRouteStrategyResult,
+} from './seeded-route-strategies.js'
+
 const COST_RANK: Record<ExecutionRouteCostClass, number> = {
   free: 0,
   low: 1,
@@ -27,10 +39,21 @@ const PRIVACY_RANK: Record<ExecutionRoutePrivacyClass, number> = {
 export interface DeterministicRouteSelectionOptions {
   /** Host-supplied timestamp keeps selection deterministic and replayable. */
   decidedAt: string
+  /**
+   * Host-supplied seed consumed by the `weighted` and `hash` strategies. It is
+   * an input to the decision, never drawn at decision time, and is recorded in
+   * the selection receipt so a replay reproduces the identical pick.
+   */
+  seed?: string
+  /**
+   * Host-supplied routing key consumed by the `hash` strategy. The same key
+   * routes to the same candidate for a given seed and eligible candidate set.
+   */
+  routingKey?: string
 }
 
 /** Strategies whose selection semantics are implemented by this selector. */
-export const IMPLEMENTED_DETERMINISTIC_ROUTE_STRATEGIES = ['fixed', 'rule'] as const
+export const IMPLEMENTED_DETERMINISTIC_ROUTE_STRATEGIES = ['fixed', 'hash', 'rule', 'weighted'] as const
 
 type ImplementedDeterministicRouteStrategy =
   (typeof IMPLEMENTED_DETERMINISTIC_ROUTE_STRATEGIES)[number]
@@ -39,6 +62,7 @@ export type DeterministicRouteSelectionAdmissionCode =
   | 'UNSUPPORTED_ROUTE_STRATEGY'
   | 'DUPLICATE_ROUTE_CANDIDATE'
   | 'FIXED_STRATEGY_REQUIRES_SINGLE_CANDIDATE'
+  | SeededRouteStrategyFailureCode
 
 /** Fail-closed policy-admission error raised before any candidate is evaluated. */
 export class DeterministicRouteSelectionAdmissionError extends Error {
@@ -61,6 +85,12 @@ export class DeterministicRouteSelectionAdmissionError extends Error {
  * evaluates that candidate's eligibility so an unavailable or incompatible
  * fixed target fails closed instead of being selected blindly.
  *
+ * `weighted` and `hash` add a seeded pick on top of the same eligibility pass:
+ * every candidate still runs the full evaluation, and only the eligible subset
+ * enters the draw. Both are pure functions of the policy, the candidates and
+ * the recorded seed — the seed is an input, never generated here — so a replay
+ * of the selection receipt reproduces the decision exactly.
+ *
  * The broader route-policy vocabulary is intentionally not treated as
  * metadata: strategies without an implementation fail before selection.
  */
@@ -68,7 +98,14 @@ export function selectExecutionRoute(
   policy: ExecutionRoutePolicy,
   options: DeterministicRouteSelectionOptions,
 ): ExecutionRouteDecision {
-  assertRoutePolicyAdmission(policy)
+  return decideExecutionRoute(policy, options).decision
+}
+
+function decideExecutionRoute(
+  policy: ExecutionRoutePolicy,
+  options: DeterministicRouteSelectionOptions,
+): { decision: ExecutionRouteDecision; admitted: AdmittedRouteSelection } {
+  const admitted = assertRoutePolicyAdmission(policy, options)
   const candidates = [...policy.candidates]
   const byId = new Map(candidates.map((candidate) => [candidate.id, candidate]))
   const origin = policy.originCandidateId ? byId.get(policy.originCandidateId) : undefined
@@ -118,8 +155,8 @@ export function selectExecutionRoute(
   rejected.sort((left, right) => left.candidateId.localeCompare(right.candidateId))
   transitions.sort((left, right) => left.toCandidateId.localeCompare(right.toCandidateId))
 
-  const selected = eligible[0]
-  return {
+  const selected = selectFromEligible(eligible, policy, admitted)
+  const decision: ExecutionRouteDecision = {
     id: `${policy.id}:${policy.requestId}`,
     policyId: policy.id,
     requestId: policy.requestId,
@@ -127,7 +164,7 @@ export function selectExecutionRoute(
     rejected,
     selectedCandidateId: selected?.id ?? null,
     fallbackCandidateIds: policy.fallback === 'ordered-compatible'
-      ? eligible.slice(1).map((candidate) => candidate.id)
+      ? eligible.filter((candidate) => candidate.id !== selected?.id).map((candidate) => candidate.id)
       : [],
     transitions,
     strategy: policy.strategy,
@@ -136,6 +173,88 @@ export function selectExecutionRoute(
       : `${strategyLabel(policy.strategy)} found no eligible candidate; ${rejected.length} candidate(s) rejected`,
     decidedAt: options.decidedAt,
   }
+  return { decision, admitted }
+}
+
+/**
+ * Inputs the admitted policy contributed to the pick.
+ *
+ * Admission resolves the seeded inputs once and hands them to the draw as a
+ * discriminated union, so a seeded strategy cannot reach the draw without its
+ * seed and cannot silently degrade to ordered selection.
+ */
+type AdmittedRouteSelection =
+  | { readonly kind: 'ordered' }
+  | { readonly kind: 'weighted'; readonly seed: string; readonly weights: ReadonlyMap<string, number> }
+  | { readonly kind: 'hash'; readonly seed: string; readonly routingKey: string }
+
+function selectFromEligible(
+  eligible: readonly ExecutionRouteCandidate[],
+  policy: ExecutionRoutePolicy,
+  admitted: AdmittedRouteSelection,
+): ExecutionRouteCandidate | undefined {
+  switch (admitted.kind) {
+    case 'weighted':
+      return drawWeightedCandidate(eligible, admitted.weights, admitted.seed, policy)
+    case 'hash':
+      return drawHashCandidate(eligible, admitted.seed, admitted.routingKey)
+    case 'ordered':
+      return eligible[0]
+  }
+}
+
+export const ROUTE_SELECTION_RECEIPT_SCHEMA = 'dzupagent.agentAdapters.routeSelectionReceipt/v1'
+
+/**
+ * Replayable record of one decision plus every input the pick consumed.
+ *
+ * Weights are recorded as id-ordered pairs rather than an object so the
+ * serialized receipt is byte-stable regardless of candidate input order.
+ */
+export interface RouteSelectionReceipt {
+  readonly schema: typeof ROUTE_SELECTION_RECEIPT_SCHEMA
+  readonly decision: ExecutionRouteDecision
+  /** Seed consumed by the pick; null for strategies that consume none. */
+  readonly seed: string | null
+  /** Hash routing key consumed by the pick; null outside the hash strategy. */
+  readonly routingKey: string | null
+  /** Admitted candidate weights in candidate-id order; null outside weighted. */
+  readonly candidateWeights: readonly (readonly [string, number])[] | null
+}
+
+/** Decides a route and records the seeded inputs the decision actually used. */
+export function selectExecutionRouteWithReceipt(
+  policy: ExecutionRoutePolicy,
+  options: DeterministicRouteSelectionOptions,
+): RouteSelectionReceipt {
+  const { decision, admitted } = decideExecutionRoute(policy, options)
+  return {
+    schema: ROUTE_SELECTION_RECEIPT_SCHEMA,
+    decision,
+    seed: admitted.kind === 'ordered' ? null : admitted.seed,
+    routingKey: admitted.kind === 'hash' ? admitted.routingKey : null,
+    candidateWeights: admitted.kind === 'weighted'
+      ? [...admitted.weights].sort((left, right) => left[0].localeCompare(right[0]))
+      : null,
+  }
+}
+
+/**
+ * Re-decides a route from a receipt alone.
+ *
+ * The receipt carries the timestamp, the seed and the routing key, so replay
+ * needs no ambient input; a differing result means the selector stopped being a
+ * pure function of its recorded inputs.
+ */
+export function replayRouteSelectionReceipt(
+  policy: ExecutionRoutePolicy,
+  receipt: RouteSelectionReceipt,
+): RouteSelectionReceipt {
+  return selectExecutionRouteWithReceipt(policy, {
+    decidedAt: receipt.decision.decidedAt,
+    ...(receipt.seed === null ? {} : { seed: receipt.seed }),
+    ...(receipt.routingKey === null ? {} : { routingKey: receipt.routingKey }),
+  })
 }
 
 export function classifyRouteTransition(
@@ -220,7 +339,10 @@ function evaluateCandidate(
   return deduplicateFailures(failures)
 }
 
-function assertRoutePolicyAdmission(policy: ExecutionRoutePolicy): void {
+function assertRoutePolicyAdmission(
+  policy: ExecutionRoutePolicy,
+  options: DeterministicRouteSelectionOptions,
+): AdmittedRouteSelection {
   if (!isImplementedStrategy(policy.strategy)) {
     throw new DeterministicRouteSelectionAdmissionError(
       'UNSUPPORTED_ROUTE_STRATEGY',
@@ -245,6 +367,32 @@ function assertRoutePolicyAdmission(policy: ExecutionRoutePolicy): void {
       `Fixed route strategy requires exactly one candidate; received ${policy.candidates.length}`,
     )
   }
+
+  if (policy.strategy === 'weighted') {
+    return {
+      kind: 'weighted',
+      seed: admit(requireSeed('weighted', options.seed)),
+      weights: admit(readPolicyCandidateWeights(policy)),
+    }
+  }
+
+  if (policy.strategy === 'hash') {
+    return {
+      kind: 'hash',
+      seed: admit(requireSeed('hash', options.seed)),
+      routingKey: admit(requireRoutingKey(options.routingKey)),
+    }
+  }
+
+  return { kind: 'ordered' }
+}
+
+/** Raises a seeded-strategy guard failure as the selector's admission error. */
+function admit<T>(result: SeededRouteStrategyResult<T>): T {
+  if (!result.ok) {
+    throw new DeterministicRouteSelectionAdmissionError(result.failure.code, result.failure.message)
+  }
+  return result.value
 }
 
 function isImplementedStrategy(
@@ -253,8 +401,18 @@ function isImplementedStrategy(
   return (IMPLEMENTED_DETERMINISTIC_ROUTE_STRATEGIES as readonly string[]).includes(strategy)
 }
 
+/** Total map: implementing a new strategy must name it here or fail to compile. */
+const STRATEGY_LABELS: Record<ExecutionRoutePolicy['strategy'], string> = {
+  fixed: 'Fixed route',
+  hash: 'Seeded hash route',
+  'llm-rank': 'LLM rank',
+  'round-robin': 'Round robin',
+  rule: 'Ordered rule',
+  weighted: 'Seeded weighted route',
+}
+
 function strategyLabel(strategy: ExecutionRoutePolicy['strategy']): string {
-  return strategy === 'fixed' ? 'Fixed route' : 'Ordered rule'
+  return STRATEGY_LABELS[strategy]
 }
 
 function includes(values: readonly string[], value: string | undefined): boolean {

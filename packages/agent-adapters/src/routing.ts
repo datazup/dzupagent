@@ -4,13 +4,22 @@ export {
   DeterministicRouteSelectionAdmissionError,
   IMPLEMENTED_DETERMINISTIC_ROUTE_STRATEGIES,
   planCandidateRecovery,
+  replayRouteSelectionReceipt,
+  ROUTE_SELECTION_RECEIPT_SCHEMA,
   selectExecutionRoute,
+  selectExecutionRouteWithReceipt,
 } from './registry/deterministic-candidate-selector.js'
 export type {
   CandidateRecoveryAction,
   CandidateRecoveryInput,
   DeterministicRouteSelectionAdmissionCode,
   DeterministicRouteSelectionOptions,
+  RouteSelectionReceipt,
 } from './registry/deterministic-candidate-selector.js'
+export { ROUTE_WEIGHT_TAG_PREFIX } from './registry/seeded-route-strategies.js'
+export type {
+  SeededRouteStrategy,
+  SeededRouteStrategyFailureCode,
+} from './registry/seeded-route-strategies.js'
 export { materializeRoutingCandidates } from './registry/candidate-materializer.js'
 export type { CandidateMaterializationDescriptor } from './registry/candidate-materializer.js'
