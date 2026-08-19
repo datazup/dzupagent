@@ -263,3 +263,13 @@ producers in packages/*/src, live consumer branches). Files I will touch:
 - packages/agent/src/agent/dzip-agent-run-coordinator.ts (stop-reason table, as needed)
 - packages/agent/src/reflection/learning-bridge.ts
 - associated tests under packages/agent (tool-loop / reflection / coordinator specs)
+
+
+## Claim: pipeline-union-return lane — 2026-08-19 ~21:45
+
+Session finishing the union-return-type sweep in the loop-executor pipeline
+(`void | Promise<void>` → `void` or `unknown` per call-site classification).
+Files I will touch:
+
+- packages/agent/src/pipeline/loop-executor/types.ts
+- packages/agent/src/pipeline/loop-executor/__tests__/ (signature-lock + await-drop specs, as needed)
