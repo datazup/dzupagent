@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { FilesystemKnowledgeStore } from "@dzupagent/memory/knowledge";
 import { FleetSupervisor } from "../fleet-supervisor.js";
+import { buildReconciliationDecisionEnvelope } from "../fleet-reconciliation.js";
 import type {
   Assignment,
   ContractChange,
@@ -76,6 +77,42 @@ class MemoryKnowledgeStore implements KnowledgeStore {
 
   all(scope: string): KnowledgeEnvelope[] {
     return [...(this.entries.get(scope) ?? [])];
+  }
+}
+
+class RejectTransitionFailOnceStore extends MemoryKnowledgeStore {
+  private shouldFail = true;
+
+  override async append(
+    scope: string,
+    entry: KnowledgeEnvelope
+  ): Promise<KnowledgeRef> {
+    if (
+      this.shouldFail
+      && entry.kind === "contract"
+      && (entry.payload as ContractPayload).status === "rejected"
+    ) {
+      this.shouldFail = false;
+      throw new Error("injected rejected-transition failure");
+    }
+    return super.append(scope, entry);
+  }
+}
+
+class ConflictingDecisionReadStore extends MemoryKnowledgeStore {
+  constructor(private readonly conflict: KnowledgeEnvelope) {
+    super();
+  }
+
+  override async read<T extends KnowledgeEnvelope = KnowledgeEnvelope>(
+    scope: string,
+    kind: KnowledgeEnvelope["kind"],
+    key: string
+  ): Promise<T | null> {
+    if (kind === "decision" && key === this.conflict.key) {
+      return this.conflict as T;
+    }
+    return super.read<T>(scope, kind, key);
   }
 }
 
@@ -299,6 +336,14 @@ function reconciliations(entries: KnowledgeEnvelope[]): DecisionPayload[] {
   );
 }
 
+function contracts(entries: KnowledgeEnvelope[]): KnowledgeEnvelope[] {
+  return entries.filter((entry) => entry.kind === "contract");
+}
+
+function taskStates(entries: KnowledgeEnvelope[]): KnowledgeEnvelope[] {
+  return entries.filter((entry) => entry.kind === "task-state");
+}
+
 describe("FleetSupervisor contract-change reconciliation admission", () => {
   it("groups seeded proposals for one surface in stable query order", async () => {
     const store = new MemoryKnowledgeStore();
@@ -314,6 +359,7 @@ describe("FleetSupervisor contract-change reconciliation admission", () => {
     expect(policy.changes).toEqual([
       {
         surface: "api",
+        proposalIds: ["p-1", "p-2"],
         proposals: [payloadOf(first), payloadOf(second)],
       },
     ]);
@@ -383,6 +429,7 @@ describe("FleetSupervisor contract-change reconciliation admission", () => {
   it("persists the complete returned plan as the reconciliation outcome", async () => {
     const store = new MemoryKnowledgeStore();
     const proposal = proposalEnvelope("p-plan", "complete-plan", "api");
+    const oldProposal = proposalEnvelope("p-old", "complete-plan", "api");
     const ratified: ContractPayload = {
       ...payloadOf(proposal),
       status: "ratified",
@@ -396,7 +443,7 @@ describe("FleetSupervisor contract-change reconciliation admission", () => {
     const policy = new RecordingPolicy(() => plan);
 
     await newSupervisor(store, new RecordingExecutor()).run(
-      spec("complete-plan", [], undefined, [proposal]),
+      spec("complete-plan", [task("blocked-task")], undefined, [proposal, oldProposal]),
       policy
     );
 
@@ -514,7 +561,11 @@ describe("FleetSupervisor contract-change reconciliation admission", () => {
     );
 
     expect(policy.changes).toEqual([
-      { surface: "api", proposals: [payloadOf(valid)] },
+      {
+        surface: "api",
+        proposalIds: ["valid"],
+        proposals: [payloadOf(valid)],
+      },
     ]);
   });
 
@@ -646,6 +697,7 @@ describe("FleetSupervisor contract-change reconciliation admission", () => {
     );
     const store = new FilesystemKnowledgeStore({ rootDir });
     const proposal = proposalEnvelope("p-durable", "durable", "api");
+    const oldProposal = proposalEnvelope("old-proposal", "durable", "api");
     const plan: ReconciliationPlan = {
       ratified: { ...payloadOf(proposal), status: "ratified" },
       rejectIds: ["old-proposal"],
@@ -655,7 +707,7 @@ describe("FleetSupervisor contract-change reconciliation admission", () => {
     const policy = new RecordingPolicy(() => plan);
 
     await newSupervisor(store, new RecordingExecutor()).run(
-      spec("durable", [], undefined, [proposal]),
+      spec("durable", [task("paused-task")], undefined, [proposal, oldProposal]),
       policy
     );
 
@@ -665,5 +717,370 @@ describe("FleetSupervisor contract-change reconciliation admission", () => {
     }
     expect(reconciliations(entries)).toHaveLength(1);
     expect(reconciliations(entries)[0]?.outcome).toEqual(plan);
+  });
+
+  it("appends exact ratified and rejected children for proposal envelope IDs", async () => {
+    const store = new MemoryKnowledgeStore();
+    const selected = proposalEnvelope("p-selected", "actions", "api");
+    const rejected = proposalEnvelope("p-rejected", "actions", "api");
+    const policy = new RecordingPolicy(() => ({
+      ratified: { ...payloadOf(selected), status: "ratified" },
+      rejectIds: [rejected.id],
+      pauseTasks: [],
+      escalate: false,
+    }));
+
+    await newSupervisor(store, new RecordingExecutor()).run(
+      spec("actions", [], undefined, [selected, rejected]),
+      policy
+    );
+
+    const appended = contracts(store.all("run:actions")).slice(2);
+    expect(appended).toHaveLength(2);
+    expect(appended[0]).toMatchObject({
+      key: selected.key,
+      version: selected.version + 1,
+      parentId: selected.id,
+      payload: { ...payloadOf(selected), status: "ratified" },
+    });
+    expect(appended[1]).toMatchObject({
+      key: rejected.key,
+      version: rejected.version + 1,
+      parentId: rejected.id,
+      payload: { ...payloadOf(rejected), status: "rejected" },
+    });
+    expect(appended[0]?.id).not.toBe(selected.id);
+    expect(appended[1]?.id).not.toBe(rejected.id);
+  });
+
+  it("blocks a queued sequential task and never dispatches it", async () => {
+    const store = new MemoryKnowledgeStore();
+    const executor = new RecordingExecutor();
+    const proposal = proposalEnvelope("p-pause", "pause-sequential", "api");
+    const policy = new RecordingPolicy(() => ({
+      ...NO_CHANGE,
+      pauseTasks: ["t2"],
+    }));
+
+    const result = await newSupervisor(store, executor).run(
+      spec("pause-sequential", [task("t1"), task("t2")], undefined, [proposal]),
+      policy
+    );
+
+    expect(result.status).toBe("failed");
+    expect(executor.dispatches).toEqual(["t1"]);
+    expect(taskStates(store.all("run:pause-sequential"))).toContainEqual(
+      expect.objectContaining({
+        key: "t2",
+        payload: expect.objectContaining({ taskId: "t2", state: "blocked" }),
+      })
+    );
+  });
+
+  it("blocks a queued fan-out batch for every repo", async () => {
+    const store = new MemoryKnowledgeStore();
+    const executor = new RecordingExecutor();
+    const proposal = proposalEnvelope("p-fanout-pause", "pause-fanout", "api");
+    const policy = new RecordingPolicy(() => ({
+      ...NO_CHANGE,
+      pauseTasks: ["batch-2"],
+    }));
+    const runSpec = fanOutSpec(
+      "pause-fanout",
+      [task("batch-1"), task("batch-2")],
+      [proposal]
+    );
+    runSpec.repos = [
+      { name: "repo-a", path: "/tmp/repo-a" },
+      { name: "repo-b", path: "/tmp/repo-b" },
+    ];
+
+    const result = await newSupervisor(store, executor).run(runSpec, policy);
+
+    expect(result.status).toBe("failed");
+    expect(executor.dispatches).toEqual(["batch-1", "batch-1"]);
+  });
+
+  it("rejects an invalid action plan before writing any decision or action", async () => {
+    const store = new MemoryKnowledgeStore();
+    const proposal = proposalEnvelope("p-invalid", "invalid-plan", "api");
+    const policy = new RecordingPolicy(() => ({
+      ratified: null,
+      rejectIds: ["not-in-this-group"],
+      pauseTasks: ["missing-task"],
+      escalate: false,
+    }));
+
+    await expect(newSupervisor(store, new RecordingExecutor()).run(
+      spec("invalid-plan", [task("known-task")], undefined, [proposal]),
+      policy
+    )).rejects.toThrow(/reconciliation/i);
+
+    expect(decisions(store.all("run:invalid-plan"))).toEqual([]);
+    expect(contracts(store.all("run:invalid-plan"))).toEqual([proposal]);
+    expect(taskStates(store.all("run:invalid-plan"))).toEqual([]);
+  });
+
+  it("rejects an envelope ID outside the current proposal group", async () => {
+    const store = new MemoryKnowledgeStore();
+    const proposal = proposalEnvelope("p-reject-scope", "reject-scope", "api");
+
+    await expect(newSupervisor(store, new RecordingExecutor()).run(
+      spec("reject-scope", [], undefined, [proposal]),
+      new RecordingPolicy(() => ({
+        ...NO_CHANGE,
+        rejectIds: ["foreign-proposal"],
+      }))
+    )).rejects.toThrow(/outside the current group/i);
+    expect(reconciliations(store.all("run:reject-scope"))).toEqual([]);
+  });
+
+  it("rejects an unknown queued-task reference independently", async () => {
+    const store = new MemoryKnowledgeStore();
+    const proposal = proposalEnvelope("p-task-scope", "task-scope", "api");
+
+    await expect(newSupervisor(store, new RecordingExecutor()).run(
+      spec("task-scope", [task("known")], undefined, [proposal]),
+      new RecordingPolicy(() => ({
+        ...NO_CHANGE,
+        pauseTasks: ["unknown"],
+      }))
+    )).rejects.toThrow(/unknown task/i);
+    expect(reconciliations(store.all("run:task-scope"))).toEqual([]);
+  });
+
+  it("rejects a synthesized ratification that does not exactly select a proposal", async () => {
+    const store = new MemoryKnowledgeStore();
+    const proposal = proposalEnvelope("p-synthetic", "synthetic", "api");
+
+    await expect(newSupervisor(store, new RecordingExecutor()).run(
+      spec("synthetic", [], undefined, [proposal]),
+      new RecordingPolicy(() => ({
+        ...NO_CHANGE,
+        ratified: {
+          ...payloadOf(proposal),
+          after: { proposal: "different" },
+          status: "ratified",
+        },
+      }))
+    )).rejects.toThrow(/does not exactly select/i);
+    expect(reconciliations(store.all("run:synthetic"))).toEqual([]);
+  });
+
+  it("rejects a plan that tries to pause an already settled task", async () => {
+    const store = new MemoryKnowledgeStore();
+    const executor = new RecordingExecutor(async (workerSpec) => {
+      await workerSpec.knowledgeHandle.store.append(
+        workerSpec.knowledgeHandle.scope,
+        proposalEnvelope("p-late-pause", "settled-pause", "api")
+      );
+    });
+    const policy = new RecordingPolicy(() => ({
+      ...NO_CHANGE,
+      pauseTasks: ["t1"],
+    }));
+
+    await expect(newSupervisor(store, executor).run(
+      spec("settled-pause", [task("t1")]),
+      policy
+    )).rejects.toThrow(/settled/i);
+    expect(reconciliations(store.all("run:settled-pause"))).toEqual([]);
+  });
+
+  it("applies lifecycle actions before invoking escalation", async () => {
+    const store = new MemoryKnowledgeStore();
+    const selected = proposalEnvelope("p-order", "action-order", "api");
+    const policy = new RecordingPolicy(() => ({
+      ratified: { ...payloadOf(selected), status: "ratified" },
+      rejectIds: [],
+      pauseTasks: ["t1"],
+      escalate: true,
+    }));
+
+    await newSupervisor(store, new RecordingExecutor()).run(
+      spec("action-order", [task("t1")], undefined, [selected]),
+      policy
+    );
+
+    expect(store.all("run:action-order").map((entry) => entry.kind)).toEqual([
+      "contract",
+      "decision",
+      "contract",
+      "task-state",
+      "decision",
+    ]);
+  });
+
+  it("does not duplicate a recorded no-action plan on a fresh supervisor replay", async () => {
+    const store = new MemoryKnowledgeStore();
+    const proposal = proposalEnvelope("p-no-action", "no-action-replay", "api");
+    const firstPolicy = new RecordingPolicy();
+    const secondPolicy = new RecordingPolicy();
+
+    await newSupervisor(store, new RecordingExecutor()).run(
+      spec("no-action-replay", [], undefined, [proposal]),
+      firstPolicy
+    );
+    await newSupervisor(store, new RecordingExecutor()).run(
+      spec("no-action-replay", []),
+      secondPolicy
+    );
+
+    expect(reconciliations(store.all("run:no-action-replay"))).toHaveLength(1);
+    expect(firstPolicy.changes).toHaveLength(1);
+    expect(secondPolicy.changes).toEqual([]);
+  });
+
+  it("does not duplicate applied actions on a fresh supervisor replay", async () => {
+    const store = new MemoryKnowledgeStore();
+    const selected = proposalEnvelope("p-replay", "action-replay", "api");
+    const plan: ReconciliationPlan = {
+      ratified: { ...payloadOf(selected), status: "ratified" },
+      rejectIds: [],
+      pauseTasks: ["t1"],
+      escalate: false,
+    };
+
+    await newSupervisor(store, new RecordingExecutor()).run(
+      spec("action-replay", [task("t1")], undefined, [selected]),
+      new RecordingPolicy(() => plan)
+    );
+    await newSupervisor(store, new RecordingExecutor()).run(
+      spec("action-replay", [task("t1")]),
+      new RecordingPolicy(() => plan)
+    );
+
+    expect(reconciliations(store.all("run:action-replay"))).toHaveLength(1);
+    expect(contracts(store.all("run:action-replay"))).toHaveLength(2);
+    expect(taskStates(store.all("run:action-replay"))).toHaveLength(1);
+  });
+
+  it("uses the recorded plan instead of soliciting a conflicting replay", async () => {
+    const store = new MemoryKnowledgeStore();
+    const proposal = proposalEnvelope("p-conflict-replay", "conflict-replay", "api");
+
+    await newSupervisor(store, new RecordingExecutor()).run(
+      spec("conflict-replay", [], undefined, [proposal]),
+      new RecordingPolicy()
+    );
+
+    await expect(newSupervisor(store, new RecordingExecutor()).run(
+      spec("conflict-replay", []),
+      new RecordingPolicy(() => ({ ...NO_CHANGE, escalate: true }))
+    )).resolves.toMatchObject({ status: "completed" });
+    expect(reconciliations(store.all("run:conflict-replay"))).toHaveLength(1);
+  });
+
+  it("resumes a partially applied decision without duplicating prior actions", async () => {
+    const store = new RejectTransitionFailOnceStore();
+    const selected = proposalEnvelope("p-partial-selected", "partial-actions", "api");
+    const rejected = proposalEnvelope("p-partial-rejected", "partial-actions", "api");
+    const plan: ReconciliationPlan = {
+      ratified: { ...payloadOf(selected), status: "ratified" },
+      rejectIds: [rejected.id],
+      pauseTasks: [],
+      escalate: false,
+    };
+
+    await expect(newSupervisor(store, new RecordingExecutor()).run(
+      spec("partial-actions", [], undefined, [selected, rejected]),
+      new RecordingPolicy(() => plan)
+    )).rejects.toThrow("injected rejected-transition failure");
+
+    await expect(newSupervisor(store, new RecordingExecutor()).run(
+      spec("partial-actions", []),
+      new RecordingPolicy(() => plan)
+    )).resolves.toMatchObject({ status: "completed" });
+
+    expect(reconciliations(store.all("run:partial-actions"))).toHaveLength(1);
+    expect(contracts(store.all("run:partial-actions"))).toHaveLength(4);
+  });
+
+  it("fails closed when a deterministic decision key contains conflicting bytes", async () => {
+    const proposal = proposalEnvelope("p-key-conflict", "key-conflict", "api");
+    const expected = buildReconciliationDecisionEnvelope({
+      runId: "key-conflict",
+      surface: "api",
+      proposalIds: [proposal.id],
+      policyId: "recording-reconciliation",
+      plan: NO_CHANGE,
+      createdAt: "2026-08-19T00:00:00.000Z",
+    });
+    const conflict: KnowledgeEnvelope = {
+      ...expected,
+      payload: {
+        ...(expected.payload as DecisionPayload),
+        policyId: "different-policy",
+      },
+    };
+    const store = new ConflictingDecisionReadStore(conflict);
+
+    await expect(newSupervisor(store, new RecordingExecutor()).run(
+      spec("key-conflict", [], undefined, [proposal]),
+      new RecordingPolicy()
+    )).rejects.toThrow(/different bytes/i);
+    expect(decisions(store.all("run:key-conflict"))).toEqual([]);
+  });
+
+  it("fails closed when a scoped reconciliation decision belongs to another run", async () => {
+    const proposal = proposalEnvelope("p-wrong-decision-run", "decision-run", "api");
+    const decision = buildReconciliationDecisionEnvelope({
+      runId: "another-run",
+      surface: "api",
+      proposalIds: [proposal.id],
+      policyId: "recording-reconciliation",
+      plan: NO_CHANGE,
+      createdAt: "2026-08-19T00:00:00.000Z",
+    });
+    const store = new MemoryKnowledgeStore();
+
+    await expect(newSupervisor(store, new RecordingExecutor()).run(
+      spec("decision-run", [], undefined, [proposal, decision]),
+      new RecordingPolicy()
+    )).rejects.toThrow(/belongs to run/i);
+  });
+
+  it("fails closed when a recorded decision repeats a proposal ID", async () => {
+    const proposal = proposalEnvelope("p-duplicate-decision", "duplicate-decision", "api");
+    const decision = buildReconciliationDecisionEnvelope({
+      runId: "duplicate-decision",
+      surface: "api",
+      proposalIds: [proposal.id, proposal.id],
+      policyId: "recording-reconciliation",
+      plan: NO_CHANGE,
+      createdAt: "2026-08-19T00:00:00.000Z",
+    });
+    const store = new MemoryKnowledgeStore();
+
+    await expect(newSupervisor(store, new RecordingExecutor()).run(
+      spec("duplicate-decision", [], undefined, [proposal, decision]),
+      new RecordingPolicy()
+    )).rejects.toThrow(/proposalIds contains duplicate IDs/i);
+  });
+
+  it("applies append-only actions durably in FilesystemKnowledgeStore", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "fleet-actions-"));
+    const store = new FilesystemKnowledgeStore({ rootDir });
+    const selected = proposalEnvelope("p-fs-selected", "fs-actions", "api");
+    const rejected = proposalEnvelope("p-fs-rejected", "fs-actions", "api");
+    const plan: ReconciliationPlan = {
+      ratified: { ...payloadOf(selected), status: "ratified" },
+      rejectIds: [rejected.id],
+      pauseTasks: ["t1"],
+      escalate: false,
+    };
+
+    await newSupervisor(store, new RecordingExecutor()).run(
+      spec("fs-actions", [task("t1")], undefined, [selected, rejected]),
+      new RecordingPolicy(() => plan)
+    );
+
+    const entries: KnowledgeEnvelope[] = [];
+    for await (const entry of store.query({ scope: "run:fs-actions" })) {
+      entries.push(entry);
+    }
+    expect(contracts(entries)).toHaveLength(4);
+    expect(taskStates(entries)).toHaveLength(1);
+    expect(reconciliations(entries)).toHaveLength(1);
   });
 });

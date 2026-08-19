@@ -46,6 +46,7 @@ import { applyOutputFilter } from './run-engine.js'
 import type { StreamRunContext } from './streaming-run-types.js'
 import type { StopReason } from './tool-loop.js'
 import type { RunLearnings } from './tool-loop-learning.js'
+import { appendGenerateContext } from './run-engine/generate-context.js'
 
 /**
  * Native streaming throws model/runtime errors instead of finalizing them and
@@ -414,6 +415,7 @@ export async function maybeAdoptCompression(
   ctx: StreamRunContext,
   allMessages: BaseMessage[],
   runState: PreparedRunState,
+  context?: string,
 ): Promise<void> {
   const tokenPlugin = ctx.config.tokenLifecyclePlugin
   if (!tokenPlugin) return
@@ -431,6 +433,10 @@ export async function maybeAdoptCompression(
       })
     }
     if (compressResult.compressed) {
+      const contextMessages = appendGenerateContext(
+        compressResult.messages,
+        context,
+      )
       // WS3 Task 3.2 — model-lifecycle hooks run BEFORE prompt-cache
       // re-injection on the compressed transcript. ORDERING IS LOAD-BEARING:
       // `beforeModelCall` may rewrite the array, and cache breakpoints must be
@@ -442,7 +448,7 @@ export async function maybeAdoptCompression(
           ? [ctx.config.hooks.beforeModelCall]
           : undefined,
         ctx.config.eventBus,
-        compressResult.messages,
+        contextMessages,
         resolveModelIdForHooks(ctx.config.model, runState.model),
         buildModelHookContext(
           ctx.config,
@@ -450,12 +456,13 @@ export async function maybeAdoptCompression(
           ctx.config.toolExecution?.runId,
         ),
       )
+      const finalMessages = appendGenerateContext(hookedMessages, context)
       // REC-H-10 — re-apply Anthropic prompt-cache markers after the
       // transcript has been replaced; otherwise subsequent stream iterations
       // miss the cache and pay full input price for every turn. Injector is
       // a no-op for non-Claude models and short transcripts.
       const recached = injectPromptCacheMarkersForModel(
-        hookedMessages,
+        finalMessages,
         runState.model,
       )
       allMessages.length = 0

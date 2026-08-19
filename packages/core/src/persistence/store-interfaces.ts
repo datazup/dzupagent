@@ -125,6 +125,31 @@ export interface RunStore {
   getLogs(runId: string): Promise<LogEntry[]>
 }
 
+/** Exact snapshot fields accepted by an atomic run-row compare-and-set. */
+export interface RunStoreCompareAndSetExpectation {
+  status?: RunStatus
+  metadata?: Record<string, unknown>
+}
+
+/**
+ * Stronger RunStore contract for cross-replica state machines.
+ *
+ * The comparison and update must be one storage operation. `null` means the
+ * run was absent or another writer changed an expected field first.
+ */
+export interface AtomicRunStore extends RunStore {
+  compareAndSet(
+    id: string,
+    expected: RunStoreCompareAndSetExpectation,
+    update: Partial<Run>,
+  ): Promise<Run | null>
+}
+
+/** Runtime guard used before enabling a durable CAS-backed composition. */
+export function isAtomicRunStore(store: RunStore): store is AtomicRunStore {
+  return typeof (store as Partial<AtomicRunStore>).compareAndSet === 'function'
+}
+
 // ---------------------------------------------------------------------------
 // Agent Execution Spec Store
 // ---------------------------------------------------------------------------

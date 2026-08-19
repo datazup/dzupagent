@@ -429,8 +429,36 @@ export async function enforceAgentHardBudget(args: {
   eventBus?: DzupEventBus | undefined
   agentId: string
   phase: 'tool-loop' | 'stream'
+  adoptionInvariant?: (messages: readonly BaseMessage[]) => boolean
+  adoptionInvariantFailureReason?: string
 }): Promise<RuntimeHardBudgetResult> {
-  const result = await applyRuntimeHardBudget(args)
+  let result = await applyRuntimeHardBudget(args)
+  if (
+    result.hardBudget.adoptionSafe
+    && args.adoptionInvariant
+    && !args.adoptionInvariant(result.messages)
+  ) {
+    result = {
+      ...result,
+      messages: [...args.messages],
+      hardBudget: {
+        ...result.hardBudget,
+        satisfied: false,
+        adoptionSafe: false,
+        truncated: false,
+        markerIncluded: false,
+      },
+      degradations: [
+        ...(result.degradations ?? []),
+        {
+          stage: 'hard-budget-marker',
+          reason: args.adoptionInvariantFailureReason
+            ?? 'runtime hard-budget result violated a required adoption invariant',
+          adoptionSafe: false,
+        },
+      ],
+    }
+  }
   emitAgentHardBudgetTelemetry({
     eventBus: args.eventBus,
     agentId: args.agentId,

@@ -147,6 +147,9 @@ export async function handleLoop(
                 }
             : {
                 budgetMode: "strict" as const,
+                ...(strictBudgetHost.evidenceMode === undefined
+                  ? {}
+                  : { budgetEvidenceMode: strictBudgetHost.evidenceMode }),
                 ...(strictBudgetHost.itemBudgetCents === undefined
                   ? {}
                   : { itemBudgetCents: strictBudgetHost.itemBudgetCents }),

@@ -14,8 +14,11 @@ import type {
   PipelineNode,
 } from "@dzupagent/core/pipeline";
 import type { NodeResult } from "@dzupagent/runtime-contracts";
+import type { LoopEconomicsEvidenceV1 } from "@dzupagent/runtime-contracts/loop-economics-evidence";
 
+import { validateLoopEconomicsBoundary } from "./economics-evidence.js";
 import type {
+  LoopIterationBudgetReservation,
   LoopBudgetReconcileOutcome,
   LoopResumeOptions,
 } from "./types.js";
@@ -24,6 +27,7 @@ export interface HeldPredicateIterationReservation {
   readonly iteration: number;
   readonly reservationId: string;
   readonly reservedCostCents: number;
+  readonly evidence?: LoopEconomicsEvidenceV1;
 }
 
 export type PredicateBudgetFailureReason =
@@ -46,6 +50,7 @@ export type PredicateBudgetAdmission =
       readonly status: "settled";
       readonly held: HeldPredicateIterationReservation;
       readonly settledCostCents: number;
+      readonly evidence?: LoopEconomicsEvidenceV1;
     }
   | PredicateBudgetFailure;
 
@@ -53,6 +58,7 @@ export type PredicateBudgetSettlement =
   | {
       readonly status: "settled";
       readonly settledCostCents: number;
+      readonly evidence?: LoopEconomicsEvidenceV1;
       readonly overrun?: string;
     }
   | PredicateBudgetFailure;
@@ -138,7 +144,11 @@ export async function admitPredicateIteration(input: {
       input.iteration,
       reservationId,
       budgetCents,
-      input.retainedEconomics
+      input.retainedEconomics,
+      input.bodyNodes,
+      input.resume,
+      input.retainedOutcome,
+      input.bodyComplete
     );
     if (economicsError !== undefined) return economicsError;
 
@@ -146,6 +156,9 @@ export async function admitPredicateIteration(input: {
       iteration: input.iteration,
       reservationId,
       reservedCostCents: input.retainedEconomics.reservedCostCents,
+      ...(input.retainedEconomics.evidence === undefined
+        ? {}
+        : { evidence: input.retainedEconomics.evidence }),
     };
     if (
       input.retainedOutcome === "failed" ||
@@ -170,6 +183,9 @@ export async function admitPredicateIteration(input: {
         status: "settled",
         held,
         settledCostCents: input.retainedEconomics.settledCostCents as number,
+        ...(input.retainedEconomics.evidence === undefined
+          ? {}
+          : { evidence: input.retainedEconomics.evidence }),
       };
     }
 
@@ -177,6 +193,7 @@ export async function admitPredicateIteration(input: {
       loopNode: input.loopNode,
       resume: input.resume,
       held,
+      bodyNodes: input.bodyNodes,
       budgetCents,
       boundary: input.bodyComplete ? "settle" : "reserve",
       reason: "resume of a durable predicate-loop iteration reservation",
@@ -221,12 +238,39 @@ export async function admitPredicateIteration(input: {
         "reconciliation disagreed with the durable reservation amount"
       );
     }
+    const evidenceError = validateLoopEconomicsBoundary({
+      evidenceMode: input.resume?.budgetEvidenceMode,
+      evidence: reconciliation.evidence,
+      runId: input.resume?.budgetRunId,
+      loopNodeId: input.loopNode.id,
+      reservationId,
+      iteration: input.iteration,
+      reservedCostCents: reconciliation.reservedCostCents,
+      terminalStatus: "pending",
+      ...(held.evidence === undefined
+        ? {}
+        : {
+            currentReservationBindingDigest:
+              held.evidence.reservationBindingDigest,
+          }),
+    });
+    if (evidenceError !== undefined) {
+      return blocked(
+        input.loopNode,
+        input.iteration,
+        `reconciliation returned invalid exact economics evidence: ${evidenceError}`
+      );
+    }
+    if (reconciliation.evidence !== undefined) {
+      return {
+        status: "held",
+        held: { ...held, evidence: reconciliation.evidence },
+      };
+    }
     return { status: "held", held };
   }
 
-  let reservation:
-    | { status: "reserved"; reservedCostCents: number }
-    | { status: "unknown" };
+  let reservation: LoopIterationBudgetReservation;
   let unobservedReason: string | undefined;
   try {
     reservation = await input.resume!.reserveIterationBudget!({
@@ -248,6 +292,7 @@ export async function admitPredicateIteration(input: {
       resume: input.resume,
       iteration: input.iteration,
       completedIterations: input.completedIterations,
+      bodyNodes: input.bodyNodes,
       reservationId,
       budgetCents,
       reason:
@@ -266,6 +311,7 @@ export async function admitPredicateIteration(input: {
       resume: input.resume,
       iteration: input.iteration,
       completedIterations: input.completedIterations,
+      bodyNodes: input.bodyNodes,
       reservationId,
       budgetCents,
       malformedCost: reservation.reservedCostCents,
@@ -276,7 +322,49 @@ export async function admitPredicateIteration(input: {
     iteration: input.iteration,
     reservationId,
     reservedCostCents: reservation.reservedCostCents,
+    ...(reservation.evidence === undefined
+      ? {}
+      : { evidence: reservation.evidence }),
   };
+  const evidenceError = validateLoopEconomicsBoundary({
+    evidenceMode: input.resume?.budgetEvidenceMode,
+    evidence: reservation.evidence,
+    runId: input.resume?.budgetRunId,
+    loopNodeId: input.loopNode.id,
+    reservationId,
+    iteration: input.iteration,
+    reservedCostCents: reservation.reservedCostCents,
+    terminalStatus: "pending",
+    expectedNodeIds: input.bodyNodes.map(({ id }) => id),
+    requiredExecutionNodeIds: input.bodyNodes
+      .filter(({ type }) => type === "agent")
+      .map(({ id }) => id),
+  });
+  if (evidenceError !== undefined) {
+    try {
+      await input.resume!.releaseIterationBudget!({
+        loopNodeId: input.loopNode.id,
+        iteration: input.iteration,
+        reservationId,
+        reservedCostCents: reservation.reservedCostCents,
+        reason: "failed",
+        ...(reservation.evidence === undefined
+          ? {}
+          : { evidence: reservation.evidence }),
+      });
+    } catch (error) {
+      return blocked(
+        input.loopNode,
+        input.iteration,
+        `returned invalid exact economics evidence and its hold could not be released: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    return blocked(
+      input.loopNode,
+      input.iteration,
+      `returned invalid exact economics evidence and its hold was released: ${evidenceError}`
+    );
+  }
   if (held.reservedCostCents > budgetCents) {
     const released = await releasePredicateIteration({
       loopNode: input.loopNode,
@@ -315,6 +403,9 @@ export async function settlePredicateIteration(input: {
       iteration: input.held.iteration,
       reservationId: input.held.reservationId,
       bodyResults: input.bodyResults,
+      ...(input.held.evidence === undefined
+        ? {}
+        : { evidence: input.held.evidence }),
     });
   } catch (error) {
     cost = {
@@ -349,6 +440,36 @@ export async function settlePredicateIteration(input: {
       `host reported invalid actual cost ${String(actualCostCents)}`
     );
   }
+  const evidenceError = validateLoopEconomicsBoundary({
+    evidenceMode: input.resume?.budgetEvidenceMode,
+    evidence: cost.evidence,
+    runId: input.resume?.budgetRunId,
+    loopNodeId: input.loopNode.id,
+    reservationId: input.held.reservationId,
+    iteration: input.held.iteration,
+    reservedCostCents: input.held.reservedCostCents,
+    settledCostCents: actualCostCents,
+    terminalStatus: "recorded",
+    ...(input.held.evidence === undefined
+      ? {}
+      : {
+          currentReservationBindingDigest:
+            input.held.evidence.reservationBindingDigest,
+        }),
+  });
+  if (evidenceError !== undefined) {
+    await checkpointBudget(
+      input.resume,
+      input.completedIterations,
+      "outcome_unknown",
+      input.held
+    );
+    return blocked(
+      input.loopNode,
+      input.held.iteration,
+      `terminal exact economics evidence is invalid; settlement was not attempted: ${evidenceError}`
+    );
+  }
 
   let settledCostCents: number;
   try {
@@ -358,6 +479,7 @@ export async function settlePredicateIteration(input: {
       reservationId: input.held.reservationId,
       reservedCostCents: input.held.reservedCostCents,
       actualCostCents,
+      ...(cost.evidence === undefined ? {} : { evidence: cost.evidence }),
     });
     settledCostCents = actualCostCents;
   } catch (error) {
@@ -367,6 +489,9 @@ export async function settlePredicateIteration(input: {
       held: input.held,
       budgetCents: input.loopNode.typedWhile!.iterationBudgetCents as number,
       actualCostCents,
+      ...(cost.evidence === undefined
+        ? {}
+        : { terminalEvidence: cost.evidence }),
       reason: error instanceof Error ? error.message : String(error),
     });
     if (resolution.status === "blocked") {
@@ -385,12 +510,17 @@ export async function settlePredicateIteration(input: {
     ? {
         status: "settled",
         settledCostCents,
+        ...(cost.evidence === undefined ? {} : { evidence: cost.evidence }),
         overrun:
           `Loop "${input.loopNode.id}" iteration ${input.held.iteration} ` +
           `settled ${settledCostCents} cents, exceeding its ` +
           `${input.held.reservedCostCents}-cent reservation`,
       }
-    : { status: "settled", settledCostCents };
+    : {
+        status: "settled",
+        settledCostCents,
+        ...(cost.evidence === undefined ? {} : { evidence: cost.evidence }),
+      };
 }
 
 export async function releasePredicateIteration(input: {
@@ -412,6 +542,9 @@ export async function releasePredicateIteration(input: {
       reservationId: input.held.reservationId,
       reservedCostCents: input.held.reservedCostCents,
       reason: input.reason,
+      ...(input.held.evidence === undefined
+        ? {}
+        : { evidence: input.held.evidence }),
     });
   } catch (error) {
     releaseError = error instanceof Error ? error.message : String(error);
@@ -452,13 +585,15 @@ export async function checkpointSettledPredicateIteration(input: {
   readonly outcome: Extract<PipelineForEachItemOutcome, "completed" | "failed">;
   readonly held: HeldPredicateIterationReservation;
   readonly settledCostCents: number;
+  readonly evidence?: LoopEconomicsEvidenceV1;
 }): Promise<void> {
   await checkpointBudget(
     input.resume,
     input.completedIterations,
     input.outcome,
     input.held,
-    input.settledCostCents
+    input.settledCostCents,
+    input.evidence
   );
 }
 
@@ -467,7 +602,11 @@ function validateRetainedEconomics(
   iteration: number,
   expectedReservationId: string,
   budgetCents: number,
-  economics: PipelineForEachItemEconomics
+  economics: PipelineForEachItemEconomics,
+  bodyNodes: readonly PipelineNode[],
+  resume: LoopResumeOptions | undefined,
+  retainedOutcome: PipelineForEachItemOutcome | undefined,
+  bodyComplete: boolean
 ): PredicateBudgetFailure | undefined {
   if (economics.reservationId !== expectedReservationId) {
     return blocked(
@@ -499,6 +638,33 @@ function validateRetainedEconomics(
       `checkpoint carries invalid settled cost ${String(economics.settledCostCents)}`
     );
   }
+  const evidenceError = validateLoopEconomicsBoundary({
+    evidenceMode: resume?.budgetEvidenceMode,
+    evidence: economics.evidence,
+    runId: resume?.budgetRunId,
+    loopNodeId: loopNode.id,
+    reservationId: economics.reservationId,
+    iteration,
+    reservedCostCents: economics.reservedCostCents,
+    ...(economics.settledCostCents === undefined
+      ? {}
+      : { settledCostCents: economics.settledCostCents }),
+    terminalStatus:
+      retainedOutcome === "completed" && bodyComplete
+        ? "recorded"
+        : "pending",
+    expectedNodeIds: bodyNodes.map(({ id }) => id),
+    requiredExecutionNodeIds: bodyNodes
+      .filter(({ type }) => type === "agent")
+      .map(({ id }) => id),
+  });
+  if (evidenceError !== undefined) {
+    return blocked(
+      loopNode,
+      iteration,
+      `checkpoint exact economics evidence is invalid: ${evidenceError}`
+    );
+  }
   return undefined;
 }
 
@@ -507,6 +673,7 @@ async function reconcileUnknownFreshReserve(input: {
   readonly resume: LoopResumeOptions | undefined;
   readonly iteration: number;
   readonly completedIterations: number;
+  readonly bodyNodes: readonly PipelineNode[];
   readonly reservationId: string;
   readonly budgetCents: number;
   readonly reason: string;
@@ -519,6 +686,7 @@ async function reconcileUnknownFreshReserve(input: {
       reservationId: input.reservationId,
       reservedCostCents: 0,
     },
+    bodyNodes: input.bodyNodes,
     budgetCents: input.budgetCents,
     boundary: "reserve",
     reason: input.reason,
@@ -539,6 +707,9 @@ async function reconcileUnknownFreshReserve(input: {
       iteration: input.iteration,
       reservationId: input.reservationId,
       reservedCostCents: reconciliation.reservedCostCents,
+      ...(reconciliation.evidence === undefined
+        ? {}
+        : { evidence: reconciliation.evidence }),
     };
     const released = await releasePredicateIteration({
       loopNode: input.loopNode,
@@ -581,6 +752,7 @@ async function reconcileMalformedFreshReserve(input: {
   readonly resume: LoopResumeOptions | undefined;
   readonly iteration: number;
   readonly completedIterations: number;
+  readonly bodyNodes: readonly PipelineNode[];
   readonly reservationId: string;
   readonly budgetCents: number;
   readonly malformedCost: number;
@@ -593,6 +765,7 @@ async function reconcileMalformedFreshReserve(input: {
       reservationId: input.reservationId,
       reservedCostCents: 0,
     },
+    bodyNodes: input.bodyNodes,
     budgetCents: input.budgetCents,
     boundary: "reserve",
     reason: `host returned malformed reserved cost ${String(input.malformedCost)}`,
@@ -606,6 +779,9 @@ async function reconcileMalformedFreshReserve(input: {
         iteration: input.iteration,
         reservationId: input.reservationId,
         reservedCostCents: reconciliation.reservedCostCents,
+        ...(reconciliation.evidence === undefined
+          ? {}
+          : { evidence: reconciliation.evidence }),
       };
       const released = await releasePredicateIteration({
         loopNode: input.loopNode,
@@ -631,6 +807,7 @@ async function resolveUnknownSettlement(input: {
   readonly held: HeldPredicateIterationReservation;
   readonly budgetCents: number;
   readonly actualCostCents: number;
+  readonly terminalEvidence?: LoopEconomicsEvidenceV1;
   readonly reason: string;
 }): Promise<PredicateBudgetSettlement> {
   const interpret = async (
@@ -683,10 +860,16 @@ async function resolveUnknownSettlement(input: {
         reservationId: input.held.reservationId,
         reservedCostCents: input.held.reservedCostCents,
         actualCostCents: input.actualCostCents,
+        ...(input.terminalEvidence === undefined
+          ? {}
+          : { evidence: input.terminalEvidence }),
       });
       return {
         status: "settled",
         settledCostCents: input.actualCostCents,
+        ...(input.terminalEvidence === undefined
+          ? {}
+          : { evidence: input.terminalEvidence }),
       };
     } catch (error) {
       return interpret(
@@ -711,6 +894,9 @@ async function resolveUnknownSettlement(input: {
       budgetCents: input.budgetCents,
       boundary: "settle",
       reason: input.reason,
+      ...(input.held.evidence === undefined
+        ? {}
+        : { evidence: input.held.evidence }),
     }),
     true
   );
@@ -777,6 +963,9 @@ async function resolveUnknownRelease(input: {
         reservationId: input.held.reservationId,
         reservedCostCents: input.held.reservedCostCents,
         reason: input.releaseReason,
+        ...(input.held.evidence === undefined
+          ? {}
+          : { evidence: input.held.evidence }),
       });
       return { status: "released" };
     } catch (error) {
@@ -802,6 +991,9 @@ async function resolveUnknownRelease(input: {
       budgetCents: input.budgetCents,
       boundary: "release",
       reason: input.reason,
+      ...(input.held.evidence === undefined
+        ? {}
+        : { evidence: input.held.evidence }),
     }),
     true
   );
@@ -811,6 +1003,7 @@ async function reconcileReservation(input: {
   readonly loopNode: LoopNode;
   readonly resume: LoopResumeOptions | undefined;
   readonly held: HeldPredicateIterationReservation;
+  readonly bodyNodes?: readonly PipelineNode[];
   readonly budgetCents: number;
   readonly boundary: "reserve" | "settle" | "release";
   readonly reason: string;
@@ -827,6 +1020,9 @@ async function reconcileReservation(input: {
       budgetCents: input.budgetCents,
       boundary: input.boundary,
       reason: input.reason,
+      ...(input.held.evidence === undefined
+        ? {}
+        : { evidence: input.held.evidence }),
     });
     if (outcome.status === "unknown") {
       return { status: "blocked", error: blockedMessage };
@@ -839,6 +1035,63 @@ async function reconcileReservation(input: {
           `reservation ${input.held.reservationId} is held by another writer ` +
           `"${outcome.heldBy}" after its ${input.boundary}: ${input.reason}`,
       };
+    }
+    if (outcome.status === "reserved") {
+      const evidenceError = validateLoopEconomicsBoundary({
+        evidenceMode: input.resume?.budgetEvidenceMode,
+        evidence: outcome.evidence,
+        runId: input.resume?.budgetRunId,
+        loopNodeId: input.loopNode.id,
+        reservationId: input.held.reservationId,
+        iteration: input.held.iteration,
+        reservedCostCents: outcome.reservedCostCents,
+        terminalStatus: "pending",
+        ...(input.bodyNodes === undefined
+          ? {}
+          : {
+              expectedNodeIds: input.bodyNodes.map(({ id }) => id),
+              requiredExecutionNodeIds: input.bodyNodes
+                .filter(({ type }) => type === "agent")
+                .map(({ id }) => id),
+            }),
+        ...(input.held.evidence === undefined
+          ? {}
+          : {
+              currentReservationBindingDigest:
+                input.held.evidence.reservationBindingDigest,
+            }),
+      });
+      if (evidenceError !== undefined) {
+        return {
+          status: "blocked",
+          error: `reconciliation returned invalid exact economics evidence: ${evidenceError}`,
+        };
+      }
+    }
+    if (outcome.status === "settled" && outcome.cost.status === "known") {
+      const evidenceError = validateLoopEconomicsBoundary({
+        evidenceMode: input.resume?.budgetEvidenceMode,
+        evidence: outcome.cost.evidence,
+        runId: input.resume?.budgetRunId,
+        loopNodeId: input.loopNode.id,
+        reservationId: input.held.reservationId,
+        iteration: input.held.iteration,
+        reservedCostCents: input.held.reservedCostCents,
+        settledCostCents: outcome.cost.costCents,
+        terminalStatus: "recorded",
+        ...(input.held.evidence === undefined
+          ? {}
+          : {
+              currentReservationBindingDigest:
+                input.held.evidence.reservationBindingDigest,
+            }),
+      });
+      if (evidenceError !== undefined) {
+        return {
+          status: "blocked",
+          error: `settlement reconciliation returned invalid exact economics evidence: ${evidenceError}`,
+        };
+      }
     }
     return outcome;
   } catch (error) {
@@ -856,7 +1109,9 @@ function readSettledCost(
   iteration: number,
   outcome: Extract<LoopBudgetReconcileOutcome, { status: "settled" }>,
   boundary: "reserve" | "settle" | "release"
-): { settledCostCents: number } | { error: string } {
+):
+  | { settledCostCents: number; evidence?: LoopEconomicsEvidenceV1 }
+  | { error: string } {
   if (outcome.cost.status === "unknown") {
     return {
       error:
@@ -875,7 +1130,12 @@ function readSettledCost(
         `${boundary} reported invalid settled cost ${String(outcome.cost.costCents)}`,
     };
   }
-  return { settledCostCents: outcome.cost.costCents };
+  return {
+    settledCostCents: outcome.cost.costCents,
+    ...(outcome.cost.evidence === undefined
+      ? {}
+      : { evidence: outcome.cost.evidence }),
+  };
 }
 
 async function checkpointBudget(
@@ -883,7 +1143,8 @@ async function checkpointBudget(
   completedIterations: number,
   outcome: PipelineForEachItemOutcome,
   held: HeldPredicateIterationReservation,
-  settledCostCents?: number
+  settledCostCents?: number,
+  evidence?: LoopEconomicsEvidenceV1
 ): Promise<void> {
   await resume?.onIterationBudgetCheckpoint?.({
     completedIterations,
@@ -892,6 +1153,9 @@ async function checkpointBudget(
       reservationId: held.reservationId,
       reservedCostCents: held.reservedCostCents,
       ...(settledCostCents === undefined ? {} : { settledCostCents }),
+      ...((evidence ?? held.evidence) === undefined
+        ? {}
+        : { evidence: evidence ?? held.evidence }),
     },
   });
 }

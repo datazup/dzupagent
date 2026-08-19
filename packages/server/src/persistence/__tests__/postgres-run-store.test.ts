@@ -176,6 +176,40 @@ describe('PostgresRunStore (persistence/__tests__)', () => {
     })
   })
 
+  describe('compareAndSet()', () => {
+    it('uses one conditional update and returns the committed row', async () => {
+      const row = {
+        id: 'run-cas', agentId: 'agent-cas', status: 'suspended', input: null,
+        output: null, plan: null, tokenUsageInput: 0, tokenUsageOutput: 0,
+        costCents: null, error: null, metadata: { version: 2 },
+        startedAt: new Date(), completedAt: null,
+      }
+      const { store, db } = buildStore({ updateRows: [row] })
+
+      const committed = await store.compareAndSet(
+        'run-cas',
+        { status: 'running', metadata: { version: 1 } },
+        { status: 'suspended', metadata: { version: 2 } },
+      )
+
+      expect(committed?.status).toBe('suspended')
+      expect(committed?.metadata).toEqual({ version: 2 })
+      expect(db.update).toHaveBeenCalledTimes(1)
+      expect(db.log.some((entry) => entry.op === 'update' && entry.fn === 'where')).toBe(true)
+      expect(db.log.some((entry) => entry.op === 'update' && entry.fn === 'returning')).toBe(true)
+    })
+
+    it('returns null when the expected snapshot lost the race', async () => {
+      const { store } = buildStore({ updateRows: [] })
+
+      await expect(store.compareAndSet(
+        'run-cas-lost',
+        { status: 'running', metadata: {} },
+        { status: 'suspended' },
+      )).resolves.toBeNull()
+    })
+  })
+
   // -------- get --------
 
   describe('get()', () => {

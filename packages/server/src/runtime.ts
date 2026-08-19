@@ -53,6 +53,26 @@ export type {
 export { isStructuredResult } from './runtime/utils.js'
 export { reportRetrievalFeedback, mapScoreToQuality } from './runtime/retrieval-feedback-hook.js'
 export type { RetrievalFeedbackSink, RetrievalFeedbackHookConfig } from './runtime/retrieval-feedback-hook.js'
+export {
+  consumePendingContact,
+  HUMAN_CONTACT_RESUME_TOKEN_HEADER,
+  markContactPublicationPublished,
+  recordPendingContact,
+  suspendForPendingContact,
+} from './runtime/pending-contacts.js'
+export type {
+  ConsumePendingContactInput,
+  ConsumePendingContactResult,
+  PendingContactBinding,
+  PendingContactRegistration,
+  ResolvedContactReceipt,
+  SuspendForPendingContactResult,
+} from './runtime/pending-contacts.js'
+export { createDurableHumanContactComposition } from './runtime/durable-human-contact-composition.js'
+export type {
+  DurableHumanContactComposition,
+  DurableHumanContactCompositionOptions,
+} from './runtime/durable-human-contact-composition.js'
 
 // --- Consolidation scheduler ---
 export { ConsolidationScheduler } from './runtime/consolidation-scheduler.js'

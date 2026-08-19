@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   createHumanContactTool,
+  humanContactRunnableConfig,
   InMemoryPendingContactStore,
   type HumanContactToolConfig,
 } from './human-contact-tool.js'
@@ -13,12 +14,23 @@ function parseToolResult(result: string): Record<string, unknown> {
   return JSON.parse(result) as Record<string, unknown>
 }
 
+let invocationCounter = 0
+
+function testInvocationConfig() {
+  invocationCounter += 1
+  return humanContactRunnableConfig({
+    runId: 'test-run',
+    tenantId: 'test-tenant',
+    invocationId: `test-call-${invocationCounter}`,
+  })
+}
+
 async function invokeTool(
   config: HumanContactToolConfig,
   input: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   const tool = createHumanContactTool(config)
-  const raw = await tool.invoke(input)
+  const raw = await tool.invoke(input, testInvocationConfig())
   return parseToolResult(raw as string)
 }
 
@@ -322,13 +334,16 @@ describe('HumanContactTool', () => {
       expect(result['status']).toBe('pending')
     })
 
-    it('propagates onPause errors to the tool caller', async () => {
+    it('sanitizes onPause errors for the tool caller', async () => {
       const failingPause = vi.fn().mockRejectedValue(new Error('pause failed'))
 
       const tool = createHumanContactTool({ pendingStore, onPause: failingPause })
       await expect(
-        tool.invoke({ mode: 'approval', question: 'OK?' }),
-      ).rejects.toThrow('pause failed')
+        tool.invoke(
+          { mode: 'approval', question: 'OK?' },
+          testInvocationConfig(),
+        ),
+      ).rejects.toThrow('HUMAN_CONTACT_PAUSE_FAILED')
     })
   })
 

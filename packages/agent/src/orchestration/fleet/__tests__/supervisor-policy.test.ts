@@ -34,7 +34,11 @@ describe("SupervisorPolicy", () => {
   it("ratifies a single proposal", async () => {
     const p = new SupervisorPolicy();
     const plan = await p.onContractChange(
-      { surface: "s", proposals: [contract("v1")] },
+      {
+        surface: "s",
+        proposalIds: ["p-1"],
+        proposals: [contract("v1")],
+      },
       []
     );
     expect(plan.ratified?.status).toBe("ratified");
@@ -44,7 +48,11 @@ describe("SupervisorPolicy", () => {
   it("escalates when proposals conflict", async () => {
     const p = new SupervisorPolicy();
     const plan = await p.onContractChange(
-      { surface: "s", proposals: [contract("v1"), contract("v2")] },
+      {
+        surface: "s",
+        proposalIds: ["p-1", "p-2"],
+        proposals: [contract("v1"), contract("v2")],
+      },
       []
     );
     expect(plan.ratified).toBeNull();

@@ -17,6 +17,7 @@ import {
   emitPermissionDeniedSafetyViolation,
   evaluateToolPermission,
 } from "./policy-checks.js";
+import { toolInvocationRunnableConfig } from "../../tools/human-contact-invocation.js";
 
 /**
  * Resolve a {@link ToolRetryConfig} into the concrete shape expected by the
@@ -107,7 +108,14 @@ export async function invokeToolWithRetry(
             context: { agentId: config.agentId, toolName, phase: "issuance" },
           });
         }
-        return tool.invoke(validatedArgs, { signal });
+        return tool.invoke(
+          validatedArgs,
+          toolInvocationRunnableConfig(
+            config.humanContactContext,
+            toolCallId,
+            signal
+          )
+        );
       },
       omitUndefined({
         signal: config.signal,

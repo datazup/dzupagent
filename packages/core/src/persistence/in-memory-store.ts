@@ -1,5 +1,5 @@
 import type {
-  RunStore,
+  AtomicRunStore,
   Run,
   CreateRunInput,
   RunFilter,
@@ -7,7 +7,9 @@ import type {
   AgentExecutionSpecStore,
   AgentExecutionSpec,
   AgentExecutionSpecFilter,
+  RunStoreCompareAndSetExpectation,
 } from './store-interfaces.js'
+import { isDeepStrictEqual } from 'node:util'
 import { defaultLogger, type FrameworkLogger } from '../utils/logger.js'
 
 // ---------------------------------------------------------------------------
@@ -49,7 +51,7 @@ function warnIfExplicitlyUnbounded(limitName: string): void {
   )
 }
 
-export class InMemoryRunStore implements RunStore {
+export class InMemoryRunStore implements AtomicRunStore {
   private runs = new Map<string, Run>()
   private logs = new Map<string, LogEntry[]>()
   private readonly runOrder: string[] = []
@@ -105,6 +107,27 @@ export class InMemoryRunStore implements RunStore {
 
   async get(id: string): Promise<Run | null> {
     return this.runs.get(id) ?? null
+  }
+
+  async compareAndSet(
+    id: string,
+    expected: RunStoreCompareAndSetExpectation,
+    update: Partial<Run>,
+  ): Promise<Run | null> {
+    const existing = this.runs.get(id)
+    if (!existing) return null
+    if (expected.status !== undefined && existing.status !== expected.status) {
+      return null
+    }
+    if (
+      expected.metadata !== undefined
+      && !isDeepStrictEqual(existing.metadata ?? {}, expected.metadata)
+    ) {
+      return null
+    }
+    const committed = { ...existing, ...update }
+    this.runs.set(id, committed)
+    return committed
   }
 
   async list(filter?: RunFilter): Promise<Run[]> {

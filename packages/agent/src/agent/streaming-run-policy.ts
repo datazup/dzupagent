@@ -12,6 +12,7 @@ import type { GenerateOptions } from './agent-types.js'
 import type { StreamingToolPolicyOptions } from './run-engine.js'
 import type { StreamRunContext } from './streaming-run-types.js'
 import { projectToolResultSecurityPolicy } from './tool-result-security-policy.js'
+import { resolveHumanContactRunContext } from '../tools/human-contact-invocation.js'
 
 /**
  * Build a {@link StreamingToolPolicyOptions} from the agent's
@@ -27,7 +28,13 @@ export function buildStreamingToolPolicy(
   const toolResultSecurityPolicy = projectToolResultSecurityPolicy(
     ctx.config.security,
   )
-  if (!toolExec && !toolResultSecurityPolicy) return undefined
+  const humanContactContext = resolveHumanContactRunContext({
+    runId: options?.runId,
+    fallbackRunId: toolExec?.runId,
+    tenantId: ctx.config.memoryScope?.['tenantId'],
+    profileKey: options?.humanContact?.profileKey,
+  })
+  if (!toolExec && !toolResultSecurityPolicy && !humanContactContext) return undefined
 
   const resolvedSafetyMonitor =
     toolExec?.safetyMonitor ?? toolExec?.resultScanner
@@ -68,7 +75,14 @@ export function buildStreamingToolPolicy(
     // `toolExecution` is provided, fall back to the surrounding agent id
     // so canonical lifecycle events carry provenance.
     agentId: toolExec?.agentId ?? ctx.agentId,
-    ...(toolExec?.runId !== undefined ? { runId: toolExec.runId } : {}),
+    ...(humanContactContext !== undefined
+      ? {
+          runId: humanContactContext.runId,
+          humanContactContext,
+        }
+      : toolExec?.runId !== undefined
+        ? { runId: toolExec.runId }
+        : {}),
     // Route policy/lifecycle events to the same bus the agent uses for
     // `tool:latency` / `llm:invoked`, only when `toolExecution` is
     // configured (preserves the pre-MJ-AGENT-02 surface for callers with

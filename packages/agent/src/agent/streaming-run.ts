@@ -46,6 +46,7 @@ import { runStreamFallback } from './streaming-run-fallback.js'
 import type { StreamRunContext } from './streaming-run-types.js'
 import { enforceAgentHardBudget } from './runtime-hard-budget.js'
 import { injectPromptCacheMarkersForModel } from '@dzupagent/context'
+import { hasExactGenerateContextSuffix } from './run-engine/generate-context.js'
 
 export type { StreamRunContext } from './streaming-run-types.js'
 
@@ -147,6 +148,10 @@ export async function* streamRun(
         eventBus: ctx.config.eventBus,
         agentId: ctx.agentId,
         phase: 'stream',
+        adoptionInvariant: (candidateMessages) =>
+          hasExactGenerateContextSuffix(candidateMessages, optionsWithUsage?.context),
+        adoptionInvariantFailureReason:
+          'runtime hard-budget result did not retain required GenerateOptions.context',
       })
       const recached = injectPromptCacheMarkersForModel(
         allMessages,
@@ -227,7 +232,12 @@ export async function* streamRun(
     // recorded for the full streamed response and BEFORE halt/tool checks.
     // This mirrors the non-streaming tool loop so compressed histories are
     // adopted before any subsequent tool/model turn.
-    await maybeAdoptCompression(ctx, allMessages, runState)
+    await maybeAdoptCompression(
+      ctx,
+      allMessages,
+      runState,
+      optionsWithUsage?.context,
+    )
 
     // Token lifecycle halt check — evaluated after compression adoption but
     // before tool execution, matching generate() parity for exhausted tokens.

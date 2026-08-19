@@ -272,6 +272,8 @@ async function executePredicateLoop(
       admission.status === "settled"
         ? admission.settledCostCents
         : undefined;
+    let settledEvidence =
+      admission.status === "settled" ? admission.evidence : undefined;
     const releaseOutstanding = async (
       outcome: "failed" | "cancelled" | "denied",
       reason: "aborted" | "failed"
@@ -300,6 +302,7 @@ async function executePredicateLoop(
       });
       if (settlement.status === "blocked") return settlement;
       settledCostCents = settlement.settledCostCents;
+      settledEvidence = settlement.evidence;
       if (settlement.overrun === undefined) return undefined;
       await checkpointSettledPredicateIteration({
         resume,
@@ -307,6 +310,7 @@ async function executePredicateLoop(
         outcome: "failed",
         held,
         settledCostCents,
+        ...(settledEvidence === undefined ? {} : { evidence: settledEvidence }),
       });
       return {
         status: "blocked",
@@ -468,6 +472,9 @@ async function executePredicateLoop(
               outcome: "completed",
               held,
               settledCostCents,
+              ...(settledEvidence === undefined
+                ? {}
+                : { evidence: settledEvidence }),
             });
           }
           return {
@@ -695,6 +702,9 @@ async function executePredicateLoop(
           outcome: "failed",
           held,
           settledCostCents,
+          ...(settledEvidence === undefined
+            ? {}
+            : { evidence: settledEvidence }),
         });
       }
       return {
@@ -711,6 +721,23 @@ async function executePredicateLoop(
           terminationReason: "no_progress",
         },
       };
+    }
+
+    // Settle evidence must be durable before the general iteration cursor
+    // advances. A crash in this window otherwise retains only the pending
+    // reservation and forces reconciliation to rediscover a charge the host
+    // already proved with exact terminal usage/effect receipts.
+    if (held !== undefined && settledCostCents !== undefined) {
+      await checkpointSettledPredicateIteration({
+        resume,
+        completedIterations: i,
+        outcome: "completed",
+        held,
+        settledCostCents,
+        ...(settledEvidence === undefined
+          ? {}
+          : { evidence: settledEvidence }),
+      });
     }
 
     // Durable-resume checkpoint hook (W3): persist the cursor + accumulated

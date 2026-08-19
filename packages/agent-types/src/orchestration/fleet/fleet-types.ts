@@ -172,6 +172,8 @@ export type EscalationReason =
 
 export interface ContractChange {
   surface: string;
+  /** Envelope IDs aligned one-for-one with `proposals` in stable query order. */
+  proposalIds: string[];
   proposals: ContractPayload[];
 }
 

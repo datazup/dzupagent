@@ -335,12 +335,36 @@ export { createForgeTool } from "./tools/create-tool.js";
 export type { ForgeToolConfig } from "./tools/create-tool.js";
 export {
   createHumanContactTool,
+  HUMAN_CONTACT_RUNNABLE_CONFIG_KEY,
   InMemoryPendingContactStore,
+  SUPPORTED_CONTACT_CHANNELS,
+  humanContactRunnableConfig,
+  readHumanContactInvocationContext,
 } from "./tools/human-contact-tool.js";
+export {
+  AesGcmResumeTokenProtector,
+  DURABLE_PENDING_CONTACTS_KEY,
+  RunStorePendingContactStore,
+} from "./tools/run-store-pending-contact-store.js";
+export type {
+  ResumeTokenProtectionContext,
+  ResumeTokenProtector,
+} from "./tools/run-store-pending-contact-store.js";
 export type {
   HumanContactInput,
+  HumanContactInvocationContext,
+  HumanContactPauseContext,
+  HumanContactRunContext,
   HumanContactToolConfig,
+  PendingContactCreateResult,
+  PendingContactPauseClaim,
+  PendingContactPauseClaimResult,
+  PendingContactRecord,
   PendingContactStore,
+  PendingContactTransition,
+  PendingContactTransitionResult,
+  PreferredContactChannelContext,
+  PreferredContactChannelResolver,
 } from "./tools/human-contact-tool.js";
 
 // --- Tool Permission Tier Registry (MC-AGT-05) ---

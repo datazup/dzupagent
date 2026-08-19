@@ -30,6 +30,7 @@ import type {
   StreamingToolCall,
 } from "./run-engine/types.js";
 import { scanToolResultSecurity } from "./tool-result-security-policy.js";
+import { toolInvocationRunnableConfig } from "../tools/human-contact-invocation.js";
 
 export type { StreamPhaseResult } from "./run-engine/types.js";
 
@@ -140,7 +141,14 @@ export async function runToolStreamingPhase(args: {
       toolName,
       timeoutMs,
       ({ signal: invocationSignal }) =>
-        tool.invoke(validatedArgs, { signal: invocationSignal }),
+        tool.invoke(
+          validatedArgs,
+          toolInvocationRunnableConfig(
+            policy?.humanContactContext,
+            toolCallId,
+            invocationSignal
+          )
+        ),
       omitUndefined({
         signal: policy?.signal ?? signal,
         onCancelRequested: (reason: "timeout" | "run_cancelled") =>

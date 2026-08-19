@@ -26,6 +26,14 @@
       "import": "./dist/effect-receipt.js",
       "types": "./dist/effect-receipt.d.ts"
     },
+    "./loop-economics-evidence": {
+      "import": "./dist/loop-economics-evidence.js",
+      "types": "./dist/loop-economics-evidence.d.ts"
+    },
+    "./execution-boundary-evidence": {
+      "import": "./dist/execution-boundary-evidence.js",
+      "types": "./dist/execution-boundary-evidence.d.ts"
+    },
     "./canonical-execution": {
       "import": "./dist/canonical-execution.js",
       "types": "./dist/canonical-execution.d.ts"

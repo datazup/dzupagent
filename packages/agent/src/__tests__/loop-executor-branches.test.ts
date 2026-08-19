@@ -9,6 +9,7 @@ import {
   stateFieldTruthy,
   qualityBelow,
   hasErrors,
+  type LoopResumeOptions,
 } from '../pipeline/loop-executor.js'
 import type { LoopNode, PipelineNode } from '@dzupagent/core'
 import type {
@@ -38,6 +39,20 @@ function makeCtx(overrides: Partial<NodeExecutionContext> = {}): NodeExecutionCo
 
 function makeBody(id: string): PipelineNode {
   return { id, type: 'agent', agentId: 'a1', timeoutMs: 1000 }
+}
+
+function makeStrictBudgetResume(
+  overrides: Partial<LoopResumeOptions> = {},
+): LoopResumeOptions {
+  return {
+    budgetMode: 'strict',
+    reserveIterationBudget: () => ({ status: 'reserved', reservedCostCents: 8 }),
+    settleIterationBudget: () => undefined,
+    releaseIterationBudget: () => undefined,
+    reconcileIterationBudget: () => ({ status: 'absent' }),
+    measureItemCost: () => ({ status: 'known', costCents: 0 }),
+    ...overrides,
+  }
 }
 
 describe('loop-executor — branch coverage', () => {
@@ -150,6 +165,10 @@ describe('loop-executor — branch coverage', () => {
       exec,
       makeCtx(),
       { keepGoing: () => true },
+      undefined,
+      makeStrictBudgetResume({
+        reserveIterationBudget: () => ({ status: 'unknown' }),
+      }),
     )
 
     expect(result.error).toMatch(/budget is unknown/)
@@ -178,7 +197,7 @@ describe('loop-executor — branch coverage', () => {
       makeCtx(),
       { keepGoing: () => true },
       undefined,
-      {
+      makeStrictBudgetResume({
         reserveIterationBudget: async (input) => {
           expect(input).toMatchObject({
             loopNodeId: 'L', iteration: 1, budgetCents: 10,
@@ -186,7 +205,7 @@ describe('loop-executor — branch coverage', () => {
           })
           return { status: 'reserved', reservedCostCents: 8 }
         },
-      },
+      }),
     )
 
     expect(result.error).toBeUndefined()
@@ -213,11 +232,11 @@ describe('loop-executor — branch coverage', () => {
       makeCtx(),
       { keepGoing: () => true },
       undefined,
-      {
+      makeStrictBudgetResume({
         reserveIterationBudget: () => ({
           status: 'reserved', reservedCostCents: 11,
         }),
-      },
+      }),
     )
 
     expect(result.error).toMatch(/reservation 11 cents exceeds/)

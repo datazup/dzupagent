@@ -40,6 +40,32 @@ describe('InMemoryRunStore', () => {
     expect(updated!.status).toBe('running')
   })
 
+  it('commits only an exact status and metadata snapshot', async () => {
+    const run = await store.create({
+      agentId: 'a1',
+      input: 'test',
+      metadata: { revision: 1 },
+    })
+
+    const committed = await store.compareAndSet(
+      run.id,
+      { status: 'queued', metadata: { revision: 1 } },
+      { status: 'suspended', metadata: { revision: 2 } },
+    )
+    const lost = await store.compareAndSet(
+      run.id,
+      { status: 'queued', metadata: { revision: 1 } },
+      { status: 'failed' },
+    )
+
+    expect(committed).toMatchObject({
+      status: 'suspended',
+      metadata: { revision: 2 },
+    })
+    expect(lost).toBeNull()
+    expect((await store.get(run.id))?.status).toBe('suspended')
+  })
+
   it('lists runs sorted by startedAt descending', async () => {
     const r1 = await store.create({ agentId: 'a1', input: '1' })
     const r2 = await store.create({ agentId: 'a2', input: '2' })

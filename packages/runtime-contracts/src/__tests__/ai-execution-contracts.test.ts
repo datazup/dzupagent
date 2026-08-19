@@ -27,6 +27,10 @@ import {
   materializeAiResolvedTargetSnapshot,
   validateAiExecutionReceiptCustody,
 } from "../ai-execution-node.js";
+import {
+  materializeExecutionBoundaryEvidenceV1,
+  materializeExecutionStateAccessInventoryV1,
+} from "../execution-boundary-evidence.js";
 
 const route = {
   id: "route-request-1",
@@ -157,6 +161,90 @@ describe("AI execution contracts", () => {
     expect(projection.valid).toBe(true);
     expect(projection.request.execution).toBe(workerExecution);
     expect(projection.request.operation).toBe(request.operation);
+  });
+
+  it("validates boundary evidence and binds it to the canonical request before dispatch", () => {
+    const owner = {
+      rootDefinitionId: "flow/summary",
+      rootDefinitionDigest: `sha256:${"a".repeat(64)}` as const,
+      scopedDefinitionId: "flow/summary/root",
+      scopedDefinitionDigest: `sha256:${"b".repeat(64)}` as const,
+      executionKind: "prompt" as const,
+      nodeId: execution.source.nodeId,
+      nodePath: execution.source.nodePath,
+    };
+    const state = materializeExecutionStateAccessInventoryV1({
+      owner,
+      declared: {
+        status: "exact",
+        basisDigest: `sha256:${"c".repeat(64)}`,
+        reads: [],
+        writes: [execution.output.key],
+      },
+      observed: {
+        status: "unknown",
+        reason: "runtime-observation-unavailable",
+      },
+    });
+    const boundaryEvidence = materializeExecutionBoundaryEvidenceV1({
+      owner,
+      state,
+    });
+    const exact = {
+      ...request,
+      execution: { ...execution, boundaryEvidence },
+    } satisfies AiExecutionRequest;
+
+    expect(validateAiExecutionRequest(exact)).toEqual({
+      valid: true,
+      diagnostics: [],
+    });
+
+    const corrupt = {
+      ...exact,
+      execution: {
+        ...exact.execution,
+        boundaryEvidence: {
+          ...boundaryEvidence,
+          boundaryDigest: `sha256:${"f".repeat(64)}` as const,
+        },
+      },
+    } as unknown as AiExecutionRequest;
+    expect(
+      validateAiExecutionRequest(corrupt).diagnostics.map((item) => item.code),
+    ).toContain("AI_EXECUTION_BOUNDARY_INVALID");
+
+    const foreignOwner = {
+      ...owner,
+      nodeId: "foreign-node",
+      nodePath: "root.nodes[9]",
+    };
+    const foreignState = materializeExecutionStateAccessInventoryV1({
+      owner: foreignOwner,
+      declared: {
+        status: "exact",
+        basisDigest: `sha256:${"c".repeat(64)}`,
+        reads: [],
+        writes: [execution.output.key],
+      },
+      observed: {
+        status: "unknown",
+        reason: "runtime-observation-unavailable",
+      },
+    });
+    const foreign = {
+      ...request,
+      execution: {
+        ...execution,
+        boundaryEvidence: materializeExecutionBoundaryEvidenceV1({
+          owner: foreignOwner,
+          state: foreignState,
+        }),
+      },
+    } satisfies AiExecutionRequest;
+    expect(
+      validateAiExecutionRequest(foreign).diagnostics.map((item) => item.code),
+    ).toContain("AI_EXECUTION_BOUNDARY_INVALID");
   });
 
   it("rejects agent operations projected through a plain prompt leaf", () => {

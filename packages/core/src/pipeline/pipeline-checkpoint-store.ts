@@ -12,6 +12,7 @@ import type {
   PipelinePendingInteractionV1,
   PipelineSha256Digest,
 } from "@dzupagent/runtime-contracts";
+import type { LoopEconomicsEvidenceV1 } from "@dzupagent/runtime-contracts/loop-economics-evidence";
 
 export const PIPELINE_CHECKPOINT_SCHEMA_VERSIONS = [
   "1.0.0",
@@ -313,6 +314,12 @@ export interface PipelineForEachItemEconomics {
    * from having settled zero.
    */
   settledCostCents?: number;
+  /**
+   * Additive V1 route/tariff/quota/usage/effect custody. Legacy cents-only
+   * records remain readable; an evidence-required host rejects their absence
+   * before dispatch.
+   */
+  evidence?: LoopEconomicsEvidenceV1;
 }
 
 export interface PipelineLoopBodyGraphCheckpointState {

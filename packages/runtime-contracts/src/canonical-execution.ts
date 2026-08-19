@@ -6,6 +6,8 @@
  * validate the resulting decision before execution.
  */
 
+import type { ExecutionBoundaryEvidenceV1 } from "./execution-boundary-evidence.js";
+
 export const EXECUTION_LEAF_KINDS = [
   "prompt",
   "agent",
@@ -336,6 +338,8 @@ export interface ExecutionRequestBase {
   readonly effects: ExecutionEffectPolicy;
   readonly cancellation: ExecutionCancellationPolicy;
   readonly evidenceRequirements: readonly ExecutionEvidenceRequirement[];
+  /** Digest-bound compiler/host/restart evidence; absent preserves V1 compatibility. */
+  readonly boundaryEvidence?: ExecutionBoundaryEvidenceV1;
   /** References resolved by the execution host, never credential values. */
   readonly authSources?: readonly ProviderAuthSourceDescriptor[];
   /** MCP servers projected by the execution host for this run. */

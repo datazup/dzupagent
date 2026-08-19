@@ -77,7 +77,10 @@ describe("FanOutPolicy", () => {
 
   it("treats contract changes as no-op", async () => {
     const p = new FanOutPolicy();
-    const plan = await p.onContractChange({ surface: "s", proposals: [] }, []);
+    const plan = await p.onContractChange(
+      { surface: "s", proposalIds: [], proposals: [] },
+      []
+    );
     expect(plan).toEqual({
       ratified: null,
       rejectIds: [],

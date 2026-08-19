@@ -24,6 +24,7 @@ import type { ToolOutputValidator } from "../output-validator.js";
 import type { ToolResultScanFailureMode, ToolRetryConfig } from "./retry.js";
 import type { ToolLoopTracer } from "./tracer.js";
 import type { ToolResultSecurityPolicy } from "../../tool-result-security-policy.js";
+import type { HumanContactRunContext } from "../../../tools/human-contact-invocation.js";
 
 export interface ToolLoopConfig extends ToolResultSecurityPolicy {
   maxIterations: number;
@@ -402,6 +403,12 @@ export interface ToolLoopConfig extends ToolResultSecurityPolicy {
    * restarts — real workloads SHOULD set this.
    */
   runId?: string;
+
+  /**
+   * Call-local human-contact identity forwarded through LangChain runnable
+   * configuration. The executor adds the exact tool-call ID at issuance.
+   */
+  humanContactContext?: HumanContactRunContext;
 
   /**
    * Pluggable permission policy (MC-GA03). When omitted, no permission

@@ -127,6 +127,8 @@ export type OrchestrationDomainEvent =
       runId: string;
       contactId: string;
       response: unknown;
+      /** Stable receipt identity for at-least-once publication deduplication. */
+      publicationId?: string;
     }
   | {
       type: "human_contact:timed_out";

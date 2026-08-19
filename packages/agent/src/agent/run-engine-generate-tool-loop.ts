@@ -44,6 +44,11 @@ import {
   projectToolResultSecurityPolicy,
   type ToolResultSecurityPolicy,
 } from "./tool-result-security-policy.js";
+import {
+  appendGenerateContext,
+  hasExactGenerateContextSuffix,
+} from "./run-engine/generate-context.js";
+import { resolveHumanContactRunContext } from "../tools/human-contact-invocation.js";
 
 /**
  * Output of {@link prepareGuardPrelude}. Threads the compression log
@@ -104,11 +109,17 @@ export type RunLoopResult = ToolLoopResult;
  * stays identical to the pre-MJ-AGENT-01 shape when `toolExecution` is
  * unset.
  */
-function buildPolicyConfig(
+export function buildPolicyConfig(
   params: ExecuteGenerateRunParams,
   prelude: GuardPrelude
 ): Partial<ToolLoopConfig> {
   const { toolExec, toolResultSecurityPolicy, resolvedSafetyMonitor } = prelude;
+  const humanContactContext = resolveHumanContactRunContext({
+    runId: params.options?.runId,
+    fallbackRunId: toolExec?.runId,
+    tenantId: params.config.memoryScope?.["tenantId"],
+    profileKey: params.options?.humanContact?.profileKey,
+  });
   return {
     ...(toolResultSecurityPolicy ?? {}),
     ...(toolExec?.governance !== undefined
@@ -141,7 +152,14 @@ function buildPolicyConfig(
     ...(toolExec || toolResultSecurityPolicy
       ? { agentId: toolExec?.agentId ?? params.agentId }
       : {}),
-    ...(toolExec?.runId !== undefined ? { runId: toolExec.runId } : {}),
+    ...(humanContactContext !== undefined
+      ? {
+          runId: humanContactContext.runId,
+          humanContactContext,
+        }
+      : toolExec?.runId !== undefined
+        ? { runId: toolExec.runId }
+        : {}),
     ...(toolExec?.argumentValidator !== undefined
       ? { validateToolArgs: toolExec.argumentValidator }
       : {}),
@@ -253,6 +271,10 @@ export async function setupModelCall(
         eventBus: params.config.eventBus,
         agentId: params.agentId,
         phase: "tool-loop",
+        adoptionInvariant: (candidateMessages) =>
+          hasExactGenerateContextSuffix(candidateMessages, params.options?.context),
+        adoptionInvariantFailureReason:
+          "runtime hard-budget result did not retain required GenerateOptions.context",
       });
       const recached = injectPromptCacheMarkersForModel(messages, model);
       messages.splice(0, messages.length, ...recached);
@@ -430,8 +452,12 @@ export async function setupModelCall(
                   messages,
                   params.runState.model,
                   null
-                );
+              );
               if (result.compressed) {
+                const contextMessages = appendGenerateContext(
+                  result.messages,
+                  params.options?.context
+                );
                 // WS3 Task 3.2 — model-lifecycle hooks run BEFORE prompt-cache
                 // re-injection on the freshly compressed transcript. ORDERING IS
                 // LOAD-BEARING: `beforeModelCall` may rewrite the array and cache
@@ -441,14 +467,18 @@ export async function setupModelCall(
                     ? [modelHooks.beforeModelCall]
                     : undefined,
                   params.config.eventBus,
-                  result.messages,
+                  contextMessages,
                   resolvedModelId,
                   hookCtx
+                );
+                const finalMessages = appendGenerateContext(
+                  hookedMessages,
+                  params.options?.context
                 );
                 return {
                   ...result,
                   messages: injectPromptCacheMarkersForModel(
-                    hookedMessages,
+                    finalMessages,
                     params.runState.model
                   ),
                 };

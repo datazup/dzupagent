@@ -206,6 +206,17 @@ describe('reflection pattern persistence admission', () => {
     })
   })
 
+  it('analyzes patterns under the exact persisted job run ID', async () => {
+    const analyze = vi.spyOn(ReflectionAnalyzer.prototype, 'analyze')
+    try {
+      const { runId } = await persistFromLogs([success('read'), success('read')])
+
+      expect(analyze).toHaveBeenCalledWith(runId, expect.any(Array))
+    } finally {
+      analyze.mockRestore()
+    }
+  })
+
   it('does not invoke the analyzer when no reflection store is configured', async () => {
     const analyze = vi.spyOn(ReflectionAnalyzer.prototype, 'analyze')
     const runStore = new InMemoryRunStore()

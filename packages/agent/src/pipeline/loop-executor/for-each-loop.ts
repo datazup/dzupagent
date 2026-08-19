@@ -8,6 +8,7 @@
 
 import type {
   LoopNode,
+  PipelineForEachItemEconomics,
   PipelineForEachItemOutcome,
   PipelineNode,
 } from "@dzupagent/core/pipeline";
@@ -24,6 +25,8 @@ import type {
   LoopResumeOptions,
 } from "./types.js";
 import { canonicalInputDigest } from "@dzupagent/runtime-contracts";
+import type { LoopEconomicsEvidenceV1 } from "@dzupagent/runtime-contracts/loop-economics-evidence";
+import { validateLoopEconomicsBoundary } from "./economics-evidence.js";
 import { resolveStatePath, setStatePath } from "./state-path.js";
 import {
   advanceCompletedPrefix,
@@ -40,6 +43,8 @@ interface HeldItemReservation {
   readonly attempt: number;
   /** G2b: deterministic identity presented to settle/release. */
   readonly reservationId: string;
+  /** Exact pre-dispatch or terminal execution/economics/effect evidence. */
+  readonly evidence?: LoopEconomicsEvidenceV1;
 }
 
 const FOR_EACH_AGGREGATE_RECEIPT_V1 =
@@ -160,6 +165,24 @@ export function deriveItemReservationId(params: {
   const run = params.runId === undefined ? "" : params.runId;
   const base = `resv:v1:${run}:item:${params.loopNodeId}:${params.itemIndex}`;
   return params.attempt > 0 ? `${base}:attempt:${params.attempt}` : base;
+}
+
+function reservedCostCentsFromEvidence(
+  evidence: LoopEconomicsEvidenceV1 | undefined
+): number {
+  if (
+    evidence === undefined ||
+    evidence.executions.some(({ money }) => money.status !== "priced")
+  ) {
+    return -1;
+  }
+  let reservedMicros = 0;
+  for (const { money } of evidence.executions) {
+    if (money.status !== "priced") return -1;
+    reservedMicros += money.reservation.reservedAmountMicros;
+    if (!Number.isSafeInteger(reservedMicros)) return -1;
+  }
+  return Math.ceil(reservedMicros / 10_000);
 }
 
 type ForEachContract = NonNullable<LoopNode["forEach"]>;
@@ -414,7 +437,11 @@ export async function executeForEachLoop(
     | HeldItemReservation
     | undefined
     | { outcomeUnknown: string; malformed?: boolean }
-    | { deniedHeld: HeldItemReservation }
+    | {
+        deniedHeld: HeldItemReservation;
+        denialReason?: string;
+        retainEvidence?: boolean;
+      }
   > => {
     if (itemBudgetCents === undefined) return undefined;
     const reserve = resume?.reserveIterationBudget;
@@ -472,10 +499,93 @@ export async function executeForEachLoop(
       itemIndex: index,
       attempt,
       reservationId,
+      ...(reservation.evidence === undefined
+        ? {}
+        : { evidence: reservation.evidence }),
     };
+    const evidenceError = validateLoopEconomicsBoundary({
+      evidenceMode: resume?.budgetEvidenceMode,
+      evidence: reservation.evidence,
+      runId: resume?.budgetRunId,
+      loopNodeId: loopNode.id,
+      reservationId,
+      itemIndex: index,
+      attempt,
+      iteration: index + 1,
+      reservedCostCents: reservation.reservedCostCents,
+      terminalStatus: "pending",
+      expectedNodeIds: bodyNodes.map(({ id }) => id),
+      requiredExecutionNodeIds: bodyNodes
+        .filter(({ type }) => type === "agent")
+        .map(({ id }) => id),
+    });
+    if (evidenceError !== undefined) {
+      return {
+        deniedHeld: held,
+        denialReason:
+          `Loop "${loopNode.id}" item ${index} returned invalid exact ` +
+          `economics evidence: ${evidenceError}`,
+        retainEvidence: false,
+      };
+    }
     return reservation.reservedCostCents > itemBudgetCents
       ? { deniedHeld: held }
       : held;
+  };
+
+  const validateRetainedItemEconomics = (
+    index: number,
+    attempt: number,
+    economics: PipelineForEachItemEconomics
+  ): string | undefined => {
+    const reservationId = deriveItemReservationId({
+      ...(resume?.budgetRunId === undefined
+        ? {}
+        : { runId: resume.budgetRunId }),
+      loopNodeId: loopNode.id,
+      itemIndex: index,
+      attempt,
+    });
+    if (economics.reservationId !== reservationId) {
+      return (
+        `checkpoint reservation ${economics.reservationId} does not match ` +
+        `the deterministic owner ${reservationId}`
+      );
+    }
+    if (
+      !Number.isSafeInteger(economics.reservedCostCents) ||
+      economics.reservedCostCents < 0 ||
+      economics.reservedCostCents > (itemBudgetCents as number)
+    ) {
+      return `checkpoint carries invalid reserved cost ${String(economics.reservedCostCents)}`;
+    }
+    if (
+      economics.settledCostCents !== undefined &&
+      (!Number.isSafeInteger(economics.settledCostCents) ||
+        economics.settledCostCents < 0)
+    ) {
+      return `checkpoint carries invalid settled cost ${String(economics.settledCostCents)}`;
+    }
+    return validateLoopEconomicsBoundary({
+      evidenceMode: resume?.budgetEvidenceMode,
+      evidence: economics.evidence,
+      runId: resume?.budgetRunId,
+      loopNodeId: loopNode.id,
+      reservationId,
+      itemIndex: index,
+      attempt,
+      iteration: index + 1,
+      reservedCostCents: economics.reservedCostCents,
+      ...(economics.settledCostCents === undefined
+        ? {}
+        : { settledCostCents: economics.settledCostCents }),
+      terminalStatus:
+        economics.settledCostCents === undefined ? "pending" : "recorded",
+      expectedNodeIds: bodyNodes.map(({ id }) => id),
+      requiredExecutionNodeIds: bodyNodes
+        .filter(({ type }) => type === "agent")
+        .map(({ id }) => id),
+    });
   };
 
   type ReconciledReservation =
@@ -492,7 +602,8 @@ export async function executeForEachLoop(
     index: number,
     attempt: number,
     reason: string,
-    boundary: "reserve" | "settle" | "release"
+    boundary: "reserve" | "settle" | "release",
+    retained?: HeldItemReservation
   ): Promise<ReconciledReservation> => {
     const reservationId = deriveItemReservationId({
       ...(resume?.budgetRunId === undefined
@@ -519,6 +630,9 @@ export async function executeForEachLoop(
         budgetCents: itemBudgetCents as number,
         reason,
         boundary,
+        ...(retained?.evidence === undefined
+          ? {}
+          : { evidence: retained.evidence }),
       });
     } catch (error) {
       // A reconcile that itself fails proves nothing — stay blocked.
@@ -541,6 +655,71 @@ export async function executeForEachLoop(
     if (outcome.status === "unknown") {
       return { status: "blocked", error: blocked };
     }
+    if (outcome.status === "reserved") {
+      const evidenceError = validateLoopEconomicsBoundary({
+        evidenceMode: resume?.budgetEvidenceMode,
+        evidence: outcome.evidence,
+        runId: resume?.budgetRunId,
+        loopNodeId: loopNode.id,
+        reservationId,
+        itemIndex: index,
+        attempt,
+        iteration: index + 1,
+        reservedCostCents: outcome.reservedCostCents,
+        terminalStatus: "pending",
+        expectedNodeIds: bodyNodes.map(({ id }) => id),
+        requiredExecutionNodeIds: bodyNodes
+          .filter(({ type }) => type === "agent")
+          .map(({ id }) => id),
+        ...(retained?.evidence === undefined
+          ? {}
+          : {
+              currentReservationBindingDigest:
+                retained.evidence.reservationBindingDigest,
+            }),
+      });
+      if (evidenceError !== undefined) {
+        return {
+          status: "blocked",
+          error: `reconciliation returned invalid exact economics evidence: ${evidenceError}`,
+        };
+      }
+    }
+    if (outcome.status === "settled" && outcome.cost.status === "known") {
+      const evidence = outcome.cost.evidence;
+      const evidenceReservedCostCents =
+        retained?.reservedCostCents ??
+        reservedCostCentsFromEvidence(evidence);
+      const evidenceError = validateLoopEconomicsBoundary({
+        evidenceMode: resume?.budgetEvidenceMode,
+        evidence,
+        runId: resume?.budgetRunId,
+        loopNodeId: loopNode.id,
+        reservationId,
+        itemIndex: index,
+        attempt,
+        iteration: index + 1,
+        reservedCostCents: evidenceReservedCostCents,
+        settledCostCents: outcome.cost.costCents,
+        terminalStatus: "recorded",
+        expectedNodeIds: bodyNodes.map(({ id }) => id),
+        requiredExecutionNodeIds: bodyNodes
+          .filter(({ type }) => type === "agent")
+          .map(({ id }) => id),
+        ...(retained?.evidence === undefined
+          ? {}
+          : {
+              currentReservationBindingDigest:
+                retained.evidence.reservationBindingDigest,
+            }),
+      });
+      if (evidenceError !== undefined) {
+        return {
+          status: "blocked",
+          error: `settlement reconciliation returned invalid exact economics evidence: ${evidenceError}`,
+        };
+      }
+    }
     return outcome;
   };
 
@@ -556,13 +735,21 @@ export async function executeForEachLoop(
     bodyResults: Readonly<Record<string, NodeResult>>
   ): Promise<
     | undefined
-    | { outcomeUnknown: string; actualCostCents: number }
+    | {
+        outcomeUnknown: string;
+        actualCostCents: number;
+        evidence?: LoopEconomicsEvidenceV1;
+      }
     | { costUnknown: string }
     // 24-G: a clean settle now reports what was ACTUALLY settled, so the
     // terminal record carries the real charged amount rather than re-deriving
     // it from the reservation. Re-deriving would silently report the reserved
     // amount whenever an extractor returned something smaller.
-    | { settledCostCents: number; overrun?: string }
+    | {
+        settledCostCents: number;
+        evidence?: LoopEconomicsEvidenceV1;
+        overrun?: string;
+      }
   > => {
     if (held === undefined) return undefined;
     let cost: LoopBudgetCostEvidence;
@@ -575,6 +762,7 @@ export async function executeForEachLoop(
           ...(held.attempt > 0 ? { attempt: held.attempt } : {}),
           reservationId: held.reservationId,
           bodyResults,
+          ...(held.evidence === undefined ? {} : { evidence: held.evidence }),
         })) ?? {
           status: "unknown",
           reason: "the strict host did not provide cost evidence",
@@ -600,6 +788,36 @@ export async function executeForEachLoop(
           `${String(actualCostCents)}`,
       };
     }
+    const evidenceError = validateLoopEconomicsBoundary({
+      evidenceMode: resume?.budgetEvidenceMode,
+      evidence: cost.evidence,
+      runId: resume?.budgetRunId,
+      loopNodeId: loopNode.id,
+      reservationId: held.reservationId,
+      itemIndex: held.itemIndex,
+      attempt: held.attempt,
+      iteration: held.itemIndex + 1,
+      reservedCostCents: held.reservedCostCents,
+      settledCostCents: actualCostCents,
+      terminalStatus: "recorded",
+      expectedNodeIds: bodyNodes.map(({ id }) => id),
+      requiredExecutionNodeIds: bodyNodes
+        .filter(({ type }) => type === "agent")
+        .map(({ id }) => id),
+      ...(held.evidence === undefined
+        ? {}
+        : {
+            currentReservationBindingDigest:
+              held.evidence.reservationBindingDigest,
+          }),
+    });
+    if (evidenceError !== undefined) {
+      return {
+        costUnknown:
+          `terminal exact economics evidence is invalid; settlement was not ` +
+          `attempted: ${evidenceError}`,
+      };
+    }
     try {
       await resume?.settleIterationBudget?.({
         loopNodeId: loopNode.id,
@@ -609,6 +827,7 @@ export async function executeForEachLoop(
         reservationId: held.reservationId,
         reservedCostCents: held.reservedCostCents,
         actualCostCents,
+        ...(cost.evidence === undefined ? {} : { evidence: cost.evidence }),
       });
     } catch (error) {
       // G2d (prereq 7): the item's WORK completed, but whether its reservation
@@ -620,16 +839,21 @@ export async function executeForEachLoop(
       return {
         outcomeUnknown: error instanceof Error ? error.message : String(error),
         actualCostCents,
+        ...(cost.evidence === undefined ? {} : { evidence: cost.evidence }),
       };
     }
     return actualCostCents > held.reservedCostCents
       ? {
           settledCostCents: actualCostCents,
+          ...(cost.evidence === undefined ? {} : { evidence: cost.evidence }),
           overrun:
             `Loop "${loopNode.id}" item ${held.itemIndex} settled ${actualCostCents} cents, ` +
             `exceeding its ${held.reservedCostCents}-cent reservation`,
         }
-      : { settledCostCents: actualCostCents };
+      : {
+          settledCostCents: actualCostCents,
+          ...(cost.evidence === undefined ? {} : { evidence: cost.evidence }),
+        };
   };
 
   /**
@@ -655,6 +879,7 @@ export async function executeForEachLoop(
         reservationId: held.reservationId,
         reservedCostCents: held.reservedCostCents,
         reason,
+        ...(held.evidence === undefined ? {} : { evidence: held.evidence }),
       });
     } catch (error) {
       return {
@@ -667,7 +892,13 @@ export async function executeForEachLoop(
   const readReconciledSettledCost = (
     outcome: Extract<LoopBudgetReconcileOutcome, { status: "settled" }>,
     boundary: "reserve" | "settle" | "release"
-  ): { settledCostCents: number; overrun?: string } | { error: string } => {
+  ):
+    | {
+        settledCostCents: number;
+        evidence?: LoopEconomicsEvidenceV1;
+        overrun?: string;
+      }
+    | { error: string } => {
     if (outcome.cost.status === "unknown") {
       return {
         error:
@@ -683,12 +914,21 @@ export async function executeForEachLoop(
           `invalid settled cost ${String(settledCostCents)}`,
       };
     }
-    return { settledCostCents };
+    return {
+      settledCostCents,
+      ...(outcome.cost.evidence === undefined
+        ? {}
+        : { evidence: outcome.cost.evidence }),
+    };
   };
 
   type ReleaseResolution =
     | { status: "released" }
-    | { status: "settled"; settledCostCents: number }
+    | {
+        status: "settled";
+        settledCostCents: number;
+        evidence?: LoopEconomicsEvidenceV1;
+      }
     | { status: "blocked"; error: string };
 
   /** Resolve an unobserved release, retrying once only when reconcile proves
@@ -713,7 +953,13 @@ export async function executeForEachLoop(
         const settled = readReconciledSettledCost(reconciliation, "release");
         return "error" in settled
           ? { status: "blocked", error: settled.error }
-          : { status: "settled", settledCostCents: settled.settledCostCents };
+          : {
+              status: "settled",
+              settledCostCents: settled.settledCostCents,
+              ...(settled.evidence === undefined
+                ? {}
+                : { evidence: settled.evidence }),
+            };
       }
       if (
         !Number.isSafeInteger(reconciliation.reservedCostCents) ||
@@ -740,7 +986,8 @@ export async function executeForEachLoop(
         held.itemIndex,
         held.attempt,
         retry.outcomeUnknown,
-        "release"
+        "release",
+        held
       );
       return interpret(retried, false);
     };
@@ -750,27 +997,35 @@ export async function executeForEachLoop(
         held.itemIndex,
         held.attempt,
         reason,
-        "release"
+        "release",
+        held
       ),
       true
     );
   };
 
   type SettlementResolution =
-    | { status: "settled"; settledCostCents: number; overrun?: string }
+    | {
+        status: "settled";
+        settledCostCents: number;
+        evidence?: LoopEconomicsEvidenceV1;
+        overrun?: string;
+      }
     | { status: "blocked"; error: string };
 
   /** Resolve an unobserved settlement from the body-complete receipt. */
   const resolveUnknownSettlement = async (
     held: HeldItemReservation,
     actualCostCents: number,
-    reason: string
+    reason: string,
+    terminalEvidence?: LoopEconomicsEvidenceV1
   ): Promise<SettlementResolution> => {
     const observed = await reconcileUnknownReservation(
       held.itemIndex,
       held.attempt,
       reason,
-      "settle"
+      "settle",
+      held
     );
     if (observed.status === "blocked") return observed;
     if (observed.status === "released" || observed.status === "absent") {
@@ -787,6 +1042,9 @@ export async function executeForEachLoop(
       return {
         status: "settled",
         settledCostCents: settled.settledCostCents,
+        ...(settled.evidence === undefined
+          ? {}
+          : { evidence: settled.evidence }),
         ...(settled.settledCostCents > held.reservedCostCents
           ? {
               overrun:
@@ -820,13 +1078,17 @@ export async function executeForEachLoop(
         reservationId: held.reservationId,
         reservedCostCents: held.reservedCostCents,
         actualCostCents,
+        ...(terminalEvidence === undefined
+          ? {}
+          : { evidence: terminalEvidence }),
       });
     } catch (error) {
       const retried = await reconcileUnknownReservation(
         held.itemIndex,
         held.attempt,
         error instanceof Error ? error.message : String(error),
-        "settle"
+        "settle",
+        held
       );
       if (retried.status === "settled") {
         const settled = readReconciledSettledCost(retried, "settle");
@@ -836,6 +1098,9 @@ export async function executeForEachLoop(
         return {
           status: "settled",
           settledCostCents: settled.settledCostCents,
+          ...(settled.evidence === undefined
+            ? {}
+            : { evidence: settled.evidence }),
           ...(settled.settledCostCents > held.reservedCostCents
             ? {
                 overrun:
@@ -858,6 +1123,9 @@ export async function executeForEachLoop(
     return {
       status: "settled",
       settledCostCents: actualCostCents,
+      ...(terminalEvidence === undefined
+        ? {}
+        : { evidence: terminalEvidence }),
       ...(actualCostCents > held.reservedCostCents
         ? {
             overrun:
@@ -900,6 +1168,9 @@ export async function executeForEachLoop(
               reservationId: held.reservationId,
               reservedCostCents: held.reservedCostCents,
               ...(settledCostCents === undefined ? {} : { settledCostCents }),
+              ...(held.evidence === undefined
+                ? {}
+                : { evidence: held.evidence }),
             },
           }),
       ...(held !== undefined && held.attempt > 0
@@ -938,6 +1209,9 @@ export async function executeForEachLoop(
               ...(input.settledCostCents === undefined
                 ? {}
                 : { settledCostCents: input.settledCostCents }),
+              ...(input.held.evidence === undefined
+                ? {}
+                : { evidence: input.held.evidence }),
             },
           }),
     });
@@ -1001,6 +1275,68 @@ export async function executeForEachLoop(
     // body-complete receipt identifies the recoverable settle boundary below.
     const itemResume = resume?.itemFrames?.[String(index)];
     const priorOutcome = resume?.itemOutcomes?.[String(index)];
+    const retainedCandidates = [
+      itemResume?.economics === undefined
+        ? undefined
+        : {
+            attempt: itemResume.attempt ?? 0,
+            economics: itemResume.economics,
+          },
+      priorOutcome?.economics === undefined
+        ? undefined
+        : {
+            attempt: priorOutcome.attempt ?? 0,
+            economics: priorOutcome.economics,
+          },
+    ].filter((candidate) => candidate !== undefined);
+    let retainedEconomicsError: string | undefined;
+    if (
+      itemBudgetCents !== undefined &&
+      resume?.budgetEvidenceMode === "required" &&
+      retainedCandidates.length === 0 &&
+      ((itemResume?.nextBodyNodeIndex ?? 0) > 0 ||
+        priorOutcome?.outcome === "completed")
+    ) {
+      retainedEconomicsError =
+        "evidence-required resume state contains durable work without reservation economics";
+    }
+    for (const candidate of retainedCandidates) {
+      retainedEconomicsError ??= validateRetainedItemEconomics(
+        index,
+        candidate.attempt,
+        candidate.economics
+      );
+    }
+    if (
+      retainedEconomicsError === undefined &&
+      retainedCandidates.length === 2
+    ) {
+      try {
+        if (
+          canonicalInputDigest(retainedCandidates[0]!.economics) !==
+          canonicalInputDigest(retainedCandidates[1]!.economics)
+        ) {
+          retainedEconomicsError =
+            "item frame and terminal outcome carry different economics evidence";
+        }
+      } catch {
+        retainedEconomicsError =
+          "retained economics evidence is not canonically serializable";
+      }
+    }
+    if (retainedEconomicsError !== undefined) {
+      terminalOutcomes.add(index);
+      breachBudget();
+      firstError ??= {
+        nodeId: loopNode.id,
+        output: null,
+        durationMs: Date.now() - startTime,
+        error:
+          `Loop "${loopNode.id}" item ${index} checkpoint exact economics ` +
+          `evidence is invalid: ${retainedEconomicsError}; redispatch is blocked`,
+      };
+      return;
+    }
     if (
       priorOutcome?.outcome !== "completed" &&
       priorOutcome?.economics?.settledCostCents !== undefined
@@ -1055,6 +1391,9 @@ export async function executeForEachLoop(
                 attempt: itemResume.attempt ?? 0,
                 reservationId: economics.reservationId,
                 reservedCostCents: economics.reservedCostCents,
+                ...(economics.evidence === undefined
+                  ? {}
+                  : { evidence: economics.evidence }),
               };
         await recordTerminalOutcome(
           index,
@@ -1143,7 +1482,8 @@ export async function executeForEachLoop(
       const blockPreparedCompletion = async (
         reason: string,
         outcome: PipelineForEachItemOutcome = "outcome_unknown",
-        settledCostCents?: number
+        settledCostCents?: number,
+        terminalEvidence?: LoopEconomicsEvidenceV1
       ): Promise<void> => {
         breachBudget();
         firstError ??= {
@@ -1165,6 +1505,9 @@ export async function executeForEachLoop(
                 attempt: resumedAttempt,
                 reservationId: economics.reservationId,
                 reservedCostCents: economics.reservedCostCents,
+                ...((terminalEvidence ?? economics.evidence) === undefined
+                  ? {}
+                  : { evidence: terminalEvidence ?? economics.evidence }),
               },
           settledCostCents ?? economics?.settledCostCents
         );
@@ -1208,20 +1551,25 @@ export async function executeForEachLoop(
         return;
       }
 
-      const resumedHeld: HeldItemReservation = {
+      let resumedHeld: HeldItemReservation = {
         itemIndex: index,
         attempt: resumedAttempt,
         reservationId: economics.reservationId,
         reservedCostCents: economics.reservedCostCents,
+        ...(economics.evidence === undefined
+          ? {}
+          : { evidence: economics.evidence }),
       };
       const reconciliation = await reconcileUnknownReservation(
         index,
         resumedAttempt,
         "resume of a durable body-complete aggregate receipt",
-        "settle"
+        "settle",
+        resumedHeld
       );
 
       let settledCostCents: number | undefined;
+      let settledEvidence: LoopEconomicsEvidenceV1 | undefined;
       let settlementOverrun: string | undefined;
       if (reconciliation.status === "settled") {
         const settled = readReconciledSettledCost(reconciliation, "settle");
@@ -1230,6 +1578,7 @@ export async function executeForEachLoop(
           return;
         }
         settledCostCents = settled.settledCostCents;
+        settledEvidence = settled.evidence;
       } else if (reconciliation.status === "reserved") {
         if (
           !Number.isSafeInteger(reconciliation.reservedCostCents) ||
@@ -1240,21 +1589,27 @@ export async function executeForEachLoop(
           );
           return;
         }
+        if (reconciliation.evidence !== undefined) {
+          resumedHeld = { ...resumedHeld, evidence: reconciliation.evidence };
+        }
         const settlement = await settleItem(resumedHeld, receiptBodyResults);
         if (settlement !== undefined && "settledCostCents" in settlement) {
           settledCostCents = settlement.settledCostCents;
+          settledEvidence = settlement.evidence;
           settlementOverrun = settlement.overrun;
         } else if (settlement !== undefined && "outcomeUnknown" in settlement) {
           const resolved = await resolveUnknownSettlement(
             resumedHeld,
             settlement.actualCostCents,
-            settlement.outcomeUnknown
+            settlement.outcomeUnknown,
+            settlement.evidence
           );
           if (resolved.status === "blocked") {
             await blockPreparedCompletion(resolved.error);
             return;
           }
           settledCostCents = resolved.settledCostCents;
+          settledEvidence = resolved.evidence;
           settlementOverrun = resolved.overrun;
         } else {
           const detail =
@@ -1288,22 +1643,27 @@ export async function executeForEachLoop(
           settlementOverrun ??
             `settled ${settledCostCents} cents against a ${economics.reservedCostCents}-cent reservation`,
           "failed",
-          settledCostCents
+          settledCostCents,
+          settledEvidence
         );
         return;
       }
+      const settledHeld =
+        settledEvidence === undefined
+          ? resumedHeld
+          : { ...resumedHeld, evidence: settledEvidence };
       await checkpointAggregateReceipt({
         index,
         attempt: resumedAttempt,
         outcome: "completed",
-        held: resumedHeld,
+        held: settledHeld,
         settledCostCents,
         bodyResults: retainedBodyResults,
       });
       await recordTerminalOutcome(
         index,
         "completed",
-        resumedHeld,
+        settledHeld,
         settledCostCents
       );
       if (!(await restoreSettledItem(index))) {
@@ -1365,6 +1725,9 @@ export async function executeForEachLoop(
               attempt,
             }),
             reservedCostCents: reconciliation.reservedCostCents,
+            ...(reconciliation.evidence === undefined
+              ? {}
+              : { evidence: reconciliation.evidence }),
           };
           const release = await releaseItem(reconciledHeld, "failed");
           if (release !== undefined) {
@@ -1447,7 +1810,11 @@ export async function executeForEachLoop(
                 `${resolution.settledCostCents} cents while closing an ` +
                 "over-ceiling reservation",
         };
-        await recordTerminalOutcome(index, "outcome_unknown", deniedHeld);
+        await recordTerminalOutcome(
+          index,
+          "outcome_unknown",
+          held.retainEvidence === false ? undefined : deniedHeld
+        );
         iterationDurations[index] = Date.now() - iterStart;
         return;
       }
@@ -1458,11 +1825,16 @@ export async function executeForEachLoop(
         output: null,
         durationMs: Date.now() - startTime,
         error:
-          `Loop "${loopNode.id}" item ${index} reservation of ` +
-          `${deniedHeld.reservedCostCents} cents exceeds its ` +
-          `${String(itemBudgetCents)}-cent ceiling and was released`,
+          held.denialReason ??
+          (`Loop "${loopNode.id}" item ${index} reservation of ` +
+            `${deniedHeld.reservedCostCents} cents exceeds its ` +
+            `${String(itemBudgetCents)}-cent ceiling and was released`),
       };
-      await recordTerminalOutcome(index, "denied", deniedHeld);
+      await recordTerminalOutcome(
+        index,
+        "denied",
+        held.retainEvidence === false ? undefined : deniedHeld
+      );
       iterationDurations[index] = Date.now() - iterStart;
       return;
     }
@@ -1544,6 +1916,9 @@ export async function executeForEachLoop(
                 economics: {
                   reservationId: held.reservationId,
                   reservedCostCents: held.reservedCostCents,
+                  ...(held.evidence === undefined
+                    ? {}
+                    : { evidence: held.evidence }),
                 },
               }),
         });
@@ -1576,6 +1951,7 @@ export async function executeForEachLoop(
       // breach. Reporting the body error here would hide it.
       let releaseUnresolved = false;
       let releaseSettledCostCents: number | undefined;
+      let releaseSettledEvidence: LoopEconomicsEvidenceV1 | undefined;
       if (releaseOutcome !== undefined) {
         const resolution = await resolveUnknownRelease(
           // `releaseItem` returns an unknown marker only when it received a
@@ -1595,6 +1971,7 @@ export async function executeForEachLoop(
           };
         } else if (resolution.status === "settled") {
           releaseSettledCostCents = resolution.settledCostCents;
+          releaseSettledEvidence = resolution.evidence;
           breachBudget();
           firstError = {
             nodeId: loopNode.id,
@@ -1632,7 +2009,9 @@ export async function executeForEachLoop(
           typeof held === "string" ||
           "outcomeUnknown" in held
           ? undefined
-          : held,
+          : releaseSettledEvidence === undefined
+            ? held
+            : { ...held, evidence: releaseSettledEvidence },
         releaseSettledCostCents
       );
       iterationDurations[index] = Date.now() - iterStart;
@@ -1717,7 +2096,8 @@ export async function executeForEachLoop(
       const resolution = await resolveUnknownSettlement(
         completedHeld as HeldItemReservation,
         settlement.actualCostCents,
-        settlement.outcomeUnknown
+        settlement.outcomeUnknown,
+        settlement.evidence
       );
       if (resolution.status === "blocked") {
         breachBudget();
@@ -1737,6 +2117,9 @@ export async function executeForEachLoop(
       }
       settlement = {
         settledCostCents: resolution.settledCostCents,
+        ...(resolution.evidence === undefined
+          ? {}
+          : { evidence: resolution.evidence }),
         ...(resolution.overrun === undefined
           ? {}
           : { overrun: resolution.overrun }),
@@ -1758,7 +2141,9 @@ export async function executeForEachLoop(
       await recordTerminalOutcome(
         index,
         "failed",
-        completedHeld,
+        completedHeld === undefined || settlement.evidence === undefined
+          ? completedHeld
+          : { ...completedHeld, evidence: settlement.evidence },
         settlement.settledCostCents
       );
       iterationDurations[index] = Date.now() - iterStart;
@@ -1769,6 +2154,13 @@ export async function executeForEachLoop(
       settlement !== undefined && "settledCostCents" in settlement
         ? settlement.settledCostCents
         : undefined;
+    const settledHeld =
+      completedHeld === undefined ||
+      settlement === undefined ||
+      !("settledCostCents" in settlement) ||
+      settlement.evidence === undefined
+        ? completedHeld
+        : { ...completedHeld, evidence: settlement.evidence };
     // Persist completion and its exact output before publishing the terminal
     // accounting record. Either record can independently block redispatch;
     // the completed frame additionally restores single-body aggregation.
@@ -1776,7 +2168,7 @@ export async function executeForEachLoop(
       index,
       attempt,
       outcome: "completed",
-      held: completedHeld,
+      held: settledHeld,
       ...(settledCostCents === undefined ? {} : { settledCostCents }),
       bodyResults: aggregateBodyResults,
     });
@@ -1786,7 +2178,7 @@ export async function executeForEachLoop(
     await recordTerminalOutcome(
       index,
       "completed",
-      completedHeld,
+      settledHeld,
       settledCostCents
     );
 

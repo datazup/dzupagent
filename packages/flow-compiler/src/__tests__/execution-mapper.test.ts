@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { FlowNode } from "@dzupagent/flow-ast";
-import type { ExecutionRequest } from "@dzupagent/runtime-contracts";
+import {
+  materializeAdapterPolicyRefV1,
+  materializeWorkspaceHandleRefV1,
+  type ExecutionRequest,
+} from "@dzupagent/runtime-contracts";
 
 import { mapFlowLeafToExecutionRequest } from "../index.js";
 
@@ -14,6 +18,28 @@ const baseContext = {
   profileRef: "dzup.agent@1",
   capability: "flow.runtime.agent@1",
 } as const;
+
+const exactDefinition = {
+  rootDefinitionId: "flow/review",
+  rootDefinitionDigest: `sha256:${"a".repeat(64)}` as const,
+  scopedDefinitionId: "flow/review/root",
+  scopedDefinitionDigest: `sha256:${"b".repeat(64)}` as const,
+};
+
+const exactPolicy = materializeAdapterPolicyRefV1({
+  policyId: "adapter-policy/review",
+  authorityId: "policy-authority/framework-test",
+  revision: "7",
+  policyDigest: `sha256:${"c".repeat(64)}`,
+  target: { executionKind: "adapter.run", nodeId: "adapter-strict" },
+});
+
+const exactWorkspace = materializeWorkspaceHandleRefV1({
+  handleId: "workspace-handle-17",
+  authorityId: "workspace-authority/framework-test",
+  revision: "4",
+  scopeDigest: `sha256:${"d".repeat(64)}`,
+});
 
 describe("canonical execution leaf mapper", () => {
   it("snapshots prompt layering, host tools, output, and fixed routing", () => {
@@ -285,6 +311,146 @@ describe("canonical execution leaf mapper", () => {
     expect(result.diagnostics.map((item) => item.code)).toEqual([
       "NO_ELIGIBLE_ROUTE_CANDIDATES",
     ]);
+  });
+
+  it("emits exact state, policy, and opaque workspace evidence in strict mode", () => {
+    const result = mapFlowLeafToExecutionRequest(
+      {
+        id: "adapter-strict",
+        type: "adapter.run",
+        tags: ["code"],
+        systemPrompt: "Use {{ state.request }}",
+        instructions: "Review {{ state.diff }} and {{ state.request }}",
+        input: {
+          diff: "{{ state.diff }}",
+          explicit: { kind: "flow-reference", source: "state.explicit" },
+        },
+        output: "review",
+      } as FlowNode,
+      {
+        ...baseContext,
+        routeCandidates: [{ id: "codex", provider: "codex", tags: ["code"] }],
+        executionBoundary: {
+          mode: "strict",
+          definition: exactDefinition,
+          adapterPolicy: exactPolicy,
+          workspace: exactWorkspace,
+        },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.request.boundaryEvidence?.owner).toEqual({
+      ...exactDefinition,
+      executionKind: "adapter.run",
+      nodeId: "adapter-strict",
+      nodePath: "root.nodes[0]",
+    });
+    expect(result.request.boundaryEvidence?.state.declared).toEqual({
+      status: "exact",
+      basisDigest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+      reads: ["diff", "explicit", "request"],
+      writes: ["review"],
+    });
+    expect(result.request.boundaryEvidence?.state.observed).toEqual({
+      status: "unknown",
+      reason: "runtime-observation-unavailable",
+    });
+    expect(result.request.boundaryEvidence?.adapterPolicy).toEqual(exactPolicy);
+    expect(result.request.boundaryEvidence?.workspace).toEqual(exactWorkspace);
+    expect(JSON.stringify(result.request.boundaryEvidence)).not.toContain(
+      "apps/codev-app",
+    );
+    expect(result.request.policy).not.toHaveProperty("workingDirectory");
+  });
+
+  it("denies missing strict evidence, foreign targets, and raw working directories", () => {
+    const node = {
+      id: "adapter-strict",
+      type: "adapter.run",
+      provider: "codex",
+      instructions: "Review",
+      output: "review",
+    } as FlowNode;
+    const context = {
+      ...baseContext,
+      routeCandidates: [{ id: "codex", provider: "codex" }],
+    } as const;
+
+    expect(
+      mapFlowLeafToExecutionRequest(node, {
+        ...context,
+        executionBoundary: { mode: "strict" },
+      }).diagnostics.map((item) => item.code),
+    ).toContain("EXECUTION_BOUNDARY_CONTEXT_REQUIRED");
+    expect(
+      mapFlowLeafToExecutionRequest(node, {
+        ...context,
+        executionBoundary: {
+          mode: "strict",
+          definition: exactDefinition,
+          workspace: exactWorkspace,
+        },
+      }).diagnostics.map((item) => item.code),
+    ).toContain("ADAPTER_POLICY_REF_REQUIRED");
+    expect(
+      mapFlowLeafToExecutionRequest(node, {
+        ...context,
+        executionBoundary: {
+          mode: "strict",
+          definition: exactDefinition,
+          adapterPolicy: materializeAdapterPolicyRefV1({
+            policyId: "adapter-policy/review",
+            authorityId: "policy-authority/framework-test",
+            revision: "7",
+            policyDigest: `sha256:${"c".repeat(64)}`,
+            target: { executionKind: "adapter.run", nodeId: "foreign-node" },
+          }),
+        },
+      }).diagnostics.map((item) => item.code),
+    ).toContain("EXECUTION_BOUNDARY_INVALID");
+
+    const rawAgent = {
+      id: "agent-strict",
+      type: "agent",
+      agentId: "reviewer",
+      instructions: "Review",
+      output: { key: "review", schema: { type: "object" } },
+      policy: { workingDirectory: "apps/codev-app" },
+    } as FlowNode;
+    expect(
+      mapFlowLeafToExecutionRequest(rawAgent, {
+        ...context,
+        executionBoundary: {
+          mode: "strict",
+          definition: exactDefinition,
+          workspace: exactWorkspace,
+        },
+      }).diagnostics.map((item) => item.code),
+    ).toContain("RAW_WORKING_DIRECTORY_DISALLOWED");
+  });
+
+  it("preserves compatibility mapping of legacy raw working-directory bytes", () => {
+    const result = mapFlowLeafToExecutionRequest(
+      {
+        id: "agent-legacy",
+        type: "agent",
+        agentId: "reviewer",
+        instructions: "Review",
+        output: { key: "review", schema: { type: "object" } },
+        policy: { workingDirectory: "apps/codev-app" },
+      } as FlowNode,
+      {
+        ...baseContext,
+        routeCandidates: [{ id: "codex", provider: "codex" }],
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.request.policy.workingDirectory).toBe("apps/codev-app");
+    expect(result.request.boundaryEvidence).toBeUndefined();
   });
 });
 

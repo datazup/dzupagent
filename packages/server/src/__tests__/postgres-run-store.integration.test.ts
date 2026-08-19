@@ -267,6 +267,37 @@ describe.skipIf(integrationGate.shouldSkip)('PostgresRunStore integration (testc
     expect(updated!.status).toBe('running')
   })
 
+  it('compareAndSet() commits one exact JSONB snapshot and rejects the stale one', async () => {
+    const run = await store.create({
+      agentId,
+      input: { task: 'cas-test' },
+      metadata: { revision: 1, nested: { accepted: true } },
+    })
+
+    const committed = await store.compareAndSet(
+      run.id,
+      {
+        status: 'queued',
+        metadata: { revision: 1, nested: { accepted: true } },
+      },
+      { status: 'suspended', metadata: { revision: 2 } },
+    )
+    const stale = await store.compareAndSet(
+      run.id,
+      {
+        status: 'queued',
+        metadata: { revision: 1, nested: { accepted: true } },
+      },
+      { status: 'failed' },
+    )
+
+    expect(committed).toMatchObject({
+      status: 'suspended',
+      metadata: { revision: 2 },
+    })
+    expect(stale).toBeNull()
+  })
+
   it('update() sets output and completedAt on completion', async () => {
     const run = await store.create({ agentId, input: { task: 'complete-me' } })
 

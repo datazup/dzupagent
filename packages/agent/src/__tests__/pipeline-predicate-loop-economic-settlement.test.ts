@@ -221,6 +221,52 @@ describe("predicate-loop strict terminal disposition", () => {
     expect(budget.releases).toEqual([]);
   });
 
+  it("fails closed with retained outcome-unknown economics when actual cost is unavailable", async () => {
+    const runs: string[] = [];
+    const checkpoints: Array<{
+      outcome: string;
+      economics: { reservationId: string; reservedCostCents: number };
+    }> = [];
+    const budget = host({
+      measureItemCost: () => ({
+        status: "unknown",
+        reason: "provider receipt omitted usage",
+      }),
+    });
+    const result = await executeLoop(
+      loopNode(),
+      BODY,
+      okExecutor(runs),
+      { state: {}, previousResults: new Map() },
+      { continue: () => false },
+      undefined,
+      {
+        budgetMode: "strict",
+        budgetRunId: "unknown-cost-run",
+        reserveIterationBudget: budget.config.reserve,
+        settleIterationBudget: budget.config.settle,
+        releaseIterationBudget: budget.config.release,
+        reconcileIterationBudget: budget.config.reconcile,
+        measureItemCost: budget.config.measureItemCost,
+        onIterationBudgetCheckpoint: async (progress) => {
+          checkpoints.push(progress);
+        },
+      }
+    );
+
+    expect(result.result.error).toContain("usage/cost is unknown");
+    expect(runs).toEqual(["body"]);
+    expect(budget.settles).toEqual([]);
+    expect(budget.releases).toEqual([]);
+    expect(checkpoints.at(-1)).toMatchObject({
+      outcome: "outcome_unknown",
+      economics: {
+        reservationId: "resv:v1:unknown-cost-run:iteration:loop:1",
+        reservedCostCents: 8,
+      },
+    });
+  });
+
   it("releases a body failure and an interrupted iteration", async () => {
     const failedBudget = host();
     const failed = await new PipelineRuntime({
@@ -328,6 +374,120 @@ describe("predicate-loop strict terminal disposition", () => {
     );
 
     expect(result.control?.outcome.kind).toBe("terminal");
+    expect(budget.settles).toHaveLength(1);
+    expect(budget.releases).toEqual([]);
+  });
+
+  it("retains one suspension hold and settles it after resume without reserving twice", async () => {
+    const loop = loopNode();
+    loop.bodyGraph = {
+      entryNodeId: "body",
+      normalExitNodeIds: ["body"],
+      suspendedExitNodeIds: ["body"],
+      terminalExitNodeIds: [],
+      errorExitNodeIds: [],
+    };
+    const budget = host({
+      reconcile: () => ({ status: "reserved", reservedCostCents: 8 }),
+    });
+    const budgetCheckpoints: Array<{
+      outcome: string;
+      economics: {
+        reservationId: string;
+        reservedCostCents: number;
+        settledCostCents?: number;
+      };
+    }> = [];
+    const result = { nodeId: "body", output: "paused", durationMs: 1 };
+    const suspendedFrame = {
+      completed: false,
+      completedNodeIds: ["body"],
+      nodeResults: { body: result },
+      nodeIdempotencyKeys: { body: "suspension-run:body" },
+      outcome: { kind: "suspended" as const, exitNodeId: "body" },
+    };
+    const baseResume: LoopResumeOptions = {
+      budgetMode: "strict",
+      budgetRunId: "suspension-run",
+      reserveIterationBudget: budget.config.reserve,
+      settleIterationBudget: budget.config.settle,
+      releaseIterationBudget: budget.config.release,
+      reconcileIterationBudget: budget.config.reconcile,
+      measureItemCost: budget.config.measureItemCost,
+      onIterationBudgetCheckpoint: async (progress) => {
+        budgetCheckpoints.push(progress);
+      },
+      scheduleBodyGraph: async () => ({
+        outcome: { kind: "suspended", exitNodeId: "body" },
+        state: "suspended",
+        bodyResults: new Map([["body", result]]),
+        lastResult: result,
+        checkpointState: suspendedFrame,
+      }),
+    };
+    const first = await executeLoop(
+      loop,
+      BODY,
+      okExecutor([]),
+      { state: {}, previousResults: new Map() },
+      { continue: () => false },
+      undefined,
+      baseResume
+    );
+
+    expect(first.control?.outcome.kind).toBe("suspended");
+    expect(budget.reserves).toHaveLength(1);
+    expect(budget.settles).toEqual([]);
+    expect(budget.releases).toEqual([]);
+    expect(budgetCheckpoints.at(-1)).toMatchObject({
+      outcome: "reserved",
+      economics: {
+        reservationId: "resv:v1:suspension-run:iteration:loop:1",
+        reservedCostCents: 8,
+      },
+    });
+
+    const resumedResult = {
+      nodeId: "body",
+      output: "done",
+      durationMs: 1,
+    };
+    const resumed = await executeLoop(
+      loop,
+      BODY,
+      okExecutor([]),
+      { state: {}, previousResults: new Map() },
+      { continue: () => false },
+      undefined,
+      {
+        ...baseResume,
+        bodyGraphState: suspendedFrame,
+        iterationOutcome: "running",
+        iterationEconomics: budgetCheckpoints.at(-1)!.economics,
+        scheduleBodyGraph: async () => ({
+          outcome: { kind: "normal", exitNodeId: "body" },
+          state: "completed",
+          bodyResults: new Map([["body", resumedResult]]),
+          lastResult: resumedResult,
+          checkpointState: {
+            completed: true,
+            completedNodeIds: ["body"],
+            nodeResults: { body: resumedResult },
+            nodeIdempotencyKeys: { body: "suspension-run:body" },
+            outcome: { kind: "normal", exitNodeId: "body" },
+          },
+        }),
+      }
+    );
+
+    expect(resumed.result.error).toBeUndefined();
+    expect(budget.reserves).toHaveLength(1);
+    expect(budget.reconciles).toEqual([
+      expect.objectContaining({
+        boundary: "reserve",
+        reservationId: "resv:v1:suspension-run:iteration:loop:1",
+      }),
+    ]);
     expect(budget.settles).toHaveLength(1);
     expect(budget.releases).toEqual([]);
   });

@@ -17,6 +17,14 @@ export interface GenerateOptions {
    * memory reads can cite this run without storing prompt content.
    */
   runId?: string;
+  /**
+   * App-neutral human-contact invocation inputs. The exact run and tenant are
+   * resolved by the Agent; callers may supply only an opaque profile lookup
+   * key, never a delivery address or preference record.
+   */
+  humanContact?: {
+    profileKey?: string;
+  };
   /** Override max iterations for this call */
   maxIterations?: number;
   /** Abort signal for cancellation */

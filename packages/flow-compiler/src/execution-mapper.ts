@@ -5,18 +5,27 @@ import type {
   PromptNode,
   WorkerDispatchNode,
 } from "@dzupagent/flow-ast";
-import type {
-  AdapterRunExecutionRequest,
-  AgentExecutionRequest,
-  ExecutionEvidenceRequirement,
-  ExecutionPolicy,
-  ExecutionRequest,
-  ExecutionRouteCandidate,
-  ExecutionRouteConstraint,
-  ExecutionRoutePolicy,
-  ExecutionToolPolicy,
-  PromptExecutionRequest,
-  WorkerDispatchExecutionRequest,
+import { analyzeFlowTemplateReferences } from "@dzupagent/flow-ast/expressions";
+import {
+  canonicalInputDigest,
+  materializeExecutionBoundaryEvidenceV1,
+  materializeExecutionStateAccessInventoryV1,
+  validateExecutionBoundaryEvidenceV1,
+  type AdapterPolicyRefV1,
+  type AdapterRunExecutionRequest,
+  type AgentExecutionRequest,
+  type ExecutionBoundaryEvidenceV1,
+  type ExecutionDefinitionBindingV1,
+  type ExecutionEvidenceRequirement,
+  type ExecutionPolicy,
+  type ExecutionRequest,
+  type ExecutionRouteCandidate,
+  type ExecutionRouteConstraint,
+  type ExecutionRoutePolicy,
+  type ExecutionToolPolicy,
+  type PromptExecutionRequest,
+  type WorkerDispatchExecutionRequest,
+  type WorkspaceHandleRefV1,
 } from "@dzupagent/runtime-contracts";
 
 export type ExecutionMapperDiagnosticCode =
@@ -29,7 +38,12 @@ export type ExecutionMapperDiagnosticCode =
   | "NO_ELIGIBLE_ROUTE_CANDIDATES"
   | "DUPLICATE_ROUTE_CANDIDATE"
   | "AMBIGUOUS_OUTPUT_SCHEMA"
-  | "INVALID_RESULT_SCHEMA";
+  | "INVALID_RESULT_SCHEMA"
+  | "EXECUTION_BOUNDARY_CONTEXT_REQUIRED"
+  | "EXECUTION_BOUNDARY_INVALID"
+  | "STATE_ACCESS_INVENTORY_INCOMPLETE"
+  | "ADAPTER_POLICY_REF_REQUIRED"
+  | "RAW_WORKING_DIRECTORY_DISALLOWED";
 
 export interface ExecutionMapperDiagnostic {
   readonly code: ExecutionMapperDiagnosticCode;
@@ -51,6 +65,15 @@ export interface ExecutionMapperContext {
   /** Resolved persona/system layer. Used only for prompt nodes; explicit systemPrompt wins. */
   readonly resolvedPromptSystemLayer?: string;
   readonly maxSelectionLatencyMs?: number;
+  /** Optional exact boundary custody. Strict mode fails before request emission. */
+  readonly executionBoundary?: ExecutionMapperBoundaryContext;
+}
+
+export interface ExecutionMapperBoundaryContext {
+  readonly mode?: "compatibility" | "strict";
+  readonly definition?: ExecutionDefinitionBindingV1;
+  readonly adapterPolicy?: AdapterPolicyRefV1;
+  readonly workspace?: WorkspaceHandleRefV1;
 }
 
 export type ExecutionRequestMapResult =
@@ -94,6 +117,8 @@ export function mapFlowLeafToExecutionRequest(
     );
   }
 
+  const boundaryEvidence = buildBoundaryEvidence(node, context, diagnostics);
+
   const route = buildRoutePolicy(node, context, diagnostics);
   if (diagnostics.length > 0 || !node.id || !route) {
     return { ok: false, diagnostics };
@@ -121,6 +146,7 @@ export function mapFlowLeafToExecutionRequest(
       ...(context.cancellationRef ? { signalRef: context.cancellationRef } : {}),
     },
     evidenceRequirements: evidenceRequirements(node),
+    ...(boundaryEvidence === undefined ? {} : { boundaryEvidence }),
   };
 
   let request: ExecutionRequest;
@@ -302,6 +328,225 @@ interface CommonMappedFields {
     readonly signalRef?: string;
   };
   readonly evidenceRequirements: readonly ExecutionEvidenceRequirement[];
+  readonly boundaryEvidence?: ExecutionBoundaryEvidenceV1;
+}
+
+function buildBoundaryEvidence(
+  node: SupportedLeaf,
+  context: ExecutionMapperContext,
+  diagnostics: ExecutionMapperDiagnostic[],
+): ExecutionBoundaryEvidenceV1 | undefined {
+  const boundary = context.executionBoundary;
+  if (boundary === undefined) return undefined;
+  const mode = boundary.mode ?? "compatibility";
+  if (boundary.definition === undefined) {
+    diagnostics.push(
+      diagnostic(
+        "EXECUTION_BOUNDARY_CONTEXT_REQUIRED",
+        context.nodePath,
+        "Exact execution-boundary mapping requires a definition binding.",
+      ),
+    );
+    return undefined;
+  }
+  if (
+    mode === "strict" &&
+    node.type === "agent" &&
+    node.policy?.workingDirectory !== undefined
+  ) {
+    diagnostics.push(
+      diagnostic(
+        "RAW_WORKING_DIRECTORY_DISALLOWED",
+        context.nodePath,
+        "Strict execution mapping requires an opaque workspace handle instead of a raw working directory.",
+      ),
+    );
+  }
+  if (
+    mode === "strict" &&
+    node.type === "adapter.run" &&
+    boundary.adapterPolicy === undefined
+  ) {
+    diagnostics.push(
+      diagnostic(
+        "ADAPTER_POLICY_REF_REQUIRED",
+        context.nodePath,
+        "Strict adapter execution requires a versioned host-authorized policy reference.",
+      ),
+    );
+  }
+
+  const owner = {
+    ...boundary.definition,
+    executionKind: node.type,
+    nodeId: node.id ?? "",
+    nodePath: context.nodePath,
+  };
+  const collected = collectDeclaredStateAccess(node);
+  if (mode === "strict" && !collected.complete) {
+    diagnostics.push(
+      diagnostic(
+        "STATE_ACCESS_INVENTORY_INCOMPLETE",
+        context.nodePath,
+        "Strict execution mapping could not derive an exact state-key inventory.",
+      ),
+    );
+  }
+  if (diagnostics.length > 0) return undefined;
+
+  try {
+    const state = materializeExecutionStateAccessInventoryV1({
+      owner,
+      declared: collected.complete
+        ? {
+            status: "exact",
+            basisDigest: `sha256:${canonicalInputDigest({
+              owner,
+              source: collected.source,
+            })}`,
+            reads: collected.reads,
+            writes: collected.writes,
+          }
+        : {
+            status: "incomplete",
+            reason: "observation-incomplete",
+            reads: collected.reads,
+            writes: collected.writes,
+          },
+      observed: {
+        status: "unknown",
+        reason: "runtime-observation-unavailable",
+      },
+    });
+    const evidence = materializeExecutionBoundaryEvidenceV1({
+      owner,
+      state,
+      ...(boundary.adapterPolicy === undefined
+        ? {}
+        : { adapterPolicy: boundary.adapterPolicy }),
+      ...(boundary.workspace === undefined
+        ? {}
+        : { workspace: boundary.workspace }),
+    });
+    if (!validateExecutionBoundaryEvidenceV1(evidence).valid) {
+      throw new TypeError("materialized evidence did not validate");
+    }
+    return evidence;
+  } catch {
+    diagnostics.push(
+      diagnostic(
+        "EXECUTION_BOUNDARY_INVALID",
+        context.nodePath,
+        "Execution-boundary evidence is structurally invalid or digest-drifted.",
+      ),
+    );
+    return undefined;
+  }
+}
+
+interface CollectedStateAccess {
+  readonly reads: readonly string[];
+  readonly writes: readonly string[];
+  readonly complete: boolean;
+  readonly source: unknown;
+}
+
+function collectDeclaredStateAccess(node: SupportedLeaf): CollectedStateAccess {
+  const source = stateReferenceSource(node);
+  const reads = new Set<string>();
+  let complete = true;
+  walkSourceStrings(source, (value) => {
+    const analysis = analyzeFlowTemplateReferences(value, { policy: "strict" });
+    if (!analysis.valid) complete = false;
+    for (const reference of analysis.references) {
+      if (reference.root !== "state") continue;
+      const first = reference.segments[0];
+      if (first?.kind !== "property") {
+        complete = false;
+        continue;
+      }
+      reads.add(first.key);
+    }
+  });
+  return {
+    reads: [...reads].sort(compareText),
+    writes: [executionOutputKey(node)],
+    complete,
+    source,
+  };
+}
+
+function stateReferenceSource(node: SupportedLeaf): unknown {
+  switch (node.type) {
+    case "prompt":
+      return {
+        systemPrompt: node.systemPrompt,
+        userPrompt: node.userPrompt,
+      };
+    case "agent":
+      return {
+        instructions: node.instructions,
+        input: node.input,
+        templateInputDefaults: node.template?.inputDefaults,
+      };
+    case "adapter.run":
+      return {
+        systemPrompt: node.systemPrompt,
+        instructions: node.instructions,
+        input: node.input,
+      };
+    case "worker.dispatch":
+      return {
+        systemPrompt: node.systemPrompt,
+        instructions: node.instructions,
+        input: node.input,
+      };
+  }
+}
+
+function executionOutputKey(node: SupportedLeaf): string {
+  switch (node.type) {
+    case "prompt":
+      return node.outputKey ?? node.id ?? "promptResult";
+    case "agent":
+      return node.output.key;
+    case "adapter.run":
+      return node.output;
+    case "worker.dispatch":
+      return node.outputKey;
+  }
+}
+
+function walkSourceStrings(
+  value: unknown,
+  visit: (value: string) => void,
+  seen: Set<object> = new Set(),
+): void {
+  if (typeof value === "string") {
+    visit(value);
+    return;
+  }
+  if (typeof value !== "object" || value === null || seen.has(value)) return;
+  seen.add(value);
+  if (
+    !Array.isArray(value) &&
+    "kind" in value &&
+    value.kind === "flow-reference" &&
+    "source" in value &&
+    typeof value.source === "string"
+  ) {
+    visit(`{{ ${value.source} }}`);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) walkSourceStrings(item, visit, seen);
+  } else {
+    for (const item of Object.values(value)) walkSourceStrings(item, visit, seen);
+  }
+}
+
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function buildRoutePolicy(

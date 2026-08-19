@@ -95,6 +95,39 @@ export {
 } from "./idempotency.js";
 export type { IdempotencyExecutionScope } from "./idempotency.js";
 export {
+  ADAPTER_POLICY_REF_SCHEMA_V1,
+  EXECUTION_BOUNDARY_EVIDENCE_SCHEMA_V1,
+  EXECUTION_STATE_ACCESS_INVENTORY_SCHEMA_V1,
+  WORKSPACE_HANDLE_REF_SCHEMA_V1,
+  admitExecutionBoundaryEvidenceV1,
+  materializeAdapterPolicyRefV1,
+  materializeExecutionBoundaryEvidenceV1,
+  materializeExecutionStateAccessInventoryV1,
+  materializeWorkspaceHandleRefV1,
+  validateExecutionBoundaryEvidenceV1,
+} from "./execution-boundary-evidence.js";
+export type {
+  AdapterPolicyRefInputV1,
+  AdapterPolicyRefV1,
+  AdapterPolicyTargetV1,
+  ExecutionBoundaryAdmissionExpectationV1,
+  ExecutionBoundaryEvidenceInputV1,
+  ExecutionBoundaryEvidenceV1,
+  ExecutionBoundaryIssue,
+  ExecutionBoundaryIssueCode,
+  ExecutionBoundarySha256Digest,
+  ExecutionBoundaryValidation,
+  ExecutionDefinitionBindingV1,
+  ExecutionDefinitionOwnerV1,
+  ExecutionStateAccessInventoryInputV1,
+  ExecutionStateAccessInventoryV1,
+  ExecutionStateAccessSnapshotInputV1,
+  ExecutionStateAccessSnapshotV1,
+  ExecutionStateAccessUnknownReasonV1,
+  WorkspaceHandleRefInputV1,
+  WorkspaceHandleRefV1,
+} from "./execution-boundary-evidence.js";
+export {
   DEFAULT_FLOW_RUNTIME_INPUT_LIMITS,
   FLOW_CREDENTIAL_HANDLE_REF_SCHEMA,
   FLOW_RUNTIME_INPUT_CONTRACT,

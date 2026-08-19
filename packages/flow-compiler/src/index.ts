@@ -181,6 +181,7 @@ export type {
 export { mapFlowLeafToExecutionRequest } from "./execution-mapper.js";
 export { mapFlowNodeToGateRequests } from "./gate-mapper.js";
 export type {
+  ExecutionMapperBoundaryContext,
   ExecutionMapperContext,
   ExecutionMapperDiagnostic,
   ExecutionMapperDiagnosticCode,

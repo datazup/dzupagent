@@ -7,6 +7,8 @@ export default defineConfig({
     'src/ai-execution-node.ts',
     'src/ai-budget-reservation.ts',
     'src/effect-receipt.ts',
+    'src/loop-economics-evidence.ts',
+    'src/execution-boundary-evidence.ts',
     'src/canonical-execution.ts',
     'src/orchestration.ts',
     'src/rag.ts',

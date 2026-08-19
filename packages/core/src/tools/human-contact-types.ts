@@ -175,6 +175,12 @@ export type HumanContactResponse =
  */
 export interface PendingHumanContact {
   request: HumanContactRequest
+  /** Tenant bound to the invocation that created this contact. */
+  tenantId?: string
+  /** Exact model/tool invocation idempotency key. */
+  invocationId?: string
+  /** Digest of the canonical invocation arguments for collision detection. */
+  invocationDigest?: string
   /** How to resume the run once the human responds */
   resumeToken: string
   /** When this pending contact expires */
@@ -183,4 +189,6 @@ export interface PendingHumanContact {
   deliveredTo?: ContactChannel
   /** Delivery status */
   deliveryStatus: 'pending' | 'delivered' | 'failed'
+  /** Recoverable pause lifecycle; omitted only on legacy records. */
+  lifecycleStatus?: 'preparing' | 'paused' | 'failed'
 }

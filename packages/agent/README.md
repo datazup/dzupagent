@@ -131,6 +131,51 @@ the single-flight key includes the host-provided `asOf` instant, and only
 concurrent identical reads coalesce. Settled corrections and revocations are
 therefore re-resolved on the next load.
 
+#### Human-contact runtime binding
+
+`createHumanContactTool()` uses the exact call-local run, tenant, and model
+tool-call identity propagated by `DzupAgent.generate()` and `stream()`. Set an
+optional app-owned preference key per call without exposing profile or delivery
+records to the tool:
+
+```ts
+await agent.generate(messages, {
+  runId: 'run-42',
+  humanContact: { profileKey: 'profile-7' },
+})
+```
+
+The built-in tool supports only `in-app`, `slack`, `email`, and `webhook`.
+Channel precedence is explicit tool input, injected async preference resolver,
+configured default, then `in-app`. Resolver failures and unsupported channels
+fail closed before persistence or pause effects.
+
+Direct standalone invocation must supply the exported runnable configuration:
+
+```ts
+import {
+  createHumanContactTool,
+  humanContactRunnableConfig,
+} from '@dzupagent/agent/tools'
+
+const humanContactTool = createHumanContactTool()
+
+await humanContactTool.invoke(
+  { mode: 'approval', question: 'Proceed?' },
+  humanContactRunnableConfig({
+    runId: 'run-42',
+    tenantId: 'tenant-blue',
+    invocationId: 'tool-call-9',
+  }),
+)
+```
+
+Production hosts must inject a durable `PendingContactStore` and an idempotent
+`onPause` adapter. The bundled in-memory store and Server critical section
+qualify process-local behavior only; cross-replica exact-once resume requires a
+durable compare-and-set implementation. Raw resume tokens belong only at the
+pause/delivery boundary and must not enter model output, logs, or metadata.
+
 ### Guardrails
 
 - `IterationBudget` -- enforces iteration and token limits on agent loops
@@ -143,7 +188,7 @@ therefore re-resolved on the next load.
 
 - `WorkflowBuilder` -- fluent API for building multi-step workflows
 - `CompiledWorkflow` -- executable workflow compiled from the builder
-- `createWorkflow(config): CompiledWorkflow` -- convenience factory
+- `createWorkflow(config): WorkflowBuilder` -- convenience factory; call `.build()` to produce a `CompiledWorkflow`
 
 **Types:** `WorkflowConfig`, `WorkflowStep`, `WorkflowContext`, `WorkflowEvent`, `MergeStrategy`
 

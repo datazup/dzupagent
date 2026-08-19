@@ -16,6 +16,10 @@ import {
   type PipelinePendingInteractionV1,
 } from "@dzupagent/runtime-contracts";
 import {
+  validateLoopEconomicsEvidence,
+  type LoopEconomicsEvidenceV1,
+} from "@dzupagent/runtime-contracts/loop-economics-evidence";
+import {
   PIPELINE_CHECKPOINT_SCHEMA_VERSIONS,
   PIPELINE_FOR_EACH_ITEM_OUTCOMES,
 } from "./pipeline-checkpoint-store.js";
@@ -313,8 +317,30 @@ const PipelineForEachItemEconomicsSchema = z
     reservationId: z.string().min(1),
     reservedCostCents: z.number().int().nonnegative(),
     settledCostCents: z.number().int().nonnegative().optional(),
+    evidence: z
+      .custom<LoopEconomicsEvidenceV1>(
+        (value) => validateLoopEconomicsEvidence(value).valid,
+        { message: "invalid canonical loop economics evidence" }
+      )
+      .optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((economics, context) => {
+    if (economics.evidence === undefined) return;
+    const validation = validateLoopEconomicsEvidence(economics.evidence, {
+      reservedCostCents: economics.reservedCostCents,
+      ...(economics.settledCostCents === undefined
+        ? {}
+        : { settledCostCents: economics.settledCostCents }),
+    });
+    for (const diagnostic of validation.diagnostics) {
+      context.addIssue({
+        code: "custom",
+        path: ["evidence", diagnostic.path],
+        message: diagnostic.message,
+      });
+    }
+  });
 
 /** Mid-item durable progress for an in-flight for-each item (E0 frame). */
 const PipelineForEachItemFrameSchema = z.object({
@@ -436,6 +462,25 @@ const PipelineLoopCheckpointStateSchema = z
         message:
           "a completed predicate-loop iteration requires an authoritative settled cost",
       });
+    }
+
+    if (
+      cursor.iterationEconomics?.evidence !== undefined &&
+      cursor.iterationOutcome !== undefined
+    ) {
+      const expectedTerminal =
+        cursor.iterationOutcome === "completed" ? "recorded" : "pending";
+      const validation = validateLoopEconomicsEvidence(
+        cursor.iterationEconomics.evidence,
+        { terminalStatus: expectedTerminal }
+      );
+      for (const diagnostic of validation.diagnostics) {
+        context.addIssue({
+          code: "custom",
+          path: ["iterationEconomics", "evidence", diagnostic.path],
+          message: diagnostic.message,
+        });
+      }
     }
 
     if (

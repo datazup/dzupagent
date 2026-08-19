@@ -13,6 +13,7 @@ import {
   type AiPriceProvenance,
   type AiQuotaTruth,
 } from "./ai-economics.js";
+import { validateExecutionBoundaryEvidenceV1 } from "./execution-boundary-evidence.js";
 
 export type { ExecutionRequest } from "./canonical-execution.js";
 /**
@@ -508,6 +509,7 @@ export type AiExecutionDiagnosticCode =
   | "AI_EXECUTION_OFFER_INVALID"
   | "AI_EXECUTION_BINDING_INVALID"
   | "AI_EXECUTION_BINDING_MISMATCH"
+  | "AI_EXECUTION_BOUNDARY_INVALID"
   | "AI_CHARGE_BINDING_MISMATCH"
   | "AI_IDENTITY_MISMATCH"
   | "AI_ROUTE_TARGET_MISMATCH"
@@ -588,9 +590,44 @@ export function validateAiExecutionRequest(
   );
   validateTargetSelector(value.target, "target", diagnostics);
   validateOperation(value.operation, "operation", diagnostics);
+  validateExecutionBoundary(execution, diagnostics);
   const operation = isRecord(value.operation) ? value.operation : undefined;
   validateExecutionKind(execution, stringValue(operation?.kind), diagnostics);
   return validation(diagnostics);
+}
+
+function validateExecutionBoundary(
+  execution: Record<string, unknown> | undefined,
+  diagnostics: AiExecutionDiagnostic[],
+): void {
+  if (execution?.boundaryEvidence === undefined) return;
+  const boundary = validateExecutionBoundaryEvidenceV1(
+    execution.boundaryEvidence,
+  );
+  if (!boundary.valid) {
+    for (const item of boundary.issues) {
+      add(
+        diagnostics,
+        "AI_EXECUTION_BOUNDARY_INVALID",
+        `execution.boundaryEvidence${item.path === "$" ? "" : item.path.slice(1)}`,
+        item.message,
+      );
+    }
+    return;
+  }
+  const source = isRecord(execution.source) ? execution.source : undefined;
+  if (
+    boundary.value.owner.executionKind !== execution.kind ||
+    boundary.value.owner.nodeId !== source?.nodeId ||
+    boundary.value.owner.nodePath !== source?.nodePath
+  ) {
+    add(
+      diagnostics,
+      "AI_EXECUTION_BOUNDARY_INVALID",
+      "execution.boundaryEvidence.owner",
+      "Execution-boundary owner must match the canonical request leaf.",
+    );
+  }
 }
 
 export function validateAiPublicTargetDescriptor(
@@ -1454,6 +1491,20 @@ export function validateAiExecutionBinding(
 ): AiExecutionValidation {
   const diagnostics: AiExecutionDiagnostic[] = [];
   validateExecutionBinding(value, "binding", diagnostics);
+  return validation(diagnostics);
+}
+
+/**
+ * Validates standalone V2 usage truth without requiring callers to fabricate a
+ * complete execution receipt. Durable schedulers use this when terminal
+ * economics are retained separately from a result-bearing receipt.
+ */
+export function validateAiUsageTruthV2(
+  value: unknown
+): AiExecutionValidation {
+  const diagnostics: AiExecutionDiagnostic[] = [];
+  validateUsage(value, "usage", diagnostics);
+  requirePricedChargeAttributions(value, "usage", diagnostics);
   return validation(diagnostics);
 }
 

@@ -10,6 +10,7 @@ import type {
   NodeResult,
   PipelineState,
 } from "@dzupagent/runtime-contracts";
+import type { LoopEconomicsEvidenceV1 } from "@dzupagent/runtime-contracts/loop-economics-evidence";
 import type {
   PipelineForEachItemEconomics,
   PipelineForEachItemOutcome,
@@ -76,11 +77,7 @@ export interface ForEachItemTerminalOutcome {
    * The reservation the item's final attempt held, when one existed. Omitted
    * when the host authored no ceiling, and for an item that never dispatched.
    */
-  economics?: {
-    reservationId: string;
-    reservedCostCents: number;
-    settledCostCents?: number;
-  };
+  economics?: PipelineForEachItemEconomics;
   /** Attempt this outcome describes; omitted at 0. */
   attempt?: number;
 }
@@ -115,6 +112,7 @@ export type LoopIterationBudgetReservation =
       /** A host-authoritative conservative upper bound was reserved. */
       status: "reserved";
       reservedCostCents: number;
+      evidence?: LoopEconomicsEvidenceV1;
     }
   | {
       /** No authoritative monetary upper bound is available. */
@@ -132,10 +130,12 @@ export type LoopBudgetCostEvidence =
   | {
       status: "known";
       costCents: number;
+      evidence?: LoopEconomicsEvidenceV1;
     }
   | {
       status: "unknown";
       reason?: string;
+      evidence?: LoopEconomicsEvidenceV1;
     };
 
 /**
@@ -176,6 +176,8 @@ export interface LoopBudgetReconcileInput extends LoopBudgetSettlementScope {
    * than breaking them.
    */
   boundary: "reserve" | "settle" | "release";
+  /** Retained evidence whose current authoritative state is being reconciled. */
+  evidence?: LoopEconomicsEvidenceV1;
 }
 
 /**
@@ -187,6 +189,7 @@ export type LoopBudgetReconcileOutcome =
       /** The reservation still exists and remains available for settlement. */
       status: "reserved";
       reservedCostCents: number;
+      evidence?: LoopEconomicsEvidenceV1;
     }
   | {
       /** The item was already settled; cost evidence is authoritative. */
@@ -292,6 +295,8 @@ export interface LoopBudgetSettlementInput extends LoopBudgetSettlementScope {
   reservedCostCents: number;
   /** Actual integer cents spent by the settled unit of work. */
   actualCostCents: number;
+  /** Exact terminal evidence associated with the charged amount. */
+  evidence?: LoopEconomicsEvidenceV1;
 }
 
 /** Input to a strict host's authoritative per-item cost measurement. */
@@ -299,6 +304,8 @@ export interface LoopBudgetCostMeasurementInput
   extends LoopBudgetSettlementScope {
   /** Successful body results for the completed item, keyed by body node id. */
   bodyResults: Readonly<Record<string, NodeResult>>;
+  /** Retained pre-dispatch binding that terminal evidence must extend. */
+  evidence?: LoopEconomicsEvidenceV1;
 }
 
 /** F: return of an unspent reservation on an abort/failure path. */
@@ -307,6 +314,8 @@ export interface LoopBudgetReleaseInput extends LoopBudgetSettlementScope {
   reservedCostCents: number;
   /** Why the reservation is being returned rather than settled. */
   reason: "aborted" | "failed";
+  /** Retained pre-dispatch binding being released. */
+  evidence?: LoopEconomicsEvidenceV1;
 }
 
 /**
@@ -362,6 +371,8 @@ export interface LoopBudgetCompatibilityHost extends LoopBudgetLifecycle {
  */
 export interface LoopBudgetStrictHost extends LoopBudgetLifecycle {
   mode: "strict";
+  /** New strict mode: cents-only evidence is readable but cannot dispatch. */
+  evidenceMode?: "required";
   /**
    * Optional host-authored `for_each` item ceiling. Predicate loops take their
    * ceiling from `typedWhile.iterationBudgetCents`, so a strict host serving
@@ -570,6 +581,8 @@ export interface LoopResumeOptions {
    * requires this mode and every lifecycle hook below.
    */
   budgetMode?: "strict";
+  /** Enforce exact V1 execution/economics/effect evidence before dispatch. */
+  budgetEvidenceMode?: "required";
   /** Authoritative known/unknown item cost measurement in strict mode. */
   measureItemCost?: (
     input: LoopBudgetCostMeasurementInput

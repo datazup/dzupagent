@@ -6,7 +6,7 @@
 import { eq, desc, and, or, isNull, sql, type SQL } from 'drizzle-orm'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import { dzipAgents, forgeRuns, forgeRunLogs } from './drizzle-schema.js'
-import type { RunStore, Run, CreateRunInput, RunFilter, RunStatus, LogEntry, AgentExecutionSpecStore, AgentExecutionSpec, AgentExecutionSpecFilter } from '@dzupagent/core/persistence'
+import type { AtomicRunStore, Run, CreateRunInput, RunFilter, RunStatus, LogEntry, AgentExecutionSpecStore, AgentExecutionSpec, AgentExecutionSpecFilter, RunStoreCompareAndSetExpectation } from '@dzupagent/core/persistence'
 
 type DB = PostgresJsDatabase<Record<string, never>>
 
@@ -14,7 +14,7 @@ type DB = PostgresJsDatabase<Record<string, never>>
 // PostgresRunStore
 // ---------------------------------------------------------------------------
 
-export class PostgresRunStore implements RunStore {
+export class PostgresRunStore implements AtomicRunStore {
   constructor(private db: DB) {}
 
   async create(input: CreateRunInput): Promise<Run> {
@@ -35,18 +35,7 @@ export class PostgresRunStore implements RunStore {
   }
 
   async update(id: string, update: Partial<Run>): Promise<void> {
-    const values: Record<string, unknown> = {}
-    if (update.status !== undefined) values['status'] = update.status
-    if (update.output !== undefined) values['output'] = update.output
-    if (update.plan !== undefined) values['plan'] = update.plan
-    if (update.error !== undefined) values['error'] = update.error
-    if (update.completedAt !== undefined) values['completedAt'] = update.completedAt
-    if (update.tokenUsage) {
-      values['tokenUsageInput'] = update.tokenUsage.input
-      values['tokenUsageOutput'] = update.tokenUsage.output
-    }
-    if (update.costCents !== undefined) values['costCents'] = update.costCents
-    if (update.metadata !== undefined) values['metadata'] = update.metadata
+    const values = this.updateValues(update)
 
     if (Object.keys(values).length > 0) {
       await this.db.update(forgeRuns).set(values).where(eq(forgeRuns.id, id))
@@ -59,6 +48,31 @@ export class PostgresRunStore implements RunStore {
       .from(forgeRuns)
       .where(eq(forgeRuns.id, id))
       .limit(1)
+    const row = rows[0]
+    return row ? this.toRun(row) : null
+  }
+
+  async compareAndSet(
+    id: string,
+    expected: RunStoreCompareAndSetExpectation,
+    update: Partial<Run>,
+  ): Promise<Run | null> {
+    const values = this.updateValues(update)
+    if (Object.keys(values).length === 0) return this.get(id)
+    const conditions: SQL[] = [eq(forgeRuns.id, id)]
+    if (expected.status !== undefined) {
+      conditions.push(eq(forgeRuns.status, expected.status))
+    }
+    if (expected.metadata !== undefined) {
+      conditions.push(
+        sql`${forgeRuns.metadata} = ${JSON.stringify(expected.metadata)}::jsonb`,
+      )
+    }
+    const rows = await this.db
+      .update(forgeRuns)
+      .set(values)
+      .where(and(...conditions))
+      .returning()
     const row = rows[0]
     return row ? this.toRun(row) : null
   }
@@ -175,6 +189,22 @@ export class PostgresRunStore implements RunStore {
       startedAt: row.startedAt,
       completedAt: row.completedAt ?? undefined,
     }
+  }
+
+  private updateValues(update: Partial<Run>): Record<string, unknown> {
+    const values: Record<string, unknown> = {}
+    if (update.status !== undefined) values['status'] = update.status
+    if (update.output !== undefined) values['output'] = update.output
+    if (update.plan !== undefined) values['plan'] = update.plan
+    if (update.error !== undefined) values['error'] = update.error
+    if (update.completedAt !== undefined) values['completedAt'] = update.completedAt
+    if (update.tokenUsage) {
+      values['tokenUsageInput'] = update.tokenUsage.input
+      values['tokenUsageOutput'] = update.tokenUsage.output
+    }
+    if (update.costCents !== undefined) values['costCents'] = update.costCents
+    if (update.metadata !== undefined) values['metadata'] = update.metadata
+    return values
   }
 }
 

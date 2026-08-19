@@ -6,6 +6,7 @@ This document describes the tool-related implementation under `packages/agent/sr
 Covered files:
 - `agent-as-tool.ts`
 - `create-tool.ts`
+- `human-contact-invocation.ts`
 - `human-contact-tool.ts`
 - `tool-schema-registry.ts`
 - `tool-tier-registry.ts`
@@ -25,7 +26,8 @@ The module provides five concrete responsibilities:
 
 2. Human-in-the-loop contact tool creation.
 - `human-contact-tool.ts` builds a LangChain structured tool (`human_contact`) for approval, clarification, input request, escalation, and custom modes.
-- It persists pending contacts via a pluggable store and can invoke an `onPause` callback.
+- `human-contact-invocation.ts` owns the validated, call-local runnable configuration used by standalone, sequential, and native-stream invocations.
+- It persists recoverable pending-contact lifecycle records via a pluggable store and invokes an idempotent `onPause` callback before reporting a paused contact.
 
 3. Versioned schema registry for tools.
 - `tool-schema-registry.ts` stores versioned input/output schemas, returns latest or explicit versions, checks backward compatibility, and generates markdown docs.
@@ -41,6 +43,7 @@ The module provides five concrete responsibilities:
 | File | Role | Export Surface |
 |---|---|---|
 | `create-tool.ts` | Deprecated bridge to `@dzupagent/core/tools` forge tool APIs | Public via `src/index.ts` and `src/tools.ts` |
+| `human-contact-invocation.ts` | Namespaced LangChain runnable context validation and helper | Public via the human-contact exports |
 | `human-contact-tool.ts` | HITL contact tool factory + pending-contact store interfaces and in-memory store | Public via `src/index.ts` and `src/tools.ts` |
 | `tool-schema-registry.ts` | In-memory versioned tool schema registry + compatibility checks + markdown docs generation | Public via `src/index.ts` and `src/tools.ts` |
 | `tool-tier-registry.ts` | Sidecar permission-tier registry and tier-based filter helpers | Public via `src/index.ts` only |
@@ -56,16 +59,15 @@ The module provides five concrete responsibilities:
 1. Factory resolves dependencies from config:
 - `pendingStore` defaults to `InMemoryPendingContactStore`.
 - `defaultChannel` defaults to `'in-app'`.
-2. Tool invocation validates input through Zod schema (`mode`, optional `question`, `context`, `channel`, `timeoutHours`, `fallback`, `data`).
-3. Runtime values are created:
-- `contactId` via `randomUUID()`.
-- `runId` currently hardcoded as `'unknown'`.
-- channel resolved as `input.channel ?? defaultChannel`.
-- `timeoutAt` computed from `timeoutHours` when present.
-4. `buildRequest(...)` maps mode-specific request payloads (`approval`, `clarification`, `input_request`, `escalation`, or passthrough custom type).
-5. A `PendingHumanContact` object is created with resume token and saved to store.
-6. Optional `onPause(contactId, request)` callback is awaited.
-7. Tool returns a JSON string with `contactId`, `status: 'pending'`, channel, message, and a resume endpoint template.
+- configured defaults outside `in-app`, `slack`, `email`, and `webhook` fail at construction.
+2. Invocation reads a validated call-local context containing exact `runId`, `tenantId`, model tool-call `invocationId`, and optional `profileKey`. Missing or malformed context fails before effects.
+3. Zod validates mode, content, timeout, and the same strict channel set.
+4. Channel resolution applies exact explicit input, async app-neutral resolver, configured default, then `in-app` precedence. Resolver errors and unsupported results fail closed with stable diagnostics.
+5. A deterministic contact ID is derived from tenant, run, and invocation identity; a digest binds the canonical invocation arguments.
+6. `buildRequest(...)` maps the mode-specific request payload.
+7. `PendingContactStore.create(...)` atomically reserves a `preparing` record and mints one opaque resume token for the first creator.
+8. Optional `onPause(contactId, request, context)` receives the token and exact identity. A rejection persists terminal `failed`; a failed final save retains recoverable `preparing`.
+9. The store transitions to `paused`, after which the tool returns content-free pending JSON. A duplicate paused invocation returns the same result without pausing twice.
 
 ### Permission-tier filtering flow
 1. Tools can be tagged with required tier via `setToolTier(tool, tier)`.
@@ -96,9 +98,14 @@ The module provides five concrete responsibilities:
 
 `human-contact-tool.ts`:
 - `createHumanContactTool(config?: HumanContactToolConfig): StructuredToolInterface`
+- `humanContactRunnableConfig(context)` for direct standalone invocation
 - `HumanContactInput`
 - `HumanContactToolConfig`
+- `HumanContactInvocationContext`
+- `HumanContactPauseContext`
+- `PreferredContactChannelResolver`
 - `PendingContactStore`
+- `PendingContactRecord`
 - `InMemoryPendingContactStore`
 
 `tool-schema-registry.ts`:
@@ -121,7 +128,7 @@ Direct dependencies used in this folder:
 - `@langchain/core/tools` (`tool`, `StructuredToolInterface`)
 - `@langchain/core/messages` (`HumanMessage` in `agent-as-tool.ts` dynamic import)
 - `zod` (input schemas and inferred types)
-- `node:crypto` (`randomUUID`)
+- `node:crypto` (`createHash`, `randomUUID`)
 - `@dzupagent/core/tools`
   - `createForgeTool` and `ForgeToolConfig`
   - contact-domain types (`ContactType`, `ContactChannel`, `HumanContactRequest`, `PendingHumanContact`)
@@ -155,26 +162,32 @@ Test coverage in this package includes:
 
 1. `src/tools/human-contact-tool.test.ts`.
 - mode shaping for approval/clarification/input_request/escalation/custom
-- channel fallback behavior
+- exact invocation binding and strict channel/preference precedence
 - timeout/expiresAt handling
-- pending store save/get/delete behavior
-- `onPause` success/failure behavior
+- atomic reservation and preparing/paused/failed behavior
+- duplicate invocation and recoverable commit behavior
+- `onPause` success/failure and opaque-token handoff
 - response payload shape (`status`, `contactId`, `resumeWith`, etc.)
 
-2. `src/__tests__/tool-schema-registry.test.ts` and `src/__tests__/tool-schema-registry-deep.test.ts`.
+2. `src/__tests__/human-contact-runtime-binding-admission.test.ts`.
+- standalone fail-closed behavior and exact sequential/native-stream context propagation
+- resolver privacy/error policy and supported-channel enforcement
+- deterministic duplicate reuse, pause compensation, and token non-disclosure
+
+3. `src/__tests__/tool-schema-registry.test.ts` and `src/__tests__/tool-schema-registry-deep.test.ts`.
 - register/get/list semantics
 - version replacement and ordering
 - compatibility failure cases (field removal, type changes, required additions, arrays)
 - docs generation behavior
 
-3. `src/__tests__/tool-tier-filtering.test.ts`.
+4. `src/__tests__/tool-tier-filtering.test.ts`.
 - default tier behavior for untagged tools
 - non-mutation guarantee (no `requiredTier` property on tool instance)
 - filtering behavior across `read-only`, `workspace-write`, `full-access`
 - `DzupAgent` integration and `agent:tools-filtered` event payload assertions
 - middleware-provided tool filtering coverage
 
-4. `src/__tests__/create-tool-deep.test.ts` and `src/__tests__/dzip-agent.test.ts`.
+5. `src/__tests__/create-tool-deep.test.ts` and `src/__tests__/dzip-agent.test.ts`.
 - `createForgeTool` behavior through re-export path
 - `DzupAgent.asTool()` behavior via internal adapter path
 
@@ -185,25 +198,22 @@ Observability characteristics:
 - registry/store implementations in this folder are in-memory only by default
 
 ## Risks and TODOs
-1. `runId` placeholder in human contact tool.
-- `human-contact-tool.ts` currently uses `runId = 'unknown'`; resume endpoint text therefore contains placeholder run IDs unless upstream wiring injects context.
+1. Default pending store is process-local and non-durable.
+- `InMemoryPendingContactStore` proves one-process semantics only. Production exact-once behavior requires a durable create-if-absent implementation and Server-side compare-and-set across replicas.
 
-2. Channel preference chain is intentionally incomplete.
-- file comments mention user-profile preference resolution, but implementation currently resolves only `input.channel` then `defaultChannel`.
+2. Delivery and preference adapters are host-owned.
+- The framework exposes app-neutral resolver and pause seams but does not retain profile records, delivery targets, or credentials. Live Slack, email, webhook, and preference-store qualification remains a consuming-host responsibility.
 
-3. Default pending store is process-local and non-durable.
-- `InMemoryPendingContactStore` has no persistence, TTL sweeper, or cross-process synchronization.
-
-4. Schema compatibility is limited to input schema and simplified semver parsing.
+3. Schema compatibility is limited to input schema and simplified semver parsing.
 - `checkBackwardCompat(...)` ignores output schema.
 - version ordering uses numeric dot-split logic and does not model prerelease/build semver semantics.
 
-5. Tool tier metadata is process-local.
+4. Tool tier metadata is process-local.
 - tier tags exist only in runtime memory (`WeakMap`) and are not serialized or persisted across process boundaries.
 
-6. `createForgeTool` implementation ownership is external.
+5. `createForgeTool` implementation ownership is external.
 - behavior can change via `@dzupagent/core/tools` updates without edits inside `packages/agent/src/tools`.
 
 ## Changelog
+- 2026-08-19: reconciled exact human-contact context, preference, lifecycle, and resume-custody contracts
 - 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
-

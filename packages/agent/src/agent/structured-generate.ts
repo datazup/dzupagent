@@ -52,6 +52,7 @@ import type {
 } from './agent-types.js'
 import { omitUndefined } from '../utils/exact-optional.js'
 import { ModelCancellationError } from './model-timeout-error.js'
+import { appendGenerateContext } from './run-engine/generate-context.js'
 
 /** Context the structured-generate routine needs from its owning agent. */
 export interface StructuredGenerateContext {
@@ -134,6 +135,10 @@ export async function generateStructured<T>(
       }).withStructuredOutput(schemaContract.requestSchema as ZodType<T>, { includeRaw: true })
 
       const prepared = await ctx.prepareMessages(requestMessages)
+      const contextMessages = appendGenerateContext(
+        prepared.messages,
+        options?.context,
+      )
       // WS3 Task 3.2 — model-lifecycle hooks run BEFORE prompt-cache injection.
       // ORDERING IS LOAD-BEARING: `beforeModelCall` may rewrite the message
       // array, and cache breakpoints must be computed on the FINAL array.
@@ -142,7 +147,7 @@ export async function generateStructured<T>(
           ? [ctx.config.hooks.beforeModelCall]
           : undefined,
         ctx.config.eventBus,
-        prepared.messages,
+        contextMessages,
         resolvedModelId,
         hookCtx,
       )
@@ -153,8 +158,12 @@ export async function generateStructured<T>(
       // directly), so without this call we silently miss caching for every
       // structured generate call. Injector is a no-op for non-Claude models
       // and short transcripts.
-      const cachedMessages = injectPromptCacheMarkersForModel(
+      const finalMessages = appendGenerateContext(
         beforeMessages,
+        options?.context,
+      )
+      const cachedMessages = injectPromptCacheMarkersForModel(
+        finalMessages,
         ctx.resolvedModel,
       )
       const response = await structuredModel.invoke(cachedMessages)

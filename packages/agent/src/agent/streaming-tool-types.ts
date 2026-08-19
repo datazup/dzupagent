@@ -5,6 +5,7 @@ import type { ToolGovernance } from "@dzupagent/core/tools";
 import type { ToolPermissionPolicy } from "@dzupagent/agent-types";
 import type { ToolArgValidatorConfig } from "./tool-arg-validator.js";
 import type { ToolResultSecurityPolicy } from "./tool-result-security-policy.js";
+import type { HumanContactRunContext } from "../tools/human-contact-invocation.js";
 import type {
   ToolLoopTracer,
   ToolResultScanFailureMode,
@@ -72,6 +73,8 @@ export interface StreamingToolPolicyOptions extends ToolResultSecurityPolicy {
   tracer?: ToolLoopTracer;
   agentId?: string;
   runId?: string;
+  /** Run-scoped human-contact identity; exact tool-call ID is added at invoke. */
+  humanContactContext?: HumanContactRunContext;
   eventBus?: DzupEventBus;
   signal?: AbortSignal;
 }

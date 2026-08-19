@@ -1,4 +1,11 @@
 import { describe, it, expect } from "vitest";
+import fixture from "@dzupagent/runtime-contracts/fixtures/ai-execution-conformance-v2.json" with { type: "json" };
+import { CANONICAL_JSON_VERSION } from "@dzupagent/runtime-contracts";
+import type { AiExecutionBinding } from "@dzupagent/runtime-contracts/ai-execution";
+import {
+  LOOP_ECONOMICS_EVIDENCE_SCHEMA,
+  materializeLoopEconomicsEvidence,
+} from "@dzupagent/runtime-contracts/loop-economics-evidence";
 import type {
   AgentNode,
   ToolNode,
@@ -43,6 +50,88 @@ function makeMinimalPipeline(
     edges: [],
     ...overrides,
   };
+}
+
+const CHECKPOINT_BINDING = (
+  fixture as {
+    cases: Array<{ receipt?: { schema?: string; binding?: AiExecutionBinding } }>;
+  }
+).cases.find(({ receipt }) =>
+  receipt?.schema === "dzupagent.aiExecutionReceipt/v2"
+)?.receipt?.binding;
+
+if (CHECKPOINT_BINDING === undefined) {
+  throw new Error("V2 fixture must provide an execution binding");
+}
+
+function makeCheckpointEconomicsEvidence(terminal: "pending" | "recorded") {
+  const reservation = {
+    schema: "dzupagent.aiBudgetReservation/v1" as const,
+    status: "admitted" as const,
+    tariffRef: CHECKPOINT_BINDING.offer.tariffRef!,
+    offerRef: CHECKPOINT_BINDING.offer.offerId,
+    modelRef: CHECKPOINT_BINDING.model.modelRef,
+    modelRevision: CHECKPOINT_BINDING.model.revision,
+    provenance: {
+      sourceKind: "provider-published" as const,
+      authorityId: "provider/prices",
+      revision: "2026-08-01",
+      effectiveAt: "2026-08-01T00:00:00.000Z",
+      digest: `sha256:${"f".repeat(64)}` as const,
+    },
+    currency: "USD",
+    reservedAmountMicros: 80_000,
+    usageCeiling: { uncachedInputTokens: 100, outputTokens: 50 },
+    reservedAt: "2026-08-14T00:00:00.000Z",
+  };
+  return materializeLoopEconomicsEvidence({
+    schema: LOOP_ECONOMICS_EVIDENCE_SCHEMA,
+    canonicalization: CANONICAL_JSON_VERSION,
+    owner: {
+      runId: "run-1",
+      loopNodeId: "loop",
+      reservationId: "resv:v1:run-1:iteration:loop:1",
+      unit: { kind: "iteration", iteration: 1 },
+    },
+    executions: [{
+      nodeId: "body",
+      binding: CHECKPOINT_BINDING,
+      money: {
+        status: "priced",
+        reservation,
+        tariffDigest: `sha256:${"a".repeat(64)}`,
+      },
+      quota: { status: "not-applicable" },
+    }],
+    effectIntents: [],
+    terminal: terminal === "pending"
+      ? { status: "pending" }
+      : {
+          status: "recorded",
+          executions: [{
+            nodeId: "body",
+            bindingDigest: CHECKPOINT_BINDING.bindingDigest,
+            receiptDigest: `sha256:${"b".repeat(64)}`,
+            usage: {
+              measurement: "known",
+              tokens: { input: 10, output: 5 },
+              cost: {
+                status: "reconciled",
+                currency: "USD",
+                amountMicros: 30_000,
+                charges: [{
+                  attempt: 1,
+                  offerRef: reservation.offerRef,
+                  tariffRef: reservation.tariffRef,
+                  amountMicros: 30_000,
+                  provenance: reservation.provenance,
+                }],
+              },
+            },
+          }],
+          effects: [],
+        },
+  });
 }
 
 function makeSequentialForEachPipeline(): PipelineDefinition {
@@ -579,6 +668,74 @@ describe("PipelineCheckpoint", () => {
       },
     });
     expect(PipelineCheckpointSchema.safeParse(completed).success).toBe(true);
+  });
+
+  it("round-trips additive exact loop economics evidence while retaining legacy readability", () => {
+    const reserved = makeCheckpoint({
+      loopState: {
+        loop: {
+          iteration: 0,
+          iterationOutcome: "reserved",
+          iterationEconomics: {
+            reservationId: "resv:v1:run-1:iteration:loop:1",
+            reservedCostCents: 8,
+            evidence: makeCheckpointEconomicsEvidence("pending"),
+          },
+        },
+      },
+    });
+    const completed = makeCheckpoint({
+      loopState: {
+        loop: {
+          iteration: 0,
+          iterationOutcome: "completed",
+          iterationEconomics: {
+            reservationId: "resv:v1:run-1:iteration:loop:1",
+            reservedCostCents: 8,
+            settledCostCents: 3,
+            evidence: makeCheckpointEconomicsEvidence("recorded"),
+          },
+        },
+      },
+    });
+    const legacy = makeCheckpoint({
+      loopState: {
+        loop: {
+          iteration: 0,
+          iterationOutcome: "reserved",
+          iterationEconomics: {
+            reservationId: "resv:v1:run-1:iteration:loop:1",
+            reservedCostCents: 8,
+          },
+        },
+      },
+    });
+
+    expect(PipelineCheckpointSchema.safeParse(reserved).success).toBe(true);
+    expect(PipelineCheckpointSchema.safeParse(completed).success).toBe(true);
+    expect(PipelineCheckpointSchema.safeParse(legacy).success).toBe(true);
+  });
+
+  it("rejects corrupt or terminally contradictory loop economics evidence", () => {
+    const pending = makeCheckpointEconomicsEvidence("pending");
+    const corrupt = { ...pending, evidenceDigest: `sha256:${"0".repeat(64)}` };
+    const checkpoint = (evidence: typeof pending) => makeCheckpoint({
+      loopState: {
+        loop: {
+          iteration: 0,
+          iterationOutcome: "completed",
+          iterationEconomics: {
+            reservationId: "resv:v1:run-1:iteration:loop:1",
+            reservedCostCents: 8,
+            settledCostCents: 3,
+            evidence,
+          },
+        },
+      },
+    });
+
+    expect(PipelineCheckpointSchema.safeParse(checkpoint(pending)).success).toBe(false);
+    expect(PipelineCheckpointSchema.safeParse(checkpoint(corrupt)).success).toBe(false);
   });
 
   it("rejects incomplete or contradictory predicate-loop economics", () => {

@@ -31,6 +31,7 @@ import {
 } from "@dzupagent/security";
 import { HumanMessage } from "@langchain/core/messages";
 import type { PreparedRunState, PrepareRunStateParams } from "./types.js";
+import { appendGenerateContext } from "./generate-context.js";
 
 /**
  * Bind per-call sampling options (DZUPAGENT-CODE-H-02) onto the resolved model.
@@ -172,6 +173,15 @@ export async function prepareRunState(
     params.runId
   );
 
+  // Caller context is prompt material, not metadata. Place it only after
+  // preparation and resume rehydration, while hooks, cache placement, prompt
+  // accounting, and hard-budget enforcement can still observe the final
+  // model-bound transcript.
+  finalMessages = appendGenerateContext(
+    finalMessages,
+    params.options?.context
+  );
+
   // WS3 Task 3.2 — model-lifecycle hooks run BEFORE prompt-cache injection.
   // ORDERING IS LOAD-BEARING: `beforeModelCall` may rewrite the message array,
   // and cache breakpoints must be computed on the FINAL array — injecting
@@ -196,6 +206,12 @@ export async function prepareRunState(
       finalMessages,
       resolvedModelId,
       hookCtx
+    );
+    // A hook may replace the array wholesale. Reassert the option-owned suffix
+    // idempotently before cache placement and provider accounting.
+    finalMessages = appendGenerateContext(
+      finalMessages,
+      params.options?.context
     );
   }
 
