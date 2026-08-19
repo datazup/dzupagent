@@ -16,6 +16,7 @@ import {
   admitLoopEconomicsEvidenceV2,
   materializeLoopEconomicsEvidenceV2,
   validateLoopEconomicsEvidenceV2,
+  type LoopEconomicsControlSelectionV2,
   type LoopEconomicsEvidenceInputV2,
   type LoopEconomicsLeafAdmissionV2,
   type LoopEconomicsLeafOutcomeV2,
@@ -234,6 +235,38 @@ describe("loop economics V2 per-leaf outcomes", () => {
     expect(admitLoopEconomicsEvidenceV2(evidence)).toMatchObject({
       status: "pending",
     });
+  });
+
+  it("keeps admission stable while control decisions become durably known", () => {
+    const unresolvedControls = [
+      {
+        kind: "branch",
+        nodePath: ["loop", "try", "branch"],
+        selectedBranch: null,
+      },
+      {
+        kind: "catch",
+        nodePath: ["loop", "try"],
+        selectedArm: null,
+      },
+    ] satisfies readonly LoopEconomicsControlSelectionV2[];
+    const pending = materializeLoopEconomicsEvidenceV2(input(undefined, {
+      controlSelections: unresolvedControls,
+    }));
+    const settledEvidence = materializeLoopEconomicsEvidenceV2(input(settled()));
+    const unresolvedTerminal = materializeLoopEconomicsEvidenceV2(input(settled(), {
+      controlSelections: unresolvedControls,
+    }));
+
+    expect(validateLoopEconomicsEvidenceV2(pending).valid).toBe(true);
+    expect(settledEvidence.admissionDigest).toBe(pending.admissionDigest);
+    expect(settledEvidence.evidenceDigest).not.toBe(pending.evidenceDigest);
+    expect(validateLoopEconomicsEvidenceV2(unresolvedTerminal).diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({
+        code: "LOOP_ECONOMICS_V2_BINDING_MISMATCH",
+        path: "resolution.outcomes[0]",
+      })])
+    );
   });
 
   it("settles a partial sequence with recorded execution/charge and a proven undispatched effect", () => {
@@ -473,6 +506,127 @@ describe("loop economics V2 per-leaf outcomes", () => {
     expect(validateLoopEconomicsEvidenceV2(takeover, {
       admissionDigest: first.admissionDigest,
     }).valid).toBe(false);
+  });
+
+  it("rejects duplicate external identity, mixed fences, and unit-attempt drift", () => {
+    const duplicateIdentity = materializeLoopEconomicsEvidenceV2(input(undefined, {
+      leaves: leaves.map((leaf, index) => index === 1
+        ? { ...leaf, idempotencyKey: leaves[0]!.idempotencyKey }
+        : leaf),
+    }));
+    const mixedFence = materializeLoopEconomicsEvidenceV2(input(undefined, {
+      leaves: leaves.map((leaf, index) => index === 2
+        ? { ...leaf, fence: 2 }
+        : leaf),
+    }));
+    const attemptDrift = materializeLoopEconomicsEvidenceV2(input(undefined, {
+      owner: {
+        ...owner,
+        reservationId: "resv:v1:run-v2:item:loop:0:attempt:1",
+        unit: { kind: "item", itemIndex: 0, iteration: 1, attempt: 1 },
+      },
+    }));
+    const iterationAttemptDrift = materializeLoopEconomicsEvidenceV2(input(undefined, {
+      owner: {
+        ...owner,
+        reservationId: "resv:v1:run-v2:iteration:loop:1",
+        unit: { kind: "iteration", iteration: 1 },
+      },
+      unitAttempt: 1,
+    }));
+
+    expect(validateLoopEconomicsEvidenceV2(duplicateIdentity).diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({
+        code: "LOOP_ECONOMICS_V2_DUPLICATE_IDENTITY",
+        path: "leaves[1].idempotencyKey",
+      })])
+    );
+    expect(validateLoopEconomicsEvidenceV2(mixedFence).diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({
+        code: "LOOP_ECONOMICS_V2_BINDING_MISMATCH",
+        path: "leaves[2].fence",
+      })])
+    );
+    expect(validateLoopEconomicsEvidenceV2(attemptDrift).diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({
+        code: "LOOP_ECONOMICS_V2_BINDING_MISMATCH",
+        path: "unitAttempt",
+      })])
+    );
+    expect(validateLoopEconomicsEvidenceV2(iterationAttemptDrift).diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({
+        code: "LOOP_ECONOMICS_V2_BINDING_MISMATCH",
+        path: "unitAttempt",
+      })])
+    );
+  });
+
+  it("requires one charge per execution and refuses zero release after a recorded execution", () => {
+    const missingCharge = materializeLoopEconomicsEvidenceV2(input(undefined, {
+      leaves: [leaves[0]!, { ...leaves[2]!, order: 1 }],
+    }));
+    const releasedCharge: LoopEconomicsLeafOutcomeV2 = {
+      leafId: "charge:model",
+      kind: "charge",
+      status: "released",
+      reason: "dispatch-denied",
+      releaseDigest: digest("9"),
+    };
+    const zeroedCharge = materializeLoopEconomicsEvidenceV2(input(settled([
+      recordedExecution(),
+      releasedCharge,
+      releasedEffect(),
+    ])));
+
+    expect(validateLoopEconomicsEvidenceV2(missingCharge).diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({
+        code: "LOOP_ECONOMICS_V2_MISSING_LEAF",
+        path: "leaves",
+      })])
+    );
+    expect(validateLoopEconomicsEvidenceV2(zeroedCharge).diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({
+        code: "LOOP_ECONOMICS_V2_BINDING_MISMATCH",
+        path: "resolution.outcomes",
+      })])
+    );
+  });
+
+  it("rejects charge control drift and divergent recorded usage", () => {
+    const controlDrift = materializeLoopEconomicsEvidenceV2(input(undefined, {
+      leaves: leaves.map((leaf, index) => index === 1
+        ? { ...leaf, controlRequirements: [] }
+        : leaf),
+    }));
+    const divergentCharge: LoopEconomicsLeafOutcomeV2 = {
+      leafId: "charge:model",
+      kind: "charge",
+      status: "recorded",
+      bindingDigest: binding.bindingDigest,
+      receiptDigest: digest("0"),
+      usage: {
+        ...usage,
+        tokens: { input: usage.tokens.input + 1, output: usage.tokens.output },
+      },
+    };
+    const divergentUsage = materializeLoopEconomicsEvidenceV2(input(settled([
+      recordedExecution(),
+      divergentCharge,
+      releasedEffect(),
+    ])));
+
+    expect(validateLoopEconomicsEvidenceV2(controlDrift).diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({
+        code: "LOOP_ECONOMICS_V2_BINDING_MISMATCH",
+        path: "leaves[1].controlRequirements",
+      })])
+    );
+    expect(validateLoopEconomicsEvidenceV2(divergentUsage).diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({
+        code: "LOOP_ECONOMICS_V2_BINDING_MISMATCH",
+        path: "resolution.outcomes[1].usage",
+      })])
+    );
   });
 
   it("is deterministic for canonical content and rejects cyclic evidence safely", () => {
