@@ -162,6 +162,23 @@ Applications may attach any conforming OTel processor/exporter, including an
 OTLP exporter or Langfuse span processor. Exporter configuration and
 credential handling stay outside Agent Loop and DSL packages.
 
+### Provider-neutral orchestration ports
+
+Orchestration runtimes that need tracing without importing an SDK use the
+type-only `@dzupagent/otel/orchestration-ports` subpath:
+
+```ts
+import type {
+  OrchestratorSpanAttrs,
+  SpanPort,
+  TracerPort,
+} from '@dzupagent/otel/orchestration-ports'
+```
+
+The subpath has no runtime exports or initialization effects. A host adapter
+translates its string status vocabulary and direct attribute map to the
+concrete OpenTelemetry API.
+
 ### OTelBridge
 
 Subscribes to `DzupEventBus` and translates events into OTel metrics and span events. This is the single wiring point between DzupAgent's event-driven architecture and OpenTelemetry.

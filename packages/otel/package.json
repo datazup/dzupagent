@@ -12,6 +12,10 @@
     "./agent-loop": {
       "import": "./dist/agent-loop.js",
       "types": "./dist/agent-loop.d.ts"
+    },
+    "./orchestration-ports": {
+      "import": "./dist/orchestration-ports.js",
+      "types": "./dist/orchestration-ports.d.ts"
     }
   },
   "scripts": {

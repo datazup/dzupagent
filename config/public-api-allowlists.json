@@ -535,7 +535,8 @@
       ],
       "transitionalRoot": [],
       "subpaths": {
-        "./agent-loop": "provider-neutral Agent Loop trace projection contracts and non-fatal OTel emission"
+        "./agent-loop": "provider-neutral Agent Loop trace projection contracts and non-fatal OTel emission",
+        "./orchestration-ports": "provider-neutral orchestration span attributes and type-only tracer ports"
       },
       "migrationWindow": "OTel root exports are currently the contracted package surface; add allowlist rules before exposing new root modules."
     },
@@ -556,7 +557,8 @@
         { "match": "exact", "pattern": "./local-model.js" },
         { "match": "exact", "pattern": "./idempotency.js" },
         { "match": "exact", "pattern": "./ai-economics.js" },
-        { "match": "exact", "pattern": "./flow-runtime-input.js" }
+        { "match": "exact", "pattern": "./flow-runtime-input.js" },
+        { "match": "exact", "pattern": "./execution-boundary-evidence.js" }
       ],
       "transitionalRoot": [],
       "subpaths": {

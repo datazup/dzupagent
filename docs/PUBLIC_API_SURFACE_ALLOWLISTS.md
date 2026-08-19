@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-08-18
+Date: 2026-08-19
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -110,7 +110,7 @@ Root index: `packages/core/src/index.ts`
 | `deprecated-transitional` | `./persistence/working-memory.js` | 2 | `prefix:./persistence/` | `WorkingMemory`, `createWorkingMemory` |
 | `deprecated-transitional` | `./persistence/working-memory-types.js` | 2 | `prefix:./persistence/` | `WorkingMemoryConfig`, `WorkingMemorySnapshot` |
 | `deprecated-transitional` | `./persistence/in-memory-store.js` | 2 | `prefix:./persistence/` | `InMemoryRunStore`, `InMemoryAgentStore` |
-| `deprecated-transitional` | `./persistence/store-interfaces.js` | 9 | `prefix:./persistence/` | `RunStore`, `Run`, `CreateRunInput`, `RunFilter` |
+| `deprecated-transitional` | `./persistence/store-interfaces.js` | 12 | `prefix:./persistence/` | `RunStore`, `AtomicRunStore`, `RunStoreCompareAndSetExpectation`, `Run` |
 | `deprecated-transitional` | `./persistence/event-log.js` | 4 | `prefix:./persistence/` | `InMemoryEventLog`, `EventLogSink`, `RunEvent`, `EventLogStore` |
 | `deprecated-transitional` | `./persistence/in-memory-run-journal.js` | 1 | `prefix:./persistence/` | `InMemoryRunJournal` |
 | `deprecated-transitional` | `./persistence/run-journal-bridge.js` | 1 | `prefix:./persistence/` | `RunJournalBridgeRunStore` |
@@ -215,7 +215,7 @@ Root index: `packages/core/src/index.ts`
 Root index: `packages/agent/src/index.ts`
 
 - Stable root sources: `13`
-- Deprecated transitional root sources: `93`
+- Deprecated transitional root sources: `94`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x with migration to runtime/workflow/tools/compat before a future 1.0 root contraction. The experimental ./runner subpath is provider-free and does not replace legacy execution paths until durable, host-composition, mutation-effect, and compatibility conformance are complete.
 
@@ -260,13 +260,13 @@ Root index: `packages/agent/src/index.ts`
 | `deprecated-transitional` | `./guardrails/distributed-budget.js` | 4 | `prefix:./guardrails/` | `DistributedCostLedger`, `CostLedgerClient`, `DistributedCostLedgerConfig`, `CostLedgerRecordResult` |
 | `stable` | `./workflow/workflow-builder.js` | 5 | `prefix:./workflow/` | `WorkflowBuilder`, `CompiledWorkflow`, `createWorkflow`, `WorkflowConfig` |
 | `stable` | `./workflow/workflow-types.js` | 4 | `prefix:./workflow/` | `WorkflowStep`, `WorkflowContext`, `WorkflowEvent`, `MergeStrategy` |
-| `deprecated-transitional` | `./orchestration/orchestrator.js` | 4 | `prefix:./orchestration/` | `AgentOrchestrator`, `MergeFn`, `SupervisorConfig`, `SupervisorResult` |
+| `deprecated-transitional` | `./orchestration/orchestrator.js` | 10 | `prefix:./orchestration/` | `AgentOrchestrator`, `DebateInvocationObserver`, `DebateInvocationOutcome`, `DebateInvocationStart` |
 | `deprecated-transitional` | `./orchestration/orchestration-error.js` | 2 | `prefix:./orchestration/` | `OrchestrationError`, `OrchestrationPattern` |
 | `deprecated-transitional` | `./orchestration/map-reduce.js` | 5 | `prefix:./orchestration/` | `mapReduce`, `mapReduceMulti`, `MapReduceConfig`, `MapReduceResult` |
 | `deprecated-transitional` | `./orchestration/merge-strategies.js` | 7 | `prefix:./orchestration/` | `concatMerge`, `voteMerge`, `numberedMerge`, `jsonArrayMerge` |
 | `deprecated-transitional` | `./orchestration/contract-net/contract-net-manager.js` | 1 | `prefix:./orchestration/` | `ContractNetManager` |
 | `deprecated-transitional` | `./orchestration/contract-net/bid-strategies.js` | 4 | `prefix:./orchestration/` | `lowestCostStrategy`, `fastestStrategy`, `highestQualityStrategy`, `createWeightedStrategy` |
-| `deprecated-transitional` | `./orchestration/contract-net/contract-net-types.js` | 8 | `prefix:./orchestration/` | `ContractNetPhase`, `CallForProposals`, `ContractBid`, `ContractAward` |
+| `deprecated-transitional` | `./orchestration/contract-net/contract-net-types.js` | 14 | `prefix:./orchestration/` | `ContractNetPhase`, `CallForProposals`, `ContractBid`, `ContractAward` |
 | `deprecated-transitional` | `./orchestration/delegating-supervisor.js` | 6 | `prefix:./orchestration/` | `DelegatingSupervisor`, `DelegatingSupervisorConfig`, `TaskAssignment`, `AggregatedDelegationResult` |
 | `deprecated-transitional` | `./orchestration/planning-agent.js` | 14 | `prefix:./orchestration/` | `PlanningAgent`, `buildExecutionLevels`, `validatePlanStructure`, `PlanNodeSchema` |
 | `deprecated-transitional` | `./orchestration/delegation.js` | 10 | `prefix:./orchestration/` | `SimpleDelegationTracker`, `DelegationRequest`, `DelegationResult`, `DelegationContext` |
@@ -291,7 +291,8 @@ Root index: `packages/agent/src/index.ts`
 | `stable` | `./approval/approval-errors.js` | 1 | `prefix:./approval/` | `ApprovalSuspendedError` |
 | `deprecated-transitional` | `./agent/tool-registry.js` | 2 | `prefix:./agent/` | `DynamicToolRegistry`, `ToolRegistryEvent` |
 | `stable` | `./tools/create-tool.js` | 2 | `exact:./tools/create-tool.js` | `createForgeTool`, `ForgeToolConfig` |
-| `deprecated-transitional` | `./tools/human-contact-tool.js` | 5 | `prefix:./tools/` | `createHumanContactTool`, `InMemoryPendingContactStore`, `HumanContactInput`, `HumanContactToolConfig` |
+| `deprecated-transitional` | `./tools/human-contact-tool.js` | 20 | `prefix:./tools/` | `createHumanContactTool`, `HUMAN_CONTACT_RUNNABLE_CONFIG_KEY`, `InMemoryPendingContactStore`, `SUPPORTED_CONTACT_CHANNELS` |
+| `deprecated-transitional` | `./tools/run-store-pending-contact-store.js` | 8 | `prefix:./tools/` | `AesGcmResumeTokenProtector`, `DURABLE_PENDING_CONTACTS_KEY`, `KeyringResumeTokenProtector`, `RunStorePendingContactStore` |
 | `deprecated-transitional` | `./tools/tool-tier-registry.js` | 10 | `prefix:./tools/` | `setToolTier`, `getToolTier`, `hasExplicitToolTier`, `resolveToolTier` |
 | `deprecated-transitional` | `./agent/agent-state.js` | 4 | `prefix:./agent/` | `serializeMessages`, `deserializeMessages`, `AgentStateSnapshot`, `SerializedMessage` |
 | `deprecated-transitional` | `./snapshot/agent-snapshot.js` | 6 | `prefix:./snapshot/` | `createSnapshot`, `verifySnapshot`, `compressSnapshot`, `decompressSnapshot` |
@@ -505,7 +506,7 @@ Root index: `packages/memory/src/index.ts`
 | `deprecated-transitional` | `./consolidation-engine.js` | 6 | `exact:./consolidation-engine.js` | `ConsolidationEngine`, `ConsolidationResult`, `ConsolidationOperationResult`, `ConsolidationEngineConfig` |
 | `deprecated-transitional` | `./error-log.js` | 5 | `exact:./error-log.js` | `logError`, `defaultLogger`, `noopLogger`, `FrameworkLogger` |
 | `deprecated-transitional` | `./memory-pruner.js` | 6 | `exact:./memory-pruner.js` | `MemoryPruner`, `PruneOptions`, `PruneResult`, `PruneOperationResult` |
-| `deprecated-transitional` | `./operation-outcome.js` | 6 | `exact:./operation-outcome.js` | `MemoryOperationStatus`, `MemoryOperation`, `MemoryDegradationImpact`, `MemoryOperationDegradation` |
+| `deprecated-transitional` | `./operation-outcome.js` | 7 | `exact:./operation-outcome.js` | `MemoryOperationStatus`, `MemoryOperation`, `MemoryDegradationImpact`, `MemoryDegradationReason` |
 | `deprecated-transitional` | `./semantic-consolidation.js` | 6 | `exact:./semantic-consolidation.js` | `SemanticConsolidator`, `consolidateWithLLM`, `SemanticConsolidationConfig`, `SemanticConsolidationResult` |
 | `deprecated-transitional` | `./memory-healer.js` | 7 | `exact:./memory-healer.js` | `findDuplicates`, `findContradictions`, `findStaleRecords`, `healMemory` |
 | `stable` | `./working-memory.js` | 2 | `exact:./working-memory.js` | `WorkingMemory`, `WorkingMemoryConfig` |
@@ -830,6 +831,7 @@ Root index: `packages/otel/src/index.ts`
 | Subpath | Purpose |
 | --- | --- |
 | `@dzupagent/otel/agent-loop` | provider-neutral Agent Loop trace projection contracts and non-fatal OTel emission |
+| `@dzupagent/otel/orchestration-ports` | provider-neutral orchestration span attributes and type-only tracer ports |
 
 ### Root Allowlist
 
@@ -853,7 +855,7 @@ Root index: `packages/otel/src/index.ts`
 
 Root index: `packages/runtime-contracts/src/index.ts`
 
-- Stable root sources: `13`
+- Stable root sources: `14`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
 - Migration window: Runtime contract root exports are stable neutral contracts. New domain contracts use governed subpaths; the stable ./recursive-scope contract surface does not admit recursive execution.
@@ -877,6 +879,7 @@ Root index: `packages/runtime-contracts/src/index.ts`
 | `stable` | `./canonical-gates.js` | 16 | `exact:./canonical-gates.js` | `validateGateResult`, `GateActor`, `GateActorRequirement`, `GateCheck` |
 | `stable` | `./local-model.js` | 6 | `exact:./local-model.js` | `LocalModelCapabilityProfile`, `LocalModelEndpointDescriptor`, `LocalModelEndpointRejectionCode`, `LocalModelHealthSnapshot` |
 | `stable` | `./idempotency.js` | 5 | `exact:./idempotency.js` | `CANONICAL_JSON_VERSION`, `canonicalJson`, `canonicalInputDigest`, `materializeIdempotencyKey` |
+| `stable` | `./execution-boundary-evidence.js` | 29 | `exact:./execution-boundary-evidence.js` | `ADAPTER_POLICY_REF_SCHEMA_V1`, `EXECUTION_BOUNDARY_EVIDENCE_SCHEMA_V1`, `EXECUTION_STATE_ACCESS_INVENTORY_SCHEMA_V1`, `WORKSPACE_HANDLE_REF_SCHEMA_V1` |
 | `stable` | `./flow-runtime-input.js` | 16 | `exact:./flow-runtime-input.js` | `DEFAULT_FLOW_RUNTIME_INPUT_LIMITS`, `FLOW_CREDENTIAL_HANDLE_REF_SCHEMA`, `FLOW_RUNTIME_INPUT_CONTRACT`, `sha256Text` |
 | `stable` | `./ai-economics.js` | 19 | `exact:./ai-economics.js` | `AI_COST_UNKNOWN_REASONS`, `AI_PRICE_SOURCE_KINDS`, `AI_QUOTA_SCHEMA`, `AI_QUOTA_UNITS` |
 | `stable` | `./planning.js` | 1 | `exact:./planning.js` | `*` |

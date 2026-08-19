@@ -1,6 +1,6 @@
 # Server API Surface Index
 
-Date: 2026-08-18
+Date: 2026-08-19
 
 Generated from `packages/server/src/index.ts` and `config/server-api-tiers.json`.
 
