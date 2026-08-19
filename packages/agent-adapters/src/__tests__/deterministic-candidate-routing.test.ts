@@ -60,7 +60,7 @@ function policy(
 }
 
 describe('deterministic candidate routing', () => {
-  it.each(['fixed', 'weighted', 'hash', 'round-robin', 'llm-rank'] as const)(
+  it.each(['weighted', 'hash', 'round-robin', 'llm-rank'] as const)(
     'fails closed before selection for unsupported %s strategy metadata',
     (strategy) => {
       expect(() => selectExecutionRoute(
@@ -72,6 +72,78 @@ describe('deterministic candidate routing', () => {
       }))
     },
   )
+
+  it('selects the single candidate under a fixed strategy', () => {
+    const only = candidate('codex:sdk:work')
+    const decision = selectExecutionRoute(
+      policy([only], { strategy: 'fixed', fallback: 'none' }),
+      { decidedAt: DECIDED_AT },
+    )
+
+    expect(decision.selectedCandidateId).toBe(only.id)
+    expect(decision.eligibleCandidateIds).toEqual([only.id])
+    expect(decision.fallbackCandidateIds).toEqual([])
+    expect(decision.strategy).toBe('fixed')
+    expect(decision.reasoningSummary).toContain(`Fixed route selected ${only.id}`)
+  })
+
+  it('produces an identical fixed decision on repeated invocation', () => {
+    const fixedPolicy = policy([candidate('codex:sdk:work')], { strategy: 'fixed', fallback: 'none' })
+
+    expect(selectExecutionRoute(fixedPolicy, { decidedAt: DECIDED_AT }))
+      .toEqual(selectExecutionRoute(fixedPolicy, { decidedAt: DECIDED_AT }))
+  })
+
+  it('keeps the fixed decision invariant to preference-order metadata', () => {
+    const only = candidate('codex:sdk:work')
+    const withoutPreference = selectExecutionRoute(
+      policy([only], { strategy: 'fixed', fallback: 'none', preferenceOrder: [] }),
+      { decidedAt: DECIDED_AT },
+    )
+    const withModelPreference = selectExecutionRoute(
+      policy([only], { strategy: 'fixed', fallback: 'none', preferenceOrder: ['codex-1'] }),
+      { decidedAt: DECIDED_AT },
+    )
+
+    expect(withoutPreference).toEqual(withModelPreference)
+  })
+
+  it('denies a fixed policy carrying zero candidates', () => {
+    expect(() => selectExecutionRoute(
+      policy([], { strategy: 'fixed', fallback: 'none' }),
+      { decidedAt: DECIDED_AT },
+    )).toThrow(expect.objectContaining({
+      name: 'DeterministicRouteSelectionAdmissionError',
+      code: 'FIXED_STRATEGY_REQUIRES_SINGLE_CANDIDATE',
+    }))
+  })
+
+  it('denies a fixed policy carrying two candidates instead of guessing one', () => {
+    expect(() => selectExecutionRoute(
+      policy([candidate('codex:sdk:work'), candidate('codex:cli:work', { backend: 'cli' })], {
+        strategy: 'fixed',
+        fallback: 'none',
+      }),
+      { decidedAt: DECIDED_AT },
+    )).toThrow(expect.objectContaining({
+      name: 'DeterministicRouteSelectionAdmissionError',
+      code: 'FIXED_STRATEGY_REQUIRES_SINGLE_CANDIDATE',
+    }))
+  })
+
+  it('fails closed when the single fixed candidate is ineligible', () => {
+    const only = candidate('codex:sdk:work', { authAvailable: false })
+    const decision = selectExecutionRoute(
+      policy([only], { strategy: 'fixed', fallback: 'none' }),
+      { decidedAt: DECIDED_AT },
+    )
+
+    expect(decision.selectedCandidateId).toBeNull()
+    expect(decision.fallbackCandidateIds).toEqual([])
+    expect(decision.rejected).toEqual([
+      expect.objectContaining({ candidateId: only.id, codes: ['AUTH_SOURCE_UNAVAILABLE'] }),
+    ])
+  })
 
   it('rejects duplicate candidate identities instead of silently collapsing them', () => {
     const duplicate = candidate('same', { provider: 'openai' })

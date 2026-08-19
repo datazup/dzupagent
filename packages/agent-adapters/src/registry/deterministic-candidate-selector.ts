@@ -30,11 +30,15 @@ export interface DeterministicRouteSelectionOptions {
 }
 
 /** Strategies whose selection semantics are implemented by this selector. */
-export const IMPLEMENTED_DETERMINISTIC_ROUTE_STRATEGIES = ['rule'] as const
+export const IMPLEMENTED_DETERMINISTIC_ROUTE_STRATEGIES = ['fixed', 'rule'] as const
+
+type ImplementedDeterministicRouteStrategy =
+  (typeof IMPLEMENTED_DETERMINISTIC_ROUTE_STRATEGIES)[number]
 
 export type DeterministicRouteSelectionAdmissionCode =
   | 'UNSUPPORTED_ROUTE_STRATEGY'
   | 'DUPLICATE_ROUTE_CANDIDATE'
+  | 'FIXED_STRATEGY_REQUIRES_SINGLE_CANDIDATE'
 
 /** Fail-closed policy-admission error raised before any candidate is evaluated. */
 export class DeterministicRouteSelectionAdmissionError extends Error {
@@ -48,7 +52,14 @@ export class DeterministicRouteSelectionAdmissionError extends Error {
 }
 
 /**
- * Pure ordered-rule candidate selector. Input order never decides ties.
+ * Pure deterministic candidate selector. Input order never decides ties.
+ *
+ * `rule` evaluates the full candidate set with preference ordering; `fixed`
+ * requires exactly one candidate (the policy vocabulary carries no fixed
+ * candidate identifier, so fixedness is single-candidate by construction —
+ * matching the flow compiler, the only first-party producer) and still
+ * evaluates that candidate's eligibility so an unavailable or incompatible
+ * fixed target fails closed instead of being selected blindly.
  *
  * The broader route-policy vocabulary is intentionally not treated as
  * metadata: strategies without an implementation fail before selection.
@@ -121,8 +132,8 @@ export function selectExecutionRoute(
     transitions,
     strategy: policy.strategy,
     reasoningSummary: selected
-      ? `Ordered rule selected ${selected.id}; ${rejected.length} candidate(s) rejected`
-      : `Ordered rule found no eligible candidate; ${rejected.length} candidate(s) rejected`,
+      ? `${strategyLabel(policy.strategy)} selected ${selected.id}; ${rejected.length} candidate(s) rejected`
+      : `${strategyLabel(policy.strategy)} found no eligible candidate; ${rejected.length} candidate(s) rejected`,
     decidedAt: options.decidedAt,
   }
 }
@@ -210,7 +221,7 @@ function evaluateCandidate(
 }
 
 function assertRoutePolicyAdmission(policy: ExecutionRoutePolicy): void {
-  if (policy.strategy !== 'rule') {
+  if (!isImplementedStrategy(policy.strategy)) {
     throw new DeterministicRouteSelectionAdmissionError(
       'UNSUPPORTED_ROUTE_STRATEGY',
       `Route strategy "${policy.strategy}" is not implemented by the deterministic selector; supported strategies: ${IMPLEMENTED_DETERMINISTIC_ROUTE_STRATEGIES.join(', ')}`,
@@ -227,6 +238,23 @@ function assertRoutePolicyAdmission(policy: ExecutionRoutePolicy): void {
     }
     candidateIds.add(candidate.id)
   }
+
+  if (policy.strategy === 'fixed' && policy.candidates.length !== 1) {
+    throw new DeterministicRouteSelectionAdmissionError(
+      'FIXED_STRATEGY_REQUIRES_SINGLE_CANDIDATE',
+      `Fixed route strategy requires exactly one candidate; received ${policy.candidates.length}`,
+    )
+  }
+}
+
+function isImplementedStrategy(
+  strategy: ExecutionRoutePolicy['strategy'],
+): strategy is ImplementedDeterministicRouteStrategy {
+  return (IMPLEMENTED_DETERMINISTIC_ROUTE_STRATEGIES as readonly string[]).includes(strategy)
+}
+
+function strategyLabel(strategy: ExecutionRoutePolicy['strategy']): string {
+  return strategy === 'fixed' ? 'Fixed route' : 'Ordered rule'
 }
 
 function includes(values: readonly string[], value: string | undefined): boolean {
