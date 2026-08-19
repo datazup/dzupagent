@@ -331,9 +331,9 @@ export interface LoopBudgetLifecycle {
     input: LoopIterationBudgetReservationInput
   ): LoopIterationBudgetReservation | Promise<LoopIterationBudgetReservation>;
   /** Reconcile actual spend, releasing the unspent delta. */
-  settle?(input: LoopBudgetSettlementInput): void | Promise<void>;
+  settle?(input: LoopBudgetSettlementInput): unknown;
   /** Return an unspent reservation whose work never completed. */
-  release?(input: LoopBudgetReleaseInput): void | Promise<void>;
+  release?(input: LoopBudgetReleaseInput): unknown;
   /**
    * G2b: prove the outcome of a reserve the runtime could not observe. Absent ⇒
    * the runtime cannot prove the outcome itself, so it fails the item closed and
@@ -379,8 +379,8 @@ export interface LoopBudgetStrictHost extends LoopBudgetLifecycle {
    * only predicate loops does not need to invent an unrelated item value.
    */
   itemBudgetCents?: number;
-  settle(input: LoopBudgetSettlementInput): void | Promise<void>;
-  release(input: LoopBudgetReleaseInput): void | Promise<void>;
+  settle(input: LoopBudgetSettlementInput): unknown;
+  release(input: LoopBudgetReleaseInput): unknown;
   reconcile(
     input: LoopBudgetReconcileInput
   ): LoopBudgetReconcileOutcome | Promise<LoopBudgetReconcileOutcome>;
@@ -547,14 +547,14 @@ export interface LoopResumeOptions {
    */
   settleIterationBudget?: (
     input: LoopBudgetSettlementInput
-  ) => void | Promise<void>;
+  ) => unknown;
   /**
    * F: return an unspent reservation when its work aborted or failed. Absent ⇒
    * the pre-F leak, preserved rather than fixed, for reserve-only hosts.
    */
   releaseIterationBudget?: (
     input: LoopBudgetReleaseInput
-  ) => void | Promise<void>;
+  ) => unknown;
   /**
    * G2b: prove the outcome of a reserve that threw. Absent ⇒ an outcome-unknown
    * reserve fails the item closed with release and redispatch both blocked,
