@@ -94,7 +94,6 @@ function stableJson(value: AgentRunJsonValue): string {
     `${JSON.stringify(key)}:${stableJson(record[key] ?? null)}`).join(',')}}`
 }
 
-/** @internal */
 export function digestRunnerJson(value: unknown): string {
   assertDurableJson(value)
   return `sha256:${createHash('sha256').update(stableJson(value as AgentRunJsonValue)).digest('hex')}`
