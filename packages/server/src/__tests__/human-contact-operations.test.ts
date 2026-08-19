@@ -143,7 +143,7 @@ describe('human-contact operational custody', () => {
     expect(JSON.stringify(alerts)).not.toContain('must-stay-unreported')
     expect(JSON.stringify(metrics)).not.toContain(runId)
     expect(metrics.length).toBeGreaterThan(0)
-    expect(metrics.every((metric) => metric.value === 1)).toBe(true)
+    expect(metrics.filter((metric) => metric.value !== 1)).toHaveLength(0)
   })
 
   it('removes terminal orphans and prunes only explicitly expired history', async () => {

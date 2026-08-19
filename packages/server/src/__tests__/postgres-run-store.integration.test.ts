@@ -452,7 +452,7 @@ describe.skipIf(integrationGate.shouldSkip)('PostgresRunStore integration (testc
     expect(consumed.status).toBe('consumed')
 
     const recreatedBus = createEventBus()
-    let publishedResponse: Record<string, unknown> | undefined
+    let publishedResponse: unknown
     recreatedBus.on('human_contact:responded', (event) => {
       publishedResponse = event.response
     })
