@@ -250,3 +250,16 @@ index) is the only safe commit form in this repo.**
 `packages/create-dzupagent/package.json` over the committed file — it reverted
 to the string `bin` form three times, twice *after* the fix was committed. HEAD
 was correct each time. If it reappears, that is the source, not a bad commit.
+
+
+## Claim: error-stop-reason lane — 2026-08-19 ~21:45
+
+Session investigating/resolving the `StopReason` union member `"error"` (zero
+producers in packages/*/src, live consumer branches). Files I will touch:
+
+- packages/agent/src/agent/tool-loop/types/result.ts
+- packages/agent/src/agent/tool-loop/loop-stages.ts
+- packages/agent/src/agent/tool-loop/ (loop executor / run-engine result construction, as needed)
+- packages/agent/src/agent/dzip-agent-run-coordinator.ts (stop-reason table, as needed)
+- packages/agent/src/reflection/learning-bridge.ts
+- associated tests under packages/agent (tool-loop / reflection / coordinator specs)
