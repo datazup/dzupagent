@@ -430,14 +430,6 @@
           "rationale": "Freeze the consolidated Codex app-server adapter pending extraction of lifecycle, approval, and event mapping concerns.",
           "shrinkTarget": 500
         },
-        "src/codex/codex-app-server-client.ts": {
-          "maxLines": 895,
-          "sourceSha256": "201113e2d02a27981d4aa26dc12d679eca2c2f74edc676105e4f8326b1c1b95c",
-          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
-          "reviewBy": "2026-09-14",
-          "rationale": "Freeze the consolidated Codex app-server client pending extraction of transport, protocol, and request correlation concerns.",
-          "shrinkTarget": 500
-        },
         "src/index.ts": {
           "maxLines": 957,
           "shrinkTarget": 500,
