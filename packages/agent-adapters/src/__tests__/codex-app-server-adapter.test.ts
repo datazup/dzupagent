@@ -51,6 +51,17 @@ interface FakeServerOptions {
 
 const ARTIFACT_DIGEST = `sha256:${'b'.repeat(64)}`
 
+/*
+ * The adapter's execution deadline is measured against a monotonic clock it
+ * imports from `node:perf_hooks`, which `vi.useFakeTimers()` cannot reach -- it
+ * replaces the global `performance`, not a module binding captured at import
+ * time. A fake-timer test that leaves the default in place therefore races real
+ * wall time against its own tiny `timeoutMs`, and on a loaded host setup alone
+ * outruns it. Injecting the faked global makes the deadline advance with
+ * `advanceTimersByTimeAsync` and nothing else.
+ */
+const fakeMonotonicNow = (): number => globalThis.performance.now()
+
 function executableIdentity(path = '/fixture/codex', realPath = path) {
   return { name: 'codex', path, realPath, artifactDigest: ARTIFACT_DIGEST }
 }
@@ -750,12 +761,17 @@ describe('Codex App Server provider-session adapter', () => {
       code: 'CODEX_APP_SERVER_PROCESS_DIED',
     }))
 
+    // This half runs on real timers, and it asserts the deadline fires *after*
+    // the turn is live -- an interrupt is only possible once there is an active
+    // run. Freezing the monotonic clock stops setup from consuming the budget
+    // before it finishes, and the margin keeps the real timer from firing first
+    // on a loaded host; at 10 ms the two raced and setup lost about half the time.
     const timeoutServer = fakeServer(() => undefined)
     const timeoutAdapter = createCodexAppServerAdapter({
       attemptBinding: binding(),
       executable: executableIdentity(),
-      timeoutMs: 10,
-      dependencies: runtimeDependencies(timeoutServer.child),
+      timeoutMs: 250,
+      dependencies: runtimeDependencies(timeoutServer.child, { monotonicNow: () => 0 }),
     })
     const timeout = await collect(timeoutAdapter.execute(input()))
     expect(timeout.at(-1)).toEqual(expect.objectContaining({
@@ -797,7 +813,7 @@ describe('Codex App Server provider-session adapter', () => {
         attemptBinding: binding(),
         executable: executableIdentity(),
         timeoutMs: 10,
-        dependencies: runtimeDependencies(server.child),
+        dependencies: runtimeDependencies(server.child, { monotonicNow: fakeMonotonicNow }),
       })
       const stream = adapter.execute(input())
       await expect(stream.next()).resolves.toEqual(expect.objectContaining({
@@ -889,7 +905,7 @@ describe('Codex App Server provider-session adapter', () => {
             requestTimeoutMs: 50,
             cleanupTimeoutMs: 5,
           },
-          dependencies: runtimeDependencies(server.child),
+          dependencies: runtimeDependencies(server.child, { monotonicNow: fakeMonotonicNow }),
         })
         let settled = false
         const execution = stallMethod === 'thread/resume'
@@ -933,7 +949,7 @@ describe('Codex App Server provider-session adapter', () => {
           requestTimeoutMs: 1_000,
           cleanupTimeoutMs: 5,
         },
-        dependencies: runtimeDependencies(server.child),
+        dependencies: runtimeDependencies(server.child, { monotonicNow: fakeMonotonicNow }),
       })
       let settled = false
       const result = collect(adapter.execute(input({ signal: controller.signal }))).then((events) => {
@@ -1001,6 +1017,7 @@ describe('Codex App Server provider-session adapter', () => {
           },
           dependencies: {
             ...runtimeDependencies(server.child, {
+              monotonicNow: fakeMonotonicNow,
               ...(stage === 'realpath' ? { realpath: stalledOperation } : {}),
               ...(stage === 'stat' ? { stat: stalledOperation } : {}),
               ...(stage === 'access' ? { access: stalledOperation } : {}),
@@ -1092,7 +1109,7 @@ describe('Codex App Server provider-session adapter', () => {
           requestTimeoutMs: 1_000,
           cleanupTimeoutMs: 5,
         },
-        dependencies: runtimeDependencies(server.child),
+        dependencies: runtimeDependencies(server.child, { monotonicNow: fakeMonotonicNow }),
       })
       const stream = adapter.execute(input())
       await stream.next()
@@ -1291,5 +1308,149 @@ describe('Codex App Server provider-session adapter', () => {
       type: 'adapter:failed',
       code: 'CODEX_APP_SERVER_USAGE_INVALID',
     }))
+  })
+
+  /*
+   * The turn event stream is the adapter's only inbound surface, and every
+   * branch below is a refusal: the provider has emitted something the adapter
+   * must not normalize into an ordinary event. They are pinned as one group
+   * because the loop's value is precisely that a malformed turn cannot be
+   * mistaken for a completed one.
+   */
+  it('refuses an unsupported provider-initiated request without answering it', async () => {
+    const server = fakeServer((current) => {
+      notify(current, 'turn/started', {
+        threadId: 'thread-1',
+        turn: turnPayload('turn-1', 'inProgress'),
+      })
+      notify(current, 'workspace/writeFile', {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        path: '/fixture/workspace/private.txt',
+      }, 'request-unsupported')
+    })
+    const adapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      dependencies: runtimeDependencies(server.child),
+    })
+
+    const events = await collect(adapter.execute(input()))
+
+    expect(events.at(-1)).toEqual(expect.objectContaining({
+      type: 'adapter:failed',
+      code: 'CODEX_APP_SERVER_REQUEST_UNSUPPORTED',
+    }))
+    expect(events.some((event) => event.type === 'adapter:interaction_required')).toBe(false)
+    // The refusal must stay silent on the wire: answering a request the adapter
+    // does not understand would let the provider drive an unadmitted effect.
+    expect(server.calls.some((frame) => frame.id === 'request-unsupported' && !frame.method))
+      .toBe(false)
+  })
+
+  it('rejects a duplicated turn start', async () => {
+    const server = fakeServer((current) => {
+      notify(current, 'turn/started', {
+        threadId: 'thread-1',
+        turn: turnPayload('turn-1', 'inProgress'),
+      })
+      notify(current, 'turn/started', {
+        threadId: 'thread-1',
+        turn: turnPayload('turn-1', 'inProgress'),
+      })
+    })
+    const adapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      dependencies: runtimeDependencies(server.child),
+    })
+
+    const events = await collect(adapter.execute(input()))
+
+    expect(events.at(-1)).toEqual(expect.objectContaining({
+      type: 'adapter:failed',
+      code: 'CODEX_APP_SERVER_DUPLICATE_EVENT',
+    }))
+  })
+
+  it('rejects an empty message delta instead of streaming it', async () => {
+    const server = fakeServer((current) => {
+      notify(current, 'item/agentMessage/delta', {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'item-1',
+        delta: '',
+      })
+    })
+    const adapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      dependencies: runtimeDependencies(server.child),
+    })
+
+    const events = await collect(adapter.execute(input()))
+
+    expect(events.at(-1)).toEqual(expect.objectContaining({
+      type: 'adapter:failed',
+      code: 'CODEX_APP_SERVER_DELTA_INVALID',
+    }))
+    expect(events.some((event) => event.type === 'adapter:stream_delta')).toBe(false)
+  })
+
+  it('stops accumulating once the aggregate result exceeds its limit', async () => {
+    // Individually admissible deltas: each is under both the delta bound and the
+    // transport line bound, so only the running total can reject this stream.
+    const delta = 'x'.repeat(500_000)
+    const server = fakeServer((current) => {
+      for (let index = 0; index < 5; index += 1) {
+        notify(current, 'item/agentMessage/delta', {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          itemId: `item-${String(index)}`,
+          delta,
+        })
+      }
+      notifyUsage(current)
+      notify(current, 'turn/completed', {
+        threadId: 'thread-1',
+        turn: turnPayload('turn-1', 'completed'),
+      })
+    })
+    const adapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      dependencies: runtimeDependencies(server.child),
+    })
+
+    const events = await collect(adapter.execute(input()))
+
+    expect(events.at(-1)).toEqual(expect.objectContaining({
+      type: 'adapter:failed',
+      code: 'CODEX_APP_SERVER_RESULT_LIMIT',
+    }))
+    expect(events.some((event) => event.type === 'adapter:completed')).toBe(false)
+  })
+
+  it('maps a provider protocol error frame to a stable terminal failure', async () => {
+    const server = fakeServer((current) => {
+      notify(current, 'error', {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        message: 'provider-owned private failure',
+      })
+    })
+    const adapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      dependencies: runtimeDependencies(server.child),
+    })
+
+    const events = await collect(adapter.execute(input()))
+
+    expect(events.at(-1)).toEqual(expect.objectContaining({
+      type: 'adapter:failed',
+      code: 'CODEX_APP_SERVER_PROTOCOL_ERROR',
+    }))
+    expect(JSON.stringify(events)).not.toContain('private failure')
   })
 })

@@ -422,14 +422,6 @@
           "reviewBy": "2026-11-16",
           "rationale": "RF-03: module was over the ceiling with no pin, so the gate was red. Frozen at its current 615 bytes-bound LOC pending extraction down to the 500-LOC target."
         },
-        "src/codex/codex-app-server-adapter.ts": {
-          "maxLines": 905,
-          "sourceSha256": "c0905cd20475de198eeca7b65ac8cea276bbe3b4ef8a2fd39f5cab3d602cd1c0",
-          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
-          "reviewBy": "2026-09-14",
-          "rationale": "Freeze the consolidated Codex app-server adapter pending extraction of lifecycle, approval, and event mapping concerns.",
-          "shrinkTarget": 500
-        },
         "src/index.ts": {
           "maxLines": 957,
           "shrinkTarget": 500,
