@@ -8,6 +8,7 @@ export default defineConfig({
     'src/ai-budget-reservation.ts',
     'src/effect-receipt.ts',
     'src/loop-economics-evidence.ts',
+    'src/loop-economics-evidence-v2.ts',
     'src/execution-boundary-evidence.ts',
     'src/canonical-execution.ts',
     'src/orchestration.ts',

@@ -30,6 +30,10 @@
       "import": "./dist/loop-economics-evidence.js",
       "types": "./dist/loop-economics-evidence.d.ts"
     },
+    "./loop-economics-evidence-v2": {
+      "import": "./dist/loop-economics-evidence-v2.js",
+      "types": "./dist/loop-economics-evidence-v2.d.ts"
+    },
     "./execution-boundary-evidence": {
       "import": "./dist/execution-boundary-evidence.js",
       "types": "./dist/execution-boundary-evidence.d.ts"
