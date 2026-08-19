@@ -344,9 +344,12 @@ export {
 export {
   AesGcmResumeTokenProtector,
   DURABLE_PENDING_CONTACTS_KEY,
+  KeyringResumeTokenProtector,
   RunStorePendingContactStore,
 } from "./tools/run-store-pending-contact-store.js";
 export type {
+  KeyringResumeTokenProtectorConfig,
+  ResumeTokenProtectionKey,
   ResumeTokenProtectionContext,
   ResumeTokenProtector,
 } from "./tools/run-store-pending-contact-store.js";

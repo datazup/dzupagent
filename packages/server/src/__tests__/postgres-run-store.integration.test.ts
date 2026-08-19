@@ -12,9 +12,26 @@
  * Qdrant, not in the relational Forge tables.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import type { LogEntry } from '@dzupagent/core'
+import {
+  InMemoryAgentStore,
+  ModelRegistry,
+  createEventBus,
+  type DzupEventBus,
+  type LogEntry,
+} from '@dzupagent/core'
 import type { Client as PgClient } from 'pg'
+import { createForgeApp, type ForgeServerConfig } from '../app.js'
 import type { PostgresRunStore } from '../persistence/postgres-stores.js'
+import {
+  consumePendingContact,
+  readPendingContactBinding,
+  readResolvedContact,
+  recordPendingContact,
+} from '../runtime/pending-contacts.js'
+import {
+  inspectHumanContactOperations,
+  reconcileHumanContactOperations,
+} from '../runtime/human-contact-operations.js'
 import { requireIntegration } from './helpers/require-integration.js'
 
 // ---------------------------------------------------------------------------
@@ -153,7 +170,9 @@ describe.skipIf(integrationGate.shouldSkip)('PostgresRunStore integration (testc
 
   let container: StartedTestContainer
   let pgClient: PgClient
+  let pgClientReplica: PgClient
   let store: PostgresRunStore
+  let storeReplica: PostgresRunStore
   let agentId: string
 
   beforeAll(async () => {
@@ -190,6 +209,14 @@ describe.skipIf(integrationGate.shouldSkip)('PostgresRunStore integration (testc
       database: 'testdb',
     })
     await pgClient.connect()
+    pgClientReplica = new pg.Client({
+      host,
+      port,
+      user: 'test',
+      password: 'test',
+      database: 'testdb',
+    })
+    await pgClientReplica.connect()
 
     // ----------------------------------------------------------------
     // 3. Create schema
@@ -208,6 +235,10 @@ describe.skipIf(integrationGate.shouldSkip)('PostgresRunStore integration (testc
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const db = drizzle(pgClient) as any
     store = new PostgresRunStore(db)
+    // A separate connection/store models a second process or replica.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const replicaDb = drizzle(pgClientReplica) as any
+    storeReplica = new PostgresRunStore(replicaDb)
 
     // ----------------------------------------------------------------
     // 5. Seed a test agent (FK requirement for forge_runs.agent_id)
@@ -216,9 +247,43 @@ describe.skipIf(integrationGate.shouldSkip)('PostgresRunStore integration (testc
   }, 120_000) // Container pull + start can be slow on first run
 
   afterAll(async () => {
+    try { await pgClientReplica?.end() } catch { /* ignore */ }
     try { await pgClient?.end() } catch { /* ignore */ }
     await container?.stop()
   }, 30_000)
+
+  function replicaApp(
+    runStore: PostgresRunStore,
+    eventBus: DzupEventBus,
+  ): ReturnType<typeof createForgeApp> {
+    const config: ForgeServerConfig = {
+      runStore,
+      agentStore: new InMemoryAgentStore(),
+      eventBus,
+      modelRegistry: new ModelRegistry(),
+    }
+    return createForgeApp(config)
+  }
+
+  async function respond(
+    app: ReturnType<typeof createForgeApp>,
+    runId: string,
+    contactId: string,
+    resumeToken: string,
+    approved: boolean,
+  ): Promise<Response> {
+    return app.request(
+      `/api/runs/${runId}/human-contact/${contactId}/respond`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Dzup-Resume-Token': resumeToken,
+        },
+        body: JSON.stringify({ type: 'approval', approved }),
+      },
+    )
+  }
 
   // -------------------------------------------------------------------------
   // create() + get() round-trip
@@ -296,6 +361,159 @@ describe.skipIf(integrationGate.shouldSkip)('PostgresRunStore integration (testc
       metadata: { revision: 2 },
     })
     expect(stale).toBeNull()
+  })
+
+  it('admits exactly one response across independent database connections', async () => {
+    const run = await store.create({
+      agentId,
+      input: { task: 'human-contact-cross-connection' },
+      tenantId: 'tenant-pg-human-contact',
+    })
+    await store.update(run.id, { status: 'suspended' })
+    const contactId = 'contact-pg-cross-connection'
+    const resumeToken = 'pg-cross-connection-token-1234567890'
+    await recordPendingContact(store, run.id, {
+      runId: run.id,
+      tenantId: 'tenant-pg-human-contact',
+      contactId,
+      resumeToken,
+    })
+
+    const rejected = await respond(
+      replicaApp(storeReplica, createEventBus()),
+      run.id,
+      contactId,
+      'wrong-pg-cross-connection-token',
+      true,
+    )
+    expect(rejected.status).toBe(404)
+    expect((await store.get(run.id))?.status).toBe('suspended')
+    expect(readPendingContactBinding((await store.get(run.id))!, contactId))
+      .not.toBeNull()
+
+    const eventBus = createEventBus()
+    let responseEvents = 0
+    eventBus.on('human_contact:responded', () => { responseEvents += 1 })
+    const responses = await Promise.all([
+      respond(replicaApp(store, eventBus), run.id, contactId, resumeToken, true),
+      respond(replicaApp(storeReplica, eventBus), run.id, contactId, resumeToken, false),
+    ])
+    const statuses = await Promise.all(responses.map(async (response) => {
+      const body = await response.json() as { data: { status: string } }
+      return body.data.status
+    }))
+
+    expect(statuses.sort()).toEqual(['already_resumed', 'resumed'])
+    expect(responseEvents).toBe(1)
+    expect((await storeReplica.get(run.id))?.status).toBe('running')
+    expect(readResolvedContact((await store.get(run.id))!, contactId))
+      .toMatchObject({ publicationStatus: 'published' })
+
+    const foreignTenant = await consumePendingContact(storeReplica, {
+      runId: run.id,
+      tenantId: 'tenant-pg-foreign',
+      contactId,
+      resumeToken,
+      response: { type: 'approval', approved: true },
+      responseType: 'approval',
+      respondedAt: new Date().toISOString(),
+      publicationClaimId: 'foreign-tenant-claim',
+      publicationLeaseExpiresAt: new Date(Date.now() + 30_000).toISOString(),
+    })
+    expect(foreignTenant.status).toBe('not_found')
+  })
+
+  it('recovers a committed response publication after replica recreation', async () => {
+    const run = await store.create({
+      agentId,
+      input: { task: 'human-contact-publication-recovery' },
+      tenantId: 'tenant-pg-publication-recovery',
+    })
+    await store.update(run.id, { status: 'suspended' })
+    const contactId = 'contact-pg-publication-recovery'
+    const resumeToken = 'pg-publication-recovery-token-1234567890'
+    await recordPendingContact(store, run.id, {
+      runId: run.id,
+      tenantId: 'tenant-pg-publication-recovery',
+      contactId,
+      resumeToken,
+    })
+    const consumed = await consumePendingContact(store, {
+      runId: run.id,
+      tenantId: 'tenant-pg-publication-recovery',
+      contactId,
+      resumeToken,
+      response: { type: 'approval', approved: true, source: 'committed' },
+      responseType: 'approval',
+      respondedAt: '2000-01-01T00:00:00.000Z',
+      publicationClaimId: 'terminated-replica-claim',
+      publicationLeaseExpiresAt: '2000-01-01T00:00:01.000Z',
+    })
+    expect(consumed.status).toBe('consumed')
+
+    const recreatedBus = createEventBus()
+    let publishedResponse: Record<string, unknown> | undefined
+    recreatedBus.on('human_contact:responded', (event) => {
+      publishedResponse = event.response
+    })
+    const recovered = await respond(
+      replicaApp(storeReplica, recreatedBus),
+      run.id,
+      contactId,
+      resumeToken,
+      false,
+    )
+    expect(await recovered.json()).toMatchObject({
+      data: { status: 'already_resumed' },
+    })
+    expect(publishedResponse).toMatchObject({ approved: true, source: 'committed' })
+    expect(readResolvedContact((await store.get(run.id))!, contactId))
+      .toMatchObject({ publicationStatus: 'published' })
+  })
+
+  it('inspects and reconciles expired custody through PostgreSQL CAS', async () => {
+    const now = '2026-08-19T12:00:00.000Z'
+    const run = await store.create({
+      agentId,
+      input: { task: 'human-contact-operational-custody' },
+      tenantId: 'tenant-pg-operations',
+      metadata: {
+        durablePendingHumanContacts: [{
+          kind: 'durable-human-contact-reservation-v1',
+          contactId: 'contact-pg-expired-lease',
+          runId: 'bound-at-create',
+          tenantId: 'tenant-pg-operations',
+          invocationId: 'invocation-pg-operations',
+          invocationDigest: 'digest-pg-operations',
+          requestType: 'approval',
+          resumeTokenHash: 'digest-only',
+          resumeTokenCiphertext: 'ciphertext-only',
+          deliveryStatus: 'pending',
+          lifecycleStatus: 'preparing',
+          pauseLeaseId: 'expired-pg-lease',
+          pauseLeaseExpiresAt: now,
+        }],
+      },
+    })
+
+    const inspected = await inspectHumanContactOperations(storeReplica, {
+      now,
+      tenantId: 'tenant-pg-operations',
+      limit: 10,
+    })
+    expect(inspected.changedRuns).toBe(0)
+    expect(inspected.observations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ subject: 'pause', action: 'none' }),
+    ]))
+
+    const reconciled = await reconcileHumanContactOperations(store, {
+      now,
+      tenantId: 'tenant-pg-operations',
+      limit: 10,
+    })
+    expect(reconciled.changedRuns).toBe(1)
+    expect(JSON.stringify((await storeReplica.get(run.id))?.metadata))
+      .not.toContain('expired-pg-lease')
   })
 
   it('update() sets output and completedAt on completion', async () => {

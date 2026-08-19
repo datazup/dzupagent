@@ -73,6 +73,20 @@ export type {
   DurableHumanContactComposition,
   DurableHumanContactCompositionOptions,
 } from './runtime/durable-human-contact-composition.js'
+export {
+  inspectHumanContactOperations,
+  reconcileHumanContactOperations,
+} from './runtime/human-contact-operations.js'
+export type {
+  HumanContactOperationalAction,
+  HumanContactOperationalClassification,
+  HumanContactOperationalMetric,
+  HumanContactOperationalObservation,
+  HumanContactOperationalSink,
+  HumanContactOperationalSubject,
+  HumanContactOperationOptions,
+  HumanContactOperationReport,
+} from './runtime/human-contact-operations.js'
 
 // --- Consolidation scheduler ---
 export { ConsolidationScheduler } from './runtime/consolidation-scheduler.js'

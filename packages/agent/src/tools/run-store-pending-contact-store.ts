@@ -27,6 +27,8 @@ export const DURABLE_PENDING_CONTACTS_KEY = 'durablePendingHumanContacts'
 
 const RESERVATION_KIND = 'durable-human-contact-reservation-v1'
 const CIPHER_KIND = 'aes-256-gcm-v1'
+const KEYRING_CIPHER_KIND = 'aes-256-gcm-keyring-v1'
+const MAX_PREVIOUS_TOKEN_KEYS = 8
 
 export interface ResumeTokenProtectionContext {
   tenantId: string
@@ -37,6 +39,20 @@ export interface ResumeTokenProtectionContext {
 export interface ResumeTokenProtector {
   protect(token: string, context: ResumeTokenProtectionContext): Promise<string>
   unprotect(ciphertext: string, context: ResumeTokenProtectionContext): Promise<string>
+}
+
+export interface ResumeTokenProtectionKey {
+  /** Non-secret stable identifier persisted with ciphertext. */
+  id: string
+  /** Host-owned AES-256 key bytes. */
+  key: Uint8Array
+}
+
+export interface KeyringResumeTokenProtectorConfig {
+  /** The only key used for new ciphertext. */
+  current: ResumeTokenProtectionKey
+  /** Bounded decrypt-only keys retained during rotation. */
+  previous?: readonly ResumeTokenProtectionKey[]
 }
 
 /** Host-owned AES-256-GCM protector; callers retain custody of the 32-byte key. */
@@ -85,6 +101,108 @@ export class AesGcmResumeTokenProtector implements ResumeTokenProtector {
       const decipher = createDecipheriv(
         'aes-256-gcm',
         this.key,
+        Buffer.from(ivText, 'base64url'),
+      )
+      decipher.setAAD(Buffer.from(protectionAad(context)))
+      decipher.setAuthTag(Buffer.from(tagText, 'base64url'))
+      return Buffer.concat([
+        decipher.update(Buffer.from(encryptedText, 'base64url')),
+        decipher.final(),
+      ]).toString('utf8')
+    } catch {
+      throw new Error('HUMAN_CONTACT_TOKEN_DECRYPTION_FAILED')
+    }
+  }
+}
+
+/**
+ * Host-owned rotating keyring with explicit ciphertext key identifiers.
+ *
+ * New values always use `current`. Previous keys are decrypt-only, and are
+ * also tried against legacy v1 ciphertext that predates key identifiers.
+ */
+export class KeyringResumeTokenProtector implements ResumeTokenProtector {
+  private readonly current: { id: string; key: Buffer }
+  private readonly keys = new Map<string, Buffer>()
+  private readonly legacyProtectors: AesGcmResumeTokenProtector[]
+
+  constructor(config: KeyringResumeTokenProtectorConfig) {
+    const previous = [...(config.previous ?? [])]
+    if (previous.length > MAX_PREVIOUS_TOKEN_KEYS) {
+      throw new Error('HUMAN_CONTACT_TOKEN_KEYRING_TOO_LARGE')
+    }
+    const entries = [config.current, ...previous]
+    for (const entry of entries) {
+      if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(entry.id)) {
+        throw new Error('HUMAN_CONTACT_TOKEN_KEY_ID_INVALID')
+      }
+      if (entry.key.byteLength !== 32) {
+        throw new Error('HUMAN_CONTACT_TOKEN_KEY_INVALID: expected 32 bytes')
+      }
+      if (this.keys.has(entry.id)) {
+        throw new Error('HUMAN_CONTACT_TOKEN_KEY_ID_DUPLICATE')
+      }
+      this.keys.set(entry.id, Buffer.from(entry.key))
+    }
+    this.current = {
+      id: config.current.id,
+      key: Buffer.from(config.current.key),
+    }
+    this.legacyProtectors = entries.map(
+      (entry) => new AesGcmResumeTokenProtector(entry.key),
+    )
+  }
+
+  async protect(
+    token: string,
+    context: ResumeTokenProtectionContext,
+  ): Promise<string> {
+    const iv = randomBytes(12)
+    const cipher = createCipheriv('aes-256-gcm', this.current.key, iv)
+    cipher.setAAD(Buffer.from(protectionAad(context)))
+    const encrypted = Buffer.concat([cipher.update(token, 'utf8'), cipher.final()])
+    const tag = cipher.getAuthTag()
+    return [
+      KEYRING_CIPHER_KIND,
+      this.current.id,
+      iv.toString('base64url'),
+      tag.toString('base64url'),
+      encrypted.toString('base64url'),
+    ].join('.')
+  }
+
+  async unprotect(
+    ciphertext: string,
+    context: ResumeTokenProtectionContext,
+  ): Promise<string> {
+    if (ciphertext.startsWith(`${CIPHER_KIND}.`)) {
+      for (const protector of this.legacyProtectors) {
+        try {
+          return await protector.unprotect(ciphertext, context)
+        } catch {
+          // Try the next bounded decrypt-only key.
+        }
+      }
+      throw new Error('HUMAN_CONTACT_TOKEN_DECRYPTION_FAILED')
+    }
+
+    const [kind, keyId, ivText, tagText, encryptedText, ...extra] = ciphertext.split('.')
+    if (
+      kind !== KEYRING_CIPHER_KIND
+      || !keyId
+      || !ivText
+      || !tagText
+      || !encryptedText
+      || extra.length > 0
+    ) {
+      throw new Error('HUMAN_CONTACT_TOKEN_CIPHERTEXT_INVALID')
+    }
+    const key = this.keys.get(keyId)
+    if (!key) throw new Error('HUMAN_CONTACT_TOKEN_KEY_NOT_FOUND')
+    try {
+      const decipher = createDecipheriv(
+        'aes-256-gcm',
+        key,
         Buffer.from(ivText, 'base64url'),
       )
       decipher.setAAD(Buffer.from(protectionAad(context)))

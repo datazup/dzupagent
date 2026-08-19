@@ -4,6 +4,7 @@ import { InMemoryRunStore } from '@dzupagent/core/persistence'
 import {
   AesGcmResumeTokenProtector,
   DURABLE_PENDING_CONTACTS_KEY,
+  KeyringResumeTokenProtector,
   RunStorePendingContactStore,
 } from './run-store-pending-contact-store.js'
 import type { PendingContactRecord } from './human-contact-tool.js'
@@ -45,6 +46,51 @@ async function fixture(): Promise<{
 }
 
 describe('RunStorePendingContactStore', () => {
+  it('rotates explicit key ids while retaining bounded legacy decryption', async () => {
+    const context = {
+      tenantId: 'tenant-keyring',
+      runId: 'run-keyring',
+      contactId: 'contact-keyring',
+    }
+    const oldKey = new Uint8Array(32).fill(31)
+    const newKey = new Uint8Array(32).fill(32)
+    const oldProtector = new KeyringResumeTokenProtector({
+      current: { id: 'key-2026-08-a', key: oldKey },
+    })
+    const oldCiphertext = await oldProtector.protect('rotating-token', context)
+    const legacyCiphertext = await new AesGcmResumeTokenProtector(oldKey)
+      .protect('legacy-token', context)
+    const rotated = new KeyringResumeTokenProtector({
+      current: { id: 'key-2026-08-b', key: newKey },
+      previous: [{ id: 'key-2026-08-a', key: oldKey }],
+    })
+
+    expect(oldCiphertext).toMatch(/^aes-256-gcm-keyring-v1\.key-2026-08-a\./)
+    expect(oldCiphertext).not.toContain('rotating-token')
+    await expect(rotated.unprotect(oldCiphertext, context))
+      .resolves.toBe('rotating-token')
+    await expect(rotated.unprotect(legacyCiphertext, context))
+      .resolves.toBe('legacy-token')
+    await expect(rotated.protect('new-token', context))
+      .resolves.toMatch(/^aes-256-gcm-keyring-v1\.key-2026-08-b\./)
+  })
+
+  it('fails closed for an unknown ciphertext key id', async () => {
+    const context = {
+      tenantId: 'tenant-keyring',
+      runId: 'run-keyring',
+      contactId: 'contact-keyring',
+    }
+    const protector = new KeyringResumeTokenProtector({
+      current: { id: 'key-known', key: new Uint8Array(32).fill(33) },
+    })
+    const ciphertext = await protector.protect('unknown-key-token', context)
+    const foreign = ciphertext.replace('.key-known.', '.key-foreign.')
+
+    await expect(protector.unprotect(foreign, context))
+      .rejects.toThrow('HUMAN_CONTACT_TOKEN_KEY_NOT_FOUND')
+  })
+
   it('persists a content-free reservation and recovers its protected token', async () => {
     const { runStore, runId, record, protector } = await fixture()
     const store = new RunStorePendingContactStore(runStore, protector)

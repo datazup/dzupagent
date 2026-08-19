@@ -58,6 +58,20 @@ export type {
   InMemoryRunTraceStoreOptions,
 } from './persistence/run-trace-store.js'
 export {
+  inspectHumanContactOperations,
+  reconcileHumanContactOperations,
+} from './runtime/human-contact-operations.js'
+export type {
+  HumanContactOperationalAction,
+  HumanContactOperationalClassification,
+  HumanContactOperationalMetric,
+  HumanContactOperationalObservation,
+  HumanContactOperationalSink,
+  HumanContactOperationalSubject,
+  HumanContactOperationOptions,
+  HumanContactOperationReport,
+} from './runtime/human-contact-operations.js'
+export {
   InMemoryBenchmarkRunStore,
 } from './persistence/benchmark-run-store.js'
 export type {
