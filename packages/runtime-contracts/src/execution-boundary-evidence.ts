@@ -2,7 +2,7 @@ import {
   CANONICAL_JSON_VERSION,
   canonicalInputDigest,
 } from "./idempotency.js";
-import type { ExecutionLeafKind } from "./canonical-execution.js";
+import type { ExecutionLeafKind } from "./execution-leaf-kind.js";
 
 export const EXECUTION_STATE_ACCESS_INVENTORY_SCHEMA_V1 =
   "dzupagent.executionStateAccessInventory/v1" as const;

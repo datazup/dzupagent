@@ -7,15 +7,12 @@
  */
 
 import type { ExecutionBoundaryEvidenceV1 } from "./execution-boundary-evidence.js";
+import type { ExecutionLeafKind } from "./execution-leaf-kind.js";
 
-export const EXECUTION_LEAF_KINDS = [
-  "prompt",
-  "agent",
-  "adapter.run",
-  "worker.dispatch",
-] as const;
-
-export type ExecutionLeafKind = (typeof EXECUTION_LEAF_KINDS)[number];
+export {
+  EXECUTION_LEAF_KINDS,
+  type ExecutionLeafKind,
+} from "./execution-leaf-kind.js";
 
 export interface ExecutionSourceRef {
   readonly flowId?: string;
