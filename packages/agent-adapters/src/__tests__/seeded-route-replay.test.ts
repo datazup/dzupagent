@@ -278,6 +278,71 @@ describe("seeded route selection replay fixtures", () => {
     ).not.toBeNull();
   });
 
+  it("never draws an ineligible candidate, however heavily it is weighted", () => {
+    // bravo carries 50x the weight of both eligible candidates combined, so a
+    // draw that ran over the declared set instead of the eligible subset would
+    // land on it almost immediately. Its weight is the control: the test only
+    // means something because bravo would otherwise dominate.
+    const policy = replayPolicy(
+      [
+        replayCandidate("alpha:sdk", { tags: ["route-weight:1"] }),
+        replayCandidate("bravo:sdk", {
+          tags: ["route-weight:100"],
+          authAvailable: false,
+        }),
+        replayCandidate("charlie:sdk", { tags: ["route-weight:1"] }),
+      ],
+      { strategy: "weighted" },
+    );
+
+    for (let index = 0; index < 200; index++) {
+      const { decision } = selectExecutionRouteWithReceipt(policy, {
+        decidedAt: REPLAY_DECIDED_AT,
+        seed: `seed-${index}`,
+      });
+
+      expect(decision.eligibleCandidateIds).toEqual(["alpha:sdk", "charlie:sdk"]);
+      expect(decision.selectedCandidateId).not.toBe("bravo:sdk");
+      expect(decision.eligibleCandidateIds).toContain(
+        decision.selectedCandidateId,
+      );
+    }
+  });
+
+  it("draws in proportion to the declared weights", () => {
+    // Pins proportionality, not just determinism: a draw that treated every
+    // candidate as equally weighted stays perfectly deterministic and would
+    // pass every fixture above, but cannot reproduce these shares.
+    const policy = replayPolicy(
+      [
+        replayCandidate("alpha:sdk", { tags: ["route-weight:1"] }),
+        replayCandidate("bravo:sdk", { tags: ["route-weight:3"] }),
+        replayCandidate("charlie:sdk", { tags: ["route-weight:6"] }),
+      ],
+      { strategy: "weighted" },
+    );
+
+    const draws = 1000;
+    const counts: Record<string, number> = {
+      "alpha:sdk": 0,
+      "bravo:sdk": 0,
+      "charlie:sdk": 0,
+    };
+    for (let index = 0; index < draws; index++) {
+      const { decision } = selectExecutionRouteWithReceipt(policy, {
+        decidedAt: REPLAY_DECIDED_AT,
+        seed: `seed-${index}`,
+      });
+      counts[decision.selectedCandidateId as string] += 1;
+    }
+
+    // The draw is a pure function of fixed seeds, so these shares are exact and
+    // reproducible; the tolerance covers hash spread, not run-to-run variance.
+    expect(counts["alpha:sdk"] / draws).toBeCloseTo(0.1, 1);
+    expect(counts["bravo:sdk"] / draws).toBeCloseTo(0.3, 1);
+    expect(counts["charlie:sdk"] / draws).toBeCloseTo(0.6, 1);
+  });
+
   it("denies a weighted policy that declares no candidates at all", () => {
     expect(() =>
       selectExecutionRouteWithReceipt(replayPolicy([], { strategy: "weighted" }), {
