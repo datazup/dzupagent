@@ -6,23 +6,13 @@ import type {
   CompileFailure,
   CompilerOptions,
 } from "../types.js";
-import { countDiagnosticsByCategory } from "./diagnostics.js";
-
-interface CompileFailureEvent {
-  readonly type: "flow:compile_failed";
-  readonly compileId: string;
-  readonly stage: 3;
-  readonly errorCount: number;
-  readonly durationMs: number;
-}
+import { failCompile, type CompileFailureSink } from "./compile-failure.js";
 
 /** Convert expanded-primitive binding drift into one Stage 3 compile failure. */
 export function rejectInvalidPrimitiveSelection(
   ast: FlowNode,
   opts: CompilerOptions,
-  compileId: string,
-  startedAt: number,
-  emit: (event: CompileFailureEvent) => void,
+  fail: CompileFailureSink,
 ): CompileFailure | undefined {
   const issues = validateFlowPrimitiveSelections(
     ast,
@@ -37,16 +27,5 @@ export function rejectInvalidPrimitiveSelection(
     nodePath: issue.nodePath,
     category: "registry",
   }));
-  emit({
-    type: "flow:compile_failed",
-    compileId,
-    stage: 3,
-    errorCount: errors.length,
-    durationMs: Date.now() - startedAt,
-  });
-  return {
-    errors,
-    compileId,
-    diagnosticCountsByCategory: countDiagnosticsByCategory(errors),
-  };
+  return failCompile(fail, 3, errors);
 }
