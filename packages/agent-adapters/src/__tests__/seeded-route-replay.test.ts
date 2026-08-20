@@ -182,7 +182,9 @@ describe("seeded route selection replay fixtures", () => {
     expect(() =>
       selectExecutionRouteWithReceipt(definition!.policy, options),
     ).toThrow(
-      expect.objectContaining<Partial<DeterministicRouteSelectionAdmissionError>>({
+      expect.objectContaining<
+        Partial<DeterministicRouteSelectionAdmissionError>
+      >({
         name: "DeterministicRouteSelectionAdmissionError",
         code,
       }),
@@ -251,7 +253,9 @@ describe("seeded route selection replay fixtures", () => {
         seed: "seed-0",
       }),
     ).toThrow(
-      expect.objectContaining<Partial<DeterministicRouteSelectionAdmissionError>>({
+      expect.objectContaining<
+        Partial<DeterministicRouteSelectionAdmissionError>
+      >({
         name: "DeterministicRouteSelectionAdmissionError",
         code,
       }),
@@ -301,7 +305,10 @@ describe("seeded route selection replay fixtures", () => {
         seed: `seed-${index}`,
       });
 
-      expect(decision.eligibleCandidateIds).toEqual(["alpha:sdk", "charlie:sdk"]);
+      expect(decision.eligibleCandidateIds).toEqual([
+        "alpha:sdk",
+        "charlie:sdk",
+      ]);
       expect(decision.selectedCandidateId).not.toBe("bravo:sdk");
       expect(decision.eligibleCandidateIds).toContain(
         decision.selectedCandidateId,
@@ -343,14 +350,143 @@ describe("seeded route selection replay fixtures", () => {
     expect(counts["charlie:sdk"] / draws).toBeCloseTo(0.6, 1);
   });
 
-  it("denies a weighted policy that declares no candidates at all", () => {
-    expect(() =>
-      selectExecutionRouteWithReceipt(replayPolicy([], { strategy: "weighted" }), {
+  it("advances the round-robin rotation instead of repeating the cursor's candidate", () => {
+    const first = committed["round-robin-first"] as RouteSelectionReceipt;
+    const second = committed[
+      "round-robin-after-alpha"
+    ] as RouteSelectionReceipt;
+    const third = committed["round-robin-wraps"] as RouteSelectionReceipt;
+
+    // Canonical id order, not declaration order (the fixture declares
+    // charlie/alpha/bravo), drives the rotation.
+    expect(first.roundRobinCursor).toBeNull();
+    expect(first.decision.selectedCandidateId).toBe("alpha:sdk");
+    expect(second.roundRobinCursor).toBe("alpha:sdk");
+    expect(second.decision.selectedCandidateId).toBe("bravo:sdk");
+    expect(third.roundRobinCursor).toBe("charlie:sdk");
+    expect(third.decision.selectedCandidateId).toBe("alpha:sdk");
+  });
+
+  it("cycles a full rotation by feeding each receipt's pick back as the cursor", () => {
+    const policy = replayPolicy(
+      [
+        replayCandidate("charlie:sdk"),
+        replayCandidate("alpha:sdk"),
+        replayCandidate("bravo:sdk"),
+      ],
+      { strategy: "round-robin" },
+    );
+
+    const seen: (string | null)[] = [];
+    let cursor: string | undefined;
+    for (let index = 0; index < 6; index++) {
+      const receipt = selectExecutionRouteWithReceipt(policy, {
         decidedAt: REPLAY_DECIDED_AT,
-        seed: "seed-0",
+        ...(cursor === undefined ? {} : { roundRobinCursor: cursor }),
+      });
+      seen.push(receipt.decision.selectedCandidateId);
+      cursor = receipt.decision.selectedCandidateId ?? undefined;
+    }
+
+    expect(seen).toEqual([
+      "alpha:sdk",
+      "bravo:sdk",
+      "charlie:sdk",
+      "alpha:sdk",
+      "bravo:sdk",
+      "charlie:sdk",
+    ]);
+  });
+
+  it("keeps round-robin a pure function of its inputs: no hidden rotation state", () => {
+    const policy = replayPolicy(
+      [
+        replayCandidate("alpha:sdk"),
+        replayCandidate("bravo:sdk"),
+        replayCandidate("charlie:sdk"),
+      ],
+      { strategy: "round-robin" },
+    );
+    const options = {
+      decidedAt: REPLAY_DECIDED_AT,
+      roundRobinCursor: "alpha:sdk",
+    };
+
+    // A module- or instance-level cursor would advance between these calls;
+    // identical inputs must produce byte-identical receipts every time.
+    const receipts = [
+      selectExecutionRouteWithReceipt(policy, options),
+      selectExecutionRouteWithReceipt(policy, options),
+      selectExecutionRouteWithReceipt(policy, options),
+    ].map((receipt) => serialize(receipt));
+
+    expect(receipts[1]).toBe(receipts[0]);
+    expect(receipts[2]).toBe(receipts[0]);
+    expect(
+      (JSON.parse(receipts[0] as string) as RouteSelectionReceipt).decision
+        .selectedCandidateId,
+    ).toBe("bravo:sdk");
+  });
+
+  it.each([
+    // An empty cursor is a *present* input, denied separately from an absent
+    // one, exactly like an empty seed.
+    {
+      name: "an empty cursor",
+      cursor: "",
+      code: "ROUND_ROBIN_STRATEGY_INVALID_CURSOR",
+    },
+    {
+      name: "a cursor naming no declared candidate",
+      cursor: "ghost:sdk",
+      code: "ROUND_ROBIN_STRATEGY_UNKNOWN_CURSOR_CANDIDATE",
+    },
+  ] as const)("fails closed for $name", ({ cursor, code }) => {
+    const policy = replayPolicy(
+      [replayCandidate("alpha:sdk"), replayCandidate("bravo:sdk")],
+      { strategy: "round-robin" },
+    );
+
+    expect(() =>
+      selectExecutionRouteWithReceipt(policy, {
+        decidedAt: REPLAY_DECIDED_AT,
+        roundRobinCursor: cursor,
       }),
     ).toThrow(
-      expect.objectContaining<Partial<DeterministicRouteSelectionAdmissionError>>({
+      expect.objectContaining<
+        Partial<DeterministicRouteSelectionAdmissionError>
+      >({
+        name: "DeterministicRouteSelectionAdmissionError",
+        code,
+      }),
+    );
+  });
+
+  it("records a null round-robin cursor for every non-round-robin strategy", () => {
+    for (const name of [
+      "weighted-seed-0",
+      "hash-tenant-42",
+      "rule-baseline",
+    ] as const) {
+      expect(
+        (committed[name] as RouteSelectionReceipt).roundRobinCursor,
+      ).toBeNull();
+    }
+  });
+
+  it("denies a weighted policy that declares no candidates at all", () => {
+    expect(() =>
+      selectExecutionRouteWithReceipt(
+        replayPolicy([], { strategy: "weighted" }),
+        {
+          decidedAt: REPLAY_DECIDED_AT,
+          seed: "seed-0",
+        },
+      ),
+    ).toThrow(
+      expect.objectContaining<
+        Partial<DeterministicRouteSelectionAdmissionError>
+      >({
         name: "DeterministicRouteSelectionAdmissionError",
         code: "WEIGHTED_STRATEGY_REQUIRES_POSITIVE_WEIGHT_SUM",
       }),

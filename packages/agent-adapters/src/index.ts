@@ -184,6 +184,7 @@ export type {
   SeededRouteStrategy,
   SeededRouteStrategyFailureCode,
 } from "./registry/seeded-route-strategies.js";
+export type { RoundRobinRouteStrategyFailureCode } from "./registry/round-robin-route-strategy.js";
 export { materializeRoutingCandidates } from "./registry/candidate-materializer.js";
 export type { CandidateMaterializationDescriptor } from "./registry/candidate-materializer.js";
 export { LearningRouter } from "./registry/learning-router.js";

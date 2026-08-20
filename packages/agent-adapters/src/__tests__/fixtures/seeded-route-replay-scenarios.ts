@@ -72,6 +72,13 @@ const HASH_CANDIDATES = [
   replayCandidate("charlie:sdk"),
 ];
 
+/** Declared out of canonical order so rotation order cannot be input order. */
+const ROUND_ROBIN_CANDIDATES = [
+  replayCandidate("charlie:sdk"),
+  replayCandidate("alpha:sdk"),
+  replayCandidate("bravo:sdk"),
+];
+
 export interface SeededRouteReplayScenario {
   readonly name: string;
   readonly policy: ExecutionRoutePolicy;
@@ -140,5 +147,57 @@ export const SEEDED_ROUTE_REPLAY_SCENARIOS: readonly SeededRouteReplayScenario[]
       options: { decidedAt: REPLAY_DECIDED_AT },
       proves:
         "an unseeded strategy still produces a receipt, with null seed, key and weights",
+    },
+    {
+      name: "round-robin-first",
+      policy: replayPolicy(ROUND_ROBIN_CANDIDATES, { strategy: "round-robin" }),
+      options: { decidedAt: REPLAY_DECIDED_AT },
+      proves:
+        "an absent cursor starts the rotation at the first candidate in canonical id order, recording a null cursor",
+    },
+    {
+      name: "round-robin-after-alpha",
+      policy: replayPolicy(ROUND_ROBIN_CANDIDATES, { strategy: "round-robin" }),
+      options: { decidedAt: REPLAY_DECIDED_AT, roundRobinCursor: "alpha:sdk" },
+      proves:
+        "a receipt-carried cursor advances the rotation to the canonical successor instead of repeating the cursor's candidate",
+    },
+    {
+      name: "round-robin-wraps",
+      policy: replayPolicy(ROUND_ROBIN_CANDIDATES, { strategy: "round-robin" }),
+      options: {
+        decidedAt: REPLAY_DECIDED_AT,
+        roundRobinCursor: "charlie:sdk",
+      },
+      proves:
+        "a cursor at the canonical end wraps the rotation back to the first eligible candidate",
+    },
+    {
+      name: "round-robin-skips-ineligible",
+      policy: replayPolicy(
+        [
+          replayCandidate("alpha:sdk"),
+          replayCandidate("bravo:sdk", { authAvailable: false }),
+          replayCandidate("charlie:sdk"),
+        ],
+        { strategy: "round-robin" },
+      ),
+      options: { decidedAt: REPLAY_DECIDED_AT, roundRobinCursor: "alpha:sdk" },
+      proves:
+        "an ineligible candidate is skipped by the successor rule: the rotation lands on the next eligible candidate",
+    },
+    {
+      name: "round-robin-cursor-ineligible",
+      policy: replayPolicy(
+        [
+          replayCandidate("alpha:sdk"),
+          replayCandidate("bravo:sdk", { authAvailable: false }),
+          replayCandidate("charlie:sdk"),
+        ],
+        { strategy: "round-robin" },
+      ),
+      options: { decidedAt: REPLAY_DECIDED_AT, roundRobinCursor: "bravo:sdk" },
+      proves:
+        "a cursor naming a declared-but-now-ineligible candidate is re-derived deterministically: its canonical successor among the eligible set wins",
     },
   ];
