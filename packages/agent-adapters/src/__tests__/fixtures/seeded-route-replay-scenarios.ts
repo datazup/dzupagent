@@ -79,6 +79,13 @@ const ROUND_ROBIN_CANDIDATES = [
   replayCandidate("bravo:sdk"),
 ];
 
+/**
+ * Preference order for the deadline scenarios, chosen to disagree with BOTH
+ * the input order (charlie first) and canonical id order (alpha first), so the
+ * recorded fallback pick can only have come from the declared preference chain.
+ */
+const DEADLINE_PREFERENCE_ORDER = ["bravo:sdk", "charlie:sdk", "alpha:sdk"];
+
 export interface SeededRouteReplayScenario {
   readonly name: string;
   readonly policy: ExecutionRoutePolicy;
@@ -199,5 +206,48 @@ export const SEEDED_ROUTE_REPLAY_SCENARIOS: readonly SeededRouteReplayScenario[]
       options: { decidedAt: REPLAY_DECIDED_AT, roundRobinCursor: "bravo:sdk" },
       proves:
         "a cursor naming a declared-but-now-ineligible candidate is re-derived deterministically: its canonical successor among the eligible set wins",
+    },
+    {
+      name: "deadline-within",
+      policy: replayPolicy(ROUND_ROBIN_CANDIDATES, {
+        strategy: "round-robin",
+        preferenceOrder: DEADLINE_PREFERENCE_ORDER,
+      }),
+      options: {
+        decidedAt: REPLAY_DECIDED_AT,
+        roundRobinCursor: "bravo:sdk",
+        strategyElapsedMs: 25,
+      },
+      proves:
+        "an elapsed time exactly at the declared budget is within it, so the strategy's own pick stands and the receipt records the measured latency",
+    },
+    {
+      name: "deadline-exceeded-ordered-fallback",
+      policy: replayPolicy(ROUND_ROBIN_CANDIDATES, {
+        strategy: "round-robin",
+        preferenceOrder: DEADLINE_PREFERENCE_ORDER,
+      }),
+      options: {
+        decidedAt: REPLAY_DECIDED_AT,
+        roundRobinCursor: "bravo:sdk",
+        strategyElapsedMs: 26,
+      },
+      proves:
+        "one millisecond past the budget discards the strategy pick for the ordered-compatible chain head, which is neither the input-order nor the canonical-id head",
+    },
+    {
+      name: "deadline-exceeded-no-fallback",
+      policy: replayPolicy(ROUND_ROBIN_CANDIDATES, {
+        strategy: "round-robin",
+        preferenceOrder: DEADLINE_PREFERENCE_ORDER,
+        fallback: "none",
+      }),
+      options: {
+        decidedAt: REPLAY_DECIDED_AT,
+        roundRobinCursor: "bravo:sdk",
+        strategyElapsedMs: 26,
+      },
+      proves:
+        "a breached deadline under a policy declaring no fallback selects nothing, and the breach is still recorded as a replayable receipt rather than an exception",
     },
   ];

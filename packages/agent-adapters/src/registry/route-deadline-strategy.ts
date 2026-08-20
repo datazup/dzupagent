@@ -70,6 +70,21 @@ export type RouteDeadlineFailureCode =
   | "ROUTE_DEADLINE_UNDECLARED_FALLBACK";
 
 /**
+ * Every deadline rejection code, as a runtime value.
+ *
+ * The union above is erased at runtime, so a spec cannot check that each code
+ * is still reachable without one. Specs pin a literal list against this array
+ * in both directions, which is what makes deleting a guard fail a test rather
+ * than silently shrinking the table that tests it.
+ */
+export const ROUTE_DEADLINE_FAILURE_CODES = [
+  "ROUTE_DEADLINE_INVALID_ELAPSED",
+  "ROUTE_DEADLINE_NEGATIVE_ELAPSED",
+  "ROUTE_DEADLINE_INVALID_BUDGET",
+  "ROUTE_DEADLINE_UNDECLARED_FALLBACK",
+] as const satisfies readonly RouteDeadlineFailureCode[];
+
+/**
  * JSON-ish location of the rejected value, matching the `ROUTE_POLICY_*`
  * admission convention in `route-policy-admission.ts`: every deadline code
  * carries the path of the input that caused it.

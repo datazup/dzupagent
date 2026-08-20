@@ -185,6 +185,7 @@ export type {
   SeededRouteStrategyFailureCode,
 } from "./registry/seeded-route-strategies.js";
 export type { RoundRobinRouteStrategyFailureCode } from "./registry/round-robin-route-strategy.js";
+export { ROUTE_DEADLINE_FAILURE_CODES } from "./registry/route-deadline-strategy.js";
 export type {
   RouteDeadlineFailureCode,
   RouteSelectionDeadlineOutcome,

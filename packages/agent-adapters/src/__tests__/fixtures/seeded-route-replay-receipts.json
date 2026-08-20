@@ -391,5 +391,92 @@
     "strategyElapsedMs": null,
     "selectionDeadlineMs": null,
     "deadlineOutcome": "not-evaluated"
+  },
+  "deadline-within": {
+    "schema": "dzupagent.agentAdapters.routeSelectionReceipt/v1",
+    "decision": {
+      "id": "route-policy:request-1",
+      "policyId": "route-policy",
+      "requestId": "request-1",
+      "eligibleCandidateIds": [
+        "bravo:sdk",
+        "charlie:sdk",
+        "alpha:sdk"
+      ],
+      "rejected": [],
+      "selectedCandidateId": "charlie:sdk",
+      "fallbackCandidateIds": [
+        "bravo:sdk",
+        "alpha:sdk"
+      ],
+      "transitions": [],
+      "strategy": "round-robin",
+      "reasoningSummary": "Round robin selected charlie:sdk; 0 candidate(s) rejected",
+      "decidedAt": "2026-07-12T12:00:00.000Z"
+    },
+    "seed": null,
+    "routingKey": null,
+    "candidateWeights": null,
+    "roundRobinCursor": "bravo:sdk",
+    "strategyElapsedMs": 25,
+    "selectionDeadlineMs": 25,
+    "deadlineOutcome": "within"
+  },
+  "deadline-exceeded-ordered-fallback": {
+    "schema": "dzupagent.agentAdapters.routeSelectionReceipt/v1",
+    "decision": {
+      "id": "route-policy:request-1",
+      "policyId": "route-policy",
+      "requestId": "request-1",
+      "eligibleCandidateIds": [
+        "bravo:sdk",
+        "charlie:sdk",
+        "alpha:sdk"
+      ],
+      "rejected": [],
+      "selectedCandidateId": "bravo:sdk",
+      "fallbackCandidateIds": [
+        "charlie:sdk",
+        "alpha:sdk"
+      ],
+      "transitions": [],
+      "strategy": "round-robin",
+      "reasoningSummary": "Round robin exceeded its 25ms selection deadline at 26ms; ordered-compatible fallback selected bravo:sdk; 0 candidate(s) rejected",
+      "decidedAt": "2026-07-12T12:00:00.000Z"
+    },
+    "seed": null,
+    "routingKey": null,
+    "candidateWeights": null,
+    "roundRobinCursor": "bravo:sdk",
+    "strategyElapsedMs": 26,
+    "selectionDeadlineMs": 25,
+    "deadlineOutcome": "exceeded"
+  },
+  "deadline-exceeded-no-fallback": {
+    "schema": "dzupagent.agentAdapters.routeSelectionReceipt/v1",
+    "decision": {
+      "id": "route-policy:request-1",
+      "policyId": "route-policy",
+      "requestId": "request-1",
+      "eligibleCandidateIds": [
+        "bravo:sdk",
+        "charlie:sdk",
+        "alpha:sdk"
+      ],
+      "rejected": [],
+      "selectedCandidateId": null,
+      "fallbackCandidateIds": [],
+      "transitions": [],
+      "strategy": "round-robin",
+      "reasoningSummary": "Round robin exceeded its 25ms selection deadline at 26ms; no fallback candidate was available, so nothing was selected; 0 candidate(s) rejected",
+      "decidedAt": "2026-07-12T12:00:00.000Z"
+    },
+    "seed": null,
+    "routingKey": null,
+    "candidateWeights": null,
+    "roundRobinCursor": "bravo:sdk",
+    "strategyElapsedMs": 26,
+    "selectionDeadlineMs": 25,
+    "deadlineOutcome": "exceeded"
   }
 }

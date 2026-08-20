@@ -367,6 +367,54 @@ describe("seeded route selection replay fixtures", () => {
     expect(third.decision.selectedCandidateId).toBe("alpha:sdk");
   });
 
+  it("records the deadline verdict each committed scenario earned", () => {
+    const within = committed["deadline-within"] as RouteSelectionReceipt;
+    const breached = committed[
+      "deadline-exceeded-ordered-fallback"
+    ] as RouteSelectionReceipt;
+    const denied = committed[
+      "deadline-exceeded-no-fallback"
+    ] as RouteSelectionReceipt;
+    const unmeasured = committed["round-robin-first"] as RouteSelectionReceipt;
+
+    // Only the measured latency differs between `within` and `breached`: 25ms
+    // against a 25ms budget is compliant, 26ms is not.
+    expect(within.deadlineOutcome).toBe("within");
+    expect(within.strategyElapsedMs).toBe(25);
+    expect(within.selectionDeadlineMs).toBe(25);
+    expect(breached.deadlineOutcome).toBe("exceeded");
+    expect(breached.strategyElapsedMs).toBe(26);
+
+    // A scenario that declared no elapsed time is recorded as unevaluated, not
+    // as having met a budget nobody measured.
+    expect(unmeasured.deadlineOutcome).toBe("not-evaluated");
+    expect(unmeasured.strategyElapsedMs).toBeNull();
+    expect(unmeasured.selectionDeadlineMs).toBeNull();
+
+    expect(denied.deadlineOutcome).toBe("exceeded");
+    expect(denied.decision.selectedCandidateId).toBeNull();
+  });
+
+  it("commits a deadline fallback pick that no other ordering rule produces", () => {
+    const within = committed["deadline-within"] as RouteSelectionReceipt;
+    const breached = committed[
+      "deadline-exceeded-ordered-fallback"
+    ] as RouteSelectionReceipt;
+
+    // The scenario declares candidates charlie/alpha/bravo with preference
+    // order bravo/charlie/alpha, so the three candidate orderings disagree.
+    expect(breached.decision.selectedCandidateId).toBe("bravo:sdk");
+    // ...not the input-order head,
+    expect(breached.decision.selectedCandidateId).not.toBe("charlie:sdk");
+    // ...not the canonical-id head,
+    expect(breached.decision.selectedCandidateId).not.toBe("alpha:sdk");
+    // ...and not the pick the round-robin strategy itself would have made.
+    expect(within.decision.selectedCandidateId).toBe("charlie:sdk");
+    expect(breached.decision.selectedCandidateId).not.toBe(
+      within.decision.selectedCandidateId,
+    );
+  });
+
   it("cycles a full rotation by feeding each receipt's pick back as the cursor", () => {
     const policy = replayPolicy(
       [
