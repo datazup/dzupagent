@@ -144,6 +144,35 @@ describe("seeded route selection replay fixtures", () => {
       },
       code: "HASH_STRATEGY_REQUIRES_ROUTING_KEY",
     },
+    // An empty string is a *present* input, so it has to be denied separately
+    // from an absent one: a guard that only checked for undefined would leave
+    // an empty seed or key silently steering the draw.
+    {
+      name: "weighted with an empty seed",
+      scenario: "weighted-seed-0",
+      options: { decidedAt: "2026-07-12T12:00:00.000Z", seed: "" },
+      code: "SEEDED_STRATEGY_REQUIRES_SEED",
+    },
+    {
+      name: "hash with an empty seed",
+      scenario: "hash-tenant-42",
+      options: {
+        decidedAt: "2026-07-12T12:00:00.000Z",
+        seed: "",
+        routingKey: "tenant-42",
+      },
+      code: "SEEDED_STRATEGY_REQUIRES_SEED",
+    },
+    {
+      name: "hash with an empty routing key",
+      scenario: "hash-tenant-42",
+      options: {
+        decidedAt: "2026-07-12T12:00:00.000Z",
+        seed: "seed-alpha",
+        routingKey: "",
+      },
+      code: "HASH_STRATEGY_REQUIRES_ROUTING_KEY",
+    },
   ] as const)("fails closed for $name", ({ scenario, options, code }) => {
     const definition = SEEDED_ROUTE_REPLAY_SCENARIOS.find(
       (item) => item.name === scenario,
