@@ -9,7 +9,12 @@ import {
   selectExecutionRouteWithReceipt,
   type RouteSelectionReceipt,
 } from "../registry/deterministic-candidate-selector.js";
-import { SEEDED_ROUTE_REPLAY_SCENARIOS } from "./fixtures/seeded-route-replay-scenarios.js";
+import {
+  replayCandidate,
+  replayPolicy,
+  REPLAY_DECIDED_AT,
+  SEEDED_ROUTE_REPLAY_SCENARIOS,
+} from "./fixtures/seeded-route-replay-scenarios.js";
 
 const FIXTURE_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -151,6 +156,109 @@ describe("seeded route selection replay fixtures", () => {
       expect.objectContaining<Partial<DeterministicRouteSelectionAdmissionError>>({
         name: "DeterministicRouteSelectionAdmissionError",
         code,
+      }),
+    );
+  });
+
+  // Every case below is a *valid* weighted policy except for the one weight
+  // under test, so a passing case cannot be explained by an unrelated denial.
+  it.each([
+    {
+      name: "a candidate declaring no weight",
+      tags: undefined,
+      code: "WEIGHTED_STRATEGY_REQUIRES_CANDIDATE_WEIGHT",
+    },
+    {
+      name: "a candidate declaring two weights",
+      tags: ["route-weight:2", "route-weight:5"],
+      code: "WEIGHTED_STRATEGY_REQUIRES_CANDIDATE_WEIGHT",
+    },
+    {
+      name: "a negative weight",
+      tags: ["route-weight:-3"],
+      code: "WEIGHTED_STRATEGY_INVALID_CANDIDATE_WEIGHT",
+    },
+    {
+      name: "a zero weight",
+      tags: ["route-weight:0"],
+      code: "WEIGHTED_STRATEGY_INVALID_CANDIDATE_WEIGHT",
+    },
+    {
+      name: "a non-numeric weight",
+      tags: ["route-weight:heavy"],
+      code: "WEIGHTED_STRATEGY_INVALID_CANDIDATE_WEIGHT",
+    },
+    {
+      name: "an empty weight",
+      tags: ["route-weight:"],
+      code: "WEIGHTED_STRATEGY_INVALID_CANDIDATE_WEIGHT",
+    },
+    {
+      name: "a fractional weight",
+      tags: ["route-weight:1.5"],
+      code: "WEIGHTED_STRATEGY_INVALID_CANDIDATE_WEIGHT",
+    },
+    {
+      name: "an infinite weight",
+      tags: ["route-weight:Infinity"],
+      code: "WEIGHTED_STRATEGY_INVALID_CANDIDATE_WEIGHT",
+    },
+  ] as const)("denies a weighted policy carrying $name", ({ tags, code }) => {
+    const policy = replayPolicy(
+      [
+        replayCandidate("alpha:sdk", { tags: ["route-weight:1"] }),
+        replayCandidate(
+          "bravo:sdk",
+          tags === undefined ? {} : { tags: [...tags] },
+        ),
+        replayCandidate("charlie:sdk", { tags: ["route-weight:6"] }),
+      ],
+      { strategy: "weighted" },
+    );
+
+    expect(() =>
+      selectExecutionRouteWithReceipt(policy, {
+        decidedAt: REPLAY_DECIDED_AT,
+        seed: "seed-0",
+      }),
+    ).toThrow(
+      expect.objectContaining<Partial<DeterministicRouteSelectionAdmissionError>>({
+        name: "DeterministicRouteSelectionAdmissionError",
+        code,
+      }),
+    );
+  });
+
+  it("admits the control policy those weight cases mutate", () => {
+    // Holds the guard's other dimensions accepting: only the weight under test
+    // above differs from this policy, which must select successfully.
+    const policy = replayPolicy(
+      [
+        replayCandidate("alpha:sdk", { tags: ["route-weight:1"] }),
+        replayCandidate("bravo:sdk", { tags: ["route-weight:3"] }),
+        replayCandidate("charlie:sdk", { tags: ["route-weight:6"] }),
+      ],
+      { strategy: "weighted" },
+    );
+
+    expect(
+      selectExecutionRouteWithReceipt(policy, {
+        decidedAt: REPLAY_DECIDED_AT,
+        seed: "seed-0",
+      }).decision.selectedCandidateId,
+    ).not.toBeNull();
+  });
+
+  it("denies a weighted policy that declares no candidates at all", () => {
+    expect(() =>
+      selectExecutionRouteWithReceipt(replayPolicy([], { strategy: "weighted" }), {
+        decidedAt: REPLAY_DECIDED_AT,
+        seed: "seed-0",
+      }),
+    ).toThrow(
+      expect.objectContaining<Partial<DeterministicRouteSelectionAdmissionError>>({
+        name: "DeterministicRouteSelectionAdmissionError",
+        code: "WEIGHTED_STRATEGY_REQUIRES_POSITIVE_WEIGHT_SUM",
       }),
     );
   });
