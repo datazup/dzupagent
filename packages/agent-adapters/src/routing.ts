@@ -22,6 +22,10 @@ export type {
   SeededRouteStrategyFailureCode,
 } from "./registry/seeded-route-strategies.js";
 export type { RoundRobinRouteStrategyFailureCode } from "./registry/round-robin-route-strategy.js";
+export type {
+  RouteDeadlineFailureCode,
+  RouteSelectionDeadlineOutcome,
+} from "./registry/route-deadline-strategy.js";
 export {
   admitExecutionRoutePolicy,
   RoutePolicyAdmissionError,

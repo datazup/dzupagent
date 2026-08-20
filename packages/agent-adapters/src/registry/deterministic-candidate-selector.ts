@@ -11,6 +11,16 @@ import type {
 } from "@dzupagent/runtime-contracts";
 
 import {
+  admitRouteSelectionDeadline,
+  describeDeadlineBreach,
+  drawDeadlineFallbackCandidate,
+} from "./route-deadline-strategy.js";
+import type {
+  AdmittedRouteDeadline,
+  RouteDeadlineFailureCode,
+  RouteSelectionDeadlineOutcome,
+} from "./route-deadline-strategy.js";
+import {
   drawRoundRobinCandidate,
   requireRoundRobinCursor,
 } from "./round-robin-route-strategy.js";
@@ -60,6 +70,18 @@ export interface DeterministicRouteSelectionOptions {
    * pick. See `round-robin-route-strategy.ts` for the full cursor semantics.
    */
   roundRobinCursor?: string;
+  /**
+   * Host-measured elapsed time of the strategy's selection work, in whole
+   * milliseconds, checked against the policy's declared
+   * `maxSelectionLatencyMs`.
+   *
+   * It is measured by the host and passed in — this selector never reads a
+   * clock — and it is recorded in the selection receipt, so replaying a receipt
+   * reproduces the identical deadline verdict with no clock available. Omitting
+   * it leaves the deadline unevaluated and the receipt records that explicitly.
+   * See `route-deadline-strategy.ts` for the verdict and fallback semantics.
+   */
+  strategyElapsedMs?: number;
 }
 
 /** Strategies whose selection semantics are implemented by this selector. */
@@ -79,16 +101,30 @@ export type DeterministicRouteSelectionAdmissionCode =
   | "DUPLICATE_ROUTE_CANDIDATE"
   | "FIXED_STRATEGY_REQUIRES_SINGLE_CANDIDATE"
   | SeededRouteStrategyFailureCode
-  | RoundRobinRouteStrategyFailureCode;
+  | RoundRobinRouteStrategyFailureCode
+  | RouteDeadlineFailureCode;
 
 /** Fail-closed policy-admission error raised before any candidate is evaluated. */
 export class DeterministicRouteSelectionAdmissionError extends Error {
   readonly code: DeterministicRouteSelectionAdmissionCode;
+  /**
+   * JSON-ish location of the rejected value, e.g. `options.strategyElapsedMs`.
+   *
+   * Optional only because the strategy-vocabulary codes that predate the
+   * convention name no single input; every `ROUTE_DEADLINE_*` code carries one,
+   * matching `RoutePolicyAdmissionError` in `route-policy-admission.ts`.
+   */
+  readonly path?: string;
 
-  constructor(code: DeterministicRouteSelectionAdmissionCode, message: string) {
+  constructor(
+    code: DeterministicRouteSelectionAdmissionCode,
+    message: string,
+    path?: string,
+  ) {
     super(message);
     this.name = "DeterministicRouteSelectionAdmissionError";
     this.code = code;
+    if (path !== undefined) this.path = path;
   }
 }
 
@@ -114,6 +150,14 @@ export class DeterministicRouteSelectionAdmissionError extends Error {
  * of (policy, candidates, cursor). See `round-robin-route-strategy.ts` for the
  * cursor semantics, including how candidate-set changes are re-derived.
  *
+ * Every strategy is additionally subject to the policy's declared
+ * `maxSelectionLatencyMs`. The elapsed time is a host-measured *input*
+ * (`options.strategyElapsedMs`) — this selector reads no clock — and a breach
+ * discards the strategy's pick in favour of the policy's declared deterministic
+ * fallback, or selects nothing when the policy declares none. The elapsed time
+ * and the verdict are both recorded in the receipt, so replay is clock-free.
+ * See `route-deadline-strategy.ts`.
+ *
  * The broader route-policy vocabulary is intentionally not treated as
  * metadata: strategies without an implementation fail before selection.
  */
@@ -127,7 +171,7 @@ export function selectExecutionRoute(
 function decideExecutionRoute(
   policy: ExecutionRoutePolicy,
   options: DeterministicRouteSelectionOptions,
-): { decision: ExecutionRouteDecision; admitted: AdmittedRouteSelection } {
+): { decision: ExecutionRouteDecision; admitted: AdmittedRouteDecision } {
   const admitted = assertRoutePolicyAdmission(policy, options);
   const candidates = [...policy.candidates];
   const byId = new Map(
@@ -191,7 +235,13 @@ function decideExecutionRoute(
     left.toCandidateId.localeCompare(right.toCandidateId),
   );
 
-  const selected = selectFromEligible(eligible, policy, admitted);
+  // `eligible` is now the canonically ordered chain (preference rank, then
+  // canonical id), which is exactly the ordered-compatible fallback chain the
+  // deadline draw reads its head from.
+  const selected =
+    admitted.deadline.outcome === "exceeded"
+      ? drawDeadlineFallbackCandidate(eligible, admitted.deadline.disposition)
+      : selectFromEligible(eligible, policy, admitted.selection);
   const decision: ExecutionRouteDecision = {
     id: `${policy.id}:${policy.requestId}`,
     policyId: policy.id,
@@ -207,12 +257,41 @@ function decideExecutionRoute(
         : [],
     transitions,
     strategy: policy.strategy,
-    reasoningSummary: selected
-      ? `${strategyLabel(policy.strategy)} selected ${selected.id}; ${rejected.length} candidate(s) rejected`
-      : `${strategyLabel(policy.strategy)} found no eligible candidate; ${rejected.length} candidate(s) rejected`,
+    reasoningSummary: summarizeReasoning(
+      policy,
+      admitted.deadline,
+      selected,
+      rejected.length,
+    ),
     decidedAt: options.decidedAt,
   };
   return { decision, admitted };
+}
+
+/**
+ * Renders the decision's audit sentence.
+ *
+ * A deadline breach is always named — including when the fallback still found a
+ * candidate — so a reader can tell a strategy pick apart from a fallback pick
+ * without re-deriving the decision.
+ */
+function summarizeReasoning(
+  policy: ExecutionRoutePolicy,
+  deadline: AdmittedRouteDeadline,
+  selected: ExecutionRouteCandidate | undefined,
+  rejectedCount: number,
+): string {
+  const label = strategyLabel(policy.strategy);
+  const breach = describeDeadlineBreach(deadline);
+  const tail = `${rejectedCount} candidate(s) rejected`;
+  if (breach === null) {
+    return selected
+      ? `${label} selected ${selected.id}; ${tail}`
+      : `${label} found no eligible candidate; ${tail}`;
+  }
+  return selected
+    ? `${label} ${breach}; ordered-compatible fallback selected ${selected.id}; ${tail}`
+    : `${label} ${breach}; no fallback candidate was available, so nothing was selected; ${tail}`;
 }
 
 /**
@@ -222,6 +301,13 @@ function decideExecutionRoute(
  * discriminated union, so a seeded strategy cannot reach the draw without its
  * seed and cannot silently degrade to ordered selection.
  */
+interface AdmittedRouteDecision {
+  /** Inputs the declared strategy contributed to the pick. */
+  readonly selection: AdmittedRouteSelection;
+  /** Declared-deadline inputs, verdict and breach disposition. */
+  readonly deadline: AdmittedRouteDeadline;
+}
+
 type AdmittedRouteSelection =
   | { readonly kind: "ordered" }
   | {
@@ -286,6 +372,23 @@ export interface RouteSelectionReceipt {
    * The *next* cursor is this receipt's `decision.selectedCandidateId`.
    */
   readonly roundRobinCursor: string | null;
+  /**
+   * Host-measured strategy latency the deadline verdict consumed, or null when
+   * the host declared none. This is the *replay input*: `replayRouteSelectionReceipt`
+   * feeds it back so the verdict is reproduced rather than re-measured.
+   */
+  readonly strategyElapsedMs: number | null;
+  /**
+   * Declared budget the verdict compared against; null when the deadline was
+   * not evaluated. Recorded so the comparison is auditable from the receipt
+   * alone, without re-reading the policy.
+   */
+  readonly selectionDeadlineMs: number | null;
+  /**
+   * Recorded deadline verdict. `not-evaluated` means the host declared no
+   * elapsed time — never a `within` verdict nobody measured.
+   */
+  readonly deadlineOutcome: RouteSelectionDeadlineOutcome;
 }
 
 /** Decides a route and records the seeded inputs the decision actually used. */
@@ -294,30 +397,37 @@ export function selectExecutionRouteWithReceipt(
   options: DeterministicRouteSelectionOptions,
 ): RouteSelectionReceipt {
   const { decision, admitted } = decideExecutionRoute(policy, options);
+  const selection = admitted.selection;
   return {
     schema: ROUTE_SELECTION_RECEIPT_SCHEMA,
     decision,
     seed:
-      admitted.kind === "weighted" || admitted.kind === "hash"
-        ? admitted.seed
+      selection.kind === "weighted" || selection.kind === "hash"
+        ? selection.seed
         : null,
-    routingKey: admitted.kind === "hash" ? admitted.routingKey : null,
+    routingKey: selection.kind === "hash" ? selection.routingKey : null,
     candidateWeights:
-      admitted.kind === "weighted"
-        ? [...admitted.weights].sort((left, right) =>
+      selection.kind === "weighted"
+        ? [...selection.weights].sort((left, right) =>
             left[0].localeCompare(right[0]),
           )
         : null,
-    roundRobinCursor: admitted.kind === "round-robin" ? admitted.cursor : null,
+    roundRobinCursor:
+      selection.kind === "round-robin" ? selection.cursor : null,
+    strategyElapsedMs: admitted.deadline.elapsedMs,
+    selectionDeadlineMs: admitted.deadline.budgetMs,
+    deadlineOutcome: admitted.deadline.outcome,
   };
 }
 
 /**
  * Re-decides a route from a receipt alone.
  *
- * The receipt carries the timestamp, the seed and the routing key, so replay
- * needs no ambient input; a differing result means the selector stopped being a
- * pure function of its recorded inputs.
+ * The receipt carries the timestamp, the seed, the routing key, the round-robin
+ * cursor and the measured strategy latency, so replay needs no ambient input —
+ * in particular no clock, because the deadline verdict is recomputed from the
+ * recorded elapsed time rather than re-measured. A differing result means the
+ * selector stopped being a pure function of its recorded inputs.
  */
 export function replayRouteSelectionReceipt(
   policy: ExecutionRoutePolicy,
@@ -329,6 +439,9 @@ export function replayRouteSelectionReceipt(
     ...(receipt.routingKey === null ? {} : { routingKey: receipt.routingKey }),
     ...(typeof receipt.roundRobinCursor === "string"
       ? { roundRobinCursor: receipt.roundRobinCursor }
+      : {}),
+    ...(typeof receipt.strategyElapsedMs === "number"
+      ? { strategyElapsedMs: receipt.strategyElapsedMs }
       : {}),
   });
 }
@@ -514,6 +627,18 @@ function evaluateCandidate(
 function assertRoutePolicyAdmission(
   policy: ExecutionRoutePolicy,
   options: DeterministicRouteSelectionOptions,
+): AdmittedRouteDecision {
+  return {
+    selection: admitRouteStrategy(policy, options),
+    deadline: admit(
+      admitRouteSelectionDeadline(policy, options.strategyElapsedMs),
+    ),
+  };
+}
+
+function admitRouteStrategy(
+  policy: ExecutionRoutePolicy,
+  options: DeterministicRouteSelectionOptions,
 ): AdmittedRouteSelection {
   if (!isImplementedStrategy(policy.strategy)) {
     throw new DeterministicRouteSelectionAdmissionError(
@@ -577,6 +702,8 @@ type AdmissionGuardResult<T> =
       readonly failure: {
         readonly code: DeterministicRouteSelectionAdmissionCode;
         readonly message: string;
+        /** Present on the deadline codes; absent on the strategy codes. */
+        readonly path?: string;
       };
     };
 
@@ -586,6 +713,7 @@ function admit<T>(result: AdmissionGuardResult<T>): T {
     throw new DeterministicRouteSelectionAdmissionError(
       result.failure.code,
       result.failure.message,
+      result.failure.path,
     );
   }
   return result.value;

@@ -37,7 +37,10 @@
         6
       ]
     ],
-    "roundRobinCursor": null
+    "roundRobinCursor": null,
+    "strategyElapsedMs": null,
+    "selectionDeadlineMs": null,
+    "deadlineOutcome": "not-evaluated"
   },
   "weighted-seed-2": {
     "schema": "dzupagent.agentAdapters.routeSelectionReceipt/v1",
@@ -77,7 +80,10 @@
         6
       ]
     ],
-    "roundRobinCursor": null
+    "roundRobinCursor": null,
+    "strategyElapsedMs": null,
+    "selectionDeadlineMs": null,
+    "deadlineOutcome": "not-evaluated"
   },
   "weighted-excludes-ineligible": {
     "schema": "dzupagent.agentAdapters.routeSelectionReceipt/v1",
@@ -125,7 +131,10 @@
         6
       ]
     ],
-    "roundRobinCursor": null
+    "roundRobinCursor": null,
+    "strategyElapsedMs": null,
+    "selectionDeadlineMs": null,
+    "deadlineOutcome": "not-evaluated"
   },
   "hash-tenant-42": {
     "schema": "dzupagent.agentAdapters.routeSelectionReceipt/v1",
@@ -152,7 +161,10 @@
     "seed": "seed-alpha",
     "routingKey": "tenant-42",
     "candidateWeights": null,
-    "roundRobinCursor": null
+    "roundRobinCursor": null,
+    "strategyElapsedMs": null,
+    "selectionDeadlineMs": null,
+    "deadlineOutcome": "not-evaluated"
   },
   "hash-tenant-99": {
     "schema": "dzupagent.agentAdapters.routeSelectionReceipt/v1",
@@ -179,7 +191,10 @@
     "seed": "seed-alpha",
     "routingKey": "tenant-99",
     "candidateWeights": null,
-    "roundRobinCursor": null
+    "roundRobinCursor": null,
+    "strategyElapsedMs": null,
+    "selectionDeadlineMs": null,
+    "deadlineOutcome": "not-evaluated"
   },
   "rule-baseline": {
     "schema": "dzupagent.agentAdapters.routeSelectionReceipt/v1",
@@ -206,7 +221,10 @@
     "seed": null,
     "routingKey": null,
     "candidateWeights": null,
-    "roundRobinCursor": null
+    "roundRobinCursor": null,
+    "strategyElapsedMs": null,
+    "selectionDeadlineMs": null,
+    "deadlineOutcome": "not-evaluated"
   },
   "round-robin-first": {
     "schema": "dzupagent.agentAdapters.routeSelectionReceipt/v1",
@@ -233,7 +251,10 @@
     "seed": null,
     "routingKey": null,
     "candidateWeights": null,
-    "roundRobinCursor": null
+    "roundRobinCursor": null,
+    "strategyElapsedMs": null,
+    "selectionDeadlineMs": null,
+    "deadlineOutcome": "not-evaluated"
   },
   "round-robin-after-alpha": {
     "schema": "dzupagent.agentAdapters.routeSelectionReceipt/v1",
@@ -260,7 +281,10 @@
     "seed": null,
     "routingKey": null,
     "candidateWeights": null,
-    "roundRobinCursor": "alpha:sdk"
+    "roundRobinCursor": "alpha:sdk",
+    "strategyElapsedMs": null,
+    "selectionDeadlineMs": null,
+    "deadlineOutcome": "not-evaluated"
   },
   "round-robin-wraps": {
     "schema": "dzupagent.agentAdapters.routeSelectionReceipt/v1",
@@ -287,7 +311,10 @@
     "seed": null,
     "routingKey": null,
     "candidateWeights": null,
-    "roundRobinCursor": "charlie:sdk"
+    "roundRobinCursor": "charlie:sdk",
+    "strategyElapsedMs": null,
+    "selectionDeadlineMs": null,
+    "deadlineOutcome": "not-evaluated"
   },
   "round-robin-skips-ineligible": {
     "schema": "dzupagent.agentAdapters.routeSelectionReceipt/v1",
@@ -322,7 +349,10 @@
     "seed": null,
     "routingKey": null,
     "candidateWeights": null,
-    "roundRobinCursor": "alpha:sdk"
+    "roundRobinCursor": "alpha:sdk",
+    "strategyElapsedMs": null,
+    "selectionDeadlineMs": null,
+    "deadlineOutcome": "not-evaluated"
   },
   "round-robin-cursor-ineligible": {
     "schema": "dzupagent.agentAdapters.routeSelectionReceipt/v1",
@@ -357,6 +387,9 @@
     "seed": null,
     "routingKey": null,
     "candidateWeights": null,
-    "roundRobinCursor": "bravo:sdk"
+    "roundRobinCursor": "bravo:sdk",
+    "strategyElapsedMs": null,
+    "selectionDeadlineMs": null,
+    "deadlineOutcome": "not-evaluated"
   }
 }
