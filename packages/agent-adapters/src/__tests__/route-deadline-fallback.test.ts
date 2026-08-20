@@ -261,7 +261,7 @@ describe("deterministic deadline fallback", () => {
     expect(decision.selectedCandidateId).toBeNull();
     expect(decision.fallbackCandidateIds).toEqual([]);
     expect(decision.reasoningSummary).toBe(
-      "Round robin exceeded its 25ms selection deadline at 40ms; no fallback candidate was available, so nothing was selected; 0 candidate(s) rejected",
+      "Round robin exceeded its 25ms selection deadline at 40ms; the policy declares no fallback, so nothing was selected; 0 candidate(s) rejected",
     );
   });
 
@@ -289,6 +289,11 @@ describe("deterministic deadline fallback", () => {
 
     expect(decision.eligibleCandidateIds).toEqual([]);
     expect(decision.selectedCandidateId).toBeNull();
+    // An empty chain is reported as an empty chain, never as an undeclared
+    // fallback: the two need different fixes.
+    expect(decision.reasoningSummary).toBe(
+      "Round robin exceeded its 25ms selection deadline at 40ms; no fallback candidate was eligible, so nothing was selected; 3 candidate(s) rejected",
+    );
   });
 
   it("lists the remaining chain behind the fallback pick", () => {

@@ -468,7 +468,7 @@
       "fallbackCandidateIds": [],
       "transitions": [],
       "strategy": "round-robin",
-      "reasoningSummary": "Round robin exceeded its 25ms selection deadline at 26ms; no fallback candidate was available, so nothing was selected; 0 candidate(s) rejected",
+      "reasoningSummary": "Round robin exceeded its 25ms selection deadline at 26ms; the policy declares no fallback, so nothing was selected; 0 candidate(s) rejected",
       "decidedAt": "2026-07-12T12:00:00.000Z"
     },
     "seed": null,

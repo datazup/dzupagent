@@ -289,9 +289,16 @@ function summarizeReasoning(
       ? `${label} selected ${selected.id}; ${tail}`
       : `${label} found no eligible candidate; ${tail}`;
   }
-  return selected
-    ? `${label} ${breach}; ordered-compatible fallback selected ${selected.id}; ${tail}`
-    : `${label} ${breach}; no fallback candidate was available, so nothing was selected; ${tail}`;
+  if (selected) {
+    return `${label} ${breach}; ordered-compatible fallback selected ${selected.id}; ${tail}`;
+  }
+  // Distinguish "you declared no fallback" from "your fallback chain was
+  // empty": an operator reading the audit trail needs to know which one to fix.
+  const cause =
+    deadline.disposition.kind === "denied"
+      ? "the policy declares no fallback"
+      : "no fallback candidate was eligible";
+  return `${label} ${breach}; ${cause}, so nothing was selected; ${tail}`;
 }
 
 /**
