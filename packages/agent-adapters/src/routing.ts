@@ -22,5 +22,10 @@ export type {
   SeededRouteStrategyFailureCode,
 } from "./registry/seeded-route-strategies.js";
 export type { RoundRobinRouteStrategyFailureCode } from "./registry/round-robin-route-strategy.js";
+export {
+  admitExecutionRoutePolicy,
+  RoutePolicyAdmissionError,
+} from "./registry/route-policy-admission.js";
+export type { RoutePolicyAdmissionCode } from "./registry/route-policy-admission.js";
 export { materializeRoutingCandidates } from "./registry/candidate-materializer.js";
 export type { CandidateMaterializationDescriptor } from "./registry/candidate-materializer.js";
