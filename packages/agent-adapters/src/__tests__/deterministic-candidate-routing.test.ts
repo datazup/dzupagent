@@ -60,7 +60,7 @@ function policy(
 }
 
 describe('deterministic candidate routing', () => {
-  it.each(['weighted', 'hash', 'round-robin', 'llm-rank'] as const)(
+  it.each(['llm-rank'] as const)(
     'fails closed before selection for unsupported %s strategy metadata',
     (strategy) => {
       expect(() => selectExecutionRoute(
@@ -72,6 +72,121 @@ describe('deterministic candidate routing', () => {
       }))
     },
   )
+
+  it('selects weighted candidates from the recorded seed, independent of input order', () => {
+    const light = candidate('light', { tags: ['route-weight:1'] })
+    const heavy = candidate('heavy', { tags: ['route-weight:9'] })
+    const options = { decidedAt: DECIDED_AT, seed: 'weighted-seed-17' }
+    const forward = selectExecutionRoute(policy([light, heavy], { strategy: 'weighted' }), options)
+    const reverse = selectExecutionRoute(policy([heavy, light], { strategy: 'weighted' }), options)
+
+    expect(forward).toEqual(reverse)
+    expect(forward.eligibleCandidateIds).toHaveLength(2)
+    expect(forward.fallbackCandidateIds).toEqual(forward.eligibleCandidateIds.slice(1))
+    expect(forward.reasoningSummary).toContain('Seeded weighted route selected')
+  })
+
+  it('makes the higher weight proportionally more likely across recorded seeds', () => {
+    const light = candidate('light', { tags: ['route-weight:1'] })
+    const heavy = candidate('heavy', { tags: ['route-weight:9'] })
+    const selections = Array.from({ length: 100 }, (_, index) => selectExecutionRoute(
+      policy([light, heavy], { strategy: 'weighted' }),
+      { decidedAt: DECIDED_AT, seed: `distribution-${index}` },
+    ).selectedCandidateId)
+
+    expect(selections.filter((id) => id === heavy.id).length).toBeGreaterThan(75)
+    expect(selections).toContain(light.id)
+  })
+
+  it('never lets an ineligible high-weight candidate win', () => {
+    const eligible = candidate('eligible', { tags: ['route-weight:1'] })
+    const denied = candidate('denied', { tags: ['route-weight:999'], authAvailable: false })
+    const decision = selectExecutionRoute(
+      policy([denied, eligible], { strategy: 'weighted' }),
+      { decidedAt: DECIDED_AT, seed: 'eligibility-proof' },
+    )
+
+    expect(decision.selectedCandidateId).toBe(eligible.id)
+    expect(decision.rejected).toEqual([
+      expect.objectContaining({ candidateId: denied.id, codes: ['AUTH_SOURCE_UNAVAILABLE'] }),
+    ])
+  })
+
+  it.each([
+    [candidate('missing'), 'WEIGHTED_STRATEGY_REQUIRES_CANDIDATE_WEIGHT'],
+    [candidate('zero', { tags: ['route-weight:0'] }), 'WEIGHTED_STRATEGY_INVALID_CANDIDATE_WEIGHT'],
+    [candidate('duplicate', { tags: ['route-weight:1', 'route-weight:2'] }), 'WEIGHTED_STRATEGY_INVALID_CANDIDATE_WEIGHT'],
+  ] as const)('fails closed for invalid weighted metadata on %s', (weightedCandidate, code) => {
+    expect(() => selectExecutionRoute(
+      policy([weightedCandidate], { strategy: 'weighted' }),
+      { decidedAt: DECIDED_AT, seed: 'seed' },
+    )).toThrow(expect.objectContaining({ code }))
+  })
+
+  it('requires an explicit seed and hash routing key', () => {
+    expect(() => selectExecutionRoute(
+      policy([candidate('weighted', { tags: ['route-weight:1'] })], { strategy: 'weighted' }),
+      { decidedAt: DECIDED_AT },
+    )).toThrow(expect.objectContaining({ code: 'SEEDED_STRATEGY_REQUIRES_SEED' }))
+    expect(() => selectExecutionRoute(
+      policy([candidate('hash')], { strategy: 'hash' }),
+      { decidedAt: DECIDED_AT, seed: 'seed' },
+    )).toThrow(expect.objectContaining({ code: 'HASH_STRATEGY_REQUIRES_ROUTING_KEY' }))
+  })
+
+  it('uses rendezvous hashing with stable input-order invariance', () => {
+    const alpha = candidate('alpha')
+    const beta = candidate('beta')
+    const gamma = candidate('gamma')
+    const options = { decidedAt: DECIDED_AT, seed: 'deployment-7', routingKey: 'tenant-42' }
+    const forward = selectExecutionRoute(policy([alpha, beta, gamma], { strategy: 'hash' }), options)
+    const reverse = selectExecutionRoute(policy([gamma, beta, alpha], { strategy: 'hash' }), options)
+
+    expect(forward).toEqual(reverse)
+    expect(forward.eligibleCandidateIds).toHaveLength(3)
+    expect(forward.reasoningSummary).toContain('Rendezvous hash route selected')
+  })
+
+  it('rotates round-robin from the receipt-carried cursor in canonical ID order', () => {
+    const alpha = candidate('alpha')
+    const beta = candidate('beta')
+    const gamma = candidate('gamma')
+    const roundRobinPolicy = policy([gamma, alpha, beta], {
+      strategy: 'round-robin',
+      preferenceOrder: [gamma.id, beta.id, alpha.id],
+    })
+
+    expect(selectExecutionRoute(roundRobinPolicy, { decidedAt: DECIDED_AT }).eligibleCandidateIds)
+      .toEqual(['alpha', 'beta', 'gamma'])
+    expect(selectExecutionRoute(roundRobinPolicy, {
+      decidedAt: DECIDED_AT,
+      roundRobinCursor: 'alpha',
+    }).eligibleCandidateIds).toEqual(['beta', 'gamma', 'alpha'])
+    expect(selectExecutionRoute(roundRobinPolicy, {
+      decidedAt: DECIDED_AT,
+      roundRobinCursor: 'gamma',
+    }).eligibleCandidateIds).toEqual(['alpha', 'beta', 'gamma'])
+  })
+
+  it('re-derives around an ineligible cursor but rejects cursor smuggling', () => {
+    const alpha = candidate('alpha')
+    const beta = candidate('beta', { authAvailable: false })
+    const gamma = candidate('gamma')
+    const roundRobinPolicy = policy([gamma, beta, alpha], { strategy: 'round-robin' })
+
+    expect(selectExecutionRoute(roundRobinPolicy, {
+      decidedAt: DECIDED_AT,
+      roundRobinCursor: beta.id,
+    }).eligibleCandidateIds).toEqual(['gamma', 'alpha'])
+    expect(() => selectExecutionRoute(roundRobinPolicy, {
+      decidedAt: DECIDED_AT,
+      roundRobinCursor: 'foreign-policy-candidate',
+    })).toThrow(expect.objectContaining({ code: 'ROUND_ROBIN_STRATEGY_UNKNOWN_CURSOR_CANDIDATE' }))
+    expect(() => selectExecutionRoute(roundRobinPolicy, {
+      decidedAt: DECIDED_AT,
+      roundRobinCursor: '',
+    })).toThrow(expect.objectContaining({ code: 'ROUND_ROBIN_STRATEGY_INVALID_CURSOR' }))
+  })
 
   it('selects the single candidate under a fixed strategy', () => {
     const only = candidate('codex:sdk:work')

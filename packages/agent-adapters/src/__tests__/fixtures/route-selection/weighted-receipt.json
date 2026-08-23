@@ -1,0 +1,34 @@
+{
+  "schema": "dzupagent.agentAdapters.routeSelectionReceipt/v1",
+  "decision": {
+    "id": "fixture-policy:fixture-request",
+    "policyId": "fixture-policy",
+    "requestId": "fixture-request",
+    "eligibleCandidateIds": [
+      "beta",
+      "alpha"
+    ],
+    "rejected": [],
+    "selectedCandidateId": "beta",
+    "fallbackCandidateIds": [
+      "alpha"
+    ],
+    "transitions": [],
+    "strategy": "weighted",
+    "reasoningSummary": "Seeded weighted route selected beta; 0 candidate(s) rejected",
+    "decidedAt": "2026-08-20T00:00:00.000Z"
+  },
+  "seed": "fixture-seed",
+  "routingKey": null,
+  "candidateWeights": [
+    {
+      "candidateId": "alpha",
+      "weight": 1
+    },
+    {
+      "candidateId": "beta",
+      "weight": 3
+    }
+  ],
+  "roundRobinCursor": null
+}

@@ -9,6 +9,22 @@ import type {
   ExecutionRouteTransitionDecision,
   ExecutionRouteTransitionKind,
 } from '@dzupagent/runtime-contracts'
+import {
+  assertDeterministicRoutePolicyAdmission,
+  DeterministicRouteSelectionAdmissionError,
+} from './route-policy-admission.js'
+import type {
+  DeterministicRouteSelectionOptions,
+} from './route-policy-admission.js'
+
+export {
+  DeterministicRouteSelectionAdmissionError,
+  IMPLEMENTED_DETERMINISTIC_ROUTE_STRATEGIES,
+} from './route-policy-admission.js'
+export type {
+  DeterministicRouteSelectionAdmissionCode,
+  DeterministicRouteSelectionOptions,
+} from './route-policy-admission.js'
 
 const COST_RANK: Record<ExecutionRouteCostClass, number> = {
   free: 0,
@@ -24,29 +40,37 @@ const PRIVACY_RANK: Record<ExecutionRoutePrivacyClass, number> = {
   public: 3,
 }
 
-export interface DeterministicRouteSelectionOptions {
-  /** Host-supplied timestamp keeps selection deterministic and replayable. */
-  decidedAt: string
+export const ROUTE_SELECTION_RECEIPT_SCHEMA =
+  'dzupagent.agentAdapters.routeSelectionReceipt/v1' as const
+
+export interface RouteSelectionCandidateWeight {
+  readonly candidateId: string
+  readonly weight: number
 }
 
-/** Strategies whose selection semantics are implemented by this selector. */
-export const IMPLEMENTED_DETERMINISTIC_ROUTE_STRATEGIES = ['fixed', 'rule'] as const
+/** Replay input and the exact decision it produced. No ambient selector state is used. */
+export interface RouteSelectionReceipt {
+  readonly schema: typeof ROUTE_SELECTION_RECEIPT_SCHEMA
+  readonly decision: ExecutionRouteDecision
+  readonly seed: string | null
+  readonly routingKey: string | null
+  readonly candidateWeights: readonly RouteSelectionCandidateWeight[]
+  readonly roundRobinCursor: string | null
+}
 
-type ImplementedDeterministicRouteStrategy =
-  (typeof IMPLEMENTED_DETERMINISTIC_ROUTE_STRATEGIES)[number]
+export type RouteSelectionReceiptReplayCode =
+  | 'ROUTE_SELECTION_RECEIPT_SCHEMA_UNSUPPORTED'
+  | 'ROUTE_SELECTION_RECEIPT_POLICY_MISMATCH'
+  | 'ROUTE_SELECTION_RECEIPT_WEIGHT_MISMATCH'
+  | 'ROUTE_SELECTION_RECEIPT_DECISION_MISMATCH'
 
-export type DeterministicRouteSelectionAdmissionCode =
-  | 'UNSUPPORTED_ROUTE_STRATEGY'
-  | 'DUPLICATE_ROUTE_CANDIDATE'
-  | 'FIXED_STRATEGY_REQUIRES_SINGLE_CANDIDATE'
+/** Fail-closed replay error for a receipt that does not reproduce under the supplied policy. */
+export class RouteSelectionReceiptReplayError extends Error {
+  readonly code: RouteSelectionReceiptReplayCode
 
-/** Fail-closed policy-admission error raised before any candidate is evaluated. */
-export class DeterministicRouteSelectionAdmissionError extends Error {
-  readonly code: DeterministicRouteSelectionAdmissionCode
-
-  constructor(code: DeterministicRouteSelectionAdmissionCode, message: string) {
+  constructor(code: RouteSelectionReceiptReplayCode, message: string) {
     super(message)
-    this.name = 'DeterministicRouteSelectionAdmissionError'
+    this.name = 'RouteSelectionReceiptReplayError'
     this.code = code
   }
 }
@@ -68,7 +92,8 @@ export function selectExecutionRoute(
   policy: ExecutionRoutePolicy,
   options: DeterministicRouteSelectionOptions,
 ): ExecutionRouteDecision {
-  assertRoutePolicyAdmission(policy)
+  assertDeterministicRoutePolicyAdmission(policy, options)
+  if (policy.strategy === 'weighted') routeSelectionCandidateWeights(policy.candidates)
   const candidates = [...policy.candidates]
   const byId = new Map(candidates.map((candidate) => [candidate.id, candidate]))
   const origin = policy.originCandidateId ? byId.get(policy.originCandidateId) : undefined
@@ -109,25 +134,20 @@ export function selectExecutionRoute(
     }
   }
 
-  const preferenceRank = new Map(policy.preferenceOrder.map((id, index) => [id, index]))
-  eligible.sort((left, right) => {
-    const leftRank = preferenceRank.get(left.id) ?? Number.MAX_SAFE_INTEGER
-    const rightRank = preferenceRank.get(right.id) ?? Number.MAX_SAFE_INTEGER
-    return leftRank - rightRank || left.id.localeCompare(right.id)
-  })
+  const orderedEligible = orderEligibleRouteCandidates(eligible, policy, options)
   rejected.sort((left, right) => left.candidateId.localeCompare(right.candidateId))
   transitions.sort((left, right) => left.toCandidateId.localeCompare(right.toCandidateId))
 
-  const selected = eligible[0]
+  const selected = orderedEligible[0]
   return {
     id: `${policy.id}:${policy.requestId}`,
     policyId: policy.id,
     requestId: policy.requestId,
-    eligibleCandidateIds: eligible.map((candidate) => candidate.id),
+    eligibleCandidateIds: orderedEligible.map((candidate) => candidate.id),
     rejected,
     selectedCandidateId: selected?.id ?? null,
     fallbackCandidateIds: policy.fallback === 'ordered-compatible'
-      ? eligible.slice(1).map((candidate) => candidate.id)
+      ? orderedEligible.slice(1).map((candidate) => candidate.id)
       : [],
     transitions,
     strategy: policy.strategy,
@@ -220,41 +240,116 @@ function evaluateCandidate(
   return deduplicateFailures(failures)
 }
 
-function assertRoutePolicyAdmission(policy: ExecutionRoutePolicy): void {
-  if (!isImplementedStrategy(policy.strategy)) {
-    throw new DeterministicRouteSelectionAdmissionError(
-      'UNSUPPORTED_ROUTE_STRATEGY',
-      `Route strategy "${policy.strategy}" is not implemented by the deterministic selector; supported strategies: ${IMPLEMENTED_DETERMINISTIC_ROUTE_STRATEGIES.join(', ')}`,
-    )
+function orderEligibleRouteCandidates(
+  eligible: readonly ExecutionRouteCandidate[],
+  policy: ExecutionRoutePolicy,
+  options: DeterministicRouteSelectionOptions,
+): ExecutionRouteCandidate[] {
+  const candidates = [...eligible]
+  if (policy.strategy === 'rule' || policy.strategy === 'fixed') {
+    const preferenceRank = new Map(policy.preferenceOrder.map((id, index) => [id, index]))
+    return candidates.sort((left, right) => {
+      const leftRank = preferenceRank.get(left.id) ?? Number.MAX_SAFE_INTEGER
+      const rightRank = preferenceRank.get(right.id) ?? Number.MAX_SAFE_INTEGER
+      return leftRank - rightRank || left.id.localeCompare(right.id)
+    })
+  }
+  if (policy.strategy === 'weighted') {
+    const weights = new Map(routeSelectionCandidateWeights(policy.candidates)
+      .map((item) => [item.candidateId, item.weight]))
+    const seed = options.seed as string
+    return candidates.sort((left, right) => {
+      const leftScore = weightedScore(left.id, seed, weights.get(left.id) as number)
+      const rightScore = weightedScore(right.id, seed, weights.get(right.id) as number)
+      return leftScore - rightScore || left.id.localeCompare(right.id)
+    })
+  }
+  if (policy.strategy === 'hash') {
+    const seed = options.seed as string
+    const routingKey = options.routingKey as string
+    return candidates.sort((left, right) => {
+      const leftScore = fnv1a32(`${left.id}|${seed}|${routingKey}`)
+      const rightScore = fnv1a32(`${right.id}|${seed}|${routingKey}`)
+      return rightScore - leftScore || left.id.localeCompare(right.id)
+    })
   }
 
-  const candidateIds = new Set<string>()
-  for (const candidate of policy.candidates) {
-    if (candidateIds.has(candidate.id)) {
-      throw new DeterministicRouteSelectionAdmissionError(
-        'DUPLICATE_ROUTE_CANDIDATE',
-        `Duplicate route candidate: ${candidate.id}`,
-      )
-    }
-    candidateIds.add(candidate.id)
-  }
-
-  if (policy.strategy === 'fixed' && policy.candidates.length !== 1) {
-    throw new DeterministicRouteSelectionAdmissionError(
-      'FIXED_STRATEGY_REQUIRES_SINGLE_CANDIDATE',
-      `Fixed route strategy requires exactly one candidate; received ${policy.candidates.length}`,
-    )
-  }
+  candidates.sort((left, right) => left.id.localeCompare(right.id))
+  const cursor = options.roundRobinCursor
+  if (cursor === undefined || candidates.length < 2) return candidates
+  const successor = candidates.findIndex((candidate) => candidate.id.localeCompare(cursor) > 0)
+  const pivot = successor === -1 ? 0 : successor
+  return [...candidates.slice(pivot), ...candidates.slice(0, pivot)]
 }
 
-function isImplementedStrategy(
-  strategy: ExecutionRoutePolicy['strategy'],
-): strategy is ImplementedDeterministicRouteStrategy {
-  return (IMPLEMENTED_DETERMINISTIC_ROUTE_STRATEGIES as readonly string[]).includes(strategy)
+function routeSelectionCandidateWeights(
+  candidates: readonly ExecutionRouteCandidate[],
+): RouteSelectionCandidateWeight[] {
+  const result = [...candidates]
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((candidate) => {
+      const weightTags = (candidate.tags ?? []).filter((tag) => tag.startsWith('route-weight:'))
+      if (weightTags.length === 0) {
+        throw new DeterministicRouteSelectionAdmissionError(
+          'WEIGHTED_STRATEGY_REQUIRES_CANDIDATE_WEIGHT',
+          `Weighted route candidate requires exactly one route-weight tag: ${candidate.id}`,
+        )
+      }
+      if (weightTags.length !== 1) {
+        throw new DeterministicRouteSelectionAdmissionError(
+          'WEIGHTED_STRATEGY_INVALID_CANDIDATE_WEIGHT',
+          `Weighted route candidate has multiple route-weight tags: ${candidate.id}`,
+        )
+      }
+      const encoded = weightTags[0]?.slice('route-weight:'.length) ?? ''
+      if (!/^[1-9][0-9]*$/.test(encoded)) {
+        throw new DeterministicRouteSelectionAdmissionError(
+          'WEIGHTED_STRATEGY_INVALID_CANDIDATE_WEIGHT',
+          `Weighted route candidate has an invalid positive integer weight: ${candidate.id}`,
+        )
+      }
+      const weight = Number(encoded)
+      if (!Number.isSafeInteger(weight) || weight <= 0) {
+        throw new DeterministicRouteSelectionAdmissionError(
+          'WEIGHTED_STRATEGY_INVALID_CANDIDATE_WEIGHT',
+          `Weighted route candidate weight is outside the safe integer range: ${candidate.id}`,
+        )
+      }
+      return { candidateId: candidate.id, weight }
+    })
+  const total = result.reduce((sum, item) => sum + item.weight, 0)
+  if (!Number.isSafeInteger(total) || total <= 0) {
+    throw new DeterministicRouteSelectionAdmissionError(
+      'WEIGHTED_STRATEGY_REQUIRES_POSITIVE_WEIGHT_SUM',
+      'Weighted route candidate weights must have a positive safe-integer sum',
+    )
+  }
+  return result
+}
+
+function weightedScore(candidateId: string, seed: string, weight: number): number {
+  const unit = (fnv1a32(`${candidateId}|${seed}|weighted`) + 1) / 4_294_967_297
+  return -Math.log(unit) / weight
+}
+
+function fnv1a32(value: string): number {
+  let hash = 0x811c9dc5
+  for (const byte of Buffer.from(value, 'utf8')) {
+    hash ^= byte
+    hash = Math.imul(hash, 0x01000193) >>> 0
+  }
+  return hash
 }
 
 function strategyLabel(strategy: ExecutionRoutePolicy['strategy']): string {
-  return strategy === 'fixed' ? 'Fixed route' : 'Ordered rule'
+  switch (strategy) {
+    case 'fixed': return 'Fixed route'
+    case 'rule': return 'Ordered rule'
+    case 'weighted': return 'Seeded weighted route'
+    case 'hash': return 'Rendezvous hash route'
+    case 'round-robin': return 'Receipt round-robin route'
+    case 'llm-rank': return 'LLM-ranked route'
+  }
 }
 
 function includes(values: readonly string[], value: string | undefined): boolean {
@@ -281,6 +376,68 @@ function costRank(value: ExecutionRouteCostClass | undefined): number {
 
 function privacyRank(value: ExecutionRoutePrivacyClass | undefined): number {
   return value === undefined ? Number.MAX_SAFE_INTEGER : PRIVACY_RANK[value]
+}
+
+/** Select and bind every strategy input needed for deterministic replay. */
+export function createRouteSelectionReceipt(
+  policy: ExecutionRoutePolicy,
+  options: DeterministicRouteSelectionOptions,
+): RouteSelectionReceipt {
+  const decision = selectExecutionRoute(policy, options)
+  return {
+    schema: ROUTE_SELECTION_RECEIPT_SCHEMA,
+    decision,
+    seed: policy.strategy === 'weighted' || policy.strategy === 'hash'
+      ? options.seed ?? null
+      : null,
+    routingKey: policy.strategy === 'hash' ? options.routingKey ?? null : null,
+    candidateWeights: policy.strategy === 'weighted'
+      ? routeSelectionCandidateWeights(policy.candidates)
+      : [],
+    roundRobinCursor: policy.strategy === 'round-robin' ? options.roundRobinCursor ?? null : null,
+  }
+}
+
+/** Re-select from recorded inputs and reject any policy, weight, or decision drift. */
+export function replayRouteSelectionReceipt(
+  policy: ExecutionRoutePolicy,
+  receipt: RouteSelectionReceipt,
+): ExecutionRouteDecision {
+  if (receipt.schema !== ROUTE_SELECTION_RECEIPT_SCHEMA) {
+    throw new RouteSelectionReceiptReplayError(
+      'ROUTE_SELECTION_RECEIPT_SCHEMA_UNSUPPORTED',
+      `Unsupported route-selection receipt schema: ${String(receipt.schema)}`,
+    )
+  }
+  if (receipt.decision.policyId !== policy.id || receipt.decision.requestId !== policy.requestId) {
+    throw new RouteSelectionReceiptReplayError(
+      'ROUTE_SELECTION_RECEIPT_POLICY_MISMATCH',
+      'Route-selection receipt does not belong to the supplied policy and request',
+    )
+  }
+  const expectedWeights = policy.strategy === 'weighted'
+    ? routeSelectionCandidateWeights(policy.candidates)
+    : []
+  if (JSON.stringify(receipt.candidateWeights) !== JSON.stringify(expectedWeights)) {
+    throw new RouteSelectionReceiptReplayError(
+      'ROUTE_SELECTION_RECEIPT_WEIGHT_MISMATCH',
+      'Route-selection receipt candidate weights do not match the supplied policy',
+    )
+  }
+
+  const replayed = selectExecutionRoute(policy, {
+    decidedAt: receipt.decision.decidedAt,
+    ...(receipt.seed === null ? {} : { seed: receipt.seed }),
+    ...(receipt.routingKey === null ? {} : { routingKey: receipt.routingKey }),
+    ...(receipt.roundRobinCursor === null ? {} : { roundRobinCursor: receipt.roundRobinCursor }),
+  })
+  if (JSON.stringify(replayed) !== JSON.stringify(receipt.decision)) {
+    throw new RouteSelectionReceiptReplayError(
+      'ROUTE_SELECTION_RECEIPT_DECISION_MISMATCH',
+      'Route-selection receipt decision does not reproduce from its recorded inputs',
+    )
+  }
+  return replayed
 }
 
 export type CandidateRecoveryAction =
