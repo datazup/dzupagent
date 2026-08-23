@@ -3,7 +3,7 @@
   "packet": "MEM-P000",
   "sourceIdentity": {
     "kind": "content-digest-set",
-    "digest": "sha256:2a12134af79e3852e9f118793392ebd1783fe03639397a07277c8f0612e15cc9",
+    "digest": "sha256:d2924bc9dab79cf68eee17297d8a3593de093db60c74a3d83f282a164f62e049",
     "inputs": [
       {
         "path": "config/memory-api-census.v1.json",
@@ -24,11 +24,11 @@
             "@dzupagent/memory-ipc"
           ]
         },
-        "sha256": "sha256:02264ce166c92b0710de03bf90d3b00da1107a1c409093a6c3c7e4395fd25bce"
+        "sha256": "sha256:657ddd6d0303580f67dd01a50640bcbd3b2228b0b1d70627ba62fc85b254f3d7"
       },
       {
         "path": "packages/agent-types/package.json",
-        "sha256": "sha256:0a5f9b1a5e61aba6c20ffb6208649a9e9d6b2442d739b3f37fb20ba74648b597"
+        "sha256": "sha256:1080d04bc40eeedfec8acd269aa68c3cbe0f712c551e1e6e8d6e2f2ee3960d43"
       },
       {
         "path": "packages/agent-types/src/index.ts",
@@ -80,7 +80,7 @@
       },
       {
         "path": "packages/agent/src/index.ts",
-        "sha256": "sha256:6ba58ad5435feca413cf67859cd8db5402dd6325c85dd8550f0435ee2108bd6c"
+        "sha256": "sha256:83bb3b9e413bc7b2679a1cd5230f407011cf7642da365784c3b02929e6f0319a"
       },
       {
         "path": "packages/context/package.json",
@@ -240,7 +240,7 @@
       },
       {
         "path": "packages/memory/src/index.ts",
-        "sha256": "sha256:a5895f8063650b07eaacdcfb11ae307b5bcb6b2cf4f4a614b176df909febcda3"
+        "sha256": "sha256:c85cccff86df0299583ae4a9931783b69a4ae2aa4e49101abebe3d4222e65f95"
       },
       {
         "path": "packages/memory/src/knowledge/index.ts",
@@ -701,7 +701,7 @@
     ]
   },
   "summary": {
-    "currentExportCount": 736,
+    "currentExportCount": 737,
     "currentSurfaceCount": 16,
     "currentDecisionCount": 63,
     "plannedSurfaceCount": 86,
@@ -710,7 +710,7 @@
       "deprecate": 1,
       "extend": 45,
       "new": 17,
-      "reuse": 673
+      "reuse": 674
     },
     "plannedByDisposition": {
       "extend": 20,
@@ -732,7 +732,7 @@
       "declared-subpath": 87,
       "internal": 25,
       "stable-root": 351,
-      "transitional-root": 273
+      "transitional-root": 274
     }
   },
   "ownership": {
@@ -7994,6 +7994,21 @@
       "kind": "type",
       "sourceModule": "./operation-outcome.js",
       "sourceSymbol": "MemoryDegradationImpact",
+      "apiClass": "transitional-root",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-root",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/index.ts",
+      "symbol": "MemoryDegradationReason",
+      "kind": "type",
+      "sourceModule": "./operation-outcome.js",
+      "sourceSymbol": "MemoryDegradationReason",
       "apiClass": "transitional-root",
       "disposition": "reuse",
       "target": null,
