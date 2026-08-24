@@ -115,6 +115,20 @@ describe('Crush CLI convergence contract', () => {
     expect(mockSpawnAndStreamJsonl).not.toHaveBeenCalled()
   })
 
+  it('rejects an unknown credential-source mode before spawn', async () => {
+    const { profile, workspace } = await fixtureProfile()
+
+    const events = await collectEvents(
+      new CrushAdapter({
+        cliBaseProfileRoot: profile,
+        credentialSource: 'profile-typo' as never,
+      }).execute({ prompt: 'x', workingDirectory: workspace }),
+    )
+
+    expect(events.at(-1)).toMatchObject({ type: 'adapter:failed', code: 'CAPABILITY_DENIED' })
+    expect(mockSpawnAndStreamJsonl).not.toHaveBeenCalled()
+  })
+
   it('enforces workspace-write with an exact allowlist and explicit auto-approval consent', async () => {
     const { profile, workspace } = await fixtureProfile()
     mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, _args, options) {
