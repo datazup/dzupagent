@@ -85,8 +85,8 @@ describe('monitoring provider catalog contract (WP-M1.2)', () => {
     expect(getProviderCapabilities('qwen')?.capabilityProfile.supportsStreaming).toBe(true)
   })
 
-  it('preserves the ratified discovery-only product status for Goose and Crush', () => {
+  it('keeps Goose discovery-only while admitting Crush to the product runtime', () => {
     expect(PROVIDER_CATALOG.goose.productIntegrated).toBe(false)
-    expect(PROVIDER_CATALOG.crush.productIntegrated).toBe(false)
+    expect(PROVIDER_CATALOG.crush.productIntegrated).toBe(true)
   })
 })
