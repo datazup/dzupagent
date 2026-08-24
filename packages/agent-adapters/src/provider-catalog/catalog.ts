@@ -65,8 +65,10 @@ function postureRef(id: string): CatalogEntry['posture'] {
  * The following providers are CORE-ONLY and NOT PRODUCTIZED in the Codev
  * product surface at this time:
  *   - goose        (productIntegrated: false)
- *   - crush        (productIntegrated: false)
  *   - gemini-sdk   (productIntegrated: false)
+ *
+ * Crush entered the product surface through the Codev P2 exact-runtime,
+ * recorded-auth, compound-catalog, and read-only policy admission.
  *
  * They remain fully supported at the framework/adapter level (runtime
  * execution, policy + skill projection) but are intentionally excluded
@@ -281,7 +283,7 @@ export const PROVIDER_CATALOG = {
       releaseFeed: 'https://github.com/charmbracelet/crush/releases.atom',
     },
     runtimeExecution: true,
-    productIntegrated: false,
+    productIntegrated: true,
     httpAdapterRouting: true,
     monitorIntrospection: 'artifact-backed',
     supportsReplay: false,

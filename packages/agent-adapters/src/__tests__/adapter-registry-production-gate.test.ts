@@ -56,12 +56,12 @@ describe('ProviderAdapterRegistry production gate', () => {
       expect(registry.listAdapters()).toHaveLength(0)
     })
 
-    it('does NOT register adapter with providerId "crush" (productIntegrated: false)', () => {
+    it('registers adapter with providerId "crush" after Codev product integration', () => {
       const registry = new ProviderAdapterRegistry()
       registry.registerProductionAdapters([createMockAdapter('crush')])
 
-      expect(registry.listAdapters()).not.toContain('crush')
-      expect(registry.listAdapters()).toHaveLength(0)
+      expect(registry.listAdapters()).toContain('crush')
+      expect(registry.listAdapters()).toHaveLength(1)
     })
 
     it('does NOT register adapter with providerId "gemini-sdk" (productIntegrated: false)', () => {
