@@ -3,6 +3,7 @@ import {
   assessModelAvailability,
   discoverClaudeModels,
   discoverCodexModels,
+  discoverCrushModels,
   discoverGeminiModels,
   discoverProviderModels,
   discoverQwenModels,
@@ -384,7 +385,7 @@ describe("provider model discovery", () => {
     ]);
     expect(catalog.models.every((model) => model.isDefault !== true)).toBe(true);
     const defaultAssessment = assessModelAvailability(catalog);
-    expect(defaultAssessment.status).toBe("provider-default");
+    expect(defaultAssessment.status).toBe("unverified");
     expect(defaultAssessment).not.toHaveProperty("matchedModel");
   });
 
@@ -565,8 +566,146 @@ describe("provider model discovery", () => {
       fingerprint: "sha256:test",
     };
     expect(assessModelAvailability(catalog)).toEqual({
-      status: "provider-default",
-      reason: "No model was pinned; selection remains owned by the provider runtime",
+      status: "unverified",
+      reason:
+        "No model was pinned and provider-default execution has no qualified capability evidence",
     });
+  });
+
+  it("discovers Crush compound model identities through its qualified underlying provider", async () => {
+    const catalog = await discoverCrushModels({
+      sourceEvidence: {
+        installationId: "installation-crush-a",
+        backendId: "crush-cli",
+        sourceRevision: "0.19.0",
+      },
+      dependencies: {
+        now: fixedNow,
+        loadCrushProfile: async () => ({
+          underlyingProviderId: "claude",
+          authenticated: true,
+          sourceRevision: "0.19.0",
+          providerDefaultQualifiedVersion: "crush-0.19.0",
+        }),
+        discoverCrushUnderlyingProvider: async () => ({
+          schemaVersion: "dzupagent/provider-model-catalog/v1",
+          providerId: "claude",
+          source: "claude-cli",
+          completeness: "runtime-catalog",
+          discoveredAt: fixedNow().toISOString(),
+          authenticated: true,
+          models: [
+            {
+              providerId: "claude",
+              id: "claude-observed",
+              displayName: "Claude Observed",
+              supportedReasoningEfforts: ["low", "high"],
+            },
+          ],
+          warnings: [],
+          fingerprint: `sha256:${"a".repeat(64)}`,
+        }),
+      },
+    });
+
+    expect(catalog).toMatchObject({
+      providerId: "crush",
+      source: "crush-underlying-provider",
+      installationId: "installation-crush-a",
+      backendId: "crush-cli",
+      providerDefaultExecution: {
+        qualifiedVersion: "crush-0.19.0",
+        underlyingProviderId: "claude",
+      },
+    });
+    expect(catalog.models).toEqual([
+      expect.objectContaining({
+        providerId: "crush",
+        id: "claude/claude-observed",
+        supportedReasoningEfforts: ["low", "high"],
+      }),
+    ]);
+    expect(assessModelAvailability(catalog).status).toBe("provider-default");
+  });
+
+  it("supports qualified Crush provider-default only and rejects inferred/static fallbacks", async () => {
+    const common = {
+      sourceEvidence: {
+        installationId: "installation-crush-a",
+        backendId: "crush-cli",
+      },
+      dependencies: {
+        now: fixedNow,
+        loadCrushProfile: async () => ({
+          underlyingProviderId: "qwen" as const,
+          authenticated: null,
+          providerDefaultQualifiedVersion: "crush-profile-v1",
+        }),
+      },
+    };
+    const catalog = await discoverCrushModels(common);
+    expect(catalog.models).toEqual([]);
+    expect(catalog.completeness).toBe("provider-default");
+    expect(assessModelAvailability(catalog)).toMatchObject({
+      status: "provider-default",
+    });
+    expect(assessModelAvailability(catalog, "qwen/static-default").status).toBe(
+      "unavailable",
+    );
+
+    await expect(
+      discoverCrushModels({
+        ...common,
+        dependencies: {
+          ...common.dependencies,
+          loadCrushProfile: async () => ({ underlyingProviderId: "qwen" }),
+        },
+      }),
+    ).rejects.toThrow(/did not provide a qualified underlying catalog/u);
+  });
+
+  it("cancels Crush discovery without retaining profile payloads", async () => {
+    const controller = new AbortController();
+    controller.abort(new Error("catalog refresh cancelled"));
+    const loadCrushProfile = vi.fn();
+    await expect(
+      discoverCrushModels({
+        signal: controller.signal,
+        dependencies: { loadCrushProfile },
+      }),
+    ).rejects.toThrow("catalog refresh cancelled");
+    expect(loadCrushProfile).not.toHaveBeenCalled();
+  });
+
+  it("redacts Crush loader failures and underlying warnings", async () => {
+    await expect(
+      discoverCrushModels({
+        dependencies: {
+          loadCrushProfile: async () => {
+            throw new Error("/private/profile Authorization: Bearer secret");
+          },
+        },
+      }),
+    ).rejects.toThrow(/^Crush normalized profile discovery failed$/u);
+
+    const catalog = await discoverCrushModels({
+      dependencies: {
+        loadCrushProfile: async () => ({ underlyingProviderId: "codex" }),
+        discoverCrushUnderlyingProvider: async () => ({
+          schemaVersion: "dzupagent/provider-model-catalog/v1",
+          providerId: "codex",
+          source: "codex-app-server",
+          completeness: "runtime-catalog",
+          discoveredAt: fixedNow().toISOString(),
+          authenticated: true,
+          models: [{ providerId: "codex", id: "observed", displayName: "Observed" }],
+          warnings: ["/private/profile secret"],
+          fingerprint: `sha256:${"b".repeat(64)}`,
+        }),
+      },
+    });
+    expect(catalog.warnings).toEqual([
+      "Crush underlying catalog reported diagnostics; raw diagnostics were not retained.",
+    ]);
   });
 });

@@ -11,7 +11,8 @@ import {
 
 const execFileAsync = promisify(execFile);
 
-export type DiscoverableProviderId = "codex" | "claude" | "gemini" | "qwen";
+export type DiscoverableProviderId = "codex" | "claude" | "gemini" | "qwen" | "crush";
+export type CrushUnderlyingProviderId = Exclude<DiscoverableProviderId, "crush">;
 export type AcpCatalogProviderId = "gemini" | "qwen";
 export type ProviderModelCatalogSource =
   | "codex-app-server"
@@ -19,11 +20,19 @@ export type ProviderModelCatalogSource =
   | "anthropic-models-api"
   | "claude-cli"
   | "gemini-cli-acp"
-  | "qwen-cli-acp";
+  | "qwen-cli-acp"
+  | "crush-profile"
+  | "crush-underlying-provider";
 export type ProviderModelCatalogCompleteness =
   | "account-catalog"
   | "runtime-catalog"
-  | "aliases-only";
+  | "aliases-only"
+  | "provider-default";
+
+export interface ProviderDefaultExecutionEvidence {
+  qualifiedVersion: string;
+  underlyingProviderId?: CrushUnderlyingProviderId | undefined;
+}
 
 export interface ProviderModelCatalogEntry {
   providerId: DiscoverableProviderId;
@@ -54,6 +63,7 @@ export interface ProviderModelCatalog {
   installationId?: string | undefined;
   backendId?: string | undefined;
   sourceRevision?: string | undefined;
+  providerDefaultExecution?: ProviderDefaultExecutionEvidence | undefined;
   models: readonly ProviderModelCatalogEntry[];
   warnings: readonly string[];
   fingerprint: string;
@@ -75,6 +85,19 @@ export interface ProviderCatalogV2ProjectionOptions {
   /** Connector-qualified resume truth. Unknown is the fail-closed default. */
   nativeResumeSupport?: ProviderCapabilitySupport | undefined;
   nativeResumeQualifiedVersion?: string | undefined;
+  /** Additional connector-qualified control evidence; unknown remains the default. */
+  controlCapabilities?: Readonly<
+    Partial<
+      Record<
+        "interactions" | "streaming" | "cancellation",
+      {
+        support: ProviderCapabilitySupport;
+        qualifiedVersion?: string | undefined;
+        constraints?: Readonly<Record<string, unknown>> | undefined;
+      }
+      >
+    >
+  > | undefined;
 }
 
 /**
@@ -129,7 +152,9 @@ export function projectProviderModelCatalogV2(
         ? "account"
         : catalog.completeness === "runtime-catalog"
           ? "runtime"
-          : "aliases",
+          : catalog.completeness === "aliases-only"
+            ? "aliases"
+            : "partial",
     confidence: "observed",
     models,
     capabilities: {
@@ -148,6 +173,40 @@ export function projectProviderModelCatalogV2(
           ? { qualifiedVersion: options.nativeResumeQualifiedVersion }
           : {}),
       },
+      ...(catalog.providerDefaultExecution
+        ? {
+            provider_default_execution: {
+              support: "supported" as const,
+              source: catalog.source,
+              observedAt: catalog.discoveredAt,
+              expiresAt: options.expiresAt,
+              qualifiedVersion: catalog.providerDefaultExecution.qualifiedVersion,
+              ...(catalog.providerDefaultExecution.underlyingProviderId
+                ? {
+                    constraints: {
+                      underlyingProviderId:
+                        catalog.providerDefaultExecution.underlyingProviderId,
+                    },
+                  }
+                : {}),
+            },
+          }
+        : {}),
+      ...Object.fromEntries(
+        Object.entries(options.controlCapabilities ?? {}).map(([name, evidence]) => [
+          name,
+          {
+            support: evidence.support,
+            source: catalog.source,
+            observedAt: catalog.discoveredAt,
+            expiresAt: options.expiresAt,
+            ...(evidence.qualifiedVersion
+              ? { qualifiedVersion: evidence.qualifiedVersion }
+              : {}),
+            ...(evidence.constraints ? { constraints: evidence.constraints } : {}),
+          },
+        ]),
+      ),
     },
     warnings: catalog.warnings,
   };
@@ -169,6 +228,14 @@ interface CommandResult {
 export interface ProviderCliCatalogObservation extends CommandResult {
   authenticated?: boolean | null | undefined;
   sourceRevision?: string | undefined;
+}
+
+/** Normalized, secret-free Crush profile evidence supplied by a qualified host connector. */
+export interface CrushProfileCatalogObservation {
+  underlyingProviderId: CrushUnderlyingProviderId;
+  authenticated?: boolean | null | undefined;
+  sourceRevision?: string | undefined;
+  providerDefaultQualifiedVersion?: string | undefined;
 }
 
 interface CodexPageResult {
@@ -201,11 +268,24 @@ export interface ModelDiscoveryDependencies {
     timeoutMs: number;
     sourceEvidence?: ProviderModelCatalogSourceEvidence | undefined;
   }) => Promise<ProviderCliCatalogObservation>;
+  loadCrushProfile?: (input: {
+    cliPath: string;
+    timeoutMs: number;
+    sourceEvidence?: ProviderModelCatalogSourceEvidence | undefined;
+    signal?: AbortSignal | undefined;
+  }) => Promise<CrushProfileCatalogObservation>;
+  discoverCrushUnderlyingProvider?: (input: {
+    providerId: CrushUnderlyingProviderId;
+    timeoutMs: number;
+    sourceEvidence?: ProviderModelCatalogSourceEvidence | undefined;
+    signal?: AbortSignal | undefined;
+  }) => Promise<ProviderModelCatalog>;
   now?: (() => Date) | undefined;
 }
 
 interface SourceScopedModelDiscoveryOptions {
   sourceEvidence?: ProviderModelCatalogSourceEvidence | undefined;
+  signal?: AbortSignal | undefined;
 }
 
 export interface CodexModelDiscoveryOptions extends SourceScopedModelDiscoveryOptions {
@@ -245,11 +325,19 @@ export interface QwenModelDiscoveryOptions extends SourceScopedModelDiscoveryOpt
   dependencies?: ModelDiscoveryDependencies | undefined;
 }
 
+export interface CrushModelDiscoveryOptions extends SourceScopedModelDiscoveryOptions {
+  source?: "profile" | undefined;
+  cliPath?: string | undefined;
+  timeoutMs?: number | undefined;
+  dependencies?: ModelDiscoveryDependencies | undefined;
+}
+
 export type ProviderModelDiscoveryOptions =
   | CodexModelDiscoveryOptions
   | ClaudeModelDiscoveryOptions
   | GeminiModelDiscoveryOptions
-  | QwenModelDiscoveryOptions;
+  | QwenModelDiscoveryOptions
+  | CrushModelDiscoveryOptions;
 
 export async function discoverProviderModels(
   providerId: "codex",
@@ -268,6 +356,10 @@ export async function discoverProviderModels(
   options?: QwenModelDiscoveryOptions,
 ): Promise<ProviderModelCatalog>;
 export async function discoverProviderModels(
+  providerId: "crush",
+  options?: CrushModelDiscoveryOptions,
+): Promise<ProviderModelCatalog>;
+export async function discoverProviderModels(
   providerId: DiscoverableProviderId,
   options: ProviderModelDiscoveryOptions = {},
 ): Promise<ProviderModelCatalog> {
@@ -280,6 +372,8 @@ export async function discoverProviderModels(
       return discoverGeminiModels(options as GeminiModelDiscoveryOptions);
     case "qwen":
       return discoverQwenModels(options as QwenModelDiscoveryOptions);
+    case "crush":
+      return discoverCrushModels(options as CrushModelDiscoveryOptions);
   }
 }
 
@@ -445,6 +539,120 @@ export async function discoverQwenModels(
   return discoverAcpCliModels("qwen", options);
 }
 
+export async function discoverCrushModels(
+  options: CrushModelDiscoveryOptions = {},
+): Promise<ProviderModelCatalog> {
+  if (options.source !== undefined && options.source !== "profile") {
+    throw new Error("Crush model discovery supports normalized profile observations only");
+  }
+  const dependencies = options.dependencies ?? {};
+  if (!dependencies.loadCrushProfile) {
+    throw new Error(
+      "Crush model discovery requires an injected normalized profile loader",
+    );
+  }
+  const timeoutMs = positiveInteger(options.timeoutMs ?? 10_000, "Crush catalog timeoutMs") ?? 10_000;
+  const sourceEvidence = normalizeSourceEvidence(options.sourceEvidence);
+  throwIfAborted(options.signal);
+  let observation: CrushProfileCatalogObservation;
+  try {
+    observation = await dependencies.loadCrushProfile({
+      cliPath: options.cliPath ?? "crush",
+      timeoutMs,
+      ...(sourceEvidence ? { sourceEvidence } : {}),
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+  } catch (error) {
+    throwIfAborted(options.signal);
+    throw new Error("Crush normalized profile discovery failed", { cause: error });
+  }
+  throwIfAborted(options.signal);
+  const underlyingProviderId = crushUnderlyingProviderId(
+    observation.underlyingProviderId,
+  );
+  const observedEvidence = mergeObservedSourceRevision(
+    sourceEvidence,
+    observation.sourceRevision,
+  );
+  const providerDefaultQualifiedVersion = observation.providerDefaultQualifiedVersion
+    ? sourceRevisionValue(
+        observation.providerDefaultQualifiedVersion,
+        "Crush provider-default qualifiedVersion",
+      )
+    : undefined;
+
+  if (!dependencies.discoverCrushUnderlyingProvider) {
+    if (!providerDefaultQualifiedVersion) {
+      throw new Error(
+        "Crush profile did not provide a qualified underlying catalog or provider-default capability",
+      );
+    }
+    return createCatalog({
+      providerId: "crush",
+      source: "crush-profile",
+      completeness: "provider-default",
+      authenticated: observation.authenticated ?? null,
+      sourceEvidence: observedEvidence,
+      models: [],
+      providerDefaultExecution: {
+        qualifiedVersion: providerDefaultQualifiedVersion,
+        underlyingProviderId,
+      },
+      warnings: [
+        "Crush exposes provider-default execution only; no selectable model IDs were observed.",
+      ],
+      now: dependencies.now,
+    });
+  }
+
+  let underlying: ProviderModelCatalog;
+  try {
+    underlying = await dependencies.discoverCrushUnderlyingProvider({
+      providerId: underlyingProviderId,
+      timeoutMs,
+      ...(sourceEvidence ? { sourceEvidence } : {}),
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+  } catch (error) {
+    throwIfAborted(options.signal);
+    throw new Error("Crush underlying provider discovery failed", { cause: error });
+  }
+  throwIfAborted(options.signal);
+  if (underlying.providerId !== underlyingProviderId) {
+    throw new Error("Crush underlying discovery returned a mismatched provider");
+  }
+  const compoundModels = underlying.models.map((model) => ({
+    ...model,
+    providerId: "crush" as const,
+    id: `${underlyingProviderId}/${model.id}`,
+    displayName: `${providerDisplayName(underlyingProviderId)} / ${model.displayName}`,
+    ...(model.canonicalId
+      ? { canonicalId: `${underlyingProviderId}/${model.canonicalId}` }
+      : {}),
+  }));
+  return createCatalog({
+    providerId: "crush",
+    source: "crush-underlying-provider",
+    completeness: "runtime-catalog",
+    authenticated: observation.authenticated ?? underlying.authenticated,
+    sourceEvidence: observedEvidence,
+    models: compoundModels,
+    ...(providerDefaultQualifiedVersion
+      ? {
+          providerDefaultExecution: {
+            qualifiedVersion: providerDefaultQualifiedVersion,
+            underlyingProviderId,
+          },
+        }
+      : {}),
+    warnings:
+      underlying.warnings.length > 0
+        ? ["Crush underlying catalog reported diagnostics; raw diagnostics were not retained."]
+        : [],
+    now: dependencies.now,
+  });
+}
+
 async function discoverAcpCliModels(
   providerId: AcpCatalogProviderId,
   options: GeminiModelDiscoveryOptions | QwenModelDiscoveryOptions,
@@ -528,6 +736,14 @@ export function assessModelAvailability(
   const normalized = requestedModel?.trim();
   if (!normalized) {
     const defaultModel = catalog.models.find((model) => model.isDefault === true);
+    if (!catalog.providerDefaultExecution) {
+      return {
+        status: "unverified",
+        ...(defaultModel ? { matchedModel: defaultModel } : {}),
+        reason:
+          "No model was pinned and provider-default execution has no qualified capability evidence",
+      };
+    }
     return {
       status: "provider-default",
       ...(defaultModel ? { matchedModel: defaultModel } : {}),
@@ -756,17 +972,41 @@ function createCatalog(input: {
   authenticated: boolean | null;
   sourceEvidence?: ProviderModelCatalogSourceEvidence | undefined;
   models: readonly ProviderModelCatalogEntry[];
+  providerDefaultExecution?: ProviderDefaultExecutionEvidence | undefined;
   warnings: readonly string[];
   now?: (() => Date) | undefined;
 }): ProviderModelCatalog {
   const sourceEvidence = normalizeSourceEvidence(input.sourceEvidence);
-  const models = normalizeCatalogModels(input.providerId, input.models);
+  const models = normalizeCatalogModels(
+    input.providerId,
+    input.models,
+    input.completeness === "provider-default",
+  );
+  const providerDefaultExecution = input.providerDefaultExecution
+    ? {
+        qualifiedVersion: sourceRevisionValue(
+          input.providerDefaultExecution.qualifiedVersion,
+          "provider-default qualifiedVersion",
+        ),
+        ...(input.providerDefaultExecution.underlyingProviderId
+          ? {
+              underlyingProviderId: crushUnderlyingProviderId(
+                input.providerDefaultExecution.underlyingProviderId,
+              ),
+            }
+          : {}),
+      }
+    : undefined;
+  if (input.completeness === "provider-default" && !providerDefaultExecution) {
+    throw new Error("Provider-default catalogs require qualified capability evidence");
+  }
   const identity = {
     schemaVersion: "dzupagent/provider-model-catalog/v1" as const,
     providerId: input.providerId,
     source: input.source,
     completeness: input.completeness,
     ...(sourceEvidence ?? {}),
+    ...(providerDefaultExecution ? { providerDefaultExecution } : {}),
     models,
   };
   return {
@@ -1141,6 +1381,7 @@ function assertOk(response: Response, label: string): void {
 function normalizeCatalogModels(
   providerId: DiscoverableProviderId,
   entries: readonly ProviderModelCatalogEntry[],
+  allowEmpty = false,
 ): ProviderModelCatalogEntry[] {
   const byId = new Map<string, ProviderModelCatalogEntry>();
   for (const [index, entry] of entries.entries()) {
@@ -1224,7 +1465,7 @@ function normalizeCatalogModels(
       );
     }
   }
-  if (byId.size === 0) {
+  if (byId.size === 0 && !allowEmpty) {
     throw new Error(`${providerDisplayName(providerId)} catalog contained no models`);
   }
   const models = [...byId.values()].sort((left, right) =>
@@ -1311,7 +1552,29 @@ function providerDisplayName(providerId: DiscoverableProviderId): string {
       ? "Claude"
       : providerId === "gemini"
         ? "Gemini"
-        : "Qwen";
+        : providerId === "qwen"
+          ? "Qwen"
+          : "Crush";
+}
+
+function crushUnderlyingProviderId(value: unknown): CrushUnderlyingProviderId {
+  if (
+    value !== "codex" &&
+    value !== "claude" &&
+    value !== "gemini" &&
+    value !== "qwen"
+  ) {
+    throw new Error("Crush profile named an unsupported underlying provider");
+  }
+  return value;
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw signal.reason instanceof Error
+      ? signal.reason
+      : new Error("Provider catalog discovery was cancelled");
+  }
 }
 
 function strictObjectValue(

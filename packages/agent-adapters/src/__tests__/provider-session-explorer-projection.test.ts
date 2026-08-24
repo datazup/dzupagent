@@ -21,7 +21,9 @@ function discovery(providerId: DiscoverableProviderId): ProviderModelCatalog {
           ? "claude-cli"
           : providerId === "gemini"
             ? "gemini-cli-acp"
-            : "qwen-cli-acp",
+            : providerId === "qwen"
+              ? "qwen-cli-acp"
+              : "crush-underlying-provider",
     completeness: "runtime-catalog",
     discoveredAt: "2026-08-18T09:00:00.000Z",
     authenticated: true,
@@ -43,7 +45,7 @@ function discovery(providerId: DiscoverableProviderId): ProviderModelCatalog {
 }
 
 describe("provider discovery to shared catalog projection", () => {
-  it.each(["codex", "claude", "gemini", "qwen"] as const)(
+  it.each(["codex", "claude", "gemini", "qwen", "crush"] as const)(
     "projects %s discovery without inventing model or effort ids",
     (providerId) => {
       const source = discovery(providerId);
@@ -58,6 +60,33 @@ describe("provider discovery to shared catalog projection", () => {
       expect(isProviderCatalogSnapshotSelectableV2(projected, NOW)).toBe(true);
     },
   );
+
+  it("projects only explicit provider-default and control capability evidence", () => {
+    const source = {
+      ...discovery("crush"),
+      providerDefaultExecution: {
+        qualifiedVersion: "crush-profile-v1",
+        underlyingProviderId: "claude" as const,
+      },
+    };
+    const projected = projectProviderModelCatalogV2(source, {
+      expiresAt: "2026-08-18T11:00:00.000Z",
+      controlCapabilities: {
+        interactions: { support: "supported", qualifiedVersion: "crush-0.19" },
+        streaming: { support: "unknown" },
+        cancellation: { support: "supported", qualifiedVersion: "crush-0.19" },
+      },
+    });
+
+    expect(projected?.capabilities.provider_default_execution).toMatchObject({
+      support: "supported",
+      qualifiedVersion: "crush-profile-v1",
+      constraints: { underlyingProviderId: "claude" },
+    });
+    expect(projected?.capabilities.interactions?.support).toBe("supported");
+    expect(projected?.capabilities.streaming?.support).toBe("unknown");
+    expect(projected?.capabilities.cancellation?.support).toBe("supported");
+  });
 
   it("fails closed without installation identity or with unsafe public warnings", () => {
     const source = discovery("codex");
