@@ -13,6 +13,10 @@ export default defineConfig({
     "src/workers/index.ts",
   ],
   format: ["esm"],
+  // Stable Agent Web runtime receipts require identical executable bytes for
+  // identical source. Esbuild's multi-entry chunk naming can vary with entry
+  // scheduling, so keep each public entry self-contained.
+  splitting: false,
   dts: false,
   clean: true,
   sourcemap: true,

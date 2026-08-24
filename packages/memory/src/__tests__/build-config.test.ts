@@ -4,6 +4,18 @@ import { describe, expect, it } from 'vitest'
 import tsupConfig from '../../tsup.config.js'
 
 describe('build config', () => {
+  it('keeps multi-entry runtime output byte-reproducible', () => {
+    if (typeof tsupConfig === 'function') {
+      throw new Error('tsup.config.ts exports a factory; this test expects a plain config object')
+    }
+    const config = Array.isArray(tsupConfig) ? tsupConfig[0] : tsupConfig
+    if (!config) {
+      throw new Error('tsup.config.ts exports an empty config array')
+    }
+
+    expect(config.splitting).toBe(false)
+  })
+
   it('keeps LangChain and LangGraph packages external', () => {
     // defineConfig's return type admits three shapes — a single Options, an
     // array of them, or a factory function. This package exports one object, and
