@@ -165,6 +165,14 @@ export class CrushAdapter extends BaseCliAdapter {
   }
 
   private validateSupportedInput(input: AgentInput): void {
+    const credentialSource: unknown = this.crushConfig.credentialSource
+    if (
+      credentialSource !== undefined &&
+      credentialSource !== 'configured-or-ambient' &&
+      credentialSource !== 'profile-only'
+    ) {
+      throw denied('Crush credential source mode is invalid', 'credential_source')
+    }
     const sandbox = resolveSandbox(input, this.config)
     const policy = input.policyContext?.activePolicy
     if (this.config.apiKey) throw denied('Crush provider credentials must come from an explicit base profile', 'generic_api_key')

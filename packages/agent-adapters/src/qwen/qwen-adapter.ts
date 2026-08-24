@@ -42,6 +42,8 @@ const API_CREDENTIAL_ENV_PATTERNS = [
   /^QWEN_CUSTOM_API_KEY_/u,
   /^OPENAI_(?:BASE_URL|MODEL)$/u,
 ] as const
+const CREDENTIAL_ENV = /(?:^|_)(?:API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS)(?:_|$)/u
+const PROVIDER_ENV_PREFIX = /^(?:ANTHROPIC|AWS|AZURE|BAILIAN|DASHSCOPE|GEMINI|GOOGLE|OPENAI|OPENROUTER|QWEN|VERTEXAI)_/u
 
 export interface QwenCliAdapterConfig extends AdapterConfig {
   /** Defaults to `qwen`; injectable for managed installations and tests. */
@@ -197,10 +199,16 @@ export class QwenAdapter extends BaseCliAdapter {
         QWEN_CODE_UNATTENDED_RETRY: '0',
         QWEN_TELEMETRY_ENABLED: '0',
       }
+      const profileOnly = this.qwenConfig.credentialSource === 'profile-only'
       for (const key of Object.keys(env)) {
-        if (API_CREDENTIAL_ENV_PATTERNS.some((pattern) => pattern.test(key))) delete env[key]
+        if (
+          API_CREDENTIAL_ENV_PATTERNS.some((pattern) => pattern.test(key)) ||
+          (profileOnly && (CREDENTIAL_ENV.test(key) || PROVIDER_ENV_PREFIX.test(key)))
+        ) {
+          delete env[key]
+        }
       }
-      const codingPlanCredential = this.qwenConfig.credentialSource === 'profile-only'
+      const codingPlanCredential = profileOnly
         ? profileCredential
         : this.qwenConfig.env?.['BAILIAN_CODING_PLAN_API_KEY']
           ?? process.env['BAILIAN_CODING_PLAN_API_KEY']
@@ -226,6 +234,14 @@ export class QwenAdapter extends BaseCliAdapter {
   }
 
   private validateSupportedPolicy(input: AgentInput): void {
+    const credentialSource: unknown = this.qwenConfig.credentialSource
+    if (
+      credentialSource !== undefined &&
+      credentialSource !== 'configured-or-ambient' &&
+      credentialSource !== 'profile-only'
+    ) {
+      throw policyRejected('Qwen credential source mode is invalid', 'credential_source')
+    }
     if (this.config.apiKey) {
       throw policyRejected('Qwen Coding Plan credentials must use BAILIAN_CODING_PLAN_API_KEY, not the generic apiKey field', 'api_key_backend_mismatch')
     }
@@ -332,8 +348,9 @@ export class QwenAdapter extends BaseCliAdapter {
 
   private resolveCodingPlanModel(): string {
     return this.config.model
-      ?? this.qwenConfig.env?.['OPENAI_MODEL']
-      ?? process.env['OPENAI_MODEL']
+      ?? (this.qwenConfig.credentialSource === 'profile-only'
+        ? undefined
+        : this.qwenConfig.env?.['OPENAI_MODEL'] ?? process.env['OPENAI_MODEL'])
       ?? DEFAULT_CODING_PLAN_MODEL
   }
 }

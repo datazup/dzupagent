@@ -36,22 +36,43 @@ describe('QwenAdapter', () => {
       })}\n`,
     )
     vi.stubEnv('BAILIAN_CODING_PLAN_API_KEY', 'ambient-credential-marker')
+    vi.stubEnv('OPENROUTER_API_KEY', 'ambient-openrouter-marker')
+    vi.stubEnv('UNRELATED_SERVICE_API_KEY', 'ambient-unknown-marker')
     mockIsBinaryAvailable.mockResolvedValue(true)
     mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, _args, options) {
       expect(options?.env?.['BAILIAN_CODING_PLAN_API_KEY']).toBe('profile-credential-marker')
+      expect(options?.env).not.toHaveProperty('OPENROUTER_API_KEY')
+      expect(options?.env).not.toHaveProperty('UNRELATED_SERVICE_API_KEY')
       expect(JSON.stringify(options?.env)).not.toContain('ambient-credential-marker')
+      expect(JSON.stringify(options?.env)).not.toContain('configured-credential-marker')
       yield { type: 'completed', result: 'ok' }
     })
 
-    await collectEvents(
+    const events = await collectEvents(
       new QwenAdapter({
         cliBaseProfileRoot: profile,
         cliBaseProfileFiles: ['settings.json'],
         credentialSource: 'profile-only',
+        env: {
+          OPENROUTER_API_KEY: 'configured-credential-marker',
+          UNRELATED_SERVICE_API_KEY: 'configured-credential-marker',
+        },
       }).execute({ prompt: 'x' }),
     )
 
     expect(mockSpawnAndStreamJsonl).toHaveBeenCalledTimes(1)
+    expect(events.at(-1)).toMatchObject({ type: 'adapter:completed' })
+  })
+
+  it('rejects an unknown credential-source mode before spawn', async () => {
+    mockIsBinaryAvailable.mockResolvedValue(true)
+
+    const events = await collectEvents(
+      new QwenAdapter({ credentialSource: 'profile-typo' as never }).execute({ prompt: 'x' }),
+    )
+
+    expect(events.at(-1)).toMatchObject({ type: 'adapter:failed', code: 'CAPABILITY_DENIED' })
+    expect(mockSpawnAndStreamJsonl).not.toHaveBeenCalled()
   })
 
   it('throws ADAPTER_SDK_NOT_INSTALLED when qwen binary is missing', async () => {
