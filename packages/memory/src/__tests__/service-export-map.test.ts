@@ -58,6 +58,35 @@ describe('@dzupagent/memory/service export', () => {
     for (const name of runtimeNames) expect(builtRootNames).not.toContain(name)
   })
 
+  it('preserves lifecycle error identity across built public subpaths', async () => {
+    try {
+      await access(join(process.cwd(), 'dist/service/index.js'))
+      await access(join(process.cwd(), 'dist/lifecycle/index.js'))
+    } catch {
+      return
+    }
+    const { stdout } = await execFileAsync(process.execPath, [
+      '--input-type=module',
+      '--eval',
+      [
+        "const { InMemoryMemoryLifecycleAdapter } = await import('@dzupagent/memory/service')",
+        "const { MemoryTransitionError } = await import('@dzupagent/memory/lifecycle')",
+        'let cause',
+        "try { new InMemoryMemoryLifecycleAdapter({ appendFault: 'invalid' }) } catch (error) { cause = error }",
+        'console.log(JSON.stringify({',
+        'instance: cause instanceof MemoryTransitionError,',
+        'name: cause?.constructor?.name,',
+        'code: cause?.code,',
+        '}))',
+      ].join('\n'),
+    ], { cwd: process.cwd() })
+    expect(JSON.parse(stdout)).toEqual({
+      instance: true,
+      name: 'MemoryTransitionError',
+      code: 'invalid-command',
+    })
+  })
+
   it('resolves the built JavaScript and exact external declaration contract', async () => {
     try {
       await access(join(process.cwd(), 'dist/service/index.js'))

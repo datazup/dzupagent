@@ -1,19 +1,19 @@
+import { readFile } from 'node:fs/promises'
+
 import { describe, expect, it } from 'vitest'
 // NodeNext requires the explicit extension; the .js form maps to tsup.config.ts
 // the same way every other relative import in this repo does.
 import tsupConfig from '../../tsup.config.js'
 
 describe('build config', () => {
-  it('keeps multi-entry runtime output byte-reproducible', () => {
-    if (typeof tsupConfig === 'function') {
-      throw new Error('tsup.config.ts exports a factory; this test expects a plain config object')
-    }
-    const config = Array.isArray(tsupConfig) ? tsupConfig[0] : tsupConfig
-    if (!config) {
-      throw new Error('tsup.config.ts exports an empty config array')
+  it('uses clean TypeScript emission for one shared deterministic module graph', async () => {
+    const packageJson = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8')) as {
+      scripts: { build: string }
     }
 
-    expect(config.splitting).toBe(false)
+    expect(packageJson.scripts.build).toContain('node scripts/clean-dist.mjs')
+    expect(packageJson.scripts.build).toContain('tsc -p tsconfig.build.json')
+    expect(packageJson.scripts.build).not.toMatch(/\btsup\b/u)
   })
 
   it('keeps LangChain and LangGraph packages external', () => {
