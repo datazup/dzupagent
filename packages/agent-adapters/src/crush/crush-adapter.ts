@@ -41,6 +41,8 @@ export interface CrushCliAdapterConfig extends AdapterConfig {
   cliBaseProfileRoot?: string | undefined
   /** Defaults to `crush.json` below cliBaseProfileRoot. */
   cliBaseProfileFile?: string | undefined
+  /** Managed installations can prohibit ambient provider-secret fallback. */
+  credentialSource?: 'configured-or-ambient' | 'profile-only' | undefined
   /** Optional bounded-output overrides for deterministic harness tests. */
   runtimeLimits?: Partial<CliRuntimeLimits> | undefined
 }
@@ -211,6 +213,12 @@ export class CrushAdapter extends BaseCliAdapter {
     for (const key of Object.keys(env)) {
       if (key.startsWith('CRUSH_') || key.startsWith('AWS_') || key.startsWith('AZURE_') ||
         key.startsWith('GOOGLE_') || key.startsWith('VERTEXAI_') || CREDENTIAL_ENV.test(key)) delete env[key]
+    }
+    if (this.crushConfig.credentialSource === 'profile-only' && requiredEnv.length > 0) {
+      throw denied(
+        'Crush profile-only execution requires an inline profile credential instead of environment references',
+        'profile_env',
+      )
     }
     for (const key of requiredEnv) {
       const value = this.crushConfig.env?.[key] ?? process.env[key]

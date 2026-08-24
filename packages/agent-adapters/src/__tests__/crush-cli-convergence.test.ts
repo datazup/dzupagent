@@ -19,7 +19,10 @@ describe('Crush CLI convergence contract', () => {
     vi.clearAllMocks()
     mockIsBinaryAvailable.mockResolvedValue(true)
   })
-  afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))))
+  afterEach(async () => {
+    vi.unstubAllEnvs()
+    await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
+  })
 
   async function fixtureProfile(overrides: Record<string, unknown> = {}): Promise<{ profile: string; workspace: string }> {
     const profile = await mkdtemp(join(tmpdir(), 'crush-profile-'))
@@ -89,6 +92,27 @@ describe('Crush CLI convergence contract', () => {
     }))
     expect(projectionRoot).not.toBe('')
     await expect(access(projectionRoot)).rejects.toThrow()
+  })
+
+  it('rejects ambient provider credentials in profile-only mode', async () => {
+    const { profile, workspace } = await fixtureProfile({
+      providers: { openrouter: { api_key: '$OPENROUTER_API_KEY' } },
+    })
+    vi.stubEnv('OPENROUTER_API_KEY', 'ambient-credential-marker')
+    mockSpawnAndStreamJsonl.mockImplementation(async function* () {
+      yield { type: 'text_result', content: 'unexpected' }
+    })
+
+    const events = await collectEvents(
+      new CrushAdapter({ cliBaseProfileRoot: profile, credentialSource: 'profile-only' }).execute({
+        prompt: 'x',
+        workingDirectory: workspace,
+      }),
+    )
+
+    expect(events.at(-1)).toMatchObject({ type: 'adapter:failed', code: 'CAPABILITY_DENIED' })
+    expect((events.at(-1) as { error?: string }).error).toContain('inline profile credential')
+    expect(mockSpawnAndStreamJsonl).not.toHaveBeenCalled()
   })
 
   it('enforces workspace-write with an exact allowlist and explicit auto-approval consent', async () => {
