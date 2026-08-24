@@ -2,7 +2,10 @@ import {
   CANONICAL_JSON_VERSION,
   canonicalInputDigest,
 } from "./idempotency.js";
-import type { ExecutionLeafKind } from "./execution-leaf-kind.js";
+import {
+  EXECUTION_LEAF_KINDS,
+  type ExecutionLeafKind,
+} from "./execution-leaf-kind.js";
 
 export const EXECUTION_STATE_ACCESS_INVENTORY_SCHEMA_V1 =
   "dzupagent.executionStateAccessInventory/v1" as const;
@@ -186,13 +189,6 @@ const ACCESS_REASONS: readonly ExecutionStateAccessUnknownReasonV1[] = [
   "runtime-observation-unavailable",
   "observation-incomplete",
 ];
-const EXECUTION_KINDS: readonly ExecutionLeafKind[] = [
-  "prompt",
-  "agent",
-  "adapter.run",
-  "worker.dispatch",
-];
-
 export function materializeExecutionStateAccessInventoryV1(
   input: ExecutionStateAccessInventoryInputV1,
 ): ExecutionStateAccessInventoryV1 {
@@ -827,7 +823,7 @@ function validateOwner(
       );
     }
   }
-  if (!EXECUTION_KINDS.includes(value.executionKind as ExecutionLeafKind)) {
+  if (!EXECUTION_LEAF_KINDS.includes(value.executionKind as ExecutionLeafKind)) {
     issues.push(
       issue(
         "INVALID_VALUE",
