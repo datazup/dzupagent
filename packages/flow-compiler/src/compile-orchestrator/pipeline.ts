@@ -6,22 +6,20 @@
  *   2. validateShape   — structural validation         (errors: stage 2)
  *   3. semanticResolve — tool/persona ref resolution  (errors: stage 3, halts)
  *   4. routeTarget + lower — emit artifact            (errors: stage 4)
+ *
+ * This module owns stage *sequencing* only: what runs, in what order, and
+ * which failure halts the run. The work each stage does lives in a sibling
+ * module (`target-admission`, `lowering`, `primitive-admission`,
+ * `v2-target-gates`), and every halt goes through `failCompile` so the emitted
+ * lifecycle event and the returned failure cannot disagree.
  */
 
 import { parseFlow } from "@dzupagent/flow-ast";
 import type { ParseInput } from "@dzupagent/flow-ast";
-import { PipelineDefinitionSchema } from "@dzupagent/core/orchestration";
 
 import { validateShape } from "../stages/shape-validate.js";
 import { semanticResolve } from "../stages/semantic.js";
-import {
-  collectUnsupportedRuntimeNodes,
-  routeTarget,
-} from "../route-target.js";
-import { lowerSkillChain } from "../lower/lower-skill-chain.js";
-import { lowerPipelineFlat } from "../lower/lower-pipeline-flat.js";
-import { lowerPipelineLoop } from "../lower/lower-pipeline-loop.js";
-import { hasOnError } from "../route-target.js";
+import { routeTarget } from "../route-target.js";
 import { collectFleetSteps } from "../lower/lower-fleet-nodes.js";
 import type { LoweredFleetStep } from "../lower/lower-fleet-nodes.js";
 import { inlineSubflows } from "../stages/subflow-inline.js";
@@ -33,13 +31,10 @@ import {
 import {
   bindFlowRequirementsToPrimitiveRegistry,
 } from "../primitive-registry-admission.js";
-import { admitSuspendedExits } from "../suspended-exit-admission.js";
-import type { LoweredPorts } from "../lower/_shared-types.js";
 
 import type {
   CompileInvocationOptions,
   CompilationError,
-  CompilationWarning,
   CompileFailure,
   FlowCompileSourceKind,
   CompileSuccess,
@@ -48,7 +43,6 @@ import type {
 
 import {
   buildCompileEvidence,
-  extractFragmentExpansions,
   hashSource,
 } from "./evidence.js";
 import {
@@ -68,6 +62,12 @@ import {
 } from "./reference-snapshot.js";
 import { rejectInvalidPrimitiveSelection } from "./primitive-admission.js";
 import { collectUnsupportedV2TargetErrors } from "./v2-target-gates.js";
+import {
+  collectSkillChainOnErrorErrors,
+  collectUnsupportedRuntimeNodeErrors,
+} from "./target-admission.js";
+import { lowerAdmittedFlow } from "./lowering.js";
+import { failCompile, type CompileFailureSink } from "./compile-failure.js";
 import type { CompileOrchestratorDeps } from "./contracts.js";
 
 /**
@@ -91,6 +91,7 @@ export async function runCompile(
   const { opts, emit } = deps;
   const compileId = crypto.randomUUID();
   const startedAt = Date.now();
+  const fail: CompileFailureSink = { emit, compileId, startedAt };
   const sourceKind: FlowCompileSourceKind =
     invocationOptions.sourceKind ?? defaultSourceKind(input);
   const sourceHash = hashSource(invocationOptions.source ?? input);
@@ -122,20 +123,7 @@ export async function runCompile(
     errorCount: stage1Errors.length,
   });
 
-  if (parseResult.ast === null) {
-    emit({
-      type: "flow:compile_failed",
-      compileId,
-      stage: 1,
-      errorCount: stage1Errors.length,
-      durationMs: Date.now() - startedAt,
-    });
-    return {
-      errors: stage1Errors,
-      compileId,
-      diagnosticCountsByCategory: countDiagnosticsByCategory(stage1Errors),
-    };
-  }
+  if (parseResult.ast === null) return failCompile(fail, 1, stage1Errors);
 
   let ast = parseResult.ast;
 
@@ -144,20 +132,7 @@ export async function runCompile(
       currentFlowRef: invocationOptions.currentFlowRef,
     });
     if (inlineResult.diagnostics.length > 0) {
-      emit({
-        type: "flow:compile_failed",
-        compileId,
-        stage: 2,
-        errorCount: inlineResult.diagnostics.length,
-        durationMs: Date.now() - startedAt,
-      });
-      return {
-        errors: inlineResult.diagnostics,
-        compileId,
-        diagnosticCountsByCategory: countDiagnosticsByCategory(
-          inlineResult.diagnostics
-        ),
-      };
+      return failCompile(fail, 2, inlineResult.diagnostics);
     }
     ast = inlineResult.root;
     subflowEvidence = inlineResult.subflows;
@@ -190,27 +165,13 @@ export async function runCompile(
     // stage 1 at least yielded an AST, possibly with recoverable
     // warnings; the failing stage from the caller's perspective is 2
     // when stage 1 reported zero errors).
-    const failingStage: 1 | 2 = stage1Errors.length > 0 ? 1 : 2;
-    emit({
-      type: "flow:compile_failed",
-      compileId,
-      stage: failingStage,
-      errorCount: combinedEarly.length,
-      durationMs: Date.now() - startedAt,
-    });
-    return {
-      errors: combinedEarly,
-      compileId,
-      diagnosticCountsByCategory: countDiagnosticsByCategory(combinedEarly),
-    };
+    return failCompile(fail, stage1Errors.length > 0 ? 1 : 2, combinedEarly);
   }
 
   const primitiveSelectionFailure = rejectInvalidPrimitiveSelection(
     ast,
     opts,
-    compileId,
-    startedAt,
-    emit,
+    fail,
   );
   if (primitiveSelectionFailure !== undefined) return primitiveSelectionFailure;
 
@@ -256,22 +217,11 @@ export async function runCompile(
   });
 
   if (semanticResult.errors.length > 0) {
-    const stage3Errors = toSemanticErrors(
-      semanticResult.errors,
-      sourceReferences.dslSourceMap,
+    return failCompile(
+      fail,
+      3,
+      toSemanticErrors(semanticResult.errors, sourceReferences.dslSourceMap),
     );
-    emit({
-      type: "flow:compile_failed",
-      compileId,
-      stage: 3,
-      errorCount: stage3Errors.length,
-      durationMs: Date.now() - startedAt,
-    });
-    return {
-      errors: stage3Errors,
-      compileId,
-      diagnosticCountsByCategory: countDiagnosticsByCategory(stage3Errors),
-    };
   }
 
   const { resolved, resolvedPersonas } = semanticResult;
@@ -279,6 +229,7 @@ export async function runCompile(
     semanticResult.warnings,
     sourceReferences.dslSourceMap,
   );
+
   // -----------------------------------------------------------------------
   // Stage 4: Route + lower
   // -----------------------------------------------------------------------
@@ -290,33 +241,15 @@ export async function runCompile(
     opts.primitiveBindings,
   );
 
-  // Stage 4: reject runtime leaves that the selected target cannot represent.
-  const unsupportedRuntimeNodes = collectUnsupportedRuntimeNodes(ast, target);
+  // Target admission gates, in the order a violation should be reported:
+  // node kinds the target cannot represent, then v2 capability shortfalls,
+  // then the structural on_error backstop.
+  const unsupportedRuntimeNodes = collectUnsupportedRuntimeNodeErrors(
+    ast,
+    target,
+  );
   if (unsupportedRuntimeNodes.length > 0) {
-    const stage4Errors: CompilationError[] = unsupportedRuntimeNodes.map(
-      (node) => ({
-        stage: 4 as const,
-        code: "UNSUPPORTED_RUNTIME_NODE_FOR_TARGET",
-        message:
-          `Node type "${node.type}" at "${node.path}" is valid in the AST but cannot be represented by ` +
-          `the "${target}" generic compiler target. Use a runtime that executes this node kind or add a ` +
-          "reviewed executable target contract before emitting artifacts.",
-        nodePath: node.path,
-        category: "lowering",
-      })
-    );
-    emit({
-      type: "flow:compile_failed",
-      compileId,
-      stage: 4,
-      errorCount: stage4Errors.length,
-      durationMs: Date.now() - startedAt,
-    });
-    return {
-      errors: stage4Errors,
-      compileId,
-      diagnosticCountsByCategory: countDiagnosticsByCategory(stage4Errors),
-    };
+    return failCompile(fail, 4, unsupportedRuntimeNodes);
   }
 
   const unsupportedV2TargetErrors = collectUnsupportedV2TargetErrors(
@@ -326,175 +259,29 @@ export async function runCompile(
     opts.targetCapabilities,
   );
   if (unsupportedV2TargetErrors.length > 0) {
-    emit({
-      type: "flow:compile_failed",
-      compileId,
-      stage: 4,
-      errorCount: unsupportedV2TargetErrors.length,
-      durationMs: Date.now() - startedAt,
-    });
-    return {
-      errors: unsupportedV2TargetErrors,
-      compileId,
-      diagnosticCountsByCategory:
-        countDiagnosticsByCategory(unsupportedV2TargetErrors),
-    };
+    return failCompile(fail, 4, unsupportedV2TargetErrors);
   }
 
-  // Stage 4 defense-in-depth: skill-chain target must not carry on_error.
-  // validateShape (stage 2) already catches this via OI-4, but if a caller
-  // constructs an AST directly and bypasses stage 2, this backstop fires.
-  if (target === "skill-chain" && hasOnError(ast)) {
-    const stage4Error: CompilationError = {
-      stage: 4,
-      code: "UNSUPPORTED_FIELD",
-      message: "on_error is only legal in pipeline-targeted flows",
-      nodePath: "root",
-      category: "lowering",
-    };
-    emit({
-      type: "flow:compile_failed",
-      compileId,
-      stage: 4,
-      errorCount: 1,
-      durationMs: Date.now() - startedAt,
-    });
-    return {
-      errors: [stage4Error],
-      compileId,
-      diagnosticCountsByCategory: countDiagnosticsByCategory([stage4Error]),
-    };
+  const skillChainOnErrorErrors = collectSkillChainOnErrorErrors(ast, target);
+  if (skillChainOnErrorErrors.length > 0) {
+    return failCompile(fail, 4, skillChainOnErrorErrors);
   }
 
-  let artifact: unknown;
-  let warnings: string[];
-  let ports: LoweredPorts | undefined;
-  try {
-    if (target === "skill-chain") {
-      const out = lowerSkillChain({ ast, resolved, mode: "executable" });
-      artifact = out.artifact;
-      warnings = out.warnings;
-    } else if (target === "workflow-builder" || target === "planning-dag") {
-      const out = lowerPipelineFlat({
-        ast,
-        resolved,
-        resolvedPersonas,
-        mode: "executable",
-      });
-      artifact = out.artifact;
-      warnings = out.warnings;
-      ports = out.ports;
-    } else {
-      // target === 'pipeline'
-      const out = lowerPipelineLoop({
-        ast,
-        resolved,
-        resolvedPersonas,
-        mode: "executable",
-      });
-      artifact = out.artifact;
-      warnings = out.warnings;
-      ports = out.ports;
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const emptyArtifact = /no (?:nodes|action nodes) (?:produced|found)/i.test(
-      message
-    );
-    const stage4Error: CompilationError = {
-      stage: 4,
-      code: emptyArtifact ? "EMPTY_TARGET_ARTIFACT" : "LOWERING_FAILED",
-      message: emptyArtifact
-        ? `The "${target}" target produced no executable nodes. Add an executable anchor or use a host/runtime that declares the required node capabilities.`
-        : `The "${target}" target failed to lower the flow: ${message}`,
-      nodePath: "root",
-      category: "lowering",
-    };
-    emit({
-      type: "flow:compile_failed",
-      compileId,
-      stage: 4,
-      errorCount: 1,
-      durationMs: Date.now() - startedAt,
-    });
-    return {
-      errors: [stage4Error],
-      compileId,
-      diagnosticCountsByCategory: countDiagnosticsByCategory([stage4Error]),
-    };
-  }
+  const lowered = lowerAdmittedFlow({
+    ast,
+    target,
+    resolved,
+    resolvedPersonas,
+    opts,
+  });
+  if (!lowered.ok) return failCompile(fail, 4, lowered.errors);
 
-  if (target !== "skill-chain") {
-    const parsedArtifact = PipelineDefinitionSchema.safeParse(artifact);
-    if (!parsedArtifact.success) {
-      const stage4Error: CompilationError = {
-        stage: 4,
-        code: "LOWERING_FAILED",
-        message:
-          `The "${target}" target produced an invalid pipeline artifact: ` +
-          parsedArtifact.error.issues
-            .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
-            .join("; "),
-        nodePath: "root",
-        category: "lowering",
-      };
-      emit({
-        type: "flow:compile_failed",
-        compileId,
-        stage: 4,
-        errorCount: 1,
-        durationMs: Date.now() - startedAt,
-      });
-      return {
-        errors: [stage4Error],
-        compileId,
-        diagnosticCountsByCategory: countDiagnosticsByCategory([stage4Error]),
-      };
-    }
-  }
-
-  // F-R2 port consumer: the suspended-exit set carries admission authority.
-  // Unattended flows fail closed on a suspended exit unless the operator
-  // passed the explicit acknowledgment option; interactive is untouched.
-  let suspendedExitWarnings: CompilationWarning[] = [];
-  if (ports !== undefined) {
-    const nodeLabels = new Map<string, string>();
-    const artifactNodes = (
-      artifact as { nodes?: Array<{ id: string; name?: string }> }
-    ).nodes;
-    for (const node of artifactNodes ?? []) {
-      if (node.name !== undefined) nodeLabels.set(node.id, node.name);
-    }
-    const decision = admitSuspendedExits({
-      ports,
-      admissionProfile: opts.admissionProfile ?? "interactive",
-      acknowledgeSuspendedExits: opts.acknowledgeSuspendedExits ?? false,
-      describeNode: (id) => nodeLabels.get(id) ?? id,
-    });
-    if (decision.errors.length > 0) {
-      emit({
-        type: "flow:compile_failed",
-        compileId,
-        stage: 4,
-        errorCount: decision.errors.length,
-        durationMs: Date.now() - startedAt,
-      });
-      return {
-        errors: decision.errors,
-        compileId,
-        diagnosticCountsByCategory: countDiagnosticsByCategory(
-          decision.errors,
-        ),
-      };
-    }
-    suspendedExitWarnings = decision.warnings;
-  }
-
+  const { artifact, ports } = lowered;
   const compilationWarnings = [
     ...semanticWarnings,
-    ...toCompilationWarnings(warnings),
+    ...toCompilationWarnings(lowered.warnings),
     ...conformanceWarnings(requirements),
-    ...suspendedExitWarnings,
+    ...lowered.suspendedExitWarnings,
   ];
 
   // Collect fleet/knowledge steps from the AST and attach to the artifact so

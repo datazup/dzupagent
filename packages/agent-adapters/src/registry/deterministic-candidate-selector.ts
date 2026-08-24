@@ -398,6 +398,23 @@ export interface RouteSelectionReceipt {
   readonly deadlineOutcome: RouteSelectionDeadlineOutcome;
 }
 
+export type RouteSelectionReceiptReplayCode =
+  | "ROUTE_SELECTION_RECEIPT_SCHEMA_UNSUPPORTED"
+  | "ROUTE_SELECTION_RECEIPT_POLICY_MISMATCH"
+  | "ROUTE_SELECTION_RECEIPT_WEIGHT_MISMATCH"
+  | "ROUTE_SELECTION_RECEIPT_DECISION_MISMATCH";
+
+/** Fail-closed replay error for a receipt that no longer reproduces exactly. */
+export class RouteSelectionReceiptReplayError extends Error {
+  readonly code: RouteSelectionReceiptReplayCode;
+
+  constructor(code: RouteSelectionReceiptReplayCode, message: string) {
+    super(message);
+    this.name = "RouteSelectionReceiptReplayError";
+    this.code = code;
+  }
+}
+
 /** Decides a route and records the seeded inputs the decision actually used. */
 export function selectExecutionRouteWithReceipt(
   policy: ExecutionRoutePolicy,
@@ -427,6 +444,9 @@ export function selectExecutionRouteWithReceipt(
   };
 }
 
+/** Compatibility name for hosts that create and retain the replay receipt. */
+export const createRouteSelectionReceipt = selectExecutionRouteWithReceipt;
+
 /**
  * Re-decides a route from a receipt alone.
  *
@@ -440,7 +460,22 @@ export function replayRouteSelectionReceipt(
   policy: ExecutionRoutePolicy,
   receipt: RouteSelectionReceipt,
 ): RouteSelectionReceipt {
-  return selectExecutionRouteWithReceipt(policy, {
+  if (receipt.schema !== ROUTE_SELECTION_RECEIPT_SCHEMA) {
+    throw new RouteSelectionReceiptReplayError(
+      "ROUTE_SELECTION_RECEIPT_SCHEMA_UNSUPPORTED",
+      `Unsupported route-selection receipt schema: ${receipt.schema}`,
+    );
+  }
+  if (
+    receipt.decision.policyId !== policy.id ||
+    receipt.decision.requestId !== policy.requestId
+  ) {
+    throw new RouteSelectionReceiptReplayError(
+      "ROUTE_SELECTION_RECEIPT_POLICY_MISMATCH",
+      "Route-selection receipt belongs to a different policy or request.",
+    );
+  }
+  const replayed = selectExecutionRouteWithReceipt(policy, {
     decidedAt: receipt.decision.decidedAt,
     ...(receipt.seed === null ? {} : { seed: receipt.seed }),
     ...(receipt.routingKey === null ? {} : { routingKey: receipt.routingKey }),
@@ -451,6 +486,22 @@ export function replayRouteSelectionReceipt(
       ? { strategyElapsedMs: receipt.strategyElapsedMs }
       : {}),
   });
+  if (
+    JSON.stringify(replayed.candidateWeights) !==
+    JSON.stringify(receipt.candidateWeights)
+  ) {
+    throw new RouteSelectionReceiptReplayError(
+      "ROUTE_SELECTION_RECEIPT_WEIGHT_MISMATCH",
+      "Route-selection candidate weights differ from the retained receipt.",
+    );
+  }
+  if (JSON.stringify(replayed.decision) !== JSON.stringify(receipt.decision)) {
+    throw new RouteSelectionReceiptReplayError(
+      "ROUTE_SELECTION_RECEIPT_DECISION_MISMATCH",
+      "Route-selection decision does not replay to the retained receipt.",
+    );
+  }
+  return replayed;
 }
 
 export function classifyRouteTransition(

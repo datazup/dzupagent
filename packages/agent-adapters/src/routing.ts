@@ -1,10 +1,12 @@
 /** Minimal deterministic-routing entrypoint for hosts that do not need adapters. */
 export {
   classifyRouteTransition,
+  createRouteSelectionReceipt,
   DeterministicRouteSelectionAdmissionError,
   IMPLEMENTED_DETERMINISTIC_ROUTE_STRATEGIES,
   planCandidateRecovery,
   replayRouteSelectionReceipt,
+  RouteSelectionReceiptReplayError,
   ROUTE_SELECTION_RECEIPT_SCHEMA,
   selectExecutionRoute,
   selectExecutionRouteWithReceipt,
@@ -15,6 +17,7 @@ export type {
   DeterministicRouteSelectionAdmissionCode,
   DeterministicRouteSelectionOptions,
   RouteSelectionReceipt,
+  RouteSelectionReceiptReplayCode,
 } from "./registry/deterministic-candidate-selector.js";
 export { ROUTE_WEIGHT_TAG_PREFIX } from "./registry/seeded-route-strategies.js";
 export type {
