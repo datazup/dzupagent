@@ -50,6 +50,8 @@ export interface QwenCliAdapterConfig extends AdapterConfig {
   cliBaseProfileRoot?: string | undefined
   /** Relative regular files copied from cliBaseProfileRoot. */
   cliBaseProfileFiles?: readonly string[] | undefined
+  /** Managed installations can prohibit ambient credential fallback. */
+  credentialSource?: 'configured-or-ambient' | 'profile-only' | undefined
   /** Alibaba Cloud Coding Plan region; defaults to the international endpoint. */
   codingPlanRegion?: keyof typeof CODING_PLAN_BASE_URLS | undefined
   /** Strict JSONL is the canonical Qwen CLI backend default. */
@@ -198,9 +200,14 @@ export class QwenAdapter extends BaseCliAdapter {
       for (const key of Object.keys(env)) {
         if (API_CREDENTIAL_ENV_PATTERNS.some((pattern) => pattern.test(key))) delete env[key]
       }
-      const codingPlanCredential = this.qwenConfig.env?.['BAILIAN_CODING_PLAN_API_KEY']
-        ?? process.env['BAILIAN_CODING_PLAN_API_KEY']
-        ?? profileCredential
+      const codingPlanCredential = this.qwenConfig.credentialSource === 'profile-only'
+        ? profileCredential
+        : this.qwenConfig.env?.['BAILIAN_CODING_PLAN_API_KEY']
+          ?? process.env['BAILIAN_CODING_PLAN_API_KEY']
+          ?? profileCredential
+      if (this.qwenConfig.credentialSource === 'profile-only' && !codingPlanCredential) {
+        throw policyRejected('Qwen profile-only execution requires a Coding Plan credential in settings.json', 'profile_credential_missing')
+      }
       if (codingPlanCredential) env['BAILIAN_CODING_PLAN_API_KEY'] = codingPlanCredential
       env['OPENAI_BASE_URL'] = baseUrl
       env['OPENAI_MODEL'] = model
@@ -284,7 +291,9 @@ export class QwenAdapter extends BaseCliAdapter {
         throw policyRejected('Qwen profile .env files cannot enter subscription projections', 'profile_env_forbidden')
       }
       if (relativePath === 'settings.json') {
-        throw policyRejected('Qwen profile settings are validated then replaced by a sanitized per-run subscription config', 'profile_settings_generated')
+        // It is an exact readiness/fingerprint input, but is validated above
+        // and replaced by the sanitized per-run subscription configuration.
+        continue
       }
       const sourcePath = join(root, relativePath)
       const info = await stat(sourcePath).catch(() => null)

@@ -1,4 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { QwenAdapter } from '../qwen/qwen-adapter.js'
 import { ForgeError } from '@dzupagent/core'
@@ -11,9 +14,44 @@ vi.mock('../utils/process-helpers.js', () => ({
 
 describe('QwenAdapter', () => {
   const { mockIsBinaryAvailable, mockSpawnAndStreamJsonl } = getProcessHelperMocks()
+  const roots: string[] = []
 
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  afterEach(async () => {
+    vi.unstubAllEnvs()
+    await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
+  })
+
+  it('uses only the validated Coding Plan profile credential in profile-only mode', async () => {
+    const profile = await mkdtemp(join(tmpdir(), 'qwen-profile-'))
+    roots.push(profile)
+    await writeFile(
+      join(profile, 'settings.json'),
+      `${JSON.stringify({
+        security: { auth: { selectedType: 'openai' } },
+        env: { BAILIAN_CODING_PLAN_API_KEY: 'profile-credential-marker' },
+      })}\n`,
+    )
+    vi.stubEnv('BAILIAN_CODING_PLAN_API_KEY', 'ambient-credential-marker')
+    mockIsBinaryAvailable.mockResolvedValue(true)
+    mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, _args, options) {
+      expect(options?.env?.['BAILIAN_CODING_PLAN_API_KEY']).toBe('profile-credential-marker')
+      expect(JSON.stringify(options?.env)).not.toContain('ambient-credential-marker')
+      yield { type: 'completed', result: 'ok' }
+    })
+
+    await collectEvents(
+      new QwenAdapter({
+        cliBaseProfileRoot: profile,
+        cliBaseProfileFiles: ['settings.json'],
+        credentialSource: 'profile-only',
+      }).execute({ prompt: 'x' }),
+    )
+
+    expect(mockSpawnAndStreamJsonl).toHaveBeenCalledTimes(1)
   })
 
   it('throws ADAPTER_SDK_NOT_INSTALLED when qwen binary is missing', async () => {
