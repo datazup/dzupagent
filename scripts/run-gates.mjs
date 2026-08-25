@@ -89,6 +89,11 @@ const ARTIFACT_CHECKS = [
   "check:package-export-artifacts",
   "check:dts-budgets",
   "check:barrel-budgets",
+  // Last, matching its position in the verify:strict chain. CI runs ONLY the
+  // profile, so while this was absent the dependency audit never ran in CI at
+  // all — one of the three independent reasons a runtime-reachable High CVE
+  // survived three audit cycles.
+  "audit:deps",
 ];
 
 const asGate = (script) => ({ name: script, run: `yarn ${script}` });

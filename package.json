@@ -85,8 +85,8 @@
     "release:version": "changeset version",
     "release:publish": "changeset publish",
     "release:status": "changeset status",
-    "audit:deps": "yarn npm audit --severity high",
-    "audit:deps:summary": "yarn npm audit --severity high --json",
+    "audit:deps": "yarn npm audit --all --recursive --severity high",
+    "audit:deps:summary": "yarn npm audit --all --recursive --severity high --json",
     "bench:dts": "node scripts/measure-dts-build.mjs",
     "bench": "vitest bench --config scripts/bench/vitest.bench.config.ts"
   },

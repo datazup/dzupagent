@@ -48,20 +48,15 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
-      # Yarn Classic (1.x) uses `yarn audit`; --level sets minimum severity.
+      # This repo is on Yarn 4 (see packageManager in package.json), where the
+      # audit command is `yarn npm audit`. The previous step ran Yarn Classic
+      # `yarn audit` syntax, which Yarn 4 rejects with exit 1 — and the old
+      # `(code & 28)` bitmask (a Yarn 1 convention Yarn 4 does not use) masked
+      # that 1 back to success, so this job could never fail. Delegate to the
+      # `audit:deps` script so the gate has exactly one definition shared by CI
+      # and the local verify chain, and let its exit code stand.
       - name: Run dependency audit
-        shell: bash
-        run: |
-          set +e
-          yarn audit --level moderate
-          code=$?
-          set -e
-          # Yarn 1 exits with a bitmask for all discovered severities, even when
-          # --level suppresses low findings from the report. Fail only on
-          # moderate/high/critical bits; allow low-only advisories.
-          if (( (code & 28) != 0 )); then
-            exit "$code"
-          fi
+        run: yarn audit:deps
 
   # ---------------------------------------------------------------------------
   # Job 2: Secret scanning
