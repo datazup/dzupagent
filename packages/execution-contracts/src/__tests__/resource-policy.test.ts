@@ -140,4 +140,36 @@ describe('resource policy v2 temporal validity', () => {
       }),
     ).toEqual({ valid: true, errors: [] })
   })
+
+  it('integrity-binds an optional non-negative provider cost ceiling', () => {
+    const policy = createTemporalResourcePolicy(
+      { issuedAt: '2026-07-19T19:59:00.000Z', expiresAt: '2026-07-19T20:01:00.000Z' },
+      { policyId: 'execution-budgeted', maxCostUsd: 3.21 },
+    )
+    const signed = buildSignedExecutionPolicy(policy, buildCommandCatalog([]))
+
+    expect(signed.policy.maxCostUsd).toBe(3.21)
+    expect(validateSignedExecutionPolicy(signed)).toEqual({ valid: true, errors: [] })
+    expect(
+      validateSignedExecutionPolicy({
+        ...signed,
+        policy: { ...signed.policy, maxCostUsd: 999 },
+      }).errors,
+    ).toContain('signature does not match policy + catalog digest')
+  })
+
+  it.each([-1, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects invalid provider cost ceiling %s',
+    (maxCostUsd) => {
+      const policy = createTemporalResourcePolicy(
+        { issuedAt: '2026-07-19T19:59:00.000Z', expiresAt: '2026-07-19T20:01:00.000Z' },
+        { policyId: 'execution-invalid-budget', maxCostUsd },
+      )
+      const signed = buildSignedExecutionPolicy(policy, buildCommandCatalog([]))
+
+      expect(validateSignedExecutionPolicy(signed).errors).toContain(
+        'maxCostUsd must be a non-negative finite number',
+      )
+    },
+  )
 })

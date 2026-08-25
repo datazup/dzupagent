@@ -49,6 +49,11 @@ interface ResourcePolicyBase {
   wallTimeSec: number
   /** Scratch-directory size limit in MiB. Absent = uncapped. */
   scratchMb?: number
+  /**
+   * Maximum provider cost for this execution in USD. Absent means this
+   * resource policy does not impose a provider-cost ceiling.
+   */
+  maxCostUsd?: number
   /** Explicit egress grants; all other traffic is denied. */
   egressGrants: EgressGrant[]
 }
@@ -253,6 +258,12 @@ export function validateResourcePolicy(value: unknown): PolicyValidationResult {
     (typeof p['scratchMb'] !== 'number' || !Number.isInteger(p['scratchMb']) || (p['scratchMb'] as number) < 1)
   ) {
     errors.push('scratchMb must be an integer >= 1')
+  }
+  if (
+    p['maxCostUsd'] !== undefined &&
+    (typeof p['maxCostUsd'] !== 'number' || !Number.isFinite(p['maxCostUsd']) || (p['maxCostUsd'] as number) < 0)
+  ) {
+    errors.push('maxCostUsd must be a non-negative finite number')
   }
   if (!Array.isArray(p['egressGrants'])) {
     errors.push('egressGrants must be an array')
