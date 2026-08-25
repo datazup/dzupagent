@@ -1,18 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
-import type { MemoryCommandV1 } from '../../lifecycle/types.js'
-import type { MemoryRecordV1 } from '../../records/types.js'
 import { InMemoryMemoryLifecycleAdapter } from '../in-memory-adapter.js'
 import { MemoryLifecycleService } from '../memory-lifecycle-service.js'
-import type {
-  InternalMemoryLifecycleWriteInputV1,
-  InternalMemoryServiceSnapshotV1,
-  MemoryAdapterCapabilitiesV1,
-} from '../types.js'
 import {
-  captureInput,
-  capturedRecord,
-  currentRecord,
+  CHECKPOINT_TEST_TIMEOUT_MS,
+  fillGeneration,
+  loadSnapshot,
+  prepareActive,
+  rolloverInput,
+} from './checkpoint-fixtures.js'
+import {
   DEFAULT_SCOPE,
   instant,
   replacementRecord,
@@ -66,110 +63,7 @@ describe('memory service checkpoint, replay, and restart custody', () => {
     expect(snapshot.checkpoints).toHaveLength(1)
     expect(snapshot.generation).toBe(2)
     expect(snapshot.sequence).toBe(1)
-  }, 20_000)
-
-  it('retains exact replay and conflicting idempotency truth across rollover and restart', async () => {
-    const firstAdapter = new InMemoryMemoryLifecycleAdapter()
-    const firstService = new MemoryLifecycleService(firstAdapter)
-    const full = await fillGeneration(firstService, 'memory-restart')
-    const rollover = rolloverInput(full.record)
-    await firstService.remember(rollover)
-    const durable = await firstAdapter.load({
-      schema: 'datazup.memory.store-load/v1',
-      scope: DEFAULT_SCOPE,
-      memoryId: full.record.memoryId,
-    })
-
-    const restartedAdapter = new InMemoryMemoryLifecycleAdapter({ seed: [durable] })
-    const restarted = new MemoryLifecycleService(restartedAdapter)
-    const replay = await restarted.remember(full.capture)
-    expect(replay.status).toBe('replayed')
-    expect(replay.receipt).toEqual(full.captureReceipt)
-    expect((await restarted.explain({
-      scope: DEFAULT_SCOPE,
-      memoryId: full.record.memoryId,
-    })).transitions).toHaveLength(33)
-
-    const conflict = {
-      ...full.capture,
-      command: {
-        ...full.capture.command,
-        reasonCode: 'application-observation',
-      } as MemoryCommandV1,
-    }
-    await expect(restarted.remember(conflict)).rejects.toMatchObject({
-      code: 'idempotency-conflict',
-    })
-  }, 20_000)
-
-  it('reconciles interrupted append and checkpoint outcomes from durable evidence', async () => {
-    const appendAfter = new MemoryLifecycleService(new InMemoryMemoryLifecycleAdapter({
-      appendFault: 'ambiguous-after',
-    }))
-    const appendRecord = capturedRecord({ memoryId: 'memory-append-after' })
-    const reconciledAppend = await appendAfter.remember(captureInput(appendRecord))
-    expect(reconciledAppend.status).toBe('replayed')
-    expect((await appendAfter.explain({
-      scope: DEFAULT_SCOPE,
-      memoryId: appendRecord.memoryId,
-    })).transitions).toHaveLength(1)
-
-    const appendBeforeAdapter = new InMemoryMemoryLifecycleAdapter({
-      appendFault: 'ambiguous-before',
-    })
-    const appendBefore = new MemoryLifecycleService(appendBeforeAdapter)
-    const beforeRecord = capturedRecord({ memoryId: 'memory-append-before' })
-    expect(await appendBefore.remember(captureInput(beforeRecord))).toMatchObject({
-      status: 'retryable',
-      reason: 'ambiguous-outcome',
-    })
-    expect(await appendBeforeAdapter.load({
-      schema: 'datazup.memory.store-load/v1',
-      scope: DEFAULT_SCOPE,
-      memoryId: beforeRecord.memoryId,
-    })).toBeNull()
-
-    const baseAdapter = new InMemoryMemoryLifecycleAdapter()
-    const base = new MemoryLifecycleService(baseAdapter)
-    const full = await fillGeneration(base, 'memory-checkpoint-interrupt')
-    const seed = await baseAdapter.load({
-      schema: 'datazup.memory.store-load/v1',
-      scope: DEFAULT_SCOPE,
-      memoryId: full.record.memoryId,
-    })
-    const checkpointAfter = new MemoryLifecycleService(new InMemoryMemoryLifecycleAdapter({
-      seed: [seed],
-      checkpointFault: 'ambiguous-after',
-    }))
-    const afterResult = await checkpointAfter.remember(rolloverInput(full.record))
-    expect(afterResult).toMatchObject({
-      status: 'committed',
-      event: { generation: 2, sequence: 1 },
-      checkpoint: { toGeneration: 2 },
-    })
-
-    const checkpointBeforeAdapter = new InMemoryMemoryLifecycleAdapter({
-      seed: [seed],
-      checkpointFault: 'ambiguous-before',
-    })
-    const checkpointBefore = new MemoryLifecycleService(checkpointBeforeAdapter)
-    expect(await checkpointBefore.remember(rolloverInput(full.record))).toMatchObject({
-      status: 'retryable',
-      reason: 'ambiguous-outcome',
-    })
-    const interrupted = await checkpointBeforeAdapter.load({
-      schema: 'datazup.memory.store-load/v1',
-      scope: DEFAULT_SCOPE,
-      memoryId: full.record.memoryId,
-    })
-    const recovered = new MemoryLifecycleService(new InMemoryMemoryLifecycleAdapter({
-      seed: [interrupted],
-    }))
-    expect(await recovered.remember(rolloverInput(full.record))).toMatchObject({
-      status: 'committed',
-      event: { generation: 2, sequence: 1 },
-    })
-  }, 30_000)
+  }, CHECKPOINT_TEST_TIMEOUT_MS)
 
   it('serializes concurrent writers without hidden resequencing', async () => {
     const adapter = new InMemoryMemoryLifecycleAdapter()
@@ -247,103 +141,4 @@ describe('memory service checkpoint, replay, and restart custody', () => {
     ])
   })
 
-  it('fails before checkpoint mutation when retained bounds cannot admit the next event', async () => {
-    const capabilities: MemoryAdapterCapabilitiesV1 = {
-      schema: 'datazup.memory.adapter-capabilities/v1',
-      atomicCompareAndSwap: true,
-      transactions: true,
-      checkpoints: true,
-      delete: false,
-      purge: false,
-      indexInvalidation: false,
-      durableIdempotency: true,
-      authenticatedCustody: true,
-      limits: { records: 64, events: 32, receipts: 32, checkpoints: 1, tombstones: 32 },
-    }
-    const adapter = new InMemoryMemoryLifecycleAdapter({ capabilities })
-    const service = new MemoryLifecycleService(adapter)
-    const full = await fillGeneration(service, 'memory-bounded')
-    expect(await service.remember(rolloverInput(full.record))).toMatchObject({
-      status: 'rejected',
-      reason: 'capacity-exceeded',
-    })
-    const snapshot = await loadSnapshot(adapter, full.record.memoryId)
-    expect(snapshot).toMatchObject({ generation: 1, sequence: 32, revision: 32 })
-    expect(snapshot.checkpoints).toEqual([])
-    expect(snapshot.events).toHaveLength(32)
-    expect(snapshot.receipts).toHaveLength(32)
-  }, 20_000)
 })
-
-async function prepareActive(
-  service: MemoryLifecycleService,
-  memoryId: string,
-): Promise<MemoryRecordV1> {
-  const record = capturedRecord({ memoryId })
-  await service.remember(captureInput(record))
-  const candidate = currentRecord(
-    await service.remember(transitionInput('assess', record, 1, 1, 2)),
-  )
-  return currentRecord(
-    await service.remember(transitionInput('promote', candidate, 1, 2, 3)),
-  )
-}
-
-async function fillGeneration(
-  service: MemoryLifecycleService,
-  memoryId: string,
-): Promise<{
-  readonly record: MemoryRecordV1
-  readonly capture: InternalMemoryLifecycleWriteInputV1
-  readonly captureReceipt: NonNullable<Awaited<ReturnType<MemoryLifecycleService['remember']>>['receipt']>
-}> {
-  const initial = capturedRecord({ memoryId })
-  const capture = captureInput(initial)
-  const captured = await service.remember(capture)
-  let record = initial
-  let sequence = 1
-  let result = await service.remember(transitionInput('assess', record, 1, sequence, 2))
-  record = currentRecord(result)
-  sequence += 1
-  result = await service.remember(transitionInput('promote', record, 1, sequence, 3))
-  record = currentRecord(result)
-  sequence += 1
-  while (sequence < 32) {
-    const type = record.lifecycle.status === 'active' ? 'dispute' : 'resolve'
-    result = await service.remember(transitionInput(
-      type,
-      record,
-      1,
-      sequence,
-      sequence + 1,
-      type === 'resolve' ? { resolutionStatus: 'active' } : {},
-    ))
-    record = currentRecord(result)
-    sequence += 1
-  }
-  if (!captured.receipt) throw new Error('capture receipt missing')
-  return { record, capture, captureReceipt: captured.receipt }
-}
-
-function rolloverInput(record: MemoryRecordV1): InternalMemoryLifecycleWriteInputV1 {
-  return {
-    ...transitionInput('resolve', record, 2, 0, 34, { resolutionStatus: 'active' }),
-    checkpoint: {
-      checkpointId: 'checkpoint-generation-001',
-      checkpointedAt: instant(33),
-    },
-  }
-}
-
-async function loadSnapshot(
-  adapter: InMemoryMemoryLifecycleAdapter,
-  memoryId: string,
-): Promise<InternalMemoryServiceSnapshotV1> {
-  const snapshot = await adapter.load({
-    schema: 'datazup.memory.store-load/v1',
-    scope: DEFAULT_SCOPE,
-    memoryId,
-  })
-  if (!snapshot) throw new Error('snapshot missing')
-  return snapshot as InternalMemoryServiceSnapshotV1
-}

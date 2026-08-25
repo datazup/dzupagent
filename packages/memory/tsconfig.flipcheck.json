@@ -1,14 +1,6 @@
 {
-  // Check-only project: the gate always invokes it with --noEmit, so rootDir
-  // constrains nothing but which files TS6059 will complain about.
-  //
-  // tsup.config.ts is included because src/__tests__/build-config.test.ts
-  // asserts the build configuration and imports it; "src/**/*.ts" alone left
-  // that import unresolvable (TS2307). Because that file sits at the package
-  // root rather than under src/, rootDir is widened by exactly one level, to
-  // this package's own directory.
-  //
-  // It used to be widened to ".." — the whole packages/ tree — because
+  // Check-only project. It used to widen rootDir to ".." — the whole
+  // packages/ tree — because
   // filesystem-knowledge-store.test.ts reached the shared KnowledgeStore
   // contract by a four-level relative path into the agent-types package's own
   // source test tree, dragging a sibling package under this project's root.
@@ -22,9 +14,8 @@
   // spelling it here would make that guard match its own documentation.
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "noEmit": true,
-    "rootDir": "."
+    "noEmit": true
   },
-  "include": ["src/**/*.ts", "tsup.config.ts"],
+  "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

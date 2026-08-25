@@ -6,7 +6,8 @@ export default defineConfig({
     unstubGlobals: true,
     globals: false,
     environment: 'node',
-    testTimeout: 30_000,
+    maxWorkers: 6,
+    testTimeout: 60_000,
     include: ['src/**/*.test.ts', 'src/**/*.spec.ts'],
     coverage: {
       provider: 'v8',

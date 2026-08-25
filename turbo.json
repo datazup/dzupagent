@@ -65,6 +65,11 @@
       "dependsOn": ["^build:verify", "^typecheck", "@dzupagent/memory-ipc#build:verify"],
       "outputs": []
     },
+    "@dzupagent/memory#test": {
+      "dependsOn": ["^build:verify", "@dzupagent/memory#build:verify"],
+      "inputs": ["src/**", "test/**", "package.json", "tsconfig.json", "vitest.config.*"],
+      "outputs": []
+    },
     "@dzupagent/connectors#typecheck": {
       "dependsOn": ["^build:verify", "^typecheck", "@dzupagent/flow-ast#build:verify"],
       "outputs": []

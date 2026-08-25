@@ -58,13 +58,9 @@ describe('@dzupagent/memory/service export', () => {
     for (const name of runtimeNames) expect(builtRootNames).not.toContain(name)
   })
 
-  it('preserves lifecycle error identity across built public subpaths', async () => {
-    try {
-      await access(join(process.cwd(), 'dist/service/index.js'))
-      await access(join(process.cwd(), 'dist/lifecycle/index.js'))
-    } catch {
-      return
-    }
+  it('requires built public subpaths and preserves lifecycle error identity', async () => {
+    await access(join(process.cwd(), 'dist/service/index.js'))
+    await access(join(process.cwd(), 'dist/lifecycle/index.js'))
     const { stdout } = await execFileAsync(process.execPath, [
       '--input-type=module',
       '--eval',
