@@ -87,3 +87,76 @@ describe('GitExecutor — ref validation (SEC-11/12)', () => {
     expect(args).toEqual(['commit', '-m', '--this-looks-like-a-flag'])
   })
 })
+
+describe('GitExecutor.diff — ref validation (SEC-C-03)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    execFileAsyncMock.mockResolvedValue({ stdout: '', stderr: '' })
+  })
+
+  it('rejects a ref1 that begins with -- BEFORE spawning git', async () => {
+    const exec = new GitExecutor({ cwd: '/tmp/repo' })
+    await expect(
+      exec.diff({ ref1: '--output=/home/user/.ssh/authorized_keys' }),
+    ).rejects.toBeInstanceOf(InvalidGitRefError)
+    expect(execFileAsyncMock).not.toHaveBeenCalled()
+  })
+
+  it('validates ref2 as well as ref1', async () => {
+    const exec = new GitExecutor({ cwd: '/tmp/repo' })
+    await expect(
+      exec.diff({ ref1: 'main', ref2: '--upload-pack=/tmp/x.sh' }),
+    ).rejects.toBeInstanceOf(InvalidGitRefError)
+    expect(execFileAsyncMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects refs carrying shell or option metacharacters', async () => {
+    const exec = new GitExecutor({ cwd: '/tmp/repo' })
+    for (const ref of ['foo;rm -rf /', 'foo bar', 'foo^', 'foo..bar', '-c']) {
+      await expect(exec.diff({ ref1: ref })).rejects.toBeInstanceOf(
+        InvalidGitRefError,
+      )
+    }
+    expect(execFileAsyncMock).not.toHaveBeenCalled()
+  })
+
+  it('inserts --end-of-options AFTER --stat so the stat flag stays a flag', async () => {
+    const exec = new GitExecutor({ cwd: '/tmp/repo' })
+    await exec.diff({ ref1: 'main', ref2: 'feature/foo' })
+    const statArgs = execFileAsyncMock.mock.calls[0]?.[1] as string[]
+    const diffArgs = execFileAsyncMock.mock.calls[1]?.[1] as string[]
+    expect(statArgs).toEqual([
+      'diff',
+      '--stat',
+      '--end-of-options',
+      'main',
+      'feature/foo',
+    ])
+    expect(diffArgs).toEqual([
+      'diff',
+      '--end-of-options',
+      'main',
+      'feature/foo',
+    ])
+  })
+
+  it('keeps pathspecs after the -- separator', async () => {
+    const exec = new GitExecutor({ cwd: '/tmp/repo' })
+    await exec.diff({ ref1: 'main', paths: ['src/a.ts'] })
+    const diffArgs = execFileAsyncMock.mock.calls[1]?.[1] as string[]
+    expect(diffArgs).toEqual([
+      'diff',
+      '--end-of-options',
+      'main',
+      '--',
+      'src/a.ts',
+    ])
+  })
+
+  it('leaves the staged path unchanged', async () => {
+    const exec = new GitExecutor({ cwd: '/tmp/repo' })
+    await exec.diff({ staged: true })
+    const statArgs = execFileAsyncMock.mock.calls[0]?.[1] as string[]
+    expect(statArgs).toEqual(['diff', '--cached', '--stat'])
+  })
+})

@@ -191,22 +191,35 @@ export class GitExecutor {
   }): Promise<GitDiffResult> {
     const args = ['diff']
 
+    // SEC-C-03: `ref1`/`ref2` are model-supplied and reach `execFile` on the
+    // host, so a ref such as `--output=~/.ssh/authorized_keys` was an arbitrary
+    // file write from an always-on read tool. Validate and terminate option
+    // parsing exactly as `createBranch`/`switchBranch` already do.
+    //
+    // The refs are kept in their own segment rather than pushed onto `args`,
+    // because `--stat` is appended after `args` below: anything following
+    // `--end-of-options` is an operand, so a shared array would make git read
+    // `--stat` as a ref instead of a flag.
+    const refArgs: string[] = []
     if (options?.staged) {
       args.push('--cached')
     } else if (options?.ref1) {
-      args.push(options.ref1)
-      if (options?.ref2) args.push(options.ref2)
+      validateRefName(options.ref1, 'ref')
+      if (options?.ref2) validateRefName(options.ref2, 'ref')
+      refArgs.push('--end-of-options', options.ref1)
+      if (options?.ref2) refArgs.push(options.ref2)
     }
 
     // Always include stat
-    const statArgs = [...args, '--stat']
+    const statArgs = [...args, '--stat', ...refArgs]
     const { stdout: statOut } = await this.git(statArgs)
 
     // Full diff
+    const diffArgs = [...args, ...refArgs]
     if (options?.paths?.length) {
-      args.push('--', ...options.paths)
+      diffArgs.push('--', ...options.paths)
     }
-    const { stdout: diffOut } = await this.git(args)
+    const { stdout: diffOut } = await this.git(diffArgs)
 
     // Parse stat output
     const fileStats: GitDiffResult['files'] = []
