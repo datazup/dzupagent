@@ -97,7 +97,8 @@ export class CrushAdapter extends BaseCliAdapter {
   protected buildArgs(input: AgentInput): string[] {
     this.validateSupportedInput(input)
     const args = ['run', '--quiet']
-    if (this.config.model) args.push('--model', this.config.model)
+    const model = resolveRequestedModel(input, this.config)
+    if (model) args.push('--model', model)
     args.push('--', input.prompt)
     return args
   }
@@ -253,7 +254,7 @@ export function createCrushCliAdapter(config: CrushCliAdapterConfig = {}): Crush
 
 function buildPolicyProfile(base: JsonObject, input: AgentInput, adapterConfig: AdapterConfig): { config: JsonObject; requiredEnv: string[] } {
   const baseModels = isObject(base['models']) ? base['models'] : {}
-  const selected = resolveSelectedModel(baseModels, adapterConfig.model)
+  const selected = resolveSelectedModel(baseModels, resolveRequestedModel(input, adapterConfig))
   const baseProviders = isObject(base['providers']) ? base['providers'] : {}
   const providerConfig = selected ? baseProviders[selected.provider] : undefined
   if (selected && !isObject(providerConfig)) throw denied(`Crush selected provider is absent from the base profile: ${selected.provider}`, 'provider_identity')
@@ -282,6 +283,10 @@ function buildPolicyProfile(base: JsonObject, input: AgentInput, adapterConfig: 
     },
   }
   return { config, requiredEnv }
+}
+
+function resolveRequestedModel(input: AgentInput, adapterConfig: AdapterConfig): string | undefined {
+  return stringValue(input.options?.['model']) ?? adapterConfig.model
 }
 
 function resolveSelectedModel(models: JsonObject, configuredModel?: string): { provider: string; model: string; source?: JsonObject } | undefined {

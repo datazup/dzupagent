@@ -245,7 +245,8 @@ export class GeminiCLIAdapter extends BaseCliAdapter {
     const args = ['--output-format', 'stream-json']
     if (input.prompt) args.push('--prompt', input.prompt)
     if (input.resumeSessionId) args.push('--resume', input.resumeSessionId)
-    if (this.config.model) args.push('--model', this.config.model)
+    const model = stringOption(input.options?.['model']) ?? this.config.model
+    if (model) args.push('--model', model)
     args.push('--approval-mode', this.resolveApprovalMode(input))
     if (this.resolveSandbox(input) !== 'full-access') args.push('--sandbox')
     return args

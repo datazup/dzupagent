@@ -49,6 +49,21 @@ describe('Gemini CLI convergence contract', () => {
     expect(events[4]).toMatchObject({ usage: { inputTokens: 10, outputTokens: 4 }, durationMs: 25 })
   })
 
+  it('uses the per-run model instead of the adapter default', async () => {
+    mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, args) {
+      expect(args).toEqual(expect.arrayContaining(['--model', 'gemini-observed']))
+      expect(args).not.toEqual(expect.arrayContaining(['--model', 'gemini-default']))
+      yield { type: 'result', status: 'success' }
+    })
+
+    const events = await collectEvents(new GeminiCLIAdapter({ model: 'gemini-default' }).execute({
+      prompt: 'x',
+      options: { model: 'gemini-observed' },
+    }))
+
+    expect(events.at(-1)).toMatchObject({ type: 'adapter:completed' })
+  })
+
   it('projects a private home, copies only approved profile files, filters API credentials, and cleans up', async () => {
     const profile = await mkdtemp(join(tmpdir(), 'gemini-profile-'))
     roots.push(profile)

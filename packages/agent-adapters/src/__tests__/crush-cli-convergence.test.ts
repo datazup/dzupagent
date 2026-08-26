@@ -94,6 +94,27 @@ describe('Crush CLI convergence contract', () => {
     await expect(access(projectionRoot)).rejects.toThrow()
   })
 
+  it('uses the per-run compound model for both CLI selection and the isolated profile', async () => {
+    const { profile, workspace } = await fixtureProfile()
+    mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, args, options) {
+      expect(args).toEqual(expect.arrayContaining(['--model', 'openrouter/other-observed']))
+      const projected = JSON.parse(await readFile(join(options!.env!['CRUSH_GLOBAL_DATA']!, 'crush.json'), 'utf8'))
+      expect(projected.models.large).toMatchObject({ provider: 'openrouter', model: 'other-observed' })
+      expect(Object.keys(projected.providers)).toEqual(['openrouter'])
+      yield { type: 'text_result', content: 'ok' }
+    })
+
+    const events = await collectEvents(new CrushAdapter({
+      cliBaseProfileRoot: profile,
+      model: 'openrouter/qwen/qwen3-coder',
+    }).execute({
+      prompt: 'x',
+      workingDirectory: workspace,
+      options: { model: 'openrouter/other-observed' },
+    }))
+    expect(events.at(-1)).toMatchObject({ type: 'adapter:completed' })
+  })
+
   it('rejects ambient provider credentials in profile-only mode', async () => {
     const { profile, workspace } = await fixtureProfile({
       providers: { openrouter: { api_key: '$OPENROUTER_API_KEY' } },
