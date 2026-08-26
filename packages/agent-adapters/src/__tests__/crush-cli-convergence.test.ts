@@ -115,6 +115,39 @@ describe('Crush CLI convergence contract', () => {
     expect(events.at(-1)).toMatchObject({ type: 'adapter:completed' })
   })
 
+  it('projects immutable host-custodied profile content without reopening a source file', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'crush-workspace-custodied-'))
+    roots.push(workspace)
+    const profileContent = `${JSON.stringify({
+      models: {
+        large: { provider: 'qwen', model: 'qwen-original' },
+      },
+      providers: {
+        qwen: { api_key: 'custodied-secret-marker' },
+      },
+    })}\n`
+    mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, _args, options) {
+      const projected = JSON.parse(
+        await readFile(join(options!.env!['CRUSH_GLOBAL_DATA']!, 'crush.json'), 'utf8'),
+      )
+      expect(projected.models.large).toMatchObject({ provider: 'qwen', model: 'qwen-original' })
+      expect(projected.providers.qwen).toEqual({ api_key: 'custodied-secret-marker' })
+      yield { type: 'text_result', content: 'ok' }
+    })
+
+    const events = await collectEvents(new CrushAdapter({
+      cliBaseProfileContent: profileContent,
+      credentialSource: 'profile-only',
+    }).execute({
+      prompt: 'x',
+      workingDirectory: workspace,
+      options: { model: 'qwen/qwen-original' },
+    }))
+
+    expect(events.at(-1)).toMatchObject({ type: 'adapter:completed' })
+    expect(mockSpawnAndStreamJsonl).toHaveBeenCalledOnce()
+  })
+
   it('rejects ambient provider credentials in profile-only mode', async () => {
     const { profile, workspace } = await fixtureProfile({
       providers: { openrouter: { api_key: '$OPENROUTER_API_KEY' } },

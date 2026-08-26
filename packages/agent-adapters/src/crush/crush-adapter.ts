@@ -41,6 +41,12 @@ export interface CrushCliAdapterConfig extends AdapterConfig {
   cliBaseProfileRoot?: string | undefined
   /** Defaults to `crush.json` below cliBaseProfileRoot. */
   cliBaseProfileFile?: string | undefined
+  /**
+   * Immutable JSON content already read and qualified by the host. Mutually
+   * exclusive with cliBaseProfileRoot so execution cannot silently reopen a
+   * different profile after host admission.
+   */
+  cliBaseProfileContent?: string | undefined
   /** Managed installations can prohibit ambient provider-secret fallback. */
   credentialSource?: 'configured-or-ambient' | 'profile-only' | undefined
   /** Optional bounded-output overrides for deterministic harness tests. */
@@ -193,6 +199,11 @@ export class CrushAdapter extends BaseCliAdapter {
 
   private async readBaseProfile(): Promise<JsonObject> {
     const root = this.crushConfig.cliBaseProfileRoot
+    const content = this.crushConfig.cliBaseProfileContent
+    if (content !== undefined) {
+      if (root) throw denied('Crush base profile content and root are mutually exclusive', 'profile_source')
+      return parseBaseProfile(content)
+    }
     if (!root) return {}
     if (!isAbsolute(root)) throw denied('Crush base profile root must be absolute', 'profile_root')
     const relativeFile = this.crushConfig.cliBaseProfileFile ?? 'crush.json'
@@ -205,15 +216,7 @@ export class CrushAdapter extends BaseCliAdapter {
     const [approvedRoot, resolvedPath] = await Promise.all([realpath(root), realpath(path)])
     const fromRoot = relative(approvedRoot, resolvedPath)
     if (fromRoot.startsWith('..') || isAbsolute(fromRoot)) throw denied('Crush base profile file escapes its approved root', 'profile_escape')
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(await readFile(path, 'utf8'))
-    } catch {
-      throw denied('Crush base profile must be valid JSON', 'profile_json')
-    }
-    if (!isObject(parsed)) throw denied('Crush base profile must be a JSON object', 'profile_shape')
-    assertNoCommandSubstitution(parsed)
-    return parsed
+    return parseBaseProfile(await readFile(path, 'utf8'))
   }
 
   private buildIsolatedEnv(input: AgentInput, root: string, requiredEnv: readonly string[]): Record<string, string> {
@@ -343,6 +346,18 @@ function assertNoCommandSubstitution(value: unknown, path = 'profile'): void {
   if (typeof value === 'string' && value.includes('$(')) throw denied(`Crush ${path} contains executable command substitution`, 'profile_command')
   if (Array.isArray(value)) value.forEach((entry, index) => assertNoCommandSubstitution(entry, `${path}[${index}]`))
   else if (isObject(value)) for (const [key, entry] of Object.entries(value)) assertNoCommandSubstitution(entry, `${path}.${key}`)
+}
+
+function parseBaseProfile(content: string): JsonObject {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(content)
+  } catch {
+    throw denied('Crush base profile must be valid JSON', 'profile_json')
+  }
+  if (!isObject(parsed)) throw denied('Crush base profile must be a JSON object', 'profile_shape')
+  assertNoCommandSubstitution(parsed)
+  return parsed
 }
 
 function collectEnvironmentReferences(value: unknown, found = new Set<string>()): Set<string> {
