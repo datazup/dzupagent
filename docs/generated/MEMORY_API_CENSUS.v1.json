@@ -3,7 +3,7 @@
   "packet": "MEM-P000",
   "sourceIdentity": {
     "kind": "content-digest-set",
-    "digest": "sha256:d2924bc9dab79cf68eee17297d8a3593de093db60c74a3d83f282a164f62e049",
+    "digest": "sha256:2bd0a3a99282166e05199860bda669e8ddb16d4625c811381e95cce0e957e1e2",
     "inputs": [
       {
         "path": "config/memory-api-census.v1.json",
@@ -176,7 +176,7 @@
       },
       {
         "path": "packages/memory/package.json",
-        "sha256": "sha256:a8d450dd8b07b4b95fe6cca1e51902519b723bef62d69fa8050aa6e3af747b05"
+        "sha256": "sha256:4a512d5a144217f51e5ab2629380c41f62380d3508479848e5cf2b51ed747844"
       },
       {
         "path": "packages/memory/src/__tests__/in-memory-client.test.ts",
@@ -220,7 +220,7 @@
       },
       {
         "path": "packages/memory/src/__tests__/service-export-map.test.ts",
-        "sha256": "sha256:9aa43395524a80f7fe5ae50cf48614bf63ecc6442c6af669bc02ca75c11a11e6"
+        "sha256": "sha256:abaa9a46f95c531dba227d34a17cb6fa4ca80057063a42756942d95dd825b3a2"
       },
       {
         "path": "packages/memory/src/__tests__/staged-writer.test.ts",
@@ -460,7 +460,7 @@
       },
       {
         "path": "packages/memory/src/service/__tests__/checkpoint-and-restart.test.ts",
-        "sha256": "sha256:1a1766d959535808955a0be8e324e2f3f0c9519d91bf01a63347bbb7a69a253d"
+        "sha256": "sha256:fcbb3ceb95541eb03ffedf127dbdc9128591ef32c1c9a448dbfe254c2908ee07"
       },
       {
         "path": "packages/memory/src/service/__tests__/compatibility.test.ts",
