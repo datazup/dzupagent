@@ -29,20 +29,87 @@ export type {
   DslSourceSpan,
 } from "./types.js";
 
+/** Explicit reason a source map could not be built (ARCH27-T-12). */
+export interface DslSourceMapDiagnostic {
+  readonly code:
+    | "MINI_YAML_REJECTED"
+    | "YAML_REJECTED"
+    | "GRAMMAR_DISAGREEMENT";
+  readonly message: string;
+  /** Authored path of the first diverging value, for GRAMMAR_DISAGREEMENT. */
+  readonly path?: string;
+}
+
+export type DslSourceMapResult =
+  | { readonly ok: true; readonly sourceMap: DslSourceMap }
+  | { readonly ok: false; readonly diagnostic: DslSourceMapDiagnostic };
+
 /** Build an immutable raw-to-canonical source index for valid subset YAML. */
 export function createDslSourceMap(
   source: string,
   document?: FlowDocumentV1,
 ): DslSourceMap | undefined {
+  const result = createDslSourceMapWithDiagnostics(source, document);
+  return result.ok ? result.sourceMap : undefined;
+}
+
+/**
+ * Like `createDslSourceMap`, but names WHY no map was produced. Spans are
+ * built by zipping npm `yaml`'s CST onto mini-yaml's parsed value; if the two
+ * grammars disagree about the document (both accept it, different values),
+ * every span the zip produced could mis-point, so the map fails closed with a
+ * GRAMMAR_DISAGREEMENT diagnostic instead of silently zipping (ARCH27-T-12).
+ */
+export function createDslSourceMapWithDiagnostics(
+  source: string,
+  document?: FlowDocumentV1,
+): DslSourceMapResult {
   const parsed = parseYamlSubset(source);
-  if (!parsed.ok) return undefined;
+  if (!parsed.ok) {
+    return {
+      ok: false,
+      diagnostic: {
+        code: "MINI_YAML_REJECTED",
+        message:
+          parsed.errors[0]?.message ??
+          "the mini-yaml subset parser rejected the document",
+      },
+    };
+  }
 
   const lineCounter = new LineCounter();
   const yaml = parseDocument(source, {
     keepSourceTokens: true,
     lineCounter,
   });
-  if (yaml.errors.length > 0 || yaml.contents === null) return undefined;
+  if (yaml.errors.length > 0 || yaml.contents === null) {
+    return {
+      ok: false,
+      diagnostic: {
+        code: "YAML_REJECTED",
+        message:
+          yaml.errors[0]?.message ?? "the YAML parser rejected the document",
+      },
+    };
+  }
+
+  const disagreement = findGrammarDisagreement(
+    parsed.value,
+    yaml.toJS() as unknown,
+    "root",
+  );
+  if (disagreement !== undefined) {
+    return {
+      ok: false,
+      diagnostic: {
+        code: "GRAMMAR_DISAGREEMENT",
+        message:
+          `mini-yaml and the YAML grammar disagree at ${disagreement.path}: ` +
+          disagreement.detail,
+        path: disagreement.path,
+      },
+    };
+  }
 
   const authored = new Map<string, MutableDslSourceEntry>();
   collectYamlEntries(
@@ -61,23 +128,105 @@ export function createDslSourceMap(
 
   if (document !== undefined && isRecord(parsed.value)) {
     if (parsed.value.dsl === "dzupflow/v2") {
-      projectDslV2DocumentEntries(
-        document,
-        parsed.value,
-        authored,
-        entries,
-      );
+      projectDslV2DocumentEntries(document, parsed.value, authored, entries);
     } else {
       projectDslDocumentEntries(document, parsed.value, authored, entries);
     }
   }
 
-  return Object.freeze({
-    schema: "dzupagent.dslSourceMap/v1" as const,
-    sourceDigest: digestSource(source),
-    lineStarts: Object.freeze(collectLineStarts(source)),
-    entries: Object.freeze(Object.fromEntries(entries)),
-  });
+  return {
+    ok: true,
+    sourceMap: Object.freeze({
+      schema: "dzupagent.dslSourceMap/v1" as const,
+      sourceDigest: digestSource(source),
+      lineStarts: Object.freeze(collectLineStarts(source)),
+      entries: Object.freeze(Object.fromEntries(entries)),
+    }),
+  };
+}
+
+/**
+ * Deep-compare mini-yaml's parsed value with the full YAML grammar's
+ * projection of the same source. Returns the first diverging authored path,
+ * or undefined when the grammars agree.
+ */
+function findGrammarDisagreement(
+  mini: unknown,
+  full: unknown,
+  path: string,
+): { path: string; detail: string } | undefined {
+  if (Array.isArray(mini) || Array.isArray(full)) {
+    if (!Array.isArray(mini) || !Array.isArray(full)) {
+      return {
+        path,
+        detail: "one grammar produced a sequence, the other did not",
+      };
+    }
+    if (mini.length !== full.length) {
+      return {
+        path,
+        detail: `sequence length ${String(mini.length)} vs ${String(full.length)}`,
+      };
+    }
+    for (let index = 0; index < mini.length; index += 1) {
+      const nested = findGrammarDisagreement(
+        mini[index],
+        full[index],
+        `${path}[${String(index)}]`,
+      );
+      if (nested !== undefined) return nested;
+    }
+    return undefined;
+  }
+  if (isRecord(mini) || isRecord(full)) {
+    if (!isRecord(mini) || !isRecord(full)) {
+      return {
+        path,
+        detail: "one grammar produced a mapping, the other did not",
+      };
+    }
+    const miniKeys = Object.keys(mini).sort();
+    const fullKeys = Object.keys(full).sort();
+    if (
+      miniKeys.length !== fullKeys.length ||
+      miniKeys.some((key, index) => key !== fullKeys[index])
+    ) {
+      return {
+        path,
+        detail: `mapping keys [${miniKeys.join(", ")}] vs [${fullKeys.join(", ")}]`,
+      };
+    }
+    for (const key of miniKeys) {
+      const nested = findGrammarDisagreement(
+        mini[key],
+        full[key],
+        `${path}.${key}`,
+      );
+      if (nested !== undefined) return nested;
+    }
+    return undefined;
+  }
+  if (
+    typeof mini === "string" &&
+    typeof full === "string" &&
+    full === `${mini}\n`
+  ) {
+    // Known divergence: mini-yaml's parseLiteralBlock joins lines without the
+    // trailing newline YAML clip chomping keeps. Fixing the subset parser
+    // changes every block-scalar value and therefore persisted semantic
+    // digests, so it is tracked as its own golden-pinned migration; the zip
+    // itself stays structurally aligned for this case.
+    return undefined;
+  }
+  if (!Object.is(mini, full)) {
+    return {
+      path,
+      detail:
+        `scalar ${JSON.stringify(mini)} (${typeof mini}) vs ` +
+        `${JSON.stringify(full)} (${typeof full})`,
+    };
+  }
+  return undefined;
 }
 
 /** Resolve a canonical field or a field-relative range into raw source. */
@@ -112,7 +261,14 @@ function spanFromOffsets(
   entry: DslSourceMapEntry,
 ): DslSourceSpan {
   if (entry.valueSpan === undefined && entry.keySpan === undefined) {
-    return { start, end, lineStart: 1, columnStart: start + 1, lineEnd: 1, columnEnd: end + 1 };
+    return {
+      start,
+      end,
+      lineStart: 1,
+      columnStart: start + 1,
+      lineEnd: 1,
+      columnEnd: end + 1,
+    };
   }
   const first = positionAt(sourceMap.lineStarts, start);
   const last = positionAt(sourceMap.lineStarts, end);
@@ -199,15 +355,20 @@ function addProjection(
   canonicalPath: string,
   source: MutableDslSourceEntry,
 ): void {
-  entries.set(canonicalPath, Object.freeze({
+  entries.set(
     canonicalPath,
-    authoredPath: source.authoredPath,
-    ...(source.keySpan !== undefined ? { keySpan: source.keySpan } : {}),
-    ...(source.valueSpan !== undefined ? { valueSpan: source.valueSpan } : {}),
-    ...(source.contentOffsets !== undefined
-      ? { contentOffsets: Object.freeze([...source.contentOffsets]) }
-      : {}),
-  }));
+    Object.freeze({
+      canonicalPath,
+      authoredPath: source.authoredPath,
+      ...(source.keySpan !== undefined ? { keySpan: source.keySpan } : {}),
+      ...(source.valueSpan !== undefined
+        ? { valueSpan: source.valueSpan }
+        : {}),
+      ...(source.contentOffsets !== undefined
+        ? { contentOffsets: Object.freeze([...source.contentOffsets]) }
+        : {}),
+    }),
+  );
 }
 
 function alignStringOffsets(
