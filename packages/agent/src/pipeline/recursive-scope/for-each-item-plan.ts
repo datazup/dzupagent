@@ -33,6 +33,7 @@ function isSha256(value: string): value is RecursiveScopedSha256Digest {
   return /^sha256:[0-9a-f]{64}$/.test(value);
 }
 
+/** @experimental Staged successor for_each engine surface — see ARCH27-T-11 note in for-each-item-dispatcher.ts. */
 export function deriveRecursiveForEachItemIdentityV1(input: {
   readonly collectionSourceDigest: RecursiveScopedSha256Digest;
   readonly forEachNodeId: string;
@@ -71,7 +72,12 @@ function validateEconomics(
   }
 }
 
-/** Materialize all source-bound recursive item frames before dispatch. */
+/**
+ * Materialize all source-bound recursive item frames before dispatch.
+ *
+ * @experimental Staged successor for_each engine surface — see ARCH27-T-11
+ * note in for-each-item-dispatcher.ts.
+ */
 export function materializeRecursiveForEachItemPlanV1(
   input: RecursiveForEachItemPlanInputV1,
 ): RecursiveForEachItemPlanV1 {

@@ -256,3 +256,23 @@ Observability hooks:
 - 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
 - 2026-05-17: rewritten against current `packages/agent/src/pipeline` implementation, helper seams, entrypoint barrels, and test layout.
 
+## for_each engine disposition (ARCH27-T-11, 2026-08-28)
+
+Two for_each implementations exist by design, not by drift:
+
+- **Live engine:** `loop-executor/for-each-loop.ts` — every production for_each
+  dispatch runs here.
+- **Staged successor:** `recursive-scope/for-each-item-*` — implements the
+  stable `@dzupagent/runtime-contracts/recursive-scope` contract with
+  definition-bound item frames, crash-window economics reconciliation, and
+  structured control ownership (landed 2026-08-18, exercised by the
+  recursive-* and recursive-independent-process-crash suites). Its exports are
+  marked `@experimental` and have no production consumer yet.
+
+Routing the live path through the successor is an engine swap gated on the
+recursive-scope programme: it changes persisted checkpoint shapes and
+economics bindings, so it requires a migration plan for in-flight checkpoints
+and must land as its own reviewed change — never piecemeal. Deleting the
+successor is equally wrong while the programme is active; re-evaluate this
+disposition if the recursive-scope programme is abandoned.
+

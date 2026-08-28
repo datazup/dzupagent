@@ -419,6 +419,14 @@ async function runBounded(
 /**
  * Dispatch definition-bound recursive for_each items. This remains a private
  * Agent seam and is not called by public recursive admission in W3-C2.
+ *
+ * @experimental ARCH27-T-11 disposition (2026-08-28): this is the STAGED
+ * SUCCESSOR for_each engine implementing the stable
+ * runtime-contracts/recursive-scope contract; the LIVE engine is
+ * loop-executor/for-each-loop.ts. Routing the live path through this
+ * dispatcher is an engine swap gated on the recursive-scope programme
+ * (persisted checkpoint compatibility + economics-binding migration) and must
+ * not happen piecemeal. Until then this surface has test consumers only.
  */
 export async function dispatchRecursiveForEachItemsV1(
   deps: RecursiveForEachItemDispatcherDepsV1,
