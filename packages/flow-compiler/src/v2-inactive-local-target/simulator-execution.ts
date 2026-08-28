@@ -1,7 +1,12 @@
 import type { PrimitiveMultiPortSaveContract } from "@dzupagent/flow-dsl/v2-multi-port-save";
 import type { PrimitiveTerminalCatchAction } from "@dzupagent/flow-dsl/v2-terminal-catch";
 
-import { digest, stableStringify } from "./evidence.js";
+import {
+  backoffSeed,
+  digest,
+  seededBackoff,
+  stableStringify,
+} from "./evidence.js";
 import type {
   MutableSimulationProgress,
   SimulationContext,
@@ -20,7 +25,7 @@ import type {
 
 export function executeSimulation(
   context: SimulationContext,
-  progress: MutableSimulationProgress
+  progress: MutableSimulationProgress,
 ): V2InactiveLocalSimulationResult {
   if (!context.condition.value) {
     return completeSimulation(context, progress, "skipped");
@@ -40,7 +45,7 @@ export function executeSimulation(
 
 function runAttempts(
   context: SimulationContext,
-  progress: MutableSimulationProgress
+  progress: MutableSimulationProgress,
 ): V2InactiveLocalSimulationResult {
   let processedThisRun = 0;
   while (progress.nextAttempt <= context.retry.maxAttempts) {
@@ -89,7 +94,7 @@ function runAttempts(
       const outputErrors = validateOutputs(
         scripted.outputs,
         context.primitive.outputPorts,
-        context.save
+        context.save,
       );
       if (outputErrors.length > 0) {
         return simulationFailure({
@@ -103,7 +108,7 @@ function runAttempts(
       progress.attempts.push(
         attemptReceipt(progress, scripted, "success", {
           outputSha256: digest(stableStringify(scripted.outputs)),
-        })
+        }),
       );
       applySaveTransaction(progress.state, scripted.outputs, context.save);
       progress.nextAttempt += 1;
@@ -121,7 +126,7 @@ function runAttempts(
       progress.attempts.push(
         attemptReceipt(progress, scripted, "retryable-error", {
           errorCode: scripted.code,
-        })
+        }),
       );
       progress.nextAttempt += 1;
       return completeSimulation(context, progress, "failed", {
@@ -137,8 +142,8 @@ function runAttempts(
         {
           errorCode: scripted.code,
           ...(backoff === undefined ? {} : { scheduledBackoffMs: backoff }),
-        }
-      )
+        },
+      ),
     );
     progress.nextAttempt += 1;
     if (mayRetry) continue;
@@ -159,7 +164,7 @@ function runAttempts(
 function validateOutputs(
   outputs: Readonly<Record<string, unknown>>,
   outputPorts: SimulationContext["primitive"]["outputPorts"],
-  save: PrimitiveMultiPortSaveContract
+  save: PrimitiveMultiPortSaveContract,
 ): readonly string[] {
   const errors: string[] = [];
   for (const port of Object.keys(outputs)) {
@@ -178,7 +183,7 @@ function validateOutputs(
     if (binding.source.cardinality === "many") {
       if (!Array.isArray(value)) {
         errors.push(
-          `outputs.${binding.port}: many cardinality requires an array`
+          `outputs.${binding.port}: many cardinality requires an array`,
         );
         continue;
       }
@@ -187,8 +192,8 @@ function validateOutputs(
           ...validateSimulationValue(
             item,
             binding.source.schema,
-            `outputs.${binding.port}[${index}]`
-          )
+            `outputs.${binding.port}[${index}]`,
+          ),
         );
       });
     } else {
@@ -196,8 +201,8 @@ function validateOutputs(
         ...validateSimulationValue(
           value,
           binding.source.schema,
-          `outputs.${binding.port}`
-        )
+          `outputs.${binding.port}`,
+        ),
       );
     }
   }
@@ -207,12 +212,12 @@ function validateOutputs(
 function applySaveTransaction(
   state: Record<string, unknown>,
   outputs: Readonly<Record<string, unknown>>,
-  save: PrimitiveMultiPortSaveContract
+  save: PrimitiveMultiPortSaveContract,
 ): void {
   const writes = save.bindings
     .filter((binding) => outputs[binding.port] !== undefined)
     .map(
-      (binding) => [binding.destination.key, outputs[binding.port]] as const
+      (binding) => [binding.destination.key, outputs[binding.port]] as const,
     );
   for (const [key, value] of writes) state[key] = structuredClone(value);
 }
@@ -224,7 +229,7 @@ function attemptReceipt(
   details: Pick<
     V2InactiveLocalAttemptReceipt,
     "errorCode" | "outputSha256" | "scheduledBackoffMs"
-  >
+  >,
 ): V2InactiveLocalAttemptReceipt {
   return Object.freeze({
     attempt: progress.nextAttempt,
@@ -241,28 +246,27 @@ function attemptReceipt(
 
 function retryBackoff(
   context: SimulationContext,
-  attemptNumber: number
+  attemptNumber: number,
 ): number {
-  const backoff = context.retry.backoff;
-  if (backoff === undefined) return 0;
-  const uncapped =
-    backoff.strategy === "fixed"
-      ? backoff.initialMs
-      : backoff.initialMs * 2 ** (attemptNumber - 1);
-  const maximum = Math.min(uncapped, backoff.maxMs);
-  if (backoff.jitter === "none") return maximum;
-  const entropy = digest(
-    `${context.qualificationSha256}:${context.planSha256}:${attemptNumber}`
-  ).slice(7, 15);
-  return Number.parseInt(entropy, 16) % (maximum + 1);
+  // Seed from the primitive identity + authored path (the host's derivation),
+  // not the simulation's qualification/plan hashes: simulation must reproduce
+  // host retry timing for the same flow and attempt.
+  return seededBackoff(
+    backoffSeed(
+      context.primitive.compatibility.semanticHash,
+      context.authoredPath,
+    ),
+    attemptNumber,
+    context.retry.backoff,
+  );
 }
 
 function findCatchAction(
   context: SimulationContext,
-  code: string
+  code: string,
 ): PrimitiveTerminalCatchAction | undefined {
   return context.terminalCatch.clauses.find((clause) =>
-    clause.matches.some((match) => match.errorCode === code)
+    clause.matches.some((match) => match.errorCode === code),
   )?.outcome;
 }
 
@@ -270,7 +274,7 @@ function caught(
   context: SimulationContext,
   progress: MutableSimulationProgress,
   code: string,
-  action: PrimitiveTerminalCatchAction
+  action: PrimitiveTerminalCatchAction,
 ): V2InactiveLocalSimulationResult {
   if (action.action === "continue") {
     return completeSimulation(context, progress, "caught-continue", {

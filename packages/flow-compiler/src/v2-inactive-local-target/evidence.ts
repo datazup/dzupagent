@@ -5,7 +5,10 @@ import type { FlowTypedCondition } from "@dzupagent/flow-ast/expressions";
 import type { DslV2FrontendMetadata } from "@dzupagent/flow-dsl";
 import { FLOW_PRIMITIVE_MULTI_PORT_SAVE_CAPABILITY } from "@dzupagent/flow-dsl/v2-multi-port-save";
 import { FLOW_PRIMITIVE_POLICY_NARROWING_CAPABILITY } from "@dzupagent/flow-dsl/v2-policy-narrowing";
-import { FLOW_PRIMITIVE_RETRY_POLICY_CAPABILITY } from "@dzupagent/flow-dsl/v2-retry-policy";
+import {
+  FLOW_PRIMITIVE_RETRY_POLICY_CAPABILITY,
+  type PrimitiveRetryBackoff,
+} from "@dzupagent/flow-dsl/v2-retry-policy";
 import { FLOW_PRIMITIVE_TERMINAL_CATCH_CAPABILITY } from "@dzupagent/flow-dsl/v2-terminal-catch";
 
 import type {
@@ -14,12 +17,12 @@ import type {
 } from "./contracts.js";
 
 export function validatePrimitiveContractIdentities(
-  frontend: DslV2FrontendMetadata
+  frontend: DslV2FrontendMetadata,
 ): V2InactiveLocalTargetQualificationError[] {
   const declared = new Map(
     frontend.primitiveBindings.map(
-      (binding) => [binding.ref, binding.semanticHash] as const
-    )
+      (binding) => [binding.ref, binding.semanticHash] as const,
+    ),
   );
   const errors: V2InactiveLocalTargetQualificationError[] = [];
   for (const item of primitiveContractItems(frontend)) {
@@ -35,7 +38,7 @@ export function validatePrimitiveContractIdentities(
 }
 
 export function collectPrimitiveContractEvidence(
-  frontend: DslV2FrontendMetadata
+  frontend: DslV2FrontendMetadata,
 ): readonly V2InactiveLocalTargetContractEvidence[] {
   return Object.freeze(
     primitiveContractItems(frontend)
@@ -46,13 +49,13 @@ export function collectPrimitiveContractEvidence(
           primitiveRef: item.primitiveRef,
           primitiveSemanticHash: item.primitiveSemanticHash,
           contractSha256: digest(stableStringify(item.contract)),
-        })
+        }),
       )
       .sort((left, right) =>
         `${left.authoredPath}:${left.capability}`.localeCompare(
-          `${right.authoredPath}:${right.capability}`
-        )
-      )
+          `${right.authoredPath}:${right.capability}`,
+        ),
+      ),
   );
 }
 
@@ -101,7 +104,7 @@ export function collectTypedConditions(root: FlowNode): readonly {
 function visit(
   node: FlowNode,
   path: string,
-  result: Array<{ path: string; condition: FlowTypedCondition }>
+  result: Array<{ path: string; condition: FlowTypedCondition }>,
 ): void {
   if (
     (node.type === "branch" || node.type === "loop") &&
@@ -133,11 +136,11 @@ function childNodes(node: FlowNode, path: string): Array<[FlowNode, string]> {
       return [
         ...node.then.map(
           (child, index) =>
-            [child, `${path}.then[${index}]`] as [FlowNode, string]
+            [child, `${path}.then[${index}]`] as [FlowNode, string],
         ),
         ...(node.else ?? []).map(
           (child, index) =>
-            [child, `${path}.else[${index}]`] as [FlowNode, string]
+            [child, `${path}.else[${index}]`] as [FlowNode, string],
         ),
       ];
     case "parallel":
@@ -146,30 +149,30 @@ function childNodes(node: FlowNode, path: string): Array<[FlowNode, string]> {
           (child, index) =>
             [child, `${path}.branches[${branchIndex}][${index}]`] as [
               FlowNode,
-              string
-            ]
-        )
+              string,
+            ],
+        ),
       );
     case "approval":
       return [
         ...node.onApprove.map(
           (child, index) =>
-            [child, `${path}.onApprove[${index}]`] as [FlowNode, string]
+            [child, `${path}.onApprove[${index}]`] as [FlowNode, string],
         ),
         ...(node.onReject ?? []).map(
           (child, index) =>
-            [child, `${path}.onReject[${index}]`] as [FlowNode, string]
+            [child, `${path}.onReject[${index}]`] as [FlowNode, string],
         ),
       ];
     case "try_catch":
       return [
         ...node.body.map(
           (child, index) =>
-            [child, `${path}.body[${index}]`] as [FlowNode, string]
+            [child, `${path}.body[${index}]`] as [FlowNode, string],
         ),
         ...node.catch.map(
           (child, index) =>
-            [child, `${path}.catch[${index}]`] as [FlowNode, string]
+            [child, `${path}.catch[${index}]`] as [FlowNode, string],
         ),
       ];
     default:
@@ -179,6 +182,33 @@ function childNodes(node: FlowNode, path: string): Array<[FlowNode, string]> {
 
 export function digest(value: string): `sha256:${string}` {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
+}
+
+// The one agreed seed derivation for retry jitter. The simulator and the host
+// must both derive their seed from the primitive's semantic hash and the
+// step's authored path so that, for the same flow, step, and attempt, a
+// simulation reproduces the host's exact backoff delays.
+export function backoffSeed(
+  primitiveSemanticHash: string,
+  authoredPath: string,
+): string {
+  return `${primitiveSemanticHash}:${authoredPath}`;
+}
+
+export function seededBackoff(
+  seed: string,
+  attempt: number,
+  backoff: PrimitiveRetryBackoff | undefined,
+): number {
+  if (backoff === undefined) return 0;
+  const uncapped =
+    backoff.strategy === "fixed"
+      ? backoff.initialMs
+      : backoff.initialMs * 2 ** (attempt - 1);
+  const maximum = Math.min(uncapped, backoff.maxMs);
+  if (backoff.jitter === "none") return maximum;
+  const entropy = digest(`${seed}:${attempt}`).slice(7, 15);
+  return Number.parseInt(entropy, 16) % (maximum + 1);
 }
 
 export function stableStringify(value: unknown): string {

@@ -1,6 +1,12 @@
 import type { PrimitiveMultiPortSaveContract } from "@dzupagent/flow-dsl/v2-multi-port-save";
 
-import { deepFreeze, digest, stableStringify } from "./evidence.js";
+import {
+  backoffSeed,
+  deepFreeze,
+  digest,
+  seededBackoff,
+  stableStringify,
+} from "./evidence.js";
 import type {
   V2InactiveLocalHostAttemptReceipt,
   V2InactiveLocalHostError,
@@ -33,7 +39,7 @@ export type ExecuteV2InactiveLocalHostStepResult =
   | { readonly ok: false; readonly error: V2InactiveLocalHostError };
 
 export async function executeV2InactiveLocalHostStep(
-  input: ExecuteV2InactiveLocalHostStepInput
+  input: ExecuteV2InactiveLocalHostStepInput,
 ): Promise<ExecuteV2InactiveLocalHostStepResult> {
   const { step } = input;
   if (!input.condition.value) {
@@ -68,7 +74,7 @@ export async function executeV2InactiveLocalHostStep(
             deployment: false as const,
             activation: false as const,
           },
-        })
+        }),
       );
     } catch (error) {
       return {
@@ -110,7 +116,7 @@ export async function executeV2InactiveLocalHostStep(
       const outputErrors = validateOutputs(
         handlerResult.outputs,
         step.primitive.outputPorts,
-        step.save
+        step.save,
       );
       if (outputErrors.length > 0) {
         return {
@@ -134,12 +140,12 @@ export async function executeV2InactiveLocalHostStep(
           cumulativeCostCents,
           outputSha256: digest(stableStringify(handlerResult.outputs)),
           rawProviderContent: "excluded" as const,
-        })
+        }),
       );
       const state = applySaveTransaction(
         input.state,
         handlerResult.outputs,
-        step.save
+        step.save,
       );
       return stepResult(
         input,
@@ -148,7 +154,7 @@ export async function executeV2InactiveLocalHostStep(
         state,
         false,
         undefined,
-        handlerResult.outputs
+        handlerResult.outputs,
       );
     }
 
@@ -178,8 +184,8 @@ export async function executeV2InactiveLocalHostStep(
           handlerResult,
           "retryable-error",
           cumulativeDurationMs,
-          cumulativeCostCents
-        )
+          cumulativeCostCents,
+        ),
       );
       return stepResult(input, "failed", attempts, input.state, true, {
         code: "V2_LOCAL_HOST_TIMEOUT_EXCEEDED",
@@ -193,13 +199,13 @@ export async function executeV2InactiveLocalHostStep(
         retryable ? "retryable-error" : "terminal-error",
         cumulativeDurationMs,
         cumulativeCostCents,
-        backoff
-      )
+        backoff,
+      ),
     );
     if (mayRetry) continue;
 
     const caught = step.terminalCatch.clauses.find((clause) =>
-      clause.matches.some((match) => match.errorCode === handlerResult.code)
+      clause.matches.some((match) => match.errorCode === handlerResult.code),
     )?.outcome;
     if (caught?.action === "continue") {
       return stepResult(
@@ -208,7 +214,7 @@ export async function executeV2InactiveLocalHostStep(
         attempts,
         input.state,
         false,
-        { code: handlerResult.code, catchAction: caught.action }
+        { code: handlerResult.code, catchAction: caught.action },
       );
     }
     if (caught?.action === "complete") {
@@ -237,7 +243,7 @@ function stepResult(
     readonly code: string;
     readonly catchAction?: "continue" | "complete" | "fail";
   },
-  outputs?: Readonly<Record<string, unknown>>
+  outputs?: Readonly<Record<string, unknown>>,
 ): ExecuteV2InactiveLocalHostStepResult {
   const stateSnapshot = deepFreeze(cloneRecord(state));
   const core = {
@@ -285,7 +291,7 @@ function stepResult(
 
 function validateHandlerResult(
   value: unknown,
-  path: string
+  path: string,
 ): V2InactiveLocalHostError | undefined {
   if (!isPlainRecord(value)) {
     return invalidResult(path, "handler result must be a plain object");
@@ -304,7 +310,7 @@ function validateHandlerResult(
   ) {
     return invalidResult(
       path,
-      "handler durationMs and costCents must be finite non-negative integers"
+      "handler durationMs and costCents must be finite non-negative integers",
     );
   }
   if (status === "success" && isJsonRecord(value.outputs)) return undefined;
@@ -317,14 +323,14 @@ function validateHandlerResult(
   }
   return invalidResult(
     path,
-    "handler must return success JSON outputs or an exact non-empty error code"
+    "handler must return success JSON outputs or an exact non-empty error code",
   );
 }
 
 function validateOutputs(
   outputs: Readonly<Record<string, unknown>>,
   outputPorts: V2InactiveLocalHostPrimitiveStepPlan["primitive"]["outputPorts"],
-  save: PrimitiveMultiPortSaveContract
+  save: PrimitiveMultiPortSaveContract,
 ): readonly string[] {
   const errors: string[] = [];
   for (const port of Object.keys(outputs)) {
@@ -343,7 +349,7 @@ function validateOutputs(
     const values = binding.source.cardinality === "many" ? value : [value];
     if (!Array.isArray(values)) {
       errors.push(
-        `outputs.${binding.port}: many cardinality requires an array`
+        `outputs.${binding.port}: many cardinality requires an array`,
       );
       continue;
     }
@@ -354,8 +360,8 @@ function validateOutputs(
           binding.source.schema,
           binding.source.cardinality === "many"
             ? `outputs.${binding.port}[${index}]`
-            : `outputs.${binding.port}`
-        )
+            : `outputs.${binding.port}`,
+        ),
       );
     });
   }
@@ -365,7 +371,7 @@ function validateOutputs(
 function applySaveTransaction(
   state: Readonly<Record<string, unknown>>,
   outputs: Readonly<Record<string, unknown>>,
-  save: PrimitiveMultiPortSaveContract
+  save: PrimitiveMultiPortSaveContract,
 ): Readonly<Record<string, unknown>> {
   const next = cloneRecord(state);
   for (const binding of save.bindings) {
@@ -378,20 +384,13 @@ function applySaveTransaction(
 
 function retryBackoff(
   step: V2InactiveLocalHostPrimitiveStepPlan,
-  attempt: number
+  attempt: number,
 ): number {
-  const backoff = step.retry.backoff;
-  if (backoff === undefined) return 0;
-  const uncapped =
-    backoff.strategy === "fixed"
-      ? backoff.initialMs
-      : backoff.initialMs * 2 ** (attempt - 1);
-  const maximum = Math.min(uncapped, backoff.maxMs);
-  if (backoff.jitter === "none") return maximum;
-  const entropy = digest(
-    `${step.primitive.compatibility.semanticHash}:${step.authoredPath}:${attempt}`
-  ).slice(7, 15);
-  return Number.parseInt(entropy, 16) % (maximum + 1);
+  return seededBackoff(
+    backoffSeed(step.primitive.compatibility.semanticHash, step.authoredPath),
+    attempt,
+    step.retry.backoff,
+  );
 }
 
 function errorAttempt(
@@ -404,7 +403,7 @@ function errorAttempt(
   status: "retryable-error" | "terminal-error",
   cumulativeDurationMs: number,
   cumulativeCostCents: number,
-  scheduledBackoffMs?: number
+  scheduledBackoffMs?: number,
 ): V2InactiveLocalHostAttemptReceipt {
   return deepFreeze({
     attempt,
@@ -421,7 +420,7 @@ function errorAttempt(
 
 function invalidResult(
   path: string,
-  message: string
+  message: string,
 ): V2InactiveLocalHostError {
   return {
     code: "V2_LOCAL_HOST_HANDLER_RESULT_INVALID",
@@ -435,7 +434,7 @@ function isNonNegativeInteger(value: unknown): value is number {
 }
 
 function cloneRecord(
-  value: Readonly<Record<string, unknown>>
+  value: Readonly<Record<string, unknown>>,
 ): Record<string, unknown> {
   return structuredClone(value) as Record<string, unknown>;
 }
