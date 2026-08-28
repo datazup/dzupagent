@@ -63,7 +63,7 @@ export class WorkflowBuilder {
    */
   onError(
     predicate: (err: Error) => boolean,
-    recoverySteps: WorkflowStep[]
+    recoverySteps: WorkflowStep[],
   ): this {
     this.errorHandlers.push({ predicate, recoverySteps });
     return this;
@@ -82,7 +82,7 @@ export class WorkflowBuilder {
   /** Conditional branching based on current state */
   branch(
     condition: (state: Record<string, unknown>) => string,
-    branches: Record<string, WorkflowStep[]>
+    branches: Record<string, WorkflowStep[]>,
   ): this {
     this.nodes.push({ type: "branch", condition, branches });
     return this;
@@ -95,9 +95,12 @@ export class WorkflowBuilder {
   }
 
   // TODO(W8-follow-up): WorkflowBuilder is intentionally minimal (4-surface
-  // layering — see roadmap §2.1 + §3 W8 decision). For loops, sub-workflows,
-  // dynamic fan-out, and per-step timeoutMs, use flow-dsl directly:
-  //   import { loop, subflow, for_each } from '@dzupagent/agent/flow-dsl'
+  // layering — see roadmap §2.1 + §3 W8 decision). For loops, sub-flows,
+  // dynamic fan-out, and per-step timeoutMs, author a dzupflow document
+  // instead — `loop` / `for_each` are DSL node types there:
+  //   import { parseDslToDocument } from '@dzupagent/flow-dsl'
+  // and compile/execute it via @dzupagent/flow-compiler (separate packages;
+  // this package deliberately exposes no flow-dsl subpath).
   // WorkflowBuilder will not gain .loop()/.invoke()/.forEach() methods.
 
   /** Build the workflow into an executable CompiledWorkflow */
@@ -105,7 +108,7 @@ export class WorkflowBuilder {
     return new CompiledWorkflow(
       this.config,
       [...this.nodes],
-      [...this.errorHandlers]
+      [...this.errorHandlers],
     );
   }
 }
