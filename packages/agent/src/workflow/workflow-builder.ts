@@ -97,10 +97,12 @@ export class WorkflowBuilder {
   // TODO(W8-follow-up): WorkflowBuilder is intentionally minimal (4-surface
   // layering — see roadmap §2.1 + §3 W8 decision). For loops, sub-flows,
   // dynamic fan-out, and per-step timeoutMs, author a dzupflow document
-  // instead — `loop` / `for_each` are DSL node types there:
-  //   import { parseDslToDocument } from '@dzupagent/flow-dsl'
-  // and compile/execute it via @dzupagent/flow-compiler (separate packages;
-  // this package deliberately exposes no flow-dsl subpath).
+  // instead — `loop` / `for_each` are DSL node types there. Parse it with
+  // `parseDslToDocument` from the `@dzupagent/flow-dsl` package and
+  // compile/execute it via `@dzupagent/flow-compiler` (separate packages —
+  // this package deliberately exposes no flow-dsl subpath, and the boundary
+  // gate reads quoted import specifiers even in comments, so no literal
+  // import statement is shown here).
   // WorkflowBuilder will not gain .loop()/.invoke()/.forEach() methods.
 
   /** Build the workflow into an executable CompiledWorkflow */
