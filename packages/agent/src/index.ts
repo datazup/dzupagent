@@ -472,84 +472,8 @@ export type {
 export { composeTemplates } from "./templates/template-composer.js";
 export { TemplateRegistry } from "./templates/template-registry.js";
 
-// --- Pipeline ---
-export { validatePipeline } from "./pipeline/pipeline-validator.js";
-export { InMemoryPipelineCheckpointStore } from "./pipeline/in-memory-checkpoint-store.js";
-export { PipelineRuntime } from "./pipeline/pipeline-runtime.js";
-export { PipelineInteractionRuntimeError } from "./pipeline/pipeline-interaction-runtime.js";
-export type { PipelineInteractionRuntimeErrorCode } from "./pipeline/pipeline-interaction-runtime.js";
-export {
-  RUNTIME_TOOL_PREFIX,
-  createRuntimeToolNodeExecutor,
-  isRuntimeToolNode,
-} from "./pipeline/runtime-tool-handlers.js";
-export type {
-  RuntimeToolHandler,
-  RuntimeToolHandlers,
-} from "./pipeline/runtime-tool-handlers.js";
-export {
-  executeLoop,
-  stateFieldTruthy,
-  qualityBelow,
-  hasErrors,
-} from "./pipeline/loop-executor.js";
-export type {
-  LoopBudgetCompatibilityHost,
-  LoopBudgetCostEvidence,
-  LoopBudgetCostMeasurementInput,
-  LoopBudgetHost,
-  LoopBudgetReconcileInput,
-  LoopBudgetReconcileOutcome,
-  LoopBudgetReleaseInput,
-  LoopBudgetSettlementInput,
-  LoopBudgetStrictHost,
-} from "./pipeline/loop-executor.js";
-export type {
-  PipelineState,
-  NodeResult,
-  PipelineRunResult,
-  NodeExecutor,
-  NodeExecutionContext,
-  PipelineRuntimeConfig,
-  PipelineRuntimeEvent,
-  RuntimeToolHandlerInput,
-  LoopMetrics,
-  RetryPolicy,
-  OTelSpanLike,
-  PipelineTracer,
-} from "./pipeline/pipeline-runtime-types.js";
-
-// --- Step Type Registry ---
-export {
-  StepTypeRegistry,
-  defaultStepTypeRegistry,
-} from "./pipeline/step-type-registry.js";
-export type {
-  StepContext,
-  StepTypeDescriptor,
-} from "./pipeline/step-type-registry.js";
-
-// --- Pipeline Retry ---
-export {
-  DEFAULT_RETRY_POLICY,
-  calculateBackoff,
-  isRetryable,
-  resolveRetryPolicy,
-} from "./pipeline/retry-policy.js";
-
-// --- Pipeline Templates ---
-export {
-  createCodeReviewPipeline,
-  createFeatureGenerationPipeline,
-  createTestGenerationPipeline,
-  createRefactoringPipeline,
-} from "./pipeline/pipeline-templates.js";
-export type {
-  CodeReviewPipelineOptions,
-  FeatureGenerationPipelineOptions,
-  TestGenerationPipelineOptions,
-  RefactoringPipelineOptions,
-} from "./pipeline/pipeline-templates.js";
+// --- Pipeline (single authority: ./pipeline/index.ts, ARCH27-T-08) ---
+export * from "./pipeline/index.js";
 
 // --- Security ---
 export { AgentAuth } from "./security/agent-auth.js";
@@ -559,15 +483,6 @@ export type {
   AgentAuthConfig,
 } from "./security/agent-auth.js";
 
-// --- Pipeline Analytics ---
-export { PipelineAnalytics } from "./pipeline/pipeline-analytics.js";
-export type {
-  NodeMetrics,
-  BottleneckEntry,
-  PipelineAnalyticsReport,
-  AnalyticsNodeResult,
-  AnalyticsRunInput,
-} from "./pipeline/pipeline-analytics.js";
 
 // --- Shared Workspace (used by TeamRuntime) ---
 export { SharedWorkspace } from "./orchestration/team/team-workspace.js";

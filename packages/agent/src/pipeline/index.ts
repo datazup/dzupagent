@@ -121,8 +121,14 @@ export type {
   PipelineExecutionLogEntry,
   PipelineExecutionLogStore,
   LoopMetrics,
+  RetryPolicy,
   OTelSpanLike,
   PipelineTracer,
+  PipelineRecursiveForkRuntimeConfig,
+  PipelineRecursiveForkCommitSaveInput,
+  PipelineRecursiveForkDurablePort,
+  PipelineRecursiveForkDurableWriteResult,
+  PipelineRecursiveForkFrameSaveInput,
 } from './pipeline-runtime-types.js'
 
 // --- Pipeline Templates ---
@@ -142,3 +148,21 @@ export type {
 // --- Step Type Registry ---
 export { StepTypeRegistry, defaultStepTypeRegistry } from './step-type-registry.js'
 export type { StepContext, StepTypeDescriptor } from './step-type-registry.js'
+
+// --- Retry policy ---
+export {
+  DEFAULT_RETRY_POLICY,
+  calculateBackoff,
+  isRetryable,
+  resolveRetryPolicy,
+} from './retry-policy.js'
+
+// --- Analytics ---
+export { PipelineAnalytics } from './pipeline-analytics.js'
+export type {
+  NodeMetrics,
+  BottleneckEntry,
+  PipelineAnalyticsReport,
+  AnalyticsNodeResult,
+  AnalyticsRunInput,
+} from './pipeline-analytics.js'
