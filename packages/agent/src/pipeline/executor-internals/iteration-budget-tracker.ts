@@ -27,7 +27,7 @@
  *   - A non-positive `maxCostCents` means "no budget configured" and can
  *     never report `exceeded`.
  *
- * @module pipeline/pipeline-runtime/iteration-budget-tracker
+ * @module pipeline/executor-internals/iteration-budget-tracker
  */
 
 /** Mutable state owned by the caller (runtime) and updated by `applyCost`. */

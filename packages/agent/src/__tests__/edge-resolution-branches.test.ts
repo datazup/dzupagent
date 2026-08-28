@@ -7,13 +7,13 @@ import {
   getErrorTarget,
   findJoinNode,
   getForkBranchStartIds,
-} from '../pipeline/pipeline-runtime/edge-resolution.js'
-import { valuesEqual } from '../pipeline/pipeline-runtime/state-utils.js'
+} from '../pipeline/pipeline-shared/edge-resolution.js'
+import { valuesEqual } from '../pipeline/executor-internals/state-utils.js'
 import {
   collectStateDelta,
   mergeBranchExecutionResult,
   type BranchExecutionResult,
-} from '../pipeline/pipeline-runtime/branch-merge.js'
+} from '../pipeline/executor-internals/branch-merge.js'
 import type { PipelineEdge, PipelineNode } from '@dzupagent/core'
 import type { NodeResult } from '../pipeline/pipeline-runtime-types.js'
 

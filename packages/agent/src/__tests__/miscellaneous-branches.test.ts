@@ -22,9 +22,9 @@ import {
   nodeOutputRecordedEvent,
   calibrationSuboptimalEvent,
   iterationBudgetWarningEvent,
-} from '../pipeline/pipeline-runtime/runtime-events.js'
-import { createPipelineCheckpoint } from '../pipeline/pipeline-runtime/checkpoint-helpers.js'
-import { generateRunId } from '../pipeline/pipeline-runtime/run-id.js'
+} from '../pipeline/executor-internals/runtime-events.js'
+import { createPipelineCheckpoint } from '../pipeline/executor-internals/checkpoint-helpers.js'
+import { generateRunId } from '../pipeline/executor-internals/run-id.js'
 
 // ---------------------------------------------------------------------------
 // AgentCircuitBreaker

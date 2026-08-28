@@ -1,19 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PipelineEdge, PipelineNode } from '@dzupagent/core'
 import type { NodeResult } from '../pipeline/pipeline-runtime-types.js'
-import { valuesEqual } from '../pipeline/pipeline-runtime/state-utils.js'
+import { valuesEqual } from '../pipeline/executor-internals/state-utils.js'
 import {
   findJoinNode,
   getErrorTarget,
   getForkBranchStartIds,
   getNextNodeIds,
-} from '../pipeline/pipeline-runtime/edge-resolution.js'
-import { createPipelineCheckpoint } from '../pipeline/pipeline-runtime/checkpoint-helpers.js'
+} from '../pipeline/pipeline-shared/edge-resolution.js'
+import { createPipelineCheckpoint } from '../pipeline/executor-internals/checkpoint-helpers.js'
 import {
   collectStateDelta,
   mergeBranchExecutionResult,
   type BranchExecutionResult,
-} from '../pipeline/pipeline-runtime/branch-merge.js'
+} from '../pipeline/executor-internals/branch-merge.js'
 import {
   calibrationSuboptimalEvent,
   checkpointSavedEvent,
@@ -31,8 +31,8 @@ import {
   recoveryFailedEvent,
   recoverySucceededEvent,
   stuckDetectedEvent,
-} from '../pipeline/pipeline-runtime/runtime-events.js'
-import { generateRunId } from '../pipeline/pipeline-runtime/run-id.js'
+} from '../pipeline/executor-internals/runtime-events.js'
+import { generateRunId } from '../pipeline/executor-internals/run-id.js'
 
 afterEach(() => {
   vi.restoreAllMocks()

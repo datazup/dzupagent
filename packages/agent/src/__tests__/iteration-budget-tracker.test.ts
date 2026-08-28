@@ -3,7 +3,7 @@ import {
   applyCost,
   createBudgetTrackerState,
   restoreBudgetTrackerState,
-} from "../pipeline/pipeline-runtime/iteration-budget-tracker.js";
+} from "../pipeline/executor-internals/iteration-budget-tracker.js";
 
 describe("iteration-budget-tracker", () => {
   it("starts with zero cost and no warnings emitted", () => {

@@ -35,7 +35,7 @@ import { PipelineCheckpointSchema } from "@dzupagent/core/pipeline";
 import {
   readItemFrames,
   retainInFlightItemFrames,
-} from "../pipeline/pipeline-runtime/stage-dispatch.js";
+} from "../pipeline/executor-internals/stage-dispatch.js";
 import type { PipelineDefinition, PipelineNode } from "@dzupagent/core";
 import type { NodeExecutor } from "../pipeline/pipeline-runtime-types.js";
 

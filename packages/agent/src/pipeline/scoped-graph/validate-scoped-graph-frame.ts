@@ -9,8 +9,8 @@ import type { NodeResult } from "../pipeline-runtime-types.js";
 import {
   getErrorTarget,
   getForkBranchStartIds,
-} from "../pipeline-runtime/edge-resolution.js";
-import { extractErrorCode } from "../pipeline-runtime/error-classification.js";
+} from "../pipeline-shared/edge-resolution.js";
+import { extractErrorCode } from "../pipeline-shared/error-classification.js";
 import type {
   ScopedGraphCheckpointDefinition,
   ScopedGraphCheckpointFrame,

@@ -9,7 +9,7 @@
  * checkpoint-writing routines; nothing outside the pipeline runtime should
  * depend on them.
  *
- * @module pipeline/pipeline-runtime/checkpoint-serialization
+ * @module pipeline/executor-internals/checkpoint-serialization
  */
 
 import type {

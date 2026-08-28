@@ -26,14 +26,14 @@ import { InMemoryPipelineCheckpointStore } from '../pipeline/in-memory-checkpoin
 import {
   isPipelineCheckpointCommitConflictError,
   PipelineCheckpointCommitConflictError,
-} from '../pipeline/pipeline-runtime/checkpoint-integrity-error.js'
+} from '../pipeline/pipeline-shared/checkpoint-integrity-error.js'
 import {
   writeCheckpoint,
   lastWriteLostCommit,
   lastWriteOutcome,
   clearWriteOutcome,
-} from '../pipeline/pipeline-runtime/checkpoint-writer.js'
-import { restoreLoopStateAfterLostCommit } from '../pipeline/pipeline-runtime/stage-dispatch.js'
+} from '../pipeline/executor-internals/checkpoint-writer.js'
+import { restoreLoopStateAfterLostCommit } from '../pipeline/executor-internals/stage-dispatch.js'
 import type {
   PipelineCheckpoint,
   PipelineCheckpointCommitReceipt,

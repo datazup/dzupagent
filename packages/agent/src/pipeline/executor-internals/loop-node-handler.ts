@@ -4,7 +4,7 @@
  * Wraps `executeLoop` with the runtime-specific concerns: span
  * creation, body-node lookup, event emission, and metrics attachment.
  *
- * @module pipeline/pipeline-runtime/loop-node-handler
+ * @module pipeline/executor-internals/loop-node-handler
  */
 
 import type { PipelineNode, LoopNode } from "@dzupagent/core/pipeline";

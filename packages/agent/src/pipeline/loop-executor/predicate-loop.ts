@@ -24,7 +24,7 @@ import { createLoopIterationDeadline } from "./iteration-deadline.js";
 import {
   isPipelineCheckpointCommitConflictError,
   isPipelineCheckpointIntegrityError,
-} from "../pipeline-runtime/checkpoint-integrity-error.js";
+} from "../pipeline-shared/checkpoint-integrity-error.js";
 import {
   captureLoopBinding,
   completePredicateLoop,

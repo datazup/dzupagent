@@ -5,10 +5,10 @@ import {
   type PipelineInteractionResumeV1,
 } from "@dzupagent/runtime-contracts";
 
-import type { BudgetTrackerState } from "../pipeline-runtime/iteration-budget-tracker.js";
-import { restoreBudgetTrackerState } from "../pipeline-runtime/iteration-budget-tracker.js";
-import { pipelineCompletedEvent, pipelineStartedEvent } from "../pipeline-runtime/runtime-events.js";
-import { writeCheckpoint } from "../pipeline-runtime/checkpoint-writer.js";
+import type { BudgetTrackerState } from "../executor-internals/iteration-budget-tracker.js";
+import { restoreBudgetTrackerState } from "../executor-internals/iteration-budget-tracker.js";
+import { pipelineCompletedEvent, pipelineStartedEvent } from "../executor-internals/runtime-events.js";
+import { writeCheckpoint } from "../executor-internals/checkpoint-writer.js";
 import type { NodeResult, PipelineRunContext, PipelineRunResult, PipelineRuntimeConfig, PipelineRuntimeEvent, PipelineState } from "../pipeline-runtime-types.js";
 import { restoreRunContextFromCheckpoint } from "./resume-orchestrator.js";
 import { assertInteractionNotExpired, interactionSpecForNode, PipelineInteractionRuntimeError, validatePendingInteractionForDefinition } from "../pipeline-interaction-runtime.js";

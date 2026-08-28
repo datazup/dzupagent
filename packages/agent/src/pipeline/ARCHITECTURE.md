@@ -7,7 +7,7 @@ In scope:
 - Runtime lifecycle coordinator: `pipeline-runtime.ts`
 - Graph traversal and node dispatch engine: `pipeline-executor.ts`
 - Runtime contracts and config surface: `pipeline-runtime-types.ts`
-- Runtime helper seams in `pipeline-runtime/*` (retry, error classification, branch execution/merge, loop handling, event builders, checkpoint helpers, run-id generation, budget tracking)
+- Runtime helper seams in `executor-internals/*` (retry, error classification, branch execution/merge, loop handling, event builders, checkpoint helpers, run-id generation, budget tracking)
 - Validation: `pipeline-validator.ts`
 - Loop primitive and predicate helpers: `loop-executor.ts`
 - Retry utilities: `retry-policy.ts`
@@ -235,7 +235,7 @@ Pipeline-local helper unit suites in `src/pipeline/__tests__`:
 Observability hooks:
 - Event callback (`PipelineRuntimeConfig.onEvent`) emitting `PipelineRuntimeEvent` variants.
 - OTel-style tracer interface (`PipelineTracer`) with per-node spans and fork/branch span support.
-- Structured event constructors in `pipeline-runtime/runtime-events.ts`.
+- Structured event constructors in `executor-internals/runtime-events.ts`.
 - Iteration-budget warning events and calibration/stuck/recovery events are surfaced as first-class runtime events.
 
 ## Risks and TODOs

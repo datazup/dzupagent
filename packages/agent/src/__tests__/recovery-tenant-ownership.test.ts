@@ -6,7 +6,7 @@ import type {
   FailureContext,
   RecoveryPlan,
 } from '../recovery/recovery-types.js'
-import { attemptRecovery } from '../pipeline/pipeline-runtime/node-side-effects.js'
+import { attemptRecovery } from '../pipeline/executor-internals/node-side-effects.js'
 import type { PipelineRuntimeConfig } from '../pipeline/pipeline-runtime-types.js'
 import {
   RecoveryFeedback,

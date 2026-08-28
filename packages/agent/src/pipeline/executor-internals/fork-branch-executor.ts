@@ -5,7 +5,7 @@
  * tracer span bookkeeping, and deterministic merge logic can be tested
  * and reasoned about in isolation.
  *
- * @module pipeline/pipeline-runtime/fork-branch-executor
+ * @module pipeline/executor-internals/fork-branch-executor
  */
 
 import type {
@@ -26,7 +26,7 @@ import {
   nodeCompletedEvent,
   nodeFailedEvent,
 } from "./runtime-events.js";
-import { getNextNodeIds, getForkBranchStartIds } from "./edge-resolution.js";
+import { getNextNodeIds, getForkBranchStartIds } from "../pipeline-shared/edge-resolution.js";
 import {
   collectStateDelta,
   mergeBranchExecutionResult,
@@ -41,7 +41,7 @@ import {
   type HeartbeatHandle,
 } from "./node-ledger-integration.js";
 import type { NodeLeaseLike } from "../pipeline-runtime-types.js";
-import { isPipelineCheckpointIntegrityError } from "./checkpoint-integrity-error.js";
+import { isPipelineCheckpointIntegrityError } from "../pipeline-shared/checkpoint-integrity-error.js";
 
 export interface ForkBranchExecutorDeps {
   config: PipelineRuntimeConfig;

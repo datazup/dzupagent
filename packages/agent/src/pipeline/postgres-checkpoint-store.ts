@@ -17,7 +17,7 @@ import type {
   PipelineCheckpointSummary,
 } from "@dzupagent/core/pipeline";
 import { PipelineCheckpointSchema } from "@dzupagent/core/pipeline";
-import type { LoopState } from "./pipeline-runtime/executor-state-types.js";
+import type { LoopState } from "./executor-internals/executor-state-types.js";
 
 // ---------------------------------------------------------------------------
 // Adapter interface

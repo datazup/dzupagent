@@ -18,7 +18,7 @@ import type {
   ScopedGraphFrameCodec,
 } from "../pipeline/scoped-graph/contract.js";
 import { executeScopedGraph } from "../pipeline/scoped-graph/execute-scoped-graph.js";
-import type { RunFrame } from "../pipeline/pipeline-runtime/stage-dispatch.js";
+import type { RunFrame } from "../pipeline/executor-internals/stage-dispatch.js";
 import type {
   PipelineRuntimeConfig,
   PipelineRunResult,

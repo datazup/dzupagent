@@ -5,7 +5,7 @@
  * copilot. Returns a control-flow outcome the executor can act on
  * without knowing the inner side-effect details.
  *
- * @module pipeline/pipeline-runtime/standard-node-dispatch
+ * @module pipeline/executor-internals/standard-node-dispatch
  */
 
 import type { PipelineNode, PipelineEdge } from "@dzupagent/core/pipeline";
@@ -25,8 +25,8 @@ import {
   nodeCompletedEvent,
   nodeFailedEvent,
 } from "./runtime-events.js";
-import { getNextNodeIds, getErrorTarget } from "./edge-resolution.js";
-import { extractErrorCode } from "./error-classification.js";
+import { getNextNodeIds, getErrorTarget } from "../pipeline-shared/edge-resolution.js";
+import { extractErrorCode } from "../pipeline-shared/error-classification.js";
 import { runNodeWithRetry } from "./node-retry.js";
 import {
   recordFailureInStuckDetector,
@@ -49,7 +49,7 @@ import type { NodeLeaseLike } from "../pipeline-runtime-types.js";
 import {
   isPipelineCheckpointIntegrityError,
   persistCheckpointWithIntegrityBoundary,
-} from "./checkpoint-integrity-error.js";
+} from "../pipeline-shared/checkpoint-integrity-error.js";
 
 export type StandardNodeOutcome =
   | { kind: "continue"; nextNodeId: string | undefined }

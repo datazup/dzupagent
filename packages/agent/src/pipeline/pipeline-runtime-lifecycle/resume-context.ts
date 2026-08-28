@@ -15,7 +15,11 @@ import type {
   PipelineRunResult,
   PipelineRuntimeConfig,
 } from "../pipeline-runtime-types.js";
-import type { LoopState } from "../pipeline-runtime/executor-state-types.js";
+import type { LoopState } from "../executor-internals/executor-state-types.js";
+
+import { PipelineSourceBindingMismatchError } from "../pipeline-shared/source-binding-mismatch-error.js";
+
+export { PipelineSourceBindingMismatchError };
 
 /** Narrow runtime facade shared by resume orchestration leaf modules. */
 export interface ResumeHost {
@@ -128,10 +132,6 @@ export function assertCheckpointSourceBinding(
   }
 }
 
-/** A resume was rejected because its checkpoint binds to a different artifact. */
-export class PipelineSourceBindingMismatchError extends Error {
-  override readonly name = "PipelineSourceBindingMismatchError";
-}
 
 /**
  * Rebuild the mutable run context from a checkpoint. `hydrateCompleted`

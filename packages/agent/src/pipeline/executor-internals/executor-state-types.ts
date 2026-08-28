@@ -4,7 +4,7 @@
  * were previously inlined (verbatim) across every executor method signature;
  * naming them here removes that duplication without changing any structure.
  *
- * @module pipeline/pipeline-runtime/executor-state-types
+ * @module pipeline/executor-internals/executor-state-types
  */
 
 import type {

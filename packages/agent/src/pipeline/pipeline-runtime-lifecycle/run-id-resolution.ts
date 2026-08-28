@@ -1,4 +1,4 @@
-import { generateRunId } from "../pipeline-runtime/run-id.js";
+import { generateRunId } from "../executor-internals/run-id.js";
 
 export function resolvePipelineRunId(injected: string | undefined): string {
   if (injected === undefined) {

@@ -10,11 +10,11 @@
  *
  * The heavier sub-routines (retry/backoff, fork/branch fan-out, loop
  * handling, side-effect bookkeeping, standard-node dispatch) live in the
- * `pipeline-runtime/` subdirectory so this file stays focused on the
+ * `executor-internals/` subdirectory so this file stays focused on the
  * dispatch flow. Checkpoint writing (the version-bump → build → save →
  * snapshot → retention → emit sequence) lives in
- * `pipeline-runtime/checkpoint-writer.ts`; the pure event/state serialization
- * helpers it uses live in `pipeline-runtime/checkpoint-serialization.ts`.
+ * `executor-internals/checkpoint-writer.ts`; the pure event/state serialization
+ * helpers it uses live in `executor-internals/checkpoint-serialization.ts`.
  *
  * @module pipeline/pipeline-executor
  */
@@ -36,33 +36,33 @@ import type {
 import {
   pipelineCompletedEvent,
   pipelineSuspendedEvent,
-} from "./pipeline-runtime/runtime-events.js";
+} from "./executor-internals/runtime-events.js";
 import {
   getNextNodeIds,
   getErrorTarget,
   findJoinNode,
-} from "./pipeline-runtime/edge-resolution.js";
-import { extractErrorCode } from "./pipeline-runtime/error-classification.js";
+} from "./pipeline-shared/edge-resolution.js";
+import { extractErrorCode } from "./pipeline-shared/error-classification.js";
 import {
   writeCheckpoint,
   clearWriteOutcome,
-} from "./pipeline-runtime/checkpoint-writer.js";
+} from "./executor-internals/checkpoint-writer.js";
 import {
   dispatchForkStage,
   dispatchLoopStage,
   type StageContext,
-} from "./pipeline-runtime/stage-dispatch.js";
-import type { RunFrame } from "./pipeline-runtime/run-frame.js";
+} from "./executor-internals/stage-dispatch.js";
+import type { RunFrame } from "./executor-internals/run-frame.js";
 import {
   nodeIdempotencyKey,
   nodeIdempotencyContext,
-} from "./pipeline-runtime/idempotency.js";
-import { type BudgetTrackerState } from "./pipeline-runtime/iteration-budget-tracker.js";
-import { type RecoveryCounter } from "./pipeline-runtime/node-side-effects.js";
+} from "./executor-internals/idempotency.js";
+import { type BudgetTrackerState } from "./executor-internals/iteration-budget-tracker.js";
+import { type RecoveryCounter } from "./executor-internals/node-side-effects.js";
 import {
   dispatchStandardNode,
   type StandardNodeOutcome,
-} from "./pipeline-runtime/standard-node-dispatch.js";
+} from "./executor-internals/standard-node-dispatch.js";
 import { createRuntimePendingInteraction } from "./pipeline-interaction-runtime.js";
 import { scheduleLoopBodyGraph } from "./loop-executor/graph-scheduler/schedule-loop-body-graph.js";
 

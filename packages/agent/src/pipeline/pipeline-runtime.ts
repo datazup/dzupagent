@@ -35,13 +35,13 @@ import {
   pipelineStartedEvent,
   pipelineCompletedEvent,
   pipelineFailedEvent,
-} from "./pipeline-runtime/runtime-events.js";
-import { getNextNodeIds } from "./pipeline-runtime/edge-resolution.js";
+} from "./executor-internals/runtime-events.js";
+import { getNextNodeIds } from "./pipeline-shared/edge-resolution.js";
 import {
   createBudgetTrackerState,
   restoreBudgetTrackerState,
   type BudgetTrackerState,
-} from "./pipeline-runtime/iteration-budget-tracker.js";
+} from "./executor-internals/iteration-budget-tracker.js";
 import {
   PipelineExecutor,
   type PipelineExecutorCoordinator,
@@ -54,7 +54,7 @@ import {
   normalizeRuntimeConfig,
   buildNodeIndex,
 } from "./pipeline-runtime-lifecycle/runtime-init.js";
-import type { LoopState } from "./pipeline-runtime/executor-state-types.js";
+import type { LoopState } from "./executor-internals/executor-state-types.js";
 import {
   countReplayNodesFrom,
   findMidFlightForkNodeId,
@@ -67,7 +67,7 @@ import {
   redeliverFromCheckpoint as redeliverFromCheckpointOrchestrator,
   type ResumeHost,
 } from "./pipeline-runtime-lifecycle/resume-orchestrator.js";
-import { writeCheckpoint } from "./pipeline-runtime/checkpoint-writer.js";
+import { writeCheckpoint } from "./executor-internals/checkpoint-writer.js";
 import {
   assertInteractionResumeCursorValid,
   resumePipelineInteraction,
@@ -77,7 +77,7 @@ import { PipelineInteractionRuntimeError } from "./pipeline-interaction-runtime.
 import {
   definitionHasRecursiveFork,
   validateRecursiveForkCompletionReceipts,
-} from "./pipeline-runtime/recursive-fork-receipt.js";
+} from "./executor-internals/recursive-fork-receipt.js";
 import { resolveCheckpointStore } from "./pipeline-runtime-lifecycle/checkpoint-store-resolution.js";
 
 // ---------------------------------------------------------------------------

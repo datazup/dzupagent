@@ -17,7 +17,7 @@ In-scope source files:
 
 Scope boundaries:
 - Focuses on recovery planning and execution primitives owned by this module.
-- Covers direct runtime integration where recovery is invoked by pipeline runtime (`src/pipeline/pipeline-runtime/node-side-effects.ts`).
+- Covers direct runtime integration where recovery is invoked by pipeline runtime (`src/pipeline/executor-internals/node-side-effects.ts`).
 - Does not describe unrelated stuck-detection internals outside recovery, except where recovery consumes `StuckStatus` types or emits shared event types.
 
 ## Responsibilities
@@ -232,7 +232,7 @@ Package-level context (`packages/agent/package.json`):
 Confirmed integration boundaries in `packages/agent`:
 
 - Pipeline runtime invocation.
-- `src/pipeline/pipeline-runtime/node-side-effects.ts` owns the production recovery entrypoint (`attemptRecovery`).
+- `src/pipeline/executor-internals/node-side-effects.ts` owns the production recovery entrypoint (`attemptRecovery`).
 
 - Pipeline runtime config.
 - `src/pipeline/pipeline-runtime-types.ts` exposes optional `recoveryCopilot` runtime config:
@@ -241,7 +241,7 @@ Confirmed integration boundaries in `packages/agent`:
   - optional `maxRecoveryAttempts`.
 
 - Pipeline event stream.
-- `src/pipeline/pipeline-runtime/runtime-events.ts` defines:
+- `src/pipeline/executor-internals/runtime-events.ts` defines:
   - `pipeline:recovery_attempted`
   - `pipeline:recovery_succeeded`
   - `pipeline:recovery_failed`.

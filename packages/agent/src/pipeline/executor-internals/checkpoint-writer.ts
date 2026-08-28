@@ -9,7 +9,7 @@
  * construction, store `save`, execution-log snapshot, retention pruning, and
  * `emit` all happen in the same order as before.
  *
- * @module pipeline/pipeline-runtime/checkpoint-writer
+ * @module pipeline/executor-internals/checkpoint-writer
  */
 
 import type { PipelineCheckpoint } from "@dzupagent/core/pipeline";

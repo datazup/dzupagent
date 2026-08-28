@@ -45,7 +45,7 @@ import type { PipelineStuckDetector } from "../self-correction/pipeline-stuck-de
 import type { TrajectoryCalibrator } from "../self-correction/trajectory-calibrator.js";
 import type { RedisClientLike } from "./redis-checkpoint-store.js";
 import type { PostgresClientLike } from "./postgres-checkpoint-store.js";
-import type { LoopState } from "./pipeline-runtime/executor-state-types.js";
+import type { LoopState } from "./executor-internals/executor-state-types.js";
 import type { LoopBudgetHost } from "./loop-executor/types.js";
 
 // ---------------------------------------------------------------------------

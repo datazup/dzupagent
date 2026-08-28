@@ -9,7 +9,7 @@
  * `recordIdempotencyKey`, `errorEdgeFor`, `forkDeps`, `emit`, `setState`,
  * `runResult`) through the {@link StageContext} bag so behavior is unchanged.
  *
- * @module pipeline/pipeline-runtime/stage-dispatch
+ * @module pipeline/executor-internals/stage-dispatch
  */
 
 import type {
@@ -32,7 +32,7 @@ import {
   nodeCompletedEvent,
   nodeStartedEvent,
 } from "./runtime-events.js";
-import { findJoinNode } from "./edge-resolution.js";
+import { findJoinNode } from "../pipeline-shared/edge-resolution.js";
 import type { BranchExecutionResult } from "./branch-merge.js";
 import { handleFork as handleForkNode } from "./fork-branch-executor.js";
 import { handleLoop as handleLoopNode } from "./loop-node-handler.js";
@@ -48,11 +48,11 @@ import type { BudgetTrackerState } from "./iteration-budget-tracker.js";
 import {
   persistCheckpointWithIntegrityBoundary,
   PipelineCheckpointCommitConflictError,
-} from "./checkpoint-integrity-error.js";
+} from "../pipeline-shared/checkpoint-integrity-error.js";
 import { lastWriteLostCommit } from "./checkpoint-writer.js";
 import { createRuntimePendingInteraction } from "../pipeline-interaction-runtime.js";
 import { resolveStatePath } from "../loop-executor/state-path.js";
-import { PipelineSourceBindingMismatchError } from "../pipeline-runtime-lifecycle/resume-context.js";
+import { PipelineSourceBindingMismatchError } from "../pipeline-shared/source-binding-mismatch-error.js";
 import { findAdmittedRecursiveForkGraph } from "../loop-executor/definition-validation/graph-helpers.js";
 import {
   executeAdmittedRecursiveFork,

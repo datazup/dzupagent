@@ -22,7 +22,7 @@
  *     `generation_failure`. Matching is case-insensitive on the full
  *     message.
  *
- * @module pipeline/pipeline-runtime/error-classification
+ * @module pipeline/pipeline-shared/error-classification
  */
 
 import type { FailureType } from '../../recovery/recovery-types.js'

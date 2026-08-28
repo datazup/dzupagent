@@ -31,7 +31,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertForEachCursorWithinSource,
   PipelineForEachCursorCorruptError,
-} from "../pipeline/pipeline-runtime/stage-dispatch.js";
+} from "../pipeline/executor-internals/stage-dispatch.js";
 import type { PipelineForEachItemFrame } from "@dzupagent/core";
 
 /** A frame mid-way through an item, with no outcome or economics recorded. */

@@ -6,7 +6,7 @@
  * the initial attempt) is exposed via `retryCount` for trajectory
  * calibration.
  *
- * @module pipeline/pipeline-runtime/node-retry
+ * @module pipeline/executor-internals/node-retry
  */
 
 import type { PipelineNode } from '@dzupagent/core/pipeline'

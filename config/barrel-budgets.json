@@ -292,14 +292,6 @@
           "reviewBy": "2026-11-16",
           "rationale": "RF-03: module was over the ceiling with no pin, so the gate was red. Frozen at its current 517 bytes-bound LOC pending extraction down to the 500-LOC target."
         },
-        "src/pipeline/pipeline-runtime/stage-dispatch.ts": {
-          "maxLines": 1011,
-          "shrinkTarget": 500,
-          "sourceSha256": "362c82fa7f92e4d966334bfdcca8ef8c17779418c0507dae576f06ff8bf82ee0",
-          "sourceCommit": "8c63de88df47c0ab59e80a8a81e7d5bf936bde77",
-          "reviewBy": "2026-11-16",
-          "rationale": "RF-03: module was over the ceiling with no pin, so the gate was red. Frozen at its current 1011 bytes-bound LOC pending extraction down to the 500-LOC target."
-        },
         "src/pipeline/postgres-checkpoint-store.ts": {
           "maxLines": 522,
           "shrinkTarget": 500,
@@ -331,6 +323,14 @@
           "sourceCommit": "cf42ebaad0e4f69550d944c66430d077cd51d453",
           "reviewBy": "2026-11-16",
           "rationale": "RF-03 re-pin 2026-08-18: crossed the 500-LOC ceiling to 512 in c6f8a9e91/291b7a68c/cf42ebaad with NO pin, so the gate went red. Newly pinned fails-closed pending extraction to 500."
+        },
+        "src/pipeline/executor-internals/stage-dispatch.ts": {
+          "maxLines": 1119,
+          "shrinkTarget": 500,
+          "sourceSha256": "9d0566394570a52ac0726f1211797a2b5ad38c60cab7ebb219baf30715e7e8be",
+          "sourceCommit": "f56d7d853988437327c5c6621467d8999a112b77",
+          "reviewBy": "2026-11-16",
+          "rationale": "ARCH27-T-10 re-key 2026-08-28: pipeline-runtime/ renamed to executor-internals/ (naming inverted actual ownership) and the shared leaves (edge-resolution, error-classification, checkpoint-integrity-error, PipelineSourceBindingMismatchError) moved to pipeline-shared/, so this pin follows the file to its new path with its new sha. LOC measured 1119; shrinkTarget unchanged."
         }
       }
     },

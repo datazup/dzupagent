@@ -1,8 +1,8 @@
 import type { PipelineEdge } from "@dzupagent/core/pipeline";
 
-import { isPipelineCheckpointIntegrityError } from "../pipeline-runtime/checkpoint-integrity-error.js";
-import { getNextNodeIds } from "../pipeline-runtime/edge-resolution.js";
-import type { RunFrame } from "../pipeline-runtime/run-frame.js";
+import { isPipelineCheckpointIntegrityError } from "../pipeline-shared/checkpoint-integrity-error.js";
+import { getNextNodeIds } from "../pipeline-shared/edge-resolution.js";
+import type { RunFrame } from "../executor-internals/run-frame.js";
 import type {
   NodeResult,
   PipelineRunResult,

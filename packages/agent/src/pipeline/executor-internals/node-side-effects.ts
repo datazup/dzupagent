@@ -6,7 +6,7 @@
  * so the executor's main dispatch flow stays focused on graph traversal
  * and error handling.
  *
- * @module pipeline/pipeline-runtime/node-side-effects
+ * @module pipeline/executor-internals/node-side-effects
  */
 
 import type {
@@ -33,7 +33,7 @@ import {
   applyCost as applyBudgetCost,
   type BudgetTrackerState,
 } from './iteration-budget-tracker.js'
-import { classifyFailureType } from './error-classification.js'
+import { classifyFailureType } from '../pipeline-shared/error-classification.js'
 
 /**
  * Record a node failure with the configured stuck detector. Returns an

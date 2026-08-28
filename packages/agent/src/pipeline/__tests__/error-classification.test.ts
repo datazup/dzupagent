@@ -12,7 +12,7 @@ import {
   extractErrorCode,
   extractErrorCodeFromMessage,
   classifyFailureType,
-} from '../pipeline-runtime/error-classification.js'
+} from '../pipeline-shared/error-classification.js'
 
 describe('extractErrorCode', () => {
   it('returns string `code` field when present on object', () => {

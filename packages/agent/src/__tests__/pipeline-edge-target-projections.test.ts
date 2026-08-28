@@ -9,7 +9,7 @@ import {
 import {
   getErrorTarget,
   getNextNodeIds,
-} from "../pipeline/pipeline-runtime/edge-resolution.js";
+} from "../pipeline/pipeline-shared/edge-resolution.js";
 
 describe("pipeline edge-target projections", () => {
   const sequential: PipelineEdge = {

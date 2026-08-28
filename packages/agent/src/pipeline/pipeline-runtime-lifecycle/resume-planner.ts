@@ -16,7 +16,7 @@
 
 import type { PipelineNode } from "@dzupagent/core/pipeline";
 import type { PipelineRuntimeConfig } from "../pipeline-runtime-types.js";
-import type { LoopState } from "../pipeline-runtime/executor-state-types.js";
+import type { LoopState } from "../executor-internals/executor-state-types.js";
 
 /**
  * Read-only view the resume planners need over the owning runtime. Kept

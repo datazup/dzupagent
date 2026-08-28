@@ -4,7 +4,7 @@
  * Checkpoint persistence is runtime transport, not authored workflow work. A
  * write failure must therefore bypass node recovery and workflow error edges.
  *
- * @module pipeline/pipeline-runtime/checkpoint-integrity-error
+ * @module pipeline/pipeline-shared/checkpoint-integrity-error
  */
 
 export class PipelineCheckpointIntegrityError extends Error {

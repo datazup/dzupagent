@@ -21,7 +21,7 @@
  * See {@link nodeIdempotencyKey} for what each field carries and the one
  * placeholder that remains.
  *
- * @module pipeline/pipeline-runtime/idempotency
+ * @module pipeline/executor-internals/idempotency
  */
 
 import {

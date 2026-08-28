@@ -19,7 +19,7 @@ import {
 import { materializeRecursiveBranchPlanV1 } from "../recursive-scope/index.js";
 import { validateScopedGraphCheckpointFrame } from "../scoped-graph/validate-scoped-graph-frame.js";
 import type { PipelineRuntimeConfig } from "../pipeline-runtime-types.js";
-import { getNextNodeIds } from "./edge-resolution.js";
+import { getNextNodeIds } from "../pipeline-shared/edge-resolution.js";
 import {
   boundaryFor,
   checkpointDefinitionFor,

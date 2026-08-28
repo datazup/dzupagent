@@ -1,7 +1,7 @@
 import type { PipelineEdge, PipelineNode } from "@dzupagent/core/pipeline";
 
-import { getNextNodeIds } from "../pipeline-runtime/edge-resolution.js";
-import type { RunFrame } from "../pipeline-runtime/run-frame.js";
+import { getNextNodeIds } from "../pipeline-shared/edge-resolution.js";
+import type { RunFrame } from "../executor-internals/run-frame.js";
 import type { NodeResult, PipelineRuntimeConfig } from "../pipeline-runtime-types.js";
 
 export function nextScopedNodeId(
