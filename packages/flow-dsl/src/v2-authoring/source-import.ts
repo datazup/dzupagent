@@ -27,7 +27,7 @@ const AUTHORITY: DslV2AuthoringAuthority = Object.freeze({
 
 export function importDslV2Source(
   source: string,
-  options: DslV2AuthoringOptions = {}
+  options: DslV2AuthoringOptions = {},
 ): DslV2AuthoringResult {
   const parsed = parseYamlSubset(source);
   if (!parsed.ok) {
@@ -44,7 +44,7 @@ export function importDslV2Source(
           lineEnd: error.line,
           columnEnd: error.column,
         },
-      }))
+      })),
     );
   }
   return formatDslV2Document(parsed.value, options);
@@ -52,7 +52,7 @@ export function importDslV2Source(
 
 export function formatDslV2Document(
   raw: unknown,
-  options: DslV2AuthoringOptions = {}
+  options: DslV2AuthoringOptions = {},
 ): DslV2AuthoringResult {
   const canonical = canonicalizeV2Document(raw);
   if (!canonical.ok) return failure(null, canonical.diagnostics);
@@ -70,6 +70,30 @@ export function formatDslV2Document(
   if (!lowered.ok) return failure(canonical.document, lowered.diagnostics);
 
   const canonicalSource = renderCanonicalV2Yaml(canonical.document);
+  // Closure guarantee: the canonical rendering must reparse through the
+  // restricted dzupflow YAML subset back to the exact canonical document.
+  // Without this check, an emission the subset cannot represent (e.g. a
+  // non-identifier mapping key) surfaces later as a confusing reparse
+  // diagnostic or, worse, silently drifts scalar values.
+  const roundTrip = parseYamlSubset(canonicalSource);
+  if (!roundTrip.ok) {
+    return failure(canonical.document, [
+      diagnostic(
+        "V2_AUTHORING_CANONICAL_ROUNDTRIP",
+        `canonical V2 source is outside the dzupflow YAML subset: ${
+          roundTrip.errors[0]?.message ?? "unknown parse error"
+        }`,
+      ),
+    ]);
+  }
+  if (!jsonDeepEquals(roundTrip.value, canonical.document)) {
+    return failure(canonical.document, [
+      diagnostic(
+        "V2_AUTHORING_CANONICAL_ROUNDTRIP",
+        "canonical V2 source does not reparse to the canonical document through the dzupflow YAML subset",
+      ),
+    ]);
+  }
   const reparsed = parseDslToDocument(canonicalSource, {
     ...(options.primitiveRegistryV2 === undefined
       ? {}
@@ -88,13 +112,13 @@ export function formatDslV2Document(
         ? [
             diagnostic(
               "V2_AUTHORING_FRONTEND_METADATA_MISSING",
-              "canonical V2 source reparsed without V2 frontend metadata"
+              "canonical V2 source reparsed without V2 frontend metadata",
             ),
           ]
         : reparsed.diagnostics.map((item) => ({
             ...item,
             code: `V2_AUTHORING_REPARSE_${item.code}`,
-          }))
+          })),
     );
   }
 
@@ -121,7 +145,7 @@ export function v2AuthoringAuthority(): DslV2AuthoringAuthority {
 
 function failure(
   document: Readonly<Record<string, unknown>> | null,
-  diagnostics: readonly DslDiagnostic[]
+  diagnostics: readonly DslDiagnostic[],
 ): DslV2AuthoringResult {
   return deepFreeze({
     ok: false as const,
@@ -143,4 +167,33 @@ function deepFreeze<T>(value: T): T {
   if (Array.isArray(value)) value.forEach((item) => deepFreeze(item));
   else Object.values(value).forEach((item) => deepFreeze(item));
   return Object.freeze(value);
+}
+
+function jsonDeepEquals(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (
+    left === null ||
+    right === null ||
+    typeof left !== "object" ||
+    typeof right !== "object"
+  ) {
+    return false;
+  }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right)) return false;
+    return (
+      left.length === right.length &&
+      left.every((item, index) => jsonDeepEquals(item, right[index]))
+    );
+  }
+  const leftEntries = Object.entries(left);
+  const rightRecord = right as Record<string, unknown>;
+  return (
+    leftEntries.length === Object.keys(rightRecord).length &&
+    leftEntries.every(
+      ([key, nested]) =>
+        Object.hasOwn(rightRecord, key) &&
+        jsonDeepEquals(nested, rightRecord[key]),
+    )
+  );
 }

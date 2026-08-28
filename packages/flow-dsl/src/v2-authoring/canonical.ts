@@ -32,7 +32,7 @@ const STEP_ORDER = [
 ] as const;
 
 export function canonicalizeV2Document(
-  value: unknown
+  value: unknown,
 ):
   | { readonly ok: true; readonly document: Readonly<Record<string, unknown>> }
   | { readonly ok: false; readonly diagnostics: readonly DslDiagnostic[] } {
@@ -47,7 +47,7 @@ export function canonicalizeV2Document(
         diagnostic(
           "V2_AUTHORING_DOCUMENT_REQUIRED",
           "V2 authoring input must be a plain JSON object",
-          "root"
+          "root",
         ),
       ]),
     };
@@ -59,12 +59,21 @@ export function canonicalizeV2Document(
 }
 
 export function renderCanonicalV2Yaml(
-  document: Readonly<Record<string, unknown>>
+  document: Readonly<Record<string, unknown>>,
 ): string {
+  // Emission is constrained to the dzupflow YAML subset (mini-yaml): block
+  // collections only, no block scalars (parseYamlSubset drops the trailing
+  // newline of `|` and rejects `|-`), no single-quote escaping, and JSON-only
+  // double-quote escapes so parseScalar's JSON.parse branch can decode every
+  // quoted scalar this emitter produces.
   return stringify(document, {
     aliasDuplicateObjects: false,
+    blockQuote: false,
+    collectionStyle: "block",
+    doubleQuotedAsJSON: true,
     indent: 2,
     lineWidth: 0,
+    singleQuote: false,
     sortMapEntries: false,
   }).trimEnd();
 }
@@ -81,14 +90,21 @@ export function stableStringify(value: unknown): string {
     return `[${value.map(stableStringify).join(",")}]`;
   }
   return `{${Object.entries(value)
-    .sort(([left], [right]) => left.localeCompare(right))
+    .sort(([left], [right]) => compareUtf16(left, right))
     .map(([key, nested]) => `${JSON.stringify(key)}:${stableStringify(nested)}`)
     .join(",")}}`;
 }
 
+// Key ordering must be locale-independent: this feeds persisted digests
+// (canonicalSourceSha256/semanticSha256 and the v2 import lock chain), and
+// localeCompare varies with the host ICU locale.
+function compareUtf16(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function orderRecord(
   value: Readonly<Record<string, unknown>>,
-  path: string
+  path: string,
 ): Record<string, unknown> {
   const order =
     path === "root" ? TOP_LEVEL_ORDER : isStepPath(path) ? STEP_ORDER : [];
@@ -99,13 +115,13 @@ function orderRecord(
     if (leftRank !== undefined || rightRank !== undefined) {
       return (
         (leftRank ?? order.length) - (rightRank ?? order.length) ||
-        left.localeCompare(right)
+        compareUtf16(left, right)
       );
     }
-    return left.localeCompare(right);
+    return compareUtf16(left, right);
   });
   return Object.fromEntries(
-    entries.map(([key, nested]) => [key, orderValue(nested, `${path}.${key}`)])
+    entries.map(([key, nested]) => [key, orderValue(nested, `${path}.${key}`)]),
   );
 }
 
@@ -123,7 +139,7 @@ function isStepPath(path: string): boolean {
 function validateJsonValue(
   value: unknown,
   path: string,
-  seen: WeakSet<object>
+  seen: WeakSet<object>,
 ): DslDiagnostic | undefined {
   if (
     value === null ||
@@ -138,28 +154,28 @@ function validateJsonValue(
       : diagnostic(
           "V2_AUTHORING_NON_JSON_VALUE",
           "V2 authoring numbers must be finite",
-          path
+          path,
         );
   }
   if (typeof value !== "object") {
     return diagnostic(
       "V2_AUTHORING_NON_JSON_VALUE",
       "V2 authoring values must be JSON-compatible",
-      path
+      path,
     );
   }
   if (seen.has(value)) {
     return diagnostic(
       "V2_AUTHORING_CYCLIC_VALUE",
       "V2 authoring input must not contain cycles",
-      path
+      path,
     );
   }
   if (!Array.isArray(value) && !isPlainRecord(value)) {
     return diagnostic(
       "V2_AUTHORING_NON_JSON_VALUE",
       "V2 authoring objects must use a plain prototype",
-      path
+      path,
     );
   }
   seen.add(value);
@@ -170,7 +186,7 @@ function validateJsonValue(
     const nestedError = validateJsonValue(
       nested,
       Array.isArray(value) ? `${path}[${key}]` : `${path}.${key}`,
-      seen
+      seen,
     );
     if (nestedError !== undefined) return nestedError;
   }
@@ -181,7 +197,7 @@ function validateJsonValue(
 function diagnostic(
   code: string,
   message: string,
-  path: string
+  path: string,
 ): DslDiagnostic {
   return { phase: "normalize", code, message, path };
 }
