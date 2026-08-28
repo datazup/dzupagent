@@ -16,7 +16,7 @@ import { isFlowValue, isPlainObject, joinPath } from "../validation-helpers.js";
 import {
   validateCanonicalNodeIds,
   type ValidationTraversalIssue,
-} from "../validation-traversal.js";
+} from "../validate/validation-traversal.js";
 import { FLOW_NODE_KINDS } from "../types.js";
 
 // ---------------------------------------------------------------------------

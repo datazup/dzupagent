@@ -12,7 +12,7 @@ import {
   type AgentExecutionHarnessChild,
   type AgentExecutionHarnessPorts,
   type AgentExecutionHarnessProfileV1,
-} from './agent-execution-harness.js'
+} from '../agent-execution-harness.js'
 
 const roots: string[] = []
 

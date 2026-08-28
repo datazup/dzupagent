@@ -64,3 +64,6 @@ bun.lockb
 
 # Yarn local resolution cache (regenerated; must not be tracked)
 .yarn/install-state.gz
+
+# Doc provenance sidecars are generated metadata, not source (ARCH27-N-20)
+*.provenance.json

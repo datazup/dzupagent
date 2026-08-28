@@ -4,7 +4,7 @@ import {
   isPlainObject,
   joinPath,
 } from "../validation-helpers.js";
-import { validateCanonicalNodeIds } from "../validation-traversal.js";
+import { validateCanonicalNodeIds } from "./validation-traversal.js";
 import { validateSpddNodeOrdering } from "../validation-ordering.js";
 import {
   validateOptionalObjectField,

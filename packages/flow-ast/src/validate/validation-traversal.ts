@@ -1,5 +1,5 @@
-import type { FlowNode, ValidationErrorCode } from "./types.js";
-import { joinPath } from "./validation-helpers.js";
+import type { FlowNode, ValidationErrorCode } from "../types.js";
+import { joinPath } from "../validation-helpers.js";
 
 export interface ValidationTraversalIssue {
   path: string;

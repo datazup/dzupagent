@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   validateCanonicalNodeIds,
   type ValidationTraversalIssue,
-} from "../validation-traversal.js";
+} from "../validate/validation-traversal.js";
 import type { FlowNode } from "../types.js";
 
 // ---------------------------------------------------------------------------
