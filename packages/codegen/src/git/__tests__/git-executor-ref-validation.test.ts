@@ -112,12 +112,27 @@ describe('GitExecutor.diff — ref validation (SEC-C-03)', () => {
 
   it('rejects refs carrying shell or option metacharacters', async () => {
     const exec = new GitExecutor({ cwd: '/tmp/repo' })
-    for (const ref of ['foo;rm -rf /', 'foo bar', 'foo^', 'foo..bar', '-c']) {
+    for (const ref of [
+      'foo;rm -rf /',
+      'foo bar',
+      'foo:bar',
+      'foo..bar',
+      '-c',
+      '--evil~1',
+      'foo@{1}~2',
+    ]) {
       await expect(exec.diff({ ref1: ref })).rejects.toBeInstanceOf(
         InvalidGitRefError,
       )
     }
     expect(execFileAsyncMock).not.toHaveBeenCalled()
+  })
+
+  it('accepts revisions with trailing ancestry operators', async () => {
+    const exec = new GitExecutor({ cwd: '/tmp/repo' })
+    for (const ref of ['HEAD~3', 'foo^', 'main^2~1']) {
+      await expect(exec.diff({ ref1: ref })).resolves.toBeDefined()
+    }
   })
 
   it('inserts --end-of-options AFTER --stat so the stat flag stays a flag', async () => {

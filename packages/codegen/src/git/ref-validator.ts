@@ -129,3 +129,26 @@ export function validateRefName(
     )
   }
 }
+
+/**
+ * Validate a caller-supplied git revision expression: a ref name optionally
+ * followed by trailing ancestry operators (`~[n]` / `^[n]`, e.g. `HEAD~3`,
+ * `main^2~1`). Only for positions git parses as a revision (`diff`, `log`),
+ * never for names being created. The base obeys every `validateRefName`
+ * rule, so flag-shaped values (`--output=...`), `..`, `@{`, and all other
+ * metacharacters stay rejected; ancestry suffixes select parent commits and
+ * cannot change how git parses its command line.
+ */
+export function validateRevision(
+  name: string,
+  kind: GitRefKind,
+): asserts name is GitRefName {
+  if (typeof name !== 'string') {
+    throw new InvalidGitRefError(String(name), kind, 'must be a string')
+  }
+  if (name.length > 255) {
+    throw new InvalidGitRefError(name, kind, 'exceeds maximum length (255)')
+  }
+  const base = name.replace(/(?:[~^][0-9]*)+$/, '')
+  validateRefName(base, kind)
+}

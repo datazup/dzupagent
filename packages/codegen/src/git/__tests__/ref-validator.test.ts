@@ -3,6 +3,7 @@ import {
   GIT_REF_PATTERN,
   InvalidGitRefError,
   validateRefName,
+  validateRevision,
 } from '../ref-validator.js'
 
 describe('ref-validator', () => {
@@ -132,6 +133,38 @@ describe('ref-validator', () => {
         expect(e.kind).toBe('branch')
         expect(e.reason).toMatch(/must not start with "-"/)
         expect(e.name).toBe('InvalidGitRefError')
+      }
+    })
+  })
+
+  describe('validateRevision — ancestry suffixes on a validated base', () => {
+    it('accepts trailing ~n / ^n operators', () => {
+      expect(() => validateRevision('HEAD~3', 'ref')).not.toThrow()
+      expect(() => validateRevision('foo^', 'ref')).not.toThrow()
+      expect(() => validateRevision('main^2~1', 'ref')).not.toThrow()
+      expect(() => validateRevision('v1.2.3~10', 'ref')).not.toThrow()
+    })
+
+    it('still accepts plain ref names', () => {
+      expect(() => validateRevision('feature/foo-bar', 'ref')).not.toThrow()
+    })
+
+    it('rejects flag-shaped and metacharacter bases', () => {
+      for (const rev of [
+        '--output=/tmp/x~1',
+        '-c^',
+        'foo:bar~1',
+        'foo bar^2',
+        'foo@{1}~2',
+        'foo..bar~1',
+        'foo~1bar',
+        '~3',
+        '^',
+        '',
+      ]) {
+        expect(() => validateRevision(rev, 'ref')).toThrowError(
+          InvalidGitRefError,
+        )
       }
     })
   })

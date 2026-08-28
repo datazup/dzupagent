@@ -16,7 +16,7 @@ import type {
   GitFileEntry,
   GitFileStatus,
 } from './git-types.js'
-import { validateRefName } from './ref-validator.js'
+import { validateRefName, validateRevision } from './ref-validator.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -194,7 +194,9 @@ export class GitExecutor {
     // SEC-C-03: `ref1`/`ref2` are model-supplied and reach `execFile` on the
     // host, so a ref such as `--output=~/.ssh/authorized_keys` was an arbitrary
     // file write from an always-on read tool. Validate and terminate option
-    // parsing exactly as `createBranch`/`switchBranch` already do.
+    // parsing exactly as `createBranch`/`switchBranch` already do — but these
+    // positions are revisions, so ancestry suffixes (`HEAD~3`, `main^2`) are
+    // legal and validated by `validateRevision` instead of the name rules.
     //
     // The refs are kept in their own segment rather than pushed onto `args`,
     // because `--stat` is appended after `args` below: anything following
@@ -204,8 +206,8 @@ export class GitExecutor {
     if (options?.staged) {
       args.push('--cached')
     } else if (options?.ref1) {
-      validateRefName(options.ref1, 'ref')
-      if (options?.ref2) validateRefName(options.ref2, 'ref')
+      validateRevision(options.ref1, 'ref')
+      if (options?.ref2) validateRevision(options.ref2, 'ref')
       refArgs.push('--end-of-options', options.ref1)
       if (options?.ref2) refArgs.push(options.ref2)
     }
