@@ -35,11 +35,14 @@ export interface NodeRetryPolicy {
   /** Add random jitter (0-50%) to backoff delay */
   jitter?: boolean;
   /**
-   * Error patterns that are retryable.
-   * - `string` values match via `error.includes(pattern)`
-   * - `RegExp` values match via `pattern.test(error)`
+   * Error patterns that are retryable, matched via `error.includes(pattern)`.
+   *
+   * Deliberately `string[]` only: this is a persisted artifact type (see the
+   * module doc's JSON-serializability contract) and the wire schema has always
+   * rejected RegExp here. Runtime-side RegExp matching lives in the agent
+   * runtime's own `RetryPolicy`, which node-level policies merge into.
    */
-  retryableErrors?: Array<string | RegExp>;
+  retryableErrors?: string[];
 }
 
 export interface PipelineNodeSource {

@@ -23,7 +23,22 @@ import {
   PIPELINE_CHECKPOINT_SCHEMA_VERSIONS,
   PIPELINE_FOR_EACH_ITEM_OUTCOMES,
 } from "./pipeline-checkpoint-store.js";
-import type { PipelineDefinition } from "./pipeline-definition.js";
+import type {
+  AgentNode,
+  ConditionalEdge,
+  ErrorEdge,
+  ForkNode,
+  GateNode,
+  JoinNode,
+  LoopNode,
+  PipelineDefinition,
+  PipelineEdge,
+  PipelineNode,
+  SequentialEdge,
+  SuspendNode,
+  ToolNode,
+  TransformNode,
+} from "./pipeline-definition.js";
 import { PIPELINE_SCHEMA_VERSIONS } from "./pipeline-definition.js";
 
 // ---------------------------------------------------------------------------
@@ -66,18 +81,18 @@ export const AgentNodeSchema = PipelineNodeBaseSchema.extend({
   type: z.literal("agent"),
   agentId: z.string().min(1),
   config: z.record(z.string(), z.unknown()).optional(),
-});
+}).strict();
 
 export const ToolNodeSchema = PipelineNodeBaseSchema.extend({
   type: z.literal("tool"),
   toolName: z.string().min(1),
   arguments: z.record(z.string(), z.unknown()).optional(),
-});
+}).strict();
 
 export const TransformNodeSchema = PipelineNodeBaseSchema.extend({
   type: z.literal("transform"),
   transformName: z.string().min(1),
-});
+}).strict();
 
 export const GateNodeSchema = PipelineNodeBaseSchema.extend({
   type: z.literal("gate"),
@@ -89,7 +104,7 @@ export const GateNodeSchema = PipelineNodeBaseSchema.extend({
         const result = validatePipelineInteractionSpecV1(value);
         return result.valid && result.value.kind === "approval";
       },
-      { message: "invalid approval interaction specification" }
+      { message: "invalid approval interaction specification" },
     )
     .optional(),
 }).strict();
@@ -97,13 +112,13 @@ export const GateNodeSchema = PipelineNodeBaseSchema.extend({
 export const ForkNodeSchema = PipelineNodeBaseSchema.extend({
   type: z.literal("fork"),
   forkId: z.string().min(1),
-});
+}).strict();
 
 export const JoinNodeSchema = PipelineNodeBaseSchema.extend({
   type: z.literal("join"),
   forkId: z.string().min(1),
   mergeStrategy: z.enum(["all", "first", "majority"]).optional(),
-});
+}).strict();
 
 export const LoopNodeSchema = PipelineNodeBaseSchema.extend({
   type: z.literal("loop"),
@@ -164,7 +179,7 @@ export const LoopNodeSchema = PipelineNodeBaseSchema.extend({
       progressKey: z.string().min(1).optional(),
     })
     .optional(),
-});
+}).strict();
 
 export const SuspendNodeSchema = PipelineNodeBaseSchema.extend({
   type: z.literal("suspend"),
@@ -175,7 +190,7 @@ export const SuspendNodeSchema = PipelineNodeBaseSchema.extend({
         const result = validatePipelineInteractionSpecV1(value);
         return result.valid && result.value.kind === "clarification";
       },
-      { message: "invalid clarification interaction specification" }
+      { message: "invalid clarification interaction specification" },
     )
     .optional(),
 }).strict();
@@ -233,9 +248,9 @@ const PipelineForkCheckpointStateSchema = z.record(
       z.object({
         stateDelta: z.record(z.string(), z.unknown()),
         nodeResults: z.record(z.string(), z.unknown()),
-      })
+      }),
     ),
-  })
+  }),
 );
 
 const PipelineLoopBodyGraphCheckpointStateSchema = z
@@ -320,7 +335,7 @@ const PipelineForEachItemEconomicsSchema = z
     evidence: z
       .custom<LoopEconomicsEvidenceV1>(
         (value) => validateLoopEconomicsEvidence(value).valid,
-        { message: "invalid canonical loop economics evidence" }
+        { message: "invalid canonical loop economics evidence" },
       )
       .optional(),
   })
@@ -383,7 +398,7 @@ const PipelineLoopCheckpointStateSchema = z
         z.string().regex(/^(0|[1-9][0-9]*)$/, {
           message: "itemFrames keys must be decimal item indices",
         }),
-        PipelineForEachItemFrameSchema
+        PipelineForEachItemFrameSchema,
       )
       .optional(),
     itemOutcomes: z
@@ -391,7 +406,7 @@ const PipelineLoopCheckpointStateSchema = z
         z.string().regex(/^(0|[1-9][0-9]*)$/, {
           message: "itemOutcomes keys must be decimal item indices",
         }),
-        PipelineForEachItemTerminalRecordSchema
+        PipelineForEachItemTerminalRecordSchema,
       )
       .optional(),
     bodyGraphState: PipelineLoopBodyGraphCheckpointStateSchema.optional(),
@@ -472,7 +487,7 @@ const PipelineLoopCheckpointStateSchema = z
         cursor.iterationOutcome === "completed" ? "recorded" : "pending";
       const validation = validateLoopEconomicsEvidence(
         cursor.iterationEconomics.evidence,
-        { terminalStatus: expectedTerminal }
+        { terminalStatus: expectedTerminal },
       );
       for (const diagnostic of validation.diagnostics) {
         context.addIssue({
@@ -544,12 +559,12 @@ const PipelineLoopCheckpointStateSchema = z
 
 const PipelinePendingInteractionSchema = z.custom<PipelinePendingInteractionV1>(
   (value) => validatePipelinePendingInteractionV1(value).valid,
-  { message: "invalid pending pipeline interaction" }
+  { message: "invalid pending pipeline interaction" },
 );
 
 const PipelineInteractionResumeSchema = z.custom<PipelineInteractionResumeV1>(
   (value) => validatePipelineInteractionResumeV1(value).valid,
-  { message: "invalid pipeline interaction receipt" }
+  { message: "invalid pipeline interaction receipt" },
 );
 
 const PipelineInteractionScopeSchema = z.discriminatedUnion("kind", [
@@ -601,13 +616,13 @@ export const PipelineCheckpointSchema = z
                     commitIdentity: PipelineSha256DigestSchema,
                     normalExitNodeId: z.string().min(1),
                   })
-                  .strict()
+                  .strict(),
               )
               .min(1),
             checkpointVersion: z.number().int().positive(),
             selectedContinuationNodeId: z.string().min(1).optional(),
           })
-          .strict()
+          .strict(),
       )
       .optional(),
     completedNodeIds: z.array(z.string()),
@@ -646,8 +661,8 @@ export const PipelineCheckpointSchema = z
         z.record(z.string(), z.unknown()).and(
           z.object({
             type: z.string().min(1),
-          })
-        )
+          }),
+        ),
       )
       .optional(),
     executionLog: z
@@ -658,8 +673,8 @@ export const PipelineCheckpointSchema = z
           z.record(z.string(), z.unknown()).and(
             z.object({
               type: z.string().min(1),
-            })
-          )
+            }),
+          ),
         ),
       })
       .optional(),
@@ -671,7 +686,7 @@ export const PipelineCheckpointSchema = z
           sessionId: z.string().min(1),
           label: z.string().optional(),
           metadata: z.record(z.string(), z.unknown()).optional(),
-        })
+        }),
       )
       .optional(),
     createdAt: z.string().min(1),
@@ -679,7 +694,7 @@ export const PipelineCheckpointSchema = z
   .strict()
   .superRefine((checkpoint, context) => {
     const recursiveForkCompletions = Object.entries(
-      checkpoint.recursiveForkCompletions ?? {}
+      checkpoint.recursiveForkCompletions ?? {},
     );
     if (
       checkpoint.schemaVersion !== "1.2.0" &&
@@ -710,11 +725,7 @@ export const PipelineCheckpointSchema = z
       if (receipt.checkpointVersion > checkpoint.version) {
         context.addIssue({
           code: "custom",
-          path: [
-            "recursiveForkCompletions",
-            forkNodeId,
-            "checkpointVersion",
-          ],
+          path: ["recursiveForkCompletions", forkNodeId, "checkpointVersion"],
           message:
             "recursive fork completion cannot bind a future checkpoint version",
         });
@@ -725,11 +736,7 @@ export const PipelineCheckpointSchema = z
       ) {
         context.addIssue({
           code: "custom",
-          path: [
-            "recursiveForkCompletions",
-            forkNodeId,
-            "definitionDigest",
-          ],
+          path: ["recursiveForkCompletions", forkNodeId, "definitionDigest"],
           message:
             "recursive fork completion definition digest must match checkpoint source binding",
         });
@@ -739,7 +746,7 @@ export const PipelineCheckpointSchema = z
         new Set(receipt.childCommitIdentities).size !==
           receipt.childCommitIdentities.length ||
         receipt.childCommitIdentities.some(
-          (identity, index) => identity !== sortedCommitIdentities[index]
+          (identity, index) => identity !== sortedCommitIdentities[index],
         )
       ) {
         context.addIssue({
@@ -759,7 +766,8 @@ export const PipelineCheckpointSchema = z
       if (
         receipt.children.length !== receipt.childCommitIdentities.length ||
         childCommitIdentities.some(
-          (identity, index) => identity !== receipt.childCommitIdentities[index]
+          (identity, index) =>
+            identity !== receipt.childCommitIdentities[index],
         )
       ) {
         context.addIssue({
@@ -799,7 +807,7 @@ export const PipelineCheckpointSchema = z
     // Absence stays unprovable in the other direction: a `1.0.0` checkpoint
     // carrying no terminal set is untouched by this rule and keeps resuming.
     const hasForEachTerminalSet = Object.values(
-      checkpoint.loopState ?? {}
+      checkpoint.loopState ?? {},
     ).some((cursor) => cursor.itemOutcomes !== undefined);
     if (checkpoint.schemaVersion === "1.0.0" && hasForEachTerminalSet) {
       context.addIssue({
@@ -866,7 +874,7 @@ export const PipelineCheckpointSchema = z
     }
 
     for (const [interactionId, receipt] of Object.entries(
-      checkpoint.interactionReceipts ?? {}
+      checkpoint.interactionReceipts ?? {},
     )) {
       if (interactionId !== receipt.interactionId) {
         context.addIssue({
@@ -1008,7 +1016,7 @@ export const PipelineDefinitionSchema = z
     const interactionNodes = definition.nodes.filter(
       (node) =>
         (node.type === "gate" || node.type === "suspend") &&
-        node.interaction !== undefined
+        node.interaction !== undefined,
     );
     if (definition.schemaVersion === "1.0.0" && interactionNodes.length > 0) {
       context.addIssue({
@@ -1032,7 +1040,7 @@ export const PipelineDefinitionSchema = z
         const edges = definition.edges.filter(
           (candidate) =>
             candidate.type === "conditional" &&
-            candidate.sourceNodeId === node.id
+            candidate.sourceNodeId === node.id,
         );
         const edge = edges[0];
         const branchKeys =
@@ -1061,6 +1069,52 @@ export const PipelineDefinitionSchema = z
   });
 
 // ---------------------------------------------------------------------------
+// Schema/interface drift pins
+// ---------------------------------------------------------------------------
+
+// Every node/edge/definition schema above is compile-time-pinned to its
+// hand-written interface, in BOTH directions: a schema admitting extra or
+// wrong-typed fields fails the schema→interface check, and a schema quietly
+// admitting LESS than the interface fails the interface→schema check — which
+// is exactly how `retryableErrors` drifted (the type admitted RegExp, the
+// schema rejected it).
+//
+// A direct `satisfies z.ZodType<X>` cannot express this under
+// `exactOptionalPropertyTypes`: zod infers optional properties as `key?: T |
+// undefined` while the interfaces say `key?: T`, so the clause fails on noise
+// with zero real drift. `Loose` widens every property value of the interface
+// with `| undefined` (preserving which keys are optional), which is invisible
+// to every check we care about here.
+type Loose<T> = T extends (infer E)[]
+  ? Loose<E>[]
+  : T extends object
+    ? { [K in keyof T]: Loose<T[K]> | undefined }
+    : T;
+type Pinned<Schema extends z.ZodType, I> = [z.infer<Schema>] extends [Loose<I>]
+  ? [I] extends [z.infer<Schema>]
+    ? true
+    : false
+  : false;
+type Assert<T extends true> = T;
+
+export type PipelineSchemaInterfacePins = [
+  Assert<Pinned<typeof AgentNodeSchema, AgentNode>>,
+  Assert<Pinned<typeof ToolNodeSchema, ToolNode>>,
+  Assert<Pinned<typeof TransformNodeSchema, TransformNode>>,
+  Assert<Pinned<typeof GateNodeSchema, GateNode>>,
+  Assert<Pinned<typeof ForkNodeSchema, ForkNode>>,
+  Assert<Pinned<typeof JoinNodeSchema, JoinNode>>,
+  Assert<Pinned<typeof LoopNodeSchema, LoopNode>>,
+  Assert<Pinned<typeof SuspendNodeSchema, SuspendNode>>,
+  Assert<Pinned<typeof PipelineNodeSchema, PipelineNode>>,
+  Assert<Pinned<typeof SequentialEdgeSchema, SequentialEdge>>,
+  Assert<Pinned<typeof ConditionalEdgeSchema, ConditionalEdge>>,
+  Assert<Pinned<typeof ErrorEdgeSchema, ErrorEdge>>,
+  Assert<Pinned<typeof PipelineEdgeSchema, PipelineEdge>>,
+  Assert<Pinned<typeof PipelineDefinitionSchema, PipelineDefinition>>,
+];
+
+// ---------------------------------------------------------------------------
 // Serialization / deserialization
 // ---------------------------------------------------------------------------
 
@@ -1076,7 +1130,7 @@ export function serializePipeline(definition: PipelineDefinition): string {
     throw new Error(
       `Pipeline serialization failed: ${result.error.issues
         .map((i) => i.message)
-        .join("; ")}`
+        .join("; ")}`,
     );
   }
   return JSON.stringify(result.data);
@@ -1100,7 +1154,7 @@ export function deserializePipeline(json: string): PipelineDefinition {
     throw new Error(
       `Pipeline deserialization failed: ${result.error.issues
         .map((i) => i.message)
-        .join("; ")}`
+        .join("; ")}`,
     );
   }
   return result.data as PipelineDefinition;
