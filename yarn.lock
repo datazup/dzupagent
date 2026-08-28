@@ -1172,6 +1172,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@dzupagent/adapter-types@workspace:packages/adapter-types"
   dependencies:
+    "@dzupagent/execution-contracts": "npm:0.1.0"
     "@dzupagent/runtime-contracts": "npm:0.2.0"
     eslint: "npm:^10.1.0"
     tsup: "npm:*"
@@ -1511,7 +1512,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@dzupagent/execution-contracts@workspace:packages/execution-contracts":
+"@dzupagent/execution-contracts@npm:0.1.0, @dzupagent/execution-contracts@workspace:packages/execution-contracts":
   version: 0.0.0-use.local
   resolution: "@dzupagent/execution-contracts@workspace:packages/execution-contracts"
   dependencies:

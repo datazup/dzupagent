@@ -133,7 +133,11 @@
     "status": "supported",
     "architectureRole": "Layer-0 neutral execution isolation policies, validators, and qualification receipts with no DzupAgent runtime dependencies.",
     "roadmapDriver": true,
-    "owners": ["apps/codev-app", "apps/worker-app"]
+    "owners": [
+      "apps/codev-app",
+      "apps/worker-app"
+    ],
+    "notes": "Externally owned surface: consumed by codev-app worker/adapter execution paths (prior ARCH-M-18), with no dzupagent-internal importer today; the adapter-types AgentSignedExecutionPolicy transport is pinned to this package by signed-execution-policy-conformance.test.ts (ARCH27-T-09). Do not judge deletability from a dzupagent-only grep."
   },
   "@dzupagent/agent-types": {
     "tier": 1,
@@ -163,28 +167,39 @@
     "status": "supported",
     "architectureRole": "Layer-0 leaf runtime primitive: provider-neutral dialogue orchestration contracts with no @dzupagent runtime dependencies.",
     "roadmapDriver": true,
-    "owners": ["apps/codev-app"]
+    "owners": [
+      "apps/codev-app"
+    ]
   },
   "@dzupagent/dialogue-core-replay": {
     "tier": 1,
     "status": "supported-secondary",
     "architectureRole": "Layer-1 replay harness for dialogue-core ports. Depends only on the dialogue-core contract package and stays outside host/runtime composition.",
     "roadmapDriver": false,
-    "owners": ["apps/codev-app"]
+    "owners": [
+      "apps/codev-app"
+    ]
   },
   "@dzupagent/cache": {
     "tier": 1,
     "status": "supported",
     "architectureRole": "Layer-0 leaf runtime primitive: dependency-light cache contracts, middleware, and backend implementations with no @dzupagent runtime dependencies.",
     "roadmapDriver": true,
-    "owners": ["apps/codev-app", "apps/research-app", "apps/testman-app"]
+    "owners": [
+      "apps/codev-app",
+      "apps/research-app",
+      "apps/testman-app"
+    ]
   },
   "@dzupagent/adapter-types": {
     "tier": 1,
     "status": "supported",
     "architectureRole": "Layer-0 leaf runtime primitive: adapter type contracts with no @dzupagent runtime dependencies. Promoted from tier-2 to tier-1 to align tier ordering with actual dependency direction.",
     "roadmapDriver": false,
-    "owners": ["apps/codev-app", "shared-kit"]
+    "owners": [
+      "apps/codev-app",
+      "shared-kit"
+    ]
   },
   "@dzupagent/adapter-rules": {
     "tier": 1,
@@ -202,39 +217,55 @@
     "tier": 2,
     "status": "supported-secondary",
     "roadmapDriver": false,
-    "owners": ["apps/nl2sql", "apps/testman-app"]
+    "owners": [
+      "apps/nl2sql",
+      "apps/testman-app"
+    ]
   },
   "@dzupagent/connectors-documents": {
     "tier": 1,
     "status": "supported-secondary",
     "architectureRole": "Layer-0 leaf runtime primitive: document parse/chunk/type contracts with no direct dependency on @dzupagent server composition. Promoted from tier-2 to tier-1 to govern root-barrel public API via explicit allowlist rules.",
     "roadmapDriver": false,
-    "owners": ["apps/nl2sql", "apps/testman-app"]
+    "owners": [
+      "apps/nl2sql",
+      "apps/testman-app"
+    ]
   },
   "@dzupagent/express": {
     "tier": 2,
     "status": "supported-secondary",
     "roadmapDriver": false,
-    "owners": ["apps/ai-saas-starter-kit", "apps/nl2sql", "apps/research-app"]
+    "owners": [
+      "apps/ai-saas-starter-kit",
+      "apps/nl2sql",
+      "apps/research-app"
+    ]
   },
   "@dzupagent/flow-ast": {
     "tier": 1,
     "status": "supported",
     "architectureRole": "Layer-0 leaf runtime primitive: canonical flow AST contracts plus local parser and validator helpers with no @dzupagent runtime dependencies. Promoted from tier-2 to tier-1 to align tier ordering with actual dependency direction.",
     "roadmapDriver": false,
-    "owners": ["apps/codev-app"]
+    "owners": [
+      "apps/codev-app"
+    ]
   },
   "@dzupagent/flow-compiler": {
     "tier": 2,
     "status": "supported-secondary",
     "roadmapDriver": false,
-    "owners": ["apps/codev-app"]
+    "owners": [
+      "apps/codev-app"
+    ]
   },
   "@dzupagent/flow-dsl": {
     "tier": 2,
     "status": "supported-secondary",
     "roadmapDriver": false,
-    "owners": ["apps/codev-app"]
+    "owners": [
+      "apps/codev-app"
+    ]
   },
   "@dzupagent/memory-ipc": {
     "tier": 1,
@@ -252,13 +283,19 @@
     "tier": 2,
     "status": "supported-secondary",
     "roadmapDriver": false,
-    "owners": ["apps/codev-app", "apps/research-app"]
+    "owners": [
+      "apps/codev-app",
+      "apps/research-app"
+    ]
   },
   "@dzupagent/server": {
     "tier": 2,
     "status": "supported-secondary",
     "roadmapDriver": false,
-    "owners": ["apps/ai-saas-starter-kit", "apps/research-app"]
+    "owners": [
+      "apps/ai-saas-starter-kit",
+      "apps/research-app"
+    ]
   },
   "@dzupagent/evals": {
     "tier": 2,
@@ -275,7 +312,10 @@
     "tier": 3,
     "status": "parked",
     "roadmapDriver": false,
-    "owners": ["apps/ai-saas-starter-kit", "apps/research-app"]
+    "owners": [
+      "apps/ai-saas-starter-kit",
+      "apps/research-app"
+    ]
   },
   "@dzupagent/test-utils": {
     "tier": 3,
@@ -308,14 +348,19 @@
     "status": "supported",
     "architectureRole": "Layer-1 foundation package: HITL (human-in-the-loop) type contracts. Moved from layer 0 to layer 1 (runtime-determinism-primitives branch, Task 4) because it now aliases its ApprovalOutcome type to the shared @dzupagent/adapter-types InterruptOutcome contract, giving it a real layer-0 dependency that layer 0's leaf-primitive invariant (no @dzupagent runtime deps) no longer permits. Promoted from tier-3 to tier-1 to align tier ordering with actual dependency direction; @dzupagent/server depends on this package.",
     "roadmapDriver": false,
-    "owners": ["apps/ai-saas-starter-kit", "apps/research-app"]
+    "owners": [
+      "apps/ai-saas-starter-kit",
+      "apps/research-app"
+    ]
   },
   "@dzupagent/subagents": {
     "tier": 2,
     "status": "supported",
     "architectureRole": "Layer-2 domain capability: governed async background subagent runtime. Depends only on layer-0 contracts (adapter-types) and layer-1 foundation (core, hitl-kit). Concrete checkpointer and agent execution are injected via ports, wired by @dzupagent/agent-adapters, to preserve the DAG.",
     "roadmapDriver": true,
-    "owners": ["apps/codev-app"]
+    "owners": [
+      "apps/codev-app"
+    ]
   },
   "create-dzupagent": {
     "tier": 3,
