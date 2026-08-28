@@ -13,7 +13,7 @@
  */
 
 import type { FlowNode, ResolvedTool } from "@dzupagent/flow-ast";
-import { PipelineDefinitionSchema } from "@dzupagent/core/orchestration";
+import { PipelineDefinitionSchema } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 import { lowerSkillChain } from "../lower/lower-skill-chain.js";
 import { lowerPipelineFlat } from "../lower/lower-pipeline-flat.js";
@@ -63,7 +63,11 @@ function lowerForTarget(input: LoweringInput):
   try {
     if (target === "skill-chain") {
       const out = lowerSkillChain({ ast, resolved, mode: "executable" });
-      return { artifact: out.artifact, warnings: out.warnings, ports: undefined };
+      return {
+        artifact: out.artifact,
+        warnings: out.warnings,
+        ports: undefined,
+      };
     }
     if (target === "workflow-builder" || target === "planning-dag") {
       const out = lowerPipelineFlat({
@@ -72,7 +76,11 @@ function lowerForTarget(input: LoweringInput):
         resolvedPersonas,
         mode: "executable",
       });
-      return { artifact: out.artifact, warnings: out.warnings, ports: out.ports };
+      return {
+        artifact: out.artifact,
+        warnings: out.warnings,
+        ports: out.ports,
+      };
     }
     // target === 'pipeline'
     const out = lowerPipelineLoop({
@@ -146,7 +154,10 @@ function admitPorts(
   ports: LoweredPorts,
   artifact: unknown,
   opts: CompilerOptions,
-): { readonly errors: CompilationError[]; readonly warnings: CompilationWarning[] } {
+): {
+  readonly errors: CompilationError[];
+  readonly warnings: CompilationWarning[];
+} {
   const nodeLabels = new Map<string, string>();
   const artifactNodes = (
     artifact as { nodes?: Array<{ id: string; name?: string }> }
@@ -167,7 +178,10 @@ export function lowerAdmittedFlow(input: LoweringInput): LoweringResult {
   const lowered = lowerForTarget(input);
   if ("error" in lowered) return { ok: false, errors: [lowered.error] };
 
-  const invalidArtifact = validateLoweredArtifact(lowered.artifact, input.target);
+  const invalidArtifact = validateLoweredArtifact(
+    lowered.artifact,
+    input.target,
+  );
   if (invalidArtifact !== undefined) {
     return { ok: false, errors: [invalidArtifact] };
   }

@@ -1565,7 +1565,6 @@ __metadata:
     vitest: "npm:^3.2.4"
   peerDependencies:
     "@dzupagent/core": 0.2.0
-    "@dzupagent/flow-ast": 0.2.0
   bin:
     dzupagent-compile: dist/bin/compile.js
     dzupagent-qualify-flow-corpus: dist/bin/qualify-corpus.js
@@ -1699,6 +1698,7 @@ __metadata:
     tsup: "npm:*"
     typescript: "npm:^5.8.3"
     vitest: "npm:^3.2.4"
+    zod: "npm:^4.3.6"
   languageName: unknown
   linkType: soft
 

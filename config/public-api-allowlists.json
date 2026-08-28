@@ -570,6 +570,10 @@
         "./recursive-scope": {
           "purpose": "versioned definition-bound recursive frame, ownership, commit, merge, serialization, and validation contracts; runtime admission remains separate",
           "lifecycle": "stable"
+        },
+        "./pipeline-artifact": {
+          "purpose": "persisted pipeline definition artifact contract (node/edge/definition types plus their pinned zod schemas), re-homed from core so artifact producers avoid a runtime edge into core (ARCH27-T-07)",
+          "lifecycle": "stable"
         }
       },
       "migrationWindow": "Runtime contract root exports are stable neutral contracts. New domain contracts use governed subpaths; the stable ./recursive-scope contract surface does not admit recursive execution."

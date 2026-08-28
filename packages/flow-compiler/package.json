@@ -39,10 +39,10 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@dzupagent/core": "0.2.0",
-    "@dzupagent/flow-ast": "0.2.0"
+    "@dzupagent/core": "0.2.0"
   },
   "dependencies": {
+    "@dzupagent/flow-ast": "0.2.0",
     "@dzupagent/flow-dsl": "0.2.0",
     "@dzupagent/runtime-contracts": "0.2.0"
   },

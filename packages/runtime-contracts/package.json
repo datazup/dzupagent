@@ -66,6 +66,10 @@
       "import": "./dist/recursive-scope/index.js",
       "types": "./dist/recursive-scope/index.d.ts"
     },
+    "./pipeline-artifact": {
+      "import": "./dist/pipeline-artifact/index.js",
+      "types": "./dist/pipeline-artifact/index.d.ts"
+    },
     "./fixtures/agent-review-conformance-v1.json": {
       "types": "./fixtures/agent-review-conformance-v1.d.ts",
       "default": "./fixtures/agent-review-conformance-v1.json"
@@ -100,6 +104,9 @@
     "fixtures:provider-session:check": "node scripts/check-provider-session-conformance.mjs",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "tsup": "*",
