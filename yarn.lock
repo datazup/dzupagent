@@ -1437,6 +1437,7 @@ __metadata:
     "@langchain/anthropic": "npm:^1.3.23"
     "@langchain/core": "npm:^1.1.39"
     "@langchain/langgraph": "npm:^1.2.5"
+    "@langchain/langgraph-checkpoint": "npm:^1.1.3"
     "@langchain/langgraph-checkpoint-postgres": "npm:^1.0.1"
     "@langchain/openai": "npm:^1.4.3"
     tsup: "npm:*"
@@ -1447,7 +1448,7 @@ __metadata:
   peerDependencies:
     "@anthropic-ai/tokenizer": ">=0.0.4"
     "@lancedb/lancedb": ">=0.10.0"
-    "@langchain/core": ">=1.0.0"
+    "@langchain/core": ^1.1.48
     "@langchain/langgraph": ">=1.0.0"
     apache-arrow: ">=15.0.0"
     js-tiktoken: ">=1.0.0"
@@ -6735,6 +6736,7 @@ __metadata:
     glob: "npm:^11.0.0"
     madge: "npm:^8.0.0"
     proper-lockfile: "npm:^4.1.2"
+    semver: "npm:^7.8.5"
     tsx: "npm:^4.21.0"
     turbo: "npm:^2.9.0"
     typedoc: "npm:^0.28.18"
@@ -11492,7 +11494,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"semver@npm:7.8.5, semver@npm:^7.3.5, semver@npm:^7.5.3, semver@npm:^7.5.4, semver@npm:^7.7.3":
+"semver@npm:7.8.5, semver@npm:^7.3.5, semver@npm:^7.5.3, semver@npm:^7.5.4, semver@npm:^7.7.3, semver@npm:^7.8.5":
   version: 7.8.5
   resolution: "semver@npm:7.8.5"
   bin:
