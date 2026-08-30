@@ -284,20 +284,18 @@ export class SkillChainExecutor {
 
               // Calculate backoff using the shared helper. The shared helper
               // uses 0-based `attempt`; callers here use 1-based so we pass
-              // `attempt - 1`. The legacy `+/-20%` jitter is preserved here
-              // (shared helper applies 50%-100% equal jitter) to keep test
-              // expectations stable.
+              // `attempt - 1`. The legacy `+/-20%` jitter is core's
+              // `jitterMode: 'centered'` (ARCH27-T-13 candidate 3).
               const base = retryPolicy?.initialBackoffMs ?? 100
               const mult = retryPolicy?.multiplier ?? 2
               const max = retryPolicy?.maxBackoffMs ?? 30_000
-              let backoffMs = calculateBackoff(Math.max(0, attempt - 1), {
+              const backoffMs = calculateBackoff(Math.max(0, attempt - 1), {
                 initialBackoffMs: base,
                 maxBackoffMs: max,
                 multiplier: mult,
+                jitter: retryPolicy?.jitter ?? false,
+                jitterMode: 'centered',
               })
-              if (retryPolicy?.jitter) {
-                backoffMs = backoffMs * (0.8 + Math.random() * 0.4) // +/-20%
-              }
 
               // Emit step:retrying event
               onEvent?.({ type: 'step:retrying', stepId: skillName, attempt, maxAttempts, backoffMs })

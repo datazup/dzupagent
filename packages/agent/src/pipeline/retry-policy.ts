@@ -8,9 +8,9 @@
  * @module pipeline/retry-policy
  */
 
-import { calculateBackoff as coreCalculateBackoff } from '@dzupagent/core/utils'
-import type { RetryPolicy } from './pipeline-runtime-types.js'
-import { omitUndefined } from '../utils/exact-optional.js'
+import { calculateBackoff as coreCalculateBackoff } from "@dzupagent/core/utils";
+import type { RetryPolicy } from "./pipeline-runtime-types.js";
+import { omitUndefined } from "../utils/exact-optional.js";
 
 // ---------------------------------------------------------------------------
 // Default retry policy
@@ -27,8 +27,12 @@ import { omitUndefined } from '../utils/exact-optional.js'
  *   connection resets, connection refused
  */
 export const DEFAULT_RETRY_POLICY: Required<
-  Pick<RetryPolicy, 'initialBackoffMs' | 'maxBackoffMs' | 'multiplier' | 'jitter'>
-> & Pick<RetryPolicy, 'retryableErrors'> = {
+  Pick<
+    RetryPolicy,
+    "initialBackoffMs" | "maxBackoffMs" | "multiplier" | "jitter"
+  >
+> &
+  Pick<RetryPolicy, "retryableErrors"> = {
   initialBackoffMs: 1000,
   maxBackoffMs: 30_000,
   multiplier: 2,
@@ -44,7 +48,7 @@ export const DEFAULT_RETRY_POLICY: Required<
     /ENOTFOUND/,
     /socket hang up/i,
   ],
-}
+};
 
 // ---------------------------------------------------------------------------
 // Backoff calculation
@@ -63,28 +67,28 @@ export const DEFAULT_RETRY_POLICY: Required<
  * @param policy  - Retry policy configuration (defaults applied for missing fields)
  * @returns Backoff delay in milliseconds
  */
-export function calculateBackoff(attempt: number, policy?: RetryPolicy): number {
-  const initialMs = policy?.initialBackoffMs ?? DEFAULT_RETRY_POLICY.initialBackoffMs
-  const maxMs = policy?.maxBackoffMs ?? DEFAULT_RETRY_POLICY.maxBackoffMs
-  const multiplier = policy?.multiplier ?? policy?.backoffMultiplier ?? DEFAULT_RETRY_POLICY.multiplier
-  const jitter = policy?.jitter ?? false
+export function calculateBackoff(
+  attempt: number,
+  policy?: RetryPolicy,
+): number {
+  const initialMs =
+    policy?.initialBackoffMs ?? DEFAULT_RETRY_POLICY.initialBackoffMs;
+  const maxMs = policy?.maxBackoffMs ?? DEFAULT_RETRY_POLICY.maxBackoffMs;
+  const multiplier =
+    policy?.multiplier ??
+    policy?.backoffMultiplier ??
+    DEFAULT_RETRY_POLICY.multiplier;
 
   // Core helper uses 0-based attempt; callers here pass 1-based, so shift.
-  const base = coreCalculateBackoff(Math.max(0, attempt - 1), {
+  // The agent's historical additive jitter shape (0-50% above base, rounded)
+  // is core's `jitterMode: 'additive'` (ARCH27-T-13 candidate 3).
+  return coreCalculateBackoff(Math.max(0, attempt - 1), {
     initialBackoffMs: initialMs,
     maxBackoffMs: maxMs,
     multiplier,
-  })
-
-  if (!jitter) {
-    return base
-  }
-
-  // Preserve agent-specific additive jitter (0-50% above base). Core helper
-  // applies multiplicative "equal jitter" (50%-100% band); agent callers
-  // and tests depend on the additive shape so we keep it here.
-  const jitterFactor = Math.random() * 0.5
-  return Math.round(base + base * jitterFactor)
+    jitter: policy?.jitter ?? false,
+    jitterMode: "additive",
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -103,11 +107,11 @@ export function calculateBackoff(attempt: number, policy?: RetryPolicy): number 
  * @returns `true` if the error should trigger a retry
  */
 export function isRetryable(error: string, policy?: RetryPolicy): boolean {
-  const patterns = policy?.retryableErrors
-  if (!patterns || patterns.length === 0) return true
+  const patterns = policy?.retryableErrors;
+  if (!patterns || patterns.length === 0) return true;
   return patterns.some((p) =>
-    typeof p === 'string' ? error.includes(p) : p.test(error),
-  )
+    typeof p === "string" ? error.includes(p) : p.test(error),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -127,16 +131,18 @@ export function resolveRetryPolicy(
   nodePolicy: RetryPolicy | undefined,
   globalPolicy: RetryPolicy | undefined,
 ): RetryPolicy | undefined {
-  if (!nodePolicy && !globalPolicy) return undefined
-  if (!nodePolicy) return globalPolicy
-  if (!globalPolicy) return nodePolicy
+  if (!nodePolicy && !globalPolicy) return undefined;
+  if (!nodePolicy) return globalPolicy;
+  if (!globalPolicy) return nodePolicy;
 
   return omitUndefined({
-    initialBackoffMs: nodePolicy.initialBackoffMs ?? globalPolicy.initialBackoffMs,
+    initialBackoffMs:
+      nodePolicy.initialBackoffMs ?? globalPolicy.initialBackoffMs,
     maxBackoffMs: nodePolicy.maxBackoffMs ?? globalPolicy.maxBackoffMs,
     multiplier: nodePolicy.multiplier ?? globalPolicy.multiplier,
-    backoffMultiplier: nodePolicy.backoffMultiplier ?? globalPolicy.backoffMultiplier,
+    backoffMultiplier:
+      nodePolicy.backoffMultiplier ?? globalPolicy.backoffMultiplier,
     jitter: nodePolicy.jitter ?? globalPolicy.jitter,
     retryableErrors: nodePolicy.retryableErrors ?? globalPolicy.retryableErrors,
-  })
+  });
 }

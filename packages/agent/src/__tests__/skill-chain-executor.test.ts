@@ -549,6 +549,48 @@ describe("SkillChainExecutor", () => {
       expect(first.maxAttempts).toBe(3);
     });
 
+    it("applies the legacy ±20% centered jitter band to retry backoff", async () => {
+      // Sample 0 puts the delay at the bottom of the band: 100 × 0.8 = 80.
+      // Equal jitter would give 50 and additive jitter 100, so this pins the
+      // centered mode specifically.
+      const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+      try {
+        let callCount = 0;
+        resolver.register("jittered", () => {
+          callCount++;
+          if (callCount < 2) throw new Error("fail");
+          return { jittered: "ok" };
+        });
+
+        const chain = createSkillChain("jitter-retry", [
+          {
+            skillName: "jittered",
+            retryPolicy: {
+              maxAttempts: 2,
+              initialBackoffMs: 100,
+              jitter: true,
+            },
+          },
+        ]);
+
+        const events: WorkflowEvent[] = [];
+        await executor.execute(
+          chain,
+          {},
+          {
+            onProgress: (e) => events.push(e),
+          },
+        );
+
+        const retryEvent = events.find((e) => e.type === "step:retrying") as
+          | Extract<WorkflowEvent, { type: "step:retrying" }>
+          | undefined;
+        expect(retryEvent?.backoffMs).toBeCloseTo(80, 8);
+      } finally {
+        randomSpy.mockRestore();
+      }
+    });
+
     it("step-level retryPolicy overrides config defaultRetry", async () => {
       let callCount = 0;
       resolver.register("override", () => {
