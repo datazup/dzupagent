@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { canonicalDigestPrefixed } from "@datazup/canonical-json";
 
 import type {
   FlowSchemaBinding,
@@ -287,21 +287,15 @@ function hashBindings(
   );
 }
 
+// Delegates to @datazup/canonical-json's authoring-v1 preset. DELIBERATE
+// digest change (ARCH27-T-01 family): the removed local stableStringify
+// sorted keys with localeCompare, whose order varies with the host ICU
+// locale and differs from UTF-16 order on mixed-case or non-ASCII keys, so
+// these digests were never locale-stable to begin with. Corpus-proven
+// identical to the old output for lowercase/camelCase key sets; only
+// adversarial key orders change.
 function digest(value: unknown): `sha256:${string}` {
-  return `sha256:${createHash("sha256")
-    .update(stableStringify(value))
-    .digest("hex")}`;
-}
-
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => stableStringify(item)).join(",")}]`;
-  }
-  return `{${Object.entries(value as Record<string, unknown>)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, nested]) => `${JSON.stringify(key)}:${stableStringify(nested)}`)
-    .join(",")}}`;
+  return canonicalDigestPrefixed(value, "authoring-v1");
 }
 
 function assertSchemaRef(value: string): asserts value is FlowSchemaRef {
