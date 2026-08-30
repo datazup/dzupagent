@@ -1,0 +1,923 @@
+{
+  "provenance": {
+    "generatedAt": "2026-08-29",
+    "generatedFrom": "dzupagent main @ 70b002fec46a474ab2372e3f542c1df4ef33394e",
+    "sources": {
+      "idempotency-v1": "packages/runtime-contracts/src/idempotency.ts (canonicalJson / canonicalInputDigest)",
+      "authoring-v1": "packages/flow-dsl/src/v2-authoring/canonical.ts (stableStringify / sha256)",
+      "classification-envelope-v1": "packages/flow-compiler/src/classification-envelope.ts (hashFlowCompiledClassificationEnvelopePayload)",
+      "compile-evidence-v1": "packages/flow-compiler/src/compile-orchestrator/evidence.ts (hashSource)"
+    },
+    "method": "tsx script importing the four REAL implementations, run over the corpus in src/__fixtures__/corpus.ts; regenerate the same way before trusting any edit to this file"
+  },
+  "results": {
+    "simple-nested": {
+      "idempotency-v1": {
+        "string": {
+          "ok": true,
+          "value": "{\"a\":1,\"b\":{\"c\":[3,1],\"d\":2}}"
+        },
+        "digest": {
+          "ok": true,
+          "value": "f1dc6f97113ccb575e466ffcadcb26322cacaaa5e7f9721b5a04e57dfa2e78a0"
+        }
+      },
+      "authoring-v1": {
+        "string": {
+          "ok": true,
+          "value": "{\"a\":1,\"b\":{\"c\":[3,1],\"d\":2}}"
+        },
+        "digest": {
+          "ok": true,
+          "value": "sha256:f1dc6f97113ccb575e466ffcadcb26322cacaaa5e7f9721b5a04e57dfa2e78a0"
+        }
+      },
+      "classification-envelope-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:f1dc6f97113ccb575e466ffcadcb26322cacaaa5e7f9721b5a04e57dfa2e78a0"
+        }
+      },
+      "compile-evidence-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:f1dc6f97113ccb575e466ffcadcb26322cacaaa5e7f9721b5a04e57dfa2e78a0"
+        }
+      }
+    },
+    "unicode-and-numeric-keys": {
+      "idempotency-v1": {
+        "string": {
+          "ok": true,
+          "value": "{\"2\":6,\"10\":5,\"Z\":3,\"a\":4,\"z\":2,\"é\":1}"
+        },
+        "digest": {
+          "ok": true,
+          "value": "3db8c73803997803e77350f1da1254267b6776d9a90d15a8e55558895a25001a"
+        }
+      },
+      "authoring-v1": {
+        "string": {
+          "ok": true,
+          "value": "{\"10\":5,\"2\":6,\"Z\":3,\"a\":4,\"z\":2,\"é\":1}"
+        },
+        "digest": {
+          "ok": true,
+          "value": "sha256:07ec240fd0b381372d2e95e4a916a57dc216c68eb9d49f08c0c68325386e884c"
+        }
+      },
+      "classification-envelope-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:07ec240fd0b381372d2e95e4a916a57dc216c68eb9d49f08c0c68325386e884c"
+        }
+      },
+      "compile-evidence-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:07ec240fd0b381372d2e95e4a916a57dc216c68eb9d49f08c0c68325386e884c"
+        }
+      }
+    },
+    "undefined-object-value": {
+      "idempotency-v1": {
+        "string": {
+          "ok": true,
+          "value": "{\"a\":1,\"c\":3}"
+        },
+        "digest": {
+          "ok": true,
+          "value": "ea89132f027adb270741ddeea16f07ee9921176fcef0ca74c33493f321b98620"
+        }
+      },
+      "authoring-v1": {
+        "string": {
+          "ok": true,
+          "value": "{\"a\":1,\"b\":undefined,\"c\":3}"
+        },
+        "digest": {
+          "ok": true,
+          "value": "sha256:7101b3d4d872275713854512f9eb5e5a433c25dc53541e8787b5bec6a6224826"
+        }
+      },
+      "classification-envelope-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:ea89132f027adb270741ddeea16f07ee9921176fcef0ca74c33493f321b98620"
+        }
+      },
+      "compile-evidence-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:7101b3d4d872275713854512f9eb5e5a433c25dc53541e8787b5bec6a6224826"
+        }
+      }
+    },
+    "undefined-array-item": {
+      "idempotency-v1": {
+        "string": {
+          "ok": true,
+          "value": "[1,null,3]"
+        },
+        "digest": {
+          "ok": true,
+          "value": "7db5b36a1553a4e31914df4beb60752bd07320e3056ac1d3790660c4cad6a173"
+        }
+      },
+      "authoring-v1": {
+        "string": {
+          "ok": true,
+          "value": "[1,,3]"
+        },
+        "digest": {
+          "ok": true,
+          "value": "sha256:cb0cfcbc65391b8b7eb9d01a23f28c3fdf9f864df849b6dbabf55c3b77cdf066"
+        }
+      },
+      "classification-envelope-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:7db5b36a1553a4e31914df4beb60752bd07320e3056ac1d3790660c4cad6a173"
+        }
+      },
+      "compile-evidence-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:5a7d91de3569979e9f7d01d90535e1dacba2eed99c7c6948021d9ab67892aaa1"
+        }
+      }
+    },
+    "top-level-undefined": {
+      "idempotency-v1": {
+        "string": {
+          "ok": false,
+          "errorName": "TypeError",
+          "errorMessage": "Canonical JSON input must be JSON-serializable."
+        },
+        "digest": {
+          "ok": false,
+          "errorName": "TypeError",
+          "errorMessage": "Canonical JSON input must be JSON-serializable."
+        }
+      },
+      "authoring-v1": {
+        "string": {
+          "ok": false,
+          "errorName": "NonStringResult",
+          "errorMessage": "returned undefined (undefined)"
+        },
+        "digest": {
+          "ok": false,
+          "errorName": "TypeError",
+          "errorMessage": "The \"data\" argument must be of type string or an instance of Buffer, TypedArray, or DataView. Received undefined"
+        }
+      },
+      "classification-envelope-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+        }
+      },
+      "compile-evidence-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:eb045d78d273107348b0300c01d29b7552d622abbc6faf81b3ec55359aa9950c"
+        }
+      }
+    },
+    "top-level-null": {
+      "idempotency-v1": {
+        "string": {
+          "ok": true,
+          "value": "null"
+        },
+        "digest": {
+          "ok": true,
+          "value": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+        }
+      },
+      "authoring-v1": {
+        "string": {
+          "ok": true,
+          "value": "null"
+        },
+        "digest": {
+          "ok": true,
+          "value": "sha256:74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+        }
+      },
+      "classification-envelope-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+        }
+      },
+      "compile-evidence-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+        }
+      }
+    },
+    "top-level-number": {
+      "idempotency-v1": {
+        "string": {
+          "ok": true,
+          "value": "42"
+        },
+        "digest": {
+          "ok": true,
+          "value": "73475cb40a568e8da8a045ced110137e159f890ac4da883b6b17dc651b3a8049"
+        }
+      },
+      "authoring-v1": {
+        "string": {
+          "ok": true,
+          "value": "42"
+        },
+        "digest": {
+          "ok": true,
+          "value": "sha256:73475cb40a568e8da8a045ced110137e159f890ac4da883b6b17dc651b3a8049"
+        }
+      },
+      "classification-envelope-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:73475cb40a568e8da8a045ced110137e159f890ac4da883b6b17dc651b3a8049"
+        }
+      },
+      "compile-evidence-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:73475cb40a568e8da8a045ced110137e159f890ac4da883b6b17dc651b3a8049"
+        }
+      }
+    },
+    "top-level-string": {
+      "idempotency-v1": {
+        "string": {
+          "ok": true,
+          "value": "\"plain\""
+        },
+        "digest": {
+          "ok": true,
+          "value": "945603a8f587786b463c3f94fce115c0fae88fac2728cc96ddf5981cf7f61741"
+        }
+      },
+      "authoring-v1": {
+        "string": {
+          "ok": true,
+          "value": "\"plain\""
+        },
+        "digest": {
+          "ok": true,
+          "value": "sha256:945603a8f587786b463c3f94fce115c0fae88fac2728cc96ddf5981cf7f61741"
+        }
+      },
+      "classification-envelope-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:945603a8f587786b463c3f94fce115c0fae88fac2728cc96ddf5981cf7f61741"
+        }
+      },
+      "compile-evidence-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:945603a8f587786b463c3f94fce115c0fae88fac2728cc96ddf5981cf7f61741"
+        }
+      }
+    },
+    "top-level-boolean": {
+      "idempotency-v1": {
+        "string": {
+          "ok": true,
+          "value": "false"
+        },
+        "digest": {
+          "ok": true,
+          "value": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        }
+      },
+      "authoring-v1": {
+        "string": {
+          "ok": true,
+          "value": "false"
+        },
+        "digest": {
+          "ok": true,
+          "value": "sha256:fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        }
+      },
+      "classification-envelope-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        }
+      },
+      "compile-evidence-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        }
+      }
+    },
+    "special-numbers": {
+      "idempotency-v1": {
+        "string": {
+          "ok": true,
+          "value": "{\"exp\":1e+21,\"frac\":0.1,\"inf\":null,\"nan\":null,\"negzero\":0,\"ninf\":null}"
+        },
+        "digest": {
+          "ok": true,
+          "value": "878609e9c25a196cb27cbb75b08356a2be793dc565bb2bb4a9bf42f7d2cbe02b"
+        }
+      },
+      "authoring-v1": {
+        "string": {
+          "ok": true,
+          "value": "{\"exp\":1e+21,\"frac\":0.1,\"inf\":null,\"nan\":null,\"negzero\":0,\"ninf\":null}"
+        },
+        "digest": {
+          "ok": true,
+          "value": "sha256:878609e9c25a196cb27cbb75b08356a2be793dc565bb2bb4a9bf42f7d2cbe02b"
+        }
+      },
+      "classification-envelope-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:878609e9c25a196cb27cbb75b08356a2be793dc565bb2bb4a9bf42f7d2cbe02b"
+        }
+      },
+      "compile-evidence-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:878609e9c25a196cb27cbb75b08356a2be793dc565bb2bb4a9bf42f7d2cbe02b"
+        }
+      }
+    },
+    "string-escapes": {
+      "idempotency-v1": {
+        "string": {
+          "ok": true,
+          "value": "{\"s\":\"line\\nbrk\\t\\\"q\\\"\\\\ \\u0000  \"}"
+        },
+        "digest": {
+          "ok": true,
+          "value": "a6fd95fba296d0d368e50dc508dcf620d77af1265409ee0d1513f6f153e35e47"
+        }
+      },
+      "authoring-v1": {
+        "string": {
+          "ok": true,
+          "value": "{\"s\":\"line\\nbrk\\t\\\"q\\\"\\\\ \\u0000  \"}"
+        },
+        "digest": {
+          "ok": true,
+          "value": "sha256:a6fd95fba296d0d368e50dc508dcf620d77af1265409ee0d1513f6f153e35e47"
+        }
+      },
+      "classification-envelope-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:a6fd95fba296d0d368e50dc508dcf620d77af1265409ee0d1513f6f153e35e47"
+        }
+      },
+      "compile-evidence-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:a6fd95fba296d0d368e50dc508dcf620d77af1265409ee0d1513f6f153e35e47"
+        }
+      }
+    },
+    "proto-key-as-data": {
+      "idempotency-v1": {
+        "string": {
+          "ok": true,
+          "value": "{\"__proto__\":{\"x\":1},\"a\":2}"
+        },
+        "digest": {
+          "ok": true,
+          "value": "7c158980e2edf2d7af19a3947db16b89496f65904f3afec66faac72999e05ce9"
+        }
+      },
+      "authoring-v1": {
+        "string": {
+          "ok": true,
+          "value": "{\"__proto__\":{\"x\":1},\"a\":2}"
+        },
+        "digest": {
+          "ok": true,
+          "value": "sha256:7c158980e2edf2d7af19a3947db16b89496f65904f3afec66faac72999e05ce9"
+        }
+      },
+      "classification-envelope-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:7c158980e2edf2d7af19a3947db16b89496f65904f3afec66faac72999e05ce9"
+        }
+      },
+      "compile-evidence-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:7c158980e2edf2d7af19a3947db16b89496f65904f3afec66faac72999e05ce9"
+        }
+      }
+    },
+    "function-object-value": {
+      "idempotency-v1": {
+        "string": {
+          "ok": true,
+          "value": "{\"a\":1}"
+        },
+        "digest": {
+          "ok": true,
+          "value": "015abd7f5cc57a2dd94b7590f04ad8084273905ee33ec5cebeae62276a97f862"
+        }
+      },
+      "authoring-v1": {
+        "string": {
+          "ok": true,
+          "value": "{\"a\":1,\"f\":undefined}"
+        },
+        "digest": {
+          "ok": true,
+          "value": "sha256:25bd94973cc185d765d97e772421b3e641cae8136b6d8d29c3b5241aab1b2a63"
+        }
+      },
+      "classification-envelope-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:25bd94973cc185d765d97e772421b3e641cae8136b6d8d29c3b5241aab1b2a63"
+        }
+      },
+      "compile-evidence-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:dae4b86a9b6318a85b7e7364cc8f01045b72ed68650cb9853067807d626623ed"
+        }
+      }
+    },
+    "function-array-item": {
+      "idempotency-v1": {
+        "string": {
+          "ok": true,
+          "value": "[1,null]"
+        },
+        "digest": {
+          "ok": true,
+          "value": "28f6766b5fb80e872afcf27841930088024e6e9fd95a0a0d8df076b911376978"
+        }
+      },
+      "authoring-v1": {
+        "string": {
+          "ok": true,
+          "value": "[1,]"
+        },
+        "digest": {
+          "ok": true,
+          "value": "sha256:886ad6246ed150b2930495926ba07d579307bc7fecaf4b391650dca8bae7bc66"
+        }
+      },
+      "classification-envelope-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:886ad6246ed150b2930495926ba07d579307bc7fecaf4b391650dca8bae7bc66"
+        }
+      },
+      "compile-evidence-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:c9897dfff5eb73100100108e2715d3325c9e399e94030ae1c333f6a166fe6c2d"
+        }
+      }
+    },
+    "symbol-object-value": {
+      "idempotency-v1": {
+        "string": {
+          "ok": true,
+          "value": "{\"a\":1}"
+        },
+        "digest": {
+          "ok": true,
+          "value": "015abd7f5cc57a2dd94b7590f04ad8084273905ee33ec5cebeae62276a97f862"
+        }
+      },
+      "authoring-v1": {
+        "string": {
+          "ok": true,
+          "value": "{\"a\":1,\"s\":undefined}"
+        },
+        "digest": {
+          "ok": true,
+          "value": "sha256:7eaad81aee17c21768bb548cd5b7d0f6c9b6950b2d7cf09836c07f404239517f"
+        }
+      },
+      "classification-envelope-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:7eaad81aee17c21768bb548cd5b7d0f6c9b6950b2d7cf09836c07f404239517f"
+        }
+      },
+      "compile-evidence-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:b379e5eb6c6e7c9e2a71f13b32ef2d2c6914ffe86894dc1998cc1767301a769d"
+        }
+      }
+    },
+    "bigint-object-value": {
+      "idempotency-v1": {
+        "string": {
+          "ok": false,
+          "errorName": "TypeError",
+          "errorMessage": "Do not know how to serialize a BigInt"
+        },
+        "digest": {
+          "ok": false,
+          "errorName": "TypeError",
+          "errorMessage": "Do not know how to serialize a BigInt"
+        }
+      },
+      "authoring-v1": {
+        "string": {
+          "ok": false,
+          "errorName": "TypeError",
+          "errorMessage": "Do not know how to serialize a BigInt"
+        },
+        "digest": {
+          "ok": false,
+          "errorName": "TypeError",
+          "errorMessage": "Do not know how to serialize a BigInt"
+        }
+      },
+      "classification-envelope-v1": {
+        "digest": {
+          "ok": false,
+          "errorName": "TypeError",
+          "errorMessage": "Do not know how to serialize a BigInt"
+        }
+      },
+      "compile-evidence-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:ccd4a23513556dbc035241a1d1a7243e5f32727f232db6572ee61c356fb07f6c"
+        }
+      }
+    },
+    "top-level-bigint": {
+      "idempotency-v1": {
+        "string": {
+          "ok": false,
+          "errorName": "TypeError",
+          "errorMessage": "Do not know how to serialize a BigInt"
+        },
+        "digest": {
+          "ok": false,
+          "errorName": "TypeError",
+          "errorMessage": "Do not know how to serialize a BigInt"
+        }
+      },
+      "authoring-v1": {
+        "string": {
+          "ok": false,
+          "errorName": "TypeError",
+          "errorMessage": "Do not know how to serialize a BigInt"
+        },
+        "digest": {
+          "ok": false,
+          "errorName": "TypeError",
+          "errorMessage": "Do not know how to serialize a BigInt"
+        }
+      },
+      "classification-envelope-v1": {
+        "digest": {
+          "ok": false,
+          "errorName": "TypeError",
+          "errorMessage": "Do not know how to serialize a BigInt"
+        }
+      },
+      "compile-evidence-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:819c9cb391c04c02643b08ba9f27ce137fca54f3d8e89a214699df8ab7cfa001"
+        }
+      }
+    },
+    "date-object-value": {
+      "idempotency-v1": {
+        "string": {
+          "ok": true,
+          "value": "{\"d\":{}}"
+        },
+        "digest": {
+          "ok": true,
+          "value": "3b00cec27361af5a2e70eaf003bdbc0c8574bdc29802685d1ec7335bbdf9fc87"
+        }
+      },
+      "authoring-v1": {
+        "string": {
+          "ok": true,
+          "value": "{\"d\":{}}"
+        },
+        "digest": {
+          "ok": true,
+          "value": "sha256:3b00cec27361af5a2e70eaf003bdbc0c8574bdc29802685d1ec7335bbdf9fc87"
+        }
+      },
+      "classification-envelope-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:3b00cec27361af5a2e70eaf003bdbc0c8574bdc29802685d1ec7335bbdf9fc87"
+        }
+      },
+      "compile-evidence-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:3b00cec27361af5a2e70eaf003bdbc0c8574bdc29802685d1ec7335bbdf9fc87"
+        }
+      }
+    },
+    "own-tojson": {
+      "idempotency-v1": {
+        "string": {
+          "ok": true,
+          "value": "{\"z\":1,\"y\":2}"
+        },
+        "digest": {
+          "ok": true,
+          "value": "3274dad2dde0a86dbae63f3f92ebbeb4b6664f158cce8d2f158a7b25522b7586"
+        }
+      },
+      "authoring-v1": {
+        "string": {
+          "ok": true,
+          "value": "{\"a\":2,\"toJSON\":undefined}"
+        },
+        "digest": {
+          "ok": true,
+          "value": "sha256:f2061f7a0d0738d0bd1ada6269b5391a7200731a1f7823fd0f188ed7d29fd628"
+        }
+      },
+      "classification-envelope-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:f2061f7a0d0738d0bd1ada6269b5391a7200731a1f7823fd0f188ed7d29fd628"
+        }
+      },
+      "compile-evidence-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:a54587ff3f95d9cb2a4f5fac6f8cda532d7aced8f1ee73f78b75ef0e438d830f"
+        }
+      }
+    },
+    "cycle": {
+      "idempotency-v1": {
+        "string": {
+          "ok": false,
+          "errorName": "RangeError",
+          "errorMessage": "Maximum call stack size exceeded"
+        },
+        "digest": {
+          "ok": false,
+          "errorName": "RangeError",
+          "errorMessage": "Maximum call stack size exceeded"
+        }
+      },
+      "authoring-v1": {
+        "string": {
+          "ok": false,
+          "errorName": "RangeError",
+          "errorMessage": "Maximum call stack size exceeded"
+        },
+        "digest": {
+          "ok": false,
+          "errorName": "RangeError",
+          "errorMessage": "Maximum call stack size exceeded"
+        }
+      },
+      "classification-envelope-v1": {
+        "digest": {
+          "ok": false,
+          "errorName": "TypeError",
+          "errorMessage": "cannot hash cyclic envelope"
+        }
+      },
+      "compile-evidence-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:16d896958f4b64904eb01ce461f24d890b9e3b4ea6116ad1450bb6eca59b5ffb"
+        }
+      }
+    },
+    "empty-object": {
+      "idempotency-v1": {
+        "string": {
+          "ok": true,
+          "value": "{}"
+        },
+        "digest": {
+          "ok": true,
+          "value": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+        }
+      },
+      "authoring-v1": {
+        "string": {
+          "ok": true,
+          "value": "{}"
+        },
+        "digest": {
+          "ok": true,
+          "value": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+        }
+      },
+      "classification-envelope-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+        }
+      },
+      "compile-evidence-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+        }
+      }
+    },
+    "empty-array": {
+      "idempotency-v1": {
+        "string": {
+          "ok": true,
+          "value": "[]"
+        },
+        "digest": {
+          "ok": true,
+          "value": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        }
+      },
+      "authoring-v1": {
+        "string": {
+          "ok": true,
+          "value": "[]"
+        },
+        "digest": {
+          "ok": true,
+          "value": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        }
+      },
+      "classification-envelope-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        }
+      },
+      "compile-evidence-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        }
+      }
+    },
+    "array-of-objects": {
+      "idempotency-v1": {
+        "string": {
+          "ok": true,
+          "value": "[{\"a\":2,\"b\":1},{\"c\":{},\"d\":[]}]"
+        },
+        "digest": {
+          "ok": true,
+          "value": "21f3f23fbc3edec4a2d24f4da51442839ba5e0d4200987e68c6607f7f5c2f906"
+        }
+      },
+      "authoring-v1": {
+        "string": {
+          "ok": true,
+          "value": "[{\"a\":2,\"b\":1},{\"c\":{},\"d\":[]}]"
+        },
+        "digest": {
+          "ok": true,
+          "value": "sha256:21f3f23fbc3edec4a2d24f4da51442839ba5e0d4200987e68c6607f7f5c2f906"
+        }
+      },
+      "classification-envelope-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:21f3f23fbc3edec4a2d24f4da51442839ba5e0d4200987e68c6607f7f5c2f906"
+        }
+      },
+      "compile-evidence-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:21f3f23fbc3edec4a2d24f4da51442839ba5e0d4200987e68c6607f7f5c2f906"
+        }
+      }
+    },
+    "nested-empty-and-null": {
+      "idempotency-v1": {
+        "string": {
+          "ok": true,
+          "value": "{\"a\":{\"b\":[null,{},[]]},\"z\":null}"
+        },
+        "digest": {
+          "ok": true,
+          "value": "fcdf0b0ec7f155e74fe93027ca4384071f11389cafe4b30f19a0ca5ac215c495"
+        }
+      },
+      "authoring-v1": {
+        "string": {
+          "ok": true,
+          "value": "{\"a\":{\"b\":[null,{},[]]},\"z\":null}"
+        },
+        "digest": {
+          "ok": true,
+          "value": "sha256:fcdf0b0ec7f155e74fe93027ca4384071f11389cafe4b30f19a0ca5ac215c495"
+        }
+      },
+      "classification-envelope-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:fcdf0b0ec7f155e74fe93027ca4384071f11389cafe4b30f19a0ca5ac215c495"
+        }
+      },
+      "compile-evidence-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:fcdf0b0ec7f155e74fe93027ca4384071f11389cafe4b30f19a0ca5ac215c495"
+        }
+      }
+    },
+    "shared-ref-dag": {
+      "idempotency-v1": {
+        "string": {
+          "ok": true,
+          "value": "{\"a\":{\"x\":1},\"b\":{\"x\":1}}"
+        },
+        "digest": {
+          "ok": true,
+          "value": "e94c3756b89d022c552fe5e5f30db882b082f6e72df33db6ed9b18ddd75c451f"
+        }
+      },
+      "authoring-v1": {
+        "string": {
+          "ok": true,
+          "value": "{\"a\":{\"x\":1},\"b\":{\"x\":1}}"
+        },
+        "digest": {
+          "ok": true,
+          "value": "sha256:e94c3756b89d022c552fe5e5f30db882b082f6e72df33db6ed9b18ddd75c451f"
+        }
+      },
+      "classification-envelope-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:e94c3756b89d022c552fe5e5f30db882b082f6e72df33db6ed9b18ddd75c451f"
+        }
+      },
+      "compile-evidence-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:42b94a72a004bbdbfb5dec0657c22445c2f3a55181545bd0105e0c6979df6995"
+        }
+      }
+    },
+    "top-level-function": {
+      "idempotency-v1": {
+        "string": {
+          "ok": false,
+          "errorName": "TypeError",
+          "errorMessage": "Canonical JSON input must be JSON-serializable."
+        },
+        "digest": {
+          "ok": false,
+          "errorName": "TypeError",
+          "errorMessage": "Canonical JSON input must be JSON-serializable."
+        }
+      },
+      "authoring-v1": {
+        "string": {
+          "ok": false,
+          "errorName": "NonStringResult",
+          "errorMessage": "returned undefined (undefined)"
+        },
+        "digest": {
+          "ok": false,
+          "errorName": "TypeError",
+          "errorMessage": "The \"data\" argument must be of type string or an instance of Buffer, TypedArray, or DataView. Received undefined"
+        }
+      },
+      "classification-envelope-v1": {
+        "digest": {
+          "ok": false,
+          "errorName": "TypeError",
+          "errorMessage": "The \"data\" argument must be of type string or an instance of Buffer, TypedArray, or DataView. Received undefined"
+        }
+      },
+      "compile-evidence-v1": {
+        "digest": {
+          "ok": true,
+          "value": "sha256:47fc9d2da7ac5bd2b2730048e3132dc14409fc71077b166b57d071155f79011d"
+        }
+      }
+    }
+  }
+}

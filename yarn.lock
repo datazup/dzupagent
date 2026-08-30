@@ -1293,6 +1293,17 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@dzupagent/canonical-json@workspace:packages/canonical-json":
+  version: 0.0.0-use.local
+  resolution: "@dzupagent/canonical-json@workspace:packages/canonical-json"
+  dependencies:
+    "@types/node": "npm:^22.13.0"
+    tsup: "npm:*"
+    typescript: "npm:^5.8.3"
+    vitest: "npm:^3.2.4"
+  languageName: unknown
+  linkType: soft
+
 "@dzupagent/code-edit-kit@npm:0.2.0, @dzupagent/code-edit-kit@workspace:packages/code-edit-kit":
   version: 0.0.0-use.local
   resolution: "@dzupagent/code-edit-kit@workspace:packages/code-edit-kit"
