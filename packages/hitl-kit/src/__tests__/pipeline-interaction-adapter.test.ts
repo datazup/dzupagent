@@ -3,7 +3,7 @@ import {
   createPipelineInteractionResumeV1,
   createPipelineInteractionSpecV1,
   createPipelinePendingInteractionV1,
-  digestPipelineDefinition,
+  digestPipelineInteractionValue,
 } from "@dzupagent/runtime-contracts";
 import {
   InMemoryPipelineInteractionStatePort,
@@ -22,7 +22,7 @@ function fixture() {
   });
   const pending = createPipelinePendingInteractionV1({
     kind: "approval",
-    definitionDigest: digestPipelineDefinition({ id: "pipeline" }),
+    definitionDigest: digestPipelineInteractionValue({ id: "pipeline" }),
     pipelineId: "pipeline",
     runId: "run",
     nodeId: "gate",
