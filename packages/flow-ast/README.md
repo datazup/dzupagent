@@ -4,6 +4,11 @@ Flow AST contracts plus local parser and validator helpers for DzupAgent flow co
 
 Part of the [DzupAgent](../../README.md) framework.
 
+Expression work (conditions, templates, references) follows the policy in
+[EXPRESSIONS.md](./EXPRESSIONS.md): new code uses structured `FlowExpression`
+conditions with `@dzupagent/flow-ast/typed-condition-evaluator`; the string
+condition engine is legacy and frozen.
+
 ## Usage
 
 ```ts
@@ -11,7 +16,7 @@ import {
   checkOutputKeyUniqueness,
   parseFlow,
   validateFlowDocumentShape,
-} from '@dzupagent/flow-ast'
+} from "@dzupagent/flow-ast";
 ```
 
 ## Output-Key Uniqueness
@@ -58,14 +63,14 @@ growth-frozen root barrel remains unchanged:
 import {
   evaluateFlowTypedCondition,
   FLOW_TYPED_CONDITION_CAPABILITY,
-} from '@dzupagent/flow-ast/typed-condition-evaluator'
+} from "@dzupagent/flow-ast/typed-condition-evaluator";
 
 const result = evaluateFlowTypedCondition(condition, {
   hostCapabilities: [FLOW_TYPED_CONDITION_CAPABILITY],
   bindings: {
     inputs: { ready: true, score: 4 },
   },
-})
+});
 ```
 
 Every call requires the exact `flow.control.typed-condition@1` capability.

@@ -1,3 +1,11 @@
+/**
+ * Structured expression AST — the CURRENT authoring surface for conditions.
+ * Per `packages/flow-ast/EXPRESSIONS.md`, new code authors `FlowExpression`
+ * / `FlowTypedCondition` values (subpath `@dzupagent/flow-ast/expressions`;
+ * the AST types alone are re-exported type-only from the root barrel) and
+ * evaluates them with the typed-condition-evaluator subpath.
+ */
+
 export type FlowExpression =
   | { op: "literal"; value: string | number | boolean | null }
   | { op: "ref"; path: string }
@@ -46,10 +54,7 @@ function isFlowExpressionNode(
   if (state.nodes > 256 || depth > 32) return false;
   if (!isRecord(value)) return false;
   if ("exprJs" in value) {
-    return (
-      typeof value.exprJs === "string" &&
-      Object.keys(value).length === 1
-    );
+    return typeof value.exprJs === "string" && Object.keys(value).length === 1;
   }
   switch (value.op) {
     case "literal":
@@ -68,9 +73,7 @@ function isFlowExpressionNode(
         Object.keys(value).length === 2 &&
         Array.isArray(value.args) &&
         value.args.length > 0 &&
-        value.args.every((arg) =>
-          isFlowExpressionNode(arg, state, depth + 1)
-        )
+        value.args.every((arg) => isFlowExpressionNode(arg, state, depth + 1))
       );
     case "not":
     case "exists":

@@ -1,3 +1,11 @@
+/**
+ * Typed condition evaluator — the CURRENT evaluation engine for structured
+ * `FlowTypedCondition` values. Per `packages/flow-ast/EXPRESSIONS.md`, new
+ * code evaluates conditions here; exported only via the
+ * `@dzupagent/flow-ast/typed-condition-evaluator` subpath, never the root
+ * barrel.
+ */
+
 import {
   FLOW_TYPED_CONDITION_CAPABILITY,
   isFlowTypedCondition,
@@ -262,8 +270,7 @@ function evaluateOrderedComparison(
     (typeof pair.left !== "number" && typeof pair.left !== "string") ||
     typeof pair.left !== typeof pair.right ||
     (typeof pair.left === "number" &&
-      (!Number.isFinite(pair.left) ||
-        !Number.isFinite(pair.right as number)))
+      (!Number.isFinite(pair.left) || !Number.isFinite(pair.right as number)))
   ) {
     return failure(
       "TYPED_CONDITION_TYPE_MISMATCH",
@@ -353,10 +360,7 @@ function evaluateContains(
       path,
     );
   }
-  if (
-    typeof collection.value === "string" &&
-    typeof value.value === "string"
-  ) {
+  if (typeof collection.value === "string" && typeof value.value === "string") {
     return { ok: true, value: collection.value.includes(value.value) };
   }
   if (Array.isArray(collection.value)) {
@@ -381,9 +385,7 @@ function evaluateContains(
 function requireBoolean(
   value: unknown | MissingValue,
   path: string,
-):
-  | { readonly ok: true; readonly value: boolean }
-  | EvaluationFailure {
+): { readonly ok: true; readonly value: boolean } | EvaluationFailure {
   if (value === MISSING_VALUE) {
     return failure(
       "TYPED_REFERENCE_MISSING",
