@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { ForgeError } from "@dzupagent/core";
 import { collectEvents } from "./test-helpers.js";
 import type {
+  AdapterExecutionControlAdmission,
+  AdapterExecutionControlRequirement,
   AgentEvent,
   AgentInput,
   AgentStreamEvent,
@@ -63,6 +66,55 @@ function makeInput(overrides: Partial<AgentInput> = {}): AgentInput {
   return { prompt: "Hello Codex", ...overrides };
 }
 
+const ZERO_TOOL_REQUIREMENT: AdapterExecutionControlRequirement = {
+  schema: "dzupagent/adapter-execution-control-requirement/v1",
+  tools: { mode: "none" },
+};
+
+const ZERO_TOOL_REJECTION: AdapterExecutionControlAdmission = {
+  schema: "dzupagent/adapter-execution-control-admission/v1",
+  status: "rejected",
+  providerId: "codex",
+  requirementSha256:
+    "sha256:e367236e0d9802cbfd0f42190c9173d577c12ad4cbdd8b258721900eb78e5731",
+  tools: { mode: "none", enforcement: "unsupported" },
+  blockers: ["zero_tool_dispatch_unsupported"],
+  effects: {
+    credentialReads: 0,
+    networkAttempts: 0,
+    providerDispatches: 0,
+    providerSpendUsd: 0,
+  },
+};
+
+const ZERO_TOOL_DIRECT_DENIAL: AdapterExecutionControlAdmission = {
+  ...ZERO_TOOL_REJECTION,
+  blockers: ["zero_tool_dispatch_capability_missing"],
+};
+
+function makeZeroToolInput(): AgentInput {
+  return makeInput({
+    executionControlRequirement: ZERO_TOOL_REQUIREMENT,
+    policyContext: {
+      activePolicy: {
+        toolPolicy: "strict",
+        allowedTools: [],
+        blockedTools: [],
+      },
+      conformanceMode: "strict",
+    },
+  });
+}
+
+async function captureFailure(promise: Promise<unknown>): Promise<unknown> {
+  try {
+    await promise;
+    return undefined;
+  } catch (error) {
+    return error;
+  }
+}
+
 function threadStartedEvent(threadId = "thread-123"): MockStreamEvent {
   return { type: "thread.started", thread_id: threadId };
 }
@@ -117,6 +169,96 @@ describe("CodexAdapter", () => {
             lookupBy: ["sessionId"],
           },
         },
+        supportsZeroToolDispatch: false,
+      });
+    });
+  });
+
+  describe("zero-tool direct entrypoints", () => {
+    it("returns one stable unsupported admission from the selected SDK instance", () => {
+      expect(adapter.getCapabilities().supportsZeroToolDispatch).toBe(false);
+      expect(
+        adapter.admitExecutionControls?.(
+          makeZeroToolInput(),
+          ZERO_TOOL_REQUIREMENT,
+        ),
+      ).toEqual(ZERO_TOOL_REJECTION);
+      expect(
+        adapter.admitExecutionControls?.(
+          makeZeroToolInput(),
+          ZERO_TOOL_REQUIREMENT,
+        ),
+      ).toEqual(ZERO_TOOL_REJECTION);
+    });
+
+    it("rejects execute before SDK load, construction, thread start, or streaming", async () => {
+      const loadSdk = vi.spyOn(adapter, "loadSdk");
+      const thread = createMockThread([
+        threadStartedEvent(),
+        turnCompletedEvent(),
+      ]);
+      mockStartThread.mockReturnValue(thread);
+
+      const failure = await captureFailure(
+        collectEvents(adapter.executeWithRaw(makeZeroToolInput())),
+      );
+
+      expect({
+        sdkLoads: loadSdk.mock.calls.length,
+        constructors: mockCodexCtor.mock.calls.length,
+        threadStarts: mockStartThread.mock.calls.length,
+        threadResumes: mockResumeThread.mock.calls.length,
+        streamedRuns: thread.runStreamed.mock.calls.length,
+      }).toEqual({
+        sdkLoads: 0,
+        constructors: 0,
+        threadStarts: 0,
+        threadResumes: 0,
+        streamedRuns: 0,
+      });
+      expect(failure).toBeInstanceOf(ForgeError);
+      expect(failure).toMatchObject({
+        code: "CAPABILITY_DENIED",
+        recoverable: false,
+        context: { admission: ZERO_TOOL_DIRECT_DENIAL },
+      });
+    });
+
+    it("rejects resume before SDK load, construction, thread resume, or streaming", async () => {
+      const loadSdk = vi.spyOn(adapter, "loadSdk");
+      const thread = createMockThread([
+        threadStartedEvent("thread-resume-zero-tool"),
+        turnCompletedEvent(),
+      ]);
+      mockResumeThread.mockReturnValue(thread);
+
+      const failure = await captureFailure(
+        collectEvents(
+          adapter.resumeSession(
+            "thread-resume-zero-tool",
+            makeZeroToolInput(),
+          ),
+        ),
+      );
+
+      expect({
+        sdkLoads: loadSdk.mock.calls.length,
+        constructors: mockCodexCtor.mock.calls.length,
+        threadStarts: mockStartThread.mock.calls.length,
+        threadResumes: mockResumeThread.mock.calls.length,
+        streamedRuns: thread.runStreamed.mock.calls.length,
+      }).toEqual({
+        sdkLoads: 0,
+        constructors: 0,
+        threadStarts: 0,
+        threadResumes: 0,
+        streamedRuns: 0,
+      });
+      expect(failure).toBeInstanceOf(ForgeError);
+      expect(failure).toMatchObject({
+        code: "CAPABILITY_DENIED",
+        recoverable: false,
+        context: { admission: ZERO_TOOL_DIRECT_DENIAL },
       });
     });
   });

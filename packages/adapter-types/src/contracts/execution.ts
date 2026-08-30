@@ -69,6 +69,31 @@ export interface AgentPolicyExecutionContext {
   executionPolicy?: AgentSignedExecutionPolicy | undefined;
 }
 
+/** Exact provider-neutral control required before a zero-tool dispatch. */
+export interface AdapterExecutionControlRequirement {
+  readonly schema: "dzupagent/adapter-execution-control-requirement/v1";
+  readonly tools: { readonly mode: "none" };
+}
+
+/** Effect-free adapter admission for one exact execution-control requirement. */
+export interface AdapterExecutionControlAdmission {
+  readonly schema: "dzupagent/adapter-execution-control-admission/v1";
+  readonly status: "admitted" | "rejected";
+  readonly providerId: AdapterProviderId;
+  readonly requirementSha256: string;
+  readonly tools: {
+    readonly mode: "none";
+    readonly enforcement: "provider-pre-dispatch" | "unsupported";
+  };
+  readonly blockers: readonly string[];
+  readonly effects: {
+    readonly credentialReads: 0;
+    readonly networkAttempts: 0;
+    readonly providerDispatches: 0;
+    readonly providerSpendUsd: 0;
+  };
+}
+
 /** Opaque provider identity keys accepted by restart lookup implementations. */
 export type ProviderRequestLookupKey =
   | "idempotencyKey"
@@ -169,6 +194,8 @@ export interface AdapterCapabilityProfile {
     | undefined;
   /** Optional request idempotency and read-only restart lookup support. */
   providerRequestCorrelation?: ProviderRequestCorrelationCapability | undefined;
+  /** Provider-visible tools can be proven empty before dispatch. */
+  supportsZeroToolDispatch?: boolean | undefined;
   maxContextTokens?: number | undefined;
 }
 
@@ -204,6 +231,8 @@ export interface AgentInput {
    * per-attempt projection and conformance handling.
    */
   policyContext?: AgentPolicyExecutionContext | undefined;
+  /** Exact adapter control that must be admitted before provider dispatch. */
+  executionControlRequirement?: AdapterExecutionControlRequirement | undefined;
 }
 
 /** Runtime status of optional adapter monitor integration. */
@@ -362,6 +391,12 @@ export interface AgentCLIAdapter {
 
   /** Runtime capability declaration. */
   getCapabilities(): AdapterCapabilityProfile;
+
+  /** Admit an exact execution-control requirement without provider effects. */
+  admitExecutionControls?(
+    input: AgentInput,
+    requirement: AdapterExecutionControlRequirement,
+  ): AdapterExecutionControlAdmission;
 
   /**
    * Inspect one retained upstream request without dispatching new inference.

@@ -4,6 +4,8 @@ import { promisify } from "node:util";
 import type {
   AdapterCapabilityProfile,
   AdapterConfig,
+  AdapterExecutionControlAdmission,
+  AdapterExecutionControlRequirement,
   AgentCLIAdapter,
   AgentEvent,
   AgentInput,
@@ -11,6 +13,10 @@ import type {
   HealthStatus,
   SessionInfo,
 } from "../types.js";
+import {
+  assertAdapterExecutionControlsAdmitted,
+  buildExecutionControlAdmission,
+} from "../execution-control-admission.js";
 import { getDefaultMonitorStatus } from "../provider-catalog.js";
 import { normalizeCodex } from "../normalize-codex.js";
 import {
@@ -89,12 +95,26 @@ export class CodexCliAdapter implements AgentCLIAdapter {
       executesToolLoop: true,
       supportsStreaming: true,
       supportsCostUsage: true,
+      supportsZeroToolDispatch: false,
       nativeToolControls: { mode: true, allowlist: false, blocklist: true },
       providerRequestCorrelation: {
         idempotencyKey: { accepted: false, enforcement: "none" },
         restartLookup: { supported: false, lookupBy: [] },
       },
     };
+  }
+
+  admitExecutionControls(
+    _input: AgentInput,
+    requirement: AdapterExecutionControlRequirement,
+  ): AdapterExecutionControlAdmission {
+    return buildExecutionControlAdmission({
+      providerId: "codex",
+      requirement,
+      status: "rejected",
+      enforcement: "unsupported",
+      blockers: ["zero_tool_dispatch_unsupported"],
+    });
   }
 
   async *execute(
@@ -108,6 +128,7 @@ export class CodexCliAdapter implements AgentCLIAdapter {
   async *executeWithRaw(
     input: AgentInput
   ): AsyncGenerator<AgentStreamEvent, void, undefined> {
+    assertAdapterExecutionControlsAdmitted(this, input);
     const sessionId = randomUUID();
     const startedAt = Date.now();
     const controller = new AbortController();
@@ -206,6 +227,7 @@ export class CodexCliAdapter implements AgentCLIAdapter {
     sessionId: string,
     input: AgentInput
   ): AsyncGenerator<AgentEvent, void, undefined> {
+    assertAdapterExecutionControlsAdmitted(this, input);
     for await (const event of this.execute({
       ...input,
       resumeSessionId: sessionId,

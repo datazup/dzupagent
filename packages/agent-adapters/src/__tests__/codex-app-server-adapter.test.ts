@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough, Transform } from 'node:stream'
 
+import { ForgeError } from '@dzupagent/core'
 import {
   PROVIDER_SESSION_ATTEMPT_BINDING_SCHEMA,
   PROVIDER_SESSION_CAPABILITIES,
@@ -20,9 +21,16 @@ import {
   CodexAppServerAdapter,
   createCodexAppServerAdapter,
 } from '../codex/codex-app-server-adapter.js'
+import { CodexAppServerStdioClient } from '../codex/codex-app-server-client.js'
 import { CodexAdapter } from '../codex/codex-adapter.js'
 import { createCodexBackendAdapter } from '../codex/codex-backend.js'
-import type { AgentEvent, AgentInput, AgentStreamEvent } from '../types.js'
+import type {
+  AdapterExecutionControlAdmission,
+  AdapterExecutionControlRequirement,
+  AgentEvent,
+  AgentInput,
+  AgentStreamEvent,
+} from '../types.js'
 
 interface RpcFrame {
   readonly id?: number | string | undefined
@@ -356,6 +364,125 @@ function input(overrides: Partial<AgentInput> = {}): AgentInput {
   }
 }
 
+const ZERO_TOOL_REQUIREMENT: AdapterExecutionControlRequirement = {
+  schema: 'dzupagent/adapter-execution-control-requirement/v1',
+  tools: { mode: 'none' },
+}
+
+const ZERO_TOOL_REJECTION: AdapterExecutionControlAdmission = {
+  schema: 'dzupagent/adapter-execution-control-admission/v1',
+  status: 'rejected',
+  providerId: 'codex',
+  requirementSha256: 'sha256:e367236e0d9802cbfd0f42190c9173d577c12ad4cbdd8b258721900eb78e5731',
+  tools: { mode: 'none', enforcement: 'unsupported' },
+  blockers: ['zero_tool_dispatch_unsupported'],
+  effects: {
+    credentialReads: 0,
+    networkAttempts: 0,
+    providerDispatches: 0,
+    providerSpendUsd: 0,
+  },
+}
+
+const ZERO_TOOL_DIRECT_DENIAL: AdapterExecutionControlAdmission = {
+  ...ZERO_TOOL_REJECTION,
+  blockers: ['zero_tool_dispatch_capability_missing'],
+}
+
+function zeroToolInput(): AgentInput {
+  return input({
+    executionControlRequirement: ZERO_TOOL_REQUIREMENT,
+    policyContext: {
+      activePolicy: {
+        toolPolicy: 'strict',
+        allowedTools: [],
+        blockedTools: [],
+      },
+      conformanceMode: 'strict',
+    },
+  })
+}
+
+interface AppServerEffectSnapshot {
+  readonly runtimeValidations: number
+  readonly clockReads: number
+  readonly connections: number
+  readonly spawns: number
+  readonly threadStarts: number
+  readonly threadResumes: number
+  readonly turnStarts: number
+  readonly startedEvents: number
+}
+
+const ZERO_APP_SERVER_EFFECTS: AppServerEffectSnapshot = {
+  runtimeValidations: 0,
+  clockReads: 0,
+  connections: 0,
+  spawns: 0,
+  threadStarts: 0,
+  threadResumes: 0,
+  turnStarts: 0,
+  startedEvents: 0,
+}
+
+async function observeAppServerRun(
+  run: (
+    adapter: CodexAppServerAdapter,
+  ) => AsyncGenerator<AgentEvent, void, undefined>,
+): Promise<{
+  readonly effects: AppServerEffectSnapshot
+  readonly failure: unknown
+}> {
+  const server = fakeServer(completedScenario)
+  const spawn = vi.fn(() => server.child)
+  const realpathCall = vi.fn(async (path: string) => path)
+  const stat = vi.fn(async () => ({ isFile: () => true }))
+  const access = vi.fn(async () => undefined)
+  const digestArtifact = vi.fn(async () => ARTIFACT_DIGEST)
+  const now = vi.fn(() => 1_000)
+  const monotonicNow = vi.fn(() => 1_000)
+  const connect = vi.spyOn(CodexAppServerStdioClient, 'connect')
+  const adapter = createCodexAppServerAdapter({
+    attemptBinding: binding(),
+    executable: executableIdentity(),
+    dependencies: {
+      spawn,
+      realpath: realpathCall,
+      stat,
+      access,
+      digestArtifact,
+      now,
+      monotonicNow,
+    },
+  })
+
+  let failure: unknown
+  const events: AgentEvent[] = []
+  let effects: AppServerEffectSnapshot = ZERO_APP_SERVER_EFFECTS
+  try {
+    for await (const event of run(adapter)) events.push(event)
+  } catch (error) {
+    failure = error
+  } finally {
+    effects = {
+      runtimeValidations:
+        realpathCall.mock.calls.length
+        + stat.mock.calls.length
+        + access.mock.calls.length
+        + digestArtifact.mock.calls.length,
+      clockReads: now.mock.calls.length + monotonicNow.mock.calls.length,
+      connections: connect.mock.calls.length,
+      spawns: spawn.mock.calls.length,
+      threadStarts: server.calls.filter((frame) => frame.method === 'thread/start').length,
+      threadResumes: server.calls.filter((frame) => frame.method === 'thread/resume').length,
+      turnStarts: server.calls.filter((frame) => frame.method === 'turn/start').length,
+      startedEvents: events.filter((event) => event.type === 'adapter:started').length,
+    }
+    connect.mockRestore()
+  }
+  return { effects, failure }
+}
+
 function interruptRequest() {
   return {
     schema: PROVIDER_SESSION_OPERATION_SCHEMA,
@@ -376,6 +503,52 @@ function interruptRequest() {
 }
 
 describe('Codex App Server provider-session adapter', () => {
+  it('returns one stable unsupported admission from the selected app-server instance', () => {
+    const server = fakeServer(completedScenario)
+    const adapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      dependencies: runtimeDependencies(server.child),
+    })
+
+    expect(adapter.getCapabilities().supportsZeroToolDispatch).toBe(false)
+    expect(adapter.admitExecutionControls?.(zeroToolInput(), ZERO_TOOL_REQUIREMENT))
+      .toEqual(ZERO_TOOL_REJECTION)
+    expect(adapter.admitExecutionControls?.(zeroToolInput(), ZERO_TOOL_REQUIREMENT))
+      .toEqual(ZERO_TOOL_REJECTION)
+  })
+
+  it.each(['execute', 'resume'] as const)(
+    'rejects direct %s before runtime validation, clocks, connection, spawn, or RPC',
+    async (operation) => {
+      const { effects, failure } = await observeAppServerRun((adapter) =>
+        operation === 'execute'
+          ? adapter.execute(zeroToolInput())
+          : adapter.resumeSession('thread-1', zeroToolInput()))
+
+      expect(effects).toEqual(ZERO_APP_SERVER_EFFECTS)
+      expect(failure).toBeInstanceOf(ForgeError)
+      expect(failure).toMatchObject({
+        code: 'CAPABILITY_DENIED',
+        recoverable: false,
+        context: { admission: ZERO_TOOL_DIRECT_DENIAL },
+      })
+    },
+  )
+
+  it('rejects an opted-in invalid resume reference before clocks, validation, connection, spawn, or RPC', async () => {
+    const { effects, failure } = await observeAppServerRun((adapter) =>
+      adapter.resumeSession('', zeroToolInput()))
+
+    expect(effects).toEqual(ZERO_APP_SERVER_EFFECTS)
+    expect(failure).toBeInstanceOf(ForgeError)
+    expect(failure).toMatchObject({
+      code: 'CAPABILITY_DENIED',
+      recoverable: false,
+      context: { admission: ZERO_TOOL_DIRECT_DENIAL },
+    })
+  })
+
   it('keeps SDK default and admits app-server only with an exact complete binding', () => {
     expect(createCodexBackendAdapter()).toBeInstanceOf(CodexAdapter)
 

@@ -129,8 +129,10 @@ export function projectExecutionRequestToAgentInput(
     )
   }
 
-  if (request.tools.mode !== 'none') {
-    diagnostics.push(error('TOOL_POLICY_UNSUPPORTED', 'tools', 'AgentInput cannot enforce the canonical tool grant policy.'))
+  const hasCanonicalZeroToolPolicy = request.tools.mode === 'none'
+    && request.tools.grants.length === 0
+  if (!hasCanonicalZeroToolPolicy) {
+    diagnostics.push(error('TOOL_POLICY_UNSUPPORTED', 'tools', 'AgentInput requires canonical zero-tool mode with empty grants.'))
   }
 
   if (request.effects.effectClass && !['read', 'compute', 'llm'].includes(request.effects.effectClass)) {
@@ -195,7 +197,21 @@ export function projectExecutionRequestToAgentInput(
     signal: options.signal,
     systemPrompt,
     outputSchema: request.output.format === 'json' ? request.output.schema : undefined,
+    executionControlRequirement: hasCanonicalZeroToolPolicy
+      ? {
+        schema: 'dzupagent/adapter-execution-control-requirement/v1',
+        tools: { mode: 'none' },
+      }
+      : undefined,
     policyContext: {
+      activePolicy: hasCanonicalZeroToolPolicy
+        ? {
+          toolPolicy: 'strict',
+          allowedTools: [],
+          blockedTools: [],
+        }
+        : undefined,
+      conformanceMode: hasCanonicalZeroToolPolicy ? 'strict' : undefined,
       projectedGuardrails: {
         maxIterations: request.policy.maxIterations,
         maxCostCents: request.policy.budgetCents,

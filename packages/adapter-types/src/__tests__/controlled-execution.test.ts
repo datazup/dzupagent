@@ -73,8 +73,39 @@ describe('controlled execution contracts', () => {
       maxBudgetUsd: 2.5,
       correlationId: 'correlation-1',
       outputSchema: { type: 'object' },
-      policyContext: { projectedGuardrails: { maxIterations: 4, maxCostCents: 250 } },
+      executionControlRequirement: {
+        schema: 'dzupagent/adapter-execution-control-requirement/v1',
+        tools: { mode: 'none' },
+      },
+      policyContext: {
+        activePolicy: {
+          toolPolicy: 'strict',
+          allowedTools: [],
+          blockedTools: [],
+        },
+        conformanceMode: 'strict',
+        projectedGuardrails: { maxIterations: 4, maxCostCents: 250 },
+      },
     })
+  })
+
+  it('rejects a hostile none-mode request with non-empty runtime grants', () => {
+    const canonical = request()
+    const hostile = {
+      ...canonical,
+      tools: {
+        mode: 'none',
+        grants: [{ toolRef: 'browser' }],
+      },
+    } as unknown as AdapterRunExecutionRequest
+    const projection = projectExecutionRequestToAgentInput(hostile, {
+      selectedCandidate: hostile.route.candidates[0],
+    })
+
+    expect(projection.input).toBeUndefined()
+    expect(projection.diagnostics.map(({ code }) => code)).toEqual([
+      'TOOL_POLICY_UNSUPPORTED',
+    ])
   })
 
   it('reports required host projections instead of dropping semantics', () => {

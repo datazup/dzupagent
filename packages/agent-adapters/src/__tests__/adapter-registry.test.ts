@@ -4,7 +4,9 @@ import { createEventBus, ForgeError } from '@dzupagent/core'
 import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import { EventBusBridge } from '../registry/event-bus-bridge.js'
 import { RegistryExecutionPort } from '../integration/provider-execution-port.js'
+import { buildExecutionControlAdmission } from '../execution-control-admission.js'
 import type {
+  AdapterExecutionControlRequirement,
   AdapterProviderId,
   AgentCLIAdapter,
   AgentEvent,
@@ -14,6 +16,24 @@ import type {
 } from '../types.js'
 import { collectEvents } from './test-helpers.js'
 import { stubCapabilities } from './adapter-capability-stub.js'
+
+const zeroToolRequirement: AdapterExecutionControlRequirement = {
+  schema: 'dzupagent/adapter-execution-control-requirement/v1',
+  tools: { mode: 'none' },
+}
+
+const zeroToolInput: AgentInput = {
+  prompt: 'test input',
+  executionControlRequirement: zeroToolRequirement,
+  policyContext: {
+    activePolicy: {
+      toolPolicy: 'strict',
+      allowedTools: [],
+      blockedTools: [],
+    },
+    conformanceMode: 'strict',
+  },
+}
 
 function createMockAdapter(
   providerId: AdapterProviderId,
@@ -141,6 +161,173 @@ describe('ProviderAdapterRegistry', () => {
 
     expect(failed).toBeDefined()
     expect(completed).toBeDefined()
+  })
+
+  it('admits each approved fallback independently and never tries an unapproved provider', async () => {
+    let primaryExecuteCalls = 0
+    let unapprovedAdmissionCalls = 0
+    let unapprovedExecuteCalls = 0
+    let admittedFallbackAdmissionCalls = 0
+    let admittedFallbackExecuteCalls = 0
+    let admittedInput: AgentInput | undefined
+    let executedInput: AgentInput | undefined
+
+    const primary = {
+      ...createMockAdapter('codex', []),
+      getCapabilities: () => stubCapabilities({ supportsZeroToolDispatch: false }),
+      async *execute(): AsyncGenerator<AgentEvent, void, undefined> {
+        primaryExecuteCalls += 1
+      },
+    } satisfies AgentCLIAdapter
+    const unapproved = {
+      ...createMockAdapter('qwen', []),
+      getCapabilities: () => stubCapabilities({ supportsZeroToolDispatch: true }),
+      admitExecutionControls() {
+        unapprovedAdmissionCalls += 1
+        return buildExecutionControlAdmission({
+          providerId: 'qwen',
+          requirement: zeroToolRequirement,
+          status: 'admitted',
+          enforcement: 'provider-pre-dispatch',
+        })
+      },
+      async *execute(): AsyncGenerator<AgentEvent, void, undefined> {
+        unapprovedExecuteCalls += 1
+      },
+    } satisfies AgentCLIAdapter
+    const admittedFallback = {
+      ...createMockAdapter('ollama', [
+        {
+          type: 'adapter:completed',
+          providerId: 'ollama',
+          sessionId: 'fallback-session',
+          result: 'fallback admitted',
+          durationMs: 1,
+          timestamp: Date.now(),
+        },
+      ]),
+      getCapabilities: () => stubCapabilities({ supportsZeroToolDispatch: true }),
+      admitExecutionControls(input: AgentInput) {
+        admittedFallbackAdmissionCalls += 1
+        admittedInput = input
+        return buildExecutionControlAdmission({
+          providerId: 'ollama',
+          requirement: zeroToolRequirement,
+          status: 'admitted',
+          enforcement: 'provider-pre-dispatch',
+        })
+      },
+      async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
+        admittedFallbackExecuteCalls += 1
+        executedInput = input
+        yield {
+          type: 'adapter:completed',
+          providerId: 'ollama',
+          sessionId: 'fallback-session',
+          result: 'fallback admitted',
+          durationMs: 1,
+          timestamp: Date.now(),
+        }
+      },
+    } satisfies AgentCLIAdapter
+    const fallbackRouter = {
+      name: 'execution-control-fallback-router',
+      route(): RoutingDecision {
+        return {
+          provider: 'codex',
+          reason: 'test execution-control fallback admission',
+          confidence: 1,
+          fallbackProviders: ['qwen', 'ollama'],
+        }
+      },
+    }
+    const controlledTask: TaskDescriptor = {
+      prompt: 'test task',
+      tags: [],
+      approvedFallbackProviders: ['ollama'],
+    }
+    const registry = new ProviderAdapterRegistry().setRouter(fallbackRouter)
+    registry
+      .register(primary)
+      .register(unapproved)
+      .register(admittedFallback)
+    const eventBus = createEventBus()
+    const emitted: any[] = []
+    eventBus.onAny((event) => { emitted.push(event) })
+    registry.setEventBus(eventBus)
+
+    const events = await collectEvents(
+      registry.executeWithFallback(zeroToolInput, controlledTask),
+    )
+
+    const denials = events.filter((event) => (
+      event.type === 'adapter:progress'
+      && event.phase === 'registry:execution_control_denied'
+    ))
+    expect(denials.map((event) => event.providerId)).toEqual(['codex'])
+    expect(events.some((event) => (
+      event.type === 'adapter:completed'
+      && event.providerId === 'ollama'
+    ))).toBe(true)
+    expect(primaryExecuteCalls).toBe(0)
+    expect(unapprovedAdmissionCalls).toBe(0)
+    expect(unapprovedExecuteCalls).toBe(0)
+    expect(admittedFallbackAdmissionCalls).toBe(1)
+    expect(admittedFallbackExecuteCalls).toBe(1)
+    expect(admittedInput).toBe(executedInput)
+    expect(emitted.filter((event) => event.type === 'agent:started')).toEqual([
+      expect.objectContaining({ agentId: 'ollama' }),
+    ])
+    expect(emitted.some((event) => event.type === 'agent:failed')).toBe(false)
+    expect(emitted.some((event) => event.type === 'provider:failed')).toBe(false)
+  })
+
+  it('preserves legacy event order and one execution when no control is requested', async () => {
+    let executeCalls = 0
+    const adapter = {
+      ...createMockAdapter('claude', []),
+      async *execute(): AsyncGenerator<AgentEvent, void, undefined> {
+        executeCalls += 1
+        yield {
+          type: 'adapter:started',
+          providerId: 'claude',
+          sessionId: 'legacy-session',
+          timestamp: Date.now(),
+        }
+        yield {
+          type: 'adapter:completed',
+          providerId: 'claude',
+          sessionId: 'legacy-session',
+          result: 'legacy complete',
+          durationMs: 1,
+          timestamp: Date.now(),
+        }
+      },
+    } satisfies AgentCLIAdapter
+    const registry = new ProviderAdapterRegistry().setRouter(router)
+    registry.register(adapter)
+    const eventBus = createEventBus()
+    const emitted: any[] = []
+    eventBus.onAny((event) => { emitted.push(event) })
+    registry.setEventBus(eventBus)
+
+    const events = await collectEvents(registry.executeWithFallback(input, task))
+
+    expect(executeCalls).toBe(1)
+    expect(events.map((event) => event.type)).toEqual([
+      'adapter:progress',
+      'adapter:progress',
+      'adapter:started',
+      'adapter:completed',
+    ])
+    expect(events.filter((event) => event.type === 'adapter:progress').map((event) => event.phase)).toEqual([
+      'registry:routing',
+      'registry:primary_attempt',
+    ])
+    expect(emitted.map((event) => event.type)).toEqual([
+      'agent:started',
+      'agent:completed',
+    ])
   })
 
   it('correlates started and terminal event run IDs for failed and completed fallback attempts', async () => {

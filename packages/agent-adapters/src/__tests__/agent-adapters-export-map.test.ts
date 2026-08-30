@@ -6,9 +6,31 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 
+import {
+  admitAdapterExecutionControls as providerAdmitAdapterExecutionControls,
+  assertAdapterExecutionControlsAdmitted as providerAssertAdapterExecutionControlsAdmitted,
+  buildExecutionControlAdmission as providerBuildExecutionControlAdmission,
+  canonicalExecutionControlRequirement as providerCanonicalExecutionControlRequirement,
+  executionControlRequirementSha256 as providerExecutionControlRequirementSha256,
+} from '../providers.js'
+
 const execFileAsync = promisify(execFile)
 
 describe('agent-adapters export map', () => {
+  // Root barrel is growth-frozen (barrel-budgets rootDebtPin); execution-control
+  // admission lands subpath-only via ./providers.
+  it('exposes execution-control admission from the providers entrypoint', () => {
+    const providers = [
+      providerAdmitAdapterExecutionControls,
+      providerAssertAdapterExecutionControlsAdmitted,
+      providerBuildExecutionControlAdmission,
+      providerCanonicalExecutionControlRequirement,
+      providerExecutionControlRequirementSha256,
+    ]
+
+    expect(providers.every((value) => typeof value === 'function')).toBe(true)
+  })
+
   it('exposes narrow runs and integration subpaths', async () => {
     const raw = await readFile(join(process.cwd(), 'package.json'), 'utf8')
     const packageJson = JSON.parse(raw) as { exports: Record<string, unknown> }
