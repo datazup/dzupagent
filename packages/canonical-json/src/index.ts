@@ -145,12 +145,7 @@ function renderValue(
     const record = value as Record<string, unknown>;
     const parts: string[] = [];
     for (const key of Object.keys(record).sort(compareUtf16)) {
-      const entry = renderObjectValue(
-        key,
-        record[key],
-        options,
-        seen,
-      );
+      const entry = renderObjectValue(key, record[key], options, seen);
       if (entry !== undefined) parts.push(entry);
     }
     serialized = `{${parts.join(",")}}`;
@@ -222,9 +217,7 @@ export function canonicalStringify(
   if (rendered.nothing === "undefined") {
     switch (options.undefinedValues.topLevel) {
       case "throw":
-        throw new TypeError(
-          "cannot canonicalize `undefined` at the top level",
-        );
+        throw new TypeError("cannot canonicalize `undefined` at the top level");
       case "null":
         return "null";
       case "token":
@@ -352,28 +345,54 @@ export const CLASSIFICATION_ENVELOPE_V1_OPTIONS: CanonicalJsonOptions =
  * `"[Circular]"` (the source never unwinds its seen-set; existing digests
  * depend on this).
  */
-export const COMPILE_EVIDENCE_V1_OPTIONS: CanonicalJsonOptions = Object.freeze(
-  {
-    undefinedValues: Object.freeze({
-      objectValue: "token",
-      arrayItem: "token",
-      topLevel: "token",
-    }),
-    functionsAndSymbols: Object.freeze({
-      objectValue: "placeholder",
-      arrayItem: "placeholder",
-      topLevel: "placeholder",
-    }),
-    bigint: "decimal-string",
-    cycles: Object.freeze({ policy: "marker" }),
-  } as const,
-);
+export const COMPILE_EVIDENCE_V1_OPTIONS: CanonicalJsonOptions = Object.freeze({
+  undefinedValues: Object.freeze({
+    objectValue: "token",
+    arrayItem: "token",
+    topLevel: "token",
+  }),
+  functionsAndSymbols: Object.freeze({
+    objectValue: "placeholder",
+    arrayItem: "placeholder",
+    topLevel: "placeholder",
+  }),
+  bigint: "decimal-string",
+  cycles: Object.freeze({ policy: "marker" }),
+} as const);
+
+/**
+ * `agent-adapters` digest sites (capability manifests, observed-capability
+ * event identity, wired-runtime definition hashes): object entries with
+ * `undefined` values are omitted, `undefined`/function/symbol array items
+ * are elided, and any top-level `undefined`/function/symbol, bigint, or
+ * cycle throws. Upstreamed from dzupagent's private
+ * `ADAPTER_CANONICAL_JSON_OPTIONS` (ARCH27-T-13 follow-up); the option
+ * values and the cycle message are digest-load-bearing and must not change.
+ */
+export const ADAPTER_DIGEST_V1_OPTIONS: CanonicalJsonOptions = Object.freeze({
+  undefinedValues: Object.freeze({
+    objectValue: "omit",
+    arrayItem: "elide",
+    topLevel: "throw",
+  }),
+  functionsAndSymbols: Object.freeze({
+    objectValue: "token",
+    arrayItem: "elide",
+    topLevel: "throw",
+  }),
+  bigint: "throw",
+  cycles: Object.freeze({
+    policy: "throw",
+    message: "cannot canonicalize a cyclic adapter value",
+  }),
+} as const);
 
 export type CanonicalJsonPreset =
   | "idempotency-v1"
   | "authoring-v1"
   | "classification-envelope-v1"
-  | "compile-evidence-v1";
+  | "compile-evidence-v1"
+  | "adapter-digest-v1";
 
 const PRESET_OPTIONS: Record<
   Exclude<CanonicalJsonPreset, "idempotency-v1">,
@@ -382,6 +401,7 @@ const PRESET_OPTIONS: Record<
   "authoring-v1": AUTHORING_V1_OPTIONS,
   "classification-envelope-v1": CLASSIFICATION_ENVELOPE_V1_OPTIONS,
   "compile-evidence-v1": COMPILE_EVIDENCE_V1_OPTIONS,
+  "adapter-digest-v1": ADAPTER_DIGEST_V1_OPTIONS,
 };
 
 /** Canonicalize `value` under a named preset. */

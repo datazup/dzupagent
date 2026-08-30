@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ADAPTER_DIGEST_V1_OPTIONS,
   AUTHORING_V1_OPTIONS,
   type CanonicalJsonOptions,
   canonicalDigestHex,
@@ -20,7 +21,11 @@ import {
 
 /** A baseline that renders every special case visibly, then vary one axis. */
 const BASE: CanonicalJsonOptions = {
-  undefinedValues: { objectValue: "token", arrayItem: "token", topLevel: "token" },
+  undefinedValues: {
+    objectValue: "token",
+    arrayItem: "token",
+    topLevel: "token",
+  },
   functionsAndSymbols: {
     objectValue: "placeholder",
     arrayItem: "placeholder",
@@ -32,7 +37,7 @@ const BASE: CanonicalJsonOptions = {
 
 describe("key ordering", () => {
   it("sorts by UTF-16 code units, not locale ('é' after 'z')", () => {
-    expect(canonicalStringify({ "é": 1, z: 2, Z: 3, a: 4 }, BASE)).toBe(
+    expect(canonicalStringify({ é: 1, z: 2, Z: 3, a: 4 }, BASE)).toBe(
       '{"Z":3,"a":4,"z":2,"é":1}',
     );
   });
@@ -207,9 +212,9 @@ describe("sortedJsonV1Stringify (idempotency-v1 engine)", () => {
   });
 
   it("honors an own toJSON without re-sorting its result", () => {
-    expect(sortedJsonV1Stringify({ a: 2, toJSON: () => ({ z: 1, y: 2 }) })).toBe(
-      '{"z":1,"y":2}',
-    );
+    expect(
+      sortedJsonV1Stringify({ a: 2, toJSON: () => ({ z: 1, y: 2 }) }),
+    ).toBe('{"z":1,"y":2}');
   });
 
   it("strips an inherited toJSON (Date renders as {})", () => {
@@ -248,5 +253,81 @@ describe("presets are frozen", () => {
     expect(() => {
       (AUTHORING_V1_OPTIONS as { bigint: string }).bigint = "decimal-string";
     }).toThrow();
+  });
+
+  it("rejects mutation of the adapter-digest preset", () => {
+    expect(() => {
+      (ADAPTER_DIGEST_V1_OPTIONS as { bigint: string }).bigint =
+        "decimal-string";
+    }).toThrow();
+  });
+});
+
+describe("adapter-digest-v1", () => {
+  /**
+   * Two-way pin of the option literal upstreamed from dzupagent
+   * agent-adapters' `ADAPTER_CANONICAL_JSON_OPTIONS`. Digests derived from
+   * this preset are persisted cross-repo; any change here is a breaking
+   * digest change.
+   */
+  it("pins the exact option literal", () => {
+    expect(ADAPTER_DIGEST_V1_OPTIONS).toEqual({
+      undefinedValues: {
+        objectValue: "omit",
+        arrayItem: "elide",
+        topLevel: "throw",
+      },
+      functionsAndSymbols: {
+        objectValue: "token",
+        arrayItem: "elide",
+        topLevel: "throw",
+      },
+      bigint: "throw",
+      cycles: {
+        policy: "throw",
+        message: "cannot canonicalize a cyclic adapter value",
+      },
+    });
+  });
+
+  it("omits undefined object entries and elides undefined array items", () => {
+    expect(
+      canonicalize(
+        { b: undefined, a: 1, list: [1, undefined, 2] },
+        "adapter-digest-v1",
+      ),
+    ).toBe('{"a":1,"list":[1,,2]}');
+  });
+
+  it("tokens function object entries and elides function array items", () => {
+    expect(
+      canonicalize(
+        { f: () => 1, a: 1, list: [1, () => 1] },
+        "adapter-digest-v1",
+      ),
+    ).toBe('{"a":1,"f":undefined,"list":[1,]}');
+  });
+
+  it("matches canonicalStringify under the exported options byte-for-byte", () => {
+    const value = {
+      z: undefined,
+      nested: { s: Symbol("s"), keep: [undefined, "x"] },
+    };
+    expect(canonicalize(value, "adapter-digest-v1")).toBe(
+      canonicalStringify(value, ADAPTER_DIGEST_V1_OPTIONS),
+    );
+  });
+
+  it("throws the adapter-specific cycle message", () => {
+    const cyclic: Record<string, unknown> = { a: 1 };
+    cyclic.self = cyclic;
+    expect(() => canonicalize(cyclic, "adapter-digest-v1")).toThrowError(
+      new TypeError("cannot canonicalize a cyclic adapter value"),
+    );
+  });
+
+  it("throws on bigint and on top-level undefined", () => {
+    expect(() => canonicalize({ n: 1n }, "adapter-digest-v1")).toThrow();
+    expect(() => canonicalize(undefined, "adapter-digest-v1")).toThrow();
   });
 });

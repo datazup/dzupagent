@@ -21,9 +21,12 @@ import {
 } from "@dzupagent/subagents";
 import { randomUUID } from "node:crypto";
 
-import { canonicalStringify, sha256Prefixed } from "@datazup/canonical-json";
+import {
+  ADAPTER_DIGEST_V1_OPTIONS,
+  canonicalStringify,
+  sha256Prefixed,
+} from "@datazup/canonical-json";
 
-import { ADAPTER_CANONICAL_JSON_OPTIONS } from "../canonical-json-options.js";
 import type { ProviderAdapterRegistry } from "../registry/adapter-registry.js";
 import type { CheckpointStore } from "../session/workflow-checkpointer.js";
 import { CheckpointStorePort } from "./checkpoint-store-port.js";
@@ -92,7 +95,7 @@ export interface CreateWiredSubagentRuntimeOptions {
  * checkpointer, bus) the package cannot import itself.
  */
 export function createWiredSubagentRuntime(
-  options: CreateWiredSubagentRuntimeOptions
+  options: CreateWiredSubagentRuntimeOptions,
 ): BackgroundSubagentRuntime {
   const postgresDurability = options.postgresDurability;
   const store =
@@ -109,7 +112,7 @@ export function createWiredSubagentRuntime(
   const executor = new RegistrySubagentExecutor(
     options.registry,
     options.executorLimits ?? {},
-    buildPersonaOptions(options)
+    buildPersonaOptions(options),
   );
 
   const events: SubagentEventSink = {
@@ -171,7 +174,7 @@ export function createWiredSubagentRuntime(
   // spawns; the wired (production) runtime never ships an allow-all surface.
   const gate = new SpawnGate(
     options.policy ?? denyAllSpawnPolicy,
-    options.approvalGate
+    options.approvalGate,
   );
 
   return new BackgroundSubagentRuntime({
@@ -199,7 +202,7 @@ export function createWiredSubagentRuntime(
 
 /** Persona/inline options threaded into the executor. */
 function buildPersonaOptions(
-  options: CreateWiredSubagentRuntimeOptions
+  options: CreateWiredSubagentRuntimeOptions,
 ): SubagentPersonaOptions {
   return {
     ...(options.personaLoader !== undefined
@@ -246,11 +249,11 @@ function buildAdmissionResolver(options: CreateWiredSubagentRuntimeOptions) {
     const routedProvider = resolveProviderForAgent(
       options.registry,
       spec,
-      agent
+      agent,
     );
     const compiledPrompt = await options.personaLoader!.compileForProvider(
       agent,
-      routedProvider
+      routedProvider,
     );
     const resolvedDefinition = {
       name: agent.name,
@@ -277,7 +280,7 @@ function buildAdmissionResolver(options: CreateWiredSubagentRuntimeOptions) {
 function resolveProviderForAgent(
   registry: ProviderAdapterRegistry,
   spec: SubagentSpec,
-  agent: AgentDefinition
+  agent: AgentDefinition,
 ): AdapterProviderId {
   if (
     agent.preferredProvider !== undefined &&
@@ -300,7 +303,7 @@ function resolveProviderForAgent(
 
 function resolveRegisteredProviderId(
   registry: ProviderAdapterRegistry,
-  agentId: string
+  agentId: string,
 ): AdapterProviderId | undefined {
   return registry.listAdapters().some((providerId) => providerId === agentId)
     ? (agentId as AdapterProviderId)
@@ -308,7 +311,7 @@ function resolveRegisteredProviderId(
 }
 
 function hashDefinition(
-  definition: NonNullable<SubagentSpec["definition"]>
+  definition: NonNullable<SubagentSpec["definition"]>,
 ): string {
   // DELIBERATE digest change (ARCH27-T-01 family): the removed local
   // stableStringify sorted keys with localeCompare, whose order varies
@@ -316,6 +319,6 @@ function hashDefinition(
   // locale-stable. Corpus-proven identical for lowercase/camelCase key
   // sets; only mixed-case or non-ASCII key orders change.
   return sha256Prefixed(
-    canonicalStringify(definition, ADAPTER_CANONICAL_JSON_OPTIONS),
+    canonicalStringify(definition, ADAPTER_DIGEST_V1_OPTIONS),
   );
 }
