@@ -106,6 +106,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@datazup/canonical-json": "0.1.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

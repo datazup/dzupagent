@@ -367,5 +367,18 @@
     "status": "parked",
     "roadmapDriver": false,
     "owners": []
+  },
+  "@datazup/canonical-json": {
+    "tier": 1,
+    "status": "supported",
+    "architectureRole": "Layer-0 leaf primitive: vendored mirror of shared-kit @datazup/canonical-json (ARCH27-T-13). Canonical JSON + SHA-256 digest engine behind runtime-contracts idempotency keys; zero dependencies; golden-vector-pinned against the shared-kit source of truth.",
+    "roadmapDriver": false,
+    "owners": [
+      "apps/ai-saas-starter-kit",
+      "apps/codev-app",
+      "apps/nl2sql",
+      "apps/research-app",
+      "apps/testman-app"
+    ]
   }
 }

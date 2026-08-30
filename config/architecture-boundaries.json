@@ -913,7 +913,8 @@
           "memory-ipc",
           "flow-ast",
           "dialogue-core",
-          "security"
+          "security",
+          "@datazup/canonical-json"
         ]
       },
       {

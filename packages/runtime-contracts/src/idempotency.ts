@@ -5,18 +5,19 @@
  * these functions to produce identical stable keys for a given node
  * execution -- so compiled diagnostics and runtime enforcement agree.
  *
- * Implementation note on typing: `@dzupagent/runtime-contracts` keeps
- * `types: []` and `lib: ["ES2022"]` (no `@types/node`, no `dom`) so it stays
- * environment-neutral for browser/edge consumers. To use Node's built-in
- * `node:crypto` without pulling the entire `@types/node` surface into the
- * package, we declare the minimal structural shape we depend on below. At
- * runtime the import resolves to the real Node module; environments without
- * `node:crypto` simply must not call these functions.
+ * Implementation note: the canonical JSON algorithm lives in
+ * `@datazup/canonical-json` (the `idempotency-v1` preset is this module's
+ * historical `sortedJsonV1` scheme, extracted by ARCH27-T-13 and pinned
+ * byte-for-byte by that package's golden vectors). This module keeps its
+ * public surface (`CANONICAL_JSON_VERSION`, `canonicalJson`,
+ * `canonicalInputDigest`) as thin delegations so consumers and persisted
+ * digests are unaffected. Environments without `node:crypto` simply must
+ * not call the digest functions.
  *
  * @module runtime-contracts/idempotency
  */
 
-import { createHash } from "node:crypto";
+import { sha256Hex, sortedJsonV1Stringify } from "@datazup/canonical-json";
 
 // ---------------------------------------------------------------------------
 // Canonical JSON
@@ -33,37 +34,7 @@ import { createHash } from "node:crypto";
 export const CANONICAL_JSON_VERSION = "dzupagent.sorted-json/v1" as const;
 
 export function canonicalJson(value: unknown): string {
-  const encoded = JSON.stringify(sortValue(value));
-  if (encoded === undefined) {
-    throw new TypeError("Canonical JSON input must be JSON-serializable.");
-  }
-  return encoded;
-}
-
-/**
- * Recursively rebuild `value` so every plain object has its keys in sorted
- * order. Returned values are fed straight into `JSON.stringify`, so any
- * `undefined` / function entries are dropped by `JSON.stringify` exactly as
- * they would be for the original input.
- */
-function sortValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(sortValue);
-  }
-  if (value !== null && typeof value === "object") {
-    const source = value as Record<string, unknown>;
-    // A null-prototype object preserves JSON keys such as `__proto__` as data
-    // instead of invoking the legacy object prototype setter.
-    const sorted: Record<string, unknown> = Object.create(null) as Record<
-      string,
-      unknown
-    >;
-    for (const key of Object.keys(source).sort()) {
-      sorted[key] = sortValue(source[key]);
-    }
-    return sorted;
-  }
-  return value;
+  return sortedJsonV1Stringify(value);
 }
 
 // ---------------------------------------------------------------------------
@@ -78,7 +49,7 @@ function sortValue(value: unknown): unknown {
  * Pure function -- no I/O, no side effects.
  */
 export function canonicalInputDigest(input: unknown): string {
-  return createHash("sha256").update(canonicalJson(input)).digest("hex");
+  return sha256Hex(canonicalJson(input));
 }
 
 /**

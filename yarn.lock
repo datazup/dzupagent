@@ -1133,6 +1133,17 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@datazup/canonical-json@npm:0.1.0, @datazup/canonical-json@workspace:packages/canonical-json":
+  version: 0.0.0-use.local
+  resolution: "@datazup/canonical-json@workspace:packages/canonical-json"
+  dependencies:
+    "@types/node": "npm:^22.13.0"
+    tsup: "npm:*"
+    typescript: "npm:^5.8.3"
+    vitest: "npm:^3.2.4"
+  languageName: unknown
+  linkType: soft
+
 "@dependents/detective-less@npm:^5.0.1, @dependents/detective-less@npm:^5.0.3":
   version: 5.0.3
   resolution: "@dependents/detective-less@npm:5.0.3"
@@ -1290,17 +1301,6 @@ __metadata:
   peerDependenciesMeta:
     ioredis:
       optional: true
-  languageName: unknown
-  linkType: soft
-
-"@dzupagent/canonical-json@workspace:packages/canonical-json":
-  version: 0.0.0-use.local
-  resolution: "@dzupagent/canonical-json@workspace:packages/canonical-json"
-  dependencies:
-    "@types/node": "npm:^22.13.0"
-    tsup: "npm:*"
-    typescript: "npm:^5.8.3"
-    vitest: "npm:^3.2.4"
   languageName: unknown
   linkType: soft
 
@@ -1708,6 +1708,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@dzupagent/runtime-contracts@workspace:packages/runtime-contracts"
   dependencies:
+    "@datazup/canonical-json": "npm:0.1.0"
     tsup: "npm:*"
     typescript: "npm:^5.8.3"
     vitest: "npm:^3.2.4"

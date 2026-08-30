@@ -5,16 +5,18 @@ Vendored mirror of **`@datazup/canonical-json`** (shared-kit,
 
 dzupagent cannot take a cross-repo dependency today (the GitHub Packages
 registry needs `NODE_AUTH_TOKEN`, which is operator-walled), so the package
-is mirrored here under the `@dzupagent` scope. `src/` is kept byte-identical
+is mirrored here as a private workspace leaf under its ORIGINAL name — a
+consumer's `import ... from "@datazup/canonical-json"` is already the final
+form, and apps that vendor both repos resolve the same name from shared-kit.
+`src/` is kept byte-identical
 to the shared-kit package's `src/` — sync by copying, never by editing one
 side. The cross-repo drift pin is the shared golden-vector fixture
 (`src/__fixtures__/dzupagent-golden-vectors.json`): both repos run the same
 suite against the same pinned digests, so a semantic change on either side
 goes red locally.
 
-When the registry wall lifts, replace this package with a real dependency on
-`@datazup/canonical-json` and update importers' package.json entries; the
-API is identical by construction.
+When the registry wall lifts, delete this directory and point importers'
+package.json entries at the registry version; no import statement changes.
 
 See `src/index.ts` for the preset semantics (`idempotency-v1`,
 `authoring-v1`, `classification-envelope-v1`, `compile-evidence-v1`) and the

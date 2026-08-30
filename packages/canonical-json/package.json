@@ -1,6 +1,7 @@
 {
-  "name": "@dzupagent/canonical-json",
-  "version": "0.2.0",
+  "name": "@datazup/canonical-json",
+  "version": "0.1.0",
+  "private": true,
   "type": "module",
   "description": "Vendored mirror of @datazup/canonical-json (shared-kit): canonical JSON stringification and SHA-256 digests with explicit, named preset semantics (ARCH27-T-13)",
   "main": "dist/index.js",
@@ -29,10 +30,6 @@
     "vitest": "^3.2.4"
   },
   "license": "MIT",
-  "publishConfig": {
-    "registry": "https://npm.pkg.github.com",
-    "access": "restricted"
-  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/datazup/dzupagent.git",
