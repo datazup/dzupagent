@@ -19,6 +19,22 @@ test('root inventory includes export-star sources', () => {
   )
 })
 
+test('root inventory includes typed local constants, including multiline initializers', () => {
+  assert.deepEqual(
+    parseRootIndex(`
+      export const PLAIN = Object.freeze({ value: 1 })
+      export const TYPED: CanonicalOptions = Object.freeze({ value: 2 })
+      export const MULTILINE: CanonicalOptions =
+        Object.freeze({ value: 3 })
+    `),
+    [
+      { source: '<local>:PLAIN', exportNames: ['PLAIN'] },
+      { source: '<local>:TYPED', exportNames: ['TYPED'] },
+      { source: '<local>:MULTILINE', exportNames: ['MULTILINE'] },
+    ],
+  )
+})
+
 test('public API documentation separates subpaths by lifecycle', () => {
   const markdown = buildPublicAllowlistMarkdown({
     generatedOn: '2026-08-18',

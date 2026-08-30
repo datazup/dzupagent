@@ -1,5 +1,6 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import process from 'node:process';
 import { spawn } from 'node:child_process';
@@ -195,6 +196,33 @@ async function walkFiles(dir) {
   return files;
 }
 
+async function digestFileManifest(root, files) {
+  const manifest = [];
+  for (const file of [...files].sort()) {
+    const content = await readFile(file);
+    manifest.push({
+      path: path.relative(root, file).split(path.sep).join('/'),
+      sha256: createHash('sha256').update(content).digest('hex'),
+    });
+  }
+  return createHash('sha256').update(JSON.stringify(manifest)).digest('hex');
+}
+
+async function declarationInputSha256({ root, packageDir }) {
+  const sourceRoot = path.join(root, packageDir, 'src');
+  const sourceFiles = (await walkFiles(sourceRoot)).filter((file) => {
+    const relative = path.relative(sourceRoot, file).split(path.sep).join('/');
+    return file.endsWith('.ts')
+      && !relative.includes('/__tests__/')
+      && !relative.startsWith('__tests__/')
+      && !/\.(?:test|spec)\.ts$/.test(relative);
+  });
+  const configurationFiles = ['package.json', 'tsconfig.json', 'tsup.config.ts']
+    .map((file) => path.join(root, packageDir, file))
+    .filter((file) => existsSync(file));
+  return digestFileManifest(root, [...sourceFiles, ...configurationFiles]);
+}
+
 async function summarizeDeclarations({ root, packageDir }) {
   const distDir = path.join(root, packageDir, 'dist');
   const files = await walkFiles(distDir);
@@ -222,6 +250,7 @@ async function summarizeDeclarations({ root, packageDir }) {
     declarationMapFileCount: declarationMapFiles.length,
     declarationBytes,
     declarationMapBytes,
+    declarationManifestSha256: await digestFileManifest(root, declarationFiles),
     topDeclarationDirs: [...byTopDirectory.entries()]
       .map(([dir, count]) => ({ dir, count }))
       .sort((a, b) => b.count - a.count || a.dir.localeCompare(b.dir))
@@ -320,13 +349,97 @@ function getMeasuredMetric(result, metric) {
   }
 }
 
-export function evaluateBudgets(results, budgetConfig) {
+const DECLARATION_DEBT_METRICS = ['maxDeclarationFiles', 'maxDeclarationBytes'];
+const APPROVAL_MAX_AGE_DAYS = 30;
+const MILLISECONDS_PER_DAY = 86_400_000;
+
+function isHexDigest(value, length) {
+  return typeof value === 'string' && new RegExp(`^[a-f0-9]{${length}}$`).test(value);
+}
+
+function validateIsoDate(value, label, messages) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    messages.push(`${label} must be an ISO date`);
+    return undefined;
+  }
+  const parsed = Date.parse(`${value}T00:00:00.000Z`);
+  if (!Number.isFinite(parsed)
+    || new Date(parsed).toISOString().slice(0, 10) !== value) {
+    messages.push(`${label} must be an ISO date`);
+    return undefined;
+  }
+  return parsed;
+}
+
+function validateDeclarationDebtPin({ result, budget, approvers, now }) {
+  const pin = budget.declarationDebtPin;
+  const messages = [];
+  if (!pin || typeof pin !== 'object' || Array.isArray(pin)) {
+    return { ok: false, messages: ['declarationDebtPin must be an object'] };
+  }
+
+  for (const metric of DECLARATION_DEBT_METRICS) {
+    const measured = getMeasuredMetric(result, metric);
+    if (pin[metric] !== measured) {
+      messages.push(
+        `declarationDebtPin ${metric} must equal the measured value ${measured} with zero slack`,
+      );
+    }
+    if (typeof budget[metric] !== 'number' || pin[metric] <= budget[metric]) {
+      messages.push(`declarationDebtPin ${metric} must remain above the enforced lower cap`);
+    }
+  }
+
+  if (!isHexDigest(pin.declarationManifestSha256, 64)
+    || pin.declarationManifestSha256 !== result.declarations.declarationManifestSha256) {
+    messages.push('declarationDebtPin declaration manifest digest does not match reviewed output');
+  }
+  if (!isHexDigest(pin.declarationInputSha256, 64)
+    || pin.declarationInputSha256 !== result.declarationInputSha256) {
+    messages.push('declarationDebtPin declaration input digest does not match reviewed source');
+  }
+  if (!isHexDigest(pin.sourceCommit, 40)) {
+    messages.push('declarationDebtPin sourceCommit must be a full lowercase Git commit');
+  }
+  if (typeof pin.rationale !== 'string' || pin.rationale.trim().length < 20) {
+    messages.push('declarationDebtPin rationale must explain the temporary debt');
+  }
+  if (!Array.isArray(approvers) || approvers.length === 0) {
+    messages.push('acceptedGrowthApprovers must be configured for declaration debt pins');
+  } else if (typeof pin.approvedBy !== 'string' || !approvers.includes(pin.approvedBy)) {
+    messages.push('declarationDebtPin approvedBy is not in acceptedGrowthApprovers');
+  }
+
+  const approvedOn = validateIsoDate(pin.approvedOn, 'declarationDebtPin approvedOn', messages);
+  if (approvedOn !== undefined) {
+    if (approvedOn > now.getTime()) {
+      messages.push('declarationDebtPin approval is future-dated');
+    } else if ((now.getTime() - approvedOn) / MILLISECONDS_PER_DAY > APPROVAL_MAX_AGE_DAYS) {
+      messages.push(`declarationDebtPin approval is older than ${APPROVAL_MAX_AGE_DAYS} days`);
+    }
+  }
+  const reviewBy = validateIsoDate(pin.reviewBy, 'declarationDebtPin reviewBy', messages);
+  if (reviewBy !== undefined && reviewBy < Date.parse(now.toISOString().slice(0, 10))) {
+    messages.push(`declarationDebtPin review expired on ${pin.reviewBy}`);
+  }
+
+  return { ok: messages.length === 0, messages, pin };
+}
+
+export function evaluateBudgets(results, budgetConfig, { now = new Date() } = {}) {
   const packageBudgets = budgetConfig?.packages;
   if (!packageBudgets || typeof packageBudgets !== 'object' || Array.isArray(packageBudgets)) {
     throw new Error('DTS budget file must contain a "packages" object');
   }
 
   const messages = [];
+  const debtPins = [];
+  const approvers = budgetConfig.acceptedGrowthApprovers;
+  if (approvers !== undefined
+    && (!Array.isArray(approvers)
+      || approvers.some((entry) => typeof entry !== 'string' || entry.trim() === ''))) {
+    throw new Error('acceptedGrowthApprovers must be an array of non-empty strings');
+  }
   const supportedMetrics = [
     'minDeclarationFiles',
     'minDeclarationBytes',
@@ -344,6 +457,23 @@ export function evaluateBudgets(results, budgetConfig) {
       continue;
     }
 
+    const declarationOverages = DECLARATION_DEBT_METRICS.filter((metric) => {
+      const limit = budget[metric];
+      const measured = getMeasuredMetric(result, metric);
+      return typeof limit === 'number' && measured !== undefined && measured > limit;
+    });
+    let declarationDebt;
+    if (declarationOverages.length > 0 && budget.declarationDebtPin !== undefined) {
+      declarationDebt = validateDeclarationDebtPin({ result, budget, approvers, now });
+      if (declarationDebt.ok) {
+        debtPins.push({ packageName: result.name, ...declarationDebt.pin });
+      } else {
+        messages.push(...declarationDebt.messages.map((message) => `${result.name}: ${message}`));
+      }
+    } else if (declarationOverages.length === 0 && budget.declarationDebtPin !== undefined) {
+      messages.push(`${result.name}: declarationDebtPin is stale because the lower caps are satisfied`);
+    }
+
     for (const metric of supportedMetrics) {
       const limit = budget[metric];
       if (limit === undefined) continue;
@@ -356,6 +486,9 @@ export function evaluateBudgets(results, budgetConfig) {
         continue;
       }
       if (isMinimumMetric(metric) ? measured < limit : measured > limit) {
+        if (declarationDebt?.ok && DECLARATION_DEBT_METRICS.includes(metric)) {
+          continue;
+        }
         const isMinimum = isMinimumMetric(metric);
         const relation = isMinimum ? 'below minimum' : 'exceeded';
         // A minimum floor catches a dist that built JS but emitted no declarations,
@@ -378,6 +511,7 @@ export function evaluateBudgets(results, budgetConfig) {
   return {
     ok: messages.length === 0,
     messages,
+    debtPins,
   };
 }
 
@@ -417,6 +551,7 @@ async function main() {
       tsupEntryCount: tsupEntries.count,
       tsupEntries: tsupEntries.entries,
       rootBarrel: summarizeRootBarrel(rootIndexText),
+      declarationInputSha256: await declarationInputSha256({ root, packageDir: pkg.dir }),
       declarations: await summarizeDeclarations({ root, packageDir: pkg.dir }),
     });
   }
@@ -437,6 +572,9 @@ async function main() {
     const budgetResult = evaluateBudgets(results, await readBudgetFile(root, options.budgetFile));
     if (budgetResult.ok) {
       console.log('\nDTS budgets: ok');
+      if (budgetResult.debtPins.length > 0) {
+        console.log(`Source-bound declaration debt pins accepted: ${budgetResult.debtPins.length}`);
+      }
       return;
     }
 

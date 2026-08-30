@@ -149,6 +149,20 @@ export function validateRevision(
   if (name.length > 255) {
     throw new InvalidGitRefError(name, kind, 'exceeds maximum length (255)')
   }
-  const base = name.replace(/(?:[~^][0-9]*)+$/, '')
+  let suffixStart = name.length
+  while (suffixStart > 0) {
+    let operatorIndex = suffixStart
+    while (operatorIndex > 0) {
+      const codePoint = name.charCodeAt(operatorIndex - 1)
+      if (codePoint < 48 || codePoint > 57) break
+      operatorIndex -= 1
+    }
+
+    const operator = name[operatorIndex - 1]
+    if (operator !== '~' && operator !== '^') break
+    suffixStart = operatorIndex - 1
+  }
+
+  const base = name.slice(0, suffixStart)
   validateRefName(base, kind)
 }

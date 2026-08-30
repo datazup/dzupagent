@@ -1140,6 +1140,7 @@ Root index: `packages/flow-ast/src/index.ts`
 | --- | --- |
 | `@dzupagent/flow-ast/expressions` | typed expression and strict reference analysis contracts |
 | `@dzupagent/flow-ast/typed-condition-evaluator` | capability-gated provider-free typed-condition evaluation |
+| `@dzupagent/flow-ast/node-traversal` | canonical child-node field lists and pre-order AST/raw traversal helpers |
 
 ### Root Allowlist
 
@@ -1242,6 +1243,28 @@ No stable subpaths configured.
 | `stable` | `./supported-types.js` | 2 | `exact:./supported-types.js` | `isSupportedDocumentType`, `SUPPORTED_MIME_TYPES` |
 | `stable` | `./validation.js` | 6 | `exact:./validation.js` | `DEFAULT_MAX_CHUNK_SIZE`, `DEFAULT_OVERLAP_SIZE`, `MAX_CHUNK_SIZE_LIMIT`, `DEFAULT_MAX_DOCUMENT_BYTES` |
 | `stable` | `./types.js` | 1 | `exact:./types.js` | `ChunkOptions` |
+
+## @datazup/canonical-json
+
+Root index: `packages/canonical-json/src/index.ts`
+
+- Stable root sources: `4`
+- Deprecated transitional root sources: `0`
+- Internal-only root candidates: `0`
+- Migration window: Canonical JSON root exports are stable Layer 0 serialization and digest primitives; add allowlist rules before exposing new root constants or re-export sources.
+
+### Stable Subpaths
+
+No stable subpaths configured.
+
+### Root Allowlist
+
+| Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
+| --- | --- | ---: | --- | --- |
+| `stable` | `<local>:AUTHORING_V1_OPTIONS` | 1 | `exact:<local>:AUTHORING_V1_OPTIONS` | `AUTHORING_V1_OPTIONS` |
+| `stable` | `<local>:CLASSIFICATION_ENVELOPE_V1_OPTIONS` | 1 | `exact:<local>:CLASSIFICATION_ENVELOPE_V1_OPTIONS` | `CLASSIFICATION_ENVELOPE_V1_OPTIONS` |
+| `stable` | `<local>:COMPILE_EVIDENCE_V1_OPTIONS` | 1 | `exact:<local>:COMPILE_EVIDENCE_V1_OPTIONS` | `COMPILE_EVIDENCE_V1_OPTIONS` |
+| `stable` | `<local>:ADAPTER_DIGEST_V1_OPTIONS` | 1 | `exact:<local>:ADAPTER_DIGEST_V1_OPTIONS` | `ADAPTER_DIGEST_V1_OPTIONS` |
 
 ## @dzupagent/server
 

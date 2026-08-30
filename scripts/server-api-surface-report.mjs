@@ -51,11 +51,28 @@ export function parseRootIndex(indexText) {
     })
   }
 
-  for (const localMatch of indexText.matchAll(/export\s+const\s+(\w+)\s*=/g)) {
-    entries.push({
-      source: `<local>:${localMatch[1]}`,
-      exportNames: [localMatch[1]],
-    })
+  const sourceFile = ts.createSourceFile(
+    'index.ts',
+    indexText,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  )
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    const exported = statement.modifiers?.some(
+      (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
+    )
+    const isConst = (statement.declarationList.flags & ts.NodeFlags.Const) !== 0
+    if (!exported || !isConst) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name)) continue
+      const name = declaration.name.text
+      entries.push({
+        source: `<local>:${name}`,
+        exportNames: [name],
+      })
+    }
   }
 
   return entries

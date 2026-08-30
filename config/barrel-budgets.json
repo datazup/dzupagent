@@ -193,6 +193,43 @@
     "The root pins cover shipped compatibility surfaces in memory, agent-adapters, runtime-contracts, adapter-types, and flow-ast. The file pins cover five post-baseline modules that require per-concern decomposition. These are visible finite debts, not general growth licenses; remove each pin when the matching decomposition or public-surface migration lands.",
     "2026-08-14 lossless consolidation qualification: retained every lower architecture target and added exact source-bound debt pins only for merged published exports and newly oversized modules at clean source b71085145d8d17befaec852d3ad8db80e72b2b89. Root pins cover core handled-error compatibility, Agent interaction exports, Agent Adapters Codex goal control, Runtime Contracts interaction exports, and HITL interaction adapter compatibility. File pins cover consolidated pipeline interaction/replay, Codex app-server control, runtime interaction contracts, compiler interaction handling, and action normalization. Every pin has zero line/export slack, fails on byte drift, and expires 2026-09-14; decomposition or subpath migration remains required."
   ],
+  "acceptedGrowthApprovers": [
+    "Ninel Hodzic"
+  ],
+  "acceptedGrowth": [
+    {
+      "key": "@dzupagent/agent-adapters/rootDebtPin/maxRootIndexLines",
+      "from": 957,
+      "to": 984,
+      "reason": "Preserve the already-integrated Agent Adapters compatibility barrel at current main with zero slack while the lower 870-line architecture target remains enforced.",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-08-30"
+    },
+    {
+      "key": "@dzupagent/agent-adapters/fileLineDebtPins/src/index.ts/maxLines",
+      "from": 957,
+      "to": 984,
+      "reason": "Bind the same pure re-export barrel bytes under the per-file debt fence; the 500-line shrink target remains unchanged.",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-08-30"
+    },
+    {
+      "key": "@dzupagent/runtime-contracts/rootDebtPin/maxRootIndexLines",
+      "from": 139,
+      "to": 172,
+      "reason": "Preserve the already-integrated neutral runtime-contract root at current main with zero slack while the lower 115-line target remains enforced.",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-08-30"
+    },
+    {
+      "key": "@dzupagent/adapter-types/rootDebtPin/maxRootIndexLines",
+      "from": 32,
+      "to": 33,
+      "reason": "Preserve the already-integrated provider-session root re-export at current main with zero slack while the lower 28-line target remains enforced.",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-08-30"
+    }
+  ],
   "packages": {
     "@dzupagent/core": {
       "maxRootBarrelExplicitExports": 935,
@@ -428,11 +465,11 @@
     "@dzupagent/agent-adapters": {
       "maxRootIndexLines": 870,
       "rootDebtPin": {
-        "maxRootIndexLines": 957,
-        "sourceSha256": "7770641cd2a8e5d13d79cde223f148e0dbad96af358fc0928e4031bdfa073983",
-        "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
-        "reviewBy": "2026-09-14",
-        "rationale": "Freeze the consolidated adapter monitoring and Codex goal-control compatibility exports while subpath adoption is completed."
+        "maxRootIndexLines": 984,
+        "sourceSha256": "e6c70e4caaab20b1a6711762b05116a8d4015dda8261e95792725fb14588bb5c",
+        "sourceCommit": "c9dd6b0ace9790d3fe6962f62e5ee370a59c761a",
+        "reviewBy": "2026-09-30",
+        "rationale": "2026-08-30 workspace closure: freeze the already-integrated 22-subpath Agent Adapters compatibility barrel at exactly 984 lines, 128 sources, 642 explicit exports, and one star export. The lower 870-line architecture target remains enforced; future APIs stay subpath-first."
       },
       "maxFileLines": 500,
       "fileLineDebtPins": {
@@ -453,12 +490,12 @@
           "rationale": "RF-03: module was over the ceiling with no pin, so the gate was red. Frozen at its current 615 bytes-bound LOC pending extraction down to the 500-LOC target."
         },
         "src/index.ts": {
-          "maxLines": 957,
+          "maxLines": 984,
           "shrinkTarget": 500,
-          "sourceSha256": "7770641cd2a8e5d13d79cde223f148e0dbad96af358fc0928e4031bdfa073983",
-          "sourceCommit": "b6a1acf1056114ad6851e1ded8a207577467d930",
-          "reviewBy": "2026-11-16",
-          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 957 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+          "sourceSha256": "e6c70e4caaab20b1a6711762b05116a8d4015dda8261e95792725fb14588bb5c",
+          "sourceCommit": "c9dd6b0ace9790d3fe6962f62e5ee370a59c761a",
+          "reviewBy": "2026-09-30",
+          "rationale": "2026-08-30 workspace closure: bind the current pure re-export barrel at exactly 984 lines with zero slack. The 500-line shrink target remains unchanged, and any later byte or line growth fails closed."
         },
         "src/model-discovery.ts": {
           "maxLines": 727,
@@ -497,11 +534,11 @@
     "@dzupagent/runtime-contracts": {
       "maxRootIndexLines": 115,
       "rootDebtPin": {
-        "maxRootIndexLines": 139,
-        "sourceSha256": "3478a9b7c330f6d08a0a0b5a2d67fd3925e9b7768738671920e31334c7f3304e",
-        "sourceCommit": "d1b5c5e5595002ed928243347e5bf0214e5852a2",
-        "reviewBy": "2026-11-16",
-        "rationale": "Freeze the consolidated runtime interaction contract compatibility surface while consumers move to package subpaths.",
+        "maxRootIndexLines": 172,
+        "sourceSha256": "5e6fa7908ed97c7294bad443e3345ccae79e29d1bcd173b868f8be1e84308617",
+        "sourceCommit": "c9dd6b0ace9790d3fe6962f62e5ee370a59c761a",
+        "reviewBy": "2026-09-30",
+        "rationale": "2026-08-30 workspace closure: freeze the already-integrated neutral runtime-contract compatibility root at exactly 172 lines, 14 sources, 137 explicit exports, and seven star exports. The lower 115-line target remains enforced.",
         "shrinkTargets": {
           "maxRootIndexLines": 115
         }
@@ -593,11 +630,11 @@
     "@dzupagent/adapter-types": {
       "maxRootIndexLines": 28,
       "rootDebtPin": {
-        "maxRootIndexLines": 32,
-        "sourceSha256": "c725e3c235c8ef309367f56acaee649bd11eeb541a0783b3de07124713a59a77",
-        "sourceCommit": "d7a3dbb9978b4dc2b2b3ea5680fca664af42701f",
-        "reviewBy": "2026-09-11",
-        "rationale": "Freeze the consolidated provider-session compatibility export with zero slack while future contracts remain subpath-only."
+        "maxRootIndexLines": 33,
+        "sourceSha256": "8c6aecb2ce7e296730b939474d2ddefdbf362813917fb5941883833fd52310ed",
+        "sourceCommit": "c9dd6b0ace9790d3fe6962f62e5ee370a59c761a",
+        "reviewBy": "2026-09-30",
+        "rationale": "2026-08-30 workspace closure: freeze the already-integrated provider-session compatibility root at exactly 33 lines with zero slack. The lower 28-line target remains enforced and future contracts remain subpath-only."
       },
       "maxFileLines": 500,
       "fileLineDebtPins": {

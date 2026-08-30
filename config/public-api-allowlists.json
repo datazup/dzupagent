@@ -820,6 +820,20 @@
       "transitionalRoot": [{ "match": "prefix", "pattern": "./chunking/" }],
       "subpaths": {},
       "migrationWindow": "Document connector root exports are stable ingestion primitives; chunking subpath is transitional pending API stabilisation."
+    },
+    {
+      "packageName": "@datazup/canonical-json",
+      "packageDir": "packages/canonical-json",
+      "rootIndex": "packages/canonical-json/src/index.ts",
+      "stableRoot": [
+        { "match": "exact", "pattern": "<local>:AUTHORING_V1_OPTIONS" },
+        { "match": "exact", "pattern": "<local>:CLASSIFICATION_ENVELOPE_V1_OPTIONS" },
+        { "match": "exact", "pattern": "<local>:COMPILE_EVIDENCE_V1_OPTIONS" },
+        { "match": "exact", "pattern": "<local>:ADAPTER_DIGEST_V1_OPTIONS" }
+      ],
+      "transitionalRoot": [],
+      "subpaths": {},
+      "migrationWindow": "Canonical JSON root exports are stable Layer 0 serialization and digest primitives; add allowlist rules before exposing new root constants or re-export sources."
     }
   ]
 }

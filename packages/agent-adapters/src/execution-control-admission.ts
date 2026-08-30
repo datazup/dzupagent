@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 
-import { ForgeError } from '@dzupagent/core'
+import { ForgeError } from '@dzupagent/core/events'
 
 import type {
   AdapterExecutionControlAdmission,
