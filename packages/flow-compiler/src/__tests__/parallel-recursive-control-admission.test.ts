@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { PipelineDefinitionSchema } from "@dzupagent/core/orchestration";
+import { PipelineDefinitionSchema } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type { FlowNode } from "@dzupagent/flow-ast";
 
 import { createFlowCompiler } from "../index.js";

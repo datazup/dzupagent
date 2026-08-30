@@ -7,7 +7,7 @@
  * @module pipeline/executor-internals/loop-node-handler
  */
 
-import type { PipelineNode, LoopNode } from "@dzupagent/core/pipeline";
+import type { PipelineNode, LoopNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import {
   executeLoop,
   type LoopBodyGraphControlOutcome,

@@ -15,11 +15,7 @@ import {
 } from "../workflow/index.js";
 import { InMemoryPipelineCheckpointStore } from "../pipeline/in-memory-checkpoint-store.js";
 import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
-import type {
-  PipelineDefinition,
-  PipelineNode,
-  PipelineEdge,
-} from "@dzupagent/core";
+import type { PipelineDefinition, PipelineNode, PipelineEdge } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type {
   NodeExecutor,
   NodeResult,

@@ -1,10 +1,5 @@
-import {
-  PipelineCheckpointSchema,
-  type PipelineCheckpoint,
-  type PipelineEdge,
-  type PipelineNode,
-  type PipelineRecursiveForkCompletionV1,
-} from "@dzupagent/core/pipeline";
+import { PipelineCheckpointSchema, type PipelineCheckpoint, type PipelineRecursiveForkCompletionV1 } from "@dzupagent/core/pipeline";
+import { type PipelineEdge, type PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import {
   canonicalInputDigest,
   digestPipelineDefinition,

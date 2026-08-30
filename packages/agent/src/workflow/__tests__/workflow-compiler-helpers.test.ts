@@ -11,7 +11,7 @@
  * transitively but never asserted at the seam where they are decided.
  */
 import { describe, it, expect, vi } from "vitest";
-import type { PipelineNode } from "@dzupagent/core/pipeline";
+import type { PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import { createNodeExecutorFactory } from "../workflow-compiler-executor.js";
 import {
   applyErrorHandlers,

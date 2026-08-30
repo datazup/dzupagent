@@ -1,4 +1,4 @@
-import type { LoopNode, PipelineNode } from "@dzupagent/core";
+import type { LoopNode, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import {
   AI_BUDGET_RESERVATION_SCHEMA,
   reserveAiBudget,

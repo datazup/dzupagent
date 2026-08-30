@@ -1,5 +1,5 @@
 /** F-R4 — typed loop exhaustion is governed by typedWhile.onExhausted. */
-import type { LoopNode, PipelineNode } from "@dzupagent/core/pipeline";
+import type { LoopNode, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import { describe, expect, it } from "vitest";
 
 import { executeLoop } from "../pipeline/loop-executor.js";

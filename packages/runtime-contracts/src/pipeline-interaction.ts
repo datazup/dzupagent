@@ -41,8 +41,9 @@ export {
   createPipelineInteractionResumeV1,
   createPipelineInteractionSpecV1,
   createPipelinePendingInteractionV1,
-  digestPipelineDefinition,
 } from "./pipeline-interaction/construction.js";
+export { digestPipelineDefinition } from "./pipeline-artifact/digest.js";
+export { digestPipelineInteractionValue } from "./pipeline-interaction/digest.js";
 export { validatePipelineInteractionSpecV1 } from "./pipeline-interaction/spec-validation.js";
 export { validatePipelinePendingInteractionV1 } from "./pipeline-interaction/record-validation.js";
 export { validatePipelineInteractionResumeV1 } from "./pipeline-interaction/resume-validation.js";

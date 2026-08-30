@@ -4,11 +4,7 @@
  * Pins the same reserve/settle/release/reconcile lifecycle already used by
  * `for_each`, but at one predicate-loop iteration boundary.
  */
-import type {
-  LoopNode,
-  PipelineDefinition,
-  PipelineNode,
-} from "@dzupagent/core";
+import type { LoopNode, PipelineDefinition, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import { describe, expect, it } from "vitest";
 
 import { executeLoop } from "../pipeline/loop-executor.js";

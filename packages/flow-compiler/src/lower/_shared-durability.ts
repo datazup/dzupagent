@@ -9,7 +9,7 @@
  */
 
 import type { FlowNodeBase } from "@dzupagent/flow-ast";
-import type { PipelineNodeBase } from "@dzupagent/core/orchestration";
+import type { PipelineNodeBase } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 type RuntimeDurabilityFields = Pick<
   PipelineNodeBase,

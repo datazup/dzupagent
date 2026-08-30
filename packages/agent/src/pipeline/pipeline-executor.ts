@@ -19,13 +19,7 @@
  * @module pipeline/pipeline-executor
  */
 
-import type {
-  PipelineNode,
-  PipelineEdge,
-  ForkNode,
-  JoinNode,
-  LoopNode,
-} from "@dzupagent/core/pipeline";
+import type { PipelineNode, PipelineEdge, ForkNode, JoinNode, LoopNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type {
   PipelineState,
   NodeResult,

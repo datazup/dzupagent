@@ -261,12 +261,12 @@
           "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 560 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
         },
         "src/pipeline/loop-executor/for-each-loop.ts": {
-          "maxLines": 1681,
+          "maxLines": 1678,
           "shrinkTarget": 500,
-          "sourceSha256": "d3589746f5e0609819b33a81a7c4839def61529ed8cfa95ca521131d8931a054",
-          "sourceCommit": "cff26e541c54ff68080b6daddb2888b33143a824",
+          "sourceSha256": "3a5d5db4b276c6c6a4d64c6f297e5b17ee2eba0f51ed569039c2b0ebf0712097",
+          "sourceCommit": "d99278bf62d5f296666b377690c91f246f90ff5c",
           "reviewBy": "2026-11-30",
-          "rationale": "Re-pin DOWN 2039->1681 (2026-08-30): the strict per-item budget lifecycle (reserve/settle/release plus the G2b outcome-unknown resolution paths) moved to for-each-item-budget.ts, and the shared reservation identity to for-each-reservation.ts. The lifecycle closed over only four loop values, so it extracted as a self-contained collaborator. Still above the 500 ceiling; shrinkTarget unchanged. The remaining bulk is the runIteration closure and ordered-prefix flushing."
+          "rationale": "Re-pin DOWN 2039->1681 (2026-08-30): the strict per-item budget lifecycle (reserve/settle/release plus the G2b outcome-unknown resolution paths) moved to for-each-item-budget.ts, and the shared reservation identity to for-each-reservation.ts. The lifecycle closed over only four loop values, so it extracted as a self-contained collaborator. Still above the 500 ceiling; shrinkTarget unchanged. The remaining bulk is the runIteration closure and ordered-prefix flushing. ARCH27-T-14 re-pin 2026-08-30: artifact-contract imports repointed to @dzupagent/runtime-contracts/pipeline-artifact (1681->1678 LOC, toward shrinkTarget)."
         },
         "src/self-correction/learning-dashboard.ts": {
           "maxLines": 587,
@@ -285,20 +285,20 @@
           "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 508 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
         },
         "src/pipeline/executor-internals/stage-dispatch.ts": {
-          "maxLines": 1119,
+          "maxLines": 1117,
           "shrinkTarget": 500,
-          "sourceSha256": "9d0566394570a52ac0726f1211797a2b5ad38c60cab7ebb219baf30715e7e8be",
-          "sourceCommit": "f56d7d853988437327c5c6621467d8999a112b77",
+          "sourceSha256": "bcd6f5eb4f1dfddb0c715d254253c2f3bf5057301c802dd98226e7bd382c8328",
+          "sourceCommit": "d99278bf62d5f296666b377690c91f246f90ff5c",
           "reviewBy": "2026-11-16",
-          "rationale": "ARCH27-T-10 re-key 2026-08-28: pipeline-runtime/ renamed to executor-internals/ (naming inverted actual ownership) and the shared leaves (edge-resolution, error-classification, checkpoint-integrity-error, PipelineSourceBindingMismatchError) moved to pipeline-shared/, so this pin follows the file to its new path with its new sha. LOC measured 1119; shrinkTarget unchanged."
+          "rationale": "ARCH27-T-10 re-key 2026-08-28: pipeline-runtime/ renamed to executor-internals/ (naming inverted actual ownership) and the shared leaves (edge-resolution, error-classification, checkpoint-integrity-error, PipelineSourceBindingMismatchError) moved to pipeline-shared/, so this pin follows the file to its new path with its new sha. LOC measured 1119; shrinkTarget unchanged. ARCH27-T-14 re-pin 2026-08-30: artifact-contract imports repointed to @dzupagent/runtime-contracts/pipeline-artifact (1119->1117 LOC, toward shrinkTarget)."
         },
         "src/pipeline/loop-executor/predicate-loop-economics.ts": {
-          "maxLines": 1174,
+          "maxLines": 1170,
           "shrinkTarget": 500,
-          "sourceSha256": "f5737a54ad8f0c8e7de96b10046ecf4e95588f4b6bd568ea857c5a7c1071eac5",
-          "sourceCommit": "4d52de34d06da166432fd6d4cb4662bf7b4dae6b",
+          "sourceSha256": "3eb5ead6bb2098431e651280857a72159dd0a8f3000cad494ad61c3277a1e062",
+          "sourceCommit": "d99278bf62d5f296666b377690c91f246f90ff5c",
           "reviewBy": "2026-11-30",
-          "rationale": "Floor pin 2026-08-30: this file was over the 500-LOC ceiling with no debt pin at all, so nothing recorded or halted its growth. Frozen at the measured 1174 LOC to stop further growth; shrinkTarget stays 500. This accepts no regression \u2014 it establishes the ceiling that was missing. Decompose toward the target under ARCH27-T-15."
+          "rationale": "Floor pin 2026-08-30: this file was over the 500-LOC ceiling with no debt pin at all, so nothing recorded or halted its growth. Frozen at the measured 1174 LOC to stop further growth; shrinkTarget stays 500. This accepts no regression \u2014 it establishes the ceiling that was missing. Decompose toward the target under ARCH27-T-15. ARCH27-T-14 re-pin 2026-08-30: artifact-contract imports repointed to @dzupagent/runtime-contracts/pipeline-artifact (1174->1170 LOC, toward shrinkTarget)."
         },
         "src/pipeline/recursive-scope/control-ownership.ts": {
           "maxLines": 1126,
@@ -311,10 +311,10 @@
         "src/pipeline/loop-executor/predicate-loop.ts": {
           "maxLines": 809,
           "shrinkTarget": 500,
-          "sourceSha256": "137368f4765b192faff70e5520d255e12380cebf6b7197b0d86981a5ef28d024",
-          "sourceCommit": "4d52de34d06da166432fd6d4cb4662bf7b4dae6b",
+          "sourceSha256": "afa62f4342f836ea62efe49ea43f816fe85f7daa9dca479341b01119dcec8006",
+          "sourceCommit": "d99278bf62d5f296666b377690c91f246f90ff5c",
           "reviewBy": "2026-11-30",
-          "rationale": "Floor pin 2026-08-30: this file was over the 500-LOC ceiling with no debt pin at all, so nothing recorded or halted its growth. Frozen at the measured 809 LOC to stop further growth; shrinkTarget stays 500. This accepts no regression \u2014 it establishes the ceiling that was missing. Decompose toward the target under ARCH27-T-15."
+          "rationale": "Floor pin 2026-08-30: this file was over the 500-LOC ceiling with no debt pin at all, so nothing recorded or halted its growth. Frozen at the measured 809 LOC to stop further growth; shrinkTarget stays 500. This accepts no regression \u2014 it establishes the ceiling that was missing. Decompose toward the target under ARCH27-T-15. ARCH27-T-14 re-pin 2026-08-30: artifact-contract imports repointed to @dzupagent/runtime-contracts/pipeline-artifact (809->809 LOC, toward shrinkTarget)."
         },
         "src/pipeline/recursive-scope/for-each-item-dispatcher.ts": {
           "maxLines": 717,
@@ -349,12 +349,12 @@
           "rationale": "Floor pin 2026-08-30: this file was over the 500-LOC ceiling with no debt pin at all, so nothing recorded or halted its growth. Frozen at the measured 544 LOC to stop further growth; shrinkTarget stays 500. This accepts no regression \u2014 it establishes the ceiling that was missing. Decompose toward the target under ARCH27-T-15."
         },
         "src/pipeline/pipeline-runtime.ts": {
-          "maxLines": 533,
+          "maxLines": 528,
           "shrinkTarget": 500,
-          "sourceSha256": "31b0aa896c8bef214f7e5e8fad7a956baf8f7447113855af45b12325e38aecfb",
-          "sourceCommit": "4d52de34d06da166432fd6d4cb4662bf7b4dae6b",
+          "sourceSha256": "181367da8ca532d57db740276c974f46d3db92d3b3ec7c5960507b1a9fa522fe",
+          "sourceCommit": "d99278bf62d5f296666b377690c91f246f90ff5c",
           "reviewBy": "2026-11-30",
-          "rationale": "Floor pin 2026-08-30: this file was over the 500-LOC ceiling with no debt pin at all, so nothing recorded or halted its growth. Frozen at the measured 533 LOC to stop further growth; shrinkTarget stays 500. This accepts no regression \u2014 it establishes the ceiling that was missing. Decompose toward the target under ARCH27-T-15."
+          "rationale": "Floor pin 2026-08-30: this file was over the 500-LOC ceiling with no debt pin at all, so nothing recorded or halted its growth. Frozen at the measured 533 LOC to stop further growth; shrinkTarget stays 500. This accepts no regression \u2014 it establishes the ceiling that was missing. Decompose toward the target under ARCH27-T-15. ARCH27-T-14 re-pin 2026-08-30: artifact-contract imports repointed to @dzupagent/runtime-contracts/pipeline-artifact (533->528 LOC, toward shrinkTarget)."
         },
         "src/agent/run-engine-generate-tool-loop.ts": {
           "maxLines": 532,
@@ -367,10 +367,10 @@
         "src/pipeline/pipeline-templates.ts": {
           "maxLines": 521,
           "shrinkTarget": 500,
-          "sourceSha256": "1c2faecab0a487a10b7d9fbf1a8cab2de465e21cf2fb15b065db41610737cc8e",
-          "sourceCommit": "4d52de34d06da166432fd6d4cb4662bf7b4dae6b",
+          "sourceSha256": "f69a16b02719e25e5131ca684ba36e10fd013d125926c5271008404a164038ae",
+          "sourceCommit": "d99278bf62d5f296666b377690c91f246f90ff5c",
           "reviewBy": "2026-11-30",
-          "rationale": "Floor pin 2026-08-30: this file was over the 500-LOC ceiling with no debt pin at all, so nothing recorded or halted its growth. Frozen at the measured 521 LOC to stop further growth; shrinkTarget stays 500. This accepts no regression \u2014 it establishes the ceiling that was missing. Decompose toward the target under ARCH27-T-15."
+          "rationale": "Floor pin 2026-08-30: this file was over the 500-LOC ceiling with no debt pin at all, so nothing recorded or halted its growth. Frozen at the measured 521 LOC to stop further growth; shrinkTarget stays 500. This accepts no regression \u2014 it establishes the ceiling that was missing. Decompose toward the target under ARCH27-T-15. ARCH27-T-14 re-pin 2026-08-30: artifact-contract imports repointed to @dzupagent/runtime-contracts/pipeline-artifact (521->521 LOC, toward shrinkTarget)."
         }
       }
     },

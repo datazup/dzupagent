@@ -1,4 +1,4 @@
-import type { PipelineEdge, PipelineNode, PipelineValidationError } from "@dzupagent/core/pipeline";
+import type { PipelineEdge, PipelineNode, PipelineValidationError } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 import { projectValidationEdgeTargets } from "../edge-target-projections.js";
 

@@ -1,11 +1,6 @@
 /** Loop-owned adapter for the reusable scoped graph frame validator. */
 
-import type {
-  LoopNode,
-  PipelineDefinition,
-  PipelineEdge,
-  PipelineNode,
-} from "@dzupagent/core/pipeline";
+import type { LoopNode, PipelineDefinition, PipelineEdge, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 import type { LoopBodyGraphCheckpointState } from "./loop-executor/types.js";
 import type { ScopedGraphBoundary } from "./scoped-graph/contract.js";

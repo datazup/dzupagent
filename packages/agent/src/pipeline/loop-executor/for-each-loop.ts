@@ -6,11 +6,8 @@
  * @module pipeline/loop-executor/for-each-loop
  */
 
-import type {
-  LoopNode,
-  PipelineForEachItemOutcome,
-  PipelineNode,
-} from "@dzupagent/core/pipeline";
+import type { PipelineForEachItemOutcome } from "@dzupagent/core/pipeline";
+import type { LoopNode, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type {
   NodeExecutor,
   NodeExecutionContext,

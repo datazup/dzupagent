@@ -1,10 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import type {
-  PipelineCheckpoint,
-  PipelineDefinition,
-  ToolNode,
-} from "@dzupagent/core/pipeline";
+import type { PipelineCheckpoint } from "@dzupagent/core/pipeline";
+import type { PipelineDefinition, ToolNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import { InMemoryPipelineCheckpointStore } from "../in-memory-checkpoint-store.js";
 import { PipelineRuntime } from "../pipeline-runtime.js";
 import type {

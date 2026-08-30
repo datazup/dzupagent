@@ -14,13 +14,7 @@ import type {
   ParallelNode,
   TryCatchNode,
 } from "@dzupagent/flow-ast";
-import type {
-  ForkNode,
-  GateNode,
-  JoinNode,
-  PipelineEdge,
-  PipelineNode,
-} from "@dzupagent/core/orchestration";
+import type { ForkNode, GateNode, JoinNode, PipelineEdge, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 import type {
   LowerPipelineContext,

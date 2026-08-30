@@ -24,7 +24,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import type { PipelineDefinition } from "@dzupagent/core/orchestration";
+import type { PipelineDefinition } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 import {
   FLOW_TYPED_CONDITION_CAPABILITY,

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { PipelineDefinition, LoopNode } from "@dzupagent/core/pipeline";
+import type { PipelineDefinition, LoopNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type {
   FlowFragmentV1,
   ResolvedTool,

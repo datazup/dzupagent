@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PipelineCheckpoint, PipelineDefinition } from "@dzupagent/core";
+import type { PipelineCheckpoint } from "@dzupagent/core";
+import type { PipelineDefinition } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import { InMemoryPipelineCheckpointStore } from "../pipeline/in-memory-checkpoint-store.js";
 import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
 import type { PostgresClientLike } from "../pipeline/postgres-checkpoint-store.js";

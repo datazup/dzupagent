@@ -15,10 +15,7 @@
  *
  * @module workflow/workflow-compiler
  */
-import type {
-  PipelineDefinition,
-  PipelineNode,
-} from "@dzupagent/core/pipeline";
+import type { PipelineDefinition, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type { WorkflowStep, WorkflowNode } from "./workflow-types.js";
 import type {
   WorkflowConfig,

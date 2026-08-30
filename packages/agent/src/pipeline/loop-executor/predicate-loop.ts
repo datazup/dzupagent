@@ -6,7 +6,7 @@
  * @module pipeline/loop-executor/predicate-loop
  */
 
-import type { LoopNode, PipelineNode } from "@dzupagent/core/pipeline";
+import type { LoopNode, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type {
   NodeExecutor,
   NodeExecutionContext,

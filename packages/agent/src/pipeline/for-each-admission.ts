@@ -1,9 +1,4 @@
-import type {
-  LoopNode,
-  PipelineEdge,
-  PipelineNode,
-  PipelineValidationError,
-} from "@dzupagent/core/pipeline";
+import type { LoopNode, PipelineEdge, PipelineNode, PipelineValidationError } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 /**
  * Defense-in-depth validation for hand-authored or legacy pipeline artifacts.

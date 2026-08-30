@@ -1,4 +1,4 @@
-import type { ToolNode } from "@dzupagent/core/pipeline";
+import type { ToolNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 import type {
   NodeExecutionContext,

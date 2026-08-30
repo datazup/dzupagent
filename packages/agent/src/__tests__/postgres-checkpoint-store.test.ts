@@ -18,7 +18,7 @@ import {
   createPipelineInteractionResumeV1,
   createPipelineInteractionSpecV1,
   createPipelinePendingInteractionV1,
-  digestPipelineDefinition,
+  digestPipelineInteractionValue,
 } from "@dzupagent/runtime-contracts";
 
 // ---------------------------------------------------------------------------
@@ -173,7 +173,7 @@ function createStatefulCompatibilityClient(tableName: string) {
 // ---------------------------------------------------------------------------
 
 function makeCheckpoint(
-  overrides: Partial<PipelineCheckpoint> = {}
+  overrides: Partial<PipelineCheckpoint> = {},
 ): PipelineCheckpoint {
   return {
     pipelineRunId: "run-1",
@@ -204,7 +204,7 @@ function makePendingInteraction(runId: string) {
   });
   return createPipelinePendingInteractionV1({
     kind: "clarification",
-    definitionDigest: digestPipelineDefinition({ id: "pipeline-1" }),
+    definitionDigest: digestPipelineInteractionValue({ id: "pipeline-1" }),
     pipelineId: "pipeline-1",
     runId,
     nodeId: "clarify",
@@ -263,42 +263,42 @@ describe("PostgresPipelineCheckpointStore", () => {
 
       expect(calls).toHaveLength(11);
       expect(calls[0]!.text).toContain(
-        "CREATE TABLE IF NOT EXISTS my_checkpoints"
+        "CREATE TABLE IF NOT EXISTS my_checkpoints",
       );
       // Backward-compatible migration (W5): adds node_idempotency_keys.
       expect(calls[1]!.text).toContain(
-        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS node_idempotency_keys"
+        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS node_idempotency_keys",
       );
       // Backward-compatible migration (W3): adds loop_state.
       expect(calls[2]!.text).toContain(
-        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS loop_state"
+        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS loop_state",
       );
       // Backward-compatible migration (W4): adds fork_state.
       expect(calls[3]!.text).toContain(
-        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS fork_state"
+        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS fork_state",
       );
       // Backward-compatible migration (W5-gap): adds recovery_attempts_used.
       expect(calls[4]!.text).toContain(
-        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS recovery_attempts_used"
+        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS recovery_attempts_used",
       );
       expect(calls[5]!.text).toContain(
-        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS provider_session_refs"
+        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS provider_session_refs",
       );
       expect(calls[6]!.text).toContain(
-        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS interaction_state"
+        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS interaction_state",
       );
       // Backward-compatible migration (E0): adds source_binding.
       expect(calls[7]!.text).toContain(
-        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS source_binding"
+        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS source_binding",
       );
       expect(calls[8]!.text).toContain(
-        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS recursive_fork_completions"
+        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS recursive_fork_completions",
       );
       expect(calls[9]!.text).toContain(
-        "CREATE INDEX IF NOT EXISTS my_checkpoints_run_idx"
+        "CREATE INDEX IF NOT EXISTS my_checkpoints_run_idx",
       );
       expect(calls[10]!.text).toContain(
-        "CREATE INDEX IF NOT EXISTS my_checkpoints_expiry_idx"
+        "CREATE INDEX IF NOT EXISTS my_checkpoints_expiry_idx",
       );
     });
 
@@ -309,13 +309,13 @@ describe("PostgresPipelineCheckpointStore", () => {
           new PostgresPipelineCheckpointStore({
             client,
             tableName: 'evil"; DROP',
-          })
+          }),
       ).toThrow(/Invalid tableName/);
     });
 
     it("migrates a pre-existing table without provider_session_refs while preserving legacy rows", async () => {
       const { client, table } = createStatefulCompatibilityClient(
-        "pipeline_checkpoints"
+        "pipeline_checkpoints",
       );
       const store = new PostgresPipelineCheckpointStore({ client });
 
@@ -337,7 +337,7 @@ describe("PostgresPipelineCheckpointStore", () => {
               sessionId: "sess-1",
             },
           ],
-        })
+        }),
       );
       const migrated = await store.load("new-run");
 
@@ -360,7 +360,7 @@ describe("PostgresPipelineCheckpointStore", () => {
 
     it("round-trips a committed interaction receipt and exact successor cursor", async () => {
       const { client } = createStatefulCompatibilityClient(
-        "pipeline_checkpoints"
+        "pipeline_checkpoints",
       );
       const store = new PostgresPipelineCheckpointStore({ client });
       const { receipt, cursor } = makeCommittedInteraction("committed-run");
@@ -374,7 +374,7 @@ describe("PostgresPipelineCheckpointStore", () => {
           completedNodeIds: ["start", "clarify"],
           interactionReceipts: { [receipt.interactionId]: receipt },
           interactionResumeCursor: cursor,
-        })
+        }),
       );
 
       expect(await store.load("committed-run")).toMatchObject({
@@ -402,7 +402,7 @@ describe("PostgresPipelineCheckpointStore", () => {
       expect(calls).toHaveLength(1);
       expect(calls[0]!.text).toContain("INSERT INTO pipeline_checkpoints");
       expect(calls[0]!.text).toContain(
-        "ON CONFLICT (pipeline_run_id, version)"
+        "ON CONFLICT (pipeline_run_id, version)",
       );
       expect(calls[0]!.params[0]).toBe("run-1");
       expect(calls[0]!.params[4]).toBe(JSON.stringify(["start"]));
@@ -458,7 +458,7 @@ describe("PostgresPipelineCheckpointStore", () => {
               metadata: { conversationId: "conv-1" },
             },
           ],
-        })
+        }),
       );
 
       expect(mock.calls[0]!.params[14]).toBe(
@@ -470,7 +470,7 @@ describe("PostgresPipelineCheckpointStore", () => {
             label: "draft",
             metadata: { conversationId: "conv-1" },
           },
-        ])
+        ]),
       );
     });
 
@@ -480,7 +480,7 @@ describe("PostgresPipelineCheckpointStore", () => {
         makeCheckpoint({
           schemaVersion: "1.1.0",
           pendingInteraction,
-        })
+        }),
       );
 
       expect(calls[0]!.params[15]).toBe(
@@ -488,7 +488,7 @@ describe("PostgresPipelineCheckpointStore", () => {
           pendingInteraction,
           interactionReceipts: undefined,
           interactionResumeCursor: undefined,
-        })
+        }),
       );
     });
   });
@@ -521,7 +521,7 @@ describe("PostgresPipelineCheckpointStore", () => {
       expect(result!.completedNodeIds).toEqual(["a", "b", "c"]);
       expect(calls[0]!.text).toContain("ORDER BY version DESC");
       expect(calls[0]!.text).toContain(
-        "expires_at IS NULL OR expires_at > NOW()"
+        "expires_at IS NULL OR expires_at > NOW()",
       );
     });
 
@@ -557,7 +557,7 @@ describe("PostgresPipelineCheckpointStore", () => {
       const store = new PostgresPipelineCheckpointStore({ client });
 
       await expect(store.load("run-1")).rejects.toThrow(
-        "Invalid pipeline checkpoint row"
+        "Invalid pipeline checkpoint row",
       );
     });
 
@@ -819,7 +819,7 @@ describe("PostgresPipelineCheckpointStore", () => {
             const runId = params[0] as string;
             const version = params[2] as number;
             const clash = rows.some(
-              (r) => r.pipeline_run_id === runId && r.version === version
+              (r) => r.pipeline_run_id === runId && r.version === version,
             );
             if (clash) {
               // Real Postgres semantics: DO NOTHING affects zero rows, whereas
@@ -847,7 +847,7 @@ describe("PostgresPipelineCheckpointStore", () => {
 
       const receipt = await store.saveIfVersion(
         makeCheckpoint({ version: 1 }),
-        0
+        0,
       );
 
       expect(receipt).toEqual({ committed: true, observedVersion: 1 });
@@ -861,7 +861,7 @@ describe("PostgresPipelineCheckpointStore", () => {
 
       const insert = calls.find((c) => c.text.includes("INSERT INTO"))!;
       expect(insert.text).toContain(
-        "ON CONFLICT (pipeline_run_id, version) DO NOTHING"
+        "ON CONFLICT (pipeline_run_id, version) DO NOTHING",
       );
       expect(insert.text).not.toContain("DO UPDATE SET");
     });
@@ -891,7 +891,7 @@ describe("PostgresPipelineCheckpointStore", () => {
 
       const conflict = await store.saveIfVersion(
         makeCheckpoint({ version: 1 }),
-        0
+        0,
       );
 
       expect(conflict.committed).toBe(false);
@@ -908,7 +908,7 @@ describe("PostgresPipelineCheckpointStore", () => {
 
       const conflict = await store.saveIfVersion(
         makeCheckpoint({ version: 1 }),
-        0
+        0,
       );
 
       expect(conflict).toEqual({ committed: false, observedVersion: 1 });
@@ -919,17 +919,17 @@ describe("PostgresPipelineCheckpointStore", () => {
       const store = new PostgresPipelineCheckpointStore({ client });
       await store.saveIfVersion(makeCheckpoint({ version: 1 }), 0);
       const insertsBefore = calls.filter((c) =>
-        c.text.includes("INSERT INTO")
+        c.text.includes("INSERT INTO"),
       ).length;
 
       const conflict = await store.saveIfVersion(
         makeCheckpoint({ version: 2 }),
-        0
+        0,
       );
 
       expect(conflict).toEqual({ committed: false, observedVersion: 1 });
       const insertsAfter = calls.filter((c) =>
-        c.text.includes("INSERT INTO")
+        c.text.includes("INSERT INTO"),
       ).length;
       expect(insertsAfter).toBe(insertsBefore);
     });
@@ -947,7 +947,7 @@ describe("PostgresPipelineCheckpointStore", () => {
           sourceBinding: { definitionDigest: `sha256:${"a".repeat(64)}` },
           recursiveForkCompletions: {},
         }),
-        0
+        0,
       );
 
       const insert = calls.find((c) => c.text.includes("INSERT INTO"))!;

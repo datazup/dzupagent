@@ -1,4 +1,5 @@
-import type { PipelineCheckpoint, PipelineNode } from "@dzupagent/core/pipeline";
+import type { PipelineCheckpoint } from "@dzupagent/core/pipeline";
+import type { PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import {
   digestPipelineDefinition,
   validatePipelineInteractionResumeV1,

@@ -14,7 +14,7 @@
  * @module pipeline/pipeline-runtime-lifecycle/resume-planner
  */
 
-import type { PipelineNode } from "@dzupagent/core/pipeline";
+import type { PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type { PipelineRuntimeConfig } from "../pipeline-runtime-types.js";
 import type { LoopState } from "../executor-internals/executor-state-types.js";
 

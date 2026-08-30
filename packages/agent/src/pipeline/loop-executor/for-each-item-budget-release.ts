@@ -14,10 +14,7 @@
  * @module pipeline/loop-executor/for-each-item-budget-release
  */
 
-import type {
-  LoopNode,
-  PipelineNode,
-} from "@dzupagent/core/pipeline";
+import type { LoopNode, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type {
   LoopBudgetReconcileOutcome,
   LoopResumeOptions,

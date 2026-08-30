@@ -7,12 +7,8 @@
  * instead of `item`).
  */
 
-import type {
-  LoopNode,
-  PipelineForEachItemEconomics,
-  PipelineForEachItemOutcome,
-  PipelineNode,
-} from "@dzupagent/core/pipeline";
+import type { PipelineForEachItemEconomics, PipelineForEachItemOutcome } from "@dzupagent/core/pipeline";
+import type { LoopNode, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type { NodeResult } from "@dzupagent/runtime-contracts";
 import type { LoopEconomicsEvidenceV1 } from "@dzupagent/runtime-contracts/loop-economics-evidence";
 

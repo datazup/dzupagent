@@ -15,7 +15,7 @@ import type {
   WorkflowHandle,
 } from "@dzupagent/core/advanced";
 import type { ResolvedTool } from "@dzupagent/flow-ast";
-import type { PipelineEdge, PipelineNode } from "@dzupagent/core/orchestration";
+import type { PipelineEdge, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 // Re-export handle types for internal consumers that previously imported
 // them from `_shared.ts`. Keeps the public surface of that module stable

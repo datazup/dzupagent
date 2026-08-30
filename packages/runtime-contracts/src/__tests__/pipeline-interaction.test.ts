@@ -20,8 +20,7 @@ import {
   type PipelinePendingInteractionV1,
 } from "../pipeline-interaction.js";
 
-const digest = (character: string) =>
-  `sha256:${character.repeat(64)}` as const;
+const digest = (character: string) => `sha256:${character.repeat(64)}` as const;
 
 const approval = createPipelineInteractionSpecV1({
   kind: "approval",
@@ -54,18 +53,19 @@ const clarification = createPipelineInteractionSpecV1({
   },
 });
 
-const pending: PipelinePendingInteractionV1 = createPipelinePendingInteractionV1({
-  kind: "approval",
-  definitionDigest: digest("a"),
-  pipelineId: "pipeline-1",
-  runId: "run-1",
-  nodeId: "approval-runtime-node",
-  scope: { kind: "loop", loopNodeId: "loop-1", iteration: 3 },
-  occurrence: 3,
-  expectedCheckpointVersion: 7,
-  requestDigest: approval.requestDigest,
-  expiresAt: "2030-01-02T03:04:05.000Z",
-});
+const pending: PipelinePendingInteractionV1 =
+  createPipelinePendingInteractionV1({
+    kind: "approval",
+    definitionDigest: digest("a"),
+    pipelineId: "pipeline-1",
+    runId: "run-1",
+    nodeId: "approval-runtime-node",
+    scope: { kind: "loop", loopNodeId: "loop-1", iteration: 3 },
+    occurrence: 3,
+    expectedCheckpointVersion: 7,
+    requestDigest: approval.requestDigest,
+    expiresAt: "2030-01-02T03:04:05.000Z",
+  });
 
 const receipt = createPipelineInteractionResumeV1({
   definitionDigest: pending.definitionDigest,
@@ -82,7 +82,10 @@ const receipt = createPipelineInteractionResumeV1({
   response: { kind: "approval", decision: "approved", choice: "safe" },
 });
 
-function codes(result: { valid: boolean; issues: readonly { code: string }[] }): string[] {
+function codes(result: {
+  valid: boolean;
+  issues: readonly { code: string }[];
+}): string[] {
   return result.issues.map((entry) => entry.code);
 }
 
@@ -123,6 +126,7 @@ describe("pipeline interaction contracts", () => {
       "deserializePipelineInteractionSpecV1",
       "deserializePipelinePendingInteractionV1",
       "digestPipelineDefinition",
+      "digestPipelineInteractionValue",
       "serializePipelineInteractionResumeV1",
       "serializePipelineInteractionSpecV1",
       "serializePipelinePendingInteractionV1",
@@ -313,12 +317,12 @@ describe("pipeline interaction contracts", () => {
         submittedAt: "2029-01-02T03:04:05.000Z",
         response: { kind: "approval", decision: "approved" },
       });
-      expect(codes(validatePipelinePendingInteractionV1(forgedPending))).toContain(
-        "BINDING_MISMATCH",
-      );
-      expect(codes(validatePipelineInteractionResumeV1(forgedReceipt))).toContain(
-        "BINDING_MISMATCH",
-      );
+      expect(
+        codes(validatePipelinePendingInteractionV1(forgedPending)),
+      ).toContain("BINDING_MISMATCH");
+      expect(
+        codes(validatePipelineInteractionResumeV1(forgedReceipt)),
+      ).toContain("BINDING_MISMATCH");
     },
   );
 

@@ -24,7 +24,7 @@ import { describe, expect, it } from "vitest";
 import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
 import { InMemoryPipelineCheckpointStore } from "../pipeline/in-memory-checkpoint-store.js";
 import { deriveItemReservationId } from "../pipeline/loop-executor/for-each-loop.js";
-import type { PipelineDefinition, PipelineNode } from "@dzupagent/core";
+import type { PipelineDefinition, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type { NodeExecutor } from "../pipeline/pipeline-runtime-types.js";
 
 function forEachPipeline(): PipelineDefinition {

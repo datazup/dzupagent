@@ -16,14 +16,7 @@ import type {
   ForEachNode,
   LoopNode as FlowLoopNode,
 } from "@dzupagent/flow-ast";
-import type {
-  AgentNode,
-  LoopNode,
-  PipelineNode,
-  PipelineNodeSource,
-  SuspendNode,
-  ToolNode,
-} from "@dzupagent/core/orchestration";
+import type { AgentNode, LoopNode, PipelineNode, PipelineNodeSource, SuspendNode, ToolNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import {
   createPipelineInteractionSpecV1,
   validatePipelineInteractionSpecV1,

@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type {
-  PipelineCheckpoint,
-  PipelineDefinition,
-  PipelineNode,
-} from "@dzupagent/core/pipeline";
+import type { PipelineCheckpoint } from "@dzupagent/core/pipeline";
+import type { PipelineDefinition, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import {
   createPipelineInteractionResumeV1,
   createPipelineInteractionSpecV1,

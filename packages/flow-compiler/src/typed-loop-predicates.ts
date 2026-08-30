@@ -25,7 +25,7 @@ import {
   FLOW_TYPED_CONDITION_CAPABILITY,
   evaluateFlowTypedCondition,
 } from "@dzupagent/flow-ast/typed-condition-evaluator";
-import type { LoopNode, PipelineNode } from "@dzupagent/core/pipeline";
+import type { LoopNode, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 export { FLOW_TYPED_CONDITION_CAPABILITY };
 

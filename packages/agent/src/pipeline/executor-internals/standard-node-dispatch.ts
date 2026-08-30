@@ -8,7 +8,7 @@
  * @module pipeline/executor-internals/standard-node-dispatch
  */
 
-import type { PipelineNode, PipelineEdge } from "@dzupagent/core/pipeline";
+import type { PipelineNode, PipelineEdge } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import { defaultLogger } from "@dzupagent/core/utils";
 import type {
   NodeResult,

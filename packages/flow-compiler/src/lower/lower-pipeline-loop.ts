@@ -13,7 +13,7 @@
  */
 
 import type { FlowNode, ResolvedTool } from "@dzupagent/flow-ast";
-import type { PipelineDefinition } from "@dzupagent/core/pipeline";
+import type { PipelineDefinition } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 import { lowerNodeToPipeline, portsOf } from "./_shared.js";
 import type {

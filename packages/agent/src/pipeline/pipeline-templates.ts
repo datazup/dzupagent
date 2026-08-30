@@ -11,7 +11,7 @@
  * @module pipeline/pipeline-templates
  */
 
-import type { PipelineDefinition } from "@dzupagent/core/pipeline";
+import type { PipelineDefinition } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 // ---------------------------------------------------------------------------
 // Code Review Pipeline

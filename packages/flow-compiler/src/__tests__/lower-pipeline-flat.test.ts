@@ -19,14 +19,7 @@ import type {
   SequenceNode,
   SetNode,
 } from "@dzupagent/flow-ast";
-import type {
-  AgentNode,
-  GateNode,
-  ForkNode,
-  JoinNode,
-  PipelineDefinition,
-  ToolNode,
-} from "@dzupagent/core/pipeline";
+import type { AgentNode, GateNode, ForkNode, JoinNode, PipelineDefinition, ToolNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import { InMemoryDomainToolRegistry } from "@dzupagent/app-tools";
 import { describe, expect, it } from "vitest";
 

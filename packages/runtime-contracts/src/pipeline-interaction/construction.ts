@@ -21,7 +21,10 @@ export function createPipelineInteractionSpecV1(
   input: Omit<PipelineApprovalInteractionSpecV1, "schema" | "requestDigest">,
 ): PipelineApprovalInteractionSpecV1;
 export function createPipelineInteractionSpecV1(
-  input: Omit<PipelineClarificationInteractionSpecV1, "schema" | "requestDigest">,
+  input: Omit<
+    PipelineClarificationInteractionSpecV1,
+    "schema" | "requestDigest"
+  >,
 ): PipelineClarificationInteractionSpecV1;
 export function createPipelineInteractionSpecV1(
   input: PipelineInteractionSpecInputV1,
@@ -35,9 +38,10 @@ export function createPipelineInteractionSpecV1(
     choices: input.choices,
     requestSchema: input.requestSchema,
   } as const;
-  const core = input.kind === "approval"
-    ? { ...shared, outcomeToSuccessor: input.outcomeToSuccessor }
-    : { ...shared, outputKey: input.outputKey };
+  const core =
+    input.kind === "approval"
+      ? { ...shared, outcomeToSuccessor: input.outcomeToSuccessor }
+      : { ...shared, outputKey: input.outputKey };
   return {
     ...core,
     requestDigest: digestPipelineInteractionValue(core),
@@ -107,8 +111,4 @@ export function createPipelineInteractionId(input: {
   readonly requestDigest: PipelineSha256Digest;
 }): string {
   return `interaction:${canonicalInputDigest(input)}`;
-}
-
-export function digestPipelineDefinition(value: unknown): PipelineSha256Digest {
-  return digestPipelineInteractionValue(value);
 }

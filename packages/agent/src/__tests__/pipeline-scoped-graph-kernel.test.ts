@@ -1,11 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type {
-  LoopNode,
-  PipelineDefinition,
-  PipelineEdge,
-  PipelineNode,
-} from "@dzupagent/core/pipeline";
+import type { LoopNode, PipelineDefinition, PipelineEdge, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import { describe, expect, it } from "vitest";
 
 import { loopBoundary } from "../pipeline/loop-body-graph-checkpoint-validator.js";

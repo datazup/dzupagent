@@ -41,7 +41,7 @@ import type {
   PipelineCheckpoint,
   PipelineCheckpointCommitReceipt,
 } from "@dzupagent/core/pipeline";
-import type { PipelineDefinition, PipelineNode } from "@dzupagent/core";
+import type { PipelineDefinition, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 /**
  * Loses exactly one compare-and-set race, at a named ordered-prefix cursor.

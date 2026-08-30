@@ -6,11 +6,7 @@
  */
 
 import type { FlowNode } from "@dzupagent/flow-ast";
-import type {
-  PipelineEdge,
-  PipelineNode,
-  SequentialEdge,
-} from "@dzupagent/core/orchestration";
+import type { PipelineEdge, PipelineNode, SequentialEdge } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 import type {
   LowerPipelineContext,

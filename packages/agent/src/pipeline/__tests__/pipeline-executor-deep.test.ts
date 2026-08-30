@@ -29,11 +29,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { PipelineRuntime } from "../pipeline-runtime.js";
 import { InMemoryPipelineCheckpointStore } from "../in-memory-checkpoint-store.js";
-import type {
-  PipelineDefinition,
-  PipelineNode,
-  PipelineEdge,
-} from "@dzupagent/core";
+import type { PipelineDefinition, PipelineNode, PipelineEdge } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type {
   NodeExecutionContext,
   NodeExecutor,

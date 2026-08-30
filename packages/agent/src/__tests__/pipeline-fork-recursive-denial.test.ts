@@ -1,9 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type {
-  PipelineCheckpoint,
-  PipelineDefinition,
-} from "@dzupagent/core/pipeline";
+import type { PipelineCheckpoint } from "@dzupagent/core/pipeline";
+import type { PipelineDefinition } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
 

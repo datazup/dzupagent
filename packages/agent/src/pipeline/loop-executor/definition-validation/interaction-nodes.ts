@@ -1,4 +1,4 @@
-import type { PipelineDefinition, PipelineEdge, PipelineValidationError } from "@dzupagent/core/pipeline";
+import type { PipelineDefinition, PipelineEdge, PipelineValidationError } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import { validatePipelineInteractionSpecV1 } from "@dzupagent/runtime-contracts";
 
 export function validateInteractionNodes(

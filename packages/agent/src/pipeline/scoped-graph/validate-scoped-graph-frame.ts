@@ -1,10 +1,6 @@
 /** Definition-bound validation for restored scoped graph frames. */
 
-import type {
-  ForkNode,
-  PipelineEdge,
-  PipelineNode,
-} from "@dzupagent/core/pipeline";
+import type { ForkNode, PipelineEdge, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type { NodeResult } from "../pipeline-runtime-types.js";
 import {
   getErrorTarget,

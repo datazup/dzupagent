@@ -1,8 +1,5 @@
-import type {
-  ForkNode,
-  PipelineEdge,
-  PipelineRecursiveForkCompletionV1,
-} from "@dzupagent/core/pipeline";
+import type { PipelineRecursiveForkCompletionV1 } from "@dzupagent/core/pipeline";
+import type { ForkNode, PipelineEdge } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import {
   canonicalInputDigest,
   digestPipelineDefinition,

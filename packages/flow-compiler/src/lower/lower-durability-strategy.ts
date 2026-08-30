@@ -34,12 +34,7 @@
  */
 
 import type { FlowDurabilityPolicy } from "@dzupagent/flow-ast";
-import type {
-  CheckpointStrategy,
-  PipelineCheckpointPolicy,
-  PipelineExecutionLogPolicy,
-  PipelineResumePolicy,
-} from "@dzupagent/core/pipeline";
+import type { CheckpointStrategy, PipelineCheckpointPolicy, PipelineExecutionLogPolicy, PipelineResumePolicy } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 import type { CompilationWarning } from "../types.js";
 

@@ -13,7 +13,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { PipelineRuntime } from "../../pipeline-runtime.js";
 import { defaultLogger } from "@dzupagent/core/utils";
-import type { PipelineDefinition, PipelineNode } from "@dzupagent/core";
+import type { PipelineDefinition, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type {
   NodeExecutor,
   NodeLedgerLike,

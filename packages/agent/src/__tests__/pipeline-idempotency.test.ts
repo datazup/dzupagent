@@ -18,7 +18,7 @@ import {
   canonicalInputDigest,
   materializeIdempotencyKey,
 } from "@dzupagent/runtime-contracts";
-import type { PipelineDefinition, PipelineNode } from "@dzupagent/core";
+import type { PipelineDefinition, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 /**
  * Rebuild the exact canonical key the runtime produces for a node in a given

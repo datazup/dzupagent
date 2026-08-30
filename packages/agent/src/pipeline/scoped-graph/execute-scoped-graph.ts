@@ -1,4 +1,4 @@
-import type { PipelineEdge } from "@dzupagent/core/pipeline";
+import type { PipelineEdge } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 import { isPipelineCheckpointIntegrityError } from "../pipeline-shared/checkpoint-integrity-error.js";
 import { getNextNodeIds } from "../pipeline-shared/edge-resolution.js";

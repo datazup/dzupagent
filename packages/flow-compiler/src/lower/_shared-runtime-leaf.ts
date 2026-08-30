@@ -1,9 +1,5 @@
 import type { FlowNode } from "@dzupagent/flow-ast";
-import type {
-  AgentNode,
-  PipelineNodeSource,
-  ToolNode,
-} from "@dzupagent/core/orchestration";
+import type { AgentNode, PipelineNodeSource, ToolNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 import type {
   LowerPipelineContext,

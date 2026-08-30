@@ -43,7 +43,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import type { PipelineDefinition, PipelineNode } from "@dzupagent/core";
+import type { PipelineDefinition, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type {
   LoopBudgetCompatibilityHost,
   LoopBudgetReleaseInput,

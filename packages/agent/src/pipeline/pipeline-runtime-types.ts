@@ -19,17 +19,8 @@
  * @module pipeline/pipeline-runtime-types
  */
 
-import type {
-  PipelineDefinition,
-  PipelineNode,
-  ToolNode,
-  PipelineCheckpointStore,
-  PipelineCheckpoint,
-  PipelineCheckpointExecutionLog,
-  PipelineCheckpointProviderSessionRef,
-  PipelineInteractionResumeCursor,
-  PipelineLedgerUnavailablePolicy,
-} from "@dzupagent/core/pipeline";
+import type { PipelineCheckpointStore, PipelineCheckpoint, PipelineCheckpointExecutionLog, PipelineCheckpointProviderSessionRef, PipelineInteractionResumeCursor, PipelineLedgerUnavailablePolicy } from "@dzupagent/core/pipeline";
+import type { PipelineDefinition, PipelineNode, ToolNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type {
   NodeExecutionContext,
   NodeExecutor as RuntimeNodeExecutor,

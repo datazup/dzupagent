@@ -1,12 +1,7 @@
 /** F-R4 — compiler-bounded structured loop bodies use graph scheduling. */
 import { describe, expect, it } from "vitest";
-import type {
-  LoopNode,
-  PipelineCheckpoint,
-  PipelineDefinition,
-  PipelineEdge,
-  PipelineNode,
-} from "@dzupagent/core/pipeline";
+import type { PipelineCheckpoint } from "@dzupagent/core/pipeline";
+import type { LoopNode, PipelineDefinition, PipelineEdge, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import { PipelineCheckpointSchema } from "@dzupagent/core/pipeline";
 import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
 import { InMemoryPipelineCheckpointStore } from "../pipeline/in-memory-checkpoint-store.js";

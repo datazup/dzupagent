@@ -1,4 +1,4 @@
-import type { PipelineNode, ToolNode } from "@dzupagent/core/pipeline";
+import type { PipelineNode, ToolNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 import { RUNTIME_TOOL_NAMES, RUNTIME_TOOL_PREFIX } from "./constants.js";
 

@@ -14,11 +14,7 @@ import type {
   PersonaNode,
   RouteNode,
 } from "@dzupagent/flow-ast";
-import type {
-  GateNode,
-  PipelineEdge,
-  SuspendNode,
-} from "@dzupagent/core/orchestration";
+import type { GateNode, PipelineEdge, SuspendNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import {
   createPipelineInteractionSpecV1,
   validatePipelineInteractionSpecV1,

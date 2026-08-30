@@ -32,15 +32,21 @@ import { describe, it, expect } from "vitest";
 import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
 import { InMemoryPipelineCheckpointStore } from "../pipeline/in-memory-checkpoint-store.js";
 import { PipelineSourceBindingMismatchError } from "../pipeline/pipeline-runtime-lifecycle/resume-context.js";
-import { digestPipelineDefinition } from "@dzupagent/runtime-contracts";
-import type { PipelineDefinition, LoopNode } from "@dzupagent/core";
+import {
+  digestPipelineDefinition,
+  digestPipelineInteractionValue,
+} from "@dzupagent/runtime-contracts";
+import type {
+  PipelineDefinition,
+  LoopNode,
+} from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type { NodeExecutor } from "../pipeline/pipeline-runtime-types.js";
 
 type ForEachContract = NonNullable<LoopNode["forEach"]>;
 
 /** A `for_each` with an authored `collect`, so the contract has rules to drift. */
 function collectingPipeline(
-  overrides: Partial<ForEachContract> = {}
+  overrides: Partial<ForEachContract> = {},
 ): PipelineDefinition {
   return {
     id: "for-each-contract-drift",
@@ -91,7 +97,7 @@ function recordingExecutor(dispatches: string[]): NodeExecutor {
 /** Run until the seeded crash so a real checkpoint with a real binding exists. */
 async function runUntilCrash(
   definition: PipelineDefinition,
-  items: string[] = ["x", "y"]
+  items: string[] = ["x", "y"],
 ) {
   const store = new InMemoryPipelineCheckpointStore();
   const runtime = new PipelineRuntime({
@@ -113,13 +119,16 @@ describe("for_each contract drift is subsumed by the definition digest", () => {
       digestPipelineDefinition(
         collectingPipeline({
           collect: { from: "out", into: "moved", order: "input" },
-        })
-      )
+        }),
+      ),
     );
   });
 
   it.each([
-    ["collect.into", { collect: { from: "out", into: "moved", order: "input" } }],
+    [
+      "collect.into",
+      { collect: { from: "out", into: "moved", order: "input" } },
+    ],
     ["as", { as: "element" }],
     ["attachAs", { attachAs: "enriched" }],
     ["accumulator", { accumulator: { key: "acc" } }],
@@ -137,12 +146,12 @@ describe("for_each contract drift is subsumed by the definition digest", () => {
       });
 
       await expect(resumed.resume(checkpoint!)).rejects.toThrow(
-        PipelineSourceBindingMismatchError
+        PipelineSourceBindingMismatchError,
       );
       // Fail closed: the retained prefix was aggregated under the old rules,
       // so nothing may execute under the new ones.
       expect(dispatches).toHaveLength(0);
-    }
+    },
   );
 
   it("admits a resume whose contract is unchanged", async () => {
@@ -162,8 +171,8 @@ describe("for_each contract drift is subsumed by the definition digest", () => {
     expect(outcome.state).toBe("completed");
     // It genuinely resumed rather than restarting: the crashed item is
     // re-attempted, and the committed one is not.
-    expect(dispatches.some(entry => entry.endsWith(":y"))).toBe(true);
-    expect(dispatches.some(entry => entry.endsWith(":x"))).toBe(false);
+    expect(dispatches.some((entry) => entry.endsWith(":y"))).toBe(true);
+    expect(dispatches.some((entry) => entry.endsWith(":x"))).toBe(false);
   });
 });
 
@@ -171,8 +180,8 @@ describe("for_each item-count drift is subsumed by the source digest", () => {
   it("the source digest distinguishes arrays of different length", () => {
     // The subsumption fact for the item count. A digest that ignored length
     // would make a separate count check necessary.
-    expect(digestPipelineDefinition(["x"])).not.toBe(
-      digestPipelineDefinition(["x", "x"])
+    expect(digestPipelineInteractionValue(["x"])).not.toBe(
+      digestPipelineInteractionValue(["x", "x"]),
     );
   });
 

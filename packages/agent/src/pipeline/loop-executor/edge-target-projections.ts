@@ -1,4 +1,4 @@
-import type { PipelineEdge } from "@dzupagent/core/pipeline";
+import type { PipelineEdge } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 /** All authored targets used only to prove a scoped loop body is closed. */
 export function projectLoopBodyContainmentTargets(

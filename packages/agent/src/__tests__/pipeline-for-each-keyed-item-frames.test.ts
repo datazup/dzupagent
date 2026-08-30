@@ -36,7 +36,7 @@ import {
   readItemFrames,
   retainInFlightItemFrames,
 } from "../pipeline/executor-internals/stage-dispatch.js";
-import type { PipelineDefinition, PipelineNode } from "@dzupagent/core";
+import type { PipelineDefinition, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type { NodeExecutor } from "../pipeline/pipeline-runtime-types.js";
 
 /** A for_each loop whose body is three sequential nodes. */

@@ -1,4 +1,4 @@
-import type { LoopNode, PipelineNode } from "@dzupagent/core/pipeline";
+import type { LoopNode, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import { canonicalInputDigest } from "@dzupagent/runtime-contracts";
 
 import type { NodeResult, LoopMetrics } from "../pipeline-runtime-types.js";

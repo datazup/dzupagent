@@ -8,12 +8,7 @@ import {
   qualityBelow,
   hasErrors,
 } from "../pipeline/loop-executor.js";
-import type {
-  PipelineDefinition,
-  PipelineNode,
-  PipelineEdge,
-  LoopNode,
-} from "@dzupagent/core";
+import type { PipelineDefinition, PipelineNode, PipelineEdge, LoopNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type {
   NodeExecutor,
   NodeResult,

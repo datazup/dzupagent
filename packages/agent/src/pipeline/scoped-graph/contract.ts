@@ -1,4 +1,4 @@
-import type { PipelineEdge, PipelineNode } from "@dzupagent/core/pipeline";
+import type { PipelineEdge, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type { NodeExecutionContext } from "@dzupagent/runtime-contracts";
 
 import type { BudgetTrackerState } from "../executor-internals/iteration-budget-tracker.js";

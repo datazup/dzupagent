@@ -12,14 +12,8 @@
  * @module pipeline/executor-internals/checkpoint-serialization
  */
 
-import type {
-  PipelineCheckpoint,
-  PipelineCheckpointEventRecord,
-  PipelineCheckpointExecutionLog,
-  PipelineCheckpointProviderSessionRef,
-  PipelineCheckpointRetentionPolicy,
-  PipelineCheckpointStore,
-} from "@dzupagent/core/pipeline";
+import type { PipelineCheckpoint, PipelineCheckpointEventRecord, PipelineCheckpointExecutionLog, PipelineCheckpointProviderSessionRef, PipelineCheckpointStore } from "@dzupagent/core/pipeline";
+import type { PipelineCheckpointRetentionPolicy } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type {
   NodeResult,
   PipelineRuntimeConfig,

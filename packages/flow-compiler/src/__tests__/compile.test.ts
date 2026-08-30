@@ -32,7 +32,8 @@
  */
 
 import type { FlowNode, ResolvedTool, ToolResolver } from "@dzupagent/flow-ast";
-import type { SkillChain, PipelineDefinition } from "@dzupagent/core/pipeline";
+import type { SkillChain } from "@dzupagent/core/pipeline";
+import type { PipelineDefinition } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import { InMemoryDomainToolRegistry } from "@dzupagent/app-tools";
 import { describe, expect, it } from "vitest";
 

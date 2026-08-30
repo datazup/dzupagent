@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { PipelineEdge } from "@dzupagent/core/pipeline";
+import type { PipelineEdge } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 import {
   projectLoopBodyContainmentTargets,

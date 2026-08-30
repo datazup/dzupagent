@@ -1,10 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type {
-  PipelineCheckpoint,
-  PipelineCheckpointCommitReceipt,
-  PipelineDefinition,
-} from "@dzupagent/core/pipeline";
+import type { PipelineCheckpoint, PipelineCheckpointCommitReceipt } from "@dzupagent/core/pipeline";
+import type { PipelineDefinition } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 import {
   InMemoryPipelineCheckpointStore,

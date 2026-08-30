@@ -1,4 +1,4 @@
-import type { LoopNode } from "@dzupagent/core/pipeline";
+import type { LoopNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 import { loopBoundary } from "../../loop-body-graph-checkpoint-validator.js";
 import type { RunFrame } from "../../executor-internals/run-frame.js";

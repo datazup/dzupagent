@@ -1,4 +1,4 @@
-import type { PipelineDefinition, ToolNode } from "@dzupagent/core/pipeline";
+import type { PipelineDefinition, ToolNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 import type { RuntimeToolHandlers } from "../pipeline-runtime-types.js";
 import { isRecord, optionalString } from "./arg-helpers.js";

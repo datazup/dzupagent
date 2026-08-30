@@ -7,4 +7,5 @@
  */
 
 export * from "./definition.js";
+export * from "./digest.js";
 export * from "./schema.js";

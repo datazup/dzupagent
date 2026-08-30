@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import type { PipelineDefinition } from "@dzupagent/core/pipeline";
+import type { PipelineDefinition } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import { canonicalInputDigest } from "@dzupagent/runtime-contracts";
 import type {
   RecursiveAcknowledgementEvidenceInputV1,

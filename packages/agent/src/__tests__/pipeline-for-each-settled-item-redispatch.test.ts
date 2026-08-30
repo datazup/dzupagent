@@ -39,7 +39,7 @@
 import { describe, expect, it } from "vitest";
 import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
 import { InMemoryPipelineCheckpointStore } from "../pipeline/in-memory-checkpoint-store.js";
-import type { PipelineDefinition } from "@dzupagent/core";
+import type { PipelineDefinition } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type { LoopBudgetStrictHost } from "../pipeline/loop-executor.js";
 
 /**

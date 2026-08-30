@@ -1,4 +1,4 @@
-import type { PipelineEdge, PipelineNode } from "@dzupagent/core/pipeline";
+import type { PipelineEdge, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 import { getNextNodeIds } from "../pipeline-shared/edge-resolution.js";
 import type { RunFrame } from "../executor-internals/run-frame.js";

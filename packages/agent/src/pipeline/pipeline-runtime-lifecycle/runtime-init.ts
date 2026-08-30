@@ -17,7 +17,7 @@
  * @module pipeline/pipeline-runtime-lifecycle/runtime-init
  */
 
-import type { PipelineNode, PipelineEdge } from "@dzupagent/core/pipeline";
+import type { PipelineNode, PipelineEdge } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import { InMemoryPipelineCheckpointStore } from "../in-memory-checkpoint-store.js";
 import { PostgresPipelineCheckpointStore } from "../postgres-checkpoint-store.js";
 import { RedisPipelineCheckpointStore } from "../redis-checkpoint-store.js";

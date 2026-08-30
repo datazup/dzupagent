@@ -18,8 +18,8 @@ import type {
   ResolvedTool,
   ToolResolver,
 } from "@dzupagent/flow-ast";
-import type { LoopNode } from "@dzupagent/core/pipeline";
-import { PipelineDefinitionSchema } from "@dzupagent/core/pipeline";
+import type { LoopNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
+import { PipelineDefinitionSchema } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import { InMemoryDomainToolRegistry } from "@dzupagent/app-tools";
 import { describe, expect, it } from "vitest";
 

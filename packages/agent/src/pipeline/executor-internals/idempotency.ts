@@ -29,7 +29,7 @@ import {
   materializeIdempotencyKey,
   type IdempotencyExecutionScope,
 } from "@dzupagent/runtime-contracts";
-import type { PipelineNode } from "@dzupagent/core/pipeline";
+import type { PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 /**
  * Default attempt policy for a node that has not declared a stricter delivery

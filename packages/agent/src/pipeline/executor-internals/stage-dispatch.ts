@@ -12,12 +12,8 @@
  * @module pipeline/executor-internals/stage-dispatch
  */
 
-import type {
-  PipelineNode,
-  ForkNode,
-  LoopNode,
-} from "@dzupagent/core/pipeline";
-import { digestPipelineDefinition } from "@dzupagent/runtime-contracts";
+import type { PipelineNode, ForkNode, LoopNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
+import { digestPipelineInteractionValue } from "@dzupagent/runtime-contracts";
 import type {
   PipelineState,
   NodeResult,
@@ -93,7 +89,7 @@ export type { RunFrame } from "./run-frame.js";
 export function restoreLoopStateAfterLostCommit(
   loopState: LoopState,
   loopNodeId: string,
-  previous: LoopState[string] | undefined
+  previous: LoopState[string] | undefined,
 ): void {
   // `delete` rather than assigning `undefined`: the first boundary of a loop
   // has no prior entry, and `LoopState` holds no undefined values.
@@ -113,18 +109,18 @@ export interface StageContext {
   /** Persist an outer control boundary regardless of the periodic strategy. */
   saveControlCheckpoint: (
     frame: RunFrame,
-    suspendedAtNodeId?: string
+    suspendedAtNodeId?: string,
   ) => Promise<void>;
   /** First next-node id for `nodeId`, evaluated against current state. */
   next: (
     nodeId: string,
-    runState: Record<string, unknown>
+    runState: Record<string, unknown>,
   ) => string | undefined;
   /** Record the stable idempotency key for a completed node. */
   recordIdempotencyKey: (
     keys: Record<string, string>,
     runId: string,
-    node: PipelineNode
+    node: PipelineNode,
   ) => void;
   /** Resolve the error-edge target for a node given an error, if any. */
   errorEdgeFor: (nodeId: string, error: unknown) => string | undefined;
@@ -141,13 +137,13 @@ export interface StageContext {
     nodeResults: Map<string, NodeResult>,
     totalDurationMs: number,
     /** Failure reason; only meaningful when `state` is `"failed"`. */
-    error?: string
+    error?: string,
   ) => PipelineRunResult;
   /** Execute one bounded compiler-lowered loop body through the graph walker. */
   scheduleLoopBodyGraph: (
     loopNode: LoopNode,
     frame: RunFrame,
-    input: LoopBodyGraphScheduleInput
+    input: LoopBodyGraphScheduleInput,
   ) => Promise<LoopBodyGraphScheduleResult>;
 }
 
@@ -159,7 +155,7 @@ export interface StageContext {
 export async function dispatchForkStage(
   ctx: StageContext,
   forkNode: ForkNode,
-  frame: RunFrame
+  frame: RunFrame,
 ): Promise<{ nextNodeId: string | undefined }> {
   const {
     runId,
@@ -177,7 +173,7 @@ export async function dispatchForkStage(
           forkNode.id,
           joinNode.id,
           ctx.nodeMap,
-          ctx.config.definition.edges
+          ctx.config.definition.edges,
         );
 
   if (recursiveGraph !== undefined) {
@@ -191,7 +187,7 @@ export async function dispatchForkStage(
     const recursiveConfig = ctx.config.recursiveFork;
     if (recursiveConfig === undefined) {
       throw new Error(
-        `Recursive fork "${forkNode.id}" requires PipelineRuntimeConfig.recursiveFork.durable.`
+        `Recursive fork "${forkNode.id}" requires PipelineRuntimeConfig.recursiveFork.durable.`,
       );
     }
     const result = await executeAdmittedRecursiveFork(
@@ -199,7 +195,7 @@ export async function dispatchForkStage(
       forkNode,
       recursiveGraph,
       frame,
-      recursiveConfig.durable
+      recursiveConfig.durable,
     );
     ctx.emit(nodeCompletedEvent(forkNode.id, 0));
     completedNodeIds.push(joinNode.id);
@@ -229,7 +225,7 @@ export async function dispatchForkStage(
       state: "completed",
       stateDelta: entry.stateDelta,
       nodeResults: new Map(
-        Object.entries(entry.nodeResults) as [string, NodeResult][]
+        Object.entries(entry.nodeResults) as [string, NodeResult][],
       ),
       completedNodeIds: [],
     };
@@ -255,7 +251,7 @@ export async function dispatchForkStage(
           save: () => ctx.saveCheckpoint(frame),
         });
       },
-    }
+    },
   );
 
   delete frame.forkState[forkId];
@@ -279,7 +275,7 @@ export async function dispatchForkStage(
 export async function dispatchLoopStage(
   ctx: StageContext,
   loopNode: LoopNode,
-  frame: RunFrame
+  frame: RunFrame,
 ): Promise<
   | { kind: "continue"; nextNodeId: string | undefined }
   | { kind: "return"; value: PipelineRunResult }
@@ -300,7 +296,9 @@ export async function dispatchLoopStage(
   if (loopNode.forEach !== undefined) {
     const resolvedSource = resolveStatePath(runState, loopNode.forEach.source);
     if (Array.isArray(resolvedSource.value)) {
-      const currentDigest = digestPipelineDefinition(resolvedSource.value);
+      const currentDigest = digestPipelineInteractionValue(
+        resolvedSource.value,
+      );
       // E3 defect 1, per-loop half: a resumed loop carries a retained ordered
       // prefix (`iteration`) or a mid-item frame computed against the source as
       // it was. If the source has since changed, that prefix names different
@@ -320,7 +318,7 @@ export async function dispatchLoopStage(
           `Cannot resume loop "${loopNode.id}" in run "${runId}": its item ` +
             `source was checkpointed as ${recordedDigest} but now resolves to ` +
             `${currentDigest}. The retained ordered prefix would refer to ` +
-            "different items."
+            "different items.",
         );
       }
       frame.loopSourceDigests = {
@@ -343,7 +341,7 @@ export async function dispatchLoopStage(
           loopNode.id,
           runId,
           frame.loopState[loopNode.id],
-          resolvedSource.value.length
+          resolvedSource.value.length,
         );
       }
     }
@@ -385,7 +383,7 @@ export async function dispatchLoopStage(
                 NodeResult
               >,
             },
-          ])
+          ]),
         ),
       };
     })(),
@@ -421,7 +419,7 @@ export async function dispatchLoopStage(
         nextBodyNodeIndex: progress.nextBodyNodeIndex,
         bodyResults: loopBodyResultsForCheckpoint(
           progress.bodyResults,
-          ctx.config.definition.checkpoint?.includeProviderSessionRefs === true
+          ctx.config.definition.checkpoint?.includeProviderSessionRefs === true,
         ),
         ...(previousBoundary?.previousOutput !== undefined
           ? { previousOutput: previousBoundary.previousOutput }
@@ -449,7 +447,7 @@ export async function dispatchLoopStage(
         restoreLoopStateAfterLostCommit(
           frame.loopState,
           loopNode.id,
-          previousBoundary
+          previousBoundary,
         );
         throw new PipelineCheckpointCommitConflictError(loopNode.id, {
           completedIterations: progress.completedIterations,
@@ -488,7 +486,7 @@ export async function dispatchLoopStage(
         restoreLoopStateAfterLostCommit(
           frame.loopState,
           loopNode.id,
-          previousBoundary
+          previousBoundary,
         );
         throw new PipelineCheckpointCommitConflictError(loopNode.id, {
           completedIterations: progress.completedIterations,
@@ -501,13 +499,13 @@ export async function dispatchLoopStage(
         frame,
         loopNode.id,
         progress.completedIterations,
-        progress.state
+        progress.state,
       );
       clearCommittedLoopInteractionCursor(
         frame,
         loopNode.id,
         progress.state,
-        (nodeId, error) => ctx.errorEdgeFor(nodeId, error)
+        (nodeId, error) => ctx.errorEdgeFor(nodeId, error),
       );
       if (progress.mandatory === true) {
         await persistCheckpointWithIntegrityBoundary({
@@ -546,7 +544,7 @@ export async function dispatchLoopStage(
             bodyResults: loopBodyResultsForCheckpoint(
               progress.bodyResults,
               ctx.config.definition.checkpoint?.includeProviderSessionRefs ===
-                true
+                true,
             ),
             ...(progress.attempt === undefined
               ? {}
@@ -637,7 +635,7 @@ export async function dispatchLoopStage(
       const previousLoopState = frame.loopState[loopNode.id];
       const retainedItemFrames = retainInFlightItemFrames(
         readItemFrames(frame.loopState[loopNode.id]),
-        completedIterations
+        completedIterations,
       );
       frame.loopState[loopNode.id] = {
         iteration: completedIterations,
@@ -685,7 +683,7 @@ export async function dispatchLoopStage(
         restoreLoopStateAfterLostCommit(
           frame.loopState,
           loopNode.id,
-          previousLoopState
+          previousLoopState,
         );
         throw new PipelineCheckpointCommitConflictError(loopNode.id, {
           completedIterations,
@@ -706,7 +704,7 @@ export async function dispatchLoopStage(
     loopNode,
     runState,
     nodeResults,
-    loopResume
+    loopResume,
   );
   const loopResult = handledLoop.result;
 
@@ -717,7 +715,7 @@ export async function dispatchLoopStage(
       frame,
       loopNode.id,
       completedIterations,
-      checkpointState
+      checkpointState,
     );
     nodeResults.set(loopNode.id, loopResult);
 
@@ -760,7 +758,7 @@ export async function dispatchLoopStage(
         runId,
         "suspended",
         nodeResults,
-        Date.now() - frame.startTime
+        Date.now() - frame.startTime,
       );
       if (frame.pendingInteraction !== undefined) {
         value.pendingInteraction = frame.pendingInteraction;
@@ -809,7 +807,7 @@ export async function dispatchLoopStage(
         Date.now() - frame.startTime,
         // Same string as the event: a loop fail-closed (for_each budget denial
         // included) is exactly the case where the caller needs the reason.
-        loopResult.error
+        loopResult.error,
       ),
     };
   }
@@ -843,7 +841,7 @@ function retainBodyGraphState(
   frame: RunFrame,
   loopNodeId: string,
   completedIterations: number,
-  state: NonNullable<LoopState[string]["bodyGraphState"]>
+  state: NonNullable<LoopState[string]["bodyGraphState"]>,
 ): void {
   const previousBoundary = frame.loopState[loopNodeId];
   frame.loopState[loopNodeId] = {
@@ -871,7 +869,7 @@ function clearCommittedLoopInteractionCursor(
   frame: RunFrame,
   loopNodeId: string,
   state?: NonNullable<LoopState[string]["bodyGraphState"]>,
-  errorTarget?: (nodeId: string, error: string) => string | undefined
+  errorTarget?: (nodeId: string, error: string) => string | undefined,
 ): void {
   const cursor = frame.interactionResumeCursor;
   if (cursor?.scope.kind !== "loop" || cursor.scope.loopNodeId !== loopNodeId) {
@@ -900,7 +898,7 @@ function clearCommittedLoopInteractionCursor(
 
 function loopBodyResultsForCheckpoint(
   results: Readonly<Record<string, NodeResult>>,
-  includeProviderSessionRefs: boolean
+  includeProviderSessionRefs: boolean,
 ): Record<string, NodeResult> {
   return Object.fromEntries(
     Object.entries(results).map(([nodeId, result]) => [
@@ -918,7 +916,7 @@ function loopBodyResultsForCheckpoint(
           ? { providerSessionRefs: result.providerSessionRefs }
           : {}),
       },
-    ])
+    ]),
   );
 }
 
@@ -948,7 +946,7 @@ export function assertForEachCursorWithinSource(
   loopNodeId: string,
   runId: string,
   cursor: LoopState[string] | undefined,
-  itemCount: number
+  itemCount: number,
 ): void {
   if (cursor === undefined) return;
 
@@ -957,7 +955,7 @@ export function assertForEachCursorWithinSource(
     throw new PipelineForEachCursorCorruptError(
       `Cannot resume loop "${loopNodeId}" in run "${runId}": its checkpoint ` +
         `retains a completed prefix of ${iteration} item(s), but the source ` +
-        `resolves to ${itemCount}. The cursor does not describe this source.`
+        `resolves to ${itemCount}. The cursor does not describe this source.`,
     );
   }
 
@@ -970,14 +968,14 @@ export function assertForEachCursorWithinSource(
         `Cannot resume loop "${loopNodeId}" in run "${runId}": an in-flight ` +
           `item frame is filed at index ${key} but reports item index ` +
           `${itemFrame.itemIndex}. Resuming would restore one item's body ` +
-          "cursor onto another item."
+          "cursor onto another item.",
       );
     }
     if (keyedIndex < 0 || keyedIndex >= itemCount) {
       throw new PipelineForEachCursorCorruptError(
         `Cannot resume loop "${loopNodeId}" in run "${runId}": an in-flight ` +
           `item frame names index ${key}, which is outside the ${itemCount} ` +
-          "item(s) the source resolves to."
+          "item(s) the source resolves to.",
       );
     }
     assertItemFrameOutcomeCoherent(loopNodeId, runId, itemFrame);
@@ -1007,7 +1005,7 @@ export function assertForEachCursorWithinSource(
 function assertItemFrameOutcomeCoherent(
   loopNodeId: string,
   runId: string,
-  itemFrame: PipelineForEachItemFrame
+  itemFrame: PipelineForEachItemFrame,
 ): void {
   const { economics, outcome, itemIndex } = itemFrame;
   if (economics === undefined) return;
@@ -1025,7 +1023,7 @@ function assertItemFrameOutcomeCoherent(
         `${itemIndex} records a settled cost of ` +
         `${economics.settledCostCents} cent(s) while its outcome is ` +
         `"${outcome}", which is not terminal. A settled item cannot still be ` +
-        "awaiting dispatch."
+        "awaiting dispatch.",
     );
   }
 
@@ -1040,7 +1038,7 @@ function assertItemFrameOutcomeCoherent(
       `Cannot resume loop "${loopNodeId}" in run "${runId}": item ` +
         `${itemIndex} settled ${economics.settledCostCents} cent(s) against ` +
         `a ${economics.reservedCostCents}-cent reservation, exceeding the ` +
-        "ceiling authored for it."
+        "ceiling authored for it.",
     );
   }
 
@@ -1062,7 +1060,7 @@ function assertItemFrameOutcomeCoherent(
       `Cannot resume loop "${loopNodeId}" in run "${runId}": item ` +
         `${itemIndex} holds reservation "${economics.reservationId}", which ` +
         "was minted for a different item. Resuming would settle this item's " +
-        "work against another item's reservation."
+        "work against another item's reservation.",
     );
   }
 }
@@ -1083,7 +1081,7 @@ export class PipelineForEachCursorCorruptError extends Error {
  * preferring `itemFrames` here cannot silently discard a live frame.
  */
 export function readItemFrames(
-  cursor: LoopState[string] | undefined
+  cursor: LoopState[string] | undefined,
 ): Record<string, PipelineForEachItemFrame> | undefined {
   if (cursor?.itemFrames !== undefined) {
     return Object.keys(cursor.itemFrames).length === 0
@@ -1107,13 +1105,13 @@ export function readItemFrames(
  */
 export function retainInFlightItemFrames(
   itemFrames: Record<string, PipelineForEachItemFrame> | undefined,
-  completedIterations: number
+  completedIterations: number,
 ): Record<string, PipelineForEachItemFrame> | undefined {
   if (itemFrames === undefined) return undefined;
   const retained = Object.fromEntries(
     Object.entries(itemFrames).filter(
-      ([, itemFrame]) => itemFrame.itemIndex >= completedIterations
-    )
+      ([, itemFrame]) => itemFrame.itemIndex >= completedIterations,
+    ),
   );
   return Object.keys(retained).length === 0 ? undefined : retained;
 }

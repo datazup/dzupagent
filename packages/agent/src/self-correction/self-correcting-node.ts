@@ -12,7 +12,7 @@
  */
 
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import type { PipelineNode } from "@dzupagent/core/pipeline";
+import type { PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 import type {
   NodeExecutor,

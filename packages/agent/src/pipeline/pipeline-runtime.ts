@@ -11,13 +11,8 @@
  * @module pipeline/pipeline-runtime
  */
 
-import {
-  PipelineCheckpointSchema,
-  type PipelineNode,
-  type PipelineEdge,
-  type PipelineCheckpoint,
-  type PipelineCheckpointProviderSessionRef,
-} from "@dzupagent/core/pipeline";
+import { PipelineCheckpointSchema, type PipelineCheckpoint, type PipelineCheckpointProviderSessionRef } from "@dzupagent/core/pipeline";
+import { type PipelineNode, type PipelineEdge } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type { PipelineInteractionResumeV1 } from "@dzupagent/runtime-contracts";
 import { validatePipeline } from "./pipeline-validator.js";
 import type {

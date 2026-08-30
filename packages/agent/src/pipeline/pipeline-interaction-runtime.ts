@@ -1,10 +1,5 @@
-import type {
-  GateNode,
-  PipelineCheckpoint,
-  PipelineDefinition,
-  PipelineNode,
-  SuspendNode,
-} from "@dzupagent/core/pipeline";
+import type { PipelineCheckpoint } from "@dzupagent/core/pipeline";
+import type { GateNode, PipelineDefinition, PipelineNode, SuspendNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import {
   createPipelinePendingInteractionV1,
   digestPipelineDefinition,

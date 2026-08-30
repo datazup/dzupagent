@@ -1,13 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type {
-  LoopNode,
-  PipelineCheckpoint,
-  PipelineCheckpointStore,
-  PipelineDefinition,
-  PipelineEdge,
-  PipelineNode,
-} from "@dzupagent/core/pipeline";
+import type { PipelineCheckpoint, PipelineCheckpointStore } from "@dzupagent/core/pipeline";
+import type { LoopNode, PipelineDefinition, PipelineEdge, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type { PipelineInteractionResumeV1 } from "@dzupagent/runtime-contracts";
 
 import { executeLoop } from "../pipeline/loop-executor.js";
