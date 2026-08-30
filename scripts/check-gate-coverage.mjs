@@ -19,13 +19,19 @@
  * That is not hypothetical. The first run of this scanner found fifteen
  * unreferenced gate-like scripts, of which three were rotted red:
  *
- *   - check:security-audit-status reads docs/SECURITY-AUDIT.md, which commit
- *     4f2301b2 deleted. The document was retired; the gate was not. It cannot
- *     pass in any tree and nobody noticed, because nothing ran it.
- *   - check:flow-conformance compares against a matrix artifact last refreshed
+ *   - check:security-audit-status read docs/SECURITY-AUDIT.md, which commit
+ *     4f2301b2 deleted. The document was retired; the gate was not. It could
+ *     not pass in any tree and nobody noticed, because nothing ran it.
+ *     RETIRED 2026-08-30 by operator decision.
+ *   - check:flow-conformance compared against a matrix artifact last refreshed
  *     on 07-11 while the flow-* packages changed through 08-17.
- *   - check:flow-corpus-losslessness:required is GREEN, and is the strictly
- *     stronger half of a pair whose WEAKER half is the one wired into CI.
+ *     RETIRED 2026-08-30 by operator decision. The generator survives as the
+ *     non-gate `docs:flow-conformance` if the matrix is ever wanted again.
+ *   - check:flow-corpus-losslessness:required was GREEN, and was the strictly
+ *     stronger half of a pair whose WEAKER half was the one wired into CI.
+ *     RESOLVED 2026-08-30: check:flow-corpus-losslessness now passes
+ *     --require-corpus itself and the separate variant is gone, so the wired
+ *     gate is the strong one and the pair can no longer drift apart.
  *
  * A guard nobody runs is worse than no guard: it reads as coverage in review
  * and provides none.
@@ -195,21 +201,6 @@ export const ORPHAN_ALLOWLIST = {
     category: 'manual-utility',
     reason:
       'The `--json` variant of audit:deps, for tooling that wants to parse the advisory list. audit:deps itself IS wired — it is the last gate of the strict-ci profile and of all three verify chains.',
-  },
-  'check:security-audit-status': {
-    category: 'pending-operator-decision',
-    reason:
-      'RED and unfixable in any tree: it requires docs/SECURITY-AUDIT.md, which commit 4f2301b2 ("consolidate architecture docs and retire audits") deleted. The document was retired and the gate was not. Restore-or-retire is an operator decision — brief at workspace-docs/repos/workspace-root/docs/decisions/OPERATOR_DECISION_BRIEF_2026-08-17-two-gates-that-run-nowhere.md. Verified red 2026-08-17.',
-  },
-  'check:flow-conformance': {
-    category: 'pending-operator-decision',
-    reason:
-      'RED: docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.{md,json} are stale, last refreshed 07-11 while the flow-* packages changed through 08-17. Not a mechanical fix — the matrix has to be regenerated from a quiescent flow-* tree, and whether it is still worth carrying is an operator decision. Same brief as check:security-audit-status. Verified red 2026-08-17.',
-  },
-  'check:flow-corpus-losslessness:required': {
-    category: 'pending-wiring',
-    reason:
-      'GREEN (26/26, floor 26) and strictly stronger than check:flow-corpus-losslessness, which IS gate 20 of the CI chain: this variant passes --require-corpus, so it fails when the corpus is missing instead of vacuously passing over zero documents. CI therefore runs the weaker half of the pair. Swapping them edits the root package.json chain, and package.json is digest-pinned by docs/generated/MEMORY_CONFORMANCE_BASELINE.v1.json (source.files[]), forcing an artifact re-pin. Deliberately deferred. Verified green 2026-08-17.',
   },
 }
 
