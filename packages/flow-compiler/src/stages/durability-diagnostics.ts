@@ -25,10 +25,7 @@
  *         configured (OQ-1: compile-warn, runtime-admission-fail).
  */
 import type { CompilationError, CompilationWarning } from "../types.js";
-import {
-  RAW_CHILD_NODE_FIELDS,
-  walkRawNodes,
-} from "@dzupagent/flow-ast/node-traversal";
+import { walkRawNodes } from "@dzupagent/flow-ast/node-traversal";
 
 const ADAPTER_NODE_KEYS = [
   "adapter.run",
@@ -188,68 +185,39 @@ export function computeDurabilityErrors(document: unknown): CompilationError[] {
   return [];
 }
 
-/** True when any reachable node carries a mutating `effectClass`. */
+/**
+ * The two document-level reachability searches behind D3.
+ *
+ * Both run over the canonical raw traversal rather than a local recursion.
+ * That matters beyond dedup: the hand-rolled pair disagreed about the
+ * `branches` container — the mutation search descended an object entry, the
+ * resume search accepted only arrays — so a checkpoint that was plainly
+ * reachable could be invisible to exactly one half of the D3 condition. The
+ * flow then reported DURABLE_MUTATION_NO_RESUME_POINT, and under
+ * `requireResumePoint: true` failed the compile outright, for a resume point
+ * it actually had. Sharing one traversal makes that class of disagreement
+ * unrepresentable.
+ */
 function containsMutatingNode(node: unknown): boolean {
-  if (!isObject(node)) return false;
-  const effectClass = node["effectClass"];
-  if (
-    typeof effectClass === "string" &&
-    MUTATING_EFFECT_CLASSES.has(effectClass)
-  ) {
-    return true;
-  }
-
-  for (const childKey of RAW_CHILD_NODE_FIELDS) {
-    const child = node[childKey];
-    if (Array.isArray(child)) {
-      if (child.some((entry) => containsMutatingNode(entry))) return true;
-    } else if (isObject(child) && containsMutatingNode(child)) {
-      return true;
+  let found = false;
+  walkRawNodes(node, (candidate) => {
+    const effectClass = candidate["effectClass"];
+    if (
+      typeof effectClass === "string" &&
+      MUTATING_EFFECT_CLASSES.has(effectClass)
+    ) {
+      found = true;
     }
-  }
-
-  const branches = node["branches"];
-  if (Array.isArray(branches)) {
-    for (const branch of branches) {
-      if (Array.isArray(branch)) {
-        if (branch.some((entry) => containsMutatingNode(entry))) return true;
-      } else if (isObject(branch) && containsMutatingNode(branch)) {
-        return true;
-      }
-    }
-  }
-
-  return false;
+  });
+  return found;
 }
 
 function containsReachableResumePoint(node: unknown): boolean {
-  if (!isObject(node)) return false;
-  if (isResumePoint(node)) return true;
-
-  for (const childKey of RAW_CHILD_NODE_FIELDS) {
-    const child = node[childKey];
-    if (Array.isArray(child)) {
-      if (child.some((entry) => containsReachableResumePoint(entry))) {
-        return true;
-      }
-    } else if (isObject(child) && containsReachableResumePoint(child)) {
-      return true;
-    }
-  }
-
-  const branches = node["branches"];
-  if (Array.isArray(branches)) {
-    for (const branch of branches) {
-      if (
-        Array.isArray(branch) &&
-        branch.some((entry) => containsReachableResumePoint(entry))
-      ) {
-        return true;
-      }
-    }
-  }
-
-  return false;
+  let found = false;
+  walkRawNodes(node, (candidate) => {
+    if (isResumePoint(candidate)) found = true;
+  });
+  return found;
 }
 
 function isResumePoint(node: Record<string, unknown>): boolean {
