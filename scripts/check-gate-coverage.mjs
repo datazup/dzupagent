@@ -194,7 +194,7 @@ export const ORPHAN_ALLOWLIST = {
   'audit:deps:summary': {
     category: 'manual-utility',
     reason:
-      'The `--json` variant of audit:deps, for tooling that wants to parse the advisory list. Note audit:deps itself is not in the CI chain either — see CHAIN_DELTA_ALLOWLIST, which records what CI does instead.',
+      'The `--json` variant of audit:deps, for tooling that wants to parse the advisory list. audit:deps itself IS wired — it is the last gate of the strict-ci profile and of all three verify chains.',
   },
   'check:security-audit-status': {
     category: 'pending-operator-decision',
@@ -235,8 +235,6 @@ export const CHAIN_DELTA_ALLOWLIST = {
     'COVERED IN CI, elsewhere: coverage runs as its own workflow, .github/workflows/coverage-gate.yml, per-workspace in a matrix. Running it inline would roughly double the strict lane for no extra signal.',
   'check:workspace:coverage':
     'COVERED IN CI, under a different name: this and test:coverage:workspace are two script names for one file, scripts/check-workspace-coverage.mjs, and coverage-gate.yml enforces it as `yarn test:coverage:workspace`.',
-  'audit:deps':
-    'NOT covered in CI under this name. .github/workflows/security.yml has a dependency-audit job, but it runs `yarn audit --level moderate` inline — Yarn Classic syntax, while this repo is on Yarn 4 where the command is `yarn npm audit`. Whether that job can fail on a real advisory has not been established; flagged here rather than fixed, because editing the security workflow is outside this guard.',
 }
 
 /**

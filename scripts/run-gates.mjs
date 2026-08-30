@@ -93,6 +93,16 @@ const ARTIFACT_CHECKS = [
   // profile, so while this was absent the dependency audit never ran in CI at
   // all — one of the three independent reasons a runtime-reachable High CVE
   // survived three audit cycles.
+  //
+  // This gate is the repo's only trustworthy dependency audit. Carried over
+  // from the CHAIN_DELTA_ALLOWLIST entry retired when audit:deps was declared
+  // in the verify chains: .github/workflows/security.yml ALSO has a
+  // dependency-audit job, but it runs `yarn audit --level moderate` — Yarn
+  // Classic syntax, while this repo is on Yarn 4 where the command is
+  // `yarn npm audit`. Whether that job can fail on a real advisory has never
+  // been established, so do not treat it as a second line of defence. Fixing
+  // the workflow is a separate change (and currently unverifiable — Actions
+  // have been billing-blocked org-wide since 2026-08-14).
   "audit:deps",
 ];
 
