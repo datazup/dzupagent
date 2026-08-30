@@ -6,6 +6,8 @@ export default defineConfig({
     unstubGlobals: true,
     globals: false,
     environment: 'node',
+    fileParallelism: false,
+    maxWorkers: 1,
     testTimeout: 30_000,
     include: ['src/**/*.test.ts', 'src/**/*.spec.ts'],
     coverage: {

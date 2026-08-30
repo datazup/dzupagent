@@ -30,6 +30,7 @@ interface FakeProcessOptions {
 }
 
 const ARTIFACT_DIGEST = `sha256:${'b'.repeat(64)}`
+const fakeMonotonicNow = (): number => globalThis.performance.now()
 
 function initializeResponse(): Record<string, unknown> {
   return {
@@ -265,7 +266,11 @@ describe('Codex App Server bounded stdio client', () => {
   it('lets callers tighten request time without expanding the configured maximum', async () => {
     vi.useFakeTimers()
     try {
-      const tightenedClient = await connect(fakeProcess(), { requestTimeoutMs: 50 })
+      const tightenedClient = await connect(
+        fakeProcess(),
+        { requestTimeoutMs: 50 },
+        { monotonicNow: fakeMonotonicNow },
+      )
       const tightened = expect(tightenedClient.request(
         'thread/start',
         {},
@@ -274,7 +279,11 @@ describe('Codex App Server bounded stdio client', () => {
       await vi.advanceTimersByTimeAsync(5)
       await tightened
 
-      const cappedClient = await connect(fakeProcess(), { requestTimeoutMs: 5 })
+      const cappedClient = await connect(
+        fakeProcess(),
+        { requestTimeoutMs: 5 },
+        { monotonicNow: fakeMonotonicNow },
+      )
       const capped = expect(cappedClient.request(
         'thread/start',
         {},

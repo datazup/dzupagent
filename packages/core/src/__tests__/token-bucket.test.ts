@@ -100,17 +100,26 @@ describe('TokenBucket', () => {
   })
 
   it('does not busy-wait when sleeping', async () => {
-    // Sanity: setTimeout is the only scheduling primitive used.
-    // Run a real-timer microbenchmark to ensure waitUntilAvailable
-    // actually awaits a setTimeout (not a tight loop).
-    vi.useRealTimers()
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout')
     const bucket = new TokenBucket({ capacity: 1, refillPerSecond: 50 })
     expect(bucket.consume(1)).toBe(true)
-    const start = Date.now()
-    await bucket.waitUntilAvailable(1)
-    const elapsed = Date.now() - start
-    // 1 token at 50/sec = 20 ms; allow generous slack for CI jitter.
-    expect(elapsed).toBeGreaterThanOrEqual(15)
-    expect(elapsed).toBeLessThan(500)
+
+    try {
+      let settled = false
+      const promise = bucket.waitUntilAvailable(1).then(() => {
+        settled = true
+      })
+
+      // 1 token at 50/sec = 20 ms. The promise must yield to a timer rather
+      // than spin synchronously while the bucket is empty.
+      expect(settled).toBe(false)
+      expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 20)
+
+      await vi.advanceTimersByTimeAsync(20)
+      await expect(promise).resolves.toBeUndefined()
+      expect(settled).toBe(true)
+    } finally {
+      setTimeoutSpy.mockRestore()
+    }
   })
 })

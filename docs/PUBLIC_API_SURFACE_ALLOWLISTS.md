@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-08-19
+Date: 2026-08-27
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -667,7 +667,7 @@ Root index: `packages/connectors/src/index.ts`
 
 Root index: `packages/agent-adapters/src/index.ts`
 
-- Stable root sources: `25`
+- Stable root sources: `29`
 - Deprecated transitional root sources: `99`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x with new code expected to use providers/orchestration/workflow/http/persistence/rules/learning/recovery subpaths before a future 1.0 root contraction.
@@ -708,13 +708,17 @@ Root index: `packages/agent-adapters/src/index.ts`
 | `deprecated-transitional` | `./ollama/ollama-adapter.js` | 5 | `exact:./ollama/ollama-adapter.js` | `OllamaAdapter`, `createOllamaAdapter`, `resolveLocalModelEndpoint`, `OllamaAdapterConfig` |
 | `deprecated-transitional` | `./openrouter/openrouter-adapter.js` | 2 | `prefix:./openrouter/` | `OpenRouterAdapter`, `OpenRouterConfig` |
 | `deprecated-transitional` | `./openai/openai-adapter.js` | 3 | `prefix:./openai/` | `OpenAIAdapter`, `OpenAIConfig`, `OpenAIRunResult` |
-| `deprecated-transitional` | `./model-discovery.js` | 25 | `exact:./model-discovery.js` | `assessModelAvailability`, `discoverClaudeModels`, `discoverCodexModels`, `discoverGeminiModels` |
+| `deprecated-transitional` | `./model-discovery.js` | 30 | `exact:./model-discovery.js` | `assessModelAvailability`, `discoverClaudeModels`, `discoverCodexModels`, `discoverCrushModels` |
 | `deprecated-transitional` | `./provider-request-capability-inspection.js` | 5 | `exact:./provider-request-capability-inspection.js` | `inspectProviderRequestCapabilities`, `ProviderRequestCapabilityBlocker`, `ProviderRequestCapabilityInspection`, `ProviderRequestCapabilityInspectionInput` |
 | `deprecated-transitional` | `./prompts/system-prompt-builder.js` | 9 | `prefix:./prompts/` | `SystemPromptBuilder`, `SystemPromptPayload`, `ClaudeAppendPayload`, `ClaudeReplacePayload` |
 | `deprecated-transitional` | `./prompts/thinking-history.js` | 1 | `prefix:./prompts/` | `stripThinkingBlocks` |
 | `stable` | `./registry/adapter-registry.js` | 4 | `prefix:./registry/` | `ProviderAdapterRegistry`, `ProviderAdapterRegistryConfig`, `ProviderAdapterRegistryHealthStatus`, `ProviderAdapterHealthDetail` |
 | `stable` | `./registry/task-router.js` | 5 | `prefix:./registry/` | `TagBasedRouter`, `CostOptimizedRouter`, `RoundRobinRouter`, `CompositeRouter` |
-| `stable` | `./registry/deterministic-candidate-selector.js` | 9 | `prefix:./registry/` | `classifyRouteTransition`, `DeterministicRouteSelectionAdmissionError`, `IMPLEMENTED_DETERMINISTIC_ROUTE_STRATEGIES`, `planCandidateRecovery` |
+| `stable` | `./registry/deterministic-candidate-selector.js` | 13 | `prefix:./registry/` | `classifyRouteTransition`, `DeterministicRouteSelectionAdmissionError`, `IMPLEMENTED_DETERMINISTIC_ROUTE_STRATEGIES`, `planCandidateRecovery` |
+| `stable` | `./registry/seeded-route-strategies.js` | 3 | `prefix:./registry/` | `ROUTE_WEIGHT_TAG_PREFIX`, `SeededRouteStrategy`, `SeededRouteStrategyFailureCode` |
+| `stable` | `./registry/round-robin-route-strategy.js` | 1 | `prefix:./registry/` | `RoundRobinRouteStrategyFailureCode` |
+| `stable` | `./registry/route-deadline-strategy.js` | 3 | `prefix:./registry/` | `ROUTE_DEADLINE_FAILURE_CODES`, `RouteDeadlineFailureCode`, `RouteSelectionDeadlineOutcome` |
+| `stable` | `./registry/route-policy-admission.js` | 3 | `prefix:./registry/` | `admitExecutionRoutePolicy`, `RoutePolicyAdmissionError`, `RoutePolicyAdmissionCode` |
 | `stable` | `./registry/candidate-materializer.js` | 2 | `prefix:./registry/` | `materializeRoutingCandidates`, `CandidateMaterializationDescriptor` |
 | `stable` | `./registry/learning-router.js` | 2 | `prefix:./registry/` | `LearningRouter`, `LearningRouterConfig` |
 | `stable` | `./registry/event-bus-bridge.js` | 1 | `prefix:./registry/` | `EventBusBridge` |

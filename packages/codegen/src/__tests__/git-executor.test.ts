@@ -281,9 +281,11 @@ describe('GitExecutor', () => {
       })
 
       const executor = new GitExecutor({ cwd: '/test/repo' })
-      await executor.diff({ ref1: 'HEAD~3', ref2: 'HEAD' })
+      await executor.diff({ ref1: 'main', ref2: 'feature/compare' })
 
-      expect(calls.some((c) => c.includes('HEAD~3') && c.includes('HEAD'))).toBe(true)
+      expect(
+        calls.some((c) => c.includes('main') && c.includes('feature/compare')),
+      ).toBe(true)
     })
   })
 

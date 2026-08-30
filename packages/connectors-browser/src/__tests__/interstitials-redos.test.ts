@@ -171,9 +171,9 @@ describe("CONTINUE_BUTTON_NAME stays linear", () => {
    *
    * The load-bearing guarantee is therefore STRUCTURAL, asserted below against
    * safe-regex itself — that assertion IS non-vacuous, since it fails for the
-   * pre-fix pattern. The timing check is kept only as a cheap backstop, paired
-   * with a calibration control that IS genuinely exponential so the harness
-   * cannot silently become decorative.
+   * pre-fix pattern. The timing check is kept only as a cheap backstop. A
+   * structurally unsafe calibration control separately proves that safe-regex
+   * rejects a genuinely ambiguous expression without executing it.
    */
   it("is accepted by safe-regex, unlike the original", async () => {
     const { default: safeRegex } = await import("safe-regex");
@@ -189,25 +189,16 @@ describe("CONTINUE_BUTTON_NAME stays linear", () => {
     expect(timeFor(CONTINUE_BUTTON_NAME, 100_000)).toBeLessThan(1_000);
   });
 
-  it("uses a harness that can actually detect a blowup", () => {
+  it("rejects a genuinely ambiguous calibration control structurally", async () => {
     // Calibration control. `(?:a+)+` is genuinely ambiguous — `a+` and the
-    // outer `+` can split a run of `a`s exponentially many ways — so a
-    // near-miss doubles in cost per added character. Only ~24 chars are
-    // needed. This proves the timing harness above is not decorative: a real
-    // backtracking blowup on a TINY input dwarfs the fixed pattern's cost on
-    // a 100k-char one.
+    // outer `+` can split a run of `a`s exponentially many ways. Prove the
+    // structural detector rejects it without executing the catastrophic
+    // backtracking path, whose wall-clock runtime is inherently load-sensitive.
     // Fragment-assembled for the same reason as ORIGINAL above — as a literal
     // this deliberately-unsafe control would trip the lint gate.
+    const { default: safeRegex } = await import("safe-regex");
     const exponential = buildRegExp(["^(?:a", "+)+$"]);
-    const probe = `${"a".repeat(24)}!`;
 
-    const startedControl = performance.now();
-    exponential.test(probe);
-    const control = performance.now() - startedControl;
-
-    const fixed = Math.max(timeFor(CONTINUE_BUTTON_NAME, 100_000), 0.01);
-
-    expect(control).toBeGreaterThan(10);
-    expect(control / fixed).toBeGreaterThan(10);
+    expect(safeRegex(exponential)).toBe(false);
   });
 });
