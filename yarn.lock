@@ -125,6 +125,22 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@anthropic-ai/sdk@npm:^0.74.0":
+  version: 0.74.0
+  resolution: "@anthropic-ai/sdk@npm:0.74.0"
+  dependencies:
+    json-schema-to-ts: "npm:^3.1.1"
+  peerDependencies:
+    zod: ^3.25.0 || ^4.0.0
+  peerDependenciesMeta:
+    zod:
+      optional: true
+  bin:
+    anthropic-ai-sdk: bin/cli
+  checksum: 10c0/723fe922a387a6a66b4f24e3acd73fc14015013f51802c0a3df57a953652b2e74267c8da1cc72d35be366e89fd5b957ff4009a3d7ff3fce1e63d7d5358f86b35
+  languageName: node
+  linkType: hard
+
 "@aws-crypto/crc32@npm:5.2.0":
   version: 5.2.0
   resolution: "@aws-crypto/crc32@npm:5.2.0"
@@ -3187,21 +3203,21 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@langchain/anthropic@npm:^1.3.23":
-  version: 1.5.1
-  resolution: "@langchain/anthropic@npm:1.5.1"
+"@langchain/anthropic@npm:1.3.23":
+  version: 1.3.23
+  resolution: "@langchain/anthropic@npm:1.3.23"
   dependencies:
-    "@anthropic-ai/sdk": "npm:^0.103.0"
+    "@anthropic-ai/sdk": "npm:^0.74.0"
     zod: "npm:^3.25.76 || ^4"
   peerDependencies:
-    "@langchain/core": ^1.2.1
-  checksum: 10c0/1fa71e54c1e6f52b00f3b2032520a250f5c9c663a2677faa89c93a3bbae4ddce9dd2fb8ff002da79d70266cea7b02d58de6af65fff58fbf48e644bb8c4ef825c
+    "@langchain/core": ^1.1.32
+  checksum: 10c0/85347eff4475fd6d860f6d8019a4ca11400f2ae41cfff28130820487c04c6164bee3e312c9612008060e0b30fbd06b9c89eaa446715620239fb27d8632e8ae86
   languageName: node
   linkType: hard
 
-"@langchain/core@npm:^1.1.39":
-  version: 1.2.1
-  resolution: "@langchain/core@npm:1.2.1"
+"@langchain/core@npm:1.1.48":
+  version: 1.1.48
+  resolution: "@langchain/core@npm:1.1.48"
   dependencies:
     "@cfworker/json-schema": "npm:^4.0.2"
     "@standard-schema/spec": "npm:^1.1.0"
@@ -3210,7 +3226,7 @@ __metadata:
     mustache: "npm:^4.2.0"
     p-queue: "npm:^6.6.2"
     zod: "npm:^3.25.76 || ^4"
-  checksum: 10c0/29922144ac8e0afcc1bdaf7d2ca96937bd42b9f93fad1b69b8138ce91681dc6b3145bafffd793efecb36a003983302219b9ed16835d12963e6f051c81ae3f5c6
+  checksum: 10c0/35ddd06127305b33c612df652a1990c0e5749f86943e6e248c1d2d63e59aca84d0ff6dcfcba6383561a62627ada8231823479b2b06a570a80343f92e1e71c81d
   languageName: node
   linkType: hard
 
@@ -3277,16 +3293,16 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@langchain/openai@npm:^1.4.3":
-  version: 1.5.3
-  resolution: "@langchain/openai@npm:1.5.3"
+"@langchain/openai@npm:1.4.3":
+  version: 1.4.3
+  resolution: "@langchain/openai@npm:1.4.3"
   dependencies:
     js-tiktoken: "npm:^1.0.12"
-    openai: "npm:^6.41.0"
+    openai: "npm:^6.32.0"
     zod: "npm:^3.25.76 || ^4"
   peerDependencies:
-    "@langchain/core": ^1.2.1
-  checksum: 10c0/56948c30a9fcddcb30f1fd779fe451db253f2bbb058973aad8fdbf7b934e3db3d18af3fa44aea2f40dbf9e4980aa58ab7d609fe422a35e4951d65c7b83ea4009
+    "@langchain/core": ^1.1.39
+  checksum: 10c0/53d663608ddc17e205b77e0564b068fa5ff503ef7b11c5e9a1dd90c0d38ba340786d14c91ecbfc79d425b58adf98763b4612a761b473610d6efedb8b4dc7e3e2
   languageName: node
   linkType: hard
 
@@ -10251,9 +10267,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"openai@npm:^6.41.0":
-  version: 6.45.0
-  resolution: "openai@npm:6.45.0"
+"openai@npm:^6.32.0":
+  version: 6.49.0
+  resolution: "openai@npm:6.49.0"
   peerDependencies:
     "@aws-sdk/credential-provider-node": ">=3.972.0 <4"
     "@smithy/hash-node": ">=4.3.0 <5"
@@ -10271,7 +10287,7 @@ __metadata:
       optional: true
     zod:
       optional: true
-  checksum: 10c0/d59fdcb75d20e81f6b1d4c0a0591dfd10b8078ed6a0d2ae1abc7768efc70106a1e94ccbc9b9c01d31dcecc73285be767d7418a115647c631f4cb58202f55eafa
+  checksum: 10c0/c9e748e8a813f948ed925949e857d758505d246d7ec7e939f79cc2ab3383083ccdefff953479afb9dcb0f634cfddb0d442fcf02b6203cc9d6b7c95d3ddbc20ef
   languageName: node
   linkType: hard
 
