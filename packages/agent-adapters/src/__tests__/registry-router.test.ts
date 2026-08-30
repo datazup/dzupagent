@@ -6,7 +6,13 @@ import type { DzupEvent } from '@dzupagent/core'
 import { AdapterHealthMonitor } from '../registry/health-monitor.js'
 import { AdapterRegistryCore } from '../registry/registry-core.js'
 import { AdapterRegistryRouter } from '../registry/registry-router.js'
+import {
+  buildExecutionControlAdmission,
+  executionControlRequirementSha256,
+} from '../execution-control-admission.js'
 import type {
+  AdapterExecutionControlAdmission,
+  AdapterExecutionControlRequirement,
   AdapterProviderId,
   AgentCLIAdapter,
   AgentEvent,
@@ -91,6 +97,125 @@ const failEvents = (providerId: AdapterProviderId): AgentEvent[] => [
 
 const task: TaskDescriptor = { prompt: 'p', tags: [], approvedFallbackProviders: ['claude', 'codex'] }
 const input: AgentInput = { prompt: 'p' }
+const zeroToolRequirement: AdapterExecutionControlRequirement = {
+  schema: 'dzupagent/adapter-execution-control-requirement/v1',
+  tools: { mode: 'none' },
+}
+
+function zeroToolInput(
+  policyContext: AgentInput['policyContext'] = {
+    activePolicy: {
+      toolPolicy: 'strict',
+      allowedTools: [],
+      blockedTools: [],
+    },
+    conformanceMode: 'strict',
+  },
+): AgentInput {
+  return {
+    prompt: 'p',
+    executionControlRequirement: zeroToolRequirement,
+    policyContext,
+  }
+}
+
+function validAdmission(providerId: AdapterProviderId): AdapterExecutionControlAdmission {
+  return buildExecutionControlAdmission({
+    providerId,
+    requirement: zeroToolRequirement,
+    status: 'admitted',
+    enforcement: 'provider-pre-dispatch',
+  })
+}
+
+function makeExecutionControlAdapter(
+  providerId: AdapterProviderId,
+  options: {
+    supportsZeroToolDispatch: boolean
+    admitExecutionControls?: NonNullable<AgentCLIAdapter['admitExecutionControls']>
+    onExecute?: (input: AgentInput) => void
+    onResume?: (sessionId: string, input: AgentInput) => void
+    events?: AgentEvent[]
+  },
+): AgentCLIAdapter {
+  const events = options.events ?? successEvents(providerId)
+  return {
+    getCapabilities: () => stubCapabilities({
+      supportsZeroToolDispatch: options.supportsZeroToolDispatch,
+    }),
+    ...(options.admitExecutionControls
+      ? { admitExecutionControls: options.admitExecutionControls }
+      : {}),
+    providerId,
+    async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
+      options.onExecute?.(input)
+      for (const event of events) yield event
+    },
+    async *resumeSession(
+      sessionId: string,
+      input: AgentInput,
+    ): AsyncGenerator<AgentEvent, void, undefined> {
+      options.onResume?.(sessionId, input)
+      for (const event of events) yield event
+    },
+    interrupt() {},
+    async healthCheck() {
+      return { healthy: true, providerId, sdkInstalled: true, cliAvailable: true }
+    },
+    configure() {},
+  }
+}
+
+async function collectFailure(
+  router: AdapterRegistryRouter,
+  controlledInput: AgentInput,
+  controlledTask: TaskDescriptor = task,
+): Promise<{ events: AgentEvent[]; error: unknown }> {
+  const events: AgentEvent[] = []
+  let error: unknown
+  try {
+    for await (const event of router.executeWithFallback(controlledInput, controlledTask)) {
+      events.push(event)
+    }
+  } catch (caught) {
+    error = caught
+  }
+  return { events, error }
+}
+
+function expectExecutionControlDenial(
+  result: Awaited<ReturnType<typeof collectFailure>>,
+  providerId: AdapterProviderId,
+  blocker: string,
+): void {
+  const expectedAdmission = buildExecutionControlAdmission({
+    providerId,
+    requirement: zeroToolRequirement,
+    status: 'rejected',
+    enforcement: 'unsupported',
+    blockers: [blocker],
+  })
+  const denial = result.events.find((event) => (
+    event.type === 'adapter:progress'
+    && event.phase === 'registry:execution_control_denied'
+  ))
+
+  expect(denial).toMatchObject({
+    type: 'adapter:progress',
+    providerId,
+    phase: 'registry:execution_control_denied',
+  })
+  expect(denial?.details).toEqual({ admission: expectedAdmission })
+  expect(result.error).toMatchObject({
+    code: 'ALL_ADAPTERS_EXHAUSTED',
+    recoverable: false,
+    cause: {
+      code: 'CAPABILITY_DENIED',
+      recoverable: false,
+      context: { admission: expectedAdmission },
+    },
+  })
+}
 
 const fixedRouter: TaskRoutingStrategy = {
   name: 'fixed',
@@ -146,6 +271,188 @@ describe('AdapterRegistryRouter', () => {
     const progress = events.filter((e) => e.type === 'adapter:progress')
     expect(progress.length).toBeGreaterThanOrEqual(2) // routing + primary
     expect(events.some((e) => e.type === 'adapter:completed' && e.providerId === 'claude')).toBe(true)
+  })
+
+  it('denies an opted-in adapter whose admission method is missing before execution bookkeeping', async () => {
+    let executeCalls = 0
+    const { router, emitted } = buildRouterWithBus(makeExecutionControlAdapter('openai', {
+      supportsZeroToolDispatch: true,
+      onExecute: () => { executeCalls += 1 },
+    }))
+
+    const result = await collectFailure(router, zeroToolInput())
+
+    expectExecutionControlDenial(
+      result,
+      'openai',
+      'execution_control_admission_method_missing',
+    )
+    expect(executeCalls).toBe(0)
+    expect(emitted.some((event) => event.type === 'agent:started')).toBe(false)
+    expect(emitted.some((event) => event.type === 'agent:failed')).toBe(false)
+    expect(emitted.some((event) => event.type === 'provider:failed')).toBe(false)
+    expect(emitted.some((event) => event.type === 'provider:circuit_opened')).toBe(false)
+  })
+
+  it('denies an opted-in adapter whose zero-tool capability is false', async () => {
+    let executeCalls = 0
+    const adapter = makeExecutionControlAdapter('codex', {
+      supportsZeroToolDispatch: false,
+      admitExecutionControls: () => validAdmission('codex'),
+      onExecute: () => { executeCalls += 1 },
+    })
+
+    const result = await collectFailure(buildRouter(adapter), zeroToolInput())
+
+    expectExecutionControlDenial(
+      result,
+      'codex',
+      'zero_tool_dispatch_capability_missing',
+    )
+    expect(executeCalls).toBe(0)
+  })
+
+  it('denies malformed execution-control admission before adapter execution', async () => {
+    let executeCalls = 0
+    const adapter = makeExecutionControlAdapter('openai', {
+      supportsZeroToolDispatch: true,
+      admitExecutionControls: () => ({
+        status: 'admitted',
+      } as unknown as AdapterExecutionControlAdmission),
+      onExecute: () => { executeCalls += 1 },
+    })
+
+    const result = await collectFailure(buildRouter(adapter), zeroToolInput())
+
+    expectExecutionControlDenial(
+      result,
+      'openai',
+      'execution_control_admission_malformed',
+    )
+    expect(executeCalls).toBe(0)
+  })
+
+  it('denies execution-control admission for the wrong provider', async () => {
+    let executeCalls = 0
+    const adapter = makeExecutionControlAdapter('openai', {
+      supportsZeroToolDispatch: true,
+      admitExecutionControls: () => validAdmission('codex'),
+      onExecute: () => { executeCalls += 1 },
+    })
+
+    const result = await collectFailure(buildRouter(adapter), zeroToolInput())
+
+    expectExecutionControlDenial(
+      result,
+      'openai',
+      'execution_control_admission_provider_mismatch',
+    )
+    expect(executeCalls).toBe(0)
+  })
+
+  it('denies execution-control admission for the wrong requirement digest', async () => {
+    let executeCalls = 0
+    const admission = validAdmission('openai')
+    const adapter = makeExecutionControlAdapter('openai', {
+      supportsZeroToolDispatch: true,
+      admitExecutionControls: () => ({
+        ...admission,
+        requirementSha256: `sha256:${'0'.repeat(64)}`,
+      }),
+      onExecute: () => { executeCalls += 1 },
+    })
+
+    const result = await collectFailure(buildRouter(adapter), zeroToolInput())
+
+    expect(executionControlRequirementSha256(zeroToolRequirement)).not.toBe(
+      `sha256:${'0'.repeat(64)}`,
+    )
+    expectExecutionControlDenial(
+      result,
+      'openai',
+      'execution_control_admission_digest_mismatch',
+    )
+    expect(executeCalls).toBe(0)
+  })
+
+  it('denies an opted-in adapter whose admission method throws', async () => {
+    let executeCalls = 0
+    const adapter = makeExecutionControlAdapter('openai', {
+      supportsZeroToolDispatch: true,
+      admitExecutionControls: () => {
+        throw new Error('admission exploded')
+      },
+      onExecute: () => { executeCalls += 1 },
+    })
+
+    const result = await collectFailure(buildRouter(adapter), zeroToolInput())
+
+    expectExecutionControlDenial(
+      result,
+      'openai',
+      'execution_control_admission_method_threw',
+    )
+    expect(executeCalls).toBe(0)
+  })
+
+  it('emits warn-only policy telemetry before denying zero-tool execution', async () => {
+    let executeCalls = 0
+    const adapter = makeExecutionControlAdapter('openai', {
+      supportsZeroToolDispatch: true,
+      admitExecutionControls: () => validAdmission('openai'),
+      onExecute: () => { executeCalls += 1 },
+    })
+    const warnOnlyInput = zeroToolInput({
+      activePolicy: {
+        approvalRequired: true,
+        toolPolicy: 'strict',
+        allowedTools: [],
+        blockedTools: [],
+      },
+      conformanceMode: 'warn-only',
+    })
+
+    const result = await collectFailure(buildRouter(adapter), warnOnlyInput)
+
+    expectExecutionControlDenial(
+      result,
+      'openai',
+      'execution_control_policy_inconsistent',
+    )
+    const warningIndex = result.events.findIndex((event) => (
+      event.type === 'adapter:progress'
+      && event.phase === 'policy:conformance_warning'
+    ))
+    const denialIndex = result.events.findIndex((event) => (
+      event.type === 'adapter:progress'
+      && event.phase === 'registry:execution_control_denied'
+    ))
+    expect(warningIndex).toBeGreaterThan(-1)
+    expect(denialIndex).toBeGreaterThan(warningIndex)
+    expect(executeCalls).toBe(0)
+  })
+
+  it('denies opted-in resume input before execute or resumeSession', async () => {
+    let executeCalls = 0
+    let resumeCalls = 0
+    const adapter = makeExecutionControlAdapter('openai', {
+      supportsZeroToolDispatch: false,
+      onExecute: () => { executeCalls += 1 },
+      onResume: () => { resumeCalls += 1 },
+    })
+
+    const result = await collectFailure(buildRouter(adapter), {
+      ...zeroToolInput(),
+      resumeSessionId: 'resume-session',
+    })
+
+    expectExecutionControlDenial(
+      result,
+      'openai',
+      'zero_tool_dispatch_capability_missing',
+    )
+    expect(executeCalls).toBe(0)
+    expect(resumeCalls).toBe(0)
   })
 
   it('falls back to next provider when primary emits failure event', async () => {

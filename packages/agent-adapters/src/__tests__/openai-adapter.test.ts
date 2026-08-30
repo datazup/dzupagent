@@ -3,7 +3,85 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ForgeError, type LlmInvocationRecord } from "@dzupagent/core";
 
 import { OpenAIAdapter } from "../openai/openai-adapter.js";
+import type {
+  AdapterExecutionControlAdmission,
+  AdapterExecutionControlRequirement,
+  AgentEvent,
+  AgentInput,
+} from "../types.js";
 import { collectEvents } from "./test-helpers.js";
+
+const ZERO_TOOL_REQUIREMENT: AdapterExecutionControlRequirement = {
+  schema: "dzupagent/adapter-execution-control-requirement/v1",
+  tools: { mode: "none" },
+};
+
+const ZERO_TOOL_ADMISSION: AdapterExecutionControlAdmission = {
+  schema: "dzupagent/adapter-execution-control-admission/v1",
+  status: "admitted",
+  providerId: "openai",
+  requirementSha256:
+    "sha256:e367236e0d9802cbfd0f42190c9173d577c12ad4cbdd8b258721900eb78e5731",
+  tools: { mode: "none", enforcement: "provider-pre-dispatch" },
+  blockers: [],
+  effects: {
+    credentialReads: 0,
+    networkAttempts: 0,
+    providerDispatches: 0,
+    providerSpendUsd: 0,
+  },
+};
+
+function zeroToolInput(overrides: Partial<AgentInput> = {}): AgentInput {
+  return {
+    prompt: "bounded OpenAI prompt",
+    executionControlRequirement: ZERO_TOOL_REQUIREMENT,
+    policyContext: {
+      activePolicy: {
+        toolPolicy: "strict",
+        allowedTools: [],
+        blockedTools: [],
+      },
+      conformanceMode: "strict",
+    },
+    options: {
+      tools: [{ name: "hostile_tool", parameters: {} }],
+      tool_choice: {
+        type: "function",
+        function: { name: "hostile_tool" },
+      },
+    },
+    ...overrides,
+  };
+}
+
+function rejectedZeroToolAdmission(
+  blocker: string,
+): AdapterExecutionControlAdmission {
+  return {
+    ...ZERO_TOOL_ADMISSION,
+    status: "rejected",
+    tools: { mode: "none", enforcement: "unsupported" },
+    blockers: [blocker],
+  };
+}
+
+async function captureFailureAndEvents(
+  generator: AsyncGenerator<AgentEvent, void, undefined>,
+): Promise<{ events: AgentEvent[]; failure: unknown }> {
+  const events: AgentEvent[] = [];
+  try {
+    for await (const event of generator) events.push(event);
+    return { events, failure: undefined };
+  } catch (failure) {
+    return { events, failure };
+  }
+}
+
+function bodyOf(call: unknown): Record<string, unknown> {
+  const [, init] = call as [string, RequestInit];
+  return JSON.parse(String(init.body)) as Record<string, unknown>;
+}
 
 /** SSE byte stream from an array of `data: …` lines (terminator `\n` per line). */
 function createSSEStream(lines: string[]): ReadableStream<Uint8Array> {
@@ -59,6 +137,7 @@ describe("OpenAIAdapter", () => {
       executesToolLoop: false,
       supportsStreaming: true,
       supportsCostUsage: true,
+      supportsZeroToolDispatch: true,
       nativeToolControls: {
         mode: true,
         allowlist: true,
@@ -74,6 +153,317 @@ describe("OpenAIAdapter", () => {
     const caps = new OpenAIAdapter().getCapabilities();
     expect(caps.emitsToolCalls).toBe(true);
     expect(caps.executesToolLoop).toBe(false);
+  });
+
+  describe("zero-tool admission and direct entrypoints", () => {
+    it("admits only the concrete OpenAI provider final empty projection", () => {
+      const adapter = new OpenAIAdapter();
+
+      expect(adapter.providerId).toBe("openai");
+      expect(adapter.admitExecutionControls?.(
+        zeroToolInput(),
+        ZERO_TOOL_REQUIREMENT,
+      )).toEqual(ZERO_TOOL_ADMISSION);
+      expect(adapter.admitExecutionControls?.(
+        { prompt: "legacy hostile input", options: zeroToolInput().options },
+        ZERO_TOOL_REQUIREMENT,
+      )).toEqual(
+        rejectedZeroToolAdmission("zero_tool_dispatch_not_enforced"),
+      );
+    });
+
+    it.each(["chat-completions", "responses"] as const)(
+      "supports non-streaming %s with the same exact zero-tool AgentInput",
+      async (transport) => {
+        const fetchImpl = vi.fn().mockResolvedValue(
+          transport === "responses"
+            ? new Response(JSON.stringify({
+                output: [{
+                  type: "message",
+                  content: [{ type: "output_text", text: "ok" }],
+                }],
+              }), {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              })
+            : {
+                ok: true,
+                status: 200,
+                statusText: "OK",
+                json: () => Promise.resolve({
+                  choices: [{ message: { content: "ok" } }],
+                }),
+                text: () => Promise.resolve(""),
+                body: null,
+                headers: new Headers(),
+              } as Response,
+        );
+        const adapter = new OpenAIAdapter({
+          apiKey: "fixture-key",
+          transport,
+          fetchImpl: fetchImpl as typeof fetch,
+        });
+
+        await expect(adapter.run(zeroToolInput())).resolves.toEqual({
+          content: "ok",
+        });
+
+        const body = bodyOf(fetchImpl.mock.calls[0]);
+        const messages = transport === "responses"
+          ? body["input"]
+          : body["messages"];
+        expect(messages).toEqual([
+          { role: "user", content: "bounded OpenAI prompt" },
+        ]);
+        expect("tools" in body).toBe(false);
+        expect("tool_choice" in body).toBe(false);
+      },
+    );
+
+    it("reuses the exact public-admission projection without rereading hostile options", async () => {
+      const reads = { toolChoice: 0, tools: 0 };
+      const options: Record<string, unknown> = {};
+      Object.defineProperties(options, {
+        tools: {
+          enumerable: true,
+          get() {
+            reads.tools += 1;
+            return [{ name: `hostile_${reads.tools}`, parameters: {} }];
+          },
+        },
+        tool_choice: {
+          enumerable: true,
+          get() {
+            reads.toolChoice += 1;
+            return { type: "function", function: { name: "hostile" } };
+          },
+        },
+      });
+      const input = zeroToolInput({ options });
+      const fetchImpl = vi.fn().mockResolvedValue(mockFetchResponse(
+        createSSEStream([
+          'data: {"choices":[{"delta":{"content":"ok"}}]}',
+          "data: [DONE]",
+        ]),
+      ));
+      const adapter = new OpenAIAdapter({
+        apiKey: "fixture-key",
+        fetchImpl: fetchImpl as typeof fetch,
+      });
+
+      expect(adapter.admitExecutionControls?.(
+        input,
+        ZERO_TOOL_REQUIREMENT,
+      )).toEqual(ZERO_TOOL_ADMISSION);
+      await collectEvents(adapter.execute(input));
+
+      expect(reads).toEqual({ toolChoice: 1, tools: 1 });
+      const body = bodyOf(fetchImpl.mock.calls[0]);
+      expect("tools" in body).toBe(false);
+      expect("tool_choice" in body).toBe(false);
+    });
+
+    it("self-admits a legitimate direct execute exactly once", async () => {
+      const reads = { toolChoice: 0, tools: 0 };
+      const options: Record<string, unknown> = {};
+      Object.defineProperties(options, {
+        tools: {
+          enumerable: true,
+          get() {
+            reads.tools += 1;
+            return [{ name: "hostile_tool", parameters: {} }];
+          },
+        },
+        tool_choice: {
+          enumerable: true,
+          get() {
+            reads.toolChoice += 1;
+            return "required";
+          },
+        },
+      });
+      const fetchImpl = vi.fn().mockResolvedValue(mockFetchResponse(
+        createSSEStream(["data: [DONE]"]),
+      ));
+      const adapter = new OpenAIAdapter({
+        apiKey: "fixture-key",
+        fetchImpl: fetchImpl as typeof fetch,
+      });
+
+      await collectEvents(adapter.execute(zeroToolInput({ options })));
+
+      expect(reads).toEqual({ toolChoice: 1, tools: 1 });
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      {
+        name: "malformed requirement",
+        input: () => zeroToolInput({
+          executionControlRequirement: {
+            schema: "dzupagent/adapter-execution-control-requirement/v1",
+            tools: { mode: "all" },
+          } as unknown as AdapterExecutionControlRequirement,
+        }),
+        blocker: "execution_control_requirement_invalid",
+      },
+      {
+        name: "conflicting strict policy",
+        input: () => zeroToolInput({
+          policyContext: {
+            activePolicy: {
+              toolPolicy: "strict",
+              allowedTools: ["hostile_tool"],
+              blockedTools: [],
+            },
+            conformanceMode: "strict",
+          },
+        }),
+        blocker: "execution_control_policy_inconsistent",
+      },
+    ])(
+      "rejects $name before credential reads, start events, or fetch",
+      async ({ input, blocker }) => {
+        let credentialReads = 0;
+        const config = { fetchImpl: vi.fn() as typeof fetch };
+        Object.defineProperty(config, "apiKey", {
+          enumerable: true,
+          get() {
+            credentialReads += 1;
+            return "must-not-be-read";
+          },
+        });
+        const adapter = new OpenAIAdapter(config);
+
+        const result = await captureFailureAndEvents(adapter.execute(input()));
+
+        expect({
+          credentialReads,
+          events: result.events,
+          fetchCalls: vi.mocked(config.fetchImpl).mock.calls.length,
+        }).toEqual({ credentialReads: 0, events: [], fetchCalls: 0 });
+        expect(result.failure).toMatchObject({
+          code: "CAPABILITY_DENIED",
+          recoverable: false,
+          context: { admission: rejectedZeroToolAdmission(blocker) },
+        });
+      },
+    );
+
+    it("rejects an accessor requirement without invoking it or reading credentials", async () => {
+      let credentialReads = 0;
+      let requirementReads = 0;
+      const config = { fetchImpl: vi.fn() as typeof fetch };
+      Object.defineProperty(config, "apiKey", {
+        enumerable: true,
+        get() {
+          credentialReads += 1;
+          return "must-not-be-read";
+        },
+      });
+      const input = zeroToolInput();
+      Object.defineProperty(input, "executionControlRequirement", {
+        configurable: true,
+        enumerable: true,
+        get() {
+          requirementReads += 1;
+          throw new Error("requirement getter must not run");
+        },
+      });
+      const adapter = new OpenAIAdapter(config);
+
+      const result = await captureFailureAndEvents(adapter.execute(input));
+
+      expect({
+        credentialReads,
+        events: result.events,
+        fetchCalls: vi.mocked(config.fetchImpl).mock.calls.length,
+        requirementReads,
+      }).toEqual({
+        credentialReads: 0,
+        events: [],
+        fetchCalls: 0,
+        requirementReads: 0,
+      });
+      expect(result.failure).toMatchObject({
+        code: "CAPABILITY_DENIED",
+        recoverable: false,
+        context: {
+          admission: rejectedZeroToolAdmission(
+            "execution_control_requirement_invalid",
+          ),
+        },
+      });
+    });
+
+    it("rejects a stale public snapshot without rebuilding or dispatching", async () => {
+      const input = zeroToolInput();
+      let credentialReads = 0;
+      const config = { fetchImpl: vi.fn() as typeof fetch };
+      Object.defineProperty(config, "apiKey", {
+        enumerable: true,
+        get() {
+          credentialReads += 1;
+          return "must-not-be-read";
+        },
+      });
+      const adapter = new OpenAIAdapter(config);
+      adapter.admitExecutionControls?.(input, ZERO_TOOL_REQUIREMENT);
+      input.policyContext!.activePolicy.allowedTools = ["hostile_tool"];
+
+      const result = await captureFailureAndEvents(adapter.execute(input));
+
+      expect({
+        credentialReads,
+        events: result.events,
+        fetchCalls: vi.mocked(config.fetchImpl).mock.calls.length,
+      }).toEqual({ credentialReads: 0, events: [], fetchCalls: 0 });
+      expect(result.failure).toMatchObject({
+        code: "CAPABILITY_DENIED",
+        recoverable: false,
+      });
+    });
+
+    it("fails closed instead of replaying one admission for another request", async () => {
+      class ReplayAdmissionAdapter extends OpenAIAdapter {
+        private cachedAdmission: AdapterExecutionControlAdmission | undefined;
+
+        override admitExecutionControls(
+          input: AgentInput,
+          requirement: AdapterExecutionControlRequirement,
+        ): AdapterExecutionControlAdmission {
+          this.cachedAdmission ??= super.admitExecutionControls(
+            input,
+            requirement,
+          );
+          return this.cachedAdmission;
+        }
+      }
+
+      const fetchImpl = vi.fn().mockResolvedValue(mockFetchResponse(
+        createSSEStream(["data: [DONE]"]),
+      ));
+      const adapter = new ReplayAdmissionAdapter({
+        apiKey: "fixture-key",
+        fetchImpl: fetchImpl as typeof fetch,
+      });
+      await collectEvents(adapter.execute(zeroToolInput({ prompt: "first" })));
+
+      const result = await captureFailureAndEvents(
+        adapter.execute(zeroToolInput({ prompt: "second" })),
+      );
+
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(result.events).toEqual([]);
+      expect(result.failure).toMatchObject({
+        code: "CAPABILITY_DENIED",
+        recoverable: false,
+        context: {
+          executionControlBlocker:
+            "execution_control_request_snapshot_missing",
+        },
+      });
+    });
   });
 
   it("throws when no API key is configured", async () => {

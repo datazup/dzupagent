@@ -6,9 +6,14 @@
  */
 import { ForgeError, type LlmAuditSink } from '@dzupagent/core/events'
 import type {
-  AdapterCapabilityProfile, AdapterConfig, AgentEvent, AgentInput,
-  HealthStatus, SessionInfo, TokenUsage,
+  AdapterCapabilityProfile, AdapterConfig, AdapterExecutionControlAdmission,
+  AdapterExecutionControlRequirement, AgentEvent, AgentInput,
+  HealthStatus, InteractionPolicy, SessionInfo, TokenUsage,
 } from '../types.js'
+import {
+  assertAdapterExecutionControlsAdmitted,
+  buildExecutionControlAdmission,
+} from '../execution-control-admission.js'
 import { InteractionResolver } from '../interaction/interaction-resolver.js'
 import { getDefaultMonitorStatus } from '../provider-catalog.js'
 import { BaseSdkAdapter } from '../base/base-sdk-adapter.js'
@@ -23,6 +28,7 @@ import {
   mapToolProgressMessage,
 } from './claude-event-mapper.js'
 import {
+  type BuiltClaudeQuery,
   buildQueryOptions,
   toSessionInfo,
 } from './claude-query-builder.js'
@@ -53,6 +59,14 @@ export interface ClaudeAdapterConfig extends AdapterConfig {
   auditSink?: LlmAuditSink
 }
 
+interface AdmittedClaudeQuerySnapshot {
+  readonly admission: AdapterExecutionControlAdmission
+  readonly interactionPolicy: InteractionPolicy
+  readonly queryOptions: BuiltClaudeQuery
+  readonly requirementSha256: string
+  readonly resumeSessionId?: string
+}
+
 export class ClaudeAgentAdapter
   extends BaseSdkAdapter<ClaudeSDKModule>
 {
@@ -62,6 +76,10 @@ export class ClaudeAgentAdapter
   private readonly activeConversations = new Set<ClaudeConversation>()
   private readonly activeControllers = new Set<AbortController>()
   private readonly activeResolvers = new Set<InteractionResolver>()
+  private readonly admittedQuerySnapshots = new WeakMap<
+    AgentInput,
+    AdmittedClaudeQuerySnapshot
+  >()
 
   /** Audit sink resolved at construction; never read off the shared config. */
   private readonly auditSink?: LlmAuditSink
@@ -82,6 +100,7 @@ export class ClaudeAgentAdapter
       executesToolLoop: true,
       supportsStreaming: true,
       supportsCostUsage: true,
+      supportsZeroToolDispatch: true,
       providerRequestCorrelation: {
         idempotencyKey: { accepted: false, enforcement: 'none' },
         restartLookup: { supported: false, lookupBy: [] },
@@ -89,17 +108,51 @@ export class ClaudeAgentAdapter
     }
   }
 
+  admitExecutionControls(
+    input: AgentInput,
+    requirement: AdapterExecutionControlRequirement,
+  ): AdapterExecutionControlAdmission {
+    this.admittedQuerySnapshots.delete(input)
+    const finalQuery = this.buildFinalQuery(input)
+    const { queryOptions } = finalQuery
+    const tools = queryOptions.options['tools']
+    const admitted = Array.isArray(tools) && tools.length === 0
+    const admission = buildExecutionControlAdmission({
+      providerId: 'claude',
+      requirement,
+      status: admitted ? 'admitted' : 'rejected',
+      enforcement: admitted ? 'provider-pre-dispatch' : 'unsupported',
+      ...(admitted ? {} : { blockers: ['zero_tool_dispatch_not_enforced'] }),
+    })
+    if (admission.status === 'admitted') {
+      const resumeSessionId = queryOptions.options['resume']
+      this.admittedQuerySnapshots.set(input, {
+        ...finalQuery,
+        admission,
+        requirementSha256: admission.requirementSha256,
+        ...(typeof resumeSessionId === 'string' ? { resumeSessionId } : {}),
+      })
+    }
+    return admission
+  }
+
   async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
+    const finalQuery = this.resolveFinalQuery(input)
+    yield* this.executeFinalQuery(input, finalQuery)
+  }
+
+  private async *executeFinalQuery(
+    input: AgentInput,
+    finalQuery: {
+      readonly interactionPolicy: InteractionPolicy
+      readonly queryOptions: BuiltClaudeQuery
+    },
+  ): AsyncGenerator<AgentEvent, void, undefined> {
+    const { interactionPolicy: policy, queryOptions } = finalQuery
     const sdk = await this.loadSdk()
-    const policy = this.resolveInteractionPolicy(input)
     const resolver = policy.mode !== 'auto-approve' ? new InteractionResolver(policy) : null
     if (resolver) this.activeResolvers.add(resolver)
     const startTime = Date.now()
-    const queryOptions = buildQueryOptions({
-      input,
-      config: this.config,
-      interactionPolicy: policy,
-    })
     const toolProgressState: ToolProgressState = { lastToolStartTime: 0, lastToolName: '' }
     let activeConversation: ClaudeConversation | null = null
     let runController: AbortController | null = null
@@ -167,6 +220,18 @@ export class ClaudeAgentAdapter
     sessionId: string,
     input: AgentInput,
   ): AsyncGenerator<AgentEvent, void, undefined> {
+    const storedSnapshot = this.takeAdmittedQuerySnapshot(input)
+    if (storedSnapshot !== undefined) {
+      const finalQuery = this.validateStoredQuerySnapshot(input, storedSnapshot)
+      this.assertResumeSnapshotMatches(finalQuery, sessionId)
+      yield* this.executeFinalQuery(input, finalQuery)
+      return
+    }
+
+    const admission = assertAdapterExecutionControlsAdmitted(this, input)
+    if (admission !== undefined) {
+      this.consumeAdmittedQuerySnapshot(input, admission)
+    }
     const resumeInput: AgentInput = {
       ...input,
       resumeSessionId: sessionId,
@@ -175,7 +240,125 @@ export class ClaudeAgentAdapter
         resume: sessionId,
       },
     }
-    yield* this.execute(resumeInput)
+    const finalQuery = this.resolveFinalQuery(resumeInput)
+    if ('admission' in finalQuery) {
+      this.assertResumeSnapshotMatches(finalQuery, sessionId)
+    }
+    yield* this.executeFinalQuery(resumeInput, finalQuery)
+  }
+
+  private resolveFinalQuery(input: AgentInput):
+  | AdmittedClaudeQuerySnapshot
+  | {
+    readonly interactionPolicy: InteractionPolicy
+    readonly queryOptions: BuiltClaudeQuery
+  } {
+    const storedSnapshot = this.takeAdmittedQuerySnapshot(input)
+    if (storedSnapshot !== undefined) {
+      return this.validateStoredQuerySnapshot(input, storedSnapshot)
+    }
+
+    const admission = assertAdapterExecutionControlsAdmitted(this, input)
+    return admission === undefined
+      ? this.buildFinalQuery(input)
+      : this.consumeAdmittedQuerySnapshot(input, admission)
+  }
+
+  private validateStoredQuerySnapshot(
+    input: AgentInput,
+    snapshot: AdmittedClaudeQuerySnapshot,
+  ): AdmittedClaudeQuerySnapshot {
+    const validationFacade = new Proxy(this, {
+      get: (target, property, receiver) => {
+        if (property === 'admitExecutionControls') {
+          return () => snapshot.admission
+        }
+        if (property === 'getCapabilities') {
+          return target.getCapabilities.bind(target)
+        }
+        return Reflect.get(target, property, receiver)
+      },
+    })
+    const admission = assertAdapterExecutionControlsAdmitted(validationFacade, input)
+    if (
+      admission === undefined
+      || admission.requirementSha256 !== snapshot.requirementSha256
+    ) {
+      throw this.executionControlSnapshotError(
+        snapshot.admission,
+        'execution_control_request_snapshot_mismatch',
+      )
+    }
+    return snapshot
+  }
+
+  private assertResumeSnapshotMatches(
+    snapshot: AdmittedClaudeQuerySnapshot,
+    sessionId: string,
+  ): void {
+    if (snapshot.resumeSessionId !== sessionId) {
+      throw this.executionControlSnapshotError(
+        snapshot.admission,
+        'execution_control_request_snapshot_mismatch',
+      )
+    }
+  }
+
+  private takeAdmittedQuerySnapshot(
+    input: AgentInput,
+  ): AdmittedClaudeQuerySnapshot | undefined {
+    const snapshot = this.admittedQuerySnapshots.get(input)
+    this.admittedQuerySnapshots.delete(input)
+    return snapshot
+  }
+
+  private consumeAdmittedQuerySnapshot(
+    input: AgentInput,
+    admission: AdapterExecutionControlAdmission,
+  ): AdmittedClaudeQuerySnapshot {
+    const snapshot = this.takeAdmittedQuerySnapshot(input)
+    if (
+      snapshot === undefined
+      || snapshot.requirementSha256 !== admission.requirementSha256
+    ) {
+      throw this.executionControlSnapshotError(
+        admission,
+        'execution_control_request_snapshot_missing',
+      )
+    }
+    return snapshot
+  }
+
+  private executionControlSnapshotError(
+    admission: AdapterExecutionControlAdmission,
+    blocker: 'execution_control_request_snapshot_mismatch'
+    | 'execution_control_request_snapshot_missing',
+  ): ForgeError {
+    return new ForgeError({
+      code: 'CAPABILITY_DENIED',
+      message: 'Claude SDK admission has no matching final request snapshot',
+      recoverable: false,
+      context: {
+        providerId: 'claude',
+        executionControlBlocker: blocker,
+        admission,
+      },
+    })
+  }
+
+  private buildFinalQuery(input: AgentInput): {
+    readonly interactionPolicy: InteractionPolicy
+    readonly queryOptions: BuiltClaudeQuery
+  } {
+    const interactionPolicy = this.resolveInteractionPolicy(input)
+    return {
+      interactionPolicy,
+      queryOptions: buildQueryOptions({
+        input,
+        config: this.config,
+        interactionPolicy,
+      }),
+    }
   }
 
   interrupt(): void {

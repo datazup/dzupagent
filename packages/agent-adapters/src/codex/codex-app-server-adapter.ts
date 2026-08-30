@@ -12,11 +12,17 @@ import type {
 import type {
   AdapterCapabilityProfile,
   AdapterConfig,
+  AdapterExecutionControlAdmission,
+  AdapterExecutionControlRequirement,
   AgentCLIAdapter,
   AgentEvent,
   AgentInput,
   HealthStatus,
 } from '../types.js'
+import {
+  assertAdapterExecutionControlsAdmitted,
+  buildExecutionControlAdmission,
+} from '../execution-control-admission.js'
 import {
   CodexAppServerClientError,
   CodexAppServerStdioClient,
@@ -125,6 +131,7 @@ export class CodexAppServerAdapter implements AgentCLIAdapter, ProviderSessionAd
     sessionId: string,
     input: AgentInput,
   ): AsyncGenerator<AgentEvent, void, undefined> {
+    assertAdapterExecutionControlsAdmitted(this, input)
     if (!boundedText(sessionId, MAX_REFERENCE_LENGTH)) {
       yield failedEvent(
         this.now(),
@@ -154,12 +161,26 @@ export class CodexAppServerAdapter implements AgentCLIAdapter, ProviderSessionAd
       executesToolLoop: true,
       supportsStreaming: true,
       supportsCostUsage: true,
+      supportsZeroToolDispatch: false,
       nativeToolControls: {
         mode: false,
         allowlist: false,
         blocklist: false,
       },
     }
+  }
+
+  admitExecutionControls(
+    _input: AgentInput,
+    requirement: AdapterExecutionControlRequirement,
+  ): AdapterExecutionControlAdmission {
+    return buildExecutionControlAdmission({
+      providerId: 'codex',
+      requirement,
+      status: 'rejected',
+      enforcement: 'unsupported',
+      blockers: ['zero_tool_dispatch_unsupported'],
+    })
   }
 
   async healthCheck(): Promise<HealthStatus> {
@@ -232,6 +253,7 @@ export class CodexAppServerAdapter implements AgentCLIAdapter, ProviderSessionAd
     input: AgentInput,
     resumeThreadId?: string,
   ): AsyncGenerator<AgentEvent, void, undefined> {
+    assertAdapterExecutionControlsAdmitted(this, input)
     let client: CodexAppServerStdioClient | undefined
     let activeRun: ActiveRun | undefined
     let terminal: AgentEvent | undefined

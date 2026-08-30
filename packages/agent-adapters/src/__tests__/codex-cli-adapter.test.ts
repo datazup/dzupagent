@@ -9,7 +9,13 @@ import { ForgeError } from '@dzupagent/core/events'
 import { CodexAdapter } from '../codex/codex-adapter.js'
 import { CodexCliAdapter } from '../codex/codex-cli-adapter.js'
 import { createCodexBackendAdapter } from '../codex/codex-backend.js'
-import type { AgentStreamEvent } from '../types.js'
+import type {
+  AdapterExecutionControlAdmission,
+  AdapterExecutionControlRequirement,
+  AgentEvent,
+  AgentInput,
+  AgentStreamEvent,
+} from '../types.js'
 
 type FakeChild = ChildProcess & {
   stdout: PassThrough
@@ -38,7 +44,216 @@ async function collect(gen: AsyncGenerator<AgentStreamEvent, void, undefined>): 
   return events
 }
 
+const ZERO_TOOL_REQUIREMENT: AdapterExecutionControlRequirement = {
+  schema: 'dzupagent/adapter-execution-control-requirement/v1',
+  tools: { mode: 'none' },
+}
+
+const ZERO_TOOL_REJECTION: AdapterExecutionControlAdmission = {
+  schema: 'dzupagent/adapter-execution-control-admission/v1',
+  status: 'rejected',
+  providerId: 'codex',
+  requirementSha256: 'sha256:e367236e0d9802cbfd0f42190c9173d577c12ad4cbdd8b258721900eb78e5731',
+  tools: { mode: 'none', enforcement: 'unsupported' },
+  blockers: ['zero_tool_dispatch_unsupported'],
+  effects: {
+    credentialReads: 0,
+    networkAttempts: 0,
+    providerDispatches: 0,
+    providerSpendUsd: 0,
+  },
+}
+
+const ZERO_TOOL_DIRECT_DENIAL: AdapterExecutionControlAdmission = {
+  ...ZERO_TOOL_REJECTION,
+  blockers: ['zero_tool_dispatch_capability_missing'],
+}
+
+function zeroToolInput(): AgentInput {
+  return {
+    prompt: 'bounded CLI prompt',
+    executionControlRequirement: ZERO_TOOL_REQUIREMENT,
+    policyContext: {
+      activePolicy: {
+        toolPolicy: 'strict',
+        allowedTools: [],
+        blockedTools: [],
+      },
+      conformanceMode: 'strict',
+    },
+  }
+}
+
+interface CliEffectSnapshot {
+  readonly sessionIds: number
+  readonly clockReads: number
+  readonly controllers: number
+  readonly startedEvents: number
+  readonly homeAndEnvironmentProjections: number
+  readonly environmentSpawns: number
+  readonly spawns: number
+}
+
+const ZERO_CLI_EFFECTS: CliEffectSnapshot = {
+  sessionIds: 0,
+  clockReads: 0,
+  controllers: 0,
+  startedEvents: 0,
+  homeAndEnvironmentProjections: 0,
+  environmentSpawns: 0,
+  spawns: 0,
+}
+
+async function observeCliRun(
+  run: (
+    adapter: CodexCliAdapter,
+  ) => AsyncGenerator<AgentEvent | AgentStreamEvent, void, undefined>,
+): Promise<{ readonly effects: CliEffectSnapshot; readonly failure: unknown }> {
+  const child = createChild()
+  const spawn = vi.fn((
+    _command: string,
+    _args: readonly string[],
+    _options: SpawnOptions,
+  ) => {
+    queueMicrotask(() => {
+      child.stdout.write('{"type":"turn_completed","result":"unexpected"}\n')
+      child.stdout.end()
+      child.stderr.end()
+      child.exitCode = 0
+      child.emit('close', 0, null)
+    })
+    return child
+  })
+  const adapter = new CodexCliAdapter({ runtimeDependencies: { spawn } })
+  const prepareCliRun = vi.spyOn(adapter, 'prepareCliRun')
+  const dateNow = vi.spyOn(Date, 'now').mockReturnValue(1_000)
+  const NativeAbortController = globalThis.AbortController
+  let controllerConstructions = 0
+  class CountingAbortController extends NativeAbortController {
+    constructor() {
+      super()
+      controllerConstructions += 1
+    }
+  }
+  vi.stubGlobal('AbortController', CountingAbortController)
+
+  const events: Array<AgentEvent | AgentStreamEvent> = []
+  let failure: unknown
+  let effects: CliEffectSnapshot = ZERO_CLI_EFFECTS
+  try {
+    for await (const event of run(adapter)) events.push(event)
+  } catch (error) {
+    failure = error
+  } finally {
+    const startedEvents = events.filter((event) => event.type === 'adapter:started')
+    effects = {
+      sessionIds: new Set(startedEvents.map((event) => event.sessionId)).size,
+      clockReads: dateNow.mock.calls.length,
+      controllers: controllerConstructions,
+      startedEvents: startedEvents.length,
+      homeAndEnvironmentProjections: prepareCliRun.mock.calls.length,
+      environmentSpawns: spawn.mock.calls.filter((call) => call[2].env !== undefined).length,
+      spawns: spawn.mock.calls.length,
+    }
+    prepareCliRun.mockRestore()
+    dateNow.mockRestore()
+    vi.unstubAllGlobals()
+  }
+  return { effects, failure }
+}
+
 describe('Codex explicit CLI backend', () => {
+  it('returns one stable unsupported admission from the selected CLI instance', () => {
+    const adapter = new CodexCliAdapter()
+
+    expect(adapter.getCapabilities().supportsZeroToolDispatch).toBe(false)
+    expect(adapter.admitExecutionControls?.(zeroToolInput(), ZERO_TOOL_REQUIREMENT))
+      .toEqual(ZERO_TOOL_REJECTION)
+    expect(adapter.admitExecutionControls?.(zeroToolInput(), ZERO_TOOL_REQUIREMENT))
+      .toEqual(ZERO_TOOL_REJECTION)
+  })
+
+  it('rejects direct execution before CLI session, clock, controller, start, projection, or spawn effects', async () => {
+    const { effects, failure } = await observeCliRun((adapter) =>
+      adapter.executeWithRaw(zeroToolInput()))
+
+    expect(effects).toEqual(ZERO_CLI_EFFECTS)
+    expect(failure).toBeInstanceOf(ForgeError)
+    expect(failure).toMatchObject({
+      code: 'CAPABILITY_DENIED',
+      recoverable: false,
+      context: { admission: ZERO_TOOL_DIRECT_DENIAL },
+    })
+  })
+
+  it('rejects resume with an ordinary opted-in requirement before CLI effects', async () => {
+    const { effects, failure } = await observeCliRun((adapter) =>
+      adapter.resumeSession('session-ordinary', zeroToolInput()))
+
+    expect(effects).toEqual(ZERO_CLI_EFFECTS)
+    expect(failure).toBeInstanceOf(ForgeError)
+    expect(failure).toMatchObject({
+      code: 'CAPABILITY_DENIED',
+      recoverable: false,
+      context: { admission: ZERO_TOOL_DIRECT_DENIAL },
+    })
+  })
+
+  it('rejects resume with a non-enumerable requirement before CLI effects', async () => {
+    const input = zeroToolInput()
+    Object.defineProperty(input, 'executionControlRequirement', {
+      configurable: true,
+      enumerable: false,
+      value: ZERO_TOOL_REQUIREMENT,
+    })
+
+    const { effects, failure } = await observeCliRun((adapter) =>
+      adapter.resumeSession('session-hidden', input))
+
+    expect(effects).toEqual(ZERO_CLI_EFFECTS)
+    expect(failure).toBeInstanceOf(ForgeError)
+    expect(failure).toMatchObject({
+      code: 'CAPABILITY_DENIED',
+      recoverable: false,
+      context: {
+        admission: {
+          ...ZERO_TOOL_REJECTION,
+          blockers: ['execution_control_requirement_invalid'],
+        },
+      },
+    })
+  })
+
+  it('rejects resume with an accessor-backed requirement without invoking the getter', async () => {
+    const input = zeroToolInput()
+    let getterReads = 0
+    Object.defineProperty(input, 'executionControlRequirement', {
+      configurable: true,
+      enumerable: true,
+      get() {
+        getterReads += 1
+        throw new Error('execution-control getter must remain unread')
+      },
+    })
+
+    const { effects, failure } = await observeCliRun((adapter) =>
+      adapter.resumeSession('session-accessor', input))
+
+    expect(getterReads).toBe(0)
+    expect(effects).toEqual(ZERO_CLI_EFFECTS)
+    expect(failure).toBeInstanceOf(ForgeError)
+    expect(failure).toMatchObject({
+      code: 'CAPABILITY_DENIED',
+      recoverable: false,
+      context: {
+        admission: {
+          ...ZERO_TOOL_REJECTION,
+          blockers: ['execution_control_requirement_invalid'],
+        },
+      },
+    })
+  })
+
   it('pairs Codex file-change start and completion events with one stable tool call id', () => {
     const adapter = new CodexCliAdapter()
     const item = { id: 'file-change-1', type: 'file_change', changes: [{ path: 'src/a.ts', kind: 'modified' }] }

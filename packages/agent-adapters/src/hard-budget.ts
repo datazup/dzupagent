@@ -27,6 +27,7 @@ import {
   type OpenAIConfig,
   type OpenAIResponsesInputRequest,
 } from './openai/openai-types.js'
+import type { OpenAIToolProjection } from './openai/openai-tool-calls.js'
 
 export {
   ADAPTER_HARD_BUDGET_PROFILE_SCHEMA_VERSION,
@@ -315,13 +316,21 @@ function flattenToolChoice(toolChoice: unknown): unknown {
 
 export function buildOpenAIResponsesInputRequest(
   request: AdapterHardBudgetRequest,
+  projection?: Readonly<OpenAIToolProjection>,
 ): OpenAIResponsesInputRequest {
+  const tools = projection === undefined ? request.tools : projection.tools
+  const hasToolChoice = projection === undefined
+    ? request.toolChoice !== undefined
+    : Object.hasOwn(projection, 'toolChoice')
+  const toolChoice = projection === undefined
+    ? request.toolChoice
+    : projection.toolChoice
   return {
     model: request.model,
     input: request.messages.map((message) => ({ ...message })),
-    ...(request.tools?.length ? { tools: request.tools.map(flattenTool) } : {}),
-    ...(request.toolChoice !== undefined
-      ? { tool_choice: flattenToolChoice(request.toolChoice) } : {}),
+    ...(tools?.length ? { tools: tools.map(flattenTool) } : {}),
+    ...(hasToolChoice
+      ? { tool_choice: flattenToolChoice(toolChoice) } : {}),
   }
 }
 

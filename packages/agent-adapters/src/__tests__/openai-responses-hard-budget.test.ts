@@ -11,6 +11,10 @@ import {
   type AdapterHardBudgetUsageReconciliation,
 } from '../hard-budget.js'
 import { collectEvents } from './test-helpers.js'
+import type {
+  AdapterExecutionControlRequirement,
+  AgentInput,
+} from '../types.js'
 import {
   FIXTURE_MODEL,
   fixtureBinding,
@@ -19,6 +23,33 @@ import {
 } from './hard-budget-test-fixtures.js'
 
 const FIXED_NOW = Date.parse('2026-08-01T00:01:00.000Z')
+
+const ZERO_TOOL_REQUIREMENT: AdapterExecutionControlRequirement = {
+  schema: 'dzupagent/adapter-execution-control-requirement/v1',
+  tools: { mode: 'none' },
+}
+
+function zeroToolInput(): AgentInput {
+  return {
+    prompt: 'bounded Responses hard-budget prompt',
+    executionControlRequirement: ZERO_TOOL_REQUIREMENT,
+    policyContext: {
+      activePolicy: {
+        toolPolicy: 'strict',
+        allowedTools: [],
+        blockedTools: [],
+      },
+      conformanceMode: 'strict',
+    },
+    options: {
+      tools: [{ name: 'hostile_tool', parameters: {} }],
+      tool_choice: {
+        type: 'function',
+        function: { name: 'hostile_tool' },
+      },
+    },
+  }
+}
 
 function responsesBinding() {
   return fixtureBinding({
@@ -207,6 +238,49 @@ describe('OpenAI Responses exact hard-budget boundary', () => {
     ])
     expect(JSON.stringify({ evaluations, reconciliations }))
       .not.toContain('SENSITIVE-FIXTURE-PROMPT')
+  })
+
+  it('omits both tool keys from exact zero-tool count and create bodies', async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/responses/input_tokens')) {
+        return jsonResponse({ input_tokens: 123 })
+      }
+      if (url.endsWith('/responses')) return sseResponse(123)
+      throw new Error(`unexpected fixture URL: ${url}`)
+    })
+    const adapter = new OpenAIAdapter({
+      apiKey: 'fixture-key',
+      model: FIXTURE_MODEL,
+      transport: 'responses',
+      fetchImpl: fetchImpl as typeof fetch,
+      hardBudget: {
+        registry: fixtureRegistry([fixtureProofProfile()]),
+        binding: responsesBinding(),
+        requestProof: createOpenAIResponsesInputTokenProofBinding({
+          apiKey: 'fixture-key',
+          fetchImpl: fetchImpl as typeof fetch,
+          clock: () => FIXED_NOW,
+        }),
+        clock: () => FIXED_NOW,
+      },
+    })
+
+    const events = await collectEvents(adapter.execute(zeroToolInput()))
+
+    expect(events.at(-1)).toMatchObject({ type: 'adapter:completed' })
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    const countBody = JSON.parse(String(
+      (fetchImpl.mock.calls[0]![1] as RequestInit).body,
+    )) as Record<string, unknown>
+    const createBody = JSON.parse(String(
+      (fetchImpl.mock.calls[1]![1] as RequestInit).body,
+    )) as Record<string, unknown>
+    expect('tools' in countBody).toBe(false)
+    expect('tool_choice' in countBody).toBe(false)
+    expect('tools' in createBody).toBe(false)
+    expect('tool_choice' in createBody).toBe(false)
+    expect(createBody).toEqual({ ...countBody, stream: true })
   })
 
   it('fails before either provider endpoint when the model snapshot is stale', async () => {

@@ -22,6 +22,7 @@ import { ForgeError } from "@dzupagent/core/advanced";
 import type { DzupEventBus } from "@dzupagent/core/advanced";
 
 import type {
+  AdapterExecutionControlAdmission,
   AdapterProviderId,
   AgentCLIAdapter,
   AgentEvent,
@@ -31,6 +32,7 @@ import type {
   TaskDescriptor,
   TaskRoutingStrategy,
 } from "../types.js";
+import { admitAdapterExecutionControls } from "../execution-control-admission.js";
 import { PolicyConformanceChecker } from "../policy/policy-conformance.js";
 import {
   POLICY_ACTIVE_OPTION_KEY,
@@ -258,6 +260,23 @@ export class AdapterRegistryRouter {
       for (const warningEvent of projected.legacyOptionWarningEvents) {
         yield warningEvent;
       }
+      const admission = admitAdapterExecutionControls(
+        adapter,
+        projected.attemptInput
+      );
+      if (admission !== undefined && admission.status !== "admitted") {
+        yield this.buildExecutionControlDeniedEvent(
+          providerId,
+          input,
+          admission
+        );
+        return new ForgeError({
+          code: "CAPABILITY_DENIED",
+          message: `Adapter ${providerId} did not admit the required execution controls`,
+          recoverable: false,
+          context: { admission },
+        });
+      }
       this.emit({
         type: "agent:started",
         agentId: providerId,
@@ -324,6 +343,25 @@ export class AdapterRegistryRouter {
               attemptIdx + 1
             }/${totalAttempts})`,
     });
+  }
+
+  /** Report a bounded predispatch denial without starting failure bookkeeping. */
+  private buildExecutionControlDeniedEvent(
+    providerId: AdapterProviderId,
+    input: AgentInput,
+    admission: AdapterExecutionControlAdmission
+  ): Extract<AgentStreamEvent, { type: "adapter:progress" }> {
+    return {
+      type: "adapter:progress",
+      providerId,
+      timestamp: Date.now(),
+      phase: "registry:execution_control_denied",
+      message: `Adapter ${providerId} denied required execution controls`,
+      details: { admission },
+      ...(input.correlationId
+        ? { correlationId: input.correlationId }
+        : {}),
+    };
   }
 
   private emit = (event: RouterBusEvent): void => {

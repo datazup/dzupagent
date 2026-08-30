@@ -18,8 +18,46 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import { OpenAIAdapter } from "../openai/openai-adapter.js";
-import type { AgentEvent, AgentToolCallEvent } from "../types.js";
+import type { AdapterHardBudgetRequest } from "../hard-budget.js";
+import type {
+  AdapterExecutionControlRequirement,
+  AgentEvent,
+  AgentInput,
+  AgentToolCallEvent,
+} from "../types.js";
 import { collectEvents } from "./test-helpers.js";
+import {
+  FIXTURE_MODEL,
+  fixtureBinding,
+  fixtureRegistry,
+} from "./hard-budget-test-fixtures.js";
+
+const ZERO_TOOL_REQUIREMENT: AdapterExecutionControlRequirement = {
+  schema: "dzupagent/adapter-execution-control-requirement/v1",
+  tools: { mode: "none" },
+};
+
+function zeroToolInput(): AgentInput {
+  return {
+    prompt: "bounded OpenAI transport prompt",
+    executionControlRequirement: ZERO_TOOL_REQUIREMENT,
+    policyContext: {
+      activePolicy: {
+        toolPolicy: "strict",
+        allowedTools: [],
+        blockedTools: [],
+      },
+      conformanceMode: "strict",
+    },
+    options: {
+      tools: [{ name: "hostile_tool", parameters: {} }],
+      tool_choice: {
+        type: "function",
+        function: { name: "hostile_tool" },
+      },
+    },
+  };
+}
 
 function createSSEStream(lines: string[]): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
@@ -75,6 +113,75 @@ describe("OpenAIAdapter — tool calling", () => {
   it("declares supportsToolCalls=true in its capability profile", () => {
     const adapter = new OpenAIAdapter();
     expect(adapter.getCapabilities().supportsToolCalls).toBe(true);
+  });
+
+  it.each(["chat-completions", "responses"] as const)(
+    "omits both provider-visible tool keys for zero-tool %s streaming",
+    async (transport) => {
+      const lines = transport === "responses"
+        ? [
+            'data: {"type":"response.output_text.delta","delta":"ok"}',
+            'data: {"type":"response.completed","response":{"status":"completed"}}',
+            "data: [DONE]",
+          ]
+        : [
+            'data: {"choices":[{"delta":{"content":"ok"}}]}',
+            "data: [DONE]",
+          ];
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(mockFetchResponse(createSSEStream(lines)));
+      const adapter = new OpenAIAdapter({
+        apiKey: "fixture-key",
+        transport,
+        fetchImpl: fetchMock as typeof fetch,
+      });
+
+      const events = await collectEvents(adapter.execute(zeroToolInput()));
+
+      expect(events.map((event) => event.type)).toContain("adapter:completed");
+      const body = readBody(fetchMock.mock.calls[0]);
+      expect("tools" in body).toBe(false);
+      expect("tool_choice" in body).toBe(false);
+    },
+  );
+
+  it("uses the exact empty projection for Chat hard-budget counts and dispatch", async () => {
+    const counted: AdapterHardBudgetRequest[] = [];
+    const baseBinding = fixtureBinding();
+    const binding = {
+      ...baseBinding,
+      countRequest(request: AdapterHardBudgetRequest) {
+        counted.push(request);
+        return baseBinding.countRequest(request);
+      },
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(mockFetchResponse(createSSEStream([
+        'data: {"choices":[{"delta":{"content":"ok"}}]}',
+        "data: [DONE]",
+      ])));
+    const adapter = new OpenAIAdapter({
+      apiKey: "fixture-key",
+      model: FIXTURE_MODEL,
+      fetchImpl: fetchMock as typeof fetch,
+      hardBudget: {
+        registry: fixtureRegistry(),
+        binding,
+      },
+    });
+
+    await collectEvents(adapter.execute(zeroToolInput()));
+
+    expect(counted.length).toBeGreaterThan(0);
+    for (const request of counted) {
+      expect("tools" in request).toBe(false);
+      expect("toolChoice" in request).toBe(false);
+    }
+    const body = readBody(fetchMock.mock.calls[0]);
+    expect("tools" in body).toBe(false);
+    expect("tool_choice" in body).toBe(false);
   });
 
   it("maps flat AgentTool[] from input.options.tools to OpenAI tools wire shape", async () => {

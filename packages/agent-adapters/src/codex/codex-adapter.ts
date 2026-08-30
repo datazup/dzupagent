@@ -14,6 +14,8 @@
 import type {
   AdapterCapabilityProfile,
   AdapterConfig,
+  AdapterExecutionControlAdmission,
+  AdapterExecutionControlRequirement,
   AdapterProviderId,
   AgentEvent,
   AgentStreamEvent,
@@ -22,6 +24,10 @@ import type {
   ProviderRequestLookupInput,
   ProviderRequestLookupResult,
 } from "../types.js";
+import {
+  assertAdapterExecutionControlsAdmitted,
+  buildExecutionControlAdmission,
+} from "../execution-control-admission.js";
 import { getDefaultMonitorStatus } from "../provider-catalog.js";
 import { InteractionResolver } from "../interaction/interaction-resolver.js";
 import { BaseSdkAdapter } from "../base/base-sdk-adapter.js";
@@ -120,6 +126,7 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
   async *executeWithRaw(
     input: AgentInput,
   ): AsyncGenerator<AgentStreamEvent, void, undefined> {
+    assertAdapterExecutionControlsAdmitted(this, input);
     const sdk = await this.loadSdk();
     const run = createCodexRunContext({
       input,
@@ -156,6 +163,7 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
     sessionId: string,
     input: AgentInput,
   ): AsyncGenerator<AgentEvent, void, undefined> {
+    assertAdapterExecutionControlsAdmitted(this, input);
     const sdk = await this.loadSdk();
     const run = createCodexRunContext({
       input,
@@ -251,6 +259,7 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
       executesToolLoop: true,
       supportsStreaming: true,
       supportsCostUsage: true,
+      supportsZeroToolDispatch: false,
       nativeToolControls: {
         mode: true,
         allowlist: true,
@@ -267,6 +276,19 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
         },
       },
     };
+  }
+
+  admitExecutionControls(
+    _input: AgentInput,
+    requirement: AdapterExecutionControlRequirement,
+  ): AdapterExecutionControlAdmission {
+    return buildExecutionControlAdmission({
+      providerId: "codex",
+      requirement,
+      status: "rejected",
+      enforcement: "unsupported",
+      blockers: ["zero_tool_dispatch_unsupported"],
+    });
   }
 
   async lookupProviderRequest(

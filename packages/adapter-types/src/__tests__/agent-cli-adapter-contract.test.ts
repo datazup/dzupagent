@@ -108,6 +108,13 @@ async function collectEvents(stream: AsyncGenerator<AgentEvent, void, undefined>
 }
 
 describe('AgentCLIAdapter contract fixture', () => {
+  it('keeps a legacy adapter compatible when execution-control members are omitted', () => {
+    const adapter: AgentCLIAdapter = new MockAdapter()
+
+    expect(adapter.getCapabilities().supportsZeroToolDispatch).toBeUndefined()
+    expect(adapter.admitExecutionControls).toBeUndefined()
+  })
+
   it('produces a typed event lifecycle from execute()', async () => {
     const adapter = new MockAdapter()
     adapter.configure({ model: 'claude-sonnet', workingDirectory: '/workspace' })
@@ -170,4 +177,3 @@ describe('AgentCLIAdapter contract fixture', () => {
     })
   })
 })
-

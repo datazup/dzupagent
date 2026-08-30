@@ -5,7 +5,16 @@
  * `index`-keyed accumulation of tool_call deltas, ordered flushing into
  * `adapter:tool_call` events, and tool-definition normalization.
  */
-import type { AdapterProviderId, AgentEvent, AgentInput } from "../types.js";
+import {
+  canonicalExecutionControlRequirement,
+  executionControlRequirementSha256,
+} from "../execution-control-admission.js";
+import type {
+  AdapterExecutionControlRequirement,
+  AdapterProviderId,
+  AgentEvent,
+  AgentInput,
+} from "../types.js";
 import type {
   OpenAIToolWire,
   SSEChunkChoice,
@@ -16,6 +25,11 @@ export interface SseChoiceProcessResult {
   events: AgentEvent[];
   /** Content text appended to the current run's full-text accumulator. */
   appendedContent: string;
+}
+
+export interface OpenAIToolProjection {
+  readonly tools?: readonly OpenAIToolWire[];
+  readonly toolChoice?: unknown;
 }
 
 interface PendingToolCall {
@@ -300,6 +314,57 @@ export function resolveOpenAITools(
     }
   }
   return filterOpenAIToolsByPolicy(wire, input);
+}
+
+/**
+ * Build the one final OpenAI-visible tool projection after caller options and
+ * active policy have been resolved. An exact zero-tool requirement wins last,
+ * so neither provider key exists on the returned object.
+ */
+export function projectOpenAITools(
+  input: AgentInput,
+  requirement?: AdapterExecutionControlRequirement,
+): Readonly<OpenAIToolProjection> {
+  const tools = resolveOpenAITools(input);
+  const toolChoice = input.options?.["tool_choice"];
+
+  if (requirement !== undefined && inputHasRequirement(input, requirement)) {
+    return Object.freeze({});
+  }
+
+  return Object.freeze({
+    ...(tools && tools.length > 0 ? { tools } : {}),
+    ...(tools && tools.length > 0 && toolChoice !== undefined
+      ? { toolChoice }
+      : {}),
+  });
+}
+
+function inputHasRequirement(
+  input: AgentInput,
+  requirement: AdapterExecutionControlRequirement,
+): boolean {
+  const descriptor = Object.getOwnPropertyDescriptor(
+    input,
+    "executionControlRequirement",
+  );
+  if (
+    descriptor === undefined ||
+    descriptor.enumerable !== true ||
+    !("value" in descriptor) ||
+    descriptor.value === undefined
+  ) {
+    return false;
+  }
+  try {
+    const inputRequirement = canonicalExecutionControlRequirement(
+      descriptor.value,
+    );
+    return executionControlRequirementSha256(inputRequirement) ===
+      executionControlRequirementSha256(requirement);
+  } catch {
+    return false;
+  }
 }
 
 function filterOpenAIToolsByPolicy(

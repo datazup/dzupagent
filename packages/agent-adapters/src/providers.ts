@@ -13,6 +13,8 @@
 export type {
   AdapterProviderId,
   AdapterCapabilityProfile,
+  AdapterExecutionControlAdmission,
+  AdapterExecutionControlRequirement,
   ProviderRequestCorrelationCapability,
   ProviderRequestIdempotencyEnforcement,
   ProviderRequestLookupInput,
@@ -43,6 +45,15 @@ export type {
   RoutingDecision,
   TaskRoutingStrategy,
 } from './types.js'
+
+export {
+  admitAdapterExecutionControls,
+  assertAdapterExecutionControlsAdmitted,
+  buildExecutionControlAdmission,
+  canonicalExecutionControlRequirement,
+  executionControlRequirementSha256,
+} from './execution-control-admission.js'
+export type { BuildExecutionControlAdmissionArgs } from './execution-control-admission.js'
 
 // --- Adapters ---
 export { ClaudeAgentAdapter } from './claude/claude-adapter.js'

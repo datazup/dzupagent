@@ -29,6 +29,7 @@ describe('adapter-types public surface', () => {
       supportsToolCalls: true,
       supportsStreaming: true,
       supportsCostUsage: false,
+      supportsZeroToolDispatch: false,
       maxContextTokens: 128_000,
     }
 
@@ -66,6 +67,10 @@ describe('adapter-types public surface', () => {
         mode: 'fast',
       },
       correlationId: 'corr-123',
+      executionControlRequirement: {
+        schema: 'dzupagent/adapter-execution-control-requirement/v1',
+        tools: { mode: 'none' },
+      },
     }
 
     const health: HealthStatus = {
@@ -105,6 +110,7 @@ describe('adapter-types public surface', () => {
       }),
     )
     expect(input.prompt).toBe('Review this change')
+    expect(input.executionControlRequirement?.tools.mode).toBe('none')
     expect(health.healthy).toBe(true)
     expect(session.providerId).toBe('claude')
     expect(usage.inputTokens).toBe(42)

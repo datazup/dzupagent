@@ -22,11 +22,17 @@ export interface BuildQueryOptionsArgs {
   interactionPolicy: InteractionPolicy
 }
 
+export interface BuiltClaudeQuery {
+  readonly [key: string]: unknown
+  readonly prompt: string
+  readonly options: Record<string, unknown>
+}
+
 export function buildQueryOptions({
   input,
   config,
   interactionPolicy,
-}: BuildQueryOptionsArgs): Record<string, unknown> {
+}: BuildQueryOptionsArgs): BuiltClaudeQuery {
   const options: Record<string, unknown> = {}
 
   if (input.systemPrompt) {

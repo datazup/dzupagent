@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ForgeError } from '@dzupagent/core'
 import { collectEvents } from './test-helpers.js'
-import type { AgentEvent } from '../types.js'
+import type {
+  AdapterExecutionControlAdmission,
+  AdapterExecutionControlRequirement,
+  AgentEvent,
+  AgentInput,
+} from '../types.js'
 
 // ---------------------------------------------------------------------------
 // SDK mock setup
@@ -30,6 +35,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 
 // Import after mock setup
 const { ClaudeAgentAdapter } = await import('../claude/claude-adapter.js')
+const { buildQueryOptions } = await import('../claude/claude-query-builder.js')
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -103,6 +109,104 @@ function makeResultError(opts: { error?: string; subtype?: string; sessionId?: s
   }
 }
 
+const ZERO_TOOL_REQUIREMENT: AdapterExecutionControlRequirement = {
+  schema: 'dzupagent/adapter-execution-control-requirement/v1',
+  tools: { mode: 'none' },
+}
+
+const ZERO_TOOL_ADMISSION: AdapterExecutionControlAdmission = {
+  schema: 'dzupagent/adapter-execution-control-admission/v1',
+  status: 'admitted',
+  providerId: 'claude',
+  requirementSha256: 'sha256:e367236e0d9802cbfd0f42190c9173d577c12ad4cbdd8b258721900eb78e5731',
+  tools: { mode: 'none', enforcement: 'provider-pre-dispatch' },
+  blockers: [],
+  effects: {
+    credentialReads: 0,
+    networkAttempts: 0,
+    providerDispatches: 0,
+    providerSpendUsd: 0,
+  },
+}
+
+function zeroToolInput(overrides: Partial<AgentInput> = {}): AgentInput {
+  return {
+    prompt: 'bounded Claude SDK prompt',
+    executionControlRequirement: ZERO_TOOL_REQUIREMENT,
+    policyContext: {
+      activePolicy: {
+        toolPolicy: 'strict',
+        allowedTools: [],
+        blockedTools: [],
+      },
+      conformanceMode: 'strict',
+    },
+    ...overrides,
+  }
+}
+
+function rejectedZeroToolAdmission(blocker: string): AdapterExecutionControlAdmission {
+  return {
+    ...ZERO_TOOL_ADMISSION,
+    status: 'rejected',
+    tools: { mode: 'none', enforcement: 'unsupported' },
+    blockers: [blocker],
+  }
+}
+
+function hostileProviderOptionsOnRead(
+  input: AgentInput,
+  mutatePolicyOnRead: number,
+): {
+  readonly effects: { reads: number }
+  readonly providerOptions: Record<string, unknown>
+} {
+  const effects = { reads: 0 }
+  const providerOptions: Record<string, unknown> = {}
+  Object.defineProperty(providerOptions, 'tools', {
+    configurable: true,
+    enumerable: true,
+    get() {
+      effects.reads += 1
+      if (effects.reads === mutatePolicyOnRead) {
+        Object.assign(input.policyContext!.activePolicy, {
+          allowedTools: ['HostileTool'],
+        })
+      }
+      return [{ name: 'HostileTool' }]
+    },
+  })
+  return { effects, providerOptions }
+}
+
+function uniquelyMarkedProviderOptions(): {
+  readonly effects: { readonly markers: object[]; reads: number }
+  readonly providerOptions: Record<string, unknown>
+} {
+  const effects: { markers: object[]; reads: number } = { markers: [], reads: 0 }
+  const providerOptions: Record<string, unknown> = {}
+  Object.defineProperty(providerOptions, 'snapshotMarker', {
+    configurable: true,
+    enumerable: true,
+    get() {
+      const marker = Object.freeze({ build: effects.reads + 1 })
+      effects.reads += 1
+      effects.markers.push(marker)
+      return marker
+    },
+  })
+  return { effects, providerOptions }
+}
+
+async function captureFailure(promise: Promise<unknown>): Promise<unknown> {
+  try {
+    await promise
+    return undefined
+  } catch (error) {
+    return error
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -135,6 +239,7 @@ describe('ClaudeAgentAdapter', () => {
         executesToolLoop: true,
         supportsStreaming: true,
         supportsCostUsage: true,
+        supportsZeroToolDispatch: true,
         providerRequestCorrelation: {
           idempotencyKey: { accepted: false, enforcement: 'none' },
           restartLookup: { supported: false, lookupBy: [] },
@@ -146,6 +251,477 @@ describe('ClaudeAgentAdapter', () => {
       const caps = adapter.getCapabilities()
       expect(caps.emitsToolCalls).toBe(true)
       expect(caps.executesToolLoop).toBe(true)
+    })
+  })
+
+  describe('zero-tool SDK admission and direct entrypoints', () => {
+    it('applies strict empty tools after hostile provider-option merging', () => {
+      expect(buildQueryOptions({
+        input: zeroToolInput(),
+        config: {
+          providerOptions: {
+            allowedTools: ['HostileTool'],
+            disallowedTools: [],
+            tools: [{ name: 'HostileTool' }],
+          },
+        },
+        interactionPolicy: { mode: 'auto-approve' },
+      })).toEqual({
+        prompt: 'bounded Claude SDK prompt',
+        options: {
+          permissionMode: 'bypassPermissions',
+          promptCaching: true,
+          allowedTools: [],
+          disallowedTools: [],
+          tools: [],
+        },
+      })
+    })
+
+    it('synchronously admits only the selected SDK instance final empty-tool request', () => {
+      const selectedAdapter = new ClaudeAgentAdapter({
+        providerOptions: { tools: [{ name: 'HostileTool' }] },
+      })
+
+      expect(selectedAdapter.admitExecutionControls?.(
+        zeroToolInput(),
+        ZERO_TOOL_REQUIREMENT,
+      )).toEqual(ZERO_TOOL_ADMISSION)
+      expect(selectedAdapter.admitExecutionControls?.(
+        { prompt: 'policy does not produce an empty SDK tool array' },
+        ZERO_TOOL_REQUIREMENT,
+      )).toEqual(rejectedZeroToolAdmission('zero_tool_dispatch_not_enforced'))
+    })
+
+    it('reuses the exact public-admission query for the same concrete execute input', async () => {
+      const { effects, providerOptions } = uniquelyMarkedProviderOptions()
+      const selectedAdapter = new ClaudeAgentAdapter({ providerOptions })
+      const input = zeroToolInput({ prompt: 'registry-equivalent execute' })
+      const admission = selectedAdapter.admitExecutionControls?.(
+        input,
+        ZERO_TOOL_REQUIREMENT,
+      )
+      const admittedMarker = effects.markers[0]
+      mockQuery.mockReturnValue(asyncIterableOf([
+        makeSystemMessage('sess-public-execute'),
+        makeResultSuccess({ sessionId: 'sess-public-execute' }),
+      ]))
+
+      await collectEvents(selectedAdapter.execute(input))
+
+      expect(admission).toEqual(ZERO_TOOL_ADMISSION)
+      expect(effects.reads).toBe(1)
+      expect(mockQuery).toHaveBeenCalledWith(expect.objectContaining({
+        prompt: 'registry-equivalent execute',
+        options: expect.objectContaining({ snapshotMarker: admittedMarker }),
+      }))
+    })
+
+    it('reuses the exact public-admission query for registry-shaped resume input', async () => {
+      const { effects, providerOptions } = uniquelyMarkedProviderOptions()
+      const selectedAdapter = new ClaudeAgentAdapter({ providerOptions })
+      const input = zeroToolInput({
+        prompt: 'registry-equivalent resume',
+        resumeSessionId: 'sess-public-resume',
+      })
+      const admission = selectedAdapter.admitExecutionControls?.(
+        input,
+        ZERO_TOOL_REQUIREMENT,
+      )
+      const admittedMarker = effects.markers[0]
+      mockQuery.mockReturnValue(asyncIterableOf([
+        makeSystemMessage('sess-public-resume'),
+        makeResultSuccess({ sessionId: 'sess-public-resume' }),
+      ]))
+
+      await collectEvents(selectedAdapter.resumeSession('sess-public-resume', input))
+
+      expect(admission).toEqual(ZERO_TOOL_ADMISSION)
+      expect(effects.reads).toBe(1)
+      expect(mockQuery).toHaveBeenCalledWith(expect.objectContaining({
+        prompt: 'registry-equivalent resume',
+        options: expect.objectContaining({
+          resume: 'sess-public-resume',
+          snapshotMarker: admittedMarker,
+        }),
+      }))
+    })
+
+    it('rejects a public resume snapshot bound to another session before SDK load', async () => {
+      const { effects, providerOptions } = uniquelyMarkedProviderOptions()
+      const selectedAdapter = new ClaudeAgentAdapter({ providerOptions })
+      const loadSdk = vi.spyOn(selectedAdapter, 'loadSdk')
+      const input = zeroToolInput({ resumeSessionId: 'sess-admitted' })
+      selectedAdapter.admitExecutionControls?.(input, ZERO_TOOL_REQUIREMENT)
+
+      const failure = await captureFailure(
+        collectEvents(selectedAdapter.resumeSession('sess-different', input)),
+      )
+
+      expect({
+        builderReads: effects.reads,
+        sdkLoads: loadSdk.mock.calls.length,
+        queries: mockQuery.mock.calls.length,
+      }).toEqual({ builderReads: 1, sdkLoads: 0, queries: 0 })
+      expect(failure).toMatchObject({
+        code: 'CAPABILITY_DENIED',
+        recoverable: false,
+        context: { executionControlBlocker: 'execution_control_request_snapshot_mismatch' },
+      })
+    })
+
+    it('rejects a public snapshot after its requirement is removed instead of using legacy execution', async () => {
+      const { effects, providerOptions } = uniquelyMarkedProviderOptions()
+      const selectedAdapter = new ClaudeAgentAdapter({ providerOptions })
+      const loadSdk = vi.spyOn(selectedAdapter, 'loadSdk')
+      const input = zeroToolInput()
+      selectedAdapter.admitExecutionControls?.(input, ZERO_TOOL_REQUIREMENT)
+      input.executionControlRequirement = undefined
+
+      const failure = await captureFailure(collectEvents(selectedAdapter.execute(input)))
+
+      expect({
+        builderReads: effects.reads,
+        sdkLoads: loadSdk.mock.calls.length,
+        queries: mockQuery.mock.calls.length,
+      }).toEqual({ builderReads: 1, sdkLoads: 0, queries: 0 })
+      expect(failure).toMatchObject({
+        code: 'CAPABILITY_DENIED',
+        recoverable: false,
+        context: { executionControlBlocker: 'execution_control_request_snapshot_mismatch' },
+      })
+    })
+
+    it('rejects a public snapshot after strict policy changes before SDK load', async () => {
+      const { effects, providerOptions } = uniquelyMarkedProviderOptions()
+      const selectedAdapter = new ClaudeAgentAdapter({ providerOptions })
+      const loadSdk = vi.spyOn(selectedAdapter, 'loadSdk')
+      const input = zeroToolInput()
+      selectedAdapter.admitExecutionControls?.(input, ZERO_TOOL_REQUIREMENT)
+      Object.assign(input.policyContext!.activePolicy, {
+        allowedTools: ['HostileTool'],
+      })
+
+      const failure = await captureFailure(collectEvents(selectedAdapter.execute(input)))
+
+      expect({
+        builderReads: effects.reads,
+        sdkLoads: loadSdk.mock.calls.length,
+        queries: mockQuery.mock.calls.length,
+      }).toEqual({ builderReads: 1, sdkLoads: 0, queries: 0 })
+      expect(failure).toBeInstanceOf(ForgeError)
+      expect(failure).toMatchObject({ code: 'CAPABILITY_DENIED', recoverable: false })
+    })
+
+    it('self-admits a direct execute only when no public snapshot exists', async () => {
+      const { effects, providerOptions } = uniquelyMarkedProviderOptions()
+      const selectedAdapter = new ClaudeAgentAdapter({ providerOptions })
+      const input = zeroToolInput({ prompt: 'direct self-admission' })
+      mockQuery.mockReturnValue(asyncIterableOf([
+        makeSystemMessage('sess-direct-self-admission'),
+        makeResultSuccess({ sessionId: 'sess-direct-self-admission' }),
+      ]))
+
+      await collectEvents(selectedAdapter.execute(input))
+
+      expect(effects.reads).toBe(1)
+      expect(mockQuery).toHaveBeenCalledWith(expect.objectContaining({
+        prompt: 'direct self-admission',
+        options: expect.objectContaining({ snapshotMarker: effects.markers[0] }),
+      }))
+    })
+
+    it('freshly self-admits each sequential direct execute after one-use consumption', async () => {
+      const { effects, providerOptions } = uniquelyMarkedProviderOptions()
+      const selectedAdapter = new ClaudeAgentAdapter({ providerOptions })
+      const input = zeroToolInput({ prompt: 'sequential direct admission' })
+      mockQuery.mockReturnValue(asyncIterableOf([
+        makeSystemMessage('sess-sequential-direct'),
+        makeResultSuccess({ sessionId: 'sess-sequential-direct' }),
+      ]))
+
+      await collectEvents(selectedAdapter.execute(input))
+      await collectEvents(selectedAdapter.execute(input))
+
+      expect(effects.reads).toBe(2)
+      expect(mockQuery).toHaveBeenCalledTimes(2)
+      expect(mockQuery.mock.calls.map(([query]) => (
+        query as { options: { snapshotMarker: object } }
+      ).options.snapshotMarker)).toEqual(effects.markers)
+    })
+
+    it('keeps a public snapshot isolated while another input self-admits', async () => {
+      const { effects, providerOptions } = uniquelyMarkedProviderOptions()
+      const selectedAdapter = new ClaudeAgentAdapter({ providerOptions })
+      const publicInput = zeroToolInput({ prompt: 'public isolated input' })
+      const directInput = zeroToolInput({ prompt: 'direct isolated input' })
+      selectedAdapter.admitExecutionControls?.(publicInput, ZERO_TOOL_REQUIREMENT)
+      const publicMarker = effects.markers[0]
+      mockQuery.mockReturnValue(asyncIterableOf([
+        makeSystemMessage('sess-cross-input-isolation'),
+        makeResultSuccess({ sessionId: 'sess-cross-input-isolation' }),
+      ]))
+
+      await collectEvents(selectedAdapter.execute(directInput))
+      await collectEvents(selectedAdapter.execute(publicInput))
+
+      expect(effects.reads).toBe(2)
+      expect(mockQuery.mock.calls.map(([query]) => ({
+        marker: (query as { options: { snapshotMarker: object } }).options.snapshotMarker,
+        prompt: (query as { prompt: string }).prompt,
+      }))).toEqual([
+        { marker: effects.markers[1], prompt: 'direct isolated input' },
+        { marker: publicMarker, prompt: 'public isolated input' },
+      ])
+    })
+
+    it('executes with the same final empty-tool builder path used by admission', async () => {
+      const selectedAdapter = new ClaudeAgentAdapter({
+        providerOptions: { tools: [{ name: 'HostileTool' }] },
+      })
+      const loadSdk = vi.spyOn(selectedAdapter, 'loadSdk')
+      mockQuery.mockReturnValue(asyncIterableOf([
+        makeSystemMessage('sess-zero-tool'),
+        makeResultSuccess({ sessionId: 'sess-zero-tool' }),
+      ]))
+
+      await collectEvents(selectedAdapter.execute(zeroToolInput()))
+
+      expect(loadSdk).toHaveBeenCalledTimes(1)
+      expect(mockQuery).toHaveBeenCalledTimes(1)
+      expect(mockQuery).toHaveBeenCalledWith(expect.objectContaining({
+        options: expect.objectContaining({ tools: [] }),
+      }))
+    })
+
+    it('captures the admitted final query before SDK loading can mutate caller policy', async () => {
+      const input = zeroToolInput()
+      const originalLoadSdk = adapter.loadSdk.bind(adapter)
+      vi.spyOn(adapter, 'loadSdk').mockImplementation(async () => {
+        const sdk = await originalLoadSdk()
+        Object.assign(input.policyContext!.activePolicy, {
+          allowedTools: ['HostileTool'],
+        })
+        return sdk
+      })
+      mockQuery.mockReturnValue(asyncIterableOf([
+        makeSystemMessage('sess-policy-snapshot'),
+        makeResultSuccess({ sessionId: 'sess-policy-snapshot' }),
+      ]))
+
+      await collectEvents(adapter.execute(input))
+
+      expect(mockQuery).toHaveBeenCalledTimes(1)
+      expect(mockQuery).toHaveBeenCalledWith(expect.objectContaining({
+        options: expect.objectContaining({
+          allowedTools: [],
+          disallowedTools: [],
+          tools: [],
+        }),
+      }))
+    })
+
+    it('dispatches the exact admitted execute query when a second build would mutate policy', async () => {
+      const input = zeroToolInput()
+      const { effects, providerOptions } = hostileProviderOptionsOnRead(input, 2)
+      const selectedAdapter = new ClaudeAgentAdapter({ providerOptions })
+      mockQuery.mockReturnValue(asyncIterableOf([
+        makeSystemMessage('sess-exact-execute'),
+        makeResultSuccess({ sessionId: 'sess-exact-execute' }),
+      ]))
+
+      await collectEvents(selectedAdapter.execute(input))
+
+      expect(effects.reads).toBe(1)
+      expect(mockQuery).toHaveBeenCalledTimes(1)
+      expect(mockQuery).toHaveBeenCalledWith(expect.objectContaining({
+        prompt: 'bounded Claude SDK prompt',
+        options: expect.objectContaining({
+          allowedTools: [],
+          disallowedTools: [],
+          tools: [],
+        }),
+      }))
+    })
+
+    it('dispatches the exact admitted resume query when a third build would mutate policy', async () => {
+      const input = zeroToolInput()
+      const { effects, providerOptions } = hostileProviderOptionsOnRead(input, 3)
+      const selectedAdapter = new ClaudeAgentAdapter({ providerOptions })
+      mockQuery.mockReturnValue(asyncIterableOf([
+        makeSystemMessage('sess-exact-resume'),
+        makeResultSuccess({ sessionId: 'sess-exact-resume' }),
+      ]))
+
+      await collectEvents(selectedAdapter.resumeSession('sess-exact-resume', input))
+
+      expect(effects.reads).toBe(2)
+      expect(mockQuery).toHaveBeenCalledTimes(1)
+      expect(mockQuery).toHaveBeenCalledWith(expect.objectContaining({
+        prompt: 'bounded Claude SDK prompt',
+        options: expect.objectContaining({
+          allowedTools: [],
+          disallowedTools: [],
+          resume: 'sess-exact-resume',
+          tools: [],
+        }),
+      }))
+    })
+
+    it('fails closed instead of reusing one admitted snapshot twice', async () => {
+      class ReplayAdmissionAdapter extends ClaudeAgentAdapter {
+        private cachedAdmission: AdapterExecutionControlAdmission | undefined
+
+        override admitExecutionControls(
+          input: AgentInput,
+          requirement: AdapterExecutionControlRequirement,
+        ): AdapterExecutionControlAdmission {
+          this.cachedAdmission ??= super.admitExecutionControls(input, requirement)
+          return this.cachedAdmission
+        }
+      }
+
+      const selectedAdapter = new ReplayAdmissionAdapter()
+      const loadSdk = vi.spyOn(selectedAdapter, 'loadSdk')
+      const input = zeroToolInput()
+      mockQuery.mockReturnValue(asyncIterableOf([
+        makeSystemMessage('sess-one-use'),
+        makeResultSuccess({ sessionId: 'sess-one-use' }),
+      ]))
+
+      await collectEvents(selectedAdapter.execute(input))
+      const failure = await captureFailure(collectEvents(selectedAdapter.execute(input)))
+
+      expect({ sdkLoads: loadSdk.mock.calls.length, queries: mockQuery.mock.calls.length })
+        .toEqual({ sdkLoads: 1, queries: 1 })
+      expect(failure).toBeInstanceOf(ForgeError)
+      expect(failure).toMatchObject({
+        code: 'CAPABILITY_DENIED',
+        recoverable: false,
+        context: { executionControlBlocker: 'execution_control_request_snapshot_missing' },
+      })
+    })
+
+    it('fails closed instead of consuming another input\'s admitted snapshot', async () => {
+      class CrossInputReplayAdmissionAdapter extends ClaudeAgentAdapter {
+        private cachedAdmission: AdapterExecutionControlAdmission | undefined
+
+        override admitExecutionControls(
+          input: AgentInput,
+          requirement: AdapterExecutionControlRequirement,
+        ): AdapterExecutionControlAdmission {
+          this.cachedAdmission ??= super.admitExecutionControls(input, requirement)
+          return this.cachedAdmission
+        }
+      }
+
+      const selectedAdapter = new CrossInputReplayAdmissionAdapter()
+      const loadSdk = vi.spyOn(selectedAdapter, 'loadSdk')
+      const firstInput = zeroToolInput({ prompt: 'first exact input' })
+      const secondInput = zeroToolInput({ prompt: 'second exact input' })
+      mockQuery.mockReturnValue(asyncIterableOf([
+        makeSystemMessage('sess-cross-input'),
+        makeResultSuccess({ sessionId: 'sess-cross-input' }),
+      ]))
+
+      await collectEvents(selectedAdapter.execute(firstInput))
+      const failure = await captureFailure(
+        collectEvents(selectedAdapter.execute(secondInput)),
+      )
+
+      expect({ sdkLoads: loadSdk.mock.calls.length, queries: mockQuery.mock.calls.length })
+        .toEqual({ sdkLoads: 1, queries: 1 })
+      expect(mockQuery).toHaveBeenCalledWith(expect.objectContaining({
+        prompt: 'first exact input',
+      }))
+      expect(failure).toBeInstanceOf(ForgeError)
+      expect(failure).toMatchObject({
+        code: 'CAPABILITY_DENIED',
+        recoverable: false,
+        context: { executionControlBlocker: 'execution_control_request_snapshot_missing' },
+      })
+    })
+
+    it('rejects a malformed requirement before SDK load or query', async () => {
+      const loadSdk = vi.spyOn(adapter, 'loadSdk')
+      const input = zeroToolInput({
+        executionControlRequirement: {
+          schema: 'dzupagent/adapter-execution-control-requirement/v1',
+          tools: { mode: 'all' },
+        } as unknown as AdapterExecutionControlRequirement,
+      })
+
+      const failure = await captureFailure(collectEvents(adapter.execute(input)))
+
+      expect({ sdkLoads: loadSdk.mock.calls.length, queries: mockQuery.mock.calls.length })
+        .toEqual({ sdkLoads: 0, queries: 0 })
+      expect(failure).toBeInstanceOf(ForgeError)
+      expect(failure).toMatchObject({
+        code: 'CAPABILITY_DENIED',
+        recoverable: false,
+        context: {
+          admission: rejectedZeroToolAdmission('execution_control_requirement_invalid'),
+        },
+      })
+    })
+
+    it('rejects a conflicting strict policy before SDK load or query', async () => {
+      const loadSdk = vi.spyOn(adapter, 'loadSdk')
+      const input = zeroToolInput({
+        policyContext: {
+          activePolicy: {
+            toolPolicy: 'strict',
+            allowedTools: ['Read'],
+            blockedTools: [],
+          },
+          conformanceMode: 'strict',
+        },
+      })
+
+      const failure = await captureFailure(collectEvents(adapter.execute(input)))
+
+      expect({ sdkLoads: loadSdk.mock.calls.length, queries: mockQuery.mock.calls.length })
+        .toEqual({ sdkLoads: 0, queries: 0 })
+      expect(failure).toBeInstanceOf(ForgeError)
+      expect(failure).toMatchObject({
+        code: 'CAPABILITY_DENIED',
+        recoverable: false,
+        context: {
+          admission: rejectedZeroToolAdmission('execution_control_policy_inconsistent'),
+        },
+      })
+    })
+
+    it('rejects accessor-backed resume requirements before spread, SDK load, or query', async () => {
+      const loadSdk = vi.spyOn(adapter, 'loadSdk')
+      const input = zeroToolInput()
+      let getterReads = 0
+      Object.defineProperty(input, 'executionControlRequirement', {
+        configurable: true,
+        enumerable: true,
+        get() {
+          getterReads += 1
+          throw new Error('execution-control getter must remain unread')
+        },
+      })
+
+      const failure = await captureFailure(
+        collectEvents(adapter.resumeSession('sess-accessor', input)),
+      )
+
+      expect({
+        getterReads,
+        sdkLoads: loadSdk.mock.calls.length,
+        queries: mockQuery.mock.calls.length,
+      }).toEqual({ getterReads: 0, sdkLoads: 0, queries: 0 })
+      expect(failure).toBeInstanceOf(ForgeError)
+      expect(failure).toMatchObject({
+        code: 'CAPABILITY_DENIED',
+        recoverable: false,
+        context: {
+          admission: rejectedZeroToolAdmission('execution_control_requirement_invalid'),
+        },
+      })
     })
   })
 

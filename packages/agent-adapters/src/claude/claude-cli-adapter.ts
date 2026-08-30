@@ -5,13 +5,20 @@ import { ForgeError } from '@dzupagent/core/events'
 import type {
   AdapterCapabilityProfile,
   AdapterConfig,
+  AdapterExecutionControlAdmission,
+  AdapterExecutionControlRequirement,
   AgentEvent,
   AgentInput,
+  AgentStreamEvent,
   HealthStatus,
   SessionInfo,
   TokenUsage,
 } from '../types.js'
 import { BaseCliAdapter, type PreparedCliRun } from '../base/base-cli-adapter.js'
+import {
+  assertAdapterExecutionControlsAdmitted,
+  buildExecutionControlAdmission,
+} from '../execution-control-admission.js'
 import type { ThreadStartResult } from '../base/stream-runner.js'
 import { createTemporaryProjection } from '../cli-runtime/temporary-projection.js'
 import { getDefaultMonitorStatus } from '../provider-catalog.js'
@@ -61,12 +68,41 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       executesToolLoop: true,
       supportsStreaming: true,
       supportsCostUsage: true,
+      supportsZeroToolDispatch: false,
       nativeToolControls: { mode: true, allowlist: false, blocklist: true },
       providerRequestCorrelation: {
         idempotencyKey: { accepted: false, enforcement: 'none' },
         restartLookup: { supported: false, lookupBy: [] },
       },
     }
+  }
+
+  admitExecutionControls(
+    _input: AgentInput,
+    requirement: AdapterExecutionControlRequirement,
+  ): AdapterExecutionControlAdmission {
+    return buildExecutionControlAdmission({
+      providerId: 'claude',
+      requirement,
+      status: 'rejected',
+      enforcement: 'unsupported',
+      blockers: ['zero_tool_dispatch_unsupported'],
+    })
+  }
+
+  override async *executeWithRaw(
+    input: AgentInput,
+  ): AsyncGenerator<AgentStreamEvent, void, undefined> {
+    assertAdapterExecutionControlsAdmitted(this, input)
+    yield* super.executeWithRaw(input)
+  }
+
+  override async *resumeSession(
+    sessionId: string,
+    input: AgentInput,
+  ): AsyncGenerator<AgentEvent, void, undefined> {
+    assertAdapterExecutionControlsAdmitted(this, input)
+    yield* super.resumeSession(sessionId, input)
   }
 
   protected buildArgs(input: AgentInput): string[] {

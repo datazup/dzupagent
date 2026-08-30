@@ -1,24 +1,199 @@
 import { access, readFile } from 'node:fs/promises'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { ForgeError } from '@dzupagent/core/events'
 import { ClaudeCliAdapter } from '../claude/claude-cli-adapter.js'
 import { createClaudeBackendAdapter } from '../claude/claude-backend.js'
 import { ClaudeAgentAdapter } from '../claude/claude-adapter.js'
+import { spawnAndStreamJsonl } from '../utils/process-helpers.js'
 import type { PreparedCliRun } from '../base/base-cli-adapter.js'
 import type { ThreadStartResult } from '../base/stream-runner.js'
-import type { AgentEvent, AgentInput } from '../types.js'
+import type {
+  AdapterExecutionControlAdmission,
+  AdapterExecutionControlRequirement,
+  AgentEvent,
+  AgentInput,
+  AgentStreamEvent,
+} from '../types.js'
+
+vi.mock('../utils/process-helpers.js', () => ({
+  isBinaryAvailable: vi.fn(),
+  spawnAndStreamJsonl: vi.fn(),
+}))
+
+const mockSpawnAndStreamJsonl = vi.mocked(spawnAndStreamJsonl)
 
 class InspectableClaudeCliAdapter extends ClaudeCliAdapter {
+  environmentPreparations = 0
   args(input: AgentInput): string[] { return this.buildArgs(input) }
   prepare(input: AgentInput): Promise<PreparedCliRun> { return this.prepareCliRun(input) }
   map(record: Record<string, unknown>, sessionId = 'fallback'): AgentEvent | AgentEvent[] | undefined { return this.mapProviderEvent(record, sessionId) }
   startsImmediately(): boolean { return this.shouldEmitStartedImmediately() }
   threadStart(record: Record<string, unknown>): ThreadStartResult | null { return this.detectProviderThreadStart(record) }
+  protected override async prepareCliRun(input: AgentInput): Promise<PreparedCliRun> {
+    this.environmentPreparations += 1
+    return super.prepareCliRun(input)
+  }
+}
+
+const ZERO_TOOL_REQUIREMENT: AdapterExecutionControlRequirement = {
+  schema: 'dzupagent/adapter-execution-control-requirement/v1',
+  tools: { mode: 'none' },
+}
+
+const ZERO_TOOL_REJECTION: AdapterExecutionControlAdmission = {
+  schema: 'dzupagent/adapter-execution-control-admission/v1',
+  status: 'rejected',
+  providerId: 'claude',
+  requirementSha256: 'sha256:e367236e0d9802cbfd0f42190c9173d577c12ad4cbdd8b258721900eb78e5731',
+  tools: { mode: 'none', enforcement: 'unsupported' },
+  blockers: ['zero_tool_dispatch_unsupported'],
+  effects: {
+    credentialReads: 0,
+    networkAttempts: 0,
+    providerDispatches: 0,
+    providerSpendUsd: 0,
+  },
+}
+
+const ZERO_TOOL_DIRECT_DENIAL: AdapterExecutionControlAdmission = {
+  ...ZERO_TOOL_REJECTION,
+  blockers: ['zero_tool_dispatch_capability_missing'],
+}
+
+function zeroToolInput(): AgentInput {
+  return {
+    prompt: 'bounded Claude CLI prompt',
+    executionControlRequirement: ZERO_TOOL_REQUIREMENT,
+    policyContext: {
+      activePolicy: {
+        toolPolicy: 'strict',
+        allowedTools: [],
+        blockedTools: [],
+      },
+      conformanceMode: 'strict',
+    },
+  }
+}
+
+interface CliEffectSnapshot {
+  readonly clockReads: number
+  readonly environmentPreparations: number
+  readonly events: number
+  readonly spawns: number
+}
+
+const ZERO_CLI_EFFECTS: CliEffectSnapshot = {
+  clockReads: 0,
+  environmentPreparations: 0,
+  events: 0,
+  spawns: 0,
+}
+
+async function observeCliRun(
+  run: (
+    adapter: InspectableClaudeCliAdapter,
+  ) => AsyncGenerator<AgentEvent | AgentStreamEvent, void, undefined>,
+): Promise<{
+    readonly adapter: InspectableClaudeCliAdapter
+    readonly effects: CliEffectSnapshot
+    readonly failure: unknown
+  }> {
+  mockSpawnAndStreamJsonl.mockClear()
+  mockSpawnAndStreamJsonl.mockImplementation(async function* () {
+    yield { type: 'system', subtype: 'init', session_id: 'unexpected-session' }
+    yield {
+      type: 'result',
+      subtype: 'success',
+      session_id: 'unexpected-session',
+      result: 'unexpected dispatch',
+    }
+  })
+  const adapter = new InspectableClaudeCliAdapter()
+  const dateNow = vi.spyOn(Date, 'now').mockReturnValue(1_000)
+  const events: Array<AgentEvent | AgentStreamEvent> = []
+  let failure: unknown
+  try {
+    for await (const event of run(adapter)) events.push(event)
+  } catch (error) {
+    failure = error
+  }
+  const effects = {
+    clockReads: dateNow.mock.calls.length,
+    environmentPreparations: adapter.environmentPreparations,
+    events: events.length,
+    spawns: mockSpawnAndStreamJsonl.mock.calls.length,
+  }
+  dateNow.mockRestore()
+  return { adapter, effects, failure }
 }
 
 describe('Claude local CLI backend', () => {
   it('materializes exactly one explicitly selected backend', () => {
-    expect(createClaudeBackendAdapter({ backend: 'cli' })).toBeInstanceOf(ClaudeCliAdapter)
-    expect(createClaudeBackendAdapter({ backend: 'sdk' })).toBeInstanceOf(ClaudeAgentAdapter)
+    const cli = createClaudeBackendAdapter({ backend: 'cli' })
+    const sdk = createClaudeBackendAdapter({ backend: 'sdk' })
+    expect(cli).toBeInstanceOf(ClaudeCliAdapter)
+    expect(sdk).toBeInstanceOf(ClaudeAgentAdapter)
+    expect(cli.getCapabilities().supportsZeroToolDispatch).toBe(false)
+    expect(sdk.getCapabilities().supportsZeroToolDispatch).toBe(true)
+  })
+
+  it('returns stable unsupported zero-tool evidence from the selected CLI instance', () => {
+    const adapter = new ClaudeCliAdapter()
+
+    expect(adapter.getCapabilities().supportsZeroToolDispatch).toBe(false)
+    expect(adapter.admitExecutionControls?.(zeroToolInput(), ZERO_TOOL_REQUIREMENT))
+      .toEqual(ZERO_TOOL_REJECTION)
+    expect(adapter.admitExecutionControls?.(zeroToolInput(), ZERO_TOOL_REQUIREMENT))
+      .toEqual(ZERO_TOOL_REJECTION)
+  })
+
+  it.each([
+    ['execute', (adapter: InspectableClaudeCliAdapter) => adapter.execute(zeroToolInput())],
+    ['executeWithRaw', (adapter: InspectableClaudeCliAdapter) => adapter.executeWithRaw(zeroToolInput())],
+    ['resumeSession', (adapter: InspectableClaudeCliAdapter) => adapter.resumeSession('resume-zero-tool', zeroToolInput())],
+  ] as const)(
+    'rejects direct %s before clocks, environment preparation, events, or spawn',
+    async (_entrypoint, run) => {
+      const { effects, failure } = await observeCliRun(run)
+
+      expect(effects).toEqual(ZERO_CLI_EFFECTS)
+      expect(failure).toBeInstanceOf(ForgeError)
+      expect(failure).toMatchObject({
+        code: 'CAPABILITY_DENIED',
+        recoverable: false,
+        context: { admission: ZERO_TOOL_DIRECT_DENIAL },
+      })
+    },
+  )
+
+  it('rejects accessor-backed resume requirements before spread or CLI effects', async () => {
+    const input = zeroToolInput()
+    let getterReads = 0
+    Object.defineProperty(input, 'executionControlRequirement', {
+      configurable: true,
+      enumerable: true,
+      get() {
+        getterReads += 1
+        throw new Error('execution-control getter must remain unread')
+      },
+    })
+
+    const { effects, failure } = await observeCliRun((adapter) =>
+      adapter.resumeSession('resume-accessor', input))
+
+    expect(getterReads).toBe(0)
+    expect(effects).toEqual(ZERO_CLI_EFFECTS)
+    expect(failure).toBeInstanceOf(ForgeError)
+    expect(failure).toMatchObject({
+      code: 'CAPABILITY_DENIED',
+      recoverable: false,
+      context: {
+        admission: {
+          ...ZERO_TOOL_REJECTION,
+          blockers: ['execution_control_requirement_invalid'],
+        },
+      },
+    })
   })
   it('uses the verified read-only denylist and stream-json output', () => {
     const args = new InspectableClaudeCliAdapter().args({ prompt: 'inspect', workingDirectory: '/tmp' })
