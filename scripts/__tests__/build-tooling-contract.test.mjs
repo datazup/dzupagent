@@ -18,6 +18,25 @@ const repoRoot = path.resolve(
   '../..',
 )
 
+// Every build workspace must verify its completion manifest under build custody,
+// and must do it FIRST -- an integrity check placed behind another command is
+// skipped whenever that command exits non-zero.
+const REQUIRED_BUILD_VERIFY =
+  'node ../../scripts/run-with-build-custody.mjs node ../../scripts/check-build-artifact-integrity.mjs'
+
+// A package may append its own extra gates (agent-types chains an implementation
+// deprecation check). Demanding exact equality made the shared contract and a
+// legitimate package-local gate mutually exclusive. Anchoring the required
+// command as a prefix keeps the guard load-bearing: replacing it, dropping
+// custody, or demoting it behind another command all still fail.
+function isContractualBuildVerify(value) {
+  if (typeof value !== 'string') return false
+  return (
+    value === REQUIRED_BUILD_VERIFY ||
+    value.startsWith(`${REQUIRED_BUILD_VERIFY} && `)
+  )
+}
+
 test('every build workspace publishes and verifies a completion manifest', async () => {
   const packageDirs = await listBuildPackageDirs(repoRoot)
   assert.equal(packageDirs.length > 0, true)
@@ -31,15 +50,43 @@ test('every build workspace publishes and verifies a completion manifest', async
       packageJson.name,
     )
     assert.equal(
-      packageJson.scripts['build:verify'],
-      'node ../../scripts/run-with-build-custody.mjs node ../../scripts/check-build-artifact-integrity.mjs',
-      packageJson.name,
+      isContractualBuildVerify(packageJson.scripts['build:verify']),
+      true,
+      `${packageJson.name}: build:verify must run the custody-held integrity check first, optionally followed by "&& " package-local gates; got: ${packageJson.scripts['build:verify']}`,
     )
     assert.equal(
       packageJson.scripts.lint,
       'node ../../scripts/run-package-lint.mjs',
       packageJson.name,
     )
+  }
+})
+
+test('the build:verify contract accepts appended gates and nothing else', () => {
+  // Two-way pin. Without the reject cases the relaxed prefix rule could rot into
+  // "starts with node" and still look green.
+  for (const accepted of [
+    REQUIRED_BUILD_VERIFY,
+    `${REQUIRED_BUILD_VERIFY} && node ../../scripts/check-agent-types-implementation-deprecation.mjs`,
+    `${REQUIRED_BUILD_VERIFY} && node ../../scripts/a.mjs && node ../../scripts/b.mjs`,
+  ]) {
+    assert.equal(isContractualBuildVerify(accepted), true, `must accept: ${accepted}`)
+  }
+
+  for (const rejected of [
+    undefined,
+    '',
+    // integrity check demoted behind another gate -- skipped when that gate fails
+    `node ../../scripts/check-agent-types-implementation-deprecation.mjs && ${REQUIRED_BUILD_VERIFY}`,
+    // custody dropped
+    'node ../../scripts/check-build-artifact-integrity.mjs',
+    // integrity check swapped out
+    'node ../../scripts/run-with-build-custody.mjs node ../../scripts/something-else.mjs',
+    // chained without the separator the contract requires
+    `${REQUIRED_BUILD_VERIFY} ; node ../../scripts/x.mjs`,
+    `${REQUIRED_BUILD_VERIFY}--quiet`,
+  ]) {
+    assert.equal(isContractualBuildVerify(rejected), false, `must reject: ${rejected}`)
   }
 })
 
