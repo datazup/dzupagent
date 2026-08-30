@@ -461,12 +461,12 @@
           "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 957 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
         },
         "src/model-discovery.ts": {
-          "maxLines": 1349,
+          "maxLines": 727,
           "shrinkTarget": 500,
-          "sourceSha256": "f1d9500334b57847927d97c36fe78a6eda3d05dad4610967afae6ea409bd3cb2",
-          "sourceCommit": "b6a1acf1056114ad6851e1ded8a207577467d930",
-          "reviewBy": "2026-11-16",
-          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 1349 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+          "sourceSha256": "003bd90ddef44176cf2aad10c5cea97cffef5607ca417c87e7026278b65ac305",
+          "sourceCommit": "1ca3e38a81ff04ff240ad74632c404bffd82cdbb",
+          "reviewBy": "2026-11-30",
+          "rationale": "Re-pin DOWN 1349->727 (2026-08-30): split into four leaf collaborators - model-discovery-types.ts (declaration-only contracts, re-exported wholesale so the public surface is unchanged), model-discovery-values.ts (shape checks and coercions over untrusted provider output), model-catalog-builders.ts (assembly of observations into a validated catalog snapshot), and model-provider-apis.ts (the provider list-models endpoints). This module now owns only how each provider is interrogated. Still above the 500 ceiling; shrinkTarget unchanged."
         },
         "src/registry/deterministic-candidate-selector.ts": {
           "maxLines": 876,
