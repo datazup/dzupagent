@@ -266,8 +266,6 @@ export {
 } from "./persistence/in-memory-store.js";
 export type {
   RunStore,
-  AtomicRunStore,
-  RunStoreCompareAndSetExpectation,
   Run,
   CreateRunInput,
   RunFilter,
@@ -277,7 +275,6 @@ export type {
   AgentExecutionSpec,
   AgentExecutionSpecFilter,
 } from "./persistence/store-interfaces.js";
-export { isAtomicRunStore } from "./persistence/store-interfaces.js";
 export { InMemoryEventLog, EventLogSink } from "./persistence/event-log.js";
 export type { RunEvent, EventLogStore } from "./persistence/event-log.js";
 // --- Run Journal ---
