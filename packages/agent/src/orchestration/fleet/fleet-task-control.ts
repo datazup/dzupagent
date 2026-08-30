@@ -18,10 +18,10 @@ import type {
   FleetPolicy,
   FleetRunSpec,
   FleetSupervisorApi,
+  KnowledgeStore,
   RepoAgentRef,
   WorkerHandle,
 } from "@dzupagent/agent-types/fleet";
-import type { FleetSupervisorDeps } from "./fleet-supervisor.js";
 import type { RepoAgentSlot } from "./fleet-reconciliation-runner.js";
 import { writeDecision, writeTaskControlState } from "./fleet-run-records.js";
 
@@ -37,7 +37,7 @@ export interface ActiveRun {
 export interface ReassignContext {
   /** Passed back to the policy's `onWorkerComplete` callback. */
   api: FleetSupervisorApi;
-  deps: FleetSupervisorDeps;
+  knowledge: KnowledgeStore;
   taskHandles: Map<string, WorkerHandle>;
   activeRun: ActiveRun | null;
 }
@@ -76,7 +76,7 @@ export async function reassignTask(
   const idle = fleet.filter((f) => !f.busy);
   if (idle.length === 0) {
     await writeTaskControlState(
-      rt.deps.knowledge,
+      rt.knowledge,
       ctx.runId,
       taskId,
       "surrendered",
@@ -88,10 +88,10 @@ export async function reassignTask(
   const assignment = await ctx.policy.assignTask(
     task,
     idle,
-    rt.deps.knowledge
+    rt.knowledge
   );
   await writeDecision(
-    rt.deps.knowledge,
+    rt.knowledge,
     ctx.runId,
     "assignment",
     ctx.policy.id,
@@ -104,7 +104,7 @@ export async function reassignTask(
   );
   if (!target) {
     await writeTaskControlState(
-      rt.deps.knowledge,
+      rt.knowledge,
       ctx.runId,
       taskId,
       "surrendered",

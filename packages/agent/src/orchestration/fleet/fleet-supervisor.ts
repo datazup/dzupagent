@@ -384,7 +384,7 @@ export class FleetSupervisor implements FleetSupervisorApi {
     await reassignTask(
       {
         api: this,
-        deps: this.deps,
+        knowledge: this.deps.knowledge,
         taskHandles: this._taskHandles,
         activeRun: this._activeRun,
       },

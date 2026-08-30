@@ -11,23 +11,45 @@
  */
 import { OrchestrationError } from "../orchestration-error.js";
 import type {
+  AggregatedDelegationResult,
+  SubOrchestratorChild,
   SubOrchestratorChildHierarchy,
   SubOrchestratorSpawnOptions,
 } from "../delegating-supervisor-types.js";
 import { assertDepthAllowed as assertOrchestrationDepthAllowed } from "../delegating-supervisor-types.js";
-import type {
-  SubOrchestratorFactory,
-  SubOrchestratorSpawnResult,
-} from "../delegating-supervisor.js";
+
+/**
+ * Generic over the child type rather than naming `DelegatingSupervisor`.
+ *
+ * The public `SubOrchestratorFactory` / `SubOrchestratorSpawnResult` aliases
+ * name the concrete class and therefore live beside it in
+ * `delegating-supervisor.ts`. Importing them here would form exactly the cycle
+ * the types module's layering rule exists to prevent, and nothing in the spawn
+ * decision needs more than the `SubOrchestratorChild` surface.
+ */
+export type SubOrchestratorFactoryOf<TChild extends SubOrchestratorChild> =
+  (args: {
+    hierarchy: SubOrchestratorChildHierarchy;
+    options: SubOrchestratorSpawnOptions;
+  }) => TChild | Promise<TChild>;
+
+/** Result of one spawn, parameterised by the concrete child type. */
+export interface SubOrchestratorSpawnResultOf<
+  TChild extends SubOrchestratorChild,
+> {
+  hierarchy: SubOrchestratorChildHierarchy;
+  supervisor: TChild;
+  result: AggregatedDelegationResult;
+}
 
 /**
  * The spawner state a child's hierarchy is derived from. Narrow by design: the
  * spawn decision must not be able to reach the rest of the supervisor.
  */
-export interface SpawnerContext {
+export interface SpawnerContext<TChild extends SubOrchestratorChild> {
   hierarchyDepth: number;
   ownRunId: string | undefined;
-  subOrchestratorFactory: SubOrchestratorFactory | undefined;
+  subOrchestratorFactory: SubOrchestratorFactoryOf<TChild> | undefined;
 }
 
 /**
@@ -84,11 +106,13 @@ export interface SpawnerContext {
  *   one, or when the factory returns a child whose hierarchy does not match.
  * @throws Error (from `assertDepthAllowed`) when the depth ceiling is reached.
  */
-export async function spawnSubOrchestrator(
-  sc: SpawnerContext,
+export async function spawnSubOrchestrator<
+  TChild extends SubOrchestratorChild,
+>(
+  sc: SpawnerContext<TChild>,
   options: SubOrchestratorSpawnOptions,
-  factory?: SubOrchestratorFactory
-): Promise<SubOrchestratorSpawnResult> {
+  factory?: SubOrchestratorFactoryOf<TChild>
+): Promise<SubOrchestratorSpawnResultOf<TChild>> {
   // ── 1. Depth guard, AT THE DISPATCH SITE, before anything is built. ──
   //
   // The guard is on the CHILD's prospective depth, not the spawner's. Two
