@@ -1,4 +1,9 @@
-import { createHash } from "node:crypto";
+import {
+  CLASSIFICATION_ENVELOPE_V1_OPTIONS,
+  type CanonicalJsonOptions,
+  canonicalStringify,
+  sha256Prefixed,
+} from "@datazup/canonical-json";
 
 import type {
   PrimitiveDefinition,
@@ -50,7 +55,9 @@ export function definePrimitiveV2(
     credentialInputPaths: Object.freeze([...input.credentialInputPaths]),
     outputPorts: freezeOutputPorts(input.outputPorts),
     errorSchema: freezeSchema(input.errorSchema),
-    errors: Object.freeze(input.errors.map((error) => Object.freeze({ ...error }))),
+    errors: Object.freeze(
+      input.errors.map((error) => Object.freeze({ ...error })),
+    ),
     effect: Object.freeze({
       ...input.effect,
       classes: Object.freeze([...input.effect.classes]),
@@ -156,19 +163,21 @@ export function validatePrimitiveDefinitionV2(
       `primitive ${identity} ref must be primitive://${identity}; received ${definition.ref}`,
     );
   }
-  if (
-    primitiveKind(definition).split(".").at(-1) !== definition.name
-  ) {
+  if (primitiveKind(definition).split(".").at(-1) !== definition.name) {
     throw new Error(`primitive ${identity} name must match its ref`);
   }
   if (!SHA256_PATTERN.test(definition.compatibility.semanticHash)) {
     throw new Error(`primitive ${identity} has an invalid semantic hash`);
   }
   if (Object.keys(definition.outputPorts).length === 0) {
-    throw new Error(`primitive ${identity} must declare at least one output port`);
+    throw new Error(
+      `primitive ${identity} must declare at least one output port`,
+    );
   }
   if (definition.effect.classes.length === 0) {
-    throw new Error(`primitive ${identity} must declare at least one effect class`);
+    throw new Error(
+      `primitive ${identity} must declare at least one effect class`,
+    );
   }
   if (definition.acceptedInputClassifications.length === 0) {
     throw new Error(
@@ -231,7 +240,9 @@ export function validatePrimitiveDefinitionV2(
   validatePrimitiveSchema(definition.errorSchema, `${identity}.errorSchema`);
   for (const [port, contract] of Object.entries(definition.outputPorts)) {
     if (port.length === 0) {
-      throw new Error(`primitive ${identity} output port name must not be empty`);
+      throw new Error(
+        `primitive ${identity} output port name must not be empty`,
+      );
     }
     validatePrimitiveSchema(
       contract.schema,
@@ -335,10 +346,8 @@ export function validatePrimitiveDefinitionV2(
     compatibility: storedCompatibility,
     ...definitionWithoutCompatibility
   } = definition;
-  const {
-    semanticHash: _semanticHash,
-    ...compatibilityWithoutHash
-  } = storedCompatibility;
+  const { semanticHash: _semanticHash, ...compatibilityWithoutHash } =
+    storedCompatibility;
   const expectedHash = hashPrimitiveDefinitionV2({
     ...definitionWithoutCompatibility,
     compatibility: compatibilityWithoutHash,
@@ -360,10 +369,21 @@ export function hashPrimitiveDefinitionV2(
       deprecatedAliases: input.compatibility.deprecatedAliases,
     },
   };
-  return `sha256:${createHash("sha256")
-    .update(stableStringify(hashable))
-    .digest("hex")}`;
+  return sha256Prefixed(canonicalStringify(hashable, DEFINITION_V2_OPTIONS));
 }
+
+// The classification-envelope-v1 semantics (undefined object entries
+// omitted, undefined array items as null, unwinding cycle detection) are an
+// exact port of the private stableStringify this file used to carry —
+// corpus-proven byte-identical (ARCH27-T-13) — with only the cycle error
+// message kept as this file's own.
+const DEFINITION_V2_OPTIONS: CanonicalJsonOptions = {
+  ...CLASSIFICATION_ENVELOPE_V1_OPTIONS,
+  cycles: {
+    policy: "throw",
+    message: "cannot hash cyclic primitive definition",
+  },
+};
 
 function outputSchemaFromPorts(
   ports: Readonly<Record<string, PrimitiveOutputPortDefinition>>,
@@ -401,14 +421,15 @@ function freezeOutputPorts(
 }
 
 function freezeSchema<T extends PrimitiveSchema>(schema: T): T {
-  return (typeof schema === "string"
-    ? schema
-    : freezeJson(schema, new WeakSet())) as T;
+  return (
+    typeof schema === "string" ? schema : freezeJson(schema, new WeakSet())
+  ) as T;
 }
 
 function freezeJson(value: unknown, seen: WeakSet<object>): unknown {
   if (value === null || typeof value !== "object") return value;
-  if (seen.has(value)) throw new TypeError("cannot freeze cyclic primitive schema");
+  if (seen.has(value))
+    throw new TypeError("cannot freeze cyclic primitive schema");
   seen.add(value);
   if (Array.isArray(value)) {
     const array = value.map((item) => freezeJson(item, seen));
@@ -436,26 +457,4 @@ function validateUniqueNonEmpty(
   if (new Set(values).size !== values.length) {
     throw new Error(`${label} must not contain duplicates`);
   }
-}
-
-function stableStringify(value: unknown, seen = new WeakSet<object>()): string {
-  if (value === undefined) return "null";
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (seen.has(value)) throw new TypeError("cannot hash cyclic primitive definition");
-  seen.add(value);
-  if (Array.isArray(value)) {
-    const serialized = `[${value.map((item) => stableStringify(item, seen)).join(",")}]`;
-    seen.delete(value);
-    return serialized;
-  }
-  const record = value as Record<string, unknown>;
-  const serialized = `{${Object.keys(record)
-    .filter((key) => record[key] !== undefined)
-    .sort()
-    .map(
-      (key) => `${JSON.stringify(key)}:${stableStringify(record[key], seen)}`,
-    )
-    .join(",")}}`;
-  seen.delete(value);
-  return serialized;
 }
