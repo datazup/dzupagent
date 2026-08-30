@@ -523,22 +523,6 @@
           "sourceCommit": "20213e9af24b305f067ae9284d5de7eb386e2f96",
           "reviewBy": "2026-11-16",
           "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 605 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
-        },
-        "src/execution-boundary-evidence.ts": {
-          "maxLines": 1019,
-          "shrinkTarget": 500,
-          "sourceSha256": "7d0c66253f21ba6db9b3b8a832191cc4afc101314574c63bd8ea08fd76a5c81d",
-          "sourceCommit": "4d52de34d06da166432fd6d4cb4662bf7b4dae6b",
-          "reviewBy": "2026-11-30",
-          "rationale": "Floor pin 2026-08-30: this file was over the 500-LOC ceiling with no debt pin at all, so nothing recorded or halted its growth. Frozen at the measured 1019 LOC to stop further growth; shrinkTarget stays 500. This accepts no regression \u2014 it establishes the ceiling that was missing. Decompose toward the target under ARCH27-T-15."
-        },
-        "src/loop-economics-evidence.ts": {
-          "maxLines": 787,
-          "shrinkTarget": 500,
-          "sourceSha256": "fd01d142c18a1d5015ef743d0506dd39b474cc4e8eab68502a98ce91c719966e",
-          "sourceCommit": "4d52de34d06da166432fd6d4cb4662bf7b4dae6b",
-          "reviewBy": "2026-11-30",
-          "rationale": "Floor pin 2026-08-30: this file was over the 500-LOC ceiling with no debt pin at all, so nothing recorded or halted its growth. Frozen at the measured 787 LOC to stop further growth; shrinkTarget stays 500. This accepts no regression \u2014 it establishes the ceiling that was missing. Decompose toward the target under ARCH27-T-15."
         }
       }
     },

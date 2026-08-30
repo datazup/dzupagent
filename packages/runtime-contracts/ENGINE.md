@@ -36,6 +36,17 @@ the ceiling is split, not pinned.
   `resolveRecursiveAcknowledgementLossV1`, `RecursiveScopedCommitConflictError`.
   The structural validators it calls stayed in the contract tier
   (`recursive-scope/commit-validation.ts`, `recursive-scope/evidence-validation.ts`).
+- `engine/execution-boundary-evidence.ts` — the execution-boundary evidence
+  materializers carved out of `execution-boundary-evidence.ts` (1019 LOC,
+  ARCH27-T-15 residue): `materializeExecutionStateAccessInventoryV1`,
+  `materializeAdapterPolicyRefV1`, `materializeWorkspaceHandleRefV1`,
+  `materializeExecutionBoundaryEvidenceV1`. Structural validation and strict
+  admission stayed in the contract tier
+  (`execution-boundary-evidence/validation.ts`,
+  `execution-boundary-evidence/field-validation.ts`).
+- `engine/loop-economics-evidence.ts` — `materializeLoopEconomicsEvidence`
+  carved out of `loop-economics-evidence.ts` (787 LOC, ARCH27-T-15 residue);
+  validation stayed contract-tier under `loop-economics-evidence/`.
 
 ## Known migration candidates (not yet moved)
 
