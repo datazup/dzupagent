@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { canonicalize, sha256Prefixed } from "@datazup/canonical-json";
 
 import type { FlowNode } from "@dzupagent/flow-ast";
 import type { FlowTypedCondition } from "@dzupagent/flow-ast/expressions";
@@ -181,7 +181,7 @@ function childNodes(node: FlowNode, path: string): Array<[FlowNode, string]> {
 }
 
 export function digest(value: string): `sha256:${string}` {
-  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
+  return sha256Prefixed(value);
 }
 
 // The one agreed seed derivation for retry jitter. The simulator and the host
@@ -211,17 +211,13 @@ export function seededBackoff(
   return Number.parseInt(entropy, 16) % (maximum + 1);
 }
 
+// Delegates to @datazup/canonical-json's `authoring-v1` preset — the same
+// semantic family as the local copy this file used to carry (undefined
+// object entries kept as bare tokens, undefined array items elided,
+// default UTF-16 key sort), so local-target receipt and evidence digests
+// are byte-identical for the JSON-shaped values this subtree hashes.
 export function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => stableStringify(item)).join(",")}]`;
-  }
-  if (isRecord(value)) {
-    return `{${Object.keys(value)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
+  return canonicalize(value, "authoring-v1");
 }
 
 export function deepFreeze<T>(value: T): T {
