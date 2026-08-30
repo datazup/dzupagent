@@ -31,6 +31,7 @@ import {
 } from "./checkpoint-serialization.js";
 import type { ForkState, LoopState } from "./executor-state-types.js";
 import type { BudgetTrackerState } from "./iteration-budget-tracker.js";
+import type { RunFrame } from "./run-frame.js";
 
 /**
  * State bag threaded into a checkpoint write. Mirrors the arguments the
@@ -66,6 +67,50 @@ export interface CheckpointWriteInput {
   interactionResumeCursor?: PipelineCheckpoint["interactionResumeCursor"];
   /** Emit a runtime event (typically `config.onEvent`). */
   emit: (event: PipelineRuntimeEvent) => void;
+}
+
+/**
+ * Build the frame-derived portion of a {@link CheckpointWriteInput}.
+ *
+ * The executor's two writers — the periodic `after_each_node` checkpoint and
+ * the control checkpoint written at a suspension/terminal boundary — persist
+ * the very same {@link RunFrame} and differ only in whether a
+ * `suspendedAtNodeId` marker rides along. Both previously spelled the payload
+ * out field-by-field, so every field added to `RunFrame` had to be threaded
+ * through twice and could silently be persisted by one writer but not the
+ * other. Routing both through this builder makes that class of drift
+ * impossible.
+ */
+export function frameCheckpointInput(input: {
+  config: PipelineRuntimeConfig;
+  frame: RunFrame;
+  recoveryAttemptsUsed: number;
+  budgetTracker: BudgetTrackerState;
+  emit: (event: PipelineRuntimeEvent) => void;
+}): CheckpointWriteInput {
+  const { config, frame, recoveryAttemptsUsed, budgetTracker, emit } = input;
+  return {
+    config,
+    runId: frame.runId,
+    runState: frame.runState,
+    nodeResults: frame.nodeResults,
+    completedNodeIds: frame.completedNodeIds,
+    nodeIdempotencyKeys: frame.nodeIdempotencyKeys,
+    loopState: frame.loopState,
+    forkState: frame.forkState,
+    recursiveForkCompletions: frame.recursiveForkCompletions,
+    ...(frame.loopSourceDigests === undefined
+      ? {}
+      : { loopSourceDigests: frame.loopSourceDigests }),
+    eventLog: frame.eventLog,
+    versionTracker: frame.versionTracker,
+    recoveryAttemptsUsed,
+    budgetTracker,
+    pendingInteraction: frame.pendingInteraction,
+    interactionReceipts: frame.interactionReceipts,
+    interactionResumeCursor: frame.interactionResumeCursor,
+    emit,
+  };
 }
 
 /**

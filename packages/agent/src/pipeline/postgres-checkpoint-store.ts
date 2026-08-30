@@ -16,8 +16,14 @@ import type {
   PipelineCheckpointStore,
   PipelineCheckpointSummary,
 } from "@dzupagent/core/pipeline";
-import { PipelineCheckpointSchema } from "@dzupagent/core/pipeline";
-import type { LoopState } from "./executor-internals/executor-state-types.js";
+import {
+  CHECKPOINT_INSERT_COLUMNS,
+  CHECKPOINT_INSERT_PLACEHOLDERS,
+  checkpointInsertParams,
+  rowToCheckpoint,
+  toIsoString,
+  type CheckpointRow,
+} from "./postgres-checkpoint-row.js";
 
 // ---------------------------------------------------------------------------
 // Adapter interface
@@ -33,86 +39,6 @@ import type { LoopState } from "./executor-internals/executor-state-types.js";
 export interface PostgresClientLike {
   query<T = unknown>(text: string, params?: unknown[]): Promise<{ rows: T[] }>;
 }
-
-// ---------------------------------------------------------------------------
-// Row shape
-// ---------------------------------------------------------------------------
-
-interface CheckpointRow {
-  pipeline_run_id: string;
-  pipeline_id: string;
-  version: number;
-  schema_version: string;
-  completed_node_ids: string[];
-  node_idempotency_keys: Record<string, string> | null;
-  loop_state: LoopState | null;
-  fork_state: Record<
-    string,
-    {
-      branches: Record<
-        string,
-        {
-          stateDelta: Record<string, unknown>;
-          nodeResults: Record<string, unknown>;
-        }
-      >;
-    }
-  > | null;
-  state: Record<string, unknown>;
-  suspended_at_node_id: string | null;
-  budget_state: { tokensUsed: number; costCents: number } | null;
-  created_at: Date | string;
-  expires_at: Date | string | null;
-  recovery_attempts_used: number | null;
-  provider_session_refs: PipelineCheckpoint["providerSessionRefs"] | null;
-  source_binding: PipelineCheckpoint["sourceBinding"] | null;
-  recursive_fork_completions: PipelineCheckpoint["recursiveForkCompletions"] | null;
-  interaction_state: {
-    pendingInteraction?: PipelineCheckpoint["pendingInteraction"];
-    interactionReceipts?: PipelineCheckpoint["interactionReceipts"];
-    interactionResumeCursor?: PipelineCheckpoint["interactionResumeCursor"];
-  } | null;
-}
-
-// ---------------------------------------------------------------------------
-// Insert shape (shared by save + saveIfVersion)
-// ---------------------------------------------------------------------------
-
-/**
- * Columns written by every checkpoint insert, in positional-parameter order.
- *
- * The row mapping here is explicit columns, not wholesale serialization, so a
- * checkpoint field with no column is silently dropped in Postgres while
- * round-tripping green against the in-memory and Redis stores. Adding a
- * top-level field means touching all five places: the row type, the DDL, an
- * `ADD COLUMN IF NOT EXISTS` migration, this list plus its placeholders and the
- * upsert SET, and `rowToCheckpoint`. (`loop_state` is JSONB, so nested
- * additions ride free.)
- */
-const CHECKPOINT_INSERT_COLUMNS = [
-  "pipeline_run_id",
-  "pipeline_id",
-  "version",
-  "schema_version",
-  "completed_node_ids",
-  "state",
-  "suspended_at_node_id",
-  "budget_state",
-  "created_at",
-  "expires_at",
-  "node_idempotency_keys",
-  "loop_state",
-  "fork_state",
-  "recovery_attempts_used",
-  "provider_session_refs",
-  "interaction_state",
-  "source_binding",
-  "recursive_fork_completions",
-].join(", ");
-
-/** JSONB-cast positional placeholders matching {@link CHECKPOINT_INSERT_COLUMNS}. */
-const CHECKPOINT_INSERT_PLACEHOLDERS =
-  "$1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb, $9, $10, $11::jsonb, $12::jsonb, $13::jsonb, $14, $15::jsonb, $16::jsonb, $17::jsonb, $18::jsonb";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -235,7 +161,10 @@ export class PostgresPipelineCheckpointStore
         recursive_fork_completions = EXCLUDED.recursive_fork_completions
     `;
 
-    await this.client.query(sql, this.insertParams(checkpoint));
+    await this.client.query(
+      sql,
+      checkpointInsertParams(checkpoint, this.expiresAt())
+    );
   }
 
   /**
@@ -254,12 +183,12 @@ export class PostgresPipelineCheckpointStore
    * Unlike the in-memory and Redis stores, this does NOT delegate to `save`:
    * `save` is an upsert whose `DO UPDATE` would overwrite the winning row,
    * which is the clobber this method exists to prevent. The insert is therefore
-   * issued here, sharing `insertParams` so the two writes cannot drift on which
-   * columns they persist.
+   * issued here, sharing `checkpointInsertParams` so the two writes cannot drift
+   * on which columns they persist.
    */
   async saveIfVersion(
     checkpoint: PipelineCheckpoint,
-    expectedVersion: number,
+    expectedVersion: number
   ): Promise<PipelineCheckpointCommitReceipt> {
     const observed = await this.newestVersion(checkpoint.pipelineRunId);
     if (observed !== expectedVersion) {
@@ -272,10 +201,15 @@ export class PostgresPipelineCheckpointStore
       ON CONFLICT (pipeline_run_id, version) DO NOTHING
     `;
     const result: { rows: unknown[]; rowCount?: number } =
-      await this.client.query(sql, this.insertParams(checkpoint));
+      await this.client.query(
+      sql,
+      checkpointInsertParams(checkpoint, this.expiresAt())
+    );
 
     const affected =
-      typeof result.rowCount === "number" ? result.rowCount : result.rows.length;
+      typeof result.rowCount === "number"
+        ? result.rowCount
+        : result.rows.length;
     if (affected === 0) {
       return {
         committed: false,
@@ -304,52 +238,11 @@ export class PostgresPipelineCheckpointStore
     return typeof newest === "number" ? newest : 0;
   }
 
-  /**
-   * Positional parameters for {@link CHECKPOINT_INSERT_COLUMNS}, in order.
-   * Shared by `save` and `saveIfVersion` so the two writes can never drift on
-   * which fields they persist.
-   */
-  private insertParams(checkpoint: PipelineCheckpoint): unknown[] {
-    const expiresAt = this.defaultTtlMs
+  /** TTL-derived `expires_at` for a new row, or null when non-expiring. */
+  private expiresAt(): string | null {
+    return this.defaultTtlMs
       ? new Date(Date.now() + this.defaultTtlMs).toISOString()
       : null;
-
-    return [
-      checkpoint.pipelineRunId,
-      checkpoint.pipelineId,
-      checkpoint.version,
-      checkpoint.schemaVersion,
-      JSON.stringify(checkpoint.completedNodeIds),
-      JSON.stringify(checkpoint.state),
-      checkpoint.suspendedAtNodeId ?? null,
-      checkpoint.budgetState ? JSON.stringify(checkpoint.budgetState) : null,
-      checkpoint.createdAt,
-      expiresAt,
-      checkpoint.nodeIdempotencyKeys
-        ? JSON.stringify(checkpoint.nodeIdempotencyKeys)
-        : null,
-      checkpoint.loopState ? JSON.stringify(checkpoint.loopState) : null,
-      checkpoint.forkState ? JSON.stringify(checkpoint.forkState) : null,
-      checkpoint.recoveryAttemptsUsed ?? 0,
-      checkpoint.providerSessionRefs
-        ? JSON.stringify(checkpoint.providerSessionRefs)
-        : null,
-      checkpoint.pendingInteraction !== undefined ||
-      checkpoint.interactionReceipts !== undefined ||
-      checkpoint.interactionResumeCursor !== undefined
-        ? JSON.stringify({
-            pendingInteraction: checkpoint.pendingInteraction,
-            interactionReceipts: checkpoint.interactionReceipts,
-            interactionResumeCursor: checkpoint.interactionResumeCursor,
-          })
-        : null,
-      checkpoint.sourceBinding
-        ? JSON.stringify(checkpoint.sourceBinding)
-        : null,
-      checkpoint.recursiveForkCompletions
-        ? JSON.stringify(checkpoint.recursiveForkCompletions)
-        : null,
-    ];
   }
 
   async load(pipelineRunId: string): Promise<PipelineCheckpoint | undefined> {
@@ -455,83 +348,4 @@ export class PostgresPipelineCheckpointStore
     if (typeof result.rowCount === "number") return result.rowCount;
     return result.rows.length;
   }
-}
-
-// ---------------------------------------------------------------------------
-// Row -> Checkpoint coercion
-// ---------------------------------------------------------------------------
-
-function rowToCheckpoint(row: CheckpointRow): PipelineCheckpoint {
-  const cp: PipelineCheckpoint = {
-    pipelineRunId: row.pipeline_run_id,
-    pipelineId: row.pipeline_id,
-    version: row.version,
-    schemaVersion: row.schema_version as PipelineCheckpoint["schemaVersion"],
-    completedNodeIds: Array.isArray(row.completed_node_ids)
-      ? row.completed_node_ids
-      : [],
-    state: (row.state ?? {}) as Record<string, unknown>,
-    createdAt: toIsoString(row.created_at),
-  };
-  if (row.suspended_at_node_id) cp.suspendedAtNodeId = row.suspended_at_node_id;
-  if (row.budget_state) cp.budgetState = row.budget_state;
-  if (
-    row.node_idempotency_keys &&
-    typeof row.node_idempotency_keys === "object"
-  ) {
-    cp.nodeIdempotencyKeys = row.node_idempotency_keys;
-  }
-  if (row.loop_state && typeof row.loop_state === "object") {
-    cp.loopState = row.loop_state;
-  }
-  if (row.fork_state && typeof row.fork_state === "object") {
-    cp.forkState = row.fork_state;
-  }
-  if (
-    typeof row.recovery_attempts_used === "number" &&
-    row.recovery_attempts_used > 0
-  ) {
-    cp.recoveryAttemptsUsed = row.recovery_attempts_used;
-  }
-  if (Array.isArray(row.provider_session_refs)) {
-    cp.providerSessionRefs = row.provider_session_refs;
-  }
-  if (row.source_binding && typeof row.source_binding === "object") {
-    cp.sourceBinding = row.source_binding;
-  }
-  if (
-    row.recursive_fork_completions &&
-    typeof row.recursive_fork_completions === "object"
-  ) {
-    cp.recursiveForkCompletions = row.recursive_fork_completions;
-  }
-  if (row.interaction_state && typeof row.interaction_state === "object") {
-    if (row.interaction_state.pendingInteraction !== undefined) {
-      cp.pendingInteraction = row.interaction_state.pendingInteraction;
-    }
-    if (row.interaction_state.interactionReceipts !== undefined) {
-      cp.interactionReceipts = row.interaction_state.interactionReceipts;
-    }
-    if (row.interaction_state.interactionResumeCursor !== undefined) {
-      cp.interactionResumeCursor = row.interaction_state.interactionResumeCursor;
-    }
-  }
-  const parsed = PipelineCheckpointSchema.safeParse(cp);
-  if (!parsed.success) {
-    throw new Error(
-      `Invalid pipeline checkpoint row: ${parsed.error.issues
-        .map((issue) => issue.message)
-        .join("; ")}`,
-    );
-  }
-  return parsed.data as PipelineCheckpoint;
-}
-
-function toIsoString(value: Date | string): string {
-  if (value instanceof Date) return value.toISOString();
-  if (typeof value === "string") {
-    const d = new Date(value);
-    return Number.isNaN(d.getTime()) ? value : d.toISOString();
-  }
-  return new Date().toISOString();
 }

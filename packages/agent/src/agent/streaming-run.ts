@@ -35,13 +35,15 @@ import {
   checkIdleStuck,
   consumeStream,
   createStreamRunFinalizer,
-  dispatchStreamAfterModelCall,
-  dispatchStreamOnModelError,
-  maybeAdoptCompression,
   openIterationStream,
   recordCompletedStreamCost,
   recordIterationUsage,
 } from './streaming-run-iteration.js'
+import {
+  dispatchStreamAfterModelCall,
+  dispatchStreamOnModelError,
+  maybeAdoptCompression,
+} from './streaming-run-model-hooks.js'
 import { runStreamFallback } from './streaming-run-fallback.js'
 import type { StreamRunContext } from './streaming-run-types.js'
 import { enforceAgentHardBudget } from './runtime-hard-budget.js'

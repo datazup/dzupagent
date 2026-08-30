@@ -46,6 +46,8 @@ import { extractErrorCode } from "./pipeline-shared/error-classification.js";
 import {
   writeCheckpoint,
   clearWriteOutcome,
+  frameCheckpointInput,
+  type CheckpointWriteInput,
 } from "./executor-internals/checkpoint-writer.js";
 import {
   dispatchForkStage,
@@ -225,35 +227,30 @@ export class PipelineExecutor {
         this.recordIdempotencyKey(keys, runId, node),
       errorEdgeFor: (nodeId, error) => this.errorEdgeFor(nodeId, error),
       forkDeps: (runId) => this.forkDeps(runId),
-      recursiveForkDeps: () => ({
-        config: this.config,
-        coordinator: this.coordinator,
-        Executor: PipelineExecutor,
-      }),
+      recursiveForkDeps: () => this.scopedGraphDeps(),
       budgetTracker: this.coordinator.getBudgetTracker(),
       emit: this.emit.bind(this),
       setState: (next) => this.coordinator.setState(next),
       runResult: (runId, state, nodeResults, totalDurationMs, error) =>
         this.runResult(runId, state, nodeResults, totalDurationMs, error),
       scheduleLoopBodyGraph: (loopNode, frame, input) =>
-        scheduleLoopBodyGraph(
-          {
-            config: this.config,
-            coordinator: this.coordinator,
-            Executor: PipelineExecutor,
-          },
-          loopNode,
-          frame,
-          input
-        ),
+        scheduleLoopBodyGraph(this.scopedGraphDeps(), loopNode, frame, input),
     };
   }
 
   /**
-   * Execute one compiler-bounded loop-body graph through the canonical
-   * pipeline executor. The scoped definition contains only body nodes and
-   * internal edges, so traversal cannot escape into the outer pipeline.
+   * Dependency bag for executing one compiler-bounded scoped graph — a
+   * loop body or a recursive fork — through the canonical pipeline executor.
+   * The scoped definition contains only body nodes and internal edges, so
+   * traversal cannot escape into the outer pipeline.
    */
+  private scopedGraphDeps() {
+    return {
+      config: this.config,
+      coordinator: this.coordinator,
+      Executor: PipelineExecutor,
+    };
+  }
 
   private dispatchNode(
     node: PipelineNode,
@@ -424,29 +421,23 @@ export class PipelineExecutor {
     }
 
     if (strategy === "after_each_node") {
-      await writeCheckpoint({
-        config: this.config,
-        runId: frame.runId,
-        runState: frame.runState,
-        nodeResults: frame.nodeResults,
-        completedNodeIds: frame.completedNodeIds,
-        nodeIdempotencyKeys: frame.nodeIdempotencyKeys,
-        loopState: frame.loopState,
-        forkState: frame.forkState,
-        recursiveForkCompletions: frame.recursiveForkCompletions,
-        ...(frame.loopSourceDigests === undefined
-          ? {}
-          : { loopSourceDigests: frame.loopSourceDigests }),
-        eventLog: frame.eventLog,
-        versionTracker: frame.versionTracker,
-        recoveryAttemptsUsed: this.coordinator.getRecoveryAttemptsUsed(),
-        budgetTracker: this.coordinator.getBudgetTracker(),
-        pendingInteraction: frame.pendingInteraction,
-        interactionReceipts: frame.interactionReceipts,
-        interactionResumeCursor: frame.interactionResumeCursor,
-        emit: this.emit.bind(this),
-      });
+      await writeCheckpoint(this.checkpointInput(frame));
     }
+  }
+
+  /**
+   * Frame-derived checkpoint payload shared by both writers below, so a field
+   * added to {@link RunFrame} cannot be persisted by one and dropped by the
+   * other.
+   */
+  private checkpointInput(frame: RunFrame): CheckpointWriteInput {
+    return frameCheckpointInput({
+      config: this.config,
+      frame,
+      recoveryAttemptsUsed: this.coordinator.getRecoveryAttemptsUsed(),
+      budgetTracker: this.coordinator.getBudgetTracker(),
+      emit: this.emit.bind(this),
+    });
   }
 
   /**
@@ -467,27 +458,8 @@ export class PipelineExecutor {
     if (!this.config.checkpointStore) return;
 
     await writeCheckpoint({
-      config: this.config,
-      runId: frame.runId,
-      runState: frame.runState,
-      nodeResults: frame.nodeResults,
-      completedNodeIds: frame.completedNodeIds,
-      nodeIdempotencyKeys: frame.nodeIdempotencyKeys,
-      loopState: frame.loopState,
-      forkState: frame.forkState,
-      recursiveForkCompletions: frame.recursiveForkCompletions,
-      ...(frame.loopSourceDigests === undefined
-        ? {}
-        : { loopSourceDigests: frame.loopSourceDigests }),
-      eventLog: frame.eventLog,
-      versionTracker: frame.versionTracker,
-      recoveryAttemptsUsed: this.coordinator.getRecoveryAttemptsUsed(),
-      budgetTracker: this.coordinator.getBudgetTracker(),
-      pendingInteraction: frame.pendingInteraction,
-      interactionReceipts: frame.interactionReceipts,
-      interactionResumeCursor: frame.interactionResumeCursor,
+      ...this.checkpointInput(frame),
       ...(suspendedAtNodeId === undefined ? {} : { suspendedAtNodeId }),
-      emit: this.emit.bind(this),
     });
   }
 

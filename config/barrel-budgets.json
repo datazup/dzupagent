@@ -276,30 +276,6 @@
           "reviewBy": "2026-11-16",
           "rationale": "RF-03: module was over the ceiling with no pin, so the gate was red. Frozen at its current 2039 bytes-bound LOC pending extraction down to the 500-LOC target."
         },
-        "src/pipeline/loop-executor/types.ts": {
-          "maxLines": 603,
-          "shrinkTarget": 500,
-          "sourceSha256": "e4eb9ac8fca72859707355c4cc972fcf1b89562dbd3a3fe823f377c45cb2798f",
-          "sourceCommit": "7f8c4aef8f9023470c52f899018caa299bd95878",
-          "reviewBy": "2026-11-16",
-          "rationale": "RF-03: module was over the ceiling with no pin, so the gate was red. Frozen at its current 603 bytes-bound LOC pending extraction down to the 500-LOC target."
-        },
-        "src/pipeline/pipeline-executor.ts": {
-          "maxLines": 517,
-          "shrinkTarget": 500,
-          "sourceSha256": "1a50e63175ba0557742c6aebec0a4644129a949bef9f33c1e34d93a16214a611",
-          "sourceCommit": "7a620ace794b0257866fe1dba130fe7df9d08747",
-          "reviewBy": "2026-11-16",
-          "rationale": "RF-03: module was over the ceiling with no pin, so the gate was red. Frozen at its current 517 bytes-bound LOC pending extraction down to the 500-LOC target."
-        },
-        "src/pipeline/postgres-checkpoint-store.ts": {
-          "maxLines": 522,
-          "shrinkTarget": 500,
-          "sourceSha256": "aa286b58d889b88e81c9032d164aad0cce129a8bc8e73a82ff299d6a50d36682",
-          "sourceCommit": "70f3e1cf5b98dd5572021c96aa55f117e8950746",
-          "reviewBy": "2026-11-16",
-          "rationale": "RF-03: module was over the ceiling with no pin, so the gate was red. Frozen at its current 522 bytes-bound LOC pending extraction down to the 500-LOC target."
-        },
         "src/self-correction/learning-dashboard.ts": {
           "maxLines": 587,
           "shrinkTarget": 500,
@@ -315,14 +291,6 @@
           "sourceCommit": "81bc5cc4062b5f75c13a735ba33467dd57105280",
           "reviewBy": "2026-11-16",
           "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 508 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
-        },
-        "src/agent/streaming-run-iteration.ts": {
-          "maxLines": 512,
-          "shrinkTarget": 500,
-          "sourceSha256": "288103e3a0572d1d4f61e69bf5e9f7a3fba1361f548a6b8f4fc1f526c4d22b1f",
-          "sourceCommit": "cf42ebaad0e4f69550d944c66430d077cd51d453",
-          "reviewBy": "2026-11-16",
-          "rationale": "RF-03 re-pin 2026-08-18: crossed the 500-LOC ceiling to 512 in c6f8a9e91/291b7a68c/cf42ebaad with NO pin, so the gate went red. Newly pinned fails-closed pending extraction to 500."
         },
         "src/pipeline/executor-internals/stage-dispatch.ts": {
           "maxLines": 1119,
