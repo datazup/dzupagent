@@ -7,7 +7,7 @@
  * structural move only, no behavior change. See MJ-01 decomposition track.
  */
 
-import { createHash } from "node:crypto";
+import { canonicalDigestPrefixed } from "@datazup/canonical-json";
 import type { FlowNode } from "@dzupagent/flow-ast";
 
 import { collectFlowArtifactMetadata } from "../flow-artifact-metadata.js";
@@ -25,31 +25,16 @@ import type {
   FlowCompileSubflowEvidence,
 } from "../types.js";
 
+// Delegates to @datazup/canonical-json's `compile-evidence-v1` preset — the
+// exact port of the total stableStringify this file used to carry (bigints
+// as decimal strings, function/symbol placeholders, undefined tokens), so
+// persisted compile-evidence source hashes are byte-identical. The
+// historical seen-set NEVER unwound, so every repeated object reference —
+// shared acyclic refs included, not only true cycles — renders as
+// "[Circular]"; that behavior is load-bearing for existing digests and the
+// preset reproduces it (golden-pinned in the package).
 export function hashSource(source: unknown): string {
-  return `sha256:${createHash("sha256")
-    .update(stableStringify(source))
-    .digest("hex")}`;
-}
-
-function stableStringify(value: unknown, seen = new WeakSet<object>()): string {
-  if (value === null) return "null";
-  if (typeof value === "bigint") return JSON.stringify(value.toString());
-  if (typeof value === "function") return JSON.stringify("[Function]");
-  if (typeof value === "symbol") return JSON.stringify(value.toString());
-  if (typeof value !== "object") return JSON.stringify(value) ?? "undefined";
-  if (seen.has(value)) return JSON.stringify("[Circular]");
-
-  seen.add(value);
-  if (Array.isArray(value))
-    return `[${value.map((item) => stableStringify(item, seen)).join(",")}]`;
-
-  const record = value as Record<string, unknown>;
-  const entries = Object.keys(record)
-    .sort()
-    .map(
-      (key) => `${JSON.stringify(key)}:${stableStringify(record[key], seen)}`
-    );
-  return `{${entries.join(",")}}`;
+  return canonicalDigestPrefixed(source, "compile-evidence-v1");
 }
 
 export function buildCompileEvidence(args: {
@@ -115,7 +100,7 @@ export function buildCompileEvidence(args: {
 }
 
 function isFragmentEvidence(
-  value: unknown
+  value: unknown,
 ): value is FlowCompileFragmentEvidence {
   if (typeof value !== "object" || value === null) return false;
   const item = value as Partial<FlowCompileFragmentEvidence>;
@@ -135,7 +120,7 @@ function isFragmentEvidence(
 }
 
 export function extractFragmentExpansions(
-  document: unknown
+  document: unknown,
 ): FlowCompileFragmentEvidence[] | undefined {
   if (typeof document !== "object" || document === null) return undefined;
   const meta = (document as { meta?: unknown }).meta;
