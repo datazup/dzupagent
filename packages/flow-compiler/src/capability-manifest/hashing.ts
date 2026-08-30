@@ -1,36 +1,19 @@
-import { createHash } from "node:crypto";
+import { canonicalDigestPrefixed, canonicalize } from "@datazup/canonical-json";
 
 import type { FlowNode } from "@dzupagent/flow-ast";
 
+// Both delegate to @datazup/canonical-json's compile-evidence-v1 preset —
+// the local copy this file used to carry was byte-for-byte the same
+// implementation as the compile-orchestrator/evidence.ts original that
+// preset was golden-pinned against (total: bigints as decimal strings,
+// function/symbol placeholders, undefined tokens, and a never-unwound
+// seen-set rendering every repeated reference as "[Circular]").
 export function semanticHash(value: unknown): string {
-  return `sha256:${createHash("sha256")
-    .update(stableStringify(value))
-    .digest("hex")}`;
+  return canonicalDigestPrefixed(value, "compile-evidence-v1");
 }
 
-export function stableStringify(
-  value: unknown,
-  seen = new WeakSet<object>()
-): string {
-  if (value === null) return "null";
-  if (typeof value === "bigint") return JSON.stringify(value.toString());
-  if (typeof value === "function") return JSON.stringify("[Function]");
-  if (typeof value === "symbol") return JSON.stringify(value.toString());
-  if (typeof value !== "object") return JSON.stringify(value) ?? "undefined";
-  if (seen.has(value)) return JSON.stringify("[Circular]");
-
-  seen.add(value);
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => stableStringify(item, seen)).join(",")}]`;
-  }
-
-  const record = value as Record<string, unknown>;
-  const entries = Object.keys(record)
-    .sort()
-    .map(
-      (key) => `${JSON.stringify(key)}:${stableStringify(record[key], seen)}`
-    );
-  return `{${entries.join(",")}}`;
+export function stableStringify(value: unknown): string {
+  return canonicalize(value, "compile-evidence-v1");
 }
 
 export function visitFlow(
