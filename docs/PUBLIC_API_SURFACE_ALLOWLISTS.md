@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-08-27
+Date: 2026-08-30
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -215,7 +215,7 @@ Root index: `packages/core/src/index.ts`
 Root index: `packages/agent/src/index.ts`
 
 - Stable root sources: `13`
-- Deprecated transitional root sources: `94`
+- Deprecated transitional root sources: `84`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x with migration to runtime/workflow/tools/compat before a future 1.0 root contraction. The experimental ./runner subpath is provider-free and does not replace legacy execution paths until durable, host-composition, mutation-effect, and compatibility conformance are complete.
 
@@ -306,18 +306,7 @@ Root index: `packages/agent/src/index.ts`
 | `deprecated-transitional` | `./templates/agent-templates.js` | 6 | `prefix:./templates/` | `AGENT_TEMPLATES`, `ALL_AGENT_TEMPLATES`, `getAgentTemplate`, `listAgentTemplates` |
 | `deprecated-transitional` | `./templates/template-composer.js` | 1 | `prefix:./templates/` | `composeTemplates` |
 | `deprecated-transitional` | `./templates/template-registry.js` | 1 | `prefix:./templates/` | `TemplateRegistry` |
-| `deprecated-transitional` | `./pipeline/pipeline-validator.js` | 1 | `prefix:./pipeline/` | `validatePipeline` |
-| `deprecated-transitional` | `./pipeline/in-memory-checkpoint-store.js` | 1 | `prefix:./pipeline/` | `InMemoryPipelineCheckpointStore` |
-| `deprecated-transitional` | `./pipeline/pipeline-runtime.js` | 1 | `prefix:./pipeline/` | `PipelineRuntime` |
-| `deprecated-transitional` | `./pipeline/pipeline-interaction-runtime.js` | 2 | `prefix:./pipeline/` | `PipelineInteractionRuntimeError`, `PipelineInteractionRuntimeErrorCode` |
-| `deprecated-transitional` | `./pipeline/runtime-tool-handlers.js` | 5 | `prefix:./pipeline/` | `RUNTIME_TOOL_PREFIX`, `createRuntimeToolNodeExecutor`, `isRuntimeToolNode`, `RuntimeToolHandler` |
-| `deprecated-transitional` | `./pipeline/loop-executor.js` | 13 | `prefix:./pipeline/` | `executeLoop`, `stateFieldTruthy`, `qualityBelow`, `hasErrors` |
-| `deprecated-transitional` | `./pipeline/pipeline-runtime-types.js` | 12 | `prefix:./pipeline/` | `PipelineState`, `NodeResult`, `PipelineRunResult`, `NodeExecutor` |
-| `deprecated-transitional` | `./pipeline/step-type-registry.js` | 4 | `prefix:./pipeline/` | `StepTypeRegistry`, `defaultStepTypeRegistry`, `StepContext`, `StepTypeDescriptor` |
-| `deprecated-transitional` | `./pipeline/retry-policy.js` | 4 | `prefix:./pipeline/` | `DEFAULT_RETRY_POLICY`, `calculateBackoff`, `isRetryable`, `resolveRetryPolicy` |
-| `deprecated-transitional` | `./pipeline/pipeline-templates.js` | 8 | `prefix:./pipeline/` | `createCodeReviewPipeline`, `createFeatureGenerationPipeline`, `createTestGenerationPipeline`, `createRefactoringPipeline` |
 | `deprecated-transitional` | `./security/agent-auth.js` | 4 | `prefix:./security/` | `AgentAuth`, `AgentCredential`, `SignedAgentMessage`, `AgentAuthConfig` |
-| `deprecated-transitional` | `./pipeline/pipeline-analytics.js` | 6 | `prefix:./pipeline/` | `PipelineAnalytics`, `NodeMetrics`, `BottleneckEntry`, `PipelineAnalyticsReport` |
 | `deprecated-transitional` | `./orchestration/team/team-workspace.js` | 6 | `prefix:./orchestration/` | `SharedWorkspace`, `WorkspaceSubscriber`, `TeamAgentRole`, `TeamAgentStatus` |
 | `deprecated-transitional` | `./orchestration/team/team-runtime.js` | 10 | `prefix:./orchestration/` | `TeamRuntime`, `DEFAULT_ROUTER_MODEL`, `DEFAULT_PARTICIPANT_MODEL`, `DEFAULT_GOVERNANCE_MODEL` |
 | `deprecated-transitional` | `./orchestration/team/team-definition.js` | 3 | `prefix:./orchestration/` | `CoordinatorPattern`, `ParticipantDefinition`, `TeamDefinition` |
@@ -344,6 +333,7 @@ Root index: `packages/agent/src/index.ts`
 | `deprecated-transitional` | `./mailbox/index.js` | 18 | `prefix:./mailbox/` | `MailMessage`, `MailboxQuery`, `MailboxStore`, `AgentMailbox` |
 | `deprecated-transitional` | `./token-lifecycle-wiring.js` | 4 | `exact:./token-lifecycle-wiring.js` | `createTokenLifecyclePlugin`, `AgentLoopPlugin`, `TokenLifecyclePluginOptions`, `CompressionHintListener` |
 | `deprecated-transitional` | `./observability/index.js` | 10 | `prefix:./observability/` | `RunMetricsAggregator`, `attachRunMetricsBridge`, `InMemoryAuditStore`, `RunSummaryMetrics` |
+| `deprecated-transitional` | `./pipeline/index.js` | 1 | `prefix:./pipeline/` | `*` |
 | `stable` | `<local>:dzupagent_AGENT_VERSION` | 1 | `exact:<local>:dzupagent_AGENT_VERSION` | `dzupagent_AGENT_VERSION` |
 
 ## @dzupagent/codegen
@@ -874,6 +864,7 @@ Root index: `packages/runtime-contracts/src/index.ts`
 | `@dzupagent/runtime-contracts/ai-budget-reservation` | conservative offer-bound AI money reservation and hard-ceiling admission |
 | `@dzupagent/runtime-contracts/effect-receipt` | canonical effect intent, receipt, journal, and fail-closed replay contracts |
 | `@dzupagent/runtime-contracts/recursive-scope` | versioned definition-bound recursive frame, ownership, commit, merge, serialization, and validation contracts; runtime admission remains separate |
+| `@dzupagent/runtime-contracts/pipeline-artifact` | persisted pipeline definition artifact contract (node/edge/definition types plus their pinned zod schemas), re-homed from core so artifact producers avoid a runtime edge into core (ARCH27-T-07) |
 
 ### Root Allowlist
 
