@@ -237,12 +237,12 @@
           "rationale": "ARCH27-T-08 re-pin 2026-08-28: root barrel SHRANK 753->709 when the drifted pipeline sections were replaced by a single verbatim re-export of ./pipeline/index.ts. rootDebtPin removed entirely (709 <= the 732 budget). File remains over the 500-LOC ceiling; shrinkTarget unchanged."
         },
         "src/orchestration/delegating-supervisor.ts": {
-          "maxLines": 979,
+          "maxLines": 899,
           "shrinkTarget": 500,
-          "sourceSha256": "a37e734baabcb3e1107f78197a5d7276061ab253ad8b4e6acc3b370a33d8af54",
-          "sourceCommit": "6babe6d758c3e1a029e16b0cd346061cbcb30245",
-          "reviewBy": "2026-11-16",
-          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 979 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+          "sourceSha256": "cd87cd09a5bafc111a71d3a4c77cf5f6b646c713baa2adcaf53418d1b3f2df1e",
+          "sourceCommit": "cff26e541c54ff68080b6daddb2888b33143a824",
+          "reviewBy": "2026-11-30",
+          "rationale": "Re-pin DOWN 979->899 (2026-08-30): sub-orchestrator spawning moved to delegation/spawn-sub-orchestrator.ts, which derives the child hierarchy from a narrow spawner context instead of the whole supervisor. Still above the 500 ceiling; shrinkTarget unchanged. DelegatingSupervisorConfig canNOT move to delegating-supervisor-types.ts - it references SubOrchestratorFactory, which names the concrete class, and that is the cycle the types module's layering rule exists to prevent."
         },
         "src/orchestration/fleet/fleet-supervisor.ts": {
           "maxLines": 586,
@@ -261,12 +261,12 @@
           "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 560 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
         },
         "src/pipeline/loop-executor/for-each-loop.ts": {
-          "maxLines": 2039,
+          "maxLines": 1681,
           "shrinkTarget": 500,
-          "sourceSha256": "621dba8534e4f14077b4ef646ca89f14f04c9e6af42a7b45bc317fb6a7bcf0c1",
-          "sourceCommit": "7f8c4aef8f9023470c52f899018caa299bd95878",
-          "reviewBy": "2026-11-16",
-          "rationale": "RF-03: module was over the ceiling with no pin, so the gate was red. Frozen at its current 2039 bytes-bound LOC pending extraction down to the 500-LOC target."
+          "sourceSha256": "d3589746f5e0609819b33a81a7c4839def61529ed8cfa95ca521131d8931a054",
+          "sourceCommit": "cff26e541c54ff68080b6daddb2888b33143a824",
+          "reviewBy": "2026-11-30",
+          "rationale": "Re-pin DOWN 2039->1681 (2026-08-30): the strict per-item budget lifecycle (reserve/settle/release plus the G2b outcome-unknown resolution paths) moved to for-each-item-budget.ts, and the shared reservation identity to for-each-reservation.ts. The lifecycle closed over only four loop values, so it extracted as a self-contained collaborator. Still above the 500 ceiling; shrinkTarget unchanged. The remaining bulk is the runIteration closure and ordered-prefix flushing."
         },
         "src/self-correction/learning-dashboard.ts": {
           "maxLines": 587,
