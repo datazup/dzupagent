@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-
+import { canonicalize, sha256Prefixed } from "@datazup/canonical-json";
 import { stringify } from "yaml";
 
 import type { DslDiagnostic } from "../types.js";
@@ -78,26 +77,24 @@ export function renderCanonicalV2Yaml(
   }).trimEnd();
 }
 
+// Canonical stringification and digests delegate to @datazup/canonical-json's
+// `authoring-v1` preset — the exact-port of this module's historical
+// implementation, golden-pinned there and by v2-canonical-roundtrip.test.ts,
+// so persisted canonicalSourceSha256/semanticSha256 values and the v2 import
+// lock chain stay byte-identical. Divergence is limited to inputs the local
+// code mishandled: cycles now throw a TypeError (previously a stack
+// overflow), and top-level undefined/function/symbol throw instead of
+// returning a non-string; both are unreachable behind canonicalizeV2Document.
 export function sha256(value: string): `sha256:${string}` {
-  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
+  return sha256Prefixed(value);
 }
 
 export function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") {
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(",")}]`;
-  }
-  return `{${Object.entries(value)
-    .sort(([left], [right]) => compareUtf16(left, right))
-    .map(([key, nested]) => `${JSON.stringify(key)}:${stableStringify(nested)}`)
-    .join(",")}}`;
+  return canonicalize(value, "authoring-v1");
 }
 
-// Key ordering must be locale-independent: this feeds persisted digests
-// (canonicalSourceSha256/semanticSha256 and the v2 import lock chain), and
-// localeCompare varies with the host ICU locale.
+// Key ordering must be locale-independent: canonical document ordering feeds
+// the digests above, and localeCompare varies with the host ICU locale.
 function compareUtf16(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }

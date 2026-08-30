@@ -55,6 +55,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@datazup/canonical-json": "0.1.0",
     "@dzupagent/flow-ast": "0.2.0",
     "yaml": "^2.8.3"
   },

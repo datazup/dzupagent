@@ -1588,6 +1588,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@dzupagent/flow-dsl@workspace:packages/flow-dsl"
   dependencies:
+    "@datazup/canonical-json": "npm:0.1.0"
     "@dzupagent/flow-ast": "npm:0.2.0"
     tsup: "npm:*"
     typescript: "npm:^5.8.3"
