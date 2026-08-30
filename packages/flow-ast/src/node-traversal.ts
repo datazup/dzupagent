@@ -85,6 +85,40 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** A child-node array of a flow node, with the path suffix that reaches it. */
+export interface FlowChildArray {
+  nodes: FlowNode[];
+  /** Path suffix relative to the parent node, e.g. `body` or `branches[0]`. */
+  suffix: string;
+}
+
+/**
+ * The child-node arrays of a canonical flow node, in FLOW_CHILD_NODE_FIELDS
+ * order, followed by parallel branches as `branches[i]` entries. Absent
+ * optional containers (`branch.else`, `approval.onReject`) are omitted, not
+ * returned as empty arrays — no traversal distinguishes the two.
+ */
+export function flowChildArrays(node: FlowNode): FlowChildArray[] {
+  const record = node as unknown as Record<string, unknown>;
+  const out: FlowChildArray[] = [];
+  for (const field of FLOW_CHILD_NODE_FIELDS) {
+    const children = record[field];
+    if (!Array.isArray(children)) continue;
+    out.push({ nodes: children as FlowNode[], suffix: field });
+  }
+  const branches = record[FLOW_BRANCH_CONTAINER_FIELD];
+  if (Array.isArray(branches)) {
+    branches.forEach((branch, index) => {
+      if (!Array.isArray(branch)) return;
+      out.push({
+        nodes: branch as FlowNode[],
+        suffix: `${FLOW_BRANCH_CONTAINER_FIELD}[${index}]`,
+      });
+    });
+  }
+  return out;
+}
+
 /**
  * Pre-order walk of a canonical AST subtree: visits `node`, then every child
  * under FLOW_CHILD_NODE_FIELDS in list order, then parallel branches.
@@ -92,35 +126,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function walkFlowNodes(
   node: FlowNode,
   visit: FlowNodeVisitor,
-  path = "root"
+  path = "root",
 ): void {
   visit(node, path);
-  const record = node as unknown as Record<string, unknown>;
-  for (const field of FLOW_CHILD_NODE_FIELDS) {
-    const children = record[field];
-    if (!Array.isArray(children)) continue;
-    children.forEach((child, index) => {
-      walkFlowNodes(child as FlowNode, visit, `${path}.${field}[${index}]`);
-    });
-  }
-  const branches = record[FLOW_BRANCH_CONTAINER_FIELD];
-  if (Array.isArray(branches)) {
-    branches.forEach((branch, branchIndex) => {
-      if (!Array.isArray(branch)) return;
-      branch.forEach((child, index) => {
-        walkFlowNodes(
-          child as FlowNode,
-          visit,
-          `${path}.${FLOW_BRANCH_CONTAINER_FIELD}[${branchIndex}][${index}]`
-        );
-      });
+  for (const { nodes, suffix } of flowChildArrays(node)) {
+    nodes.forEach((child, index) => {
+      walkFlowNodes(child, visit, `${path}.${suffix}[${index}]`);
     });
   }
 }
 
 export type RawNodeVisitor = (
   node: Record<string, unknown>,
-  path: string
+  path: string,
 ) => void;
 
 /**
@@ -133,7 +151,7 @@ export type RawNodeVisitor = (
 export function walkRawNodes(
   value: unknown,
   visit: RawNodeVisitor,
-  path = "root"
+  path = "root",
 ): void {
   if (!isRecord(value)) return;
   visit(value, path);
@@ -155,14 +173,14 @@ export function walkRawNodes(
           walkRawNodes(
             entry,
             visit,
-            `${path}.${FLOW_BRANCH_CONTAINER_FIELD}[${branchIndex}][${index}]`
+            `${path}.${FLOW_BRANCH_CONTAINER_FIELD}[${branchIndex}][${index}]`,
           );
         });
       } else {
         walkRawNodes(
           branch,
           visit,
-          `${path}.${FLOW_BRANCH_CONTAINER_FIELD}[${branchIndex}]`
+          `${path}.${FLOW_BRANCH_CONTAINER_FIELD}[${branchIndex}]`,
         );
       }
     });

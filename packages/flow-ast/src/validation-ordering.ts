@@ -1,3 +1,4 @@
+import { flowChildArrays } from "./node-traversal.js";
 import type { FlowNode, SequenceNode } from "./types.js";
 import { joinPath } from "./validation-helpers.js";
 import type { SchemaIssue } from "./validate/shared.js";
@@ -20,7 +21,7 @@ function flattenNodes(
   out: FlattenedNode[],
 ): void {
   out.push({ node, path, index: order.current++ });
-  const children = childArraysOf(node);
+  const children = flowChildArrays(node);
   for (const { nodes, suffix } of children) {
     nodes.forEach((child, i) => {
       flattenNodes(
@@ -30,45 +31,6 @@ function flattenNodes(
         out,
       );
     });
-  }
-}
-
-function childArraysOf(
-  node: FlowNode,
-): Array<{ nodes: FlowNode[]; suffix: string }> {
-  switch (node.type) {
-    case "sequence":
-      return [{ nodes: node.nodes, suffix: "nodes" }];
-    case "for_each":
-      return [{ nodes: node.body, suffix: "body" }];
-    case "branch":
-      return [
-        { nodes: node.then, suffix: "then" },
-        { nodes: node.else ?? [], suffix: "else" },
-      ];
-    case "approval":
-      return [
-        { nodes: node.onApprove, suffix: "onApprove" },
-        { nodes: node.onReject ?? [], suffix: "onReject" },
-      ];
-    case "persona":
-      return [{ nodes: node.body, suffix: "body" }];
-    case "route":
-      return [{ nodes: node.body, suffix: "body" }];
-    case "parallel":
-      return node.branches.map((b, i) => ({
-        nodes: b,
-        suffix: `branches[${i}]`,
-      }));
-    case "try_catch":
-      return [
-        { nodes: node.body, suffix: "body" },
-        { nodes: node.catch, suffix: "catch" },
-      ];
-    case "loop":
-      return [{ nodes: node.body, suffix: "body" }];
-    default:
-      return [];
   }
 }
 

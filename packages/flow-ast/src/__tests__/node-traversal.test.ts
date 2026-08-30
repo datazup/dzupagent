@@ -7,6 +7,7 @@ import {
   RAW_CHILD_NODE_FIELDS,
   RAW_SNAKE_CASE_CHILD_FIELD_ALIASES,
   RAW_STEP_CONTAINER_FIELD,
+  flowChildArrays,
   walkFlowNodes,
   walkRawNodes,
   type FlowChildNodeField,
@@ -163,6 +164,56 @@ describe("walkFlowNodes", () => {
   });
 });
 
+describe("flowChildArrays", () => {
+  it("returns child arrays with suffixes in canonical field order, branches last", () => {
+    const thenChild: FlowNode = { type: "complete", id: "t0" };
+    const p00: FlowNode = { type: "complete", id: "p00" };
+    const p10: FlowNode = { type: "complete", id: "p10" };
+    expect(
+      flowChildArrays({
+        type: "branch",
+        id: "b",
+        condition: "true",
+        then: [thenChild],
+        else: [],
+      }),
+    ).toEqual([
+      { nodes: [thenChild], suffix: "then" },
+      { nodes: [], suffix: "else" },
+    ]);
+    expect(
+      flowChildArrays({
+        type: "parallel",
+        id: "p",
+        branches: [[p00], [p10]],
+      }),
+    ).toEqual([
+      { nodes: [p00], suffix: "branches[0]" },
+      { nodes: [p10], suffix: "branches[1]" },
+    ]);
+  });
+
+  it("omits absent optional containers and returns nothing for leaf nodes", () => {
+    expect(
+      flowChildArrays({
+        type: "branch",
+        id: "b",
+        condition: "true",
+        then: [],
+      }),
+    ).toEqual([{ nodes: [], suffix: "then" }]);
+    expect(
+      flowChildArrays({
+        type: "approval",
+        id: "a",
+        question: "ok?",
+        onApprove: [],
+      }),
+    ).toEqual([{ nodes: [], suffix: "onApprove" }]);
+    expect(flowChildArrays({ type: "complete", id: "done" })).toEqual([]);
+  });
+});
+
 describe("walkRawNodes", () => {
   it("follows steps, single-object children, and branch contents on raw values", () => {
     const raw = {
@@ -206,7 +257,7 @@ describe("walkRawNodes", () => {
       },
       (node) => {
         visited.push(String(node["id"]));
-      }
+      },
     );
     expect(visited).toEqual(["r"]);
   });

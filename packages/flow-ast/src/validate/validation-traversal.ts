@@ -1,3 +1,4 @@
+import { flowChildArrays } from "../node-traversal.js";
 import type { FlowNode, ValidationErrorCode } from "../types.js";
 import { joinPath } from "../validation-helpers.js";
 
@@ -11,7 +12,7 @@ export function validateCanonicalNodeIds(
   node: FlowNode,
   path: string,
   issues: ValidationTraversalIssue[],
-  seen: Map<string, string>
+  seen: Map<string, string>,
 ): void {
   if (typeof node.id !== "string" || node.id.length === 0) {
     issues.push({
@@ -32,161 +33,19 @@ export function validateCanonicalNodeIds(
     }
   }
 
-  switch (node.type) {
-    case "sequence":
-      node.nodes.forEach((child, index) => {
-        validateCanonicalNodeIds(
-          child,
-          `${joinPath(path, "nodes")}[${index}]`,
-          issues,
-          seen
-        );
-      });
-      return;
-    case "for_each":
-      node.body.forEach((child, index) => {
-        validateCanonicalNodeIds(
-          child,
-          `${joinPath(path, "body")}[${index}]`,
-          issues,
-          seen
-        );
-      });
-      return;
-    case "branch":
-      node.then.forEach((child, index) => {
-        validateCanonicalNodeIds(
-          child,
-          `${joinPath(path, "then")}[${index}]`,
-          issues,
-          seen
-        );
-      });
-      node.else?.forEach((child, index) => {
-        validateCanonicalNodeIds(
-          child,
-          `${joinPath(path, "else")}[${index}]`,
-          issues,
-          seen
-        );
-      });
-      return;
-    case "approval":
-      node.onApprove.forEach((child, index) => {
-        validateCanonicalNodeIds(
-          child,
-          `${joinPath(path, "onApprove")}[${index}]`,
-          issues,
-          seen
-        );
-      });
-      node.onReject?.forEach((child, index) => {
-        validateCanonicalNodeIds(
-          child,
-          `${joinPath(path, "onReject")}[${index}]`,
-          issues,
-          seen
-        );
-      });
-      return;
-    case "persona":
-    case "route":
-      node.body.forEach((child, index) => {
-        validateCanonicalNodeIds(
-          child,
-          `${joinPath(path, "body")}[${index}]`,
-          issues,
-          seen
-        );
-      });
-      return;
-    case "parallel":
-      node.branches.forEach((branch, branchIndex) => {
-        branch.forEach((child, childIndex) => {
-          validateCanonicalNodeIds(
-            child,
-            `${joinPath(path, "branches")}[${branchIndex}][${childIndex}]`,
-            issues,
-            seen
-          );
-        });
-      });
-      return;
-    case "try_catch":
-      node.body.forEach((child, index) => {
-        validateCanonicalNodeIds(
-          child,
-          `${joinPath(path, "body")}[${index}]`,
-          issues,
-          seen
-        );
-      });
-      node.catch.forEach((child, index) => {
-        validateCanonicalNodeIds(
-          child,
-          `${joinPath(path, "catch")}[${index}]`,
-          issues,
-          seen
-        );
-      });
-      return;
-    case "loop":
-      node.body.forEach((child, index) => {
-        validateCanonicalNodeIds(
-          child,
-          `${joinPath(path, "body")}[${index}]`,
-          issues,
-          seen
-        );
-      });
-      return;
-    case "action":
-    case "clarification":
-    case "complete":
-    case "spawn":
-    case "classify":
-    case "emit":
-    case "memory":
-    case "set":
-    case "checkpoint":
-    case "restore":
-    case "http":
-    case "wait":
-    case "subflow":
-    case "prompt":
-    case "return_to":
-    case "agent":
-    case "validate":
-    case "worker.dispatch":
-    case "fleet.dispatch":
-    case "fleet.gather":
-    case "fleet.contract-net":
-    case "knowledge.write":
-    case "knowledge.query":
-    case "shell.run":
-    case "evidence.write":
-    case "validate.schema":
-    case "adapter.run":
-    case "adapter.race":
-    case "adapter.parallel":
-    case "adapter.supervisor":
-    case "spdd.import_sources":
-    case "spdd.build_source_pack":
-    case "spdd.run_analysis":
-    case "spdd.generate_canvas":
-    case "spdd.validate_canvas":
-    case "spdd.review_canvas":
-    case "spdd.project_plan":
-    case "spdd.arm_dispatch":
-    case "spdd.run_validation":
-    case "spdd.collect_proof":
-    case "spdd.scan_drift":
-    case "spdd.create_sync_proposal":
-    case "spdd.agent_swarm":
-      return;
-    default: {
-      const _exhaustive: never = node;
-      void _exhaustive;
-    }
+  // Children are reached through the canonical child-array accessor, which
+  // derives its key set from FLOW_CHILD_NODE_FIELDS — the union-pinned list a
+  // new container field cannot bypass. The path suffixes reproduce the ones
+  // this function emitted when it carried its own copy of the per-type switch
+  // (`branches[i]` already includes the branch index).
+  for (const { nodes, suffix } of flowChildArrays(node)) {
+    nodes.forEach((child, index) => {
+      validateCanonicalNodeIds(
+        child,
+        `${joinPath(path, suffix)}[${index}]`,
+        issues,
+        seen,
+      );
+    });
   }
 }
