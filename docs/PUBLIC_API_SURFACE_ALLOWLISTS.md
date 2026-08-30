@@ -110,7 +110,7 @@ Root index: `packages/core/src/index.ts`
 | `deprecated-transitional` | `./persistence/working-memory.js` | 2 | `prefix:./persistence/` | `WorkingMemory`, `createWorkingMemory` |
 | `deprecated-transitional` | `./persistence/working-memory-types.js` | 2 | `prefix:./persistence/` | `WorkingMemoryConfig`, `WorkingMemorySnapshot` |
 | `deprecated-transitional` | `./persistence/in-memory-store.js` | 2 | `prefix:./persistence/` | `InMemoryRunStore`, `InMemoryAgentStore` |
-| `deprecated-transitional` | `./persistence/store-interfaces.js` | 12 | `prefix:./persistence/` | `RunStore`, `AtomicRunStore`, `RunStoreCompareAndSetExpectation`, `Run` |
+| `deprecated-transitional` | `./persistence/store-interfaces.js` | 9 | `prefix:./persistence/` | `RunStore`, `Run`, `CreateRunInput`, `RunFilter` |
 | `deprecated-transitional` | `./persistence/event-log.js` | 4 | `prefix:./persistence/` | `InMemoryEventLog`, `EventLogSink`, `RunEvent`, `EventLogStore` |
 | `deprecated-transitional` | `./persistence/in-memory-run-journal.js` | 1 | `prefix:./persistence/` | `InMemoryRunJournal` |
 | `deprecated-transitional` | `./persistence/run-journal-bridge.js` | 1 | `prefix:./persistence/` | `RunJournalBridgeRunStore` |
