@@ -1,5 +1,4 @@
 import { ulid } from "ulidx";
-import { isContractPayload } from "@dzupagent/agent-types/fleet";
 import type {
   DecisionPayload,
   EscalationOutcome,
@@ -7,34 +6,32 @@ import type {
   FleetRunResult,
   FleetRunSpec,
   FleetTask,
-  KnowledgeEnvelope,
   RepoAgentResult,
   RepoRef,
   Executor,
   KnowledgeStore,
-  ReconciliationPlan,
   FleetPolicy,
   FleetSupervisorApi,
   RepoAgentRef,
-  TaskState,
-  TaskStatePayload,
   WorkerHandle,
   WorkerSpec,
 } from "@dzupagent/agent-types/fleet";
 import { RepoAgent } from "./repo-agent.js";
+import { createBudgetTracker } from "./fleet-budget-tracker.js";
 import {
-  FleetReconciliationError,
-  actionEnvelopeMatches,
-  buildContractTransitionEnvelope,
-  buildReconciliationDecisionEnvelope,
-  buildTaskPauseEnvelope,
-  canonicalReconciliationJson,
-  parseReconciliationDecision,
-  reconciliationDecisionMatches,
-  validateReconciliationPlan,
-  type ContractProposalRecord,
-  type ValidatedReconciliationPlan,
-} from "./fleet-reconciliation.js";
+  reassignTask,
+  type ActiveRun,
+} from "./fleet-task-control.js";
+import {
+  writeDecision,
+  writeTaskControlState,
+  type DecisionKind,
+} from "./fleet-run-records.js";
+import {
+  runContractReconciliation,
+  type ReconciliationRunState,
+  type RepoAgentSlot,
+} from "./fleet-reconciliation-runner.js";
 
 export interface FleetSupervisorDeps {
   knowledge: KnowledgeStore;
@@ -51,48 +48,6 @@ export interface FleetSupervisorDeps {
    * built-in DependencyTrackerPolicy asks for 1000ms). Defaults to a real timer.
    */
   sleep?: (ms: number) => Promise<void>;
-}
-
-type DecisionKind =
-  | "assignment"
-  | "reconciliation"
-  | "escalation"
-  | "budget-exhausted";
-
-interface RepoAgentSlot {
-  agent: RepoAgent;
-  repo: RepoRef;
-  ref: RepoAgentRef;
-}
-
-interface ActiveRun {
-  runId: string;
-  spec: FleetRunSpec;
-  policy: FleetPolicy;
-  repoAgents: Map<string, RepoAgentSlot>;
-}
-
-interface ReconciliationRunState {
-  observedContractIds: Set<string>;
-  observedDecisionIds: Set<string>;
-  pausedTaskIds: Set<string>;
-  settledTaskIds: Set<string>;
-  knownTaskIds: Set<string>;
-}
-
-/**
- * Per-run budget state for {@link FleetBudgets}. Both predicates return `false`
- * (i.e. "keep going") when the corresponding budget field is unset, which is
- * what makes budget enforcement fully inert for specs that declare none.
- */
-interface BudgetTracker {
-  /** True once `wallclockMs` has elapsed since the run started. */
-  deadlinePassed(): boolean;
-  /**
-   * Accumulates the `tool_call` events in `results` into the run total and
-   * returns true when that total now exceeds `maxToolCalls`.
-   */
-  recordAndCheckToolCalls(results: RepoAgentResult[]): boolean;
 }
 
 /** Real timer used for escalation retry delays when `deps.sleep` is absent. */
@@ -156,7 +111,7 @@ export class FleetSupervisor implements FleetSupervisorApi {
 
     try {
       const outcomes: RepoAgentResult[] = [];
-      const budget = this.newBudgetTracker(spec);
+      const budget = createBudgetTracker(spec, this.deps.now ?? (() => Date.now()));
       const reconciliationState: ReconciliationRunState = {
         observedContractIds: new Set<string>(),
         observedDecisionIds: new Set<string>(),
@@ -388,7 +343,13 @@ export class FleetSupervisor implements FleetSupervisorApi {
   async pauseTask(taskId: string, reason: string): Promise<void> {
     const handle = this._taskHandles.get(taskId);
     const runId = this._activeRun?.runId ?? "unknown";
-    await this.writeTaskControlState(runId, taskId, "blocked", reason);
+    await writeTaskControlState(
+      this.deps.knowledge,
+      runId,
+      taskId,
+      "blocked",
+      reason
+    );
     if (handle) {
       await handle.send({ kind: "message", text: `pause: ${reason}` });
     }
@@ -406,130 +367,29 @@ export class FleetSupervisor implements FleetSupervisorApi {
       this._taskHandles.delete(taskId);
     }
     const runId = this._activeRun?.runId ?? "unknown";
-    await this.writeTaskControlState(runId, taskId, "surrendered", reason);
+    await writeTaskControlState(
+      this.deps.knowledge,
+      runId,
+      taskId,
+      "surrendered",
+      reason
+    );
   }
 
   /**
-   * Cancels the current worker for a task (if live) and re-dispatches it to
-   * the next available idle worker chosen by the active policy. If no run is
-   * active or no idle worker is available the task is cancelled and written as
-   * surrendered — the run's outcome will reflect the failure.
+   * Cancels the current worker for a task (if live) and re-dispatches it to the
+   * next available idle worker chosen by the active policy.
    */
   async reassign(taskId: string): Promise<void> {
-    // Capture run context and task BEFORE cancelling — cancelling the live handle
-    // triggers the dispatch microtask chain which clears _activeRun by the time
-    // the await resumes.
-    const ctx = this._activeRun;
-    const task = ctx?.spec.tasks.find((t) => t.id === taskId);
-
-    const handle = this._taskHandles.get(taskId);
-    if (handle) {
-      await handle.cancel("reassignment requested");
-      this._taskHandles.delete(taskId);
-      // Yield the microtask queue so the run loop's dispatch chain (generator
-      // drain → wait() → finally { busy=false }) can complete before we
-      // inspect the idle fleet for reassignment.
-      await Promise.resolve();
-    }
-
-    if (!ctx) {
-      return;
-    }
-
-    if (!task) {
-      return;
-    }
-
-    const fleet: RepoAgentRef[] = [...ctx.repoAgents.values()].map(
-      (v) => v.ref
-    );
-    const idle = fleet.filter((f) => !f.busy);
-    if (idle.length === 0) {
-      await this.writeTaskControlState(
-        ctx.runId,
-        taskId,
-        "surrendered",
-        "no idle worker available for reassignment"
-      );
-      return;
-    }
-
-    const assignment = await ctx.policy.assignTask(
-      task,
-      idle,
-      this.deps.knowledge
-    );
-    await this.writeDecision(
-      ctx.runId,
-      "assignment",
-      ctx.policy.id,
-      [taskId, assignment.workerId, "reassignment"],
-      assignment.rationale
-    );
-
-    const target = [...ctx.repoAgents.values()].find(
-      (v) => v.ref.workerId === assignment.workerId
-    );
-    if (!target) {
-      await this.writeTaskControlState(
-        ctx.runId,
-        taskId,
-        "surrendered",
-        `reassignment target worker ${assignment.workerId} not found`
-      );
-      return;
-    }
-
-    target.ref.busy = true;
-    target.agent
-      .dispatch(task)
-      .then(async (result) => {
-        await ctx.policy.onWorkerComplete(result, this);
-      })
-      .catch(() => {
-        // Dispatch errors after reassignment are surfaced through task-state
-        // written by RepoAgent; not re-thrown here since this is async.
-      })
-      .finally(() => {
-        target.ref.busy = false;
-        this._taskHandles.delete(taskId);
-      });
-  }
-
-  /**
-   * Builds the per-run budget tracker for `spec.budgets`.
-   *
-   * Every check is inert when the corresponding field is undefined, so a spec
-   * without budgets (or with `budgets: {}`) behaves exactly as it did before
-   * budgets were enforced. `maxTokens` has no tracker at all — see its doc
-   * comment in `fleet-types.ts` for why it is deliberately unenforceable here.
-   */
-  private newBudgetTracker(spec: FleetRunSpec): BudgetTracker {
-    const now = this.deps.now ?? (() => Date.now());
-    const wallclockMs = spec.budgets?.wallclockMs;
-    const maxToolCalls = spec.budgets?.maxToolCalls;
-    // Snapshot the start instant once so every later check compares against the
-    // same origin (an injected clock may advance on every read).
-    const startedAt = now();
-    let toolCalls = 0;
-
-    return {
-      deadlinePassed(): boolean {
-        if (wallclockMs === undefined) return false;
-        return now() - startedAt > wallclockMs;
+    await reassignTask(
+      {
+        api: this,
+        deps: this.deps,
+        taskHandles: this._taskHandles,
+        activeRun: this._activeRun,
       },
-      recordAndCheckToolCalls(results: RepoAgentResult[]): boolean {
-        // Always accumulate, even when no cap is set: the count is cheap and
-        // keeping it unconditional avoids a second code path.
-        for (const result of results) {
-          for (const event of result.events) {
-            if (event.kind === "tool_call") toolCalls += 1;
-          }
-        }
-        if (maxToolCalls === undefined) return false;
-        return toolCalls > maxToolCalls;
-      },
-    };
+      taskId
+    );
   }
 
   /**
@@ -552,7 +412,8 @@ export class FleetSupervisor implements FleetSupervisorApi {
     extraInputs: unknown[] = []
   ): Promise<boolean> {
     const outcome = await policy.onEscalation(reason, this);
-    await this.writeDecision(
+    await writeDecision(
+      this.deps.knowledge,
       runId,
       decisionKind,
       policy.id,
@@ -563,328 +424,32 @@ export class FleetSupervisor implements FleetSupervisorApi {
   }
 
   /**
-   * Reconciles proposed contract envelopes that have appeared since the last
-   * safe run boundary. Query order determines both surface and proposal order.
-   * Deterministic decision and action envelopes make completed work replay-safe
-   * and resume a partially applied plan before any new policy callback.
+   * Reconcile proposed contract envelopes for this run, binding the extracted
+   * runner to this supervisor's knowledge store and escalation path.
    */
-  private async reconcileContractChanges(
+  private reconcileContractChanges(
     runId: string,
     policy: FleetPolicy,
     repoAgents: Map<string, RepoAgentSlot>,
     state: ReconciliationRunState
   ): Promise<boolean> {
-    const scope = `run:${runId}`;
-    const entries: KnowledgeEnvelope[] = [];
-    for await (const entry of this.deps.knowledge.query({ scope })) {
-      entries.push(entry);
-    }
-    const entriesById = new Map(entries.map((entry) => [entry.id, entry]));
-    const resolvedProposalIds = new Set<string>();
-    for (const entry of entries) {
-      if (
-        entry.kind === "contract"
-        && isContractPayload(entry.payload)
-        && entry.payload.status !== "proposed"
-        && entry.parentId !== null
-      ) {
-        resolvedProposalIds.add(entry.parentId);
-      }
-    }
-
-    // Resume already-recorded decisions before looking for new proposal
-    // groups. This closes the decision-written/action-partial crash window.
-    for (const entry of entries) {
-      const replay = parseReconciliationDecision(entry);
-      if (!replay) continue;
-      if (entry.runId !== runId) {
-        throw new FleetReconciliationError(
-          `decision ${entry.id} belongs to run ${entry.runId}, not ${runId}`
-        );
-      }
-      for (const proposalId of replay.proposalIds) {
-        resolvedProposalIds.add(proposalId);
-      }
-      if (state.observedDecisionIds.has(entry.id)) continue;
-
-      const decisionPayload = entry.payload as DecisionPayload;
-      if (decisionPayload.policyId !== policy.id) {
-        throw new FleetReconciliationError(
-          `decision ${entry.id} belongs to policy ${decisionPayload.policyId}, not ${policy.id}`
-        );
-      }
-      const expectedDecision = buildReconciliationDecisionEnvelope({
-        runId,
-        surface: replay.surface,
-        proposalIds: replay.proposalIds,
-        policyId: policy.id,
-        plan: replay.plan,
-        createdAt: entry.createdAt,
-      });
-      if (!reconciliationDecisionMatches(entry, expectedDecision)) {
-        throw new FleetReconciliationError(
-          `decision ${entry.id} does not match its deterministic identity`
-        );
-      }
-      const proposals = replay.proposalIds.map((proposalId) => {
-        const proposal = entriesById.get(proposalId);
-        if (
-          !proposal
-          || proposal.kind !== "contract"
-          || proposal.runId !== runId
-          || !isContractPayload(proposal.payload)
-          || proposal.payload.status !== "proposed"
-          || proposal.payload.surface !== replay.surface
-        ) {
-          throw new FleetReconciliationError(
-            `decision ${entry.id} references invalid proposal ${proposalId}`
-          );
-        }
-        return { envelope: proposal, payload: proposal.payload };
-      });
-      const validated = validateReconciliationPlan({
-        surface: replay.surface,
-        proposals,
-        plan: replay.plan,
-        knownTaskIds: state.knownTaskIds,
-        settledTaskIds: state.settledTaskIds,
-      });
-      await this.applyReconciliationPlan(
-        scope,
-        entry,
-        replay.plan,
-        validated,
-        state.pausedTaskIds
-      );
-      state.observedDecisionIds.add(entry.id);
-
-      if (replay.plan.escalate) {
-        const escalationInputs = [
-          "contract-conflict",
-          "reconciliation",
-          replay.surface,
-          ...replay.proposalIds,
-        ];
-        const priorEscalation = entries.find((candidate) => {
-          if (candidate.kind !== "decision") return false;
-          const payload = candidate.payload as DecisionPayload;
-          return (
-            payload.decisionKind === "escalation"
-            && canonicalReconciliationJson(payload.inputs)
-              === canonicalReconciliationJson(escalationInputs)
-          );
-        });
-        if (priorEscalation) {
-          const outcome = (priorEscalation.payload as DecisionPayload).outcome;
-          if (
-            outcome !== null
-            && typeof outcome === "object"
-            && (outcome as { kind?: unknown }).kind === "human-handoff"
-          ) {
-            return true;
-          }
-        } else {
-          const handedOff = await this.escalate(
-            runId,
-            policy,
+    return runContractReconciliation(
+      {
+        knowledge: this.deps.knowledge,
+        escalateContractConflict: (id, activePolicy, extraInputs) =>
+          this.escalate(
+            id,
+            activePolicy,
             "contract-conflict",
             "escalation",
-            ["reconciliation", replay.surface, ...replay.proposalIds]
-          );
-          if (handedOff) return true;
-        }
-      }
-    }
-
-    const groups = new Map<
-      string,
-      { records: ContractProposalRecord[]; envelopeIds: string[] }
-    >();
-
-    for (const entry of entries) {
-      if (state.observedContractIds.has(entry.id)) continue;
-      state.observedContractIds.add(entry.id);
-      if (
-        entry.kind !== "contract" ||
-        entry.runId !== runId ||
-        !isContractPayload(entry.payload) ||
-        entry.payload.status !== "proposed" ||
-        resolvedProposalIds.has(entry.id)
-      ) {
-        continue;
-      }
-
-      const group = groups.get(entry.payload.surface);
-      if (group) {
-        group.records.push({ envelope: entry, payload: entry.payload });
-        group.envelopeIds.push(entry.id);
-      } else {
-        groups.set(entry.payload.surface, {
-          records: [{ envelope: entry, payload: entry.payload }],
-          envelopeIds: [entry.id],
-        });
-      }
-    }
-
-    for (const [surface, group] of groups) {
-      const fleet = [...repoAgents.values()].map((slot) => slot.ref);
-      const plan = await policy.onContractChange(
-        {
-          surface,
-          proposalIds: [...group.envelopeIds],
-          proposals: group.records.map((record) => record.payload),
-        },
-        fleet
-      );
-      const validated = validateReconciliationPlan({
-        surface,
-        proposals: group.records,
-        plan,
-        knownTaskIds: state.knownTaskIds,
-        settledTaskIds: state.settledTaskIds,
-      });
-      const decision = await this.writeReconciliationDecision(
-        runId,
-        policy.id,
-        surface,
-        group.envelopeIds,
-        plan,
-      );
-      state.observedDecisionIds.add(decision.id);
-      await this.applyReconciliationPlan(
-        scope,
-        decision,
-        plan,
-        validated,
-        state.pausedTaskIds
-      );
-
-      if (plan.escalate) {
-        const handedOff = await this.escalate(
-          runId,
-          policy,
-          "contract-conflict",
-          "escalation",
-          ["reconciliation", surface, ...group.envelopeIds]
-        );
-        if (handedOff) return true;
-      }
-    }
-
-    return false;
-  }
-
-  private async writeReconciliationDecision(
-    runId: string,
-    policyId: string,
-    surface: string,
-    proposalIds: string[],
-    plan: ReconciliationPlan
-  ): Promise<KnowledgeEnvelope> {
-    const scope = `run:${runId}`;
-    const expected = buildReconciliationDecisionEnvelope({
+            extraInputs
+          ),
+      },
       runId,
-      surface,
-      proposalIds: [...proposalIds],
-      policyId,
-      plan,
-      createdAt: new Date().toISOString(),
-    });
-    const existing = await this.deps.knowledge.read(
-      scope,
-      "decision",
-      expected.key
+      policy,
+      repoAgents,
+      state
     );
-    if (existing) {
-      if (!reconciliationDecisionMatches(existing, expected)) {
-        throw new FleetReconciliationError(
-          `decision identity ${expected.id} already contains different bytes`
-        );
-      }
-      return existing;
-    }
-    await this.deps.knowledge.append(scope, expected);
-    return expected;
-  }
-
-  private async applyReconciliationPlan(
-    scope: string,
-    decision: KnowledgeEnvelope,
-    plan: ReconciliationPlan,
-    validated: ValidatedReconciliationPlan,
-    pausedTaskIds: Set<string>
-  ): Promise<void> {
-    if (validated.ratifiedSource) {
-      const expected = buildContractTransitionEnvelope({
-        parent: validated.ratifiedSource,
-        status: "ratified",
-        payload: plan.ratified!,
-        decision,
-      });
-      await this.appendReconciliationAction(scope, expected, validated.ratifiedSource.envelope);
-    }
-
-    for (const rejected of validated.rejectedSources) {
-      const expected = buildContractTransitionEnvelope({
-        parent: rejected,
-        status: "rejected",
-        payload: { ...rejected.payload, status: "rejected" },
-        decision,
-      });
-      await this.appendReconciliationAction(scope, expected, rejected.envelope);
-    }
-
-    for (const taskId of validated.pauseTaskIds) {
-      const current = await this.deps.knowledge.read(
-        scope,
-        "task-state",
-        taskId
-      );
-      const identityProbe = buildTaskPauseEnvelope({
-        taskId,
-        current: null,
-        decision,
-      });
-      if (
-        current
-        && current.id === identityProbe.id
-        && canonicalReconciliationJson(current.payload)
-          === canonicalReconciliationJson(identityProbe.payload)
-      ) {
-        pausedTaskIds.add(taskId);
-        continue;
-      }
-      if (current) {
-        const payload = current.payload as TaskStatePayload;
-        if (payload.state !== "queued") {
-          throw new FleetReconciliationError(
-            `queued-only pause cannot replace task ${taskId} state ${payload.state}`
-          );
-        }
-      }
-      const expected = buildTaskPauseEnvelope({ taskId, current, decision });
-      await this.deps.knowledge.append(scope, expected);
-      pausedTaskIds.add(taskId);
-    }
-  }
-
-  private async appendReconciliationAction(
-    scope: string,
-    expected: KnowledgeEnvelope,
-    parent: KnowledgeEnvelope
-  ): Promise<void> {
-    const current = await this.deps.knowledge.read(
-      scope,
-      expected.kind,
-      expected.key
-    );
-    if (current && actionEnvelopeMatches(current, expected)) return;
-    if (current && current.id !== parent.id) {
-      throw new FleetReconciliationError(
-        `action ${expected.id} conflicts with current ${expected.kind}/${expected.key}@${current.version}`
-      );
-    }
-    await this.deps.knowledge.append(scope, expected);
   }
 
   /**
@@ -919,7 +484,8 @@ export class FleetSupervisor implements FleetSupervisorApi {
       throw new Error(`Policy assigned unknown worker ${assignment.workerId}`);
     }
 
-    await this.writeDecision(
+    await writeDecision(
+      this.deps.knowledge,
       spec.runId,
       "assignment",
       policy.id,
@@ -964,7 +530,8 @@ export class FleetSupervisor implements FleetSupervisorApi {
       "repeated-failure",
       this
     );
-    await this.writeDecision(
+    await writeDecision(
+      this.deps.knowledge,
       runId,
       "escalation",
       policy.id,
@@ -1016,53 +583,4 @@ export class FleetSupervisor implements FleetSupervisorApi {
     }
   }
 
-  private async writeTaskControlState(
-    runId: string,
-    taskId: string,
-    state: TaskState,
-    blockedReason: string
-  ): Promise<void> {
-    const payload: TaskStatePayload = { taskId, state, blockedReason };
-    const env: KnowledgeEnvelope = {
-      id: ulid(),
-      runId,
-      repo: null,
-      kind: "task-state",
-      key: taskId,
-      version:
-        Date.now() * 1000 +
-        (Math.abs(taskId.charCodeAt(taskId.length - 1)) % 1000),
-      authorWorkerId: null,
-      parentId: null,
-      createdAt: new Date().toISOString(),
-      supersededAt: null,
-      payload,
-      tags: ["control"],
-    };
-    await this.deps.knowledge.append(`run:${runId}`, env);
-  }
-
-  private async writeDecision(
-    runId: string,
-    decisionKind: DecisionKind,
-    policyId: string,
-    inputs: unknown[],
-    outcome: unknown
-  ): Promise<void> {
-    const env: KnowledgeEnvelope = {
-      id: ulid(),
-      runId,
-      repo: null,
-      kind: "decision",
-      key: `${decisionKind}-${ulid()}`,
-      version: 1,
-      authorWorkerId: null,
-      parentId: null,
-      createdAt: new Date().toISOString(),
-      supersededAt: null,
-      payload: { decisionKind, inputs, outcome, policyId },
-      tags: [],
-    };
-    await this.deps.knowledge.append(`run:${runId}`, env);
-  }
 }

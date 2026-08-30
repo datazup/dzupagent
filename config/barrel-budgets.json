@@ -236,14 +236,6 @@
           "reviewBy": "2026-11-16",
           "rationale": "ARCH27-T-08 re-pin 2026-08-28: root barrel SHRANK 753->709 when the drifted pipeline sections were replaced by a single verbatim re-export of ./pipeline/index.ts. rootDebtPin removed entirely (709 <= the 732 budget). File remains over the 500-LOC ceiling; shrinkTarget unchanged."
         },
-        "src/orchestration/contract-net/contract-net-manager.ts": {
-          "maxLines": 644,
-          "shrinkTarget": 500,
-          "sourceSha256": "6805a14244508d2e772404b7bb35a8638e019b939196d0eecadfa956b2d1c3f4",
-          "sourceCommit": "1162b6dc1232f7dd35a8f42cf1965501ff02e9d5",
-          "reviewBy": "2026-11-16",
-          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 644 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
-        },
         "src/orchestration/delegating-supervisor.ts": {
           "maxLines": 979,
           "shrinkTarget": 500,
@@ -253,12 +245,12 @@
           "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 979 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
         },
         "src/orchestration/fleet/fleet-supervisor.ts": {
-          "maxLines": 660,
+          "maxLines": 586,
           "shrinkTarget": 500,
-          "sourceSha256": "edb315ec9310fe8d3369c49f39cd7a13ee8ef01d2187b4068dd4eb73c7dae1fa",
-          "sourceCommit": "4dcebb40b5d34cfd88ead33a9baaf1e28b40d586",
-          "reviewBy": "2026-11-16",
-          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 660 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+          "sourceSha256": "ddbb40f5cbd8628eaa880217ccdbf881e4893eac69de723b3dfcdc5a7fcdb632",
+          "sourceCommit": "be0c0354397333557820d613c13498766175ad42",
+          "reviewBy": "2026-11-30",
+          "rationale": "Re-pin DOWN 660->586 (2026-08-30): the supervisor-side contract reconciliation pass, the budget tracker, the task-state/decision envelope writers and the reassignment algorithm were extracted to fleet-reconciliation-runner.ts, fleet-budget-tracker.ts, fleet-run-records.ts and fleet-task-control.ts respectively (1068 -> 586 LOC). Still above the 500 ceiling; shrinkTarget unchanged. The remaining candidates are the run() loop and the dispatch/failure pair."
         },
         "src/orchestration/topology/topology-executor.ts": {
           "maxLines": 560,
