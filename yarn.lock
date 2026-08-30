@@ -1198,6 +1198,7 @@ __metadata:
   dependencies:
     "@anthropic-ai/claude-agent-sdk": "npm:^0.3.170"
     "@anthropic-ai/sdk": "npm:0.103.0"
+    "@datazup/canonical-json": "npm:0.1.0"
     "@dzupagent/adapter-rules": "npm:0.1.0"
     "@dzupagent/adapter-types": "npm:0.2.0"
     "@dzupagent/agent": "npm:0.2.0"

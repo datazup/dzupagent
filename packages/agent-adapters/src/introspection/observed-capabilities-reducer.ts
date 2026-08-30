@@ -5,7 +5,9 @@
  * retained replay both feed the same reducer, which makes rebuild output
  * byte-equivalent to output from a completed live aggregation cycle.
  */
-import { createHash } from 'node:crypto'
+import { canonicalStringify, sha256Hex } from '@datazup/canonical-json'
+
+import { ADAPTER_CANONICAL_JSON_OPTIONS } from '../canonical-json-options.js'
 import type { AgentEvent } from '@dzupagent/adapter-types'
 import type {
   AdapterInstallationRef,
@@ -298,19 +300,14 @@ function eventOrder(event: AgentEvent): number {
 }
 
 function sha256(value: string): string {
-  return createHash('sha256').update(value).digest('hex')
+  return sha256Hex(value)
 }
 
+// DELIBERATE digest change (ARCH27-T-01 family): the removed local
+// stableStringify sorted keys with localeCompare, whose order varies with
+// the host ICU locale, so synthesized event ids were never locale-stable.
+// Corpus-proven identical for lowercase/camelCase key sets; only
+// mixed-case or non-ASCII key orders change.
 function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value)
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`
-
-  const entries = Object.entries(value as Record<string, unknown>)
-    .filter(([, entryValue]) => entryValue !== undefined)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(
-      ([key, entryValue]) =>
-        `${JSON.stringify(key)}:${stableStringify(entryValue)}`,
-    )
-  return `{${entries.join(',')}}`
+  return canonicalStringify(value, ADAPTER_CANONICAL_JSON_OPTIONS)
 }

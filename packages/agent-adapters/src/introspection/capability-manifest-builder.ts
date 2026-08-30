@@ -15,7 +15,9 @@
  *   layers raises a `capability-drift` finding; reconciliation is a re-probe
  *   or a human, never a silent overwrite.
  */
-import { createHash } from 'node:crypto'
+import { canonicalStringify, sha256Prefixed } from '@datazup/canonical-json'
+
+import { ADAPTER_CANONICAL_JSON_OPTIONS } from '../canonical-json-options.js'
 import type {
   AdapterInstallationRef,
   CapabilityManifest,
@@ -138,9 +140,12 @@ export function computeManifestHash(
     observed: manifest.observed,
   }
 
-  return `sha256:${createHash('sha256')
-    .update(stableStringify(content))
-    .digest('hex')}`
+  // Exact port of the private stableStringify this file used to carry
+  // (omit undefined entries, elide undefined array items, UTF-16 key
+  // order) — corpus-proven byte-identical (ARCH27-T-13).
+  return sha256Prefixed(
+    canonicalStringify(content, ADAPTER_CANONICAL_JSON_OPTIONS),
+  )
 }
 
 /**
@@ -352,17 +357,4 @@ function isStale(
 }
 
 /** Key-sorted JSON so hash equality does not depend on property order. */
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value)
 
-  if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(',')}]`
-  }
-
-  const entries = Object.entries(value as Record<string, unknown>)
-    .filter(([, entryValue]) => entryValue !== undefined)
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([key, entryValue]) => `${JSON.stringify(key)}:${stableStringify(entryValue)}`)
-
-  return `{${entries.join(',')}}`
-}

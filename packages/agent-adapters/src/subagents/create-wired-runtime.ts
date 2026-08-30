@@ -19,7 +19,11 @@ import {
   type SubagentSpec,
   type TaskStore,
 } from "@dzupagent/subagents";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
+
+import { canonicalStringify, sha256Prefixed } from "@datazup/canonical-json";
+
+import { ADAPTER_CANONICAL_JSON_OPTIONS } from "../canonical-json-options.js";
 import type { ProviderAdapterRegistry } from "../registry/adapter-registry.js";
 import type { CheckpointStore } from "../session/workflow-checkpointer.js";
 import { CheckpointStorePort } from "./checkpoint-store-port.js";
@@ -306,25 +310,12 @@ function resolveRegisteredProviderId(
 function hashDefinition(
   definition: NonNullable<SubagentSpec["definition"]>
 ): string {
-  return `sha256:${createHash("sha256")
-    .update(stableStringify(definition))
-    .digest("hex")}`;
-}
-
-function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => stableStringify(item)).join(",")}]`;
-  }
-  if (value !== null && typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .filter(([, entryValue]) => entryValue !== undefined)
-      .sort(([a], [b]) => a.localeCompare(b));
-    return `{${entries
-      .map(
-        ([key, entryValue]) =>
-          `${JSON.stringify(key)}:${stableStringify(entryValue)}`
-      )
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
+  // DELIBERATE digest change (ARCH27-T-01 family): the removed local
+  // stableStringify sorted keys with localeCompare, whose order varies
+  // with the host ICU locale, so definition hashes were never
+  // locale-stable. Corpus-proven identical for lowercase/camelCase key
+  // sets; only mixed-case or non-ASCII key orders change.
+  return sha256Prefixed(
+    canonicalStringify(definition, ADAPTER_CANONICAL_JSON_OPTIONS),
+  );
 }
