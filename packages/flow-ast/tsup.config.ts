@@ -5,6 +5,7 @@ export default defineConfig({
     'src/index.ts',
     'src/expressions.ts',
     'src/typed-condition-evaluator.ts',
+    'src/node-traversal.ts',
   ],
   format: ['esm'],
   dts: false,

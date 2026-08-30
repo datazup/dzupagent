@@ -723,12 +723,12 @@
           "rationale": "RF-03: module was over the ceiling with no pin, so the gate was red. Frozen at its current 577 bytes-bound LOC pending extraction down to the 500-LOC target."
         },
         "src/dsl-source-map-projection.ts": {
-          "maxLines": 653,
+          "maxLines": 645,
           "shrinkTarget": 500,
-          "sourceSha256": "d60e9ca8b0ffc2d5237857f0057f16ed6650592a047d3d5c12134a20dd3867dd",
-          "sourceCommit": "3132751f17ff247af8fef2978926e8114a27cfc2",
+          "sourceSha256": "2f012c18150a6d49b2c567680fde2788c3c2d5d26df78758b59e9042e8b13f2c",
+          "sourceCommit": "389c3b39a1893b62185145ffa304a9a9b807f791",
           "reviewBy": "2026-11-16",
-          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 653 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at 645 bytes-bound LOC (ARCH27-T-13 canonical child-field derivation shrank it from 653); any edit fails closed until it is extracted down to the 500-LOC target."
         },
         "src/primitives/built-ins-v2.ts": {
           "maxLines": 513,
@@ -739,12 +739,12 @@
           "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 513 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
         },
         "src/primitives/composite-expansion.ts": {
-          "maxLines": 508,
+          "maxLines": 507,
           "shrinkTarget": 500,
-          "sourceSha256": "3a9a22bc3cf34cc213e67b12c1e2079c718bf9acfb65ecb7e99dd66758b2927b",
-          "sourceCommit": "bad0caab05cb835bbb198d8c0c4b6c838064cabf",
+          "sourceSha256": "bb1a8718a750dacbfde88365edabd90e7658e4125318be47d96dac0551a4ccf2",
+          "sourceCommit": "389c3b39a1893b62185145ffa304a9a9b807f791",
           "reviewBy": "2026-11-16",
-          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 508 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at 507 bytes-bound LOC (ARCH27-T-13 canonical child-field derivation shrank it from 508); any edit fails closed until it is extracted down to the 500-LOC target."
         },
         "src/v2-authoring/migration.ts": {
           "maxLines": 521,

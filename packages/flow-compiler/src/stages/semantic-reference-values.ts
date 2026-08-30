@@ -5,6 +5,7 @@ import {
   type FlowReferenceUseSite,
   type ParsedFlowReference,
 } from "@dzupagent/flow-ast/expressions";
+import { FLOW_CHILD_CONTAINER_FIELDS } from "@dzupagent/flow-ast/node-traversal";
 
 import type { WalkContext } from "./semantic-context.js";
 import {
@@ -17,16 +18,9 @@ import { classificationForReference } from "./reference-classifications.js";
 import { validatePrimitiveReferenceAdmission } from "./primitive-admission.js";
 import { canonicalReferenceRootFixes } from "./reference-quick-fixes.js";
 
-const CHILD_NODE_FIELDS = new Set([
-  "nodes",
-  "body",
-  "then",
-  "else",
-  "catch",
-  "branches",
-  "onApprove",
-  "onReject",
-]);
+const CHILD_NODE_FIELDS: ReadonlySet<string> = new Set(
+  FLOW_CHILD_CONTAINER_FIELDS
+);
 
 const GOVERNANCE_META_FIELDS = new Set([
   "invocation",

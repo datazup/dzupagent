@@ -2,6 +2,7 @@ import {
   isFlowReferenceValue,
   parseFlowReferenceExpression,
 } from "@dzupagent/flow-ast/expressions";
+import { FLOW_CHILD_CONTAINER_FIELDS } from "@dzupagent/flow-ast/node-traversal";
 
 const STATE_KEY_FIELDS = new Set([
   "output",
@@ -31,16 +32,9 @@ const PARAM_RE = /\{\{\s*params\.([A-Za-z0-9_]+)\s*\}\}/g;
 const STATE_TEMPLATE_RE =
   /\{\{\s*state\.([A-Za-z0-9_]+)((?:\.[A-Za-z0-9_]+)*)\s*\}\}/g;
 /* eslint-enable security/detect-unsafe-regex */
-export const CHILD_NODE_FIELDS = new Set([
-  "nodes",
-  "body",
-  "then",
-  "else",
-  "catch",
-  "branches",
-  "onApprove",
-  "onReject",
-]);
+export const CHILD_NODE_FIELDS: ReadonlySet<string> = new Set(
+  FLOW_CHILD_CONTAINER_FIELDS
+);
 
 export interface FragmentReferenceScope {
   nodeIds?: ReadonlySet<string>;

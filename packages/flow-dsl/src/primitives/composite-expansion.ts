@@ -2,6 +2,11 @@ import {
   BUILT_IN_PRIMITIVE_REGISTRY_V2,
   DEFAULT_PRIMITIVE_REGISTRY,
 } from "./built-ins.js";
+import {
+  FLOW_CHILD_NODE_FIELDS,
+  RAW_SNAKE_CASE_CHILD_FIELD_ALIASES,
+  RAW_STEP_CONTAINER_FIELD,
+} from "@dzupagent/flow-ast/node-traversal";
 import type {
   PrimitiveDefinition,
   PrimitiveDefinitionV2,
@@ -22,17 +27,11 @@ import {
 } from "../v2/source-lineage.js";
 
 type StepWrapper = Record<string, unknown>;
-const STEP_ARRAY_FIELDS = new Set([
-  "steps",
-  "nodes",
-  "body",
-  "then",
-  "else",
-  "catch",
-  "onApprove",
-  "onReject",
-  "on_approve",
-  "on_reject",
+// `branches` is deliberately absent: it holds branch ARRAYS, not a step array.
+const STEP_ARRAY_FIELDS: ReadonlySet<string> = new Set([
+  RAW_STEP_CONTAINER_FIELD,
+  ...FLOW_CHILD_NODE_FIELDS,
+  ...Object.keys(RAW_SNAKE_CASE_CHILD_FIELD_ALIASES),
 ]);
 
 export interface CompositeExpansionOptions {

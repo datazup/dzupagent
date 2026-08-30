@@ -17,6 +17,10 @@
     "./typed-condition-evaluator": {
       "import": "./dist/typed-condition-evaluator.js",
       "types": "./dist/typed-condition-evaluator.d.ts"
+    },
+    "./node-traversal": {
+      "import": "./dist/node-traversal.js",
+      "types": "./dist/node-traversal.d.ts"
     }
   },
   "files": [

@@ -9,6 +9,7 @@
  * flow that carries unreachable siblings.
  */
 import type { FlowNode } from './types.js'
+import { FLOW_CHILD_NODE_FIELDS } from './node-traversal.js'
 
 export const UNREACHABLE_AFTER_COMPLETE_CODE = 'unreachable_after_complete'
 export const UNREACHABLE_AFTER_COMPLETE_SEVERITY = 'error'
@@ -80,7 +81,10 @@ function descend(
   const id = (anyNode.id as string | undefined) ?? '(anon)'
   const base = `${parentScopePath}.${kind}[id=${id}]`
 
-  for (const field of ['body', 'then', 'else', 'onApprove', 'onReject'] as const) {
+  // Child fields are unique per node type, so the canonical list needs no
+  // kind gates; at most `then`+`else` or `body`+`catch` coexist, and the
+  // canonical order preserves both pairs' relative order.
+  for (const field of FLOW_CHILD_NODE_FIELDS) {
     const arr = anyNode[field]
     if (Array.isArray(arr)) {
       walkScope(
@@ -91,15 +95,7 @@ function descend(
       )
     }
   }
-  if (kind === 'try_catch' && Array.isArray(anyNode.catch)) {
-    walkScope(
-      anyNode.catch as FlowNode[],
-      `${base}.catch`,
-      (index) => `${nodePath}.catch[${index}]`,
-      diags,
-    )
-  }
-  if (kind === 'parallel' && Array.isArray(anyNode.branches)) {
+  if (Array.isArray(anyNode.branches)) {
     ;(anyNode.branches as FlowNode[][]).forEach((branch, i) => {
       walkScope(
         branch,
@@ -108,14 +104,6 @@ function descend(
         diags,
       )
     })
-  }
-  if (kind === 'sequence' && Array.isArray(anyNode.nodes)) {
-    walkScope(
-      anyNode.nodes as FlowNode[],
-      `${base}.nodes`,
-      (index) => `${nodePath}.nodes[${index}]`,
-      diags,
-    )
   }
 }
 

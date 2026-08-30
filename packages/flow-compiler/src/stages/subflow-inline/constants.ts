@@ -5,6 +5,8 @@
 // remapping (rewrite) concern. Kept in a leaf module so the rewrite and
 // reference-scope passes share a single source of truth.
 
+import { FLOW_CHILD_CONTAINER_FIELDS } from "@dzupagent/flow-ast/node-traversal";
+
 export const STATE_KEY_FIELDS = new Set([
   "output",
   "outputKey",
@@ -51,13 +53,6 @@ export function inputStateKey(inputKey: string): string {
   return `input__${inputKey}`;
 }
 
-export const CHILD_NODE_FIELDS = new Set([
-  "nodes",
-  "body",
-  "then",
-  "else",
-  "catch",
-  "branches",
-  "onApprove",
-  "onReject",
-]);
+export const CHILD_NODE_FIELDS: ReadonlySet<string> = new Set(
+  FLOW_CHILD_CONTAINER_FIELDS
+);

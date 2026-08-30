@@ -1,4 +1,5 @@
 import type { FlowDocumentV1, FlowNode } from "@dzupagent/flow-ast";
+import { FLOW_CHILD_CONTAINER_FIELDS } from "@dzupagent/flow-ast/node-traversal";
 
 import type { DslSourceMapEntry, DslSourceSpan } from "./types.js";
 import {
@@ -58,16 +59,7 @@ const FIELD_ALIASES: Readonly<Record<string, readonly string[]>> = Object.freeze
   maxIterations: ["maxIterations", "max_iterations"],
 });
 
-const CHILD_FIELDS = new Set([
-  "nodes",
-  "body",
-  "then",
-  "else",
-  "catch",
-  "branches",
-  "onApprove",
-  "onReject",
-]);
+const CHILD_FIELDS: ReadonlySet<string> = new Set(FLOW_CHILD_CONTAINER_FIELDS);
 
 export interface MutableDslSourceEntry {
   authoredPath: string;

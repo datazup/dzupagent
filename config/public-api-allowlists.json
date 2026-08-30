@@ -755,7 +755,8 @@
       "transitionalRoot": [],
       "subpaths": {
         "./expressions": "typed expression and strict reference analysis contracts",
-        "./typed-condition-evaluator": "capability-gated provider-free typed-condition evaluation"
+        "./typed-condition-evaluator": "capability-gated provider-free typed-condition evaluation",
+        "./node-traversal": "canonical child-node field lists and pre-order AST/raw traversal helpers"
       },
       "migrationWindow": "Flow AST root exports are stable Layer 0 parser, validator, and contract primitives; add allowlist rules before exposing new root modules."
     },

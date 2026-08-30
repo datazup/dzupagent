@@ -6,6 +6,7 @@ import type {
   KnowledgeQueryNode,
   KnowledgeWriteNode,
 } from "@dzupagent/flow-ast";
+import { walkFlowNodes } from "@dzupagent/flow-ast/node-traversal";
 
 const FLEET_SUPERVISOR_FACTORY =
   "@dzupagent/agent/orchestration#FleetSupervisor";
@@ -142,33 +143,11 @@ export function isFleetNode(node: FlowNode): boolean {
 
 export function collectFleetSteps(ast: FlowNode): LoweredFleetStep[] {
   const steps: LoweredFleetStep[] = [];
-  const visit = (node: FlowNode): void => {
+  walkFlowNodes(ast, (node) => {
     if (isFleetNode(node)) {
       steps.push(lowerFleetNode(node));
     }
-    const n = node as unknown as Record<string, unknown>;
-    for (const key of [
-      "nodes",
-      "body",
-      "then",
-      "else",
-      "catch",
-      "onApprove",
-      "onReject",
-    ]) {
-      const child = n[key];
-      if (Array.isArray(child)) {
-        for (const c of child) visit(c as FlowNode);
-      }
-    }
-    if (Array.isArray(n["branches"])) {
-      for (const branch of n["branches"]) {
-        if (!Array.isArray(branch)) continue;
-        for (const c of branch) visit(c as FlowNode);
-      }
-    }
-  };
-  visit(ast);
+  });
   return steps;
 }
 

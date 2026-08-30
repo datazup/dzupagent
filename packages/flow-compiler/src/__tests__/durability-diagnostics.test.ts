@@ -10,6 +10,7 @@ import { InMemoryDomainToolRegistry } from "@dzupagent/app-tools";
 import { describe, expect, it } from "vitest";
 
 import { createFlowCompiler } from "../index.js";
+import { computeDurabilityDiagnostics } from "../stages/durability-diagnostics.js";
 
 function makeResolver(toolRefs: string[]): ToolResolver {
   const registry = new InMemoryDomainToolRegistry();
@@ -682,5 +683,88 @@ describe("durability diagnostics — Slice 2 checkpoint-strategy reconciliation"
     expect("resume" in (result.artifact as Record<string, unknown>)).toBe(
       false
     );
+  });
+});
+
+describe("durability diagnostics — traversal reaches approval/catch/parallel subtrees (ARCH27-T-13)", () => {
+  // Before the canonical traversal, walkSteps hand-listed only
+  // [nodes, steps, body, then, else, branches] and never descended into a
+  // parallel branch's contents, so these three placements were silently
+  // exempt from D1. These tests pin the fix.
+  const mutating = (id: string): Record<string, unknown> => ({
+    type: "action",
+    id,
+    toolRef: "tool.run",
+    input: {},
+    effectClass: "db_write",
+  });
+
+  it("flags mutating nodes inside approval.onApprove and onReject", () => {
+    const warnings = computeDurabilityDiagnostics({
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "approval",
+            id: "gate",
+            question: "ok?",
+            onApprove: [mutating("m1")],
+            onReject: [mutating("m2")],
+          },
+        ],
+      },
+    });
+    const d1 = warnings.filter(
+      (w) => w.code === "MUTATING_EFFECT_NO_IDEMPOTENCY"
+    );
+    expect(d1.map((w) => w.nodePath)).toEqual([
+      "root.nodes[0].onApprove[0]",
+      "root.nodes[0].onReject[0]",
+    ]);
+  });
+
+  it("flags a mutating node inside try_catch.catch", () => {
+    const warnings = computeDurabilityDiagnostics({
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "try_catch",
+            id: "tc",
+            body: [{ type: "complete", id: "ok" }],
+            catch: [mutating("m1")],
+          },
+        ],
+      },
+    });
+    const d1 = warnings.filter(
+      (w) => w.code === "MUTATING_EFFECT_NO_IDEMPOTENCY"
+    );
+    expect(d1.map((w) => w.nodePath)).toEqual(["root.nodes[0].catch[0]"]);
+  });
+
+  it("flags mutating nodes inside parallel branch contents", () => {
+    const warnings = computeDurabilityDiagnostics({
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "parallel",
+            id: "p",
+            branches: [[mutating("m1")], [mutating("m2")]],
+          },
+        ],
+      },
+    });
+    const d1 = warnings.filter(
+      (w) => w.code === "MUTATING_EFFECT_NO_IDEMPOTENCY"
+    );
+    expect(d1.map((w) => w.nodePath)).toEqual([
+      "root.nodes[0].branches[0][0]",
+      "root.nodes[0].branches[1][0]",
+    ]);
   });
 });

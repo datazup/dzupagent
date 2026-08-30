@@ -25,6 +25,10 @@
  *         configured (OQ-1: compile-warn, runtime-admission-fail).
  */
 import type { CompilationError, CompilationWarning } from "../types.js";
+import {
+  RAW_CHILD_NODE_FIELDS,
+  walkRawNodes,
+} from "@dzupagent/flow-ast/node-traversal";
 
 const ADAPTER_NODE_KEYS = [
   "adapter.run",
@@ -195,16 +199,7 @@ function containsMutatingNode(node: unknown): boolean {
     return true;
   }
 
-  for (const childKey of [
-    "nodes",
-    "steps",
-    "body",
-    "then",
-    "else",
-    "onApprove",
-    "onReject",
-    "catch",
-  ]) {
+  for (const childKey of RAW_CHILD_NODE_FIELDS) {
     const child = node[childKey];
     if (Array.isArray(child)) {
       if (child.some((entry) => containsMutatingNode(entry))) return true;
@@ -231,16 +226,7 @@ function containsReachableResumePoint(node: unknown): boolean {
   if (!isObject(node)) return false;
   if (isResumePoint(node)) return true;
 
-  for (const childKey of [
-    "nodes",
-    "steps",
-    "body",
-    "then",
-    "else",
-    "onApprove",
-    "onReject",
-    "catch",
-  ]) {
+  for (const childKey of RAW_CHILD_NODE_FIELDS) {
     const child = node[childKey];
     if (Array.isArray(child)) {
       if (child.some((entry) => containsReachableResumePoint(entry))) {
@@ -274,12 +260,25 @@ function isResumePoint(node: Record<string, unknown>): boolean {
   return isObject(resume) && resume["safeToReplayFrom"] === true;
 }
 
+// Traversal note (ARCH27-T-13): the pre-canonical walk here hand-listed only
+// [nodes, steps, body, then, else, branches] and recursed into a parallel
+// branch ARRAY through an object guard, so approval (onApprove/onReject),
+// try_catch `catch`, and all parallel branch CONTENTS were silently exempt
+// from D1/D2/D4. Walking the canonical raw traversal closes those gaps — a
+// deliberate diagnostics behavior fix pinned by the test suite.
 function walkSteps(
   node: unknown,
   path: string,
   warnings: CompilationWarning[]
 ): void {
-  if (!isObject(node)) return;
+  walkRawNodes(node, (current, currentPath) => checkStep(current, currentPath, warnings), path);
+}
+
+function checkStep(
+  node: Record<string, unknown>,
+  path: string,
+  warnings: CompilationWarning[]
+): void {
 
   // A node may be an envelope like { "adapter.run": {...} } (authoring form) or
   // a typed node { type: "adapter.run", ... } (AST form). Handle both.
@@ -299,24 +298,6 @@ function walkSteps(
   // fields — check this node directly.
   checkNodeEffectIdempotency(node, path, warnings);
 
-  // Recurse into common child-bearing fields.
-  for (const childKey of [
-    "nodes",
-    "steps",
-    "body",
-    "then",
-    "else",
-    "branches",
-  ]) {
-    const child = node[childKey];
-    if (Array.isArray(child)) {
-      child.forEach((c, i) =>
-        walkSteps(c, `${path}.${childKey}[${i}]`, warnings)
-      );
-    } else if (isObject(child)) {
-      walkSteps(child, `${path}.${childKey}`, warnings);
-    }
-  }
 }
 
 function checkAdapterIdempotency(
