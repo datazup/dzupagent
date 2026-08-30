@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { canonicalDigestPrefixed } from "@datazup/canonical-json";
 
 import type {
   FlowDataClassification,
@@ -399,42 +399,22 @@ function sortedEntries<T>(
   );
 }
 
+// Both digests delegate to @datazup/canonical-json's
+// `classification-envelope-v1` preset — the exact port of the local
+// stableStringify this file used to carry (undefined object entries
+// omitted, undefined array items as null, unwinding cycle detection with
+// this file's historical "cannot hash cyclic envelope" message), so
+// persisted envelope and tool-security-policy hashes are byte-identical.
+// The preset is golden-pinned in the package against vectors generated
+// from this file's original implementation.
 export function hashFlowCompiledClassificationEnvelopePayload(
   value: unknown,
 ): `sha256:${string}` {
-  return `sha256:${createHash("sha256")
-    .update(stableStringify(value))
-    .digest("hex")}`;
+  return canonicalDigestPrefixed(value, "classification-envelope-v1");
 }
 
 export function hashFlowToolSecurityPolicy(
   value: unknown,
 ): `sha256:${string}` {
-  return `sha256:${createHash("sha256")
-    .update(stableStringify(value))
-    .digest("hex")}`;
-}
-
-function stableStringify(value: unknown, seen = new WeakSet<object>()): string {
-  if (value === undefined) return "null";
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (seen.has(value)) throw new TypeError("cannot hash cyclic envelope");
-  seen.add(value);
-  if (Array.isArray(value)) {
-    const serialized = `[${value
-      .map((item) => stableStringify(item, seen))
-      .join(",")}]`;
-    seen.delete(value);
-    return serialized;
-  }
-  const record = value as Record<string, unknown>;
-  const serialized = `{${Object.keys(record)
-    .filter((key) => record[key] !== undefined)
-    .sort()
-    .map(
-      (key) => `${JSON.stringify(key)}:${stableStringify(record[key], seen)}`,
-    )
-    .join(",")}}`;
-  seen.delete(value);
-  return serialized;
+  return canonicalDigestPrefixed(value, "classification-envelope-v1");
 }
