@@ -28,6 +28,34 @@ export const ROOT_BUILD_INPUTS = [
   'scripts/write-build-artifact-manifest.mjs',
 ]
 
+// Recorded build-input identity must be reproducible across two checkouts of the
+// same commit. The src walk below is a plain directory crawl, so any stray file
+// a tool drops inside src/ would otherwise be counted as a build input and shift
+// inputFileCount/inputFingerprint without changing a single emitted byte. That
+// makes a consumer's vendored manifest look drifted against an identical build.
+//
+// These patterns match scratch that no build tool can consume. The list is a
+// denylist on purpose: an unknown scratch type re-contaminates loudly (a visible
+// fingerprint mismatch), whereas an allowlist of "real" source extensions would
+// silently drop a genuine input and quietly weaken the guard.
+export const NON_SOURCE_INPUT_PATTERNS = [
+  /\.log$/u,
+  /\.tmp$/u,
+  /\.temp$/u,
+  /\.orig$/u,
+  /\.rej$/u,
+  /\.bak$/u,
+  /\.swp$/u,
+  /\.swo$/u,
+  /~$/u,
+  /(^|\/)\.DS_Store$/u,
+  /(^|\/)Thumbs\.db$/u,
+]
+
+export function isNonSourceBuildInput(relativePath) {
+  return NON_SOURCE_INPUT_PATTERNS.some((pattern) => pattern.test(relativePath))
+}
+
 function toPosix(value) {
   return value.split(path.sep).join('/')
 }
@@ -109,9 +137,10 @@ async function collectPackageBuildInputs(root, packageDir) {
       inputs.push(toPosix(path.join(packageDir, entry.name)))
     }
   }
-  inputs.push(...await collectTreeFiles(root, path.join(packageDir, 'src'), {
+  const sourceFiles = await collectTreeFiles(root, path.join(packageDir, 'src'), {
     optional: true,
-  }))
+  })
+  inputs.push(...sourceFiles.filter((file) => !isNonSourceBuildInput(file)))
   return [...new Set(inputs)].sort()
 }
 
