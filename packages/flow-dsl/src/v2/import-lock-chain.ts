@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { canonicalDigestPrefixed } from "@datazup/canonical-json";
 
 import type { DslDiagnostic } from "../diagnostic-types.js";
 import type {
@@ -27,7 +27,7 @@ const SHA256 = /^sha256:[a-f0-9]{64}$/;
 /** Link one resolved lock to its predecessor, producing the next chain entry. */
 export function createV2ImportLockChainEntry(
   lock: DslV2ResolvedImportLock,
-  parent?: DslV2ImportLockChainEntry
+  parent?: DslV2ImportLockChainEntry,
 ): DslV2ImportLockChainEntry {
   const core = {
     schema: "dzupagent.dslV2ImportLockChain/v1" as const,
@@ -40,11 +40,15 @@ export function createV2ImportLockChainEntry(
     // Fold the parent's chain digest in, so the digest commits to the whole
     // history rather than just this entry. Without it, two identical locks at
     // different chain positions would be indistinguishable.
-    chainSha256: sha256(
-      stableStringify({
+    // authoring-v1 is the exact port of the private stableStringify/sha256
+    // pair this file used to carry (corpus-proven, ARCH27-T-13), so
+    // persisted chain digests are byte-identical.
+    chainSha256: canonicalDigestPrefixed(
+      {
         ...core,
         parentChainSha256: parent?.chainSha256 ?? null,
-      })
+      },
+      "authoring-v1",
     ),
   });
 }
@@ -56,7 +60,7 @@ export function createV2ImportLockChainEntry(
  * An empty chain is vacuously valid — absence of lineage is not a defect.
  */
 export function verifyV2ImportLockChain(
-  entries: readonly DslV2ImportLockChainEntry[]
+  entries: readonly DslV2ImportLockChainEntry[],
 ): readonly DslDiagnostic[] {
   const diagnostics: DslDiagnostic[] = [];
   const seenLocks = new Set<string>();
@@ -67,7 +71,7 @@ export function verifyV2ImportLockChain(
 
     if (entry.schema !== "dzupagent.dslV2ImportLockChain/v1") {
       diagnostics.push(
-        invalid("unsupported import lock chain schema", `${path}.schema`)
+        invalid("unsupported import lock chain schema", `${path}.schema`),
       );
       return;
     }
@@ -75,8 +79,8 @@ export function verifyV2ImportLockChain(
       diagnostics.push(
         invalid(
           "chain entry lockSha256 must be an exact lowercase SHA-256 digest",
-          `${path}.lockSha256`
-        )
+          `${path}.lockSha256`,
+        ),
       );
       return;
     }
@@ -88,10 +92,10 @@ export function verifyV2ImportLockChain(
           expectedParent === null
             ? "first chain entry must be a root with parentLockSha256 null"
             : `chain entry parent ${String(
-                entry.parentLockSha256
+                entry.parentLockSha256,
               )} does not match the preceding lock ${expectedParent}`,
-          `${path}.parentLockSha256`
-        )
+          `${path}.parentLockSha256`,
+        ),
       );
     }
 
@@ -100,8 +104,8 @@ export function verifyV2ImportLockChain(
       diagnostics.push(
         invalid(
           `chain entry revision must be ${expectedRevision}, found ${entry.revision}`,
-          `${path}.revision`
-        )
+          `${path}.revision`,
+        ),
       );
     }
 
@@ -109,14 +113,14 @@ export function verifyV2ImportLockChain(
     // parent's chain digest is folded in) any reordering upstream of here.
     const recomputed = createV2ImportLockChainEntry(
       { lockSha256: entry.lockSha256 } as DslV2ResolvedImportLock,
-      previous
+      previous,
     );
     if (entry.chainSha256 !== recomputed.chainSha256) {
       diagnostics.push(
         invalid(
           "chain entry chainSha256 does not match its recomputed lineage digest",
-          `${path}.chainSha256`
-        )
+          `${path}.chainSha256`,
+        ),
       );
     }
 
@@ -127,8 +131,8 @@ export function verifyV2ImportLockChain(
       diagnostics.push(
         invalid(
           `duplicate chain entry ${entry.chainSha256}`,
-          `${path}.chainSha256`
-        )
+          `${path}.chainSha256`,
+        ),
       );
     }
     seenLocks.add(entry.chainSha256);
@@ -146,22 +150,4 @@ function invalid(message: string, path: string): DslDiagnostic {
     message,
     path,
   };
-}
-
-function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(",")}]`;
-  }
-  if (typeof value === "object" && value !== null) {
-    const record = value as Record<string, unknown>;
-    return `{${Object.keys(record)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
-}
-
-function sha256(value: string): `sha256:${string}` {
-  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }

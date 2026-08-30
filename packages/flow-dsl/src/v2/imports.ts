@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { canonicalDigestPrefixed } from "@datazup/canonical-json";
 
 import type {
   PrimitiveDefinitionV2,
@@ -40,7 +40,7 @@ export type ParsedV2ExternalImports = Readonly<
 export function parseV2PrimitiveImports(
   raw: unknown,
   registry: PrimitiveRegistryV2,
-  diagnostics: DslDiagnostic[]
+  diagnostics: DslDiagnostic[],
 ): ParsedV2PrimitiveImports {
   if (raw === undefined) return { explicit: false, bindings: new Map() };
   if (!isRecord(raw)) {
@@ -52,8 +52,8 @@ export function parseV2PrimitiveImports(
       diagnostics.push(
         unsupported(
           `unsupported v2 import catalog "${key}"`,
-          `root.imports.${key}`
-        )
+          `root.imports.${key}`,
+        ),
       );
     }
   }
@@ -62,7 +62,7 @@ export function parseV2PrimitiveImports(
   }
   if (!Array.isArray(raw.primitives)) {
     diagnostics.push(
-      invalid("imports.primitives must be an array", "root.imports.primitives")
+      invalid("imports.primitives must be an array", "root.imports.primitives"),
     );
     return { explicit: true, bindings: new Map() };
   }
@@ -70,8 +70,8 @@ export function parseV2PrimitiveImports(
     diagnostics.push(
       invalid(
         `imports.primitives exceeds the ${MAX_IMPORTS}-entry limit`,
-        "root.imports.primitives"
-      )
+        "root.imports.primitives",
+      ),
     );
   }
 
@@ -87,8 +87,8 @@ export function parseV2PrimitiveImports(
         diagnostics.push(
           unsupported(
             `unsupported primitive import field "${key}"`,
-            `${path}.${key}`
-          )
+            `${path}.${key}`,
+          ),
         );
       }
     }
@@ -96,22 +96,22 @@ export function parseV2PrimitiveImports(
       diagnostics.push(
         invalid(
           "primitive import ref must be an exact primitive://kind@version ref",
-          `${path}.ref`
-        )
+          `${path}.ref`,
+        ),
       );
       return;
     }
     const ref = entry.ref as PrimitiveDefinitionV2["ref"];
     if (bindings.has(ref)) {
       diagnostics.push(
-        invalid(`duplicate primitive import ${ref}`, `${path}.ref`)
+        invalid(`duplicate primitive import ${ref}`, `${path}.ref`),
       );
       return;
     }
     const definition = registry.get(ref);
     if (definition === undefined) {
       diagnostics.push(
-        invalid(`primitive import ${ref} is not registered`, `${path}.ref`)
+        invalid(`primitive import ${ref} is not registered`, `${path}.ref`),
       );
       return;
     }
@@ -122,8 +122,8 @@ export function parseV2PrimitiveImports(
       diagnostics.push(
         invalid(
           "primitive import semanticHash must be an exact lowercase SHA-256 digest",
-          `${path}.semanticHash`
-        )
+          `${path}.semanticHash`,
+        ),
       );
       return;
     }
@@ -131,8 +131,8 @@ export function parseV2PrimitiveImports(
       diagnostics.push(
         invalid(
           `primitive import ${ref} semantic hash does not match the registry`,
-          `${path}.semanticHash`
-        )
+          `${path}.semanticHash`,
+        ),
       );
       return;
     }
@@ -145,7 +145,7 @@ export function parseV2PrimitiveImports(
 export function parseV2ExternalImports(
   raw: unknown,
   registries: DslV2ExternalImportCatalogs | undefined,
-  diagnostics: DslDiagnostic[]
+  diagnostics: DslDiagnostic[],
 ): ParsedV2ExternalImports {
   const result: Record<
     DslV2ExternalImportCatalog,
@@ -172,14 +172,14 @@ export function parseV2ExternalImports(
       diagnostics.push(
         invalid(
           `imports.${catalog} exceeds the ${MAX_IMPORTS}-entry limit`,
-          path
-        )
+          path,
+        ),
       );
     }
     const registry = catalogRegistry(
       catalog,
       registries?.[catalog],
-      diagnostics
+      diagnostics,
     );
     const seen = new Set<string>();
     const accepted: DslV2ContentAddressedImport[] = [];
@@ -191,8 +191,8 @@ export function parseV2ExternalImports(
         diagnostics.push(
           invalid(
             `duplicate ${catalog} import ${parsed.ref}`,
-            `${entryPath}.ref`
-          )
+            `${entryPath}.ref`,
+          ),
         );
         return;
       }
@@ -202,8 +202,8 @@ export function parseV2ExternalImports(
         diagnostics.push(
           invalid(
             `${catalog} import ${parsed.ref} is not registered`,
-            `${entryPath}.ref`
-          )
+            `${entryPath}.ref`,
+          ),
         );
         return;
       }
@@ -211,15 +211,15 @@ export function parseV2ExternalImports(
         diagnostics.push(
           invalid(
             `${catalog} import ${parsed.ref} semantic hash does not match the registry`,
-            `${entryPath}.semanticHash`
-          )
+            `${entryPath}.semanticHash`,
+          ),
         );
         return;
       }
       accepted.push(parsed);
     });
     result[catalog] = Object.freeze(
-      accepted.sort((left, right) => left.ref.localeCompare(right.ref))
+      accepted.sort((left, right) => left.ref.localeCompare(right.ref)),
     );
   }
   return Object.freeze(result);
@@ -227,7 +227,7 @@ export function parseV2ExternalImports(
 
 export function createV2ResolvedImportLock(
   primitives: readonly DslV2PrimitiveImport[],
-  external: ParsedV2ExternalImports
+  external: ParsedV2ExternalImports,
 ): DslV2ResolvedImportLock {
   const core = {
     schema: "dzupagent.dslV2ResolvedImportLock/v1" as const,
@@ -237,13 +237,16 @@ export function createV2ResolvedImportLock(
         DSL_V2_EXTERNAL_IMPORT_CATALOGS.map((catalog) => [
           catalog,
           sortImports(external[catalog]),
-        ])
+        ]),
       ),
     }) as DslV2ResolvedImportLock["catalogs"],
   };
   return Object.freeze({
     ...core,
-    lockSha256: sha256(stableStringify(core)),
+    // authoring-v1 is the exact port of the private stableStringify/sha256
+    // pair this file used to carry (corpus-proven, ARCH27-T-13), so
+    // persisted lock digests are byte-identical.
+    lockSha256: canonicalDigestPrefixed(core, "authoring-v1"),
   });
 }
 
@@ -251,7 +254,7 @@ export function createV2ResolvedImportLock(
 export function validateV2PrimitiveImportClosure(
   imports: ParsedV2PrimitiveImports,
   used: ReadonlyMap<PrimitiveDefinitionV2["ref"], `sha256:${string}`>,
-  diagnostics: DslDiagnostic[]
+  diagnostics: DslDiagnostic[],
 ): void {
   if (!imports.explicit) return;
   for (const ref of used.keys()) {
@@ -259,15 +262,15 @@ export function validateV2PrimitiveImportClosure(
       diagnostics.push(
         invalid(
           `used primitive ${ref} is missing from imports.primitives`,
-          "root.imports.primitives"
-        )
+          "root.imports.primitives",
+        ),
       );
     }
   }
   for (const ref of imports.bindings.keys()) {
     if (!used.has(ref)) {
       diagnostics.push(
-        invalid(`primitive import ${ref} is unused`, "root.imports.primitives")
+        invalid(`primitive import ${ref} is unused`, "root.imports.primitives"),
       );
     }
   }
@@ -275,7 +278,7 @@ export function validateV2PrimitiveImportClosure(
 
 export function effectiveV2PrimitiveImports(
   imports: ParsedV2PrimitiveImports,
-  used: ReadonlyMap<PrimitiveDefinitionV2["ref"], `sha256:${string}`>
+  used: ReadonlyMap<PrimitiveDefinitionV2["ref"], `sha256:${string}`>,
 ): readonly DslV2PrimitiveImport[] {
   const source = imports.explicit ? imports.bindings : used;
   return [...source.entries()]
@@ -294,7 +297,7 @@ function unsupported(message: string, path: string): DslDiagnostic {
 function catalogRegistry(
   catalog: DslV2ExternalImportCatalog,
   entries: readonly DslV2ContentAddressedImport[] | undefined,
-  diagnostics: DslDiagnostic[]
+  diagnostics: DslDiagnostic[],
 ): ReadonlyMap<string, `sha256:${string}`> {
   const registry = new Map<string, `sha256:${string}`>();
   if (entries === undefined) return registry;
@@ -302,15 +305,15 @@ function catalogRegistry(
     const parsed = parseContentAddressedImport(
       entry,
       `options.importCatalogs.${catalog}[${index}]`,
-      diagnostics
+      diagnostics,
     );
     if (parsed === undefined) return;
     if (registry.has(parsed.ref)) {
       diagnostics.push(
         invalid(
           `duplicate registered ${catalog} import ${parsed.ref}`,
-          `options.importCatalogs.${catalog}[${index}].ref`
-        )
+          `options.importCatalogs.${catalog}[${index}].ref`,
+        ),
       );
       return;
     }
@@ -322,18 +325,18 @@ function catalogRegistry(
 function parseContentAddressedImport(
   entry: unknown,
   path: string,
-  diagnostics: DslDiagnostic[]
+  diagnostics: DslDiagnostic[],
 ): DslV2ContentAddressedImport | undefined {
   if (!isRecord(entry)) {
     diagnostics.push(
-      invalid("content-addressed import must be an object", path)
+      invalid("content-addressed import must be an object", path),
     );
     return undefined;
   }
   for (const key of Object.keys(entry)) {
     if (key !== "ref" && key !== "semanticHash") {
       diagnostics.push(
-        unsupported(`unsupported import field "${key}"`, `${path}.${key}`)
+        unsupported(`unsupported import field "${key}"`, `${path}.${key}`),
       );
     }
   }
@@ -346,8 +349,8 @@ function parseContentAddressedImport(
     diagnostics.push(
       invalid(
         "import ref must be one exact bounded non-empty string",
-        `${path}.ref`
-      )
+        `${path}.ref`,
+      ),
     );
     return undefined;
   }
@@ -358,8 +361,8 @@ function parseContentAddressedImport(
     diagnostics.push(
       invalid(
         "import semanticHash must be an exact lowercase SHA-256 digest",
-        `${path}.semanticHash`
-      )
+        `${path}.semanticHash`,
+      ),
     );
     return undefined;
   }
@@ -370,30 +373,13 @@ function parseContentAddressedImport(
 }
 
 function sortImports(
-  entries: readonly DslV2ContentAddressedImport[]
+  entries: readonly DslV2ContentAddressedImport[],
 ): readonly DslV2ContentAddressedImport[] {
   return Object.freeze(
     entries
       .map((entry) => Object.freeze({ ...entry }))
-      .sort((left, right) => left.ref.localeCompare(right.ref))
+      .sort((left, right) => left.ref.localeCompare(right.ref)),
   );
-}
-
-function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(",")}]`;
-  }
-  if (isRecord(value)) {
-    return `{${Object.keys(value)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
-}
-
-function sha256(value: string): `sha256:${string}` {
-  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

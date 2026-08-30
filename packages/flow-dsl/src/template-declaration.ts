@@ -16,7 +16,7 @@
  * matching the result-based convention used across flow-dsl.
  */
 
-import { createHash } from "node:crypto";
+import { canonicalDigestPrefixed } from "@datazup/canonical-json";
 
 export const PROMPT_TEMPLATE_DECLARATION_SCHEMA =
   "flow-prompt-lab/prompt-template-declaration/v1";
@@ -240,7 +240,10 @@ export function reconcileTemplateDeclaration(input: {
     id,
     referencedPaths: referenced,
     requiredVariables: payload.requiredVariables,
-    fingerprint: sha256(stableStringify(payload)),
+    // authoring-v1 is the exact port of the private stableStringify/sha256
+    // pair this file used to carry, so template fingerprints are
+    // byte-identical (corpus-proven old-vs-preset, ARCH27-T-13).
+    fingerprint: canonicalDigestPrefixed(payload, "authoring-v1"),
   });
 }
 
@@ -257,22 +260,4 @@ function failure(
     unused: Object.freeze([...unused]),
     diagnostics: Object.freeze([...diagnostics]),
   });
-}
-
-function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(",")}]`;
-  }
-  if (typeof value === "object" && value !== null) {
-    const record = value as Record<string, unknown>;
-    return `{${Object.keys(record)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
-}
-
-function sha256(value: string): `sha256:${string}` {
-  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
