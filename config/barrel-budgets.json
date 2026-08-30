@@ -516,14 +516,6 @@
           "reviewBy": "2026-11-16",
           "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 729 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
         },
-        "src/ai-execution.ts": {
-          "maxLines": 1869,
-          "shrinkTarget": 500,
-          "sourceSha256": "b971641a83edf1b3623ee60f99b676f86f1546ae20424ca61a5aca1b5b9603d1",
-          "sourceCommit": "bc3035d52ff463ef85b021c50b114a8ebb707ae4",
-          "reviewBy": "2026-11-30",
-          "rationale": "Re-pin DOWN 2496->1869 (2026-08-30): the request/target/binding contracts moved to ai-execution-types.ts, the usage/event/receipt contracts to ai-execution-receipt-types.ts, and the leaf shape-check primitives to ai-execution-validation-primitives.ts. All three are leaf modules, so the validators here depend on them without a cycle, and both type modules are re-exported wholesale - the public /ai-execution subpath surface is unchanged. Still above the 500 ceiling; shrinkTarget unchanged. The remaining bulk is the receipt and usage validators."
-        },
         "src/rag.ts": {
           "maxLines": 605,
           "shrinkTarget": 500,
@@ -539,14 +531,6 @@
           "sourceCommit": "4d52de34d06da166432fd6d4cb4662bf7b4dae6b",
           "reviewBy": "2026-11-30",
           "rationale": "Floor pin 2026-08-30: this file was over the 500-LOC ceiling with no debt pin at all, so nothing recorded or halted its growth. Frozen at the measured 1019 LOC to stop further growth; shrinkTarget stays 500. This accepts no regression \u2014 it establishes the ceiling that was missing. Decompose toward the target under ARCH27-T-15."
-        },
-        "src/recursive-scope/commit.ts": {
-          "maxLines": 1002,
-          "shrinkTarget": 500,
-          "sourceSha256": "37bc76a7e692acf2ceba31eeb70a3a7d453ae18da2ee7addaaac2cfdde10eff1",
-          "sourceCommit": "4d52de34d06da166432fd6d4cb4662bf7b4dae6b",
-          "reviewBy": "2026-11-30",
-          "rationale": "Floor pin 2026-08-30: this file was over the 500-LOC ceiling with no debt pin at all, so nothing recorded or halted its growth. Frozen at the measured 1002 LOC to stop further growth; shrinkTarget stays 500. This accepts no regression \u2014 it establishes the ceiling that was missing. Decompose toward the target under ARCH27-T-15."
         },
         "src/loop-economics-evidence.ts": {
           "maxLines": 787,

@@ -48,18 +48,20 @@ export {
   validateRecursiveScopedFrameV1,
 } from "./frame.js";
 export {
-  RecursiveScopedCommitConflictError,
-  materializeRecursiveScopedCommitV1,
-  mergeRecursiveScopedCommitsV1,
   recursiveScopedCommitBindingV1,
   recursiveScopedMergeBindingV1,
-  resolveRecursiveAcknowledgementLossV1,
-  validateRecursiveAcknowledgementEvidenceV1,
   validateRecursiveScopedCommitBindingV1,
   validateRecursiveScopedCommitV1,
   validateRecursiveScopedMergeBindingV1,
   validateRecursiveScopedMergeV1,
-} from "./commit.js";
+} from "./commit-validation.js";
+export { validateRecursiveAcknowledgementEvidenceV1 } from "./evidence-validation.js";
+export {
+  RecursiveScopedCommitConflictError,
+  materializeRecursiveScopedCommitV1,
+  mergeRecursiveScopedCommitsV1,
+  resolveRecursiveAcknowledgementLossV1,
+} from "../engine/recursive-scope-commit.js";
 export {
   deserializeRecursiveScopedCommitV1,
   deserializeRecursiveScopedFrameV1,

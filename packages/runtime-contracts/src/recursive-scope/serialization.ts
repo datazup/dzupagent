@@ -18,7 +18,7 @@ import {
   validateRecursiveScopedCommitV1,
   validateRecursiveScopedMergeBindingV1,
   validateRecursiveScopedMergeV1,
-} from "./commit.js";
+} from "./commit-validation.js";
 
 export function serializeRecursiveScopedFrameV1(
   value: RecursiveScopedFrameV1,
