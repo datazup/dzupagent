@@ -260,12 +260,20 @@ const CODE_UNIT_ORDER = {
 
 /**
  * The digest this package produced for the corpus above while the six
- * comparators were `localeCompare`, measured under ICU en-US. It is pinned
- * so that the comparator migration shows up as an explicit digest change in
- * version control rather than as a silent re-hash.
+ * comparators were `localeCompare`, measured under ICU en-US. Kept as the
+ * explicit record of what the migration moved: it was never stable across
+ * hosts, which is why it is not the pinned value any more.
  */
-const LOCALE_CLASSIFICATION_HASH =
+const PRE_MIGRATION_LOCALE_HASH =
   "sha256:d873fca458cfe0517fac369a40cd03e5013856ef950aef42b97883c098542097";
+
+/**
+ * The digest the code-unit comparators produce. Unlike the value above this
+ * one does not depend on the host ICU locale, so it is reproducible on any
+ * machine and is the value hosts persist.
+ */
+const CLASSIFICATION_HASH =
+  "sha256:90469df161848fd5dea3e618c7a6e586bb218e33033afac5959cc81b89f8414b";
 
 /** Reorder the first primitive's credential input paths, leaving all else. */
 const withCredentialInputPaths = (inputPaths: readonly string[]): unknown => {
@@ -313,34 +321,38 @@ describe("classification envelope ordering corpus", () => {
     }
   });
 
-  it("orders every digest-feeding array by ICU locale collation", () => {
+  it("orders every digest-feeding array by UTF-16 code unit", () => {
     const envelope = buildEnvelope();
 
     expect(envelope.unclassifiedReferences).toEqual(
-      LOCALE_ORDER.unclassifiedReferences,
+      CODE_UNIT_ORDER.unclassifiedReferences,
     );
     expect(envelope.values.map((value) => value.reference)).toEqual(
-      LOCALE_ORDER.values,
+      CODE_UNIT_ORDER.values,
     );
     expect(envelope.ports.map((port) => port.reference)).toEqual(
-      LOCALE_ORDER.ports,
+      CODE_UNIT_ORDER.ports,
     );
     expect(envelope.primitives.map((primitive) => primitive.nodePath)).toEqual(
-      LOCALE_ORDER.primitives,
+      CODE_UNIT_ORDER.primitives,
     );
     expect(envelope.primitives[0]?.requiredCapabilities).toEqual(
-      LOCALE_ORDER.requiredCapabilities,
+      CODE_UNIT_ORDER.requiredCapabilities,
     );
     expect(
       envelope.primitives[0]?.outputs.map((output) => output.port),
-    ).toEqual(LOCALE_ORDER.outputs);
+    ).toEqual(CODE_UNIT_ORDER.outputs);
     expect(
       envelope.integrations.map((integration) => integration.nodePath),
-    ).toEqual(LOCALE_ORDER.integrations);
+    ).toEqual(CODE_UNIT_ORDER.integrations);
   });
 
-  it("pins the digest the locale comparators produce", () => {
-    expect(buildEnvelope().classificationHash).toBe(LOCALE_CLASSIFICATION_HASH);
+  it("pins the host-independent digest and records the one it replaced", () => {
+    expect(buildEnvelope().classificationHash).toBe(CLASSIFICATION_HASH);
+    // The migration really moved persisted digests; this is not a no-op
+    // refactor, and anything holding a stored `classificationHash` from
+    // before it must be recompiled rather than compared.
+    expect(CLASSIFICATION_HASH).not.toBe(PRE_MIGRATION_LOCALE_HASH);
   });
 
   it("admits the envelope it just built", () => {
@@ -353,20 +365,19 @@ describe("classification envelope ordering corpus", () => {
     );
   });
 
-  it("accepts locale-ordered credential paths and rejects code-unit ones", () => {
-    // Admission of a *persisted* envelope depends on the host's collation:
-    // `["input.Token", "input.token"]` is sorted by code unit but unsorted by
-    // locale, so today a host rejects the code-unit order. This pin flips
-    // when the comparator does, and is the reason cross-machine admission is
-    // currently unstable.
+  it("accepts code-unit-ordered credential paths and rejects locale ones", () => {
+    // Admission of a *persisted* envelope must not depend on the admitting
+    // host's collation. `["input.Token", "input.token"]` is sorted by code
+    // unit and unsorted by locale; before the migration a host rejected it,
+    // which is precisely how cross-machine admission failed.
     expect(
       validateFlowCompiledClassificationEnvelope(
-        withCredentialInputPaths(["input.token", "input.Token"]),
+        withCredentialInputPaths(["input.Token", "input.token"]),
       ).issues,
     ).not.toContain(CREDENTIAL_PATH_ISSUE);
     expect(
       validateFlowCompiledClassificationEnvelope(
-        withCredentialInputPaths(["input.Token", "input.token"]),
+        withCredentialInputPaths(["input.token", "input.Token"]),
       ).issues,
     ).toContain(CREDENTIAL_PATH_ISSUE);
   });
