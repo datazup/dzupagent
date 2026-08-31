@@ -25,6 +25,7 @@ import {
   type FlowCompiledIntegrationObligation,
   type FlowCompiledPrimitiveObligation,
 } from "./classification-envelope-types.js";
+import { compareCodeUnits, compareEntryKeys } from "./canonical-order.js";
 import { resolvePrimitiveDefinition } from "./stages/primitive-reference-ports.js";
 
 export interface FlowClassificationEnvelopeSnapshot {
@@ -137,7 +138,7 @@ function integrationObligations(
         }),
       ];
     })
-    .sort((left, right) => left.nodePath.localeCompare(right.nodePath));
+    .sort((left, right) => compareCodeUnits(left.nodePath, right.nodePath));
 }
 
 function collectUnclassifiedReferences(
@@ -162,7 +163,7 @@ function collectUnclassifiedReferences(
       }
     }
   }
-  return [...unresolved].sort((left, right) => left.localeCompare(right));
+  return [...unresolved].sort(compareCodeUnits);
 }
 
 /** Attach the same immutable envelope to every object-shaped target artifact. */
@@ -298,9 +299,7 @@ function primitiveObligations(
         ...(node.id === undefined ? {} : { nodeId: node.id }),
         primitiveRef: definition.ref,
         requiredCapabilities: Object.freeze(
-          [...definition.requiresCapabilities].sort((left, right) =>
-            left.localeCompare(right),
-          ),
+          [...definition.requiresCapabilities].sort(compareCodeUnits),
         ),
         acceptedInputClassifications: Object.freeze([
           ...definition.acceptedInputClassifications,
@@ -309,7 +308,7 @@ function primitiveObligations(
         ...(redaction === undefined ? {} : { redaction }),
         outputs: Object.freeze(
           Object.entries(definition.outputPorts)
-            .sort(([left], [right]) => left.localeCompare(right))
+            .sort(compareEntryKeys)
             .map(([port, output]) =>
               Object.freeze({
                 port,
@@ -329,7 +328,7 @@ function primitiveObligations(
     );
   });
   return obligations.sort((left, right) =>
-    left.nodePath.localeCompare(right.nodePath),
+    compareCodeUnits(left.nodePath, right.nodePath),
   );
 }
 
@@ -394,9 +393,7 @@ function visitList(
 function sortedEntries<T>(
   value: Readonly<Record<string, T | undefined>>,
 ): Array<[string, T | undefined]> {
-  return Object.entries(value).sort(([left], [right]) =>
-    left.localeCompare(right),
-  );
+  return Object.entries(value).sort(compareEntryKeys);
 }
 
 // Both digests delegate to @datazup/canonical-json's

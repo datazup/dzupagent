@@ -1,5 +1,6 @@
 import type { FlowCompiledClassificationEnvelope } from "./classification-envelope-types.js";
 import { validateFlowCompiledClassificationEnvelope } from "./classification-envelope-validation.js";
+import { compareCodeUnits } from "./canonical-order.js";
 
 export interface FlowClassificationHostAdmissionRequest {
   readonly envelope: unknown;
@@ -106,7 +107,7 @@ function collectRequiredCapabilities(
       required.add(integration.credential.resolverCapabilityRef);
     }
   }
-  return [...required].sort((left, right) => left.localeCompare(right));
+  return [...required].sort(compareCodeUnits);
 }
 
 function frozenAdmission(

@@ -4,6 +4,7 @@ import {
 } from "./classification-envelope-types.js";
 import { hashFlowCompiledClassificationEnvelopePayload } from "./classification-envelope.js";
 import { validateCompiledIntegration } from "./classification-envelope-integration-validation.js";
+import { compareCodeUnits } from "./canonical-order.js";
 
 const CLASSIFICATIONS = new Set([
   "public",
@@ -369,7 +370,11 @@ function stringArray(
     issues.push(`${path} must contain only non-empty strings`);
     return undefined;
   }
-  const sorted = [...value].sort((left, right) => left.localeCompare(right));
+  // Must match the builder's comparator in `canonical-order.ts`: this check
+  // runs on a host admitting an envelope compiled elsewhere, so a
+  // locale-sensitive comparison would reject well-formed envelopes whenever
+  // the two machines collate differently.
+  const sorted = [...value].sort(compareCodeUnits);
   if (
     new Set(value).size !== value.length ||
     sorted.some((entry, index) => entry !== value[index])
