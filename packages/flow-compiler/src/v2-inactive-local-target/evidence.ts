@@ -1,5 +1,6 @@
 import { canonicalize, sha256Prefixed } from "@datazup/canonical-json";
 
+import { compareCodeUnits } from "../canonical-order.js";
 import type { FlowNode } from "@dzupagent/flow-ast";
 import type { FlowTypedCondition } from "@dzupagent/flow-ast/expressions";
 import type { DslV2FrontendMetadata } from "@dzupagent/flow-dsl";
@@ -52,7 +53,8 @@ export function collectPrimitiveContractEvidence(
         }),
       )
       .sort((left, right) =>
-        `${left.authoredPath}:${left.capability}`.localeCompare(
+        compareCodeUnits(
+          `${left.authoredPath}:${left.capability}`,
           `${right.authoredPath}:${right.capability}`,
         ),
       ),

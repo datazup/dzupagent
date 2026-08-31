@@ -34,9 +34,9 @@ import {
  * unit (`'0'` < `']'`) and after it under ICU collation, which weights
  * punctuation below digits.
  *
- * THIS COMMIT ONLY RECORDS THE PRE-MIGRATION IDENTITY — the assertions below
- * state today's locale-ordered behaviour and pin the digest it produces, so
- * the follow-up commit's diff shows exactly which persisted identity moved.
+ * The digest pinned below MOVED in this migration, deliberately and once:
+ * `sha256:221e1b42…` (locale-ordered) -> `sha256:916e29c7…` (code-unit).
+ * Receipts persisted before it must be re-qualified rather than compared.
  */
 
 const STEP_COUNT = 11;
@@ -159,23 +159,26 @@ describe("v2 qualification contract-evidence order", () => {
     expect(localeOrderDisagrees(AUTHORED_PATHS)).toBe(true);
   });
 
-  it("orders primitive contract evidence by ICU locale collation", async () => {
+  it("orders primitive contract evidence by code unit, not host collation", async () => {
     const receipt = await qualify();
     const keys = receipt.primitiveContracts.map(
       (entry) => `${entry.authoredPath}:${entry.capability}`,
     );
-    expect(keys).toEqual(
+    // A sortedness assertion passes vacuously on an empty array, so pin the
+    // count: 11 steps x 4 primitive capabilities each.
+    expect(keys).toHaveLength(STEP_COUNT * 4);
+    expect(keys).toEqual([...keys].sort(compareCodeUnits));
+    // The migration, stated as an assertion: the emitted order is now the
+    // host-independent one, which on this host is NOT the collated one.
+    expect(keys).not.toEqual(
       [...keys].sort((left, right) => left.localeCompare(right)),
     );
-    // The defect, stated as an assertion: this host's collation and code-unit
-    // order disagree, so the emitted order is NOT the host-independent one.
-    expect(keys).not.toEqual([...keys].sort(compareCodeUnits));
   });
 
   it("pins the qualification digest", async () => {
     const receipt = await qualify();
     expect(receipt.qualificationSha256).toBe(
-      "sha256:221e1b42867479593baa9e566b009c9fc9e9c03a72e1a789726f159e212d1e39",
+      "sha256:916e29c7bb46afe64a1f8c2c052aff037794b960b8042d6db88b185e569f94f8",
     );
   });
 });
