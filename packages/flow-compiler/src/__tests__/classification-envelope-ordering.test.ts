@@ -1,13 +1,14 @@
 /**
  * Golden corpus for every array order that feeds the
- * `classification-envelope-v1` digest.
+ * classification-envelope digest.
  *
  * `@datazup/canonical-json` canonicalizes *key* order (ARCH27-T-01 replaced
  * `localeCompare` with a UTF-16 code-unit comparator there), but it cannot
  * canonicalize *array element* order — that is fixed by whichever comparator
  * the envelope builder used. Six comparators in `classification-envelope.ts`
- * decide it, and the validator in `classification-envelope-validation.ts`
- * re-checks the same ordering when a host admits a persisted envelope.
+ * decide it. For v2 envelopes, the validator also re-checks ordered string
+ * sets when a host admits a persisted envelope; v1 preserves its recorded
+ * order as part of the legacy hash contract.
  *
  * The fixture below is deliberately *discriminating*: for every one of those
  * arrays, UTF-16 code-unit order and ICU locale order disagree. That is what
@@ -28,10 +29,14 @@ import {
 import { describe, expect, it } from "vitest";
 
 import {
+  admitFlowCompiledClassificationEnvelope,
   createFlowCompiledClassificationEnvelope,
   validateFlowCompiledClassificationEnvelope,
 } from "../index.js";
-import type { FlowClassificationEnvelopeSnapshot } from "../classification-envelope.js";
+import {
+  hashFlowCompiledClassificationEnvelopePayload,
+  type FlowClassificationEnvelopeSnapshot,
+} from "../classification-envelope.js";
 import type { FlowPrimitiveBindings } from "../primitive-registry-types.js";
 
 // ---------------------------------------------------------------------------
@@ -273,7 +278,110 @@ const PRE_MIGRATION_LOCALE_HASH =
  * machine and is the value hosts persist.
  */
 const CLASSIFICATION_HASH =
-  "sha256:90469df161848fd5dea3e618c7a6e586bb218e33033afac5959cc81b89f8414b";
+  "sha256:c712ccf59b4c11675fa120af60b777049cfef01b109f7e0766b70eb340eda43f";
+
+const LEGACY_SCHEMA = "dzupagent.flowCompiledClassificationEnvelope/v1";
+const CODE_UNIT_SCHEMA = "dzupagent.flowCompiledClassificationEnvelope/v2";
+const HOST_REQUIRED_CAPABILITIES = [
+  ...CODE_UNIT_ORDER.requiredCapabilities,
+  "flow.runtime.credential.resolve@1",
+] as const;
+
+function reorderBy<T>(
+  entries: readonly T[],
+  order: readonly string[],
+  key: (entry: T) => string,
+): T[] {
+  return order.map((expected) => {
+    const entry = entries.find((candidate) => key(candidate) === expected);
+    if (entry === undefined) {
+      throw new Error(`missing ordering fixture entry: ${expected}`);
+    }
+    return entry;
+  });
+}
+
+function withRecomputedClassificationHash<T extends {
+  readonly schema: string;
+  readonly semanticHash: string;
+  readonly classificationComplete: boolean;
+  readonly unclassifiedReferences: readonly string[];
+  readonly values: readonly unknown[];
+  readonly ports: readonly unknown[];
+  readonly primitives: readonly unknown[];
+  readonly integrations: readonly unknown[];
+}>(envelope: T): T & { readonly classificationHash: `sha256:${string}` } {
+  return {
+    ...envelope,
+    classificationHash: hashFlowCompiledClassificationEnvelopePayload({
+      schema: envelope.schema,
+      semanticHash: envelope.semanticHash,
+      classificationComplete: envelope.classificationComplete,
+      unclassifiedReferences: envelope.unclassifiedReferences,
+      values: envelope.values,
+      ports: envelope.ports,
+      primitives: envelope.primitives,
+      integrations: envelope.integrations,
+    }),
+  };
+}
+
+/** A persisted envelope produced by the former locale-sensitive v1 writer. */
+const buildPersistedLegacyEnvelope = () => {
+  const envelope = buildEnvelope();
+  return withRecomputedClassificationHash({
+    ...envelope,
+    schema: LEGACY_SCHEMA,
+    unclassifiedReferences: [...LOCALE_ORDER.unclassifiedReferences],
+    values: reorderBy(envelope.values, LOCALE_ORDER.values, (value) => value.reference),
+    ports: reorderBy(envelope.ports, LOCALE_ORDER.ports, (port) => port.reference),
+    primitives: reorderBy(
+      envelope.primitives,
+      LOCALE_ORDER.primitives,
+      (primitive) => primitive.nodePath,
+    ).map((primitive) => ({
+      ...primitive,
+      requiredCapabilities: [...LOCALE_ORDER.requiredCapabilities],
+      outputs: reorderBy(
+        primitive.outputs,
+        LOCALE_ORDER.outputs,
+        (output) => output.port,
+      ),
+    })),
+    integrations: reorderBy(
+      envelope.integrations,
+      LOCALE_ORDER.integrations,
+      (integration) => integration.nodePath,
+    ),
+  });
+};
+
+/** A complete v1 envelope with mixed-case legacy capability ordering. */
+const buildLegacyHostEnvelope = () => {
+  const envelope = createFlowCompiledClassificationEnvelope(
+    ROOT,
+    "compile-legacy-host",
+    "semantic-legacy-host",
+    {
+      referenceBindings: {},
+      referenceTypeBindings: {},
+      referencePortBindings: {},
+      referenceClassificationBindings: {},
+      referencePortClassificationBindings: {},
+    },
+    new Map(),
+    REGISTRY,
+    BINDINGS,
+  );
+  return withRecomputedClassificationHash({
+    ...envelope,
+    schema: LEGACY_SCHEMA,
+    primitives: envelope.primitives.map((primitive) => ({
+      ...primitive,
+      requiredCapabilities: [...LOCALE_ORDER.requiredCapabilities],
+    })),
+  });
+};
 
 /** Reorder the first primitive's credential input paths, leaving all else. */
 const withCredentialInputPaths = (inputPaths: readonly string[]): unknown => {
@@ -299,6 +407,10 @@ const CREDENTIAL_PATH_ISSUE =
 // ---------------------------------------------------------------------------
 
 describe("classification envelope ordering corpus", () => {
+  it("versions code-unit envelopes separately from persisted legacy v1", () => {
+    expect(buildEnvelope().schema).toBe(CODE_UNIT_SCHEMA);
+  });
+
   it("uses a fixture where locale order and code-unit order disagree", () => {
     // Guards against the corpus silently becoming vacuous: if these ever
     // coincide the ordering assertions below stop proving anything.
@@ -350,8 +462,8 @@ describe("classification envelope ordering corpus", () => {
   it("pins the host-independent digest and records the one it replaced", () => {
     expect(buildEnvelope().classificationHash).toBe(CLASSIFICATION_HASH);
     // The migration really moved persisted digests; this is not a no-op
-    // refactor, and anything holding a stored `classificationHash` from
-    // before it must be recompiled rather than compared.
+    // refactor. A stored v1 hash remains admissible as a v1 identity, but it
+    // must not be compared directly with a newly compiled v2 identity.
     expect(CLASSIFICATION_HASH).not.toBe(PRE_MIGRATION_LOCALE_HASH);
   });
 
@@ -362,6 +474,37 @@ describe("classification envelope ordering corpus", () => {
     // its own output. This invariant must survive the migration unchanged.
     expect(validateFlowCompiledClassificationEnvelope(buildEnvelope())).toEqual(
       { valid: true, issues: [] },
+    );
+  });
+
+  it("admits a persisted locale-ordered v1 envelope with its original hash", () => {
+    const envelope = buildPersistedLegacyEnvelope();
+
+    expect(envelope.classificationHash).toBe(PRE_MIGRATION_LOCALE_HASH);
+    expect(validateFlowCompiledClassificationEnvelope(envelope)).toEqual({
+      valid: true,
+      issues: [],
+    });
+  });
+
+  it("directly admits mixed-case capabilities from a persisted v1 envelope", () => {
+    const envelope = buildLegacyHostEnvelope();
+
+    expect(
+      admitFlowCompiledClassificationEnvelope({
+        envelope,
+        expectedSemanticHash: envelope.semanticHash,
+        expectedClassificationHash: envelope.classificationHash,
+        expectedCompileId: envelope.compileId,
+        availableCapabilities: [...HOST_REQUIRED_CAPABILITIES],
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        admitted: true,
+        issues: [],
+        requiredCapabilities: [...HOST_REQUIRED_CAPABILITIES],
+        missingCapabilities: [],
+      }),
     );
   });
 

@@ -1,5 +1,6 @@
 import {
   FLOW_COMPILED_CLASSIFICATION_ENVELOPE_SCHEMA,
+  FLOW_COMPILED_CLASSIFICATION_ENVELOPE_SCHEMA_V1,
   type FlowCompiledClassificationEnvelopeValidation,
 } from "./classification-envelope-types.js";
 import { hashFlowCompiledClassificationEnvelopePayload } from "./classification-envelope.js";
@@ -49,9 +50,14 @@ export function validateFlowCompiledClassificationEnvelope(
     "envelope",
     issues,
   );
-  if (value.schema !== FLOW_COMPILED_CLASSIFICATION_ENVELOPE_SCHEMA) {
+  const isLegacyV1 =
+    value.schema === FLOW_COMPILED_CLASSIFICATION_ENVELOPE_SCHEMA_V1;
+  if (
+    !isLegacyV1 &&
+    value.schema !== FLOW_COMPILED_CLASSIFICATION_ENVELOPE_SCHEMA
+  ) {
     issues.push(
-      `schema must be ${FLOW_COMPILED_CLASSIFICATION_ENVELOPE_SCHEMA}`,
+      `schema must be ${FLOW_COMPILED_CLASSIFICATION_ENVELOPE_SCHEMA_V1} or ${FLOW_COMPILED_CLASSIFICATION_ENVELOPE_SCHEMA}`,
     );
   }
   requireNonEmptyString(value.compileId, "compileId", issues);
@@ -69,6 +75,7 @@ export function validateFlowCompiledClassificationEnvelope(
     value.unclassifiedReferences,
     "unclassifiedReferences",
     issues,
+    !isLegacyV1,
   );
   if (
     unclassified !== undefined &&
@@ -80,7 +87,13 @@ export function validateFlowCompiledClassificationEnvelope(
   }
   validateArray(value.values, "values", issues, validateValue);
   validateArray(value.ports, "ports", issues, validatePort);
-  validateArray(value.primitives, "primitives", issues, validatePrimitive);
+  validateArray(
+    value.primitives,
+    "primitives",
+    issues,
+    (entry, path, entryIssues) =>
+      validatePrimitive(entry, path, entryIssues, !isLegacyV1),
+  );
   validateArray(
     value.integrations,
     "integrations",
@@ -162,6 +175,7 @@ function validatePrimitive(
   value: unknown,
   path: string,
   issues: string[],
+  enforceCodeUnitOrder: boolean,
 ): void {
   if (!recordWithKeys(
     value,
@@ -192,6 +206,7 @@ function validatePrimitive(
     value.requiredCapabilities,
     `${path}.requiredCapabilities`,
     issues,
+    enforceCodeUnitOrder,
   );
   enumArray(
     value.acceptedInputClassifications,
@@ -200,7 +215,12 @@ function validatePrimitive(
     issues,
   );
   if (value.credential !== undefined) {
-    validateCredential(value.credential, `${path}.credential`, issues);
+    validateCredential(
+      value.credential,
+      `${path}.credential`,
+      issues,
+      enforceCodeUnitOrder,
+    );
   }
   if (value.redaction !== undefined) {
     validateRedaction(value.redaction, `${path}.redaction`, issues);
@@ -208,7 +228,12 @@ function validatePrimitive(
   validateArray(value.outputs, `${path}.outputs`, issues, validateOutput);
 }
 
-function validateCredential(value: unknown, path: string, issues: string[]): void {
+function validateCredential(
+  value: unknown,
+  path: string,
+  issues: string[],
+  enforceCodeUnitOrder: boolean,
+): void {
   if (!recordWithKeys(
     value,
     [
@@ -223,7 +248,12 @@ function validateCredential(value: unknown, path: string, issues: string[]): voi
     issues,
   )) return;
   enumValue(value.mode, new Set(["handle-only", "raw-by-policy"]), `${path}.mode`, issues);
-  stringArray(value.inputPaths, `${path}.inputPaths`, issues);
+  stringArray(
+    value.inputPaths,
+    `${path}.inputPaths`,
+    issues,
+    enforceCodeUnitOrder,
+  );
   if (value.resolverCapabilityRef !== undefined) {
     requireNonEmptyString(
       value.resolverCapabilityRef,
@@ -232,10 +262,20 @@ function validateCredential(value: unknown, path: string, issues: string[]): voi
     );
   }
   if (value.allowedProviders !== undefined) {
-    stringArray(value.allowedProviders, `${path}.allowedProviders`, issues);
+    stringArray(
+      value.allowedProviders,
+      `${path}.allowedProviders`,
+      issues,
+      enforceCodeUnitOrder,
+    );
   }
   if (value.requiredScopes !== undefined) {
-    stringArray(value.requiredScopes, `${path}.requiredScopes`, issues);
+    stringArray(
+      value.requiredScopes,
+      `${path}.requiredScopes`,
+      issues,
+      enforceCodeUnitOrder,
+    );
   }
   if (value.httpAuth !== undefined) {
     validateHttpAuth(value.httpAuth, `${path}.httpAuth`, issues);
@@ -362,6 +402,7 @@ function stringArray(
   value: unknown,
   path: string,
   issues: string[],
+  enforceCodeUnitOrder = true,
 ): string[] | undefined {
   if (
     !Array.isArray(value) ||
@@ -374,10 +415,13 @@ function stringArray(
   // runs on a host admitting an envelope compiled elsewhere, so a
   // locale-sensitive comparison would reject well-formed envelopes whenever
   // the two machines collate differently.
-  const sorted = [...value].sort(compareCodeUnits);
+  const sorted = enforceCodeUnitOrder
+    ? [...value].sort(compareCodeUnits)
+    : value;
   if (
     new Set(value).size !== value.length ||
-    sorted.some((entry, index) => entry !== value[index])
+    (enforceCodeUnitOrder &&
+      sorted.some((entry, index) => entry !== value[index]))
   ) {
     issues.push(`${path} must be sorted and unique`);
   }

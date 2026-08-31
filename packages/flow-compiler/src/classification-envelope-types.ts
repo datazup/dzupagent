@@ -6,8 +6,19 @@ import type {
 
 import type { FlowReferenceValueType } from "./reference-value-types.js";
 
-export const FLOW_COMPILED_CLASSIFICATION_ENVELOPE_SCHEMA =
+export const FLOW_COMPILED_CLASSIFICATION_ENVELOPE_SCHEMA_V1 =
   "dzupagent.flowCompiledClassificationEnvelope/v1" as const;
+
+export const FLOW_COMPILED_CLASSIFICATION_ENVELOPE_SCHEMA_V2 =
+  "dzupagent.flowCompiledClassificationEnvelope/v2" as const;
+
+/** Schema emitted by the current compiler. */
+export const FLOW_COMPILED_CLASSIFICATION_ENVELOPE_SCHEMA =
+  FLOW_COMPILED_CLASSIFICATION_ENVELOPE_SCHEMA_V2;
+
+export type FlowCompiledClassificationEnvelopeSchema =
+  | typeof FLOW_COMPILED_CLASSIFICATION_ENVELOPE_SCHEMA_V1
+  | typeof FLOW_COMPILED_CLASSIFICATION_ENVELOPE_SCHEMA_V2;
 
 export interface FlowCompiledClassifiedValue {
   readonly reference: string;
@@ -92,7 +103,7 @@ export interface FlowCompiledIntegrationObligation {
  * deliberately absent.
  */
 export interface FlowCompiledClassificationEnvelope {
-  readonly schema: typeof FLOW_COMPILED_CLASSIFICATION_ENVELOPE_SCHEMA;
+  readonly schema: FlowCompiledClassificationEnvelopeSchema;
   readonly compileId: string;
   readonly semanticHash: string;
   readonly classificationHash: `sha256:${string}`;

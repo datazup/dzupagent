@@ -223,9 +223,15 @@ and production activation remain outside this bounded packet.
 ## Compiled classification envelope
 
 Every successful compile emits
-`dzupagent.flowCompiledClassificationEnvelope/v1` both on
+`dzupagent.flowCompiledClassificationEnvelope/v2` both on
 `CompileSuccess.classificationEnvelope` and as the immutable
 `artifact.classificationEnvelope` property.
+
+Version 2 binds every digest-feeding ordered string set to UTF-16 code-unit
+order. Validation and strict host admission also retain persisted version 1
+envelopes: their stored array order is preserved for hash verification and
+must remain unique, but is not reinterpreted through the version 2 ordering
+contract.
 
 The envelope contains:
 

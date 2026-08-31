@@ -88,9 +88,12 @@ export type { ApplyFlowDiagnosticQuickFixResult } from "./diagnostic-quick-fix.j
 export { createFlowReferenceAuthoringSnapshot } from "./reference-authoring.js";
 export {
   FLOW_COMPILED_CLASSIFICATION_ENVELOPE_SCHEMA,
+  FLOW_COMPILED_CLASSIFICATION_ENVELOPE_SCHEMA_V1,
+  FLOW_COMPILED_CLASSIFICATION_ENVELOPE_SCHEMA_V2,
 } from "./classification-envelope-types.js";
 export type {
   FlowCompiledClassificationEnvelope,
+  FlowCompiledClassificationEnvelopeSchema,
   FlowCompiledClassificationEnvelopeValidation,
   FlowCompiledClassifiedPort,
   FlowCompiledClassifiedValue,

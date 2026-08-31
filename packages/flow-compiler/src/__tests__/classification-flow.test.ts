@@ -419,7 +419,7 @@ describe("classified flow policy", () => {
     ).toBe(false);
     expect(result.classificationEnvelope).toEqual(
       expect.objectContaining({
-        schema: "dzupagent.flowCompiledClassificationEnvelope/v1",
+        schema: "dzupagent.flowCompiledClassificationEnvelope/v2",
         compileId: result.compileId,
         classificationHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
         classificationComplete: true,
