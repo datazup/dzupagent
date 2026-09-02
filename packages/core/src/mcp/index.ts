@@ -9,6 +9,7 @@ export {
 export type { MCPTransportCapabilityDescriptor } from './mcp-transport-capabilities.js'
 export { mcpToolToLangChain, mcpToolsToLangChain, langChainToolToMcp } from './mcp-tool-bridge.js'
 export { DeferredToolLoader } from './deferred-loader.js'
+export { serveMCPOverStdio } from './mcp-stdio-server-transport.js'
 export {
   CURRENT_MCP_PROTOCOL_VERSION,
   DzupAgentMCPServer,
@@ -32,9 +33,15 @@ export type {
   MCPResponse,
 } from './mcp-server.js'
 export type {
+  MCPStdioServerOptions,
+  MCPStdioServerResult,
+} from './mcp-server-types.js'
+export type {
   MCPTransport,
   MCPServerConfig,
   MCPToolDescriptor,
+  MCPToolAnnotations,
+  MCPToolOutputSchema,
   MCPToolParameter,
   MCPToolResult,
   MCPConnectionState,

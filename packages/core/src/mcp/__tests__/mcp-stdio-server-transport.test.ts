@@ -1,7 +1,12 @@
 import { Readable, PassThrough, Writable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
-import { DzupAgentMCPServer } from "../mcp-server.js";
-import { serveMCPOverStdio } from "../mcp-stdio-server-transport.js";
+import { DzupAgentMCPServer, serveMCPOverStdio } from "../index.js";
+import type {
+  MCPStdioServerOptions,
+  MCPStdioServerResult,
+  MCPToolAnnotations,
+  MCPToolOutputSchema,
+} from "../index.js";
 
 function line(value: unknown): string {
   return `${JSON.stringify(value)}\n`;
@@ -362,5 +367,74 @@ describe("serveMCPOverStdio", () => {
     });
 
     expect(output.writableEnded).toBe(true);
+  });
+
+  it("exposes the admitted runtime and type contracts through the MCP barrel", async () => {
+    const annotations: MCPToolAnnotations = {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    };
+    const outputSchema: MCPToolOutputSchema = {
+      type: "object",
+      properties: { disposition: { type: "string" } },
+      required: ["disposition"],
+      additionalProperties: false,
+    };
+    const server = new DzupAgentMCPServer({
+      name: "barrel-server",
+      version: "1.0.0",
+      tools: [
+        {
+          name: "inspect",
+          description: "Inspect state",
+          inputSchema: { type: "object", properties: {} },
+          annotations,
+          outputSchema,
+          handler: async () => ({
+            content: [],
+            structuredContent: { disposition: "continue" },
+          }),
+        },
+      ],
+    });
+    const input = Readable.from([
+      line({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    ]);
+    const output = new PassThrough();
+    const stdout = capture(output);
+    const options: MCPStdioServerOptions = {
+      input,
+      output,
+      error: new PassThrough(),
+    };
+    const expectedResult: MCPStdioServerResult = {
+      framesRead: 1,
+      responsesWritten: 1,
+      exitReason: "eof",
+    };
+
+    await expect(serveMCPOverStdio(server, options)).resolves.toEqual(
+      expectedResult
+    );
+    expect(parseFrames(stdout())).toEqual([
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        result: {
+          tools: [
+            {
+              name: "inspect",
+              description: "Inspect state",
+              inputSchema: { type: "object", properties: {} },
+              annotations,
+              outputSchema,
+              serverId: "barrel-server",
+            },
+          ],
+        },
+      },
+    ]);
   });
 });
