@@ -5,6 +5,7 @@
  * They are kept in a dedicated module so transports and tests can import
  * shapes without pulling in the server runtime.
  */
+import type { Readable, Writable } from 'node:stream'
 import type {
   MCPPromptArgument,
   MCPPromptHandler,
@@ -138,6 +139,22 @@ export interface MCPServerOptions {
   capabilities?: MCPServerCapabilities
   /** Optional sampling handler for in-process/loopback usage */
   samplingHandler?: SamplingHandler
+}
+
+export interface MCPStdioServerOptions {
+  input?: Readable
+  output?: Writable
+  error?: Writable
+  maxFrameBytes?: number
+  protocolVersion?: string
+  /** End an explicitly injected output stream after orderly shutdown. */
+  endOutput?: boolean
+}
+
+export interface MCPStdioServerResult {
+  framesRead: number
+  responsesWritten: number
+  exitReason: 'eof' | 'input_error' | 'output_error'
 }
 
 // ---------------------------------------------------------------------------
