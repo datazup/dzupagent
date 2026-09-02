@@ -10,6 +10,7 @@ import type { MCPPromptDescriptor } from "./mcp-prompt-types.js";
 import type { MCPResource, MCPResourceTemplate } from "./mcp-resource-types.js";
 import type { SamplingHandler } from "./mcp-sampling-types.js";
 import {
+  assertSupportedMCPToolOutputSchema,
   handlePromptGet,
   handleResourceRead,
   handleSamplingRequest,
@@ -136,6 +137,9 @@ export class DzupAgentMCPServer {
   listTools(): MCPToolDescriptor[] {
     const descriptors: MCPToolDescriptor[] = [];
     for (const tool of this.tools.values()) {
+      if (tool.outputSchema !== undefined) {
+        assertSupportedMCPToolOutputSchema(tool.outputSchema);
+      }
       const requiredFields = tool.inputSchema["required"] as
         | string[]
         | undefined;

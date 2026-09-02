@@ -573,6 +573,217 @@ describe("DzupAgentMCPServer", () => {
     });
   });
 
+  it("preserves valid structured tool content exactly", async () => {
+    const structuredContent = {
+      disposition: "continue",
+      attempts: 2,
+      tags: ["safe", "local"],
+      detail: { ready: true },
+    };
+    const server = new DzupAgentMCPServer({
+      name: "structured-output-server",
+      version: "1.0.0",
+      tools: [
+        {
+          name: "inspect",
+          description: "Inspect state",
+          inputSchema: { type: "object", properties: {} },
+          outputSchema: {
+            type: "object",
+            properties: {
+              disposition: {
+                type: "string",
+                enum: ["continue", "wait"],
+              },
+              attempts: { type: "integer" },
+              tags: { type: "array", items: { type: "string" } },
+              detail: {
+                type: "object",
+                properties: { ready: { type: "boolean" } },
+              },
+            },
+            required: ["disposition", "attempts", "tags", "detail"],
+            additionalProperties: false,
+          },
+          handler: async () => ({
+            content: [{ type: "text", text: "ready" }],
+            structuredContent,
+          }),
+        },
+      ],
+    });
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: "2.0",
+        id: "structured-output",
+        method: "tools/call",
+        params: { name: "inspect", arguments: {} },
+      })
+    ).resolves.toEqual({
+      jsonrpc: "2.0",
+      id: "structured-output",
+      result: {
+        content: [{ type: "text", text: "ready" }],
+        structuredContent,
+        isError: false,
+      },
+    });
+  });
+
+  it("keeps legacy string tool normalization unchanged", async () => {
+    const server = new DzupAgentMCPServer({
+      name: "legacy-output-server",
+      version: "1.0.0",
+      tools: [
+        {
+          name: "legacy",
+          description: "Return text",
+          inputSchema: { type: "object", properties: {} },
+          handler: async () => "legacy result",
+        },
+      ],
+    });
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: "2.0",
+        id: "legacy-output",
+        method: "tools/call",
+        params: { name: "legacy", arguments: {} },
+      })
+    ).resolves.toEqual({
+      jsonrpc: "2.0",
+      id: "legacy-output",
+      result: {
+        content: [{ type: "text", text: "legacy result" }],
+        isError: false,
+      },
+    });
+  });
+
+  it.each([
+    ["missing required keys", {}],
+    ["unknown keys", { disposition: "continue", leak: "do-not-echo" }],
+    ["wrong primitive types", { disposition: 7 }],
+    ["wrong enum values", { disposition: "execute" }],
+  ])("rejects structured output with %s", async (_caseName, structuredContent) => {
+    const server = new DzupAgentMCPServer({
+      name: "schema-fence-server",
+      version: "1.0.0",
+      tools: [
+        {
+          name: "inspect",
+          description: "Inspect state",
+          inputSchema: { type: "object", properties: {} },
+          outputSchema: {
+            type: "object",
+            properties: {
+              disposition: {
+                type: "string",
+                enum: ["continue", "wait"],
+              },
+            },
+            required: ["disposition"],
+            additionalProperties: false,
+          },
+          handler: async () => ({
+            content: [{ type: "text", text: "invalid" }],
+            structuredContent,
+          }),
+        },
+      ],
+    });
+
+    const response = await server.handleRequest({
+      jsonrpc: "2.0",
+      id: "invalid-output",
+      method: "tools/call",
+      params: { name: "inspect", arguments: {} },
+    });
+
+    expect(response).toEqual({
+      jsonrpc: "2.0",
+      id: "invalid-output",
+      error: {
+        code: -32000,
+        message: "MCP_OUTPUT_SCHEMA_MISMATCH",
+        data: {
+          toolName: "inspect",
+          reasonCode: "MCP_OUTPUT_SCHEMA_MISMATCH",
+        },
+      },
+    });
+    expect(JSON.stringify(response)).not.toContain("do-not-echo");
+  });
+
+  it("rejects invalid array items under a declared output schema", async () => {
+    const server = new DzupAgentMCPServer({
+      name: "array-schema-server",
+      version: "1.0.0",
+      tools: [
+        {
+          name: "inspect",
+          description: "Inspect state",
+          inputSchema: { type: "object", properties: {} },
+          outputSchema: {
+            type: "object",
+            properties: {
+              tags: { type: "array", items: { type: "string" } },
+            },
+            required: ["tags"],
+          },
+          handler: async () => ({
+            content: [],
+            structuredContent: { tags: ["safe", 7] },
+          }),
+        },
+      ],
+    });
+
+    const response = await server.handleRequest({
+      jsonrpc: "2.0",
+      id: "invalid-array-output",
+      method: "tools/call",
+      params: { name: "inspect", arguments: {} },
+    });
+
+    expect(response).toEqual(
+      expect.objectContaining({
+        error: expect.objectContaining({
+          code: -32000,
+          message: "MCP_OUTPUT_SCHEMA_MISMATCH",
+        }),
+      })
+    );
+  });
+
+  it("rejects unsupported output-schema keywords before listing a tool", () => {
+    const outputSchema = {
+      type: "object",
+      properties: {
+        disposition: { type: "string", minLength: 1 },
+      },
+    } as unknown as NonNullable<MCPExposedTool["outputSchema"]>;
+    const server = new DzupAgentMCPServer({
+      name: "unsupported-schema-server",
+      version: "1.0.0",
+      tools: [
+        {
+          name: "inspect",
+          description: "Inspect state",
+          inputSchema: { type: "object", properties: {} },
+          outputSchema,
+          handler: async () => "ok",
+        },
+      ],
+    });
+
+    expect(() => server.listTools()).toThrowError(
+      "MCP_OUTPUT_SCHEMA_UNSUPPORTED"
+    );
+  });
+
   it("returns protocol errors for invalid requests and missing params", async () => {
     const server = new DzupAgentMCPServer({
       name: "errors-server",

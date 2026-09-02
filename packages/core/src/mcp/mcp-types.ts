@@ -108,6 +108,7 @@ export interface MCPToolResult {
     data?: string;
     mimeType?: string;
   }>;
+  structuredContent?: Record<string, unknown>;
   isError?: boolean;
   /** Machine-readable error code for structured error handling. Set by guards; undefined for transport errors. */
   errorCode?: string;
