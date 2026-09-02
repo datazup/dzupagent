@@ -69,6 +69,22 @@ export interface MCPToolParameter {
   default?: unknown;
 }
 
+/** Client-facing behavioral hints for an MCP tool. These never grant authority. */
+export interface MCPToolAnnotations {
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+  openWorldHint?: boolean;
+}
+
+/** JSON Schema subset for a structured MCP tool result. */
+export interface MCPToolOutputSchema {
+  type: "object";
+  properties: Record<string, MCPToolParameter>;
+  required?: string[];
+  additionalProperties?: boolean;
+}
+
 /** Tool descriptor returned by MCP server */
 export interface MCPToolDescriptor {
   name: string;
@@ -78,6 +94,8 @@ export interface MCPToolDescriptor {
     properties: Record<string, MCPToolParameter>;
     required?: string[];
   };
+  annotations?: MCPToolAnnotations;
+  outputSchema?: MCPToolOutputSchema;
   /** Which MCP server this tool came from */
   serverId: string;
 }

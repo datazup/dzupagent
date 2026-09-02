@@ -11,7 +11,11 @@ import type {
 } from './mcp-prompt-types.js'
 import type { MCPResourceContent } from './mcp-resource-types.js'
 import type { SamplingHandler } from './mcp-sampling-types.js'
-import type { MCPToolResult } from './mcp-types.js'
+import type {
+  MCPToolAnnotations,
+  MCPToolOutputSchema,
+  MCPToolResult,
+} from './mcp-types.js'
 
 // ---------------------------------------------------------------------------
 // JSON-RPC types (MCP protocol surface)
@@ -62,6 +66,8 @@ export interface MCPExposedTool {
   name: string
   description: string
   inputSchema: Record<string, unknown>
+  annotations?: MCPToolAnnotations
+  outputSchema?: MCPToolOutputSchema
   handler: (args: Record<string, unknown>) => Promise<string | MCPToolResult>
 }
 

@@ -150,6 +150,12 @@ export class DzupAgentMCPServer {
           >,
           ...(requiredFields !== undefined && { required: requiredFields }),
         },
+        ...(tool.annotations !== undefined && {
+          annotations: tool.annotations,
+        }),
+        ...(tool.outputSchema !== undefined && {
+          outputSchema: tool.outputSchema,
+        }),
         serverId: this.serverName,
       });
     }

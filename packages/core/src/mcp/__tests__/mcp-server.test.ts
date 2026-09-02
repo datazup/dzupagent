@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { DzupAgentMCPServer, isMCPRequest } from "../mcp-server.js";
+import type { MCPExposedTool } from "../mcp-server.js";
 
 describe("DzupAgentMCPServer", () => {
   it("supports the stateless current discovery and result contract without changing legacy initialize", async () => {
@@ -172,6 +173,84 @@ describe("DzupAgentMCPServer", () => {
           sampling: {},
         },
       },
+    });
+  });
+
+  it("projects optional tool metadata without changing legacy descriptors", async () => {
+    const inspectTool: MCPExposedTool = {
+      name: "inspect",
+      description: "Inspect deterministic state",
+      inputSchema: {
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      },
+      outputSchema: {
+        type: "object",
+        properties: { disposition: { type: "string" } },
+        required: ["disposition"],
+        additionalProperties: false,
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+      handler: async () => "ok",
+    };
+    const server = new DzupAgentMCPServer({
+      name: "metadata-server",
+      version: "1.0.0",
+      tools: [
+        inspectTool,
+        {
+          name: "legacy",
+          description: "Legacy tool",
+          inputSchema: { type: "object", properties: {} },
+          handler: async () => "ok",
+        },
+      ],
+    });
+
+    const expectedTools = [
+      {
+        name: "inspect",
+        description: "Inspect deterministic state",
+        inputSchema: { type: "object", properties: {} },
+        outputSchema: {
+          type: "object",
+          properties: { disposition: { type: "string" } },
+          required: ["disposition"],
+          additionalProperties: false,
+        },
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+        serverId: "metadata-server",
+      },
+      {
+        name: "legacy",
+        description: "Legacy tool",
+        inputSchema: { type: "object", properties: {} },
+        serverId: "metadata-server",
+      },
+    ];
+
+    expect(server.listTools()).toEqual(expectedTools);
+    await expect(
+      server.handleRequest({
+        jsonrpc: "2.0",
+        id: "metadata",
+        method: "tools/list",
+      })
+    ).resolves.toEqual({
+      jsonrpc: "2.0",
+      id: "metadata",
+      result: { tools: expectedTools },
     });
   });
 
