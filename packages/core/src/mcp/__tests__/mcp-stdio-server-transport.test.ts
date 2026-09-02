@@ -369,6 +369,32 @@ describe("serveMCPOverStdio", () => {
     expect(output.writableEnded).toBe(true);
   });
 
+  it("maps an injected output finalization failure to output_error", async () => {
+    const input = Readable.from([]);
+    const output = new Writable({
+      final(callback) {
+        callback(new Error("secret finalization detail"));
+      },
+    });
+    const error = new PassThrough();
+    const stderr = capture(error);
+
+    await expect(
+      serveMCPOverStdio(createServer(), {
+        input,
+        output,
+        error,
+        endOutput: true,
+      })
+    ).resolves.toEqual({
+      framesRead: 0,
+      responsesWritten: 0,
+      exitReason: "output_error",
+    });
+    expect(stderr()).toBe("MCP stdio output error\n");
+    expect(stderr()).not.toContain("secret finalization detail");
+  });
+
   it("exposes the admitted runtime and type contracts through the MCP barrel", async () => {
     const annotations: MCPToolAnnotations = {
       readOnlyHint: true,

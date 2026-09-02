@@ -63,18 +63,22 @@ export async function serveMCPOverStdio(
     output.removeListener('error', onOutputError)
   }
 
-  if (exitReason === 'input_error') {
-    await writeDiagnostic(error, 'MCP stdio input error\n')
-  } else if (exitReason === 'output_error') {
-    await writeDiagnostic(error, 'MCP stdio output error\n')
-  }
-
   if (
     exitReason === 'eof'
     && options.output !== undefined
     && options.endOutput === true
   ) {
-    await endWritable(output)
+    try {
+      await endWritable(output)
+    } catch {
+      exitReason = 'output_error'
+    }
+  }
+
+  if (exitReason === 'input_error') {
+    await writeDiagnostic(error, 'MCP stdio input error\n')
+  } else if (exitReason === 'output_error') {
+    await writeDiagnostic(error, 'MCP stdio output error\n')
   }
 
   return { framesRead, responsesWritten, exitReason }
