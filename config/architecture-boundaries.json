@@ -914,7 +914,7 @@
           "flow-ast",
           "dialogue-core",
           "security",
-          "@datazup/canonical-json"
+          "canonical-json"
         ]
       },
       {
@@ -985,8 +985,14 @@
         {
           "from": "adapter-types",
           "to": "runtime-contracts",
-          "reason": "ARCH-M-04: adapter-types type-imports the SanitizedEvidenceRef / routing / controlled-execution contracts from runtime-contracts. Both are layer-0 leaf primitives and runtime-contracts has zero @dzupagent runtime deps, so the edge is acyclic and stays inside the leaf tier. Promoting adapter-types to layer 1 would cascade adapter-rules/hitl-kit/subagents, so this single reviewed same-layer edge is the minimal correct fix.",
+          "reason": "ARCH-M-04: adapter-types type-imports the SanitizedEvidenceRef / routing / controlled-execution contracts from runtime-contracts. Both are layer-0 leaf primitives, and runtime-contracts' only @dzupagent runtime dep is the terminal zero-dependency canonical-json leaf, so the edge is acyclic and stays inside the leaf tier. Promoting adapter-types to layer 1 would cascade adapter-rules/hitl-kit/subagents, so this single reviewed same-layer edge is the minimal correct fix.",
           "reviewedBy": "audit/full-dzupagent-2026-07-21 ARCH-M-04"
+        },
+        {
+          "from": "runtime-contracts",
+          "to": "canonical-json",
+          "reason": "ARCH27-T-13: canonical-json is the vendored zero-dependency canonical-JSON + SHA-256 leaf that backs runtime-contracts' idempotency digests. It declares no dependencies at all, so the edge is terminal and cannot create a cycle. The edge is not new behaviour: it existed unmodelled because the mirror was published under the foreign @datazup scope, which made the layer checker classify it as an external package. Renaming the mirror to @dzupagent/canonical-json (to end the Duplicate workspace name collision with shared-kit that aborted every workspace-root yarn command) brought it under the graph and surfaced the edge.",
+          "reviewedBy": "canonical-json mirror rename 2026-09-03 (workspace-root yarn unblock)"
         }
       ],
       "layerZeroRuntimeProfile": "leaf-runtime-primitives",

@@ -16,7 +16,7 @@
  * matching the result-based convention used across flow-dsl.
  */
 
-import { canonicalDigestPrefixed } from "@datazup/canonical-json";
+import { canonicalDigestPrefixed } from "@dzupagent/canonical-json";
 
 export const PROMPT_TEMPLATE_DECLARATION_SCHEMA =
   "flow-prompt-lab/prompt-template-declaration/v1";

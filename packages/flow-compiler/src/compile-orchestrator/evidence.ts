@@ -7,7 +7,7 @@
  * structural move only, no behavior change. See MJ-01 decomposition track.
  */
 
-import { canonicalDigestPrefixed } from "@datazup/canonical-json";
+import { canonicalDigestPrefixed } from "@dzupagent/canonical-json";
 import type { FlowNode } from "@dzupagent/flow-ast";
 
 import { collectFlowArtifactMetadata } from "../flow-artifact-metadata.js";
@@ -25,7 +25,7 @@ import type {
   FlowCompileSubflowEvidence,
 } from "../types.js";
 
-// Delegates to @datazup/canonical-json's `compile-evidence-v1` preset — the
+// Delegates to @dzupagent/canonical-json's `compile-evidence-v1` preset — the
 // exact port of the total stableStringify this file used to carry (bigints
 // as decimal strings, function/symbol placeholders, undefined tokens), so
 // persisted compile-evidence source hashes are byte-identical. The

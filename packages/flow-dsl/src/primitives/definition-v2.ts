@@ -3,7 +3,7 @@ import {
   type CanonicalJsonOptions,
   canonicalStringify,
   sha256Prefixed,
-} from "@datazup/canonical-json";
+} from "@dzupagent/canonical-json";
 
 import type {
   PrimitiveDefinition,

@@ -262,11 +262,11 @@ describe("provider-session adapter companion contract", () => {
       "@dzupagent/runtime-contracts",
     ]);
     // runtime-contracts carries zod for its pipeline-artifact schemas
-    // (ARCH27-T-07) and @datazup/canonical-json for its idempotency digest
+    // (ARCH27-T-07) and @dzupagent/canonical-json for its idempotency digest
     // engine (ARCH27-T-13, vendored zero-dep leaf); the point of this pin is
     // that no provider SDK sneaks in.
     expect(Object.keys(runtimePackage.dependencies ?? {})).toEqual([
-      "@datazup/canonical-json",
+      "@dzupagent/canonical-json",
       "zod",
     ]);
   });

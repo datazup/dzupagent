@@ -1,4 +1,4 @@
-import { canonicalDigestPrefixed } from "@datazup/canonical-json";
+import { canonicalDigestPrefixed } from "@dzupagent/canonical-json";
 
 import type {
   PrimitiveDefinitionV2,

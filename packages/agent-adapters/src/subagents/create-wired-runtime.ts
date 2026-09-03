@@ -25,7 +25,7 @@ import {
   ADAPTER_DIGEST_V1_OPTIONS,
   canonicalStringify,
   sha256Prefixed,
-} from "@datazup/canonical-json";
+} from "@dzupagent/canonical-json";
 
 import type { ProviderAdapterRegistry } from "../registry/adapter-registry.js";
 import type { CheckpointStore } from "../session/workflow-checkpointer.js";

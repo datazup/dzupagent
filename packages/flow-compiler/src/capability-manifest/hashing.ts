@@ -1,8 +1,8 @@
-import { canonicalDigestPrefixed, canonicalize } from "@datazup/canonical-json";
+import { canonicalDigestPrefixed, canonicalize } from "@dzupagent/canonical-json";
 
 import type { FlowNode } from "@dzupagent/flow-ast";
 
-// Both delegate to @datazup/canonical-json's compile-evidence-v1 preset —
+// Both delegate to @dzupagent/canonical-json's compile-evidence-v1 preset —
 // the local copy this file used to carry was byte-for-byte the same
 // implementation as the compile-orchestrator/evidence.ts original that
 // preset was golden-pinned against (total: bigints as decimal strings,

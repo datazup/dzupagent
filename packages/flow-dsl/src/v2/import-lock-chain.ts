@@ -1,4 +1,4 @@
-import { canonicalDigestPrefixed } from "@datazup/canonical-json";
+import { canonicalDigestPrefixed } from "@dzupagent/canonical-json";
 
 import type { DslDiagnostic } from "../diagnostic-types.js";
 import type {

@@ -1,4 +1,4 @@
-import { canonicalize, sha256Prefixed } from "@datazup/canonical-json";
+import { canonicalize, sha256Prefixed } from "@dzupagent/canonical-json";
 
 import { compareCodeUnits } from "../canonical-order.js";
 import type { FlowNode } from "@dzupagent/flow-ast";
@@ -213,7 +213,7 @@ export function seededBackoff(
   return Number.parseInt(entropy, 16) % (maximum + 1);
 }
 
-// Delegates to @datazup/canonical-json's `authoring-v1` preset — the same
+// Delegates to @dzupagent/canonical-json's `authoring-v1` preset — the same
 // semantic family as the local copy this file used to carry (undefined
 // object entries kept as bare tokens, undefined array items elided,
 // default UTF-16 key sort), so local-target receipt and evidence digests

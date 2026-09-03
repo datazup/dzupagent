@@ -822,7 +822,7 @@
       "migrationWindow": "Document connector root exports are stable ingestion primitives; chunking subpath is transitional pending API stabilisation."
     },
     {
-      "packageName": "@datazup/canonical-json",
+      "packageName": "@dzupagent/canonical-json",
       "packageDir": "packages/canonical-json",
       "rootIndex": "packages/canonical-json/src/index.ts",
       "stableRoot": [

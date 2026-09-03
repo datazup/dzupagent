@@ -1,4 +1,4 @@
-import { canonicalDigestPrefixed } from "@datazup/canonical-json";
+import { canonicalDigestPrefixed } from "@dzupagent/canonical-json";
 
 import type {
   VersionMigrationFixture,
@@ -321,7 +321,7 @@ function assertFiniteJson(value: unknown, seen: WeakSet<object>): void {
   seen.delete(value);
 }
 
-// Delegates to @datazup/canonical-json's authoring-v1 preset. DELIBERATE
+// Delegates to @dzupagent/canonical-json's authoring-v1 preset. DELIBERATE
 // digest change (ARCH27-T-01 family): the removed local stableStringify
 // sorted keys with localeCompare, whose order varies with the host ICU
 // locale and differs from UTF-16 order on mixed-case or non-ASCII keys, so

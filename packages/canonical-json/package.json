@@ -1,5 +1,5 @@
 {
-  "name": "@datazup/canonical-json",
+  "name": "@dzupagent/canonical-json",
   "version": "0.1.0",
   "private": true,
   "type": "module",

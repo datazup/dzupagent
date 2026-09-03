@@ -1,4 +1,4 @@
-import { canonicalDigestPrefixed } from "@datazup/canonical-json";
+import { canonicalDigestPrefixed } from "@dzupagent/canonical-json";
 
 import type {
   FlowDataClassification,
@@ -396,7 +396,7 @@ function sortedEntries<T>(
   return Object.entries(value).sort(compareEntryKeys);
 }
 
-// Both digests delegate to @datazup/canonical-json's
+// Both digests delegate to @dzupagent/canonical-json's
 // `classification-envelope-v1` preset — the exact port of the local
 // stableStringify this file used to carry (undefined object entries
 // omitted, undefined array items as null, unwinding cycle detection with

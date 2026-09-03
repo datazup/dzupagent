@@ -1,4 +1,4 @@
-import { canonicalize, sha256Prefixed } from "@datazup/canonical-json";
+import { canonicalize, sha256Prefixed } from "@dzupagent/canonical-json";
 import { stringify } from "yaml";
 
 import type { DslDiagnostic } from "../types.js";
@@ -77,7 +77,7 @@ export function renderCanonicalV2Yaml(
   }).trimEnd();
 }
 
-// Canonical stringification and digests delegate to @datazup/canonical-json's
+// Canonical stringification and digests delegate to @dzupagent/canonical-json's
 // `authoring-v1` preset — the exact-port of this module's historical
 // implementation, golden-pinned there and by v2-canonical-roundtrip.test.ts,
 // so persisted canonicalSourceSha256/semanticSha256 values and the v2 import

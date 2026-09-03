@@ -42,7 +42,7 @@
     "@dzupagent/core": "0.2.0"
   },
   "dependencies": {
-    "@datazup/canonical-json": "0.1.0",
+    "@dzupagent/canonical-json": "0.1.0",
     "@dzupagent/flow-ast": "0.2.0",
     "@dzupagent/flow-dsl": "0.2.0",
     "@dzupagent/runtime-contracts": "0.2.0"

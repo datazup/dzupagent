@@ -1244,7 +1244,7 @@ No stable subpaths configured.
 | `stable` | `./validation.js` | 6 | `exact:./validation.js` | `DEFAULT_MAX_CHUNK_SIZE`, `DEFAULT_OVERLAP_SIZE`, `MAX_CHUNK_SIZE_LIMIT`, `DEFAULT_MAX_DOCUMENT_BYTES` |
 | `stable` | `./types.js` | 1 | `exact:./types.js` | `ChunkOptions` |
 
-## @datazup/canonical-json
+## @dzupagent/canonical-json
 
 Root index: `packages/canonical-json/src/index.ts`
 

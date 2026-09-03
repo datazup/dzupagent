@@ -2,7 +2,7 @@
  * @dzupagent/flow-compiler — host-independent ordering for digested arrays
  * (internal).
  *
- * `@datazup/canonical-json` canonicalizes object *key* order with a UTF-16
+ * `@dzupagent/canonical-json` canonicalizes object *key* order with a UTF-16
  * code-unit comparator and documents why: `localeCompare` varies with the
  * host ICU locale (the bug fixed by ARCH27-T-01). It cannot canonicalize
  * array *element* order, though — that is whatever order the producer emitted.

@@ -6,7 +6,7 @@
  * execution -- so compiled diagnostics and runtime enforcement agree.
  *
  * Implementation note: the canonical JSON algorithm lives in
- * `@datazup/canonical-json` (the `idempotency-v1` preset is this module's
+ * `@dzupagent/canonical-json` (the `idempotency-v1` preset is this module's
  * historical `sortedJsonV1` scheme, extracted by ARCH27-T-13 and pinned
  * byte-for-byte by that package's golden vectors). This module keeps its
  * public surface (`CANONICAL_JSON_VERSION`, `canonicalJson`,
@@ -17,7 +17,7 @@
  * @module runtime-contracts/idempotency
  */
 
-import { sha256Hex, sortedJsonV1Stringify } from "@datazup/canonical-json";
+import { sha256Hex, sortedJsonV1Stringify } from "@dzupagent/canonical-json";
 
 // ---------------------------------------------------------------------------
 // Canonical JSON

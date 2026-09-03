@@ -19,7 +19,7 @@ import {
   ADAPTER_DIGEST_V1_OPTIONS,
   canonicalStringify,
   sha256Prefixed,
-} from "@datazup/canonical-json";
+} from "@dzupagent/canonical-json";
 
 import type {
   AdapterInstallationRef,

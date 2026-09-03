@@ -2,7 +2,7 @@
  * Golden corpus for every array order that feeds the
  * classification-envelope digest.
  *
- * `@datazup/canonical-json` canonicalizes *key* order (ARCH27-T-01 replaced
+ * `@dzupagent/canonical-json` canonicalizes *key* order (ARCH27-T-01 replaced
  * `localeCompare` with a UTF-16 code-unit comparator there), but it cannot
  * canonicalize *array element* order — that is fixed by whichever comparator
  * the envelope builder used. Six comparators in `classification-envelope.ts`

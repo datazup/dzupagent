@@ -109,11 +109,11 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@datazup/canonical-json": "0.1.0",
     "@dzupagent/adapter-rules": "0.1.0",
     "@dzupagent/adapter-types": "0.2.0",
     "@dzupagent/agent": "0.2.0",
     "@dzupagent/agent-types": "0.2.0",
+    "@dzupagent/canonical-json": "0.1.0",
     "@dzupagent/context": "0.2.0",
     "@dzupagent/core": "0.2.0",
     "@dzupagent/runtime-contracts": "0.2.0",

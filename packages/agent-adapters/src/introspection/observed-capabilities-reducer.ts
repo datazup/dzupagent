@@ -9,7 +9,7 @@ import {
   ADAPTER_DIGEST_V1_OPTIONS,
   canonicalStringify,
   sha256Hex,
-} from "@datazup/canonical-json";
+} from "@dzupagent/canonical-json";
 
 import type { AgentEvent } from "@dzupagent/adapter-types";
 import type {
