@@ -5,11 +5,12 @@ import {
   type ValidationIssue,
 } from './contracts.js'
 import { validateSessionControlCommand } from './commands.js'
-import { createSessionSnapshot, reduceSessionEvent, validateNormalizedSessionEvent } from './session-reducer.js'
-import type {
-  CreateSessionSnapshotInput,
-  NormalizedSessionEvent,
-  SessionSnapshot,
+import { createSessionSnapshot, reduceSessionEvent } from './session-reducer.js'
+import {
+  validateNormalizedSessionEvent,
+  type CreateSessionSnapshotInput,
+  type NormalizedSessionEvent,
+  type SessionSnapshot,
 } from './session-types.js'
 import { isJsonValue, isOpaqueReference, validateExecutionProfile } from './validation.js'
 
@@ -26,6 +27,8 @@ export interface PortabilityReport {
 const FORBIDDEN_KEYS = new Set([
   'apitoken',
   'accesstoken',
+  'refreshtoken',
+  'clientsecret',
   'credential',
   'credentials',
   'password',
@@ -58,6 +61,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
   const prototype = Object.getPrototypeOf(value)
   return prototype === Object.prototype || prototype === null
+}
+
+function hasExactFields(value: Record<string, unknown>, required: readonly string[]): boolean {
+  const expected = new Set(required)
+  return required.every((field) => Object.hasOwn(value, field)) &&
+    Object.keys(value).every((field) => expected.has(field))
 }
 
 export function scanPortableSessionControlValue(value: unknown): PortabilityReport {
@@ -111,6 +120,40 @@ export function validateSessionControlConformanceFixture(input: unknown): Confor
   if (!isRecord(input)) {
     return { ok: false, issues: [issue('$', 'invalid_type', 'fixture must be an object')] }
   }
+  if (
+    !hasExactFields(input, [
+      'schema',
+      'fixtureRef',
+      'qualificationScope',
+      'profiles',
+      'manifest',
+      'session',
+      'commands',
+      'events',
+    ])
+  ) {
+    return {
+      ok: false,
+      issues: [issue('$', 'invalid_fixture_fields', 'fixture fields must match the schema')],
+    }
+  }
+  if (!isRecord(input.session)) {
+    return { ok: false, issues: [issue('session', 'invalid_session', 'session seed is required')] }
+  }
+  if (
+    !hasExactFields(input.session, [
+      'sessionRef',
+      'profileIndex',
+      'origin',
+      'status',
+      'recordedAt',
+    ])
+  ) {
+    return {
+      ok: false,
+      issues: [issue('session', 'invalid_session_fields', 'session seed fields must match the schema')],
+    }
+  }
   const portability = scanPortableSessionControlValue(input)
   if (!portability.portable) {
     return {
@@ -141,9 +184,6 @@ export function validateSessionControlConformanceFixture(input: unknown): Confor
   for (let index = 0; index < input.commands.length; index += 1) {
     const result = validateSessionControlCommand(input.commands[index])
     if (!result.ok) return { ok: false, issues: result.issues }
-  }
-  if (!isRecord(input.session)) {
-    return { ok: false, issues: [issue('session', 'invalid_session', 'session seed is required')] }
   }
   const profileIndex = input.session.profileIndex
   if (!Number.isSafeInteger(profileIndex) || Number(profileIndex) < 0 || Number(profileIndex) >= profiles.length) {

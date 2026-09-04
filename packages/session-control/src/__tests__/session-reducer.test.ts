@@ -5,6 +5,7 @@ import {
   asSha256Digest,
   createSessionSnapshot,
   reduceSessionEvent,
+  validateSessionSnapshot,
   type ExecutionProfile,
   type InteractionClass,
   type NormalizedSessionEvent,
@@ -80,6 +81,19 @@ describe('session event reducer', () => {
         event({ payload: { turnRef: 'turn_4Db0hJ6u' } }),
       ),
     ).toMatchObject({ ok: false, issue: { code: 'event_replay_conflict' } })
+  })
+
+  it('rejects an otherwise exact replay from a different session', () => {
+    const firstEvent = event()
+    const first = reduceSessionEvent(snapshot(), firstEvent)
+    if (!first.ok) throw new Error(first.issue.code)
+
+    expect(
+      reduceSessionEvent(
+        first.snapshot,
+        event({ sessionRef: asOpaqueReference('session_5Ec1iK7v') }),
+      ),
+    ).toMatchObject({ ok: false, issue: { code: 'session_mismatch' } })
   })
 
   it('does not advance generation for progress or command acknowledgement', () => {
@@ -169,6 +183,57 @@ describe('session event reducer', () => {
         }),
       ),
     ).toMatchObject({ ok: false, issue: { code: 'interaction_mismatch' } })
+  })
+
+  it.each([
+    ['turn.completed', { turnRef: 'turn_9Jm5nR4z' }],
+    ['session.status_changed', { status: 'idle' }],
+  ] as const)('does not let %s orphan a pending interaction', (type, payload) => {
+    const requested = reduceSessionEvent(
+      snapshot(),
+      event({
+        type: 'interaction.requested',
+        payload: {
+          interactionRef: 'interaction_6Fd2jL8w',
+          interactionClass: 'informational_clarification',
+        },
+      }),
+    )
+    if (!requested.ok) throw new Error(requested.issue.code)
+
+    expect(
+      reduceSessionEvent(
+        requested.snapshot,
+        event({
+          eventId: asOpaqueReference('event_5Ec1iK7v'),
+          eventDigest: asSha256Digest(`sha256:${'d'.repeat(64)}`),
+          sequence: 2,
+          type,
+          payload,
+        } as Partial<NormalizedSessionEvent>),
+      ),
+    ).toMatchObject({ ok: false, issue: { code: 'pending_interaction_unresolved' } })
+  })
+
+  it('rejects a snapshot whose pending interaction and status disagree', () => {
+    const requested = reduceSessionEvent(
+      snapshot(),
+      event({
+        type: 'interaction.requested',
+        payload: {
+          interactionRef: 'interaction_6Fd2jL8w',
+          interactionClass: 'repository_mutation',
+        },
+      }),
+    )
+    if (!requested.ok) throw new Error(requested.issue.code)
+
+    expect(validateSessionSnapshot({ ...requested.snapshot, status: 'idle' })).toMatchObject({
+      ok: false,
+      issues: expect.arrayContaining([
+        expect.objectContaining({ code: 'pending_interaction_status_mismatch' }),
+      ]),
+    })
   })
 
   it('returns to idle only when the exact dependency becomes ready', () => {

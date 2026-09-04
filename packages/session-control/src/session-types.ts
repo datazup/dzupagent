@@ -36,6 +36,16 @@ export type SessionEventSource = (typeof SESSION_EVENT_SOURCES)[number]
 export const SESSION_CONTROL_MODES = ['controllable', 'read_only'] as const
 export type SessionControlMode = (typeof SESSION_CONTROL_MODES)[number]
 
+const ACKNOWLEDGED_COMMAND_STATUSES = new Set([
+  'accepted',
+  'provider_waiting',
+  'applied',
+  'rejected_stale',
+  'rejected_authority',
+  'unsupported',
+  'failed',
+])
+
 export interface SessionControlSessionView {
   readonly sessionRef: OpaqueReference
   readonly origin: SessionOrigin
@@ -132,6 +142,140 @@ function hasExactFields(
 
 function invalid(path: string, code: string, message: string): ValidationIssue {
   return { path, code, message }
+}
+
+function hasRefPayload(payload: JsonObject, field: string): boolean {
+  return hasExactFields(payload, [field]) && isOpaqueReference(payload[field])
+}
+
+function isValidEventPayload(event: NormalizedSessionEvent): boolean {
+  const payload = event.payload
+  switch (event.type) {
+    case 'session.status_changed':
+      return (
+        hasExactFields(payload, ['status']) &&
+        SESSION_STATUSES.includes(payload.status as never) &&
+        !TERMINAL_SESSION_STATUSES.includes(payload.status as never)
+      )
+    case 'provider_attempt.registered':
+    case 'provider_attempt.status_changed':
+      return (
+        hasExactFields(payload, ['attemptRef', 'status']) &&
+        isOpaqueReference(payload.attemptRef) &&
+        SESSION_STATUSES.includes(payload.status as never)
+      )
+    case 'turn.started':
+    case 'turn.completed':
+      return hasRefPayload(payload, 'turnRef')
+    case 'turn.progress':
+      return hasRefPayload(payload, 'progressRef')
+    case 'interaction.requested':
+      return (
+        hasExactFields(payload, ['interactionRef', 'interactionClass']) &&
+        isOpaqueReference(payload.interactionRef) &&
+        INTERACTION_CLASSES.includes(payload.interactionClass as never)
+      )
+    case 'interaction.resolved':
+      return hasRefPayload(payload, 'interactionRef')
+    case 'dependency.wait_registered':
+    case 'dependency.ready':
+      return hasRefPayload(payload, 'dependencyRef')
+    case 'command.acknowledged':
+      return (
+        hasExactFields(payload, ['commandId', 'status']) &&
+        isOpaqueReference(payload.commandId) &&
+        ACKNOWLEDGED_COMMAND_STATUSES.has(String(payload.status))
+      )
+    case 'handoff.available':
+      return hasRefPayload(payload, 'handoffRef')
+    case 'ownership.released':
+      return hasRefPayload(payload, 'releaseRef')
+    case 'session.terminal':
+      return (
+        hasExactFields(payload, ['status']) &&
+        TERMINAL_SESSION_STATUSES.includes(payload.status as never)
+      )
+  }
+}
+
+export function validateNormalizedSessionEvent(
+  input: unknown,
+): ValidationResult<NormalizedSessionEvent> {
+  if (!isRecord(input)) {
+    return {
+      ok: false,
+      issues: [invalid('$', 'invalid_type', 'session event must be an object')],
+    }
+  }
+  const issues: ValidationIssue[] = []
+  const fields = [
+    'schema',
+    'eventId',
+    'eventDigest',
+    'sessionRef',
+    'sequence',
+    'occurredAt',
+    'recordedAt',
+    'source',
+    'type',
+    'payload',
+  ]
+  if (!hasExactFields(input, fields)) {
+    issues.push(invalid('$', 'invalid_fields', 'event fields must match the schema'))
+  }
+  if (input.schema !== SESSION_CONTROL_SCHEMAS.sessionEvent) {
+    issues.push(invalid('schema', 'invalid_schema', 'unsupported event schema'))
+  }
+  if (!isOpaqueReference(input.eventId) || !isOpaqueReference(input.sessionRef)) {
+    issues.push(invalid('$', 'invalid_reference', 'invalid event or session reference'))
+  }
+  if (!isSha256Digest(input.eventDigest)) {
+    issues.push(invalid('eventDigest', 'invalid_digest', 'invalid event digest'))
+  }
+  if (!Number.isSafeInteger(input.sequence) || Number(input.sequence) < 1) {
+    issues.push(invalid('sequence', 'invalid_sequence', 'sequence must be positive'))
+  }
+  if (!isFiniteIsoTimestamp(input.occurredAt) || !isFiniteIsoTimestamp(input.recordedAt)) {
+    issues.push(invalid('$', 'invalid_timestamp', 'event times must be finite ISO time'))
+  }
+  if (!SESSION_EVENT_SOURCES.includes(input.source as never)) {
+    issues.push(invalid('source', 'invalid_source', 'invalid event source'))
+  }
+  if (!NORMALIZED_SESSION_EVENT_TYPES.includes(input.type as never)) {
+    issues.push(invalid('type', 'invalid_event_type', 'invalid event type'))
+  }
+  if (!isRecord(input.payload) || !isJsonValue(input.payload)) {
+    issues.push(invalid('payload', 'invalid_event_payload', 'payload must be portable JSON'))
+  } else if (NORMALIZED_SESSION_EVENT_TYPES.includes(input.type as never)) {
+    const candidate = input as unknown as NormalizedSessionEvent
+    if (!isValidEventPayload(candidate)) {
+      issues.push(invalid('payload', 'invalid_event_payload', 'payload does not match event type'))
+    }
+  }
+  if (
+    isFiniteIsoTimestamp(input.occurredAt) &&
+    isFiniteIsoTimestamp(input.recordedAt) &&
+    Date.parse(input.occurredAt) > Date.parse(input.recordedAt)
+  ) {
+    issues.push(invalid('occurredAt', 'event_from_future', 'occurrence follows record time'))
+  }
+
+  return issues.length > 0
+    ? { ok: false, issues }
+    : { ok: true, value: input as unknown as NormalizedSessionEvent }
+}
+
+function interactionStatus(interactionClass: InteractionClass): SessionStatus {
+  if (interactionClass === 'dependency_wait') return 'waiting_for_dependency'
+  if (interactionClass === 'unsupported_native_control') return 'blocked'
+  if (
+    interactionClass === 'plan_routing_choice' ||
+    interactionClass === 'repository_mutation' ||
+    interactionClass === 'permission_or_credential'
+  ) {
+    return 'waiting_for_approval'
+  }
+  return 'waiting_for_input'
 }
 
 export function validateSessionControlSessionView(
@@ -243,6 +387,7 @@ export function validateSessionSnapshot(input: unknown): ValidationResult<Sessio
       }
     }
   }
+  let validPendingInteraction: PendingInteraction | undefined
   if (input.pendingInteraction !== undefined) {
     if (
       !isRecord(input.pendingInteraction) ||
@@ -251,6 +396,8 @@ export function validateSessionSnapshot(input: unknown): ValidationResult<Sessio
       !INTERACTION_CLASSES.includes(input.pendingInteraction.interactionClass as never)
     ) {
       issues.push(invalid('pendingInteraction', 'invalid_interaction', 'invalid pending interaction'))
+    } else {
+      validPendingInteraction = input.pendingInteraction as unknown as PendingInteraction
     }
   }
   for (const field of ['pendingDependencyRef', 'lastHandoffRef'] as const) {
@@ -294,6 +441,30 @@ export function validateSessionSnapshot(input: unknown): ValidationResult<Sessio
   }
   if (input.origin === 'discovered_external' && input.controlMode !== 'read_only') {
     issues.push(invalid('controlMode', 'external_control_forbidden', 'discovery is read-only'))
+  }
+  if (
+    validPendingInteraction !== undefined &&
+    input.status !== interactionStatus(validPendingInteraction.interactionClass)
+  ) {
+    issues.push(
+      invalid(
+        'pendingInteraction',
+        'pending_interaction_status_mismatch',
+        'pending interaction must retain its waiting status',
+      ),
+    )
+  }
+  if (input.pendingDependencyRef !== undefined && input.status !== 'waiting_for_dependency') {
+    issues.push(
+      invalid(
+        'pendingDependencyRef',
+        'pending_dependency_status_mismatch',
+        'pending dependency must retain its waiting status',
+      ),
+    )
+  }
+  if (validPendingInteraction !== undefined && input.pendingDependencyRef !== undefined) {
+    issues.push(invalid('$', 'conflicting_pending_state', 'session cannot retain two pending controls'))
   }
   if (
     TERMINAL_SESSION_STATUSES.includes(input.status as never) &&

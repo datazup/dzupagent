@@ -1,6 +1,7 @@
 import type { OpaqueReference } from './contracts.js'
-import { reduceSessionEvent, validateNormalizedSessionEvent } from './session-reducer.js'
+import { reduceSessionEvent } from './session-reducer.js'
 import {
+  validateNormalizedSessionEvent,
   validateSessionSnapshot,
   type NormalizedSessionEvent,
   type SessionSnapshot,

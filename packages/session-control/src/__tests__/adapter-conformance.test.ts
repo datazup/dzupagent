@@ -44,6 +44,24 @@ function manifest(
   }
 }
 
+function normalizedEvent(
+  overrides: Partial<NormalizedSessionEvent> = {},
+): NormalizedSessionEvent {
+  return {
+    schema: SESSION_CONTROL_SCHEMAS.sessionEvent,
+    eventId: asOpaqueReference('event_8Hk4mQ3y'),
+    eventDigest: asSha256Digest(`sha256:${'a'.repeat(64)}`),
+    sessionRef: asOpaqueReference('session_7Gf3kP2x'),
+    sequence: 1,
+    occurredAt: '2026-09-04T20:00:01.000Z',
+    recordedAt: '2026-09-04T20:00:01.000Z',
+    source: 'provider_adapter',
+    type: 'turn.started',
+    payload: { turnRef: 'turn_9Jm5nR4z' },
+    ...overrides,
+  } as NormalizedSessionEvent
+}
+
 describe('adapter capability conformance', () => {
   it('requires an exact method for every callable declaration', () => {
     const declared = manifest({
@@ -200,5 +218,52 @@ describe('adapter capability conformance', () => {
         'lookup_after_restart',
       ),
     ).toMatchObject({ ok: true, value: { snapshot: created.snapshot } })
+  })
+
+  it('rejects malformed or incoherent tail event batches', () => {
+    const validateFor = validateAdapterOperationResult as unknown as (
+      value: unknown,
+      capability: SessionControlCapability,
+    ) => ReturnType<typeof validateAdapterOperationResult>
+    const evidence = {
+      kind: 'provider_event' as const,
+      ref: asOpaqueReference('evidence_3Ca9gH5t'),
+    }
+    const first = normalizedEvent()
+    const second = normalizedEvent({
+      eventId: asOpaqueReference('event_4Db0hJ6u'),
+      eventDigest: asSha256Digest(`sha256:${'b'.repeat(64)}`),
+      sequence: 2,
+      occurredAt: '2026-09-04T20:00:02.000Z',
+      recordedAt: '2026-09-04T20:00:02.000Z',
+      type: 'turn.progress',
+      payload: { progressRef: 'progress_3Ca9gH5t' },
+    })
+    const invalidBatches = [
+      { events: [normalizedEvent({ payload: { wrongRef: 'turn_9Jm5nR4z' } })], nextSequence: 2 },
+      {
+        events: [first, normalizedEvent({ ...second, sessionRef: asOpaqueReference('session_5Ec1iK7v') })],
+        nextSequence: 3,
+      },
+      { events: [first, normalizedEvent({ ...second, sequence: 3 })], nextSequence: 4 },
+      {
+        events: [
+          first,
+          normalizedEvent({
+            ...second,
+            occurredAt: '2026-09-04T20:00:00.500Z',
+            recordedAt: '2026-09-04T20:00:00.500Z',
+          }),
+        ],
+        nextSequence: 3,
+      },
+      { events: [first, second], nextSequence: 99 },
+    ]
+
+    for (const batch of invalidBatches) {
+      expect(
+        validateFor({ status: 'applied', ...batch, evidence }, 'tail_events'),
+      ).toEqual({ ok: false, failureCode: 'invalid_event_batch' })
+    }
   })
 })

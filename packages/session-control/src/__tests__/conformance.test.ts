@@ -62,6 +62,43 @@ describe('provider-free session-control conformance fixture', () => {
     })
   })
 
+  it('rejects fields outside the exact fixture and session schemas', () => {
+    expect(
+      validateSessionControlConformanceFixture({
+        ...fixture(),
+        refreshToken: 'must-not-cross-boundary',
+      }),
+    ).toMatchObject({
+      ok: false,
+      issues: [expect.objectContaining({ code: 'invalid_fixture_fields', path: '$' })],
+    })
+
+    const withSessionExtension = fixture()
+    withSessionExtension.session = {
+      ...(withSessionExtension.session as Record<string, unknown>),
+      clientSecret: 'must-not-cross-boundary',
+    }
+    expect(validateSessionControlConformanceFixture(withSessionExtension)).toMatchObject({
+      ok: false,
+      issues: [expect.objectContaining({ code: 'invalid_session_fields', path: 'session' })],
+    })
+  })
+
+  it('keeps common credential aliases in the portability defense layer', () => {
+    expect(
+      scanPortableSessionControlValue({
+        refreshToken: 'opaque',
+        clientSecret: 'opaque',
+      }),
+    ).toMatchObject({
+      portable: false,
+      issues: expect.arrayContaining([
+        expect.objectContaining({ code: 'forbidden_key', path: '$.refreshToken' }),
+        expect.objectContaining({ code: 'forbidden_key', path: '$.clientSecret' }),
+      ]),
+    })
+  })
+
   it('rejects vacuous and non-terminal conformance traces', () => {
     expect(
       validateSessionControlConformanceFixture({

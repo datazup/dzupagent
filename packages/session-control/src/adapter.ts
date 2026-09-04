@@ -1,8 +1,5 @@
 import {
-  NORMALIZED_SESSION_EVENT_TYPES,
   SESSION_CONTROL_CAPABILITIES,
-  SESSION_CONTROL_SCHEMAS,
-  SESSION_STATUSES,
   type ExecutionProfile,
   type JsonObject,
   type OpaqueReference,
@@ -17,16 +14,12 @@ import {
   type SessionControlCapabilityManifest,
 } from './capabilities.js'
 import {
+  validateNormalizedSessionEvent,
   validateSessionSnapshot,
   type NormalizedSessionEvent,
   type SessionSnapshot,
 } from './session-types.js'
-import {
-  isFiniteIsoTimestamp,
-  isJsonValue,
-  isOpaqueReference,
-  isSha256Digest,
-} from './validation.js'
+import { isOpaqueReference } from './validation.js'
 
 export interface AdapterInvocation {
   readonly correlationRef: OpaqueReference
@@ -199,33 +192,30 @@ function validateCommandAdapterResult(
   }
 }
 
-function isNormalizedSessionEventShape(value: unknown): value is NormalizedSessionEvent {
-  return (
-    isRecord(value) &&
-    hasExactFields(value, [
-      'schema',
-      'eventId',
-      'eventDigest',
-      'sessionRef',
-      'sequence',
-      'occurredAt',
-      'recordedAt',
-      'source',
-      'type',
-      'payload',
-    ]) &&
-    value.schema === SESSION_CONTROL_SCHEMAS.sessionEvent &&
-    isOpaqueReference(value.eventId) &&
-    isSha256Digest(value.eventDigest) &&
-    isOpaqueReference(value.sessionRef) &&
-    Number.isSafeInteger(value.sequence) &&
-    Number(value.sequence) > 0 &&
-    isFiniteIsoTimestamp(value.occurredAt) &&
-    isFiniteIsoTimestamp(value.recordedAt) &&
-    ['provider_adapter', 'control_plane', 'worker', 'host'].includes(String(value.source)) &&
-    NORMALIZED_SESSION_EVENT_TYPES.includes(value.type as never) &&
-    isJsonValue(value.payload)
-  )
+function isCoherentTailEventBatch(events: unknown, nextSequence: unknown): boolean {
+  if (!Array.isArray(events) || !Number.isSafeInteger(nextSequence) || Number(nextSequence) < 0) {
+    return false
+  }
+
+  let prior: NormalizedSessionEvent | undefined
+  const eventIds = new Set<string>()
+  for (const entry of events) {
+    const validated = validateNormalizedSessionEvent(entry)
+    if (!validated.ok || eventIds.has(validated.value.eventId)) return false
+    const event = validated.value
+    if (
+      prior !== undefined &&
+      (event.sessionRef !== prior.sessionRef ||
+        event.sequence !== prior.sequence + 1 ||
+        Date.parse(event.recordedAt) < Date.parse(prior.recordedAt))
+    ) {
+      return false
+    }
+    eventIds.add(event.eventId)
+    prior = event
+  }
+
+  return prior === undefined || Number(nextSequence) === prior.sequence + 1
 }
 
 function validateSpecializedResult(
@@ -253,10 +243,7 @@ function validateSpecializedResult(
   }
   if (capability === 'tail_events') {
     return hasExactFields(input, ['status', 'events', 'nextSequence', 'evidence']) &&
-      Array.isArray(input.events) &&
-      input.events.every(isNormalizedSessionEventShape) &&
-      Number.isSafeInteger(input.nextSequence) &&
-      Number(input.nextSequence) >= 0
+      isCoherentTailEventBatch(input.events, input.nextSequence)
       ? { ok: true, value: input as unknown as TailSessionEventsAdapterResult }
       : { ok: false, failureCode: 'invalid_event_batch' }
   }
