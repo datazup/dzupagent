@@ -1,13 +1,13 @@
-import {
+import type {
   SESSION_CONTROL_SCHEMAS,
-  type ExecutionProfile,
-  type InteractionClass,
-  type JsonObject,
-  type NormalizedSessionEventType,
-  type OpaqueReference,
-  type SessionStatus,
-  type Sha256Digest,
-  type ValidationIssue,
+  ExecutionProfile,
+  InteractionClass,
+  JsonObject,
+  NormalizedSessionEventType,
+  OpaqueReference,
+  SessionStatus,
+  Sha256Digest,
+  ValidationIssue,
 } from './contracts.js'
 import type { SessionControlMode } from './commands.js'
 
