@@ -1,5 +1,6 @@
 import {
   SESSION_CONTROL_CAPABILITIES,
+  type CommandEvidence,
   type ExecutionProfile,
   type JsonObject,
   type OpaqueReference,
@@ -7,7 +8,6 @@ import {
   type SessionControlCapability,
   type ValidationIssue,
 } from './contracts.js'
-import type { CommandEvidence } from './command-ledger.js'
 import {
   evaluateCapabilityDeclaration,
   validateCapabilityManifest,

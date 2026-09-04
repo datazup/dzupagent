@@ -96,6 +96,19 @@ export type OpaqueReference = string & { readonly [opaqueReferenceBrand]: true }
 declare const sha256DigestBrand: unique symbol
 export type Sha256Digest = string & { readonly [sha256DigestBrand]: true }
 
+export const COMMAND_EVIDENCE_KINDS = [
+  'provider_event',
+  'normalized_event',
+  'subsequent_read',
+  'transport_acknowledgement',
+] as const
+export type CommandEvidenceKind = (typeof COMMAND_EVIDENCE_KINDS)[number]
+
+export interface CommandEvidence {
+  readonly kind: CommandEvidenceKind
+  readonly ref: OpaqueReference
+}
+
 export interface ExecutionProfile {
   readonly schema: typeof SESSION_CONTROL_SCHEMAS.executionProfile
   readonly executionStyle: ExecutionStyle

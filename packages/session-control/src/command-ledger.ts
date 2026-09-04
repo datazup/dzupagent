@@ -1,5 +1,8 @@
 import {
+  COMMAND_EVIDENCE_KINDS,
   SESSION_CONTROL_SCHEMAS,
+  type CommandEvidence,
+  type CommandEvidenceKind,
   type OpaqueReference,
   type Sha256Digest,
   type ValidationIssue,
@@ -12,19 +15,6 @@ import {
   type SessionControlCommandStatus,
 } from './commands.js'
 import { isFiniteIsoTimestamp, isOpaqueReference } from './validation.js'
-
-export const COMMAND_EVIDENCE_KINDS = [
-  'provider_event',
-  'normalized_event',
-  'subsequent_read',
-  'transport_acknowledgement',
-] as const
-export type CommandEvidenceKind = (typeof COMMAND_EVIDENCE_KINDS)[number]
-
-export interface CommandEvidence {
-  readonly kind: CommandEvidenceKind
-  readonly ref: OpaqueReference
-}
 
 export interface CommandRecord {
   readonly schema: typeof SESSION_CONTROL_SCHEMAS.commandRecord

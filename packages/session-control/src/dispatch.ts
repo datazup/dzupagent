@@ -7,7 +7,7 @@ import {
   type SessionControlAdapter,
   type SessionControlAdapterMethod,
 } from './adapter.js'
-import type { CommandEvidence } from './command-ledger.js'
+import type { CommandEvidence } from './contracts.js'
 import {
   admitSessionControlCommand,
   type CommandAdmissionResult,
