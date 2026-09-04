@@ -907,6 +907,7 @@
           "adapter-types",
           "agent-types",
           "execution-contracts",
+          "session-control",
           "runtime-contracts",
           "eval-contracts",
           "cache",

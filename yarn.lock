@@ -1820,6 +1820,17 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@dzupagent/session-control@workspace:packages/session-control":
+  version: 0.0.0-use.local
+  resolution: "@dzupagent/session-control@workspace:packages/session-control"
+  dependencies:
+    "@types/node": "npm:^20.0.0"
+    tsup: "npm:*"
+    typescript: "npm:^5.8.3"
+    vitest: "npm:^3.2.4"
+  languageName: unknown
+  linkType: soft
+
 "@dzupagent/subagents@npm:0.1.0, @dzupagent/subagents@workspace:packages/subagents":
   version: 0.0.0-use.local
   resolution: "@dzupagent/subagents@workspace:packages/subagents"

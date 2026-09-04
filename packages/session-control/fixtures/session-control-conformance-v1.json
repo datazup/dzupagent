@@ -1,0 +1,215 @@
+{
+  "schema": "dzupagent.session-control.conformance-fixture/v1",
+  "fixtureRef": "fixture_7Gf3kP2x",
+  "qualificationScope": "provider_free",
+  "profiles": [
+    {
+      "schema": "dzupagent.session-control.execution-profile/v1",
+      "executionStyle": "inline",
+      "continuity": "none",
+      "coordination": "none"
+    },
+    {
+      "schema": "dzupagent.session-control.execution-profile/v1",
+      "executionStyle": "durable",
+      "continuity": "control_plane_managed",
+      "coordination": "none"
+    }
+  ],
+  "manifest": {
+    "schema": "dzupagent.session-control.capability-manifest/v1",
+    "manifestRef": "manifest_8Hk4mQ3y",
+    "adapterRef": "adapter_9Jm5nR4z",
+    "providerKey": "provider-neutral-a",
+    "observedAt": "2026-09-04T20:00:00.000Z",
+    "capabilities": {
+      "observe": {
+        "support": "unsupported",
+        "qualification": "unqualified",
+        "availability": "available",
+        "emulation": "forbidden",
+        "reason": "native_control_absent"
+      },
+      "start": {
+        "support": "unsupported",
+        "qualification": "unqualified",
+        "availability": "available",
+        "emulation": "forbidden",
+        "reason": "native_control_absent"
+      },
+      "send_message": {
+        "support": "native",
+        "qualification": "qualified",
+        "availability": "available",
+        "emulation": "forbidden",
+        "evidenceRefs": ["evidence_3Ca9gH5t"]
+      },
+      "steer_active_turn": {
+        "support": "unsupported",
+        "qualification": "unqualified",
+        "availability": "available",
+        "emulation": "forbidden",
+        "reason": "native_control_absent"
+      },
+      "respond_interaction": {
+        "support": "native",
+        "qualification": "qualified",
+        "availability": "available",
+        "emulation": "forbidden",
+        "evidenceRefs": ["evidence_4Db0hJ6u"]
+      },
+      "pause": {
+        "support": "unsupported",
+        "qualification": "unqualified",
+        "availability": "available",
+        "emulation": "forbidden",
+        "reason": "native_control_absent"
+      },
+      "resume": {
+        "support": "unsupported",
+        "qualification": "unqualified",
+        "availability": "available",
+        "emulation": "forbidden",
+        "reason": "native_control_absent"
+      },
+      "interrupt": {
+        "support": "native",
+        "qualification": "qualified",
+        "availability": "available",
+        "emulation": "forbidden",
+        "evidenceRefs": ["evidence_5Ec1iK7v"]
+      },
+      "fork": {
+        "support": "unsupported",
+        "qualification": "unqualified",
+        "availability": "available",
+        "emulation": "forbidden",
+        "reason": "native_control_absent"
+      },
+      "tail_events": {
+        "support": "unsupported",
+        "qualification": "unqualified",
+        "availability": "available",
+        "emulation": "forbidden",
+        "reason": "native_control_absent"
+      },
+      "lookup_after_restart": {
+        "support": "unsupported",
+        "qualification": "unqualified",
+        "availability": "available",
+        "emulation": "forbidden",
+        "reason": "native_control_absent"
+      },
+      "native_session_resume": {
+        "support": "unsupported",
+        "qualification": "unqualified",
+        "availability": "available",
+        "emulation": "forbidden",
+        "reason": "native_control_absent"
+      }
+    }
+  },
+  "session": {
+    "sessionRef": "session_6Fd2jL8w",
+    "profileIndex": 1,
+    "origin": "managed",
+    "status": "idle",
+    "recordedAt": "2026-09-04T20:00:00.000Z"
+  },
+  "commands": [
+    {
+      "schema": "dzupagent.session-control.command/v1",
+      "commandId": "command_7Gf3kP2x",
+      "commandDigest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "sessionRef": "session_6Fd2jL8w",
+      "action": "send_message",
+      "expectedGeneration": 0,
+      "deadline": "2026-09-04T20:05:00.000Z",
+      "idempotencyKey": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "correlationRef": "correlation_8Hk4mQ3y",
+      "payload": {
+        "message": "Proceed with the admitted validation only."
+      }
+    },
+    {
+      "schema": "dzupagent.session-control.command/v1",
+      "commandId": "command_9Jm5nR4z",
+      "commandDigest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "sessionRef": "session_6Fd2jL8w",
+      "action": "respond_interaction",
+      "expectedGeneration": 2,
+      "deadline": "2026-09-04T20:06:00.000Z",
+      "idempotencyKey": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "correlationRef": "correlation_3Ca9gH5t",
+      "payload": {
+        "interactionRef": "interaction_4Db0hJ6u",
+        "answer": "Continue admitted work."
+      }
+    }
+  ],
+  "events": [
+    {
+      "schema": "dzupagent.session-control.session-event/v1",
+      "eventId": "event_5Ec1iK7v",
+      "eventDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sessionRef": "session_6Fd2jL8w",
+      "sequence": 1,
+      "occurredAt": "2026-09-04T20:00:01.000Z",
+      "recordedAt": "2026-09-04T20:00:01.000Z",
+      "source": "provider_adapter",
+      "type": "turn.started",
+      "payload": { "turnRef": "turn_6Fd2jL8w" }
+    },
+    {
+      "schema": "dzupagent.session-control.session-event/v1",
+      "eventId": "event_7Gf3kP2x",
+      "eventDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "sessionRef": "session_6Fd2jL8w",
+      "sequence": 2,
+      "occurredAt": "2026-09-04T20:00:02.000Z",
+      "recordedAt": "2026-09-04T20:00:02.000Z",
+      "source": "provider_adapter",
+      "type": "turn.progress",
+      "payload": { "progressRef": "progress_8Hk4mQ3y" }
+    },
+    {
+      "schema": "dzupagent.session-control.session-event/v1",
+      "eventId": "event_9Jm5nR4z",
+      "eventDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "sessionRef": "session_6Fd2jL8w",
+      "sequence": 3,
+      "occurredAt": "2026-09-04T20:00:03.000Z",
+      "recordedAt": "2026-09-04T20:00:03.000Z",
+      "source": "provider_adapter",
+      "type": "interaction.requested",
+      "payload": {
+        "interactionRef": "interaction_4Db0hJ6u",
+        "interactionClass": "informational_clarification"
+      }
+    },
+    {
+      "schema": "dzupagent.session-control.session-event/v1",
+      "eventId": "event_3Ca9gH5t",
+      "eventDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "sessionRef": "session_6Fd2jL8w",
+      "sequence": 4,
+      "occurredAt": "2026-09-04T20:00:04.000Z",
+      "recordedAt": "2026-09-04T20:00:04.000Z",
+      "source": "control_plane",
+      "type": "interaction.resolved",
+      "payload": { "interactionRef": "interaction_4Db0hJ6u" }
+    },
+    {
+      "schema": "dzupagent.session-control.session-event/v1",
+      "eventId": "event_4Db0hJ6u",
+      "eventDigest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "sessionRef": "session_6Fd2jL8w",
+      "sequence": 5,
+      "occurredAt": "2026-09-04T20:00:05.000Z",
+      "recordedAt": "2026-09-04T20:00:05.000Z",
+      "source": "provider_adapter",
+      "type": "session.terminal",
+      "payload": { "status": "completed" }
+    }
+  ]
+}

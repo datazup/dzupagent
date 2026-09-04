@@ -12,7 +12,8 @@
     "flow-ast",
     "memory",
     "memory-ipc",
-    "rag"
+    "rag",
+    "session-control"
   ],
   "largeSourceFileRisk": {
     "minLines": 700,

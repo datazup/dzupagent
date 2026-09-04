@@ -1,0 +1,46 @@
+{
+  "name": "@dzupagent/session-control",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Provider-neutral session-control contracts, reducers, adapter SPI, and conformance tools",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./fixtures/session-control-conformance-v1.json": {
+      "types": "./fixtures/session-control-conformance-v1.d.ts",
+      "default": "./fixtures/session-control-conformance-v1.json"
+    }
+  },
+  "files": [
+    "dist",
+    "fixtures"
+  ],
+  "scripts": {
+    "build": "node ../../scripts/run-with-build-custody.mjs --shell \"node ../../scripts/prepare-build-artifact-manifest.mjs && tsup && node ../../scripts/write-build-artifact-manifest.mjs\"",
+    "build:verify": "node ../../scripts/run-with-build-custody.mjs node ../../scripts/check-build-artifact-integrity.mjs",
+    "lint": "node ../../scripts/run-package-lint.mjs",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsup": "*",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "restricted"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/datazup/dzupagent.git",
+    "directory": "packages/session-control"
+  }
+}

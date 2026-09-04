@@ -15,6 +15,7 @@
   },
   "references": [
     { "path": "packages/execution-contracts" },
+    { "path": "packages/session-control" },
     { "path": "packages/runtime-contracts" },
     { "path": "packages/core" },
     { "path": "packages/agent" },

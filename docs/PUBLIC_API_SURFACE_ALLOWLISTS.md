@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-08-30
+Date: 2026-09-04
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -1243,6 +1243,38 @@ No stable subpaths configured.
 | `stable` | `./supported-types.js` | 2 | `exact:./supported-types.js` | `isSupportedDocumentType`, `SUPPORTED_MIME_TYPES` |
 | `stable` | `./validation.js` | 6 | `exact:./validation.js` | `DEFAULT_MAX_CHUNK_SIZE`, `DEFAULT_OVERLAP_SIZE`, `MAX_CHUNK_SIZE_LIMIT`, `DEFAULT_MAX_DOCUMENT_BYTES` |
 | `stable` | `./types.js` | 1 | `exact:./types.js` | `ChunkOptions` |
+
+## @dzupagent/session-control
+
+Root index: `packages/session-control/src/index.ts`
+
+- Stable root sources: `12`
+- Deprecated transitional root sources: `0`
+- Internal-only root candidates: `0`
+- Migration window: Session-control root exports and the versioned fixture are stable provider-neutral semantics; product authority, persistence, transport, and provider implementations remain in consuming hosts.
+
+### Stable Subpaths
+
+| Subpath | Purpose |
+| --- | --- |
+| `@dzupagent/session-control/fixtures/session-control-conformance-v1.json` | versioned provider-free session-control conformance fixture |
+
+### Root Allowlist
+
+| Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
+| --- | --- | ---: | --- | --- |
+| `stable` | `./contracts.js` | 1 | `exact:./contracts.js` | `*` |
+| `stable` | `./capabilities.js` | 1 | `exact:./capabilities.js` | `*` |
+| `stable` | `./adapter.js` | 1 | `exact:./adapter.js` | `*` |
+| `stable` | `./commands.js` | 1 | `exact:./commands.js` | `*` |
+| `stable` | `./command-ledger.js` | 1 | `exact:./command-ledger.js` | `*` |
+| `stable` | `./in-memory-command-ledger.js` | 1 | `exact:./in-memory-command-ledger.js` | `*` |
+| `stable` | `./dispatch.js` | 1 | `exact:./dispatch.js` | `*` |
+| `stable` | `./conformance.js` | 1 | `exact:./conformance.js` | `*` |
+| `stable` | `./session-types.js` | 1 | `exact:./session-types.js` | `*` |
+| `stable` | `./session-reducer.js` | 1 | `exact:./session-reducer.js` | `*` |
+| `stable` | `./in-memory-session-store.js` | 1 | `exact:./in-memory-session-store.js` | `*` |
+| `stable` | `./validation.js` | 1 | `exact:./validation.js` | `*` |
 
 ## @dzupagent/canonical-json
 

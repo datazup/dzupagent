@@ -139,6 +139,17 @@
     ],
     "notes": "Externally owned surface: consumed by codev-app worker/adapter execution paths (prior ARCH-M-18), with no dzupagent-internal importer today; the adapter-types AgentSignedExecutionPolicy transport is pinned to this package by signed-execution-policy-conformance.test.ts (ARCH27-T-09). Do not judge deletability from a dzupagent-only grep."
   },
+  "@dzupagent/session-control": {
+    "tier": 1,
+    "status": "supported",
+    "architectureRole": "Layer-0 provider-neutral session-control contracts, reducers, adapter SPI, and provider-free conformance with no DzupAgent runtime dependencies.",
+    "roadmapDriver": true,
+    "owners": [
+      "apps/codev-app",
+      "apps/worker-app",
+      "shared-kit"
+    ]
+  },
   "@dzupagent/agent-types": {
     "tier": 1,
     "status": "supported",

@@ -822,6 +822,30 @@
       "migrationWindow": "Document connector root exports are stable ingestion primitives; chunking subpath is transitional pending API stabilisation."
     },
     {
+      "packageName": "@dzupagent/session-control",
+      "packageDir": "packages/session-control",
+      "rootIndex": "packages/session-control/src/index.ts",
+      "stableRoot": [
+        { "match": "exact", "pattern": "./contracts.js" },
+        { "match": "exact", "pattern": "./capabilities.js" },
+        { "match": "exact", "pattern": "./adapter.js" },
+        { "match": "exact", "pattern": "./commands.js" },
+        { "match": "exact", "pattern": "./command-ledger.js" },
+        { "match": "exact", "pattern": "./in-memory-command-ledger.js" },
+        { "match": "exact", "pattern": "./dispatch.js" },
+        { "match": "exact", "pattern": "./conformance.js" },
+        { "match": "exact", "pattern": "./session-types.js" },
+        { "match": "exact", "pattern": "./session-reducer.js" },
+        { "match": "exact", "pattern": "./in-memory-session-store.js" },
+        { "match": "exact", "pattern": "./validation.js" }
+      ],
+      "transitionalRoot": [],
+      "subpaths": {
+        "./fixtures/session-control-conformance-v1.json": "versioned provider-free session-control conformance fixture"
+      },
+      "migrationWindow": "Session-control root exports and the versioned fixture are stable provider-neutral semantics; product authority, persistence, transport, and provider implementations remain in consuming hosts."
+    },
+    {
       "packageName": "@dzupagent/canonical-json",
       "packageDir": "packages/canonical-json",
       "rootIndex": "packages/canonical-json/src/index.ts",
