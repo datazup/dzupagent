@@ -73,6 +73,7 @@ function command(overrides: Partial<SessionControlCommand> = {}): SessionControl
 function session(overrides: Partial<SessionControlSessionView> = {}): SessionControlSessionView {
   return {
     sessionRef: asOpaqueReference('session_5Ec1iK7v'),
+    origin: 'managed',
     generation: 3,
     status: 'idle',
     controlMode: 'controllable',
@@ -190,5 +191,29 @@ describe('session command dispatch', () => {
         now: NOW,
       }),
     ).resolves.toEqual({ status: 'failed', reason: 'adapter_nonconformant' })
+  })
+
+  it('preserves the receiver for class-based adapter methods', async () => {
+    class StatefulAdapter implements SessionControlAdapter {
+      readonly manifest = manifest('send_message')
+      calls = 0
+
+      async sendMessage() {
+        this.calls += 1
+        return { status: 'accepted' as const }
+      }
+    }
+    const adapter = new StatefulAdapter()
+
+    await expect(
+      dispatchSessionCommand({
+        command: command(),
+        session: session(),
+        adapter,
+        authority: AUTHORITY,
+        now: NOW,
+      }),
+    ).resolves.toEqual({ status: 'accepted' })
+    expect(adapter.calls).toBe(1)
   })
 })

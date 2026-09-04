@@ -1,4 +1,7 @@
-import type { AdapterOperationResult } from './adapter.js'
+import {
+  validateAdapterOperationResult,
+  type AdapterOperationResult,
+} from './adapter.js'
 import {
   evaluateCapabilityDeclaration,
   validateCapabilityManifest,
@@ -21,7 +24,12 @@ import {
   isJsonValue,
   isOpaqueReference,
   isSha256Digest,
+  validateExecutionProfile,
 } from './validation.js'
+import {
+  validateSessionControlSessionView,
+  type SessionControlSessionView,
+} from './session-types.js'
 
 export const SESSION_CONTROL_COMMAND_ACTIONS = [
   'send_message',
@@ -65,16 +73,6 @@ export interface SessionControlCommand {
   readonly idempotencyKey: Sha256Digest
   readonly correlationRef: OpaqueReference
   readonly payload: JsonObject
-}
-
-export type SessionControlMode = 'controllable' | 'read_only'
-
-export interface SessionControlSessionView {
-  readonly sessionRef: OpaqueReference
-  readonly generation: number
-  readonly status: SessionStatus
-  readonly controlMode: SessionControlMode
-  readonly pendingInteractionRef?: OpaqueReference
 }
 
 export interface CommandAuthorityDecision {
@@ -273,26 +271,44 @@ export function validateSessionControlCommand(
     : { ok: true, value: input as unknown as SessionControlCommand }
 }
 
-function actionIsCompatible(command: SessionControlCommand, session: SessionControlSessionView): string | null {
-  switch (command.action) {
-    case 'steer_active_turn':
-      return session.status === 'running' ? null : 'active_turn_required'
-    case 'respond_interaction': {
-      if (session.status !== 'waiting_for_input' && session.status !== 'waiting_for_approval') {
-        return 'interaction_not_pending'
-      }
-      const requested = command.payload.interactionRef
-      return requested === session.pendingInteractionRef ? null : 'interaction_mismatch'
-    }
-    case 'pause':
-      return session.status === 'paused' ? 'session_already_paused' : null
-    case 'resume':
-      return session.status === 'paused' || session.status === 'unreachable'
-        ? null
-        : 'session_not_resumable'
-    default:
-      return null
+const ALLOWED_SESSION_STATUSES_BY_ACTION: Readonly<
+  Record<SessionControlCommandAction, readonly SessionStatus[]>
+> = {
+  send_message: ['idle'],
+  steer_active_turn: ['running'],
+  respond_interaction: ['waiting_for_input', 'waiting_for_approval'],
+  pause: [
+    'idle',
+    'running',
+    'waiting_for_input',
+    'waiting_for_approval',
+    'waiting_for_dependency',
+    'blocked',
+  ],
+  resume: ['paused', 'unreachable'],
+  interrupt: [
+    'running',
+    'waiting_for_input',
+    'waiting_for_approval',
+    'waiting_for_dependency',
+    'blocked',
+  ],
+  fork: ['idle', 'paused', 'blocked'],
+}
+
+function actionIsCompatible(
+  command: SessionControlCommand,
+  session: SessionControlSessionView,
+): string | null {
+  if (!ALLOWED_SESSION_STATUSES_BY_ACTION[command.action].includes(session.status)) {
+    return 'action_not_allowed_in_state'
   }
+  if (command.action === 'respond_interaction') {
+    return command.payload.interactionRef === session.pendingInteractionRef
+      ? null
+      : 'interaction_mismatch'
+  }
+  return null
 }
 
 export function admitSessionControlCommand(input: CommandAdmissionInput): CommandAdmissionResult {
@@ -301,10 +317,14 @@ export function admitSessionControlCommand(input: CommandAdmissionInput): Comman
     return { status: 'failed', reason: 'invalid_command', issues: commandResult.issues }
   }
   if (!isFiniteIsoTimestamp(input.now)) return { status: 'failed', reason: 'invalid_now' }
+  const sessionResult = validateSessionControlSessionView(input.session)
+  if (!sessionResult.ok) {
+    return { status: 'failed', reason: 'invalid_session_view', issues: sessionResult.issues }
+  }
   if (input.command.sessionRef !== input.session.sessionRef) {
     return { status: 'rejected_stale', reason: 'session_mismatch' }
   }
-  if (Date.parse(input.now) > Date.parse(input.command.deadline)) {
+  if (Date.parse(input.now) >= Date.parse(input.command.deadline)) {
     return { status: 'rejected_stale', reason: 'deadline_expired' }
   }
   if (input.command.expectedGeneration !== input.session.generation) {
@@ -354,18 +374,40 @@ export function admitSessionControlCommand(input: CommandAdmissionInput): Comman
 }
 
 export type InlineExecutionResult =
-  | (AdapterOperationResult & { readonly automaticContinuation: false })
+  | {
+      readonly status: 'applied'
+      readonly evidence: Extract<AdapterOperationResult, { status: 'applied' }>['evidence']
+      readonly automaticContinuation: false
+    }
+  | {
+      readonly status: 'interaction_required'
+      readonly interactionRef: OpaqueReference
+      readonly automaticContinuation: false
+    }
   | { readonly status: 'failed'; readonly failureCode: string; readonly automaticContinuation: false }
 
 export function projectInlineAdapterResult(
   profile: ExecutionProfile,
   result: AdapterOperationResult,
 ): InlineExecutionResult {
+  const profileResult = validateExecutionProfile(profile)
+  if (!profileResult.ok) {
+    return { status: 'failed', failureCode: 'invalid_execution_profile', automaticContinuation: false }
+  }
   if (profile.executionStyle !== 'inline') {
     return { status: 'failed', failureCode: 'inline_profile_required', automaticContinuation: false }
   }
-  if (result.status === 'accepted' || result.status === 'provider_waiting') {
+  const resultValidation = validateAdapterOperationResult(result)
+  if (!resultValidation.ok) {
+    return {
+      status: 'failed',
+      failureCode: resultValidation.failureCode,
+      automaticContinuation: false,
+    }
+  }
+  const validated = resultValidation.value
+  if (validated.status === 'accepted' || validated.status === 'provider_waiting') {
     return { status: 'failed', failureCode: 'inline_nonterminal_result', automaticContinuation: false }
   }
-  return { ...result, automaticContinuation: false }
+  return { ...validated, automaticContinuation: false }
 }

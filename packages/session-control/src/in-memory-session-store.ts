@@ -1,6 +1,11 @@
 import type { OpaqueReference } from './contracts.js'
 import { reduceSessionEvent, validateNormalizedSessionEvent } from './session-reducer.js'
-import type { NormalizedSessionEvent, SessionSnapshot } from './session-types.js'
+import {
+  validateSessionSnapshot,
+  type NormalizedSessionEvent,
+  type SessionSnapshot,
+} from './session-types.js'
+import { areJsonValuesEqual } from './validation.js'
 
 interface StoredSession {
   snapshot: SessionSnapshot
@@ -10,7 +15,7 @@ interface StoredSession {
 
 export type SessionRegistrationResult =
   | { readonly status: 'created'; readonly snapshot: SessionSnapshot }
-  | { readonly status: 'conflict'; readonly reason: 'session_exists' }
+  | { readonly status: 'conflict'; readonly reason: string }
 
 export type SessionAppendResult =
   | { readonly status: 'applied' | 'replayed'; readonly snapshot: SessionSnapshot }
@@ -18,16 +23,33 @@ export type SessionAppendResult =
 
 function eventsMatch(left: NormalizedSessionEvent, right: NormalizedSessionEvent): boolean {
   return (
+    left.schema === right.schema &&
     left.eventId === right.eventId &&
     left.eventDigest === right.eventDigest &&
-    left.sequence === right.sequence
+    left.sessionRef === right.sessionRef &&
+    left.sequence === right.sequence &&
+    left.occurredAt === right.occurredAt &&
+    left.recordedAt === right.recordedAt &&
+    left.source === right.source &&
+    left.type === right.type &&
+    areJsonValuesEqual(left.payload, right.payload)
   )
+}
+
+function cloneEvent(event: NormalizedSessionEvent): NormalizedSessionEvent {
+  return {
+    ...event,
+    payload: JSON.parse(JSON.stringify(event.payload)) as NormalizedSessionEvent['payload'],
+  }
 }
 
 export class InMemorySessionStore {
   readonly #sessions = new Map<OpaqueReference, StoredSession>()
 
   add(snapshot: SessionSnapshot): SessionRegistrationResult {
+    if (!validateSessionSnapshot(snapshot).ok) {
+      return { status: 'conflict', reason: 'invalid_snapshot' }
+    }
     if (this.#sessions.has(snapshot.sessionRef)) {
       return { status: 'conflict', reason: 'session_exists' }
     }
@@ -69,8 +91,9 @@ export class InMemorySessionStore {
     const reduced = reduceSessionEvent(stored.snapshot, event)
     if (!reduced.ok) return { status: 'conflict', reason: reduced.issue.code }
     stored.snapshot = reduced.snapshot
-    stored.eventsById.set(event.eventId, event)
-    stored.eventsBySequence.set(event.sequence, event)
+    const retained = cloneEvent(event)
+    stored.eventsById.set(event.eventId, retained)
+    stored.eventsBySequence.set(event.sequence, retained)
     return { status: reduced.replayed ? 'replayed' : 'applied', snapshot: reduced.snapshot }
   }
 

@@ -103,6 +103,21 @@ describe('session-control public contracts', () => {
     ).toMatchObject({ ok: false })
   })
 
+  it('rejects execution-profile extensions outside the versioned schema', () => {
+    expect(
+      validateExecutionProfile({
+        schema: SESSION_CONTROL_SCHEMAS.executionProfile,
+        executionStyle: 'durable',
+        continuity: 'none',
+        coordination: 'none',
+        privateKey: 'must-not-cross-boundary',
+      }),
+    ).toMatchObject({
+      ok: false,
+      issues: expect.arrayContaining([expect.objectContaining({ code: 'unexpected_field' })]),
+    })
+  })
+
   it('accepts only portable JSON values and opaque references', () => {
     expect(isJsonValue({ safe: ['value', 1, true, null] })).toBe(true)
     expect(isJsonValue({ unsafe: new Date() })).toBe(false)

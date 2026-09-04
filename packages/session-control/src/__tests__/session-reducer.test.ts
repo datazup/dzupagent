@@ -74,6 +74,12 @@ describe('session event reducer', () => {
         event({ eventDigest: asSha256Digest(`sha256:${'b'.repeat(64)}`) }),
       ),
     ).toMatchObject({ ok: false, issue: { code: 'event_replay_conflict' } })
+    expect(
+      reduceSessionEvent(
+        first.snapshot,
+        event({ payload: { turnRef: 'turn_4Db0hJ6u' } }),
+      ),
+    ).toMatchObject({ ok: false, issue: { code: 'event_replay_conflict' } })
   })
 
   it('does not advance generation for progress or command acknowledgement', () => {
@@ -224,6 +230,19 @@ describe('session event reducer', () => {
     })
   })
 
+  it('rejects an invalid explicit control mode at session creation', () => {
+    expect(
+      createSessionSnapshot({
+        sessionRef: asOpaqueReference('session_7Gf3kP2x'),
+        profile: PROFILE,
+        origin: 'managed',
+        status: 'idle',
+        controlMode: 'elevated' as never,
+        recordedAt: AT,
+      }),
+    ).toMatchObject({ ok: false, issue: { code: 'invalid_control_mode' } })
+  })
+
   it('keeps terminal sessions immutable', () => {
     const terminal = snapshot({ status: 'completed' })
     expect(
@@ -232,5 +251,41 @@ describe('session event reducer', () => {
         event({ type: 'session.status_changed', payload: { status: 'running' } }),
       ),
     ).toMatchObject({ ok: false, issue: { code: 'terminal_session_immutable' } })
+  })
+
+  it.each([
+    [
+      'interaction',
+      {
+        type: 'interaction.requested',
+        payload: {
+          interactionRef: 'interaction_6Fd2jL8w',
+          interactionClass: 'informational_clarification',
+        },
+      },
+    ],
+    [
+      'dependency',
+      {
+        type: 'dependency.wait_registered',
+        payload: { dependencyRef: 'dependency_3Ca9gH5t' },
+      },
+    ],
+  ] as const)('requires session.terminal instead of status_changed with pending %s state', (_kind, pending) => {
+    const waiting = reduceSessionEvent(snapshot(), event(pending as Partial<NormalizedSessionEvent>))
+    if (!waiting.ok) throw new Error(waiting.issue.code)
+
+    expect(
+      reduceSessionEvent(
+        waiting.snapshot,
+        event({
+          eventId: asOpaqueReference('event_4Db0hJ6u'),
+          eventDigest: asSha256Digest(`sha256:${'f'.repeat(64)}`),
+          sequence: 2,
+          type: 'session.status_changed',
+          payload: { status: 'completed' },
+        }),
+      ),
+    ).toMatchObject({ ok: false, issue: { code: 'invalid_event_payload' } })
   })
 })

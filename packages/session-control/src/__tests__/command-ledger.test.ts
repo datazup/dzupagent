@@ -114,6 +114,18 @@ describe('command ledger semantics', () => {
     expect(replay.record).toBe(first.record)
   })
 
+  it('rejects altered command content even when ID, key, and digest are reused', () => {
+    const ledger = new InMemoryCommandLedger()
+    ledger.register(command(), { status: 'accepted', recordedAt: NOW })
+
+    expect(
+      ledger.register(command({ payload: { message: 'Do something else.' } }), {
+        status: 'accepted',
+        recordedAt: NOW,
+      }),
+    ).toEqual({ status: 'conflict', reason: 'idempotency_command_conflict' })
+  })
+
   it('rejects idempotency-key reuse with another digest', () => {
     const ledger = new InMemoryCommandLedger()
     ledger.register(command(), { status: 'accepted', recordedAt: NOW })

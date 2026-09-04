@@ -112,12 +112,20 @@ export function validateCapabilityDeclaration(
     })
   }
 
+  const evidenceRefsValid =
+    Array.isArray(input.evidenceRefs) &&
+    input.evidenceRefs.length > 0 &&
+    input.evidenceRefs.every(isOpaqueReference)
+  if (input.evidenceRefs !== undefined && !evidenceRefsValid) {
+    issues.push({
+      path: 'evidenceRefs',
+      code: 'invalid_evidence_refs',
+      message: 'evidence references must be non-empty opaque references',
+    })
+  }
+
   if (input.qualification === 'qualified') {
-    if (
-      !Array.isArray(input.evidenceRefs) ||
-      input.evidenceRefs.length === 0 ||
-      !input.evidenceRefs.every(isOpaqueReference)
-    ) {
+    if (!evidenceRefsValid) {
       issues.push({
         path: 'evidenceRefs',
         code: 'qualification_evidence_required',

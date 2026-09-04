@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   SESSION_CONTROL_CAPABILITIES,
+  SESSION_CONTROL_COMMAND_ACTIONS,
   SESSION_CONTROL_SCHEMAS,
+  SESSION_STATUSES,
   admitSessionControlCommand,
   asOpaqueReference,
   asSha256Digest,
@@ -12,7 +14,9 @@ import {
   type SessionControlCapabilityDeclaration,
   type SessionControlCapabilityManifest,
   type SessionControlCommand,
+  type SessionControlCommandAction,
   type SessionControlSessionView,
+  type SessionStatus,
 } from '../index.js'
 
 const ALLOW = {
@@ -75,6 +79,7 @@ function command(overrides: Partial<SessionControlCommand> = {}): SessionControl
 function session(overrides: Partial<SessionControlSessionView> = {}): SessionControlSessionView {
   return {
     sessionRef: asOpaqueReference('session_8Hk4mQ3y'),
+    origin: 'managed',
     generation: 7,
     status: 'idle',
     controlMode: 'controllable',
@@ -113,6 +118,15 @@ describe('session command admission', () => {
   })
 
   it('rejects expired or generation-stale commands before authority', () => {
+    expect(
+      admitSessionControlCommand({
+        command: command({ deadline: NOW }),
+        session: session(),
+        manifest: manifest(),
+        authority: ALLOW,
+        now: NOW,
+      }),
+    ).toMatchObject({ status: 'rejected_stale', reason: 'deadline_expired' })
     expect(
       admitSessionControlCommand({
         command: command({ deadline: NOW }),
@@ -182,6 +196,24 @@ describe('session command admission', () => {
     ).toMatchObject({ status: 'rejected_authority', reason: 'session_read_only' })
   })
 
+  it('rejects an externally discovered session that claims to be controllable', () => {
+    const malformedExternal = {
+      ...session(),
+      origin: 'discovered_external',
+      controlMode: 'controllable',
+    } as unknown as SessionControlSessionView
+
+    expect(
+      admitSessionControlCommand({
+        command: command(),
+        session: malformedExternal,
+        manifest: manifest(),
+        authority: ALLOW,
+        now: NOW,
+      }),
+    ).toMatchObject({ status: 'failed', reason: 'invalid_session_view' })
+  })
+
   it('distinguishes unsupported, unqualified, and temporarily unavailable control', () => {
     const base = { command: command(), session: session(), authority: ALLOW, now: NOW }
     expect(admitSessionControlCommand({ ...base, manifest: manifest('pause') })).toMatchObject({
@@ -234,6 +266,64 @@ describe('session command admission', () => {
     ).toMatchObject({ status: 'rejected_stale', reason: 'interaction_mismatch' })
   })
 
+  it.each(SESSION_CONTROL_COMMAND_ACTIONS)(
+    'fails closed for every unspecified %s session-state pair',
+    (action) => {
+      const allowed: Readonly<Record<SessionControlCommandAction, readonly SessionStatus[]>> = {
+        send_message: ['idle'],
+        steer_active_turn: ['running'],
+        respond_interaction: ['waiting_for_input', 'waiting_for_approval'],
+        pause: [
+          'idle',
+          'running',
+          'waiting_for_input',
+          'waiting_for_approval',
+          'waiting_for_dependency',
+          'blocked',
+        ],
+        resume: ['paused', 'unreachable'],
+        interrupt: [
+          'running',
+          'waiting_for_input',
+          'waiting_for_approval',
+          'waiting_for_dependency',
+          'blocked',
+        ],
+        fork: ['idle', 'paused', 'blocked'],
+      }
+      const payloadByAction: Readonly<Record<SessionControlCommandAction, SessionControlCommand['payload']>> = {
+        send_message: { message: 'Proceed.' },
+        steer_active_turn: { message: 'Use the admitted path.' },
+        respond_interaction: { interactionRef: 'interaction_4Db0hJ6u', answer: 'Proceed.' },
+        pause: { reasonRef: 'reason_5Ec1iK7v' },
+        resume: {},
+        interrupt: { reasonRef: 'reason_5Ec1iK7v' },
+        fork: { targetSessionRef: 'session_6Fd2jL8w' },
+      }
+
+      for (const status of SESSION_STATUSES) {
+        const result = admitSessionControlCommand({
+          command: command({ action, payload: payloadByAction[action] }),
+          session: session({
+            status,
+            ...(action === 'respond_interaction' &&
+            (status === 'waiting_for_input' || status === 'waiting_for_approval')
+              ? { pendingInteractionRef: asOpaqueReference('interaction_4Db0hJ6u') }
+              : {}),
+          }),
+          manifest: manifest(action),
+          authority: ALLOW,
+          now: NOW,
+        })
+        if (allowed[action].includes(status)) {
+          expect(result, `${action}:${status}`).toMatchObject({ status: 'accepted' })
+        } else {
+          expect(result, `${action}:${status}`).toMatchObject({ status: 'rejected_stale' })
+        }
+      }
+    },
+  )
+
   it('returns inline interactions to the caller without autonomous continuation', () => {
     const inlineProfile: ExecutionProfile = {
       schema: SESSION_CONTROL_SCHEMAS.executionProfile,
@@ -249,6 +339,43 @@ describe('session command admission', () => {
     ).toEqual({
       status: 'interaction_required',
       interactionRef: 'interaction_4Db0hJ6u',
+      automaticContinuation: false,
+    })
+  })
+
+  it('fails closed for invalid inline profiles and incomplete adapter receipts', () => {
+    const invalidInlineProfile = {
+      schema: SESSION_CONTROL_SCHEMAS.executionProfile,
+      executionStyle: 'inline',
+      continuity: 'provider_native',
+      coordination: 'supervised',
+    } as const
+    const inlineProfile: ExecutionProfile = {
+      schema: SESSION_CONTROL_SCHEMAS.executionProfile,
+      executionStyle: 'inline',
+      continuity: 'none',
+      coordination: 'none',
+    }
+
+    expect(
+      projectInlineAdapterResult(invalidInlineProfile, { status: 'accepted' }),
+    ).toEqual({
+      status: 'failed',
+      failureCode: 'invalid_execution_profile',
+      automaticContinuation: false,
+    })
+    expect(
+      projectInlineAdapterResult(inlineProfile, { status: 'applied' } as never),
+    ).toEqual({
+      status: 'failed',
+      failureCode: 'application_evidence_required',
+      automaticContinuation: false,
+    })
+    expect(
+      projectInlineAdapterResult(inlineProfile, { status: 'interaction_required' } as never),
+    ).toEqual({
+      status: 'failed',
+      failureCode: 'interaction_reference_required',
       automaticContinuation: false,
     })
   })

@@ -3,13 +3,17 @@ import {
   SESSION_CONTROL_CAPABILITIES,
   SESSION_CONTROL_SCHEMAS,
   asOpaqueReference,
+  asSha256Digest,
+  createSessionSnapshot,
   isAdapterCapabilityCallable,
+  validateAdapterOperationResult,
   validateAdapterConformance,
   validateCapabilityManifest,
   type SessionControlAdapter,
   type SessionControlCapability,
   type SessionControlCapabilityDeclaration,
   type SessionControlCapabilityManifest,
+  type NormalizedSessionEvent,
 } from '../index.js'
 
 function unsupported(): SessionControlCapabilityDeclaration {
@@ -84,6 +88,24 @@ describe('adapter capability conformance', () => {
     expect(isAdapterCapabilityCallable(adapter, 'send_message')).toBe(true)
   })
 
+  it('does not require a method while a qualified capability is unavailable', () => {
+    const adapter: SessionControlAdapter = {
+      manifest: manifest({
+        send_message: {
+          support: 'native',
+          qualification: 'qualified',
+          availability: 'temporarily_unavailable',
+          emulation: 'forbidden',
+          reason: 'runtime_offline',
+          evidenceRefs: [asOpaqueReference('evidence_9Jm5nR4z')],
+        },
+      }),
+    }
+
+    expect(validateAdapterConformance(adapter)).toEqual({ ok: true, value: adapter })
+    expect(isAdapterCapabilityCallable(adapter, 'send_message')).toBe(false)
+  })
+
   it('does not infer support from an extra adapter method', () => {
     const adapter: SessionControlAdapter = {
       manifest: manifest(),
@@ -120,5 +142,63 @@ describe('adapter capability conformance', () => {
         expect.objectContaining({ path: 'credential', code: 'unexpected_field' }),
       ]),
     })
+  })
+
+  it('validates capability-specific start and read results with canonical data', () => {
+    const created = createSessionSnapshot({
+      sessionRef: asOpaqueReference('session_7Gf3kP2x'),
+      profile: {
+        schema: SESSION_CONTROL_SCHEMAS.executionProfile,
+        executionStyle: 'durable',
+        continuity: 'control_plane_managed',
+        coordination: 'none',
+      },
+      origin: 'managed',
+      status: 'idle',
+      recordedAt: '2026-09-04T20:00:00.000Z',
+    })
+    if (!created.ok) throw new Error(created.issue.code)
+    const event: NormalizedSessionEvent = {
+      schema: SESSION_CONTROL_SCHEMAS.sessionEvent,
+      eventId: asOpaqueReference('event_8Hk4mQ3y'),
+      eventDigest: asSha256Digest(`sha256:${'a'.repeat(64)}`),
+      sessionRef: created.snapshot.sessionRef,
+      sequence: 1,
+      occurredAt: '2026-09-04T20:00:01.000Z',
+      recordedAt: '2026-09-04T20:00:01.000Z',
+      source: 'provider_adapter',
+      type: 'turn.started',
+      payload: { turnRef: 'turn_9Jm5nR4z' },
+    }
+    const validateFor = validateAdapterOperationResult as unknown as (
+      value: unknown,
+      capability: SessionControlCapability,
+    ) => ReturnType<typeof validateAdapterOperationResult>
+    const evidence = {
+      kind: 'provider_event' as const,
+      ref: asOpaqueReference('evidence_3Ca9gH5t'),
+    }
+
+    expect(
+      validateFor(
+        { status: 'applied', sessionRef: created.snapshot.sessionRef, evidence },
+        'start',
+      ),
+    ).toMatchObject({ ok: true, value: { sessionRef: created.snapshot.sessionRef } })
+    expect(
+      validateFor({ status: 'applied', snapshot: created.snapshot, evidence }, 'observe'),
+    ).toMatchObject({ ok: true, value: { snapshot: created.snapshot } })
+    expect(
+      validateFor(
+        { status: 'applied', events: [event], nextSequence: 2, evidence },
+        'tail_events',
+      ),
+    ).toMatchObject({ ok: true, value: { events: [event], nextSequence: 2 } })
+    expect(
+      validateFor(
+        { status: 'applied', snapshot: created.snapshot, evidence },
+        'lookup_after_restart',
+      ),
+    ).toMatchObject({ ok: true, value: { snapshot: created.snapshot } })
   })
 })

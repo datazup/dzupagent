@@ -64,12 +64,41 @@ export function isJsonValue(value: unknown, ancestors: Set<object> = new Set()):
   return valid
 }
 
+export function areJsonValuesEqual(left: JsonValue, right: JsonValue): boolean {
+  if (left === right) return true
+  if (left === null || right === null || typeof left !== typeof right) return false
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((entry, index) => areJsonValuesEqual(entry, right[index] as JsonValue))
+    )
+  }
+  if (typeof left !== 'object' || typeof right !== 'object') return false
+  const leftKeys = Object.keys(left)
+  const rightKeys = Object.keys(right)
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key) => Object.hasOwn(right, key) && areJsonValuesEqual(left[key] as JsonValue, right[key] as JsonValue),
+    )
+  )
+}
+
 export function validateExecutionProfile(input: unknown): ValidationResult<ExecutionProfile> {
   const issues: ValidationIssue[] = []
   if (!isRecord(input)) {
     return {
       ok: false,
       issues: [{ path: '$', code: 'invalid_type', message: 'execution profile must be an object' }],
+    }
+  }
+
+  const allowedFields = new Set(['schema', 'executionStyle', 'continuity', 'coordination'])
+  for (const field of Object.keys(input)) {
+    if (!allowedFields.has(field)) {
+      issues.push({ path: field, code: 'unexpected_field', message: 'unexpected profile field' })
     }
   }
 

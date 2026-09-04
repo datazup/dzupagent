@@ -1,20 +1,20 @@
 import {
   ADAPTER_METHOD_BY_CAPABILITY,
   validateAdapterConformance,
+  validateAdapterOperationResult,
   type AdapterInvocation,
   type AdapterOperationResult,
   type SessionControlAdapter,
   type SessionControlAdapterMethod,
 } from './adapter.js'
-import { COMMAND_EVIDENCE_KINDS, type CommandEvidence } from './command-ledger.js'
+import type { CommandEvidence } from './command-ledger.js'
 import {
   admitSessionControlCommand,
   type CommandAdmissionResult,
   type CommandAuthorityDecision,
   type SessionControlCommand,
-  type SessionControlSessionView,
 } from './commands.js'
-import { isOpaqueReference } from './validation.js'
+import type { SessionControlSessionView } from './session-types.js'
 
 export interface DispatchSessionCommandInput {
   readonly command: SessionControlCommand
@@ -34,52 +34,6 @@ export type DispatchSessionCommandResult =
     }
   | { readonly status: 'applied'; readonly evidence: CommandEvidence }
   | { readonly status: 'failed'; readonly reason: string }
-
-const APPLICATION_EVIDENCE_KINDS = new Set([
-  'provider_event',
-  'normalized_event',
-  'subsequent_read',
-])
-const SAFE_FAILURE_CODE = /^[a-z][a-z0-9._-]{2,127}$/
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
-  const prototype = Object.getPrototypeOf(value)
-  return prototype === Object.prototype || prototype === null
-}
-
-function isCommandEvidence(value: unknown): value is CommandEvidence {
-  return (
-    isRecord(value) &&
-    Object.keys(value).every((field) => field === 'kind' || field === 'ref') &&
-    COMMAND_EVIDENCE_KINDS.includes(value.kind as never) &&
-    isOpaqueReference(value.ref)
-  )
-}
-
-function validateAdapterResult(value: unknown): AdapterOperationResult | null {
-  if (!isRecord(value)) return null
-  const allowed = new Set(['status', 'evidence', 'interactionRef', 'failureCode'])
-  if (!Object.keys(value).every((field) => allowed.has(field))) return null
-  if (
-    value.status !== 'accepted' &&
-    value.status !== 'provider_waiting' &&
-    value.status !== 'applied' &&
-    value.status !== 'interaction_required' &&
-    value.status !== 'failed'
-  ) {
-    return null
-  }
-  if (value.evidence !== undefined && !isCommandEvidence(value.evidence)) return null
-  if (value.interactionRef !== undefined && !isOpaqueReference(value.interactionRef)) return null
-  if (
-    value.failureCode !== undefined &&
-    (typeof value.failureCode !== 'string' || !SAFE_FAILURE_CODE.test(value.failureCode))
-  ) {
-    return null
-  }
-  return value as unknown as AdapterOperationResult
-}
 
 function invocationFor(command: SessionControlCommand): AdapterInvocation {
   return {
@@ -103,20 +57,11 @@ function projectAdapterResult(result: AdapterOperationResult): DispatchSessionCo
         ...(result.evidence === undefined ? {} : { evidence: result.evidence }),
       }
     case 'interaction_required':
-      if (result.interactionRef === undefined) {
-        return { status: 'failed', reason: 'interaction_reference_required' }
-      }
       return { status: 'provider_waiting', interactionRef: result.interactionRef }
     case 'applied':
-      if (
-        result.evidence === undefined ||
-        !APPLICATION_EVIDENCE_KINDS.has(result.evidence.kind)
-      ) {
-        return { status: 'failed', reason: 'application_evidence_required' }
-      }
       return { status: 'applied', evidence: result.evidence }
     case 'failed':
-      return { status: 'failed', reason: result.failureCode ?? 'adapter_failed' }
+      return { status: 'failed', reason: result.failureCode }
   }
 }
 
@@ -140,10 +85,10 @@ export async function dispatchSessionCommand(
   if (method === undefined) return { status: 'failed', reason: 'adapter_nonconformant' }
 
   try {
-    const rawResult: unknown = await method(invocationFor(input.command))
-    const result = validateAdapterResult(rawResult)
-    if (result === null) return { status: 'failed', reason: 'invalid_adapter_result' }
-    return projectAdapterResult(result)
+    const rawResult: unknown = await method.call(input.adapter, invocationFor(input.command))
+    const result = validateAdapterOperationResult(rawResult)
+    if (!result.ok) return { status: 'failed', reason: result.failureCode }
+    return projectAdapterResult(result.value)
   } catch {
     return { status: 'failed', reason: 'adapter_error' }
   }

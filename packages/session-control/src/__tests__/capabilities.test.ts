@@ -58,6 +58,21 @@ describe('capability truth', () => {
     })
   })
 
+  it('validates optional evidence references even when a declaration is unqualified', () => {
+    expect(
+      validateCapabilityDeclaration(
+        declaration({
+          qualification: 'unqualified',
+          reason: 'qualification_pending',
+          evidenceRefs: ['/tmp/native-session' as never],
+        }),
+      ),
+    ).toMatchObject({
+      ok: false,
+      issues: expect.arrayContaining([expect.objectContaining({ code: 'invalid_evidence_refs' })]),
+    })
+  })
+
   it('requires a safe reason for unsupported, unqualified, or unavailable states', () => {
     expect(
       validateCapabilityDeclaration(

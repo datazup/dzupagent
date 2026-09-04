@@ -1,5 +1,9 @@
 import { validateCapabilityManifest } from './capabilities.js'
-import { SESSION_CONTROL_SCHEMAS, type ValidationIssue } from './contracts.js'
+import {
+  SESSION_CONTROL_SCHEMAS,
+  TERMINAL_SESSION_STATUSES,
+  type ValidationIssue,
+} from './contracts.js'
 import { validateSessionControlCommand } from './commands.js'
 import { createSessionSnapshot, reduceSessionEvent, validateNormalizedSessionEvent } from './session-reducer.js'
 import type {
@@ -19,7 +23,34 @@ export interface PortabilityReport {
   readonly issues: readonly PortabilityIssue[]
 }
 
-const FORBIDDEN_KEY = /^(?:api[_-]?token|access[_-]?token|credential|credentials|password|secret|cookie|authorization|api[_-]?key|native[_-]?(?:session|thread)[_-]?id|raw[_-]?(?:transcript|event|sdk)|host[_-]?(?:path|name)|terminal[_-]?(?:handle|input))$/i
+const FORBIDDEN_KEYS = new Set([
+  'apitoken',
+  'accesstoken',
+  'credential',
+  'credentials',
+  'password',
+  'secret',
+  'cookie',
+  'authorization',
+  'apikey',
+  'privatekey',
+  'nativesessionid',
+  'nativethreadid',
+  'providersessionid',
+  'providerthreadid',
+  'transcript',
+  'rawtranscript',
+  'rawevent',
+  'rawsdk',
+  'providerobject',
+  'providerhandle',
+  'sdkobject',
+  'sdkhandle',
+  'hostpath',
+  'hostname',
+  'terminalhandle',
+  'terminalinput',
+])
 const FORBIDDEN_VENDOR = /\b(?:codex|claude|gemini|qwen|goose|crush|datazup)\b/i
 const HOST_PATH = /^(?:\/|[A-Za-z]:\\|~\/)/
 
@@ -49,7 +80,9 @@ export function scanPortableSessionControlValue(value: unknown): PortabilityRepo
     if (!isRecord(current)) return
     for (const [key, entry] of Object.entries(current)) {
       const childPath = `${path}.${key}`
-      if (FORBIDDEN_KEY.test(key)) issues.push({ path: childPath, code: 'forbidden_key' })
+      if (FORBIDDEN_KEYS.has(key.replaceAll('_', '').replaceAll('-', '').toLowerCase())) {
+        issues.push({ path: childPath, code: 'forbidden_key' })
+      }
       visit(entry, childPath)
     }
   }
@@ -102,8 +135,8 @@ export function validateSessionControlConformanceFixture(input: unknown): Confor
   }
   const manifest = validateCapabilityManifest(input.manifest)
   if (!manifest.ok) return { ok: false, issues: manifest.issues }
-  if (!Array.isArray(input.commands)) {
-    return { ok: false, issues: [issue('commands', 'invalid_commands', 'commands must be an array')] }
+  if (!Array.isArray(input.commands) || input.commands.length === 0) {
+    return { ok: false, issues: [issue('commands', 'commands_required', 'commands are required')] }
   }
   for (let index = 0; index < input.commands.length; index += 1) {
     const result = validateSessionControlCommand(input.commands[index])
@@ -128,8 +161,8 @@ export function validateSessionControlConformanceFixture(input: unknown): Confor
     recordedAt: input.session.recordedAt,
   } as CreateSessionSnapshotInput)
   if (!created.ok) return { ok: false, issues: [created.issue] }
-  if (!Array.isArray(input.events)) {
-    return { ok: false, issues: [issue('events', 'invalid_events', 'events must be an array')] }
+  if (!Array.isArray(input.events) || input.events.length === 0) {
+    return { ok: false, issues: [issue('events', 'events_required', 'events are required')] }
   }
 
   let snapshot: SessionSnapshot = created.snapshot
@@ -139,6 +172,12 @@ export function validateSessionControlConformanceFixture(input: unknown): Confor
     const reduced = reduceSessionEvent(snapshot, validated.value as NormalizedSessionEvent)
     if (!reduced.ok) return { ok: false, issues: [reduced.issue] }
     snapshot = reduced.snapshot
+  }
+  if (!TERMINAL_SESSION_STATUSES.includes(snapshot.status as never)) {
+    return {
+      ok: false,
+      issues: [issue('events', 'terminal_outcome_required', 'trace must end in a terminal state')],
+    }
   }
 
   return {

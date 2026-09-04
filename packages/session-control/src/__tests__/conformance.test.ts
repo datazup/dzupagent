@@ -10,6 +10,10 @@ const fixturePath = fileURLToPath(
   new URL('../../fixtures/session-control-conformance-v1.json', import.meta.url),
 )
 
+function fixture(): Record<string, unknown> {
+  return JSON.parse(readFileSync(fixturePath, 'utf8')) as Record<string, unknown>
+}
+
 describe('provider-free session-control conformance fixture', () => {
   it('validates the checked-in profiles, manifest, commands, and event trace', () => {
     const fixture: unknown = JSON.parse(readFileSync(fixturePath, 'utf8'))
@@ -43,6 +47,38 @@ describe('provider-free session-control conformance fixture', () => {
     ).toMatchObject({
       portable: false,
       issues: [expect.objectContaining({ code: 'forbidden_key', path: '$.apiToken' })],
+    })
+    expect(
+      scanPortableSessionControlValue({
+        privateKey: 'opaque',
+        transcript: 'provider output',
+      }),
+    ).toMatchObject({
+      portable: false,
+      issues: expect.arrayContaining([
+        expect.objectContaining({ code: 'forbidden_key', path: '$.privateKey' }),
+        expect.objectContaining({ code: 'forbidden_key', path: '$.transcript' }),
+      ]),
+    })
+  })
+
+  it('rejects vacuous and non-terminal conformance traces', () => {
+    expect(
+      validateSessionControlConformanceFixture({
+        ...fixture(),
+        commands: [],
+        events: [],
+      }),
+    ).toMatchObject({
+      ok: false,
+      issues: [expect.objectContaining({ code: 'commands_required' })],
+    })
+
+    const nonTerminal = fixture()
+    nonTerminal.events = (nonTerminal.events as unknown[]).slice(0, -1)
+    expect(validateSessionControlConformanceFixture(nonTerminal)).toMatchObject({
+      ok: false,
+      issues: [expect.objectContaining({ code: 'terminal_outcome_required' })],
     })
   })
 })

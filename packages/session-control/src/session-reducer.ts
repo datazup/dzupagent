@@ -19,9 +19,11 @@ import {
   type ProviderAttemptSnapshot,
   type SessionReducerResult,
   type SessionSnapshot,
+  validateSessionSnapshot,
 } from './session-types.js'
 import {
   isFiniteIsoTimestamp,
+  areJsonValuesEqual,
   isJsonValue,
   isOpaqueReference,
   isSha256Digest,
@@ -52,7 +54,11 @@ function isValidEventPayload(event: NormalizedSessionEvent): boolean {
   const payload = event.payload
   switch (event.type) {
     case 'session.status_changed':
-      return hasExactFields(payload, ['status']) && SESSION_STATUSES.includes(payload.status as never)
+      return (
+        hasExactFields(payload, ['status']) &&
+        SESSION_STATUSES.includes(payload.status as never) &&
+        !TERMINAL_SESSION_STATUSES.includes(payload.status as never)
+      )
     case 'provider_attempt.registered':
     case 'provider_attempt.status_changed':
       return (
@@ -183,23 +189,24 @@ export function createSessionSnapshot(
     }
   }
 
-  return {
-    ok: true,
-    snapshot: {
-      schema: SESSION_CONTROL_SCHEMAS.sessionSnapshot,
-      sessionRef: input.sessionRef,
-      profile: input.profile,
-      origin: input.origin,
-      controlMode:
-        input.origin === 'discovered_external' ? 'read_only' : (input.controlMode ?? 'controllable'),
-      generation: 0,
-      eventSequence: 0,
-      status: input.status,
-      attempts: [],
-      createdAt: input.recordedAt,
-      updatedAt: input.recordedAt,
-    },
+  const snapshot: SessionSnapshot = {
+    schema: SESSION_CONTROL_SCHEMAS.sessionSnapshot,
+    sessionRef: input.sessionRef,
+    profile: input.profile,
+    origin: input.origin,
+    controlMode:
+      input.origin === 'discovered_external' ? 'read_only' : (input.controlMode ?? 'controllable'),
+    generation: 0,
+    eventSequence: 0,
+    status: input.status,
+    attempts: [],
+    createdAt: input.recordedAt,
+    updatedAt: input.recordedAt,
   }
+  const validation = validateSessionSnapshot(snapshot)
+  return validation.ok
+    ? { ok: true, snapshot }
+    : { ok: false, issue: validation.issues[0] as ValidationIssue }
 }
 
 const STATUS_TRANSITIONS: Readonly<Record<SessionStatus, readonly SessionStatus[]>> = {
@@ -239,6 +246,8 @@ export function reduceSessionEvent(
   snapshot: SessionSnapshot,
   input: NormalizedSessionEvent,
 ): SessionReducerResult {
+  const snapshotResult = validateSessionSnapshot(snapshot)
+  if (!snapshotResult.ok) return failure('invalid_snapshot', 'session snapshot validation failed')
   const eventResult = validateNormalizedSessionEvent(input)
   if (!eventResult.ok) {
     const payloadIssue = eventResult.issues.find((issue) => issue.code === 'invalid_event_payload')
@@ -247,7 +256,15 @@ export function reduceSessionEvent(
   const event = eventResult.value
   const last = snapshot.lastEventReceipt
   if (last !== undefined && event.eventId === last.eventId) {
-    if (event.sequence === last.sequence && event.eventDigest === last.eventDigest) {
+    if (
+      event.sequence === last.sequence &&
+      event.eventDigest === last.eventDigest &&
+      event.occurredAt === last.occurredAt &&
+      event.recordedAt === last.recordedAt &&
+      event.source === last.source &&
+      event.type === last.type &&
+      areJsonValuesEqual(event.payload, last.payload)
+    ) {
       return { ok: true, snapshot, replayed: true }
     }
     return failure('event_replay_conflict', 'event ID was reused with different content')
@@ -377,6 +394,11 @@ export function reduceSessionEvent(
         eventId: event.eventId,
         eventDigest: event.eventDigest,
         sequence: event.sequence,
+        occurredAt: event.occurredAt,
+        recordedAt: event.recordedAt,
+        source: event.source,
+        type: event.type,
+        payload: JSON.parse(JSON.stringify(event.payload)) as JsonObject,
       },
       ...(pendingInteraction === undefined ? { pendingInteraction: undefined } : { pendingInteraction }),
       ...(pendingDependencyRef === undefined

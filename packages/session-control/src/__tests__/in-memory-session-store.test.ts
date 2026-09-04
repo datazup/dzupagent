@@ -77,6 +77,29 @@ describe('in-memory session reference store', () => {
     })
   })
 
+  it.each([
+    ['payload', { payload: { turnRef: 'turn_4Db0hJ6u' } }],
+    ['type', { type: 'session.status_changed', payload: { status: 'running' } }],
+    [
+      'time',
+      {
+        occurredAt: '2026-09-04T20:00:00.500Z',
+        recordedAt: '2026-09-04T20:00:01.000Z',
+      },
+    ],
+    ['source', { source: 'host' }],
+  ] as const)('rejects replay with altered %s even when its digest is reused', (_field, change) => {
+    const store = new InMemorySessionStore()
+    const first = event(1, 'event_8Hk4mQ3y', 'a')
+    store.add(initial())
+    store.append(first, 0)
+
+    expect(store.append({ ...first, ...change } as NormalizedSessionEvent, 1)).toEqual({
+      status: 'conflict',
+      reason: 'event_id_conflict',
+    })
+  })
+
   it('rejects reuse of an older event ID or sequence with different content', () => {
     const store = new InMemorySessionStore()
     store.add(initial())
@@ -102,5 +125,16 @@ describe('in-memory session reference store', () => {
     expect(store.get(asOpaqueReference('session_7Gf3kP2x'))).toMatchObject({
       sessionRef: 'session_7Gf3kP2x',
     })
+  })
+
+  it('rejects an externally discovered snapshot that claims controllable state', () => {
+    const store = new InMemorySessionStore()
+    const malformed = {
+      ...initial(),
+      origin: 'discovered_external',
+      controlMode: 'controllable',
+    } as const
+
+    expect(store.add(malformed)).toEqual({ status: 'conflict', reason: 'invalid_snapshot' })
   })
 })

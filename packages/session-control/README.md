@@ -13,4 +13,9 @@ without durable or supervisor machinery. Use `durable` only when the caller
 needs lifecycle continuity; supervised multi-session coordination remains an
 independent opt-in.
 
+The checked-in provider-free conformance fixture is a portable, terminal
+protocol trace. Its validator proves structural validity and deterministic
+reduction of that trace; adapter qualification still requires the full package
+conformance suite and never implies live-provider acceptance.
+
 Provider implementations and live qualification are outside this package.

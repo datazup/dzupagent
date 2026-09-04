@@ -7,6 +7,7 @@ import {
   type CommandRecordMutation,
   type CommandRecordResult,
 } from './command-ledger.js'
+import { areJsonValuesEqual } from './validation.js'
 
 export type CommandRegistrationResult =
   | { readonly status: 'created' | 'replayed'; readonly record: CommandRecord }
@@ -15,6 +16,7 @@ export type CommandRegistrationResult =
 export class InMemoryCommandLedger {
   readonly #byCommandId = new Map<OpaqueReference, CommandRecord>()
   readonly #byIdempotencyKey = new Map<Sha256Digest, CommandRecord>()
+  readonly #commandsById = new Map<OpaqueReference, SessionControlCommand>()
 
   register(
     command: SessionControlCommand,
@@ -22,9 +24,13 @@ export class InMemoryCommandLedger {
   ): CommandRegistrationResult {
     const idempotent = this.#byIdempotencyKey.get(command.idempotencyKey)
     if (idempotent !== undefined) {
-      return idempotent.commandDigest === command.commandDigest
+      if (idempotent.commandDigest !== command.commandDigest) {
+        return { status: 'conflict', reason: 'idempotency_digest_conflict' }
+      }
+      const retained = this.#commandsById.get(idempotent.commandId)
+      return retained !== undefined && commandsMatch(retained, command)
         ? { status: 'replayed', record: idempotent }
-        : { status: 'conflict', reason: 'idempotency_digest_conflict' }
+        : { status: 'conflict', reason: 'idempotency_command_conflict' }
     }
 
     const identified = this.#byCommandId.get(command.commandId)
@@ -42,6 +48,7 @@ export class InMemoryCommandLedger {
     if (!created.ok) return { status: 'conflict', reason: created.issue.code }
     this.#byCommandId.set(command.commandId, created.record)
     this.#byIdempotencyKey.set(command.idempotencyKey, created.record)
+    this.#commandsById.set(command.commandId, cloneCommand(command))
     return { status: 'created', record: created.record }
   }
 
@@ -69,5 +76,27 @@ export class InMemoryCommandLedger {
 
   getByIdempotencyKey(idempotencyKey: Sha256Digest): CommandRecord | undefined {
     return this.#byIdempotencyKey.get(idempotencyKey)
+  }
+}
+
+function commandsMatch(left: SessionControlCommand, right: SessionControlCommand): boolean {
+  return (
+    left.schema === right.schema &&
+    left.commandId === right.commandId &&
+    left.commandDigest === right.commandDigest &&
+    left.sessionRef === right.sessionRef &&
+    left.action === right.action &&
+    left.expectedGeneration === right.expectedGeneration &&
+    left.deadline === right.deadline &&
+    left.idempotencyKey === right.idempotencyKey &&
+    left.correlationRef === right.correlationRef &&
+    areJsonValuesEqual(left.payload, right.payload)
+  )
+}
+
+function cloneCommand(command: SessionControlCommand): SessionControlCommand {
+  return {
+    ...command,
+    payload: JSON.parse(JSON.stringify(command.payload)) as SessionControlCommand['payload'],
   }
 }
