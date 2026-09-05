@@ -44,6 +44,22 @@ importable) and `cliAvailable` (the underlying CLI binary responds to
 `--version`) so callers can degrade gracefully when either side is
 missing.
 
+## Interaction policy
+
+An unspecified interaction policy defaults to `ask-caller`. Pending requests
+deny on timeout (60 seconds by default) or adapter teardown unless the caller
+explicitly selects another fallback. Explicit `auto-approve` remains available
+for callers that deliberately authorize that behavior.
+
+When an adapter emits `adapter:interaction_required`, pass its interaction ID
+and the chosen answer to `respondInteraction(id, answer)`. The response is
+registered before the event is delivered; CLI governance listeners can also
+answer directly inside `governance:approval_requested`. A `false` return means
+the interaction is no longer pending in that adapter. Preserve the detailed
+`adapter:interaction_resolved` event for the answer and resolution source.
+These local interaction semantics do not qualify a provider's native control
+capabilities or grant additional execution authority.
+
 ## Factory functions
 
 In addition to the adapter classes, this package exports thin factory

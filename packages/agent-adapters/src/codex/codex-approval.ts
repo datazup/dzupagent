@@ -62,6 +62,12 @@ export async function* handleApprovalRequest(
 ): AsyncGenerator<AgentStreamEvent, void, undefined> {
   const interactionId = randomUUID()
   const ts = now()
+  // The consumer may answer synchronously upon receiving the yielded request.
+  const pendingResult = ctx.resolver.resolve({
+    interactionId,
+    question: item.message,
+    kind: item.kind,
+  })
 
   if (ctx.policy.mode === 'ask-caller') {
     yield annotateProviderIdentity(
@@ -81,11 +87,7 @@ export async function* handleApprovalRequest(
     )
   }
 
-  const result = await ctx.resolver.resolve({
-    interactionId,
-    question: item.message,
-    kind: item.kind,
-  })
+  const result = await pendingResult
 
   yield annotateProviderIdentity(
     withCorrelationId(
@@ -125,6 +127,11 @@ export async function* handleTurnFailedApproval(
 ): AsyncGenerator<AgentStreamEvent, void, undefined> {
   const interactionId = randomUUID()
   const ts = now()
+  const pendingResult = ctx.resolver.resolve({
+    interactionId,
+    question: errMsg,
+    kind: 'permission',
+  })
 
   if (ctx.policy.mode === 'ask-caller') {
     yield annotateProviderIdentity(
@@ -144,11 +151,7 @@ export async function* handleTurnFailedApproval(
     )
   }
 
-  const result = await ctx.resolver.resolve({
-    interactionId,
-    question: errMsg,
-    kind: 'permission',
-  })
+  const result = await pendingResult
 
   yield annotateProviderIdentity(
     withCorrelationId(

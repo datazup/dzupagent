@@ -442,25 +442,20 @@ describe('BaseCliAdapter.execute() — path-level tests', () => {
   describe('interaction detection (ask-caller policy)', () => {
     it('routes unspecified policy through the caller interaction surface', async () => {
       mockSpawnAndStreamJsonl.mockImplementation(async function* (_binary, _args, opts) {
-        if (opts?.stdinResponder) {
-          await opts.stdinResponder(
-            { type: 'question', message: 'Which environment?' },
-            'Which environment?',
-            'clarification',
-          )
-        }
-        yield { type: 'completed', result: 'resumed' }
+        const record = { type: 'question', message: 'Which environment?' }
+        // Match runJsonlProcess: register, yield the record, then await.
+        const answer = opts?.stdinResponder?.(record, 'Which environment?', 'clarification')
+        yield record
+        yield { type: 'completed', result: `resumed:${await answer}` }
       })
       const adapter = new TestCliAdapter()
-      let interactionId = ''
-      adapter.onGovernanceEvent((event) => {
-        if (event.type === 'governance:approval_requested') interactionId = event.interactionId
-      })
-
-      const execution = collectEvents(adapter.execute({ prompt: 'inspect' }))
-      await vi.waitFor(() => expect(interactionId).not.toBe(''))
-      expect(adapter.respondInteraction(interactionId, 'staging')).toBe(true)
-      const events = await execution
+      const events: AgentEvent[] = []
+      for await (const event of adapter.execute({ prompt: 'inspect' })) {
+        events.push(event)
+        if (event.type === 'adapter:interaction_required') {
+          expect(adapter.respondInteraction(event.interactionId, 'staging')).toBe(true)
+        }
+      }
 
       expect(events).toContainEqual(expect.objectContaining({
         type: 'adapter:interaction_required',
@@ -472,6 +467,7 @@ describe('BaseCliAdapter.execute() — path-level tests', () => {
         answer: 'staging',
         resolvedBy: 'caller',
       }))
+      expect(events.at(-1)).toMatchObject({ type: 'adapter:completed', result: 'resumed:staging' })
     })
 
     it('exposes the active resolver through respondInteraction', async () => {

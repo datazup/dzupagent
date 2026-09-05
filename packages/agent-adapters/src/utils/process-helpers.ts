@@ -50,7 +50,8 @@ export interface SpawnJsonlOptions extends SpawnOptions {
    * interaction request (question, permission prompt, confirmation, etc.).
    *
    * The callback must return the answer string to write to stdin, or null to skip
-   * (the record is still yielded). The callback is awaited before yielding.
+   * (the record is still yielded). Resolution starts before yielding the record
+   * and is awaited afterward, so callers can receive and answer the question.
    *
    * Only wire this when interactionPolicy.mode !== 'auto-approve' to avoid overhead.
    */
