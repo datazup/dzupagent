@@ -139,7 +139,7 @@ function matchesOutputSchema(
   }
   if (
     schema.additionalProperties === false
-    && Object.keys(value).some((key) => !(key in schema.properties))
+    && Object.keys(value).some((key) => !Object.hasOwn(schema.properties, key))
   ) {
     return false
   }
