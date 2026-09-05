@@ -19,6 +19,58 @@ function capture(output: PassThrough): unknown[] {
 const ping = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping' })
 
 describe('bounded MCP byte framing', () => {
+  it('does not copy an entire oversized string chunk while encoding input', async () => {
+    const original = Buffer.from
+    let largestEncoding = 0
+    const encoding = vi.spyOn(Buffer, 'from').mockImplementation(((...args: Parameters<typeof Buffer.from>) => {
+      if (typeof args[0] === 'string') largestEncoding = Math.max(largestEncoding, Buffer.byteLength(args[0]))
+      return Reflect.apply(original, Buffer, args) as Buffer
+    }) as typeof Buffer.from)
+    const output = new PassThrough()
+    const frames = capture(output)
+    try {
+      await serveMCPOverStdio(server(), { input: Readable.from(['x'.repeat(2 * 1024 * 1024) + '\n']), output, error: new PassThrough(), maxFrameBytes: 64 })
+    } finally {
+      encoding.mockRestore()
+    }
+    expect(largestEncoding).toBeLessThanOrEqual(4096)
+    expect(frames).toHaveLength(1)
+    expect(frames[0]).toHaveProperty('error.message', 'MCP input frame too large')
+  })
+
+  it('does not repeatedly search the whole suffix of a coalesced notification burst', async () => {
+    const burst = Buffer.from((JSON.stringify({ jsonrpc: '2.0', method: 'ping' }) + '\n').repeat(2000))
+    const original = Buffer.prototype.indexOf
+    let searchedBytes = 0
+    const search = vi.spyOn(Buffer.prototype, 'indexOf').mockImplementation(function (this: Buffer, ...args: Parameters<Buffer['indexOf']>) {
+      const result = Reflect.apply(original, this, args) as number
+      const offset = typeof args[1] === 'number' ? args[1] : 0
+      searchedBytes += (result < 0 ? this.length : result + 1) - offset
+      return result
+    })
+    const output = new PassThrough()
+    const frames = capture(output)
+    try {
+      expect(await serveMCPOverStdio(server(), { input: Readable.from([burst]), output, error: new PassThrough() }))
+        .toEqual({ framesRead: 2000, responsesWritten: 0, exitReason: 'eof' })
+    } finally {
+      search.mockRestore()
+    }
+    expect(searchedBytes).toBeLessThanOrEqual(burst.length * 3)
+    expect(frames).toHaveLength(0)
+  })
+
+  it('preserves a surrogate pair spanning an internal text encoding slice', async () => {
+    const handler = vi.fn(async () => 'ok')
+    const prefix = '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"echo","arguments":{"text":"'
+    const text = 'x'.repeat(1023 - prefix.length) + '😀'
+    const frame = prefix + text + '"}}}'
+    const output = new PassThrough()
+    output.resume()
+    await serveMCPOverStdio(server(handler), { input: Readable.from([frame]), output, error: new PassThrough() })
+    expect(handler).toHaveBeenCalledExactlyOnceWith({ text })
+  })
+
   it('rejects an oversized unterminated line before waiting for a delimiter', async () => {
     const input = new PassThrough()
     const output = new PassThrough()

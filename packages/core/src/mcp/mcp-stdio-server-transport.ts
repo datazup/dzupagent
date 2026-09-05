@@ -93,19 +93,17 @@ async function* boundedLines(input: Readable, maxFrameBytes: number): AsyncGener
   let length = 0
   let discarding = false
   let skipLf = false
-  for await (const raw of input.iterator({ destroyOnReturn: false })) {
-    const chunk = typeof raw === 'string' ? Buffer.from(raw, 'utf8') : raw as Buffer
-    if (!Buffer.isBuffer(chunk)) throw new TypeError('MCP input must contain bytes or text')
+  for await (const chunk of boundedInputChunks(input)) {
     let offset = 0
     while (offset < chunk.length) {
       if (skipLf) {
         skipLf = false
         if (chunk[offset] === 10) { offset += 1; continue }
       }
-      const lf = chunk.indexOf(10, offset)
-      const cr = chunk.indexOf(13, offset)
-      const end = lf < 0 ? cr : cr < 0 ? lf : Math.min(lf, cr)
-      const segmentEnd = end < 0 ? chunk.length : end
+      // Visit each byte once; searching separately for a missing delimiter
+      // would rescan the entire suffix for every frame in a coalesced chunk.
+      let segmentEnd = offset
+      while (segmentEnd < chunk.length && chunk[segmentEnd] !== 10 && chunk[segmentEnd] !== 13) segmentEnd += 1
       const segmentLength = segmentEnd - offset
       if (!discarding) {
         if (segmentLength > maxFrameBytes - length) {
@@ -123,9 +121,9 @@ async function* boundedLines(input: Readable, maxFrameBytes: number): AsyncGener
           length = needed
         }
       }
-      if (end < 0) break
-      skipLf = chunk[end] === 13
-      offset = end + 1
+      if (segmentEnd === chunk.length) break
+      skipLf = chunk[segmentEnd] === 13
+      offset = segmentEnd + 1
       if (!discarding) {
         const line = buffer.toString('utf8', 0, length)
         length = 0
@@ -136,6 +134,28 @@ async function* boundedLines(input: Readable, maxFrameBytes: number): AsyncGener
     }
   }
   if (!discarding && length > 0) yield buffer.toString('utf8', 0, length)
+}
+
+async function* boundedInputChunks(input: Readable): AsyncGenerator<Buffer> {
+  for await (const raw of input.iterator({ destroyOnReturn: false })) {
+    if (Buffer.isBuffer(raw)) {
+      yield raw
+    } else if (typeof raw === 'string') {
+      // Text streams may supply arbitrarily large chunks. Encode at most 1024
+      // code units per slice (<= 4096 UTF-8 bytes), without splitting a pair.
+      let offset = 0
+      while (offset < raw.length) {
+        let end = Math.min(offset + 1024, raw.length)
+        const last = raw.charCodeAt(end - 1)
+        const next = raw.charCodeAt(end)
+        if (last >= 0xd800 && last <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) end -= 1
+        yield Buffer.from(raw.slice(offset, end), 'utf8')
+        offset = end
+      }
+    } else {
+      throw new TypeError('MCP input must contain bytes or text')
+    }
+  }
 }
 
 async function dispatchLine(
