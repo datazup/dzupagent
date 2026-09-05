@@ -1,5 +1,4 @@
-import { createInterface } from 'node:readline'
-import type { Writable } from 'node:stream'
+import type { Readable, Writable } from 'node:stream'
 import type { DzupAgentMCPServer } from './mcp-server-core.js'
 import type {
   MCPResponse,
@@ -38,16 +37,17 @@ export async function serveMCPOverStdio(
   input.on('error', onInputError)
   output.on('error', onOutputError)
 
-  const lines = createInterface({ input, crlfDelay: Infinity })
   try {
-    for await (const line of lines) {
+    for await (const line of boundedLines(input, maxFrameBytes)) {
       framesRead += 1
-      const response = await dispatchLine(server, line, {
-        maxFrameBytes,
-        ...(options.protocolVersion !== undefined && {
-          protocolVersion: options.protocolVersion,
-        }),
-      })
+      const response = line === null
+        ? buildError(null, JSON_RPC_INVALID_REQUEST, 'MCP input frame too large')
+        : await dispatchLine(server, line, {
+          ...(options.protocolVersion !== undefined && {
+            protocolVersion: options.protocolVersion,
+          }),
+        })
+      // Consume the next frame only after this response clears backpressure.
       if (response === null) continue
 
       await writeFrame(output, `${JSON.stringify(response)}\n`)
@@ -58,7 +58,6 @@ export async function serveMCPOverStdio(
   } catch {
     exitReason = outputFailed ? 'output_error' : 'input_error'
   } finally {
-    lines.close()
     input.removeListener('error', onInputError)
     output.removeListener('error', onOutputError)
   }
@@ -84,18 +83,66 @@ export async function serveMCPOverStdio(
   return { framesRead, responsesWritten, exitReason }
 }
 
+/**
+ * Bound transport-owned accumulation before a delimiter arrives. The producer
+ * still owns its chunk/high-water-mark allocation. A null frame is one rejected
+ * line; discard its remaining bytes until the next delimiter without buffering.
+ */
+async function* boundedLines(input: Readable, maxFrameBytes: number): AsyncGenerator<string | null> {
+  let buffer = Buffer.allocUnsafe(Math.min(maxFrameBytes, 4096))
+  let length = 0
+  let discarding = false
+  let skipLf = false
+  for await (const raw of input.iterator({ destroyOnReturn: false })) {
+    const chunk = typeof raw === 'string' ? Buffer.from(raw, 'utf8') : raw as Buffer
+    if (!Buffer.isBuffer(chunk)) throw new TypeError('MCP input must contain bytes or text')
+    let offset = 0
+    while (offset < chunk.length) {
+      if (skipLf) {
+        skipLf = false
+        if (chunk[offset] === 10) { offset += 1; continue }
+      }
+      const lf = chunk.indexOf(10, offset)
+      const cr = chunk.indexOf(13, offset)
+      const end = lf < 0 ? cr : cr < 0 ? lf : Math.min(lf, cr)
+      const segmentEnd = end < 0 ? chunk.length : end
+      const segmentLength = segmentEnd - offset
+      if (!discarding) {
+        if (segmentLength > maxFrameBytes - length) {
+          length = 0
+          discarding = true
+          yield null
+        } else {
+          const needed = length + segmentLength
+          if (needed > buffer.length) {
+            const expanded = Buffer.allocUnsafe(Math.min(maxFrameBytes, Math.max(needed, buffer.length * 2)))
+            buffer.copy(expanded, 0, 0, length)
+            buffer = expanded
+          }
+          chunk.copy(buffer, length, offset, segmentEnd)
+          length = needed
+        }
+      }
+      if (end < 0) break
+      skipLf = chunk[end] === 13
+      offset = end + 1
+      if (!discarding) {
+        const line = buffer.toString('utf8', 0, length)
+        length = 0
+        yield line
+      } else {
+        discarding = false
+      }
+    }
+  }
+  if (!discarding && length > 0) yield buffer.toString('utf8', 0, length)
+}
+
 async function dispatchLine(
   server: DzupAgentMCPServer,
   line: string,
-  options: { maxFrameBytes: number; protocolVersion?: string },
+  options: { protocolVersion?: string },
 ): Promise<MCPResponse | null> {
-  if (Buffer.byteLength(line, 'utf8') > options.maxFrameBytes) {
-    return buildError(
-      null,
-      JSON_RPC_INVALID_REQUEST,
-      'MCP input frame too large',
-    )
-  }
   if (line.length === 0) {
     return buildError(null, JSON_RPC_INVALID_REQUEST, 'Invalid MCP request')
   }
