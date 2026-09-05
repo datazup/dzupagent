@@ -1232,6 +1232,17 @@ describe('ClaudeAgentAdapter', () => {
       expect((call['options'] as Record<string, unknown> | undefined)?.['systemPrompt']).toBeUndefined()
     })
 
+    it('does not grant bypass permissions when interaction policy is unspecified', async () => {
+      mockQuery.mockReturnValue(asyncIterableOf([
+        makeSystemMessage('sess-default-policy'),
+        makeResultSuccess({ sessionId: 'sess-default-policy' }),
+      ]))
+
+      await collectEvents(adapter.execute({ prompt: 'test' }))
+      const dispatched = mockQuery.mock.calls[0]![0] as { options: Record<string, unknown> }
+      expect(dispatched.options).not.toHaveProperty('permissionMode')
+    })
+
     it('passes workingDirectory to SDK as cwd', async () => {
       mockQuery.mockReturnValue(asyncIterableOf([makeSystemMessage(), makeResultSuccess()]))
 

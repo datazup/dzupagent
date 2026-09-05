@@ -158,11 +158,6 @@ describe('InteractionResolver — auto-approve mode', () => {
     expect(result).toEqual({ answer: 'yes', resolvedBy: 'auto-approve' })
   })
 
-  it('uses auto-approve as default policy', async () => {
-    const resolver = new InteractionResolver()
-    const result = await resolver.resolve(makeReq())
-    expect(result).toEqual({ answer: 'yes', resolvedBy: 'auto-approve' })
-  })
 })
 
 describe('InteractionResolver — auto-deny mode', () => {
@@ -266,6 +261,21 @@ describe('InteractionResolver — ask-caller mode', () => {
   })
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  it('uses ask-caller with a deny timeout fallback as the default policy', async () => {
+    const resolver = new InteractionResolver()
+    const resultPromise = resolver.resolve(makeReq({ interactionId: 'default-timeout' }))
+    let settled = false
+    void resultPromise.then(() => { settled = true })
+
+    await vi.advanceTimersByTimeAsync(59_999)
+    expect(settled).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    await expect(resultPromise).resolves.toEqual({
+      answer: 'no',
+      resolvedBy: 'timeout-fallback',
+    })
   })
 
   it('resolves with caller answer when respond() is called before timeout', async () => {
@@ -527,10 +537,7 @@ describe('InteractionResolver — dispose()', () => {
   })
 
   it('cancels all pending ask-caller interactions with timeout-fallback answer', async () => {
-    const resolver = new InteractionResolver({
-      mode: 'ask-caller',
-      askCaller: { timeoutMs: 10_000 },
-    })
+    const resolver = new InteractionResolver()
 
     const p1 = resolver.resolve(makeReq({ interactionId: 'd-1' }))
     const p2 = resolver.resolve(makeReq({ interactionId: 'd-2' }))

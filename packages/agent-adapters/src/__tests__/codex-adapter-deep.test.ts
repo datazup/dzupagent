@@ -596,9 +596,7 @@ describe("CodexAdapter — deep coverage", () => {
     });
 
     it("accepts approvalPolicy and passes it to the SDK", async () => {
-      // With no policy configured the adapter derives "never" from the
-      // auto-approve interaction default, so "on-request" is the discriminating
-      // value here.
+      // Explicit approvalPolicy overrides the interaction-policy projection.
       const a = new CodexAdapter({ approvalPolicy: "on-request" });
       mockStartThread.mockReturnValue(
         createMockThread([threadStarted(), turnCompleted()]),
@@ -608,6 +606,20 @@ describe("CodexAdapter — deep coverage", () => {
         "on-request",
       );
     });
+
+    it('uses an approval-capable policy when interaction policy is unspecified', async () => {
+      const a = new CodexAdapter()
+      mockStartThread.mockReturnValue(createMockThread([threadStarted(), turnCompleted()]))
+      await collectEvents(a.execute(makeInput()))
+      expect(mockStartThread.mock.calls[0]![0]['approvalPolicy']).toBe('on-failure')
+    })
+
+    it('retains never approval policy for explicit auto-approve', async () => {
+      const a = new CodexAdapter({ interactionPolicy: { mode: 'auto-approve' } })
+      mockStartThread.mockReturnValue(createMockThread([threadStarted(), turnCompleted()]))
+      await collectEvents(a.execute(makeInput()))
+      expect(mockStartThread.mock.calls[0]![0]['approvalPolicy']).toBe('never')
+    })
 
     it("configure() can set Codex-specific keys after construction", async () => {
       const a = new CodexAdapter();

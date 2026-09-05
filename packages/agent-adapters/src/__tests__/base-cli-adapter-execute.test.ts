@@ -440,6 +440,40 @@ describe('BaseCliAdapter.execute() — path-level tests', () => {
   // -------------------------------------------------------------------------
 
   describe('interaction detection (ask-caller policy)', () => {
+    it('routes unspecified policy through the caller interaction surface', async () => {
+      mockSpawnAndStreamJsonl.mockImplementation(async function* (_binary, _args, opts) {
+        if (opts?.stdinResponder) {
+          await opts.stdinResponder(
+            { type: 'question', message: 'Which environment?' },
+            'Which environment?',
+            'clarification',
+          )
+        }
+        yield { type: 'completed', result: 'resumed' }
+      })
+      const adapter = new TestCliAdapter()
+      let interactionId = ''
+      adapter.onGovernanceEvent((event) => {
+        if (event.type === 'governance:approval_requested') interactionId = event.interactionId
+      })
+
+      const execution = collectEvents(adapter.execute({ prompt: 'inspect' }))
+      await vi.waitFor(() => expect(interactionId).not.toBe(''))
+      expect(adapter.respondInteraction(interactionId, 'staging')).toBe(true)
+      const events = await execution
+
+      expect(events).toContainEqual(expect.objectContaining({
+        type: 'adapter:interaction_required',
+        question: 'Which environment?',
+        kind: 'clarification',
+      }))
+      expect(events).toContainEqual(expect.objectContaining({
+        type: 'adapter:interaction_resolved',
+        answer: 'staging',
+        resolvedBy: 'caller',
+      }))
+    })
+
     it('exposes the active resolver through respondInteraction', async () => {
       mockSpawnAndStreamJsonl.mockImplementation(
         async function* (_binary, _args, opts) {

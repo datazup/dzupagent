@@ -238,9 +238,37 @@ describe('BaseCliAdapter.emitGovernanceEvent + interaction wiring', () => {
     expect(reqIdx).toBeLessThan(resIdx)
   })
 
+  it('preserves normalized governance summary for caller-mediated unspecified policy', async () => {
+    const adapter = new TestCliAdapter('gemini')
+    const fake = buildSpawnFake({
+      triggerInteraction: { question: 'Allow write access?', kind: 'permission' },
+    })
+    mockSpawn.mockImplementation(fake)
+
+    const received: GovernanceEvent[] = []
+    adapter.onGovernanceEvent((e) => received.push(e))
+
+    const execution = collectEvents(adapter.execute({ prompt: 'do thing' }))
+    await vi.waitFor(() => {
+      expect(received.some((event) => event.type === 'governance:approval_requested')).toBe(true)
+    })
+    const requested = received.find(
+      (event): event is Extract<GovernanceEvent, { type: 'governance:approval_requested' }> =>
+        event.type === 'governance:approval_requested',
+    )
+    expect(requested).toBeDefined()
+    expect(adapter.respondInteraction(requested!.interactionId, 'no')).toBe(true)
+    await execution
+    const resolved = received.find((event) => event.type === 'governance:approval_resolved')
+    // The detailed adapter event is the caller-answer authority; governance
+    // preserves its established summarized `auto` classification for callers.
+    expect(resolved).toEqual(expect.objectContaining({ resolution: 'auto' }))
+    expect(received.indexOf(requested!)).toBeLessThan(received.indexOf(resolved!))
+  })
+
   it('auto-approve policy with interaction still emits governance approval events', async () => {
     const adapter = new TestCliAdapter('gemini')
-    // auto-approve is the default and does NOT attach a resolver, so no
+    // Explicit auto-approve does NOT attach a resolver, so no
     // governance events fire — verify that contract explicitly.
     adapter.configure({ interactionPolicy: { mode: 'auto-approve' } })
 
