@@ -116,6 +116,7 @@ export interface MCPInitializeResult {
     version: string
   }
   capabilities: MCPServerCapabilities
+  instructions?: string
 }
 
 export interface MCPServerOptions {
@@ -123,6 +124,8 @@ export interface MCPServerOptions {
   name: string
   /** Server version */
   version: string
+  /** Optional model-facing guidance for initialize and current discovery. */
+  instructions?: string
   /** MCP protocol version to advertise. Default: 2024-11-05 */
   protocolVersion?: string
   /** Optional stateless current-protocol support. Disabled by default. */

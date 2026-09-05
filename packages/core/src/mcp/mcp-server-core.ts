@@ -56,6 +56,7 @@ export class DzupAgentMCPServer {
   private readonly serverName: string;
   private readonly serverVersion: string;
   private readonly protocolVersion: string;
+  private readonly instructions: string | undefined;
   private readonly tools: Map<string, MCPExposedTool> = new Map();
   private readonly resources: Map<string, MCPExposedResource> = new Map();
   private readonly resourceTemplates: Map<string, MCPExposedResourceTemplate> =
@@ -72,6 +73,7 @@ export class DzupAgentMCPServer {
     this.serverName = options.name;
     this.serverVersion = options.version;
     this.protocolVersion = options.protocolVersion ?? DEFAULT_PROTOCOL_VERSION;
+    this.instructions = options.instructions;
     this.capabilityOverrides = options.capabilities;
     this.samplingHandler = options.samplingHandler;
     this.currentProtocol = options.currentProtocol
@@ -143,6 +145,8 @@ export class DzupAgentMCPServer {
       const requiredFields = tool.inputSchema["required"] as
         | string[]
         | undefined;
+      const additionalProperties = tool.inputSchema["additionalProperties"] as
+        MCPToolDescriptor["inputSchema"]["additionalProperties"];
       descriptors.push({
         name: tool.name,
         description: tool.description,
@@ -153,6 +157,7 @@ export class DzupAgentMCPServer {
             MCPToolParameter
           >,
           ...(requiredFields !== undefined && { required: requiredFields }),
+          ...(additionalProperties !== undefined && { additionalProperties }),
         },
         ...(tool.annotations !== undefined && {
           annotations: tool.annotations,
@@ -346,16 +351,18 @@ export class DzupAgentMCPServer {
         version: this.serverVersion,
       },
       capabilities: this.getCapabilities(),
+      ...(this.instructions !== undefined && { instructions: this.instructions }),
     };
   }
 
   private buildDiscoverResult(): Record<string, unknown> {
     const current = this.currentProtocol;
+    const instructions = current?.instructions ?? this.instructions;
     return {
       supportedVersions: current?.supportedVersions ?? [CURRENT_MCP_PROTOCOL_VERSION],
       capabilities: this.getCapabilities(),
-      ...(current?.instructions !== undefined && {
-        instructions: current.instructions,
+      ...(instructions !== undefined && {
+        instructions,
       }),
     };
   }

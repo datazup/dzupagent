@@ -1,5 +1,4 @@
-import { createInterface } from 'node:readline'
-import type { Writable } from 'node:stream'
+import type { Readable, Writable } from 'node:stream'
 import type { DzupAgentMCPServer } from './mcp-server-core.js'
 import type {
   MCPResponse,
@@ -38,16 +37,17 @@ export async function serveMCPOverStdio(
   input.on('error', onInputError)
   output.on('error', onOutputError)
 
-  const lines = createInterface({ input, crlfDelay: Infinity })
   try {
-    for await (const line of lines) {
+    for await (const line of boundedLines(input, maxFrameBytes)) {
       framesRead += 1
-      const response = await dispatchLine(server, line, {
-        maxFrameBytes,
-        ...(options.protocolVersion !== undefined && {
-          protocolVersion: options.protocolVersion,
-        }),
-      })
+      const response = line === null
+        ? buildError(null, JSON_RPC_INVALID_REQUEST, 'MCP input frame too large')
+        : await dispatchLine(server, line, {
+          ...(options.protocolVersion !== undefined && {
+            protocolVersion: options.protocolVersion,
+          }),
+        })
+      // Consume the next frame only after this response clears backpressure.
       if (response === null) continue
 
       await writeFrame(output, `${JSON.stringify(response)}\n`)
@@ -58,7 +58,6 @@ export async function serveMCPOverStdio(
   } catch {
     exitReason = outputFailed ? 'output_error' : 'input_error'
   } finally {
-    lines.close()
     input.removeListener('error', onInputError)
     output.removeListener('error', onOutputError)
   }
@@ -84,18 +83,86 @@ export async function serveMCPOverStdio(
   return { framesRead, responsesWritten, exitReason }
 }
 
+/**
+ * Bound transport-owned accumulation before a delimiter arrives. The producer
+ * still owns its chunk/high-water-mark allocation. A null frame is one rejected
+ * line; discard its remaining bytes until the next delimiter without buffering.
+ */
+async function* boundedLines(input: Readable, maxFrameBytes: number): AsyncGenerator<string | null> {
+  let buffer = Buffer.allocUnsafe(Math.min(maxFrameBytes, 4096))
+  let length = 0
+  let discarding = false
+  let skipLf = false
+  for await (const chunk of boundedInputChunks(input)) {
+    let offset = 0
+    while (offset < chunk.length) {
+      if (skipLf) {
+        skipLf = false
+        if (chunk[offset] === 10) { offset += 1; continue }
+      }
+      // Visit each byte once; searching separately for a missing delimiter
+      // would rescan the entire suffix for every frame in a coalesced chunk.
+      let segmentEnd = offset
+      while (segmentEnd < chunk.length && chunk[segmentEnd] !== 10 && chunk[segmentEnd] !== 13) segmentEnd += 1
+      const segmentLength = segmentEnd - offset
+      if (!discarding) {
+        if (segmentLength > maxFrameBytes - length) {
+          length = 0
+          discarding = true
+          yield null
+        } else {
+          const needed = length + segmentLength
+          if (needed > buffer.length) {
+            const expanded = Buffer.allocUnsafe(Math.min(maxFrameBytes, Math.max(needed, buffer.length * 2)))
+            buffer.copy(expanded, 0, 0, length)
+            buffer = expanded
+          }
+          chunk.copy(buffer, length, offset, segmentEnd)
+          length = needed
+        }
+      }
+      if (segmentEnd === chunk.length) break
+      skipLf = chunk[segmentEnd] === 13
+      offset = segmentEnd + 1
+      if (!discarding) {
+        const line = buffer.toString('utf8', 0, length)
+        length = 0
+        yield line
+      } else {
+        discarding = false
+      }
+    }
+  }
+  if (!discarding && length > 0) yield buffer.toString('utf8', 0, length)
+}
+
+async function* boundedInputChunks(input: Readable): AsyncGenerator<Buffer> {
+  for await (const raw of input.iterator({ destroyOnReturn: false })) {
+    if (Buffer.isBuffer(raw)) {
+      yield raw
+    } else if (typeof raw === 'string') {
+      // Text streams may supply arbitrarily large chunks. Encode at most 1024
+      // code units per slice (<= 4096 UTF-8 bytes), without splitting a pair.
+      let offset = 0
+      while (offset < raw.length) {
+        let end = Math.min(offset + 1024, raw.length)
+        const last = raw.charCodeAt(end - 1)
+        const next = raw.charCodeAt(end)
+        if (last >= 0xd800 && last <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) end -= 1
+        yield Buffer.from(raw.slice(offset, end), 'utf8')
+        offset = end
+      }
+    } else {
+      throw new TypeError('MCP input must contain bytes or text')
+    }
+  }
+}
+
 async function dispatchLine(
   server: DzupAgentMCPServer,
   line: string,
-  options: { maxFrameBytes: number; protocolVersion?: string },
+  options: { protocolVersion?: string },
 ): Promise<MCPResponse | null> {
-  if (Buffer.byteLength(line, 'utf8') > options.maxFrameBytes) {
-    return buildError(
-      null,
-      JSON_RPC_INVALID_REQUEST,
-      'MCP input frame too large',
-    )
-  }
   if (line.length === 0) {
     return buildError(null, JSON_RPC_INVALID_REQUEST, 'Invalid MCP request')
   }

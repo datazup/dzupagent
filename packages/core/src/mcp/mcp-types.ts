@@ -93,6 +93,8 @@ export interface MCPToolDescriptor {
     type: "object";
     properties: Record<string, MCPToolParameter>;
     required?: string[];
+    /** Preserve the caller's JSON Schema closure; this is not runtime authorization. */
+    additionalProperties?: boolean | Record<string, unknown>;
   };
   annotations?: MCPToolAnnotations;
   outputSchema?: MCPToolOutputSchema;

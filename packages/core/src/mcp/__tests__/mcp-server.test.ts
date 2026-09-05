@@ -217,7 +217,7 @@ describe("DzupAgentMCPServer", () => {
       {
         name: "inspect",
         description: "Inspect deterministic state",
-        inputSchema: { type: "object", properties: {} },
+        inputSchema: { type: "object", properties: {}, additionalProperties: false },
         outputSchema: {
           type: "object",
           properties: { disposition: { type: "string" } },
