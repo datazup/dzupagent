@@ -108,6 +108,12 @@ describe("CodexAdapter — deep coverage", () => {
         expect(responses).toEqual([true]);
         await execution;
         expect(events).toContainEqual(expect.objectContaining({ type: "adapter:interaction_resolved", answer: "no", resolvedBy: "caller" }));
+        expect(events).toContainEqual(expect.objectContaining({ type: "adapter:failed", code: "INTERACTION_DENIED" }));
+        expect(events.some(event => event.type === "adapter:completed")).toBe(false);
+        if (source === "approval_request") {
+          const thread = mockStartThread.mock.results[0]!.value;
+          expect(thread.runStreamed.mock.calls[0][1].signal.aborted).toBe(true);
+        }
         expect(mockResumeThread).not.toHaveBeenCalled();
       } finally {
         await vi.advanceTimersByTimeAsync(60_000);
@@ -128,11 +134,14 @@ describe("CodexAdapter — deep coverage", () => {
       expect(mockStartThread).toHaveBeenCalledWith(expect.objectContaining({ approvalPolicy: approval }));
     });
 
-    it("surfaces an implicit approval and denies its timeout without resuming", async () => {
+    it.each(["turn.failed", "approval_request"])("surfaces an implicit %s approval and denies its timeout without resuming", async (source) => {
       vi.useFakeTimers();
       mockStartThread.mockReturnValue(createMockThread([
         threadStarted(),
-        { type: "turn.failed", error: { message: "Approval required to execute command" } },
+        source === "turn.failed"
+          ? { type: "turn.failed", error: { message: "Approval required to execute command" } }
+          : { type: "item.completed", item: { type: "approval_request", id: "approval-timeout", message: "Allow write access?", kind: "permission" } },
+        turnCompleted(),
       ]));
       const events: AgentEvent[] = [];
       const execution = (async () => {
@@ -148,12 +157,34 @@ describe("CodexAdapter — deep coverage", () => {
         await execution;
         expect(events).toContainEqual(expect.objectContaining({ type: "adapter:interaction_resolved", answer: "no", resolvedBy: "timeout-fallback" }));
         expect(events).toContainEqual(expect.objectContaining({ type: "adapter:failed" }));
+        expect(events.some(event => event.type === "adapter:completed")).toBe(false);
         expect(mockResumeThread).not.toHaveBeenCalled();
       } finally {
         await vi.advanceTimersByTimeAsync(60_000);
         adapter.interrupt();
         await execution;
       }
+    });
+
+    it.each([false, true])("handles structured approval with explicit auto-approve=%s without inventing a reply channel", async (autoApprove) => {
+      if (autoApprove) adapter.configure({ interactionPolicy: { mode: "auto-approve" } });
+      const thread = createMockThread([
+        threadStarted(),
+        { type: "item.completed", item: { type: "approval_request", id: "approval-positive", message: "Allow write access?", kind: "permission" } },
+        turnCompleted(),
+      ]);
+      mockStartThread.mockReturnValue(thread);
+      const events: AgentEvent[] = [];
+      for await (const event of adapter.execute(makeInput())) {
+        events.push(event);
+        if (event.type === "adapter:interaction_required") {
+          expect(adapter.respondInteraction(event.interactionId, "yes")).toBe(true);
+        }
+      }
+      expect(events.some(event => event.type === "adapter:completed")).toBe(autoApprove);
+      expect(thread.runStreamed.mock.calls[0]![1].signal.aborted).toBe(!autoApprove);
+      if (!autoApprove) expect(events).toContainEqual(expect.objectContaining({ type: "adapter:failed", code: "INTERACTION_RESPONSE_UNSUPPORTED" }));
+      expect(mockResumeThread).not.toHaveBeenCalled();
     });
   });
 

@@ -175,6 +175,26 @@ describe('BaseCliAdapter.emitGovernanceEvent + interaction wiring', () => {
     vi.clearAllMocks()
   })
 
+  it.each(['no', 'yes'])('accepts an immediate %s from the governance callback before timeout', async (answer) => {
+    const adapter = new TestCliAdapter('gemini')
+    adapter.configure({ interactionPolicy: { mode: 'ask-caller', askCaller: { timeoutMs: 20 } } })
+    const responses: boolean[] = []
+    const stdinAnswers: (string | null)[] = []
+    adapter.onGovernanceEvent(event => {
+      if (event.type === 'governance:approval_requested') {
+        responses.push(adapter.respondInteraction(event.interactionId, answer))
+      }
+    })
+    mockSpawn.mockImplementation(async function* (_binary: string, _args: string[], opts: processHelpers.SpawnJsonlOptions) {
+      stdinAnswers.push(await opts.stdinResponder!({}, 'Allow write access?', 'permission'))
+      yield { type: 'completed', result: 'ok' }
+    })
+    const events = await collectEvents(adapter.execute({ prompt: 'inspect' }))
+    expect(responses).toEqual([true])
+    expect(stdinAnswers).toEqual([answer])
+    expect(events).toContainEqual(expect.objectContaining({ type: 'adapter:interaction_resolved', answer, resolvedBy: 'caller' }))
+  })
+
   it('emits governance:approval_requested when interaction_required is produced (ask-caller policy)', async () => {
     const adapter = new TestCliAdapter('gemini')
     adapter.configure({
