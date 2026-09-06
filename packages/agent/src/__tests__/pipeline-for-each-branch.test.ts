@@ -30,6 +30,51 @@ async function checkpoints(store: InMemoryPipelineCheckpointStore, runId: string
 }
 
 describe("one normal for_each branch through public runtime", () => {
+  it.each(["cas", "throw"])("fences concurrent siblings and drains them after a %s checkpoint failure", async (failure) => {
+    let park = (): void => {}, release = (): void => {}, lose = (): void => {};
+    const parked = new Promise<void>((resolve) => { park = resolve; });
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    const lost = new Promise<void>((resolve) => { lose = resolve; });
+    class ConflictStore extends InMemoryPipelineCheckpointStore {
+      refused = false;
+      writesAfterRefusal = 0;
+      override async saveIfVersion(cp: PipelineCheckpoint, expectedVersion: number): Promise<PipelineCheckpointCommitReceipt> {
+        if (this.refused) this.writesAfterRefusal++;
+        if (!this.refused && cp.loopState?.items?.itemFrames?.["0"]?.graph?.frame.nextNodeId === "yes") {
+          this.refused = true; lose();
+          if (failure === "throw") throw new Error("storage failure");
+          return { committed: false, observedVersion: 999 };
+        }
+        return super.saveIfVersion(cp, expectedVersion);
+      }
+    }
+    const store = new ConflictStore(), calls: string[] = [], reservations: number[] = [];
+    const settle = vi.fn(), releaseHold = vi.fn(), measure = vi.fn(() => ({ status: "known" as const, costCents: 1 }));
+    const plain = executor(calls, []);
+    const pending = new PipelineRuntime({
+      definition: branchDefinition(2), predicates, checkpointStore: store,
+      nodeExecutor: async (id, node, ctx) => {
+        if (id === "before" && ctx.state.item === 1) { park(); await released; }
+        if (id === "before" && ctx.state.item === 0) await parked;
+        return plain(id, node, ctx);
+      },
+      loopIterationBudgetReservation: {
+        mode: "strict", itemBudgetCents: 10,
+        reserve: (input) => { reservations.push(input.itemIndex!); return { status: "reserved", reservedCostCents: 10 }; },
+        settle, release: releaseHold, measureItemCost: measure, reconcile: () => ({ status: "unknown" }),
+      },
+    }).execute({ items: [0, 1, 2] });
+    await lost;
+    release();
+    const result = await pending;
+    expect(result).toMatchObject({ state: "failed", error: expect.stringMatching(/conflict|storage failure/i) });
+    expect(calls.sort()).toEqual(["before:0", "before:1", "choose:0"]);
+    expect(store.writesAfterRefusal).toBe(0);
+    expect(reservations).toEqual([0, 1]);
+    expect(settle).not.toHaveBeenCalled();
+    expect(releaseHold).not.toHaveBeenCalled();
+    expect(measure).not.toHaveBeenCalled();
+  });
   it.each(["selection", "leaf", "parent"])("stops dispatch after a lost %s checkpoint commit", async (cut) => {
     class ConflictStore extends InMemoryPipelineCheckpointStore {
       refused = false;
@@ -99,13 +144,15 @@ describe("one normal for_each branch through public runtime", () => {
       items: [{ id: 1, processed: { id: 1, changed: true } }],
     };
     expect(first.nodeResults.get("done")?.output).toEqual(expected);
-    const cp = (await checkpoints(store, first.runId)).find((saved) =>
-      saved.loopState?.items?.itemFrames?.["0"]?.graph?.frame.completed);
-    expect(cp).toBeDefined();
-    const resumed = await new PipelineRuntime({ ...config, checkpointStore: new InMemoryPipelineCheckpointStore() }).resume(cp!);
-    expect(resumed.state, resumed.error).toBe("completed");
-    expect(resumed.nodeResults.get("items")?.output).toEqual(first.nodeResults.get("items")?.output);
-    expect(resumed.nodeResults.get("done")?.output).toEqual(expected);
+    const boundaries = (await checkpoints(store, first.runId)).filter((saved) =>
+      saved.loopState?.items?.itemFrames?.["0"]?.graph || (saved.loopState?.items?.iteration ?? 0) > 0);
+    expect(boundaries.length).toBeGreaterThan(5);
+    for (const cp of boundaries) {
+      const resumed = await new PipelineRuntime({ ...config, checkpointStore: new InMemoryPipelineCheckpointStore() }).resume(cp);
+      expect(resumed.state, `${cp.version}: ${resumed.error}`).toBe("completed");
+      expect(resumed.nodeResults.get("items")?.output).toMatchObject({ loopOutput: expected.answers });
+      expect(resumed.nodeResults.get("done")?.output).toEqual(expected);
+    }
   });
   it("halts an in-flight selected graph when a sibling reservation is denied", async () => {
     let start = (): void => {}, deny = (): void => {};

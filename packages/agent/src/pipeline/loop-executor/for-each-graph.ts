@@ -2,7 +2,42 @@ import type { PipelineForEachItemFrame } from "@dzupagent/core/pipeline";
 import type { LoopNode, PipelineDefinition } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import { canonicalInputDigest, digestPipelineDefinition } from "@dzupagent/runtime-contracts";
 import { validateRetainedLoopBodyGraphCheckpointState } from "../loop-body-graph-checkpoint-validator.js";
-import type { LoopBodyGraphCheckpointState } from "./types.js";
+import type { LoopBodyGraphCheckpointState, LoopResumeOptions } from "./types.js";
+
+/**
+ * One item graph owns a shared outer checkpoint version line. Serialize the
+ * complete callback (frame mutation through CAS verdict), poison that line on
+ * failure, and fence new host operations until a new run reloads durable state.
+ */
+export function fenceForEachGraphOperations(original: LoopResumeOptions) {
+  let failure: { error: unknown } | undefined;
+  let checkpointQueue = Promise.resolve();
+  const check = (): void => { if (failure) throw failure.error; };
+  const fail = (error: unknown): void => { failure ??= { error }; };
+  const guard = <A extends unknown[], R>(callback: (...args: A) => R) =>
+    (...args: A): R => { check(); return callback(...args); };
+  const serialize = <A extends unknown[]>(callback: (...args: A) => Promise<void>) =>
+    (...args: A): Promise<void> => {
+      const pending = checkpointQueue.then(async () => {
+        check();
+        try { await callback(...args); } catch (error) { fail(error); throw error; }
+      });
+      checkpointQueue = pending.catch(() => {});
+      return pending;
+    };
+  const options: LoopResumeOptions = {
+    ...original,
+    ...(original.onItemBodyNodeComplete && { onItemBodyNodeComplete: serialize(original.onItemBodyNodeComplete) }),
+    ...(original.onItemTerminalOutcome && { onItemTerminalOutcome: serialize(original.onItemTerminalOutcome) }),
+    ...(original.onIterationComplete && { onIterationComplete: guard(original.onIterationComplete) }),
+    ...(original.reserveIterationBudget && { reserveIterationBudget: guard(original.reserveIterationBudget) }),
+    ...(original.settleIterationBudget && { settleIterationBudget: guard(original.settleIterationBudget) }),
+    ...(original.releaseIterationBudget && { releaseIterationBudget: guard(original.releaseIterationBudget) }),
+    ...(original.reconcileIterationBudget && { reconcileIterationBudget: guard(original.reconcileIterationBudget) }),
+    ...(original.measureItemCost && { measureItemCost: guard(original.measureItemCost) }),
+  };
+  return { options, check, fail, serialize, get failed() { return failure !== undefined; } };
+}
 
 /** Preflight every item before concurrent dispatch can reach an economics host. */
 export function validateForEachItemGraphs(

@@ -27,6 +27,7 @@ import {
   type ForEachMergeState,
 } from "./for-each-merge.js";
 import { createItemBudgetLifecycle } from "./for-each-item-budget.js";
+import { fenceForEachGraphOperations } from "./for-each-graph.js";
 import {
   deriveItemReservationId,
   type HeldItemReservation,
@@ -146,6 +147,8 @@ export async function executeForEachLoop(
   )) {
     throw new Error(`Loop "${loopNode.id}" conditional items require V2 selected/skipped-leaf economics; V1 exact-evidence execution is not admitted`);
   }
+  const graphFence = loopNode.bodyGraph === undefined ? undefined : fenceForEachGraphOperations(resume!);
+  if (graphFence) resume = graphFence.options;
   const contract = loopNode.forEach as ForEachContract;
   if (
     bodyNodes.length === 0 ||
@@ -331,7 +334,7 @@ export async function executeForEachLoop(
    * a callback would be.
    */
   const dispatchHalted = (): boolean =>
-    dispatchStop.signal.aborted || context.signal?.aborted === true;
+    graphFence?.failed === true || dispatchStop.signal.aborted || context.signal?.aborted === true;
 
   /**
    * 24-I: the ONLY way to record a breach. Setting `budgetBreached` without
@@ -931,14 +934,33 @@ export async function executeForEachLoop(
       return;
     }
 
-    const attempt =
-      itemResume?.economics === undefined ? resumedAttempt : resumedAttempt + 1;
+    let resumedGraphHold: HeldItemReservation | undefined;
+    if (itemResume?.graph !== undefined && itemResume.economics !== undefined) {
+      const economics = itemResume.economics;
+      const retained: HeldItemReservation = {
+        itemIndex: index, attempt: resumedAttempt,
+        reservationId: economics.reservationId, reservedCostCents: economics.reservedCostCents,
+      };
+      const reconciliation = await reconcileUnknownReservation(
+        index, resumedAttempt, "resume of a durable selected item graph", "reserve", retained,
+      );
+      if (reconciliation.status !== "reserved" ||
+          reconciliation.reservedCostCents !== economics.reservedCostCents ||
+          reconciliation.evidence !== undefined) {
+        throw new Error(`Loop "${loopNode.id}" item ${index} cannot resume its selected graph: original reservation is not an unchanged authoritative hold`);
+      }
+      // Continuing a checkpointed branch is the same attempt. Re-reserving
+      // under a new identity leaks the old hold and changes effect identities.
+      resumedGraphHold = retained;
+    }
+    const attempt = resumedGraphHold !== undefined || itemResume?.economics === undefined
+      ? resumedAttempt : resumedAttempt + 1;
 
     // F: admit this item's ceiling BEFORE its first body node dispatches, so a
     // reservation that cannot be authorized never spends. `held` is the single
     // source of truth for whether a reservation is outstanding, and every one
     // of the three exits below reconciles it exactly once.
-    const held = await reserveItem(index, attempt, iterationState);
+    const held = resumedGraphHold ?? await reserveItem(index, attempt, iterationState);
     // A thrown reserve is reconciled before dispatch. Absent/released proves a
     // clean denial; reserved proves a hold exists and therefore requires the
     // strict host's release lifecycle before denial. Settled, unknown, and
@@ -1507,7 +1529,7 @@ export async function executeForEachLoop(
     await flushQueue;
   };
 
-  const flushCompletedPrefix = async (): Promise<void> => {
+  const flushPrefix = async (): Promise<void> => {
     // The merge itself is synchronous and lives in `for-each-merge.ts`; only
     // the publish-and-checkpoint tail below is async. A zero return means the
     // cursor did not move, and no checkpoint may be written for it.
@@ -1533,20 +1555,34 @@ export async function executeForEachLoop(
     }
     await resume?.onIterationComplete?.(merge.flushedPrefix);
   };
+  // Source attachment and aggregate publication must share the checkpoint
+  // queue: another item's frame cannot snapshot half of a prefix transition.
+  const flushCompletedPrefix = graphFence ? graphFence.serialize(flushPrefix) : flushPrefix;
 
   const workers = Array.from({ length: concurrency }, async () => {
     while (
       !(contract.failFast === true && firstError !== undefined) &&
+      graphFence?.failed !== true &&
       !budgetBreached &&
       !context.signal?.aborted
     ) {
       const index = nextIndex;
       nextIndex += 1;
       if (index >= items.length) return;
-      await runIteration(index);
+      try {
+        await runIteration(index);
+      } catch (error) {
+        if (graphFence) { graphFence.fail(error); stopDispatch(); }
+        throw error;
+      }
     }
   });
-  await Promise.all(workers);
+  if (graphFence) {
+    await Promise.allSettled(workers);
+    graphFence.check();
+  } else {
+    await Promise.all(workers);
+  }
   await flushQueue;
   await flushCompletedPrefix();
 

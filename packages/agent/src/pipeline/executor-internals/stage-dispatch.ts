@@ -295,6 +295,9 @@ export async function dispatchLoopStage(
   // resolves to an array — anything else stays unbound (unprovable), never
   // falsely bound.
   if (loopNode.forEach !== undefined) {
+    if (loopNode.bodyGraph !== undefined && ctx.config.checkpointStore === undefined) {
+      throw new Error(`Loop "${loopNode.id}" conditional items require a checkpoint store`);
+    }
     const resolvedSource = resolveStatePath(runState, loopNode.forEach.source);
     if (Array.isArray(resolvedSource.value)) {
       const currentDigest = digestPipelineInteractionValue(
@@ -643,7 +646,17 @@ export async function dispatchLoopStage(
           ? { progressDigest: previousBoundary.progressDigest }
           : {}),
       };
-      await ctx.saveCheckpoint(frame);
+      await (loopNode.forEach !== undefined && loopNode.bodyGraph !== undefined
+        ? ctx.saveControlCheckpoint(frame)
+        : ctx.saveCheckpoint(frame));
+      if (loopNode.forEach !== undefined && loopNode.bodyGraph !== undefined &&
+          lastWriteLostCommit(frame.versionTracker)) {
+        restoreLoopStateAfterLostCommit(frame.loopState, loopNode.id, previousBoundary);
+        throw new PipelineCheckpointCommitConflictError(loopNode.id, {
+          completedIterations: previousBoundary?.iteration ?? 0,
+          observedVersion: frame.versionTracker.version,
+        });
+      }
     },
     onIterationComplete: async (completedIterations, progress) => {
       clearCommittedLoopInteractionCursor(frame, loopNode.id);
@@ -685,9 +698,19 @@ export async function dispatchLoopStage(
           ? { progressDigest: progress.progressDigest }
           : {}),
       };
-      await (loopNode.forEach !== undefined && loopNode.bodyGraph !== undefined
-        ? ctx.saveControlCheckpoint(frame)
-        : ctx.saveCheckpoint(frame));
+      if (loopNode.forEach !== undefined && loopNode.bodyGraph !== undefined) {
+        // attachAs publishes an intentional source update with this prefix.
+        // Bind the new durable source bytes in the same serialized transition.
+        frame.loopSourceDigests = {
+          ...frame.loopSourceDigests,
+          [loopNode.id]: digestPipelineInteractionValue(
+            resolveStatePath(frame.runState, loopNode.forEach.source).value,
+          ),
+        };
+        await ctx.saveControlCheckpoint(frame);
+      } else {
+        await ctx.saveCheckpoint(frame);
+      }
       // G2a — serialized checkpoint commits.
       //
       // An item boundary is the one place the loop advances its *durable*
