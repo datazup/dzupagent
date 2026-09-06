@@ -220,6 +220,8 @@ export interface LoopResumeOptions {
    * resumed `context.state`.
    */
   startIteration?: number;
+  /** Root artifact identity required by the versioned item graph receipt. */
+  graphDefinitionDigest?: string;
   /**
    * Body-node cursor within `startIteration`. Omitted (or 0) starts the
    * iteration at its first body node.

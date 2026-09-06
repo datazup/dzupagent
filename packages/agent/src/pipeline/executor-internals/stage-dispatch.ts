@@ -14,7 +14,7 @@ import { validateForEachItemGraphs } from "../loop-executor/for-each-graph.js";
  */
 
 import type { PipelineNode, ForkNode, LoopNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
-import { digestPipelineInteractionValue } from "@dzupagent/runtime-contracts";
+import { digestPipelineDefinition, digestPipelineInteractionValue } from "@dzupagent/runtime-contracts";
 import type {
   PipelineState,
   NodeResult,
@@ -326,6 +326,9 @@ export async function dispatchLoopStage(
         ctx.config.definition, loopNode, resolvedSource.value,
         readItemFrames(frame.loopState[loopNode.id]),
       );
+      if (loopNode.bodyGraph !== undefined && isResuming && recordedDigest === undefined) {
+        throw new PipelineSourceBindingMismatchError("Retained item graph has no original ordered-source binding");
+      }
       frame.loopSourceDigests = {
         ...frame.loopSourceDigests,
         [loopNode.id]: currentDigest,
@@ -359,6 +362,7 @@ export async function dispatchLoopStage(
   const savedLoopState = frame.loopState[loopNode.id];
   const loopResume: LoopResumeOptions = {
     startIteration: resumeFrom,
+    ...(loopNode.bodyGraph === undefined ? {} : { graphDefinitionDigest: digestPipelineDefinition(ctx.config.definition) }),
     ...(savedLoopState?.nextBodyNodeIndex !== undefined
       ? { startBodyNodeIndex: savedLoopState.nextBodyNodeIndex }
       : {}),
@@ -583,7 +587,7 @@ export async function dispatchLoopStage(
           ? { progressDigest: previousBoundary.progressDigest }
           : {}),
       };
-      if (progress.mandatory === true) {
+      if (progress.mandatory === true || loopNode.bodyGraph !== undefined) {
         await persistCheckpointWithIntegrityBoundary({
           nodeId: loopNode.id, boundary: "loop_resume_cursor",
           save: () => ctx.saveControlCheckpoint(frame),
@@ -674,7 +678,9 @@ export async function dispatchLoopStage(
           ? { progressDigest: progress.progressDigest }
           : {}),
       };
-      await ctx.saveCheckpoint(frame);
+      await (loopNode.forEach !== undefined && loopNode.bodyGraph !== undefined
+        ? ctx.saveControlCheckpoint(frame)
+        : ctx.saveCheckpoint(frame));
       // G2a — serialized checkpoint commits.
       //
       // An item boundary is the one place the loop advances its *durable*
@@ -848,7 +854,9 @@ export async function dispatchLoopStage(
   nodeResults.set(loopNode.id, loopResult);
   completedNodeIds.push(loopNode.id);
   ctx.recordIdempotencyKey(nodeIdempotencyKeys, runId, loopNode);
-  await ctx.saveCheckpoint(frame);
+  await (loopNode.forEach !== undefined && loopNode.bodyGraph !== undefined
+    ? ctx.saveControlCheckpoint(frame)
+    : ctx.saveCheckpoint(frame));
   return { kind: "continue", nextNodeId: ctx.next(loopNode.id, runState) };
 }
 

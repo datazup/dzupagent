@@ -135,8 +135,15 @@ export async function executeForEachLoop(
   resume?: LoopResumeOptions
 ): Promise<{ result: NodeResult; metrics: LoopMetrics }> {
   const startTime = Date.now();
-  if (loopNode.bodyGraph !== undefined && (resume?.scheduleBodyGraph === undefined || resume.onItemBodyNodeComplete === undefined)) {
+  if (loopNode.bodyGraph !== undefined && (resume?.scheduleBodyGraph === undefined || resume.onItemBodyNodeComplete === undefined || resume.graphDefinitionDigest === undefined)) {
     throw new Error(`Loop "${loopNode.id}" requires the canonical item graph scheduler and checkpoint writer`);
+  }
+  if (loopNode.bodyGraph !== undefined && (
+    resume?.budgetEvidenceMode === "required" ||
+    Object.values(resume?.itemFrames ?? {}).some((item) => item.economics?.evidence !== undefined) ||
+    Object.values(resume?.itemOutcomes ?? {}).some((item) => item.economics?.evidence !== undefined)
+  )) {
+    throw new Error(`Loop "${loopNode.id}" conditional items require V2 selected/skipped-leaf economics; V1 exact-evidence execution is not admitted`);
   }
   const contract = loopNode.forEach as ForEachContract;
   if (
@@ -476,8 +483,10 @@ export async function executeForEachLoop(
    * and never converts uncertain completion into a duplicate effect or charge.
    * The same representation covers single- and multi-body items.
    */
-  const restoreSettledItem = async (index: number): Promise<boolean> => {
-    const frame = resume?.itemFrames?.[String(index)];
+  const restoreSettledItem = async (
+    index: number,
+    frame = resume?.itemFrames?.[String(index)]
+  ): Promise<boolean> => {
     if (
       frame?.outcome !== "completed" ||
       frame.nextBodyNodeIndex !== bodyNodes.length
@@ -487,7 +496,7 @@ export async function executeForEachLoop(
     const receipt = readAggregateReceipt(
       loopNode.id,
       index,
-      items[index],
+      frame?.graph === undefined ? items[index] : frame.graph.state[contract.as],
       frame?.bodyResults
     );
     if (receipt === undefined) return false;
@@ -724,7 +733,7 @@ export async function executeForEachLoop(
     const preparedReceipt = readAggregateReceipt(
       loopNode.id,
       index,
-      items[index],
+      itemResume?.graph === undefined ? items[index] : itemResume.graph.state[contract.as],
       itemResume?.bodyResults
     );
     if (startBodyNodeIndex >= bodyNodes.length) {
@@ -794,7 +803,7 @@ export async function executeForEachLoop(
           bodyResults: retainedBodyResults,
         });
         await recordTerminalOutcome(index, "completed", undefined);
-        if (!(await restoreSettledItem(index))) {
+        if (!(await restoreSettledItem(index, { ...itemResume!, outcome: "completed" }))) {
           await blockPreparedCompletion("its durable aggregate could not be restored");
         }
         return;
@@ -915,7 +924,7 @@ export async function executeForEachLoop(
         settledHeld,
         settledCostCents
       );
-      if (!(await restoreSettledItem(index))) {
+      if (!(await restoreSettledItem(index, { ...itemResume!, outcome: "completed" }))) {
         await blockPreparedCompletion("its durable aggregate could not be restored");
       }
       return;
@@ -1088,7 +1097,11 @@ export async function executeForEachLoop(
       return;
     }
 
-    if (loopNode.bodyGraph !== undefined) {
+    if (loopNode.bodyGraph !== undefined && held?.evidence !== undefined) {
+      completedBody = false;
+      firstError ??= { nodeId: loopNode.id, output: null, durationMs: Date.now() - startTime,
+        error: "Conditional items require V2 selected/skipped-leaf economics; V1 exact evidence was returned by the reservation host" };
+    } else if (loopNode.bodyGraph !== undefined) {
       const graphResult = await resume!.scheduleBodyGraph!({
         iteration,
         context: {
@@ -1098,8 +1111,8 @@ export async function executeForEachLoop(
           // a sibling's fail-fast or budget stop.
           signal: {
             get aborted() { return dispatchHalted(); },
-            addEventListener: context.signal?.addEventListener?.bind(context.signal),
-            removeEventListener: context.signal?.removeEventListener?.bind(context.signal),
+            addEventListener: (type, listener) => context.signal?.addEventListener?.(type, listener),
+            removeEventListener: (type, listener) => context.signal?.removeEventListener?.(type, listener),
           },
         },
         ...(itemResume?.graph === undefined ? {} : { resumeState: itemResume.graph.frame as import("./types.js").LoopBodyGraphCheckpointState }),
@@ -1117,7 +1130,7 @@ export async function executeForEachLoop(
             itemIndex: index,
             nextBodyNodeIndex: frame.completed ? bodyNodes.length : 0,
             bodyResults,
-            graph: { schema: "dzupagent/for-each-item-graph/v1", loopNodeId: loopNode.id, itemIndex: index, itemValueDigest: canonicalInputDigest(items[index]), state: structuredClone(iterationState), frame },
+            graph: { schema: "dzupagent/for-each-item-graph/v1", definitionDigest: resume!.graphDefinitionDigest!, loopNodeId: loopNode.id, itemIndex: index, itemValueDigest: `sha256:${canonicalInputDigest(items[index])}`, state: structuredClone(iterationState), frame },
             mandatory: true,
             ...(attempt > 0 ? { attempt } : {}), outcome: "running",
             ...(held === undefined ? {} : { economics: {

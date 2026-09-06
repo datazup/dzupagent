@@ -5,7 +5,7 @@ function checkpoint() {
   return { pipelineId: "p", pipelineRunId: "run", version: 1, schemaVersion: "1.0.0", completedNodeIds: [], state: {}, createdAt: new Date(0).toISOString(),
     loopState: { items: { iteration: 0, itemFrames: { "0": { itemIndex: 0, nextBodyNodeIndex: 0, bodyResults: {}, graph: {
       schema: "dzupagent/for-each-item-graph/v1", loopNodeId: "items", itemIndex: 0,
-      itemValueDigest: `sha256:${"a".repeat(64)}`, state: { item: 1 },
+      definitionDigest: `sha256:${"b".repeat(64)}`, itemValueDigest: `sha256:${"a".repeat(64)}`, state: { item: 1 },
       frame: { completed: false, nextNodeId: "choose", completedNodeIds: [], nodeResults: {}, nodeIdempotencyKeys: {} },
     } } } } } };
 }

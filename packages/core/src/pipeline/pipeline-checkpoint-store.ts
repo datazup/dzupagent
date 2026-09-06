@@ -169,6 +169,7 @@ export interface PipelineForEachItemFrame {
     loopNodeId: string;
     itemIndex: number;
     itemValueDigest: string;
+    definitionDigest: string;
     state: Record<string, unknown>;
     frame: PipelineLoopBodyGraphCheckpointState;
   };

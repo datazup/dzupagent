@@ -1,6 +1,6 @@
 import type { PipelineForEachItemFrame } from "@dzupagent/core/pipeline";
 import type { LoopNode, PipelineDefinition } from "@dzupagent/runtime-contracts/pipeline-artifact";
-import { canonicalInputDigest } from "@dzupagent/runtime-contracts";
+import { canonicalInputDigest, digestPipelineDefinition } from "@dzupagent/runtime-contracts";
 import { validateRetainedLoopBodyGraphCheckpointState } from "../loop-body-graph-checkpoint-validator.js";
 import type { LoopBodyGraphCheckpointState } from "./types.js";
 
@@ -30,7 +30,8 @@ export function validateForEachItemGraphs(
     }
     if (graph.schema !== "dzupagent/for-each-item-graph/v1" ||
         graph.loopNodeId !== loop.id || graph.itemIndex !== item.itemIndex ||
-        graph.itemValueDigest !== canonicalInputDigest(items[item.itemIndex])) fail("version or item identity mismatch");
+        graph.definitionDigest !== digestPipelineDefinition(definition) ||
+        graph.itemValueDigest !== `sha256:${canonicalInputDigest(items[item.itemIndex])}`) fail("version or item identity mismatch");
     if (graph.frame.outcome !== undefined && graph.frame.outcome.kind !== "normal") fail("non-normal outcome");
     if (item.nextBodyNodeIndex !== 0 && item.nextBodyNodeIndex !== loop.bodyNodeIds.length) fail("graph cursor interpreted as flat progress");
     if (item.nextBodyNodeIndex === loop.bodyNodeIds.length && !graph.frame.completed) fail("body completion precedes graph completion");

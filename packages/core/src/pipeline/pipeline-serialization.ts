@@ -176,6 +176,7 @@ const PipelineForEachItemFrameSchema = z.object({
     loopNodeId: z.string().min(1),
     itemIndex: z.number().int().nonnegative(),
     itemValueDigest: PipelineSha256DigestSchema,
+    definitionDigest: PipelineSha256DigestSchema,
     state: z.record(z.string(), z.unknown()),
     frame: PipelineLoopBodyGraphCheckpointStateSchema,
   }).strict().optional(),
