@@ -7,12 +7,8 @@ import { compileTextInput, createFlowCompiler } from "../index.js";
 function source(version: "v1" | "v2", policy?: FlowDocumentPolicy): string {
   const policyText = policy === undefined ? "" : `policy:\n${Object.entries(policy).map(([key, value]) => `  ${key}: ${JSON.stringify(value)}`).join("\n")}\n`;
   return `dsl: dzupflow/${version}\nid: compiled-policy\nversion: ${version === "v1" ? "1" : "2.0.0"}\n${policyText}steps:\n` +
-    (version === "v1" ? "  - complete:\n      id: done\n      result: accepted\n" :
-      "  - id: done\n    use: core.complete@1\n    with:\n      result: accepted\n");
-}
-
-function withoutCompileId(value: unknown): unknown {
-  return JSON.parse(JSON.stringify(value), (key, nested: unknown) => key === "compileId" ? undefined : nested);
+    (version === "v1" ? "  - set:\n      id: seed\n      assign:\n        ready: true\n  - complete:\n      id: done\n      result: accepted\n" :
+      "  - id: seed\n    use: core.set@1\n    with:\n      assign:\n        ready: true\n  - id: done\n    use: core.complete@1\n    with:\n      result: accepted\n");
 }
 
 const resolver = { resolve: () => null, listAvailable: () => [] };
@@ -40,7 +36,20 @@ describe("DSL-MVP-POLICY-01 compiler document-policy parity", () => {
       expect(result.documentPolicy).toEqual(policy);
       expect(result.target).toBe(baseline.target);
       expect(result.requirements.semanticHash).toBe(baseline.requirements.semanticHash);
-      expect(withoutCompileId(result.artifact)).toEqual(withoutCompileId(baseline.artifact));
+      // Pipeline artifact/node IDs are generated per compile. Pin the full
+      // canonical flow metadata and executable payload instead of erasing IDs.
+      expect(result.target).toBe("planning-dag");
+      expect(result.artifact).toMatchObject({
+        metadata: { flow: { nodes: {
+          root: { id: "root", type: "sequence" },
+          "root.nodes[0]": { id: "seed", type: "set" },
+          "root.nodes[1]": { id: "done", type: "complete" },
+        } } },
+        nodes: [
+          { type: "tool", toolName: "dzup.runtime.set", arguments: { assign: { ready: true } } },
+          { type: "suspend", description: "accepted" },
+        ],
+      });
     }
     const second = results[1];
     const doc = results[2];

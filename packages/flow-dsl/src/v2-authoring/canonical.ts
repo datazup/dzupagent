@@ -1,5 +1,5 @@
 import { canonicalize, sha256Prefixed } from "@dzupagent/canonical-json";
-import { stringify } from "yaml";
+import { Document, isCollection } from "yaml";
 
 import type { DslDiagnostic } from "../types.js";
 
@@ -14,6 +14,7 @@ const TOP_LEVEL_ORDER = [
   "defaults",
   "tags",
   "meta",
+  "policy",
   "durability",
   "steps",
 ] as const;
@@ -65,16 +66,22 @@ export function renderCanonicalV2Yaml(
   // newline of `|` and rejects `|-`), no single-quote escaping, and JSON-only
   // double-quote escapes so parseScalar's JSON.parse branch can decode every
   // quoted scalar this emitter produces.
-  return stringify(document, {
+  const options = {
     aliasDuplicateObjects: false,
     blockQuote: false,
-    collectionStyle: "block",
     doubleQuotedAsJSON: true,
     indent: 2,
     lineWidth: 0,
     singleQuote: false,
     sortMapEntries: false,
-  }).trimEnd();
+  } as const;
+  const yaml = new Document(document, options);
+  // The subset accepts `policy: {}` / `policy: []`, but not an empty
+  // collection on its own indented line. Preserve the value, including an
+  // invalid array so document validation can report root.policy precisely.
+  const policy = yaml.get("policy", true);
+  if (isCollection(policy) && policy.items.length === 0) policy.flow = true;
+  return yaml.toString(options).trimEnd();
 }
 
 // Canonical stringification and digests delegate to @dzupagent/canonical-json's

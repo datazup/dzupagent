@@ -247,6 +247,32 @@ results with authored/lowered step paths and exact primitive bindings.
 Composite expansion also retains exact primitive ref/hash lineage in document
 metadata.
 
+V2 documents may declare the existing document-level `policy`:
+
+```yaml
+dsl: dzupflow/v2
+id: bounded-run
+version: 2.0.0
+policy:
+  budgetCents: 125
+  timeoutMs: 5000
+  workingDirectory: /workspace/packet
+steps:
+  - id: done
+    use: core.complete@1
+    with:
+      result: accepted
+```
+
+Each field is optional. `budgetCents` and `timeoutMs` must be positive finite
+numbers; `workingDirectory` must be a string. An empty document policy is valid,
+and an absent policy stays absent. Parsing, canonical formatting and exact V1
+migration preserve these fields in `FlowDocumentV1.policy`; successful compilation
+projects them through `CompileSuccess.documentPolicy`. Migration remains
+report-only and withholds candidates when canonical equivalence cannot be proved.
+This is frontend parity with the existing document contract; runtime enforcement
+continues to depend on the consuming host.
+
 Primitive steps may declare a bounded `policy`. Every authored key must occur
 in the exact selected primitive's `allowedOverrides`. `timeoutMs` and
 `budgetCents` are positive finite ceilings that compose with inherited host

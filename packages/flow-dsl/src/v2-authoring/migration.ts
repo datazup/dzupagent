@@ -394,6 +394,9 @@ function buildCandidateDocument(
     ...(meta === undefined || Object.keys(meta).length === 0
       ? {}
       : { meta: clone(meta) }),
+    ...(document.policy === undefined
+      ? {}
+      : { policy: clone(document.policy) }),
     ...(document.durability === undefined
       ? {}
       : { durability: clone(document.durability) }),
