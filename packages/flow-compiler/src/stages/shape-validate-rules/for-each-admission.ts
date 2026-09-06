@@ -7,9 +7,8 @@ import type {
 /**
  * Packet 24-D admission for the current flat for_each worker.
  *
- * The worker can execute only a sequential leaf inventory. It has no durable
- * per-item graph cursor, interaction owner, terminal owner, or concurrent
- * item/economics frame, so those authored forms must fail before lowering.
+ * Flat leaves and one normal conditional branch have item-owned durability.
+ * Other recursive shapes and interaction/terminal ownership remain denied.
  */
 export function validateForEachAdmission(
   node: ForEachNode,
@@ -87,11 +86,23 @@ export function validateForEachAdmission(
     return errors;
   }
 
+  let branches = 0;
+  const extraBranch = findNestedNode(node.body, `${path}.body`, (child) =>
+    child.type === "branch" && ++branches > 1
+  );
+  if (extraBranch !== undefined) {
+    errors.push({
+      nodeType: "branch", nodePath: extraBranch.path,
+      code: "FOR_EACH_RECURSIVE_CONTROL_UNSUPPORTED", category: "control",
+      message: "for_each admits exactly one normal conditional branch per item",
+    });
+    return errors;
+  }
+
   const recursive = findNestedNode(
     node.body,
     `${path}.body`,
     (child) =>
-      child.type === "branch" ||
       child.type === "parallel" ||
       child.type === "try_catch" ||
       child.type === "for_each" ||
@@ -134,6 +145,7 @@ export function validateForEachAdmission(
 function isAdmittedItemBodyNode(node: FlowNode): boolean {
   switch (node.type) {
     case "sequence":
+    case "branch":
     case "action":
     case "agent":
     case "validate":

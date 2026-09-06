@@ -171,6 +171,14 @@ const PipelineForEachItemFrameSchema = z.object({
   itemIndex: z.number().int().nonnegative(),
   nextBodyNodeIndex: z.number().int().nonnegative(),
   bodyResults: z.record(z.string(), z.unknown()).optional(),
+  graph: z.object({
+    schema: z.literal("dzupagent/for-each-item-graph/v1"),
+    loopNodeId: z.string().min(1),
+    itemIndex: z.number().int().nonnegative(),
+    itemValueDigest: PipelineSha256DigestSchema,
+    state: z.record(z.string(), z.unknown()),
+    frame: PipelineLoopBodyGraphCheckpointStateSchema,
+  }).strict().optional(),
   attempt: z.number().int().nonnegative().optional(),
   // 24-F: the outcome vocabulary is closed. An unrecognised state is corrupt,
   // not forward-compatible: admitting it would let a reader fall through every

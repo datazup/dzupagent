@@ -11,6 +11,7 @@ import type {
   PipelineState,
 } from "@dzupagent/runtime-contracts";
 import type {
+  PipelineForEachItemFrame,
   PipelineForEachItemEconomics,
   PipelineForEachItemOutcome,
 } from "@dzupagent/core/pipeline";
@@ -39,6 +40,10 @@ export interface ForEachItemCheckpointProgress {
   nextBodyNodeIndex: number;
   /** Results from body nodes already completed within this item. */
   bodyResults: Readonly<Record<string, NodeResult>>;
+  /** Item-owned graph receipt; omitted for legacy flat bodies. */
+  graph?: PipelineForEachItemFrame["graph"];
+  /** Graph selection/progress must be durable even under periodic strategies. */
+  mandatory?: boolean;
   /** Attempt counter for this item; omitted on the first attempt. */
   attempt?: number;
   /**

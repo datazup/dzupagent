@@ -135,6 +135,9 @@ export async function executeForEachLoop(
   resume?: LoopResumeOptions
 ): Promise<{ result: NodeResult; metrics: LoopMetrics }> {
   const startTime = Date.now();
+  if (loopNode.bodyGraph !== undefined && (resume?.scheduleBodyGraph === undefined || resume.onItemBodyNodeComplete === undefined)) {
+    throw new Error(`Loop "${loopNode.id}" requires the canonical item graph scheduler and checkpoint writer`);
+  }
   const contract = loopNode.forEach as ForEachContract;
   if (
     bodyNodes.length === 0 ||
@@ -675,10 +678,9 @@ export async function executeForEachLoop(
       maxIterations: items.length,
     });
 
-    const iterationState = {
-      ...context.state,
-      [contract.as]: items[index],
-    };
+    const iterationState = loopNode.bodyGraph === undefined
+      ? { ...context.state, [contract.as]: items[index] }
+      : structuredClone(itemResume?.graph?.state ?? { ...context.state, [contract.as]: items[index] });
     const iterationPreviousResults = new Map(context.previousResults);
     let lastBodyResult: NodeResult | undefined;
     let completedBody = true;
@@ -1086,7 +1088,57 @@ export async function executeForEachLoop(
       return;
     }
 
-    for (
+    if (loopNode.bodyGraph !== undefined) {
+      const graphResult = await resume!.scheduleBodyGraph!({
+        iteration,
+        context: {
+          ...context, state: iterationState, previousResults: iterationPreviousResults,
+          executionScope: { loopNodeId: loopNode.id, itemIndex: index, bodyNodeId: loopNode.bodyGraph.entryNodeId, ...(attempt > 0 ? { attempt } : {}) },
+          // The scoped kernel checks this signal before every node, including
+          // a sibling's fail-fast or budget stop.
+          signal: {
+            get aborted() { return dispatchHalted(); },
+            addEventListener: context.signal?.addEventListener?.bind(context.signal),
+            removeEventListener: context.signal?.removeEventListener?.bind(context.signal),
+          },
+        },
+        ...(itemResume?.graph === undefined ? {} : { resumeState: itemResume.graph.frame as import("./types.js").LoopBodyGraphCheckpointState }),
+        onCheckpoint: async (frame) => {
+          const bodyResults = { ...frame.nodeResults };
+          if (frame.completed) {
+            const final = bodyResults[frame.completedNodeIds.at(-1)!]!;
+            const collected = contract.collect === undefined ? undefined : {
+              status: "known" as const,
+              value: collectIterationValue(iterationState, new Map([...iterationPreviousResults, ...Object.entries(bodyResults)]), contract.collect.from),
+            };
+            bodyResults[loopNode.id] = aggregateReceiptResult(loopNode.id, index, iterationState[contract.as], collected, final);
+          }
+          await resume!.onItemBodyNodeComplete!({
+            itemIndex: index,
+            nextBodyNodeIndex: frame.completed ? bodyNodes.length : 0,
+            bodyResults,
+            graph: { schema: "dzupagent/for-each-item-graph/v1", loopNodeId: loopNode.id, itemIndex: index, itemValueDigest: canonicalInputDigest(items[index]), state: structuredClone(iterationState), frame },
+            mandatory: true,
+            ...(attempt > 0 ? { attempt } : {}), outcome: "running",
+            ...(held === undefined ? {} : { economics: {
+              reservationId: held.reservationId, reservedCostCents: held.reservedCostCents,
+              ...(held.evidence === undefined ? {} : { evidence: held.evidence }),
+            } }),
+          });
+        },
+      });
+      for (const [id, result] of graphResult.bodyResults) {
+        retainedBodyResults[id] = result;
+        iterationPreviousResults.set(id, result);
+      }
+      lastBodyResult = graphResult.lastResult;
+      if (graphResult.outcome.kind !== "normal" || lastBodyResult === undefined) {
+        completedBody = false;
+        haltedBeforeBody = graphResult.outcome.kind === "cancelled";
+        firstError ??= { nodeId: loopNode.id, output: null, durationMs: Date.now() - startTime,
+          error: graphResult.error ?? `Item graph did not complete normally: ${graphResult.outcome.kind}` };
+      }
+    } else for (
       let bodyIndex = startBodyNodeIndex;
       bodyIndex < bodyNodes.length;
       bodyIndex++

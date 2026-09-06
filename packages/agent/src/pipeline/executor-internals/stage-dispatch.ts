@@ -1,3 +1,4 @@
+import { validateForEachItemGraphs } from "../loop-executor/for-each-graph.js";
 /**
  * Per-stage dispatch — the fork and loop stage executors extracted from
  * `PipelineExecutor` so the executor's core graph-walk loop stays focused.
@@ -321,6 +322,10 @@ export async function dispatchLoopStage(
             "different items.",
         );
       }
+      validateForEachItemGraphs(
+        ctx.config.definition, loopNode, resolvedSource.value,
+        readItemFrames(frame.loopState[loopNode.id]),
+      );
       frame.loopSourceDigests = {
         ...frame.loopSourceDigests,
         [loopNode.id]: currentDigest,
@@ -546,6 +551,9 @@ export async function dispatchLoopStage(
               ctx.config.definition.checkpoint?.includeProviderSessionRefs ===
                 true,
             ),
+            ...((progress.graph ?? readItemFrames(previousBoundary)?.[String(progress.itemIndex)]?.graph) === undefined
+              ? {}
+              : { graph: progress.graph ?? readItemFrames(previousBoundary)![String(progress.itemIndex)]!.graph! }),
             ...(progress.attempt === undefined
               ? {}
               : { attempt: progress.attempt }),
@@ -575,7 +583,14 @@ export async function dispatchLoopStage(
           ? { progressDigest: previousBoundary.progressDigest }
           : {}),
       };
-      await ctx.saveCheckpoint(frame);
+      if (progress.mandatory === true) {
+        await persistCheckpointWithIntegrityBoundary({
+          nodeId: loopNode.id, boundary: "loop_resume_cursor",
+          save: () => ctx.saveControlCheckpoint(frame),
+        });
+      } else {
+        await ctx.saveCheckpoint(frame);
+      }
     },
     /**
      * 24-G: persist one item's terminal outcome.
