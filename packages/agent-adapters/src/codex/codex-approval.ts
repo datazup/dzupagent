@@ -4,7 +4,8 @@
  * Codex emits two flavors of approval signals during a streaming turn:
  *
  *   1. `item.completed` with `item.type === 'approval_request'` — a structured
- *      mid-stream pause. The resolver answers, the original stream resumes.
+ *      observed interaction. The exposed SDK has no reply channel for it;
+ *      the caller must stop the run unless auto-approve was explicitly selected.
  *
  *   2. `turn.failed` with an approval-shaped error message — an older code
  *      path where the SDK terminates the turn instead of pausing it. After
@@ -22,7 +23,7 @@ import type {
   AgentInput,
   InteractionPolicy,
 } from '../types.js'
-import type { InteractionResolver } from '../interaction/interaction-resolver.js'
+import type { InteractionResolver, InteractionResult } from '../interaction/interaction-resolver.js'
 import {
   makeFailedEvent,
   makeInteractionRequiredEvent,
@@ -51,7 +52,7 @@ export interface CodexApprovalContext {
 /**
  * Handle an `approval_request` item mid-stream. Yields events for
  * `interaction_required` (if ask-caller mode) and `interaction_resolved`,
- * then returns so the caller resumes its event loop.
+ * then returns the decision for enforcement by the streaming loop.
  */
 export async function* handleApprovalRequest(
   item: CodexApprovalRequestItem,
@@ -59,7 +60,7 @@ export async function* handleApprovalRequest(
   providerEventId: string | null,
   parentProviderEventId: string | null,
   ctx: CodexApprovalContext,
-): AsyncGenerator<AgentStreamEvent, void, undefined> {
+): AsyncGenerator<AgentStreamEvent, InteractionResult, undefined> {
   const interactionId = randomUUID()
   const ts = now()
 
@@ -105,6 +106,7 @@ export async function* handleApprovalRequest(
     providerEventId,
     parentProviderEventId,
   )
+  return result
 }
 
 /**

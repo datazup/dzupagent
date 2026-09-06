@@ -259,13 +259,26 @@ export async function* runStreamedThread(
         event.type === "item.completed" &&
         event.item?.type === "approval_request"
       ) {
-        yield* handleStreamApprovalRequest(
+        const resolution = yield* handleStreamApprovalRequest(
           event,
           input,
           providerEventId,
           parentProviderEventId,
           ctx,
         );
+        if (resolution.resolvedBy !== "auto-approve") {
+          const approved = resolution.answer === "yes" || resolution.answer === "approve";
+          yield withCorrelationId(makeFailedEvent({
+            providerId: ctx.providerId,
+            sessionId,
+            error: approved
+              ? "Codex SDK exposes no response channel for this interaction; run stopped"
+              : "Interaction denied by policy; Codex run stopped",
+            code: approved ? "INTERACTION_RESPONSE_UNSUPPORTED" : "INTERACTION_DENIED",
+            timestamp: now(),
+          }), input.correlationId);
+          return;
+        }
         continue;
       }
 

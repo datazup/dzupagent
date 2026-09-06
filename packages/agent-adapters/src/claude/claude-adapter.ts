@@ -15,6 +15,7 @@ import {
   buildExecutionControlAdmission,
 } from '../execution-control-admission.js'
 import { InteractionResolver } from '../interaction/interaction-resolver.js'
+import { makeFailedEvent, makeInteractionResolvedEvent } from '../events/event-factories.js'
 import { getDefaultMonitorStatus } from '../provider-catalog.js'
 import { BaseSdkAdapter } from '../base/base-sdk-adapter.js'
 import { AdapterStreamRunner } from '../base/stream-runner.js'
@@ -208,7 +209,47 @@ export class ClaudeAgentAdapter
     })
 
     try {
-      yield* runner.run(source, input, input.signal)
+      for await (const event of runner.run(source, input, input.signal)) {
+        if (event.type !== 'adapter:interaction_required' || !resolver) {
+          yield event
+          continue
+        }
+        const resolution = resolver.resolve({
+          interactionId: event.interactionId,
+          question: event.question,
+          kind: event.kind,
+        })
+        // tool_progress is an observation, not a supported SDK reply port.
+        // Stop this conversation before waiting so it cannot race to success.
+        interruptClaudeConversation(activeConversation, runController)
+        const onCallerAbort = () => resolver.dispose()
+        input.signal?.addEventListener('abort', onCallerAbort, { once: true })
+        if (input.signal?.aborted) resolver.dispose()
+        try {
+          if (policy.mode === 'ask-caller') yield event
+          const result = await resolution
+          yield makeInteractionResolvedEvent({
+            providerId: 'claude',
+            interactionId: event.interactionId,
+            question: event.question,
+            answer: result.answer,
+            resolvedBy: result.resolvedBy,
+            correlationId: input.correlationId,
+          })
+          const approved = result.answer === 'yes' || result.answer === 'approve'
+          yield makeFailedEvent({
+            providerId: 'claude',
+            error: approved
+              ? 'Claude SDK exposes no response channel for this interaction; conversation stopped'
+              : 'Interaction denied by policy; Claude conversation stopped',
+            code: approved ? 'INTERACTION_RESPONSE_UNSUPPORTED' : 'INTERACTION_DENIED',
+            correlationId: input.correlationId,
+          })
+          return
+        } finally {
+          input.signal?.removeEventListener('abort', onCallerAbort)
+        }
+      }
     } finally {
       if (activeConversation) this.activeConversations.delete(activeConversation)
       if (runController) this.activeControllers.delete(runController)
@@ -364,6 +405,7 @@ export class ClaudeAgentAdapter
   interrupt(): void {
     for (const conversation of this.activeConversations) interruptClaudeConversation(conversation, null)
     for (const controller of this.activeControllers) controller.abort()
+    for (const resolver of this.activeResolvers) resolver.dispose()
     this.activeConversations.clear()
     this.activeControllers.clear()
   }

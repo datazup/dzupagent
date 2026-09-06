@@ -90,6 +90,9 @@ describe('Claude interaction policy compatibility', () => {
         }
       })()
       try {
+        if (decision === 'timeout') {
+          await vi.waitFor(() => expect(events.some(event => event.type === 'adapter:interaction_required')).toBe(true))
+        }
         await vi.advanceTimersByTimeAsync(60_000)
         await execution
         expect(conversation.interrupt).toHaveBeenCalled()

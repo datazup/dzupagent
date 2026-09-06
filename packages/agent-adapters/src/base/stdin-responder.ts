@@ -41,6 +41,9 @@ export function createStdinResponder(opts: CreateStdinResponderOpts): StdinRespo
     const now = Date.now()
     const runId = input.correlationId ?? sessionId
 
+    // Governance listeners may answer synchronously during emit().
+    const resolution = resolver.resolve({ interactionId, question, kind })
+
     if (policy.mode === 'ask-caller') {
       pendingEvents.push(withCorrelationId({
         type: 'adapter:interaction_required',
@@ -66,7 +69,7 @@ export function createStdinResponder(opts: CreateStdinResponderOpts): StdinRespo
       prompt: question,
     })
 
-    const result = await resolver.resolve({ interactionId, question, kind })
+    const result = await resolution
 
     pendingEvents.push(withCorrelationId({
       type: 'adapter:interaction_resolved',

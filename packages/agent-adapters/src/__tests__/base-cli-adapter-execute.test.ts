@@ -20,8 +20,8 @@ vi.mock('../utils/process-helpers.js', () => ({
 // ---------------------------------------------------------------------------
 
 class TestCliAdapter extends BaseCliAdapter {
-  constructor() {
-    super('gemini')
+  constructor(providerId: 'gemini' | 'goose' = 'gemini') {
+    super(providerId)
   }
 
   protected getBinaryName(): string {
@@ -77,6 +77,18 @@ describe('BaseCliAdapter.execute() — path-level tests', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  it('preserves Goose abort rethrow with explicit auto-approve', async () => {
+    mockSpawnAndStreamJsonl.mockImplementation(async function* () {
+      throw new ForgeError({ code: 'AGENT_ABORTED', message: 'Goose aborted', recoverable: true })
+    })
+    const adapter = new TestCliAdapter('goose')
+    adapter.configure({ interactionPolicy: { mode: 'auto-approve' } })
+    const stream = adapter.execute({ prompt: 'inspect' })
+    expect((await stream.next()).value?.type).toBe('adapter:started')
+    expect((await stream.next()).value).toMatchObject({ type: 'adapter:failed', code: 'AGENT_ABORTED' })
+    await expect(stream.next()).rejects.toMatchObject({ code: 'AGENT_ABORTED' })
   })
 
   // -------------------------------------------------------------------------
