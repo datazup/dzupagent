@@ -8,8 +8,8 @@
  *      the caller must stop the run unless auto-approve was explicitly selected.
  *
  *   2. `turn.failed` with an approval-shaped error message — an older code
- *      path where the SDK terminates the turn instead of pausing it. After
- *      the caller approves we have to *resume* the thread to continue.
+ *      path where the SDK terminates the turn instead of pausing it. Caller
+ *      approval cannot be delivered by replaying the failed prompt.
  *
  * Both flows yield {@link AgentStreamEvent}s so the streaming loop in
  * `codex-streamed-thread.ts` can stay focused on SDK iteration.
@@ -111,8 +111,8 @@ export async function* handleApprovalRequest(
 
 /**
  * Handle a `turn.failed` event that represents an approval pause. Yields
- * interaction events and either delegates to `resumeFn` (after approval)
- * to stream the resumed thread, or emits `adapter:failed` (if denied).
+ * interaction events and fails closed when a caller decision has no native
+ * response channel. Preserve the explicitly selected auto-approve legacy path.
  *
  * The caller MUST `return` after this generator finishes — the resumed
  * thread is a complete sub-turn that emits its own `adapter:completed`.
@@ -174,7 +174,8 @@ export async function* handleTurnFailedApproval(
     parentProviderEventId,
   )
 
-  if (result.answer === 'yes' || result.answer === 'approve') {
+  const approved = result.answer === 'yes' || result.answer === 'approve'
+  if (approved && ctx.policy.mode === 'auto-approve') {
     const approvalThread = codex.resumeThread(sessionId, ctx.buildThreadOptions(input))
     yield* resumeFn(approvalThread)
   } else {
@@ -182,8 +183,10 @@ export async function* handleTurnFailedApproval(
       makeFailedEvent({
         providerId: ctx.providerId,
         sessionId,
-        error: `Interaction denied by policy: ${errMsg}`,
-        code: 'INTERACTION_DENIED',
+        error: approved
+          ? 'Codex SDK exposes no response channel for this failed turn; prompt replay is unsupported'
+          : `Interaction denied by policy: ${errMsg}`,
+        code: approved ? 'INTERACTION_RESPONSE_UNSUPPORTED' : 'INTERACTION_DENIED',
         timestamp: now(),
       }),
       input.correlationId,

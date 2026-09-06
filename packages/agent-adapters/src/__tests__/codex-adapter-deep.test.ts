@@ -186,6 +186,25 @@ describe("CodexAdapter — deep coverage", () => {
       if (!autoApprove) expect(events).toContainEqual(expect.objectContaining({ type: "adapter:failed", code: "INTERACTION_RESPONSE_UNSUPPORTED" }));
       expect(mockResumeThread).not.toHaveBeenCalled();
     });
+
+    it("does not replay a failed turn when the implicit caller approves", async () => {
+      mockStartThread.mockReturnValue(createMockThread([
+        threadStarted(),
+        { type: "turn.failed", error: { message: "Approval required to execute command" } },
+      ]));
+      mockResumeThread.mockReturnValue(createMockThread([threadStarted(), turnCompleted()]));
+      const events: AgentEvent[] = [];
+      for await (const event of adapter.execute(makeInput())) {
+        events.push(event);
+        if (event.type === "adapter:interaction_required") {
+          expect(adapter.respondInteraction(event.interactionId, "yes")).toBe(true);
+        }
+      }
+      expect(mockResumeThread).not.toHaveBeenCalled();
+      expect(events).toContainEqual(expect.objectContaining({ type: "adapter:interaction_resolved", answer: "yes", resolvedBy: "caller" }));
+      expect(events).toContainEqual(expect.objectContaining({ type: "adapter:failed", code: "INTERACTION_RESPONSE_UNSUPPORTED" }));
+      expect(events.some(event => event.type === "adapter:completed")).toBe(false);
+    });
   });
 
   describe("thread lifecycle", () => {

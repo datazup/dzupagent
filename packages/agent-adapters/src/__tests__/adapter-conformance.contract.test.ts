@@ -220,14 +220,18 @@ describe('CLI adapter conformance contract', () => {
     })
 
     it(`${testCase.providerId} surfaces aborts as adapter:failed before rethrowing`, async () => {
+      let markAbortHandlerReady!: () => void
+      const abortHandlerReady = new Promise<void>((resolve) => { markAbortHandlerReady = resolve })
       mockSpawnAndStreamJsonl.mockImplementation(async function* (_binary, _args, opts) {
         yield { type: 'message', content: `${testCase.providerId} running` }
         await new Promise<void>((resolve) => {
           if (opts?.signal?.aborted) {
+            markAbortHandlerReady()
             resolve()
             return
           }
           opts?.signal?.addEventListener('abort', () => resolve(), { once: true })
+          markAbortHandlerReady()
         })
         throw new ForgeError({
           code: 'AGENT_ABORTED',
@@ -243,7 +247,9 @@ describe('CLI adapter conformance contract', () => {
       let third
       if (testCase.providerId === 'goose') {
         const pending = stream.next()
-        await new Promise((resolve) => setTimeout(resolve, 0))
+        // Goose prepares a private filesystem projection before entering spawn.
+        // Wait for the actual fake abort boundary, not an event-loop tick.
+        await abortHandlerReady
         testCase.adapter.interrupt()
         third = await pending
       } else {
@@ -258,11 +264,7 @@ describe('CLI adapter conformance contract', () => {
         expect(third.value.code).toBe('AGENT_ABORTED')
       }
 
-      if (testCase.providerId === 'goose') {
-        await expect(stream.next()).resolves.toMatchObject({ done: true })
-      } else {
-        await expect(stream.next()).rejects.toMatchObject({ code: 'AGENT_ABORTED' })
-      }
+      await expect(stream.next()).rejects.toMatchObject({ code: 'AGENT_ABORTED' })
     })
   }
 
