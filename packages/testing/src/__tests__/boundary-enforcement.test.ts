@@ -716,10 +716,14 @@ describe('Package boundary enforcement — dependency graph invariants', () => {
     expect(deps, `memory-ipc should have zero @dzupagent deps but got: ${deps.map((d) => d.name).join(', ')}`).toHaveLength(0);
   });
 
-  it('@dzupagent/runtime-contracts has no @dzupagent production deps (pure foundation)', () => {
+  it('@dzupagent/runtime-contracts depends only on the terminal canonical-json leaf', () => {
     const pkg = packages.get('runtime-contracts');
     expect(pkg).toBeDefined();
-    const deps = getProductionDzupDeps(pkg!.packageJson);
-    expect(deps, `runtime-contracts should have zero @dzupagent deps but got: ${deps.map((d) => d.name).join(', ')}`).toHaveLength(0);
+    // The reviewed layer-0 edge predates the canonical-json scope rename.
+    const deps = getProductionDzupDeps(pkg!.packageJson).map((d) => d.name).sort();
+    expect(deps, 'runtime-contracts may depend only on canonical-json').toEqual(['canonical-json']);
+    const canonicalJson = packages.get('canonical-json');
+    expect(canonicalJson).toBeDefined();
+    expect(getProductionDzupDeps(canonicalJson!.packageJson), 'canonical-json must remain a terminal leaf').toHaveLength(0);
   });
 });
