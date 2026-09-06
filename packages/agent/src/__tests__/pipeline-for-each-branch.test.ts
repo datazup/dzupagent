@@ -9,6 +9,7 @@ import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
 import { InMemoryPipelineCheckpointStore } from "../pipeline/in-memory-checkpoint-store.js";
 import { validatePipeline } from "../pipeline/pipeline-validator.js";
 import { branchDefinition } from "./fixtures/for-each-branch-crash-worker.js";
+import type { LoopBudgetStrictHost } from "../pipeline/loop-executor/budget-types.js";
 import type { NodeExecutor } from "../pipeline/pipeline-runtime-types.js";
 
 const predicates = { choose: (state: Record<string, unknown>) => Number(state.item) % 2 === 0 };
@@ -29,7 +30,122 @@ async function checkpoints(store: InMemoryPipelineCheckpointStore, runId: string
   }
 }
 
+async function releasedBranchAttempt(kind: "failed" | "cancelled") {
+  const controller = new AbortController();
+  class CancelStore extends InMemoryPipelineCheckpointStore {
+    override async saveIfVersion(cp: PipelineCheckpoint, expected: number): Promise<PipelineCheckpointCommitReceipt> {
+      const receipt = await super.saveIfVersion(cp, expected);
+      if (kind === "cancelled" && cp.loopState?.items?.itemFrames?.["0"]?.graph?.frame.nextNodeId === "yes") controller.abort();
+      return receipt;
+    }
+  }
+  const store = new CancelStore(), calls: string[] = [], keys: string[] = [];
+  const rows = new Map<string, "reserved" | "released" | "settled">();
+  const reservations: Array<{ id: string; attempt: number }> = [];
+  const settlements: string[] = [];
+  const host: LoopBudgetStrictHost = {
+    mode: "strict", itemBudgetCents: 10,
+    reserve: (input) => {
+      reservations.push({ id: input.reservationId!, attempt: input.attempt ?? 0 });
+      rows.set(input.reservationId!, "reserved");
+      return { status: "reserved", reservedCostCents: 10 };
+    },
+    release: (input) => { rows.set(input.reservationId!, "released"); },
+    settle: (input) => { rows.set(input.reservationId!, "settled"); settlements.push(input.reservationId!); },
+    measureItemCost: () => ({ status: "known", costCents: 3 }),
+    reconcile: (input) => rows.get(input.reservationId) === "reserved"
+      ? { status: "reserved", reservedCostCents: 10 } : { status: "released" },
+  };
+  const plain = executor(calls, keys);
+  const first = await new PipelineRuntime({
+    definition: branchDefinition(), predicates, checkpointStore: store,
+    signal: controller.signal, loopIterationBudgetReservation: host,
+    nodeExecutor: (id, node, ctx) => id === "yes"
+      ? Promise.resolve({ nodeId: id, output: null, durationMs: 1, error: "temporary leaf failure" })
+      : plain(id, node, ctx),
+  }).execute({ items: [0] });
+  const cp = (await checkpoints(store, first.runId)).at(-1)!;
+  expect(cp.loopState?.items?.itemOutcomes?.["0"]?.outcome).toBe(kind);
+  expect(cp.loopState?.items?.itemFrames?.["0"]?.graph?.frame.nextNodeId).toBe("yes");
+  expect([...rows.values()]).toEqual(["released"]);
+  return { cp, host, rows, reservations, settlements, plain, calls, keys };
+}
+
 describe("one normal for_each branch through public runtime", () => {
+  it.each(["failed", "cancelled"] as const)("retries a proven released %s attempt without replaying selected progress", async (kind) => {
+    const run = await releasedBranchAttempt(kind);
+    run.calls.length = 0;
+    class RetryStore extends InMemoryPipelineCheckpointStore {
+      saved: PipelineCheckpoint[] = [];
+      override async save(cp: PipelineCheckpoint): Promise<void> {
+        this.saved.push(structuredClone(cp));
+        await super.save(cp);
+      }
+    }
+    const store = new RetryStore(), changedPredicate = vi.fn(() => false);
+    await store.save(run.cp);
+    const resumed = await new PipelineRuntime({ definition: branchDefinition(), predicates: { choose: changedPredicate },
+      checkpointStore: store, nodeExecutor: run.plain, loopIterationBudgetReservation: run.host }).resume(run.cp);
+    expect(resumed.state, resumed.error).toBe("completed");
+    expect(run.calls).toEqual(["yes:0", "after:0", "done:outer"]);
+    expect(changedPredicate).not.toHaveBeenCalled();
+    expect(run.reservations.map(({ attempt }) => attempt)).toEqual([0, 1]);
+    expect(new Set(run.reservations.map(({ id }) => id)).size).toBe(2);
+    expect(run.settlements).toEqual([run.reservations[1]!.id]);
+    expect([...run.rows.values()]).toEqual(["released", "settled"]);
+    const transition = store.saved.find((cp) =>
+      cp.loopState?.items?.itemFrames?.["0"]?.attempt === 1 &&
+      cp.loopState.items.itemFrames["0"].graph?.frame.nextNodeId === "yes");
+    expect(transition).toBeDefined();
+    expect(transition?.loopState?.items?.itemOutcomes?.["0"]).toBeUndefined();
+    // A crash immediately after the new reservation checkpoint continues that
+    // same attempt and original branch, with no third reservation.
+    run.rows.set(run.reservations[1]!.id, "reserved");
+    run.calls.length = 0;
+    const retry = await new PipelineRuntime({ definition: branchDefinition(), predicates: { choose: changedPredicate },
+      checkpointStore: new InMemoryPipelineCheckpointStore(), nodeExecutor: run.plain, loopIterationBudgetReservation: run.host }).resume(transition!);
+    expect(retry.state, retry.error).toBe("completed");
+    expect(run.reservations).toHaveLength(2);
+    expect(run.calls).toEqual(["yes:0", "after:0", "done:outer"]);
+  });
+  it.each(["unknown", "conflict", "settled", "absent"] as const)("blocks released-attempt retry when current authority is %s", async (status) => {
+    const run = await releasedBranchAttempt("failed");
+    run.calls.length = 0;
+    const reconcile: LoopBudgetStrictHost["reconcile"] = () => status === "settled"
+      ? { status, cost: { status: "known", costCents: 3 } }
+      : status === "conflict" ? { status, heldBy: "another-writer" } : { status };
+    const result = await new PipelineRuntime({ definition: branchDefinition(), predicates,
+      checkpointStore: new InMemoryPipelineCheckpointStore(), nodeExecutor: run.plain,
+      loopIterationBudgetReservation: { ...run.host, reconcile } }).resume(run.cp);
+    expect(result.state).toBe("failed");
+    expect(run.calls).toEqual([]);
+    expect(run.reservations).toHaveLength(1);
+    expect(run.settlements).toEqual([]);
+  });
+  it("fences retry effects when the new attempt checkpoint loses CAS", async () => {
+    const run = await releasedBranchAttempt("failed");
+    run.calls.length = 0;
+    class RetryConflictStore extends InMemoryPipelineCheckpointStore {
+      refused = false;
+      override async saveIfVersion(cp: PipelineCheckpoint, expected: number): Promise<PipelineCheckpointCommitReceipt> {
+        if (cp.loopState?.items?.itemFrames?.["0"]?.attempt === 1) {
+          this.refused = true;
+          return { committed: false, observedVersion: 999 };
+        }
+        return super.saveIfVersion(cp, expected);
+      }
+    }
+    const store = new RetryConflictStore();
+    await store.save(run.cp);
+    const result = await new PipelineRuntime({ definition: branchDefinition(), predicates,
+      checkpointStore: store, nodeExecutor: run.plain, loopIterationBudgetReservation: run.host }).resume(run.cp);
+    expect(store.refused).toBe(true);
+    expect(result.state).toBe("failed");
+    expect(run.calls).toEqual([]);
+    expect(run.settlements).toEqual([]);
+    expect([...run.rows.values()]).toEqual(["released", "reserved"]);
+  });
+
   it.each(["cas", "throw"])("fences concurrent siblings and drains them after a %s checkpoint failure", async (failure) => {
     let park = (): void => {}, release = (): void => {}, lose = (): void => {};
     const parked = new Promise<void>((resolve) => { park = resolve; });

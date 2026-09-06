@@ -935,6 +935,7 @@ export async function executeForEachLoop(
     }
 
     let resumedGraphHold: HeldItemReservation | undefined;
+    let retryReleasedGraph = false;
     if (itemResume?.graph !== undefined && itemResume.economics !== undefined) {
       const economics = itemResume.economics;
       const retained: HeldItemReservation = {
@@ -944,14 +945,21 @@ export async function executeForEachLoop(
       const reconciliation = await reconcileUnknownReservation(
         index, resumedAttempt, "resume of a durable selected item graph", "reserve", retained,
       );
-      if (reconciliation.status !== "reserved" ||
-          reconciliation.reservedCostCents !== economics.reservedCostCents ||
-          reconciliation.evidence !== undefined) {
-        throw new Error(`Loop "${loopNode.id}" item ${index} cannot resume its selected graph: original reservation is not an unchanged authoritative hold`);
+      retryReleasedGraph = reconciliation.status === "released" &&
+        (priorOutcome?.outcome === "failed" || priorOutcome?.outcome === "cancelled") &&
+        priorOutcome.economics !== undefined &&
+        priorOutcome.economics.settledCostCents === undefined &&
+        economics.settledCostCents === undefined;
+      if (!retryReleasedGraph) {
+        if (reconciliation.status !== "reserved" ||
+            reconciliation.reservedCostCents !== economics.reservedCostCents ||
+            reconciliation.evidence !== undefined) {
+          throw new Error(`Loop "${loopNode.id}" item ${index} cannot resume its selected graph: original reservation is not an unchanged authoritative hold or a proven released retryable attempt`);
+        }
+        // Continuing a checkpointed branch is the same attempt. Re-reserving
+        // under a new identity leaks the old hold and changes effect identities.
+        resumedGraphHold = retained;
       }
-      // Continuing a checkpointed branch is the same attempt. Re-reserving
-      // under a new identity leaks the old hold and changes effect identities.
-      resumedGraphHold = retained;
     }
     const attempt = resumedGraphHold !== undefined || itemResume?.economics === undefined
       ? resumedAttempt : resumedAttempt + 1;
@@ -1125,6 +1133,18 @@ export async function executeForEachLoop(
       firstError ??= { nodeId: loopNode.id, output: null, durationMs: Date.now() - startTime,
         error: "Conditional items require V2 selected/skipped-leaf economics; V1 exact evidence was returned by the reservation host" };
     } else if (loopNode.bodyGraph !== undefined) {
+      if (retryReleasedGraph && held !== undefined) {
+        // Publish the fresh reservation and retire the old terminal outcome
+        // together before retry effects. If reserve's acknowledgement or this
+        // checkpoint is lost, the same next-attempt identity is reconciled or
+        // replayed; no completed node or recorded branch needs to run again.
+        await resume!.onItemBodyNodeComplete!({
+          itemIndex: index, nextBodyNodeIndex: itemResume!.nextBodyNodeIndex,
+          bodyResults: retainedBodyResults, graph: itemResume!.graph!,
+          attempt, outcome: "running", mandatory: true,
+          economics: { reservationId: held.reservationId, reservedCostCents: held.reservedCostCents },
+        });
+      }
       const graphResult = await resume!.scheduleBodyGraph!({
         iteration,
         context: {

@@ -531,6 +531,18 @@ export async function dispatchLoopStage(
     },
     onItemBodyNodeComplete: async (progress) => {
       const previousBoundary = frame.loopState[loopNode.id];
+      let itemOutcomes = previousBoundary?.itemOutcomes;
+      const priorOutcome = itemOutcomes?.[String(progress.itemIndex)];
+      if (loopNode.bodyGraph !== undefined && progress.outcome === "running" &&
+          (progress.attempt ?? 0) > (priorOutcome?.attempt ?? 0) &&
+          (priorOutcome?.outcome === "failed" || priorOutcome?.outcome === "cancelled") &&
+          priorOutcome.economics?.settledCostCents === undefined) {
+        // The graph retry has authoritatively reconciled the released attempt.
+        // Replace its outcome atomically with the newly reserved graph frame;
+        // retaining both would make a crash restore contradictory economics.
+        itemOutcomes = { ...itemOutcomes };
+        delete itemOutcomes[String(progress.itemIndex)];
+      }
       frame.loopState[loopNode.id] = {
         // The ordered-prefix cursor does NOT advance mid-item: `iteration`
         // still counts fully-completed items. Only the frame moves.
@@ -580,9 +592,7 @@ export async function dispatchLoopStage(
         // set has to be carried across explicitly. Omitting it would silently
         // erase every recorded outcome at the next mid-body checkpoint — the
         // same class of bug G1 fixed for `itemFrames`.
-        ...(previousBoundary?.itemOutcomes === undefined
-          ? {}
-          : { itemOutcomes: previousBoundary.itemOutcomes }),
+        ...(itemOutcomes === undefined ? {} : { itemOutcomes }),
         ...(previousBoundary?.previousOutput !== undefined
           ? { previousOutput: previousBoundary.previousOutput }
           : {}),
