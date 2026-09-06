@@ -535,7 +535,7 @@ export async function dispatchLoopStage(
       const priorOutcome = itemOutcomes?.[String(progress.itemIndex)];
       if (loopNode.bodyGraph !== undefined && progress.outcome === "running" &&
           (progress.attempt ?? 0) > (priorOutcome?.attempt ?? 0) &&
-          (priorOutcome?.outcome === "failed" || priorOutcome?.outcome === "cancelled") &&
+          (priorOutcome?.outcome === "failed" || priorOutcome?.outcome === "cancelled" || priorOutcome?.outcome === "denied") &&
           priorOutcome.economics?.settledCostCents === undefined) {
         // The graph retry has authoritatively reconciled the released attempt.
         // Replace its outcome atomically with the newly reserved graph frame;
@@ -628,7 +628,22 @@ export async function dispatchLoopStage(
      */
     onItemTerminalOutcome: async (outcome) => {
       const previousBoundary = frame.loopState[loopNode.id];
-      const liveItemFrames = readItemFrames(previousBoundary);
+      let liveItemFrames = readItemFrames(previousBoundary);
+      const priorFrame = liveItemFrames?.[String(outcome.itemIndex)];
+      if (loopNode.bodyGraph !== undefined && priorFrame?.graph !== undefined &&
+          outcome.economics !== undefined &&
+          (outcome.attempt ?? 0) > (priorFrame.attempt ?? 0)) {
+        // A retry reservation can fail before body progress is published.
+        // Retain its terminal economics and the unchanged selected cursor in
+        // one checkpoint, including denied and outcome-unknown boundaries.
+        liveItemFrames = {
+          ...liveItemFrames,
+          [String(outcome.itemIndex)]: {
+            ...priorFrame, attempt: outcome.attempt!,
+            economics: outcome.economics, outcome: outcome.outcome,
+          },
+        };
+      }
       frame.loopState[loopNode.id] = {
         // A terminal outcome is not an item-boundary advance — the ordered
         // prefix is owned by `onIterationComplete` alone. Recording an outcome

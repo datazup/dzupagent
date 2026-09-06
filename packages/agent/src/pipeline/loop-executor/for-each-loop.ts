@@ -946,7 +946,7 @@ export async function executeForEachLoop(
         index, resumedAttempt, "resume of a durable selected item graph", "reserve", retained,
       );
       retryReleasedGraph = reconciliation.status === "released" &&
-        (priorOutcome?.outcome === "failed" || priorOutcome?.outcome === "cancelled") &&
+        (priorOutcome?.outcome === "failed" || priorOutcome?.outcome === "cancelled" || priorOutcome?.outcome === "denied") &&
         priorOutcome.economics !== undefined &&
         priorOutcome.economics.settledCostCents === undefined &&
         economics.settledCostCents === undefined;

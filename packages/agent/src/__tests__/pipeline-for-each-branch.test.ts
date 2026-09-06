@@ -108,6 +108,43 @@ describe("one normal for_each branch through public runtime", () => {
     expect(run.reservations).toHaveLength(2);
     expect(run.calls).toEqual(["yes:0", "after:0", "done:outer"]);
   });
+  it.each(["acknowledgement-lost", "over-ceiling"] as const)("retains coherent retry economics after %s reserve denial", async (failure) => {
+    const run = await releasedBranchAttempt("failed");
+    const reserve = run.host.reserve;
+    run.host.reserve = async (input) => {
+      const result = await reserve(input);
+      if (failure === "acknowledgement-lost") throw new Error("reserve acknowledgement lost");
+      return result.status === "reserved" ? { ...result, reservedCostCents: 20 } : result;
+    };
+    const store = new InMemoryPipelineCheckpointStore();
+    await store.save(run.cp);
+    const failed = await new PipelineRuntime({ definition: branchDefinition(), predicates,
+      checkpointStore: store, nodeExecutor: run.plain, loopIterationBudgetReservation: run.host }).resume(run.cp);
+    expect(failed.state).toBe("failed");
+    const denied = (await store.load(failed.runId))!;
+    const frame = denied.loopState!.items!.itemFrames!["0"]!;
+    const outcome = denied.loopState!.items!.itemOutcomes!["0"]!;
+    expect(outcome.outcome).toBe("denied");
+    expect(frame.attempt).toBe(1);
+    expect(frame.economics).toEqual(outcome.economics);
+    expect([...run.rows.values()]).toEqual(["released", "released"]);
+    run.host.reserve = reserve;
+    run.calls.length = 0;
+    const resumed = await new PipelineRuntime({ definition: branchDefinition(), predicates: { choose: () => false },
+      checkpointStore: store, nodeExecutor: run.plain, loopIterationBudgetReservation: run.host }).resume(denied);
+    if (failure === "over-ceiling") {
+      // Preserve the existing fail-closed ceiling validation even after release.
+      expect(resumed.state).toBe("failed");
+      expect(resumed.error).toMatch(/invalid reserved cost/);
+      expect(run.calls).toEqual([]);
+      expect(run.reservations).toHaveLength(2);
+      return;
+    }
+    expect(resumed.state, resumed.error).toBe("completed");
+    expect(run.reservations.map(({ attempt }) => attempt)).toEqual([0, 1, 2]);
+    expect(run.calls).toEqual(["yes:0", "after:0", "done:outer"]);
+    expect([...run.rows.values()]).toEqual(["released", "released", "settled"]);
+  });
   it.each(["unknown", "conflict", "settled", "absent"] as const)("blocks released-attempt retry when current authority is %s", async (status) => {
     const run = await releasedBranchAttempt("failed");
     run.calls.length = 0;
