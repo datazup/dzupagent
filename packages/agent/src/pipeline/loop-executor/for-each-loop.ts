@@ -1128,7 +1128,8 @@ export async function executeForEachLoop(
       await recordTerminalOutcome(
         index,
         "denied",
-        held.retainEvidence === false ? undefined : deniedHeld
+        held.retainEvidence === false ? undefined : deniedHeld,
+        undefined, retryReleasedGraph ? attempt : undefined
       );
       iterationDurations[index] = Date.now() - iterStart;
       return;
