@@ -444,19 +444,29 @@ describe('BaseCliAdapter.execute() — path-level tests', () => {
       const adapter = new TestCliAdapter()
       let interactionId = ''
       let answer: string | null | undefined
-      adapter.onGovernanceEvent((event) => {
-        if (event.type === 'governance:approval_requested') interactionId = event.interactionId
-      })
       mockSpawnAndStreamJsonl.mockImplementation(async function* (_binary, _args, opts) {
-        answer = await opts?.stdinResponder?.({}, 'Allow write access?', 'permission')
+        const request = { type: 'permission_request', message: 'Allow write access?' }
+        // The real JSONL transport starts the responder before yielding its record.
+        const pending = opts?.stdinResponder?.(request, request.message, 'permission')
+        yield request
+        answer = await pending
         yield { type: 'completed', result: 'done' }
       })
-      const execution = collectEvents(adapter.execute({ prompt: 'inspect' }))
+      const events: AgentEvent[] = []
+      const responses: boolean[] = []
+      const execution = (async () => {
+        for await (const event of adapter.execute({ prompt: 'inspect' })) {
+          events.push(event)
+          if (event.type === 'adapter:interaction_required') {
+            interactionId = event.interactionId
+            expect(answer).toBeUndefined()
+            responses.push(adapter.respondInteraction(interactionId, 'no'))
+          }
+        }
+      })()
       try {
-        await vi.waitFor(() => expect(interactionId).not.toBe(''))
-        expect(answer).toBeUndefined()
-        expect(adapter.respondInteraction(interactionId, 'no')).toBe(true)
-        const events = await execution
+        await vi.waitFor(() => expect(responses).toEqual([true]))
+        await execution
         expect(answer).toBe('no')
         expect(events).toContainEqual(expect.objectContaining({
           type: 'adapter:interaction_required', kind: 'permission', interactionId,

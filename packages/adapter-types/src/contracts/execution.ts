@@ -300,7 +300,7 @@ export interface AdapterConfig {
   envFilter?: EnvFilterConfig | undefined;
   /** Additional provider-specific options */
   providerOptions?: Record<string, unknown> | undefined;
-  /** Mid-execution interaction handling policy. Default behavior: auto-approve. */
+  /** Mid-execution interaction handling policy. Default: ask-caller; timeout/disposal deny. */
   interactionPolicy?: InteractionPolicy | undefined;
   /**
    * Codex-only: skip the git-repo safety check when starting a thread.

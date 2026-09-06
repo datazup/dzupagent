@@ -84,6 +84,38 @@ describe("CodexAdapter — deep coverage", () => {
   describe("interaction policy compatibility", () => {
     afterEach(() => vi.useRealTimers());
 
+    it.each(["turn.failed", "approval_request"])("accepts an immediate caller denial from an implicit %s interaction", async (source) => {
+      vi.useFakeTimers();
+      mockStartThread.mockReturnValue(createMockThread([
+        threadStarted(),
+        source === "turn.failed"
+          ? { type: "turn.failed", error: { message: "Approval required to execute command" } }
+          : { type: "item.completed", item: { type: "approval_request", id: "approval-1", message: "Allow write access?", kind: "permission" } },
+        turnCompleted(),
+      ]));
+      const responses: boolean[] = [];
+      const events: AgentEvent[] = [];
+      const execution = (async () => {
+        for await (const event of adapter.execute(makeInput())) {
+          events.push(event);
+          if (event.type === "adapter:interaction_required") {
+            responses.push(adapter.respondInteraction(event.interactionId, "no"));
+          }
+        }
+      })();
+      try {
+        await vi.waitFor(() => expect(responses).toHaveLength(1));
+        expect(responses).toEqual([true]);
+        await execution;
+        expect(events).toContainEqual(expect.objectContaining({ type: "adapter:interaction_resolved", answer: "no", resolvedBy: "caller" }));
+        expect(mockResumeThread).not.toHaveBeenCalled();
+      } finally {
+        await vi.advanceTimersByTimeAsync(60_000);
+        adapter.interrupt();
+        await execution;
+      }
+    });
+
     it.each([
       { name: "implicit", config: {}, options: {}, approval: "on-failure" },
       { name: "configured auto-approve", config: { interactionPolicy: { mode: "auto-approve" as const } }, options: {}, approval: "never" },

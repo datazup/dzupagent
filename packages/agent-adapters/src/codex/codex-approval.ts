@@ -63,6 +63,13 @@ export async function* handleApprovalRequest(
   const interactionId = randomUUID()
   const ts = now()
 
+  // Register before publishing so callers can respond while consuming the event.
+  const resolution = ctx.resolver.resolve({
+    interactionId,
+    question: item.message,
+    kind: item.kind,
+  })
+
   if (ctx.policy.mode === 'ask-caller') {
     yield annotateProviderIdentity(
       withCorrelationId(
@@ -81,11 +88,7 @@ export async function* handleApprovalRequest(
     )
   }
 
-  const result = await ctx.resolver.resolve({
-    interactionId,
-    question: item.message,
-    kind: item.kind,
-  })
+  const result = await resolution
 
   yield annotateProviderIdentity(
     withCorrelationId(
@@ -126,6 +129,13 @@ export async function* handleTurnFailedApproval(
   const interactionId = randomUUID()
   const ts = now()
 
+  // Register before publishing so callers can respond while consuming the event.
+  const resolution = ctx.resolver.resolve({
+    interactionId,
+    question: errMsg,
+    kind: 'permission',
+  })
+
   if (ctx.policy.mode === 'ask-caller') {
     yield annotateProviderIdentity(
       withCorrelationId(
@@ -144,11 +154,7 @@ export async function* handleTurnFailedApproval(
     )
   }
 
-  const result = await ctx.resolver.resolve({
-    interactionId,
-    question: errMsg,
-    kind: 'permission',
-  })
+  const result = await resolution
 
   yield annotateProviderIdentity(
     withCorrelationId(
