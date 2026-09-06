@@ -158,10 +158,56 @@ describe('InteractionResolver — auto-approve mode', () => {
     expect(result).toEqual({ answer: 'yes', resolvedBy: 'auto-approve' })
   })
 
-  it('uses auto-approve as default policy', async () => {
+})
+
+describe('InteractionResolver — implicit ask-caller policy', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('keeps a permission request pending until the caller answers', async () => {
     const resolver = new InteractionResolver()
-    const result = await resolver.resolve(makeReq())
-    expect(result).toEqual({ answer: 'yes', resolvedBy: 'auto-approve' })
+    const settled = vi.fn()
+    const pending = resolver.resolve(makeReq()).then(settled)
+    try {
+      await Promise.resolve()
+      expect(settled).not.toHaveBeenCalled()
+      expect(resolver.respond('i-1', 'yes')).toBe(true)
+      await pending
+      expect(settled).toHaveBeenCalledWith({ answer: 'yes', resolvedBy: 'caller' })
+      expect(resolver.respond('i-1', 'yes')).toBe(false)
+    } finally {
+      resolver.dispose()
+      await pending
+    }
+  })
+
+  it('denies an unanswered permission at the default timeout', async () => {
+    vi.useFakeTimers()
+    const resolver = new InteractionResolver()
+    const settled = vi.fn()
+    const pending = resolver.resolve(makeReq()).then(settled)
+    try {
+      await vi.advanceTimersByTimeAsync(59_999)
+      expect(settled).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
+      await pending
+      expect(settled).toHaveBeenCalledWith({ answer: 'no', resolvedBy: 'timeout-fallback' })
+      expect(resolver.respond('i-1', 'yes')).toBe(false)
+    } finally {
+      resolver.dispose()
+      await pending
+    }
+  })
+
+  it('denies every pending request on disposal without leaving timers', async () => {
+    vi.useFakeTimers()
+    const resolver = new InteractionResolver()
+    const pending = [resolver.resolve(makeReq()), resolver.resolve(makeReq({ interactionId: 'i-2' }))]
+    resolver.dispose()
+    expect(await Promise.all(pending)).toEqual([
+      { answer: 'no', resolvedBy: 'timeout-fallback' },
+      { answer: 'no', resolvedBy: 'timeout-fallback' },
+    ])
+    expect(vi.getTimerCount()).toBe(0)
   })
 })
 

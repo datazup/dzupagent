@@ -11,7 +11,7 @@
  *   - Caller-supplied config overrides preservation
  *   - Cached usage propagation
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { collectEvents } from "./test-helpers.js";
 import type { AgentEvent, AgentInput } from "../types.js";
 
@@ -80,6 +80,49 @@ describe("CodexAdapter — deep coverage", () => {
   });
 
   // ── Thread lifecycle ──────────────────────────────────
+
+  describe("interaction policy compatibility", () => {
+    afterEach(() => vi.useRealTimers());
+
+    it.each([
+      { name: "implicit", config: {}, options: {}, approval: "on-failure" },
+      { name: "configured auto-approve", config: { interactionPolicy: { mode: "auto-approve" as const } }, options: {}, approval: "never" },
+      { name: "per-call auto-approve", config: { interactionPolicy: { mode: "ask-caller" as const } }, options: { interactionPolicy: { mode: "auto-approve" } }, approval: "never" },
+      { name: "per-call ask-caller", config: { interactionPolicy: { mode: "auto-approve" as const } }, options: { interactionPolicy: { mode: "ask-caller" } }, approval: "on-failure" },
+    ])("projects $name policy into the native thread options", async ({ config, options, approval }) => {
+      adapter.configure(config);
+      mockStartThread.mockReturnValue(createMockThread([threadStarted(), turnCompleted()]));
+      await collectEvents(adapter.execute(makeInput({ options })));
+      expect(mockStartThread).toHaveBeenCalledWith(expect.objectContaining({ approvalPolicy: approval }));
+    });
+
+    it("surfaces an implicit approval and denies its timeout without resuming", async () => {
+      vi.useFakeTimers();
+      mockStartThread.mockReturnValue(createMockThread([
+        threadStarted(),
+        { type: "turn.failed", error: { message: "Approval required to execute command" } },
+      ]));
+      const events: AgentEvent[] = [];
+      const execution = (async () => {
+        for await (const event of adapter.execute(makeInput())) events.push(event);
+      })();
+      try {
+        await vi.advanceTimersByTimeAsync(0);
+        expect(events).toContainEqual(expect.objectContaining({ type: "adapter:interaction_required", kind: "permission" }));
+        expect(events.some(event => event.type === "adapter:interaction_resolved")).toBe(false);
+        expect(mockResumeThread).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(60_000);
+        await execution;
+        expect(events).toContainEqual(expect.objectContaining({ type: "adapter:interaction_resolved", answer: "no", resolvedBy: "timeout-fallback" }));
+        expect(events).toContainEqual(expect.objectContaining({ type: "adapter:failed" }));
+        expect(mockResumeThread).not.toHaveBeenCalled();
+      } finally {
+        await vi.advanceTimersByTimeAsync(60_000);
+        adapter.interrupt();
+        await execution;
+      }
+    });
+  });
 
   describe("thread lifecycle", () => {
     it("creates a new thread via startThread on execute", async () => {

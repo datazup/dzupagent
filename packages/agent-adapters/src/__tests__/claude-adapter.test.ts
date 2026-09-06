@@ -37,6 +37,28 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 const { ClaudeAgentAdapter } = await import('../claude/claude-adapter.js')
 const { buildQueryOptions } = await import('../claude/claude-query-builder.js')
 
+describe('Claude interaction policy compatibility', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it.each([
+    { name: 'implicit', config: {}, options: {}, bypass: false },
+    { name: 'configured auto-approve', config: { interactionPolicy: { mode: 'auto-approve' as const } }, options: {}, bypass: true },
+    { name: 'per-call auto-approve', config: { interactionPolicy: { mode: 'ask-caller' as const } }, options: { interactionPolicy: { mode: 'auto-approve' } }, bypass: true },
+    { name: 'per-call ask-caller', config: { interactionPolicy: { mode: 'auto-approve' as const } }, options: { interactionPolicy: { mode: 'ask-caller' } }, bypass: false },
+  ])('preserves the $name permission projection and interaction surface', async ({ config, options, bypass }) => {
+    const adapter = new ClaudeAgentAdapter(config)
+    mockQuery.mockReturnValue(asyncIterableOf([
+      makeSystemMessage(),
+      makeToolProgressStarted('AskUserQuestion', { question: 'Allow write access?' }),
+      makeResultSuccess(),
+    ]))
+    const events = await collectEvents(adapter.execute({ prompt: 'inspect', options }))
+    expect(mockQuery.mock.calls[0]![0].options.permissionMode === 'bypassPermissions').toBe(bypass)
+    expect(events.some(event => event.type === 'adapter:interaction_required')).toBe(!bypass)
+    expect(events.some(event => event.type === 'adapter:interaction_resolved')).toBe(false)
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
