@@ -49,7 +49,7 @@ describe('Claude interaction policy compatibility', () => {
     const adapter = new ClaudeAgentAdapter(config)
     mockQuery.mockReturnValue(asyncIterableOf([
       makeSystemMessage(),
-      makeToolProgressStarted('AskUserQuestion', { question: 'Allow write access?' }),
+      makeToolProgressStarted('request_permission', { question: 'Allow write access?' }),
       makeResultSuccess(),
     ]))
     const events = await collectEvents(adapter.execute({ prompt: 'inspect', options }))

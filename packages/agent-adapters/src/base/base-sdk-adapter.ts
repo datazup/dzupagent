@@ -127,7 +127,7 @@ export abstract class BaseSdkAdapter<TSdk = unknown>
   /**
    * Resolve the effective {@link InteractionPolicy} for a given execution
    * input. The lookup order is per-call options → adapter config → default
-   * (`auto-approve`). Identical across SDK adapters.
+   * (`ask-caller`). Automatic approval requires an explicit policy.
    */
   protected resolveInteractionPolicy(input: AgentInput): InteractionPolicy {
     const perCall = input.options?.['interactionPolicy']
@@ -138,7 +138,7 @@ export abstract class BaseSdkAdapter<TSdk = unknown>
     ) {
       return perCall as InteractionPolicy
     }
-    return this.config.interactionPolicy ?? { mode: 'auto-approve' }
+    return this.config.interactionPolicy ?? { mode: 'ask-caller' }
   }
 
   /**

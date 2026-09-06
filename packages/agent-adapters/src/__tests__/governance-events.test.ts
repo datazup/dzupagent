@@ -240,7 +240,7 @@ describe('BaseCliAdapter.emitGovernanceEvent + interaction wiring', () => {
 
   it('auto-approve policy with interaction still emits governance approval events', async () => {
     const adapter = new TestCliAdapter('gemini')
-    // auto-approve is the default and does NOT attach a resolver, so no
+    // Explicit auto-approve does NOT attach a resolver, so no
     // governance events fire — verify that contract explicitly.
     adapter.configure({ interactionPolicy: { mode: 'auto-approve' } })
 

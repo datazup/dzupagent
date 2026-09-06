@@ -447,7 +447,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
     ) {
       return perCall as InteractionPolicy;
     }
-    return this.config.interactionPolicy ?? { mode: "auto-approve" };
+    return this.config.interactionPolicy ?? { mode: "ask-caller" };
   }
 
   protected abstract getBinaryName(): string;

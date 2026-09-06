@@ -639,8 +639,8 @@ describe("CodexAdapter — deep coverage", () => {
     });
 
     it("accepts approvalPolicy and passes it to the SDK", async () => {
-      // With no policy configured the adapter derives "never" from the
-      // auto-approve interaction default, so "on-request" is the discriminating
+      // With no policy configured the adapter derives "on-failure" from the
+      // ask-caller interaction default, so "on-request" is the discriminating
       // value here.
       const a = new CodexAdapter({ approvalPolicy: "on-request" });
       mockStartThread.mockReturnValue(
