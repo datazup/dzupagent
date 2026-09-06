@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
-import type { PipelineCheckpoint } from "@dzupagent/core/pipeline";
+import type { PipelineCheckpoint, PipelineCheckpointCommitReceipt } from "@dzupagent/core/pipeline";
 import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
 import { InMemoryPipelineCheckpointStore } from "../pipeline/in-memory-checkpoint-store.js";
 import { validatePipeline } from "../pipeline/pipeline-validator.js";
@@ -30,6 +30,35 @@ async function checkpoints(store: InMemoryPipelineCheckpointStore, runId: string
 }
 
 describe("one normal for_each branch through public runtime", () => {
+  it.each(["selection", "leaf", "parent"])("stops dispatch after a lost %s checkpoint commit", async (cut) => {
+    class ConflictStore extends InMemoryPipelineCheckpointStore {
+      refused = false;
+      writesAfterRefusal = 0;
+      override async saveIfVersion(cp: PipelineCheckpoint, expectedVersion: number): Promise<PipelineCheckpointCommitReceipt> {
+        if (this.refused) this.writesAfterRefusal++;
+        const graph = cp.loopState?.items?.itemFrames?.["0"]?.graph?.frame;
+        const selected = cut === "selection" && graph?.nextNodeId === "yes";
+        const leaf = cut === "leaf" && graph?.nextNodeId === "after";
+        const parent = cut === "parent" && cp.completedNodeIds.includes("items");
+        if (!this.refused && (selected || leaf || parent)) {
+          this.refused = true;
+          return { committed: false, observedVersion: 999 };
+        }
+        return super.saveIfVersion(cp, expectedVersion);
+      }
+    }
+    const store = new ConflictStore(), calls: string[] = [];
+    const result = await new PipelineRuntime({
+      definition: branchDefinition(), predicates,
+      nodeExecutor: executor(calls, []), checkpointStore: store,
+    }).execute({ items: [0] });
+    expect(store.refused).toBe(true);
+    expect(result).toMatchObject({ state: "failed", error: expect.stringMatching(/commit|conflict/i) });
+    expect(calls).not.toContain("done:outer");
+    if (cut === "selection") expect(calls).not.toContain("yes:0");
+    if (cut !== "parent") expect(calls).not.toContain("after:0");
+    expect(store.writesAfterRefusal).toBe(0);
+  });
   it.each([1, 3])("selects one arm and preserves item state and ordering at concurrency %s", async (concurrency) => {
     const calls: string[] = [], keys: string[] = [];
     const store = new InMemoryPipelineCheckpointStore();
@@ -49,6 +78,63 @@ describe("one normal for_each branch through public runtime", () => {
       expect(calls.some((value) => value.startsWith("yes:"))).toBe(false);
       expect(result.nodeResults.get("done")?.output).toEqual(items.map((item) => `after:item-${item}`));
     }
+  });
+  it("restores mutated object state and attachAs from a completed graph body", async () => {
+    const definition = branchDefinition();
+    const loop = definition.nodes[0]!;
+    if (loop.type !== "loop" || !loop.forEach) throw new Error("fixture must have for_each");
+    loop.forEach = { ...loop.forEach, attachAs: "processed" };
+    const nodeExecutor: NodeExecutor = async (id, _node, ctx) => {
+      if (id === "done") return { nodeId: id, output: { answers: ctx.state.answers, items: ctx.state.items }, durationMs: 1 };
+      const item = ctx.state.item as { id: number; changed?: boolean };
+      if (id === "yes") item.changed = true;
+      return { nodeId: id, output: { ...item }, durationMs: 1 };
+    };
+    const store = new InMemoryPipelineCheckpointStore();
+    const config = { definition, nodeExecutor, predicates: { choose: () => true } };
+    const first = await new PipelineRuntime({ ...config, checkpointStore: store }).execute({ items: [{ id: 1 }] });
+    expect(first.state, first.error).toBe("completed");
+    const expected = {
+      answers: [{ id: 1, changed: true }],
+      items: [{ id: 1, processed: { id: 1, changed: true } }],
+    };
+    expect(first.nodeResults.get("done")?.output).toEqual(expected);
+    const cp = (await checkpoints(store, first.runId)).find((saved) =>
+      saved.loopState?.items?.itemFrames?.["0"]?.graph?.frame.completed);
+    expect(cp).toBeDefined();
+    const resumed = await new PipelineRuntime({ ...config, checkpointStore: new InMemoryPipelineCheckpointStore() }).resume(cp!);
+    expect(resumed.state, resumed.error).toBe("completed");
+    expect(resumed.nodeResults.get("items")?.output).toEqual(first.nodeResults.get("items")?.output);
+    expect(resumed.nodeResults.get("done")?.output).toEqual(expected);
+  });
+  it("halts an in-flight selected graph when a sibling reservation is denied", async () => {
+    let start = (): void => {}, deny = (): void => {};
+    const started = new Promise<void>((resolve) => { start = resolve; });
+    const denied = new Promise<void>((resolve) => { deny = resolve; });
+    const calls: string[] = [], released: number[] = [], settled: number[] = [];
+    const plain = executor(calls, []);
+    const result = await new PipelineRuntime({
+      definition: branchDefinition(2), predicates, checkpointStore: new InMemoryPipelineCheckpointStore(),
+      nodeExecutor: async (id, node, ctx) => {
+        if (id === "before") { start(); await denied; }
+        return plain(id, node, ctx);
+      },
+      loopIterationBudgetReservation: {
+        mode: "strict", itemBudgetCents: 10,
+        reserve: async (input) => {
+          if (input.itemIndex === 1) { await started; deny(); return { status: "unknown" }; }
+          return { status: "reserved", reservedCostCents: 10 };
+        },
+        settle: (input) => { settled.push(input.itemIndex!); },
+        release: (input) => { released.push(input.itemIndex!); },
+        reconcile: () => ({ status: "unknown" }),
+        measureItemCost: () => ({ status: "known", costCents: 1 }),
+      },
+    }).execute({ items: [0, 1] });
+    expect(result.state).toBe("failed");
+    expect(calls).toEqual(["before:0"]);
+    expect(settled).toEqual([]);
+    expect(released).toEqual([0]);
   });
   it("resumes selected branch and completed body from real serialized checkpoints without repeating work", async () => {
     const store = new InMemoryPipelineCheckpointStore();
@@ -165,7 +251,9 @@ describe("one normal for_each branch through public runtime", () => {
     expect(identities).not.toContain("no:0"); expect(identities).not.toContain("yes:1");
     const ledger = JSON.parse(readFileSync(join(directory, "ledger.json"), "utf8"));
     expect(ledger.charges).toEqual({ "0": 1, "1": 1 });
-    expect(Object.values(ledger.rows).filter((row: unknown) => (row as { state: string }).state === "settled")).toHaveLength(2);
+    const rows = Object.values(ledger.rows) as Array<{ state: string; cost: number }>;
+    expect(rows.filter((row) => row.state === "settled").map((row) => row.cost)).toEqual([3, 3]);
+    expect(rows.filter((row) => row.state === "reserved")).toEqual([]);
   });
 
 });

@@ -1,4 +1,6 @@
 import type { PipelineDefinition } from "@dzupagent/runtime-contracts/pipeline-artifact";
+import type { PipelineCheckpoint } from "@dzupagent/core/pipeline";
+import type { LoopBudgetStrictHost } from "../../pipeline/loop-executor.js";
 
 export function branchDefinition(concurrency = 1, emptyElse = false): PipelineDefinition {
   return {
@@ -42,10 +44,10 @@ async function runCrashWorker(directory: string, cut: string): Promise<void> {
   type Row = { state: "reserved" | "settled" | "released"; cost: number; itemIndex: number };
   const ledger: { rows: Record<string, Row>; charges: Record<string, number> } = existsSync(ledgerPath)
     ? JSON.parse(readFileSync(ledgerPath, "utf8")) : { rows: {}, charges: {} };
-  const retained: import("@dzupagent/core/pipeline").PipelineCheckpoint | undefined = existsSync(checkpointPath)
+  const retained: PipelineCheckpoint | undefined = existsSync(checkpointPath)
     ? JSON.parse(readFileSync(checkpointPath, "utf8")) : undefined;
   class Store extends InMemoryPipelineCheckpointStore {
-    override async save(cp: import("@dzupagent/core/pipeline").PipelineCheckpoint): Promise<void> {
+    override async save(cp: PipelineCheckpoint): Promise<void> {
       await super.save(cp); write(checkpointPath, cp);
       const item = cp.loopState?.items?.itemFrames?.["0"];
       const frame = item?.graph?.frame;
@@ -58,7 +60,7 @@ async function runCrashWorker(directory: string, cut: string): Promise<void> {
     async seed() { if (retained) await super.save(retained); }
   }
   const store = new Store(); await store.seed();
-  const host: import("../../pipeline/loop-executor.js").LoopBudgetStrictHost = {
+  const host: LoopBudgetStrictHost = {
     mode: "strict", itemBudgetCents: 10,
     reserve(input) {
       ledger.rows[input.reservationId!] = { state: "reserved", cost: 0, itemIndex: input.itemIndex! };

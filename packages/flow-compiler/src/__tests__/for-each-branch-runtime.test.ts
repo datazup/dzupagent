@@ -42,7 +42,9 @@ describe("authored for_each branch public runtime", () => {
     const parsed = parseDslToDocument(source);
     expect(parsed.ok, JSON.stringify(parsed)).toBe(true);
     if (!parsed.ok) throw new Error("fixture must parse");
-    expect(validateDocument(parsed.document).valid).toBe(true);
+    const validation = validateDocument(parsed.document);
+    expect(validation.diagnostics).toEqual([]);
+    expect(validation.valid).toBe(true);
     expect(checkOutputKeyUniqueness(parsed.document.root)).toEqual([]);
     const compiled = await createFlowCompiler({ toolResolver: { resolve: () => null, listAvailable: () => [] } }).compileDocument(parsed.document);
     expect("errors" in compiled ? compiled.errors : []).toEqual([]);

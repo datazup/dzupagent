@@ -592,6 +592,13 @@ export async function dispatchLoopStage(
           nodeId: loopNode.id, boundary: "loop_resume_cursor",
           save: () => ctx.saveControlCheckpoint(frame),
         });
+        if (lastWriteLostCommit(frame.versionTracker)) {
+          restoreLoopStateAfterLostCommit(frame.loopState, loopNode.id, previousBoundary);
+          throw new PipelineCheckpointCommitConflictError(loopNode.id, {
+            completedIterations: previousBoundary?.iteration ?? 0,
+            observedVersion: frame.versionTracker.version,
+          });
+        }
       } else {
         await ctx.saveCheckpoint(frame);
       }
@@ -842,6 +849,7 @@ export async function dispatchLoopStage(
   // run that recorded nothing. `iteration` is reset to 0 alongside it because a
   // finished loop has no cursor to resume from, and leaving the count would
   // read as mid-flight progress.
+  const finishedIterations = frame.loopState[loopNode.id]?.iteration ?? 0;
   const finishedOutcomes = frame.loopState[loopNode.id]?.itemOutcomes;
   if (finishedOutcomes === undefined) {
     delete frame.loopState[loopNode.id];
@@ -857,6 +865,13 @@ export async function dispatchLoopStage(
   await (loopNode.forEach !== undefined && loopNode.bodyGraph !== undefined
     ? ctx.saveControlCheckpoint(frame)
     : ctx.saveCheckpoint(frame));
+  if (loopNode.forEach !== undefined && loopNode.bodyGraph !== undefined &&
+      lastWriteLostCommit(frame.versionTracker)) {
+    throw new PipelineCheckpointCommitConflictError(loopNode.id, {
+      completedIterations: finishedIterations,
+      observedVersion: frame.versionTracker.version,
+    });
+  }
   return { kind: "continue", nextNodeId: ctx.next(loopNode.id, runState) };
 }
 

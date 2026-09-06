@@ -17,6 +17,7 @@ import type {
 } from "../pipeline-runtime-types.js";
 import type {
   LoopResumeOptions,
+  LoopBodyGraphCheckpointState,
 } from "./types.js";
 import { canonicalInputDigest } from "@dzupagent/runtime-contracts";
 import type { LoopEconomicsEvidenceV1 } from "@dzupagent/runtime-contracts/loop-economics-evidence";
@@ -1115,7 +1116,7 @@ export async function executeForEachLoop(
             removeEventListener: (type, listener) => context.signal?.removeEventListener?.(type, listener),
           },
         },
-        ...(itemResume?.graph === undefined ? {} : { resumeState: itemResume.graph.frame as import("./types.js").LoopBodyGraphCheckpointState }),
+        ...(itemResume?.graph === undefined ? {} : { resumeState: itemResume.graph.frame as LoopBodyGraphCheckpointState }),
         onCheckpoint: async (frame) => {
           const bodyResults = { ...frame.nodeResults };
           if (frame.completed) {
