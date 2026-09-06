@@ -107,8 +107,9 @@ describe("CodexAdapter — deep coverage", () => {
         for await (const event of adapter.execute(makeInput())) events.push(event);
       })();
       try {
-        await vi.advanceTimersByTimeAsync(0);
-        expect(events).toContainEqual(expect.objectContaining({ type: "adapter:interaction_required", kind: "permission" }));
+        await vi.waitFor(() => {
+          expect(events).toContainEqual(expect.objectContaining({ type: "adapter:interaction_required", kind: "permission" }));
+        });
         expect(events.some(event => event.type === "adapter:interaction_resolved")).toBe(false);
         expect(mockResumeThread).not.toHaveBeenCalled();
         await vi.advanceTimersByTimeAsync(60_000);
