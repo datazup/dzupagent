@@ -41,14 +41,14 @@
       "maxDeclarationMapBytes": 0,
       "declarationDebtPin": {
         "maxDeclarationFiles": 372,
-        "maxDeclarationBytes": 826891,
-        "declarationManifestSha256": "7a83322f85b1921945f0957a7ccb540d12ad6ce1fb8e3cdc950da059ce946cc0",
-        "declarationInputSha256": "99f49e0de7beb6c531efae699cb47d0fd2fb71493e4c103f9ce343fa6d7b7b95",
-        "sourceCommit": "c9dd6b0ace9790d3fe6962f62e5ee370a59c761a",
-        "reviewBy": "2026-09-30",
+        "maxDeclarationBytes": 827134,
+        "declarationManifestSha256": "7e6a0d7eb83310c67992f8df867e3e70b20275cc70df99f5ec2be6547bbf5adc",
+        "declarationInputSha256": "9f47259f08bb49a0e5c67ccbe3744bc0f0be48d4c1e469826ffba5d6217ae5a7",
+        "sourceCommit": "bbe5ce02864c8abbb11633838abb71517fcb5dbf",
+        "reviewBy": "2026-09-20",
         "approvedBy": "Ninel Hodzic",
-        "approvedOn": "2026-08-30",
-        "rationale": "Preserve the exact already-integrated Agent Adapters declaration output at current main while the lower 341-file and 746697-byte caps remain enforced."
+        "approvedOn": "2026-09-06",
+        "rationale": "ASC-CP-02 explicit user qualification continuation, admitted in Workspace Docs afb6639c3072df97e1af08a470d1a18fddf763d2 (ASC_CP02_QUALIFICATION_ADMISSION_2026-09-06.md), retains the existing operator identity without claiming a signed approval. Verified canonical dde0bb42 output is 372 files / 826891 bytes of baseline debt; accepted bbe5ce02 behavior measures exactly 372 / 827134 (+243 bytes: base-sdk-adapter comments +15, codex-approval typed InteractionResult and corrected native-response comments +134, codex-streamed-thread-approval typed InteractionResult +94). Preserve these necessary denial-enforcement contracts and accurate documentation. The normal 341-file / 746697-byte caps remain unchanged; this exact input/manifest pin has zero slack, review by 2026-09-20, 22 export subpaths / 22 tsup entries and unchanged root 128/642/1. No general growth, export expansion or qualification waiver is authorized."
       },
       "$r5jStructuredOutputAdapterAdmission": "Re-pinned 723467->724107 bytes on 2026-08-10 for R5J structured capability snapshots and deterministic native, JSON-text, fallback, parse, schema-validation, and bounded-attempt conformance in the existing provider-free integration adapter. Fresh production declarations measured exactly 333 files / 724107 bytes; Agent Adapters remains at 21 subpaths, 21 tsup entries, and root 124/610/1. The 640-byte increase has zero slack and is not a general growth license.",
       "$workspaceConsolidationCodexControlAdmission": "Re-pinned 333->341 files and 724107->746697 bytes on 2026-08-14 after lossless workspace consolidation admitted the Codex app-server adapter, admission, client, protocol, goal capability/control units, the codex-goal-control subpath, and executable artifact introspection. Fresh final-source declarations at 528c0c95 measured exactly 341 files / 746697 bytes; Agent Adapters has 22 subpaths and 22 tsup entries, with root 124/621/1. The eight-file, 22590-byte increase is source-bound to those consolidated provider-control and discovery contracts, has zero slack, and is not a general growth license.",
