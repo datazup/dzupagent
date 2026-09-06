@@ -62,7 +62,7 @@ export function renderCanonicalV2Yaml(
   document: Readonly<Record<string, unknown>>,
 ): string {
   // Emission is constrained to the dzupflow YAML subset (mini-yaml): block
-  // collections only, no block scalars (parseYamlSubset drops the trailing
+  // collections (empty policy inline), no block scalars (parseYamlSubset drops the trailing
   // newline of `|` and rejects `|-`), no single-quote escaping, and JSON-only
   // double-quote escapes so parseScalar's JSON.parse branch can decode every
   // quoted scalar this emitter produces.
