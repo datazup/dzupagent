@@ -408,6 +408,9 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
   }
 
   protected shouldRethrow(err: unknown): boolean {
+    if (this.providerId === "goose" && ForgeError.is(err)) {
+      return err.code !== "AGENT_ABORTED";
+    }
     return shouldRethrowAdapterError(err);
   }
 
