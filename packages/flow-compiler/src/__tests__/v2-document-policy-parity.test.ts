@@ -59,7 +59,12 @@ describe("DSL-MVP-POLICY-01 compiler document-policy parity", () => {
         throw new Error(JSON.stringify(baseline));
       for (const result of results) {
         if ("errors" in result) throw new Error(JSON.stringify(result.errors));
-        expect(result.documentPolicy).toEqual(policy);
+        // Existing compiler projection omits an empty policy in every frontend.
+        const projectedPolicy =
+          policy !== undefined && Object.keys(policy).length > 0
+            ? policy
+            : undefined;
+        expect(result.documentPolicy).toEqual(projectedPolicy);
         expect(result.target).toBe(baseline.target);
         expect(result.requirements.semanticHash).toBe(
           baseline.requirements.semanticHash,
