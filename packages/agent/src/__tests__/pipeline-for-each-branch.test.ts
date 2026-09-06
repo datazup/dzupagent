@@ -145,6 +145,30 @@ describe("one normal for_each branch through public runtime", () => {
     expect(run.calls).toEqual(["yes:0", "after:0", "done:outer"]);
     expect([...run.rows.values()]).toEqual(["released", "released", "settled"]);
   });
+  it.each(["absent", "released"] as const)("advances a denied retry with %s authority and no invented hold", async (status) => {
+    const run = await releasedBranchAttempt("failed");
+    const reserve = run.host.reserve, reconcile = run.host.reconcile;
+    const attempted: number[] = [];
+    run.host.reserve = (input) => { attempted.push(input.attempt ?? 0); throw new Error("no reserve acknowledgement"); };
+    run.host.reconcile = (input) => run.rows.has(input.reservationId) ? reconcile(input) : { status };
+    const store = new InMemoryPipelineCheckpointStore();
+    await store.save(run.cp);
+    const failed = await new PipelineRuntime({ definition: branchDefinition(), predicates,
+      checkpointStore: store, nodeExecutor: run.plain, loopIterationBudgetReservation: run.host }).resume(run.cp);
+    expect(failed.state).toBe("failed");
+    const denied = (await store.load(failed.runId))!;
+    expect(denied.loopState?.items?.itemOutcomes?.["0"]).toEqual({ itemIndex: 0, outcome: "denied", attempt: 1 });
+    expect([...run.rows.values()]).toEqual(["released"]);
+    run.host.reserve = reserve;
+    run.calls.length = 0;
+    const resumed = await new PipelineRuntime({ definition: branchDefinition(), predicates: { choose: () => false },
+      checkpointStore: store, nodeExecutor: run.plain, loopIterationBudgetReservation: run.host }).resume(denied);
+    expect(resumed.state, resumed.error).toBe("completed");
+    expect(attempted).toEqual([1]);
+    expect(run.reservations.map(({ attempt }) => attempt)).toEqual([0, 2]);
+    expect(run.calls).toEqual(["yes:0", "after:0", "done:outer"]);
+    expect([...run.rows.values()]).toEqual(["released", "settled"]);
+  });
   it.each(["unknown", "conflict", "settled", "absent"] as const)("blocks released-attempt retry when current authority is %s", async (status) => {
     const run = await releasedBranchAttempt("failed");
     run.calls.length = 0;

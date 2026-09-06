@@ -416,7 +416,8 @@ export async function executeForEachLoop(
     index: number,
     outcome: PipelineForEachItemOutcome,
     held: HeldItemReservation | undefined,
-    settledCostCents?: number
+    settledCostCents?: number,
+    attemptedWithoutHold?: number
   ): Promise<void> => {
     terminalOutcomes.add(index);
     await resume?.onItemTerminalOutcome?.({
@@ -434,8 +435,8 @@ export async function executeForEachLoop(
                 : { evidence: held.evidence }),
             },
           }),
-      ...(held !== undefined && held.attempt > 0
-        ? { attempt: held.attempt }
+      ...((held?.attempt ?? attemptedWithoutHold ?? 0) > 0
+        ? { attempt: held?.attempt ?? attemptedWithoutHold! }
         : {}),
     });
   };
@@ -947,8 +948,8 @@ export async function executeForEachLoop(
       );
       retryReleasedGraph = reconciliation.status === "released" &&
         (priorOutcome?.outcome === "failed" || priorOutcome?.outcome === "cancelled" || priorOutcome?.outcome === "denied") &&
-        priorOutcome.economics !== undefined &&
-        priorOutcome.economics.settledCostCents === undefined &&
+        (priorOutcome.economics !== undefined || priorOutcome.outcome === "denied") &&
+        priorOutcome.economics?.settledCostCents === undefined &&
         economics.settledCostCents === undefined;
       if (!retryReleasedGraph) {
         if (reconciliation.status !== "reserved" ||
@@ -962,7 +963,8 @@ export async function executeForEachLoop(
       }
     }
     const attempt = resumedGraphHold !== undefined || itemResume?.economics === undefined
-      ? resumedAttempt : resumedAttempt + 1;
+      ? resumedAttempt
+      : Math.max(resumedAttempt, retryReleasedGraph ? (priorOutcome?.attempt ?? 0) : 0) + 1;
 
     // F: admit this item's ceiling BEFORE its first body node dispatches, so a
     // reservation that cannot be authorized never spends. `held` is the single
@@ -1066,7 +1068,11 @@ export async function executeForEachLoop(
           `Loop "${loopNode.id}" item ${index} budget is unknown: ` +
           "its reservation failed and was reconciled as not outstanding",
       };
-      await recordTerminalOutcome(index, "denied", reconciledHeld);
+      // A clean no-hold denial still consumes a retry attempt. Retain that
+      // identity without inventing reservation economics; the selected graph
+      // continues to identify the earlier released hold until reserve succeeds.
+      await recordTerminalOutcome(index, "denied", reconciledHeld, undefined,
+        retryReleasedGraph ? attempt : undefined);
       iterationDurations[index] = Date.now() - iterStart;
       return;
     }
