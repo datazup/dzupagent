@@ -35,6 +35,7 @@ import {
 import type { RunStreamedThreadContext } from './codex-streamed-thread-types.js'
 import type { CodexStreamEvent, CodexInstance, CodexThread } from './codex-types.js'
 import type { AgentEvent, AgentInput, AgentStreamEvent } from '../types.js'
+import { runStreamedThread } from './codex-streamed-thread-loop.js'
 import { InteractionResolver } from '../interaction/interaction-resolver.js'
 import { normalizeCodex } from '../normalize-codex.js'
 
@@ -781,4 +782,22 @@ describe('toCodexSandboxMode', () => {
   it('defaults to workspace-write for undefined input', () => {
     expect(toCodexSandboxMode(undefined)).toBe('workspace-write')
   })
+})
+
+
+describe('native streamed schema projection', () => {
+  it.each([undefined, { type: 'object', required: ['verdict'], properties: { verdict: { type: 'string' } } }])(
+    'preserves the exact optional output schema and cancellation signal', async (outputSchema) => {
+      const signal = new AbortController().signal
+      const runStreamed = vi.fn(async () => ({ events: (async function* () {
+        yield { type: 'turn.completed' as const }
+      })() }))
+      const thread = { runStreamed }
+      const codex: CodexInstance = { startThread: vi.fn(), resumeThread: vi.fn() }
+      await collectGen(runStreamedThread(thread, makeInput({ outputSchema }), codex, signal, makeMinimalCtx()))
+      expect(runStreamed).toHaveBeenCalledWith('test', {
+        signal, ...(outputSchema === undefined ? {} : { outputSchema }),
+      })
+    },
+  )
 })

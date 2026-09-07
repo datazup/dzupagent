@@ -104,7 +104,7 @@ export interface CodexStreamEvent {
 export interface CodexThread {
   runStreamed(
     input: string | unknown[],
-    opts?: { signal?: AbortSignal },
+    opts?: { signal?: AbortSignal; outputSchema?: unknown },
   ): Promise<{
     events: AsyncIterable<CodexStreamEvent>
     // NOTE: real SDK StreamedTurn has no finalResponse field
