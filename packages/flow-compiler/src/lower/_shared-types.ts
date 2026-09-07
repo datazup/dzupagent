@@ -41,6 +41,8 @@ export interface LowerPipelineContext {
    * When false, encountering a for_each node throws a router-contract error.
    */
   allowForEach: boolean;
+  /** Opt-in source mapping only; grants no V2 economics execution authority. */
+  includeForEachEconomicsV2Provenance?: boolean;
   /**
    * ID generator for fresh node IDs.
    * Defaults to crypto.randomUUID when not provided.

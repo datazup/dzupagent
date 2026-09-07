@@ -104,7 +104,7 @@ export function lowerAction(
   return { nodes: [toolNode], edges: [], warnings };
 }
 
-function flowNodeSource(node: ActionNode, path: string): PipelineNodeSource {
+function flowNodeSource(node: ActionNode | ForEachNode, path: string): PipelineNodeSource {
   return {
     kind: "flow-node",
     path,
@@ -165,6 +165,9 @@ export function lowerForEach(
     id: freshId(ctx),
     type: "loop",
     name: `forEach:${node.as}`,
+    ...(ctx.includeForEachEconomicsV2Provenance === true
+      ? { source: flowNodeSource(node, path) }
+      : {}),
     bodyNodeIds,
     maxIterations: 1000, // reasonable upper bound; runtime may override
     continuePredicateName: `forEach__${node.as}__predicate`,

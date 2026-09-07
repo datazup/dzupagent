@@ -70,6 +70,14 @@ export function lowerBranch(
     gateType: "quality",
     name: `branch:${path}`,
     condition: node.condition,
+    ...(ctx.includeForEachEconomicsV2Provenance === true
+      ? { source: {
+          kind: "flow-node" as const,
+          path,
+          nodeType: node.type,
+          ...(node.id !== undefined ? { nodeId: node.id } : {}),
+        } }
+      : {}),
     ...nodeDurabilityFields(node),
   };
 

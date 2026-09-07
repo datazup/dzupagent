@@ -98,6 +98,13 @@ export type FlowReferencePortClassificationBindings = Readonly<
 export interface CompilerOptions {
   toolResolver: ToolResolver | AsyncToolResolver;
   /**
+   * Include authored source anchors on for_each loop and branch gate nodes in
+   * pipeline artifacts. Only explicit true enables this V2 economics mapping
+   * prerequisite; omitted/false preserves existing artifact bytes. Enabling it
+   * changes artifact identity, but does not admit or activate an economics host.
+   */
+  includeForEachEconomicsV2Provenance?: boolean;
+  /**
    * Capabilities explicitly owned by the host that will execute the emitted
    * artifact. Capability declaration is opt-in and fail-closed: omitting this
    * field preserves every target-emission gate, and declaring a capability

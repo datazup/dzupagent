@@ -56,6 +56,8 @@ export interface LowerPipelineLoopInput {
    * action stubs with warnings for authoring tools and tests.
    */
   mode?: LoweringMode;
+  /** Preserve authored identities on generated for_each and branch nodes. */
+  includeForEachEconomicsV2Provenance?: boolean;
 }
 
 export function lowerPipelineLoop(input: LowerPipelineLoopInput): {
@@ -73,6 +75,8 @@ export function lowerPipelineLoop(input: LowerPipelineLoopInput): {
     resolvedPersonas: input.resolvedPersonas,
     mode: input.mode ?? "executable",
     allowForEach: true,
+    includeForEachEconomicsV2Provenance:
+      input.includeForEachEconomicsV2Provenance === true,
     idGen: input.idGen,
   };
 
