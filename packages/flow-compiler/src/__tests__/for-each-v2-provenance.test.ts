@@ -122,16 +122,19 @@ describe("opt-in for_each V2 provenance", () => {
     expect(definition.nodes.filter((node) => node.type === "loop" || node.type === "gate").map((node) => node.source)).toEqual([undefined, undefined]);
   });
 
-  it("retains structural identities when authors omit optional IDs", async () => {
-    const anonymous = source.replace(/^\s+id: (items|prefix|decide|yes|no|suffix|done)\n/gm, "");
-    const { definition } = await compile(anonymous, true);
-    expect(definition.nodes).toHaveLength(7);
+  it("retains structural identities for the raw AST API's optional IDs", () => {
+    const { artifact: definition } = lower({
+      type: "for_each", source: "items", as: "item", body: [{
+        type: "branch", condition: "check", then: [{ type: "set", assign: { ready: true } }],
+      }],
+    }, true);
+    expect(definition.nodes).toHaveLength(3);
+    expect(definition.nodes.map((node) => node.source?.path)).toEqual(["root", "root.body[0]", "root.body[0].then[0]"]);
     for (const node of definition.nodes) {
-      expect(node.source?.path).toMatch(/^root\.nodes\[/);
       expect(node.source).not.toHaveProperty("nodeId");
     }
     expect(definition.nodes[0]?.source?.nodeType).toBe("for_each");
-    expect(definition.nodes[2]?.source?.nodeType).toBe("branch");
+    expect(definition.nodes[1]?.source?.nodeType).toBe("branch");
   });
 
   it("preserves resolved agent/tool class and authored prompt, adapter and local identities", () => {
@@ -159,7 +162,12 @@ describe("opt-in for_each V2 provenance", () => {
   });
 
   it.each([true, false])("executes multiple items with prefix/suffix and an authored else=%s", async (withElse) => {
-    const text = withElse ? source : source.replace(/            else:\n(?: {14,}.*\n)+/, "");
+    const text = withElse ? source : source.replace(`            else:
+              - set:
+                  id: no
+                  assign:
+                    answer: rejected
+`, "");
     const { definition, result: compiled } = await compile(text, true);
     const store = new InMemoryPipelineCheckpointStore();
     const seen: string[] = [];
@@ -193,6 +201,7 @@ steps:
       condition: check
       then:
         - set:
+            id: ready
             assign:
               ready: true
 `, true);
