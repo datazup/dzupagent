@@ -208,4 +208,38 @@ steps:
     expect(result.target).not.toBe("pipeline");
     expect(definition.nodes.filter((node) => node.type === "gate").map((node) => node.source)).toEqual([undefined]);
   });
+
+  const progressLoop = (progressKey: string): FlowNode => ({
+    type: "loop", condition: "check", maxIterations: 2, progressKey,
+    typedCondition: {
+      schema: "dzupagent.flowTypedCondition/v1",
+      expression: { op: "literal", value: true },
+    },
+    body: [
+      { type: "for_each", id: "fanout", source: "items", as: "item", body: [
+        { type: "set", id: "progress", assign: { ready: true } },
+      ] },
+      { type: "branch", id: "decide", condition: "check", then: [
+        { type: "set", id: "selected", assign: { selected: true } },
+      ] },
+    ],
+  });
+
+  it.each(["fanout", "decide"])("does not admit a control node as typed-loop progress (%s)", (id) => {
+    for (const enabled of [undefined, false, true]) {
+      expect(() => lower(progressLoop(id), enabled)).toThrow("must resolve to exactly one executable body node; resolved 0");
+    }
+  });
+
+  it("keeps existing typed-loop leaf progress bound to the same generated ID", () => {
+    const enabled = lower(progressLoop("progress"), true).artifact;
+    const disabled = lower(progressLoop("progress"), false).artifact;
+    const loop = enabled.nodes[0];
+    const oldLoop = disabled.nodes[0];
+    if (loop?.type !== "loop" || oldLoop?.type !== "loop") throw new Error("expected typed loops");
+    const leaf = enabled.nodes.find((node) => node.source?.nodeId === "progress");
+    expect(leaf?.type).toBe("tool");
+    expect(loop.typedWhile?.progressKey).toBe(leaf?.id);
+    expect(loop.typedWhile?.progressKey).toBe(oldLoop.typedWhile?.progressKey);
+  });
 });
