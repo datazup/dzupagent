@@ -88,6 +88,8 @@ function lowerForTarget(input: LoweringInput):
       resolved,
       resolvedPersonas,
       mode: "executable",
+      includeForEachEconomicsV2Provenance:
+        input.opts.includeForEachEconomicsV2Provenance === true,
     });
     return { artifact: out.artifact, warnings: out.warnings, ports: out.ports };
   } catch (error) {
