@@ -322,7 +322,10 @@ function resolveLoopProgressNodeId(
   path: string
 ): string {
   const matches = bodyNodes.filter(
-    (bodyNode) => bodyNode.source?.nodeId === authoredNodeId
+    // Control provenance identifies a source construct, not a new executable
+    // progress output. Keep the pre-provenance progressKey admission boundary.
+    (bodyNode) => bodyNode.type !== "gate" && bodyNode.type !== "loop"
+      && bodyNode.source?.nodeId === authoredNodeId
   );
   if (matches.length !== 1) {
     throw new Error(
