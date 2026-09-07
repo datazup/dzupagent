@@ -142,7 +142,7 @@ describe("opt-in for_each V2 provenance", () => {
       { type: "action", id: "agent-action", toolRef: "worker", input: {} },
       { type: "action", id: "tool-action", toolRef: "tool", input: {} },
       { type: "prompt", id: "prompt", userPrompt: "Inspect the item." },
-      { type: "adapter.run", id: "adapter", provider: "codex", instructions: "Inspect the item." },
+      { type: "adapter.run", id: "adapter", provider: "codex", instructions: "Inspect the item.", output: "adapterResult" },
       { type: "set", id: "local", assign: { ready: true } },
       { type: "validate.schema", id: "schema", source: "item", schema: { type: "object" }, output: "valid" },
     ];
