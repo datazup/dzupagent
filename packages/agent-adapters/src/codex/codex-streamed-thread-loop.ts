@@ -135,7 +135,10 @@ export async function* runStreamedThread(
   let streamedTurn: { events: AsyncIterable<CodexStreamEvent> };
 
   try {
-    streamedTurn = await thread.runStreamed(input.prompt, { signal });
+    streamedTurn = await thread.runStreamed(input.prompt, {
+      signal,
+      ...(input.outputSchema === undefined ? {} : { outputSchema: input.outputSchema }),
+    });
     defaultLogger.debug(
       "[codex-streamed-thread:run] runStreamed returned — consuming events",
       { sessionId },
