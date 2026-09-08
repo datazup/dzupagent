@@ -191,16 +191,16 @@ describe("Packet 24-D for_each durability admission", () => {
 
   it.each([
     [
-      "recursive branch",
+      "multiple recursive branches",
       {
         type: "branch",
         id: "decision",
         condition: "true",
-        then: [setNode("left")],
+        then: [{ type: "branch", condition: "nested", then: [setNode("left")] }],
         else: [setNode("right")],
       },
       "FOR_EACH_RECURSIVE_CONTROL_UNSUPPORTED",
-      "root.body[0]",
+      "root.body[0].then[0]",
     ],
     [
       "nested parallel",

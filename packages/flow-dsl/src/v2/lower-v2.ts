@@ -40,6 +40,7 @@ const TOP_LEVEL_KEYS = new Set([
   "defaults",
   "tags",
   "meta",
+  "policy",
   "durability",
   "imports",
   "steps",
@@ -172,6 +173,7 @@ export function lowerDslV2Document(
     "defaults",
     "tags",
     "meta",
+    "policy",
     "durability",
   ]) {
     if (raw[key] !== undefined) lowered[key] = raw[key];

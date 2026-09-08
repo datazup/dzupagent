@@ -163,6 +163,17 @@ export interface PipelineForEachItemFrame {
    * their predecessors without re-execution.
    */
   bodyResults?: Record<string, unknown>;
+  /** Additive v1 receipt; flat checkpoints omit it and retain their wire meaning. */
+  graph?: {
+    schema: "dzupagent/for-each-item-graph/v1";
+    loopNodeId: string;
+    itemIndex: number;
+    itemValueDigest: string;
+    definitionDigest: string;
+    state: Record<string, unknown>;
+    frame: PipelineLoopBodyGraphCheckpointState;
+  };
+
   /**
    * Attempt counter for this item, incremented per re-dispatch. Feeds the
    * execution scope so a retry derives a distinct idempotency key.

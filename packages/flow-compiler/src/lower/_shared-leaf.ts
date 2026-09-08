@@ -169,6 +169,16 @@ export function lowerForEach(
     maxIterations: 1000, // reasonable upper bound; runtime may override
     continuePredicateName: `forEach__${node.as}__predicate`,
     forEach: forEachContract(node),
+    ...(bodyResult.nodes.some((bodyNode) => bodyNode.type === "gate")
+      ? { bodyGraph: {
+          entryNodeId: bodyPorts.entryNodeIds[0]!,
+          normalExitNodeIds: bodyPorts.normalExits,
+          suspendedExitNodeIds: bodyPorts.suspendedExits,
+          suspensionSiteNodeIds: bodyPorts.suspensionSites,
+          terminalExitNodeIds: bodyPorts.terminalExits,
+          errorExitNodeIds: bodyPorts.errorExits,
+        } }
+      : {}),
     ...nodeDurabilityFields(node),
   };
 

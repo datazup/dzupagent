@@ -17,6 +17,7 @@ import type {
 } from "../pipeline-runtime-types.js";
 import type {
   LoopResumeOptions,
+  LoopBodyGraphCheckpointState,
 } from "./types.js";
 import { canonicalInputDigest } from "@dzupagent/runtime-contracts";
 import type { LoopEconomicsEvidenceV1 } from "@dzupagent/runtime-contracts/loop-economics-evidence";
@@ -26,6 +27,7 @@ import {
   type ForEachMergeState,
 } from "./for-each-merge.js";
 import { createItemBudgetLifecycle } from "./for-each-item-budget.js";
+import { fenceForEachGraphOperations } from "./for-each-graph.js";
 import {
   deriveItemReservationId,
   type HeldItemReservation,
@@ -135,6 +137,18 @@ export async function executeForEachLoop(
   resume?: LoopResumeOptions
 ): Promise<{ result: NodeResult; metrics: LoopMetrics }> {
   const startTime = Date.now();
+  if (loopNode.bodyGraph !== undefined && (resume?.scheduleBodyGraph === undefined || resume.onItemBodyNodeComplete === undefined || resume.graphDefinitionDigest === undefined)) {
+    throw new Error(`Loop "${loopNode.id}" requires the canonical item graph scheduler and checkpoint writer`);
+  }
+  if (loopNode.bodyGraph !== undefined && (
+    resume?.budgetEvidenceMode === "required" ||
+    Object.values(resume?.itemFrames ?? {}).some((item) => item.economics?.evidence !== undefined) ||
+    Object.values(resume?.itemOutcomes ?? {}).some((item) => item.economics?.evidence !== undefined)
+  )) {
+    throw new Error(`Loop "${loopNode.id}" conditional items require V2 selected/skipped-leaf economics; V1 exact-evidence execution is not admitted`);
+  }
+  const graphFence = loopNode.bodyGraph === undefined ? undefined : fenceForEachGraphOperations(resume!);
+  if (graphFence) resume = graphFence.options;
   const contract = loopNode.forEach as ForEachContract;
   if (
     bodyNodes.length === 0 ||
@@ -320,7 +334,7 @@ export async function executeForEachLoop(
    * a callback would be.
    */
   const dispatchHalted = (): boolean =>
-    dispatchStop.signal.aborted || context.signal?.aborted === true;
+    graphFence?.failed === true || dispatchStop.signal.aborted || context.signal?.aborted === true;
 
   /**
    * 24-I: the ONLY way to record a breach. Setting `budgetBreached` without
@@ -402,7 +416,8 @@ export async function executeForEachLoop(
     index: number,
     outcome: PipelineForEachItemOutcome,
     held: HeldItemReservation | undefined,
-    settledCostCents?: number
+    settledCostCents?: number,
+    attemptedWithoutHold?: number
   ): Promise<void> => {
     terminalOutcomes.add(index);
     await resume?.onItemTerminalOutcome?.({
@@ -420,8 +435,8 @@ export async function executeForEachLoop(
                 : { evidence: held.evidence }),
             },
           }),
-      ...(held !== undefined && held.attempt > 0
-        ? { attempt: held.attempt }
+      ...((held?.attempt ?? attemptedWithoutHold ?? 0) > 0
+        ? { attempt: held?.attempt ?? attemptedWithoutHold! }
         : {}),
     });
   };
@@ -473,8 +488,10 @@ export async function executeForEachLoop(
    * and never converts uncertain completion into a duplicate effect or charge.
    * The same representation covers single- and multi-body items.
    */
-  const restoreSettledItem = async (index: number): Promise<boolean> => {
-    const frame = resume?.itemFrames?.[String(index)];
+  const restoreSettledItem = async (
+    index: number,
+    frame = resume?.itemFrames?.[String(index)]
+  ): Promise<boolean> => {
     if (
       frame?.outcome !== "completed" ||
       frame.nextBodyNodeIndex !== bodyNodes.length
@@ -484,7 +501,7 @@ export async function executeForEachLoop(
     const receipt = readAggregateReceipt(
       loopNode.id,
       index,
-      items[index],
+      frame?.graph === undefined ? items[index] : frame.graph.state[contract.as],
       frame?.bodyResults
     );
     if (receipt === undefined) return false;
@@ -675,10 +692,9 @@ export async function executeForEachLoop(
       maxIterations: items.length,
     });
 
-    const iterationState = {
-      ...context.state,
-      [contract.as]: items[index],
-    };
+    const iterationState = loopNode.bodyGraph === undefined
+      ? { ...context.state, [contract.as]: items[index] }
+      : structuredClone(itemResume?.graph?.state ?? { ...context.state, [contract.as]: items[index] });
     const iterationPreviousResults = new Map(context.previousResults);
     let lastBodyResult: NodeResult | undefined;
     let completedBody = true;
@@ -722,7 +738,7 @@ export async function executeForEachLoop(
     const preparedReceipt = readAggregateReceipt(
       loopNode.id,
       index,
-      items[index],
+      itemResume?.graph === undefined ? items[index] : itemResume.graph.state[contract.as],
       itemResume?.bodyResults
     );
     if (startBodyNodeIndex >= bodyNodes.length) {
@@ -792,7 +808,7 @@ export async function executeForEachLoop(
           bodyResults: retainedBodyResults,
         });
         await recordTerminalOutcome(index, "completed", undefined);
-        if (!(await restoreSettledItem(index))) {
+        if (!(await restoreSettledItem(index, { ...itemResume!, outcome: "completed" }))) {
           await blockPreparedCompletion("its durable aggregate could not be restored");
         }
         return;
@@ -913,20 +929,48 @@ export async function executeForEachLoop(
         settledHeld,
         settledCostCents
       );
-      if (!(await restoreSettledItem(index))) {
+      if (!(await restoreSettledItem(index, { ...itemResume!, outcome: "completed" }))) {
         await blockPreparedCompletion("its durable aggregate could not be restored");
       }
       return;
     }
 
-    const attempt =
-      itemResume?.economics === undefined ? resumedAttempt : resumedAttempt + 1;
+    let resumedGraphHold: HeldItemReservation | undefined;
+    let retryReleasedGraph = false;
+    if (itemResume?.graph !== undefined && itemResume.economics !== undefined) {
+      const economics = itemResume.economics;
+      const retained: HeldItemReservation = {
+        itemIndex: index, attempt: resumedAttempt,
+        reservationId: economics.reservationId, reservedCostCents: economics.reservedCostCents,
+      };
+      const reconciliation = await reconcileUnknownReservation(
+        index, resumedAttempt, "resume of a durable selected item graph", "reserve", retained,
+      );
+      retryReleasedGraph = reconciliation.status === "released" &&
+        (priorOutcome?.outcome === "failed" || priorOutcome?.outcome === "cancelled" || priorOutcome?.outcome === "denied") &&
+        (priorOutcome.economics !== undefined || priorOutcome.outcome === "denied") &&
+        priorOutcome.economics?.settledCostCents === undefined &&
+        economics.settledCostCents === undefined;
+      if (!retryReleasedGraph) {
+        if (reconciliation.status !== "reserved" ||
+            reconciliation.reservedCostCents !== economics.reservedCostCents ||
+            reconciliation.evidence !== undefined) {
+          throw new Error(`Loop "${loopNode.id}" item ${index} cannot resume its selected graph: original reservation is not an unchanged authoritative hold or a proven released retryable attempt`);
+        }
+        // Continuing a checkpointed branch is the same attempt. Re-reserving
+        // under a new identity leaks the old hold and changes effect identities.
+        resumedGraphHold = retained;
+      }
+    }
+    const attempt = resumedGraphHold !== undefined || itemResume?.economics === undefined
+      ? resumedAttempt
+      : Math.max(resumedAttempt, retryReleasedGraph ? (priorOutcome?.attempt ?? 0) : 0) + 1;
 
     // F: admit this item's ceiling BEFORE its first body node dispatches, so a
     // reservation that cannot be authorized never spends. `held` is the single
     // source of truth for whether a reservation is outstanding, and every one
     // of the three exits below reconciles it exactly once.
-    const held = await reserveItem(index, attempt, iterationState);
+    const held = resumedGraphHold ?? await reserveItem(index, attempt, iterationState);
     // A thrown reserve is reconciled before dispatch. Absent/released proves a
     // clean denial; reserved proves a hold exists and therefore requires the
     // strict host's release lifecycle before denial. Settled, unknown, and
@@ -1024,7 +1068,11 @@ export async function executeForEachLoop(
           `Loop "${loopNode.id}" item ${index} budget is unknown: ` +
           "its reservation failed and was reconciled as not outstanding",
       };
-      await recordTerminalOutcome(index, "denied", reconciledHeld);
+      // A clean no-hold denial still consumes a retry attempt. Retain that
+      // identity without inventing reservation economics; the selected graph
+      // continues to identify the earlier released hold until reserve succeeds.
+      await recordTerminalOutcome(index, "denied", reconciledHeld, undefined,
+        retryReleasedGraph ? attempt : undefined);
       iterationDurations[index] = Date.now() - iterStart;
       return;
     }
@@ -1080,13 +1128,80 @@ export async function executeForEachLoop(
       await recordTerminalOutcome(
         index,
         "denied",
-        held.retainEvidence === false ? undefined : deniedHeld
+        held.retainEvidence === false ? undefined : deniedHeld,
+        undefined, retryReleasedGraph ? attempt : undefined
       );
       iterationDurations[index] = Date.now() - iterStart;
       return;
     }
 
-    for (
+    if (loopNode.bodyGraph !== undefined && held?.evidence !== undefined) {
+      completedBody = false;
+      firstError ??= { nodeId: loopNode.id, output: null, durationMs: Date.now() - startTime,
+        error: "Conditional items require V2 selected/skipped-leaf economics; V1 exact evidence was returned by the reservation host" };
+    } else if (loopNode.bodyGraph !== undefined) {
+      if (retryReleasedGraph && held !== undefined) {
+        // Publish the fresh reservation and retire the old terminal outcome
+        // together before retry effects. If reserve's acknowledgement or this
+        // checkpoint is lost, the same next-attempt identity is reconciled or
+        // replayed; no completed node or recorded branch needs to run again.
+        await resume!.onItemBodyNodeComplete!({
+          itemIndex: index, nextBodyNodeIndex: itemResume!.nextBodyNodeIndex,
+          bodyResults: retainedBodyResults, graph: itemResume!.graph!,
+          attempt, outcome: "running", mandatory: true,
+          economics: { reservationId: held.reservationId, reservedCostCents: held.reservedCostCents },
+        });
+      }
+      const graphResult = await resume!.scheduleBodyGraph!({
+        iteration,
+        context: {
+          ...context, state: iterationState, previousResults: iterationPreviousResults,
+          executionScope: { loopNodeId: loopNode.id, itemIndex: index, bodyNodeId: loopNode.bodyGraph.entryNodeId, ...(attempt > 0 ? { attempt } : {}) },
+          // The scoped kernel checks this signal before every node, including
+          // a sibling's fail-fast or budget stop.
+          signal: {
+            get aborted() { return dispatchHalted(); },
+            addEventListener: (type, listener) => context.signal?.addEventListener?.(type, listener),
+            removeEventListener: (type, listener) => context.signal?.removeEventListener?.(type, listener),
+          },
+        },
+        ...(itemResume?.graph === undefined ? {} : { resumeState: itemResume.graph.frame as LoopBodyGraphCheckpointState }),
+        onCheckpoint: async (frame) => {
+          const bodyResults = { ...frame.nodeResults };
+          if (frame.completed) {
+            const final = bodyResults[frame.completedNodeIds.at(-1)!]!;
+            const collected = contract.collect === undefined ? undefined : {
+              status: "known" as const,
+              value: collectIterationValue(iterationState, new Map([...iterationPreviousResults, ...Object.entries(bodyResults)]), contract.collect.from),
+            };
+            bodyResults[loopNode.id] = aggregateReceiptResult(loopNode.id, index, iterationState[contract.as], collected, final);
+          }
+          await resume!.onItemBodyNodeComplete!({
+            itemIndex: index,
+            nextBodyNodeIndex: frame.completed ? bodyNodes.length : 0,
+            bodyResults,
+            graph: { schema: "dzupagent/for-each-item-graph/v1", definitionDigest: resume!.graphDefinitionDigest!, loopNodeId: loopNode.id, itemIndex: index, itemValueDigest: `sha256:${canonicalInputDigest(items[index])}`, state: structuredClone(iterationState), frame },
+            mandatory: true,
+            ...(attempt > 0 ? { attempt } : {}), outcome: "running",
+            ...(held === undefined ? {} : { economics: {
+              reservationId: held.reservationId, reservedCostCents: held.reservedCostCents,
+              ...(held.evidence === undefined ? {} : { evidence: held.evidence }),
+            } }),
+          });
+        },
+      });
+      for (const [id, result] of graphResult.bodyResults) {
+        retainedBodyResults[id] = result;
+        iterationPreviousResults.set(id, result);
+      }
+      lastBodyResult = graphResult.lastResult;
+      if (graphResult.outcome.kind !== "normal" || lastBodyResult === undefined) {
+        completedBody = false;
+        haltedBeforeBody = graphResult.outcome.kind === "cancelled";
+        firstError ??= { nodeId: loopNode.id, output: null, durationMs: Date.now() - startTime,
+          error: graphResult.error ?? `Item graph did not complete normally: ${graphResult.outcome.kind}` };
+      }
+    } else for (
       let bodyIndex = startBodyNodeIndex;
       bodyIndex < bodyNodes.length;
       bodyIndex++
@@ -1441,7 +1556,7 @@ export async function executeForEachLoop(
     await flushQueue;
   };
 
-  const flushCompletedPrefix = async (): Promise<void> => {
+  const flushPrefix = async (): Promise<void> => {
     // The merge itself is synchronous and lives in `for-each-merge.ts`; only
     // the publish-and-checkpoint tail below is async. A zero return means the
     // cursor did not move, and no checkpoint may be written for it.
@@ -1467,20 +1582,34 @@ export async function executeForEachLoop(
     }
     await resume?.onIterationComplete?.(merge.flushedPrefix);
   };
+  // Source attachment and aggregate publication must share the checkpoint
+  // queue: another item's frame cannot snapshot half of a prefix transition.
+  const flushCompletedPrefix = graphFence ? graphFence.serialize(flushPrefix) : flushPrefix;
 
   const workers = Array.from({ length: concurrency }, async () => {
     while (
       !(contract.failFast === true && firstError !== undefined) &&
+      graphFence?.failed !== true &&
       !budgetBreached &&
       !context.signal?.aborted
     ) {
       const index = nextIndex;
       nextIndex += 1;
       if (index >= items.length) return;
-      await runIteration(index);
+      try {
+        await runIteration(index);
+      } catch (error) {
+        if (graphFence) { graphFence.fail(error); stopDispatch(); }
+        throw error;
+      }
     }
   });
-  await Promise.all(workers);
+  if (graphFence) {
+    await Promise.allSettled(workers);
+    graphFence.check();
+  } else {
+    await Promise.all(workers);
+  }
   await flushQueue;
   await flushCompletedPrefix();
 

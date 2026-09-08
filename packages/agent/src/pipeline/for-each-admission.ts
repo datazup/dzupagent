@@ -1,10 +1,10 @@
+import { forEachBranchShapeError } from "./for-each-branch-admission.js";
 import type { LoopNode, PipelineEdge, PipelineNode, PipelineValidationError } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 /**
  * Defense-in-depth validation for hand-authored or legacy pipeline artifacts.
- * Compiler-lowered for_each bodies are an ordered chain of leaf nodes. The
- * current item worker does not dispatch graph control or persist per-item
- * concurrent/economic frames, so anything outside that exact shape is denied.
+ * Admit flat leaf chains or one normal conditional graph. All other control
+ * shapes remain denied before an item executor or economics host is invoked.
  */
 export function validateForEachAdmission(
   loop: LoopNode,
@@ -73,9 +73,6 @@ function findUnsupportedBodyShape(
   edges: readonly PipelineEdge[],
   loopNodes: readonly LoopNode[]
 ): UnsupportedBody | undefined {
-  if (loop.bodyGraph !== undefined) {
-    return recursive(loop.id, "for_each declares a graph-shaped body");
-  }
   if (loop.bodyNodeIds.length === 0) {
     return recursive(loop.id, "for_each body is empty");
   }
@@ -110,6 +107,7 @@ function findUnsupportedBodyShape(
           ? terminal(bodyId, "terminal suspend control")
           : suspension(bodyId, "suspend control");
       case "gate":
+        if (loop.bodyGraph !== undefined && bodyNode.gateType === "quality" && bodyNode.interaction === undefined) break;
         return bodyNode.gateType === "approval" || bodyNode.interaction !== undefined
           ? interaction(bodyId, "approval interaction control")
           : recursive(bodyId, "gate control");
@@ -141,6 +139,11 @@ function findUnsupportedBodyShape(
           `unrecognized item-body node type "${assertNeverBodyNode(bodyNode)}"`
         );
     }
+  }
+
+  if (loop.bodyGraph !== undefined) {
+    const reason = forEachBranchShapeError(loop, nodeMap, edges);
+    return reason === undefined ? undefined : recursive(loop.id, reason);
   }
 
   const expectedPairs = new Set<string>();

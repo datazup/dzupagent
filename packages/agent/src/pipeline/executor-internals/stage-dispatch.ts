@@ -1,3 +1,4 @@
+import { validateForEachItemGraphs } from "../loop-executor/for-each-graph.js";
 /**
  * Per-stage dispatch — the fork and loop stage executors extracted from
  * `PipelineExecutor` so the executor's core graph-walk loop stays focused.
@@ -13,7 +14,7 @@
  */
 
 import type { PipelineNode, ForkNode, LoopNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
-import { digestPipelineInteractionValue } from "@dzupagent/runtime-contracts";
+import { digestPipelineDefinition, digestPipelineInteractionValue } from "@dzupagent/runtime-contracts";
 import type {
   PipelineState,
   NodeResult,
@@ -294,6 +295,9 @@ export async function dispatchLoopStage(
   // resolves to an array — anything else stays unbound (unprovable), never
   // falsely bound.
   if (loopNode.forEach !== undefined) {
+    if (loopNode.bodyGraph !== undefined && ctx.config.checkpointStore === undefined) {
+      throw new Error(`Loop "${loopNode.id}" conditional items require a checkpoint store`);
+    }
     const resolvedSource = resolveStatePath(runState, loopNode.forEach.source);
     if (Array.isArray(resolvedSource.value)) {
       const currentDigest = digestPipelineInteractionValue(
@@ -320,6 +324,13 @@ export async function dispatchLoopStage(
             `${currentDigest}. The retained ordered prefix would refer to ` +
             "different items.",
         );
+      }
+      validateForEachItemGraphs(
+        ctx.config.definition, loopNode, resolvedSource.value,
+        readItemFrames(frame.loopState[loopNode.id]),
+      );
+      if (loopNode.bodyGraph !== undefined && isResuming && recordedDigest === undefined) {
+        throw new PipelineSourceBindingMismatchError("Retained item graph has no original ordered-source binding");
       }
       frame.loopSourceDigests = {
         ...frame.loopSourceDigests,
@@ -354,6 +365,7 @@ export async function dispatchLoopStage(
   const savedLoopState = frame.loopState[loopNode.id];
   const loopResume: LoopResumeOptions = {
     startIteration: resumeFrom,
+    ...(loopNode.bodyGraph === undefined ? {} : { graphDefinitionDigest: digestPipelineDefinition(ctx.config.definition) }),
     ...(savedLoopState?.nextBodyNodeIndex !== undefined
       ? { startBodyNodeIndex: savedLoopState.nextBodyNodeIndex }
       : {}),
@@ -519,6 +531,18 @@ export async function dispatchLoopStage(
     },
     onItemBodyNodeComplete: async (progress) => {
       const previousBoundary = frame.loopState[loopNode.id];
+      let itemOutcomes = previousBoundary?.itemOutcomes;
+      const priorOutcome = itemOutcomes?.[String(progress.itemIndex)];
+      if (loopNode.bodyGraph !== undefined && progress.outcome === "running" &&
+          (progress.attempt ?? 0) > (priorOutcome?.attempt ?? 0) &&
+          (priorOutcome?.outcome === "failed" || priorOutcome?.outcome === "cancelled" || priorOutcome?.outcome === "denied") &&
+          priorOutcome.economics?.settledCostCents === undefined) {
+        // The graph retry has authoritatively reconciled the released attempt.
+        // Replace its outcome atomically with the newly reserved graph frame;
+        // retaining both would make a crash restore contradictory economics.
+        itemOutcomes = { ...itemOutcomes };
+        delete itemOutcomes[String(progress.itemIndex)];
+      }
       frame.loopState[loopNode.id] = {
         // The ordered-prefix cursor does NOT advance mid-item: `iteration`
         // still counts fully-completed items. Only the frame moves.
@@ -546,6 +570,9 @@ export async function dispatchLoopStage(
               ctx.config.definition.checkpoint?.includeProviderSessionRefs ===
                 true,
             ),
+            ...((progress.graph ?? readItemFrames(previousBoundary)?.[String(progress.itemIndex)]?.graph) === undefined
+              ? {}
+              : { graph: progress.graph ?? readItemFrames(previousBoundary)![String(progress.itemIndex)]!.graph! }),
             ...(progress.attempt === undefined
               ? {}
               : { attempt: progress.attempt }),
@@ -565,9 +592,7 @@ export async function dispatchLoopStage(
         // set has to be carried across explicitly. Omitting it would silently
         // erase every recorded outcome at the next mid-body checkpoint — the
         // same class of bug G1 fixed for `itemFrames`.
-        ...(previousBoundary?.itemOutcomes === undefined
-          ? {}
-          : { itemOutcomes: previousBoundary.itemOutcomes }),
+        ...(itemOutcomes === undefined ? {} : { itemOutcomes }),
         ...(previousBoundary?.previousOutput !== undefined
           ? { previousOutput: previousBoundary.previousOutput }
           : {}),
@@ -575,7 +600,21 @@ export async function dispatchLoopStage(
           ? { progressDigest: previousBoundary.progressDigest }
           : {}),
       };
-      await ctx.saveCheckpoint(frame);
+      if (progress.mandatory === true || loopNode.bodyGraph !== undefined) {
+        await persistCheckpointWithIntegrityBoundary({
+          nodeId: loopNode.id, boundary: "loop_resume_cursor",
+          save: () => ctx.saveControlCheckpoint(frame),
+        });
+        if (lastWriteLostCommit(frame.versionTracker)) {
+          restoreLoopStateAfterLostCommit(frame.loopState, loopNode.id, previousBoundary);
+          throw new PipelineCheckpointCommitConflictError(loopNode.id, {
+            completedIterations: previousBoundary?.iteration ?? 0,
+            observedVersion: frame.versionTracker.version,
+          });
+        }
+      } else {
+        await ctx.saveCheckpoint(frame);
+      }
     },
     /**
      * 24-G: persist one item's terminal outcome.
@@ -589,7 +628,22 @@ export async function dispatchLoopStage(
      */
     onItemTerminalOutcome: async (outcome) => {
       const previousBoundary = frame.loopState[loopNode.id];
-      const liveItemFrames = readItemFrames(previousBoundary);
+      let liveItemFrames = readItemFrames(previousBoundary);
+      const priorFrame = liveItemFrames?.[String(outcome.itemIndex)];
+      if (loopNode.bodyGraph !== undefined && priorFrame?.graph !== undefined &&
+          outcome.economics !== undefined &&
+          (outcome.attempt ?? 0) > (priorFrame.attempt ?? 0)) {
+        // A retry reservation can fail before body progress is published.
+        // Retain its terminal economics and the unchanged selected cursor in
+        // one checkpoint, including denied and outcome-unknown boundaries.
+        liveItemFrames = {
+          ...liveItemFrames,
+          [String(outcome.itemIndex)]: {
+            ...priorFrame, attempt: outcome.attempt!,
+            economics: outcome.economics, outcome: outcome.outcome,
+          },
+        };
+      }
       frame.loopState[loopNode.id] = {
         // A terminal outcome is not an item-boundary advance — the ordered
         // prefix is owned by `onIterationComplete` alone. Recording an outcome
@@ -617,7 +671,17 @@ export async function dispatchLoopStage(
           ? { progressDigest: previousBoundary.progressDigest }
           : {}),
       };
-      await ctx.saveCheckpoint(frame);
+      await (loopNode.forEach !== undefined && loopNode.bodyGraph !== undefined
+        ? ctx.saveControlCheckpoint(frame)
+        : ctx.saveCheckpoint(frame));
+      if (loopNode.forEach !== undefined && loopNode.bodyGraph !== undefined &&
+          lastWriteLostCommit(frame.versionTracker)) {
+        restoreLoopStateAfterLostCommit(frame.loopState, loopNode.id, previousBoundary);
+        throw new PipelineCheckpointCommitConflictError(loopNode.id, {
+          completedIterations: previousBoundary?.iteration ?? 0,
+          observedVersion: frame.versionTracker.version,
+        });
+      }
     },
     onIterationComplete: async (completedIterations, progress) => {
       clearCommittedLoopInteractionCursor(frame, loopNode.id);
@@ -659,7 +723,19 @@ export async function dispatchLoopStage(
           ? { progressDigest: progress.progressDigest }
           : {}),
       };
-      await ctx.saveCheckpoint(frame);
+      if (loopNode.forEach !== undefined && loopNode.bodyGraph !== undefined) {
+        // attachAs publishes an intentional source update with this prefix.
+        // Bind the new durable source bytes in the same serialized transition.
+        frame.loopSourceDigests = {
+          ...frame.loopSourceDigests,
+          [loopNode.id]: digestPipelineInteractionValue(
+            resolveStatePath(frame.runState, loopNode.forEach.source).value,
+          ),
+        };
+        await ctx.saveControlCheckpoint(frame);
+      } else {
+        await ctx.saveCheckpoint(frame);
+      }
       // G2a — serialized checkpoint commits.
       //
       // An item boundary is the one place the loop advances its *durable*
@@ -821,6 +897,7 @@ export async function dispatchLoopStage(
   // run that recorded nothing. `iteration` is reset to 0 alongside it because a
   // finished loop has no cursor to resume from, and leaving the count would
   // read as mid-flight progress.
+  const finishedIterations = frame.loopState[loopNode.id]?.iteration ?? 0;
   const finishedOutcomes = frame.loopState[loopNode.id]?.itemOutcomes;
   if (finishedOutcomes === undefined) {
     delete frame.loopState[loopNode.id];
@@ -833,7 +910,16 @@ export async function dispatchLoopStage(
   nodeResults.set(loopNode.id, loopResult);
   completedNodeIds.push(loopNode.id);
   ctx.recordIdempotencyKey(nodeIdempotencyKeys, runId, loopNode);
-  await ctx.saveCheckpoint(frame);
+  await (loopNode.forEach !== undefined && loopNode.bodyGraph !== undefined
+    ? ctx.saveControlCheckpoint(frame)
+    : ctx.saveCheckpoint(frame));
+  if (loopNode.forEach !== undefined && loopNode.bodyGraph !== undefined &&
+      lastWriteLostCommit(frame.versionTracker)) {
+    throw new PipelineCheckpointCommitConflictError(loopNode.id, {
+      completedIterations: finishedIterations,
+      observedVersion: frame.versionTracker.version,
+    });
+  }
   return { kind: "continue", nextNodeId: ctx.next(loopNode.id, runState) };
 }
 
