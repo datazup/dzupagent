@@ -19,11 +19,11 @@ export interface LifecyclePolicy {
   maxSpawnDepth: number;
 }
 
-export const DEFAULT_LIFECYCLE_POLICY: LifecyclePolicy = {
+export const DEFAULT_LIFECYCLE_POLICY: Readonly<LifecyclePolicy> = Object.freeze({
   maxConcurrentBackground: 4,
   maxQueuedTasks: 100,
   defaultTtlMs: 15 * 60 * 1000, // 15 minutes
   retentionMs: 60 * 60 * 1000, // 1 hour
   gcIntervalMs: 60 * 1000, // 60 seconds
   maxSpawnDepth: 2,
-};
+});
