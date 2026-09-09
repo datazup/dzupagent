@@ -20,8 +20,8 @@ vi.mock('../utils/process-helpers.js', () => ({
 // ---------------------------------------------------------------------------
 
 class TestCliAdapter extends BaseCliAdapter {
-  constructor() {
-    super('gemini')
+  constructor(providerId: 'gemini' | 'goose' = 'gemini') {
+    super(providerId)
   }
 
   protected getBinaryName(): string {
@@ -77,6 +77,18 @@ describe('BaseCliAdapter.execute() — path-level tests', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  it('preserves Goose abort rethrow with explicit auto-approve', async () => {
+    mockSpawnAndStreamJsonl.mockImplementation(async function* () {
+      throw new ForgeError({ code: 'AGENT_ABORTED', message: 'Goose aborted', recoverable: true })
+    })
+    const adapter = new TestCliAdapter('goose')
+    adapter.configure({ interactionPolicy: { mode: 'auto-approve' } })
+    const stream = adapter.execute({ prompt: 'inspect' })
+    expect((await stream.next()).value?.type).toBe('adapter:started')
+    expect((await stream.next()).value).toMatchObject({ type: 'adapter:failed', code: 'AGENT_ABORTED' })
+    await expect(stream.next()).rejects.toMatchObject({ code: 'AGENT_ABORTED' })
   })
 
   // -------------------------------------------------------------------------
@@ -440,6 +452,61 @@ describe('BaseCliAdapter.execute() — path-level tests', () => {
   // -------------------------------------------------------------------------
 
   describe('interaction detection (ask-caller policy)', () => {
+    it('retains the implicit permission request until the caller responds', async () => {
+      const adapter = new TestCliAdapter()
+      let interactionId = ''
+      let answer: string | null | undefined
+      mockSpawnAndStreamJsonl.mockImplementation(async function* (_binary, _args, opts) {
+        const request = { type: 'permission_request', message: 'Allow write access?' }
+        // The real JSONL transport starts the responder before yielding its record.
+        const pending = opts?.stdinResponder?.(request, request.message, 'permission')
+        yield request
+        answer = await pending
+        yield { type: 'completed', result: 'done' }
+      })
+      const events: AgentEvent[] = []
+      const responses: boolean[] = []
+      const execution = (async () => {
+        for await (const event of adapter.execute({ prompt: 'inspect' })) {
+          events.push(event)
+          if (event.type === 'adapter:interaction_required') {
+            interactionId = event.interactionId
+            expect(answer).toBeUndefined()
+            responses.push(adapter.respondInteraction(interactionId, 'no'))
+          }
+        }
+      })()
+      try {
+        await vi.waitFor(() => expect(responses).toEqual([true]))
+        await execution
+        expect(answer).toBe('no')
+        expect(events).toContainEqual(expect.objectContaining({
+          type: 'adapter:interaction_required', kind: 'permission', interactionId,
+        }))
+        expect(events).toContainEqual(expect.objectContaining({
+          type: 'adapter:interaction_resolved', answer: 'no', resolvedBy: 'caller',
+        }))
+      } finally {
+        adapter.respondInteraction(interactionId, 'no')
+        adapter.interrupt()
+        await execution
+      }
+    })
+
+    it('preserves per-call explicit auto-approve over configured ask-caller', async () => {
+      mockSpawnAndStreamJsonl.mockImplementation(async function* (_binary, _args, opts) {
+        expect(opts?.stdinResponder).toBeUndefined()
+        yield { type: 'completed', result: 'done' }
+      })
+      const adapter = new TestCliAdapter()
+      adapter.configure({ interactionPolicy: { mode: 'ask-caller' } })
+      const events = await collectEvents(adapter.execute({
+        prompt: 'explicit compatibility', options: { interactionPolicy: { mode: 'auto-approve' } },
+      }))
+      expect(events.some((event) => event.type === 'adapter:completed')).toBe(true)
+      expect(events.some((event) => event.type === 'adapter:interaction_required')).toBe(false)
+    })
+
     it('exposes the active resolver through respondInteraction', async () => {
       mockSpawnAndStreamJsonl.mockImplementation(
         async function* (_binary, _args, opts) {

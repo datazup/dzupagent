@@ -11,7 +11,7 @@
  *   - Caller-supplied config overrides preservation
  *   - Cached usage propagation
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { collectEvents } from "./test-helpers.js";
 import type { AgentEvent, AgentInput } from "../types.js";
 
@@ -80,6 +80,132 @@ describe("CodexAdapter — deep coverage", () => {
   });
 
   // ── Thread lifecycle ──────────────────────────────────
+
+  describe("interaction policy compatibility", () => {
+    afterEach(() => vi.useRealTimers());
+
+    it.each(["turn.failed", "approval_request"])("accepts an immediate caller denial from an implicit %s interaction", async (source) => {
+      vi.useFakeTimers();
+      mockStartThread.mockReturnValue(createMockThread([
+        threadStarted(),
+        source === "turn.failed"
+          ? { type: "turn.failed", error: { message: "Approval required to execute command" } }
+          : { type: "item.completed", item: { type: "approval_request", id: "approval-1", message: "Allow write access?", kind: "permission" } },
+        turnCompleted(),
+      ]));
+      const responses: boolean[] = [];
+      const events: AgentEvent[] = [];
+      const execution = (async () => {
+        for await (const event of adapter.execute(makeInput())) {
+          events.push(event);
+          if (event.type === "adapter:interaction_required") {
+            responses.push(adapter.respondInteraction(event.interactionId, "no"));
+          }
+        }
+      })();
+      try {
+        await vi.waitFor(() => expect(responses).toHaveLength(1));
+        expect(responses).toEqual([true]);
+        await execution;
+        expect(events).toContainEqual(expect.objectContaining({ type: "adapter:interaction_resolved", answer: "no", resolvedBy: "caller" }));
+        expect(events).toContainEqual(expect.objectContaining({ type: "adapter:failed", code: "INTERACTION_DENIED" }));
+        expect(events.some(event => event.type === "adapter:completed")).toBe(false);
+        if (source === "approval_request") {
+          const thread = mockStartThread.mock.results[0]!.value;
+          expect(thread.runStreamed.mock.calls[0][1].signal.aborted).toBe(true);
+        }
+        expect(mockResumeThread).not.toHaveBeenCalled();
+      } finally {
+        await vi.advanceTimersByTimeAsync(60_000);
+        adapter.interrupt();
+        await execution;
+      }
+    });
+
+    it.each([
+      { name: "implicit", config: {}, options: {}, approval: "on-failure" },
+      { name: "configured auto-approve", config: { interactionPolicy: { mode: "auto-approve" as const } }, options: {}, approval: "never" },
+      { name: "per-call auto-approve", config: { interactionPolicy: { mode: "ask-caller" as const } }, options: { interactionPolicy: { mode: "auto-approve" } }, approval: "never" },
+      { name: "per-call ask-caller", config: { interactionPolicy: { mode: "auto-approve" as const } }, options: { interactionPolicy: { mode: "ask-caller" } }, approval: "on-failure" },
+    ])("projects $name policy into the native thread options", async ({ config, options, approval }) => {
+      adapter.configure(config);
+      mockStartThread.mockReturnValue(createMockThread([threadStarted(), turnCompleted()]));
+      await collectEvents(adapter.execute(makeInput({ options })));
+      expect(mockStartThread).toHaveBeenCalledWith(expect.objectContaining({ approvalPolicy: approval }));
+    });
+
+    it.each(["turn.failed", "approval_request"])("surfaces an implicit %s approval and denies its timeout without resuming", async (source) => {
+      vi.useFakeTimers();
+      mockStartThread.mockReturnValue(createMockThread([
+        threadStarted(),
+        source === "turn.failed"
+          ? { type: "turn.failed", error: { message: "Approval required to execute command" } }
+          : { type: "item.completed", item: { type: "approval_request", id: "approval-timeout", message: "Allow write access?", kind: "permission" } },
+        turnCompleted(),
+      ]));
+      const events: AgentEvent[] = [];
+      const execution = (async () => {
+        for await (const event of adapter.execute(makeInput())) events.push(event);
+      })();
+      try {
+        await vi.waitFor(() => {
+          expect(events).toContainEqual(expect.objectContaining({ type: "adapter:interaction_required", kind: "permission" }));
+        });
+        expect(events.some(event => event.type === "adapter:interaction_resolved")).toBe(false);
+        expect(mockResumeThread).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(60_000);
+        await execution;
+        expect(events).toContainEqual(expect.objectContaining({ type: "adapter:interaction_resolved", answer: "no", resolvedBy: "timeout-fallback" }));
+        expect(events).toContainEqual(expect.objectContaining({ type: "adapter:failed" }));
+        expect(events.some(event => event.type === "adapter:completed")).toBe(false);
+        expect(mockResumeThread).not.toHaveBeenCalled();
+      } finally {
+        await vi.advanceTimersByTimeAsync(60_000);
+        adapter.interrupt();
+        await execution;
+      }
+    });
+
+    it.each([false, true])("handles structured approval with explicit auto-approve=%s without inventing a reply channel", async (autoApprove) => {
+      if (autoApprove) adapter.configure({ interactionPolicy: { mode: "auto-approve" } });
+      const thread = createMockThread([
+        threadStarted(),
+        { type: "item.completed", item: { type: "approval_request", id: "approval-positive", message: "Allow write access?", kind: "permission" } },
+        turnCompleted(),
+      ]);
+      mockStartThread.mockReturnValue(thread);
+      const events: AgentEvent[] = [];
+      for await (const event of adapter.execute(makeInput())) {
+        events.push(event);
+        if (event.type === "adapter:interaction_required") {
+          expect(adapter.respondInteraction(event.interactionId, "yes")).toBe(true);
+        }
+      }
+      expect(events.some(event => event.type === "adapter:completed")).toBe(autoApprove);
+      expect(thread.runStreamed.mock.calls[0]![1].signal.aborted).toBe(!autoApprove);
+      if (!autoApprove) expect(events).toContainEqual(expect.objectContaining({ type: "adapter:failed", code: "INTERACTION_RESPONSE_UNSUPPORTED" }));
+      expect(mockResumeThread).not.toHaveBeenCalled();
+    });
+
+    it("does not replay a failed turn when the implicit caller approves", async () => {
+      mockStartThread.mockReturnValue(createMockThread([
+        threadStarted(),
+        { type: "turn.failed", error: { message: "Approval required to execute command" } },
+      ]));
+      mockResumeThread.mockReturnValue(createMockThread([threadStarted(), turnCompleted()]));
+      const events: AgentEvent[] = [];
+      for await (const event of adapter.execute(makeInput())) {
+        events.push(event);
+        if (event.type === "adapter:interaction_required") {
+          expect(adapter.respondInteraction(event.interactionId, "yes")).toBe(true);
+        }
+      }
+      expect(mockResumeThread).not.toHaveBeenCalled();
+      expect(events).toContainEqual(expect.objectContaining({ type: "adapter:interaction_resolved", answer: "yes", resolvedBy: "caller" }));
+      expect(events).toContainEqual(expect.objectContaining({ type: "adapter:failed", code: "INTERACTION_RESPONSE_UNSUPPORTED" }));
+      expect(events.some(event => event.type === "adapter:completed")).toBe(false);
+    });
+  });
 
   describe("thread lifecycle", () => {
     it("creates a new thread via startThread on execute", async () => {
@@ -596,8 +722,8 @@ describe("CodexAdapter — deep coverage", () => {
     });
 
     it("accepts approvalPolicy and passes it to the SDK", async () => {
-      // With no policy configured the adapter derives "never" from the
-      // auto-approve interaction default, so "on-request" is the discriminating
+      // With no policy configured the adapter derives "on-failure" from the
+      // ask-caller interaction default, so "on-request" is the discriminating
       // value here.
       const a = new CodexAdapter({ approvalPolicy: "on-request" });
       mockStartThread.mockReturnValue(

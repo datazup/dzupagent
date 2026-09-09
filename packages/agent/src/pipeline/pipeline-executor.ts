@@ -52,7 +52,7 @@ import type { RunFrame } from "./executor-internals/run-frame.js";
 import {
   nodeIdempotencyKey,
   nodeIdempotencyContext,
-} from "./executor-internals/idempotency.js";
+} from "./pipeline-shared/idempotency.js";
 import { type BudgetTrackerState } from "./executor-internals/iteration-budget-tracker.js";
 import { type RecoveryCounter } from "./executor-internals/node-side-effects.js";
 import {

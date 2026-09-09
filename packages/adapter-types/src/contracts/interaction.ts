@@ -7,11 +7,11 @@
  * requests, and permission prompts from a sub-agent.
  */
 export type InteractionPolicyMode =
-  | 'auto-approve'    // always answer yes/grant (backward-compatible default)
+  | 'auto-approve'    // always answer yes/grant (explicit compatibility mode)
   | 'auto-deny'       // always answer no/deny (safe for untrusted runs)
   | 'default-answers' // match question text against a regex → answer map
   | 'ai-autonomous'   // use a secondary LLM call to decide
-  | 'ask-caller'      // emit adapter:interaction_required and wait for caller
+  | 'ask-caller'      // default: emit adapter:interaction_required and wait for caller
 
 export interface InteractionPolicy {
   mode: InteractionPolicyMode

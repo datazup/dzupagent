@@ -23,6 +23,7 @@ import {
   type CodexApprovalContext,
 } from './codex-approval.js'
 import type { RunStreamedThreadContext } from './codex-streamed-thread-types.js'
+import type { InteractionResult } from '../interaction/interaction-resolver.js'
 
 /**
  * Yield approval-request stream events when an SDK `item.completed` event
@@ -34,14 +35,18 @@ export async function* handleStreamApprovalRequest(
   providerEventId: string | null,
   parentProviderEventId: string | null,
   ctx: RunStreamedThreadContext,
-): AsyncGenerator<AgentStreamEvent, void, undefined> {
+): AsyncGenerator<AgentStreamEvent, InteractionResult, undefined> {
   const item = event.item as CodexApprovalRequestItem
-  yield* handleApprovalRequest(
+  const approvalContext = ctx.buildApprovalContext(input)
+  // This SDK surface cannot send a decision back to a structured request.
+  // Cancel this run before awaiting caller input; never resume it speculatively.
+  if (approvalContext.policy.mode !== 'auto-approve') ctx.abort()
+  return yield* handleApprovalRequest(
     item,
     input,
     providerEventId,
     parentProviderEventId,
-    ctx.buildApprovalContext(input),
+    approvalContext,
   )
 }
 

@@ -4,11 +4,12 @@
  * Codex emits two flavors of approval signals during a streaming turn:
  *
  *   1. `item.completed` with `item.type === 'approval_request'` — a structured
- *      mid-stream pause. The resolver answers, the original stream resumes.
+ *      observed interaction. The exposed SDK has no reply channel for it;
+ *      the caller must stop the run unless auto-approve was explicitly selected.
  *
  *   2. `turn.failed` with an approval-shaped error message — an older code
- *      path where the SDK terminates the turn instead of pausing it. After
- *      the caller approves we have to *resume* the thread to continue.
+ *      path where the SDK terminates the turn instead of pausing it. Caller
+ *      approval cannot be delivered by replaying the failed prompt.
  *
  * Both flows yield {@link AgentStreamEvent}s so the streaming loop in
  * `codex-streamed-thread.ts` can stay focused on SDK iteration.
@@ -22,7 +23,7 @@ import type {
   AgentInput,
   InteractionPolicy,
 } from '../types.js'
-import type { InteractionResolver } from '../interaction/interaction-resolver.js'
+import type { InteractionResolver, InteractionResult } from '../interaction/interaction-resolver.js'
 import {
   makeFailedEvent,
   makeInteractionRequiredEvent,
@@ -51,7 +52,7 @@ export interface CodexApprovalContext {
 /**
  * Handle an `approval_request` item mid-stream. Yields events for
  * `interaction_required` (if ask-caller mode) and `interaction_resolved`,
- * then returns so the caller resumes its event loop.
+ * then returns the decision for enforcement by the streaming loop.
  */
 export async function* handleApprovalRequest(
   item: CodexApprovalRequestItem,
@@ -59,9 +60,16 @@ export async function* handleApprovalRequest(
   providerEventId: string | null,
   parentProviderEventId: string | null,
   ctx: CodexApprovalContext,
-): AsyncGenerator<AgentStreamEvent, void, undefined> {
+): AsyncGenerator<AgentStreamEvent, InteractionResult, undefined> {
   const interactionId = randomUUID()
   const ts = now()
+
+  // Register before publishing so callers can respond while consuming the event.
+  const resolution = ctx.resolver.resolve({
+    interactionId,
+    question: item.message,
+    kind: item.kind,
+  })
 
   if (ctx.policy.mode === 'ask-caller') {
     yield annotateProviderIdentity(
@@ -81,11 +89,7 @@ export async function* handleApprovalRequest(
     )
   }
 
-  const result = await ctx.resolver.resolve({
-    interactionId,
-    question: item.message,
-    kind: item.kind,
-  })
+  const result = await resolution
 
   yield annotateProviderIdentity(
     withCorrelationId(
@@ -102,12 +106,13 @@ export async function* handleApprovalRequest(
     providerEventId,
     parentProviderEventId,
   )
+  return result
 }
 
 /**
  * Handle a `turn.failed` event that represents an approval pause. Yields
- * interaction events and either delegates to `resumeFn` (after approval)
- * to stream the resumed thread, or emits `adapter:failed` (if denied).
+ * interaction events and fails closed when a caller decision has no native
+ * response channel. Preserve the explicitly selected auto-approve legacy path.
  *
  * The caller MUST `return` after this generator finishes — the resumed
  * thread is a complete sub-turn that emits its own `adapter:completed`.
@@ -125,6 +130,13 @@ export async function* handleTurnFailedApproval(
 ): AsyncGenerator<AgentStreamEvent, void, undefined> {
   const interactionId = randomUUID()
   const ts = now()
+
+  // Register before publishing so callers can respond while consuming the event.
+  const resolution = ctx.resolver.resolve({
+    interactionId,
+    question: errMsg,
+    kind: 'permission',
+  })
 
   if (ctx.policy.mode === 'ask-caller') {
     yield annotateProviderIdentity(
@@ -144,11 +156,7 @@ export async function* handleTurnFailedApproval(
     )
   }
 
-  const result = await ctx.resolver.resolve({
-    interactionId,
-    question: errMsg,
-    kind: 'permission',
-  })
+  const result = await resolution
 
   yield annotateProviderIdentity(
     withCorrelationId(
@@ -166,7 +174,8 @@ export async function* handleTurnFailedApproval(
     parentProviderEventId,
   )
 
-  if (result.answer === 'yes' || result.answer === 'approve') {
+  const approved = result.answer === 'yes' || result.answer === 'approve'
+  if (approved && ctx.policy.mode === 'auto-approve') {
     const approvalThread = codex.resumeThread(sessionId, ctx.buildThreadOptions(input))
     yield* resumeFn(approvalThread)
   } else {
@@ -174,8 +183,10 @@ export async function* handleTurnFailedApproval(
       makeFailedEvent({
         providerId: ctx.providerId,
         sessionId,
-        error: `Interaction denied by policy: ${errMsg}`,
-        code: 'INTERACTION_DENIED',
+        error: approved
+          ? 'Codex SDK exposes no response channel for this failed turn; prompt replay is unsupported'
+          : `Interaction denied by policy: ${errMsg}`,
+        code: approved ? 'INTERACTION_RESPONSE_UNSUPPORTED' : 'INTERACTION_DENIED',
         timestamp: now(),
       }),
       input.correlationId,

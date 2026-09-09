@@ -56,7 +56,7 @@ export class InteractionResolver {
   private readonly policy: InteractionPolicy
   private readonly pending = new Map<string, DeferredInteraction>()
 
-  constructor(policy: InteractionPolicy = { mode: 'auto-approve' }) {
+  constructor(policy: InteractionPolicy = { mode: 'ask-caller' }) {
     if (!INTERACTION_POLICY_MODES.has(policy.mode)) {
       throw new TypeError(`Unrecognised interaction policy mode: ${String(policy.mode)}`)
     }

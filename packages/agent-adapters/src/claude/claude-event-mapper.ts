@@ -142,10 +142,9 @@ export function mapToolProgressMessage(
       const kind = classifyInteractionText(questionText)
       const nowMs = Date.now()
 
-      if (policy.mode === 'ask-caller') {
-        // Return interaction_required as the mapped event; the resolver runs async.
-        void resolver.resolve({ interactionId, question: questionText, kind })
-        return makeInteractionRequiredEvent({
+      // Internal request marker: the adapter registers and enforces resolution
+      // before exposing this event in ask-caller mode. Mapping starts no work.
+      return makeInteractionRequiredEvent({
           providerId: 'claude',
           interactionId,
           question: questionText,
@@ -153,9 +152,7 @@ export function mapToolProgressMessage(
           timestamp: nowMs,
           expiresAt: nowMs + (policy.askCaller?.timeoutMs ?? 60_000),
           correlationId: input.correlationId,
-        })
-      }
-      return null
+      })
     }
 
     return makeToolCallEvent({

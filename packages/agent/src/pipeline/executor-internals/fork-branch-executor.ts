@@ -27,7 +27,7 @@ import {
   mergeBranchExecutionResult,
   type BranchExecutionResult,
 } from "./branch-merge.js";
-import { nodeIdempotencyKey, nodeIdempotencyContext } from "./idempotency.js";
+import { nodeIdempotencyKey, nodeIdempotencyContext } from "../pipeline-shared/idempotency.js";
 import {
   beginNodeUnderLedger,
   completeNodeUnderLedger,

@@ -37,6 +37,83 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 const { ClaudeAgentAdapter } = await import('../claude/claude-adapter.js')
 const { buildQueryOptions } = await import('../claude/claude-query-builder.js')
 
+describe('Claude interaction policy compatibility', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it.each([
+    { name: 'implicit', config: {}, options: {}, bypass: false },
+    { name: 'configured auto-approve', config: { interactionPolicy: { mode: 'auto-approve' as const } }, options: {}, bypass: true },
+    { name: 'per-call auto-approve', config: { interactionPolicy: { mode: 'ask-caller' as const } }, options: { interactionPolicy: { mode: 'auto-approve' } }, bypass: true },
+    { name: 'per-call ask-caller', config: { interactionPolicy: { mode: 'auto-approve' as const } }, options: { interactionPolicy: { mode: 'ask-caller' } }, bypass: false },
+  ])('preserves the $name permission projection and interaction surface', async ({ config, options, bypass }) => {
+    const adapter = new ClaudeAgentAdapter(config)
+    mockQuery.mockReturnValue(asyncIterableOf([
+      makeSystemMessage(),
+      makeToolProgressStarted('request_permission', { question: 'Allow write access?' }),
+      makeResultSuccess(),
+    ]))
+    const events: AgentEvent[] = []
+    for await (const event of adapter.execute({ prompt: 'inspect', options })) {
+      events.push(event)
+      if (event.type === 'adapter:interaction_required') {
+        expect(adapter.respondInteraction(event.interactionId, 'no')).toBe(true)
+      }
+    }
+    expect(mockQuery.mock.calls[0]![0].options.permissionMode === 'bypassPermissions').toBe(bypass)
+    expect(events.some(event => event.type === 'adapter:interaction_required')).toBe(!bypass)
+    expect(events.some(event => event.type === 'adapter:interaction_resolved')).toBe(!bypass)
+    expect(events.some(event => event.type === 'adapter:completed')).toBe(bypass)
+  })
+
+  it.each(['no', 'yes', 'timeout', 'dispose', 'auto-deny'])(
+    'stops the affected SDK conversation and reports the %s decision without success',
+    async (decision) => {
+      vi.useFakeTimers()
+      const adapter = new ClaudeAgentAdapter(decision === 'auto-deny'
+        ? { interactionPolicy: { mode: 'auto-deny' } }
+        : {})
+      const conversation = asyncIterableOf([
+        makeSystemMessage(),
+        makeToolProgressStarted('request_permission', { question: 'Allow write access?' }),
+        makeResultSuccess(),
+      ])
+      mockQuery.mockReturnValue(conversation)
+      const events: AgentEvent[] = []
+      const execution = (async () => {
+        for await (const event of adapter.execute({ prompt: 'inspect' })) {
+          events.push(event)
+          if (event.type === 'adapter:interaction_required') {
+            if (decision === 'no' || decision === 'yes') {
+              expect(adapter.respondInteraction(event.interactionId, decision)).toBe(true)
+            } else if (decision === 'dispose') adapter.interrupt()
+          }
+        }
+      })()
+      try {
+        if (decision === 'timeout') {
+          await vi.waitFor(() => expect(events.some(event => event.type === 'adapter:interaction_required')).toBe(true))
+        }
+        await vi.advanceTimersByTimeAsync(60_000)
+        await execution
+        expect(conversation.interrupt).toHaveBeenCalled()
+        expect(mockQuery.mock.calls[0]![0].options.abortController.signal.aborted).toBe(true)
+        expect(events).toContainEqual(expect.objectContaining({
+          type: 'adapter:interaction_resolved', answer: decision === 'yes' ? 'yes' : 'no',
+        }))
+        expect(events).toContainEqual(expect.objectContaining({
+          type: 'adapter:failed',
+          code: decision === 'yes' ? 'INTERACTION_RESPONSE_UNSUPPORTED' : 'INTERACTION_DENIED',
+        }))
+        expect(events.some(event => event.type === 'adapter:completed')).toBe(false)
+      } finally {
+        adapter.interrupt()
+        await execution
+        vi.useRealTimers()
+      }
+    },
+  )
+})
+
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------

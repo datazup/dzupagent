@@ -16,7 +16,7 @@ import type { NodeExecutor } from "../pipeline/pipeline-runtime-types.js";
 import {
   nodeIdempotencyKey,
   nodeIdempotencyContext,
-} from "../pipeline/executor-internals/idempotency.js";
+} from "../pipeline/pipeline-shared/idempotency.js";
 
 /** The canonical key the runtime produces for `nodeId` in `def` (N3b). */
 function runtimeKey(
