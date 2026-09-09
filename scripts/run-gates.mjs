@@ -69,6 +69,7 @@ const STATIC_CHECKS = [
   "check:memory-api-census",
   "check:memory-conformance",
   "check:package-tiers",
+  "check:portal-closure",
   "check:domain-boundaries",
   "check:layer-boundaries",
   "check:control-plane-freeze",
