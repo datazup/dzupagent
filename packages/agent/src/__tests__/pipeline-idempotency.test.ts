@@ -13,7 +13,7 @@ import { InMemoryPipelineCheckpointStore } from "../pipeline/in-memory-checkpoin
 import {
   nodeIdempotencyKey,
   nodeIdempotencyContext,
-} from "../pipeline/executor-internals/idempotency.js";
+} from "../pipeline/pipeline-shared/idempotency.js";
 import {
   canonicalInputDigest,
   materializeIdempotencyKey,

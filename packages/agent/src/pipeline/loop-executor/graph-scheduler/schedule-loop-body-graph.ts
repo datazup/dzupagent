@@ -1,4 +1,4 @@
-import { nodeIdempotencyContext, nodeIdempotencyKey } from "../../executor-internals/idempotency.js";
+import { nodeIdempotencyContext, nodeIdempotencyKey } from "../../pipeline-shared/idempotency.js";
 import type { LoopNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 import { loopBoundary } from "../../loop-body-graph-checkpoint-validator.js";

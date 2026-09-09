@@ -31,7 +31,7 @@ import { recordIterationBudget } from "./node-side-effects.js";
 import {
   nodeIdempotencyContext,
   nodeIdempotencyKey,
-} from "./idempotency.js";
+} from "../pipeline-shared/idempotency.js";
 import type { BudgetTrackerState } from "./iteration-budget-tracker.js";
 
 export interface LoopNodeHandlerDeps {
