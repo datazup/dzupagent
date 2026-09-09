@@ -26,7 +26,14 @@ deterministic `rule` selector. They perform no provider calls or quota writes.
 
 Offers pin the provider, model revision, execution profile, catalog digest,
 qualification evidence, supported provider-native effort names, observed health,
-context/output limits, estimated cost in USD micros, and available quota.
+context/output limits, estimated cost in USD micros, and timestamped quota.
+Each quota observation identifies its accounting `poolRef`. C3 checks the
+combined implementation/review token estimate when both consume that pool,
+as well as their combined estimated cost. Conflicting observations of the
+same pool are invalid; distinct provider/model names do not establish separate
+quota pools. `TaskRoutingRequest.maxObservationAgeMs` bounds the age of both
+health and quota observations. Future or stale observations cannot qualify an
+offer. The freshness limit and observations are retained for replay.
 Effort levels are portable positive integers: level 3 means high. Catalog owners
 must qualify this mapping for each concrete profile; names are never guessed
 from provider names. Unknown cost/capacity or missing qualification is invalid.

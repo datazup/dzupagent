@@ -4,6 +4,7 @@ import type {
 } from '@dzupagent/runtime-contracts'
 import type {
   AiExecutionOfferSnapshot,
+  AiTaskRouteIdentity,
   AiTaskRoutingBinding,
 } from '@dzupagent/runtime-contracts/ai-execution'
 
@@ -21,12 +22,7 @@ export interface TaskComplexityProfile {
   readonly assessmentRef: string
 }
 
-export interface TaskRouteIdentity {
-  readonly provider: string
-  readonly providerFamily: string
-  readonly modelRef: string
-  readonly providerModelId: string
-}
+export type TaskRouteIdentity = AiTaskRouteIdentity
 
 /** Catalog evidence for one concrete, versioned provider/model/profile offer. */
 export interface QualifiedTaskRoutingOffer {
@@ -45,9 +41,12 @@ export interface QualifiedTaskRoutingOffer {
   readonly costClass: ExecutionRouteCostClass
   readonly estimatedLatencyMs: number
   readonly quota: {
+    /** Stable accounting pool identity, shared by offers drawing the same quota. */
+    readonly poolRef: string
     readonly available: boolean
     readonly remainingTokens: number
     readonly evidenceRef: string
+    readonly checkedAt: string
   }
   readonly authAvailable: boolean
   readonly backendAvailable: boolean
@@ -62,6 +61,8 @@ export interface TaskRoutingRequest {
   /** Preserves host policy constraints and transition approvals. */
   readonly policy: Omit<ExecutionRoutePolicy, 'candidates' | 'strategy' | 'preferenceOrder'>
   readonly decidedAt: string
+  /** Host policy freshness limit for health and quota observations, in milliseconds. */
+  readonly maxObservationAgeMs: number
   /** Required for a review task; effort/profile changes never establish independence. */
   readonly implementer?: TaskRouteIdentity
 }

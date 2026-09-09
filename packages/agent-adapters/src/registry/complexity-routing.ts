@@ -60,7 +60,7 @@ function selectAdmittedTaskRoute(input: TaskRoutingRequest): TaskRoutingDecision
   const requiresReview = request.task.complexity === 'C3' && request.task.kind !== 'review'
   const reviewable = requiresReview ? new Set(request.offers.filter((offer) =>
     selectRole(request, 'reviewer', identity(offer), [], undefined,
-      request.task.maximumCostMicros - offer.estimatedCostMicros) !== undefined,
+      request.task.maximumCostMicros - offer.estimatedCostMicros, offer) !== undefined,
   ).map((offer) => offer.offer.offerId)) : undefined
   if (reviewable?.size === 0) {
     throw new TaskRoutingError('TASK_ROUTING_NO_REVIEWER', 'C3 requires an eligible independent reviewer.', freeze({ request }))
@@ -71,7 +71,7 @@ function selectAdmittedTaskRoute(input: TaskRoutingRequest): TaskRoutingDecision
   }
   const reviewer = requiresReview
     ? selectRole(request, 'reviewer', identity(primary.offer), eligibility, undefined,
-      request.task.maximumCostMicros - primary.offer.estimatedCostMicros)
+      request.task.maximumCostMicros - primary.offer.estimatedCostMicros, primary.offer)
     : undefined
   if (requiresReview && !reviewer) {
     throw new TaskRoutingError('TASK_ROUTING_NO_REVIEWER', 'C3 requires an eligible independent reviewer.', freeze({ request, primary, eligibility }))
@@ -165,6 +165,7 @@ function selectRole(
   evidence: Array<TaskRoutingDecision['eligibility'][number]>,
   reviewable?: ReadonlySet<string>,
   reviewCostLimit?: number,
+  primaryOffer?: QualifiedTaskRoutingOffer,
 ): SelectedTaskRoute | undefined {
   const task = role === 'reviewer' ? {
     ...request.task, kind: 'review' as const,
@@ -172,7 +173,11 @@ function selectRole(
   } : request.task
   const needed = capabilities(task)
   const candidates = request.offers.map((item) => {
-    const reasons = rejectionReasons(item, task, request.decidedAt, implementer)
+    const reasons = rejectionReasons(item, task, request.decidedAt, request.maxObservationAgeMs, implementer)
+    if (primaryOffer?.quota.poolRef === item.quota.poolRef &&
+      item.quota.remainingTokens - request.task.contextTokens - request.task.outputTokens < task.contextTokens + task.outputTokens) {
+      reasons.push('SHARED_QUOTA_INSUFFICIENT')
+    }
     if (reviewable && !reviewable.has(item.offer.offerId)) reasons.push('INDEPENDENT_REVIEW_UNAVAILABLE')
     evidence.push({ offerId: item.offer.offerId, role, reasons })
     return {
@@ -229,6 +234,7 @@ function rejectionReasons(
   item: QualifiedTaskRoutingOffer,
   task: TaskComplexityProfile,
   decidedAt: string,
+  maxObservationAgeMs: number,
   implementer: TaskRouteIdentity | undefined,
 ): string[] {
   const reasons: string[] = []
@@ -236,8 +242,9 @@ function rejectionReasons(
   if (!validateAiExecutionOfferSnapshotDigest(item.offer).valid) reasons.push('OFFER_DIGEST_INVALID')
   if (Date.parse(item.offer.effectiveAt) > now ||
     (item.offer.expiresAt && Date.parse(item.offer.expiresAt) <= now)) reasons.push('OFFER_NOT_CURRENT')
-  if (item.offer.health.status !== 'healthy' || !item.offer.health.checkedAt ||
-    Date.parse(item.offer.health.checkedAt) > now) reasons.push('HEALTH_NOT_QUALIFIED')
+  if (item.offer.health.status !== 'healthy') reasons.push('HEALTH_NOT_QUALIFIED')
+  if (!observationIsCurrent(item.offer.health.checkedAt, now, maxObservationAgeMs)) reasons.push('HEALTH_OBSERVATION_NOT_CURRENT')
+  if (!observationIsCurrent(item.quota.checkedAt, now, maxObservationAgeMs)) reasons.push('QUOTA_OBSERVATION_NOT_CURRENT')
   if (COMPLEXITY.indexOf(item.qualification.maximumComplexity) < COMPLEXITY.indexOf(task.complexity)) reasons.push('COMPLEXITY_NOT_QUALIFIED')
   if (COMPLEXITY.indexOf(task.complexity) >= 2 && item.qualification.coding !== 'strong') reasons.push('STRONG_CODING_REQUIRED')
   if (!capabilities(task).every((capability) => item.offer.capabilities.includes(capability))) reasons.push('CAPABILITY_MISSING')
@@ -285,6 +292,7 @@ function validateRequest(request: TaskRoutingRequest): void {
   invalid(!request || request.schema !== 'dzupagent.taskRoutingRequest/v1' || !request.task || !request.policy, 'Invalid task routing request.')
   const task = request.task
   invalid(!text(request.policyRevision) || !date(request.decidedAt), 'Policy revision and decision time are required.')
+  invalid(!amount(request.maxObservationAgeMs) || request.maxObservationAgeMs === 0, 'A positive observation freshness limit is required.')
   invalid(!text(task.taskId) || !text(task.assessmentRef) || !COMPLEXITY.includes(task.complexity) ||
     !Object.hasOwn(REQUIRED_CAPABILITY, task.kind), 'Invalid task complexity assessment.')
   invalid((task.kind === 'architecture' || task.kind === 'security') && task.complexity !== 'C3', 'Architecture and security tasks require C3.')
@@ -297,6 +305,7 @@ function validateRequest(request: TaskRoutingRequest): void {
     !['provider', 'providerFamily', 'modelRef', 'providerModelId'].every((key) => Object.hasOwn(request.implementer!, key)), 'Incomplete implementer identity.')
   invalid(!Array.isArray(request.offers) || request.offers.length === 0 || request.offers.length > 500, 'A bounded offer catalog is required.')
   const ids = new Set<string>()
+  const quotaPools = new Map<string, QualifiedTaskRoutingOffer['quota']>()
   for (const item of request.offers) {
     invalid(!item?.offer?.model || !item.qualification || !item.quota || !item.offer.health, 'Incomplete offer evidence.')
     const offer = item.offer
@@ -318,7 +327,15 @@ function validateRequest(request: TaskRoutingRequest): void {
     invalid(!Array.isArray(offer.capabilities) || !offer.capabilities.every(text), 'Invalid offer capabilities.')
     invalid(![item.contextWindowTokens, item.maximumOutputTokens, item.estimatedCostMicros,
       item.estimatedLatencyMs, item.quota.remainingTokens].every(amount), 'Offer capacity, cost and latency must be known non-negative integers.')
-    invalid(!text(item.quota.evidenceRef) || ![item.quota.available, item.authAvailable, item.backendAvailable, item.modelAvailable].every((v) => typeof v === 'boolean'), 'Offer availability and quota evidence are required.')
+    invalid(!text(item.quota.poolRef) || !text(item.quota.evidenceRef) || !date(item.quota.checkedAt) ||
+      ![item.quota.available, item.authAvailable, item.backendAvailable, item.modelAvailable].every((v) => typeof v === 'boolean'), 'Offer availability and timestamped quota evidence are required.')
+    const observedPool = quotaPools.get(item.quota.poolRef)
+    invalid(observedPool !== undefined && (
+      observedPool.available !== item.quota.available ||
+      observedPool.remainingTokens !== item.quota.remainingTokens ||
+      Date.parse(observedPool.checkedAt) !== Date.parse(item.quota.checkedAt)
+    ), 'Offers sharing a quota pool must use one consistent observation.')
+    quotaPools.set(item.quota.poolRef, item.quota)
     invalid(!Array.isArray(item.efforts) || item.efforts.length === 0 || item.efforts.length > 32 ||
       !item.efforts.every((e) => e && text(e.name) && amount(e.level) && e.level > 0), 'Supported effort mappings are required.')
     invalid(new Set(item.efforts.map((e) => e.name)).size !== item.efforts.length ||
@@ -329,6 +346,11 @@ function validateRequest(request: TaskRoutingRequest): void {
 }
 
 function compare(a: string, b: string): number { return a < b ? -1 : a > b ? 1 : 0 }
+function observationIsCurrent(checkedAt: string | undefined, now: number, maximumAgeMs: number): boolean {
+  if (checkedAt === undefined) return false
+  const age = now - Date.parse(checkedAt)
+  return Number.isFinite(age) && age >= 0 && age <= maximumAgeMs
+}
 function digest(value: unknown): `sha256:${string}` { return canonicalDigestPrefixed(value, 'idempotency-v1') }
 function freeze<T>(value: T): T {
   if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {

@@ -50,7 +50,7 @@ function offer(id: string, cost = 100, family = id): QualifiedTaskRoutingOffer {
     estimatedCostMicros: cost,
     costClass: 'low',
     estimatedLatencyMs: 100,
-    quota: { available: true, remainingTokens: 20_000, evidenceRef: 'quota/observed' },
+    quota: { poolRef: `quota-pool/${id}`, available: true, remainingTokens: 20_000, evidenceRef: 'quota/observed', checkedAt: at },
     authAvailable: true,
     backendAvailable: true,
     modelAvailable: true,
@@ -68,6 +68,7 @@ function request(complexity: TaskComplexityProfile['complexity'] = 'C1'): TaskRo
     offers: [offer('economy', 10), offer('strong', 100)],
     policy: { id: 'route/1', requestId: 'task/1', hardConstraints: [], fallback: 'none', maxSelectionLatencyMs: 100 },
     decidedAt: at,
+    maxObservationAgeMs: 10_000,
   }
 }
 
@@ -142,6 +143,62 @@ describe('complexity policy over the existing deterministic selector', () => {
       .toThrowError(expect.objectContaining({ code: 'TASK_ROUTING_NO_REVIEWER' }))
   })
 
+  it('rejects C3 pairs that overcommit one shared quota pool', () => {
+    const quota = { ...offer('one').quota, poolRef: 'shared', remainingTokens: 2000 }
+    expect(() => selectTaskExecutionRoute({ ...request('C3'), offers: [
+      { ...offer('one'), quota }, { ...offer('two'), quota },
+    ] })).toThrowError(expect.objectContaining({ code: 'TASK_ROUTING_NO_REVIEWER' }))
+  })
+
+  it('accepts exactly sufficient shared quota and independent pools', () => {
+    const quota = { ...offer('one').quota, poolRef: 'shared', remainingTokens: 3000 }
+    const input = { ...request('C3'), offers: [{ ...offer('one'), quota }, { ...offer('two'), quota }] }
+    expect(selectTaskExecutionRoute(input).reviewer).toBeDefined()
+    const separate = input.offers.map((item) => ({ ...item,
+      quota: { ...item.quota, poolRef: item.offer.offerId, remainingTokens: 1500 },
+    }))
+    expect(selectTaskExecutionRoute({ ...input, offers: separate }).reviewer).toBeDefined()
+  })
+
+  it('rejects inconsistent observations for the same accounting pool', () => {
+    const first = { ...offer('one'), quota: { ...offer('one').quota, poolRef: 'shared' } }
+    for (const change of [{ remainingTokens: 1500 }, { available: false }, { checkedAt: '2026-09-09T11:59:59.000Z' }]) {
+      const second = { ...offer('two'), quota: { ...first.quota, ...change } }
+      expect(() => selectTaskExecutionRoute({ ...request('C3'), offers: [first, second] }))
+        .toThrowError(expect.objectContaining({ code: 'TASK_ROUTING_INVALID' }))
+    }
+  })
+
+  it('records stale health and stale or future quota rejections', () => {
+    const staleTime = '2026-09-09T11:59:49.999Z'
+    const badHealth = replaceOfferSnapshot(offer('bad-health', 1), { health: { status: 'healthy', checkedAt: staleTime } })
+    const badQuota = { ...offer('bad-quota', 2), quota: { ...offer('bad-quota').quota, checkedAt: staleTime } }
+    const futureQuota = { ...offer('future-quota', 3), quota: { ...offer('future-quota').quota, checkedAt: '2026-09-09T12:00:00.001Z' } }
+    const decision = selectTaskExecutionRoute({ ...request(), offers: [badHealth, badQuota, futureQuota, offer('good')] })
+    expect(decision.primary.offer.offer.offerId).toBe('good')
+    for (const [id, reason] of [
+      ['bad-health', 'HEALTH_OBSERVATION_NOT_CURRENT'],
+      ['bad-quota', 'QUOTA_OBSERVATION_NOT_CURRENT'],
+      ['future-quota', 'QUOTA_OBSERVATION_NOT_CURRENT'],
+    ]) {
+      expect(decision.eligibility).toEqual(expect.arrayContaining([
+        expect.objectContaining({ offerId: id, reasons: expect.arrayContaining([reason]) }),
+      ]))
+    }
+  })
+
+  it('includes the exact freshness boundary and retains it for replay', () => {
+    const boundary = '2026-09-09T11:59:50.000Z'
+    const item = replaceOfferSnapshot(offer('boundary'), { health: { status: 'healthy', checkedAt: boundary } })
+    const decision = selectTaskExecutionRoute({ ...request(), offers: [{ ...item, quota: { ...item.quota, checkedAt: boundary } }] })
+    expect(decision.primary.offer.offer.offerId).toBe('boundary')
+    expect(replayTaskRoutingDecision(decision)).toEqual(decision)
+    expect(() => selectTaskExecutionRoute({ ...decision.request, maxObservationAgeMs: 9999 }))
+      .toThrowError(expect.objectContaining({ code: 'TASK_ROUTING_NO_OFFER' }))
+    expect(() => selectTaskExecutionRoute({ ...decision.request, maxObservationAgeMs: 0 }))
+      .toThrowError(expect.objectContaining({ code: 'TASK_ROUTING_INVALID' }))
+  })
+
   it('prefers a different family for review, but accepts an independent same-family model', () => {
     const input = request('C2')
     const review = {
@@ -198,7 +255,7 @@ describe('complexity policy over the existing deterministic selector', () => {
     expect(() => selectTaskExecutionRoute({ ...input, policy: {
       ...input.policy, requirements: { capabilities: ['unavailable/v1'] },
     } })).toThrowError(TaskRoutingError)
-    const origin = { ...offer('origin', 100), quota: { available: false, remainingTokens: 0, evidenceRef: 'quota' } }
+    const origin = { ...offer('origin', 100), quota: { ...offer('origin').quota, available: false, remainingTokens: 0 } }
     expect(() => selectTaskExecutionRoute({ ...input, offers: [origin, offer('other', 1)], policy: {
       ...input.policy, originCandidateId: 'origin', approvedTransitions: [],
     } })).toThrowError(TaskRoutingError)
