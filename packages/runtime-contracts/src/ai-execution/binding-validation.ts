@@ -50,6 +50,9 @@ export function validateExecutionBinding(
   validatePersonaBinding(value.persona, `${path}.persona`, diagnostics);
   validateModelIdentity(value.model, `${path}.model`, diagnostics);
   digestValue(value.bindingDigest, `${path}.bindingDigest`, diagnostics, "binding");
+  if (value.taskRouting !== undefined) {
+    validateTaskRouting(value.taskRouting, value.offer, `${path}.taskRouting`, diagnostics);
+  }
 
   const route = isRecord(value.routeDecision) ? value.routeDecision : undefined;
   const offer = isRecord(value.offer) ? value.offer : undefined;
@@ -90,6 +93,50 @@ export function validateExecutionBinding(
       `${path}.offer`,
       "Execution offer identity must agree with the resolved target."
     );
+  }
+}
+
+function validateTaskRouting(
+  value: unknown,
+  offerValue: unknown,
+  path: string,
+  diagnostics: AiExecutionDiagnostic[],
+): void {
+  if (!isRecord(value)) {
+    add(diagnostics, "AI_EXECUTION_BINDING_INVALID", path, "Task routing must be an object.");
+    return;
+  }
+  digestValue(value.decisionDigest, `${path}.decisionDigest`, diagnostics, "binding");
+  nonEmpty(stringValue(value.policyRevision), `${path}.policyRevision`, diagnostics);
+  nonEmpty(stringValue(value.effort), `${path}.effort`, diagnostics);
+  enumValue(stringValue(value.role), ["primary", "reviewer"] as const, `${path}.role`, diagnostics);
+  enumValue(stringValue(value.complexity), ["C0", "C1", "C2", "C3"] as const, `${path}.complexity`, diagnostics);
+  const review = isRecord(value.reviewPolicy) ? value.reviewPolicy : undefined;
+  if (!review || typeof review.required !== "boolean" || typeof review.preferDifferentProviderFamily !== "boolean") {
+    add(diagnostics, "AI_EXECUTION_BINDING_INVALID", `${path}.reviewPolicy`, "Review policy requires boolean requirements and family preference.");
+    return;
+  }
+  const offer = isRecord(offerValue) ? offerValue : undefined;
+  const model = isRecord(offer?.model) ? offer.model : undefined;
+  for (const key of ["implementer", "reviewer"] as const) {
+    if (review[key] === undefined) continue;
+    const identity = isRecord(review[key]) ? review[key] : undefined;
+    for (const field of ["provider", "providerFamily", "modelRef", "providerModelId"] as const) {
+      nonEmpty(stringValue(identity?.[field]), `${path}.reviewPolicy.${key}.${field}`, diagnostics);
+    }
+    if (identity && (identity.modelRef === model?.modelRef ||
+      (identity.provider === offer?.provider && identity.providerModelId === model?.providerModelId))) {
+      add(diagnostics, "AI_EXECUTION_BINDING_MISMATCH", `${path}.reviewPolicy.${key}`, "Reviewer and implementer must use independent model identities.");
+    }
+  }
+  if (review.required && !isRecord(review.reviewer)) {
+    add(diagnostics, "AI_EXECUTION_BINDING_INVALID", `${path}.reviewPolicy.reviewer`, "Required independent review must name its reviewer.");
+  }
+  if (value.role === "reviewer" && (!isRecord(review.implementer) || review.required)) {
+    add(diagnostics, "AI_EXECUTION_BINDING_INVALID", `${path}.reviewPolicy`, "A reviewer binding must identify its implementer and cannot require another reviewer.");
+  }
+  if (value.complexity === "C3" && value.role === "primary" && !review.required) {
+    add(diagnostics, "AI_EXECUTION_BINDING_INVALID", `${path}.reviewPolicy.required`, "C3 primary execution requires independent review.");
   }
 }
 
