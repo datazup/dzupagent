@@ -1,4 +1,5 @@
 import type { Browser, BrowserContext } from 'playwright'
+import type * as Playwright from 'playwright'
 import type { BrowserLaunchOptions } from '../types.js'
 import { buildChromiumLaunchArgs } from './launch-args.js'
 
@@ -19,12 +20,23 @@ export class BrowserManager {
     const args = buildChromiumLaunchArgs({
       hostResolverRules: opts?.hostResolverRules,
     })
-    // Dynamic import to avoid loading playwright at module level
-    const { chromium } = await import('playwright')
-    this.browser = await chromium.launch({
-      headless: opts?.headless ?? true,
-      ...(args.length > 0 ? { args } : {}),
-    })
+    try {
+      // Some ESM loaders expose Playwright's CommonJS exports under default.
+      // Keep loading lazy, and support both module shapes.
+      const playwright = await import('playwright') as typeof Playwright & {
+        default?: typeof Playwright
+      }
+      const chromium = playwright.chromium ?? playwright.default?.chromium
+      this.browser = await chromium.launch({
+        headless: opts?.headless ?? true,
+        ...(args.length > 0 ? { args } : {}),
+      })
+    } catch (cause) {
+      // Consumers may display the message; diagnostics stay in the private cause.
+      const error = new Error('BROWSER_LAUNCH_FAILED', { cause })
+      error.name = 'BrowserLaunchError'
+      throw error
+    }
   }
 
   async newContext(opts?: BrowserLaunchOptions): Promise<BrowserContext> {
