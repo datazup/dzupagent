@@ -10,6 +10,70 @@ yarn add @dzupagent/agent-adapters
 npm install @dzupagent/agent-adapters
 ```
 
+## Complexity-based execution policy
+
+The package root exports `selectTaskExecutionRoute`, `replayTaskRoutingDecision`,
+`bindTaskExecutionRoute` and `assertTaskExecutionBinding`. These compile a host-assessed
+`TaskComplexityProfile` and qualified offer snapshots into the existing
+deterministic `rule` selector. They perform no provider calls or quota writes.
+
+| Task | Admission and preference |
+|---|---|
+| C0/C1 implementation | Qualified coding capability; lowest estimated cost, then latency |
+| C2 implementation | Strong coding qualification; supported effort at level 3 (high) or above |
+| C3 implementation, architecture or security | Strong C3 qualification; highest supported effort; an eligible independent reviewer |
+| Review | Exclude the implementer's model identity; prefer a different provider family |
+
+Offers pin the provider, model revision, execution profile, catalog digest,
+qualification evidence, supported provider-native effort names, observed health,
+context/output limits, estimated cost in USD micros, and timestamped quota.
+Each quota observation identifies its accounting `poolRef`. C3 checks the
+combined implementation/review token estimate when both consume that pool,
+as well as their combined estimated cost. Conflicting observations of the
+same pool are invalid; distinct provider/model names do not establish separate
+quota pools. `TaskRoutingRequest.maxObservationAgeMs` bounds the age of both
+health and quota observations. Future or stale observations cannot qualify an
+offer. The freshness limit and observations are retained for replay.
+Effort levels are portable positive integers: level 3 means high. Catalog owners
+must qualify this mapping for each concrete profile; names are never guessed
+from provider names. Unknown cost/capacity or missing qualification is invalid.
+Insufficient context, cost budget, quota, capabilities or health excludes an
+offer before the existing selector applies host constraints and transitions.
+The host obtains fresh observations and reserves quota before dispatch;
+selection is a snapshot, not a reservation or review verdict.
+
+```ts
+import {
+  assertTaskExecutionBinding,
+  bindTaskExecutionRoute,
+  selectTaskExecutionRoute,
+} from '@dzupagent/agent-adapters'
+
+// request: TaskRoutingRequest with qualified immutable offer snapshots.
+const decision = selectTaskExecutionRoute(request)
+const binding = bindTaskExecutionRoute(decision, { target, prompt, persona })
+assertTaskExecutionBinding(decision, binding)
+// Persist decision and binding before dispatch. Configure the selected adapter
+// using binding.offer and the exact binding.taskRouting.effort.
+
+// C3 also pins an independent reviewer route. Bind its target and review prompt.
+const reviewBinding = bindTaskExecutionRoute(
+  decision,
+  { target: reviewerTarget, prompt: reviewPrompt, persona: reviewerPersona },
+  'reviewer',
+)
+```
+
+Every returned decision and binding is a detached, recursively frozen snapshot.
+The decision retains all inputs, eligibility reasons, policy and selector
+receipts. Replay recomputes selection and rejects tampering. The predispatch
+guard also rejects a changed effort or review policy that has been rehashed.
+The existing
+`AiExecutionBinding` includes optional `taskRouting` context in its canonical
+digest, including the exact effort and review identities. Legacy bindings
+remain readable. A different model/profile/effort requires a new decision and
+binding; never relabel a fallback attempt with the original decision.
+
 ## Provider requirements
 
 `@dzupagent/agent-adapters` unifies several provider backends under one interface.

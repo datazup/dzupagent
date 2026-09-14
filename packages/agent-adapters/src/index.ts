@@ -154,6 +154,21 @@ export { resolvePersonaTemplate } from "./prompts/system-prompt-builder.js";
 export { stripThinkingBlocks } from "./prompts/thinking-history.js";
 
 // --- Registry & Router ---
+export {
+  assertTaskExecutionBinding,
+  bindTaskExecutionRoute,
+  replayTaskRoutingDecision,
+  selectTaskExecutionRoute,
+  TaskRoutingError,
+} from "./registry/complexity-routing.js";
+export type {
+  QualifiedTaskRoutingOffer,
+  SelectedTaskRoute,
+  TaskComplexityProfile,
+  TaskRouteIdentity,
+  TaskRoutingDecision,
+  TaskRoutingRequest,
+} from "./registry/complexity-routing-types.js";
 export { ProviderAdapterRegistry } from "./registry/adapter-registry.js";
 export type {
   ProviderAdapterRegistryConfig,

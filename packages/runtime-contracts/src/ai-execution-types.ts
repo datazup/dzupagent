@@ -288,6 +288,29 @@ export type AiPersonaExecutionBinding =
       readonly digest: `sha256:${string}`;
     };
 
+export interface AiTaskRouteIdentity {
+  readonly provider: string;
+  readonly providerFamily: string;
+  readonly modelRef: string;
+  readonly providerModelId: string;
+}
+
+/** Optional, digest-covered policy context for complexity-routed executions. */
+export interface AiTaskRoutingBinding {
+  readonly decisionDigest: `sha256:${string}`;
+  readonly policyRevision: string;
+  readonly complexity: "C0" | "C1" | "C2" | "C3";
+  /** Exact provider-native effort admitted for this offer and attempt. */
+  readonly effort: string;
+  readonly role: "primary" | "reviewer";
+  readonly reviewPolicy: {
+    readonly required: boolean;
+    readonly preferDifferentProviderFamily: boolean;
+    readonly implementer?: AiTaskRouteIdentity;
+    readonly reviewer?: AiTaskRouteIdentity;
+  };
+}
+
 /** Complete immutable identity of what one execution attempt actually ran. */
 export interface AiExecutionBinding {
   readonly schema: typeof AI_EXECUTION_BINDING_SCHEMA;
@@ -297,5 +320,6 @@ export interface AiExecutionBinding {
   readonly prompt: AiPromptExecutionBinding;
   readonly persona: AiPersonaExecutionBinding;
   readonly model: AiModelIdentity;
+  readonly taskRouting?: AiTaskRoutingBinding;
   readonly bindingDigest: `sha256:${string}`;
 }

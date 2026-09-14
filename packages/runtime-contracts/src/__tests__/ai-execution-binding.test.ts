@@ -7,6 +7,7 @@ import {
   AI_EXECUTION_RECEIPT_V2_SCHEMA,
   AI_RESOLVED_TARGET_SCHEMA,
   validateAiExecutionReceipt,
+  validateAiExecutionBinding,
   type AiExecutionReceiptV2,
   type AiModelIdentity,
 } from "../ai-execution.js";
@@ -16,6 +17,7 @@ import {
   materializeAiResolvedTargetSnapshot,
   materializeAiRouteDecisionBinding,
   validateAiExecutionReceiptCustody,
+  validateAiExecutionBindingDigest,
 } from "../ai-execution-node.js";
 
 const digest = (character: string) => `sha256:${character.repeat(64)}` as const;
@@ -100,6 +102,46 @@ const binding = materializeAiExecutionBinding({
     digest: digest("e"),
   },
   model,
+});
+
+describe('optional complexity routing execution binding', () => {
+  const taskRouting = {
+    decisionDigest: digest('a'), policyRevision: 'l3/1', complexity: 'C3' as const,
+    effort: 'deepest', role: 'primary' as const,
+    reviewPolicy: { required: true, preferDifferentProviderFamily: true,
+      reviewer: { provider: 'independent', providerFamily: 'other', modelRef: 'model/reviewer', providerModelId: 'reviewer' },
+    },
+  };
+
+  it('keeps legacy bindings valid and validates complexity context', () => {
+    expect(validateAiExecutionBinding(binding).valid).toBe(true);
+    const { bindingDigest: _digest, ...input } = binding;
+    const bound = materializeAiExecutionBinding({ ...input, taskRouting });
+    expect(validateAiExecutionBinding(bound).valid).toBe(true);
+    expect(validateAiExecutionBindingDigest(bound).valid).toBe(true);
+    expect(validateAiExecutionBindingDigest({ ...bound, taskRouting: { ...taskRouting, effort: 'quick' } }).valid).toBe(false);
+  });
+
+  it('rejects missing or non-independent required reviewers', () => {
+    expect(validateAiExecutionBinding({ ...binding, taskRouting: { ...taskRouting,
+      reviewPolicy: { required: true, preferDifferentProviderFamily: true },
+    } }).valid).toBe(false);
+    expect(validateAiExecutionBinding({ ...binding, taskRouting: { ...taskRouting,
+      reviewPolicy: { ...taskRouting.reviewPolicy, reviewer: {
+        provider: offer.provider, providerFamily: 'different-label', modelRef: model.modelRef,
+        providerModelId: model.providerModelId,
+      } },
+    } }).valid).toBe(false);
+  });
+
+  it('rejects invalid effort, complexity, role and reviewer recursion', () => {
+    for (const change of [{ effort: '' }, { complexity: 'C4' }, { role: 'unknown' }, { role: 'reviewer' }]) {
+      expect(validateAiExecutionBinding({ ...binding, taskRouting: { ...taskRouting, ...change } }).valid).toBe(false);
+    }
+    expect(validateAiExecutionBinding({ ...binding, taskRouting: { ...taskRouting,
+      reviewPolicy: { required: false, preferDifferentProviderFamily: false },
+    } }).valid).toBe(false);
+  });
 });
 
 const charge = {
