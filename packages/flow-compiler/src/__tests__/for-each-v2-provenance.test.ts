@@ -6,8 +6,7 @@ import { PipelineDefinitionSchema } from "@dzupagent/runtime-contracts/pipeline-
 import type { PipelineDefinition } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import { createFlowCompiler } from "../index.js";
 import { lowerPipelineLoop } from "../lower/lower-pipeline-loop.js";
-import { PipelineRuntime } from "../../../agent/src/pipeline/pipeline-runtime.js";
-import { InMemoryPipelineCheckpointStore } from "../../../agent/src/pipeline/in-memory-checkpoint-store.js";
+import { InMemoryPipelineCheckpointStore, PipelineRuntime } from "@dzupagent/agent/pipeline";
 
 const source = `dsl: dzupflow/v1
 id: conditional-items-provenance

@@ -48,6 +48,7 @@
     "@dzupagent/runtime-contracts": "0.2.0"
   },
   "devDependencies": {
+    "@dzupagent/agent": "0.2.0",
     "@dzupagent/app-tools": "0.2.0",
     "@dzupagent/core": "0.2.0",
     "@dzupagent/flow-ast": "0.2.0",
