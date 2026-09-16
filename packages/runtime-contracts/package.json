@@ -106,7 +106,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@dzupagent/canonical-json": "0.1.0",
+    "@dzupagent/canonical-json": "portal:../canonical-json",
     "zod": "^4.3.6"
   },
   "devDependencies": {
