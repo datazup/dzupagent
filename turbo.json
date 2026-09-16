@@ -27,6 +27,26 @@
       "outputs": [],
       "outputLogs": "new-only"
     },
+    "@dzupagent/agent-adapters#build": {
+      "dependsOn": ["^build:verify", "@dzupagent/canonical-json#build:verify"],
+      "outputs": ["dist/**"],
+      "outputLogs": "new-only"
+    },
+    "@dzupagent/flow-compiler#build": {
+      "dependsOn": ["^build:verify", "@dzupagent/canonical-json#build:verify"],
+      "outputs": ["dist/**"],
+      "outputLogs": "new-only"
+    },
+    "@dzupagent/flow-dsl#build": {
+      "dependsOn": ["^build:verify", "@dzupagent/canonical-json#build:verify"],
+      "outputs": ["dist/**"],
+      "outputLogs": "new-only"
+    },
+    "@dzupagent/runtime-contracts#build": {
+      "dependsOn": ["^build:verify", "@dzupagent/canonical-json#build:verify"],
+      "outputs": ["dist/**"],
+      "outputLogs": "new-only"
+    },
     "@dzupagent/connectors-documents#build": {
       "dependsOn": ["^build:verify", "@dzupagent/core#build:verify"],
       "outputs": ["dist/**"],
