@@ -1207,7 +1207,7 @@ __metadata:
     "@dzupagent/adapter-types": "npm:0.2.0"
     "@dzupagent/agent": "npm:0.2.0"
     "@dzupagent/agent-types": "npm:0.2.0"
-    "@dzupagent/canonical-json": "npm:0.1.0"
+    "@dzupagent/canonical-json": "portal:../canonical-json"
     "@dzupagent/context": "npm:0.2.0"
     "@dzupagent/core": "npm:0.2.0"
     "@dzupagent/runtime-contracts": "npm:0.2.0"
@@ -1310,7 +1310,31 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@dzupagent/canonical-json@npm:0.1.0, @dzupagent/canonical-json@workspace:packages/canonical-json":
+"@dzupagent/canonical-json@portal:../canonical-json::locator=%40dzupagent%2Fagent-adapters%40workspace%3Apackages%2Fagent-adapters":
+  version: 0.0.0-use.local
+  resolution: "@dzupagent/canonical-json@portal:../canonical-json::locator=%40dzupagent%2Fagent-adapters%40workspace%3Apackages%2Fagent-adapters"
+  languageName: node
+  linkType: soft
+
+"@dzupagent/canonical-json@portal:../canonical-json::locator=%40dzupagent%2Fflow-compiler%40workspace%3Apackages%2Fflow-compiler":
+  version: 0.0.0-use.local
+  resolution: "@dzupagent/canonical-json@portal:../canonical-json::locator=%40dzupagent%2Fflow-compiler%40workspace%3Apackages%2Fflow-compiler"
+  languageName: node
+  linkType: soft
+
+"@dzupagent/canonical-json@portal:../canonical-json::locator=%40dzupagent%2Fflow-dsl%40workspace%3Apackages%2Fflow-dsl":
+  version: 0.0.0-use.local
+  resolution: "@dzupagent/canonical-json@portal:../canonical-json::locator=%40dzupagent%2Fflow-dsl%40workspace%3Apackages%2Fflow-dsl"
+  languageName: node
+  linkType: soft
+
+"@dzupagent/canonical-json@portal:../canonical-json::locator=%40dzupagent%2Fruntime-contracts%40workspace%3Apackages%2Fruntime-contracts":
+  version: 0.0.0-use.local
+  resolution: "@dzupagent/canonical-json@portal:../canonical-json::locator=%40dzupagent%2Fruntime-contracts%40workspace%3Apackages%2Fruntime-contracts"
+  languageName: node
+  linkType: soft
+
+"@dzupagent/canonical-json@workspace:packages/canonical-json":
   version: 0.0.0-use.local
   resolution: "@dzupagent/canonical-json@workspace:packages/canonical-json"
   dependencies:
@@ -1587,7 +1611,7 @@ __metadata:
   dependencies:
     "@dzupagent/agent": "npm:0.2.0"
     "@dzupagent/app-tools": "npm:0.2.0"
-    "@dzupagent/canonical-json": "npm:0.1.0"
+    "@dzupagent/canonical-json": "portal:../canonical-json"
     "@dzupagent/core": "npm:0.2.0"
     "@dzupagent/flow-ast": "npm:0.2.0"
     "@dzupagent/flow-dsl": "npm:0.2.0"
@@ -1607,7 +1631,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@dzupagent/flow-dsl@workspace:packages/flow-dsl"
   dependencies:
-    "@dzupagent/canonical-json": "npm:0.1.0"
+    "@dzupagent/canonical-json": "portal:../canonical-json"
     "@dzupagent/flow-ast": "npm:0.2.0"
     tsup: "npm:*"
     typescript: "npm:^5.8.3"
@@ -1728,7 +1752,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@dzupagent/runtime-contracts@workspace:packages/runtime-contracts"
   dependencies:
-    "@dzupagent/canonical-json": "npm:0.1.0"
+    "@dzupagent/canonical-json": "portal:../canonical-json"
     tsup: "npm:*"
     typescript: "npm:^5.8.3"
     vitest: "npm:^3.2.4"
