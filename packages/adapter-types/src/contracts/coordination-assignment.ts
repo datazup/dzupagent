@@ -262,7 +262,8 @@ export type CoordinationVerifiedDigest =
   | "workspace.source.bindingDigest"
   | "workspace.workspaceDigest"
   | "authorityBundle.bundleDigest"
-  | "contextPack.manifestDigest";
+  | "contextPack.manifestDigest"
+  | "contextPack.profile.profileRef";
 
 export interface CoordinationAssignmentDiagnostic {
   readonly code: string;
@@ -275,7 +276,11 @@ export interface DecodedCoordinationExecutionAssignment {
   readonly assignment: CoordinationExecutionAssignmentView;
   /** `sha256:` digest of the canonical JSON of the whole document. */
   readonly canonicalSeal: CoordinationSha256Digest;
-  /** True only when the caller supplied an expected seal and it matched. */
+  /**
+   * True only when the caller supplied an expected seal and it matched. The
+   * composer refuses unsealed assignments: embedded digests can be recomputed
+   * by anyone, so only the producer seal binds the bytes to the producer.
+   */
   readonly sealVerified: boolean;
   readonly verifiedDigests: readonly CoordinationVerifiedDigest[];
 }

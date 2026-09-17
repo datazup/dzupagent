@@ -53,8 +53,10 @@ export {
   compareCoordinationTimestamps,
   coordinationCanonicalDigest,
   coordinationSelfDigest,
+  coordinationUnknownKeySegment,
   decodeCoordinationExecutionAssignment,
   isCoordinationTimestamp,
+  isDecodedCoordinationExecutionAssignment,
 } from './coordination-assignment-decoder.js'
 export type { DecodeCoordinationExecutionAssignmentOptions } from './coordination-assignment-decoder.js'
 export {

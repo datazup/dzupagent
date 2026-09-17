@@ -24,6 +24,7 @@ import {
   composeCoordinationAttemptExecution,
   coordinationCanonicalDigest,
   coordinationSelfDigest,
+  coordinationUnknownKeySegment,
   decodeCoordinationExecutionAssignment,
   renderCoordinationAgentExecutionRequest,
   type ComposeCoordinationAttemptExecutionInput,
@@ -67,6 +68,7 @@ function fixture(): Json {
 
 /** Recompute every self-digest bottom-up with the producer rule. */
 function reseal(assignment: Json): Json {
+  assignment.contextPack.profile.profileRef = coordinationSelfDigest(assignment.contextPack.profile, 'profileRef')
   assignment.source.bindingDigest = coordinationSelfDigest(assignment.source, 'bindingDigest')
   assignment.workspace.source.bindingDigest = coordinationSelfDigest(assignment.workspace.source, 'bindingDigest')
   assignment.workspace.workspaceDigest = coordinationSelfDigest(assignment.workspace, 'workspaceDigest')
@@ -80,6 +82,14 @@ function reseal(assignment: Json): Json {
   return assignment
 }
 
+/** Re-point every copy of the source binding digest after the source changed. */
+function rebindSource(assignment: Json): void {
+  const digest = assignment.source.bindingDigest
+  assignment.workIntent.claims[0].baseFingerprint = digest
+  assignment.contextPack.sourceBindingDigest = digest
+  for (const item of assignment.contextPack.items) item.sourceBindingDigest = digest
+}
+
 /** The fixture with a real task digest so a resolver can satisfy it. */
 function resolvable(mutate: (assignment: Json) => void = () => {}): Json {
   const assignment = fixture()
@@ -90,8 +100,11 @@ function resolvable(mutate: (assignment: Json) => void = () => {}): Json {
   return reseal(assignment)
 }
 
+/** Decode a (re)sealed test assignment with its own canonical seal as the expected seal. */
 function decode(assignment: Json): DecodedCoordinationExecutionAssignment {
-  const result = decodeCoordinationExecutionAssignment(JSON.stringify(assignment))
+  const result = decodeCoordinationExecutionAssignment(JSON.stringify(assignment), {
+    expectedSeal: coordinationCanonicalDigest(assignment),
+  })
   if (!result.ok) throw new Error(`fixture did not decode: ${JSON.stringify(result.diagnostics)}`)
   return result.value
 }
@@ -207,6 +220,12 @@ function decodeCodes(bytes: string, expectedSeal?: string): string[] {
   return result.ok ? [] : result.diagnostics.map(({ code }) => code)
 }
 
+function decodePaths(assignment: Json): string[] {
+  const result = decodeCoordinationExecutionAssignment(JSON.stringify(assignment))
+  expect(result.ok).toBe(false)
+  return result.ok ? [] : result.diagnostics.map(({ code, path }) => `${code} ${path}`)
+}
+
 function occurrences(haystack: string, value: string): number {
   return haystack.split(JSON.stringify(value)).length - 1
 }
@@ -243,6 +262,7 @@ describe('1. same bytes', () => {
       'assignmentDigest',
       'authorityBundle.bundleDigest',
       'contextPack.manifestDigest',
+      'contextPack.profile.profileRef',
       'sessionEnrollment.contextPackDigest',
       'sessionEnrollment.enrollmentDigest',
       'sessionEnrollment.workIntentDigest',
@@ -270,6 +290,117 @@ describe('1. same bytes', () => {
     expect(decodeCodes('{not json')).toEqual(['COORD_ASSIGNMENT_NOT_JSON'])
     expect(decodeCodes('[]')).toEqual(['COORD_ASSIGNMENT_NOT_OBJECT'])
     expect(decodeCodes(new Uint8Array([0xff, 0xfe]) as unknown as string)).toEqual(['COORD_ASSIGNMENT_NOT_JSON'])
+  })
+
+  it('never echoes an unknown key name and bounds JSON like the producer', () => {
+    const keyed = fixture()
+    keyed.contextPack[SECRET] = 1
+    const paths = decodePaths(keyed)
+    expect(paths).toContain(`COORD_ASSIGNMENT_FIELD_UNKNOWN $.contextPack.${coordinationUnknownKeySegment(SECRET)}`)
+    expect(JSON.stringify(paths)).not.toContain(SECRET)
+    const indexKey = resolvable((assignment) => {
+      assignment.workIntent.claims[0].metadata = { b: 1, 2: 3, 10: 2 }
+    })
+    // Refused at the document bound: the two canonicalizers order such keys differently.
+    expect(decodePaths(indexKey)).toEqual(['COORD_ASSIGNMENT_FIELD_INVALID $'])
+    const infinite = JSON.stringify(fixture()).replace('"maxInputTokens":80000', '"maxInputTokens":1e400')
+    expect(decodeCodes(infinite)).toEqual(['COORD_ASSIGNMENT_FIELD_INVALID'])
+    const deep = resolvable((assignment) => {
+      assignment.workIntent.claims[0].metadata = { a: { b: { c: { d: { e: { f: { g: { h: { i: 1 } } } } } } } } }
+    })
+    expect(decodePaths(deep)).toEqual(['COORD_ASSIGNMENT_FIELD_INVALID $.workIntent.claims.0.metadata'])
+  })
+
+  it('accepts producer-valid optional claim fields', () => {
+    const extended = resolvable((assignment) => {
+      assignment.workIntent.claims.push({
+        schemaVersion: 'resource-claim/v1',
+        claimId: 'claim-docs-read',
+        taskId: 'task-scripts-adapter',
+        resourceId: 'resource-docs',
+        mode: 'immutable_read',
+        scope: 'group',
+        baseFingerprint: 'git:tree:abc123',
+        semanticGroups: ['docs'],
+        confidence: 'derived',
+        enforcement: 'advisory',
+        metadata: { note: 'read only', tags: ['a', 'b'] },
+      })
+    })
+    expect(decode(extended).assignment.workIntent.claims).toHaveLength(2)
+  })
+
+  it.each([
+    ['an integration grant', (a: Json) => {
+      a.authorityBundle.grants.push({ ...a.authorityBundle.grants[0], factClass: 'integration', grantRef: 'grant:integration' })
+    }, '$.authorityBundle.grants.4.factClass'],
+    ['an allowed effect without an effect grant', (a: Json) => {
+      a.allowedEffects = ['ref-push']
+      a.sessionEnrollment.allowedEffects = ['ref-push']
+    }, '$.allowedEffects.0'],
+    ['assignment and session effects that differ', (a: Json) => {
+      a.forbiddenEffects = ['publication', 'deployment']
+    }, '$.forbiddenEffects'],
+    ['an assignment outliving its session', (a: Json) => {
+      a.sessionEnrollment.expiresAt = '2026-08-30T10:50:00Z'
+    }, '$.notAfter'],
+    ['an assignment outliving a grant', (a: Json) => {
+      a.authorityBundle.grants[2].notAfter = '2026-08-30T10:50:00Z'
+    }, '$.authorityBundle.grants.2.notAfter'],
+    ['a missing required fact class', (a: Json) => {
+      a.authorityBundle.grants[3].factClass = 'resource'
+      a.workIntent.authorityRequirements = ['execution', 'placement', 'resource']
+    }, '$.authorityBundle.grants'],
+    ['a duplicate singleton grant', (a: Json) => {
+      a.authorityBundle.grants.push({ ...a.authorityBundle.grants[0], grantRef: 'grant:execution-2' })
+    }, '$.authorityBundle.grants.4.factClass'],
+    ['a grant generation that differs from its bundle', (a: Json) => {
+      a.authorityBundle.grants[1].generation = 6
+    }, '$.authorityBundle.grants.1.generation'],
+    ['a workspace binding to a non-placement grant', (a: Json) => {
+      a.workspace.authorityBindingRef = 'grant:budget'
+    }, '$.workspace.authorityBindingRef'],
+    ['a read-only repository claim', (a: Json) => {
+      a.workIntent.claims[0].mode = 'immutable_read'
+    }, '$.workIntent.claims'],
+    ['a claim for another task', (a: Json) => {
+      a.workIntent.claims[0].taskId = 'task-other'
+    }, '$.workIntent.claims.0.taskId'],
+    ['a self-dependency', (a: Json) => {
+      a.workIntent.dependencies = ['task-scripts-adapter']
+    }, '$.workIntent.dependencies'],
+    ['item requiredness that differs from the profile', (a: Json) => {
+      a.contextPack.items[0].required = false
+    }, '$.contextPack.items.0.required'],
+    ['a profile that does not classify every role', (a: Json) => {
+      a.contextPack.profile.optionalRoles.pop()
+      a.contextPack.omissions.pop()
+    }, '$.contextPack.profile'],
+    ['an absent optional role without an omission', (a: Json) => {
+      a.contextPack.omissions.shift()
+    }, '$.contextPack.profile.optionalRoles.0'],
+    ['privacy labels that do not cover the items', (a: Json) => {
+      a.contextPack.privacyLabels = ['internal', 'restricted']
+    }, '$.contextPack.privacyLabels'],
+    ['clean source carrying overlay evidence', (a: Json) => {
+      a.source.overlayScopeDigest = `sha256:${'5'.repeat(64)}`
+      a.workspace.source.overlayScopeDigest = `sha256:${'5'.repeat(64)}`
+      a.workspace.source.bindingDigest = coordinationSelfDigest(a.workspace.source, 'bindingDigest')
+      a.source.bindingDigest = coordinationSelfDigest(a.source, 'bindingDigest')
+      rebindSource(a)
+    }, '$.source.overlayArtifact'],
+    ['a workspace generation that differs from its source', (a: Json) => {
+      a.workspace.generation = 8
+    }, '$.workspace.generation'],
+  ])('rejects %s like the producer', (_name, mutate, path) => {
+    const paths = decodePaths(resolvable(mutate))
+    expect(paths).toContain(`COORD_ASSIGNMENT_INCONSISTENT ${path}`)
+  })
+
+  it('rejects a profile reference that does not bind the role policy', () => {
+    const drifted = fixture()
+    drifted.contextPack.profile.limits.maxInputTokens = 90000
+    expect(decodePaths(drifted)).toContain('COORD_ASSIGNMENT_DIGEST_MISMATCH $.contextPack.profile.profileRef')
   })
 
   it('rejects an embedded digest that does not match its canonical bytes', () => {
@@ -374,10 +505,14 @@ describe('3. authority', () => {
   })
 
   it('refuses at or after any grant notAfter', async () => {
+    // The producer forbids an assignment outliving a grant, so both expire together.
     const decoded = decode(resolvable((assignment) => {
       assignment.authorityBundle.grants[2].notAfter = '2026-08-30T10:30:00Z'
+      assignment.notAfter = '2026-08-30T10:30:00Z'
     }))
-    expect(await refusalCodes({ decoded })).toEqual(['COORD_GRANT_EXPIRED'])
+    const codes = await refusalCodes({ decoded })
+    expect(codes).toContain('COORD_GRANT_EXPIRED')
+    expect(codes.filter((code) => code === 'COORD_GRANT_EXPIRED')).toHaveLength(1)
   })
 
   it('refuses a session enrollment that is not enrolled', async () => {
@@ -390,15 +525,19 @@ describe('3. authority', () => {
   it('refuses an expired session enrollment', async () => {
     const decoded = decode(resolvable((assignment) => {
       assignment.sessionEnrollment.expiresAt = '2026-08-30T10:20:00Z'
+      assignment.notAfter = '2026-08-30T10:20:00Z'
     }))
-    expect(await refusalCodes({ decoded })).toEqual(['COORD_SESSION_EXPIRED'])
+    expect(await refusalCodes({ decoded })).toContain('COORD_SESSION_EXPIRED')
   })
 
   it('refuses a grant generation that differs from the attempt', async () => {
+    // Grants must bind their bundle generation, so the whole bundle is stale.
     const decoded = decode(resolvable((assignment) => {
-      assignment.authorityBundle.grants[1].generation = 6
+      assignment.authorityBundle.generation = 6
+      for (const grant of assignment.authorityBundle.grants) grant.generation = 6
     }))
-    expect(await refusalCodes({ decoded })).toEqual(['COORD_GRANT_GENERATION_MISMATCH'])
+    const codes = await refusalCodes({ decoded })
+    expect(codes.filter((code) => code === 'COORD_GRANT_GENERATION_MISMATCH')).toHaveLength(4)
   })
 
   it('refuses an assignment generation that differs from the attempt', async () => {
@@ -431,6 +570,62 @@ describe('3. authority', () => {
     expect(decodeCodes(JSON.stringify(resealed), ASSIGNMENT_SEAL)).toEqual(['COORD_ASSIGNMENT_SEAL_MISMATCH'])
     // Whitespace is not a changed byte of the canonical form.
     expect(decodeCoordinationExecutionAssignment(JSON.stringify(fixture()), { expectedSeal: ASSIGNMENT_SEAL }).ok).toBe(true)
+  })
+})
+
+describe('3b. only sealed, decoder-issued assignments compose', () => {
+  it('refuses an assignment decoded without a producer seal', async () => {
+    const unsealed = decodeCoordinationExecutionAssignment(JSON.stringify(resolvable()))
+    if (!unsealed.ok) throw new Error('did not decode')
+    expect(unsealed.value.sealVerified).toBe(false)
+    expect(await refusalCodes({ decoded: unsealed.value })).toEqual(['COORD_ASSIGNMENT_UNSEALED'])
+  })
+
+  it('refuses a frozen look-alike that the decoder did not issue, without throwing', async () => {
+    const forged = Object.freeze({ ...decode(resolvable()) })
+    expect(await refusalCodes({ decoded: forged })).toEqual(['COORD_ASSIGNMENT_NOT_DECODED'])
+    const malformed = Object.freeze({ assignment: Object.freeze({}), sealVerified: true }) as never
+    expect(await refusalCodes({ decoded: malformed })).toEqual(['COORD_ASSIGNMENT_NOT_DECODED'])
+  })
+
+  it('snapshots the binding once, so getters and later mutation cannot switch provider', async () => {
+    const live = binding()
+    let reads = 0
+    Object.defineProperty(live, 'providerId', {
+      enumerable: true,
+      get: () => (reads++ === 0 ? 'claude' : 'codex'),
+    })
+    const resolveAndMutate: CoordinationArtifactResolver = async (request) => {
+      live.model = 'model-swapped'
+      live.capabilitySet.providerSession.descriptor.providerId = 'codex'
+      return resolveTask(request)
+    }
+    const plan = await compose({ binding: live, resolveArtifact: resolveAndMutate })
+    expect(plan.execution.providerId).toBe('claude')
+    expect(plan.execution.model).toBe(MODEL)
+    expect(reads).toBe(1)
+  })
+
+  it('refuses non-plain or malformed inputs without throwing', async () => {
+    class BindingLike {}
+    expect(await refusalCodes({ binding: new BindingLike() })).toEqual(['COORD_BINDING_INVALID'])
+    expect(await refusalCodes({ modelCatalog: { providerId: 'claude' } as never })).toEqual(['COORD_CATALOG_INVALID'])
+    expect(await refusalCodes({
+      modelCatalog: catalog({ models: [{ id: MODEL, supportedReasoningEfforts: [1, null] }] as never }),
+    })).toEqual(['COORD_REASONING_SUPPORT_UNKNOWN'])
+    expect(await refusalCodes({ now: 'not-a-time' })).toEqual(['COORD_NOW_INVALID'])
+    const result = await composeCoordinationAttemptExecution(null as never)
+    expect(result.ok).toBe(false)
+    const rendered = renderCoordinationAgentExecutionRequest(null as never)
+    expect(rendered.ok).toBe(false)
+  })
+
+  it('hashes caller-chosen key names in binding refusals', async () => {
+    const keyed = binding({ [SECRET]: true })
+    keyed.capabilitySet.providerSession = { ...providerSession(), [SECRET]: 'x' }
+    const result = await composeCoordinationAttemptExecution(input({ binding: keyed }))
+    expect(result.ok).toBe(false)
+    expect(JSON.stringify(result)).not.toContain(SECRET)
   })
 })
 
