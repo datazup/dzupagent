@@ -61,13 +61,13 @@ describe('interaction response registration', () => {
         })
         expect(resolver.respond(first.value.interactionId, 'yes')).toBe(false)
         if (shape === 'failed-turn') {
-          expect(resumeThread).toHaveBeenCalledTimes(answer === 'yes' ? 1 : 0)
-          if (answer === 'yes') {
-            expect(resumeThread).toHaveBeenCalledWith('fixture-session', {})
-            expect(remaining.at(-1)).toMatchObject({ type: 'adapter:completed', result: 'resumed' })
-          } else {
-            expect(remaining.at(-1)).toMatchObject({ type: 'adapter:failed', code: 'INTERACTION_DENIED' })
-          }
+          // Caller resolution is registered, but the SDK has no response
+          // channel for a failed turn. Never replay a prompt to emulate one.
+          expect(resumeThread).not.toHaveBeenCalled()
+          expect(remaining.at(-1)).toMatchObject({
+            type: 'adapter:failed',
+            code: answer === 'yes' ? 'INTERACTION_RESPONSE_UNSUPPORTED' : 'INTERACTION_DENIED',
+          })
         }
         expect(vi.getTimerCount()).toBe(0)
       } finally {
