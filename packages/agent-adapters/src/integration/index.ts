@@ -47,3 +47,28 @@ export type {
   AgentRunnerLangChainModelResultOptions,
   AgentRunnerProviderErrorInput,
 } from './agent-runner-langchain-conversion.js'
+export {
+  COORDINATION_ASSIGNMENT_MAX_BYTES,
+  COORDINATION_EXECUTION_ASSIGNMENT_V2_SCHEMA,
+  compareCoordinationTimestamps,
+  coordinationCanonicalDigest,
+  coordinationSelfDigest,
+  decodeCoordinationExecutionAssignment,
+  isCoordinationTimestamp,
+} from './coordination-assignment-decoder.js'
+export type { DecodeCoordinationExecutionAssignmentOptions } from './coordination-assignment-decoder.js'
+export {
+  COORDINATION_ATTEMPT_EXECUTION_ATTESTATION_SCHEMA,
+  COORDINATION_ATTEMPT_EXECUTION_PLAN_SCHEMA,
+  COORDINATION_EXECUTION_BINDING_SCHEMA,
+  composeCoordinationAttemptExecution,
+  renderCoordinationAgentExecutionRequest,
+} from './coordination-attempt-execution.js'
+export type {
+  ComposeCoordinationAttemptExecutionInput,
+  CoordinationAgentExecutionRenderResult,
+  CoordinationArtifactRequest,
+  CoordinationArtifactResolver,
+  CoordinationAttemptExecutionAttestation,
+  CoordinationResolvedArtifact,
+} from './coordination-attempt-execution.js'

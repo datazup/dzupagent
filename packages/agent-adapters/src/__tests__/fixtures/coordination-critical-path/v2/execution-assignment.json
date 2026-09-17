@@ -1,0 +1,299 @@
+{
+  "schema": "datazup.coordination.execution-assignment/v2",
+  "assignmentId": "assignment-scripts-critical",
+  "programmeSpecDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+  "sessionEnrollment": {
+    "schema": "datazup.coordination.session-enrollment/v1",
+    "sessionId": "session-scripts-critical",
+    "intentRef": "intent:coord-cp02",
+    "attemptId": "attempt-scripts-critical",
+    "providerRef": null,
+    "interactionMode": "planned_mutation",
+    "workspaceObservationRef": "observation:workspace-scripts",
+    "programmeSpecDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+    "workIntentDigest": "sha256:4d1b27263ca8cf39b5c13ad27e37e8eff8d08a8b5e1fbdce87925693f51c3dc2",
+    "observationCapabilityRef": "capability:source-observation-v1",
+    "contextPackDigest": "sha256:253f5a942b9ed61ddb5a7042d66698969b25f8a41e26eb580ef4c2ee862053fb",
+    "renewalPolicyRef": "policy:renewal-v1",
+    "decisionDeadlinePolicyRef": "policy:decision-deadline-v1",
+    "recoveryEndpointRef": "endpoint:checkpoint",
+    "allowedEffects": [],
+    "forbiddenEffects": [
+      "publication"
+    ],
+    "state": "enrolled",
+    "generation": 7,
+    "enrolledAt": "2026-08-30T10:00:00Z",
+    "expiresAt": "2026-08-30T11:00:00Z",
+    "enrollmentDigest": "sha256:c92a8320dbb9138a696e759f017129a075a408f907f7e60fdd8fb4852cc8a606"
+  },
+  "attemptId": "attempt-scripts-critical",
+  "generation": 7,
+  "role": "implementer",
+  "workIntent": {
+    "schemaVersion": "work-intent/v1",
+    "programId": "programme-critical",
+    "planId": "plan-coord-cp02",
+    "taskId": "task-scripts-adapter",
+    "dependencies": [],
+    "claims": [
+      {
+        "schemaVersion": "resource-claim/v1",
+        "claimId": "claim-scripts-source",
+        "taskId": "task-scripts-adapter",
+        "resourceId": "resource-scripts",
+        "mode": "candidate_write",
+        "scope": "repository",
+        "baseFingerprint": "sha256:b070e039b791f127e4411facdec010f261d9772a85f1b39c4f91d9511486805d",
+        "confidence": "explicit",
+        "enforcement": "required"
+      }
+    ],
+    "validationContractRef": "validation:coord-cp02",
+    "authorityRequirements": [
+      "execution",
+      "placement",
+      "resource",
+      "budget"
+    ]
+  },
+  "source": {
+    "schema": "datazup.coordination.source-binding/v1",
+    "repositoryId": "resource-scripts",
+    "commitOid": "1111111111111111111111111111111111111111",
+    "treeOid": "2222222222222222222222222222222222222222",
+    "status": "clean",
+    "statusDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+    "overlayArtifact": null,
+    "overlayScopeDigest": null,
+    "freshnessGeneration": 7,
+    "observedAt": "2026-08-30T10:00:00Z",
+    "bindingDigest": "sha256:b070e039b791f127e4411facdec010f261d9772a85f1b39c4f91d9511486805d"
+  },
+  "workspace": {
+    "schema": "datazup.coordination.workspace-instance/v2",
+    "workspaceId": "workspace-scripts-critical",
+    "logicalWorkspaceRef": "workspace:scripts-critical",
+    "physicalDomainRef": "domain:host-one",
+    "isolationStrategy": "isolated",
+    "source": {
+      "schema": "datazup.coordination.source-binding/v1",
+      "repositoryId": "resource-scripts",
+      "commitOid": "1111111111111111111111111111111111111111",
+      "treeOid": "2222222222222222222222222222222222222222",
+      "status": "clean",
+      "statusDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "overlayArtifact": null,
+      "overlayScopeDigest": null,
+      "freshnessGeneration": 7,
+      "observedAt": "2026-08-30T10:00:00Z",
+      "bindingDigest": "sha256:b070e039b791f127e4411facdec010f261d9772a85f1b39c4f91d9511486805d"
+    },
+    "observationRef": "observation:workspace-scripts",
+    "authorityBindingRef": "grant:placement",
+    "generation": 7,
+    "observedAt": "2026-08-30T10:00:00Z",
+    "workspaceDigest": "sha256:c4c2c3a0b355c8eb2db75a37fb806c2586125e5279eeaea280b9a61e6ca30a0d"
+  },
+  "authorityBundle": {
+    "schema": "datazup.coordination.authority-bundle/v2",
+    "bundleId": "authority-bundle-scripts-critical",
+    "grants": [
+      {
+        "factClass": "execution",
+        "grantRef": "grant:execution",
+        "generation": 7,
+        "fenceRef": "fence:execution",
+        "notAfter": "2026-08-30T11:00:00Z",
+        "requiredEffects": [],
+        "coveredAuthorityRequirements": [
+          "execution"
+        ]
+      },
+      {
+        "factClass": "placement",
+        "grantRef": "grant:placement",
+        "generation": 7,
+        "fenceRef": "fence:placement",
+        "notAfter": "2026-08-30T11:00:00Z",
+        "requiredEffects": [],
+        "coveredAuthorityRequirements": [
+          "placement"
+        ]
+      },
+      {
+        "factClass": "resource",
+        "grantRef": "grant:resource",
+        "generation": 7,
+        "fenceRef": "fence:resource",
+        "notAfter": "2026-08-30T11:00:00Z",
+        "requiredEffects": [],
+        "coveredAuthorityRequirements": [
+          "resource"
+        ]
+      },
+      {
+        "factClass": "budget",
+        "grantRef": "grant:budget",
+        "generation": 7,
+        "fenceRef": "fence:budget",
+        "notAfter": "2026-08-30T11:00:00Z",
+        "requiredEffects": [],
+        "coveredAuthorityRequirements": [
+          "budget"
+        ]
+      }
+    ],
+    "generation": 7,
+    "observedAt": "2026-08-30T10:00:00Z",
+    "bundleDigest": "sha256:f971116caed9b6f0abd86a2cf1c498e0def2ba1de938785179f72284133b256a"
+  },
+  "providerRef": null,
+  "contextPack": {
+    "schema": "datazup.coordination.context-pack-manifest/v2",
+    "manifestId": "context-scripts-critical",
+    "attemptId": "attempt-scripts-critical",
+    "generation": 7,
+    "sourceBindingDigest": "sha256:b070e039b791f127e4411facdec010f261d9772a85f1b39c4f91d9511486805d",
+    "profile": {
+      "schema": "datazup.coordination.context-pack-profile/v2",
+      "profileRef": "sha256:cc7c756bafc5a5b8342b5e9784948c97b2871880d4b8b67cd77af8188e2adb74",
+      "requiredRoles": [
+        "task"
+      ],
+      "optionalRoles": [
+        "acceptance_spec",
+        "contract",
+        "local_guidance",
+        "architecture_intent",
+        "architecture_anchor_set",
+        "structural_snapshot",
+        "impact_slice",
+        "governing_decisions",
+        "implementation_ledger_slice",
+        "predecessor_checkpoint",
+        "validation_profile",
+        "curated_memory",
+        "provider_transcript"
+      ],
+      "limits": {
+        "maxInputTokens": 80000,
+        "reservedOutputTokens": 12000,
+        "reservedToolTokens": 8000
+      }
+    },
+    "items": [
+      {
+        "role": "task",
+        "required": true,
+        "artifact": {
+          "schema": "datazup.orchestration.artifact-reference/v1",
+          "artifactId": "artifact-task",
+          "digest": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+          "mediaType": "application/json",
+          "sensitivity": "internal",
+          "retained": true
+        },
+        "contentDigest": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+        "sourceBindingDigest": "sha256:b070e039b791f127e4411facdec010f261d9772a85f1b39c4f91d9511486805d",
+        "freshness": "current",
+        "privacyLabel": "internal"
+      }
+    ],
+    "omissions": [
+      {
+        "role": "acceptance_spec",
+        "required": false,
+        "reasonCode": "NOT_APPLICABLE",
+        "evidenceRef": "evidence:acceptance-spec"
+      },
+      {
+        "role": "contract",
+        "required": false,
+        "reasonCode": "NOT_APPLICABLE",
+        "evidenceRef": "evidence:contract"
+      },
+      {
+        "role": "local_guidance",
+        "required": false,
+        "reasonCode": "NOT_APPLICABLE",
+        "evidenceRef": "evidence:local-guidance"
+      },
+      {
+        "role": "architecture_intent",
+        "required": false,
+        "reasonCode": "NOT_APPLICABLE",
+        "evidenceRef": "evidence:architecture-intent"
+      },
+      {
+        "role": "architecture_anchor_set",
+        "required": false,
+        "reasonCode": "NOT_APPLICABLE",
+        "evidenceRef": "evidence:architecture-anchor-set"
+      },
+      {
+        "role": "structural_snapshot",
+        "required": false,
+        "reasonCode": "NOT_APPLICABLE",
+        "evidenceRef": "evidence:structural-snapshot"
+      },
+      {
+        "role": "impact_slice",
+        "required": false,
+        "reasonCode": "NOT_APPLICABLE",
+        "evidenceRef": "evidence:impact-slice"
+      },
+      {
+        "role": "governing_decisions",
+        "required": false,
+        "reasonCode": "NOT_APPLICABLE",
+        "evidenceRef": "evidence:governing-decisions"
+      },
+      {
+        "role": "implementation_ledger_slice",
+        "required": false,
+        "reasonCode": "NOT_APPLICABLE",
+        "evidenceRef": "evidence:implementation-ledger-slice"
+      },
+      {
+        "role": "predecessor_checkpoint",
+        "required": false,
+        "reasonCode": "NOT_APPLICABLE",
+        "evidenceRef": "evidence:predecessor-checkpoint"
+      },
+      {
+        "role": "validation_profile",
+        "required": false,
+        "reasonCode": "NOT_APPLICABLE",
+        "evidenceRef": "evidence:validation-profile"
+      },
+      {
+        "role": "curated_memory",
+        "required": false,
+        "reasonCode": "NOT_APPLICABLE",
+        "evidenceRef": "evidence:curated-memory"
+      },
+      {
+        "role": "provider_transcript",
+        "required": false,
+        "reasonCode": "REVIEWER_INDEPENDENCE",
+        "evidenceRef": "policy:review-independent-v1"
+      }
+    ],
+    "privacyLabels": [
+      "internal"
+    ],
+    "createdAt": "2026-08-30T10:00:00Z",
+    "manifestDigest": "sha256:253f5a942b9ed61ddb5a7042d66698969b25f8a41e26eb580ef4c2ee862053fb"
+  },
+  "processStrategyLockRef": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "validationProfileRef": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "allowedEffects": [],
+  "forbiddenEffects": [
+    "publication"
+  ],
+  "issuedAt": "2026-08-30T10:00:00Z",
+  "notAfter": "2026-08-30T11:00:00Z",
+  "issuerRef": "controller:coordination",
+  "assignmentDigest": "sha256:2ebaeafdd5fd56554bd89d9ef3561c25ad9a568cdb008d5550f89cfa402a0cf9"
+}

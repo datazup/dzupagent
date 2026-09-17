@@ -1,0 +1,22 @@
+{
+  "schema": "datazup.coordination.critical-path-fixtures/v2",
+  "canonicalJsonProfile": "datazup.coordination.canonical-json/v1",
+  "intendedConsumer": "coord-cp02",
+  "fixtures": [
+    {
+      "id": "execution-assignment",
+      "file": "execution-assignment.json",
+      "canonicalSha256": "sha256:988ef42f3c1e98ff3294b948beaddd022c2a25ba6515b7cb80157e6f59d5c139"
+    },
+    {
+      "id": "checkpoint-handoff",
+      "file": "checkpoint-handoff.json",
+      "canonicalSha256": "sha256:96f2afea8392705b2ac5d13fa616a595e698e184c0c3dfae5f0c5c97e0464286"
+    },
+    {
+      "id": "receipt-predicate",
+      "file": "receipt-predicate.json",
+      "canonicalSha256": "sha256:4a32c71d35c33ba7f137de02f728338b87a8e6f79ffe4579a489fa31b3cb9c97"
+    }
+  ]
+}

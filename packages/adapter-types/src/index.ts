@@ -25,6 +25,7 @@ export * from "./contracts/installation.js";
 export * from "./contracts/posture.js";
 export * from "./contracts/health.js";
 export * from "./contracts/lifecycle.js";
+export * from "./contracts/coordination-assignment.js";
 export * from "./provider-execution-port.js";
 export * from "./pipeline-executor-port.js";
 export * from "./ai-execution-port.js";
