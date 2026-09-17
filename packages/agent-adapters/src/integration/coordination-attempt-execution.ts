@@ -109,6 +109,9 @@ export type CoordinationAgentExecutionRenderResult =
 
 type Refusals = CoordinationAssignmentDiagnostic[]
 
+// Only plans produced by the composer are rendered; a recomputed digest is not enough.
+const composedPlans = new WeakSet<object>()
+
 const BINDING_FIELDS = [
   'schema',
   'bindingId',
@@ -653,7 +656,9 @@ async function compose(
     ...unsigned,
     planDigest: coordinationCanonicalDigest(unsigned),
   }
-  return { ok: true, plan: deepFreeze(plan) }
+  const frozen = deepFreeze(plan)
+  composedPlans.add(frozen)
+  return { ok: true, plan: frozen }
 }
 
 function renderPrompt(plan: CoordinationAttemptExecutionPlan): string {
@@ -690,6 +695,9 @@ export function renderCoordinationAgentExecutionRequest(
 function renderRequest(plan: CoordinationAttemptExecutionPlan): CoordinationAgentExecutionRenderResult {
   if (!isRecord(plan) || !Object.isFrozen(plan) || plan.schema !== COORDINATION_ATTEMPT_EXECUTION_PLAN_SCHEMA) {
     return { ok: false, refusals: Object.freeze([{ code: 'COORD_PLAN_INVALID', path: '$plan', message: 'Render requires a composed plan.' }]) }
+  }
+  if (!composedPlans.has(plan)) {
+    return { ok: false, refusals: Object.freeze([{ code: 'COORD_PLAN_NOT_COMPOSED', path: '$plan', message: 'Render requires a plan returned by the composer.' }]) }
   }
   const { planDigest, ...unsigned } = plan
   if (coordinationCanonicalDigest(unsigned) !== planDigest) {

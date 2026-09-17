@@ -772,7 +772,13 @@ describe('6. immutability', () => {
     }
     deepFreeze(copy)
     const altered = renderCoordinationAgentExecutionRequest(copy as CoordinationAttemptExecutionPlan)
-    expect(altered.ok ? [] : altered.refusals.map(({ code }) => code)).toEqual(['COORD_PLAN_DIGEST_MISMATCH'])
+    expect(altered.ok ? [] : altered.refusals.map(({ code }) => code)).toEqual(['COORD_PLAN_NOT_COMPOSED'])
+    // A hand-built plan with a correctly recomputed digest is still not a composed plan.
+    const { planDigest: _ignored, ...unsigned } = copy
+    const forged = { ...unsigned, planDigest: coordinationCanonicalDigest(unsigned) }
+    deepFreeze(forged)
+    const rendered = renderCoordinationAgentExecutionRequest(forged as CoordinationAttemptExecutionPlan)
+    expect(rendered.ok ? [] : rendered.refusals.map(({ code }) => code)).toEqual(['COORD_PLAN_NOT_COMPOSED'])
   })
 })
 
