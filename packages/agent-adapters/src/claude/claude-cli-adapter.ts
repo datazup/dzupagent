@@ -262,7 +262,16 @@ function mapToolResults(
           ? toolNamesByCallId.get(toolCallId) ?? 'unknown'
           : 'unknown'
       if (toolCallId) toolNamesByCallId.delete(toolCallId)
-      events.push({ type: 'adapter:tool_result', providerId: 'claude', toolName, toolCallId, output: serializeProviderPayload(part['content']) ?? '', durationMs: 0, timestamp: Date.now() })
+      events.push({
+        type: 'adapter:tool_result',
+        providerId: 'claude',
+        toolName,
+        toolCallId,
+        output: serializeProviderPayload(part['content']) ?? '',
+        durationMs: 0,
+        timestamp: Date.now(),
+        ...(typeof part['is_error'] === 'boolean' ? { isError: part['is_error'] } : {}),
+      })
     }
   }
   return events.length > 0 ? events : undefined
