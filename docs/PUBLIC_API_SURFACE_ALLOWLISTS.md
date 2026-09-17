@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-09-04
+Date: 2026-09-17
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -657,7 +657,7 @@ Root index: `packages/connectors/src/index.ts`
 
 Root index: `packages/agent-adapters/src/index.ts`
 
-- Stable root sources: `29`
+- Stable root sources: `31`
 - Deprecated transitional root sources: `99`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x with new code expected to use providers/orchestration/workflow/http/persistence/rules/learning/recovery subpaths before a future 1.0 root contraction.
@@ -702,6 +702,8 @@ Root index: `packages/agent-adapters/src/index.ts`
 | `deprecated-transitional` | `./provider-request-capability-inspection.js` | 5 | `exact:./provider-request-capability-inspection.js` | `inspectProviderRequestCapabilities`, `ProviderRequestCapabilityBlocker`, `ProviderRequestCapabilityInspection`, `ProviderRequestCapabilityInspectionInput` |
 | `deprecated-transitional` | `./prompts/system-prompt-builder.js` | 9 | `prefix:./prompts/` | `SystemPromptBuilder`, `SystemPromptPayload`, `ClaudeAppendPayload`, `ClaudeReplacePayload` |
 | `deprecated-transitional` | `./prompts/thinking-history.js` | 1 | `prefix:./prompts/` | `stripThinkingBlocks` |
+| `stable` | `./registry/complexity-routing.js` | 5 | `prefix:./registry/` | `assertTaskExecutionBinding`, `bindTaskExecutionRoute`, `replayTaskRoutingDecision`, `selectTaskExecutionRoute` |
+| `stable` | `./registry/complexity-routing-types.js` | 6 | `prefix:./registry/` | `QualifiedTaskRoutingOffer`, `SelectedTaskRoute`, `TaskComplexityProfile`, `TaskRouteIdentity` |
 | `stable` | `./registry/adapter-registry.js` | 4 | `prefix:./registry/` | `ProviderAdapterRegistry`, `ProviderAdapterRegistryConfig`, `ProviderAdapterRegistryHealthStatus`, `ProviderAdapterHealthDetail` |
 | `stable` | `./registry/task-router.js` | 5 | `prefix:./registry/` | `TagBasedRouter`, `CostOptimizedRouter`, `RoundRobinRouter`, `CompositeRouter` |
 | `stable` | `./registry/deterministic-candidate-selector.js` | 13 | `prefix:./registry/` | `classifyRouteTransition`, `DeterministicRouteSelectionAdmissionError`, `IMPLEMENTED_DETERMINISTIC_ROUTE_STRATEGIES`, `planCandidateRecovery` |
@@ -1060,7 +1062,7 @@ No stable subpaths configured.
 
 Root index: `packages/adapter-types/src/index.ts`
 
-- Stable root sources: `25`
+- Stable root sources: `26`
 - Deprecated transitional root sources: `1`
 - Internal-only root candidates: `0`
 - Migration window: Stable Adapter type root exports remain Layer 0 contracts. Provider Session Explorer is canonical at ./provider-session-explorer; its root-barrel re-export remains deprecated transitional through 0.x for compatibility and requires separate consumer evidence and release-window approval before removal.
@@ -1095,6 +1097,7 @@ Root index: `packages/adapter-types/src/index.ts`
 | `stable` | `./contracts/posture.js` | 1 | `prefix:./contracts/` | `*` |
 | `stable` | `./contracts/health.js` | 1 | `prefix:./contracts/` | `*` |
 | `stable` | `./contracts/lifecycle.js` | 1 | `prefix:./contracts/` | `*` |
+| `stable` | `./contracts/coordination-assignment.js` | 1 | `prefix:./contracts/` | `*` |
 | `stable` | `./provider-execution-port.js` | 1 | `exact:./provider-execution-port.js` | `*` |
 | `stable` | `./pipeline-executor-port.js` | 1 | `exact:./pipeline-executor-port.js` | `*` |
 | `stable` | `./ai-execution-port.js` | 1 | `exact:./ai-execution-port.js` | `*` |
