@@ -137,20 +137,26 @@ export type LoopEconomicsLeafInventoryResultV2 =
 
 type ClassifiedNodeType = PipelineNode["type"];
 
-const CLASS_BY_AUTHORED_TYPE: Readonly<
-  Record<string, ReadonlyMap<ClassifiedNodeType, LoopEconomicsResolvedExecutionClassV2>>
-> = {
-  action: new Map<ClassifiedNodeType, LoopEconomicsResolvedExecutionClassV2>([
-    ["agent", { kind: "execution", resolution: "agent" }],
-    ["tool", { kind: "effect", resolution: "tool" }],
-  ]),
-  agent: new Map([["agent", { kind: "execution", resolution: "agent" }]]),
-  prompt: new Map([["tool", { kind: "execution", resolution: "prompt" }]]),
-  "adapter.run": new Map([["tool", { kind: "execution", resolution: "adapter.run" }]]),
-  set: new Map([["tool", { kind: "local", resolution: "set" }]]),
-  "validate.schema": new Map([["tool", { kind: "local", resolution: "validate.schema" }]]),
-  branch: new Map([["gate", { kind: "control", resolution: "branch" }]]),
-};
+type ClassRow = ReadonlyMap<ClassifiedNodeType, LoopEconomicsResolvedExecutionClassV2>;
+
+function classRow(
+  ...cells: readonly (readonly [ClassifiedNodeType, LoopEconomicsResolvedExecutionClassV2])[]
+): ClassRow {
+  return new Map(cells.map(([runtime, cls]) => [runtime, Object.freeze(cls)]));
+}
+
+const CLASS_BY_AUTHORED_TYPE: ReadonlyMap<string, ClassRow> = new Map<string, ClassRow>([
+  ["action", classRow(["agent", { kind: "execution", resolution: "agent" }], ["tool", { kind: "effect", resolution: "tool" }])],
+  ["agent", classRow(["agent", { kind: "execution", resolution: "agent" }])],
+  ["prompt", classRow(["tool", { kind: "execution", resolution: "prompt" }])],
+  ["adapter.run", classRow(["tool", { kind: "execution", resolution: "adapter.run" }])],
+  ["set", classRow(["tool", { kind: "local", resolution: "set" }])],
+  ["validate.schema", classRow(["tool", { kind: "local", resolution: "validate.schema" }])],
+  ["branch", classRow(["gate", { kind: "control", resolution: "branch" }])],
+]);
+
+/** Runtime node types the compiler emits without an authored source anchor (structural, not a leaf). */
+const STRUCTURAL_NODE_TYPES: ReadonlySet<ClassifiedNodeType> = new Set(["suspend", "fork", "join", "loop", "gate", "transform"]);
 
 // ---------------------------------------------------------------------------
 // Authored path grammar relative to the loop: body[i](.then[j]|.else[j])*
@@ -241,8 +247,13 @@ export function buildLoopEconomicsLeafInventoryV2(
   return { status: "admitted", inventory: materialize(definition, loop, entries) };
 }
 
-function indexNodes(definition: PipelineDefinition, diagnostics: Diagnostics): Map<string, PipelineNode> {
-  const nodesById = new Map<string, PipelineNode>();
+interface IndexedNode {
+  readonly node: PipelineNode;
+  readonly index: number;
+}
+
+function indexNodes(definition: PipelineDefinition, diagnostics: Diagnostics): Map<string, IndexedNode> {
+  const nodesById = new Map<string, IndexedNode>();
   definition.nodes.forEach((node, index) => {
     if (nodesById.has(node.id)) {
       diagnostics.add(
@@ -252,7 +263,7 @@ function indexNodes(definition: PipelineDefinition, diagnostics: Diagnostics): M
       );
       return;
     }
-    nodesById.set(node.id, node);
+    nodesById.set(node.id, { node, index });
   });
   return nodesById;
 }
@@ -265,16 +276,17 @@ interface AdmittedLoop {
 
 function admitLoop(
   definition: PipelineDefinition,
-  nodesById: ReadonlyMap<string, PipelineNode>,
+  nodesById: ReadonlyMap<string, IndexedNode>,
   loopNodeId: string,
   diagnostics: Diagnostics
 ): AdmittedLoop | undefined {
-  const node = nodesById.get(loopNodeId);
-  const path = `nodes[${definition.nodes.findIndex((candidate) => candidate.id === loopNodeId)}]`;
-  if (node === undefined) {
+  const indexed = nodesById.get(loopNodeId);
+  if (indexed === undefined) {
     diagnostics.add("LOOP_ECONOMICS_V2_INVENTORY_INVALID", "nodes", `No node ${JSON.stringify(loopNodeId)} in the definition.`);
     return undefined;
   }
+  const { node, index } = indexed;
+  const path = `nodes[${index}]`;
   if (node.type !== "loop" || node.forEach === undefined) {
     diagnostics.add("LOOP_ECONOMICS_V2_INVENTORY_INVALID", `${path}.type`, "Inventory target must be a lowered for_each loop node.");
     return undefined;
@@ -296,7 +308,7 @@ function admitLoop(
 
 function admitBodyEntries(
   definition: PipelineDefinition,
-  nodesById: ReadonlyMap<string, PipelineNode>,
+  nodesById: ReadonlyMap<string, IndexedNode>,
   loop: AdmittedLoop,
   diagnostics: Diagnostics
 ): BodyEntry[] {
@@ -313,15 +325,22 @@ function admitBodyEntries(
       return;
     }
     bodyIds.add(id);
-    const node = nodesById.get(id);
-    if (node === undefined) {
+    const indexed = nodesById.get(id);
+    if (indexed === undefined) {
       diagnostics.add("LOOP_ECONOMICS_V2_INVENTORY_FOREIGN_MAPPING", at, `Runtime node ${JSON.stringify(id)} is not defined in this artifact.`);
       return;
     }
-    const nodeIndex = definition.nodes.indexOf(node);
+    const { node, index: nodeIndex } = indexed;
     const nodePath = `nodes[${nodeIndex}]`;
     if (node.source === undefined) {
-      diagnostics.add("LOOP_ECONOMICS_V2_INVENTORY_MISSING_MAPPING", `${nodePath}.source`, `Body node ${JSON.stringify(id)} carries no authored source anchor.`);
+      // The compiler never anchors structural nodes (complete, parallel
+      // fork/join, nested loops); those are outside this inventory rather
+      // than a broken mapping. A leaf without an anchor is a broken mapping.
+      if (STRUCTURAL_NODE_TYPES.has(node.type)) {
+        diagnostics.add("LOOP_ECONOMICS_V2_INVENTORY_UNSUPPORTED_NODE", `${nodePath}.type`, `Structural ${node.type} node ${JSON.stringify(id)} is not admitted in the V2 inventory.`);
+      } else {
+        diagnostics.add("LOOP_ECONOMICS_V2_INVENTORY_MISSING_MAPPING", `${nodePath}.source`, `Body node ${JSON.stringify(id)} carries no authored source anchor.`);
+      }
       return;
     }
     if (!node.source.path.startsWith(prefix)) {
@@ -367,7 +386,7 @@ function classify(
   path: string,
   diagnostics: Diagnostics
 ): LoopEconomicsResolvedExecutionClassV2 | undefined {
-  const byRuntimeType = CLASS_BY_AUTHORED_TYPE[source.nodeType];
+  const byRuntimeType = CLASS_BY_AUTHORED_TYPE.get(source.nodeType);
   if (byRuntimeType === undefined) {
     diagnostics.add("LOOP_ECONOMICS_V2_INVENTORY_UNSUPPORTED_NODE", `${path}.source.nodeType`, `Authored node type ${JSON.stringify(source.nodeType)} has no admitted V2 execution class.`);
     return undefined;
@@ -384,12 +403,15 @@ function classify(
   if (resolved.kind === "effect" && node.effectClass !== undefined) {
     return { ...resolved, effectClass: node.effectClass };
   }
-  return resolved;
+  // A fresh object per binding: the inventory is persisted and handed on, and
+  // must never alias the module-level table.
+  return { ...resolved };
 }
 
 function admitStructure(entries: readonly BodyEntry[], loop: AdmittedLoop, diagnostics: Diagnostics): void {
   const byKey = new Map(entries.map((entry) => [segmentKey(entry.segments), entry] as const));
   const siblings = new Map<string, number[]>();
+  const impliedParents = new Set(entries.map((entry) => segmentKey(entry.segments.slice(0, -1))));
 
   for (const entry of entries) {
     const at = `nodes[${entry.nodeIndex}].source.path`;
@@ -407,10 +429,19 @@ function admitStructure(entries: readonly BodyEntry[], loop: AdmittedLoop, diagn
   }
 
   for (const [groupKey, indexes] of siblings) {
-    const sorted = [...indexes].sort((left, right) => left - right);
-    const contiguous = sorted.every((value, position) => value === position);
-    if (!contiguous) {
-      diagnostics.add("LOOP_ECONOMICS_V2_INVENTORY_MISSING_MAPPING", `${loop.path}.${groupKey.replace("#", ".")}`, "Authored siblings are not contiguous from index 0; a body node is missing.");
+    const [parentKey, arm] = groupKey.split("#") as [string, Arm];
+    const present = new Set(indexes);
+    const gaps = Array.from({ length: Math.max(...indexes) + 1 }, (_, index) => index).filter((index) => !present.has(index));
+    for (const gap of gaps) {
+      const gapKey = `${parentKey === "" ? "" : `${parentKey}.`}${arm}[${gap}]`;
+      // Arm nodes authored under the gap prove a branch was authored there;
+      // that gate is missing and was already reported per arm node above.
+      if (impliedParents.has(gapKey)) continue;
+      diagnostics.add(
+        "LOOP_ECONOMICS_V2_INVENTORY_UNSUPPORTED_NODE",
+        `${loop.path}.${gapKey}`,
+        "Authored sibling lowered to no runtime node; constructs without a runtime leaf are not admitted in the V2 inventory."
+      );
     }
   }
 
@@ -434,7 +465,6 @@ function admitStructure(entries: readonly BodyEntry[], loop: AdmittedLoop, diagn
 }
 
 function admitGateEdges(definition: PipelineDefinition, entries: readonly BodyEntry[], diagnostics: Diagnostics): void {
-  const byKey = new Map(entries.map((entry) => [segmentKey(entry.segments), entry] as const));
   for (const entry of entries) {
     if (entry.executionClass.kind !== "control") continue;
     const gate = entry.node as GateNode;
@@ -451,23 +481,30 @@ function admitGateEdges(definition: PipelineDefinition, entries: readonly BodyEn
       continue;
     }
     const branches = edges[0]!.branches;
-    const armEntry = (arm: "then" | "else"): BodyEntry | undefined =>
-      byKey.get(segmentKey([...entry.segments, { arm, index: 0 }]));
+    const edgeAt = `edges[${definition.edges.indexOf(edges[0]!)}].branches`;
+    // The compiler wires each transition to the first *emitted* node of the
+    // arm, so the expected target is the lowest present index, not index 0.
+    const firstOfArm = (arm: "then" | "else"): BodyEntry | undefined =>
+      entries
+        .filter((candidate) => candidate.segments.length === entry.segments.length + 1
+          && candidate.segments.at(-1)!.arm === arm
+          && segmentKey(candidate.segments.slice(0, -1)) === segmentKey(entry.segments))
+        .sort((left, right) => left.segments.at(-1)!.index - right.segments.at(-1)!.index)[0];
     for (const [arm, key] of [["then", "true"], ["else", "false"]] as const) {
-      const expectedTarget = armEntry(arm)?.node.id;
+      const expectedTarget = firstOfArm(arm)?.node.id;
       const actualTarget = branches[key];
       if (expectedTarget === undefined && actualTarget === undefined) continue;
       if (expectedTarget === undefined) {
-        diagnostics.add("LOOP_ECONOMICS_V2_INVENTORY_CONTRADICTORY_MAPPING", `${at}.edges.${key}`, `Conditional edge targets a ${arm} arm the authored branch does not declare.`);
+        diagnostics.add("LOOP_ECONOMICS_V2_INVENTORY_CONTRADICTORY_MAPPING", `${edgeAt}.${key}`, `Conditional edge targets a ${arm} arm the authored branch does not declare.`);
       } else if (actualTarget === undefined) {
-        diagnostics.add("LOOP_ECONOMICS_V2_INVENTORY_MISSING_MAPPING", `${at}.edges.${key}`, `Conditional edge lacks the ${arm} arm the authored branch declares.`);
+        diagnostics.add("LOOP_ECONOMICS_V2_INVENTORY_MISSING_MAPPING", `${edgeAt}.${key}`, `Conditional edge lacks the ${arm} arm the authored branch declares.`);
       } else if (actualTarget !== expectedTarget) {
-        diagnostics.add("LOOP_ECONOMICS_V2_INVENTORY_CONTRADICTORY_MAPPING", `${at}.edges.${key}`, `Conditional edge enters ${arm} at ${JSON.stringify(actualTarget)}, not the authored first ${arm} node ${JSON.stringify(expectedTarget)}.`);
+        diagnostics.add("LOOP_ECONOMICS_V2_INVENTORY_CONTRADICTORY_MAPPING", `${edgeAt}.${key}`, `Conditional edge enters ${arm} at ${JSON.stringify(actualTarget)}, not the authored first ${arm} node ${JSON.stringify(expectedTarget)}.`);
       }
     }
     for (const key of Object.keys(branches)) {
       if (key !== "true" && key !== "false") {
-        diagnostics.add("LOOP_ECONOMICS_V2_INVENTORY_CONTRADICTORY_MAPPING", `${at}.edges.${key}`, "Branch gate admits only true and false transitions.");
+        diagnostics.add("LOOP_ECONOMICS_V2_INVENTORY_CONTRADICTORY_MAPPING", `${edgeAt}.${key}`, "Branch gate admits only true and false transitions.");
       }
     }
   }

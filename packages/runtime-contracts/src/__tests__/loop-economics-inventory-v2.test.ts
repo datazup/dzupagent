@@ -64,19 +64,22 @@ function fixture(
     if (entry.runtime === "gate") return { id: ids[entry.key]!, type: "gate", gateType: "quality", condition: "check", source };
     return { id: ids[entry.key]!, type: "tool", toolName: `dzup.runtime.${entry.nodeType}`, source, ...effect };
   });
-  const thenFirst = authored.find((entry) => entry.rel === "body[1].then[0]");
-  const elseFirst = authored.find((entry) => entry.rel === "body[1].else[0]");
-  const edges: PipelineEdge[] = [
-    {
+  const firstOfArm = (gate: Authored, arm: "then" | "else") => authored
+    .filter((entry) => entry.rel.startsWith(`${gate.rel}.${arm}[`) && !entry.rel.slice(gate.rel.length + arm.length + 2).includes("."))
+    .sort((left, right) => left.rel.localeCompare(right.rel, undefined, { numeric: true }))[0];
+  const edges: PipelineEdge[] = authored.filter((entry) => entry.runtime === "gate").map((gate) => {
+    const thenFirst = firstOfArm(gate, "then");
+    const elseFirst = firstOfArm(gate, "else");
+    return {
       type: "conditional",
-      sourceNodeId: ids.decide!,
-      predicateName: `branch__${ids.decide}__predicate`,
+      sourceNodeId: ids[gate.key]!,
+      predicateName: `branch__${ids[gate.key]}__predicate`,
       branches: {
         ...(thenFirst !== undefined ? { true: ids[thenFirst.key]! } : {}),
         ...(elseFirst !== undefined ? { false: ids[elseFirst.key]! } : {}),
       },
-    },
-  ];
+    };
+  });
   const loop: PipelineNode = {
     id: ids.loop!,
     type: "loop",
@@ -331,11 +334,78 @@ describe("buildLoopEconomicsLeafInventoryV2", () => {
       expect(deniedCodes(nested.definition, nested.ids.loop!)).toEqual(["LOOP_ECONOMICS_V2_INVENTORY_UNSUPPORTED_NODE"]);
     });
 
+    it("unsupported: an authored sibling that lowered to no runtime node, at the body and inside an arm", () => {
+      const bodyGap = fixture(undefined, [...AUTHORED.slice(1), { ...AUTHORED[0]!, rel: "body[4]" }]);
+      expect(deniedCodes(bodyGap.definition, bodyGap.ids.loop!)).toEqual(["LOOP_ECONOMICS_V2_INVENTORY_UNSUPPORTED_NODE"]);
+      const armGap = fixture(undefined, AUTHORED.filter((entry) => entry.key !== "ask"));
+      const edge = armGap.definition.edges[0];
+      if (edge?.type !== "conditional") throw new Error("fixture edge");
+      expect(edge.branches.true).toBe(armGap.ids.yes);
+      expect(deniedCodes(armGap.definition, armGap.ids.loop!)).toEqual(["LOOP_ECONOMICS_V2_INVENTORY_UNSUPPORTED_NODE"]);
+    });
+
+    it("unsupported: a structural node without an anchor, while an unanchored leaf stays missing", () => {
+      const { definition, ids } = fixture();
+      definition.nodes.push({ id: "rt-complete", type: "suspend" });
+      loopOf(definition).bodyNodeIds.push("rt-complete");
+      expect(deniedCodes(definition, ids.loop!)).toEqual(["LOOP_ECONOMICS_V2_INVENTORY_UNSUPPORTED_NODE"]);
+    });
+
     it("invalid: an unknown loop id or a node that is not a for_each loop", () => {
       const { definition, ids } = fixture();
       expect(deniedCodes(definition, "rt-nowhere")).toEqual(["LOOP_ECONOMICS_V2_INVENTORY_INVALID"]);
       expect(deniedCodes(definition, ids.worker!)).toEqual(["LOOP_ECONOMICS_V2_INVENTORY_INVALID"]);
     });
+  });
+
+  it("threads nested branches through selection indexes and node paths", () => {
+    const nested: Authored[] = [
+      { key: "worker", rel: "body[0]", nodeType: "action", nodeId: "worker", runtime: "agent" },
+      { key: "decide", rel: "body[1]", nodeType: "branch", nodeId: "decide", runtime: "gate" },
+      { key: "inner", rel: "body[1].then[0]", nodeType: "branch", nodeId: "inner", runtime: "gate" },
+      { key: "deep", rel: "body[1].then[0].then[0]", nodeType: "prompt", nodeId: "deep", runtime: "tool" },
+      { key: "deepElse", rel: "body[1].then[0].else[0]", nodeType: "set", nodeId: "deepElse", runtime: "tool" },
+      { key: "after", rel: "body[1].then[1]", nodeType: "set", nodeId: "after", runtime: "tool" },
+      { key: "notify", rel: "body[1].else[0]", nodeType: "action", nodeId: "notify", runtime: "tool" },
+    ];
+    const { definition, ids } = fixture(undefined, nested);
+    const inventory = admitted(definition, ids.loop!);
+    expect(inventory.controlSelections).toEqual([
+      { kind: "branch", nodePath: [ids.loop, ids.decide], selectedBranch: null },
+      { kind: "branch", nodePath: [ids.loop, ids.decide, ids.inner], selectedBranch: null },
+    ]);
+    const deep = inventory.bindings.find((binding) => binding.authoredId === "deep");
+    expect(deep?.nodePath).toEqual([ids.loop, ids.decide, ids.inner, ids.deep]);
+    expect(deep?.controlRequirements).toEqual([
+      { selectionIndex: 0, kind: "branch", requiredBranch: "then" },
+      { selectionIndex: 1, kind: "branch", requiredBranch: "then" },
+    ]);
+    expect(inventory.bindings.find((binding) => binding.authoredId === "deepElse")?.controlRequirements).toEqual([
+      { selectionIndex: 0, kind: "branch", requiredBranch: "then" },
+      { selectionIndex: 1, kind: "branch", requiredBranch: "else" },
+    ]);
+    expect(inventory.bindings.map((binding) => binding.authoredId)).toEqual(nested.map((entry) => entry.nodeId));
+    expect(inventory.leaves.map((leaf) => [leaf.kind, leaf.authoredId])).toEqual([
+      ["execution", "worker"], ["charge", "worker"], ["execution", "deep"], ["charge", "deep"], ["effect", "notify"],
+    ]);
+  });
+
+  it("orders eleven body siblings numerically, not lexicographically", () => {
+    const wide: Authored[] = Array.from({ length: 11 }, (_, index) => ({
+      key: `n${index}`, rel: `body[${index}]`, nodeType: "set", nodeId: `n${index}`, runtime: "tool" as const,
+    }));
+    const { definition, ids } = fixture(undefined, wide);
+    expect(admitted(definition, ids.loop!).bindings.map((binding) => binding.authoredId)).toEqual(wide.map((entry) => entry.nodeId));
+    const lexical = fixture(undefined, [...wide].sort((left, right) => left.rel.localeCompare(right.rel)));
+    expect(deniedCodes(lexical.definition, lexical.ids.loop!)).toEqual(["LOOP_ECONOMICS_V2_INVENTORY_REORDERED_MAPPING"]);
+  });
+
+  it("returns fresh execution-class objects that never alias the classification table", () => {
+    const first = fixture();
+    const inventory = admitted(first.definition, first.ids.loop!);
+    (inventory.bindings[0]!.executionClass as { resolution: string }).resolution = "tampered";
+    const second = fixture();
+    expect(admitted(second.definition, second.ids.loop!).bindings[0]?.executionClass).toEqual({ kind: "execution", resolution: "agent" });
   });
 
   it("does not mutate the artifact", () => {
