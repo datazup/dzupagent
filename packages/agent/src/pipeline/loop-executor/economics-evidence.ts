@@ -15,7 +15,8 @@ export interface LoopEconomicsEvidenceScope {
 
 export interface LoopEconomicsBoundaryValidationInput
   extends LoopEconomicsEvidenceScope {
-  readonly evidenceMode?: "required" | undefined;
+  /** `required` demands the V1 record; `required-v2` is served by the V2 bridge and reads as absent here. */
+  readonly evidenceMode?: "required" | "required-v2" | undefined;
   readonly evidence?: LoopEconomicsEvidenceV1 | undefined;
   readonly reservedCostCents: number;
   readonly settledCostCents?: number | undefined;

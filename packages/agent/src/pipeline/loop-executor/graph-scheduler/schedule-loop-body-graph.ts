@@ -41,7 +41,10 @@ export async function scheduleLoopBodyGraph(
     // Items retain the existing item-level reservation/measurement contract.
     // Standard graph nodes must not additionally charge the flat iteration tracker.
     delete config.iterationBudget;
-    config.nodeExecutor = (id, node, context) => deps.config.nodeExecutor(id, node, {
+    // DSL-V2-HOST-BRIDGE-20260918: the item host may substitute the executor
+    // the scope/key wrapper delegates to; the wrapping itself is unchanged.
+    const base = input.nodeExecutor ?? deps.config.nodeExecutor;
+    config.nodeExecutor = (id, node, context) => base(id, node, {
       ...context,
       executionScope: { ...itemScope, bodyNodeId: id },
       idempotencyKey: nodeIdempotencyKey(outerFrame.runId, id, {

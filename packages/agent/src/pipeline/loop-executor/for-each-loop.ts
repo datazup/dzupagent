@@ -6,7 +6,10 @@
  * @module pipeline/loop-executor/for-each-loop
  */
 
-import type { PipelineForEachItemOutcome } from "@dzupagent/core/pipeline";
+import type {
+  PipelineForEachItemEconomics,
+  PipelineForEachItemOutcome,
+} from "@dzupagent/core/pipeline";
 import type { LoopNode, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type {
   NodeExecutor,
@@ -19,6 +22,12 @@ import type {
   LoopResumeOptions,
   LoopBodyGraphCheckpointState,
 } from "./types.js";
+import type { ForEachEconomicsV2Preparation } from "./budget-types.js";
+import {
+  ForEachItemEconomicsV2Custody,
+  createForEachV2LeafExecutor,
+  restoreForEachEconomicsV2Custody,
+} from "./for-each-item-economics-v2.js";
 import { canonicalInputDigest } from "@dzupagent/runtime-contracts";
 import type { LoopEconomicsEvidenceV1 } from "@dzupagent/runtime-contracts/loop-economics-evidence";
 import { resolveStatePath, setStatePath } from "./state-path.js";
@@ -30,6 +39,7 @@ import { createItemBudgetLifecycle } from "./for-each-item-budget.js";
 import { fenceForEachGraphOperations } from "./for-each-graph.js";
 import {
   deriveItemReservationId,
+  type HeldItemEconomicsV2,
   type HeldItemReservation,
 } from "./for-each-reservation.js";
 
@@ -140,12 +150,40 @@ export async function executeForEachLoop(
   if (loopNode.bodyGraph !== undefined && (resume?.scheduleBodyGraph === undefined || resume.onItemBodyNodeComplete === undefined || resume.graphDefinitionDigest === undefined)) {
     throw new Error(`Loop "${loopNode.id}" requires the canonical item graph scheduler and checkpoint writer`);
   }
+  // DSL-V2-HOST-BRIDGE-20260918: the V1 exact profile stays denied for graph
+  // bodies; the strict V2 profile serves them. Neither record is ever read as
+  // the other: a retained V1 record under the V2 profile, or a V2 record
+  // under any other profile, blocks before reservation or dispatch.
+  const v2Mode = resume?.budgetEvidenceMode === "required-v2";
+  const retainedEconomics = [
+    ...Object.values(resume?.itemFrames ?? {}),
+    ...Object.values(resume?.itemOutcomes ?? {}),
+  ].map((item) => item.economics);
   if (loopNode.bodyGraph !== undefined && (
     resume?.budgetEvidenceMode === "required" ||
-    Object.values(resume?.itemFrames ?? {}).some((item) => item.economics?.evidence !== undefined) ||
-    Object.values(resume?.itemOutcomes ?? {}).some((item) => item.economics?.evidence !== undefined)
+    retainedEconomics.some((economics) => economics?.evidence !== undefined)
   )) {
     throw new Error(`Loop "${loopNode.id}" conditional items require V2 selected/skipped-leaf economics; V1 exact-evidence execution is not admitted`);
+  }
+  if (!v2Mode && retainedEconomics.some((economics) => economics?.evidenceV2 !== undefined)) {
+    throw new Error(`Loop "${loopNode.id}" retains V2 selected/skipped-leaf economics that this host profile cannot serve; downgrade is denied`);
+  }
+  let economicsV2: ForEachEconomicsV2Preparation | undefined;
+  if (v2Mode) {
+    if (loopNode.bodyGraph === undefined) {
+      throw new Error(`Loop "${loopNode.id}" V2 selected/skipped-leaf economics admits only a compiler-lowered graph body`);
+    }
+    const readiness = resume?.economicsV2;
+    if (readiness === undefined || resume?.dispatchLeafV2 === undefined || resume.itemBudgetCents === undefined) {
+      throw new Error(`Loop "${loopNode.id}" V2 host profile requires a prepared leaf inventory, a dispatchLeaf authority and a hard item ceiling`);
+    }
+    if (readiness.status === "denied") {
+      throw new Error(`Loop "${loopNode.id}" V2 admission denied: ${readiness.error}`);
+    }
+    if (readiness.preparation.inventory.definitionDigest !== resume.graphDefinitionDigest) {
+      throw new Error(`Loop "${loopNode.id}" V2 leaf inventory does not bind the executing definition`);
+    }
+    economicsV2 = readiness.preparation;
   }
   const graphFence = loopNode.bodyGraph === undefined ? undefined : fenceForEachGraphOperations(resume!);
   if (graphFence) resume = graphFence.options;
@@ -396,7 +434,81 @@ export async function executeForEachLoop(
     bodyNodes,
     itemBudgetCents,
     resume,
+    ...(economicsV2 === undefined ? {} : { economicsV2 }),
   });
+
+  // DSL-V2-HOST-BRIDGE-20260918: per-item V2 custody (selections and leaf
+  // outcomes), keyed by item index. Its snapshot rides in every economics
+  // record the loop writes, so it is durable exactly when the frame is.
+  const custodies = new Map<number, ForEachItemEconomicsV2Custody>();
+  const economicsV2Of = (
+    held: HeldItemReservation | undefined,
+    index: number
+  ): HeldItemEconomicsV2 | undefined => {
+    if (
+      held?.economicsV2 !== undefined &&
+      held.economicsV2.evidence.resolution.status !== "pending"
+    ) {
+      return held.economicsV2;
+    }
+    const custody = custodies.get(index);
+    if (custody === undefined) return held?.economicsV2;
+    const snapshot = custody.snapshot();
+    return {
+      evidence: snapshot.evidence,
+      ...(snapshot.leafOutcomes === undefined ? {} : { leafOutcomes: snapshot.leafOutcomes }),
+    };
+  };
+  const itemEconomics = (
+    held: HeldItemReservation,
+    index: number,
+    settledCostCents?: number
+  ): PipelineForEachItemEconomics => {
+    const v2 = economicsV2Of(held, index);
+    return {
+      reservationId: held.reservationId,
+      reservedCostCents: held.reservedCostCents,
+      ...(settledCostCents === undefined ? {} : { settledCostCents }),
+      ...(held.evidence === undefined ? {} : { evidence: held.evidence }),
+      ...(v2 === undefined ? {} : { evidenceV2: v2.evidence }),
+      ...(v2?.leafOutcomes === undefined ? {} : { leafOutcomesV2: [...v2.leafOutcomes] }),
+    };
+  };
+  const heldFrom = (
+    index: number,
+    attempt: number,
+    economics: PipelineForEachItemEconomics
+  ): HeldItemReservation => ({
+    itemIndex: index,
+    attempt,
+    reservationId: economics.reservationId,
+    reservedCostCents: economics.reservedCostCents,
+    ...(economics.evidence === undefined ? {} : { evidence: economics.evidence }),
+    ...(economics.evidenceV2 === undefined
+      ? {}
+      : {
+          economicsV2: {
+            evidence: economics.evidenceV2,
+            ...(economics.leafOutcomesV2 === undefined ? {} : { leafOutcomes: economics.leafOutcomesV2 }),
+          },
+        }),
+  });
+  const restoreCustody = (
+    index: number,
+    economics: PipelineForEachItemEconomics
+  ): ForEachItemEconomicsV2Custody | undefined => {
+    if (economicsV2 === undefined || economics.evidenceV2 === undefined) return undefined;
+    const custody = restoreForEachEconomicsV2Custody(economicsV2.inventory, {
+      evidenceV2: economics.evidenceV2,
+      ...(economics.leafOutcomesV2 === undefined ? {} : { leafOutcomesV2: economics.leafOutcomesV2 }),
+    });
+    custodies.set(index, custody);
+    return custody;
+  };
+  const adoptResolved = (index: number, evidence: HeldItemEconomicsV2["evidence"]): void => {
+    if (economicsV2 === undefined) return;
+    custodies.set(index, restoreForEachEconomicsV2Custody(economicsV2.inventory, { evidenceV2: evidence }));
+  };
 
   // 24-G: every index that reaches a terminal state, recorded here so the
   // never-dispatched tail can be completed once the worker loop stops. Held
@@ -425,16 +537,7 @@ export async function executeForEachLoop(
       outcome,
       ...(held === undefined
         ? {}
-        : {
-            economics: {
-              reservationId: held.reservationId,
-              reservedCostCents: held.reservedCostCents,
-              ...(settledCostCents === undefined ? {} : { settledCostCents }),
-              ...(held.evidence === undefined
-                ? {}
-                : { evidence: held.evidence }),
-            },
-          }),
+        : { economics: itemEconomics(held, index, settledCostCents) }),
       ...((held?.attempt ?? attemptedWithoutHold ?? 0) > 0
         ? { attempt: held?.attempt ?? attemptedWithoutHold! }
         : {}),
@@ -464,18 +567,7 @@ export async function executeForEachLoop(
       outcome: input.outcome,
       ...(input.held === undefined
         ? {}
-        : {
-            economics: {
-              reservationId: input.held.reservationId,
-              reservedCostCents: input.held.reservedCostCents,
-              ...(input.settledCostCents === undefined
-                ? {}
-                : { settledCostCents: input.settledCostCents }),
-              ...(input.held.evidence === undefined
-                ? {}
-                : { evidence: input.held.evidence }),
-            },
-          }),
+        : { economics: itemEconomics(input.held, input.index, input.settledCostCents) }),
     });
   };
 
@@ -556,7 +648,7 @@ export async function executeForEachLoop(
     let retainedEconomicsError: string | undefined;
     if (
       itemBudgetCents !== undefined &&
-      resume?.budgetEvidenceMode === "required" &&
+      (resume?.budgetEvidenceMode === "required" || v2Mode) &&
       retainedCandidates.length === 0 &&
       ((itemResume?.nextBodyNodeIndex ?? 0) > 0 ||
         priorOutcome?.outcome === "completed")
@@ -575,17 +667,30 @@ export async function executeForEachLoop(
       retainedEconomicsError === undefined &&
       retainedCandidates.length === 2
     ) {
-      try {
+      if (v2Mode) {
+        // The terminal record is written after the last frame and may carry
+        // later outcomes (releases, an unknown leaf); both must be the same
+        // admission, and the later record is the custody of record.
         if (
-          canonicalInputDigest(retainedCandidates[0]!.economics) !==
-          canonicalInputDigest(retainedCandidates[1]!.economics)
+          retainedCandidates[0]!.economics.evidenceV2?.admissionDigest !==
+          retainedCandidates[1]!.economics.evidenceV2?.admissionDigest
         ) {
           retainedEconomicsError =
-            "item frame and terminal outcome carry different economics evidence";
+            "item frame and terminal outcome carry different V2 admissions";
         }
-      } catch {
-        retainedEconomicsError =
-          "retained economics evidence is not canonically serializable";
+      } else {
+        try {
+          if (
+            canonicalInputDigest(retainedCandidates[0]!.economics) !==
+            canonicalInputDigest(retainedCandidates[1]!.economics)
+          ) {
+            retainedEconomicsError =
+              "item frame and terminal outcome carry different economics evidence";
+          }
+        } catch {
+          retainedEconomicsError =
+            "retained economics evidence is not canonically serializable";
+        }
       }
     }
     if (retainedEconomicsError !== undefined) {
@@ -621,9 +726,24 @@ export async function executeForEachLoop(
       };
       return;
     }
+    // DSL-V2-HOST-BRIDGE-20260918 (§3.4 row 3): a V2 unit blocked on an
+    // unknown leaf may re-present exactly that leaf — the frame's dispatch
+    // intent — to the host under the same key. Anything else stays blocked.
+    const v2ResumableUnknown = (): boolean => {
+      const economics = priorOutcome?.economics;
+      const frame = itemResume?.graph?.frame as LoopBodyGraphCheckpointState | undefined;
+      if (economicsV2 === undefined || economics?.evidenceV2 === undefined || frame === undefined) return false;
+      const custody = restoreForEachEconomicsV2Custody(economicsV2.inventory, {
+        evidenceV2: economics.evidenceV2,
+        ...(economics.leafOutcomesV2 === undefined ? {} : { leafOutcomesV2: economics.leafOutcomesV2 }),
+      });
+      const unknown = custody.unknownNodeIds();
+      return unknown.length > 0 && unknown.every((nodeId) => nodeId === frame.nextNodeId);
+    };
     if (
       priorOutcome?.outcome === "outcome_unknown" &&
-      itemResume?.nextBodyNodeIndex !== bodyNodes.length
+      itemResume?.nextBodyNodeIndex !== bodyNodes.length &&
+      !v2ResumableUnknown()
     ) {
       // Without a body-complete receipt the checkpoint does not retain which
       // lifecycle boundary became unobservable. Re-dispatching would guess
@@ -650,15 +770,7 @@ export async function executeForEachLoop(
         const held =
           economics === undefined
             ? undefined
-            : {
-                itemIndex: index,
-                attempt: itemResume.attempt ?? 0,
-                reservationId: economics.reservationId,
-                reservedCostCents: economics.reservedCostCents,
-                ...(economics.evidence === undefined
-                  ? {}
-                  : { evidence: economics.evidence }),
-              };
+            : heldFrom(index, itemResume.attempt ?? 0, economics);
         await recordTerminalOutcome(
           index,
           "completed",
@@ -764,13 +876,10 @@ export async function executeForEachLoop(
           economics === undefined
             ? undefined
             : {
-                itemIndex: index,
-                attempt: resumedAttempt,
-                reservationId: economics.reservationId,
-                reservedCostCents: economics.reservedCostCents,
-                ...((terminalEvidence ?? economics.evidence) === undefined
+                ...heldFrom(index, resumedAttempt, economics),
+                ...(terminalEvidence === undefined
                   ? {}
-                  : { evidence: terminalEvidence ?? economics.evidence }),
+                  : { evidence: terminalEvidence }),
               },
           settledCostCents ?? economics?.settledCostCents
         );
@@ -814,15 +923,32 @@ export async function executeForEachLoop(
         return;
       }
 
-      let resumedHeld: HeldItemReservation = {
-        itemIndex: index,
-        attempt: resumedAttempt,
-        reservationId: economics.reservationId,
-        reservedCostCents: economics.reservedCostCents,
-        ...(economics.evidence === undefined
-          ? {}
-          : { evidence: economics.evidence }),
-      };
+      let resumedHeld: HeldItemReservation = heldFrom(index, resumedAttempt, economics);
+      if (v2Mode) {
+        // The body-complete receipt must carry a custody that its own frame
+        // agrees with and that every leaf has resolved; only then is there a
+        // settled record to charge against.
+        const custody = restoreCustody(index, economics);
+        const frame = itemResume?.graph?.frame as LoopBodyGraphCheckpointState | undefined;
+        const custodyError = custody === undefined
+          ? "the body-complete receipt carries no V2 record"
+          : frame === undefined
+            ? "the body-complete receipt carries no graph frame"
+            : custody.applyFrame(frame);
+        if (custodyError !== undefined) {
+          await blockPreparedCompletion(`its V2 leaf custody is inconsistent: ${custodyError}`);
+          return;
+        }
+        const resolution = custody!.resolve();
+        if (resolution.status !== "settled") {
+          await blockPreparedCompletion(
+            `its V2 leaf accounting is unresolved: ${resolution.status === "pending" ? resolution.error : "a leaf outcome is unknown"}`
+          );
+          return;
+        }
+        adoptResolved(index, resolution.evidence);
+        resumedHeld = { ...resumedHeld, economicsV2: { evidence: resolution.evidence } };
+      }
       const reconciliation = await reconcileUnknownReservation(
         index,
         resumedAttempt,
@@ -833,6 +959,7 @@ export async function executeForEachLoop(
 
       let settledCostCents: number | undefined;
       let settledEvidence: LoopEconomicsEvidenceV1 | undefined;
+      let settledEvidenceV2: HeldItemEconomicsV2["evidence"] | undefined;
       let settlementOverrun: string | undefined;
       if (reconciliation.status === "settled") {
         const settled = readReconciledSettledCost(reconciliation, "settle");
@@ -842,6 +969,7 @@ export async function executeForEachLoop(
         }
         settledCostCents = settled.settledCostCents;
         settledEvidence = settled.evidence;
+        settledEvidenceV2 = settled.evidenceV2;
       } else if (reconciliation.status === "reserved") {
         if (
           !Number.isSafeInteger(reconciliation.reservedCostCents) ||
@@ -859,13 +987,15 @@ export async function executeForEachLoop(
         if (settlement !== undefined && "settledCostCents" in settlement) {
           settledCostCents = settlement.settledCostCents;
           settledEvidence = settlement.evidence;
+          settledEvidenceV2 = settlement.evidenceV2;
           settlementOverrun = settlement.overrun;
         } else if (settlement !== undefined && "outcomeUnknown" in settlement) {
           const resolved = await resolveUnknownSettlement(
             resumedHeld,
             settlement.actualCostCents,
             settlement.outcomeUnknown,
-            settlement.evidence
+            settlement.evidence,
+            settlement.evidenceV2
           );
           if (resolved.status === "blocked") {
             await blockPreparedCompletion(resolved.error);
@@ -873,6 +1003,7 @@ export async function executeForEachLoop(
           }
           settledCostCents = resolved.settledCostCents;
           settledEvidence = resolved.evidence;
+          settledEvidenceV2 = resolved.evidenceV2;
           settlementOverrun = resolved.overrun;
         } else {
           const detail =
@@ -911,10 +1042,11 @@ export async function executeForEachLoop(
         );
         return;
       }
-      const settledHeld =
-        settledEvidence === undefined
-          ? resumedHeld
-          : { ...resumedHeld, evidence: settledEvidence };
+      const settledHeld: HeldItemReservation = {
+        ...resumedHeld,
+        ...(settledEvidence === undefined ? {} : { evidence: settledEvidence }),
+        ...(settledEvidenceV2 === undefined ? {} : { economicsV2: { evidence: settledEvidenceV2 } }),
+      };
       await checkpointAggregateReceipt({
         index,
         attempt: resumedAttempt,
@@ -939,10 +1071,15 @@ export async function executeForEachLoop(
     let retryReleasedGraph = false;
     if (itemResume?.graph !== undefined && itemResume.economics !== undefined) {
       const economics = itemResume.economics;
-      const retained: HeldItemReservation = {
-        itemIndex: index, attempt: resumedAttempt,
-        reservationId: economics.reservationId, reservedCostCents: economics.reservedCostCents,
-      };
+      // V2: the terminal record of this same attempt is written after its last
+      // frame and is therefore the custody of record.
+      const latest =
+        v2Mode &&
+        priorOutcome?.economics?.evidenceV2 !== undefined &&
+        (priorOutcome.attempt ?? 0) === resumedAttempt
+          ? priorOutcome.economics
+          : economics;
+      const retained: HeldItemReservation = heldFrom(index, resumedAttempt, latest);
       const reconciliation = await reconcileUnknownReservation(
         index, resumedAttempt, "resume of a durable selected item graph", "reserve", retained,
       );
@@ -956,6 +1093,19 @@ export async function executeForEachLoop(
             reconciliation.reservedCostCents !== economics.reservedCostCents ||
             reconciliation.evidence !== undefined) {
           throw new Error(`Loop "${loopNode.id}" item ${index} cannot resume its selected graph: original reservation is not an unchanged authoritative hold or a proven released retryable attempt`);
+        }
+        if (v2Mode) {
+          // The retained custody must agree with the retained frame (§3.4
+          // rows 1–2): a recorded selection the frame does not show, a
+          // transition the authored structure does not admit, or a leaf whose
+          // outcome contradicts the frame blocks the unit here.
+          const custody = restoreCustody(index, latest);
+          const custodyError = custody === undefined
+            ? "the selected graph carries no V2 record"
+            : custody.applyFrame(itemResume.graph.frame as LoopBodyGraphCheckpointState);
+          if (custodyError !== undefined) {
+            throw new Error(`Loop "${loopNode.id}" item ${index} cannot resume its selected graph: V2 leaf custody is inconsistent: ${custodyError}`);
+          }
         }
         // Continuing a checkpointed branch is the same attempt. Re-reserving
         // under a new identity leaks the old hold and changes effect identities.
@@ -1135,12 +1285,48 @@ export async function executeForEachLoop(
       return;
     }
 
+    const admittedHeld: HeldItemReservation | undefined = held;
+    // DSL-V2-HOST-BRIDGE-20260918: a fresh admission (first attempt, or a
+    // retry of a released attempt) opens its custody here. A retry may
+    // continue a retained frame only if that frame recorded no leaf: a
+    // completed leaf node without an outcome under this admission would be
+    // work charged to a released reservation, which is denied rather than
+    // re-admitted.
+    let custody: ForEachItemEconomicsV2Custody | undefined = custodies.get(index);
+    let custodyBlocked: string | undefined;
+    if (v2Mode && admittedHeld !== undefined && custody === undefined) {
+      if (admittedHeld.economicsV2 === undefined || economicsV2 === undefined) {
+        custodyBlocked = "the reservation carries no V2 record";
+      } else {
+        custody = new ForEachItemEconomicsV2Custody(economicsV2.inventory, admittedHeld.economicsV2.evidence);
+        custodies.set(index, custody);
+        const frame = itemResume?.graph?.frame as LoopBodyGraphCheckpointState | undefined;
+        custodyBlocked = frame === undefined ? undefined : custody.applyFrame(frame);
+      }
+      if (custodyBlocked !== undefined) {
+        const release = await releaseItem(admittedHeld, "failed");
+        const resolution = release === undefined
+          ? ({ status: "released" } as const)
+          : await resolveUnknownRelease(admittedHeld, "failed", release.outcomeUnknown);
+        breachBudget();
+        firstError ??= {
+          nodeId: loopNode.id, output: null, durationMs: Date.now() - startTime,
+          error: resolution.status === "blocked"
+            ? resolution.error
+            : `Loop "${loopNode.id}" item ${index} cannot adopt its retained progress under a fresh V2 admission: ${custodyBlocked}; redispatch is blocked`,
+        };
+        await recordTerminalOutcome(index, resolution.status === "released" ? "failed" : "outcome_unknown", admittedHeld);
+        iterationDurations[index] = Date.now() - iterStart;
+        return;
+      }
+    }
+
     if (loopNode.bodyGraph !== undefined && held?.evidence !== undefined) {
       completedBody = false;
       firstError ??= { nodeId: loopNode.id, output: null, durationMs: Date.now() - startTime,
         error: "Conditional items require V2 selected/skipped-leaf economics; V1 exact evidence was returned by the reservation host" };
     } else if (loopNode.bodyGraph !== undefined) {
-      if (retryReleasedGraph && held !== undefined) {
+      if (retryReleasedGraph && admittedHeld !== undefined) {
         // Publish the fresh reservation and retire the old terminal outcome
         // together before retry effects. If reserve's acknowledgement or this
         // checkpoint is lost, the same next-attempt identity is reconciled or
@@ -1149,11 +1335,19 @@ export async function executeForEachLoop(
           itemIndex: index, nextBodyNodeIndex: itemResume!.nextBodyNodeIndex,
           bodyResults: retainedBodyResults, graph: itemResume!.graph!,
           attempt, outcome: "running", mandatory: true,
-          economics: { reservationId: held.reservationId, reservedCostCents: held.reservedCostCents },
+          economics: itemEconomics(admittedHeld, index),
         });
       }
+      const leafExecutor = custody === undefined
+        ? undefined
+        : createForEachV2LeafExecutor({
+            custody,
+            dispatchLeaf: resume!.dispatchLeafV2!,
+            execute: nodeExecutor,
+          });
       const graphResult = await resume!.scheduleBodyGraph!({
         iteration,
+        ...(leafExecutor === undefined ? {} : { nodeExecutor: leafExecutor }),
         context: {
           ...context, state: iterationState, previousResults: iterationPreviousResults,
           executionScope: { loopNodeId: loopNode.id, itemIndex: index, bodyNodeId: loopNode.bodyGraph.entryNodeId, ...(attempt > 0 ? { attempt } : {}) },
@@ -1167,6 +1361,15 @@ export async function executeForEachLoop(
         },
         ...(itemResume?.graph === undefined ? {} : { resumeState: itemResume.graph.frame as LoopBodyGraphCheckpointState }),
         onCheckpoint: async (frame) => {
+          if (custody !== undefined) {
+            // Selections and not-selected releases are derived from this very
+            // frame and written beside it; an inconsistency blocks the unit.
+            const inconsistency = custody.applyFrame(frame);
+            if (inconsistency !== undefined) {
+              custodyBlocked ??= inconsistency;
+              throw new Error(`Loop "${loopNode.id}" item ${index} V2 leaf custody is inconsistent with its frame: ${inconsistency}`);
+            }
+          }
           const bodyResults = { ...frame.nodeResults };
           if (frame.completed) {
             const final = bodyResults[frame.completedNodeIds.at(-1)!]!;
@@ -1183,10 +1386,7 @@ export async function executeForEachLoop(
             graph: { schema: "dzupagent/for-each-item-graph/v1", definitionDigest: resume!.graphDefinitionDigest!, loopNodeId: loopNode.id, itemIndex: index, itemValueDigest: `sha256:${canonicalInputDigest(items[index])}`, state: structuredClone(iterationState), frame },
             mandatory: true,
             ...(attempt > 0 ? { attempt } : {}), outcome: "running",
-            ...(held === undefined ? {} : { economics: {
-              reservationId: held.reservationId, reservedCostCents: held.reservedCostCents,
-              ...(held.evidence === undefined ? {} : { evidence: held.evidence }),
-            } }),
+            ...(admittedHeld === undefined ? {} : { economics: itemEconomics(admittedHeld, index) }),
           });
         },
       });
@@ -1195,6 +1395,10 @@ export async function executeForEachLoop(
         iterationPreviousResults.set(id, result);
       }
       lastBodyResult = graphResult.lastResult;
+      if (custody !== undefined && custodyBlocked === undefined && custody.hasUnknown()) {
+        custodyBlocked = `a leaf outcome is unknown: ${graphResult.error ?? "the host could not prove dispatch"}`;
+      }
+      if (custodyBlocked !== undefined) completedBody = false;
       if (graphResult.outcome.kind !== "normal" || lastBodyResult === undefined) {
         completedBody = false;
         haltedBeforeBody = graphResult.outcome.kind === "cancelled";
@@ -1270,24 +1474,44 @@ export async function executeForEachLoop(
           // facts are process-local until written here, which is why a crash
           // at this exact point used to strand the ledger row.
           outcome: "running",
-          ...(held === undefined ||
-          typeof held === "string" ||
-          "outcomeUnknown" in held
+          ...(admittedHeld === undefined
             ? {}
-            : {
-                economics: {
-                  reservationId: held.reservationId,
-                  reservedCostCents: held.reservedCostCents,
-                  ...(held.evidence === undefined
-                    ? {}
-                    : { evidence: held.evidence }),
-                },
-              }),
+            : { economics: itemEconomics(admittedHeld, index) }),
         });
       }
     }
 
     if (!completedBody) {
+      // DSL-V2-HOST-BRIDGE-20260918 (§3.4): an unproven leaf — the host could
+      // not say whether it dispatched, or the custody contradicts its frame —
+      // leaves money and effects in an unknown state. Nothing is released or
+      // settled; the record and its outcomes are retained for reconciliation.
+      if (custody !== undefined && custodyBlocked !== undefined) {
+        breachBudget();
+        firstError = {
+          nodeId: loopNode.id,
+          output: null,
+          durationMs: Date.now() - startTime,
+          error:
+            `Loop "${loopNode.id}" item ${index} V2 leaf accounting is unresolved: ` +
+            `${custodyBlocked}; redispatch is blocked until the host reconciles`,
+        };
+        await recordTerminalOutcome(index, "outcome_unknown", admittedHeld);
+        iterationDurations[index] = Date.now() - iterStart;
+        return;
+      }
+      // V2: every leaf that never dispatched is released with the reason the
+      // unit stopped for, so the host receives a resolved record that keeps
+      // the charges it recorded and returns nothing else blind.
+      let terminalHeld: HeldItemReservation | undefined = admittedHeld;
+      if (custody !== undefined && admittedHeld !== undefined) {
+        custody.releaseRemaining(haltedBeforeBody ? "cancelled-before-dispatch" : "prior-leaf-failed");
+        const resolution = custody.resolve();
+        if (resolution.status === "settled") {
+          adoptResolved(index, resolution.evidence);
+          terminalHeld = { ...admittedHeld, economicsV2: { evidence: resolution.evidence } };
+        }
+      }
       // F: exits 1 and 2 — aborted, or a body node failed. The item never
       // completed, so its reservation is returned in full rather than settled.
       // Leaking here is the original defect reproduced one level down.
@@ -1297,7 +1521,7 @@ export async function executeForEachLoop(
       // `context.signal` alone here would release it as `failed` and tell the
       // host this item's work errored when it never ran.
       const releaseOutcome = await releaseItem(
-        held,
+        terminalHeld,
         haltedBeforeBody ? "aborted" : "failed"
       );
       // G2d (prereq 7): a release that could not be observed leaves this item
@@ -1314,11 +1538,12 @@ export async function executeForEachLoop(
       let releaseUnresolved = false;
       let releaseSettledCostCents: number | undefined;
       let releaseSettledEvidence: LoopEconomicsEvidenceV1 | undefined;
+      let releaseSettledEvidenceV2: HeldItemEconomicsV2["evidence"] | undefined;
       if (releaseOutcome !== undefined) {
         const resolution = await resolveUnknownRelease(
           // `releaseItem` returns an unknown marker only when it received a
           // concrete reservation, so this correlation is guaranteed here.
-          held as HeldItemReservation,
+          terminalHeld as HeldItemReservation,
           haltedBeforeBody ? "aborted" : "failed",
           releaseOutcome.outcomeUnknown
         );
@@ -1334,6 +1559,7 @@ export async function executeForEachLoop(
         } else if (resolution.status === "settled") {
           releaseSettledCostCents = resolution.settledCostCents;
           releaseSettledEvidence = resolution.evidence;
+          releaseSettledEvidenceV2 = resolution.evidenceV2;
           breachBudget();
           firstError = {
             nodeId: loopNode.id,
@@ -1367,19 +1593,42 @@ export async function executeForEachLoop(
           : "failed",
         // The reservation was released rather than settled, so it carries no
         // settled cost — a released reservation charged nothing.
-        held === undefined ||
-          typeof held === "string" ||
-          "outcomeUnknown" in held
+        terminalHeld === undefined
           ? undefined
-          : releaseSettledEvidence === undefined
-            ? held
-            : { ...held, evidence: releaseSettledEvidence },
+          : {
+              ...terminalHeld,
+              ...(releaseSettledEvidence === undefined ? {} : { evidence: releaseSettledEvidence }),
+              ...(releaseSettledEvidenceV2 === undefined ? {} : { economicsV2: { evidence: releaseSettledEvidenceV2 } }),
+            },
         releaseSettledCostCents
       );
       iterationDurations[index] = Date.now() - iterStart;
       return;
     }
 
+    // DSL-V2-HOST-BRIDGE-20260918: the body completed, so every leaf must be
+    // recorded or released; the resolved record is what settlement charges.
+    let completedHeld: HeldItemReservation | undefined = admittedHeld;
+    if (custody !== undefined && admittedHeld !== undefined) {
+      const resolution = custody.resolve();
+      if (resolution.status !== "settled") {
+        breachBudget();
+        firstError ??= {
+          nodeId: loopNode.id,
+          output: lastBodyResult?.output ?? null,
+          durationMs: Date.now() - startTime,
+          error:
+            `Loop "${loopNode.id}" item ${index} completed its body but its V2 leaf ` +
+            `accounting is unresolved: ${resolution.status === "pending" ? resolution.error : "a leaf outcome is unknown"}; ` +
+            "redispatch is blocked",
+        };
+        await recordTerminalOutcome(index, "outcome_unknown", admittedHeld);
+        iterationDurations[index] = Date.now() - iterStart;
+        return;
+      }
+      adoptResolved(index, resolution.evidence);
+      completedHeld = { ...admittedHeld, economicsV2: { evidence: resolution.evidence } };
+    }
     const collectedValue =
       contract.collect === undefined
         ? undefined
@@ -1409,19 +1658,13 @@ export async function executeForEachLoop(
       index,
       attempt,
       outcome: "running",
-      held:
-        held === undefined ||
-        typeof held === "string" ||
-        "outcomeUnknown" in held
-          ? undefined
-          : held,
+      held: completedHeld,
       bodyResults: aggregateBodyResults,
     });
 
     // F: exit 3 — the item completed. Reconcile actual spend against the
     // reservation, releasing the unspent delta. An overrun fails the loop
     // closed (operator decision, 08-16): the authored ceiling was breached.
-    const completedHeld = held as HeldItemReservation | undefined;
     let settlement = await settleItem(completedHeld, retainedBodyResults);
     if (
       settlement !== undefined &&
@@ -1459,7 +1702,8 @@ export async function executeForEachLoop(
         completedHeld as HeldItemReservation,
         settlement.actualCostCents,
         settlement.outcomeUnknown,
-        settlement.evidence
+        settlement.evidence,
+        settlement.evidenceV2
       );
       if (resolution.status === "blocked") {
         breachBudget();
@@ -1482,6 +1726,9 @@ export async function executeForEachLoop(
         ...(resolution.evidence === undefined
           ? {}
           : { evidence: resolution.evidence }),
+        ...(resolution.evidenceV2 === undefined
+          ? {}
+          : { evidenceV2: resolution.evidenceV2 }),
         ...(resolution.overrun === undefined
           ? {}
           : { overrun: resolution.overrun }),
@@ -1503,9 +1750,13 @@ export async function executeForEachLoop(
       await recordTerminalOutcome(
         index,
         "failed",
-        completedHeld === undefined || settlement.evidence === undefined
-          ? completedHeld
-          : { ...completedHeld, evidence: settlement.evidence },
+        completedHeld === undefined
+          ? undefined
+          : {
+              ...completedHeld,
+              ...(settlement.evidence === undefined ? {} : { evidence: settlement.evidence }),
+              ...(settlement.evidenceV2 === undefined ? {} : { economicsV2: { evidence: settlement.evidenceV2 } }),
+            },
         settlement.settledCostCents
       );
       iterationDurations[index] = Date.now() - iterStart;
@@ -1516,13 +1767,16 @@ export async function executeForEachLoop(
       settlement !== undefined && "settledCostCents" in settlement
         ? settlement.settledCostCents
         : undefined;
-    const settledHeld =
+    const settledHeld: HeldItemReservation | undefined =
       completedHeld === undefined ||
       settlement === undefined ||
-      !("settledCostCents" in settlement) ||
-      settlement.evidence === undefined
+      !("settledCostCents" in settlement)
         ? completedHeld
-        : { ...completedHeld, evidence: settlement.evidence };
+        : {
+            ...completedHeld,
+            ...(settlement.evidence === undefined ? {} : { evidence: settlement.evidence }),
+            ...(settlement.evidenceV2 === undefined ? {} : { economicsV2: { evidence: settlement.evidenceV2 } }),
+          };
     // Persist completion and its exact output before publishing the terminal
     // accounting record. Either record can independently block redispatch;
     // the completed frame additionally restores single-body aggregation.

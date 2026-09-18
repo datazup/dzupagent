@@ -13,7 +13,19 @@
  */
 
 import type { NodeResult } from "@dzupagent/runtime-contracts";
-import type { LoopEconomicsEvidenceV1 } from "@dzupagent/runtime-contracts/loop-economics-evidence";
+import type {
+  LoopEconomicsEvidenceOwner,
+  LoopEconomicsEvidenceV1,
+} from "@dzupagent/runtime-contracts/loop-economics-evidence";
+import type {
+  LoopEconomicsEvidenceV2,
+  LoopEconomicsLeafAdmissionV2,
+  LoopEconomicsLeafInventoryV2,
+  LoopEconomicsLeafOutcomeV2,
+  LoopEconomicsRecordedLeafOutcomeV2,
+  LoopEconomicsSha256DigestV2,
+  LoopEconomicsUnknownReasonV2,
+} from "@dzupagent/runtime-contracts/loop-economics-evidence-v2";
 import type {
   PipelineForEachItemEconomics,
   PipelineForEachItemOutcome,
@@ -42,6 +54,13 @@ export type LoopIterationBudgetReservation =
       status: "reserved";
       reservedCostCents: number;
       evidence?: LoopEconomicsEvidenceV1;
+      /**
+       * DSL-V2-HOST-BRIDGE-20260918: the pending V2 record a
+       * {@link LoopBudgetV2Host} admits for the inventory it was handed in
+       * {@link LoopIterationBudgetReservationInput.economicsV2}. Required in
+       * `required-v2` mode; contradictory with `evidence`.
+       */
+      evidenceV2?: LoopEconomicsEvidenceV2;
     }
   | {
       /** No authoritative monetary upper bound is available. */
@@ -60,11 +79,14 @@ export type LoopBudgetCostEvidence =
       status: "known";
       costCents: number;
       evidence?: LoopEconomicsEvidenceV1;
+      /** V2: the settled record the host measured against; defaults to the loop's own. */
+      evidenceV2?: LoopEconomicsEvidenceV2;
     }
   | {
       status: "unknown";
       reason?: string;
       evidence?: LoopEconomicsEvidenceV1;
+      evidenceV2?: LoopEconomicsEvidenceV2;
     };
 
 /**
@@ -107,6 +129,8 @@ export interface LoopBudgetReconcileInput extends LoopBudgetSettlementScope {
   boundary: "reserve" | "settle" | "release";
   /** Retained evidence whose current authoritative state is being reconciled. */
   evidence?: LoopEconomicsEvidenceV1;
+  /** V2: the retained record (with its selections) being reconciled. */
+  evidenceV2?: LoopEconomicsEvidenceV2;
 }
 
 /**
@@ -119,6 +143,8 @@ export type LoopBudgetReconcileOutcome =
       status: "reserved";
       reservedCostCents: number;
       evidence?: LoopEconomicsEvidenceV1;
+      /** V2: must carry the same admission digest as the retained record. */
+      evidenceV2?: LoopEconomicsEvidenceV2;
     }
   | {
       /** The item was already settled; cost evidence is authoritative. */
@@ -193,6 +219,22 @@ export interface LoopIterationBudgetReservationInput {
    * `for_each` per-item reserve once the runtime threads a `runId`.
    */
   reservationId?: string;
+  /**
+   * DSL-V2-HOST-BRIDGE-20260918: present only when the loop runs under a
+   * {@link LoopBudgetV2Host}. Carries the resolved P1 leaf inventory, the
+   * deterministic owner and the framework-derived leaf idempotency keys the
+   * returned `evidenceV2` must bind to exactly.
+   */
+  economicsV2?: LoopBudgetV2ReservationRequest;
+}
+
+/** V2 admission request: what the host must bind its pending record to. */
+export interface LoopBudgetV2ReservationRequest {
+  readonly owner: LoopEconomicsEvidenceOwner;
+  readonly unitAttempt: number;
+  readonly inventory: LoopEconomicsLeafInventoryV2;
+  /** Leaf id → the idempotency key the framework will present at dispatch. */
+  readonly leafIdempotencyKeys: Readonly<Record<string, string>>;
 }
 
 /**
@@ -226,6 +268,8 @@ export interface LoopBudgetSettlementInput extends LoopBudgetSettlementScope {
   actualCostCents: number;
   /** Exact terminal evidence associated with the charged amount. */
   evidence?: LoopEconomicsEvidenceV1;
+  /** V2: the settled record whose recorded charges equal `actualCostCents`. */
+  evidenceV2?: LoopEconomicsEvidenceV2;
 }
 
 /** Input to a strict host's authoritative per-item cost measurement. */
@@ -235,6 +279,11 @@ export interface LoopBudgetCostMeasurementInput
   bodyResults: Readonly<Record<string, NodeResult>>;
   /** Retained pre-dispatch binding that terminal evidence must extend. */
   evidence?: LoopEconomicsEvidenceV1;
+  /**
+   * V2: the settled record (every leaf recorded or released). The host's
+   * known cents must equal the sum of its recorded charges.
+   */
+  evidenceV2?: LoopEconomicsEvidenceV2;
 }
 
 /** F: return of an unspent reservation on an abort/failure path. */
@@ -245,6 +294,11 @@ export interface LoopBudgetReleaseInput extends LoopBudgetSettlementScope {
   reason: "aborted" | "failed";
   /** Retained pre-dispatch binding being released. */
   evidence?: LoopEconomicsEvidenceV1;
+  /**
+   * V2: the resolved record at release. Leaves already recorded before the
+   * failure keep their charges; only the released remainder is returned.
+   */
+  evidenceV2?: LoopEconomicsEvidenceV2;
 }
 
 /**
@@ -318,8 +372,79 @@ export interface LoopBudgetStrictHost extends LoopBudgetLifecycle {
   ): LoopBudgetCostEvidence | Promise<LoopBudgetCostEvidence>;
 }
 
-/** Discriminated host contract for compatible and strict budget profiles. */
+/**
+ * DSL-V2-HOST-BRIDGE-20260918: one execution/effect leaf presented to the V2
+ * host. `execute` is the single route that can run the node; the host either
+ * invokes it exactly once or answers from its retained receipt without
+ * invoking it (execute-or-reconcile). The framework never runs the node
+ * outside this thunk for a V2 leaf.
+ */
+export interface LoopBudgetV2LeafDispatchInput {
+  /** The current record, with every control selection made so far. */
+  readonly evidence: LoopEconomicsEvidenceV2;
+  /** The execution or effect leaf being dispatched. */
+  readonly leaf: LoopEconomicsLeafAdmissionV2;
+  /** The charge leaf linked to an execution leaf; absent for an effect leaf. */
+  readonly chargeLeaf?: LoopEconomicsLeafAdmissionV2;
+  /** Equals `leaf.idempotencyKey`; stable across resume and takeover. */
+  readonly idempotencyKey: string;
+  readonly fence: number;
+  /** Every retained leaf outcome of this unit, in admitted leaf order. */
+  readonly priorOutcomes: readonly LoopEconomicsLeafOutcomeV2[];
+  /** This leaf's own retained outcome when the unit resumes at it (unknown). */
+  readonly priorOutcome?: LoopEconomicsLeafOutcomeV2;
+  readonly execute: () => Promise<NodeResult>;
+}
+
+export type LoopBudgetV2LeafDispatchResult =
+  | {
+      readonly status: "recorded";
+      /** The actual node result — executed now, or replayed from custody. */
+      readonly result: NodeResult;
+      readonly outcome: LoopEconomicsRecordedLeafOutcomeV2;
+      /** Required for an execution leaf: the linked charge, same usage. */
+      readonly charge?: LoopEconomicsRecordedLeafOutcomeV2;
+    }
+  | {
+      readonly status: "unknown";
+      readonly reason: LoopEconomicsUnknownReasonV2;
+      readonly observationDigest: LoopEconomicsSha256DigestV2;
+    };
+
+/**
+ * Strict V2 host profile for conditional (graph-bodied) `for_each` items.
+ *
+ * `reserve` must return `evidenceV2` bound to the inventory it was handed;
+ * `dispatchLeaf` is the one execution authority for execution/effect leaves;
+ * `measureItemCost`, `settle`, `release` and `reconcile` carry the V2 record.
+ */
+export interface LoopBudgetV2Host
+  extends Omit<LoopBudgetStrictHost, "evidenceMode"> {
+  evidenceMode: "required-v2";
+  dispatchLeaf(
+    input: LoopBudgetV2LeafDispatchInput
+  ): Promise<LoopBudgetV2LeafDispatchResult>;
+}
+
+/** Discriminated host contract for compatible, strict and strict-V2 profiles. */
 export type LoopBudgetHost =
   | LoopBudgetCompatibilityHost
-  | LoopBudgetStrictHost;
+  | LoopBudgetStrictHost
+  | LoopBudgetV2Host;
+
+/**
+ * The loop-side preparation of a V2 unit: the P1 inventory of the compiled
+ * loop and the framework's own idempotency-key derivation for its leaves.
+ */
+export interface ForEachEconomicsV2Preparation {
+  readonly inventory: LoopEconomicsLeafInventoryV2;
+  readonly leafIdempotencyKeys: (
+    itemIndex: number,
+    attempt: number
+  ) => Readonly<Record<string, string>>;
+}
+
+export type ForEachEconomicsV2Readiness =
+  | { readonly status: "ready"; readonly preparation: ForEachEconomicsV2Preparation }
+  | { readonly status: "denied"; readonly error: string };
 

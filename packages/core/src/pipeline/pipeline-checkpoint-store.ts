@@ -13,6 +13,10 @@ import type {
   PipelineSha256Digest,
 } from "@dzupagent/runtime-contracts";
 import type { LoopEconomicsEvidenceV1 } from "@dzupagent/runtime-contracts/loop-economics-evidence";
+import type {
+  LoopEconomicsEvidenceV2,
+  LoopEconomicsLeafOutcomeV2,
+} from "@dzupagent/runtime-contracts/loop-economics-evidence-v2";
 
 export const PIPELINE_CHECKPOINT_SCHEMA_VERSIONS = [
   "1.0.0",
@@ -331,6 +335,23 @@ export interface PipelineForEachItemEconomics {
    * before dispatch.
    */
   evidence?: LoopEconomicsEvidenceV1;
+  /**
+   * DSL-V2-HOST-BRIDGE-20260918: exact V2 selected/skipped-leaf custody for a
+   * conditional (graph-bodied) item. The admitted record, with its control
+   * selections filled in as gates resolve; its resolution stays `pending`
+   * until the item settles or blocks. Mutually exclusive with the V1
+   * `evidence` above — a boundary never upgrades or downgrades between them.
+   */
+  evidenceV2?: LoopEconomicsEvidenceV2;
+  /**
+   * The leaf outcomes retained while `evidenceV2.resolution` is still
+   * `pending`: at most one per admitted leaf, in admitted leaf order, each
+   * naming a leaf of `evidenceV2`. A pending V2 record has no room for partial
+   * outcomes, so this is their durable carrier; it is written in the same
+   * checkpoint as the graph frame that produced it. Omitted once the record
+   * itself carries a settled or reconciliation-required resolution.
+   */
+  leafOutcomesV2?: LoopEconomicsLeafOutcomeV2[];
 }
 
 export interface PipelineLoopBodyGraphCheckpointState {

@@ -32,6 +32,10 @@ export type {
   LoopBudgetReleaseInput,
   LoopBudgetSettlementInput,
   LoopBudgetStrictHost,
+  LoopBudgetV2Host,
+  LoopBudgetV2LeafDispatchInput,
+  LoopBudgetV2LeafDispatchResult,
+  LoopBudgetV2ReservationRequest,
   LoopResumeOptions,
 } from "./loop-executor/types.js";
 export { executeLoop } from "./loop-executor/predicate-loop.js";

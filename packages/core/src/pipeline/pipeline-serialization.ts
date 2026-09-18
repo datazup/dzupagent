@@ -20,6 +20,10 @@ import {
   type LoopEconomicsEvidenceV1,
 } from "@dzupagent/runtime-contracts/loop-economics-evidence";
 import {
+  validateLoopEconomicsEvidenceV2,
+  type LoopEconomicsEvidenceV2,
+} from "@dzupagent/runtime-contracts/loop-economics-evidence-v2";
+import {
   PIPELINE_CHECKPOINT_SCHEMA_VERSIONS,
   PIPELINE_FOR_EACH_ITEM_OUTCOMES,
 } from "./pipeline-checkpoint-store.js";
@@ -132,6 +136,54 @@ const PipelineLoopBodyGraphCheckpointStateSchema = z
 const PipelineSha256DigestSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/);
 
 /**
+ * DSL-V2-HOST-BRIDGE-20260918: one retained V2 leaf outcome. The closed shape
+ * of each status mirrors `LoopEconomicsLeafOutcomeV2`; the V2 validator
+ * re-checks every outcome against its admitted leaf once the record resolves,
+ * so this schema only has to keep a corrupt or foreign prefix out.
+ */
+const PipelineLeafOutcomeV2Schema = z.union([
+  z.object({
+    leafId: z.string().min(1),
+    kind: z.enum(["execution", "charge"]),
+    status: z.literal("recorded"),
+    bindingDigest: PipelineSha256DigestSchema,
+    receiptDigest: PipelineSha256DigestSchema,
+    usage: z.record(z.string(), z.unknown()),
+  }).strict(),
+  z.object({
+    leafId: z.string().min(1),
+    kind: z.literal("effect"),
+    status: z.literal("recorded"),
+    intentDigest: PipelineSha256DigestSchema,
+    receiptDigest: PipelineSha256DigestSchema,
+  }).strict(),
+  z.object({
+    leafId: z.string().min(1),
+    kind: z.enum(["execution", "effect", "charge"]),
+    status: z.literal("released"),
+    reason: z.enum([
+      "not-selected",
+      "prior-leaf-failed",
+      "dispatch-denied",
+      "cancelled-before-dispatch",
+    ]),
+    releaseDigest: PipelineSha256DigestSchema,
+  }).strict(),
+  z.object({
+    leafId: z.string().min(1),
+    kind: z.enum(["execution", "effect", "charge"]),
+    status: z.literal("unknown"),
+    reason: z.enum([
+      "dispatch-acknowledgement-lost",
+      "receipt-unavailable",
+      "reconciliation-unavailable",
+      "authority-drift",
+    ]),
+    observationDigest: PipelineSha256DigestSchema,
+  }).strict(),
+]);
+
+/**
  * 24-F: durable per-item economics. Costs are integer cents and never
  * negative; a fractional or negative amount is corrupt rather than merely
  * unusual, so it is rejected at the parse boundary instead of being rounded.
@@ -147,23 +199,102 @@ const PipelineForEachItemEconomicsSchema = z
         { message: "invalid canonical loop economics evidence" },
       )
       .optional(),
+    // DSL-V2-HOST-BRIDGE-20260918: the V2 record is validated by its own
+    // validator and never by the V1 one, so a V1 record can never be read as
+    // V2 (or the reverse) at the parse boundary.
+    evidenceV2: z
+      .custom<LoopEconomicsEvidenceV2>(
+        (value) => validateLoopEconomicsEvidenceV2(value).valid,
+        { message: "invalid canonical loop economics V2 evidence" },
+      )
+      .optional(),
+    leafOutcomesV2: z.array(PipelineLeafOutcomeV2Schema).optional(),
   })
   .strict()
   .superRefine((economics, context) => {
-    if (economics.evidence === undefined) return;
-    const validation = validateLoopEconomicsEvidence(economics.evidence, {
-      reservedCostCents: economics.reservedCostCents,
-      ...(economics.settledCostCents === undefined
-        ? {}
-        : { settledCostCents: economics.settledCostCents }),
-    });
-    for (const diagnostic of validation.diagnostics) {
+    if (economics.evidence !== undefined && economics.evidenceV2 !== undefined) {
       context.addIssue({
         code: "custom",
-        path: ["evidence", diagnostic.path],
-        message: diagnostic.message,
+        path: ["evidenceV2"],
+        message: "V1 and V2 loop economics evidence are mutually exclusive",
       });
     }
+    if (economics.evidence !== undefined) {
+      const validation = validateLoopEconomicsEvidence(economics.evidence, {
+        reservedCostCents: economics.reservedCostCents,
+        ...(economics.settledCostCents === undefined
+          ? {}
+          : { settledCostCents: economics.settledCostCents }),
+      });
+      for (const diagnostic of validation.diagnostics) {
+        context.addIssue({
+          code: "custom",
+          path: ["evidence", diagnostic.path],
+          message: diagnostic.message,
+        });
+      }
+    }
+    if (economics.evidenceV2 !== undefined) {
+      const validation = validateLoopEconomicsEvidenceV2(economics.evidenceV2, {
+        reservedCostCents: economics.reservedCostCents,
+        ...(economics.settledCostCents === undefined
+          ? {}
+          : { settledCostCents: economics.settledCostCents }),
+      });
+      for (const diagnostic of validation.diagnostics) {
+        context.addIssue({
+          code: "custom",
+          path: ["evidenceV2", diagnostic.path],
+          message: diagnostic.message,
+        });
+      }
+    }
+    if (economics.leafOutcomesV2 === undefined) return;
+    if (economics.evidenceV2 === undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["leafOutcomesV2"],
+        message: "retained V2 leaf outcomes require the admitted V2 evidence record",
+      });
+      return;
+    }
+    if (economics.evidenceV2.resolution.status !== "pending") {
+      context.addIssue({
+        code: "custom",
+        path: ["leafOutcomesV2"],
+        message: "a resolved V2 record carries its outcomes itself; the pending prefix must be omitted",
+      });
+    }
+    const orderByLeafId = new Map(
+      economics.evidenceV2.leaves.map((leaf) => [leaf.leafId, leaf] as const),
+    );
+    let previousOrder = -1;
+    economics.leafOutcomesV2.forEach((outcome, index) => {
+      const leaf = orderByLeafId.get(outcome.leafId);
+      if (leaf === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["leafOutcomesV2", index, "leafId"],
+          message: "retained V2 leaf outcome does not name an admitted leaf",
+        });
+        return;
+      }
+      if (leaf.kind !== outcome.kind) {
+        context.addIssue({
+          code: "custom",
+          path: ["leafOutcomesV2", index, "kind"],
+          message: "retained V2 leaf outcome kind must match its admitted leaf",
+        });
+      }
+      if (leaf.order <= previousOrder) {
+        context.addIssue({
+          code: "custom",
+          path: ["leafOutcomesV2", index, "leafId"],
+          message: "retained V2 leaf outcomes must be unique and in admitted leaf order",
+        });
+      }
+      previousOrder = Math.max(previousOrder, leaf.order);
+    });
   });
 
 /** Mid-item durable progress for an in-flight for-each item (E0 frame). */

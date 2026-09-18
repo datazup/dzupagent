@@ -10,6 +10,16 @@
  */
 
 import type { LoopEconomicsEvidenceV1 } from "@dzupagent/runtime-contracts/loop-economics-evidence";
+import type {
+  LoopEconomicsEvidenceV2,
+  LoopEconomicsLeafOutcomeV2,
+} from "@dzupagent/runtime-contracts/loop-economics-evidence-v2";
+
+/** V2 custody carried with a held reservation: the record and its pending outcomes. */
+export interface HeldItemEconomicsV2 {
+  readonly evidence: LoopEconomicsEvidenceV2;
+  readonly leafOutcomes?: readonly LoopEconomicsLeafOutcomeV2[];
+}
 
 /**
  * F: a reservation held for one in-flight item, carried from the reserve at
@@ -23,6 +33,8 @@ export interface HeldItemReservation {
   readonly reservationId: string;
   /** Exact pre-dispatch or terminal execution/economics/effect evidence. */
   readonly evidence?: LoopEconomicsEvidenceV1;
+  /** DSL-V2-HOST-BRIDGE-20260918: the V2 record and outcomes, when the host is V2. */
+  readonly economicsV2?: HeldItemEconomicsV2;
 }
 
 /**

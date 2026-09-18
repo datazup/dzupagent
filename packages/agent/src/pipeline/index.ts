@@ -107,6 +107,10 @@ export type {
   LoopBudgetReleaseInput,
   LoopBudgetSettlementInput,
   LoopBudgetStrictHost,
+  LoopBudgetV2Host,
+  LoopBudgetV2LeafDispatchInput,
+  LoopBudgetV2LeafDispatchResult,
+  LoopBudgetV2ReservationRequest,
 } from './loop-executor.js'
 export type {
   PipelineState,

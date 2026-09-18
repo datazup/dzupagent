@@ -7,9 +7,11 @@
 import type {
   LoopMetrics,
   NodeExecutionContext,
+  NodeExecutor,
   NodeResult,
   PipelineState,
 } from "@dzupagent/runtime-contracts";
+import type { PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type {
   PipelineForEachItemFrame,
   PipelineForEachItemEconomics,
@@ -100,11 +102,13 @@ export interface LoopIterationCheckpointProgress {
  * surface.
  */
 import type {
+  ForEachEconomicsV2Readiness,
   LoopIterationBudgetCheckpointProgress,
   LoopIterationBudgetReservation,
   LoopBudgetCostEvidence,
   LoopBudgetReconcileInput,
   LoopBudgetReconcileOutcome,
+  LoopBudgetV2Host,
   LoopIterationBudgetReservationInput,
   LoopBudgetSettlementInput,
   LoopBudgetCostMeasurementInput,
@@ -112,6 +116,8 @@ import type {
 } from "./budget-types.js";
 
 export type {
+  ForEachEconomicsV2Preparation,
+  ForEachEconomicsV2Readiness,
   LoopIterationBudgetCheckpointProgress,
   LoopIterationBudgetReservation,
   LoopBudgetCostEvidence,
@@ -125,6 +131,10 @@ export type {
   LoopBudgetLifecycle,
   LoopBudgetCompatibilityHost,
   LoopBudgetStrictHost,
+  LoopBudgetV2Host,
+  LoopBudgetV2LeafDispatchInput,
+  LoopBudgetV2LeafDispatchResult,
+  LoopBudgetV2ReservationRequest,
   LoopBudgetHost,
 } from "./budget-types.js";
 
@@ -132,6 +142,13 @@ export type {
 export interface LoopBodyGraphScheduleInput {
   iteration: number;
   context: NodeExecutionContext;
+  /**
+   * DSL-V2-HOST-BRIDGE-20260918: the executor the scheduler wraps with item
+   * scope and idempotency key instead of the runtime's own. The V2 item host
+   * uses it to route execution/effect leaves through the host's single
+   * `dispatchLeaf` authority. Absent ⇒ the runtime executor, unchanged.
+   */
+  nodeExecutor?: NodeExecutor<PipelineNode>;
   resumeState?: LoopBodyGraphCheckpointState;
   onCheckpoint?: (
     state: LoopBodyGraphCheckpointState,
@@ -317,8 +334,21 @@ export interface LoopResumeOptions {
    * requires this mode and every lifecycle hook below.
    */
   budgetMode?: "strict";
-  /** Enforce exact V1 execution/economics/effect evidence before dispatch. */
-  budgetEvidenceMode?: "required";
+  /**
+   * Enforce exact evidence before dispatch: `required` is the V1 record
+   * (flat bodies and predicate loops), `required-v2` the per-leaf V2 record
+   * for conditional graph bodies (DSL-V2-HOST-BRIDGE-20260918). Neither is
+   * ever upgraded or downgraded into the other.
+   */
+  budgetEvidenceMode?: "required" | "required-v2";
+  /**
+   * V2: the loop-side preparation (P1 inventory and key derivation) for this
+   * loop, or the reason it could not be prepared. Required in `required-v2`
+   * mode; a denied preparation fails the loop closed before any reservation.
+   */
+  economicsV2?: ForEachEconomicsV2Readiness;
+  /** V2: the host's single leaf execution authority. Required in `required-v2` mode. */
+  dispatchLeafV2?: LoopBudgetV2Host["dispatchLeaf"];
   /** Authoritative known/unknown item cost measurement in strict mode. */
   measureItemCost?: (
     input: LoopBudgetCostMeasurementInput

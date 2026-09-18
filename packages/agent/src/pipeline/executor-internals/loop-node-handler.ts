@@ -32,6 +32,7 @@ import {
   nodeIdempotencyContext,
   nodeIdempotencyKey,
 } from "../pipeline-shared/idempotency.js";
+import { prepareForEachEconomicsV2 } from "../loop-executor/for-each-item-economics-v2.js";
 import type { BudgetTrackerState } from "./iteration-budget-tracker.js";
 
 export interface LoopNodeHandlerDeps {
@@ -150,6 +151,15 @@ export async function handleLoop(
                 ...(strictBudgetHost.evidenceMode === undefined
                   ? {}
                   : { budgetEvidenceMode: strictBudgetHost.evidenceMode }),
+                // DSL-V2-HOST-BRIDGE-20260918: a V2 host gets the loop bound
+                // to its P1 leaf inventory and the host's single leaf
+                // authority; the loop fails closed on a denied preparation.
+                ...(strictBudgetHost.evidenceMode === "required-v2"
+                  ? {
+                      economicsV2: prepareForEachEconomicsV2(config.definition, loopNode, runId),
+                      dispatchLeafV2: (input) => strictBudgetHost.dispatchLeaf(input),
+                    }
+                  : {}),
                 ...(strictBudgetHost.itemBudgetCents === undefined
                   ? {}
                   : { itemBudgetCents: strictBudgetHost.itemBudgetCents }),

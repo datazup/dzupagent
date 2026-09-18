@@ -20,7 +20,13 @@ import type {
   LoopResumeOptions,
 } from "./types.js";
 import type { LoopEconomicsEvidenceV1 } from "@dzupagent/runtime-contracts/loop-economics-evidence";
-import { validateLoopEconomicsBoundary } from "./economics-evidence.js";
+import type { LoopEconomicsEvidenceV2 } from "@dzupagent/runtime-contracts/loop-economics-evidence-v2";
+import type { ForEachEconomicsV2Preparation } from "./budget-types.js";
+import {
+  buildLoopEconomicsEvidenceOwner,
+  validateLoopEconomicsBoundary,
+} from "./economics-evidence.js";
+import { validateForEachEvidenceV2 } from "./for-each-item-economics-v2.js";
 import {
   deriveItemReservationId,
   reservedCostCentsFromEvidence,
@@ -34,6 +40,8 @@ export interface ItemBudgetLifecycleDeps {
   /** Hard per-item ceiling; `undefined` disables the whole lifecycle. */
   itemBudgetCents: number | undefined;
   resume: LoopResumeOptions | undefined;
+  /** DSL-V2-HOST-BRIDGE-20260918: present iff the host profile is `required-v2`. */
+  economicsV2?: ForEachEconomicsV2Preparation;
 }
 
 /**
@@ -43,7 +51,8 @@ export interface ItemBudgetLifecycleDeps {
  * declared inline, so call sites and behaviour are unchanged.
  */
 export function createReleaseAndReconcile(deps: ItemBudgetLifecycleDeps) {
-  const { loopNode, bodyNodes, itemBudgetCents, resume } = deps;
+  const { loopNode, bodyNodes, itemBudgetCents, resume, economicsV2 } = deps;
+  const v2Mode = resume?.budgetEvidenceMode === "required-v2";
 
   type ReconciledReservation =
     | Exclude<LoopBudgetReconcileOutcome, { status: "unknown" | "conflict" }>
@@ -64,6 +73,7 @@ export function createReleaseAndReconcile(deps: ItemBudgetLifecycleDeps) {
         reservedCostCents: held.reservedCostCents,
         reason,
         ...(held.evidence === undefined ? {} : { evidence: held.evidence }),
+        ...(held.economicsV2 === undefined ? {} : { evidenceV2: held.economicsV2.evidence }),
       });
     } catch (error) {
       return {
@@ -81,6 +91,7 @@ export function createReleaseAndReconcile(deps: ItemBudgetLifecycleDeps) {
     | {
         settledCostCents: number;
         evidence?: LoopEconomicsEvidenceV1;
+        evidenceV2?: LoopEconomicsEvidenceV2;
         overrun?: string;
       }
     | { error: string } => {
@@ -104,6 +115,9 @@ export function createReleaseAndReconcile(deps: ItemBudgetLifecycleDeps) {
       ...(outcome.cost.evidence === undefined
         ? {}
         : { evidence: outcome.cost.evidence }),
+      ...(outcome.cost.evidenceV2 === undefined
+        ? {}
+        : { evidenceV2: outcome.cost.evidenceV2 }),
     };
   };
 
@@ -113,6 +127,7 @@ export function createReleaseAndReconcile(deps: ItemBudgetLifecycleDeps) {
         status: "settled";
         settledCostCents: number;
         evidence?: LoopEconomicsEvidenceV1;
+        evidenceV2?: LoopEconomicsEvidenceV2;
       }
     | { status: "blocked"; error: string };
 
@@ -160,6 +175,9 @@ export function createReleaseAndReconcile(deps: ItemBudgetLifecycleDeps) {
         ...(retained?.evidence === undefined
           ? {}
           : { evidence: retained.evidence }),
+        ...(retained?.economicsV2 === undefined
+          ? {}
+          : { evidenceV2: retained.economicsV2.evidence }),
       });
     } catch (error) {
       // A reconcile that itself fails proves nothing — stay blocked.
@@ -181,6 +199,59 @@ export function createReleaseAndReconcile(deps: ItemBudgetLifecycleDeps) {
     }
     if (outcome.status === "unknown") {
       return { status: "blocked", error: blocked };
+    }
+    if (v2Mode) {
+      // A V2 unit is reconciled against the same admission it retained. A V1
+      // record, or a V2 record of another admission, is a host contradiction
+      // and can neither prove a hold nor a settlement.
+      const answeredV1 =
+        (outcome.status === "reserved" && outcome.evidence !== undefined) ||
+        (outcome.status === "settled" && outcome.cost.evidence !== undefined);
+      const answeredV2 = outcome.status === "reserved"
+        ? outcome.evidenceV2
+        : outcome.status === "settled" ? outcome.cost.evidenceV2 : undefined;
+      if (answeredV1) {
+        return { status: "blocked", error: `Loop "${loopNode.id}" item ${index} reconciliation after ${boundary} answered with V1 evidence under the V2 host profile` };
+      }
+      if (
+        answeredV2 !== undefined &&
+        (retained?.economicsV2 === undefined ||
+          answeredV2.admissionDigest !== retained.economicsV2.evidence.admissionDigest)
+      ) {
+        return { status: "blocked", error: `Loop "${loopNode.id}" item ${index} reconciliation after ${boundary} answered with a V2 record of another admission` };
+      }
+      if (
+        answeredV2 !== undefined &&
+        outcome.status === "settled" &&
+        outcome.cost.status === "known" &&
+        economicsV2 !== undefined &&
+        retained?.economicsV2 !== undefined
+      ) {
+        const owner = buildLoopEconomicsEvidenceOwner({
+          runId: resume?.budgetRunId,
+          loopNodeId: loopNode.id,
+          reservationId,
+          iteration: index + 1,
+          itemIndex: index,
+          attempt,
+        });
+        const check = owner === undefined
+          ? "exact loop economics requires a non-empty runtime run identity"
+          : validateForEachEvidenceV2(answeredV2, {
+              preparation: economicsV2,
+              owner,
+              unitAttempt: attempt,
+              reservedCostCents: retained.reservedCostCents,
+              settledCostCents: outcome.cost.costCents,
+              resolutionStatus: "settled",
+              leafIdempotencyKeys: economicsV2.leafIdempotencyKeys(index, attempt),
+              admissionDigest: retained.economicsV2.evidence.admissionDigest,
+            });
+        if (check !== undefined) {
+          return { status: "blocked", error: `settlement reconciliation returned an invalid V2 record: ${check}` };
+        }
+      }
+      return outcome;
     }
     if (outcome.status === "reserved") {
       const evidenceError = validateLoopEconomicsBoundary({
@@ -284,6 +355,9 @@ export function createReleaseAndReconcile(deps: ItemBudgetLifecycleDeps) {
               ...(settled.evidence === undefined
                 ? {}
                 : { evidence: settled.evidence }),
+              ...(settled.evidenceV2 === undefined
+                ? {}
+                : { evidenceV2: settled.evidenceV2 }),
             };
       }
       if (
@@ -334,6 +408,7 @@ export function createReleaseAndReconcile(deps: ItemBudgetLifecycleDeps) {
         status: "settled";
         settledCostCents: number;
         evidence?: LoopEconomicsEvidenceV1;
+        evidenceV2?: LoopEconomicsEvidenceV2;
         overrun?: string;
       }
     | { status: "blocked"; error: string };
@@ -344,7 +419,8 @@ export function createReleaseAndReconcile(deps: ItemBudgetLifecycleDeps) {
     held: HeldItemReservation,
     actualCostCents: number,
     reason: string,
-    terminalEvidence?: LoopEconomicsEvidenceV1
+    terminalEvidence?: LoopEconomicsEvidenceV1,
+    terminalEvidenceV2?: LoopEconomicsEvidenceV2
   ): Promise<SettlementResolution> => {
     const observed = await reconcileUnknownReservation(
       held.itemIndex,
@@ -371,6 +447,9 @@ export function createReleaseAndReconcile(deps: ItemBudgetLifecycleDeps) {
         ...(settled.evidence === undefined
           ? {}
           : { evidence: settled.evidence }),
+        ...(settled.evidenceV2 === undefined
+          ? {}
+          : { evidenceV2: settled.evidenceV2 }),
         ...(settled.settledCostCents > held.reservedCostCents
           ? {
               overrun:
@@ -407,6 +486,9 @@ export function createReleaseAndReconcile(deps: ItemBudgetLifecycleDeps) {
         ...(terminalEvidence === undefined
           ? {}
           : { evidence: terminalEvidence }),
+        ...(terminalEvidenceV2 === undefined
+          ? {}
+          : { evidenceV2: terminalEvidenceV2 }),
       });
     } catch (error) {
       const retried = await reconcileUnknownReservation(
@@ -427,6 +509,9 @@ export function createReleaseAndReconcile(deps: ItemBudgetLifecycleDeps) {
           ...(settled.evidence === undefined
             ? {}
             : { evidence: settled.evidence }),
+          ...(settled.evidenceV2 === undefined
+            ? {}
+            : { evidenceV2: settled.evidenceV2 }),
           ...(settled.settledCostCents > held.reservedCostCents
             ? {
                 overrun:
@@ -452,6 +537,9 @@ export function createReleaseAndReconcile(deps: ItemBudgetLifecycleDeps) {
       ...(terminalEvidence === undefined
         ? {}
         : { evidence: terminalEvidence }),
+      ...(terminalEvidenceV2 === undefined
+        ? {}
+        : { evidenceV2: terminalEvidenceV2 }),
       ...(actualCostCents > held.reservedCostCents
         ? {
             overrun:
