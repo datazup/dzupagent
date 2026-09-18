@@ -44,6 +44,7 @@ const MODEL_TIERS: Set<string> = new Set([
   "reasoning",
   "codegen",
   "embedding",
+  "vision",
 ]);
 
 /**
