@@ -4,6 +4,8 @@ import { checkOutputKeyUniqueness } from "@dzupagent/flow-ast";
 import type { FlowNode, ResolvedTool } from "@dzupagent/flow-ast";
 import { PipelineDefinitionSchema } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type { PipelineDefinition } from "@dzupagent/runtime-contracts/pipeline-artifact";
+import { buildLoopEconomicsLeafInventoryV2 } from "@dzupagent/runtime-contracts/loop-economics-evidence-v2";
+import { canonicalInputDigest } from "@dzupagent/runtime-contracts";
 import { createFlowCompiler } from "../index.js";
 import { lowerPipelineLoop } from "../lower/lower-pipeline-loop.js";
 import { InMemoryPipelineCheckpointStore, PipelineRuntime } from "@dzupagent/agent/pipeline";
@@ -240,5 +242,123 @@ steps:
     expect(leaf?.type).toBe("tool");
     expect(loop.typedWhile?.progressKey).toBe(leaf?.id);
     expect(loop.typedWhile?.progressKey).toBe(oldLoop.typedWhile?.progressKey);
+  });
+});
+
+describe("resolved V2 leaf inventory from compiled artifacts (DSL-V2-INVENTORY-20260918)", () => {
+  function inventoryOf(definition: PipelineDefinition) {
+    const loop = definition.nodes.find((node) => node.type === "loop");
+    if (loop === undefined) throw new Error("expected loop");
+    const result = buildLoopEconomicsLeafInventoryV2(definition, loop.id);
+    if (result.status !== "admitted") throw new Error(JSON.stringify(result.diagnostics));
+    return result.inventory;
+  }
+
+  const resolvedBody: FlowNode[] = [
+    { type: "action", id: "agent-action", toolRef: "worker", input: {} },
+    { type: "branch", id: "decide", condition: "check", then: [
+      { type: "prompt", id: "prompt", userPrompt: "Inspect the item." },
+      { type: "set", id: "local", assign: { ready: true } },
+    ], else: [
+      { type: "action", id: "tool-action", toolRef: "tool", input: {}, effectClass: "network_write" },
+    ] },
+    { type: "adapter.run", id: "adapter", provider: "codex", instructions: "Inspect the item.", output: "adapterResult" },
+    { type: "validate.schema", id: "schema", source: "item", schema: { type: "object" }, output: "valid" },
+  ];
+  const resolvedTools = new Map<string, ResolvedTool>([
+    ["root.body[0]", { ref: "worker", kind: "agent", inputSchema: { type: "object" }, handle: {} }],
+    ["root.body[1].else[0]", { ref: "tool", kind: "skill", inputSchema: { type: "object" }, handle: {} }],
+  ]);
+  const resolvedLoop = (body: FlowNode[] = resolvedBody): FlowNode => ({ type: "for_each", id: "items", source: "items", as: "item", body });
+
+  it("binds a public DSL conditional body in authored order with local leaves producing no V2 leaf", async () => {
+    const { definition } = await compile(source, true);
+    const inventory = inventoryOf(definition);
+    expect(inventory.loop).toEqual({ runtimeNodeId: definition.nodes[0]?.id, authoredPath: "root.nodes[0]", authoredId: "items" });
+    expect(inventory.bindings.map((binding) => [binding.order, binding.authoredId, binding.executionClass.kind, binding.controlRequirements.map((r) => r.kind === "branch" ? r.requiredBranch : r.requiredArm)])).toEqual([
+      [0, "prefix", "local", []],
+      [1, "decide", "control", []],
+      [2, "yes", "local", ["then"]],
+      [3, "no", "local", ["else"]],
+      [4, "suffix", "local", []],
+    ]);
+    expect(inventory.bindings.map((binding) => binding.runtimeNodeId)).toEqual(definition.nodes.slice(1, -1).map((node) => node.id));
+    expect(inventory.controlSelections).toEqual([{ kind: "branch", nodePath: [definition.nodes[0]?.id, definition.nodes[2]?.id], selectedBranch: null }]);
+    expect(inventory.leaves).toEqual([]);
+    expect(inventory.definitionDigest).toBe(`sha256:${canonicalInputDigest(definition)}`);
+  });
+
+  it("classifies resolved agent and tool actions, prompt, adapter.run and local leaves from the compiled node and authored type", () => {
+    const { artifact } = lower(resolvedLoop(), true, resolvedTools);
+    const inventory = inventoryOf(artifact);
+    expect(inventory.bindings.map((binding) => [binding.authoredId, binding.executionClass])).toEqual([
+      ["agent-action", { kind: "execution", resolution: "agent" }],
+      ["decide", { kind: "control", resolution: "branch" }],
+      ["prompt", { kind: "execution", resolution: "prompt" }],
+      ["local", { kind: "local", resolution: "set" }],
+      ["tool-action", { kind: "effect", resolution: "tool", effectClass: "network_write" }],
+      ["adapter", { kind: "execution", resolution: "adapter.run" }],
+      ["schema", { kind: "local", resolution: "validate.schema" }],
+    ]);
+    expect(artifact.nodes.filter((node) => node.source?.nodeId === "prompt" || node.source?.nodeId === "adapter").map((node) => node.type)).toEqual(["tool", "tool"]);
+    expect(inventory.leaves.map((leaf) => [leaf.order, leaf.kind, leaf.authoredId])).toEqual([
+      [0, "execution", "agent-action"], [1, "charge", "agent-action"],
+      [2, "execution", "prompt"], [3, "charge", "prompt"],
+      [4, "effect", "tool-action"],
+      [5, "execution", "adapter"], [6, "charge", "adapter"],
+    ]);
+    for (const leaf of inventory.leaves) {
+      expect(leaf.runtimeNodeId).toBe(artifact.nodes.find((node) => node.source?.nodeId === leaf.authoredId)?.id);
+      expect(leaf).not.toHaveProperty("receiptDigest");
+    }
+  });
+
+  it("keeps bodyPlanDigest stable under regenerated runtime ids and distinct from definition, AST and source digests", async () => {
+    const ast = resolvedLoop();
+    const first = inventoryOf(lower(ast, true, resolvedTools).artifact);
+    let counter = 0;
+    const regenerated = lowerPipelineLoop({
+      ast, resolved: resolvedTools, resolvedPersonas: new Map(), idGen: () => `fresh-${counter++}`, includeForEachEconomicsV2Provenance: true,
+    }).artifact;
+    const second = inventoryOf(regenerated);
+    expect(second.bodyPlanDigest).toBe(first.bodyPlanDigest);
+    expect(second.definitionDigest).not.toBe(first.definitionDigest);
+    expect(second.leaves.map((leaf) => leaf.leafId)).toEqual(first.leaves.map((leaf) => leaf.leafId));
+    expect(first.bodyPlanDigest).not.toBe(first.definitionDigest);
+    expect(first.bodyPlanDigest).not.toBe(`sha256:${canonicalInputDigest(ast)}`);
+    const changed = inventoryOf(lower(resolvedLoop(resolvedBody.filter((node) => node.id !== "schema")), true, resolvedTools).artifact);
+    expect(changed.bodyPlanDigest).not.toBe(first.bodyPlanDigest);
+    const { result, definition } = await compile(source, true);
+    const compiled = inventoryOf(definition);
+    const evidence = result.evidence;
+    for (const digestValue of [evidence.sourceHash, evidence.semanticHash, evidence.canonicalArtifact.hash]) {
+      expect(compiled.bodyPlanDigest).not.toBe(digestValue);
+      expect(compiled.bodyPlanDigest).not.toBe(`sha256:${digestValue}`);
+      expect(compiled.bodyPlanDigest.slice("sha256:".length)).not.toBe(digestValue);
+    }
+  });
+
+  it("orders an absent else after the then arm and before the suffix", async () => {
+    const withoutElse = source.replace(`            else:
+              - set:
+                  id: no
+                  assign:
+                    answer: rejected
+`, "");
+    const { definition } = await compile(withoutElse, true);
+    const inventory = inventoryOf(definition);
+    expect(inventory.bindings.map((binding) => binding.authoredId)).toEqual(["prefix", "decide", "yes", "suffix"]);
+    expect(inventory.controlSelections).toHaveLength(1);
+    expect(inventory.bodyPlanDigest).not.toBe(inventoryOf((await compile(source, true)).definition).bodyPlanDigest);
+  });
+
+  it.each([undefined, false])("denies the inventory with a missing-mapping diagnostic when provenance is off (%s)", async (enabled) => {
+    const { definition } = await compile(source, enabled);
+    const loop = definition.nodes[0];
+    if (loop?.type !== "loop") throw new Error("expected loop");
+    const result = buildLoopEconomicsLeafInventoryV2(definition, loop.id);
+    expect(result.status).toBe("denied");
+    if (result.status !== "denied") throw new Error("expected denial");
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(["LOOP_ECONOMICS_V2_INVENTORY_MISSING_MAPPING"]);
   });
 });

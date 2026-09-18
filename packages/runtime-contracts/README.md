@@ -75,6 +75,23 @@ snapshot/scope/evidence bindings, abstains on no or insufficient evidence, and
 rejects unsupported claims. It does not choose providers, mutate indexes, or
 authorize snapshot promotion.
 
+The `loop-economics-evidence-v2` subpath also exposes
+`buildLoopEconomicsLeafInventoryV2(definition, loopNodeId)`, a pure projection
+of one compiled `for_each` definition into an ordered V2 leaf inventory. It
+requires the artifact to have been compiled with the flow compiler's opt-in
+`includeForEachEconomicsV2Provenance` anchors and binds every authored body
+node to its authored path and id, its generated runtime node id and its
+resolved execution class: an agent-resolved `action`, `prompt` and
+`adapter.run` yield an `execution` leaf plus a linked `charge` leaf; a
+tool-resolved `action` yields an `effect` leaf carrying its declared effect
+class; `set` and `validate.schema` yield no leaf; a `branch` yields a control
+selection. It also produces the `definitionDigest` (compiled artifact
+identity) and `bodyPlanDigest` (authored body identity, stable under
+regenerated runtime ids) that `LoopEconomicsEvidenceV2` requires. Missing,
+duplicate, reordered, foreign and contradictory mappings deny the inventory
+with distinct diagnostic codes. It reserves, dispatches, releases and settles
+nothing.
+
 ## License
 
 MIT
