@@ -32,10 +32,7 @@ import type {
   PipelineDefinition,
   PipelineNode,
 } from "@dzupagent/runtime-contracts/pipeline-artifact";
-import {
-  canonicalInputDigest,
-  digestPipelineDefinition,
-} from "@dzupagent/runtime-contracts";
+import { canonicalInputDigest } from "@dzupagent/runtime-contracts";
 import type { LoopEconomicsEvidenceOwner } from "@dzupagent/runtime-contracts/loop-economics-evidence";
 import {
   buildLoopEconomicsLeafInventoryV2,
@@ -116,10 +113,21 @@ export function prepareForEachEconomicsV2(
     };
   }
   const inventory = built.inventory;
-  if (inventory.definitionDigest !== digestPipelineDefinition(definition)) {
-    return { status: "denied", error: "V2 leaf inventory does not bind the executing definition digest" };
-  }
   const nodesById = new Map(definition.nodes.map((node) => [node.id, node] as const));
+  // Per-node retry would re-enter the leaf executor after the host already
+  // answered, which is a second dispatch under the same attempt key. The V2
+  // profile has exactly one route to run a leaf, so retries are denied here
+  // rather than tolerated at dispatch time.
+  for (const leaf of inventory.leaves) {
+    if (leaf.kind === "charge") continue;
+    const node = nodesById.get(leaf.runtimeNodeId);
+    if (node !== undefined && (node.retries ?? 0) > 0) {
+      return {
+        status: "denied",
+        error: `V2 leaf node ${JSON.stringify(node.id)} declares retries; per-node retry would re-dispatch leaf ${JSON.stringify(leaf.leafId)} under one attempt`,
+      };
+    }
+  }
   const leafIdempotencyKeys = (itemIndex: number, attempt: number): Readonly<Record<string, string>> => {
     const keys: Record<string, string> = {};
     const executionKeys = new Map<string, string>();
@@ -164,6 +172,8 @@ export interface ForEachEvidenceV2Expectation {
   readonly leafIdempotencyKeys: Readonly<Record<string, string>>;
   /** When given, the record must be the same admission (retained state). */
   readonly admissionDigest?: LoopEconomicsSha256DigestV2;
+  /** A record the host has just admitted: every selection must still be open. */
+  readonly freshAdmission?: boolean;
 }
 
 /**
@@ -213,6 +223,10 @@ export function validateForEachEvidenceV2(
     const selection = evidence.controlSelections[index]!;
     if (selection.kind !== expectedSelection.kind || !canonicalEqual(selection.nodePath, expectedSelection.nodePath)) {
       return `controlSelections[${index}]: differs from the inventory`;
+    }
+    const resolved = selection.kind === "branch" ? selection.selectedBranch : selection.selectedArm;
+    if (expected.freshAdmission === true && resolved !== null) {
+      return `controlSelections[${index}]: a fresh admission pre-resolves the selection to ${JSON.stringify(resolved)}; only the durable frame selects`;
     }
   }
   return undefined;
@@ -310,10 +324,6 @@ export class ForEachItemEconomicsV2Custody {
 
   hasUnknown(): boolean {
     return [...this.outcomes.values()].some((outcome) => outcome.status === "unknown");
-  }
-
-  hasDispatchedLeaf(): boolean {
-    return [...this.outcomes.values()].some((outcome) => outcome.status !== "released");
   }
 
   /** Runtime nodes whose leaves are retained as unknown — the only resumable block. */
@@ -596,7 +606,10 @@ export function createForEachV2LeafExecutor(input: ForEachV2LeafExecutorInput): 
     }
     const prior = custody.outcomeOf(leaf.leafId);
     if (prior !== undefined && prior.status !== "unknown") {
-      return blocked("authority-drift", `leaf already ${prior.status}`, { prior: prior.status });
+      // A recorded or released leaf is settled accounting; re-entry (a retry,
+      // a duplicate schedule) must not overwrite it with an unknown row. The
+      // custody keeps the host's answer and the node reports the refusal.
+      return { nodeId, output: null, durationMs: Date.now() - started, error: `V2 leaf ${leaf.leafId} is already ${prior.status}; a second dispatch under the same attempt is refused` };
     }
     let dispatch: LoopBudgetV2LeafDispatchResult;
     try {

@@ -166,6 +166,7 @@ export function createItemBudgetLifecycle(deps: ItemBudgetLifecycleDeps) {
                   reservedCostCents: reservation.reservedCostCents,
                   resolutionStatus: "pending",
                   leafIdempotencyKeys: v2Keys,
+                  freshAdmission: true,
                 });
       if (denial !== undefined) {
         return {

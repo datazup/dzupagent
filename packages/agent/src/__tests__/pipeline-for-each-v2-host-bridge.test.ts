@@ -34,6 +34,7 @@ import {
   checkpoints,
   createV2Host,
   emptyLedger,
+  LEAF_NODE_IDS,
   executor,
   predicates,
   reservationFor,
@@ -103,13 +104,16 @@ async function resume(cp: PipelineCheckpoint, options: {
 
 describe("DSL-V2-HOST-BRIDGE-20260918: conditional for_each items under the strict V2 profile", () => {
   it.each([1, 2])("settles exactly the recorded leaves through one authority at concurrency %s", async (concurrency) => {
-    const { result, ledger, outside, store, definition } = await run({ items: [0, 1, 2], concurrency });
+    const { result, ledger, outside, store, definition, calls } = await run({ items: [0, 1, 2], concurrency });
     expect(validatePipeline(definition).errors).toEqual([]);
     expect(result.state, result.error).toBe("completed");
     expect(result.nodeResults.get("done")?.output).toEqual(["after:item-0", "after:item-1", "after:item-2"]);
     // One authority: no leaf node ever ran outside a host dispatch, every
-    // dispatched key executed exactly once, and nothing was replayed.
+    // dispatched key executed exactly once, and nothing was replayed. The
+    // `outside` detector is a single slot, so at concurrency 2 the count of
+    // leaf executor calls is also pinned to the host's execution count.
     expect(outside).toEqual([]);
+    expect(calls.filter((call) => LEAF_NODE_IDS.has(call.split(":")[0]!))).toHaveLength(ledger.executions.length);
     expect(ledger.executions).toEqual(ledger.dispatches);
     expect(ledger.replays).toEqual([]);
     expect(new Set(ledger.dispatches).size).toBe(ledger.dispatches.length);
@@ -152,6 +156,7 @@ describe("DSL-V2-HOST-BRIDGE-20260918: conditional for_each items under the stri
       ["a key the framework did not derive", (e: LoopEconomicsEvidenceV2) => rematerialize(e, { leaves: e.leaves.map((leaf, index) => index === 0 ? { ...leaf, idempotencyKey: "someone-elses-key" } : leaf) as never })],
       ["another attempt", (e: LoopEconomicsEvidenceV2) => rematerialize(e, { unitAttempt: 1 })],
       ["another definition", (e: LoopEconomicsEvidenceV2) => rematerialize(e, { definitionDigest: `sha256:${"1".repeat(64)}` })],
+      ["a pre-resolved selection", (e: LoopEconomicsEvidenceV2) => rematerialize(e, { controlSelections: e.controlSelections.map((selection) => selection.kind === "branch" ? { ...selection, selectedBranch: "then" as const } : selection) })],
     ])("denies a record with %s before any dispatch and releases the hold", async (_label, mutateAdmission) => {
       const { result, ledger } = await run({ faults: { mutateAdmission } });
       expect(result).toMatchObject({ state: "failed", error: expect.stringMatching(/invalid V2 selected\/skipped-leaf economics/) });
@@ -203,6 +208,17 @@ describe("DSL-V2-HOST-BRIDGE-20260918: conditional for_each items under the stri
       expect(ledger.dispatches).toEqual([]);
     });
 
+    it("denies a leaf node that declares per-node retries", async () => {
+      const definition = v2BranchDefinition();
+      const yes = definition.nodes.find((node) => node.id === "yes")!;
+      yes.retries = 1;
+      const { host, ledger } = createV2Host();
+      const result = await new PipelineRuntime({ definition, predicates, checkpointStore: new InMemoryPipelineCheckpointStore(), loopIterationBudgetReservation: host, nodeExecutor: executor([], ledger) }).execute({ items: [0] });
+      expect(result).toMatchObject({ state: "failed", error: expect.stringMatching(/"yes" declares retries; per-node retry would re-dispatch/) });
+      expect(ledger.dispatches).toEqual([]);
+      expect(Object.values(ledger.rows)).toEqual([]);
+    });
+
     it("never downgrades a retained V2 record or upgrades a retained V1 record", async () => {
       const first = await run({ items: [0] });
       const boundary = (await checkpoints(first.store, first.result.runId)).find((cp) => cp.loopState?.items?.itemFrames?.["0"]?.graph?.frame.nextNodeId === "yes")!;
@@ -252,7 +268,7 @@ describe("DSL-V2-HOST-BRIDGE-20260918: conditional for_each items under the stri
         ledger.receipts = Object.fromEntries(Object.entries(first.ledger.receipts).filter(([, receipt]) => started(receipt.itemIndex)));
         for (const row of Object.values(ledger.rows)) row.state = settledAt(row.itemIndex) ? "settled" : "reserved";
         const seeded = new Set(Object.keys(ledger.receipts));
-        const changed = vi.fn(() => false);
+        const changed = vi.fn((_state: Record<string, unknown>) => false);
         const resumed = await resume(cp, { ledger, predicates: { choose: changed } });
         expect(resumed.result.state, `${cp.version}: ${resumed.result.error}`).toBe("completed");
         expect(resumed.result.nodeResults.get("done")?.output).toEqual(["after:item-0", "after:item-1"]);
@@ -263,7 +279,7 @@ describe("DSL-V2-HOST-BRIDGE-20260918: conditional for_each items under the stri
         const frame0 = cp.loopState?.items?.itemFrames?.["0"]?.graph?.frame;
         const chooseRecorded = frame0?.completedNodeIds.includes("choose") === true || cp.loopState?.items?.itemOutcomes?.["0"]?.outcome === "completed";
         // Item 0's recorded selection is never re-evaluated; item 1's gate still evaluates its own.
-        if (chooseRecorded) expect(changed.mock.calls.filter(([state]) => (state as Record<string, unknown>).item === 0)).toEqual([]);
+        if (chooseRecorded) expect(changed.mock.calls.filter(([state]) => state.item === 0)).toEqual([]);
         expect(Object.values(ledger.rows).map((row) => row.state)).toEqual(["settled", "settled"]);
         // A recorded selection is honoured (then: before+yes, 4 cents); before
         // the gate completed, the changed predicate legitimately selects else.
@@ -396,21 +412,31 @@ describe("DSL-V2-HOST-BRIDGE-20260918: conditional for_each items under the stri
       expect(settledCents(economics.evidenceV2)).toBe(4);
     });
 
-    it("releases every leaf as cancelled-before-dispatch when the host aborts first", async () => {
+    it("releases the undispatched leaves as cancelled-before-dispatch when the host aborts mid-item", async () => {
+      // A signal aborted before the loop starts reserves nothing (the worker
+      // gate refuses the item), so the abort is raised from the gate predicate:
+      // `before` has been dispatched and charged, the selection is durable
+      // (so the else arm releases as not-selected), and the selected arm is
+      // stopped at the dispatch gate.
       const controller = new AbortController();
-      controller.abort();
-      const { result, ledger, store } = await run({ items: [0], signal: controller.signal });
+      const { result, ledger, store } = await run({
+        items: [0],
+        signal: controller.signal,
+        predicates: { choose: () => { controller.abort(); return true; } },
+      });
       expect(result.state).not.toBe("completed");
-      expect(ledger.dispatches).toEqual([]);
-      const cp = (await checkpoints(store, result.runId)).at(-1);
-      const economics = cp === undefined ? undefined : itemEconomics(cp, 0);
-      if (economics !== undefined) {
-        expect(economics.evidenceV2?.resolution.status).toBe("settled");
-        const outcomes = economics.evidenceV2!.resolution.status === "settled" ? economics.evidenceV2!.resolution.outcomes : [];
-        expect(outcomes).toHaveLength(5);
-        expect(outcomes.filter((outcome) => outcome.status === "released" && outcome.reason === "cancelled-before-dispatch")).toHaveLength(5);
-        expect(Object.values(ledger.rows).map((row) => row.state)).toEqual(["released"]);
-      }
+      expect(ledger.dispatches).toHaveLength(1);
+      const cp = (await checkpoints(store, result.runId)).at(-1)!;
+      expect(cp.loopState?.items?.itemOutcomes?.["0"]?.outcome).toBe("cancelled");
+      const economics = itemEconomics(cp, 0)!;
+      expect(economics.evidenceV2?.resolution.status).toBe("settled");
+      const outcomes = economics.evidenceV2!.resolution.status === "settled" ? economics.evidenceV2!.resolution.outcomes : [];
+      expect(outcomes.map((outcome) => `${outcome.leafId.split(":")[0]}:${outcome.status}${outcome.status === "released" ? `/${outcome.reason}` : ""}`)).toEqual([
+        "execution:recorded", "charge:recorded",
+        "execution:released/cancelled-before-dispatch", "charge:released/cancelled-before-dispatch",
+        "effect:released/not-selected",
+      ]);
+      expect(Object.values(ledger.rows).map((row) => row.state)).toEqual(["released"]);
     });
 
     it("refuses to re-admit recorded leaves under a fresh attempt", async () => {
