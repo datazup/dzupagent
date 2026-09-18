@@ -2,12 +2,6 @@ import type { Page } from 'playwright'
 import type { ScreenshotResult } from '../types.js'
 
 /**
- * Maximum full-page screenshot height: viewport height * 3.
- * Prevents multi-MB captures on very long pages.
- */
-const MAX_HEIGHT_MULTIPLIER = 3
-
-/**
  * Browser-native masking is applied before pixels leave the page. These
  * selectors intentionally cover every editable control plus explicit
  * sensitive markers; callers may add deeper local/OCR redaction later.
@@ -48,29 +42,24 @@ export async function captureScreenshot(
     }
   }
 
-  const maxHeight = viewportHeight * MAX_HEIGHT_MULTIPLIER
-  // Clip the capture area if the page is taller than the cap
+  // Full-page evidence must not silently omit content below a viewport cap.
   const pageHeight = await page.evaluate(() => Math.max(
     document.body?.scrollHeight ?? 0,
     document.documentElement?.scrollHeight ?? 0,
   ))
-  const needsClip = pageHeight > maxHeight
 
   const buffer = await page.screenshot({
-    fullPage: !needsClip,
+    fullPage: true,
     type: 'jpeg',
     quality: 80,
     mask: [sensitiveElements],
     maskColor: '#000000',
-    ...(needsClip
-      ? { clip: { x: 0, y: 0, width: viewportWidth, height: maxHeight } }
-      : {}),
   })
 
   return {
     buffer,
     mimeType: 'image/jpeg',
     width: viewportWidth,
-    height: needsClip ? maxHeight : pageHeight,
+    height: Math.max(viewportHeight, pageHeight),
   }
 }

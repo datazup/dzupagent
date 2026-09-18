@@ -284,7 +284,7 @@ describe('captureScreenshot', () => {
     expect(result.height).toBe(720)
   })
 
-  it('clips when page height exceeds 3x viewport', async () => {
+  it('captures the entire page when height exceeds 3x viewport', async () => {
     const screenshotFn = vi.fn(async () => Buffer.from('jpeg'))
     const { page, locatorInstance } = makeMockPage({
       viewportSize: vi.fn().mockReturnValue({ width: 1200, height: 800 }),
@@ -295,14 +295,13 @@ describe('captureScreenshot', () => {
     const result = await captureScreenshot(page, true)
 
     expect(screenshotFn).toHaveBeenCalledWith({
-      fullPage: false,
+      fullPage: true,
       type: 'jpeg',
       quality: 80,
       mask: [locatorInstance],
       maskColor: '#000000',
-      clip: { x: 0, y: 0, width: 1200, height: 2400 },
     })
-    expect(result.height).toBe(2400)
+    expect(result.height).toBe(5000)
   })
 
   it('uses default viewport size when viewportSize returns null', async () => {
