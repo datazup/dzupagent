@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   CodexAppServerClientError,
   CodexAppServerStdioClient,
-} from './codex-app-server-client.js'
+} from '../codex-goal-control.js'
 
 interface RpcFrame {
   readonly id?: number | string | undefined

@@ -76,6 +76,16 @@ binding; never relabel a fallback attempt with the original decision.
 
 ## Provider requirements
 
+The narrow `@dzupagent/agent-adapters/codex-goal-control` entry also exports
+`CodexAppServerStdioClient`, `CodexAppServerClientError`,
+`qualifyCodexAppServerExecutable` and their transport contract types.
+Qualified coordinators can reuse its bounded initialization, request, events
+and close lifecycle to inspect or resume an idle thread before starting a turn.
+They must provide a verified executable identity and a deliberately scrubbed
+environment. This low-level surface does not authenticate a task, approve
+provider requests, acquire workspace ownership, or enforce a dollar budget.
+Those remain the consuming coordinator's responsibilities.
+
 `@dzupagent/agent-adapters` unifies several provider backends under one interface.
 
 | Provider | Adapter | Runtime dependency |
