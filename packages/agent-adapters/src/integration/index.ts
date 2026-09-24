@@ -117,3 +117,31 @@ export type {
   CoordinationUsageTotalReason,
   RecordCoordinationAttemptUsageOptions,
 } from './coordination-attempt-usage.js'
+export {
+  COORDINATION_ALIGNMENT_CHANGES,
+  COORDINATION_ALIGNMENT_DECISION_SCHEMA,
+  COORDINATION_ALIGNMENT_DELIVERY_SCHEMA,
+  COORDINATION_ALIGNMENT_UPDATE_SCHEMA,
+  COORDINATION_CHECKPOINT_HANDOFF_SCHEMAS,
+  COORDINATION_CONTINUATION_SCHEMA,
+  decideCoordinationAlignment,
+  deliverCoordinationAlignment,
+  verifyCoordinationContinuation,
+} from './coordination-attempt-continuity.js'
+export type {
+  CoordinationAlignmentChange,
+  CoordinationAlignmentChannel,
+  CoordinationAlignmentDecision,
+  CoordinationAlignmentDecisionResult,
+  CoordinationAlignmentDelivery,
+  CoordinationAlignmentDeliveryResult,
+  CoordinationAlignmentDeliveryStatus,
+  CoordinationAlignmentKind,
+  CoordinationAlignmentRestartReason,
+  CoordinationAlignmentTarget,
+  CoordinationAlignmentUpdate,
+  CoordinationContinuation,
+  CoordinationContinuationKind,
+  CoordinationContinuationResult,
+  VerifyCoordinationContinuationInput,
+} from './coordination-attempt-continuity.js'
