@@ -15,6 +15,11 @@
  *   {@link COORDINATION_EXECUTABLE_ROUTES} entry; any other triple is refused
  *   as written, never mapped, defaulted or flattened into one provider name.
  * - The model catalog must attest the same physical backend the session binds.
+ * - Context is delivered as a content-addressed pack (MVP-04-CP04): every
+ *   delivered object matches its digest; a required object that is missing,
+ *   altered or of unknown freshness is refused; an optional one that is
+ *   missing or of unknown freshness becomes a reason-coded receiver omission.
+ *   `packDigest` names the delivered pack independently of the binding.
  * - Authority is checked against the caller-supplied `now`; no ambient clock.
  * - Reasoning effort must be listed by the provider model catalog; it is never
  *   downgraded.
@@ -38,6 +43,7 @@ import type {
   CoordinationExecutionBinding,
   CoordinationExecutionProviderId,
   CoordinationPlanContextItem,
+  CoordinationPlanReceiverOmission,
   CoordinationSha256Digest,
   DecodedCoordinationExecutionAssignment,
 } from '@dzupagent/adapter-types'
@@ -62,7 +68,8 @@ import type { AgentExecutionRequest } from './run-agent-execution.js'
 export const COORDINATION_EXECUTION_BINDING_SCHEMA =
   'dzupagent.coordinationExecutionBinding/v2' as const
 export const COORDINATION_ATTEMPT_EXECUTION_PLAN_SCHEMA =
-  'dzupagent.coordinationAttemptExecutionPlan/v2' as const
+  'dzupagent.coordinationAttemptExecutionPlan/v3' as const
+export const COORDINATION_CONTEXT_PACK_SCHEMA = 'dzupagent.coordinationContextPack/v1' as const
 export const COORDINATION_ATTEMPT_EXECUTION_ATTESTATION_SCHEMA =
   'dzupagent.coordinationAttemptExecutionAttestation/v1' as const
 
@@ -483,19 +490,40 @@ function checkReasoning(
   }
 }
 
+interface ResolvedContext {
+  readonly items: CoordinationPlanContextItem[]
+  readonly receiverOmissions: CoordinationPlanReceiverOmission[]
+}
+
 async function resolveContext(
   decoded: DecodedCoordinationExecutionAssignment,
   resolveArtifact: CoordinationArtifactResolver,
   refusals: Refusals,
-): Promise<CoordinationPlanContextItem[]> {
+): Promise<ResolvedContext> {
   const items: CoordinationPlanContextItem[] = []
+  const receiverOmissions: CoordinationPlanReceiverOmission[] = []
   const pack = decoded.assignment.contextPack
   const requiredRoles = new Set<string>(pack.profile.requiredRoles)
   for (const [index, item] of pack.items.entries()) {
     const path = `$.contextPack.items.${index}`
-    const unresolvedCode = item.required || requiredRoles.has(item.role)
-      ? 'COORD_CONTEXT_REQUIRED_UNRESOLVED'
-      : 'COORD_CONTEXT_ITEM_UNRESOLVED'
+    const required = item.required || requiredRoles.has(item.role)
+    const omit = (reasonCode: CoordinationPlanReceiverOmission['reasonCode']): void => {
+      receiverOmissions.push({
+        role: item.role,
+        artifactId: item.artifact.artifactId,
+        contentDigest: item.contentDigest,
+        reasonCode,
+      })
+    }
+    if (item.freshness === 'unknown') {
+      // Unknown freshness is never presented as complete (doc 04 §12).
+      if (required) {
+        refuse(refusals, 'COORD_CONTEXT_REQUIRED_STALE', `${path}.freshness`, 'Required context has unknown freshness.')
+      } else {
+        omit('FRESHNESS_UNKNOWN')
+      }
+      continue
+    }
     let resolved: CoordinationResolvedArtifact | undefined
     try {
       resolved = await resolveArtifact({
@@ -506,14 +534,18 @@ async function resolveContext(
       })
     } catch {
       // The resolver's error text is untrusted and may carry secrets.
-      refuse(refusals, unresolvedCode, path, 'Context resolver failed.')
-      continue
+      resolved = undefined
     }
     const content = isRecord(resolved) ? resolved['content'] : undefined
     if (typeof content !== 'string' && !(content instanceof Uint8Array)) {
-      refuse(refusals, unresolvedCode, path, 'Context item was not resolved.')
+      if (required) {
+        refuse(refusals, 'COORD_CONTEXT_REQUIRED_UNRESOLVED', path, 'Required context item was not resolved.')
+      } else {
+        omit('OBJECT_UNAVAILABLE')
+      }
       continue
     }
+    // An altered object is refused, never treated as missing.
     if (sha256Bytes(content) !== item.contentDigest) {
       refuse(refusals, 'COORD_CONTEXT_DIGEST_MISMATCH', `${path}.contentDigest`, 'Resolved content does not match its digest.')
       continue
@@ -533,6 +565,8 @@ async function resolveContext(
       contentDigest: item.contentDigest,
       mediaType: item.artifact.mediaType,
       privacyLabel: item.privacyLabel,
+      required,
+      freshness: item.freshness,
       content: text,
     })
   }
@@ -541,7 +575,27 @@ async function resolveContext(
       refuse(refusals, 'COORD_CONTEXT_REQUIRED_UNRESOLVED', `$.contextPack.profile.requiredRoles.${index}`, 'Required context role has no item.')
     }
   }
-  return items
+  return { items, receiverOmissions }
+}
+
+/**
+ * Digest of the delivered pack. Content is bound through each verified
+ * `contentDigest`; the binding, compose time and provenance are excluded, so
+ * the digest is the same for every provider given the same context.
+ */
+function contextPackDigest(
+  manifestDigest: CoordinationSha256Digest,
+  items: readonly CoordinationPlanContextItem[],
+  omittedRoles: CoordinationAttemptExecutionPlan['context']['omittedRoles'],
+  receiverOmissions: readonly CoordinationPlanReceiverOmission[],
+): CoordinationSha256Digest {
+  return coordinationCanonicalDigest({
+    schema: COORDINATION_CONTEXT_PACK_SCHEMA,
+    manifestDigest,
+    items: items.map(({ content: _content, ...item }) => item),
+    omittedRoles,
+    receiverOmissions,
+  })
 }
 
 function nativeCapabilities(binding: CoordinationExecutionBinding): ProviderSessionCapability[] {
@@ -608,13 +662,18 @@ async function compose(
       refuse(refusals, 'COORD_CATALOG_INVALID', '$catalog', 'Model catalog must be plain JSON data.')
     }
   }
-  const items = await resolveContext(decoded, input.resolveArtifact, refusals)
+  const { items, receiverOmissions } = await resolveContext(decoded, input.resolveArtifact, refusals)
   if (refusals.length > 0 || binding === undefined || !catalogCopy.ok) return finish()
   const catalog = catalogCopy.value as ProviderModelCatalog
 
   const { assignment, canonicalSeal } = decoded
   const session = assignment.sessionEnrollment
   const providerSession = binding.capabilitySet.providerSession
+  const omittedRoles = assignment.contextPack.omissions.map(({ role, reasonCode, evidenceRef }) => ({
+    role,
+    reasonCode,
+    evidenceRef,
+  }))
   const unsigned: Omit<CoordinationAttemptExecutionPlan, 'planDigest'> = {
     schema: COORDINATION_ATTEMPT_EXECUTION_PLAN_SCHEMA,
     composedAt: now,
@@ -706,7 +765,9 @@ async function compose(
       manifestId: assignment.contextPack.manifestId,
       manifestDigest: assignment.contextPack.manifestDigest,
       items,
-      omittedRoles: assignment.contextPack.omissions.map(({ role, reasonCode }) => ({ role, reasonCode })),
+      omittedRoles,
+      receiverOmissions,
+      packDigest: contextPackDigest(assignment.contextPack.manifestDigest, items, omittedRoles, receiverOmissions),
     },
   }
   const plan: CoordinationAttemptExecutionPlan = {

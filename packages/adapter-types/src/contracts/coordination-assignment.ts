@@ -429,8 +429,30 @@ export interface CoordinationPlanContextItem {
   readonly contentDigest: CoordinationSha256Digest;
   readonly mediaType: string;
   readonly privacyLabel: CoordinationSensitivityClass;
+  readonly required: boolean;
+  /** `unknown` is never delivered: required items refuse, optional ones are omitted. */
+  readonly freshness: "current" | "admitted-stale";
   /** UTF-8 content whose sha256 equals `contentDigest`. */
   readonly content: string;
+}
+
+/** The producer's omission receipt, carried verbatim. */
+export interface CoordinationPlanContextOmission {
+  readonly role: CoordinationContextPackRole;
+  readonly reasonCode: string;
+  readonly evidenceRef: string;
+}
+
+export type CoordinationReceiverOmissionReason =
+  | "OBJECT_UNAVAILABLE"
+  | "FRESHNESS_UNKNOWN";
+
+/** An optional manifest item this receiver did not deliver. */
+export interface CoordinationPlanReceiverOmission {
+  readonly role: CoordinationContextPackRole;
+  readonly artifactId: string;
+  readonly contentDigest: CoordinationSha256Digest;
+  readonly reasonCode: CoordinationReceiverOmissionReason;
 }
 
 export interface CoordinationPlanContextFact {
@@ -438,15 +460,19 @@ export interface CoordinationPlanContextFact {
   readonly manifestId: string;
   readonly manifestDigest: CoordinationSha256Digest;
   readonly items: readonly CoordinationPlanContextItem[];
-  readonly omittedRoles: readonly {
-    readonly role: CoordinationContextPackRole;
-    readonly reasonCode: string;
-  }[];
+  readonly omittedRoles: readonly CoordinationPlanContextOmission[];
+  readonly receiverOmissions: readonly CoordinationPlanReceiverOmission[];
+  /**
+   * Content-addressed, provider-neutral digest of the delivered pack: the
+   * manifest digest, items without content, and both omission lists. The same
+   * assignment and resolved objects give the same digest under every binding.
+   */
+  readonly packDigest: CoordinationSha256Digest;
 }
 
 /** Deep-frozen, provider-neutral plan for one coordination attempt. */
 export interface CoordinationAttemptExecutionPlan {
-  readonly schema: "dzupagent.coordinationAttemptExecutionPlan/v2";
+  readonly schema: "dzupagent.coordinationAttemptExecutionPlan/v3";
   readonly composedAt: string;
   readonly assignment: CoordinationPlanAssignmentFact;
   readonly session: CoordinationPlanSessionFact;

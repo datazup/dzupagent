@@ -997,7 +997,7 @@ describe('9. binding axes', () => {
 
   it('binds agent host and physical backend identity into the plan digest', async () => {
     const plan = await compose()
-    expect(plan.schema).toBe('dzupagent.coordinationAttemptExecutionPlan/v2')
+    expect(plan.schema).toBe('dzupagent.coordinationAttemptExecutionPlan/v3')
     expect(plan.execution.agentHost).toBeNull()
     expect(plan.execution.backendId).toBe('claude-agent-sdk')
     const { planDigest, ...unsigned } = plan
@@ -1015,5 +1015,186 @@ describe('9. binding axes', () => {
     expect(api.request).not.toHaveProperty('agentHost')
     expect(api.attestation.requestDigest).toBe('sha256:9da1985187e18cfb0f684f09321428b4402683a52af5bae119715db18e070cc7')
     expect(subscription.attestation.requestDigest).toBe('sha256:4895b5f22c97c65331056e23c1c326db40e2f833c841a7e01f014bf35c4004b3')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 10. Context pack (MVP-04-CP04)
+// ---------------------------------------------------------------------------
+
+describe('10. context pack', () => {
+  const MEMORY_CONTENT = 'curated memory: prefer the existing execution seam'
+
+  /** Adds an optional curated_memory item in place of its producer omission. */
+  function withMemory(mutate: (item: Json) => void = () => {}): (assignment: Json) => void {
+    return (assignment) => {
+      const item: Json = {
+        role: 'curated_memory',
+        required: false,
+        artifact: {
+          schema: 'datazup.orchestration.artifact-reference/v1',
+          artifactId: 'artifact-memory',
+          digest: sha256(MEMORY_CONTENT),
+          mediaType: 'text/plain',
+          sensitivity: 'internal',
+          retained: true,
+        },
+        contentDigest: sha256(MEMORY_CONTENT),
+        sourceBindingDigest: assignment.source.bindingDigest,
+        freshness: 'current',
+        privacyLabel: 'internal',
+      }
+      mutate(item)
+      assignment.contextPack.items.push(item)
+      assignment.contextPack.omissions = assignment.contextPack.omissions.filter(
+        (omission: Json) => omission.role !== 'curated_memory',
+      )
+    }
+  }
+
+  const resolveBoth: CoordinationArtifactResolver = ({ digest }) => {
+    if (digest === sha256(TASK_CONTENT)) return { content: TASK_CONTENT }
+    if (digest === sha256(MEMORY_CONTENT)) return { content: MEMORY_CONTENT }
+    return undefined
+  }
+
+  function codex(): Partial<ComposeCoordinationAttemptExecutionInput> {
+    const session = providerSession()
+    return {
+      binding: binding({
+        providerId: 'codex',
+        backend: 'cli',
+        capabilitySet: {
+          providerSession: {
+            ...session,
+            descriptor: { ...session.descriptor, providerId: 'codex', backend: { id: 'codex-cli', kind: 'cli' } },
+          },
+          requiredCapabilities: ['execute', 'stream'],
+          effects: [],
+        },
+      }),
+      modelCatalog: catalog({
+        providerId: 'codex',
+        backendId: 'codex-cli',
+        models: [{ providerId: 'codex', id: MODEL, displayName: 'Sentinel model', supportedReasoningEfforts: ['high'] }],
+      }),
+    }
+  }
+
+  it('carries requiredness, freshness and the producer omission receipt with its evidence', async () => {
+    const plan = await compose()
+    expect(plan.context.items).toEqual([
+      expect.objectContaining({ role: 'task', required: true, freshness: 'current' }),
+    ])
+    expect(plan.context.omittedRoles).toHaveLength(13)
+    expect(plan.context.omittedRoles[0]).toEqual({
+      role: 'acceptance_spec',
+      reasonCode: 'NOT_APPLICABLE',
+      evidenceRef: 'evidence:acceptance-spec',
+    })
+    expect(plan.context.omittedRoles.at(-1)).toEqual({
+      role: 'provider_transcript',
+      reasonCode: 'REVIEWER_INDEPENDENCE',
+      evidenceRef: 'policy:review-independent-v1',
+    })
+    expect(plan.context.receiverOmissions).toEqual([])
+  })
+
+  it('refuses an altered optional object; it never becomes an omission', async () => {
+    const decoded = decode(resolvable(withMemory()))
+    expect(await refusalCodes({
+      decoded,
+      resolveArtifact: (request) =>
+        request.role === 'curated_memory' ? { content: `${MEMORY_CONTENT} ` } : resolveTask(request),
+    })).toEqual(['COORD_CONTEXT_DIGEST_MISMATCH'])
+  })
+
+  it('omits a missing optional object with a reason code and never delivers it', async () => {
+    const decoded = decode(resolvable(withMemory()))
+    for (const resolveArtifact of [
+      resolveTask,
+      (async (request) => {
+        if (request.role === 'curated_memory') throw new Error(`store down ${SECRET}`)
+        return resolveTask(request)
+      }) satisfies CoordinationArtifactResolver,
+    ]) {
+      const plan = await compose({ decoded, resolveArtifact })
+      expect(plan.context.items.map(({ role }) => role)).toEqual(['task'])
+      expect(plan.context.receiverOmissions).toEqual([
+        {
+          role: 'curated_memory',
+          artifactId: 'artifact-memory',
+          contentDigest: sha256(MEMORY_CONTENT),
+          reasonCode: 'OBJECT_UNAVAILABLE',
+        },
+      ])
+      const rendered = renderCoordinationAgentExecutionRequest(plan)
+      if (!rendered.ok) throw new Error('render refused')
+      expect(JSON.stringify(rendered.request)).not.toContain(MEMORY_CONTENT)
+      expect(JSON.stringify(plan)).not.toContain(SECRET)
+    }
+    // A missing required object still refuses.
+    expect(await refusalCodes({ decoded, resolveArtifact: () => undefined })).toEqual([
+      'COORD_CONTEXT_REQUIRED_UNRESOLVED',
+    ])
+  })
+
+  it('refuses a required object of unknown freshness without resolving it', async () => {
+    const resolver = vi.fn(resolveTask)
+    const decoded = decode(resolvable((assignment) => {
+      assignment.contextPack.items[0].freshness = 'unknown'
+    }))
+    const result = await composeCoordinationAttemptExecution(input({ decoded, resolveArtifact: resolver }))
+    expect(result.ok ? [] : result.refusals.map(({ code, path }) => `${code} ${path}`)).toEqual([
+      'COORD_CONTEXT_REQUIRED_STALE $.contextPack.items.0.freshness',
+    ])
+    expect(resolver).not.toHaveBeenCalled()
+  })
+
+  it('omits an optional object of unknown freshness without resolving it', async () => {
+    const resolver = vi.fn(resolveBoth)
+    const decoded = decode(resolvable(withMemory((item) => {
+      item.freshness = 'unknown'
+    })))
+    const plan = await compose({ decoded, resolveArtifact: resolver })
+    expect(plan.context.receiverOmissions).toEqual([
+      expect.objectContaining({ role: 'curated_memory', reasonCode: 'FRESHNESS_UNKNOWN' }),
+    ])
+    expect(resolver.mock.calls.map(([request]) => request.role)).toEqual(['task'])
+  })
+
+  it('delivers an admitted-stale object with its label', async () => {
+    const decoded = decode(resolvable((assignment) => {
+      assignment.contextPack.items[0].freshness = 'admitted-stale'
+    }))
+    const plan = await compose({ decoded })
+    expect(plan.context.items).toEqual([
+      expect.objectContaining({ role: 'task', freshness: 'admitted-stale', content: TASK_CONTENT }),
+    ])
+  })
+
+  it('names the delivered pack with one provider-neutral, content-addressed digest', async () => {
+    const decoded = decode(resolvable(withMemory()))
+    const claude = await compose({ decoded, resolveArtifact: resolveBoth })
+    const codexPlan = await compose({ decoded, resolveArtifact: resolveBoth, ...codex() })
+    const later = await compose({ decoded, resolveArtifact: resolveBoth, now: '2026-08-30T10:31:00Z' })
+    const bytes = await compose({
+      decoded,
+      resolveArtifact: (request) => {
+        const resolved = resolveBoth(request) as { content: string } | undefined
+        return resolved ? { content: new TextEncoder().encode(resolved.content) } : undefined
+      },
+    })
+    expect(codexPlan.execution.providerId).toBe('codex')
+    expect(new Set([claude, codexPlan, later, bytes].map((plan) => plan.context.packDigest)).size).toBe(1)
+    expect(new Set([claude, codexPlan, later].map((plan) => plan.planDigest)).size).toBe(3)
+    expect(claude.context.packDigest).not.toBe(claude.context.manifestDigest)
+
+    // A different delivered set is a different pack.
+    const partial = await compose({ decoded, resolveArtifact: resolveTask })
+    expect(partial.context.manifestDigest).toBe(claude.context.manifestDigest)
+    expect(partial.context.packDigest).not.toBe(claude.context.packDigest)
+    const { planDigest, ...unsigned } = claude
+    expect(coordinationCanonicalDigest({ ...unsigned, context: { ...unsigned.context, packDigest: partial.context.packDigest } })).not.toBe(planDigest)
   })
 })

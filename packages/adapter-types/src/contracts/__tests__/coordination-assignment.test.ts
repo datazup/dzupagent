@@ -6,6 +6,8 @@ import type {
   CoordinationAuthReference,
   CoordinationExecutionAssignmentView,
   CoordinationExecutionBinding,
+  CoordinationPlanContextFact,
+  CoordinationPlanContextItem,
   CoordinationPlanExecutionFact,
 } from "../coordination-assignment.js";
 import type * as AdapterTypes from "../../index.js";
@@ -63,6 +65,22 @@ describe("coordination assignment contracts", () => {
     expectTypeOf<CoordinationPlanExecutionFact["backend"]>().toEqualTypeOf<"cli" | "sdk">();
     expectTypeOf<CoordinationPlanExecutionFact>().not.toHaveProperty("approvedFallbackProviders");
     expectTypeOf<CoordinationPlanExecutionFact>().not.toHaveProperty("secret");
+  });
+
+  it("carries a content-addressed context pack with both omission receipts", () => {
+    expectTypeOf<CoordinationAttemptExecutionPlan["schema"]>().toEqualTypeOf<
+      "dzupagent.coordinationAttemptExecutionPlan/v3"
+    >();
+    expectTypeOf<CoordinationPlanContextItem["freshness"]>().toEqualTypeOf<"current" | "admitted-stale">();
+    expectTypeOf<CoordinationPlanContextItem["required"]>().toEqualTypeOf<boolean>();
+    expectTypeOf<CoordinationPlanContextFact["omittedRoles"][number]["evidenceRef"]>().toEqualTypeOf<string>();
+    expectTypeOf<CoordinationPlanContextFact["receiverOmissions"][number]["reasonCode"]>().toEqualTypeOf<
+      "OBJECT_UNAVAILABLE" | "FRESHNESS_UNKNOWN"
+    >();
+    expectTypeOf<CoordinationPlanContextFact["packDigest"]>().toEqualTypeOf<`sha256:${string}`>();
+    expectTypeOf<AdapterTypes.CoordinationPlanReceiverOmission>().toEqualTypeOf<
+      CoordinationPlanContextFact["receiverOmissions"][number]
+    >();
   });
 
   it("returns a plan or refusals, never both", () => {
