@@ -219,10 +219,12 @@ export async function defaultLoadCodexPage(input: {
   cursor: string | null;
   includeHidden: boolean;
   timeoutMs: number;
+  env?: Readonly<Record<string, string | undefined>>;
 }): Promise<CodexPageResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(input.cliPath, ["app-server"], {
       stdio: ["pipe", "pipe", "pipe"],
+      ...(input.env ? { env: { ...input.env } } : {}),
     });
     let stdoutBuffer = "";
     let stderr = "";

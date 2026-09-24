@@ -146,6 +146,7 @@ export interface ModelDiscoveryDependencies {
     cursor: string | null;
     includeHidden: boolean;
     timeoutMs: number;
+    env?: Readonly<Record<string, string | undefined>>;
   }) => Promise<CodexPageResult>;
   /**
    * Loads a bounded ACP catalog observation from an already-qualified CLI

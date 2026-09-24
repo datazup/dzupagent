@@ -18,6 +18,32 @@ import {
 const fixedNow = () => new Date("2026-07-24T00:00:00.000Z");
 
 describe("provider model discovery", () => {
+  it("scopes Codex app-server pages to the supplied binary and profile without API fallback", async () => {
+    const seen: Array<{ cliPath: string; home: string | undefined }> = [];
+    const loadCodexPage = vi.fn(async (input: {
+      cliPath: string; env?: Readonly<Record<string, string | undefined>>;
+    }) => {
+      seen.push({ cliPath: input.cliPath, home: input.env?.["CODEX_HOME"] });
+      return { data: [{ id: input.env?.["CODEX_HOME"] === "/profile/a" ? "model-a" : "model-b" }], nextCursor: null };
+    });
+    const a = await discoverCodexModels({ source: "app-server", cliPath: "/bin/codex-a",
+      env: { CODEX_HOME: "/profile/a", OPENAI_API_KEY: "unused" },
+      dependencies: { loadCodexPage, now: fixedNow } });
+    const b = await discoverCodexModels({ source: "app-server", cliPath: "/bin/codex-b",
+      env: { CODEX_HOME: "/profile/b", OPENAI_API_KEY: "unused" },
+      dependencies: { loadCodexPage, now: fixedNow } });
+    expect(seen).toEqual([
+      { cliPath: "/bin/codex-a", home: "/profile/a" },
+      { cliPath: "/bin/codex-b", home: "/profile/b" },
+    ]);
+    expect(a.models.map((model) => model.id)).toEqual(["model-a"]);
+    expect(b.models.map((model) => model.id)).toEqual(["model-b"]);
+    await expect(discoverCodexModels({ source: "app-server", cliPath: "/bin/codex-a",
+      env: { CODEX_HOME: "/profile/a", OPENAI_API_KEY: "unused" },
+      dependencies: { loadCodexPage: async () => { throw new Error("profile unavailable"); } },
+    })).rejects.toThrow("profile unavailable");
+  });
+
   it("discovers and fingerprints every paginated Codex app-server model", async () => {
     const loadCodexPage = vi
       .fn()

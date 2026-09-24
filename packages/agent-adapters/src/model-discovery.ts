@@ -217,6 +217,7 @@ export async function discoverCodexModels(
     try {
       const models = await listCodexAppServerModels({
         cliPath: options.cliPath ?? "codex",
+        ...(options.env ? { env: options.env } : {}),
         includeHidden: options.includeHidden ?? false,
         timeoutMs,
         dependencies,
