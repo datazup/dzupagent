@@ -10,6 +10,11 @@
  * - Provider, backend, auth, model, profile, capabilities, tariff, session and
  *   reasoning come only from the binding; none has a default and no authority
  *   grant can stand in for one.
+ * - Logical provider, agent host and physical backend are separate axes
+ *   (MVP-04-CP03). A binding is composed only when its triple is an
+ *   {@link COORDINATION_EXECUTABLE_ROUTES} entry; any other triple is refused
+ *   as written, never mapped, defaulted or flattened into one provider name.
+ * - The model catalog must attest the same physical backend the session binds.
  * - Authority is checked against the caller-supplied `now`; no ambient clock.
  * - Reasoning effort must be listed by the provider model catalog; it is never
  *   downgraded.
@@ -28,7 +33,10 @@ import type {
   CoordinationAttemptExecutionPlan,
   CoordinationAttemptExecutionPlanResult,
   CoordinationContextPackRole,
+  CoordinationBindingBackend,
+  CoordinationExecutionBackend,
   CoordinationExecutionBinding,
+  CoordinationExecutionProviderId,
   CoordinationPlanContextItem,
   CoordinationSha256Digest,
   DecodedCoordinationExecutionAssignment,
@@ -52,11 +60,29 @@ import {
 import type { AgentExecutionRequest } from './run-agent-execution.js'
 
 export const COORDINATION_EXECUTION_BINDING_SCHEMA =
-  'dzupagent.coordinationExecutionBinding/v1' as const
+  'dzupagent.coordinationExecutionBinding/v2' as const
 export const COORDINATION_ATTEMPT_EXECUTION_PLAN_SCHEMA =
-  'dzupagent.coordinationAttemptExecutionPlan/v1' as const
+  'dzupagent.coordinationAttemptExecutionPlan/v2' as const
 export const COORDINATION_ATTEMPT_EXECUTION_ATTESTATION_SCHEMA =
   'dzupagent.coordinationAttemptExecutionAttestation/v1' as const
+
+/** One `(providerId, agentHost, backend)` triple this runtime can execute. */
+export interface CoordinationExecutableRoute {
+  readonly providerId: CoordinationExecutionProviderId
+  /** `null` is the provider's own host. */
+  readonly agentHost: null
+  readonly backend: CoordinationExecutionBackend
+}
+
+/**
+ * The routes `runAgentExecution` can run. A route absent here is refused, not
+ * approximated: `qwen` through `crush` is expressible in a binding and refused
+ * as written until a runner for it is qualified.
+ */
+export const COORDINATION_EXECUTABLE_ROUTES: readonly CoordinationExecutableRoute[] = Object.freeze(
+  (['codex', 'claude'] as const).flatMap((providerId) =>
+    (['cli', 'sdk'] as const).map((backend) => Object.freeze({ providerId, agentHost: null, backend }))),
+)
 
 export interface CoordinationArtifactRequest {
   readonly role: CoordinationContextPackRole
@@ -117,6 +143,7 @@ const BINDING_FIELDS = [
   'bindingId',
   'providerId',
   'backend',
+  'agentHost',
   'model',
   'profileRef',
   'auth',
@@ -126,8 +153,7 @@ const BINDING_FIELDS = [
   'reasoning',
 ] as const
 const CAPABILITY_SET_FIELDS = ['providerSession', 'requiredCapabilities', 'effects'] as const
-const PROVIDERS = ['codex', 'claude'] as const
-const BACKENDS = ['cli', 'sdk'] as const
+const BACKENDS: readonly CoordinationBindingBackend[] = ['cli', 'local-model', 'sdk', 'api', 'remote']
 const AUTH_MODES = ['subscription_cli', 'api_key'] as const
 const REASONING = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 const FALLBACK_KEYS = new Set(['approvedFallbackProviders', 'fallbackProviders', 'fallback'])
@@ -237,14 +263,18 @@ function validateBinding(
   if (binding['schema'] !== undefined && binding['schema'] !== COORDINATION_EXECUTION_BINDING_SCHEMA) {
     refuse(refusals, 'COORD_BINDING_FACT_INVALID', '$binding.schema', 'Binding schema is unsupported.')
   }
-  enumField('providerId', PROVIDERS, binding['providerId'])
   enumField('backend', BACKENDS, binding['backend'])
   enumField('reasoning', REASONING, binding['reasoning'])
-  for (const key of ['bindingId', 'model', 'profileRef', 'tariffRef', 'sessionRef'] as const) {
+  for (const key of ['bindingId', 'providerId', 'model', 'profileRef', 'tariffRef', 'sessionRef'] as const) {
     if (binding[key] !== undefined && !isOpaque(binding[key])) {
       refuse(refusals, 'COORD_BINDING_FACT_INVALID', `$binding.${key}`, 'Binding fact must be an opaque string.')
     }
   }
+  const agentHost = binding['agentHost']
+  if (agentHost !== undefined && agentHost !== null && !isOpaque(agentHost)) {
+    refuse(refusals, 'COORD_BINDING_FACT_INVALID', '$binding.agentHost', 'Agent host must be null or an opaque string.')
+  }
+  if (refusals.length === before) checkRoute(binding, refusals)
 
   const auth = binding['auth']
   if (auth !== undefined) {
@@ -317,6 +347,22 @@ function validateBinding(
     }
   }
   return refusals.length === before ? (binding as unknown as CoordinationExecutionBinding) : undefined
+}
+
+/**
+ * Refuse a triple with no executable route on the first axis, in the order
+ * agent host, provider, backend, that no remaining route matches. The axes are
+ * compared as written; none is rewritten to find a match.
+ */
+function checkRoute(binding: Record<string, unknown>, refusals: Refusals): void {
+  let routes = COORDINATION_EXECUTABLE_ROUTES
+  for (const axis of ['agentHost', 'providerId', 'backend'] as const) {
+    routes = routes.filter((route) => route[axis] === binding[axis])
+    if (routes.length === 0) {
+      refuse(refusals, 'COORD_BINDING_ROUTE_UNSUPPORTED', `$binding.${axis}`, 'No executable route exists for this provider, agent host and backend.')
+      return
+    }
+  }
 }
 
 function checkBindingAgainstAssignment(
@@ -411,6 +457,14 @@ function checkReasoning(
   }
   if (catalog.providerId !== binding.providerId) {
     refuse(refusals, 'COORD_CATALOG_PROVIDER_MISMATCH', '$catalog.providerId', 'Model catalog is not for the bound provider.')
+    return
+  }
+  if (typeof catalog.backendId !== 'string' || catalog.backendId.length === 0) {
+    refuse(refusals, 'COORD_CATALOG_BACKEND_UNATTESTED', '$catalog.backendId', 'Model catalog does not attest the backend it was discovered from.')
+    return
+  }
+  if (catalog.backendId !== binding.capabilitySet.providerSession.descriptor.backend.id) {
+    refuse(refusals, 'COORD_CATALOG_BACKEND_MISMATCH', '$catalog.backendId', 'Model catalog was discovered from a different backend than the session binds.')
     return
   }
   const entry: unknown = catalog.models.find((model: unknown) => isRecord(model) && model['id'] === binding.model)
@@ -624,8 +678,11 @@ async function compose(
         notAfter: null,
         scope: providerSession.bindingId,
       },
-      providerId: binding.providerId,
-      backend: binding.backend,
+      // checkRoute admitted this triple, so both narrow to an executable route.
+      providerId: binding.providerId as CoordinationExecutionProviderId,
+      backend: binding.backend as CoordinationExecutionBackend,
+      agentHost: binding.agentHost,
+      backendId: providerSession.descriptor.backend.id,
       model: binding.model,
       profileRef: binding.profileRef,
       authMode: binding.auth.mode,

@@ -12,6 +12,7 @@
  * them. Every fact in the plan keeps its own issuer, generation, validity and
  * scope.
  */
+import type { ProviderExecutionBackend } from "@dzupagent/runtime-contracts";
 import type {
   ProviderSessionAttemptBinding,
   ProviderSessionCapability,
@@ -293,8 +294,12 @@ export type CoordinationAssignmentDecodeResult =
 // DzupAgent execution binding (the only source of provider facts)
 // ---------------------------------------------------------------------------
 
+/** Providers with an executable route; a composed plan carries only these. */
 export type CoordinationExecutionProviderId = "codex" | "claude";
+/** Backends with an executable route; a composed plan carries only these. */
 export type CoordinationExecutionBackend = "cli" | "sdk";
+/** Binding backend vocabulary: the canonical physical execution path (MVP-04-CP03). */
+export type CoordinationBindingBackend = ProviderExecutionBackend;
 export type CoordinationExecutionAuthMode = "subscription_cli" | "api_key";
 export type CoordinationReasoningEffort =
   | "minimal"
@@ -321,11 +326,17 @@ export interface CoordinationCapabilitySet {
 }
 
 export interface CoordinationExecutionBinding {
-  readonly schema: "dzupagent.coordinationExecutionBinding/v1";
+  readonly schema: "dzupagent.coordinationExecutionBinding/v2";
   readonly bindingId: string;
-  readonly providerId: CoordinationExecutionProviderId;
-  /** Agent host backend. Never inferred from the provider. */
-  readonly backend: CoordinationExecutionBackend;
+  /** Logical provider, e.g. `qwen`. Never an agent host's name. */
+  readonly providerId: string;
+  /** Physical execution path. Never inferred from the provider. */
+  readonly backend: CoordinationBindingBackend;
+  /**
+   * Agent host wrapping the provider, e.g. `crush`; `null` is the provider's
+   * own host. Required: never defaulted, never merged into `providerId`.
+   */
+  readonly agentHost: string | null;
   readonly model: string;
   readonly profileRef: string;
   readonly auth: CoordinationAuthReference;
@@ -394,6 +405,10 @@ export interface CoordinationPlanExecutionFact {
   readonly provenance: CoordinationFactProvenance;
   readonly providerId: CoordinationExecutionProviderId;
   readonly backend: CoordinationExecutionBackend;
+  /** The binding's agent host; `null` is the provider's own host. */
+  readonly agentHost: string | null;
+  /** Physical backend identity from the session descriptor, attested by the model catalog. */
+  readonly backendId: string;
   readonly model: string;
   readonly profileRef: string;
   readonly authMode: CoordinationExecutionAuthMode;
@@ -431,7 +446,7 @@ export interface CoordinationPlanContextFact {
 
 /** Deep-frozen, provider-neutral plan for one coordination attempt. */
 export interface CoordinationAttemptExecutionPlan {
-  readonly schema: "dzupagent.coordinationAttemptExecutionPlan/v1";
+  readonly schema: "dzupagent.coordinationAttemptExecutionPlan/v2";
   readonly composedAt: string;
   readonly assignment: CoordinationPlanAssignmentFact;
   readonly session: CoordinationPlanSessionFact;

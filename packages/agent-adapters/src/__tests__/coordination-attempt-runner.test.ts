@@ -131,6 +131,7 @@ function catalog(): ProviderModelCatalog {
     models: [{ providerId: 'claude', id: MODEL, displayName: 'Sentinel model', supportedReasoningEfforts: ['low', 'medium', 'high'] }],
     warnings: [],
     fingerprint: 'catalog-fingerprint-1',
+    backendId: 'claude-agent-sdk',
   }
 }
 
@@ -141,10 +142,11 @@ async function compose(): Promise<CoordinationAttemptExecutionPlan> {
   const result = await composeCoordinationAttemptExecution({
     decoded: decoded(),
     binding: {
-      schema: 'dzupagent.coordinationExecutionBinding/v1',
+      schema: 'dzupagent.coordinationExecutionBinding/v2',
       bindingId: BINDING_ID,
       providerId: 'claude',
       backend: 'sdk',
+      agentHost: null,
       model: MODEL,
       profileRef: PROFILE_REF,
       auth: { mode: 'api_key', sourceRef: AUTH_SOURCE_REF },
@@ -328,6 +330,7 @@ describe('A4. correlation', () => {
       sessionRef: SESSION_REF,
       providerId: 'claude',
       backend: 'sdk',
+      agentHost: null,
       tariffRef: TARIFF_REF,
     })
     expect(outcome.attestation).toEqual(rendered.attestation)

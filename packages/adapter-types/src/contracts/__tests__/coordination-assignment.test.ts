@@ -30,8 +30,12 @@ describe("coordination assignment contracts", () => {
   it("requires every binding fact, with no optional provider fact", () => {
     type Required<T> = { [K in keyof T]-?: undefined extends T[K] ? never : K }[keyof T];
     expectTypeOf<Required<CoordinationExecutionBinding>>().toEqualTypeOf<keyof CoordinationExecutionBinding>();
-    expectTypeOf<CoordinationExecutionBinding["providerId"]>().toEqualTypeOf<"codex" | "claude">();
-    expectTypeOf<CoordinationExecutionBinding["backend"]>().toEqualTypeOf<"cli" | "sdk">();
+    expectTypeOf<CoordinationExecutionBinding["schema"]>().toEqualTypeOf<"dzupagent.coordinationExecutionBinding/v2">();
+    expectTypeOf<CoordinationExecutionBinding["providerId"]>().toEqualTypeOf<string>();
+    expectTypeOf<CoordinationExecutionBinding["backend"]>().toEqualTypeOf<
+      "cli" | "local-model" | "sdk" | "api" | "remote"
+    >();
+    expectTypeOf<CoordinationExecutionBinding["agentHost"]>().toEqualTypeOf<string | null>();
     expectTypeOf<CoordinationAuthReference["mode"]>().toEqualTypeOf<"subscription_cli" | "api_key">();
   });
 
@@ -40,6 +44,8 @@ describe("coordination assignment contracts", () => {
       provenance: true,
       providerId: true,
       backend: true,
+      agentHost: true,
+      backendId: true,
       model: true,
       profileRef: true,
       authMode: true,
@@ -52,7 +58,9 @@ describe("coordination assignment contracts", () => {
       reasoning: true,
       reasoningCatalogFingerprint: true,
     };
-    expect(Object.keys(fields)).toHaveLength(14);
+    expect(Object.keys(fields)).toHaveLength(16);
+    expectTypeOf<CoordinationPlanExecutionFact["providerId"]>().toEqualTypeOf<"codex" | "claude">();
+    expectTypeOf<CoordinationPlanExecutionFact["backend"]>().toEqualTypeOf<"cli" | "sdk">();
     expectTypeOf<CoordinationPlanExecutionFact>().not.toHaveProperty("approvedFallbackProviders");
     expectTypeOf<CoordinationPlanExecutionFact>().not.toHaveProperty("secret");
   });

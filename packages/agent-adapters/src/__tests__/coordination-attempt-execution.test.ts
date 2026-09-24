@@ -21,6 +21,7 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  COORDINATION_EXECUTABLE_ROUTES,
   composeCoordinationAttemptExecution,
   coordinationCanonicalDigest,
   coordinationSelfDigest,
@@ -147,10 +148,11 @@ function providerSession(overrides: Partial<ProviderSessionAttemptBinding> = {})
 
 function binding(overrides: Record<string, unknown> = {}): Json {
   return {
-    schema: 'dzupagent.coordinationExecutionBinding/v1',
+    schema: 'dzupagent.coordinationExecutionBinding/v2',
     bindingId: 'execution-binding-1',
     providerId: 'claude',
     backend: 'sdk',
+    agentHost: null,
     model: MODEL,
     profileRef: PROFILE_REF,
     auth: { mode: 'api_key', sourceRef: AUTH_SOURCE_REF },
@@ -184,6 +186,7 @@ function catalog(overrides: Partial<ProviderModelCatalog> = {}, efforts: string[
     ],
     warnings: [],
     fingerprint: 'catalog-fingerprint-1',
+    backendId: 'claude-agent-sdk',
     ...overrides,
   }
 }
@@ -896,5 +899,121 @@ describe('8. no secrets', () => {
     )
     expect(decoded.ok).toBe(false)
     expect(JSON.stringify(decoded)).not.toContain(SECRET)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 9. Binding axes (MVP-04-CP03)
+// ---------------------------------------------------------------------------
+
+describe('9. binding axes', () => {
+  async function refusals(overrides: Record<string, unknown>): Promise<string[]> {
+    const result = await composeCoordinationAttemptExecution(input({ binding: binding(overrides) }))
+    expect(result.ok).toBe(false)
+    return result.ok ? [] : result.refusals.map(({ code, path }) => `${code} ${path}`)
+  }
+
+  it('declares only own-host codex and claude routes as executable', () => {
+    expect(COORDINATION_EXECUTABLE_ROUTES).toEqual([
+      { providerId: 'codex', agentHost: null, backend: 'cli' },
+      { providerId: 'codex', agentHost: null, backend: 'sdk' },
+      { providerId: 'claude', agentHost: null, backend: 'cli' },
+      { providerId: 'claude', agentHost: null, backend: 'sdk' },
+    ])
+    expect(isDeepFrozen(COORDINATION_EXECUTABLE_ROUTES)).toBe(true)
+  })
+
+  it('expresses Qwen through Crush on separate axes and refuses it as written', async () => {
+    expect(await refusals({ providerId: 'qwen', agentHost: 'crush', backend: 'cli' })).toEqual([
+      'COORD_BINDING_ROUTE_UNSUPPORTED $binding.agentHost',
+    ])
+  })
+
+  it('refuses the flattened form and a wrapped own-host provider on their own axis', async () => {
+    expect(await refusals({ providerId: 'crush', agentHost: null, backend: 'cli' })).toEqual([
+      'COORD_BINDING_ROUTE_UNSUPPORTED $binding.providerId',
+    ])
+    expect(await refusals({ providerId: 'codex', agentHost: 'crush', backend: 'cli' })).toEqual([
+      'COORD_BINDING_ROUTE_UNSUPPORTED $binding.agentHost',
+    ])
+  })
+
+  it('never echoes a provider or host name in a route refusal', async () => {
+    const result = await composeCoordinationAttemptExecution(
+      input({ binding: binding({ providerId: 'qwen-sentinel', agentHost: 'crush-sentinel', backend: 'cli' }) }),
+    )
+    expect(JSON.stringify(result)).not.toMatch(/sentinel/u)
+  })
+
+  it('uses the canonical backend vocabulary: api is unexecutable, http is outside it', async () => {
+    expect(await refusals({ backend: 'api' })).toEqual(['COORD_BINDING_ROUTE_UNSUPPORTED $binding.backend'])
+    expect(await refusals({ backend: 'http' })).toEqual(['COORD_BINDING_FACT_INVALID $binding.backend'])
+  })
+
+  it('requires agentHost with no default and refuses a v1 binding', async () => {
+    const missing = binding()
+    delete missing.agentHost
+    const result = await composeCoordinationAttemptExecution(input({ binding: missing }))
+    expect(result.ok ? [] : result.refusals.map(({ code, path }) => `${code} ${path}`)).toEqual([
+      'COORD_BINDING_FACT_MISSING $binding.agentHost',
+    ])
+    expect(await refusals({ agentHost: '' })).toEqual(['COORD_BINDING_FACT_INVALID $binding.agentHost'])
+    expect(await refusals({ schema: 'dzupagent.coordinationExecutionBinding/v1' })).toEqual([
+      'COORD_BINDING_FACT_INVALID $binding.schema',
+    ])
+  })
+
+  it('requires the catalog to attest the backend the session binds', async () => {
+    expect(await refusalCodes({ modelCatalog: catalog({ backendId: undefined }) })).toEqual([
+      'COORD_CATALOG_BACKEND_UNATTESTED',
+    ])
+    expect(await refusalCodes({ modelCatalog: catalog({ backendId: 'claude-code-cli' }) })).toEqual([
+      'COORD_CATALOG_BACKEND_MISMATCH',
+    ])
+  })
+
+  it('refuses a required session operation the descriptor marks unsupported, without emulation', async () => {
+    const session = providerSession()
+    const unsupported = binding({
+      capabilitySet: {
+        providerSession: {
+          ...session,
+          descriptor: {
+            ...session.descriptor,
+            capabilities: {
+              ...session.descriptor.capabilities,
+              'goal-control': { status: 'unsupported', emulation: 'forbidden', reason: 'not offered by this backend' },
+            },
+          },
+        },
+        requiredCapabilities: ['execute', 'stream', 'goal-control'],
+        effects: [],
+      },
+    })
+    const result = await composeCoordinationAttemptExecution(input({ binding: unsupported }))
+    expect(result.ok).toBe(false)
+    expect(result.ok ? [] : result.refusals.map(({ code }) => code)).toEqual(['COORD_BINDING_CAPABILITY_UNSUPPORTED'])
+  })
+
+  it('binds agent host and physical backend identity into the plan digest', async () => {
+    const plan = await compose()
+    expect(plan.schema).toBe('dzupagent.coordinationAttemptExecutionPlan/v2')
+    expect(plan.execution.agentHost).toBeNull()
+    expect(plan.execution.backendId).toBe('claude-agent-sdk')
+    const { planDigest, ...unsigned } = plan
+    expect(coordinationCanonicalDigest({ ...unsigned, execution: { ...unsigned.execution, agentHost: 'crush' } })).not.toBe(planDigest)
+    expect(coordinationCanonicalDigest({ ...unsigned, execution: { ...unsigned.execution, backendId: 'other' } })).not.toBe(planDigest)
+  })
+
+  it('leaves the rendered request byte-identical to the pre-CP03 request', async () => {
+    // Digests measured at dzupagent 4d9f4abd8 (binding v1) for the same inputs.
+    const api = renderCoordinationAgentExecutionRequest(await compose())
+    const subscription = renderCoordinationAgentExecutionRequest(
+      await compose({ binding: binding({ auth: { mode: 'subscription_cli', sourceRef: AUTH_SOURCE_REF } }) }),
+    )
+    if (!api.ok || !subscription.ok) throw new Error('render refused')
+    expect(api.request).not.toHaveProperty('agentHost')
+    expect(api.attestation.requestDigest).toBe('sha256:9da1985187e18cfb0f684f09321428b4402683a52af5bae119715db18e070cc7')
+    expect(subscription.attestation.requestDigest).toBe('sha256:4895b5f22c97c65331056e23c1c326db40e2f833c841a7e01f014bf35c4004b3')
   })
 })

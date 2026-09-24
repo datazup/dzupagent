@@ -62,6 +62,7 @@ export type { DecodeCoordinationExecutionAssignmentOptions } from './coordinatio
 export {
   COORDINATION_ATTEMPT_EXECUTION_ATTESTATION_SCHEMA,
   COORDINATION_ATTEMPT_EXECUTION_PLAN_SCHEMA,
+  COORDINATION_EXECUTABLE_ROUTES,
   COORDINATION_EXECUTION_BINDING_SCHEMA,
   composeCoordinationAttemptExecution,
   renderCoordinationAgentExecutionRequest,
@@ -72,6 +73,7 @@ export type {
   CoordinationArtifactRequest,
   CoordinationArtifactResolver,
   CoordinationAttemptExecutionAttestation,
+  CoordinationExecutableRoute,
   CoordinationResolvedArtifact,
 } from './coordination-attempt-execution.js'
 export {

@@ -38,7 +38,7 @@ import {
 } from './run-agent-execution.js'
 
 export const COORDINATION_ATTEMPT_CORRELATION_SCHEMA =
-  'dzupagent.coordinationAttemptCorrelation/v1' as const
+  'dzupagent.coordinationAttemptCorrelation/v2' as const
 
 /** What the host may supply: where to run and how to stop. Never a binding fact. */
 export interface CoordinationAttemptHost {
@@ -65,6 +65,8 @@ export interface CoordinationAttemptCorrelation {
   readonly sessionRef: string
   readonly providerId: CoordinationExecutionProviderId
   readonly backend: CoordinationExecutionBackend
+  /** The plan's agent host; `null` is the provider's own host. Never merged into `providerId`. */
+  readonly agentHost: string | null
   readonly tariffRef: string
 }
 
@@ -158,6 +160,7 @@ function correlate(
     sessionRef: plan.execution.sessionRef,
     providerId: plan.execution.providerId,
     backend: plan.execution.backend,
+    agentHost: plan.execution.agentHost,
     tariffRef: attestation.tariffRef,
   })
 }
