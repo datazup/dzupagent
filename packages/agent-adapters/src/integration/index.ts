@@ -101,3 +101,19 @@ export type {
   CoordinationAttemptRunResult,
   CoordinationAttemptUsage,
 } from './coordination-attempt-runner.js'
+export {
+  COORDINATION_ATTEMPT_USAGE_SCHEMA,
+  COORDINATION_USAGE_TOTAL_SCHEMA,
+  recordCoordinationAttemptUsage,
+  totalCoordinationAttemptUsage,
+} from './coordination-attempt-usage.js'
+export type {
+  CoordinationAttemptTokens,
+  CoordinationAttemptUsageReason,
+  CoordinationAttemptUsageRecord,
+  CoordinationAttemptUsageStatus,
+  CoordinationUsagePricer,
+  CoordinationUsageTotal,
+  CoordinationUsageTotalReason,
+  RecordCoordinationAttemptUsageOptions,
+} from './coordination-attempt-usage.js'

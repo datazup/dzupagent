@@ -25,6 +25,7 @@ import {
   COORDINATION_ATTEMPT_CORRELATION_SCHEMA,
   COORDINATION_ATTEMPT_REPORT_JSON_SCHEMA,
   COORDINATION_ATTEMPT_REPORT_SCHEMA,
+  COORDINATION_ATTEMPT_USAGE_SCHEMA,
   composeCoordinationAttemptExecution,
   coordinationCanonicalDigest,
   coordinationSelfDigest,
@@ -533,5 +534,74 @@ describe('A7. structured reports', () => {
     const { outcome } = await run(fenced(report()), 'sdk', { reportAs: 'codex' })
     expect(outcome).toMatchObject({ ok: false, code: 'COORD_ATTEMPT_PROVIDER_MISMATCH' })
     expect(outcome.report).toEqual({ status: 'invalid', authority: 'claim', transport: 'wrapper_capture', code: 'COORD_REPORT_PROVIDER_MISMATCH' })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// MVP-04-CP07. Usage record bound to the attempt
+// (doc-coord-mvp04-cp07-admit-20260924-r1/ADMISSION.md §5 A2)
+// ---------------------------------------------------------------------------
+
+describe('CP07 A2. usage record', () => {
+  it('binds an executed run\'s usage to its correlation', async () => {
+    const usage = { inputTokens: 11, outputTokens: 7 } as CompletedUsage
+    const outcome = await runCoordinationAttemptExecution(
+      await compose(),
+      { workingDirectory: PINNED_CHECKOUT },
+      hostOptions(newRecording(), { usage }),
+    )
+    if (!('usageRecord' in outcome)) throw new Error('run refused before execution')
+    expect(outcome.usage).toEqual({ status: 'reported', usage })
+    expect(outcome.usageRecord).toMatchObject({
+      schema: COORDINATION_ATTEMPT_USAGE_SCHEMA,
+      attemptId: outcome.correlation.attemptId,
+      assignmentId: outcome.correlation.assignmentId,
+      bindingId: BINDING_ID,
+      providerId: 'claude',
+      tariffRef: TARIFF_REF,
+      correlationDigest: coordinationCanonicalDigest(outcome.correlation),
+      status: 'reported',
+      tokens: { inputTokens: 11, outputTokens: 7 },
+    })
+    expect(outcome.usageRecord.recordDigest).toBe(
+      coordinationSelfDigest(outcome.usageRecord as unknown as Record<string, unknown>, 'recordDigest'),
+    )
+  })
+
+  it('records unknown usage as unknown on a run that reported none', async () => {
+    const outcome = await runCoordinationAttemptExecution(await compose(), { workingDirectory: PINNED_CHECKOUT }, hostOptions(newRecording()))
+    if (!('usageRecord' in outcome)) throw new Error('run refused before execution')
+    expect(outcome.usageRecord).toMatchObject({ status: 'unknown', reasons: ['USAGE_NOT_REPORTED'] })
+    expect(outcome.usageRecord).not.toHaveProperty('tokens')
+  })
+
+  it('prices under the bound tariff and records a disagreement without changing the outcome', async () => {
+    const usage = { inputTokens: 11, outputTokens: 7, costCents: 9 } as CompletedUsage
+    const priced: unknown[] = []
+    const outcome = await runCoordinationAttemptExecution(
+      await compose(),
+      { workingDirectory: PINNED_CHECKOUT },
+      { ...hostOptions(newRecording(), { usage }), priceUsage: (input) => { priced.push(input); return 4 } },
+    )
+    if (!('usageRecord' in outcome)) throw new Error('run refused before execution')
+    expect(priced).toEqual([{ tariffRef: TARIFF_REF, providerId: 'claude', tokens: { inputTokens: 11, outputTokens: 7 } }])
+    expect(outcome.ok).toBe(true)
+    expect(outcome.usageRecord).toMatchObject({ status: 'uncertain', reasons: ['USAGE_COST_DISAGREES'], providerReportedCostCents: 9, tariffCostCents: 4 })
+  })
+
+  it('carries a usage record on a provider replacement too', async () => {
+    const outcome = await runCoordinationAttemptExecution(
+      await compose(),
+      { workingDirectory: PINNED_CHECKOUT },
+      hostOptions(newRecording(), { reportAs: 'codex' }),
+    )
+    expect(outcome).toMatchObject({ ok: false, code: 'COORD_ATTEMPT_PROVIDER_MISMATCH' })
+    if (!('usageRecord' in outcome)) throw new Error('run refused before execution')
+    expect(outcome.usageRecord.attemptId).toBe(outcome.correlation.attemptId)
+  })
+
+  it('has no usage record when nothing ran', async () => {
+    const outcome = await runCoordinationAttemptExecution(null as never, { workingDirectory: PINNED_CHECKOUT }, hostOptions(newRecording()))
+    expect(outcome).not.toHaveProperty('usageRecord')
   })
 })

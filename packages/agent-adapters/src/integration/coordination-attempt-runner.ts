@@ -20,9 +20,13 @@
  *   (MVP-04-CP05). It is a claim: it never changes `ok`, `code`, the
  *   correlation, usage or the plan, and a replaced provider's reply is not
  *   parsed.
+ * - Every executed result carries a usage record bound to the attempt
+ *   (MVP-04-CP07): unknown stays unknown, invalid values and cost
+ *   disagreement are `uncertain`, and nothing is coerced.
  *
  * Admission: workspace-docs doc-coord-mvp04-admit-20260924-r1/MVP04-ADMISSION.md §4;
- * report capture: doc-coord-mvp04-cp05-admit-20260924-r1/ADMISSION.md §3.3.
+ * report capture: doc-coord-mvp04-cp05-admit-20260924-r1/ADMISSION.md §3.3;
+ * usage record: doc-coord-mvp04-cp07-admit-20260924-r1/ADMISSION.md §3.2.
  */
 import type {
   CoordinationAssignmentDiagnostic,
@@ -40,6 +44,11 @@ import {
   captureCoordinationAttemptReport,
   type CoordinationAttemptReportCapture,
 } from './coordination-attempt-report.js'
+import {
+  recordCoordinationAttemptUsage,
+  type CoordinationAttemptUsageRecord,
+  type CoordinationUsagePricer,
+} from './coordination-attempt-usage.js'
 import {
   runAgentExecution,
   type AgentExecutionResult,
@@ -91,6 +100,8 @@ export type CoordinationAttemptRunResult =
       readonly usage: CoordinationAttemptUsage
       /** The provider's report: a claim, never authority. */
       readonly report: CoordinationAttemptReportCapture
+      /** Usage bound to this attempt; see {@link recordCoordinationAttemptUsage}. */
+      readonly usageRecord: CoordinationAttemptUsageRecord
       readonly result: AgentExecutionResult
     }
   | {
@@ -101,6 +112,8 @@ export type CoordinationAttemptRunResult =
       readonly attestation: CoordinationAttemptExecutionAttestation
       readonly usage: CoordinationAttemptUsage
       readonly report: CoordinationAttemptReportCapture
+      /** Usage bound to this attempt; see {@link recordCoordinationAttemptUsage}. */
+      readonly usageRecord: CoordinationAttemptUsageRecord
       readonly result: AgentExecutionResult
     }
   | {
@@ -110,7 +123,10 @@ export type CoordinationAttemptRunResult =
       readonly refusals: readonly CoordinationAssignmentDiagnostic[]
     }
 
-export type CoordinationAttemptRunOptions = RunAgentExecutionOptions
+export interface CoordinationAttemptRunOptions extends RunAgentExecutionOptions {
+  /** Host pricing under the bound tariff. Never forwarded to the execution seam. */
+  readonly priceUsage?: CoordinationUsagePricer | undefined
+}
 
 /**
  * Execute a composed coordination plan once, on exactly its bound provider,
@@ -121,6 +137,7 @@ export async function runCoordinationAttemptExecution(
   host: CoordinationAttemptHost,
   options: CoordinationAttemptRunOptions = {},
 ): Promise<CoordinationAttemptRunResult> {
+  const { priceUsage, ...executionOptions } = options
   const rendered = renderCoordinationAgentExecutionRequest(plan)
   if (!rendered.ok) {
     return { ok: false, code: rendered.refusals[0]?.code ?? 'COORD_PLAN_INVALID', refusals: rendered.refusals }
@@ -139,7 +156,7 @@ export async function runCoordinationAttemptExecution(
       ...(host.signal ? { signal: host.signal } : {}),
       ...(host.timeoutMs !== undefined ? { timeoutMs: host.timeoutMs } : {}),
     },
-    options,
+    executionOptions,
   )
   const usage: CoordinationAttemptUsage = result.usage
     ? Object.freeze({ status: 'reported', usage: result.usage })
@@ -149,7 +166,8 @@ export async function runCoordinationAttemptExecution(
   const report: CoordinationAttemptReportCapture = replaced
     ? Object.freeze({ status: 'invalid', authority: 'claim', transport, code: 'COORD_REPORT_PROVIDER_MISMATCH' })
     : captureCoordinationAttemptReport(result.text, { transport, attemptId: correlation.attemptId })
-  const base = { correlation, attestation: rendered.attestation, usage, report, result }
+  const usageRecord = recordCoordinationAttemptUsage(correlation, result.usage, { priceUsage })
+  const base = { correlation, attestation: rendered.attestation, usage, report, usageRecord, result }
 
   if (replaced) {
     return { ok: false, code: 'COORD_ATTEMPT_PROVIDER_MISMATCH', ...base }
