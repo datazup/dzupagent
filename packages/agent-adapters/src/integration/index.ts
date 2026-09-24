@@ -74,3 +74,14 @@ export type {
   CoordinationAttemptExecutionAttestation,
   CoordinationResolvedArtifact,
 } from './coordination-attempt-execution.js'
+export {
+  COORDINATION_ATTEMPT_CORRELATION_SCHEMA,
+  runCoordinationAttemptExecution,
+} from './coordination-attempt-runner.js'
+export type {
+  CoordinationAttemptCorrelation,
+  CoordinationAttemptHost,
+  CoordinationAttemptRunOptions,
+  CoordinationAttemptRunResult,
+  CoordinationAttemptUsage,
+} from './coordination-attempt-runner.js'
