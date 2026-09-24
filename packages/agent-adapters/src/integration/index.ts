@@ -64,6 +64,7 @@ export {
   COORDINATION_ATTEMPT_EXECUTION_PLAN_SCHEMA,
   COORDINATION_EXECUTABLE_ROUTES,
   COORDINATION_EXECUTION_BINDING_SCHEMA,
+  COORDINATION_RENDERER_PROFILES,
   composeCoordinationAttemptExecution,
   renderCoordinationAgentExecutionRequest,
 } from './coordination-attempt-execution.js'
@@ -74,8 +75,21 @@ export type {
   CoordinationArtifactResolver,
   CoordinationAttemptExecutionAttestation,
   CoordinationExecutableRoute,
+  CoordinationRendererProfile,
   CoordinationResolvedArtifact,
 } from './coordination-attempt-execution.js'
+export {
+  COORDINATION_ATTEMPT_REPORT_JSON_SCHEMA,
+  COORDINATION_ATTEMPT_REPORT_SCHEMA,
+  COORDINATION_REPORT_FENCE,
+  captureCoordinationAttemptReport,
+} from './coordination-attempt-report.js'
+export type {
+  CoordinationAttemptReport,
+  CoordinationAttemptReportCapture,
+  CoordinationAttemptReportStatus,
+  CoordinationReportTransport,
+} from './coordination-attempt-report.js'
 export {
   COORDINATION_ATTEMPT_CORRELATION_SCHEMA,
   runCoordinationAttemptExecution,

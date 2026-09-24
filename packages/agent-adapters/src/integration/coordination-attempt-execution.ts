@@ -20,6 +20,9 @@
  *   altered or of unknown freshness is refused; an optional one that is
  *   missing or of unknown freshness becomes a reason-coded receiver omission.
  *   `packDigest` names the delivered pack independently of the binding.
+ * - Rendering is versioned per route (MVP-04-CP05): every profile renders the
+ *   same canonical body, discloses omissions and freshness, and differs only
+ *   in how the report is requested. A report is a claim and grants no scope.
  * - Authority is checked against the caller-supplied `now`; no ambient clock.
  * - Reasoning effort must be listed by the provider model catalog; it is never
  *   downgraded.
@@ -63,6 +66,12 @@ import {
   isCoordinationTimestamp,
   isDecodedCoordinationExecutionAssignment,
 } from './coordination-assignment-decoder.js'
+import {
+  COORDINATION_ATTEMPT_REPORT_JSON_SCHEMA,
+  COORDINATION_ATTEMPT_REPORT_SCHEMA,
+  COORDINATION_REPORT_FENCE,
+  type CoordinationReportTransport,
+} from './coordination-attempt-report.js'
 import type { AgentExecutionRequest } from './run-agent-execution.js'
 
 export const COORDINATION_EXECUTION_BINDING_SCHEMA =
@@ -71,7 +80,7 @@ export const COORDINATION_ATTEMPT_EXECUTION_PLAN_SCHEMA =
   'dzupagent.coordinationAttemptExecutionPlan/v3' as const
 export const COORDINATION_CONTEXT_PACK_SCHEMA = 'dzupagent.coordinationContextPack/v1' as const
 export const COORDINATION_ATTEMPT_EXECUTION_ATTESTATION_SCHEMA =
-  'dzupagent.coordinationAttemptExecutionAttestation/v1' as const
+  'dzupagent.coordinationAttemptExecutionAttestation/v2' as const
 
 /** One `(providerId, agentHost, backend)` triple this runtime can execute. */
 export interface CoordinationExecutableRoute {
@@ -90,6 +99,29 @@ export const COORDINATION_EXECUTABLE_ROUTES: readonly CoordinationExecutableRout
   (['codex', 'claude'] as const).flatMap((providerId) =>
     (['cli', 'sdk'] as const).map((backend) => Object.freeze({ providerId, agentHost: null, backend }))),
 )
+
+/** A versioned renderer for one executable route. */
+export interface CoordinationRendererProfile extends CoordinationExecutableRoute {
+  readonly rendererId: string
+  /**
+   * How the report reaches the runner: `native_schema` when the adapter at
+   * this pin forwards `outputSchema`, otherwise the explicit wrapper-capture
+   * fallback. Never guessed from the reply.
+   */
+  readonly reportTransport: CoordinationReportTransport
+}
+
+/**
+ * Exactly one profile per executable route (MVP-04-CP05). The claude SDK
+ * adapter does not forward `outputSchema`, so that route falls back to
+ * wrapper claim capture.
+ */
+export const COORDINATION_RENDERER_PROFILES: readonly CoordinationRendererProfile[] = Object.freeze([
+  Object.freeze({ providerId: 'codex', agentHost: null, backend: 'cli', rendererId: 'dzupagent.coordinationRenderer.codex-cli/v1', reportTransport: 'native_schema' }),
+  Object.freeze({ providerId: 'codex', agentHost: null, backend: 'sdk', rendererId: 'dzupagent.coordinationRenderer.codex-sdk/v1', reportTransport: 'native_schema' }),
+  Object.freeze({ providerId: 'claude', agentHost: null, backend: 'cli', rendererId: 'dzupagent.coordinationRenderer.claude-cli/v1', reportTransport: 'native_schema' }),
+  Object.freeze({ providerId: 'claude', agentHost: null, backend: 'sdk', rendererId: 'dzupagent.coordinationRenderer.claude-sdk/v1', reportTransport: 'wrapper_capture' }),
+] as const)
 
 export interface CoordinationArtifactRequest {
   readonly role: CoordinationContextPackRole
@@ -130,6 +162,8 @@ export interface CoordinationAttemptExecutionAttestation {
   readonly assignmentDigest: CoordinationSha256Digest
   readonly canonicalSeal: CoordinationSha256Digest
   readonly tariffRef: string
+  readonly rendererId: string
+  readonly reportTransport: CoordinationReportTransport
 }
 
 export type CoordinationAgentExecutionRenderResult =
@@ -779,7 +813,8 @@ async function compose(
   return { ok: true, plan: frozen }
 }
 
-function renderPrompt(plan: CoordinationAttemptExecutionPlan): string {
+/** The canonical body: identical for every profile given the same plan context. */
+function renderPromptBody(plan: CoordinationAttemptExecutionPlan): string {
   const header = [
     `Coordination assignment ${plan.assignment.assignmentId}`,
     `attempt ${plan.assignment.attemptId}`,
@@ -789,11 +824,49 @@ function renderPrompt(plan: CoordinationAttemptExecutionPlan): string {
   const effects = `Forbidden effects: ${plan.assignment.forbiddenEffects.join(', ')}`
   const context = plan.context.items.map((item) =>
     [
-      `<context role="${item.role}" artifact="${item.artifactId}" digest="${item.contentDigest}">`,
+      `<context role="${item.role}" artifact="${item.artifactId}" digest="${item.contentDigest}" freshness="${item.freshness}">`,
       item.content,
       '</context>',
     ].join('\n'))
-  return [header, effects, ...context].join('\n\n')
+  const omissions = [
+    ...plan.context.omittedRoles.map(({ role, reasonCode, evidenceRef }) =>
+      `- ${role}: omitted by the issuer (${reasonCode}; evidence ${evidenceRef})`),
+    ...plan.context.receiverOmissions.map(({ role, artifactId, reasonCode }) =>
+      `- ${role}: artifact ${artifactId} not delivered to this attempt (${reasonCode})`),
+  ]
+  const disclosure = omissions.length === 0
+    ? 'Context omissions: none; the context pack is complete.'
+    : ['Context omissions: the context pack is partial.', ...omissions].join('\n')
+  return [header, effects, ...context, disclosure].join('\n\n')
+}
+
+const REPORT_FIELD_LIST =
+  'schema, attemptId, status, summary, filesBelievedChanged, validationAttempted, blockers, scopeRequests, nextAction'
+
+function renderReportSection(plan: CoordinationAttemptExecutionPlan, profile: CoordinationRendererProfile): string {
+  const claim = [
+    `Report: your final report is a claim that the controller checks against what it observes.`,
+    `It grants no scope and no effect; list anything outside this assignment in scopeRequests and do not act on it.`,
+  ].join(' ')
+  const delivery = profile.reportTransport === 'native_schema'
+    ? `Return the report as the structured output requested by the attached schema, with schema "${COORDINATION_ATTEMPT_REPORT_SCHEMA}" and attemptId "${plan.assignment.attemptId}".`
+    : [
+        `End your final message with exactly one fenced block tagged ${COORDINATION_REPORT_FENCE} containing one JSON object`,
+        `with exactly these fields: ${REPORT_FIELD_LIST}.`,
+        `Use schema "${COORDINATION_ATTEMPT_REPORT_SCHEMA}", attemptId "${plan.assignment.attemptId}",`,
+        'and status "completed", "blocked" or "failed"; the list fields are arrays of strings.',
+      ].join(' ')
+  return `${claim}\n${delivery}`
+}
+
+function renderPrompt(plan: CoordinationAttemptExecutionPlan, profile: CoordinationRendererProfile): string {
+  return [renderPromptBody(plan), renderReportSection(plan, profile)].join('\n\n')
+}
+
+function rendererProfile(plan: CoordinationAttemptExecutionPlan): CoordinationRendererProfile | undefined {
+  const { providerId, backend, agentHost } = plan.execution
+  return COORDINATION_RENDERER_PROFILES.find((profile) =>
+    profile.providerId === providerId && profile.backend === backend && profile.agentHost === agentHost)
 }
 
 /**
@@ -821,6 +894,10 @@ function renderRequest(plan: CoordinationAttemptExecutionPlan): CoordinationAgen
   if (coordinationCanonicalDigest(unsigned) !== planDigest) {
     return { ok: false, refusals: Object.freeze([{ code: 'COORD_PLAN_DIGEST_MISMATCH', path: '$plan.planDigest', message: 'Plan does not match its digest.' }]) }
   }
+  const profile = rendererProfile(plan)
+  if (profile === undefined) {
+    return { ok: false, refusals: Object.freeze([{ code: 'COORD_RENDERER_PROFILE_MISSING', path: '$plan.execution', message: 'No renderer profile for the executed route.' }]) }
+  }
   const { execution, assignment } = plan
   const request: AgentExecutionRequest = {
     providerId: execution.providerId,
@@ -829,7 +906,8 @@ function renderRequest(plan: CoordinationAttemptExecutionPlan): CoordinationAgen
     profileRef: execution.profileRef,
     ...(execution.authMode === 'api_key' ? { secretRef: execution.authSourceRef } : {}),
     approvedFallbackProviders: [],
-    prompt: renderPrompt(plan),
+    prompt: renderPrompt(plan, profile),
+    ...(profile.reportTransport === 'native_schema' ? { outputSchema: COORDINATION_ATTEMPT_REPORT_JSON_SCHEMA } : {}),
     model: execution.model,
     reasoning: execution.reasoning,
     correlationId: assignment.assignmentId,
@@ -846,6 +924,8 @@ function renderRequest(plan: CoordinationAttemptExecutionPlan): CoordinationAgen
       assignmentDigest: assignment.assignmentDigest,
       canonicalSeal: assignment.canonicalSeal,
       tariffRef: execution.tariffRef,
+      rendererId: profile.rendererId,
+      reportTransport: profile.reportTransport,
     }),
   }
 }

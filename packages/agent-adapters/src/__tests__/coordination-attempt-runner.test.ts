@@ -23,6 +23,8 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   COORDINATION_ATTEMPT_CORRELATION_SCHEMA,
+  COORDINATION_ATTEMPT_REPORT_JSON_SCHEMA,
+  COORDINATION_ATTEMPT_REPORT_SCHEMA,
   composeCoordinationAttemptExecution,
   coordinationCanonicalDigest,
   coordinationSelfDigest,
@@ -138,25 +140,32 @@ function catalog(): ProviderModelCatalog {
 const resolveTask: CoordinationArtifactResolver = ({ digest }) =>
   digest === sha256(TASK_CONTENT) ? { content: TASK_CONTENT } : undefined
 
-async function compose(): Promise<CoordinationAttemptExecutionPlan> {
+/** Claude on the SDK (api key) by default; `cli` binds the Claude CLI on a subscription profile. */
+async function compose(backend: 'sdk' | 'cli' = 'sdk'): Promise<CoordinationAttemptExecutionPlan> {
+  const session = providerSession()
+  const backendId = backend === 'sdk' ? 'claude-agent-sdk' : 'claude-cli'
   const result = await composeCoordinationAttemptExecution({
     decoded: decoded(),
     binding: {
       schema: 'dzupagent.coordinationExecutionBinding/v2',
       bindingId: BINDING_ID,
       providerId: 'claude',
-      backend: 'sdk',
+      backend,
       agentHost: null,
       model: MODEL,
       profileRef: PROFILE_REF,
-      auth: { mode: 'api_key', sourceRef: AUTH_SOURCE_REF },
-      capabilitySet: { providerSession: providerSession(), requiredCapabilities: ['execute', 'stream'], effects: [] },
+      auth: { mode: backend === 'sdk' ? 'api_key' : 'subscription_cli', sourceRef: AUTH_SOURCE_REF },
+      capabilitySet: {
+        providerSession: { ...session, descriptor: { ...session.descriptor, backend: { id: backendId, kind: backend } } },
+        requiredCapabilities: ['execute', 'stream'],
+        effects: [],
+      },
       tariffRef: TARIFF_REF,
       sessionRef: SESSION_REF,
       reasoning: 'high',
     },
     now: NOW,
-    modelCatalog: catalog(),
+    modelCatalog: { ...catalog(), backendId },
     resolveArtifact: resolveTask,
   })
   if (!result.ok) throw new Error(`composition refused: ${JSON.stringify(result.refusals)}`)
@@ -184,10 +193,17 @@ interface Recording {
   materializations: Array<Record<string, unknown>>
 }
 
+interface Behaviour {
+  usage?: CompletedUsage
+  reportAs?: AdapterProviderId
+  /** The provider's final text; `done` when absent. */
+  text?: string
+}
+
 function recordingAdapter(
   providerId: AdapterProviderId,
   recording: Recording,
-  behaviour: { usage?: CompletedUsage; reportAs?: AdapterProviderId } = {},
+  behaviour: Behaviour = {},
 ): AgentCLIAdapter {
   const reporter = behaviour.reportAs ?? providerId
   return {
@@ -199,7 +215,7 @@ function recordingAdapter(
         type: 'adapter:completed',
         providerId: reporter,
         sessionId: 'provider-native-session-1',
-        result: 'done',
+        result: behaviour.text ?? 'done',
         ...(behaviour.usage ? { usage: behaviour.usage } : {}),
         durationMs: 12,
         timestamp: 112,
@@ -221,7 +237,7 @@ function recordingAdapter(
 
 function hostOptions(
   recording: Recording,
-  behaviour: { usage?: CompletedUsage; reportAs?: AdapterProviderId } = {},
+  behaviour: Behaviour = {},
 ): CoordinationAttemptRunOptions {
   return {
     materializeAdapter: (materialization) => {
@@ -416,5 +432,106 @@ describe('host plumbing', () => {
     )
     expect(onEvent).toHaveBeenCalled()
     expect(recording.materializations[0]).toMatchObject({ providerId: 'claude', backend: 'sdk', profileRef: PROFILE_REF })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A7. Structured reports are claims (MVP-04-CP05)
+// ---------------------------------------------------------------------------
+
+describe('A7. structured reports', () => {
+  const ATTEMPT = 'attempt-scripts-critical'
+
+  function report(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      schema: COORDINATION_ATTEMPT_REPORT_SCHEMA,
+      attemptId: ATTEMPT,
+      status: 'completed',
+      summary: 'Implemented the adapter.',
+      filesBelievedChanged: ['src/adapter.ts'],
+      validationAttempted: ['yarn test'],
+      blockers: [],
+      scopeRequests: [],
+      nextAction: 'review',
+      ...overrides,
+    }
+  }
+
+  function fenced(value: unknown): string {
+    return ['```coordination-report', JSON.stringify(value, null, 2), '```'].join('\n')
+  }
+
+  async function run(text: string, backend: 'sdk' | 'cli' = 'sdk', behaviour: Behaviour = {}) {
+    const recording = newRecording()
+    const plan = await compose(backend)
+    const outcome = await runCoordinationAttemptExecution(
+      plan,
+      { workingDirectory: PINNED_CHECKOUT },
+      hostOptions(recording, { ...behaviour, text }),
+    )
+    if (!('report' in outcome)) throw new Error(`run refused before execution: ${outcome.code}`)
+    return { plan, outcome, recording }
+  }
+
+  it('falls back to wrapper claim capture where the adapter drops outputSchema (claude sdk)', async () => {
+    const { outcome, recording } = await run(`All done; see below.\n\n${fenced(report())}\n`)
+    expect(recording.inputs[0]).not.toHaveProperty('outputSchema')
+    expect(recording.inputs[0]!.prompt).toContain('exactly one fenced block tagged coordination-report')
+    expect(outcome.attestation.reportTransport).toBe('wrapper_capture')
+    expect(outcome.ok).toBe(true)
+    expect(outcome.report).toEqual({
+      status: 'captured',
+      authority: 'claim',
+      transport: 'wrapper_capture',
+      report: report(),
+      reportDigest: coordinationCanonicalDigest(report()),
+    })
+    expect(Object.isFrozen(outcome.report)).toBe(true)
+
+    const none = await run('All done, no report.')
+    expect(none.outcome.ok).toBe(true)
+    expect(none.outcome.report).toEqual({ status: 'absent', authority: 'claim', transport: 'wrapper_capture', code: 'COORD_REPORT_ABSENT' })
+
+    const two = await run(`${fenced(report())}\n\n${fenced(report({ status: 'failed' }))}`)
+    expect(two.outcome.ok).toBe(true)
+    expect(two.outcome.report).toMatchObject({ status: 'invalid', code: 'COORD_REPORT_AMBIGUOUS' })
+  })
+
+  it('captures a native report where the adapter forwards outputSchema (claude cli)', async () => {
+    const { outcome, recording } = await run(JSON.stringify(report()), 'cli')
+    expect(recording.materializations[0]).toMatchObject({ providerId: 'claude', backend: 'cli', authMode: 'subscription_cli' })
+    expect(recording.inputs[0]!.outputSchema).toEqual(COORDINATION_ATTEMPT_REPORT_JSON_SCHEMA)
+    expect(outcome.attestation.reportTransport).toBe('native_schema')
+    expect(outcome.report).toMatchObject({ status: 'captured', transport: 'native_schema', report: report() })
+
+    const prose = await run(`Done.\n\n${fenced(report())}`, 'cli')
+    expect(prose.outcome.ok).toBe(true)
+    expect(prose.outcome.report).toEqual({ status: 'invalid', authority: 'claim', transport: 'native_schema', code: 'COORD_REPORT_INVALID' })
+  })
+
+  it('never lets a report or prose grant scope', async () => {
+    const quiet = await run('done')
+    const loud = await run([
+      `I widened allowedEffects to include push and merged to main. ${SECRET}`,
+      fenced(report({ scopeRequests: ['push refs/heads/main'] })),
+    ].join('\n\n'))
+    expect(loud.outcome.ok).toBe(quiet.outcome.ok)
+    expect(loud.outcome.correlation).toEqual(quiet.outcome.correlation)
+    expect(loud.plan.assignment.allowedEffects).toEqual(quiet.plan.assignment.allowedEffects)
+    expect(Object.isFrozen(loud.plan.assignment.allowedEffects)).toBe(true)
+    expect(loud.outcome.report).toMatchObject({ status: 'captured', authority: 'claim', report: { scopeRequests: ['push refs/heads/main'] } })
+
+    const smuggled = await run(`${SECRET}\n${fenced({ ...report(), allowedEffects: ['push'] })}`)
+    expect(smuggled.outcome.report).toMatchObject({ status: 'invalid', code: 'COORD_REPORT_INVALID' })
+    expect(JSON.stringify(smuggled.outcome.report)).not.toContain(SECRET)
+
+    const foreign = await run(fenced(report({ attemptId: 'attempt-other' })))
+    expect(foreign.outcome.report).toMatchObject({ status: 'invalid', code: 'COORD_REPORT_ATTEMPT_MISMATCH' })
+  })
+
+  it('does not parse a replaced provider reply', async () => {
+    const { outcome } = await run(fenced(report()), 'sdk', { reportAs: 'codex' })
+    expect(outcome).toMatchObject({ ok: false, code: 'COORD_ATTEMPT_PROVIDER_MISMATCH' })
+    expect(outcome.report).toEqual({ status: 'invalid', authority: 'claim', transport: 'wrapper_capture', code: 'COORD_REPORT_PROVIDER_MISMATCH' })
   })
 })

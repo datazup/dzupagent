@@ -16,8 +16,13 @@
  * - A result or event from any provider other than the bound one is refused
  *   as a replacement. A replacement is a new binding and attempt.
  * - Absent usage is reported as `unknown`, never as zero.
+ * - The provider's report is captured with the renderer profile's transport
+ *   (MVP-04-CP05). It is a claim: it never changes `ok`, `code`, the
+ *   correlation, usage or the plan, and a replaced provider's reply is not
+ *   parsed.
  *
- * Admission: workspace-docs doc-coord-mvp04-admit-20260924-r1/MVP04-ADMISSION.md §4.
+ * Admission: workspace-docs doc-coord-mvp04-admit-20260924-r1/MVP04-ADMISSION.md §4;
+ * report capture: doc-coord-mvp04-cp05-admit-20260924-r1/ADMISSION.md §3.3.
  */
 import type {
   CoordinationAssignmentDiagnostic,
@@ -31,6 +36,10 @@ import {
   renderCoordinationAgentExecutionRequest,
   type CoordinationAttemptExecutionAttestation,
 } from './coordination-attempt-execution.js'
+import {
+  captureCoordinationAttemptReport,
+  type CoordinationAttemptReportCapture,
+} from './coordination-attempt-report.js'
 import {
   runAgentExecution,
   type AgentExecutionResult,
@@ -80,6 +89,8 @@ export type CoordinationAttemptRunResult =
       readonly correlation: CoordinationAttemptCorrelation
       readonly attestation: CoordinationAttemptExecutionAttestation
       readonly usage: CoordinationAttemptUsage
+      /** The provider's report: a claim, never authority. */
+      readonly report: CoordinationAttemptReportCapture
       readonly result: AgentExecutionResult
     }
   | {
@@ -89,6 +100,7 @@ export type CoordinationAttemptRunResult =
       readonly correlation: CoordinationAttemptCorrelation
       readonly attestation: CoordinationAttemptExecutionAttestation
       readonly usage: CoordinationAttemptUsage
+      readonly report: CoordinationAttemptReportCapture
       readonly result: AgentExecutionResult
     }
   | {
@@ -132,9 +144,14 @@ export async function runCoordinationAttemptExecution(
   const usage: CoordinationAttemptUsage = result.usage
     ? Object.freeze({ status: 'reported', usage: result.usage })
     : Object.freeze({ status: 'unknown' })
-  const base = { correlation, attestation: rendered.attestation, usage, result }
+  const transport = rendered.attestation.reportTransport
+  const replaced = replacedProvider(result, correlation.providerId)
+  const report: CoordinationAttemptReportCapture = replaced
+    ? Object.freeze({ status: 'invalid', authority: 'claim', transport, code: 'COORD_REPORT_PROVIDER_MISMATCH' })
+    : captureCoordinationAttemptReport(result.text, { transport, attemptId: correlation.attemptId })
+  const base = { correlation, attestation: rendered.attestation, usage, report, result }
 
-  if (replacedProvider(result, correlation.providerId)) {
+  if (replaced) {
     return { ok: false, code: 'COORD_ATTEMPT_PROVIDER_MISMATCH', ...base }
   }
   if (!result.ok) {

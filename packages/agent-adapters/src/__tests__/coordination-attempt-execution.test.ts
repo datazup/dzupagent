@@ -21,7 +21,10 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  COORDINATION_ATTEMPT_EXECUTION_ATTESTATION_SCHEMA,
+  COORDINATION_ATTEMPT_REPORT_JSON_SCHEMA,
   COORDINATION_EXECUTABLE_ROUTES,
+  COORDINATION_RENDERER_PROFILES,
   composeCoordinationAttemptExecution,
   coordinationCanonicalDigest,
   coordinationSelfDigest,
@@ -1005,82 +1008,85 @@ describe('9. binding axes', () => {
     expect(coordinationCanonicalDigest({ ...unsigned, execution: { ...unsigned.execution, backendId: 'other' } })).not.toBe(planDigest)
   })
 
-  it('leaves the rendered request byte-identical to the pre-CP03 request', async () => {
-    // Digests measured at dzupagent 4d9f4abd8 (binding v1) for the same inputs.
+  it('pins the rendered request bytes under renderer claude-sdk/v1', async () => {
+    // Byte-identical from dzupagent 4d9f4abd8 (binding v1) through CP04; re-pinned
+    // by MVP-04-CP05, whose renderer adds freshness, omission disclosure and the report section.
     const api = renderCoordinationAgentExecutionRequest(await compose())
     const subscription = renderCoordinationAgentExecutionRequest(
       await compose({ binding: binding({ auth: { mode: 'subscription_cli', sourceRef: AUTH_SOURCE_REF } }) }),
     )
     if (!api.ok || !subscription.ok) throw new Error('render refused')
     expect(api.request).not.toHaveProperty('agentHost')
-    expect(api.attestation.requestDigest).toBe('sha256:9da1985187e18cfb0f684f09321428b4402683a52af5bae119715db18e070cc7')
-    expect(subscription.attestation.requestDigest).toBe('sha256:4895b5f22c97c65331056e23c1c326db40e2f833c841a7e01f014bf35c4004b3')
+    expect(api.attestation.requestDigest).toBe('sha256:dd2de9658ef0bc217c4630d3e1117ea80aec5e331684695c202ae6ada2b604ef')
+    expect(subscription.attestation.requestDigest).toBe('sha256:d2dfae6951dff7f4140435eeedb3a8e6cd9fd36991351e62fec19bb02f73caba')
   })
 })
+
+// Context helpers shared by the context-pack (CP04) and renderer (CP05) blocks.
+
+const MEMORY_CONTENT = 'curated memory: prefer the existing execution seam'
+
+/** Adds an optional curated_memory item in place of its producer omission. */
+function withMemory(mutate: (item: Json) => void = () => {}): (assignment: Json) => void {
+  return (assignment) => {
+    const item: Json = {
+      role: 'curated_memory',
+      required: false,
+      artifact: {
+        schema: 'datazup.orchestration.artifact-reference/v1',
+        artifactId: 'artifact-memory',
+        digest: sha256(MEMORY_CONTENT),
+        mediaType: 'text/plain',
+        sensitivity: 'internal',
+        retained: true,
+      },
+      contentDigest: sha256(MEMORY_CONTENT),
+      sourceBindingDigest: assignment.source.bindingDigest,
+      freshness: 'current',
+      privacyLabel: 'internal',
+    }
+    mutate(item)
+    assignment.contextPack.items.push(item)
+    assignment.contextPack.omissions = assignment.contextPack.omissions.filter(
+      (omission: Json) => omission.role !== 'curated_memory',
+    )
+  }
+}
+
+const resolveBoth: CoordinationArtifactResolver = ({ digest }) => {
+  if (digest === sha256(TASK_CONTENT)) return { content: TASK_CONTENT }
+  if (digest === sha256(MEMORY_CONTENT)) return { content: MEMORY_CONTENT }
+  return undefined
+}
+
+function codex(): Partial<ComposeCoordinationAttemptExecutionInput> {
+  const session = providerSession()
+  return {
+    binding: binding({
+      providerId: 'codex',
+      backend: 'cli',
+      capabilitySet: {
+        providerSession: {
+          ...session,
+          descriptor: { ...session.descriptor, providerId: 'codex', backend: { id: 'codex-cli', kind: 'cli' } },
+        },
+        requiredCapabilities: ['execute', 'stream'],
+        effects: [],
+      },
+    }),
+    modelCatalog: catalog({
+      providerId: 'codex',
+      backendId: 'codex-cli',
+      models: [{ providerId: 'codex', id: MODEL, displayName: 'Sentinel model', supportedReasoningEfforts: ['high'] }],
+    }),
+  }
+}
 
 // ---------------------------------------------------------------------------
 // 10. Context pack (MVP-04-CP04)
 // ---------------------------------------------------------------------------
 
 describe('10. context pack', () => {
-  const MEMORY_CONTENT = 'curated memory: prefer the existing execution seam'
-
-  /** Adds an optional curated_memory item in place of its producer omission. */
-  function withMemory(mutate: (item: Json) => void = () => {}): (assignment: Json) => void {
-    return (assignment) => {
-      const item: Json = {
-        role: 'curated_memory',
-        required: false,
-        artifact: {
-          schema: 'datazup.orchestration.artifact-reference/v1',
-          artifactId: 'artifact-memory',
-          digest: sha256(MEMORY_CONTENT),
-          mediaType: 'text/plain',
-          sensitivity: 'internal',
-          retained: true,
-        },
-        contentDigest: sha256(MEMORY_CONTENT),
-        sourceBindingDigest: assignment.source.bindingDigest,
-        freshness: 'current',
-        privacyLabel: 'internal',
-      }
-      mutate(item)
-      assignment.contextPack.items.push(item)
-      assignment.contextPack.omissions = assignment.contextPack.omissions.filter(
-        (omission: Json) => omission.role !== 'curated_memory',
-      )
-    }
-  }
-
-  const resolveBoth: CoordinationArtifactResolver = ({ digest }) => {
-    if (digest === sha256(TASK_CONTENT)) return { content: TASK_CONTENT }
-    if (digest === sha256(MEMORY_CONTENT)) return { content: MEMORY_CONTENT }
-    return undefined
-  }
-
-  function codex(): Partial<ComposeCoordinationAttemptExecutionInput> {
-    const session = providerSession()
-    return {
-      binding: binding({
-        providerId: 'codex',
-        backend: 'cli',
-        capabilitySet: {
-          providerSession: {
-            ...session,
-            descriptor: { ...session.descriptor, providerId: 'codex', backend: { id: 'codex-cli', kind: 'cli' } },
-          },
-          requiredCapabilities: ['execute', 'stream'],
-          effects: [],
-        },
-      }),
-      modelCatalog: catalog({
-        providerId: 'codex',
-        backendId: 'codex-cli',
-        models: [{ providerId: 'codex', id: MODEL, displayName: 'Sentinel model', supportedReasoningEfforts: ['high'] }],
-      }),
-    }
-  }
-
   it('carries requiredness, freshness and the producer omission receipt with its evidence', async () => {
     const plan = await compose()
     expect(plan.context.items).toEqual([
@@ -1196,5 +1202,116 @@ describe('10. context pack', () => {
     expect(partial.context.packDigest).not.toBe(claude.context.packDigest)
     const { planDigest, ...unsigned } = claude
     expect(coordinationCanonicalDigest({ ...unsigned, context: { ...unsigned.context, packDigest: partial.context.packDigest } })).not.toBe(planDigest)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 11. Renderers and reports (MVP-04-CP05)
+// ---------------------------------------------------------------------------
+
+describe('11. renderers and reports', () => {
+  const REPORT_MARK = '\n\nReport: '
+
+  function routed(providerId: 'codex' | 'claude', backend: 'cli' | 'sdk'): Partial<ComposeCoordinationAttemptExecutionInput> {
+    const session = providerSession()
+    const backendId = `${providerId}-${backend}`
+    return {
+      binding: binding({
+        providerId,
+        backend,
+        auth: backend === 'cli'
+          ? { mode: 'subscription_cli', sourceRef: AUTH_SOURCE_REF }
+          : { mode: 'api_key', sourceRef: AUTH_SOURCE_REF },
+        capabilitySet: {
+          providerSession: {
+            ...session,
+            descriptor: { ...session.descriptor, providerId, backend: { id: backendId, kind: backend } },
+          },
+          requiredCapabilities: ['execute', 'stream'],
+          effects: [],
+        },
+      }),
+      modelCatalog: catalog({
+        providerId,
+        backendId,
+        models: [{ providerId, id: MODEL, displayName: 'Sentinel model', supportedReasoningEfforts: ['high'] }],
+      }),
+    }
+  }
+
+  function split(prompt: string): { body: string; report: string } {
+    const at = prompt.indexOf(REPORT_MARK)
+    if (at < 0) throw new Error('prompt has no report section')
+    return { body: prompt.slice(0, at), report: prompt.slice(at) }
+  }
+
+  it('has exactly one versioned profile per executable route', () => {
+    const key = ({ providerId, agentHost, backend }: { providerId: string; agentHost: null; backend: string }) =>
+      `${providerId}/${agentHost ?? 'own'}/${backend}`
+    expect(COORDINATION_RENDERER_PROFILES.map(key)).toEqual(COORDINATION_EXECUTABLE_ROUTES.map(key))
+    expect(new Set(COORDINATION_RENDERER_PROFILES.map(({ rendererId }) => rendererId)).size).toBe(4)
+    expect(COORDINATION_RENDERER_PROFILES.every(({ rendererId }) => /\/v1$/.test(rendererId))).toBe(true)
+    expect(Object.fromEntries(COORDINATION_RENDERER_PROFILES.map((profile) => [key(profile), profile.reportTransport]))).toEqual({
+      'codex/own/cli': 'native_schema',
+      'codex/own/sdk': 'native_schema',
+      'claude/own/cli': 'native_schema',
+      'claude/own/sdk': 'wrapper_capture',
+    })
+  })
+
+  it('requests the report natively only where the adapter forwards outputSchema', async () => {
+    for (const profile of COORDINATION_RENDERER_PROFILES) {
+      const rendered = renderCoordinationAgentExecutionRequest(await compose(routed(profile.providerId, profile.backend)))
+      if (!rendered.ok) throw new Error(`render refused: ${JSON.stringify(rendered.refusals)}`)
+      expect(rendered.attestation).toMatchObject({
+        schema: COORDINATION_ATTEMPT_EXECUTION_ATTESTATION_SCHEMA,
+        rendererId: profile.rendererId,
+        reportTransport: profile.reportTransport,
+      })
+      const { report } = split(rendered.request.prompt)
+      if (profile.reportTransport === 'native_schema') {
+        expect(rendered.request.outputSchema).toEqual(COORDINATION_ATTEMPT_REPORT_JSON_SCHEMA)
+        expect(report).toContain('structured output requested by the attached schema')
+      } else {
+        expect(rendered.request).not.toHaveProperty('outputSchema')
+        expect(report).toContain('exactly one fenced block tagged coordination-report')
+      }
+      expect(report).toContain('It grants no scope and no effect')
+      expect(report).toContain('attemptId "attempt-scripts-critical"')
+    }
+    expect(COORDINATION_ATTEMPT_EXECUTION_ATTESTATION_SCHEMA).toBe('dzupagent.coordinationAttemptExecutionAttestation/v2')
+  })
+
+  it('renders every profile from the same canonical body', async () => {
+    const decoded = decode(resolvable(withMemory()))
+    const codexPlan = await compose({ decoded, resolveArtifact: resolveBoth, ...routed('codex', 'cli') })
+    const claudePlan = await compose({ decoded, resolveArtifact: resolveBoth, ...routed('claude', 'sdk') })
+    const codexRendered = renderCoordinationAgentExecutionRequest(codexPlan)
+    const claudeRendered = renderCoordinationAgentExecutionRequest(claudePlan)
+    if (!codexRendered.ok || !claudeRendered.ok) throw new Error('render refused')
+    const codexPrompt = split(codexRendered.request.prompt)
+    const claudePrompt = split(claudeRendered.request.prompt)
+    expect(codexPrompt.body).toBe(claudePrompt.body)
+    expect(codexPrompt.report).not.toBe(claudePrompt.report)
+    expect(codexPlan.context.packDigest).toBe(claudePlan.context.packDigest)
+    expect(codexPrompt.body).toContain(MEMORY_CONTENT)
+  })
+
+  it('discloses omissions and freshness without delivering omitted content', async () => {
+    const decoded = decode(resolvable((assignment) => {
+      withMemory()(assignment)
+      assignment.contextPack.items[0].freshness = 'admitted-stale'
+    }))
+    const plan = await compose({ decoded, resolveArtifact: resolveTask })
+    const rendered = renderCoordinationAgentExecutionRequest(plan)
+    if (!rendered.ok) throw new Error('render refused')
+    const { body } = split(rendered.request.prompt)
+    expect(body).toContain('freshness="admitted-stale"')
+    expect(body).toContain('Context omissions: the context pack is partial.')
+    expect(body).toContain('- curated_memory: artifact artifact-memory not delivered to this attempt (OBJECT_UNAVAILABLE)')
+    expect(body).toContain('- acceptance_spec: omitted by the issuer (NOT_APPLICABLE; evidence evidence:acceptance-spec)')
+    expect(body).toContain('- provider_transcript: omitted by the issuer (REVIEWER_INDEPENDENCE; evidence policy:review-independent-v1)')
+    expect(body).not.toContain(MEMORY_CONTENT)
+    expect(body).not.toContain('the context pack is complete')
   })
 })
