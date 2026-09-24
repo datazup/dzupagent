@@ -233,8 +233,8 @@ export async function discoverCodexModels(
         now: dependencies.now,
       });
     } catch (error) {
-      if (source === "app-server") throw error;
-      warnings.push(`Codex app-server discovery failed: ${errorMessage(error)}`);
+      if (source === "app-server") throw new Error("CODEX_APP_SERVER_MODEL_DISCOVERY_FAILED");
+      warnings.push("CODEX_APP_SERVER_MODEL_DISCOVERY_FAILED");
     }
   }
 
