@@ -25,13 +25,22 @@ export function interactionEvent(
 ): AgentEvent {
   const autoResolutionMs = nonNegativeInteger(event.params['autoResolutionMs'])
   const permission = event.method.includes('Approval') || event.method.includes('permissions')
+  const proposedCommand = event.method === 'item/commandExecution/requestApproval'
+    && typeof event.params['command'] === 'string'
+    && event.params['command'].length > 0
+    && event.params['command'].length <= 1_024
+    && !/[\u0000-\u001f\u007f]/u.test(event.params['command'])
+      ? event.params['command']
+      : undefined
   return withCorrelation({
     type: 'adapter:interaction_required',
     providerId: 'codex',
     interactionId: `codex-app-server-request:${String(event.requestId)}`,
-    question: permission
-      ? 'Codex requires an explicit approval decision.'
-      : 'Codex requires explicit user input.',
+    question: proposedCommand
+      ? `Codex requests approval to run: ${proposedCommand}. Reply yes to approve or no to deny.`
+      : permission
+        ? 'Codex requires an explicit approval decision.'
+        : 'Codex requires explicit user input.',
     kind: permission ? 'permission' : 'clarification',
     timestamp,
     // A provider-proposed auto-resolution may shorten the wait but never outlive

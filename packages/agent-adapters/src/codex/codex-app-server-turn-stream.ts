@@ -37,6 +37,7 @@ export interface CodexAppServerTurnContext {
    * decision it records is what the caller's cleanup path acts on.
    */
   readonly requireRemaining: () => number
+  readonly registerInteraction: (event: CodexAppServerInboundEvent, run: ActiveRun) => void
 }
 
 /**
@@ -75,6 +76,7 @@ export async function* consumeCodexAppServerTurn(
           'Codex app-server requested an unsupported host operation',
         )
       }
+      context.registerInteraction(event, run)
       yield interactionEvent(event, run, correlationId, now())
       continue
     }

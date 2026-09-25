@@ -70,6 +70,8 @@ export class CodexAppServerStdioClient {
   private readonly limits: Required<CodexAppServerClientLimits>
   private readonly pending = new Map<number, PendingRequest>()
   private readonly completedRequestIds = new Set<number>()
+  private readonly serverRequestIds = new Set<string>()
+  private readonly answeredServerRequestIds = new Set<string>()
   private readonly eventQueue: AsyncEventQueue<CodexAppServerInboundEvent>
   private readonly frameReader: CodexAppServerFrameReader
   private nextRequestId = 1
@@ -175,6 +177,29 @@ export class CodexAppServerStdioClient {
     return this.sendRequest(method, params, options)
   }
 
+  /** Answer one provider request on this process, without starting another turn. */
+  async respondToServerRequest(
+    requestId: string | number,
+    result: Readonly<Record<string, unknown>>,
+  ): Promise<void> {
+    const key = `${typeof requestId}:${String(requestId)}`
+    if (!this.initialized || this.closing || this.exited || this.terminalError
+      || !this.serverRequestIds.delete(key)) {
+      throw new CodexAppServerClientError(
+        'CODEX_APP_SERVER_SERVER_REQUEST_INVALID',
+        'Codex app-server request is no longer pending',
+      )
+    }
+    this.answeredServerRequestIds.add(key)
+    try {
+      await this.writeFrame({ id: requestId, result }, this.limits.requestTimeoutMs)
+    } catch (error) {
+      const clientError = asClientError(error, 'CODEX_APP_SERVER_WRITE_FAILED')
+      this.fail(clientError)
+      throw clientError
+    }
+  }
+
   async close(): Promise<void> {
     if (this.exited) {
       this.eventQueue.close()
@@ -246,6 +271,14 @@ export class CodexAppServerStdioClient {
       if (!isRecord(params) || (hasId && !validServerRequestId(parsed['id']))) {
         this.fail(malformedFrame())
         return
+      }
+      if (hasId) {
+        const key = `${typeof parsed['id']}:${String(parsed['id'])}`
+        if (this.serverRequestIds.has(key) || this.answeredServerRequestIds.has(key)) {
+          this.fail(malformedFrame())
+          return
+        }
+        this.serverRequestIds.add(key)
       }
       this.eventQueue.push({
         kind: hasId ? 'request' : 'notification',
