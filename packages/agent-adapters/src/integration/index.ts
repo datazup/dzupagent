@@ -142,6 +142,7 @@ export type {
   CoordinationAlignmentUpdate,
   CoordinationContinuation,
   CoordinationContinuationKind,
+  CoordinationContinuationLineage,
   CoordinationContinuationResult,
   VerifyCoordinationContinuationInput,
 } from './coordination-attempt-continuity.js'

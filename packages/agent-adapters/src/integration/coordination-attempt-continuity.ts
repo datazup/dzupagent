@@ -14,13 +14,16 @@
  *   or `respondInteraction(...) === true` acknowledges. A missing method, a
  *   throw or any other answer requires a restart. There is no retry, no other
  *   channel and no emulation: an update is never re-sent as a prompt.
- * - A continuation is a new attempt on a new binding and session. It carries
- *   the predecessor's checkpoint as a `predecessor_checkpoint` context item,
+ * - A continuation opens a new binding and session. It carries the
+ *   predecessor's checkpoint as a `predecessor_checkpoint` context item,
  *   whose `handoffDigest` must hold under the producer rule, and never a
- *   provider transcript.
+ *   provider transcript. It is a new attempt, or the same attempt sealed at
+ *   a higher generation than that checkpoint (MVP-04 case 10); the result
+ *   names the lineage and both generations.
  * - Results carry no instruction, provider text or error message.
  *
- * Admission: workspace-docs doc-coord-mvp04-cp06-admit-20260924-r1/ADMISSION.md §3.
+ * Admission: workspace-docs doc-coord-mvp04-cp06-admit-20260924-r1/ADMISSION.md §3;
+ * same-attempt lineage: doc-coord-mvp05-cp05f-admit-20260925-r1/ADMISSION.md §4.
  */
 import type {
   CoordinationAssignmentDiagnostic,
@@ -52,7 +55,7 @@ import {
 export const COORDINATION_ALIGNMENT_UPDATE_SCHEMA = 'dzupagent.coordinationAlignmentUpdate/v1' as const
 export const COORDINATION_ALIGNMENT_DECISION_SCHEMA = 'dzupagent.coordinationAlignmentDecision/v1' as const
 export const COORDINATION_ALIGNMENT_DELIVERY_SCHEMA = 'dzupagent.coordinationAlignmentDelivery/v1' as const
-export const COORDINATION_CONTINUATION_SCHEMA = 'dzupagent.coordinationContinuation/v1' as const
+export const COORDINATION_CONTINUATION_SCHEMA = 'dzupagent.coordinationContinuation/v2' as const
 
 /** The producer's checkpoint schemas (`dzupagent-orchestration` `coordination-execution.ts`). */
 export const COORDINATION_CHECKPOINT_HANDOFF_SCHEMAS = Object.freeze([
@@ -140,10 +143,13 @@ export type CoordinationAlignmentDeliveryResult =
   | { readonly ok: false; readonly refusals: readonly CoordinationAssignmentDiagnostic[] }
 
 export type CoordinationContinuationKind = 'restart' | 'provider-replacement'
+/** A new attempt, or the fenced attempt itself sealed at a higher generation than its checkpoint. */
+export type CoordinationContinuationLineage = 'new-attempt' | 'same-attempt'
 
 export interface CoordinationContinuation {
   readonly schema: typeof COORDINATION_CONTINUATION_SCHEMA
   readonly kind: CoordinationContinuationKind
+  readonly lineage: CoordinationContinuationLineage
   readonly checkpointId: string
   readonly handoffDigest: CoordinationSha256Digest
   /** The checkpoint's source; a restart after a source change differs from the continuation's. */
@@ -151,9 +157,13 @@ export interface CoordinationContinuation {
   readonly predecessorAttemptId: string
   readonly predecessorBindingId: string
   readonly predecessorProviderId: CoordinationExecutionProviderId
+  /** The checkpoint's `generation`: the fenced attempt's sealed generation. */
+  readonly predecessorGeneration: number
   readonly attemptId: string
   readonly bindingId: string
   readonly providerId: CoordinationExecutionProviderId
+  /** The continuation plan's sealed generation (`assignment.provenance.generation`). */
+  readonly generation: number
   readonly planDigest: CoordinationSha256Digest
   /** Self-digest of the continuation without this field. */
   readonly continuationDigest: CoordinationSha256Digest
@@ -383,8 +393,15 @@ export function verifyCoordinationContinuation(
   if (compareCoordinationTimestamps(checkpoint['createdAt'] as string, continuation.composedAt) > 0) {
     return refused('COORD_CONTINUATION_CHECKPOINT_FUTURE', '$continuation.composedAt', 'Checkpoint is newer than the continuation plan.')
   }
-  if (continuation.assignment.attemptId === predecessor.attemptId) {
-    return refused('COORD_CONTINUATION_REUSES_ATTEMPT', '$continuation.assignment.attemptId', 'A continuation is a new attempt, never the fenced one.')
+  const predecessorGeneration = checkpoint['generation'] as number
+  const generation = continuation.assignment.provenance.generation
+  if (!isGeneration(generation)) {
+    // Unreachable through the composer, which seals an integer generation; kept for the type.
+    return refused('COORD_CONTINUATION_GENERATION_INVALID', '$continuation.assignment.provenance.generation', 'A continuation plan seals an integer generation.')
+  }
+  const sameAttempt = continuation.assignment.attemptId === predecessor.attemptId
+  if (sameAttempt && generation <= predecessorGeneration) {
+    return refused('COORD_CONTINUATION_REUSES_ATTEMPT', '$continuation.assignment.provenance.generation', 'A continuation of the same attempt is sealed at a higher generation than its checkpoint.')
   }
   const bindingId = continuation.execution.provenance.issuerRef
   if (bindingId === predecessor.bindingId || continuation.execution.sessionRef === predecessor.sessionRef) {
@@ -401,15 +418,18 @@ export function verifyCoordinationContinuation(
   const body: Record<string, unknown> = {
     schema: COORDINATION_CONTINUATION_SCHEMA,
     kind: replaced ? 'provider-replacement' : 'restart',
+    lineage: sameAttempt ? 'same-attempt' : 'new-attempt',
     checkpointId: checkpoint['checkpointId'],
     handoffDigest: checkpoint['handoffDigest'],
     checkpointSourceBindingDigest: checkpoint['sourceBindingDigest'],
     predecessorAttemptId: predecessor.attemptId,
     predecessorBindingId: predecessor.bindingId,
     predecessorProviderId: predecessor.providerId,
+    predecessorGeneration,
     attemptId: continuation.assignment.attemptId,
     bindingId,
     providerId: continuation.execution.providerId,
+    generation,
     planDigest: continuation.planDigest,
   }
   body['continuationDigest'] = coordinationSelfDigest(body, 'continuationDigest')
@@ -502,6 +522,7 @@ function parseCheckpoint(item: CoordinationPlanContextItem): Record<string, unkn
   }
   if (!isCoordinationTimestamp(checkpoint['createdAt'])) return undefined
   if (typeof checkpoint['safeToResume'] !== 'boolean' || !isRecord(checkpoint['nextAction'])) return undefined
+  if (!isGeneration(checkpoint['generation'])) return undefined
   try {
     if (coordinationSelfDigest(checkpoint, 'handoffDigest') !== checkpoint['handoffDigest']) return undefined
   } catch {
@@ -535,6 +556,11 @@ function refused(code: string, path: string, message: string): { readonly ok: fa
     ok: false as const,
     refusals: Object.freeze([Object.freeze({ code, path, message })]),
   })
+}
+
+/** A sealed generation: a non-negative safe integer. */
+function isGeneration(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
 }
 
 function isId(value: unknown): value is string {

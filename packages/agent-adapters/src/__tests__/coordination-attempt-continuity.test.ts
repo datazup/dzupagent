@@ -112,6 +112,8 @@ interface AssignmentOptions {
   readonly attemptId?: string
   readonly checkpoint?: string
   readonly transcript?: boolean
+  /** Re-seal the attempt's generation sites (the fixture is sealed at 7). */
+  readonly generation?: number
 }
 
 function assignment(options: AssignmentOptions = {}): Json {
@@ -126,6 +128,14 @@ function assignment(options: AssignmentOptions = {}): Json {
   }
   if (options.checkpoint !== undefined) deliver(value, 'predecessor_checkpoint', options.checkpoint)
   if (options.transcript) deliver(value, 'provider_transcript', TRANSCRIPT_CONTENT)
+  if (options.generation !== undefined) {
+    value.generation = options.generation
+    value.sessionEnrollment.generation = options.generation
+    value.authorityBundle.generation = options.generation
+    for (const grant of value.authorityBundle.grants) grant.generation = options.generation
+    value.contextPack.generation = options.generation
+    // The source freshness generation is a separate counter and stays: the same source is resumed.
+  }
   return reseal(value)
 }
 
@@ -494,15 +504,18 @@ describe('A5. provider replacement', () => {
     const result = verifyCoordinationContinuation({ predecessor, continuation })
     expect(result.ok && result.continuation).toMatchObject({
       kind: 'provider-replacement',
+      lineage: 'new-attempt',
       predecessorProviderId: 'claude',
       providerId: 'codex',
       predecessorAttemptId: PREDECESSOR_ATTEMPT,
       attemptId: CONTINUATION_ATTEMPT,
       bindingId: 'execution-binding-2',
+      predecessorGeneration: 7,
+      generation: 7,
     })
   })
 
-  it('refuses a continuation under the fenced attempt', async () => {
+  it('refuses a continuation under the fenced attempt at the same generation', async () => {
     const { predecessor, handoff } = await fenced()
     const continuation = await plan({ checkpoint: handoff }, { ...NEW_BINDING, provider: 'codex' }, [handoff])
     expect(codes(verifyCoordinationContinuation({ predecessor, continuation }))).toEqual(['COORD_CONTINUATION_REUSES_ATTEMPT'])
@@ -530,14 +543,27 @@ describe('A6. fresh continuation', () => {
     if (!result.ok) return
     const parsed = JSON.parse(handoff) as Json
     expect(result.continuation).toMatchObject({
+      schema: 'dzupagent.coordinationContinuation/v2',
       kind: 'restart',
+      lineage: 'new-attempt',
       checkpointId: 'checkpoint-scripts-critical-1',
       handoffDigest: parsed.handoffDigest,
       checkpointSourceBindingDigest: parsed.sourceBindingDigest,
+      predecessorGeneration: 7,
+      generation: 7,
       planDigest: continuation.planDigest,
     })
     expect(result.continuation.continuationDigest).toBe(coordinationSelfDigest(result.continuation, 'continuationDigest'))
     expect(isDeepFrozen(result)).toBe(true)
+  })
+
+  it('refuses a checkpoint whose generation is not a non-negative integer', async () => {
+    const { predecessor } = await fenced()
+    for (const generation of ['7', 7.5, -1]) {
+      const bad = JSON.stringify(checkpoint(predecessor, { generation }))
+      const continuation = await plan({ attemptId: CONTINUATION_ATTEMPT, checkpoint: bad }, NEW_BINDING, [bad])
+      expect(codes(verifyCoordinationContinuation({ predecessor, continuation }))).toEqual(['COORD_CONTINUATION_CHECKPOINT_INVALID'])
+    }
   })
 
   it('refuses a continuation without a checkpoint', async () => {
@@ -598,6 +624,63 @@ describe('A6. fresh continuation', () => {
     )
     expect(continuation.context.items.map(({ role }) => role)).toContain('provider_transcript')
     expect(codes(verifyCoordinationContinuation({ predecessor, continuation }))).toEqual(['COORD_CONTINUATION_TRANSCRIPT_CARRIED'])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A8. Same-attempt continuation (MVP-04 case 10, row 6.307)
+// ---------------------------------------------------------------------------
+
+describe('A8. same-attempt continuation', () => {
+  it('verifies the same attempt sealed at a higher generation on a new binding and session', async () => {
+    const { predecessor, handoff } = await fenced()
+    const continuation = await plan({ checkpoint: handoff, generation: 8 }, NEW_BINDING, [handoff])
+    expect(continuation.assignment.attemptId).toBe(predecessor.attemptId)
+    const result = verifyCoordinationContinuation({ predecessor, continuation })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.continuation).toMatchObject({
+      schema: 'dzupagent.coordinationContinuation/v2',
+      kind: 'restart',
+      lineage: 'same-attempt',
+      predecessorAttemptId: PREDECESSOR_ATTEMPT,
+      attemptId: PREDECESSOR_ATTEMPT,
+      predecessorBindingId: 'execution-binding-1',
+      bindingId: 'execution-binding-2',
+      predecessorGeneration: 7,
+      generation: 8,
+    })
+    expect(result.continuation.continuationDigest).toBe(coordinationSelfDigest(result.continuation, 'continuationDigest'))
+    expect(isDeepFrozen(result)).toBe(true)
+  })
+
+  it('verifies the same attempt on another provider as a provider replacement', async () => {
+    const { predecessor, handoff } = await fenced()
+    const continuation = await plan({ checkpoint: handoff, generation: 8 }, { ...NEW_BINDING, provider: 'codex' }, [handoff])
+    expect(verifyCoordinationContinuation({ predecessor, continuation })).toMatchObject({
+      ok: true,
+      continuation: { kind: 'provider-replacement', lineage: 'same-attempt', predecessorProviderId: 'claude', providerId: 'codex', predecessorGeneration: 7, generation: 8 },
+    })
+  })
+
+  it('refuses the same attempt unless its generation is higher than the checkpoint', async () => {
+    const { predecessor, handoff } = await fenced()
+    for (const generation of [7, 6]) {
+      const continuation = await plan({ checkpoint: handoff, generation }, NEW_BINDING, [handoff])
+      const result = verifyCoordinationContinuation({ predecessor, continuation })
+      expect(codes(result)).toEqual(['COORD_CONTINUATION_REUSES_ATTEMPT'])
+      expect(!result.ok && result.refusals[0]?.path).toBe('$continuation.assignment.provenance.generation')
+    }
+  })
+
+  it('holds the binding, session and transcript rules for the same attempt', async () => {
+    const { predecessor, handoff } = await fenced()
+    for (const reuse of [{ bindingId: 'execution-binding-1' }, { sessionRef: 'session-ref-1' }]) {
+      const continuation = await plan({ checkpoint: handoff, generation: 8 }, { ...NEW_BINDING, ...reuse }, [handoff])
+      expect(codes(verifyCoordinationContinuation({ predecessor, continuation }))).toEqual(['COORD_CONTINUATION_REUSES_BINDING'])
+    }
+    const carried = await plan({ checkpoint: handoff, generation: 8, transcript: true }, NEW_BINDING, [handoff, TRANSCRIPT_CONTENT])
+    expect(codes(verifyCoordinationContinuation({ predecessor, continuation: carried }))).toEqual(['COORD_CONTINUATION_TRANSCRIPT_CARRIED'])
   })
 })
 
