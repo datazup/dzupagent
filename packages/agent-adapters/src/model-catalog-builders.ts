@@ -219,13 +219,14 @@ export async function defaultLoadCodexPage(input: {
   cursor: string | null;
   includeHidden: boolean;
   timeoutMs: number;
+  env?: Readonly<Record<string, string | undefined>>;
 }): Promise<CodexPageResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(input.cliPath, ["app-server"], {
       stdio: ["pipe", "pipe", "pipe"],
+      env: codexAppServerEnvironment(input.env ?? process.env),
     });
     let stdoutBuffer = "";
-    let stderr = "";
     let settled = false;
     const finish = (error?: Error, page?: CodexPageResult) => {
       if (settled) return;
@@ -239,19 +240,13 @@ export async function defaultLoadCodexPage(input: {
       () => finish(new Error("Codex app-server model discovery timed out")),
       input.timeoutMs,
     );
-    child.on("error", (error) => finish(error));
-    child.on("exit", (code) => {
+    child.on("error", () => finish(new Error("CODEX_APP_SERVER_SPAWN_FAILED")));
+    child.on("exit", () => {
       if (!settled) {
-        finish(
-          new Error(
-            `Codex app-server exited before model discovery completed (code ${code ?? "unknown"}${stderr ? `: ${stderr.slice(0, 512)}` : ""})`,
-          ),
-        );
+        finish(new Error("CODEX_APP_SERVER_EXITED"));
       }
     });
-    child.stderr.on("data", (chunk: Buffer) => {
-      if (stderr.length < 2048) stderr += chunk.toString("utf8");
-    });
+    child.stderr.resume();
     child.stdout.on("data", (chunk: Buffer) => {
       stdoutBuffer += chunk.toString("utf8");
       for (;;) {
@@ -283,11 +278,7 @@ export async function defaultLoadCodexPage(input: {
           );
         } else if (message["id"] === 1) {
           if (message["error"]) {
-            finish(
-              new Error(
-                `Codex app-server model/list failed: ${stringValue(objectValue(message["error"])["message"]) ?? "unknown error"}`,
-              ),
-            );
+            finish(new Error("CODEX_APP_SERVER_MODEL_LIST_FAILED"));
             return;
           }
           const result = objectValue(message["result"]);
@@ -314,6 +305,17 @@ export async function defaultLoadCodexPage(input: {
       })}\n`,
     );
   });
+}
+
+/** Child receives only process basics and the chosen Codex profile root. */
+export function codexAppServerEnvironment(
+  source: Readonly<Record<string, string | undefined>>,
+): NodeJS.ProcessEnv {
+  const allowed = ["PATH", "HOME", "CODEX_HOME", "TMPDIR", "LANG", "LC_ALL", "TERM", "TZ"] as const;
+  return Object.fromEntries(allowed.flatMap((key) => {
+    const value = source[key];
+    return typeof value === "string" ? [[key, value]] : [];
+  }));
 }
 
 export async function fetchWithTimeout(

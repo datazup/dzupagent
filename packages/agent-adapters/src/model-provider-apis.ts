@@ -32,6 +32,7 @@ export async function listCodexAppServerModels(input: {
   cliPath: string;
   includeHidden: boolean;
   timeoutMs: number;
+  env?: Readonly<Record<string, string | undefined>>;
   dependencies: ModelDiscoveryDependencies;
 }): Promise<ProviderModelCatalogEntry[]> {
   const loadPage = input.dependencies.loadCodexPage ?? defaultLoadCodexPage;

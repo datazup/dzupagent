@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { codexAppServerEnvironment, defaultLoadCodexPage } from "../model-catalog-builders.js";
 import {
   assessModelAvailability,
   discoverClaudeModels,
@@ -18,6 +19,54 @@ import {
 const fixedNow = () => new Date("2026-07-24T00:00:00.000Z");
 
 describe("provider model discovery", () => {
+  it("scopes Codex app-server pages to the supplied binary and profile without API fallback", async () => {
+    const seen: Array<{ cliPath: string; home: string | undefined }> = [];
+    const loadCodexPage = vi.fn(async (input: {
+      cliPath: string; env?: Readonly<Record<string, string | undefined>>;
+    }) => {
+      seen.push({ cliPath: input.cliPath, home: input.env?.["CODEX_HOME"] });
+      return { data: [{ id: input.env?.["CODEX_HOME"] === "/profile/a" ? "model-a" : "model-b" }], nextCursor: null };
+    });
+    const a = await discoverCodexModels({ source: "app-server", cliPath: "/bin/codex-a",
+      env: { CODEX_HOME: "/profile/a", OPENAI_API_KEY: "unused" },
+      dependencies: { loadCodexPage, now: fixedNow } });
+    const b = await discoverCodexModels({ source: "app-server", cliPath: "/bin/codex-b",
+      env: { CODEX_HOME: "/profile/b", OPENAI_API_KEY: "unused" },
+      dependencies: { loadCodexPage, now: fixedNow } });
+    expect(seen).toEqual([
+      { cliPath: "/bin/codex-a", home: "/profile/a" },
+      { cliPath: "/bin/codex-b", home: "/profile/b" },
+    ]);
+    expect(a.models.map((model) => model.id)).toEqual(["model-a"]);
+    expect(b.models.map((model) => model.id)).toEqual(["model-b"]);
+    await expect(discoverCodexModels({ source: "app-server", cliPath: "/bin/codex-a",
+      env: { CODEX_HOME: "/profile/a", OPENAI_API_KEY: "unused" },
+      dependencies: { loadCodexPage: async () => { throw new Error("profile unavailable"); } },
+    })).rejects.toThrow("CODEX_APP_SERVER_MODEL_DISCOVERY_FAILED");
+  });
+
+  it("passes only safe runtime variables to Codex app-server", () => {
+    expect(codexAppServerEnvironment({
+      PATH: "/bin", CODEX_HOME: "/profile/a", LANG: "C.UTF-8",
+      OPENAI_API_KEY: "secret-key", UNRELATED_TOKEN: "secret-token",
+    })).toEqual({ PATH: "/bin", CODEX_HOME: "/profile/a", LANG: "C.UTF-8" });
+  });
+
+  it("does not surface provider errors from app-server discovery", async () => {
+    const secret = "SECRET_PROFILE_PATH_AND_TOKEN";
+    await expect(discoverCodexModels({
+      source: "app-server",
+      dependencies: { loadCodexPage: async () => { throw new Error(secret); } },
+    })).rejects.toThrow("CODEX_APP_SERVER_MODEL_DISCOVERY_FAILED");
+    await expect(defaultLoadCodexPage({
+      cliPath: process.execPath,
+      cursor: null,
+      includeHidden: false,
+      timeoutMs: 2_000,
+      env: { PATH: "/bin", CODEX_HOME: "/profile/a", OPENAI_API_KEY: secret },
+    })).rejects.toThrow("CODEX_APP_SERVER_EXITED");
+  });
+
   it("discovers and fingerprints every paginated Codex app-server model", async () => {
     const loadCodexPage = vi
       .fn()
