@@ -22,6 +22,7 @@ import {
   createCodexAppServerAdapter,
 } from '../codex/codex-app-server-adapter.js'
 import { CodexAppServerStdioClient } from '../codex/codex-app-server-client.js'
+import { threadStartParams } from '../codex/codex-app-server-adapter-config.js'
 import { CodexAdapter } from '../codex/codex-adapter.js'
 import { createCodexBackendAdapter } from '../codex/codex-backend.js'
 import type {
@@ -1519,6 +1520,57 @@ describe('Codex App Server provider-session adapter', () => {
     // does not understand would let the provider drive an unadmitted effect.
     expect(server.calls.some((frame) => frame.id === 'request-unsupported' && !frame.method))
       .toBe(false)
+  })
+
+  it.each([
+    ['no', 'decline'],
+    ['yes', 'accept'],
+  ])('answers one live command approval %s on the same turn', async (answer, decision) => {
+    const server = fakeServer((current) => {
+      notify(current, 'turn/started', {
+        threadId: 'thread-1',
+        turn: turnPayload('turn-1', 'inProgress'),
+      })
+      notify(current, 'item/commandExecution/requestApproval', {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'command-1',
+        command: 'printf approved > /fixture/workspace/marker.txt',
+      }, 'approval-1')
+    })
+    const adapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      dependencies: runtimeDependencies(server.child),
+    })
+    const stream = adapter.execute(input())
+    expect((await stream.next()).value).toMatchObject({ type: 'adapter:started' })
+    expect((await stream.next()).value).toMatchObject({
+      type: 'adapter:interaction_required',
+      interactionId: 'codex-app-server-request:approval-1',
+      kind: 'permission',
+      question: expect.stringContaining('printf approved > /fixture/workspace/marker.txt'),
+    })
+    expect(await adapter.respondInteraction('codex-app-server-request:approval-1', answer)).toBe(true)
+    expect(await adapter.respondInteraction('codex-app-server-request:approval-1', answer)).toBe(false)
+    expect(server.calls.filter((frame) => frame.id === 'approval-1' && !frame.method))
+      .toEqual([expect.objectContaining({ id: 'approval-1', result: { decision } })])
+    notifyUsage(server)
+    notify(server, 'turn/completed', {
+      threadId: 'thread-1',
+      turn: turnPayload('turn-1', 'completed'),
+    })
+    expect((await stream.next()).value).toMatchObject({ type: 'adapter:completed' })
+    expect((await stream.next()).done).toBe(true)
+    expect(await adapter.respondInteraction('codex-app-server-request:approval-1', answer)).toBe(false)
+  })
+
+  it('asks the user to review workspace-write app-server requests', () => {
+    expect(threadStartParams(input(), { sandboxMode: 'workspace-write' })).toMatchObject({
+      sandbox: 'workspace-write',
+      approvalPolicy: 'on-request',
+      approvalsReviewer: 'user',
+    })
   })
 
   it('rejects a duplicated turn start', async () => {

@@ -77,6 +77,9 @@ export function threadStartParams(
     ...(model ? { model } : {}),
     ...(input.systemPrompt ? { developerInstructions: input.systemPrompt } : {}),
     ...(config.sandboxMode ? { sandbox: toCodexSandboxMode(config.sandboxMode) } : {}),
+    ...(config.sandboxMode === 'workspace-write'
+      ? { approvalPolicy: 'on-request', approvalsReviewer: 'user' }
+      : {}),
   }
 }
 

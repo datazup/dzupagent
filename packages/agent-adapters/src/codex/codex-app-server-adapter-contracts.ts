@@ -64,6 +64,13 @@ export interface ActiveRun {
   interruptPromise?: Promise<void> | undefined
 }
 
+export interface PendingCodexApproval {
+  readonly run: ActiveRun
+  readonly requestId: string | number
+  readonly method: string
+  readonly approvable: boolean
+}
+
 export const REQUIRED_BASE_CAPABILITIES = [
   'execute',
   'resume',
@@ -89,9 +96,6 @@ export const MAX_INTERRUPT_GRACE_MS = DEFAULT_INTERRUPT_GRACE_MS
 export const HUMAN_REQUEST_METHODS = new Set([
   'item/commandExecution/requestApproval',
   'item/fileChange/requestApproval',
-  'item/permissions/requestApproval',
-  'item/tool/requestUserInput',
-  'mcpServer/elicitation/request',
   'applyPatchApproval',
   'execCommandApproval',
 ])

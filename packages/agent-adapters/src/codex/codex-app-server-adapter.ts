@@ -42,6 +42,7 @@ import {
   type CodexAppServerAdapterOptions,
   type InterruptTurnResult,
   type LocalTerminalDecision,
+  type PendingCodexApproval,
   type RunLifecycle,
   type RunningExecution,
 } from './codex-app-server-adapter-contracts.js'
@@ -84,8 +85,8 @@ export type { CodexAppServerAdapterOptions } from './codex-app-server-adapter-co
 
 /**
  * Experimental provider-session backend for the exact admitted App Server
- * descriptor. It emits normalized events but never emits raw frames or answers
- * a provider-initiated request.
+ * descriptor. It emits normalized events and answers only a live, supported
+ * provider approval request through the bound turn's stdio connection.
  */
 export class CodexAppServerAdapter implements AgentCLIAdapter, ProviderSessionAdapter {
   readonly providerId = 'codex' as const
@@ -100,6 +101,7 @@ export class CodexAppServerAdapter implements AgentCLIAdapter, ProviderSessionAd
   private readonly interruptGraceMs: number
   private readonly runningExecutions = new Set<RunningExecution>()
   private readonly activeRuns = new Set<ActiveRun>()
+  private readonly pendingApprovals = new Map<string, PendingCodexApproval>()
   private readonly goalControl: CodexGoalControlAdapter | undefined
 
   constructor(options: CodexAppServerAdapterOptions) {
@@ -142,6 +144,21 @@ export class CodexAppServerAdapter implements AgentCLIAdapter, ProviderSessionAd
       return
     }
     yield* this.run(input, sessionId)
+  }
+
+  async respondInteraction(interactionId: string, answer: string): Promise<boolean> {
+    const pending = this.pendingApprovals.get(interactionId)
+    if (!pending || !this.activeRuns.has(pending.run)) return false
+    const normalized = answer.trim().toLowerCase()
+    if (!['yes', 'approve', 'no', 'deny'].includes(normalized)) return false
+    const approved = normalized === 'yes' || normalized === 'approve'
+    if (approved && !pending.approvable) return false
+    this.pendingApprovals.delete(interactionId)
+    const decision = pending.method === 'execCommandApproval' || pending.method === 'applyPatchApproval'
+      ? approved ? 'approved' : 'abort'
+      : approved ? 'accept' : 'decline'
+    await pending.run.client.respondToServerRequest(pending.requestId, { decision })
+    return true
   }
 
   interrupt(): void {
@@ -364,6 +381,27 @@ export class CodexAppServerAdapter implements AgentCLIAdapter, ProviderSessionAd
         startedAt,
         now: this.now,
         requireRemaining,
+        registerInteraction: (event, currentRun) => {
+          if (event.requestId === undefined) throw adapterError(
+            'CODEX_APP_SERVER_REQUEST_INVALID',
+            'Codex app-server approval request has no identity',
+          )
+          const interactionId = `codex-app-server-request:${String(event.requestId)}`
+          if (this.pendingApprovals.has(interactionId)) throw adapterError(
+            'CODEX_APP_SERVER_REQUEST_INVALID',
+            'Codex app-server approval request identity is duplicated',
+          )
+          this.pendingApprovals.set(interactionId, {
+            run: currentRun,
+            requestId: event.requestId,
+            method: event.method,
+            approvable: event.method === 'item/commandExecution/requestApproval'
+              && typeof event.params['command'] === 'string'
+              && event.params['command'].length > 0
+              && event.params['command'].length <= 1_024
+              && !/[\u0000-\u001f\u007f]/u.test(event.params['command']),
+          })
+        },
       })
       if (lifecycle.terminalDecision) throw decisionError(lifecycle.terminalDecision)
       if (!terminal) throw adapterError(
@@ -394,6 +432,9 @@ export class CodexAppServerAdapter implements AgentCLIAdapter, ProviderSessionAd
       if (signal && signalListener) signal.removeEventListener('abort', signalListener)
       this.runningExecutions.delete(runningExecution)
       if (activeRun) this.activeRuns.delete(activeRun)
+      for (const [interactionId, pending] of this.pendingApprovals) {
+        if (pending.run === activeRun) this.pendingApprovals.delete(interactionId)
+      }
       if (client) {
         try {
           await client.close()
