@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { assessProviderRouteSelection, discoverProviderRouteEvidence } from "../model-route-evidence.js";
+import { listCodexAppServerModels } from "../model-provider-apis.js";
 import type { ProviderRouteBinding, ProviderRouteObservation } from "../model-discovery-types.js";
 
 const at = "2026-09-26T08:00:00.000Z";
@@ -171,6 +172,19 @@ describe("bound provider route evidence", () => {
     expect(assessProviderRouteSelection(evidence, request(), now()).qualified).toBe(false);
     expect(assessProviderRouteSelection(evidence, request(cli, "invented"), now()).qualified).toBe(false);
     expect(assessProviderRouteSelection(evidence, request(cli, "low"), now()).qualified).toBe(true);
+  });
+
+  it("preserves an explicit empty CLI effort list over conflicting operation evidence without changing legacy output", async () => {
+    const loadCodexPage = async () => ({ data: [{ id: "model-a", supportedReasoningEfforts: [] }], nextCursor: null });
+    const proof = observation();
+    proof.models![0]!.supportedReasoningEfforts = ["high"];
+    const evidence = await discoverProviderRouteEvidence({ binding: cli, configured: true, observation: proof,
+      dependencies: { loadCodexPage, now } });
+    expect(assessProviderRouteSelection(evidence, request(), now()).qualified).toBe(false);
+    expect(evidence.models[0]?.supportedReasoningEfforts).toEqual([]);
+    const legacy = await listCodexAppServerModels({ cliPath: "fixture", includeHidden: false,
+      timeoutMs: 100, dependencies: { loadCodexPage } });
+    expect(legacy[0]?.supportedReasoningEfforts).toBeUndefined();
   });
 
   it("omits hidden models and never exposes provider display names, capabilities or raw errors", async () => {

@@ -31,6 +31,8 @@ import {
 export async function listCodexAppServerModels(input: {
   cliPath: string;
   includeHidden: boolean;
+  /** Route evidence distinguishes explicit no-effort support from an unknown list. */
+  preserveEmptyEfforts?: boolean;
   timeoutMs: number;
   env?: Readonly<Record<string, string | undefined>>;
   dependencies: ModelDiscoveryDependencies;
@@ -64,7 +66,8 @@ export async function listCodexAppServerModels(input: {
         ...(stringValue(model["defaultReasoningEffort"])
           ? { defaultReasoningEffort: stringValue(model["defaultReasoningEffort"]) }
           : {}),
-        ...(efforts?.length ? { supportedReasoningEfforts: efforts } : {}),
+        ...(efforts && (efforts.length > 0 || input.preserveEmptyEfforts)
+          ? { supportedReasoningEfforts: efforts } : {}),
         ...(modalities.length ? { inputModalities: modalities } : {}),
         ...(booleanValue(model["supportsPersonality"]) !== undefined
           ? { supportsPersonality: booleanValue(model["supportsPersonality"]) }

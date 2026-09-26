@@ -110,7 +110,7 @@ export async function discoverProviderRouteEvidence(options: ProviderRouteDiscov
       ? await listOpenAiApiModels({ apiKey: options.apiKey!,
           apiBaseUrl: options.apiBaseUrl ?? "https://api.openai.com/v1", timeoutMs,
           fetchImpl: dependencies.fetch ?? fetch })
-      : await listCodexAppServerModels({ cliPath: options.cliPath ?? "codex", includeHidden: false,
+      : await listCodexAppServerModels({ cliPath: options.cliPath ?? "codex", includeHidden: false, preserveEmptyEfforts: true,
           timeoutMs, env: { ...(options.env ?? {}) }, dependencies });
     if (options.signal?.aborted) {
       evidence.reasons.push("discovery_cancelled");
