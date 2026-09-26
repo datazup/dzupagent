@@ -1,6 +1,7 @@
 name: Connectors Verified Build
 
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - 'packages/connectors/**'
