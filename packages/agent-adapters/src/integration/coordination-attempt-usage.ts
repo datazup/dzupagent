@@ -76,12 +76,16 @@ export interface CoordinationAttemptUsageRecord {
  */
 export type CoordinationUsagePricer = (input: {
   readonly tariffRef: string
+  /** The tariff digest a v3 binding pins; absent for a v2 binding. */
+  readonly tariffDigest?: CoordinationSha256Digest
   readonly providerId: CoordinationExecutionProviderId
   readonly tokens: CoordinationAttemptTokens
 }) => number | undefined
 
 export interface RecordCoordinationAttemptUsageOptions {
   readonly priceUsage?: CoordinationUsagePricer | undefined
+  /** Forwarded to the pricer when the plan pins a tariff digest. */
+  readonly tariffDigest?: CoordinationSha256Digest | undefined
 }
 
 type ReportedUsage = AgentExecutionResult['usage']
@@ -118,7 +122,7 @@ export function recordCoordinationAttemptUsage(
     }
 
     if (tokens && options.priceUsage) {
-      const priced = price(options.priceUsage, correlation, tokens)
+      const priced = price(options.priceUsage, correlation, tokens, options.tariffDigest)
       if (priced === 'invalid') reasons.add('USAGE_TARIFF_PRICE_INVALID')
       else if (priced !== undefined) body['tariffCostCents'] = priced
     }
@@ -223,10 +227,16 @@ function price(
   pricer: CoordinationUsagePricer,
   correlation: CoordinationAttemptCorrelation,
   tokens: CoordinationAttemptTokens,
+  tariffDigest: CoordinationSha256Digest | undefined,
 ): number | undefined | 'invalid' {
   let priced: unknown
   try {
-    priced = pricer({ tariffRef: correlation.tariffRef, providerId: correlation.providerId, tokens })
+    priced = pricer({
+      tariffRef: correlation.tariffRef,
+      ...(tariffDigest !== undefined ? { tariffDigest } : {}),
+      providerId: correlation.providerId,
+      tokens,
+    })
   } catch {
     // The pricer's error text is host detail; only the fact of failure is kept.
     return 'invalid'

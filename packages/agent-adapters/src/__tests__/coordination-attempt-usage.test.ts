@@ -224,3 +224,17 @@ describe('A6. duplicate cumulative usage', () => {
     expect(totalCoordinationAttemptUsage([])).toMatchObject({ status: 'complete', attempts: 0, knownTokens: { inputTokens: 0 } })
   })
 })
+
+describe('MVP-07-CP04 A5. tariff digest', () => {
+  it('hands the pricer the pinned tariff digest only when one is bound', () => {
+    const seen: unknown[] = []
+    const priceUsage = (input: unknown) => { seen.push(input); return 1 }
+    const tariffDigest = digest(77)
+    const bound = recordCoordinationAttemptUsage(correlation(), USAGE, { priceUsage, tariffDigest })
+    const unbound = recordCoordinationAttemptUsage(correlation(), USAGE, { priceUsage })
+    expect(seen[0]).toMatchObject({ tariffRef: correlation().tariffRef, tariffDigest })
+    expect(seen[1]).not.toHaveProperty('tariffDigest')
+    expect(bound).not.toHaveProperty('tariffDigest')
+    expect(bound.recordDigest).toBe(unbound.recordDigest)
+  })
+})

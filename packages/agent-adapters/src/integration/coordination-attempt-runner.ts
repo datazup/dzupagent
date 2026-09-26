@@ -37,6 +37,7 @@ import type {
 } from '@dzupagent/adapter-types'
 
 import {
+  COORDINATION_HOST_OBSERVED_BINDING_DIGEST_KEYS,
   renderCoordinationAgentExecutionRequest,
   type CoordinationAttemptExecutionAttestation,
 } from './coordination-attempt-execution.js'
@@ -123,9 +124,24 @@ export type CoordinationAttemptRunResult =
       readonly refusals: readonly CoordinationAssignmentDiagnostic[]
     }
 
+/** The digests only the host can observe, re-read immediately before spawn. */
+export interface CoordinationObservedBindingDigests {
+  readonly binary: CoordinationSha256Digest
+  readonly profile: CoordinationSha256Digest
+  readonly tariff: CoordinationSha256Digest
+}
+
 export interface CoordinationAttemptRunOptions extends RunAgentExecutionOptions {
   /** Host pricing under the bound tariff. Never forwarded to the execution seam. */
   readonly priceUsage?: CoordinationUsagePricer | undefined
+  /**
+   * Required when the plan pins binding digests (a v3 binding). Any digest
+   * that differs from the plan, or a throw, refuses the attempt before spawn.
+   * Never forwarded to the execution seam.
+   */
+  readonly observeBindingDigests?:
+    | (() => CoordinationObservedBindingDigests | Promise<CoordinationObservedBindingDigests>)
+    | undefined
 }
 
 /**
@@ -137,7 +153,7 @@ export async function runCoordinationAttemptExecution(
   host: CoordinationAttemptHost,
   options: CoordinationAttemptRunOptions = {},
 ): Promise<CoordinationAttemptRunResult> {
-  const { priceUsage, ...executionOptions } = options
+  const { priceUsage, observeBindingDigests, ...executionOptions } = options
   const rendered = renderCoordinationAgentExecutionRequest(plan)
   if (!rendered.ok) {
     return { ok: false, code: rendered.refusals[0]?.code ?? 'COORD_PLAN_INVALID', refusals: rendered.refusals }
@@ -145,6 +161,12 @@ export async function runCoordinationAttemptExecution(
   const workingDirectory = isRecord(host) ? host.workingDirectory : undefined
   if (typeof workingDirectory !== 'string' || workingDirectory.length === 0) {
     return refusal('COORD_ATTEMPT_WORKSPACE_REQUIRED', '$host.workingDirectory', 'A coordination attempt runs only at the host-resolved checkout.')
+  }
+
+  const bound = plan.execution.bindingDigests
+  if (bound !== undefined) {
+    const drift = await checkObservedDigests(bound, observeBindingDigests)
+    if (drift !== undefined) return drift
   }
 
   const correlation = correlate(plan, rendered.attestation)
@@ -166,7 +188,10 @@ export async function runCoordinationAttemptExecution(
   const report: CoordinationAttemptReportCapture = replaced
     ? Object.freeze({ status: 'invalid', authority: 'claim', transport, code: 'COORD_REPORT_PROVIDER_MISMATCH' })
     : captureCoordinationAttemptReport(result.text, { transport, attemptId: correlation.attemptId })
-  const usageRecord = recordCoordinationAttemptUsage(correlation, result.usage, { priceUsage })
+  const usageRecord = recordCoordinationAttemptUsage(correlation, result.usage, {
+    priceUsage,
+    ...(bound !== undefined ? { tariffDigest: bound.tariff } : {}),
+  })
   const base = { correlation, attestation: rendered.attestation, usage, report, usageRecord, result }
 
   if (replaced) {
@@ -205,6 +230,36 @@ function replacedProvider(result: AgentExecutionResult, bound: string): boolean 
   if (result.attemptedProviders.some((providerId) => providerId !== bound)) return true
   if (result.providerId !== undefined && result.providerId !== bound) return true
   return result.events.some((event) => event.providerId !== bound)
+}
+
+/** Refuse before spawn unless every host-observed digest still equals the plan. */
+async function checkObservedDigests(
+  bound: CoordinationObservedBindingDigests,
+  observe: CoordinationAttemptRunOptions['observeBindingDigests'],
+): Promise<CoordinationAttemptRunResult | undefined> {
+  if (typeof observe !== 'function') {
+    return refusal('COORD_BINDING_DIGEST_OBSERVER_REQUIRED', '$options.observeBindingDigests', 'A plan that pins binding digests runs only with a host digest observer.')
+  }
+  let observed: unknown
+  try {
+    observed = await observe()
+  } catch {
+    // The observer's error text is host detail; only the fact of failure is kept.
+    return refusal('COORD_BINDING_DIGEST_DRIFT', '$binding.digests', 'The host could not re-observe the bound digests.')
+  }
+  const drifted = COORDINATION_HOST_OBSERVED_BINDING_DIGEST_KEYS.filter(
+    (key) => !isRecord(observed) || observed[key] !== bound[key],
+  )
+  if (drifted.length === 0) return undefined
+  return {
+    ok: false,
+    code: 'COORD_BINDING_DIGEST_DRIFT',
+    refusals: Object.freeze(drifted.map((key) => Object.freeze({
+      code: 'COORD_BINDING_DIGEST_DRIFT',
+      path: `$binding.digests.${key}`,
+      message: 'The host-observed digest differs from the one the plan pins.',
+    }))),
+  }
 }
 
 function refusal(code: string, path: string, message: string): CoordinationAttemptRunResult {

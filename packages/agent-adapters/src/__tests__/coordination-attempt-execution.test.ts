@@ -25,8 +25,11 @@ import {
   COORDINATION_ATTEMPT_REPORT_JSON_SCHEMA,
   COORDINATION_EXECUTABLE_ROUTES,
   COORDINATION_RENDERER_PROFILES,
+  COORDINATION_EXECUTION_BINDING_V3_SCHEMA,
   composeCoordinationAttemptExecution,
   coordinationCanonicalDigest,
+  coordinationCapabilitySetDigest,
+  coordinationCatalogDigest,
   coordinationSelfDigest,
   coordinationUnknownKeySegment,
   decodeCoordinationExecutionAssignment,
@@ -1313,5 +1316,96 @@ describe('11. renderers and reports', () => {
     expect(body).toContain('- provider_transcript: omitted by the issuer (REVIEWER_INDEPENDENCE; evidence policy:review-independent-v1)')
     expect(body).not.toContain(MEMORY_CONTENT)
     expect(body).not.toContain('the context pack is complete')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 12. Binding digests (MVP-07-CP04, workspace-docs doc-coord-mvp07-cp04-admit-20260926-r1)
+// ---------------------------------------------------------------------------
+
+describe('12. binding digests', () => {
+  // Measured at dzupagent efc6dc244 before CP04A: a v2 plan must not move.
+  const V2_PLAN_DIGEST = 'sha256:8561e0e6c86a245134c5ef650f67052376a67379561bafc08b0a56f7708ea056'
+  const HOST_DIGESTS = {
+    binary: `sha256:${'b'.repeat(64)}`,
+    profile: `sha256:${'c'.repeat(64)}`,
+    tariff: `sha256:${'d'.repeat(64)}`,
+  }
+
+  function v3(digestOverrides: Record<string, unknown> = {}, overrides: Record<string, unknown> = {}): Json {
+    const base = binding(overrides)
+    return {
+      ...base,
+      schema: COORDINATION_EXECUTION_BINDING_V3_SCHEMA,
+      digests: {
+        ...HOST_DIGESTS,
+        catalog: coordinationCatalogDigest(catalog()),
+        capability: coordinationCapabilitySetDigest(base.capabilitySet),
+        ...digestOverrides,
+      },
+    }
+  }
+
+  async function v3Refusals(value: Json): Promise<string[]> {
+    const result = await composeCoordinationAttemptExecution(input({ binding: value }))
+    expect(result.ok).toBe(false)
+    return result.ok ? [] : result.refusals.map(({ code, path }) => `${code} ${path}`)
+  }
+
+  it('leaves a v2 plan and its digest exactly as before', async () => {
+    const plan = await compose()
+    expect(plan.planDigest).toBe(V2_PLAN_DIGEST)
+    expect(plan.execution).not.toHaveProperty('bindingDigests')
+  })
+
+  it('composes a v3 binding and binds every digest into the plan digest', async () => {
+    const plan = await compose({ binding: v3() })
+    expect(plan.execution.bindingDigests).toEqual(v3().digests)
+    expect(plan.planDigest).not.toBe(V2_PLAN_DIGEST)
+    for (const key of ['binary', 'profile', 'tariff'] as const) {
+      const moved = await compose({ binding: v3({ [key]: `sha256:${'e'.repeat(64)}` }) })
+      expect(moved.planDigest).not.toBe(plan.planDigest)
+    }
+    const rendered = renderCoordinationAgentExecutionRequest(plan)
+    if (!rendered.ok) throw new Error('render refused')
+    expect(JSON.stringify(rendered.request)).not.toContain(HOST_DIGESTS.tariff)
+  })
+
+  it('requires the digests on v3 and every digest key, with no default', async () => {
+    const missing = v3()
+    delete missing.digests
+    expect(await v3Refusals(missing)).toEqual(['COORD_BINDING_DIGEST_MISSING $binding.digests'])
+    const partial = v3()
+    delete partial.digests.binary
+    expect(await v3Refusals(partial)).toEqual(['COORD_BINDING_DIGEST_MISSING $binding.digests.binary'])
+  })
+
+  it('refuses a malformed, non-object or extra digest', async () => {
+    expect(await v3Refusals(v3({ profile: 'sha256:XYZ' }))).toEqual(['COORD_BINDING_FACT_INVALID $binding.digests.profile'])
+    expect(await v3Refusals({ ...v3(), digests: 'sha256:abc' })).toEqual(['COORD_BINDING_FACT_INVALID $binding.digests'])
+    const extra = await v3Refusals(v3({ fallbackBinary: HOST_DIGESTS.binary }))
+    expect(extra).toHaveLength(1)
+    expect(extra[0]).toMatch(/^COORD_BINDING_FIELD_UNKNOWN \$binding\.digests\./)
+    expect(extra[0]).not.toContain('fallbackBinary')
+  })
+
+  it('keeps digests an unknown field on a v2 binding', async () => {
+    const result = await composeCoordinationAttemptExecution(input({ binding: { ...binding(), digests: v3().digests } }))
+    expect(result.ok ? [] : result.refusals.map(({ code }) => code)).toEqual(['COORD_BINDING_FIELD_UNKNOWN'])
+  })
+
+  it('refuses a catalog or capability digest the composer does not recompute', async () => {
+    expect(await v3Refusals(v3({ catalog: `sha256:${'0'.repeat(64)}` }))).toEqual([
+      'COORD_BINDING_DIGEST_MISMATCH $binding.digests.catalog',
+    ])
+    expect(await v3Refusals(v3({ capability: `sha256:${'0'.repeat(64)}` }))).toEqual([
+      'COORD_BINDING_DIGEST_MISMATCH $binding.digests.capability',
+    ])
+    const otherCatalog = await composeCoordinationAttemptExecution(
+      input({ binding: v3(), modelCatalog: catalog({ fingerprint: 'catalog-fingerprint-2' }) }),
+    )
+    expect(otherCatalog.ok ? [] : otherCatalog.refusals.map(({ code, path }) => `${code} ${path}`)).toEqual([
+      'COORD_BINDING_DIGEST_MISMATCH $binding.digests.catalog',
+    ])
   })
 })

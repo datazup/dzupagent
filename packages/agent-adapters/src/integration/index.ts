@@ -63,9 +63,14 @@ export {
   COORDINATION_ATTEMPT_EXECUTION_ATTESTATION_SCHEMA,
   COORDINATION_ATTEMPT_EXECUTION_PLAN_SCHEMA,
   COORDINATION_EXECUTABLE_ROUTES,
+  COORDINATION_BINDING_DIGEST_KEYS,
   COORDINATION_EXECUTION_BINDING_SCHEMA,
+  COORDINATION_EXECUTION_BINDING_V3_SCHEMA,
+  COORDINATION_HOST_OBSERVED_BINDING_DIGEST_KEYS,
   COORDINATION_RENDERER_PROFILES,
   composeCoordinationAttemptExecution,
+  coordinationCapabilitySetDigest,
+  coordinationCatalogDigest,
   renderCoordinationAgentExecutionRequest,
 } from './coordination-attempt-execution.js'
 export type {
@@ -98,6 +103,7 @@ export type {
   CoordinationAttemptCorrelation,
   CoordinationAttemptHost,
   CoordinationAttemptRunOptions,
+  CoordinationObservedBindingDigests,
   CoordinationAttemptRunResult,
   CoordinationAttemptUsage,
 } from './coordination-attempt-runner.js'

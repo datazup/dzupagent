@@ -325,7 +325,26 @@ export interface CoordinationCapabilitySet {
   readonly effects: readonly string[];
 }
 
-export interface CoordinationExecutionBinding {
+/**
+ * Digests a v3 binding pins (MVP-07-CP04). The composer recomputes `catalog`
+ * and `capability`; the host re-observes `binary`, `profile` and `tariff`
+ * immediately before spawn, and any drift refuses the attempt.
+ */
+export interface CoordinationExecutionBindingDigests {
+  /** sha256 of the provider binary the host will execute. */
+  readonly binary: CoordinationSha256Digest;
+  /** sha256 of the installed profile file. */
+  readonly profile: CoordinationSha256Digest;
+  /** Canonical digest of the model catalog snapshot. */
+  readonly catalog: CoordinationSha256Digest;
+  /** Canonical digest of the binding's capability set. */
+  readonly capability: CoordinationSha256Digest;
+  /** sha256 of the operator-approved tariff the host prices under. */
+  readonly tariff: CoordinationSha256Digest;
+}
+
+/** The binding facts shared by every schema version. */
+export interface CoordinationExecutionBindingV2 {
   readonly schema: "dzupagent.coordinationExecutionBinding/v2";
   readonly bindingId: string;
   /** Logical provider, e.g. `qwen`. Never an agent host's name. */
@@ -348,6 +367,17 @@ export interface CoordinationExecutionBinding {
   /** Effective reasoning effort; refused, never downgraded, when unsupported. */
   readonly reasoning: CoordinationReasoningEffort;
 }
+
+/** A v2 binding plus the digests it pins. v2 stays accepted unchanged. */
+export interface CoordinationExecutionBindingV3
+  extends Omit<CoordinationExecutionBindingV2, "schema"> {
+  readonly schema: "dzupagent.coordinationExecutionBinding/v3";
+  readonly digests: CoordinationExecutionBindingDigests;
+}
+
+export type CoordinationExecutionBinding =
+  | CoordinationExecutionBindingV2
+  | CoordinationExecutionBindingV3;
 
 // ---------------------------------------------------------------------------
 // Composed attempt-execution plan
@@ -421,6 +451,8 @@ export interface CoordinationPlanExecutionFact {
   readonly reasoning: CoordinationReasoningEffort;
   /** Fingerprint of the model catalog that attested the reasoning effort. */
   readonly reasoningCatalogFingerprint: string;
+  /** Present only for a v3 binding, so a v2 plan and its digest are unchanged. */
+  readonly bindingDigests?: CoordinationExecutionBindingDigests;
 }
 
 export interface CoordinationPlanContextItem {

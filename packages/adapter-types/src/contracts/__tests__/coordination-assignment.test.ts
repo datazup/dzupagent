@@ -32,7 +32,13 @@ describe("coordination assignment contracts", () => {
   it("requires every binding fact, with no optional provider fact", () => {
     type Required<T> = { [K in keyof T]-?: undefined extends T[K] ? never : K }[keyof T];
     expectTypeOf<Required<CoordinationExecutionBinding>>().toEqualTypeOf<keyof CoordinationExecutionBinding>();
-    expectTypeOf<CoordinationExecutionBinding["schema"]>().toEqualTypeOf<"dzupagent.coordinationExecutionBinding/v2">();
+    expectTypeOf<CoordinationExecutionBinding["schema"]>().toEqualTypeOf<
+      "dzupagent.coordinationExecutionBinding/v2" | "dzupagent.coordinationExecutionBinding/v3"
+    >();
+    // MVP-07-CP04: v3 pins its digests, required and with no default.
+    type V3 = Extract<CoordinationExecutionBinding, { schema: "dzupagent.coordinationExecutionBinding/v3" }>;
+    expectTypeOf<Required<V3>>().toEqualTypeOf<keyof V3>();
+    expectTypeOf<keyof V3["digests"]>().toEqualTypeOf<"binary" | "profile" | "catalog" | "capability" | "tariff">();
     expectTypeOf<CoordinationExecutionBinding["providerId"]>().toEqualTypeOf<string>();
     expectTypeOf<CoordinationExecutionBinding["backend"]>().toEqualTypeOf<
       "cli" | "local-model" | "sdk" | "api" | "remote"
@@ -59,8 +65,9 @@ describe("coordination assignment contracts", () => {
       sessionRef: true,
       reasoning: true,
       reasoningCatalogFingerprint: true,
+      bindingDigests: true,
     };
-    expect(Object.keys(fields)).toHaveLength(16);
+    expect(Object.keys(fields)).toHaveLength(17);
     expectTypeOf<CoordinationPlanExecutionFact["providerId"]>().toEqualTypeOf<"codex" | "claude">();
     expectTypeOf<CoordinationPlanExecutionFact["backend"]>().toEqualTypeOf<"cli" | "sdk">();
     expectTypeOf<CoordinationPlanExecutionFact>().not.toHaveProperty("approvedFallbackProviders");

@@ -44,6 +44,7 @@ import type {
   CoordinationBindingBackend,
   CoordinationExecutionBackend,
   CoordinationExecutionBinding,
+  CoordinationExecutionBindingDigests,
   CoordinationExecutionProviderId,
   CoordinationPlanContextItem,
   CoordinationPlanReceiverOmission,
@@ -76,6 +77,13 @@ import type { AgentExecutionRequest } from './run-agent-execution.js'
 
 export const COORDINATION_EXECUTION_BINDING_SCHEMA =
   'dzupagent.coordinationExecutionBinding/v2' as const
+/** A v2 binding plus the digests it pins (MVP-07-CP04). */
+export const COORDINATION_EXECUTION_BINDING_V3_SCHEMA =
+  'dzupagent.coordinationExecutionBinding/v3' as const
+/** Every digest a v3 binding carries, in canonical order. */
+export const COORDINATION_BINDING_DIGEST_KEYS = ['binary', 'profile', 'catalog', 'capability', 'tariff'] as const
+/** The digests only the host can observe; it re-observes them immediately before spawn. */
+export const COORDINATION_HOST_OBSERVED_BINDING_DIGEST_KEYS = ['binary', 'profile', 'tariff'] as const
 export const COORDINATION_ATTEMPT_EXECUTION_PLAN_SCHEMA =
   'dzupagent.coordinationAttemptExecutionPlan/v3' as const
 export const COORDINATION_CONTEXT_PACK_SCHEMA = 'dzupagent.coordinationContextPack/v1' as const
@@ -194,6 +202,7 @@ const BINDING_FIELDS = [
   'reasoning',
 ] as const
 const CAPABILITY_SET_FIELDS = ['providerSession', 'requiredCapabilities', 'effects'] as const
+const SHA256_DIGEST = /^sha256:[0-9a-f]{64}$/u
 const BACKENDS: readonly CoordinationBindingBackend[] = ['cli', 'local-model', 'sdk', 'api', 'remote']
 const AUTH_MODES = ['subscription_cli', 'api_key'] as const
 const REASONING = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
@@ -274,6 +283,59 @@ function sha256Bytes(content: string | Uint8Array): CoordinationSha256Digest {
   return `sha256:${createHash('sha256').update(content).digest('hex')}`
 }
 
+/** Canonical digest of a model catalog snapshot, as a v3 binding pins it. */
+export function coordinationCatalogDigest(catalog: unknown): CoordinationSha256Digest {
+  return coordinationCanonicalDigest(catalog)
+}
+
+/** Canonical digest of a binding capability set, as a v3 binding pins it. */
+export function coordinationCapabilitySetDigest(capabilitySet: unknown): CoordinationSha256Digest {
+  return coordinationCanonicalDigest(capabilitySet)
+}
+
+function validateBindingDigests(digests: unknown, refusals: Refusals): void {
+  if (digests === undefined) {
+    refuse(refusals, 'COORD_BINDING_DIGEST_MISSING', '$binding.digests', 'A v3 binding must pin its digests.')
+    return
+  }
+  if (!isRecord(digests)) {
+    refuse(refusals, 'COORD_BINDING_FACT_INVALID', '$binding.digests', 'Binding digests must be an object.')
+    return
+  }
+  for (const key of Object.keys(digests)) {
+    if (!(COORDINATION_BINDING_DIGEST_KEYS as readonly string[]).includes(key)) {
+      refuse(refusals, 'COORD_BINDING_FIELD_UNKNOWN', `$binding.digests.${coordinationUnknownKeySegment(key)}`, 'Unknown binding digest.')
+    }
+  }
+  for (const key of COORDINATION_BINDING_DIGEST_KEYS) {
+    const value = digests[key]
+    if (value === undefined) {
+      refuse(refusals, 'COORD_BINDING_DIGEST_MISSING', `$binding.digests.${key}`, 'Binding digest is required and has no default.')
+    } else if (typeof value !== 'string' || !SHA256_DIGEST.test(value)) {
+      refuse(refusals, 'COORD_BINDING_FACT_INVALID', `$binding.digests.${key}`, 'Binding digest must be sha256:<64 hex>.')
+    }
+  }
+}
+
+/** The composer recomputes the two digests it can observe; the host attests the rest. */
+function checkBindingDigests(
+  digests: CoordinationExecutionBindingDigests,
+  binding: CoordinationExecutionBinding,
+  catalog: unknown,
+  refusals: Refusals,
+): void {
+  if (digests.catalog !== coordinationCatalogDigest(catalog)) {
+    refuse(refusals, 'COORD_BINDING_DIGEST_MISMATCH', '$binding.digests.catalog', 'Catalog digest does not match the catalog snapshot.')
+  }
+  if (digests.capability !== coordinationCapabilitySetDigest(binding.capabilitySet)) {
+    refuse(refusals, 'COORD_BINDING_DIGEST_MISMATCH', '$binding.digests.capability', 'Capability digest does not match the binding capability set.')
+  }
+}
+
+function bindingDigestsOf(binding: CoordinationExecutionBinding): CoordinationExecutionBindingDigests | undefined {
+  return binding.schema === COORDINATION_EXECUTION_BINDING_V3_SCHEMA ? binding.digests : undefined
+}
+
 /** Validate the binding's own shape. Returns the typed binding or `undefined`. */
 function validateBinding(
   binding: unknown,
@@ -284,10 +346,11 @@ function validateBinding(
     return undefined
   }
   const before = refusals.length
+  const v3 = binding['schema'] === COORDINATION_EXECUTION_BINDING_V3_SCHEMA
   for (const key of Object.keys(binding)) {
     if (FALLBACK_KEYS.has(key)) {
       refuse(refusals, 'COORD_BINDING_FALLBACK_FORBIDDEN', `$binding.${key}`, 'Provider fallback is never admitted.')
-    } else if (!(BINDING_FIELDS as readonly string[]).includes(key)) {
+    } else if (!(BINDING_FIELDS as readonly string[]).includes(key) && !(v3 && key === 'digests')) {
       refuse(refusals, 'COORD_BINDING_FIELD_UNKNOWN', `$binding.${coordinationUnknownKeySegment(key)}`, 'Unknown binding field.')
     }
   }
@@ -301,9 +364,10 @@ function validateBinding(
       refuse(refusals, 'COORD_BINDING_FACT_INVALID', `$binding.${key}`, 'Binding fact is outside its vocabulary.')
     }
   }
-  if (binding['schema'] !== undefined && binding['schema'] !== COORDINATION_EXECUTION_BINDING_SCHEMA) {
+  if (binding['schema'] !== undefined && binding['schema'] !== COORDINATION_EXECUTION_BINDING_SCHEMA && !v3) {
     refuse(refusals, 'COORD_BINDING_FACT_INVALID', '$binding.schema', 'Binding schema is unsupported.')
   }
+  if (v3) validateBindingDigests(binding['digests'], refusals)
   enumField('backend', BACKENDS, binding['backend'])
   enumField('reasoning', REASONING, binding['reasoning'])
   for (const key of ['bindingId', 'providerId', 'model', 'profileRef', 'tariffRef', 'sessionRef'] as const) {
@@ -692,6 +756,8 @@ async function compose(
     checkBindingAgainstAssignment(binding, decoded, refusals)
     if (catalogCopy.ok) {
       checkReasoning(binding, catalogCopy.value as ProviderModelCatalog, refusals)
+      const digests = bindingDigestsOf(binding)
+      if (digests !== undefined) checkBindingDigests(digests, binding, catalogCopy.value, refusals)
     } else {
       refuse(refusals, 'COORD_CATALOG_INVALID', '$catalog', 'Model catalog must be plain JSON data.')
     }
@@ -708,6 +774,7 @@ async function compose(
     reasonCode,
     evidenceRef,
   }))
+  const bindingDigests = bindingDigestsOf(binding)
   const unsigned: Omit<CoordinationAttemptExecutionPlan, 'planDigest'> = {
     schema: COORDINATION_ATTEMPT_EXECUTION_PLAN_SCHEMA,
     composedAt: now,
@@ -787,6 +854,7 @@ async function compose(
       sessionRef: binding.sessionRef,
       reasoning: binding.reasoning,
       reasoningCatalogFingerprint: catalog.fingerprint,
+      ...(bindingDigests ? { bindingDigests: { ...bindingDigests } } : {}),
     },
     context: {
       provenance: {

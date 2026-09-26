@@ -26,8 +26,11 @@ import {
   COORDINATION_ATTEMPT_REPORT_JSON_SCHEMA,
   COORDINATION_ATTEMPT_REPORT_SCHEMA,
   COORDINATION_ATTEMPT_USAGE_SCHEMA,
+  COORDINATION_EXECUTION_BINDING_V3_SCHEMA,
   composeCoordinationAttemptExecution,
   coordinationCanonicalDigest,
+  coordinationCapabilitySetDigest,
+  coordinationCatalogDigest,
   coordinationSelfDigest,
   decodeCoordinationExecutionAssignment,
   renderCoordinationAgentExecutionRequest,
@@ -142,12 +145,13 @@ const resolveTask: CoordinationArtifactResolver = ({ digest }) =>
   digest === sha256(TASK_CONTENT) ? { content: TASK_CONTENT } : undefined
 
 /** Claude on the SDK (api key) by default; `cli` binds the Claude CLI on a subscription profile. */
-async function compose(backend: 'sdk' | 'cli' = 'sdk'): Promise<CoordinationAttemptExecutionPlan> {
+async function compose(
+  backend: 'sdk' | 'cli' = 'sdk',
+  digests?: Record<string, string>,
+): Promise<CoordinationAttemptExecutionPlan> {
   const session = providerSession()
   const backendId = backend === 'sdk' ? 'claude-agent-sdk' : 'claude-cli'
-  const result = await composeCoordinationAttemptExecution({
-    decoded: decoded(),
-    binding: {
+  const v2 = {
       schema: 'dzupagent.coordinationExecutionBinding/v2',
       bindingId: BINDING_ID,
       providerId: 'claude',
@@ -164,9 +168,24 @@ async function compose(backend: 'sdk' | 'cli' = 'sdk'): Promise<CoordinationAtte
       tariffRef: TARIFF_REF,
       sessionRef: SESSION_REF,
       reasoning: 'high',
-    },
+  }
+  const modelCatalog = { ...catalog(), backendId }
+  const binding = digests === undefined
+    ? v2
+    : {
+        ...v2,
+        schema: COORDINATION_EXECUTION_BINDING_V3_SCHEMA,
+        digests: {
+          catalog: coordinationCatalogDigest(modelCatalog),
+          capability: coordinationCapabilitySetDigest(v2.capabilitySet),
+          ...digests,
+        },
+      }
+  const result = await composeCoordinationAttemptExecution({
+    decoded: decoded(),
+    binding,
     now: NOW,
-    modelCatalog: { ...catalog(), backendId },
+    modelCatalog,
     resolveArtifact: resolveTask,
   })
   if (!result.ok) throw new Error(`composition refused: ${JSON.stringify(result.refusals)}`)
@@ -603,5 +622,99 @@ describe('CP07 A2. usage record', () => {
   it('has no usage record when nothing ran', async () => {
     const outcome = await runCoordinationAttemptExecution(null as never, { workingDirectory: PINNED_CHECKOUT }, hostOptions(newRecording()))
     expect(outcome).not.toHaveProperty('usageRecord')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// MVP-07-CP04 A4/A5. Host-observed binding digests are re-read before spawn
+// ---------------------------------------------------------------------------
+
+describe('MVP-07-CP04 binding digests', () => {
+  const OBSERVED = {
+    binary: `sha256:${'b'.repeat(64)}`,
+    profile: `sha256:${'c'.repeat(64)}`,
+    tariff: `sha256:${'d'.repeat(64)}`,
+  } as const
+  const MOVED = `sha256:${'e'.repeat(64)}` as const
+
+  it('runs a v3 plan when every host-observed digest still matches', async () => {
+    const recording = newRecording()
+    const outcome = await runCoordinationAttemptExecution(
+      await compose('sdk', OBSERVED),
+      { workingDirectory: PINNED_CHECKOUT },
+      { ...hostOptions(recording), observeBindingDigests: () => ({ ...OBSERVED }) },
+    )
+    expect(outcome.ok).toBe(true)
+    expect(recording.inputs).toHaveLength(1)
+  })
+
+  it('refuses a v3 plan without an observer, before anything is materialized', async () => {
+    const recording = newRecording()
+    const outcome = await runCoordinationAttemptExecution(
+      await compose('sdk', OBSERVED),
+      { workingDirectory: PINNED_CHECKOUT },
+      hostOptions(recording),
+    )
+    expect(outcome).toMatchObject({ ok: false, code: 'COORD_BINDING_DIGEST_OBSERVER_REQUIRED' })
+    expect(outcome).not.toHaveProperty('usageRecord')
+    expect(recording.materializations).toEqual([])
+    expect(recording.inputs).toEqual([])
+  })
+
+  it('refuses when the observer throws, and never echoes its error', async () => {
+    const recording = newRecording()
+    const outcome = await runCoordinationAttemptExecution(
+      await compose('sdk', OBSERVED),
+      { workingDirectory: PINNED_CHECKOUT },
+      { ...hostOptions(recording), observeBindingDigests: () => { throw new Error(`host detail ${SECRET}`) } },
+    )
+    expect(outcome).toMatchObject({ ok: false, code: 'COORD_BINDING_DIGEST_DRIFT' })
+    expect(JSON.stringify(outcome)).not.toContain(SECRET)
+    expect(recording.materializations).toEqual([])
+  })
+
+  for (const key of ['binary', 'profile', 'tariff'] as const) {
+    it(`refuses ${key} drift before spawn and names only the drifted digest`, async () => {
+      const recording = newRecording()
+      const outcome = await runCoordinationAttemptExecution(
+        await compose('sdk', OBSERVED),
+        { workingDirectory: PINNED_CHECKOUT },
+        { ...hostOptions(recording), observeBindingDigests: async () => ({ ...OBSERVED, [key]: MOVED }) },
+      )
+      expect(outcome).toMatchObject({ ok: false, code: 'COORD_BINDING_DIGEST_DRIFT' })
+      if (outcome.ok || !('refusals' in outcome)) throw new Error('expected a pre-spawn refusal')
+      expect(outcome.refusals.map(({ path }) => path)).toEqual([`$binding.digests.${key}`])
+      expect(recording.materializations).toEqual([])
+      expect(recording.inputs).toEqual([])
+    })
+  }
+
+  it('never calls the observer for a v2 plan', async () => {
+    const observe = vi.fn(() => ({ ...OBSERVED }))
+    const outcome = await runCoordinationAttemptExecution(
+      await compose(),
+      { workingDirectory: PINNED_CHECKOUT },
+      { ...hostOptions(newRecording()), observeBindingDigests: observe },
+    )
+    expect(outcome.ok).toBe(true)
+    expect(observe).not.toHaveBeenCalled()
+  })
+
+  it('hands the pinned tariff digest to the pricer for a v3 plan', async () => {
+    const usage = { inputTokens: 11, outputTokens: 7 } as CompletedUsage
+    const priced: unknown[] = []
+    const outcome = await runCoordinationAttemptExecution(
+      await compose('sdk', OBSERVED),
+      { workingDirectory: PINNED_CHECKOUT },
+      {
+        ...hostOptions(newRecording(), { usage }),
+        observeBindingDigests: () => ({ ...OBSERVED }),
+        priceUsage: (input) => { priced.push(input); return 4 },
+      },
+    )
+    expect(outcome.ok).toBe(true)
+    expect(priced).toEqual([
+      { tariffRef: TARIFF_REF, tariffDigest: OBSERVED.tariff, providerId: 'claude', tokens: { inputTokens: 11, outputTokens: 7 } },
+    ])
   })
 })
