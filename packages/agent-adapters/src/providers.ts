@@ -78,6 +78,13 @@ export type { OllamaAdapterConfig, LocalModelInspection } from './ollama/ollama-
 export { OpenRouterAdapter } from './openrouter/openrouter-adapter.js'
 export type { OpenRouterConfig } from './openrouter/openrouter-adapter.js'
 export { OpenAIAdapter } from './openai/openai-adapter.js'
+export { discoverProviderRouteEvidence, assessProviderRouteSelection } from './model-route-evidence.js'
+export type {
+  ProviderRouteBinding, ProviderRouteOperation, ProviderRouteModelObservation,
+  ProviderRouteObservation, ProviderRouteDiscoveryOptions, ProviderRouteEvidenceReason,
+  ProviderRouteModelEvidence, ProviderRouteEvidence, ProviderRouteSelection,
+  ProviderRouteSelectionAssessment,
+} from './model-discovery-types.js'
 export type {
   OpenAIConfig,
   OpenAIRunResult,

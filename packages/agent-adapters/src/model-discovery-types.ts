@@ -230,3 +230,99 @@ export type ProviderModelDiscoveryOptions =
   | GeminiModelDiscoveryOptions
   | QwenModelDiscoveryOptions
   | CrushModelDiscoveryOptions;
+
+/** An opaque installation/profile or credential scope, never a raw path or key. */
+export interface ProviderRouteBinding {
+  route: "codex-cli" | "openai-api";
+  sourceId: string;
+  /** Must change when the executable, profile, credential or configuration changes. */
+  sourceRevision: string;
+}
+
+export type ProviderRouteOperation = "agent.run" | "chat.generate";
+
+export interface ProviderRouteModelObservation {
+  modelId: string;
+  operation: ProviderRouteOperation;
+  support: ProviderCapabilitySupport;
+  supportedReasoningEfforts?: string[] | undefined;
+  providerDefaultSupported?: boolean | undefined;
+}
+
+/** Trusted connector facts, independently qualified for this exact source/version. */
+export interface ProviderRouteObservation {
+  binding: ProviderRouteBinding;
+  observedAt: string;
+  expiresAt: string;
+  installed: boolean | null;
+  authenticated: boolean | null;
+  healthy: boolean | null;
+  version?: string | undefined;
+  models?: ProviderRouteModelObservation[] | undefined;
+}
+
+export interface ProviderRouteDiscoveryOptions {
+  binding: ProviderRouteBinding;
+  configured: boolean;
+  observation?: ProviderRouteObservation | undefined;
+  cliPath?: string | undefined;
+  env?: Readonly<Record<string, string | undefined>> | undefined;
+  /** Explicit API credential; this surface never reads ambient API credentials. */
+  apiKey?: string | undefined;
+  apiBaseUrl?: string | undefined;
+  timeoutMs?: number | undefined;
+  ttlMs?: number | undefined;
+  signal?: AbortSignal | undefined;
+  dependencies?: ModelDiscoveryDependencies | undefined;
+}
+
+export type ProviderRouteEvidenceReason =
+  | "observation_mismatch" | "observation_stale" | "catalog_unavailable"
+  | "discovery_cancelled" | "evidence_stale" | "binding_mismatch"
+  | "route_unqualified" | "model_unlisted" | "operation_unqualified" | "effort_unqualified";
+
+export interface ProviderRouteModelEvidence {
+  modelId: string;
+  /** null means unknown; [] means explicitly no supported effort levels. */
+  supportedReasoningEfforts: string[] | null;
+  operations: Array<{
+    operation: ProviderRouteOperation;
+    support: ProviderCapabilitySupport;
+    supportedReasoningEfforts: string[] | null;
+    providerDefaultSupported: boolean | null;
+  }>;
+}
+
+/** Discovery evidence, not app authorization or a live-generation receipt. */
+export interface ProviderRouteEvidence {
+  schemaVersion: "dzupagent/provider-route-evidence/v1";
+  providerId: "codex" | "openai";
+  binding: ProviderRouteBinding;
+  observedAt: string;
+  expiresAt: string;
+  version: string | null;
+  source: "codex-app-server" | "openai-models-api" | null;
+  facts: {
+    configured: boolean;
+    installed: boolean | null;
+    authenticated: boolean | null;
+    healthy: boolean | null;
+    modelCatalog: boolean | null;
+  };
+  models: ProviderRouteModelEvidence[];
+  reasons: ProviderRouteEvidenceReason[];
+  fingerprint: string;
+}
+
+export interface ProviderRouteSelection {
+  binding: ProviderRouteBinding;
+  modelId: string;
+  operation: ProviderRouteOperation;
+  /** null explicitly requests the provider default; it still requires evidence. */
+  effort: string | null;
+}
+
+export interface ProviderRouteSelectionAssessment {
+  qualified: boolean;
+  reasons: ProviderRouteEvidenceReason[];
+}
