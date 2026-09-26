@@ -1,16 +1,24 @@
+import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, mkdir, open, readFile, realpath } from "node:fs/promises";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { CliHomeProjection } from "../../cli-runtime/index.js";
 import { policyRejected } from "./policy.js";
 
 /**
  * Crash-recovery variant of the Codex CODEX_HOME projection: instead of a
- * throwaway temp directory, thread state is materialized under a private
- * `.dzupagent-codex-home` inside the worker-owned working directory so a
- * restarting worker can resume the session. Extracted from the adapter class
- * because it is a self-contained filesystem subsystem (O_NOFOLLOW private-file
- * writes + symlink-hardened directory checks) with no dependency on adapter state.
+ * throwaway temp directory, thread state is materialized in a private
+ * directory that a restarting worker finds again for the same working
+ * directory. Extracted from the adapter class because it is a self-contained
+ * filesystem subsystem (O_NOFOLLOW private-file writes + symlink-hardened
+ * directory checks) with no dependency on adapter state.
+ *
+ * With `homeRoot` (MVP-07-CP06FA) the home is
+ * `<homeRoot>/<first 32 hex of sha256(realWorkingDirectory)>`, and a root
+ * at or inside the working directory is refused: a coordinated attempt's
+ * working directory is the pinned candidate checkout, so a home there would
+ * join the candidate with its copied credentials. Without it the home stays
+ * at `<workingDirectory>/.dzupagent-codex-home`.
  */
 export async function createPersistentCodexHome(
   workingDirectory: string | undefined,
@@ -19,7 +27,8 @@ export async function createPersistentCodexHome(
   >,
   generatedFiles: Readonly<
     Record<string, { path: string; content: string; mode?: number }>
-  >
+  >,
+  homeRoot?: string
 ): Promise<CliHomeProjection> {
   if (!workingDirectory || !isAbsolute(workingDirectory)) {
     throw policyRejected(
@@ -28,7 +37,9 @@ export async function createPersistentCodexHome(
     );
   }
   const realWorkingDirectory = await realpath(workingDirectory);
-  const root = join(realWorkingDirectory, ".dzupagent-codex-home");
+  const root = homeRoot === undefined
+    ? join(realWorkingDirectory, ".dzupagent-codex-home")
+    : await rootedHome(workingDirectory, realWorkingDirectory, homeRoot);
   await mkdir(root, { recursive: true, mode: 0o700 });
   await requirePrivateDirectory(root);
 
@@ -62,6 +73,47 @@ export async function createPersistentCodexHome(
     requiredDirectories: Object.freeze(requiredDirectories),
     cleanup: async () => undefined,
   };
+}
+
+async function rootedHome(
+  workingDirectory: string,
+  realWorkingDirectory: string,
+  homeRoot: string
+): Promise<string> {
+  if (!isAbsolute(homeRoot)) {
+    throw policyRejected(
+      "Persistent Codex session home root must be absolute",
+      "invalid_session_home_root"
+    );
+  }
+  // Refused before anything is created, then again on the resolved path so a
+  // symlinked root cannot lead back into the checkout.
+  requireOutside(workingDirectory, resolve(homeRoot));
+  requireOutside(realWorkingDirectory, resolve(homeRoot));
+  await mkdir(homeRoot, { recursive: true, mode: 0o700 });
+  await requirePrivateDirectory(homeRoot);
+  const realHomeRoot = await realpath(homeRoot);
+  requireOutside(realWorkingDirectory, realHomeRoot);
+  const key = createHash("sha256")
+    .update(realWorkingDirectory)
+    .digest("hex")
+    .slice(0, 32);
+  return join(realHomeRoot, key);
+}
+
+function requireOutside(workingDirectory: string, homeRoot: string): void {
+  const fromWorkingDirectory = relative(resolve(workingDirectory), homeRoot);
+  if (
+    fromWorkingDirectory === "" ||
+    (fromWorkingDirectory !== ".." &&
+      !fromWorkingDirectory.startsWith(`..${sep}`) &&
+      !isAbsolute(fromWorkingDirectory))
+  ) {
+    throw policyRejected(
+      "Persistent Codex session home root must be outside the working directory",
+      "session_home_inside_working_directory"
+    );
+  }
 }
 
 async function requirePrivateDirectory(path: string): Promise<void> {

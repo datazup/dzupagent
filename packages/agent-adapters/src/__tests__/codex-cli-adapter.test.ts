@@ -1,7 +1,8 @@
 import { EventEmitter } from 'node:events'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import type { ChildProcess, SpawnOptions } from 'node:child_process'
 import { describe, expect, it, vi } from 'vitest'
@@ -387,6 +388,92 @@ describe('Codex explicit CLI backend', () => {
     } finally {
       await rm(workingDirectory, { recursive: true, force: true })
     }
+  })
+
+  // MVP-07-CP06FA: a coordinated attempt's working directory is the pinned
+  // candidate checkout, so the persistent home must live under a root outside it.
+  describe('persistent session home root', () => {
+    function recordingAdapter(homes: string[], persistentSessionHomeRoot: string, spawned = { count: 0 }) {
+      return new CodexCliAdapter({
+        persistentSessionHome: true,
+        persistentSessionHomeRoot,
+        runtimeDependencies: {
+          spawn: (_command, _args, options) => {
+            spawned.count += 1
+            homes.push(String(options.env?.CODEX_HOME))
+            const child = createChild()
+            queueMicrotask(() => {
+              child.stdout.write('{"type":"turn.completed"}\n')
+              child.stdout.end()
+              child.stderr.end()
+              child.exitCode = 0
+              child.emit('close', 0, null)
+            })
+            return child
+          },
+        },
+      })
+    }
+
+    it('places the home under the root, keyed by the working directory, and reuses it on restart', async () => {
+      const scratch = await mkdtemp(join(tmpdir(), 'dzupagent-codex-rooted-'))
+      const checkout = join(scratch, 'checkout')
+      const other = join(scratch, 'other')
+      const homeRoot = join(scratch, 'homes')
+      await mkdir(checkout)
+      await mkdir(other)
+      const homes: string[] = []
+      const adapter = recordingAdapter(homes, homeRoot)
+      try {
+        await collect(adapter.executeWithRaw({ prompt: 'pause', workingDirectory: checkout }))
+        await collect(adapter.executeWithRaw({ prompt: 'continue', workingDirectory: checkout, resumeSessionId: 'session-1' }))
+        await collect(adapter.executeWithRaw({ prompt: 'other', workingDirectory: other }))
+
+        const realRoot = await realpath(homeRoot)
+        const key = createHash('sha256').update(await realpath(checkout)).digest('hex').slice(0, 32)
+        expect(homes[0]).toBe(join(realRoot, key))
+        expect(homes[1]).toBe(homes[0])
+        expect(homes[2]).not.toBe(homes[0])
+        expect(dirname(homes[2]!)).toBe(realRoot)
+        await expect(readdir(checkout)).resolves.toEqual([])
+      } finally {
+        await rm(scratch, { recursive: true, force: true })
+      }
+    })
+
+    it.each([
+      ['the working directory itself', (checkout: string) => checkout, 'session_home_inside_working_directory'],
+      ['a directory inside it', (checkout: string) => join(checkout, 'nested', 'homes'), 'session_home_inside_working_directory'],
+      ['a relative root', () => 'relative-homes', 'invalid_session_home_root'],
+    ])('refuses %s before spawning or creating anything', async (_label, rootFor, reason) => {
+      const checkout = await mkdtemp(join(tmpdir(), 'dzupagent-codex-rooted-refuse-'))
+      const spawned = { count: 0 }
+      const adapter = recordingAdapter([], rootFor(checkout), spawned)
+      try {
+        await expect(collect(adapter.executeWithRaw({ prompt: 'refused', workingDirectory: checkout })))
+          .rejects.toMatchObject({ code: 'CAPABILITY_DENIED', context: { reason } })
+        expect(spawned.count).toBe(0)
+        await expect(readdir(checkout)).resolves.toEqual([])
+      } finally {
+        await rm(checkout, { recursive: true, force: true })
+      }
+    })
+
+    it('refuses a symlinked root that leads back into the working directory', async () => {
+      const scratch = await mkdtemp(join(tmpdir(), 'dzupagent-codex-rooted-link-'))
+      const checkout = join(scratch, 'checkout')
+      await mkdir(join(checkout, 'inner'), { recursive: true })
+      await symlink(join(checkout, 'inner'), join(scratch, 'link'))
+      const spawned = { count: 0 }
+      const adapter = recordingAdapter([], join(scratch, 'link'), spawned)
+      try {
+        await expect(collect(adapter.executeWithRaw({ prompt: 'refused', workingDirectory: checkout })))
+          .rejects.toMatchObject({ code: 'CAPABILITY_DENIED' })
+        expect(spawned.count).toBe(0)
+      } finally {
+        await rm(scratch, { recursive: true, force: true })
+      }
+    })
   })
 
   it('normalizes installed CLI dotted envelopes and carries the final assistant message into completion', async () => {

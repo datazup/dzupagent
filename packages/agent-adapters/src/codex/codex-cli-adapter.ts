@@ -60,8 +60,13 @@ export interface CodexCliAdapterConfig extends AdapterConfig {
   cliBaseProfileRoot?: string | undefined;
   /** Relative regular files copied from cliBaseProfileRoot. */
   cliBaseProfileFiles?: readonly string[] | undefined;
-  /** Keep Codex thread state inside the worker-owned working directory for crash recovery. */
+  /** Keep Codex thread state in a private per-working-directory home for crash recovery. */
   persistentSessionHome?: boolean | undefined;
+  /**
+   * Absolute directory, outside every working directory, that holds the
+   * persistent homes. Absent keeps the home inside the working directory.
+   */
+  persistentSessionHomeRoot?: string | undefined;
   /** Strict JSONL is the canonical Codex CLI backend default. */
   malformedLinePolicy?: "skip" | "error" | undefined;
   /** Test/runtime injection point; not forwarded to the subprocess. */
@@ -356,7 +361,12 @@ export class CodexCliAdapter implements AgentCLIAdapter {
         : {}),
     };
     const homeProjection = this.config.persistentSessionHome
-      ? await createPersistentCodexHome(cwd, baseProfileInputs, generatedFiles)
+      ? await createPersistentCodexHome(
+          cwd,
+          baseProfileInputs,
+          generatedFiles,
+          this.config.persistentSessionHomeRoot
+        )
       : await createCliHomeProjection({
           prefix: "dzupagent-codex-",
           envVar: "CODEX_HOME",
