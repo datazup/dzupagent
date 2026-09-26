@@ -253,6 +253,34 @@ describe('CrushAdapter', () => {
     })
   })
 
+  it('names the redacted stderr cause of a failed Crush exit in adapter:failed and rethrows the original', async () => {
+    mockIsBinaryAvailable.mockResolvedValue(true)
+    const original = new ForgeError({
+      code: 'ADAPTER_EXECUTION_FAILED',
+      message: "Process 'crush' exited with code 1",
+      recoverable: false,
+      context: {
+        command: 'crush',
+        exitCode: 1,
+        stderr: 'loading config\nAuthorization: Bearer sk-live-0123456789abcdef\nFailed to override models: large model x/y not found\n\n',
+      },
+    })
+    mockSpawnAndStreamJsonl.mockImplementation(async function* () {
+      throw original
+    })
+
+    const events: Array<{ type: string, error?: string }> = []
+    const run = (async () => {
+      for await (const event of new CrushAdapter().execute({ prompt: 'x' })) events.push(event as { type: string, error?: string })
+    })()
+    await expect(run).rejects.toBe(original)
+    const failed = events.find(event => event.type === 'adapter:failed')
+    expect(failed?.error).toContain("Process 'crush' exited with code 1")
+    expect(failed?.error).toContain('large model x/y not found')
+    expect(failed?.error).toContain('[REDACTED]')
+    expect(failed?.error).not.toContain('sk-live-0123456789abcdef')
+  })
+
   it('emits fallback adapter:completed when provider stream has no completed record', async () => {
     mockIsBinaryAvailable.mockResolvedValue(true)
     mockSpawnAndStreamJsonl.mockImplementation(async function* () {
@@ -337,7 +365,8 @@ describe('CrushAdapter', () => {
       emitsToolCalls: true,
       executesToolLoop: true,
       supportsStreaming: false,
-      supportsCostUsage: false,
+      // Usage comes from the run database through node:sqlite, present on the test runtime.
+      supportsCostUsage: true,
       nativeToolControls: { mode: true, allowlist: true, blocklist: true },
     })
   })

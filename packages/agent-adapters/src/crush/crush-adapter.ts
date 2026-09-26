@@ -4,6 +4,12 @@
  * Crush emits plain assistant text in non-interactive mode and automatically
  * approves every remaining tool. This adapter therefore projects a sanitized,
  * private provider profile and enforces policy by disabling tools before spawn.
+ *
+ * Verified against `crush run` v0.95.0 as well. Crush rejects a model that is
+ * missing from its bundled catalogue ("large model ... not found"); declare such
+ * a model under the provider's `models` in the base profile. A failed run's
+ * `adapter:failed` names the redacted tail of Crush's stderr, and a completed
+ * run carries the token usage and cost Crush recorded in the run's database.
  */
 
 import { readFile, realpath, stat } from 'node:fs/promises'
@@ -16,11 +22,14 @@ import type {
   AgentEvent,
   AgentInput,
 } from '../types.js'
+import type { NormalizedAdapterError } from '../base/adapter-error-normalizer.js'
 import { BaseCliAdapter, type PreparedCliRun } from '../base/base-cli-adapter.js'
 import { createCliHomeProjection } from '../cli-runtime/index.js'
 import type { CliRuntimeLimits } from '../cli-runtime/index.js'
+import { redactProbeText } from '../introspection/probe-runner.js'
 import { isBinaryAvailable } from '../utils/process-helpers.js'
 import { mapCliProviderEvent } from '../utils/provider-event-normalization.js'
+import { isCrushUsageReaderAvailable, readCrushUsage } from './crush-usage.js'
 
 const PROVIDER_ID: AdapterProviderId = 'crush'
 const CRUSH_BINARY = 'crush'
@@ -32,6 +41,9 @@ const ALL_TOOLS = [
 ] as const
 const READ_ONLY_TOOLS = ['glob', 'grep', 'ls', 'lsp_diagnostics', 'lsp_references', 'view'] as const
 const WORKSPACE_WRITE_TOOLS = [...READ_ONLY_TOOLS, 'edit', 'multiedit', 'todos', 'write'] as const
+/** Project-local Crush config names; `crushrc`/`.crushrc` are Bash scripts Crush executes at load. */
+const PROJECT_CONFIG_NAMES = ['crushrc', '.crushrc', 'crush.json', '.crush.json'] as const
+const STDERR_TAIL_BYTES = 1024
 const CREDENTIAL_ENV = /(?:^|_)(?:API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS)(?:_|$)/u
 
 export interface CrushCliAdapterConfig extends AdapterConfig {
@@ -57,6 +69,8 @@ type JsonObject = Record<string, unknown>
 
 export class CrushAdapter extends BaseCliAdapter {
   private crushConfig: CrushCliAdapterConfig
+  /** Each live run's private `--data-dir`, by session id, read for usage when its result is mapped. */
+  private readonly runDataDirs = new Map<string, string>()
 
   constructor(config: CrushCliAdapterConfig = {}) {
     super(PROVIDER_ID, config)
@@ -95,7 +109,7 @@ export class CrushAdapter extends BaseCliAdapter {
       emitsToolCalls: true,
       executesToolLoop: true,
       supportsStreaming: false,
-      supportsCostUsage: false,
+      supportsCostUsage: isCrushUsageReaderAvailable(),
       nativeToolControls: { mode: true, allowlist: true, blocklist: true },
     }
   }
@@ -109,7 +123,10 @@ export class CrushAdapter extends BaseCliAdapter {
     return args
   }
 
-  protected override async prepareCliRun(input: AgentInput): Promise<PreparedCliRun> {
+  protected override async prepareCliRun(
+    input: AgentInput,
+    context?: { readonly sessionId: string },
+  ): Promise<PreparedCliRun> {
     this.validateSupportedInput(input)
     const cwd = resolve(input.workingDirectory ?? this.config.workingDirectory ?? process.cwd())
     await assertNoProjectCrushConfig(cwd)
@@ -126,19 +143,25 @@ export class CrushAdapter extends BaseCliAdapter {
 
     try {
       const env = this.buildIsolatedEnv(input, projection.root, policyProfile.requiredEnv)
+      const dataDir = join(projection.root, 'run-data')
       const args = [
         '--cwd', cwd,
-        '--data-dir', join(projection.root, 'run-data'),
+        '--data-dir', dataDir,
         ...this.buildArgs(input),
       ]
-      return {
+      const prepared: PreparedCliRun = {
         args,
         cwd,
         env,
         stdoutMode: 'text',
         limits: this.crushConfig.runtimeLimits,
-        cleanup: () => projection.cleanup(),
+        cleanup: () => {
+          if (context) this.runDataDirs.delete(context.sessionId)
+          return projection.cleanup()
+        },
       }
+      if (context) this.runDataDirs.set(context.sessionId, dataDir)
+      return prepared
     } catch (error) {
       await projection.cleanup().catch(() => undefined)
       throw error
@@ -147,11 +170,15 @@ export class CrushAdapter extends BaseCliAdapter {
 
   protected mapProviderEvent(record: Record<string, unknown>, sessionId: string): AgentEvent | undefined {
     if (record['type'] === 'text_result') {
+      // The text result is mapped after Crush exits and before cleanup, so the run database is complete.
+      const usage = readCrushUsage(this.runDataDirs.get(sessionId))
+      this.runDataDirs.delete(sessionId)
       return {
         type: 'adapter:completed',
         providerId: PROVIDER_ID,
         sessionId,
         result: typeof record['content'] === 'string' ? record['content'] : '',
+        ...(usage ? { usage } : {}),
         durationMs: typeof record['duration_ms'] === 'number' ? record['duration_ms'] : 0,
         timestamp: Date.now(),
       }
@@ -160,6 +187,19 @@ export class CrushAdapter extends BaseCliAdapter {
       providerId: PROVIDER_ID,
       defaultErrorMessage: 'Unknown Crush CLI error',
     })
+  }
+
+  /**
+   * A non-zero Crush exit is reported only as "exited with code N"; the cause is in its stderr,
+   * which the process runner keeps on the error. Name the redacted tail in `adapter:failed`.
+   * The original error, rethrown after the event, is unchanged.
+   */
+  protected override normalizeError(err: unknown): NormalizedAdapterError {
+    const normalized = super.normalizeError(err)
+    if (!ForgeError.is(err) || err.code !== 'ADAPTER_EXECUTION_FAILED') return normalized
+    const stderr = (err.context as Record<string, unknown> | undefined)?.['stderr']
+    const tail = typeof stderr === 'string' ? stderrTail(stderr) : ''
+    return tail ? { ...normalized, message: `${normalized.message}: ${tail}` } : normalized
   }
 
   async *resumeSession(_sessionId: string, _input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
@@ -331,7 +371,7 @@ function resolveAllowedTools(input: AgentInput, adapterConfig: AdapterConfig): S
 async function assertNoProjectCrushConfig(cwd: string): Promise<void> {
   let cursor = cwd
   for (;;) {
-    for (const name of ['crush.json', '.crush.json']) {
+    for (const name of PROJECT_CONFIG_NAMES) {
       if (await stat(join(cursor, name)).then((info) => info.isFile()).catch(() => false)) {
         throw denied(`Crush project config is executable trusted input and cannot enter an isolated run: ${join(cursor, name)}`, 'project_config')
       }
@@ -340,6 +380,19 @@ async function assertNoProjectCrushConfig(cwd: string): Promise<void> {
     if (parent === cursor || cursor === parse(cursor).root) return
     cursor = parent
   }
+}
+
+/** The last non-empty stderr lines, redacted before truncation, within {@link STDERR_TAIL_BYTES}. */
+function stderrTail(stderr: string): string {
+  const lines = redactProbeText(stderr).split('\n').map((line) => line.trim()).filter(Boolean)
+  const kept: string[] = []
+  let size = 0
+  for (const line of lines.reverse()) {
+    if (size + line.length > STDERR_TAIL_BYTES) break
+    kept.unshift(line)
+    size += line.length + 1
+  }
+  return kept.join(' | ')
 }
 
 function assertNoCommandSubstitution(value: unknown, path = 'profile'): void {

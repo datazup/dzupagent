@@ -171,7 +171,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
         providerId: this.providerId,
         governance: this.governance,
         getBinaryName: () => this.getBinaryName(),
-        prepareCliRun: (runInput) => this.prepareCliRun(runInput),
+        prepareCliRun: (runInput, context) => this.prepareCliRun(runInput, context),
         mapProviderEvent: (record, sid) => this.mapProviderEvent(record, sid),
         detectProviderThreadStart: (record) =>
           this.detectProviderThreadStart(record),
@@ -395,7 +395,10 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
     );
   }
 
-  protected async prepareCliRun(input: AgentInput): Promise<PreparedCliRun> {
+  protected async prepareCliRun(
+    input: AgentInput,
+    _context?: { readonly sessionId: string }
+  ): Promise<PreparedCliRun> {
     return {
       args: this.buildArgs(input),
       cwd: input.workingDirectory ?? this.config.workingDirectory,

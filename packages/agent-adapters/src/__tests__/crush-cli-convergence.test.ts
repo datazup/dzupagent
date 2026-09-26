@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -250,6 +250,54 @@ describe('Crush CLI convergence contract', () => {
     expect(events.at(-1)).toMatchObject({ type: 'adapter:failed', code: 'CAPABILITY_DENIED' })
     expect((events.at(-1) as { error?: string }).error).toContain('executable trusted input')
     expect(mockSpawnAndStreamJsonl).not.toHaveBeenCalled()
+  })
+
+  it.each(['crushrc', '.crushrc'])('rejects a project %s, which Crush executes as Bash, before spawn', async (name) => {
+    const { profile, workspace } = await fixtureProfile()
+    await writeFile(join(workspace, name), 'touch crushrc-was-executed\n')
+    const events = await collectEvents(new CrushAdapter({ cliBaseProfileRoot: profile }).execute({ prompt: 'x', workingDirectory: workspace }))
+    expect(events.at(-1)).toMatchObject({ type: 'adapter:failed', code: 'CAPABILITY_DENIED' })
+    expect((events.at(-1) as { error?: string }).error).toContain(join(workspace, name))
+    expect(mockSpawnAndStreamJsonl).not.toHaveBeenCalled()
+  })
+
+  it('rejects a .crushrc in an ancestor of the working directory before spawn', async () => {
+    const { profile, workspace } = await fixtureProfile()
+    const nested = join(workspace, 'packages', 'app')
+    await mkdir(nested, { recursive: true })
+    await writeFile(join(workspace, '.crushrc'), 'true\n')
+    const events = await collectEvents(new CrushAdapter({ cliBaseProfileRoot: profile }).execute({ prompt: 'x', workingDirectory: nested }))
+    expect(events.at(-1)).toMatchObject({ type: 'adapter:failed', code: 'CAPABILITY_DENIED' })
+    expect(mockSpawnAndStreamJsonl).not.toHaveBeenCalled()
+  })
+
+  it('reports token usage and cost from the run database before the run is cleaned up', async () => {
+    const { profile, workspace } = await fixtureProfile()
+    mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, args) {
+      const dataDir = args[args.indexOf('--data-dir') + 1]!
+      const { DatabaseSync } = await import('node:sqlite')
+      const db = new DatabaseSync(join(dataDir, 'crush.db'))
+      db.exec('CREATE TABLE sessions (id TEXT PRIMARY KEY, prompt_tokens INTEGER, completion_tokens INTEGER, cost REAL)')
+      db.exec("INSERT INTO sessions VALUES ('main', 1200, 300, 0.0125), ('title', 800, 50, 0.0025)")
+      db.close()
+      yield { type: 'text_result', content: 'done' }
+    })
+    const adapter = new CrushAdapter({ cliBaseProfileRoot: profile })
+    expect(adapter.getCapabilities().supportsCostUsage).toBe(true)
+    const events = await collectEvents(adapter.execute({ prompt: 'x', workingDirectory: workspace }))
+    const completed = events.at(-1) as { type: string, usage?: { inputTokens: number, outputTokens: number, costCents?: number } }
+    expect(completed).toMatchObject({ type: 'adapter:completed', usage: { inputTokens: 2000, outputTokens: 350 } })
+    expect(completed.usage?.costCents).toBeCloseTo(1.5, 10)
+  })
+
+  it('completes without usage when the run database is absent', async () => {
+    const { profile, workspace } = await fixtureProfile()
+    mockSpawnAndStreamJsonl.mockImplementation(async function* () {
+      yield { type: 'text_result', content: 'done' }
+    })
+    const events = await collectEvents(new CrushAdapter({ cliBaseProfileRoot: profile }).execute({ prompt: 'x', workingDirectory: workspace }))
+    expect(events.at(-1)).toMatchObject({ type: 'adapter:completed', result: 'done' })
+    expect((events.at(-1) as { usage?: unknown }).usage).toBeUndefined()
   })
 
   it('rejects command substitution in provider profile strings', async () => {

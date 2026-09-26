@@ -25,7 +25,11 @@ export interface StreamSourceAdapter {
   readonly providerId: AdapterProviderId;
   readonly governance: GovernanceEmitter;
   getBinaryName(): string;
-  prepareCliRun(input: AgentInput): Promise<PreparedCliRun>;
+  /** `context.sessionId` identifies the run, so an adapter can key per-run state it needs while mapping events. */
+  prepareCliRun(
+    input: AgentInput,
+    context?: { readonly sessionId: string }
+  ): Promise<PreparedCliRun>;
   mapProviderEvent(
     record: Record<string, unknown>,
     sessionId: string
@@ -88,7 +92,7 @@ export function buildCliStreamSource(
   const source: AdapterStreamSource<Record<string, unknown>> = {
     providerId: adapter.providerId,
     async *open(_input: AgentInput, signal: AbortSignal) {
-      const prepared = await adapter.prepareCliRun(_input);
+      const prepared = await adapter.prepareCliRun(_input, { sessionId });
       const spawnOpts: SpawnJsonlOptions = {
         cwd: prepared.cwd,
         env: prepared.env,
