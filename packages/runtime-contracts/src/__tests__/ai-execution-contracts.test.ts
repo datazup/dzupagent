@@ -489,6 +489,18 @@ describe("AI execution contracts", () => {
     ).toEqual(["result.usage.inputTokens", "result.usage.costCents"]);
   });
 
+  it("keeps a host-priced tariff cost apart from the provider cost", () => {
+    const priced = {
+      ...receipt,
+      result: {
+        ...result,
+        usage: { inputTokens: 10, outputTokens: 5, tariffCostCents: 7, tariffRef: "tariff:fixture" },
+      },
+    } satisfies AiExecutionReceipt;
+
+    expect(validateAiExecutionReceipt(priced)).toEqual({ valid: true, diagnostics: [] });
+  });
+
   it("accepts a receipt bound to the final target and route decision", () => {
     expect(validateAiExecutionReceipt(receipt)).toEqual({
       valid: true,

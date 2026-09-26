@@ -383,6 +383,12 @@ export interface ExecutionUsage {
   readonly inputTokens?: number;
   readonly outputTokens?: number;
   readonly costCents?: number;
+  /**
+   * Notional cost priced by the host from the pinned tariff `tariffRef`. It is
+   * never a provider claim and never substitutes for `costCents`.
+   */
+  readonly tariffCostCents?: number;
+  readonly tariffRef?: string;
 }
 
 interface ExecutionResultBase {
