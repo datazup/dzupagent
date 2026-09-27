@@ -17,7 +17,9 @@ jobs:
   # ─── Step 1: Publish snapshot to local Verdaccio ───────────────────────────
   publish-snapshot:
     name: Publish snapshot to Verdaccio
-    runs-on: ubuntu-latest
+    runs-on:
+      group: datazup-public-builders
+      labels: coolify-cicd-codev
     timeout-minutes: 15
     outputs:
       snapshot-version: ${{ steps.snapshot.outputs.version }}
@@ -26,6 +28,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       # MUST precede setup-node. `cache: yarn` makes setup-node shell out to
       # `yarn cache dir` during its own step, and the runner's preinstalled Yarn
@@ -34,21 +38,29 @@ jobs:
       # workflow here failed at "Setup Node.js" on every push since 2026-06-30.
       - name: Enable Corepack
         run: corepack enable
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: yarn
           cache-dependency-path: yarn.lock
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       - name: Start Verdaccio
         run: |
           npx verdaccio --config .github/verdaccio.yml &
           sleep 3
           echo "Verdaccio started on http://localhost:4873"
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       - name: Set snapshot version
         id: snapshot
@@ -56,6 +68,8 @@ jobs:
           VERSION="0.2.0-compat.$(git rev-parse --short HEAD)"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Snapshot version: $VERSION"
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       - name: Bump versions to snapshot
         run: |
@@ -78,9 +92,13 @@ jobs:
               fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');
             });
           "
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       - name: Build all packages
         run: yarn build
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       - name: Publish to Verdaccio
         run: |
@@ -93,6 +111,8 @@ jobs:
               cd ../..
             fi
           done
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       - name: Save Verdaccio storage
         uses: actions/upload-artifact@v4
@@ -100,18 +120,25 @@ jobs:
           name: verdaccio-storage
           path: /tmp/verdaccio-storage
           retention-days: 1
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
+    if: ${{ (github.repository == 'datazup/dzupagent' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request') }}
 
   # ─── Step 2: Test against datazup-agent-kit (mandatory) ───────────────────
   test-agent-kit:
     name: Test datazup-agent-kit
     needs: publish-snapshot
-    runs-on: ubuntu-latest
+    runs-on:
+      group: datazup-public-builders
+      labels: coolify-cicd-codev
     timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v4
         with:
           path: monorepo
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       # MUST precede setup-node. `cache: yarn` makes setup-node shell out to
       # `yarn cache dir` during its own step, and the runner's preinstalled Yarn
@@ -120,21 +147,29 @@ jobs:
       # workflow here failed at "Setup Node.js" on every push since 2026-06-30.
       - name: Enable Corepack
         run: corepack enable
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       - name: Download Verdaccio storage
         uses: actions/download-artifact@v4
         with:
           name: verdaccio-storage
           path: /tmp/verdaccio-storage
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       - name: Start Verdaccio with snapshot packages
         run: |
           npx verdaccio --config monorepo/dzupagent/.github/verdaccio.yml &
           sleep 3
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       - name: Install agent-kit with snapshot deps
         working-directory: monorepo/packages/dzupagent-kit
@@ -157,6 +192,8 @@ jobs:
             });
           "
           yarn install --registry http://localhost:4873
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       - name: Build, typecheck, and test agent-kit
         working-directory: monorepo/packages/dzupagent-kit
@@ -164,18 +201,25 @@ jobs:
           yarn build
           yarn typecheck
           yarn test
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
+    if: ${{ (github.repository == 'datazup/dzupagent' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request') }}
 
   # ─── Step 3: Test against testman-app (heaviest consumer) ─────────────────
   test-testman-app:
     name: Test testman-app
     needs: publish-snapshot
-    runs-on: ubuntu-latest
+    runs-on:
+      group: datazup-public-builders
+      labels: coolify-cicd-codev
     timeout-minutes: 25
 
     steps:
       - uses: actions/checkout@v4
         with:
           path: monorepo
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       # MUST precede setup-node. `cache: yarn` makes setup-node shell out to
       # `yarn cache dir` during its own step, and the runner's preinstalled Yarn
@@ -184,21 +228,29 @@ jobs:
       # workflow here failed at "Setup Node.js" on every push since 2026-06-30.
       - name: Enable Corepack
         run: corepack enable
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       - name: Download Verdaccio storage
         uses: actions/download-artifact@v4
         with:
           name: verdaccio-storage
           path: /tmp/verdaccio-storage
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       - name: Start Verdaccio with snapshot packages
         run: |
           npx verdaccio --config monorepo/dzupagent/.github/verdaccio.yml &
           sleep 3
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       - name: Install testman-app with snapshot deps
         working-directory: monorepo/apps/testman-app
@@ -220,28 +272,39 @@ jobs:
             });
           "
           yarn install --registry http://localhost:4873
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       - name: Build and typecheck testman-app
         working-directory: monorepo/apps/testman-app
         run: |
           yarn build
           yarn typecheck
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       - name: Run testman-app tests
         working-directory: monorepo/apps/testman-app
         run: yarn test --passWithNoTests
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
+    if: ${{ (github.repository == 'datazup/dzupagent' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request') }}
 
   # ─── Step 4: Test against nl2sql (domain-specific integration) ────────────
   test-nl2sql:
     name: Test nl2sql
     needs: publish-snapshot
-    runs-on: ubuntu-latest
+    runs-on:
+      group: datazup-public-builders
+      labels: coolify-cicd-codev
     timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v4
         with:
           path: monorepo
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       # MUST precede setup-node. `cache: yarn` makes setup-node shell out to
       # `yarn cache dir` during its own step, and the runner's preinstalled Yarn
@@ -250,21 +313,29 @@ jobs:
       # workflow here failed at "Setup Node.js" on every push since 2026-06-30.
       - name: Enable Corepack
         run: corepack enable
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       - name: Download Verdaccio storage
         uses: actions/download-artifact@v4
         with:
           name: verdaccio-storage
           path: /tmp/verdaccio-storage
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       - name: Start Verdaccio with snapshot packages
         run: |
           npx verdaccio --config monorepo/dzupagent/.github/verdaccio.yml &
           sleep 3
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       - name: Install nl2sql with snapshot deps
         working-directory: monorepo/apps/nl2sql
@@ -286,23 +357,32 @@ jobs:
             });
           "
           yarn install --registry http://localhost:4873
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       - name: Build and typecheck nl2sql
         working-directory: monorepo/apps/nl2sql
         run: |
           yarn build
           yarn typecheck
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
 
       - name: Run nl2sql tests
         working-directory: monorepo/apps/nl2sql
         run: yarn test --passWithNoTests
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
+    if: ${{ (github.repository == 'datazup/dzupagent' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request') }}
 
   # ─── Summary gate ──────────────────────────────────────────────────────────
   compat-gate:
     name: Compatibility Matrix Gate
-    needs: [test-agent-kit, test-testman-app, test-nl2sql]
-    runs-on: ubuntu-latest
-    if: always()
+    needs: [ test-agent-kit, test-testman-app, test-nl2sql ]
+    runs-on:
+      group: datazup-public-builders
+      labels: coolify-cicd-codev
+    if: ${{ (github.repository == 'datazup/dzupagent' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request') && (always()) }}
 
     steps:
       - name: Check all jobs passed
@@ -320,3 +400,6 @@ jobs:
             exit 1
           fi
           echo "✅ All compatibility matrix tests passed"
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.npmrc
+    timeout-minutes: 45
