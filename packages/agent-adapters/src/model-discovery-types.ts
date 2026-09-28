@@ -240,6 +240,15 @@ export interface ProviderRouteBinding {
 }
 
 export type ProviderRouteOperation = "agent.run" | "chat.generate";
+export type ProviderRouteCapability = "tool.use/v1" | "streaming/v1";
+
+export interface ProviderRouteModelCapabilityEvidence {
+  support: ProviderCapabilitySupport;
+  /** Present only for a catalog-qualified support value. Fixture is not live confirmation. */
+  qualification?: "fixture" | "live" | undefined;
+  /** Exact connector version qualified by the static catalog. */
+  qualifiedConnectorVersion?: string | undefined;
+}
 
 export interface ProviderRouteModelObservation {
   modelId: string;
@@ -285,6 +294,8 @@ export interface ProviderRouteModelEvidence {
   modelId: string;
   /** null means unknown; [] means explicitly no supported effort levels. */
   supportedReasoningEfforts: string[] | null;
+  /** Optional v1 extension; absent when no connector version was observed. */
+  capabilities?: Partial<Record<ProviderRouteCapability, ProviderRouteModelCapabilityEvidence>> | undefined;
   operations: Array<{
     operation: ProviderRouteOperation;
     support: ProviderCapabilitySupport;

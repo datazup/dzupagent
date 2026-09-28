@@ -80,7 +80,8 @@ export type { OpenRouterConfig } from './openrouter/openrouter-adapter.js'
 export { OpenAIAdapter } from './openai/openai-adapter.js'
 export { discoverProviderRouteEvidence, assessProviderRouteSelection } from './model-route-evidence.js'
 export type {
-  ProviderRouteBinding, ProviderRouteOperation, ProviderRouteModelObservation,
+  ProviderRouteBinding, ProviderRouteOperation, ProviderRouteCapability,
+  ProviderRouteModelCapabilityEvidence, ProviderRouteModelObservation,
   ProviderRouteObservation, ProviderRouteDiscoveryOptions, ProviderRouteEvidenceReason,
   ProviderRouteModelEvidence, ProviderRouteEvidence, ProviderRouteSelection,
   ProviderRouteSelectionAssessment,

@@ -4,6 +4,7 @@ import type {
   ProviderRouteEvidence, ProviderRouteEvidenceReason, ProviderRouteModelEvidence,
   ProviderRouteObservation, ProviderRouteSelection, ProviderRouteSelectionAssessment,
 } from "./model-discovery-types.js";
+import { qualifiedModelCapabilities } from "./model-capability-catalog.js";
 import { listCodexAppServerModels, listOpenAiApiModels } from "./model-provider-apis.js";
 import { modelIdentifier, sourceIdentity, sourceRevisionValue, stableJson } from "./model-discovery-values.js";
 
@@ -39,13 +40,18 @@ function qualifiedOperations(observation: ProviderRouteObservation | undefined):
   return result;
 }
 
-function publicModels(rows: ProviderModelCatalogEntry[], operations: Map<string, ProviderRouteModelEvidence["operations"]>): ProviderRouteModelEvidence[] {
+function publicModels(
+  rows: ProviderModelCatalogEntry[], operations: Map<string, ProviderRouteModelEvidence["operations"]>,
+  route: ProviderRouteBinding["route"], version: string | null,
+): ProviderRouteModelEvidence[] {
   const seen = new Set<string>();
   return rows.filter(row => row.hidden !== true).map(row => {
     const modelId = modelIdentifier(row.id, "modelId")!;
     if (seen.has(modelId)) throw new Error("PROVIDER_MODEL_DUPLICATE");
     seen.add(modelId);
+    const capabilities = qualifiedModelCapabilities(route, version, modelId);
     return { modelId, supportedReasoningEfforts: efforts(row.supportedReasoningEfforts),
+      ...(capabilities === undefined ? {} : { capabilities }),
       operations: operations.get(modelId) ?? [] };
   });
 }
@@ -116,7 +122,7 @@ export async function discoverProviderRouteEvidence(options: ProviderRouteDiscov
       evidence.reasons.push("discovery_cancelled");
       return finish();
     }
-    evidence.models = publicModels(rows, operations);
+    evidence.models = publicModels(rows, operations, binding.route, evidence.version);
     evidence.source = api ? "openai-models-api" : "codex-app-server";
     evidence.facts.modelCatalog = true;
     evidence.facts.installed = true;
