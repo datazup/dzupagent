@@ -25,6 +25,43 @@ function request(binding = cli, effort: string | null = "high") {
 const apiFetch = () => vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ data: [{ id: "model-a" }] })));
 
 describe("bound provider route evidence", () => {
+  it.each(["codex-cli", "openai-api"] as const)("reports %s model capabilities only for the qualified fixture connector version", async (route) => {
+    const binding = route === "codex-cli" ? cli : api;
+    const evidence = await discoverProviderRouteEvidence({ binding, configured: true,
+      ...(route === "openai-api" ? { apiKey: "fixture-key" } : {}),
+      observation: observation(binding), dependencies: { now, loadCodexPage: async () => page(), fetch: apiFetch() } });
+    expect(evidence.models[0]).toMatchObject({ modelId: "model-a", capabilities: {
+      "tool.use/v1": { support: "supported", qualification: "fixture", qualifiedConnectorVersion: "fixture-1" },
+      "streaming/v1": { support: "supported", qualification: "fixture", qualifiedConnectorVersion: "fixture-1" },
+    } });
+  });
+
+  it("hides fixture support after a connector version change", async () => {
+    const evidence = await discoverProviderRouteEvidence({ binding: cli, configured: true,
+      observation: { ...observation(), version: "fixture-2" },
+      dependencies: { now, loadCodexPage: async () => page() } });
+    expect(evidence.models[0]).toMatchObject({ capabilities: {
+      "tool.use/v1": { support: "unknown" }, "streaming/v1": { support: "unknown" },
+    } });
+  });
+
+  it("leaves an unlisted model's capabilities unknown even on a qualified connector version", async () => {
+    const evidence = await discoverProviderRouteEvidence({ binding: cli, configured: true,
+      observation: observation(), dependencies: { now,
+        loadCodexPage: async () => ({ data: [{ id: "model-unlisted" }], nextCursor: null }) } });
+    expect(evidence.models[0]).toMatchObject({ modelId: "model-unlisted", capabilities: {
+      "tool.use/v1": { support: "unknown" }, "streaming/v1": { support: "unknown" },
+    } });
+  });
+
+  it("makes no capability claim without a connector version", async () => {
+    const evidence = await discoverProviderRouteEvidence({ binding: cli, configured: true,
+      observation: { ...observation(), version: undefined },
+      dependencies: { now, loadCodexPage: async () => page() } });
+    expect(evidence.version).toBeNull();
+    expect(evidence.models[0]).not.toHaveProperty("capabilities");
+  });
+
   it("qualifies an evidenced Codex model/operation/effort without a generation request", async () => {
     const loadCodexPage = vi.fn(async () => page());
     const fetch = vi.fn<typeof globalThis.fetch>();
