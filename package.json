@@ -66,6 +66,7 @@
     "check:build-artifact-integrity": "node scripts/run-with-build-custody.mjs node scripts/check-build-artifact-integrity.mjs",
     "check:package-export-artifacts": "node scripts/run-with-build-custody.mjs node scripts/check-package-export-artifacts.mjs",
     "check:publish-metadata": "node scripts/check-publish-metadata.mjs",
+    "check:workflow-runners": "node scripts/check-workflow-runners.mjs",
     "check:package-tiers": "node scripts/check-package-tiers.mjs",
     "check:portal-closure": "node scripts/portal-closure.mjs",
     "check:dts-budgets": "node scripts/run-with-build-custody.mjs node scripts/measure-dts-build.mjs --check",
@@ -107,7 +108,8 @@
     "tsx": "^4.21.0",
     "turbo": "^2.9.0",
     "typedoc": "^0.28.18",
-    "typedoc-plugin-markdown": "^4.11.0"
+    "typedoc-plugin-markdown": "^4.11.0",
+    "yaml": "^2.9.0"
   },
   "resolutions": {
     "@hono/node-server": "^1.19.13",
