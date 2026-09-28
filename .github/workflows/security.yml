@@ -5,9 +5,9 @@ name: Security Gate
 
 on:
   pull_request:
-    branches: [main]
+    branches: [ main ]
   push:
-    branches: [main]
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -23,7 +23,9 @@ jobs:
   # Scans all workspace packages for known vulnerabilities (moderate+).
   # ---------------------------------------------------------------------------
   dependency-audit:
-    runs-on: ubuntu-latest
+    runs-on:
+      group: datazup-public-builders
+      labels: coolify-cicd-codev
     timeout-minutes: 10
     continue-on-error: false
     steps:
@@ -57,6 +59,7 @@ jobs:
       # and the local verify chain, and let its exit code stand.
       - name: Run dependency audit
         run: yarn audit:deps
+    if: ${{ (github.repository == 'datazup/dzupagent' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request') }}
 
   # ---------------------------------------------------------------------------
   # Job 2: Secret scanning
@@ -64,14 +67,16 @@ jobs:
   # Scans only the PR diff (not full repo history) for speed.
   # ---------------------------------------------------------------------------
   secret-scan:
-    runs-on: ubuntu-latest
+    runs-on:
+      group: datazup-public-builders
+      labels: coolify-cicd-codev
     timeout-minutes: 10
     continue-on-error: false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0              # gitleaks needs history for diff scanning
+          fetch-depth: 0 # gitleaks needs history for diff scanning
 
       - name: Validate gitleaks allowlist
         run: node scripts/check-gitleaks-allowlist.mjs
@@ -80,6 +85,7 @@ jobs:
         uses: docker://zricethezav/gitleaks:v8.28.0
         with:
           args: detect --source . --redact --no-banner --no-git
+    if: ${{ (github.repository == 'datazup/dzupagent' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request') }}
 
   # ---------------------------------------------------------------------------
   # Job 3: Static Application Security Testing (SAST)
@@ -88,7 +94,9 @@ jobs:
   #   b) Grep-based checks for high-risk patterns that ESLint may not flag.
   # ---------------------------------------------------------------------------
   sast:
-    runs-on: ubuntu-latest
+    runs-on:
+      group: datazup-public-builders
+      labels: coolify-cicd-codev
     timeout-minutes: 15
     continue-on-error: false
     steps:
@@ -196,3 +204,4 @@ jobs:
           else
             echo "No dangerous patterns detected."
           fi
+    if: ${{ (github.repository == 'datazup/dzupagent' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request') }}

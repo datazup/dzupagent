@@ -42,13 +42,15 @@ concurrency:
 
 jobs:
   circular-deps:
-    runs-on: ubuntu-latest
+    runs-on:
+      group: datazup-public-builders
+      labels: coolify-cicd-codev
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        shard-index: [0, 1, 2, 3]
-        shard-count: [4]
+        shard-index: [ 0, 1, 2, 3 ]
+        shard-count: [ 4 ]
 
     steps:
       - name: Checkout
@@ -73,18 +75,41 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Install ripgrep
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
+        run: 'command -v rg >/dev/null || { echo "::error::Managed builder prerequisite missing: ripgrep"; exit 1; }'
 
       - name: Check circular imports shard
         run: node scripts/check-circular-deps.mjs --shard-index ${{ matrix.shard-index }} --shard-count ${{ matrix.shard-count }} --concurrency 2
+    if: ${{ (github.repository == 'datazup/dzupagent' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request') }}
 
   verify-strict:
-    runs-on: ubuntu-latest
+    runs-on:
+      group: datazup-public-builders
+      labels: coolify-cicd-codev
     timeout-minutes: 30
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          path: .ci-isolated/dzupagent
+          persist-credentials: false
+      - name: Create Scripts contract source read token
+        id: scripts-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
+        with:
+          app-id: ${{ vars.DATAZUP_BUILD_APP_ID }}
+          private-key: ${{ secrets.DATAZUP_BUILD_APP_PRIVATE_KEY }}
+          owner: datazup
+          repositories: scripts
+          permission-contents: read
+      - name: Checkout pinned Scripts contract source
+        uses: actions/checkout@v4
+        with:
+          repository: datazup/scripts
+          ref: 4d9309e7e7cc74d194712419d3bc2f526db7e712
+          token: ${{ steps.scripts-token.outputs.token }}
+          path: .ci-isolated/scripts
+          persist-credentials: false
 
       # MUST precede setup-node. `cache: yarn` makes setup-node shell out to
       # `yarn cache dir` during its own step, and the runner's preinstalled Yarn
@@ -99,13 +124,13 @@ jobs:
         with:
           node-version: "24"
           cache: yarn
-          cache-dependency-path: yarn.lock
+          cache-dependency-path: .ci-isolated/dzupagent/yarn.lock
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
       - name: Install ripgrep
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
+        run: 'command -v rg >/dev/null || { echo "::error::Managed builder prerequisite missing: ripgrep"; exit 1; }'
 
       - name: Build core package for subpath export consumers
         run: yarn build --filter=@dzupagent/core
@@ -159,6 +184,11 @@ jobs:
       # failed to build.
       - name: Run strict verification without circular imports
         run: yarn verify:gates
+    if: ${{ (github.repository == 'datazup/dzupagent' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request') }}
+    defaults:
+      run:
+        working-directory: .ci-isolated/dzupagent
+        shell: bash
 
   # TEST-H-02: fail-closed integration lane. The fail-closed helpers
   # (requireIntegration / requireIntegrationEnv, RUN_REQUIRED_INTEGRATION=1)
@@ -167,7 +197,9 @@ jobs:
   # green and a real regression could ship. This job provisions the services and
   # runs the suites fail-closed so an unreachable dependency fails the build.
   integration-lane:
-    runs-on: ubuntu-latest
+    runs-on:
+      group: datazup-public-builders
+      labels: coolify-cicd-codev
     timeout-minutes: 30
 
     services:
@@ -180,19 +212,13 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U dzupagent"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+          --health-cmd "pg_isready -U dzupagent" --health-interval 10s --health-timeout 5s --health-retries 5
       redis:
         image: redis:7
         ports:
           - 6379:6379
         options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+          --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
       qdrant:
         image: qdrant/qdrant:latest
         ports:
@@ -243,3 +269,4 @@ jobs:
 
       - name: Run required integration suites (fail-closed)
         run: yarn test:required-integration
+    if: ${{ (github.repository == 'datazup/dzupagent' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request') }}

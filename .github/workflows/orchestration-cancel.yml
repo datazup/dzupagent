@@ -31,7 +31,9 @@ on:
 
 jobs:
   orchestration-cancel:
-    runs-on: ubuntu-latest
+    runs-on:
+      group: datazup-public-builders
+      labels: coolify-cicd-codev
     timeout-minutes: 15
 
     steps:
@@ -58,3 +60,4 @@ jobs:
 
       - name: Run orchestration cancel tests
         run: yarn test:orchestration:cancel
+    if: ${{ (github.repository == 'datazup/dzupagent' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request') }}

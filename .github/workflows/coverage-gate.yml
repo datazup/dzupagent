@@ -30,7 +30,9 @@ concurrency:
 
 jobs:
   discover-packages:
-    runs-on: ubuntu-latest
+    runs-on:
+      group: datazup-public-builders
+      labels: coolify-cicd-codev
     timeout-minutes: 5
     outputs:
       matrix: ${{ steps.generate.outputs.matrix }}
@@ -70,9 +72,12 @@ jobs:
 
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify({ include: entries })}\n`)
           NODE
+    if: ${{ (github.repository == 'datazup/dzupagent' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request') }}
 
   package-coverage:
-    runs-on: ubuntu-latest
+    runs-on:
+      group: datazup-public-builders
+      labels: coolify-cicd-codev
     timeout-minutes: 25
     needs: discover-packages
     strategy:
@@ -81,6 +86,28 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          path: .ci-isolated/dzupagent
+          persist-credentials: false
+      - name: Create Scripts contract source read token
+        id: scripts-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
+        with:
+          app-id: ${{ vars.DATAZUP_BUILD_APP_ID }}
+          private-key: ${{ secrets.DATAZUP_BUILD_APP_PRIVATE_KEY }}
+          owner: datazup
+          repositories: scripts
+          permission-contents: read
+        if: ${{ matrix.workspace == '@dzupagent/core' }}
+      - name: Checkout pinned Scripts contract source
+        uses: actions/checkout@v4
+        with:
+          repository: datazup/scripts
+          ref: 4d9309e7e7cc74d194712419d3bc2f526db7e712
+          token: ${{ steps.scripts-token.outputs.token }}
+          path: .ci-isolated/scripts
+          persist-credentials: false
+        if: ${{ matrix.workspace == '@dzupagent/core' }}
 
       # MUST precede setup-node. `cache: yarn` makes setup-node shell out to
       # `yarn cache dir` during its own step, and the runner's preinstalled Yarn
@@ -95,7 +122,7 @@ jobs:
         with:
           node-version: '24'
           cache: yarn
-          cache-dependency-path: yarn.lock
+          cache-dependency-path: .ci-isolated/dzupagent/yarn.lock
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
@@ -110,12 +137,19 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coverage-${{ matrix.folder }}
-          path: packages/${{ matrix.folder }}/coverage/
+          path: .ci-isolated/dzupagent/packages/${{ matrix.folder }}/coverage/
           if-no-files-found: error
           retention-days: 7
+    if: ${{ (github.repository == 'datazup/dzupagent' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request') }}
+    defaults:
+      run:
+        working-directory: .ci-isolated/dzupagent
+        shell: bash
 
   workspace-coverage-gate:
-    runs-on: ubuntu-latest
+    runs-on:
+      group: datazup-public-builders
+      labels: coolify-cicd-codev
     timeout-minutes: 10
     needs: package-coverage
     steps:
@@ -158,3 +192,4 @@ jobs:
 
       - name: Enforce workspace coverage gate
         run: yarn test:coverage:workspace
+    if: ${{ (github.repository == 'datazup/dzupagent' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request') }}

@@ -19,7 +19,9 @@ on:
 
 jobs:
   connectors-verified:
-    runs-on: ubuntu-latest
+    runs-on:
+      group: datazup-public-builders
+      labels: coolify-cicd-codev
     timeout-minutes: 15
 
     steps:
@@ -46,3 +48,4 @@ jobs:
 
       - name: Run connectors verified build
         run: yarn build:connectors:verified
+    if: ${{ (github.repository == 'datazup/dzupagent' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request') }}
