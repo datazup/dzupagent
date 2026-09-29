@@ -5,6 +5,7 @@ import type {
   ProviderRouteObservation, ProviderRouteSelection, ProviderRouteSelectionAssessment,
 } from "./model-discovery-types.js";
 import { qualifiedModelCapabilities } from "./model-capability-catalog.js";
+import type { ModelCapabilityCatalogEntry } from "./model-capability-catalog.js";
 import { listCodexAppServerModels, listOpenAiApiModels } from "./model-provider-apis.js";
 import { modelIdentifier, sourceIdentity, sourceRevisionValue, stableJson } from "./model-discovery-values.js";
 
@@ -43,13 +44,14 @@ function qualifiedOperations(observation: ProviderRouteObservation | undefined):
 function publicModels(
   rows: ProviderModelCatalogEntry[], operations: Map<string, ProviderRouteModelEvidence["operations"]>,
   route: ProviderRouteBinding["route"], version: string | null,
+  capabilityCatalog?: readonly ModelCapabilityCatalogEntry[],
 ): ProviderRouteModelEvidence[] {
   const seen = new Set<string>();
   return rows.filter(row => row.hidden !== true).map(row => {
     const modelId = modelIdentifier(row.id, "modelId")!;
     if (seen.has(modelId)) throw new Error("PROVIDER_MODEL_DUPLICATE");
     seen.add(modelId);
-    const capabilities = qualifiedModelCapabilities(route, version, modelId);
+    const capabilities = qualifiedModelCapabilities(route, version, modelId, capabilityCatalog);
     return { modelId, supportedReasoningEfforts: efforts(row.supportedReasoningEfforts),
       ...(capabilities === undefined ? {} : { capabilities }),
       operations: operations.get(modelId) ?? [] };
@@ -61,7 +63,9 @@ function publicModels(
  * The caller owns configuration, scoped connector observations and revisions.
  * No automatic route switch, credential lookup, login or generation is performed.
  */
-export async function discoverProviderRouteEvidence(options: ProviderRouteDiscoveryOptions): Promise<ProviderRouteEvidence> {
+export async function discoverProviderRouteEvidence(
+  options: ProviderRouteDiscoveryOptions & { capabilityCatalog?: readonly ModelCapabilityCatalogEntry[] },
+): Promise<ProviderRouteEvidence> {
   const binding = bindingValue(options.binding);
   const api = binding.route === "openai-api";
   const dependencies = options.dependencies ?? {};
@@ -122,7 +126,7 @@ export async function discoverProviderRouteEvidence(options: ProviderRouteDiscov
       evidence.reasons.push("discovery_cancelled");
       return finish();
     }
-    evidence.models = publicModels(rows, operations, binding.route, evidence.version);
+    evidence.models = publicModels(rows, operations, binding.route, evidence.version, options.capabilityCatalog);
     evidence.source = api ? "openai-models-api" : "codex-app-server";
     evidence.facts.modelCatalog = true;
     evidence.facts.installed = true;

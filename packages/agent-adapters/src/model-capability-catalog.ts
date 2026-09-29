@@ -2,7 +2,7 @@ import type {
   ProviderRouteBinding, ProviderRouteCapability, ProviderRouteModelCapabilityEvidence,
 } from "./model-discovery-types.js";
 
-interface FixtureCapabilityCatalogEntry {
+export interface ModelCapabilityCatalogEntry {
   route: ProviderRouteBinding["route"];
   modelId: string;
   connectorVersion: string;
@@ -11,16 +11,10 @@ interface FixtureCapabilityCatalogEntry {
 }
 
 /**
- * Reviewed provider-free connector fixtures. These synthetic identities cannot
- * qualify an installed connector or production model. Live qualification is a
- * separate operator step, represented distinctly in route evidence.
+ * Reviewed production entries only. No connector/model has been independently
+ * qualified for production use yet. Tests inject synthetic entries explicitly.
  */
-const MODEL_CAPABILITY_CATALOG: readonly FixtureCapabilityCatalogEntry[] = [
-  { route: "codex-cli", modelId: "model-a", connectorVersion: "fixture-1", qualification: "fixture",
-    capabilities: { "tool.use/v1": "supported", "streaming/v1": "supported" } },
-  { route: "openai-api", modelId: "model-a", connectorVersion: "fixture-1", qualification: "fixture",
-    capabilities: { "tool.use/v1": "supported", "streaming/v1": "supported" } },
-];
+const MODEL_CAPABILITY_CATALOG: readonly ModelCapabilityCatalogEntry[] = [];
 
 const unknownCapabilities = (): Record<ProviderRouteCapability, ProviderRouteModelCapabilityEvidence> => ({
   "tool.use/v1": { support: "unknown" },
@@ -30,9 +24,10 @@ const unknownCapabilities = (): Record<ProviderRouteCapability, ProviderRouteMod
 /** Never projects support without an exact route, model and connector version match. */
 export function qualifiedModelCapabilities(
   route: ProviderRouteBinding["route"], version: string | null, modelId: string,
+  catalog: readonly ModelCapabilityCatalogEntry[] = MODEL_CAPABILITY_CATALOG,
 ): Record<ProviderRouteCapability, ProviderRouteModelCapabilityEvidence> | undefined {
   if (version === null) return undefined;
-  const entry = MODEL_CAPABILITY_CATALOG.find(item =>
+  const entry = catalog.find(item =>
     item.route === route && item.modelId === modelId && item.connectorVersion === version);
   if (!entry) return unknownCapabilities();
   return {

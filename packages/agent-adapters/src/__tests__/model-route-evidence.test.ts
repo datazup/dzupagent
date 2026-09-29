@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { assessProviderRouteSelection, discoverProviderRouteEvidence } from "../model-route-evidence.js";
 import { listCodexAppServerModels } from "../model-provider-apis.js";
 import type { ProviderRouteBinding, ProviderRouteObservation } from "../model-discovery-types.js";
+import { FIXTURE_MODEL_CAPABILITY_CATALOG } from "./fixtures/model-capability-catalog.js";
 
 const at = "2026-09-26T08:00:00.000Z";
 const until = "2026-09-26T08:01:00.000Z";
@@ -37,6 +38,7 @@ describe("bound provider route evidence", () => {
   it.each(["codex-cli", "openai-api"] as const)("reports %s model capabilities only for the qualified fixture connector version", async (route) => {
     const binding = route === "codex-cli" ? cli : api;
     const evidence = await discoverProviderRouteEvidence({ binding, configured: true,
+      capabilityCatalog: FIXTURE_MODEL_CAPABILITY_CATALOG,
       ...(route === "openai-api" ? { apiKey: "fixture-key" } : {}),
       observation: observation(binding), dependencies: { now, loadCodexPage: async () => page(), fetch: apiFetch() } });
     expect(evidence.models[0]).toMatchObject({ modelId: "model-a", capabilities: {
@@ -47,6 +49,7 @@ describe("bound provider route evidence", () => {
 
   it("hides fixture support after a connector version change", async () => {
     const evidence = await discoverProviderRouteEvidence({ binding: cli, configured: true,
+      capabilityCatalog: FIXTURE_MODEL_CAPABILITY_CATALOG,
       observation: { ...observation(), version: "fixture-2" },
       dependencies: { now, loadCodexPage: async () => page() } });
     expect(evidence.models[0]).toMatchObject({ capabilities: {
@@ -56,6 +59,7 @@ describe("bound provider route evidence", () => {
 
   it("leaves an unlisted model's capabilities unknown even on a qualified connector version", async () => {
     const evidence = await discoverProviderRouteEvidence({ binding: cli, configured: true,
+      capabilityCatalog: FIXTURE_MODEL_CAPABILITY_CATALOG,
       observation: observation(), dependencies: { now,
         loadCodexPage: async () => ({ data: [{ id: "model-unlisted" }], nextCursor: null }) } });
     expect(evidence.models[0]).toMatchObject({ modelId: "model-unlisted", capabilities: {
@@ -65,6 +69,7 @@ describe("bound provider route evidence", () => {
 
   it("makes no capability claim without a connector version", async () => {
     const evidence = await discoverProviderRouteEvidence({ binding: cli, configured: true,
+      capabilityCatalog: FIXTURE_MODEL_CAPABILITY_CATALOG,
       observation: { ...observation(), version: undefined },
       dependencies: { now, loadCodexPage: async () => page() } });
     expect(evidence.version).toBeNull();
