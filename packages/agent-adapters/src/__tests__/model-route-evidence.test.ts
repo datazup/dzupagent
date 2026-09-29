@@ -25,6 +25,15 @@ function request(binding = cli, effort: string | null = "high") {
 const apiFetch = () => vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ data: [{ id: "model-a" }] })));
 
 describe("bound provider route evidence", () => {
+  it("production catalog projects no fixture support for model-a/fixture-1", async () => {
+    const evidence = await discoverProviderRouteEvidence({ binding: cli, configured: true,
+      observation: observation(), dependencies: { now, loadCodexPage: async () => page() } });
+    expect(evidence.models[0]?.capabilities).toEqual({
+      "tool.use/v1": { support: "unknown" },
+      "streaming/v1": { support: "unknown" },
+    });
+  });
+
   it.each(["codex-cli", "openai-api"] as const)("reports %s model capabilities only for the qualified fixture connector version", async (route) => {
     const binding = route === "codex-cli" ? cli : api;
     const evidence = await discoverProviderRouteEvidence({ binding, configured: true,
