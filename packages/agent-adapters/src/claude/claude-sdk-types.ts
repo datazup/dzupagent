@@ -49,6 +49,7 @@ export interface ResultMessage extends ClaudeSDKMessage {
   result?: string
   session_id?: string
   usage?: Record<string, unknown>
+  total_cost_usd?: number
   duration_ms?: number
   error?: string
 }

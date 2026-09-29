@@ -163,6 +163,7 @@ export interface MakeFailedEventArgs {
   sessionId?: string | undefined
   error: string
   code?: string | undefined
+  usage?: TokenUsage | undefined
   correlationId?: string | undefined
   timestamp?: number
 }
@@ -174,6 +175,7 @@ export function makeFailedEvent(args: MakeFailedEventArgs): AgentFailedEvent {
     ...(args.sessionId !== undefined ? { sessionId: args.sessionId } : {}),
     error: args.error,
     ...(args.code !== undefined ? { code: args.code } : {}),
+    ...(args.usage !== undefined ? { usage: args.usage } : {}),
     timestamp: args.timestamp ?? Date.now(),
     ...(args.correlationId !== undefined ? { correlationId: args.correlationId } : {}),
   }

@@ -238,6 +238,22 @@ export function mapResultMessage(
   }
 
   const failedSessionId = raw.session_id ?? (context.sessionId || undefined)
+  const failedUsage = extractTokenUsage(raw.usage)
+  // A cost-only result cannot establish the required token fields of TokenUsage.
+  if (failedUsage) {
+    // Preserve only reported, valid cost. The SDK reports total cost on the
+    // result message, separately from its token usage object.
+    if (failedUsage.costCents !== undefined &&
+        (!Number.isFinite(failedUsage.costCents) || failedUsage.costCents < 0)) {
+      delete failedUsage.costCents
+    }
+    const costCents = typeof raw.total_cost_usd === 'number'
+      ? raw.total_cost_usd * 100
+      : undefined
+    if (costCents !== undefined && Number.isFinite(costCents) && costCents >= 0) {
+      failedUsage.costCents = costCents
+    }
+  }
   return makeFailedEvent({
     providerId: 'claude',
     sessionId: failedSessionId,
@@ -245,6 +261,7 @@ export function mapResultMessage(
       ? raw.error
       : `Claude agent failed with subtype: ${raw.subtype}`,
     code: raw.subtype,
+    usage: failedUsage,
     correlationId: input.correlationId,
   })
 }

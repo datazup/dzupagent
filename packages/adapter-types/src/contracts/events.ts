@@ -96,6 +96,8 @@ export interface AgentFailedEvent {
   sessionId?: string | undefined;
   error: string;
   code?: string | undefined;
+  /** Provider-reported usage, when available on a failed result. */
+  usage?: TokenUsage | undefined;
   timestamp: number;
   /** Correlation ID from the originating request */
   correlationId?: string | undefined;
