@@ -64,11 +64,18 @@ function resultSuccess(opts: {
   }
 }
 
-function resultError(subtype = 'error_max_turns', error?: string) {
+function resultError(subtype = 'error_max_turns', error?: string, opts: {
+  sessionId?: string
+  usage?: Record<string, unknown>
+  totalCostUsd?: number
+} = {}) {
   return {
     type: 'result' as const,
     subtype,
     error,
+    session_id: opts.sessionId,
+    usage: opts.usage,
+    total_cost_usd: opts.totalCostUsd,
   }
 }
 
@@ -514,6 +521,56 @@ describe('ClaudeAgentAdapter — deep coverage', () => {
   // ── Failed result subtypes ──────────────────────────────
 
   describe('failed result subtypes', () => {
+    it('preserves reported failed-result tokens and USD cost for metering', async () => {
+      mockQuery.mockReturnValue(asyncIterableOf([
+        sysMsg('system-session'),
+        resultError('error_max_budget_usd', 'Budget reached', {
+          sessionId: 'result-session',
+          usage: {
+            input_tokens: 120,
+            output_tokens: 35,
+            cache_read_input_tokens: 20,
+          },
+          totalCostUsd: 0.42,
+        }),
+      ]))
+      const events = await collectEvents(adapter.execute({ prompt: 'p' }))
+      const failed = events.find(e => e.type === 'adapter:failed')
+      expect(failed).toMatchObject({
+        type: 'adapter:failed',
+        sessionId: 'result-session',
+        code: 'error_max_budget_usd',
+        error: 'Budget reached',
+        usage: {
+          inputTokens: 120,
+          outputTokens: 35,
+          cachedInputTokens: 20,
+          costCents: 42,
+        },
+      })
+    })
+
+    it.each([undefined, -0.1, Number.POSITIVE_INFINITY, Number.NaN])(
+      'keeps failed-result tokens without fabricating cost from %s',
+      async totalCostUsd => {
+        mockQuery.mockReturnValue(asyncIterableOf([
+          sysMsg(),
+          resultError('error_during_execution', 'Tool crashed', {
+            usage: { input_tokens: 12, output_tokens: 3 },
+            totalCostUsd,
+          }),
+        ]))
+        const events = await collectEvents(adapter.execute({ prompt: 'p' }))
+        const failed = events.find(e => e.type === 'adapter:failed')
+        expect(failed).toMatchObject({
+          type: 'adapter:failed',
+          code: 'error_during_execution',
+          usage: { inputTokens: 12, outputTokens: 3 },
+        })
+        expect(failed).not.toHaveProperty('usage.costCents')
+      },
+    )
+
     it('emits failed with code "error_max_turns"', async () => {
       mockQuery.mockReturnValue(
         asyncIterableOf([sysMsg(), resultError('error_max_turns', 'Max turns reached')]),
