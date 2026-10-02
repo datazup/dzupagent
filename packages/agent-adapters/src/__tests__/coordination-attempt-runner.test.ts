@@ -343,10 +343,11 @@ describe('coordinated input projection', () => {
     expect(recording.inputs).toHaveLength(1)
     expect(recording.inputs[0]).toMatchObject({
       prompt: rendered.request.prompt, workingDirectory: PINNED_CHECKOUT,
-      correlationId: rendered.request.correlationId, outputSchema: rendered.request.outputSchema,
+      correlationId: rendered.request.correlationId,
       policyContext,
       options: { model: MODEL, reasoning: 'high', runId: plan.assignment.attemptId, interactionPolicy },
     })
+    expect(recording.inputs[0]!.outputSchema).toEqual(rendered.request.outputSchema)
     expect(recording.inputs[0]!.signal?.aborted).toBe(true)
     expect(recording.resumes).toEqual([])
     if (!('attestation' in outcome)) throw new Error('unexpected preflight refusal')
