@@ -283,7 +283,8 @@ describe('current spawn authority', () => {
 
   it.each(['assignment', 'session', 'grant'] as const)('refuses an expired %s at its exact boundary', async (fact) => {
     const plan = await compose('sdk', undefined, (assignment) => {
-      if (fact === 'assignment') assignment.notAfter = DEADLINE
+      // The decoder requires assignments to end no later than every grant/session.
+      assignment.notAfter = DEADLINE
       if (fact === 'session') assignment.sessionEnrollment.expiresAt = DEADLINE
       if (fact === 'grant') assignment.authorityBundle.grants[0].notAfter = DEADLINE
     })
@@ -292,7 +293,7 @@ describe('current spawn authority', () => {
       ...hostOptions(recording), now: () => Date.parse(DEADLINE),
     })
     const code = { assignment: 'COORD_ASSIGNMENT_EXPIRED', session: 'COORD_SESSION_EXPIRED', grant: 'COORD_AUTHORITY_GRANT_EXPIRED' }[fact]
-    expect(outcome).toMatchObject({ ok: false, code })
+    expect(outcome).toMatchObject({ ok: false, refusals: expect.arrayContaining([expect.objectContaining({ code })]) })
     expect(recording.materializations).toEqual([])
     expect(recording.inputs).toEqual([])
   })
