@@ -37,6 +37,10 @@ import type {
 } from '@dzupagent/adapter-types'
 
 import {
+  compareCoordinationTimestamps,
+  isCoordinationTimestamp,
+} from './coordination-assignment-decoder.js'
+import {
   COORDINATION_HOST_OBSERVED_BINDING_DIGEST_KEYS,
   renderCoordinationAgentExecutionRequest,
   type CoordinationAttemptExecutionAttestation,
@@ -132,6 +136,16 @@ export interface CoordinationObservedBindingDigests {
 }
 
 export interface CoordinationAttemptRunOptions extends RunAgentExecutionOptions {
+  /**
+   * DZA-GAPADM-01-20261002-R1: re-read the host's authoritative grants/fences
+   * for this exact plan immediately before spawn. Only literal true admits.
+   * Required for every coordination attempt; composition is historical evidence.
+   * Never forwarded to the execution seam. The host must also abort its signal
+   * when authority is lost during execution; this predicate is not a lease store.
+   */
+  readonly observeAuthority?:
+    | ((plan: CoordinationAttemptExecutionPlan) => boolean | Promise<boolean>)
+    | undefined
   /** Host pricing under the bound tariff. Never forwarded to the execution seam. */
   readonly priceUsage?: CoordinationUsagePricer | undefined
   /**
@@ -153,7 +167,7 @@ export async function runCoordinationAttemptExecution(
   host: CoordinationAttemptHost,
   options: CoordinationAttemptRunOptions = {},
 ): Promise<CoordinationAttemptRunResult> {
-  const { priceUsage, observeBindingDigests, ...executionOptions } = options
+  const { priceUsage, observeBindingDigests, observeAuthority, ...executionOptions } = options
   const rendered = renderCoordinationAgentExecutionRequest(plan)
   if (!rendered.ok) {
     return { ok: false, code: rendered.refusals[0]?.code ?? 'COORD_PLAN_INVALID', refusals: rendered.refusals }
@@ -168,6 +182,25 @@ export async function runCoordinationAttemptExecution(
     const drift = await checkObservedDigests(bound, observeBindingDigests)
     if (drift !== undefined) return drift
   }
+
+  if (host.signal?.aborted) return cancelled()
+  if (typeof observeAuthority !== 'function') {
+    return refusal('COORD_ATTEMPT_AUTHORITY_OBSERVER_REQUIRED', '$options.observeAuthority', 'Current host authority must be observed before spawn.')
+  }
+  let current: unknown
+  try {
+    current = await observeAuthority(plan)
+  } catch {
+    return refusal('COORD_ATTEMPT_AUTHORITY_OBSERVATION_FAILED', '$authority', 'The host could not observe current authority.')
+  }
+  if (current !== true) {
+    return refusal(current === false ? 'COORD_ATTEMPT_AUTHORITY_REVOKED' : 'COORD_ATTEMPT_AUTHORITY_OBSERVATION_FAILED', '$authority', 'The host did not affirm current authority for this plan.')
+  }
+  // Read the clock and cancellation only after all awaited preflight work.
+  // No await separates these checks from the execution seam's materializer.
+  if (host.signal?.aborted) return cancelled()
+  const expired = checkSpawnTime(plan, options.now ?? Date.now)
+  if (expired !== undefined) return expired
 
   const correlation = correlate(plan, rendered.attestation)
   const result = await runAgentExecution(
@@ -201,6 +234,37 @@ export async function runCoordinationAttemptExecution(
     return { ok: false, code: result.code ?? 'COORD_ATTEMPT_EXECUTION_FAILED', ...base }
   }
   return { ok: true, ...base }
+}
+
+function cancelled(): CoordinationAttemptRunResult {
+  return refusal('COORD_ATTEMPT_CANCELLED', '$host.signal', 'The host cancelled the attempt before spawn.')
+}
+
+function checkSpawnTime(
+  plan: CoordinationAttemptExecutionPlan,
+  clock: () => number,
+): CoordinationAttemptRunResult | undefined {
+  let now: string
+  try {
+    const milliseconds = clock()
+    if (typeof milliseconds !== 'number' || !Number.isFinite(milliseconds)) throw new Error('Invalid clock')
+    now = new Date(milliseconds).toISOString()
+    if (!isCoordinationTimestamp(now) || compareCoordinationTimestamps(now, plan.composedAt) < 0) throw new Error('Invalid clock')
+  } catch {
+    return refusal('COORD_NOW_INVALID', '$options.now', 'The spawn clock must be valid and no earlier than composition.')
+  }
+  const facts = [
+    { code: 'COORD_ASSIGNMENT_EXPIRED', path: '$assignment.provenance.notAfter', deadline: plan.assignment.provenance.notAfter },
+    { code: 'COORD_SESSION_EXPIRED', path: '$session.provenance.notAfter', deadline: plan.session.provenance.notAfter },
+    ...plan.authority.grants.map((grant, index) => ({
+      code: 'COORD_AUTHORITY_GRANT_EXPIRED', path: `$authority.grants.${index}.provenance.notAfter`, deadline: grant.provenance.notAfter,
+    })),
+  ]
+  const refusals = facts
+    .filter(({ deadline }) => deadline !== null && compareCoordinationTimestamps(now, deadline) >= 0)
+    .map(({ code, path }) => Object.freeze({ code, path, message: 'The composed authority fact has expired before spawn.' }))
+  if (refusals.length === 0) return undefined
+  return { ok: false, code: refusals[0]!.code, refusals: Object.freeze(refusals) }
 }
 
 function correlate(

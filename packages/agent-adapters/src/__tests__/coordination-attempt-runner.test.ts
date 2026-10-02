@@ -263,7 +263,7 @@ function hostOptions(
 ): CoordinationAttemptRunOptions {
   return {
     now: () => Date.parse(NOW),
-    ...{ observeAuthority: () => true },
+    observeAuthority: () => true,
     materializeAdapter: (materialization) => {
       const { config: _config, ...facts } = materialization
       recording.materializations.push(facts)
@@ -310,6 +310,87 @@ describe('current spawn authority', () => {
     expect(resolveApiKey).not.toHaveBeenCalled()
     expect(recording.materializations).toEqual([])
     expect(recording.inputs).toEqual([])
+  })
+
+  it.each(['missing', 'throws', 'invalid'] as const)('fails closed when authority observation is %s', async (kind) => {
+    const recording = newRecording()
+    const options = {
+      ...hostOptions(recording),
+      observeAuthority: kind === 'missing' ? undefined : kind === 'throws'
+        ? () => { throw new Error(SECRET) }
+        : (() => undefined) as unknown as NonNullable<CoordinationAttemptRunOptions['observeAuthority']>,
+    }
+    const outcome = await runCoordinationAttemptExecution(await compose(), { workingDirectory: PINNED_CHECKOUT }, options)
+    expect(outcome).toMatchObject({ ok: false, code: kind === 'missing' ? 'COORD_ATTEMPT_AUTHORITY_OBSERVER_REQUIRED' : 'COORD_ATTEMPT_AUTHORITY_OBSERVATION_FAILED' })
+    expect(JSON.stringify(outcome)).not.toContain(SECRET)
+    expect(recording.materializations).toEqual([])
+  })
+
+  it('allows current authority just before the deadline', async () => {
+    const plan = await compose()
+    const recording = newRecording()
+    const observeAuthority = vi.fn(async () => true)
+    const outcome = await runCoordinationAttemptExecution(plan, { workingDirectory: PINNED_CHECKOUT }, {
+      ...hostOptions(recording), observeAuthority, now: () => Date.parse(plan.assignment.provenance.notAfter!) - 1,
+    })
+    expect(outcome.ok).toBe(true)
+    expect(observeAuthority).toHaveBeenCalledOnce()
+    expect(observeAuthority).toHaveBeenCalledWith(plan)
+    expect(recording.inputs).toHaveLength(1)
+  })
+
+  it('samples expiry after awaited digest and authority observation', async () => {
+    const digests = { binary: sha256('binary'), profile: sha256('profile'), tariff: sha256('tariff') }
+    const plan = await compose('sdk', digests)
+    const recording = newRecording()
+    let time = Date.parse(NOW)
+    const outcome = await runCoordinationAttemptExecution(plan, { workingDirectory: PINNED_CHECKOUT }, {
+      ...hostOptions(recording), now: () => time,
+      observeBindingDigests: async () => {
+        time += 1
+        return digests as NonNullable<CoordinationAttemptExecutionPlan['execution']['bindingDigests']>
+      },
+      observeAuthority: async () => {
+        time = Date.parse(plan.assignment.provenance.notAfter!)
+        return true
+      },
+    })
+    expect(outcome).toMatchObject({ ok: false, code: 'COORD_ASSIGNMENT_EXPIRED' })
+    expect(recording.materializations).toEqual([])
+  })
+
+  it.each(['before', 'during'] as const)('refuses host cancellation %s observation', async (when) => {
+    const controller = new AbortController()
+    const recording = newRecording()
+    if (when === 'before') controller.abort()
+    const observeAuthority = vi.fn(async () => {
+      controller.abort()
+      return true
+    })
+    const outcome = await runCoordinationAttemptExecution(await compose(), { workingDirectory: PINNED_CHECKOUT, signal: controller.signal }, {
+      ...hostOptions(recording), observeAuthority,
+    })
+    expect(outcome).toMatchObject({ ok: false, code: 'COORD_ATTEMPT_CANCELLED' })
+    expect(observeAuthority).toHaveBeenCalledTimes(when === 'before' ? 0 : 1)
+    expect(recording.materializations).toEqual([])
+  })
+
+  it.each([NaN, Infinity, Date.parse(NOW) - 1])('refuses an invalid or rolled-back clock (%s)', async (now) => {
+    const recording = newRecording()
+    const outcome = await runCoordinationAttemptExecution(await compose(), { workingDirectory: PINNED_CHECKOUT }, {
+      ...hostOptions(recording), now: () => now,
+    })
+    expect(outcome).toMatchObject({ ok: false, code: 'COORD_NOW_INVALID' })
+    expect(recording.materializations).toEqual([])
+  })
+
+  it('uses the live clock when no clock is injected', async () => {
+    const recording = newRecording()
+    const outcome = await runCoordinationAttemptExecution(await compose(), { workingDirectory: PINNED_CHECKOUT }, {
+      ...hostOptions(recording), now: undefined,
+    })
+    expect(outcome).toMatchObject({ ok: false, code: 'COORD_ASSIGNMENT_EXPIRED' })
+    expect(recording.materializations).toEqual([])
   })
 })
 
