@@ -28,6 +28,8 @@
  * report capture: doc-coord-mvp04-cp05-admit-20260924-r1/ADMISSION.md §3.3;
  * usage record: doc-coord-mvp04-cp07-admit-20260924-r1/ADMISSION.md §3.2.
  */
+import { isDeepStrictEqual } from 'node:util'
+
 import type {
   CoordinationAssignmentDiagnostic,
   CoordinationAttemptExecutionPlan,
@@ -55,6 +57,7 @@ import {
   type CoordinationUsagePricer,
 } from './coordination-attempt-usage.js'
 import {
+  AgentExecutionConfigurationError,
   runAgentExecution,
   type AgentExecutionResult,
   type RunAgentExecutionOptions,
@@ -211,7 +214,10 @@ export async function runCoordinationAttemptExecution(
       ...(host.signal ? { signal: host.signal } : {}),
       ...(host.timeoutMs !== undefined ? { timeoutMs: host.timeoutMs } : {}),
     },
-    executionOptions,
+    {
+      ...executionOptions,
+      ...(executionOptions.projectInput ? { projectInput: guardInputProjection(executionOptions.projectInput) } : {}),
+    },
   )
   const usage: CoordinationAttemptUsage = result.usage
     ? Object.freeze({ status: 'reported', usage: result.usage })
@@ -234,6 +240,46 @@ export async function runCoordinationAttemptExecution(
     return { ok: false, code: result.code ?? 'COORD_ATTEMPT_EXECUTION_FAILED', ...base }
   }
   return { ok: true, ...base }
+}
+
+/**
+ * DZA-GAP2-02-20261003-R1: projection is a host policy seam, not a second
+ * request renderer. Give the callback detached values so in-place edits cannot
+ * change the baseline or the routing task. Reconstruct the admitted input from
+ * that baseline so later callback-owned mutations cannot change bound values.
+ */
+function guardInputProjection(
+  project: NonNullable<RunAgentExecutionOptions['projectInput']>,
+): NonNullable<RunAgentExecutionOptions['projectInput']> {
+  return (input, task) => {
+    const drift = () => new AgentExecutionConfigurationError(
+      'COORD_ATTEMPT_INPUT_PROJECTION_DRIFT',
+      'Coordinated input projection may augment host policy only.',
+    )
+    const { signal, ...values } = input
+    const projectedTask = structuredClone(task)
+    const projected = project({ ...structuredClone(values), ...(signal ? { signal } : {}) }, projectedTask)
+    if (!isRecord(projected)) throw drift()
+    // Read callback-owned properties once, before checking or forwarding them.
+    const snapshot = { ...projected }
+    if (snapshot.signal !== signal || !isDeepStrictEqual(projectedTask, task)) throw drift()
+    for (const key of new Set([...Object.keys(values), ...Object.keys(snapshot)])) {
+      if (key === 'policyContext' || key === 'options' || key === 'signal') continue
+      if (!isDeepStrictEqual(snapshot[key], (values as Record<string, unknown>)[key])) throw drift()
+    }
+    if (snapshot.options !== undefined && !isRecord(snapshot.options)) throw drift()
+    const options = { ...snapshot.options }
+    for (const key of new Set([...Object.keys(input.options ?? {}), ...Object.keys(options)])) {
+      // Worker supplies these policy controls alongside its typed policyContext.
+      if (key === 'approvalPolicy' || key === 'interactionPolicy') continue
+      if (!isDeepStrictEqual(options[key], input.options?.[key])) throw drift()
+    }
+    return {
+      ...input,
+      ...(snapshot.policyContext !== undefined ? { policyContext: structuredClone(snapshot.policyContext) } : {}),
+      options: structuredClone(options),
+    }
+  }
 }
 
 function cancelled(): CoordinationAttemptRunResult {
