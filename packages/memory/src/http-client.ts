@@ -100,20 +100,25 @@ export class HttpMemoryClient implements MemoryClient {
     );
 
     const payload = await this.parseJsonBody(response);
+    const records: unknown = Array.isArray(payload)
+      ? payload
+      : payload && typeof payload === "object"
+        ? (payload as Record<string, unknown>)["records"]
+        : undefined;
 
-    if (Array.isArray(payload)) {
-      return payload as MemoryRecord[];
+    if (!Array.isArray(records)) {
+      throw this.invalidResponse("get", response, "Expected a records collection");
     }
 
-    if (
-      payload &&
-      typeof payload === "object" &&
-      Array.isArray((payload as Record<string, unknown>)["records"])
-    ) {
-      return (payload as { records: MemoryRecord[] }).records;
+    try {
+      for (const record of records) {
+        this.validateResponseRecord(record, namespace, scope);
+      }
+    } catch {
+      throw this.invalidResponse("get", response, "Invalid memory record");
     }
 
-    return [];
+    return records as MemoryRecord[];
   }
 
   async put(
@@ -185,7 +190,42 @@ export class HttpMemoryClient implements MemoryClient {
       }
     }
 
-    return true;
+    throw this.invalidResponse("delete", response, "Expected a deletion acknowledgement");
+  }
+
+  private validateResponseRecord(
+    value: unknown,
+    namespace: string,
+    scope: MemoryScope
+  ): void {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("Expected a memory record object");
+    }
+
+    const record = value as MemoryRecord;
+    if (
+      typeof record.id !== "string" || record.id.trim().length === 0 ||
+      typeof record.namespace !== "string" ||
+      typeof record.content !== "string" ||
+      typeof record.createdAt !== "number" || !Number.isFinite(record.createdAt) ||
+      typeof record.updatedAt !== "number" || !Number.isFinite(record.updatedAt) ||
+      (record.metadata !== undefined &&
+        (!record.metadata || typeof record.metadata !== "object" || Array.isArray(record.metadata)))
+    ) {
+      throw new Error("Invalid memory record fields");
+    }
+
+    validateRecord(record, namespace, scope);
+  }
+
+  private invalidResponse(
+    operation: HttpMemoryOperation,
+    response: Response,
+    message: string
+  ): HttpMemoryResponseError {
+    return new HttpMemoryResponseError(operation, response.status, message, {
+      errorCode: "HTTP_MEMORY_INVALID_RESPONSE",
+    });
   }
 
   private buildNamespaceUrl(namespace: string): string {
@@ -237,8 +277,15 @@ export class HttpMemoryClient implements MemoryClient {
         signal: requestSignal.signal,
       });
 
-      if (!response.ok) {
-        const mapped = await this.mapHttpError(operation, response);
+      const acceptedStatus = operation === "get"
+        ? response.status === 200
+        : operation === "put"
+          ? [200, 201, 204].includes(response.status)
+          : [200, 204].includes(response.status);
+      if (!response.ok || !acceptedStatus) {
+        const mapped = !response.ok
+          ? await this.mapHttpError(operation, response)
+          : this.invalidResponse(operation, response, "Unexpected response status");
         this.emitRequestResult({
           signal: "http_memory_client_request_result",
           operation,
