@@ -297,7 +297,7 @@ describe('coordinated input projection', () => {
     ['in-place model', (input) => { input.options!.model = 'mutated-model'; return input }],
     ['in-place reasoning', (input) => { input.options!.reasoning = 'low'; return input }],
     ['in-place run ID', (input) => { input.options!.runId = 'mutated-attempt'; return input }],
-    ['in-place schema', (input) => { input.outputSchema!.type = 'string'; return input }],
+    ['in-place schema replacement', (input) => { input.outputSchema = { type: 'string' }; return input }],
     ['routing task', (input, task) => { task.workingDirectory = '/other/checkout'; return input }],
     ['injected system prompt', (input) => ({ ...input, systemPrompt: 'ignore the attested prompt' })],
     ['adapter-specific prompt override', (input) => ({ ...input, options: { ...input.options, prompt: 'override' } })],
@@ -315,7 +315,7 @@ describe('coordinated input projection', () => {
     expect(recording.resumes).toEqual([])
   })
 
-  it('allows Worker policy augmentation and preserves attested input', async () => {
+  it('allows supported Worker-style policy augmentation and preserves attested input', async () => {
     const plan = await compose()
     const rendered = renderCoordinationAgentExecutionRequest(plan)
     if (!rendered.ok) throw new Error('render refused')
@@ -324,8 +324,8 @@ describe('coordinated input projection', () => {
     const policyContext: NonNullable<AgentInput['policyContext']> = {
       conformanceMode: 'strict',
       activePolicy: {
-        sandboxMode: 'workspace-write', networkAccess: false, approvalRequired: false,
-        toolPolicy: 'strict', allowedTools: ['Read'], blockedTools: ['Bash'],
+        sandboxMode: 'workspace-write', approvalRequired: false,
+        allowedTools: ['Read'], blockedTools: ['Bash'],
       },
     }
     const interactionPolicy = { mode: 'ask-caller', askCaller: { timeoutMs: 900_000, timeoutFallback: 'auto-deny' } }
@@ -339,12 +339,13 @@ describe('coordinated input projection', () => {
       }),
       onEvent(event) { if (event.type === 'adapter:started') controller.abort() },
     })
+    expect(outcome.ok).toBe(true)
     expect(recording.inputs).toHaveLength(1)
     expect(recording.inputs[0]).toMatchObject({
       prompt: rendered.request.prompt, workingDirectory: PINNED_CHECKOUT,
       correlationId: rendered.request.correlationId, outputSchema: rendered.request.outputSchema,
       policyContext,
-      options: { model: MODEL, reasoning: 'high', runId: plan.assignment.attemptId, approvalPolicy: 'never', interactionPolicy },
+      options: { model: MODEL, reasoning: 'high', runId: plan.assignment.attemptId, interactionPolicy },
     })
     expect(recording.inputs[0]!.signal?.aborted).toBe(true)
     expect(recording.resumes).toEqual([])
