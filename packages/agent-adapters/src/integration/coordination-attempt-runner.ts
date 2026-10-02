@@ -37,6 +37,7 @@ import type {
   CoordinationExecutionProviderId,
   CoordinationSha256Digest,
 } from '@dzupagent/adapter-types'
+import { ForgeError } from '@dzupagent/core/events'
 
 import {
   compareCoordinationTimestamps,
@@ -57,7 +58,6 @@ import {
   type CoordinationUsagePricer,
 } from './coordination-attempt-usage.js'
 import {
-  AgentExecutionConfigurationError,
   runAgentExecution,
   type AgentExecutionResult,
   type RunAgentExecutionOptions,
@@ -252,10 +252,11 @@ function guardInputProjection(
   project: NonNullable<RunAgentExecutionOptions['projectInput']>,
 ): NonNullable<RunAgentExecutionOptions['projectInput']> {
   return (input, task) => {
-    const drift = () => new AgentExecutionConfigurationError(
-      'COORD_ATTEMPT_INPUT_PROJECTION_DRIFT',
-      'Coordinated input projection may augment host policy only.',
-    )
+    const drift = () => new ForgeError({
+      code: 'COORD_ATTEMPT_INPUT_PROJECTION_DRIFT',
+      message: 'Coordinated input projection may augment host policy only.',
+      recoverable: false,
+    })
     const { signal, ...values } = input
     const projectedTask = structuredClone(task)
     const projected = project({ ...structuredClone(values), ...(signal ? { signal } : {}) }, projectedTask)
