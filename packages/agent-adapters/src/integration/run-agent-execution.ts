@@ -175,7 +175,7 @@ export interface PrepareAgentExecutionRunnerOptions {
   ) | undefined
 }
 
-class AgentExecutionConfigurationError extends Error {
+export class AgentExecutionConfigurationError extends Error {
   constructor(public readonly code: string, message: string) {
     super(message)
     this.name = 'AgentExecutionConfigurationError'
