@@ -72,8 +72,9 @@ function sha256(content: string): string {
 }
 
 /** The fixture with a resolvable task digest, resealed with the producer rule. */
-function resolvableAssignment(): Json {
+function resolvableAssignment(mutate?: (assignment: Json) => void): Json {
   const assignment = JSON.parse(ASSIGNMENT_BYTES.toString('utf8')) as Json
+  mutate?.(assignment)
   const item = assignment.contextPack.items[0]
   item.artifact.digest = sha256(TASK_CONTENT)
   item.contentDigest = sha256(TASK_CONTENT)
@@ -91,8 +92,8 @@ function resolvableAssignment(): Json {
   return assignment
 }
 
-function decoded(): DecodedCoordinationExecutionAssignment {
-  const assignment = resolvableAssignment()
+function decoded(mutate?: (assignment: Json) => void): DecodedCoordinationExecutionAssignment {
+  const assignment = resolvableAssignment(mutate)
   const result = decodeCoordinationExecutionAssignment(JSON.stringify(assignment), {
     expectedSeal: coordinationCanonicalDigest(assignment),
   })
@@ -148,6 +149,7 @@ const resolveTask: CoordinationArtifactResolver = ({ digest }) =>
 async function compose(
   backend: 'sdk' | 'cli' = 'sdk',
   digests?: Record<string, string>,
+  mutate?: (assignment: Json) => void,
 ): Promise<CoordinationAttemptExecutionPlan> {
   const session = providerSession()
   const backendId = backend === 'sdk' ? 'claude-agent-sdk' : 'claude-cli'
@@ -182,7 +184,7 @@ async function compose(
         },
       }
   const result = await composeCoordinationAttemptExecution({
-    decoded: decoded(),
+    decoded: decoded(mutate),
     binding,
     now: NOW,
     modelCatalog,
@@ -260,6 +262,8 @@ function hostOptions(
   behaviour: Behaviour = {},
 ): CoordinationAttemptRunOptions {
   return {
+    now: () => Date.parse(NOW),
+    ...{ observeAuthority: () => true },
     materializeAdapter: (materialization) => {
       const { config: _config, ...facts } = materialization
       recording.materializations.push(facts)
@@ -272,6 +276,41 @@ function hostOptions(
 function newRecording(): Recording {
   return { inputs: [], materializations: [] }
 }
+
+// DZA-GAPADM-01-20261002-R1: composition does not authorize a later spawn.
+describe('current spawn authority', () => {
+  const DEADLINE = '2026-08-30T10:45:00Z'
+
+  it.each(['assignment', 'session', 'grant'] as const)('refuses an expired %s at its exact boundary', async (fact) => {
+    const plan = await compose('sdk', undefined, (assignment) => {
+      if (fact === 'assignment') assignment.notAfter = DEADLINE
+      if (fact === 'session') assignment.sessionEnrollment.expiresAt = DEADLINE
+      if (fact === 'grant') assignment.authorityBundle.grants[0].notAfter = DEADLINE
+    })
+    const recording = newRecording()
+    const outcome = await runCoordinationAttemptExecution(plan, { workingDirectory: PINNED_CHECKOUT }, {
+      ...hostOptions(recording), now: () => Date.parse(DEADLINE),
+    })
+    const code = { assignment: 'COORD_ASSIGNMENT_EXPIRED', session: 'COORD_SESSION_EXPIRED', grant: 'COORD_AUTHORITY_GRANT_EXPIRED' }[fact]
+    expect(outcome).toMatchObject({ ok: false, code })
+    expect(recording.materializations).toEqual([])
+    expect(recording.inputs).toEqual([])
+  })
+
+  it('refuses a grant revoked after composition without resolving credentials', async () => {
+    const plan = await compose()
+    const recording = newRecording()
+    const observeAuthority = vi.fn(async () => false)
+    const resolveApiKey = vi.fn(() => SECRET)
+    const options = { ...hostOptions(recording), observeAuthority, resolveApiKey }
+    const outcome = await runCoordinationAttemptExecution(plan, { workingDirectory: PINNED_CHECKOUT }, options)
+    expect(outcome).toMatchObject({ ok: false, code: 'COORD_ATTEMPT_AUTHORITY_REVOKED' })
+    expect(observeAuthority).toHaveBeenCalledWith(plan)
+    expect(resolveApiKey).not.toHaveBeenCalled()
+    expect(recording.materializations).toEqual([])
+    expect(recording.inputs).toEqual([])
+  })
+})
 
 // ---------------------------------------------------------------------------
 // A2. The shipped seam runs exactly the sealed binding
