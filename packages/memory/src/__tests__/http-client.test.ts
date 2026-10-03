@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { MemoryRecord } from '@dzupagent/agent-types'
-import { HttpMemoryClient, HttpMemoryResponseError } from '../http-client.js'
+import { HttpMemoryClient, HttpMemoryResponseError, type HttpMemoryRequestResult } from '../http-client.js'
 
 const scope = { tenantId: 'tenant-1' }
 const record: MemoryRecord = {
@@ -123,5 +123,98 @@ describe('HttpMemoryClient response contract', () => {
     await expect(client.get('facts', scope)).rejects.toMatchObject({
       name: 'HttpMemoryResponseError', operation: 'get', status,
     })
+  })
+})
+
+// DZUPAGENT-GAP4-06-20261003-R1: diagnostics describe the validated result.
+describe('HttpMemoryClient terminal diagnostics', () => {
+  it.each([
+    ['get', '{'], ['get', '{}'], ['get', '[null]'],
+    ['get', JSON.stringify([{ ...record, namespace: 'foreign' }])],
+    ['delete', '{'], ['delete', '{}'], ['delete', '{"deleted":"true"}'],
+  ] as const)('%s rejects %s with exactly one failed diagnostic', async (operation, body) => {
+    const results: HttpMemoryRequestResult[] = []
+    const client = new HttpMemoryClient({
+      baseUrl: 'https://memory.example', fetch: async () => new Response(body),
+      onRequestResult: (result) => { results.push(result) },
+    })
+    await expect(operation === 'get' ? client.get('facts', scope) : client.delete('facts', scope, record.id))
+      .rejects.toMatchObject({ name: 'HttpMemoryResponseError', errorCode: 'HTTP_MEMORY_INVALID_RESPONSE' })
+    expect(results).toEqual([{
+      signal: 'http_memory_client_request_result', operation, namespace: 'facts',
+      status: 200, outcome: 'response_error', errorCode: 'HTTP_MEMORY_INVALID_RESPONSE',
+    }])
+  })
+
+  it.each([
+    ['get', JSON.stringify([record]), 200], ['get', JSON.stringify({ records: [record] }), 200],
+    ['put', null, 200], ['put', null, 201], ['put', null, 204],
+    ['delete', 'true', 200], ['delete', 'false', 200],
+    ['delete', '{"deleted":false}', 200], ['delete', '{"ok":true}', 200],
+    ['delete', null, 204],
+  ] as const)('%s valid body/status %s/%s emits exactly one success', async (operation, body, status) => {
+    const results: HttpMemoryRequestResult[] = []
+    const client = new HttpMemoryClient({
+      baseUrl: 'https://memory.example', fetch: async () => new Response(body, { status }),
+      onRequestResult: (result) => { results.push(result) },
+    })
+    if (operation === 'get') await client.get('facts', scope)
+    else if (operation === 'put') await client.put('facts', scope, record)
+    else await client.delete('facts', scope, record.id)
+    expect(results).toEqual([{
+      signal: 'http_memory_client_request_result', operation, namespace: 'facts', status, outcome: 'success',
+    }])
+  })
+
+  it('does not report success before a delayed body has been read and validated', async () => {
+    const results: HttpMemoryRequestResult[] = []
+    let entered!: () => void
+    let release!: (body: string) => void
+    const enteredBody = new Promise<void>((resolve) => { entered = resolve })
+    const body = new Promise<string>((resolve) => { release = resolve })
+    const response = new Response()
+    vi.spyOn(response, 'text').mockImplementation(() => { entered(); return body })
+    const client = new HttpMemoryClient({
+      baseUrl: 'https://memory.example', fetch: async () => response,
+      onRequestResult: (result) => { results.push(result) },
+    })
+    const pending = client.get('facts', scope)
+    await enteredBody
+    expect(results).toEqual([])
+    release(JSON.stringify([record]))
+    await expect(pending).resolves.toEqual([record])
+    expect(results).toHaveLength(1)
+    expect(results[0]?.outcome).toBe('success')
+  })
+
+  it.each([400, 404, 500, 503])('keeps one HTTP error diagnostic and mapping for %s', async (status) => {
+    const results: HttpMemoryRequestResult[] = []
+    const client = new HttpMemoryClient({
+      baseUrl: 'https://memory.example',
+      fetch: async () => new Response('{"message":"backend error","code":"BACKEND_ERROR"}', {
+        status, headers: { 'Content-Type': 'application/json' },
+      }),
+      onRequestResult: (result) => { results.push(result) },
+    })
+    await expect(client.get('facts', scope)).rejects.toMatchObject({
+      name: 'HttpMemoryResponseError', status, errorCode: 'BACKEND_ERROR',
+    })
+    expect(results).toEqual([{
+      signal: 'http_memory_client_request_result', operation: 'get', namespace: 'facts',
+      status, outcome: 'http_error', errorCode: 'BACKEND_ERROR',
+    }])
+  })
+
+  it.each(['valid', 'invalid', 'http-error'] as const)('isolates a throwing diagnostics callback for %s', async (kind) => {
+    const onRequestResult = vi.fn(() => { throw new Error('diagnostic listener failed') })
+    const client = new HttpMemoryClient({
+      baseUrl: 'https://memory.example',
+      fetch: async () => new Response(kind === 'valid' ? JSON.stringify([record]) : '{}', {
+        status: kind === 'http-error' ? 503 : 200,
+      }), onRequestResult,
+    })
+    if (kind === 'valid') await expect(client.get('facts', scope)).resolves.toEqual([record])
+    else await expect(client.get('facts', scope)).rejects.toBeInstanceOf(HttpMemoryResponseError)
+    expect(onRequestResult).toHaveBeenCalledOnce()
   })
 })
