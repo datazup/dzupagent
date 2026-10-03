@@ -425,7 +425,7 @@ describe('current spawn authority', () => {
       ...hostOptions(recording), observeAuthority, now: () => Date.parse(plan.assignment.provenance.notAfter!) - 1,
     })
     expect(outcome.ok).toBe(true)
-    expect(observeAuthority).toHaveBeenCalledOnce()
+    expect(observeAuthority).toHaveBeenCalledTimes(2)
     expect(observeAuthority).toHaveBeenCalledWith(plan)
     expect(recording.inputs).toHaveLength(1)
   })
@@ -488,6 +488,89 @@ describe('current spawn authority', () => {
 // ---------------------------------------------------------------------------
 // A2. The shipped seam runs exactly the sealed binding
 // ---------------------------------------------------------------------------
+
+// DZUPAGENT-GAP4-01-20261003-R1: awaited listeners must not carry stale admission.
+describe('coordination admission at actual adapter start', () => {
+  const DEADLINE = '2026-08-30T10:45:00Z'
+  const phases = ['registry:routing', 'registry:primary_attempt', 'policy:conformance_warning'] as const
+  const faults = ['assignment', 'session', 'grant', 'revoked', 'throws', 'invalid', 'cancelled'] as const
+
+  for (const phase of phases) {
+    for (const raw of [false, true]) {
+      it.each(faults)(`refuses %s after paused ${phase} (${raw ? 'raw' : 'normal'} adapter)`, async (fault) => {
+        const plan = await compose('sdk', undefined, (assignment) => {
+          assignment.notAfter = DEADLINE
+          if (fault === 'session') assignment.sessionEnrollment.expiresAt = DEADLINE
+          if (fault === 'grant') assignment.authorityBundle.grants[0].notAfter = DEADLINE
+        })
+        const recording = newRecording()
+        const controller = new AbortController()
+        let time = Date.parse(NOW)
+        let changed = false
+        let release!: () => void
+        let entered!: () => void
+        const paused = new Promise<void>((resolve) => { entered = resolve })
+        const resumed = new Promise<void>((resolve) => { release = resolve })
+        const original = hostOptions(recording)
+        const execution = runCoordinationAttemptExecution(plan, {
+          workingDirectory: PINNED_CHECKOUT, signal: controller.signal,
+        }, {
+          ...original,
+          now: () => time,
+          observeAuthority: async () => {
+            if (changed && fault === 'throws') throw new Error(SECRET)
+            if (changed && fault === 'invalid') return undefined as unknown as boolean
+            return !(changed && fault === 'revoked')
+          },
+          materializeAdapter: (selection) => {
+            const adapter = original.materializeAdapter!(selection)
+            if (raw) adapter.executeWithRaw = (input) => adapter.execute(input)
+            return adapter
+          },
+          projectInput: (input) => ({ ...input, policyContext: {
+            conformanceMode: 'warn-only', activePolicy: { networkAccess: false },
+          } }),
+          async onEvent(event) {
+            if (event.type === 'adapter:progress' && event.phase === phase) {
+              entered()
+              await resumed
+            }
+          },
+        })
+        await paused
+        expect(recording.inputs).toEqual([])
+        changed = true
+        if (fault === 'cancelled') controller.abort()
+        if (fault === 'assignment' || fault === 'session' || fault === 'grant') time = Date.parse(DEADLINE)
+        release()
+        const outcome = await execution
+        const code = {
+          assignment: 'COORD_ASSIGNMENT_EXPIRED', session: 'COORD_SESSION_EXPIRED',
+          grant: 'COORD_AUTHORITY_GRANT_EXPIRED', revoked: 'COORD_ATTEMPT_AUTHORITY_REVOKED',
+          throws: 'COORD_ATTEMPT_AUTHORITY_OBSERVATION_FAILED', invalid: 'COORD_ATTEMPT_AUTHORITY_OBSERVATION_FAILED',
+          cancelled: 'COORD_ATTEMPT_CANCELLED',
+        }[fault]
+        expect(outcome).toMatchObject({ ok: false, refusals: expect.arrayContaining([expect.objectContaining({ code })]) })
+        expect(recording.inputs).toEqual([])
+        expect(recording.resumes).toEqual([])
+        expect(JSON.stringify(outcome)).not.toContain(SECRET)
+      })
+    }
+  }
+
+  it('runs once after paused listeners when authority stays current', async () => {
+    const recording = newRecording()
+    const observeAuthority = vi.fn(async () => true)
+    const outcome = await runCoordinationAttemptExecution(await compose(), { workingDirectory: PINNED_CHECKOUT }, {
+      ...hostOptions(recording), observeAuthority,
+      async onEvent() { await Promise.resolve() },
+    })
+    expect(outcome.ok).toBe(true)
+    expect(observeAuthority).toHaveBeenCalledTimes(2)
+    expect(recording.inputs).toHaveLength(1)
+    expect(recording.resumes).toEqual([])
+  })
+})
 
 describe('A2. production seam reached', () => {
   it('materializes exactly the bound provider, backend, auth and profile and runs the rendered request', async () => {
