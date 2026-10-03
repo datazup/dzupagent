@@ -125,7 +125,7 @@ export type CoordinationAttemptRunResult =
       readonly result: AgentExecutionResult
     }
   | {
-      /** Refused before any adapter was materialized. */
+      /** Refused before execution; final-start refusal may follow preparation. */
       readonly ok: false
       readonly code: string
       readonly refusals: readonly CoordinationAssignmentDiagnostic[]
@@ -186,25 +186,30 @@ export async function runCoordinationAttemptExecution(
     if (drift !== undefined) return drift
   }
 
-  if (host.signal?.aborted) return cancelled()
-  if (typeof observeAuthority !== 'function') {
-    return refusal('COORD_ATTEMPT_AUTHORITY_OBSERVER_REQUIRED', '$options.observeAuthority', 'Current host authority must be observed before spawn.')
+  async function observeCurrentAuthority(): Promise<CoordinationAttemptRunResult | undefined> {
+    if (host.signal?.aborted) return cancelled()
+    if (typeof observeAuthority !== 'function') {
+      return refusal('COORD_ATTEMPT_AUTHORITY_OBSERVER_REQUIRED', '$options.observeAuthority', 'Current host authority must be observed before spawn.')
+    }
+    let current: unknown
+    try {
+      current = await observeAuthority(plan)
+    } catch {
+      return refusal('COORD_ATTEMPT_AUTHORITY_OBSERVATION_FAILED', '$authority', 'The host could not observe current authority.')
+    }
+    if (current !== true) {
+      return refusal(current === false ? 'COORD_ATTEMPT_AUTHORITY_REVOKED' : 'COORD_ATTEMPT_AUTHORITY_OBSERVATION_FAILED', '$authority', 'The host did not affirm current authority for this plan.')
+    }
+    return undefined
   }
-  let current: unknown
-  try {
-    current = await observeAuthority(plan)
-  } catch {
-    return refusal('COORD_ATTEMPT_AUTHORITY_OBSERVATION_FAILED', '$authority', 'The host could not observe current authority.')
-  }
-  if (current !== true) {
-    return refusal(current === false ? 'COORD_ATTEMPT_AUTHORITY_REVOKED' : 'COORD_ATTEMPT_AUTHORITY_OBSERVATION_FAILED', '$authority', 'The host did not affirm current authority for this plan.')
-  }
-  // Read the clock and cancellation only after all awaited preflight work.
-  // No await separates these checks from the execution seam's materializer.
+  const currentRefusal = await observeCurrentAuthority()
+  if (currentRefusal !== undefined) return currentRefusal
+  // Preparation also requires current admission, before credential resolution.
   if (host.signal?.aborted) return cancelled()
   const expired = checkSpawnTime(plan, options.now ?? Date.now)
   if (expired !== undefined) return expired
 
+  let startRefusal: CoordinationAttemptRunResult | undefined
   const correlation = correlate(plan, rendered.attestation)
   const result = await runAgentExecution(
     {
@@ -217,8 +222,25 @@ export async function runCoordinationAttemptExecution(
     {
       ...executionOptions,
       ...(executionOptions.projectInput ? { projectInput: guardInputProjection(executionOptions.projectInput) } : {}),
+      // DZUPAGENT-GAP4-01-20261003-R1: host projections and event listeners
+      // can await arbitrarily. Re-observe at invocation, after those waits.
+      async *guardAdapterStart(invoke) {
+        if (bound !== undefined) startRefusal = await checkObservedDigests(bound, observeBindingDigests)
+        if (startRefusal === undefined) startRefusal = await observeCurrentAuthority()
+        if (startRefusal === undefined && host.signal?.aborted) startRefusal = cancelled()
+        if (startRefusal === undefined) startRefusal = checkSpawnTime(plan, options.now ?? Date.now)
+        if (startRefusal !== undefined) {
+          throw new AgentExecutionConfigurationError(
+            startRefusal.ok ? 'COORD_PLAN_INVALID' : startRefusal.code,
+            'Coordination admission was refused at adapter start.',
+          )
+        }
+        // No await between the final clock/cancellation checks and invocation.
+        yield* invoke()
+      },
     },
   )
+  if (startRefusal !== undefined) return startRefusal
   const usage: CoordinationAttemptUsage = result.usage
     ? Object.freeze({ status: 'reported', usage: result.usage })
     : Object.freeze({ status: 'unknown' })

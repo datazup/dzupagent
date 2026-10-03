@@ -12,6 +12,7 @@ import type {
   AgentEvent,
   AgentFailedEvent,
   AgentInput,
+  AgentStreamEvent,
   InteractionPolicy,
   TaskDescriptor,
   TokenUsage,
@@ -102,6 +103,7 @@ export interface RunAgentExecutionOptions {
   requiredCapabilities?: PrepareAgentExecutionRunnerOptions['requiredCapabilities']
   projectInput?: PrepareAgentExecutionRunnerOptions['projectInput']
   projectEvent?: PrepareAgentExecutionRunnerOptions['projectEvent']
+  guardAdapterStart?: PrepareAgentExecutionRunnerOptions['guardAdapterStart']
   /** See {@link AgentExecutionEventListener} for why this is plain `void`. */
   onEvent?: AgentExecutionEventListener | undefined
   now?: (() => number) | undefined
@@ -149,6 +151,14 @@ export interface PreparedAgentExecutionEventProjection {
 }
 
 export interface PrepareAgentExecutionRunnerOptions {
+  /**
+   * Invocation boundary after routing, progress listeners and policy warnings.
+   * The guard must call invoke only while admission is current. Preparation
+   * remains separate: no adapter execute/raw/resume method has run yet.
+   */
+  guardAdapterStart?: ((
+    invoke: () => AsyncGenerator<AgentStreamEvent, void, undefined>,
+  ) => AsyncGenerator<AgentStreamEvent, void, undefined>) | undefined
   /** Private host hook for explicit binary/profile materialization. */
   materializeAdapter?: ((input: {
     providerId: AgentExecutionProviderId
@@ -355,7 +365,21 @@ export function prepareAgentExecutionRunner(
   }
 
   const registry = new ProviderAdapterRegistry({ executionTimeoutMs: request.timeoutMs })
-  registry.registerProductionAdapters([adapter])
+  // DZUPAGENT-GAP4-01-20261003-R1: keep the guard next to the actual
+  // invocation, including raw execution and resume. Bind methods to the real
+  // adapter so class private fields and optional methods keep their semantics.
+  const guard = options.guardAdapterStart
+  const guardedAdapter = guard ? new Proxy(adapter, {
+    get(target, key) {
+      const value = Reflect.get(target, key, target)
+      if (typeof value !== 'function') return value
+      if (key === 'execute' || key === 'executeWithRaw' || key === 'resumeSession') {
+        return (...args: unknown[]) => guard(() => Reflect.apply(value, target, args))
+      }
+      return value.bind(target)
+    },
+  }) : adapter
+  registry.registerProductionAdapters([guardedAdapter])
   const attestation: PreparedAgentExecutionAttestation = Object.freeze({
     schema: 'dzupagent/prepared-agent-execution-runner-attestation/v1',
     selection: Object.freeze({
@@ -591,6 +615,7 @@ export async function runAgentExecution(
     requiredCapabilities,
     projectInput,
     projectEvent,
+    guardAdapterStart,
   } = options
   try {
     const preparedRunner = prepareAgentExecutionRunner(request, {
@@ -599,6 +624,7 @@ export async function runAgentExecution(
       requiredCapabilities,
       projectInput,
       projectEvent,
+      guardAdapterStart,
     })
     return runPreparedAgentExecution(request, preparedRunner, { onEvent, now })
   } catch (err: unknown) {
