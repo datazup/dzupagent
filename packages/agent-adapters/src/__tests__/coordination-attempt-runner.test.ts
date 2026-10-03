@@ -788,7 +788,7 @@ describe('CP07 A2. usage record', () => {
     const priceUsage = vi.fn(() => price)
     const outcome = await runCoordinationAttemptExecution(plan, { workingDirectory: PINNED_CHECKOUT }, {
       ...hostOptions(recording, { usage, fail: { message: 'claude failed', code: 'CLAUDE_FAILED' } }),
-      observeBindingDigests: () => ({ ...plan.binding.digests! }),
+      observeBindingDigests: () => ({ ...digests }),
       priceUsage,
     })
     expect(outcome).toMatchObject({ ok: false, code: 'CLAUDE_FAILED' })
