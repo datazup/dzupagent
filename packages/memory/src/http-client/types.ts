@@ -5,7 +5,7 @@ export interface HttpMemoryRequestResult {
   operation: HttpMemoryOperation;
   namespace: string;
   status?: number;
-  outcome: "success" | "http_error" | "timeout" | "aborted" | "network_error";
+  outcome: "success" | "http_error" | "response_error" | "timeout" | "aborted" | "network_error";
   errorCode?: string;
 }
 
@@ -16,7 +16,7 @@ export interface HttpMemoryClientConfig {
   headers?: Record<string, string>;
   /** Optional fetch override for testing or non-browser environments. */
   fetch?: typeof fetch;
-  /** Optional structured diagnostics callback for request outcomes. */
+  /** One terminal diagnostic after validation; callback exceptions are isolated. */
   onRequestResult?: (result: HttpMemoryRequestResult) => void;
 }
 

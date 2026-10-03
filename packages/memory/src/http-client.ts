@@ -99,26 +99,28 @@ export class HttpMemoryClient implements MemoryClient {
       namespace
     );
 
-    const payload = await this.parseJsonBody(response);
-    const records: unknown = Array.isArray(payload)
-      ? payload
-      : payload && typeof payload === "object"
-        ? (payload as Record<string, unknown>)["records"]
-        : undefined;
+    return this.completeResponse("get", namespace, response, async () => {
+      const payload = await this.parseJsonBody(response);
+      const records: unknown = Array.isArray(payload)
+        ? payload
+        : payload && typeof payload === "object"
+          ? (payload as Record<string, unknown>)["records"]
+          : undefined;
 
-    if (!Array.isArray(records)) {
-      throw this.invalidResponse("get", response, "Expected a records collection");
-    }
-
-    try {
-      for (const record of records) {
-        this.validateResponseRecord(record, namespace, scope);
+      if (!Array.isArray(records)) {
+        throw this.invalidResponse("get", response, "Expected a records collection");
       }
-    } catch {
-      throw this.invalidResponse("get", response, "Invalid memory record");
-    }
 
-    return records as MemoryRecord[];
+      try {
+        for (const record of records) {
+          this.validateResponseRecord(record, namespace, scope);
+        }
+      } catch {
+        throw this.invalidResponse("get", response, "Invalid memory record");
+      }
+
+      return records as MemoryRecord[];
+    });
   }
 
   async put(
@@ -170,27 +172,29 @@ export class HttpMemoryClient implements MemoryClient {
       namespace
     );
 
-    if (response.status === 204) {
-      return true;
-    }
-
-    const payload = await this.parseJsonBody(response);
-
-    if (typeof payload === "boolean") {
-      return payload;
-    }
-
-    if (payload && typeof payload === "object") {
-      const obj = payload as Record<string, unknown>;
-      if (typeof obj["deleted"] === "boolean") {
-        return obj["deleted"];
+    return this.completeResponse("delete", namespace, response, async () => {
+      if (response.status === 204) {
+        return true;
       }
-      if (typeof obj["ok"] === "boolean") {
-        return obj["ok"];
-      }
-    }
 
-    throw this.invalidResponse("delete", response, "Expected a deletion acknowledgement");
+      const payload = await this.parseJsonBody(response);
+
+      if (typeof payload === "boolean") {
+        return payload;
+      }
+
+      if (payload && typeof payload === "object") {
+        const obj = payload as Record<string, unknown>;
+        if (typeof obj["deleted"] === "boolean") {
+          return obj["deleted"];
+        }
+        if (typeof obj["ok"] === "boolean") {
+          return obj["ok"];
+        }
+      }
+
+      throw this.invalidResponse("delete", response, "Expected a deletion acknowledgement");
+    });
   }
 
   private validateResponseRecord(
@@ -299,13 +303,17 @@ export class HttpMemoryClient implements MemoryClient {
         throw mapped;
       }
 
-      this.emitRequestResult({
-        signal: "http_memory_client_request_result",
-        operation,
-        namespace,
-        status: response.status,
-        outcome: "success",
-      });
+      // PUT has no response payload contract. GET/DELETE report only after
+      // completeResponse validates their bodies (DZUPAGENT-GAP4-06-20261003-R1).
+      if (operation === "put") {
+        this.emitRequestResult({
+          signal: "http_memory_client_request_result",
+          operation,
+          namespace,
+          status: response.status,
+          outcome: "success",
+        });
+      }
 
       return response;
     } catch (err) {
@@ -397,7 +405,44 @@ export class HttpMemoryClient implements MemoryClient {
     }
   }
 
+  private async completeResponse<T>(
+    operation: "get" | "delete",
+    namespace: string,
+    response: Response,
+    decode: () => Promise<T>
+  ): Promise<T> {
+    let value: T;
+    try {
+      value = await decode();
+    } catch (err) {
+      const error = err instanceof HttpMemoryError
+        ? err
+        : this.invalidResponse(operation, response, "Unable to read a valid response body");
+      this.emitRequestResult({
+        signal: "http_memory_client_request_result",
+        operation,
+        namespace,
+        status: response.status,
+        outcome: "response_error",
+        ...(error.errorCode !== undefined ? { errorCode: error.errorCode } : {}),
+      });
+      throw error;
+    }
+    this.emitRequestResult({
+      signal: "http_memory_client_request_result",
+      operation,
+      namespace,
+      status: response.status,
+      outcome: "success",
+    });
+    return value;
+  }
+
   private emitRequestResult(result: HttpMemoryRequestResult): void {
-    this.config.onRequestResult?.(result);
+    try {
+      this.config.onRequestResult?.(result);
+    } catch {
+      // Diagnostics cannot replace the operation result or cause a second event.
+    }
   }
 }
