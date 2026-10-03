@@ -21,7 +21,7 @@ yarn verify
 
 ## Notes
 
-- Use Yarn 1 + Turbo from this repo root.
+- Use Corepack with the checked-in Yarn 4.16.0 toolchain and Turbo from this repo root (`packageManager` pins the version).
 - Prefer filtered Turbo checks such as `yarn test --filter=@dzupagent/core`.
 - Do not add product features to `packages/server` or `packages/playground`; product behavior belongs in consuming apps such as codev-app.
 
