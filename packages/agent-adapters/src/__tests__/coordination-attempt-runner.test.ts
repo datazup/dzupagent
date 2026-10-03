@@ -219,6 +219,7 @@ interface Recording {
 
 interface Behaviour {
   usage?: CompletedUsage
+  fail?: { message: string; code: string }
   reportAs?: AdapterProviderId
   /** The provider's final text; `done` when absent. */
   text?: string
@@ -235,6 +236,18 @@ function recordingAdapter(
     async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
       recording.inputs.push(input)
       yield { type: 'adapter:started', providerId: reporter, sessionId: 'provider-native-session-1', timestamp: 100 }
+      if (behaviour.fail) {
+        yield {
+          type: 'adapter:failed',
+          providerId: reporter,
+          sessionId: 'provider-native-session-1',
+          error: behaviour.fail.message,
+          code: behaviour.fail.code,
+          ...(behaviour.usage ? { usage: behaviour.usage } : {}),
+          timestamp: 112,
+        }
+        return
+      }
       yield {
         type: 'adapter:completed',
         providerId: reporter,
@@ -761,6 +774,70 @@ describe('A7. structured reports', () => {
 // ---------------------------------------------------------------------------
 
 describe('CP07 A2. usage record', () => {
+  // DZA-GAP3-02-20261003-R1: failure is execution truth; usage remains a claim.
+  it.each([
+    ['reported cost', 9, 9, 'reported', []],
+    ['cost disagreement', 9, 4, 'uncertain', ['USAGE_COST_DISAGREES']],
+    ['tokens only', undefined, 4, 'reported', []],
+  ] as const)('retains failed usage and bound tariff pricing: %s', async (_name, costCents, price, status, reasons) => {
+    const tokens = { inputTokens: 11, outputTokens: 7, cachedInputTokens: 3, cacheWriteTokens: 2 }
+    const usage = { ...tokens, ...(costCents !== undefined ? { costCents } : {}) }
+    const digests = { binary: sha256('binary'), profile: sha256('profile'), tariff: sha256('tariff') }
+    const plan = await compose('sdk', digests)
+    const recording = newRecording()
+    const priceUsage = vi.fn(() => price)
+    const outcome = await runCoordinationAttemptExecution(plan, { workingDirectory: PINNED_CHECKOUT }, {
+      ...hostOptions(recording, { usage, fail: { message: 'claude failed', code: 'CLAUDE_FAILED' } }),
+      observeBindingDigests: () => ({ ...plan.binding.digests! }),
+      priceUsage,
+    })
+    expect(outcome).toMatchObject({ ok: false, code: 'CLAUDE_FAILED' })
+    if (!('usageRecord' in outcome)) throw new Error('run refused before execution')
+    expect(outcome.result).toMatchObject({
+      ok: false, providerId: 'claude', text: '', code: 'CLAUDE_FAILED',
+      error: { code: 'CLAUDE_FAILED', message: 'claude failed', providerId: 'claude' },
+    })
+    expect(outcome.result.usage).toBe(usage)
+    expect(outcome.usage).toEqual({ status: 'reported', usage })
+    expect(priceUsage).toHaveBeenCalledExactlyOnceWith({
+      tariffRef: TARIFF_REF, tariffDigest: digests.tariff, providerId: 'claude', tokens,
+    })
+    expect(outcome.usageRecord).toMatchObject({
+      schema: COORDINATION_ATTEMPT_USAGE_SCHEMA,
+      attemptId: outcome.correlation.attemptId,
+      assignmentId: outcome.correlation.assignmentId,
+      bindingId: BINDING_ID,
+      providerId: 'claude',
+      tariffRef: TARIFF_REF,
+      correlationDigest: coordinationCanonicalDigest(outcome.correlation),
+      status, tokens, tariffCostCents: price, reasons,
+      ...(costCents !== undefined ? { providerReportedCostCents: costCents } : {}),
+    })
+    if (costCents === undefined) expect(outcome.usageRecord).not.toHaveProperty('providerReportedCostCents')
+    expect(outcome.usageRecord.recordDigest).toBe(
+      coordinationSelfDigest(outcome.usageRecord as unknown as Record<string, unknown>, 'recordDigest'),
+    )
+    expect(recording.inputs).toHaveLength(1)
+    expect(recording.resumes).toEqual([])
+  })
+
+  it('keeps absent failed usage unknown without pricing or inventing zero', async () => {
+    const priceUsage = vi.fn(() => 0)
+    const outcome = await runCoordinationAttemptExecution(await compose(), { workingDirectory: PINNED_CHECKOUT }, {
+      ...hostOptions(newRecording(), { fail: { message: 'claude failed', code: 'CLAUDE_FAILED' } }),
+      priceUsage,
+    })
+    expect(outcome).toMatchObject({ ok: false, code: 'CLAUDE_FAILED' })
+    if (!('usageRecord' in outcome)) throw new Error('run refused before execution')
+    expect(outcome.result).not.toHaveProperty('usage')
+    expect(outcome.usage).toEqual({ status: 'unknown' })
+    expect(outcome.usageRecord).toMatchObject({ status: 'unknown', reasons: ['USAGE_NOT_REPORTED'] })
+    for (const field of ['tokens', 'providerReportedCostCents', 'tariffCostCents']) {
+      expect(outcome.usageRecord).not.toHaveProperty(field)
+    }
+    expect(priceUsage).not.toHaveBeenCalled()
+  })
+
   it('binds an executed run\'s usage to its correlation', async () => {
     const usage = { inputTokens: 11, outputTokens: 7 } as CompletedUsage
     const outcome = await runCoordinationAttemptExecution(

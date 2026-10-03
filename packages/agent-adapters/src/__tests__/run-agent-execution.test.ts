@@ -79,6 +79,7 @@ function createFakeAdapter(
           providerId,
           error: options.fail.message,
           ...(options.fail.code ? { code: options.fail.code } : {}),
+          ...(options.usage ? { usage: options.usage } : {}),
           timestamp: 101,
           ...(input.correlationId
             ? { correlationId: input.correlationId }
@@ -496,7 +497,54 @@ describe("runAgentExecution", () => {
       attemptedProviders: ["codex"],
     });
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
+    expect(result).not.toHaveProperty("usage");
   });
+
+  // DZA-GAP3-02-20261003-R1: cover both failure returns without provider calls.
+  it.each([true, false])(
+    "preserves failed usage when event projection terminates the stream: %s",
+    async (terminal) => {
+      const usage = {
+        inputTokens: 11,
+        outputTokens: 7,
+        cachedInputTokens: 3,
+        cacheWriteTokens: 2,
+        costCents: 9,
+      };
+      const request = exactRequest({ providerId: "claude", prompt: "Fail" });
+      const preparedRunner = prepareFakeRunner(
+        request,
+        createFakeAdapter("claude", {
+          fail: { message: "claude failed", code: "CLAUDE_FAILED" },
+          usage,
+        }),
+        {
+          projectEvent: (event) => ({
+            events: [event],
+            terminal: terminal && event.type === "adapter:failed",
+          }),
+        }
+      );
+      const result = await runPreparedAgentExecution(request, preparedRunner);
+
+      expect(result).toMatchObject({
+        ok: false,
+        providerId: "claude",
+        text: "",
+        code: "CLAUDE_FAILED",
+        error: {
+          code: "CLAUDE_FAILED",
+          message: "claude failed",
+          providerId: "claude",
+        },
+        attemptedProviders: ["claude"],
+      });
+      const failure = result.events.find((event) => event.type === "adapter:failed");
+      expect(failure).toMatchObject({ usage });
+      expect(result.usage).toBe(usage);
+      expect(result.events.some((event) => event.type === "adapter:completed")).toBe(false);
+    }
+  );
 
   it("maps optional SDK import failures into structured adapter failure state", async () => {
     const request = exactRequest({
