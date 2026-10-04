@@ -480,7 +480,11 @@ function checkBindingAgainstAssignment(
   if (session.descriptor.providerId !== binding.providerId) {
     refuse(refusals, 'COORD_BINDING_PROVIDER_MISMATCH', '$binding.capabilitySet.providerSession.descriptor.providerId', 'Session descriptor names a different provider.')
   }
-  if (session.descriptor.backend.kind !== binding.backend) {
+  const descriptorBackendMatchesBinding = session.descriptor.backend.kind === binding.backend
+    || (binding.providerId === 'codex'
+      && binding.backend === 'cli'
+      && session.descriptor.backend.kind === 'app-server')
+  if (!descriptorBackendMatchesBinding) {
     refuse(refusals, 'COORD_BINDING_BACKEND_MISMATCH', '$binding.capabilitySet.providerSession.descriptor.backend.kind', 'Session descriptor names a different backend.')
   }
   if (session.authSourceRef !== binding.auth.sourceRef) {
