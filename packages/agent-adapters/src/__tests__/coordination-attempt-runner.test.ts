@@ -1048,6 +1048,19 @@ describe('MVP-07-CP04 binding digests', () => {
     })
   }
 
+  it('refuses a v2 plan that pins no binding digests, before authority or materialization', async () => {
+    const recording = newRecording()
+    const outcome = await runCoordinationAttemptExecution(
+      await compose(),
+      { workingDirectory: PINNED_CHECKOUT },
+      hostOptions(recording),
+    )
+    expect(outcome).toMatchObject({ ok: false, code: 'COORD_BINDING_DIGESTS_REQUIRED' })
+    expect(outcome).not.toHaveProperty('usageRecord')
+    expect(recording.materializations).toEqual([])
+    expect(recording.inputs).toEqual([])
+  })
+
   it('never calls the observer for a v2 plan', async () => {
     const observe = vi.fn(() => ({ ...OBSERVED }))
     const outcome = await runCoordinationAttemptExecution(
