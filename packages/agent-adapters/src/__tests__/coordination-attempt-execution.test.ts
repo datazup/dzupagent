@@ -978,6 +978,68 @@ describe('9. binding axes', () => {
     ])
   })
 
+  describe('P20 CLI app-server descriptor compatibility', () => {
+    function descriptorInput(
+      providerId: 'codex' | 'claude',
+      backend: 'cli' | 'sdk',
+      kind: string,
+    ): Partial<ComposeCoordinationAttemptExecutionInput> {
+      const routed = codex()
+      const executionBinding = routed.binding as Json
+      executionBinding.providerId = providerId
+      executionBinding.backend = backend
+      executionBinding.auth.mode = backend === 'cli' ? 'subscription_cli' : 'api_key'
+      const descriptor = executionBinding.capabilitySet.providerSession.descriptor
+      descriptor.providerId = providerId
+      descriptor.backend = { id: `${providerId}-${kind}`, kind }
+      return {
+        binding: executionBinding,
+        modelCatalog: catalog({
+          providerId,
+          backendId: descriptor.backend.id,
+          models: [{ providerId, id: MODEL, displayName: 'Sentinel model', supportedReasoningEfforts: ['high'] }],
+        }),
+      }
+    }
+
+    it('accepts codex cli with an app-server descriptor and preserves physical identity', async () => {
+      const appServer = descriptorInput('codex', 'cli', 'app-server')
+      const plan = await compose(appServer)
+      expect(plan.execution.providerId).toBe('codex')
+      expect(plan.execution.backend).toBe('cli')
+      expect(plan.execution.backendId).toBe('codex-app-server')
+      expect((appServer.binding as Json).capabilitySet.providerSession.descriptor.backend.kind).toBe('app-server')
+    })
+
+    it.each([
+      ['claude', 'cli', 'app-server'],
+      ['codex', 'sdk', 'app-server'],
+      ['codex', 'cli', 'sdk'],
+      ['codex', 'cli', 'local-model'],
+      ['codex', 'cli', 'api'],
+      ['codex', 'cli', 'remote'],
+    ] as const)('refuses %s %s with a %s descriptor', async (providerId, backend, kind) => {
+      expect(await refusalCodes(descriptorInput(providerId, backend, kind))).toEqual([
+        'COORD_BINDING_BACKEND_MISMATCH',
+      ])
+    })
+
+    it('refuses an unknown descriptor kind at session validation before backend comparison', async () => {
+      expect(await refusalCodes(descriptorInput('codex', 'cli', 'unknown'))).toEqual([
+        'COORD_BINDING_SESSION_INVALID',
+      ])
+    })
+
+    it('still refuses a catalog backend id differing from the app-server descriptor', async () => {
+      const appServer = descriptorInput('codex', 'cli', 'app-server')
+      const codes = await refusalCodes({
+        ...appServer,
+        modelCatalog: { ...appServer.modelCatalog!, backendId: 'codex-cli' },
+      })
+      expect(codes).toContain('COORD_CATALOG_BACKEND_MISMATCH')
+    })
+  })
+
   it('refuses a required session operation the descriptor marks unsupported, without emulation', async () => {
     const session = providerSession()
     const unsupported = binding({
