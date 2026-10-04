@@ -9,6 +9,7 @@ import {
   operationCancelled,
   type CodexAppServerClientLimits,
   type CodexAppServerClientOptions,
+  type CodexAppServerJoinReceipt,
   type CodexAppServerInboundEvent,
   type CodexAppServerRequestOptions,
 } from './codex-app-server-client-contracts.js'
@@ -25,6 +26,7 @@ import {
   validServerRequestId,
 } from './codex-app-server-client-validation.js'
 import { AsyncEventQueue } from './codex-app-server-event-queue.js'
+import { buildCodexContainedCommand, codexJoinReceipt } from './codex-app-server-containment.js'
 import { qualifyArtifactDigest, qualifyExecutable } from './codex-app-server-executable.js'
 import { CodexAppServerFrameReader } from './codex-app-server-frame-reader.js'
 import { writeCodexAppServerFrame } from './codex-app-server-frame-writer.js'
@@ -40,7 +42,9 @@ export type {
   CodexAppServerClientErrorCode,
   CodexAppServerClientLimits,
   CodexAppServerClientOptions,
+  CodexAppServerContainment,
   CodexAppServerInboundEvent,
+  CodexAppServerJoinReceipt,
   CodexAppServerRequestOptions,
   CodexAppServerSpawn,
 } from './codex-app-server-client-contracts.js'
@@ -78,6 +82,9 @@ export class CodexAppServerStdioClient {
   private initialized = false
   private closing = false
   private exited = false
+  private exitStatus: { code: number | null, signal: NodeJS.Signals | null } | undefined
+  private readonly containedArgvDigest: string | undefined
+  private readonly gracefulExitFirst: boolean
   private terminalError: CodexAppServerClientError | undefined
   private cleanupPromise: Promise<void> | undefined
   private sigtermSent = false
@@ -98,9 +105,15 @@ export class CodexAppServerStdioClient {
       isActive: () => !this.terminalError && !this.closing,
     })
     const spawnProcess = options.dependencies?.spawn ?? spawn
+    const appArgs = ['app-server', '--stdio']
+    const contained = options.containment
+      ? buildCodexContainedCommand(options.containment, executablePath, appArgs)
+      : undefined
+    this.containedArgvDigest = contained?.argvDigest
+    this.gracefulExitFirst = contained !== undefined
     this.child = spawnProcess(
-      executablePath,
-      ['app-server', '--stdio'],
+      contained?.command ?? executablePath,
+      contained?.args ?? appArgs,
       {
         stdio: ['pipe', 'pipe', 'pipe'],
         shell: false,
@@ -157,6 +170,15 @@ export class CodexAppServerStdioClient {
     } finally {
       signal?.removeEventListener('abort', abortClient)
     }
+  }
+
+  /**
+   * Present only for a contained client. The outer process's own exit is the
+   * join: it cannot exit until the namespace init has been reaped.
+   */
+  joinReceipt(): CodexAppServerJoinReceipt | undefined {
+    if (this.containedArgvDigest === undefined) return undefined
+    return codexJoinReceipt(this.containedArgvDigest, this.exitStatus)
   }
 
   events(): AsyncIterable<CodexAppServerInboundEvent> {
@@ -232,7 +254,8 @@ export class CodexAppServerStdioClient {
         'Codex app-server process failed',
       ))
     })
-    this.child.on('exit', () => {
+    this.child.on('exit', (code: number | null, signal: NodeJS.Signals | null) => {
+      this.exitStatus = { code, signal }
       this.exited = true
       if (!this.closing && !this.terminalError) {
         this.fail(new CodexAppServerClientError(
@@ -431,6 +454,9 @@ export class CodexAppServerStdioClient {
   private async terminateProcess(): Promise<void> {
     if (this.exited) return
     try {
+      // Stdin is already closed here. A signal on the outer process would end
+      // the receipt as unproven, so a contained client lets EOF finish first.
+      if (this.gracefulExitFirst && await this.waitForExit(this.limits.cleanupTimeoutMs)) return
       if (!this.sigtermSent) {
         this.sigtermSent = true
         this.child.kill('SIGTERM')

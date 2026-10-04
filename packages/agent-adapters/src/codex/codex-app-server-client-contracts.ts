@@ -25,6 +25,21 @@ export interface CodexAppServerClientLimits {
   readonly maxQueuedEvents?: number | undefined
 }
 
+export interface CodexAppServerContainment {
+  /** Defaults to `bwrap` on PATH. */
+  readonly bwrapPath?: string | undefined
+  /** Absolute paths bound writable; everything else is read-only. */
+  readonly writablePaths: readonly string[]
+}
+
+export interface CodexAppServerJoinReceipt {
+  /** True only after the outer process exited without a signal. */
+  readonly joined: boolean
+  readonly exitCode: number | null
+  readonly signal: NodeJS.Signals | null
+  readonly argvDigest: string
+}
+
 export interface CodexAppServerClientOptions {
   /** Private host-owned identity previously used for capability observation. */
   readonly executable: ResolvedProbeExecutable
@@ -36,6 +51,8 @@ export interface CodexAppServerClientOptions {
     readonly version: string
   } | undefined
   readonly limits?: CodexAppServerClientLimits | undefined
+  /** Opt-in PID-namespace sandbox; run Codex with its own sandbox off inside it. */
+  readonly containment?: CodexAppServerContainment | undefined
   readonly dependencies?: CodexAppServerClientDependencies | undefined
 }
 
