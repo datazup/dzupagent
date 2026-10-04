@@ -26,6 +26,8 @@ import {
 import {
   CodexAppServerClientError,
   CodexAppServerStdioClient,
+  type CodexAppServerContainment,
+  type CodexAppServerJoinReceipt,
   qualifyCodexAppServerExecutable,
   type CodexAppServerClientDependencies,
   type CodexAppServerClientLimits,
@@ -81,6 +83,8 @@ import type { ResolvedProbeExecutable } from '../introspection/index.js'
 // re-exported here after moving into the contracts layer. The re-export is
 // explicit rather than `export *` to keep the run-state interfaces, constants and
 // error factories the layering also shares out of the published surface.
+const MAX_JOIN_RECEIPTS = 64
+
 export type { CodexAppServerAdapterOptions } from './codex-app-server-adapter-contracts.js'
 
 /**
@@ -103,12 +107,15 @@ export class CodexAppServerAdapter implements AgentCLIAdapter, ProviderSessionAd
   private readonly activeRuns = new Set<ActiveRun>()
   private readonly pendingApprovals = new Map<string, PendingCodexApproval>()
   private readonly goalControl: CodexGoalControlAdapter | undefined
+  private readonly containment: CodexAppServerContainment | undefined
+  private readonly joinReceipts = new Map<string, CodexAppServerJoinReceipt>()
 
   constructor(options: CodexAppServerAdapterOptions) {
     assertAppServerAdmission(options)
     this.attemptBinding = options.attemptBinding
     this.executable = options.executable
     this.clientLimits = options.clientLimits
+    this.containment = options.containment
     this.now = options.dependencies?.now ?? Date.now
     this.monotonicNow = options.dependencies?.monotonicNow ?? (() => performance.now())
     this.interruptGraceMs = interruptGrace(options.interruptGraceMs)
@@ -319,6 +326,7 @@ export class CodexAppServerAdapter implements AgentCLIAdapter, ProviderSessionAd
           : {}),
         ...(this.config.env ? { env: this.config.env } : {}),
         ...(this.clientLimits ? { limits: this.clientLimits } : {}),
+        ...(this.containment ? { containment: this.containment } : {}),
         ...(this.clientDependencies ? { dependencies: this.clientDependencies } : {}),
       }, {
         timeoutMs: requireRemaining(),
@@ -441,6 +449,7 @@ export class CodexAppServerAdapter implements AgentCLIAdapter, ProviderSessionAd
         } catch (error) {
           cleanupError = sanitizedError(error)
         }
+        this.recordJoinReceipt(input.correlationId, client)
       }
     }
 
@@ -465,6 +474,23 @@ export class CodexAppServerAdapter implements AgentCLIAdapter, ProviderSessionAd
       return
     }
     if (terminal) yield terminal
+  }
+
+  /** Join receipt of the last contained run with this correlation id; undefined without containment. */
+  joinReceipt(correlationId: string): CodexAppServerJoinReceipt | undefined {
+    return this.joinReceipts.get(correlationId)
+  }
+
+  private recordJoinReceipt(correlationId: string, client: CodexAppServerStdioClient): void {
+    const receipt = client.joinReceipt()
+    if (!receipt) return
+    this.joinReceipts.delete(correlationId)
+    this.joinReceipts.set(correlationId, receipt)
+    while (this.joinReceipts.size > MAX_JOIN_RECEIPTS) {
+      const oldest = this.joinReceipts.keys().next().value
+      if (oldest === undefined) break
+      this.joinReceipts.delete(oldest)
+    }
   }
 
   private decideActiveRun(run: ActiveRun, decision: LocalTerminalDecision): void {

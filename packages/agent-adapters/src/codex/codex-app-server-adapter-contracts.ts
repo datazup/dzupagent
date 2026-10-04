@@ -8,6 +8,7 @@ import {
   CodexAppServerClientError,
   type CodexAppServerClientDependencies,
   type CodexAppServerClientLimits,
+  type CodexAppServerContainment,
   type CodexAppServerSpawn,
   type CodexAppServerStdioClient,
 } from './codex-app-server-client.js'
@@ -22,6 +23,8 @@ export interface CodexAppServerAdapterOptions extends AdapterConfig {
   /** Private identity used for observation and requalified immediately before spawn. */
   readonly executable: ResolvedProbeExecutable
   readonly clientLimits?: CodexAppServerClientLimits | undefined
+  /** Opt-in PID-namespace containment; the caller must run Codex with its own sandbox off. */
+  readonly containment?: CodexAppServerContainment | undefined
   /** Tight interrupt acknowledgement grace, separate from ordinary RPC timeouts. */
   readonly interruptGraceMs?: number | undefined
   readonly dependencies?: {

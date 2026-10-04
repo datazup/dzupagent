@@ -1,5 +1,6 @@
-import type { ChildProcess } from 'node:child_process'
+import { spawnSync, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -1677,5 +1678,187 @@ describe('Codex App Server provider-session adapter', () => {
       code: 'CODEX_APP_SERVER_PROTOCOL_ERROR',
     }))
     expect(JSON.stringify(events)).not.toContain('private failure')
+  })
+})
+
+const PID_NAMESPACE_USABLE = spawnSync('bwrap', ['--unshare-pid', '--ro-bind', '/', '/', 'true']).status === 0
+
+function endsOnEof(server: FakeServer, exit: () => void): void {
+  server.child.stdin?.on('end', () => queueMicrotask(exit))
+}
+
+describe('Codex App Server adapter join receipt', () => {
+  it('has no receipt without containment, nor for an unknown correlation id', async () => {
+    const server = fakeServer(completedScenario)
+    const adapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      dependencies: runtimeDependencies(server.child),
+    })
+
+    await collect(adapter.execute(input()))
+
+    expect(adapter.joinReceipt('correlation-1')).toBeUndefined()
+    expect(adapter.joinReceipt('unknown')).toBeUndefined()
+  })
+
+  it('spawns through the containment wrapper and joins only on a signal-free exit', async () => {
+    const server = fakeServer(completedScenario)
+    endsOnEof(server, () => server.child.emit('exit', 0, null))
+    const spawn = vi.fn(() => server.child)
+    const adapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      containment: { writablePaths: ['/fixture/workspace'] },
+      clientLimits: { cleanupTimeoutMs: 200 },
+      dependencies: { ...runtimeDependencies(server.child), spawn },
+    })
+
+    const events = await collect(adapter.execute(input()))
+
+    expect(events.at(-1)?.type).toBe('adapter:completed')
+    expect(spawn.mock.calls[0]?.[0]).toBe('bwrap')
+    expect(spawn.mock.calls[0]?.[1]).toContain('--unshare-pid')
+    expect(adapter.joinReceipt('correlation-1')).toEqual({
+      joined: true,
+      exitCode: 0,
+      signal: null,
+      argvDigest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+    })
+  })
+
+  it('reports joined false when the wrapper had to be killed', async () => {
+    const server = fakeServer(completedScenario)
+    server.child.kill = vi.fn(() => {
+      queueMicrotask(() => server.child.emit('exit', null, 'SIGKILL'))
+      return true
+    })
+    const adapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      containment: { writablePaths: ['/fixture/workspace'] },
+      clientLimits: { cleanupTimeoutMs: 20 },
+      dependencies: runtimeDependencies(server.child),
+    })
+
+    await collect(adapter.execute(input()))
+
+    expect(adapter.joinReceipt('correlation-1')).toEqual(expect.objectContaining({
+      joined: false,
+      signal: 'SIGKILL',
+    }))
+  })
+
+  it('keeps a bounded number of receipts, dropping the oldest', async () => {
+    const spawn = vi.fn(() => {
+      const server = fakeServer(completedScenario)
+      endsOnEof(server, () => server.child.emit('exit', 0, null))
+      return server.child
+    })
+    const adapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: executableIdentity(),
+      containment: { writablePaths: ['/fixture/workspace'] },
+      clientLimits: { cleanupTimeoutMs: 200 },
+      dependencies: { ...runtimeDependencies(fakeServer(completedScenario).child), spawn },
+    })
+
+    for (let index = 0; index < 66; index++) {
+      await collect(adapter.execute(input({ correlationId: `correlation-${index}` })))
+    }
+
+    expect(adapter.joinReceipt('correlation-0')).toBeUndefined()
+    expect(adapter.joinReceipt('correlation-1')).toBeUndefined()
+    expect(adapter.joinReceipt('correlation-2')?.joined).toBe(true)
+    expect(adapter.joinReceipt('correlation-65')?.joined).toBe(true)
+  })
+})
+
+const REAL_SERVER = `
+import { spawn } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { createInterface } from 'node:readline'
+import { join } from 'node:path'
+const [root] = process.argv.slice(2)
+const fx = JSON.parse(readFileSync(join(root, 'responses.json'), 'utf8'))
+const emit = frame => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...frame }) + '\\n')
+createInterface({ input: process.stdin }).on('line', async line => {
+  const frame = JSON.parse(line)
+  if (frame.method === 'initialize') emit({ id: frame.id, result: fx.initialize })
+  if (frame.method === 'thread/start') emit({ id: frame.id, result: fx.thread })
+  if (frame.method === 'turn/start') {
+    const child = spawn(process.execPath, [join(root, 'effect.mjs'), join(root, 'release'), join(root, 'effect')], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] })
+    await new Promise(resolve => child.stdout.once('data', resolve))
+    child.stdout.destroy()
+    child.unref()
+    emit({ id: frame.id, result: fx.turnStart })
+    emit({ method: 'item/agentMessage/delta', params: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'item-1', delta: 'done' } })
+    emit({ method: 'thread/tokenUsage/updated', params: fx.usage })
+    emit({ method: 'turn/completed', params: { threadId: 'thread-1', turn: fx.turnDone } })
+  }
+})
+`
+const REAL_EFFECT = `
+import { existsSync, writeFileSync } from 'node:fs'
+const [release, effect] = process.argv.slice(2)
+process.stdout.write('ready\\n')
+setInterval(() => { if (existsSync(release)) { writeFileSync(effect, 'effect-after-join\\n'); process.exit(0) } }, 5)
+`
+
+async function runRealDouble(containment: boolean) {
+  const root = mkdtempSync(join(tmpdir(), 'codex-adapter-join-'))
+  try {
+    writeFileSync(join(root, 'server.mjs'), REAL_SERVER)
+    writeFileSync(join(root, 'effect.mjs'), REAL_EFFECT)
+    writeFileSync(join(root, 'responses.json'), JSON.stringify({
+      initialize: initializeResponse(),
+      thread: threadResponse('thread-1'),
+      turnStart: { turn: turnPayload('turn-1', 'inProgress') },
+      turnDone: turnPayload('turn-1', 'completed'),
+      usage: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        tokenUsage: {
+          last: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0, reasoningOutputTokens: 0, totalTokens: 2 },
+          total: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0, reasoningOutputTokens: 0, totalTokens: 2 },
+        },
+      },
+    }))
+    const bin = join(root, 'fake-codex')
+    writeFileSync(bin, `#!/bin/sh\nexec "${process.execPath}" "${join(root, 'server.mjs')}" "${root}"\n`)
+    chmodSync(bin, 0o755)
+    const adapter = createCodexAppServerAdapter({
+      attemptBinding: binding(),
+      executable: { name: 'codex', path: bin, realPath: bin, artifactDigest: ARTIFACT_DIGEST },
+      clientLimits: { cleanupTimeoutMs: 1000 },
+      ...(containment ? { containment: { writablePaths: [root] } } : {}),
+      dependencies: {
+        realpath: async (path: string) => path,
+        stat: async () => ({ isFile: () => true }),
+        access: async () => undefined,
+        digestArtifact: async () => ARTIFACT_DIGEST,
+      },
+    })
+    const events = await collect(adapter.execute(input()))
+    const joined = adapter.joinReceipt('correlation-1')?.joined
+    writeFileSync(join(root, 'release'), '')
+    for (let i = 0; i < 100 && !existsSync(join(root, 'effect')); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+    return { completed: events.at(-1)?.type === 'adapter:completed', joined, effectWritten: existsSync(join(root, 'effect')) }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+}
+
+describe.skipIf(!PID_NAMESPACE_USABLE)('Codex App Server adapter real containment', () => {
+  it('control: without containment the descendant effect outlives the run', async () => {
+    const result = await runRealDouble(false)
+    expect(result).toEqual({ completed: true, joined: undefined, effectWritten: true })
+  })
+
+  it('with containment no byte is written after the join receipt', async () => {
+    const result = await runRealDouble(true)
+    expect(result).toEqual({ completed: true, joined: true, effectWritten: false })
   })
 })
