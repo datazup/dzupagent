@@ -449,7 +449,7 @@ export class CodexAppServerAdapter implements AgentCLIAdapter, ProviderSessionAd
         } catch (error) {
           cleanupError = sanitizedError(error)
         }
-        this.recordJoinReceipt(input.correlationId, client)
+        if (input.correlationId !== undefined) this.recordJoinReceipt(input.correlationId, client)
       }
     }
 
