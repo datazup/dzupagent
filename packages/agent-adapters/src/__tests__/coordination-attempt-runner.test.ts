@@ -146,10 +146,20 @@ function catalog(): ProviderModelCatalog {
 const resolveTask: CoordinationArtifactResolver = ({ digest }) =>
   digest === sha256(TASK_CONTENT) ? { content: TASK_CONTENT } : undefined
 
-/** Claude on the SDK (api key) by default; `cli` binds the Claude CLI on a subscription profile. */
+/** The host-observed digests a default v3 plan pins; `hostOptions` observes the same values. */
+const OBSERVED_DIGESTS = {
+  binary: `sha256:${'b'.repeat(64)}`,
+  profile: `sha256:${'c'.repeat(64)}`,
+  tariff: `sha256:${'d'.repeat(64)}`,
+} as const
+
+/**
+ * Claude on the SDK (api key) by default; `cli` binds the Claude CLI on a subscription profile.
+ * The default binding is v3 (digests pinned); `null` digests build the digestless v2 binding.
+ */
 async function compose(
   backend: 'sdk' | 'cli' = 'sdk',
-  digests?: Record<string, string>,
+  digests: Record<string, string> | null = OBSERVED_DIGESTS,
   mutate?: (assignment: Json) => void,
 ): Promise<CoordinationAttemptExecutionPlan> {
   const session = providerSession()
@@ -173,7 +183,7 @@ async function compose(
       reasoning: 'high',
   }
   const modelCatalog = { ...catalog(), backendId }
-  const binding = digests === undefined
+  const binding = digests === null
     ? v2
     : {
         ...v2,
@@ -280,6 +290,7 @@ function hostOptions(
   return {
     now: () => Date.parse(NOW),
     observeAuthority: () => true,
+    observeBindingDigests: () => ({ ...OBSERVED_DIGESTS }),
     materializeAdapter: (materialization) => {
       const { config: _config, ...facts } = materialization
       recording.materializations.push(facts)
@@ -962,7 +973,7 @@ describe('CP07 A2. usage record', () => {
       { ...hostOptions(newRecording(), { usage }), priceUsage: (input) => { priced.push(input); return 4 } },
     )
     if (!('usageRecord' in outcome)) throw new Error('run refused before execution')
-    expect(priced).toEqual([{ tariffRef: TARIFF_REF, providerId: 'claude', tokens: { inputTokens: 11, outputTokens: 7 } }])
+    expect(priced).toEqual([{ tariffRef: TARIFF_REF, tariffDigest: OBSERVED_DIGESTS.tariff, providerId: 'claude', tokens: { inputTokens: 11, outputTokens: 7 } }])
     expect(outcome.ok).toBe(true)
     expect(outcome.usageRecord).toMatchObject({ status: 'uncertain', reasons: ['USAGE_COST_DISAGREES'], providerReportedCostCents: 9, tariffCostCents: 4 })
   })
@@ -989,11 +1000,7 @@ describe('CP07 A2. usage record', () => {
 // ---------------------------------------------------------------------------
 
 describe('MVP-07-CP04 binding digests', () => {
-  const OBSERVED = {
-    binary: `sha256:${'b'.repeat(64)}`,
-    profile: `sha256:${'c'.repeat(64)}`,
-    tariff: `sha256:${'d'.repeat(64)}`,
-  } as const
+  const OBSERVED = OBSERVED_DIGESTS
   const MOVED = `sha256:${'e'.repeat(64)}` as const
 
   it('runs a v3 plan when every host-observed digest still matches', async () => {
@@ -1009,10 +1016,11 @@ describe('MVP-07-CP04 binding digests', () => {
 
   it('refuses a v3 plan without an observer, before anything is materialized', async () => {
     const recording = newRecording()
+    const { observeBindingDigests: _observer, ...withoutObserver } = hostOptions(recording)
     const outcome = await runCoordinationAttemptExecution(
       await compose('sdk', OBSERVED),
       { workingDirectory: PINNED_CHECKOUT },
-      hostOptions(recording),
+      withoutObserver,
     )
     expect(outcome).toMatchObject({ ok: false, code: 'COORD_BINDING_DIGEST_OBSERVER_REQUIRED' })
     expect(outcome).not.toHaveProperty('usageRecord')
@@ -1051,7 +1059,7 @@ describe('MVP-07-CP04 binding digests', () => {
   it('refuses a v2 plan that pins no binding digests, before authority or materialization', async () => {
     const recording = newRecording()
     const outcome = await runCoordinationAttemptExecution(
-      await compose(),
+      await compose('sdk', null),
       { workingDirectory: PINNED_CHECKOUT },
       hostOptions(recording),
     )
@@ -1061,14 +1069,14 @@ describe('MVP-07-CP04 binding digests', () => {
     expect(recording.inputs).toEqual([])
   })
 
-  it('never calls the observer for a v2 plan', async () => {
+  it('never calls the observer for a v2 plan; it is refused first', async () => {
     const observe = vi.fn(() => ({ ...OBSERVED }))
     const outcome = await runCoordinationAttemptExecution(
-      await compose(),
+      await compose('sdk', null),
       { workingDirectory: PINNED_CHECKOUT },
       { ...hostOptions(newRecording()), observeBindingDigests: observe },
     )
-    expect(outcome.ok).toBe(true)
+    expect(outcome).toMatchObject({ ok: false, code: 'COORD_BINDING_DIGESTS_REQUIRED' })
     expect(observe).not.toHaveBeenCalled()
   })
 

@@ -181,10 +181,15 @@ export async function runCoordinationAttemptExecution(
   }
 
   const bound = plan.execution.bindingDigests
-  if (bound !== undefined) {
-    const drift = await checkObservedDigests(bound, observeBindingDigests)
-    if (drift !== undefined) return drift
+  if (bound === undefined) {
+    return refusal(
+      'COORD_BINDING_DIGESTS_REQUIRED',
+      '$plan.execution.bindingDigests',
+      'A coordination attempt runs only from a plan that pins the host-observable binding digests.',
+    )
   }
+  const drift = await checkObservedDigests(bound, observeBindingDigests)
+  if (drift !== undefined) return drift
 
   async function observeCurrentAuthority(): Promise<CoordinationAttemptRunResult | undefined> {
     if (host.signal?.aborted) return cancelled()
@@ -225,7 +230,7 @@ export async function runCoordinationAttemptExecution(
       // DZUPAGENT-GAP4-01-20261003-R1: host projections and event listeners
       // can await arbitrarily. Re-observe at invocation, after those waits.
       async *guardAdapterStart(invoke) {
-        if (bound !== undefined) startRefusal = await checkObservedDigests(bound, observeBindingDigests)
+        startRefusal = await checkObservedDigests(bound, observeBindingDigests)
         if (startRefusal === undefined) startRefusal = await observeCurrentAuthority()
         if (startRefusal === undefined && host.signal?.aborted) startRefusal = cancelled()
         if (startRefusal === undefined) startRefusal = checkSpawnTime(plan, options.now ?? Date.now)
@@ -251,7 +256,7 @@ export async function runCoordinationAttemptExecution(
     : captureCoordinationAttemptReport(result.text, { transport, attemptId: correlation.attemptId })
   const usageRecord = recordCoordinationAttemptUsage(correlation, result.usage, {
     priceUsage,
-    ...(bound !== undefined ? { tariffDigest: bound.tariff } : {}),
+    tariffDigest: bound.tariff,
   })
   const base = { correlation, attestation: rendered.attestation, usage, report, usageRecord, result }
 
