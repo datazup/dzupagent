@@ -107,6 +107,9 @@ describe("DockerSandbox argv execution (SEC-H-02)", () => {
     expect(dockerArgs).toContain("--read-only");
     expect(dockerArgs).toContain("--cap-drop=ALL");
     expect(dockerArgs.some((a) => a.startsWith("--tmpfs=/tmp"))).toBe(true);
+    // Docker refuses duplicate mount destinations before running any checks.
+    expect(dockerArgs.some((a) => a.startsWith("--tmpfs=/work"))).toBe(false);
+    expect(dockerArgs.filter((a) => a.endsWith(":/work:ro"))).toHaveLength(1);
   });
 
   it("still supports legacy string commands via explicit sh -c", async () => {

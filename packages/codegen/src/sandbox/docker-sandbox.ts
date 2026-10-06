@@ -367,7 +367,6 @@ export class DockerSandbox implements SandboxProtocolV2 {
         "--read-only",
         "--cap-drop=ALL",
         "--tmpfs=/tmp:size=100m",
-        "--tmpfs=/work:size=200m",
         "-v",
         `${this.tempDir}:/work:ro`
       );
