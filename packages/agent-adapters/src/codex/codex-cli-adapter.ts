@@ -308,6 +308,11 @@ export class CodexCliAdapter implements AgentCLIAdapter {
     args.push("exec");
     if (input.resumeSessionId) args.push("resume");
     args.push("--json");
+    const skipGitRepoCheck =
+      typeof input.options?.["skipGitRepoCheck"] === "boolean"
+        ? input.options["skipGitRepoCheck"]
+        : this.config.skipGitRepoCheck;
+    if (skipGitRepoCheck === true) args.push("--skip-git-repo-check");
     if (outputSchemaPath) args.push("--output-schema", outputSchemaPath);
     args.push("--");
     if (input.resumeSessionId) args.push(input.resumeSessionId);

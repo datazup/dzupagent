@@ -270,6 +270,33 @@ describe('Codex explicit CLI backend', () => {
     expect(createCodexBackendAdapter({ backend: 'cli' })).toBeInstanceOf(CodexCliAdapter)
   })
 
+  it.each([
+    [undefined, undefined, false],
+    [false, undefined, false],
+    [true, undefined, true],
+    [false, true, true],
+    [true, false, false],
+    [true, 'true', true],
+    [undefined, 'true', false],
+  ])('maps skipGitRepoCheck config=%s input=%s to flag=%s for exec and resume', (configured, perCall, enabled) => {
+    const adapter = new CodexCliAdapter({ skipGitRepoCheck: configured as boolean | undefined })
+    for (const resumeSessionId of [undefined, 'session-1']) {
+      const args = adapter.buildArgs({
+        prompt: 'inspect',
+        resumeSessionId,
+        options: { skipGitRepoCheck: perCall },
+      }, '/schema.json')
+      expect(args.includes('--skip-git-repo-check')).toBe(enabled)
+      if (enabled) {
+        expect(args.indexOf('--skip-git-repo-check')).toBeGreaterThan(args.indexOf('exec'))
+        expect(args.indexOf('--skip-git-repo-check')).toBeLessThan(args.indexOf('--'))
+      }
+      expect(args.slice(- (resumeSessionId ? 3 : 2))).toEqual(
+        resumeSessionId ? ['--', resumeSessionId, 'inspect'] : ['--', 'inspect'],
+      )
+    }
+  })
+
   it('maps read-only and workspace-write args without forwarding API keys or subscription credentials', async () => {
     const spawned: Array<{ command: string; args: readonly string[]; options: SpawnOptions }> = []
     const adapter = new CodexCliAdapter({
