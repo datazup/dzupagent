@@ -110,6 +110,7 @@ describe("DockerSandbox argv execution (SEC-H-02)", () => {
     // Docker refuses duplicate mount destinations before running any checks.
     expect(dockerArgs.some((a) => a.startsWith("--tmpfs=/work"))).toBe(false);
     expect(dockerArgs.filter((a) => a.endsWith(":/work:ro"))).toHaveLength(1);
+    expect(dockerArgs).toContain(`--user=${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`);
   });
 
   it("still supports legacy string commands via explicit sh -c", async () => {

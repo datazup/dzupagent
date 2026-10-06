@@ -366,6 +366,10 @@ export class DockerSandbox implements SandboxProtocolV2 {
         "--network=none",
         "--read-only",
         "--cap-drop=ALL",
+        // With DAC capabilities dropped, container root cannot read a host
+        // mkdtemp directory (0700). Preserve its owner's access, without
+        // widening host permissions or restoring container capabilities.
+        `--user=${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`,
         "--tmpfs=/tmp:size=100m",
         "-v",
         `${this.tempDir}:/work:ro`
