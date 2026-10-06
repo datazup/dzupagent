@@ -364,6 +364,7 @@ export class DockerSandbox implements SandboxProtocolV2 {
       // Secure mode (default): locked-down
       args.push(
         "--network=none",
+        "--pull=never",
         "--read-only",
         "--cap-drop=ALL",
         // With DAC capabilities dropped, container root cannot read a host

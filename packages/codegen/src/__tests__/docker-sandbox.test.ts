@@ -103,6 +103,7 @@ describe("DockerSandbox argv execution (SEC-H-02)", () => {
     await sandbox.execute(["echo", "hi"]);
     const dockerArgs = invocation(0);
     expect(dockerArgs).toContain("--network=none");
+    expect(dockerArgs).toContain("--pull=never");
     expect(dockerArgs).toContain("--security-opt=no-new-privileges");
     expect(dockerArgs).toContain("--read-only");
     expect(dockerArgs).toContain("--cap-drop=ALL");
