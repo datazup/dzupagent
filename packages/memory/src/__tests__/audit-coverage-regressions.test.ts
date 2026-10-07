@@ -26,7 +26,7 @@ import { InMemoryMemoryClient } from '../in-memory-client.js'
 import { asJsonObject, decodeReference, recordDigest } from '../lifecycle/validation.js'
 import { isMemoryTransitionError, reduceMemoryHistoryCommandV1 } from '../service/history-reducer.js'
 import { MemoryTransitionError } from '../lifecycle/errors.js'
-import { storeOutcomeFailure, assertCheckpointInstruction } from '../service/service-runtime.js'
+import { storeOutcomeFailure, assertCheckpointInstruction, findCommandReceipt, outcomeMatchesSnapshot, recordsForReceipt, matchingCheckpoint, hasCapacity, snapshotIdentityMatches } from '../service/service-runtime.js'
 import { InMemoryMemoryLifecycleAdapter } from '../service/in-memory-adapter.js'
 import { MemoryLifecycleService } from '../service/memory-lifecycle-service.js'
 import { fillGeneration, rolloverInput, loadSnapshot } from '../service/__tests__/checkpoint-fixtures.js'
@@ -374,6 +374,36 @@ test('checkpoint recovery rejects a different generation, owner, head, receipt o
   const record = snapshot.records.find(item => recordDigest(item) === snapshot.head.recordDigest)!
   const command = transitionInput('dispute', record, snapshot.generation, snapshot.sequence, 35).command
   expect(() => reduceMemoryHistoryCommandV1(snapshot, command)).not.toThrow()
+  const receipt = snapshot.receipts.at(-1)!
+  const event = snapshot.events.find(item => item.eventId === receipt.eventId)!
+  const outcome = { schema: 'datazup.memory.store-outcome/v1' as const, status: 'committed' as const, reason: 'none' as const, receipt, event, records: recordsForReceipt(snapshot, receipt) }
+  expect(outcomeMatchesSnapshot(outcome, receipt, snapshot)).toBe(true)
+  expect(outcomeMatchesSnapshot(outcome, receipt, { ...snapshot, events: [] })).toBe(false)
+  expect(outcomeMatchesSnapshot({ ...outcome, receipt: { ...receipt, receiptId: 'foreign' } }, receipt, snapshot)).toBe(false)
+  expect(outcomeMatchesSnapshot({ ...outcome, event: { ...event, eventId: 'foreign' } }, receipt, snapshot)).toBe(false)
+  expect(outcomeMatchesSnapshot({ ...outcome, records: [] }, receipt, snapshot)).toBe(false)
+  expect(outcomeMatchesSnapshot({ ...outcome, checkpoint }, receipt, snapshot)).toBe(false)
+  expect(recordsForReceipt({ ...snapshot, records: [] }, receipt)).toEqual([])
+  expect(snapshotIdentityMatches(snapshot, { ...snapshot.scope, tenantId: 'foreign' }, snapshot.memoryId)).toBe(false)
+  const prior = { ...snapshot, generation: checkpoint.fromGeneration, sequence: checkpoint.fromSequence, snapshotDigest: checkpoint.priorSnapshotDigest }
+  expect(matchingCheckpoint(snapshot, instruction, prior)).toEqual(checkpoint)
+  for (const change of [{ checkpointedAt: instant(0) }, { fromGeneration: 99 }, { fromSequence: 99 }, { toGeneration: 99 }, { priorSnapshotDigest: `sha256:${'f'.repeat(64)}` }]) expect(matchingCheckpoint({ ...snapshot, checkpoints: [{ ...checkpoint, ...change }] } as InternalMemoryServiceSnapshotV1, instruction, prior)).toBeUndefined()
+  const reduced = reduceMemoryHistoryCommandV1(snapshot, command)
+  expect(hasCapacity(adapter.capabilities, snapshot, reduced)).toBe(true)
+  for (const key of ['records', 'events', 'receipts', 'tombstones'] as const) {
+    const input = key === 'tombstones' ? { ...snapshot, tombstones: [snapshot.records[0]] } as unknown as InternalMemoryServiceSnapshotV1 : snapshot
+    expect(hasCapacity({ ...adapter.capabilities, limits: { ...adapter.capabilities.limits, [key]: 0 } }, input, reduced)).toBe(false)
+  }
+  const firstRecord = snapshot.records.find(item => recordDigest(item) === snapshot.events[0]!.currentRecordDigest)!
+  const replayCommand = captureInput(firstRecord).command
+  expect(findCommandReceipt(snapshot, command)).toBeUndefined()
+  const bound = { ...replayCommand, idempotencyKey: snapshot.receipts[0]!.idempotencyKey }
+  expect(findCommandReceipt(snapshot, bound)).toEqual(snapshot.receipts[0])
+  expect(reduceMemoryHistoryCommandV1(snapshot, bound)).toMatchObject({ replayed: true, records: [] })
+  for (const key of ['commandId', 'eventId', 'receiptId'] as const) {
+    expect(() => findCommandReceipt(snapshot, { ...bound, [key]: 'foreign' })).toThrow(/idempotency/)
+    expect(() => reduceMemoryHistoryCommandV1(snapshot, { ...bound, [key]: 'foreign' })).toThrow(/idempotency/)
+  }
   const invalidCommands = [{ memoryId: 'foreign' }, { generation: 3 }, { expectedSequence: 0 }, { expectedSequence: 99 }, { transitionAt: instant(0) }, { expectedVersionId: 'foreign' }, { expectedRecordDigest: `sha256:${'a'.repeat(64)}` }, { commandId: snapshot.events[0]!.commandId }, { eventId: snapshot.events[0]!.eventId }, { receiptId: snapshot.receipts[0]!.receiptId }]
   for (const change of invalidCommands) expect(() => reduceMemoryHistoryCommandV1(snapshot, { ...command, ...change } as typeof command)).toThrow()
   expect(() => reduceMemoryHistoryCommandV1({ ...snapshot, records: [] } as InternalMemoryServiceSnapshotV1, command)).toThrow()
