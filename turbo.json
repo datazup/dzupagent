@@ -15,6 +15,7 @@
     "scripts/run-with-build-custody.mjs",
     "scripts/write-build-artifact-manifest.mjs"
   ],
+  "globalEnv": ["DATAZUP_AUDIT_WORKSPACE_ROOT"],
   "tasks": {
     "build": {
       "dependsOn": ["^build:verify"],
@@ -257,6 +258,74 @@
       "dependsOn": [
         "^build:verify",
         "@dzupagent/memory#build:verify"
+      ],
+      "inputs": [
+        "src/**",
+        "test/**",
+        "package.json",
+        "tsconfig.json",
+        "vitest.config.*"
+      ],
+      "outputs": [
+        "coverage/**"
+      ],
+      "outputLogs": "new-only"
+    },
+    "@dzupagent/agent#test:coverage": {
+      "dependsOn": [
+        "^build:verify",
+        "@dzupagent/agent#build:verify"
+      ],
+      "inputs": [
+        "src/**",
+        "test/**",
+        "package.json",
+        "tsconfig.json",
+        "vitest.config.*"
+      ],
+      "outputs": [
+        "coverage/**"
+      ],
+      "outputLogs": "new-only"
+    },
+    "@dzupagent/agent-adapters#test:coverage": {
+      "dependsOn": [
+        "^build:verify",
+        "@dzupagent/agent-adapters#build:verify"
+      ],
+      "inputs": [
+        "src/**",
+        "test/**",
+        "package.json",
+        "tsconfig.json",
+        "vitest.config.*"
+      ],
+      "outputs": [
+        "coverage/**"
+      ],
+      "outputLogs": "new-only"
+    },
+    "@dzupagent/context#test:coverage": {
+      "dependsOn": [
+        "^build:verify",
+        "@dzupagent/context#build:verify"
+      ],
+      "inputs": [
+        "src/**",
+        "test/**",
+        "package.json",
+        "tsconfig.json",
+        "vitest.config.*"
+      ],
+      "outputs": [
+        "coverage/**"
+      ],
+      "outputLogs": "new-only"
+    },
+    "@dzupagent/adapter-types#test:coverage": {
+      "dependsOn": [
+        "^build:verify",
+        "@dzupagent/adapter-types#build:verify"
       ],
       "inputs": [
         "src/**",

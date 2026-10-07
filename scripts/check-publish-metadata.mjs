@@ -1,15 +1,19 @@
 #!/usr/bin/env node
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { dirname, join, normalize, sep } from 'node:path';
+import { dirname, join, normalize, sep, relative, resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-const packagesDir = join(repoRoot, 'packages');
 const expectedRepositoryUrl = 'git+https://github.com/datazup/dzupagent.git';
 
-function readJson(path) {
-  return JSON.parse(readFileSync(path, 'utf8'));
+export function readSourceManifest(root, manifestPath, sourceCommit) {
+  if (!sourceCommit) return JSON.parse(readFileSync(manifestPath, 'utf8'));
+  if (!/^[a-f0-9]{40}$/.test(sourceCommit)) throw new Error('Publish metadata source must be a full commit');
+  const path = relative(root, manifestPath).split(sep).join('/');
+  if (!/^packages\/[a-z0-9-]+\/package\.json$/.test(path)) throw new Error('Invalid package manifest path');
+  return JSON.parse(execFileSync('git', ['show', sourceCommit + ':' + path], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
 }
 
 function isPathEscapingPackage(target) {
@@ -29,7 +33,10 @@ function collectBinTargets(bin) {
   return [];
 }
 
+export function checkPublishMetadata(root = repoRoot, sourceCommit) {
+const packagesDir = join(root, 'packages');
 const failures = [];
+const metadataDrift = [];
 let checkedPackages = 0;
 
 for (const entry of readdirSync(packagesDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
@@ -39,7 +46,8 @@ for (const entry of readdirSync(packagesDir, { withFileTypes: true }).sort((a, b
   const packageJsonPath = join(packageDir, 'package.json');
   if (!existsSync(packageJsonPath)) continue;
 
-  const pkg = readJson(packageJsonPath);
+  const pkg = readSourceManifest(root, packageJsonPath, sourceCommit);
+  if (sourceCommit && JSON.stringify(pkg) !== JSON.stringify(JSON.parse(readFileSync(packageJsonPath, 'utf8')))) metadataDrift.push(entry.name);
   if (pkg.private === true) continue;
 
   checkedPackages += 1;
@@ -80,12 +88,18 @@ for (const entry of readdirSync(packagesDir, { withFileTypes: true }).sort((a, b
   }
 }
 
-if (failures.length > 0) {
-  console.error('Publish metadata check failed:');
-  for (const failure of failures) {
-    console.error(`- ${failure}`);
-  }
-  process.exit(1);
+return { failures, checkedPackages, metadataDrift, sourceCommit: sourceCommit ?? null };
 }
 
-console.log(`Publish metadata valid for ${checkedPackages} packages.`);
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try {
+    const at = process.argv.indexOf('--source-commit');
+    if (at !== -1 && !process.argv[at + 1]) throw new Error('Missing --source-commit value');
+    const report = checkPublishMetadata(repoRoot, at === -1 ? undefined : process.argv[at + 1]);
+    if (report.metadataDrift.length) console.log('Working-tree metadata differs from immutable source: ' + report.metadataDrift.join(', '));
+    if (report.failures.length) {
+      console.error('Publish metadata check failed:\n' + report.failures.join('\n'));
+      process.exitCode = 1;
+    } else console.log(`Publish metadata valid for ${report.checkedPackages} packages (source: ${report.sourceCommit ?? 'working tree'}).`);
+  } catch (error) { console.error(error.message); process.exitCode = 1; }
+}

@@ -21,3 +21,10 @@ test('rejects duplicate or mismatched source evidence', () => {
   assert.throws(() => summarizeAudit({ ...base, contexts: [context('one', [{ name: 'test', status: 'pass' }, { name: 'test', status: 'pass' }])] }), /Duplicate/)
   assert.throws(() => summarizeAudit({ ...base, contexts: [{ ...context('one', []), source: 'b'.repeat(40) }] }), /binding/)
 })
+test('rejects contradictory pass counts and malformed test evidence', () => {
+  const base = { source, requiredGates: [{ context: 'one', name: 'test' }] }
+  for (const tests of [{ passed: -1 }, { passed: 1.5 }, { passed: 1, failed: 1 }]) {
+    assert.throws(() => summarizeAudit({ ...base, contexts: [context('one', [{ name: 'test', status: 'pass', tests }])] }))
+  }
+  assert.throws(() => summarizeAudit({ ...base, contexts: [context('one', []), context('one', [])] }), /Duplicate/)
+})

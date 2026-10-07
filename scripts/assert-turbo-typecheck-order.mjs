@@ -76,6 +76,10 @@ export function checkPortalPeerOrdering(turboConfig) {
     '@dzupagent/runtime-contracts#test:coverage': '@dzupagent/canonical-json#build:verify',
     '@dzupagent/agent#typecheck': '@dzupagent/memory#build:verify',
     '@dzupagent/memory#test:coverage': '@dzupagent/memory#build:verify',
+    '@dzupagent/agent#test:coverage': '@dzupagent/agent#build:verify',
+    '@dzupagent/agent-adapters#test:coverage': '@dzupagent/agent-adapters#build:verify',
+    '@dzupagent/adapter-types#test:coverage': '@dzupagent/adapter-types#build:verify',
+    '@dzupagent/context#test:coverage': '@dzupagent/context#build:verify',
   }
   for (const [task, edge] of Object.entries(seams)) {
     if (!tasks[task]?.dependsOn?.includes(edge)) messages.push(`${task} requires ${edge}`)
