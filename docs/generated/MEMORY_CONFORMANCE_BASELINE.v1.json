@@ -3,8 +3,8 @@
   "harnessVersion": "mem-p007a-v1",
   "fixturePolicy": "invented-provider-free-only",
   "historySemantics": "lifecycle-history-evaluated-at-query-as-of",
-  "baseCommit": "1c1bc2b73bd96325e5ba5824edd7244ddc25892a",
-  "baseTree": "a596cba505413afc9203d189e20e719fabb06ce0",
+  "baseCommit": "b4ea1f225bb7ddc5a47a3f6e34efca6b0f2961a2",
+  "baseTree": "9870439dfd279cec968d301088374dee80466a8f",
   "configDigest": "sha256:936c9124f40283f5aef5793e2b3c641c6d28c95aeb26c0e08a84245756be0e4c",
   "source": {
     "digest": "sha256:17d61e3f4933b1bf59130b76313f293ad3c50b41ae7f6f87e1e6bf487df68272",
@@ -2492,5 +2492,5 @@
       "reportDigest": "sha256:f2009c02ef41667721bf4c180f09c03cce6a68660918dc64ddfa59be950cb082"
     }
   ],
-  "resultDigest": "sha256:861c7416281a8d4608813cb0ba17ca2bf52718869cf6942ae4279b9e3d049f60"
+  "resultDigest": "sha256:1d8761259c7389eb81d976d55b0ae3ccacfa230187c9be60f1d68d89f576d2e1"
 }

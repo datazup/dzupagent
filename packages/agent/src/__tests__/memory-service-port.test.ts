@@ -41,7 +41,7 @@ describe("MemoryServicePort", () => {
     // class annotation made impossible.
     const double: MemoryServicePort = {
       get: async () => [],
-      put: async () => undefined,
+      put: async () => ({ status: 'written', piiRedacted: false }),
       getKeyed: async () => [],
       // Returns `Promise<boolean>`, not `Promise<void>` — caught by removing
       // the cast this literal originally carried. The runtime test passed
