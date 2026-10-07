@@ -3,7 +3,7 @@
   "packet": "MEM-P000",
   "sourceIdentity": {
     "kind": "content-digest-set",
-    "digest": "sha256:66c95bc118e8ff4090ead9e1e8c93b1617439234bf3d6ba2fd85e8e810de7f2b",
+    "digest": "sha256:6cbd2fdf3f0099532b2707c473a7dd6d6a9253a5a289eabbab45961c6373c05b",
     "inputs": [
       {
         "path": "config/memory-api-census.v1.json",
@@ -184,7 +184,7 @@
       },
       {
         "path": "packages/memory/src/__tests__/memory-service.test.ts",
-        "sha256": "sha256:0fbb49a381c3c6da72210a7d64950803877c58fc0e019ad0721b1fbe57bd7050"
+        "sha256": "sha256:78cbf486128905b9263cc8171882815368eb96ecd651ef475076efad9635b230"
       },
       {
         "path": "packages/memory/src/__tests__/namespace-isolation.test.ts",
@@ -240,7 +240,7 @@
       },
       {
         "path": "packages/memory/src/index.ts",
-        "sha256": "sha256:c85cccff86df0299583ae4a9931783b69a4ae2aa4e49101abebe3d4222e65f95"
+        "sha256": "sha256:5569550fddcf99637198480a662fb7ff1b279aa6f7213b7ad4efb05ae2dfeaf5"
       },
       {
         "path": "packages/memory/src/knowledge/index.ts",
@@ -300,11 +300,11 @@
       },
       {
         "path": "packages/memory/src/memory-service-store.ts",
-        "sha256": "sha256:4e3fef3c471876db890e43d2f52752db902a9b980ce0c3526032e9d3d1b6b406"
+        "sha256": "sha256:e04b2f69c5dd681653eed2af6114a0c267abd5cc875b3ee51fa08b0a12235d9a"
       },
       {
         "path": "packages/memory/src/memory-service.ts",
-        "sha256": "sha256:b40237cffdd795394d1a3ffcfcd884be937ba7fa0c2eb0e962836ca6ff69dd03"
+        "sha256": "sha256:e12d341095b9f9c172199b9b8eb32d4144db9d9f6bbe68f3980e56b5ebd6afab"
       },
       {
         "path": "packages/memory/src/observation-candidate-store.ts",
@@ -701,7 +701,7 @@
     ]
   },
   "summary": {
-    "currentExportCount": 737,
+    "currentExportCount": 738,
     "currentSurfaceCount": 16,
     "currentDecisionCount": 63,
     "plannedSurfaceCount": 86,
@@ -710,7 +710,7 @@
       "deprecate": 1,
       "extend": 45,
       "new": 17,
-      "reuse": 674
+      "reuse": 675
     },
     "plannedByDisposition": {
       "extend": 20,
@@ -731,7 +731,7 @@
     "apiClassCounts": {
       "declared-subpath": 87,
       "internal": 25,
-      "stable-root": 351,
+      "stable-root": 352,
       "transitional-root": 274
     }
   },
@@ -8235,6 +8235,21 @@
       "sourceModule": "./memory-pruner.js",
       "sourceSymbol": "MemoryPruner",
       "apiClass": "transitional-root",
+      "disposition": "reuse",
+      "target": null,
+      "rationale": "Retain current behavior and compatibility unless an explicit override applies."
+    },
+    {
+      "surfaceId": "memory-root",
+      "owner": "@dzupagent/memory",
+      "specifier": "@dzupagent/memory",
+      "visibility": "public",
+      "sourceFile": "packages/memory/src/index.ts",
+      "symbol": "MemoryPutResult",
+      "kind": "type",
+      "sourceModule": "./memory-service.js",
+      "sourceSymbol": "MemoryPutResult",
+      "apiClass": "stable-root",
       "disposition": "reuse",
       "target": null,
       "rationale": "Retain current behavior and compatibility unless an explicit override applies."
