@@ -362,6 +362,14 @@ test('checkpoint recovery rejects a different generation, owner, head, receipt o
   const full = await fillGeneration(service, 'audit-checkpoint')
   expect((await service.remember(rolloverInput(full.record))).status).toBe('committed')
   const snapshot = await loadSnapshot(adapter, 'audit-checkpoint')
+  expect(() => new InMemoryMemoryLifecycleAdapter({ seed: Array.from({ length: 129 }, () => snapshot) })).toThrow(/limit/)
+  expect(() => new InMemoryMemoryLifecycleAdapter({ seed: [snapshot, snapshot] })).toThrow(/identity/)
+  for (const fault of [{ appendFault: 'foreign' }, { checkpointFault: 'foreign' }]) expect(() => Reflect.construct(InMemoryMemoryLifecycleAdapter, [fault])).toThrow()
+  for (const key of ['delete', 'purge', 'indexInvalidation'] as const) expect(() => new InMemoryMemoryLifecycleAdapter({ capabilities: { ...adapter.capabilities, [key]: true } })).toThrow()
+  for (const key of ['records', 'events', 'receipts'] as const) expect(() => new InMemoryMemoryLifecycleAdapter({ seed: [snapshot], capabilities: { ...adapter.capabilities, limits: { ...adapter.capabilities.limits, [key]: 1 } } })).toThrow(/limit/)
+  await expect(Reflect.apply(adapter.load, adapter, [{ schema: 'foreign', scope: snapshot.scope, memoryId: snapshot.memoryId }])).rejects.toThrow()
+  const append = { schema: 'datazup.memory.store-append/v1', scope: snapshot.scope, memoryId: snapshot.memoryId, command: full.capture.command, expectedRevision: 0 }
+  for (const change of [{ schema: 'foreign' }, { memoryId: 'foreign' }, { scope: { ...snapshot.scope, tenantId: 'foreign' } }]) await expect(Reflect.apply(adapter.append, adapter, [{ ...append, ...change }])).rejects.toThrow()
   const checkpoint = snapshot.checkpoints[0]!
   const instruction = { checkpointId: checkpoint.checkpointId, checkpointedAt: checkpoint.checkpointedAt }
   expect(() => assertCheckpointInstruction(snapshot, instruction)).not.toThrow()
