@@ -8,12 +8,13 @@ export async function withContainedFile<T>(root: string, target: string, create:
   const rel = relative(base, resolve(target));
   if (!rel || isAbsolute(rel) || rel === ".." || rel.startsWith("../")) throw new Error("Path traversal detected");
   if (process.platform !== "linux") throw new Error("Secure descriptor-relative file access requires Linux");
-  if (create) await mkdir(base, { recursive: true });
   const handles: FileHandle[] = [];
   try {
-    let parent = await open(base, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    let parent = await open("/", constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
     handles.push(parent);
-    const parts = rel.split("/");
+    // Pin the configured root's ancestors too: a symlink above the root is
+    // just as capable of redirecting a write as one below it.
+    const parts = [...base.split("/").filter(Boolean), ...rel.split("/")];
     const leaf = parts.pop()!;
     for (const part of parts) {
       const anchored = `/proc/self/fd/${parent.fd}/${part}`;

@@ -1,4 +1,4 @@
-import { test, expect } from "vitest";
+import { test, expect, vi } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import { resolveAuditWorkspaceRoot } from "./workspace-sibling.js";
 
 test("canonical and linked checkouts resolve the same siblings; a standalone clone requires an explicit root", () => {
+  vi.stubEnv("DATAZUP_AUDIT_WORKSPACE_ROOT", undefined);
   const root = mkdtempSync(join(tmpdir(), "audit-layouts-"));
   const git = (...args: string[]) => execFileSync("git", args, { stdio: "pipe" });
   try {
