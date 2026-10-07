@@ -893,7 +893,7 @@ describe('GET /api/runs/:id/stream — SSE integration', () => {
       type: 'agent:failed',
       agentId: 'agent-stream',
       runId,
-      errorCode: 'PROVIDER_ERROR',
+      errorCode: 'PROVIDER_UNAVAILABLE',
       message: 'upstream failed at capacity',
     })
 

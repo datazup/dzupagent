@@ -133,6 +133,7 @@
   },
   "devDependencies": {
     "@langchain/core": "^1.1.39",
+    "@types/node": "^22.0.0",
     "tsup": "*",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4",
