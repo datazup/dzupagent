@@ -2,5 +2,8 @@ export * from "./types.js";
 export * from "./approval-state-store.js";
 export * from "./postgres-approval-store.js";
 export * from "./approval-gate.js";
+export * from "./approval-quorum.js";
+export * from "./quorum-vote-store.js";
+export * from "./escalation-engine.js";
 export * from "./runtime-approval-bridge.js";
 export * from "./pipeline-interaction-adapter.js";
