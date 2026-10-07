@@ -922,7 +922,7 @@ function renderReportSection(plan: CoordinationAttemptExecutionPlan, profile: Co
     'For filesBelievedChanged, list repository-relative paths of files you created, modified or deleted during this attempt.',
     'Include newly created and untracked files, even if you have not staged or committed them.',
     'Use [] only if you believe this attempt made no file changes. A blocked or failed status does not erase changes already made.',
-    'Report your own changes; do not claim pre-existing changes made by another attempt. Do not copy the allowed-path list as a claim.',
+    'Do not copy the allowed-path list as a claim.',
   ].join(' ')
   const delivery = profile.reportTransport === 'native_schema'
     ? `Return the report as the structured output requested by the attached schema, with schema "${COORDINATION_ATTEMPT_REPORT_SCHEMA}" and attemptId "${plan.assignment.attemptId}".`

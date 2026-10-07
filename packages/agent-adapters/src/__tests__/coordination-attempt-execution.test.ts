@@ -1084,8 +1084,8 @@ describe('9. binding axes', () => {
     )
     if (!api.ok || !subscription.ok) throw new Error('render refused')
     expect(api.request).not.toHaveProperty('agentHost')
-    expect(api.attestation.requestDigest).toBe('sha256:eb31dcffc4641efecfb5efed7421fbc2384f8ae5c9ec3327ee280f7b3951071e')
-    expect(subscription.attestation.requestDigest).toBe('sha256:8c7e4cb42d1731a29cdecb7acb7a8bb84c4584c58d948efe18547c98be6e45bc')
+    expect(api.attestation.requestDigest).toBe('sha256:089466c57b9700a025a765ffc077ead5b3c481bbb38aa098079d8dd41a16d5fe')
+    expect(subscription.attestation.requestDigest).toBe('sha256:5480da7a95f997c736aa891974727d707450e771c31cdca5e78f79a6090dfe7b')
   })
 })
 
