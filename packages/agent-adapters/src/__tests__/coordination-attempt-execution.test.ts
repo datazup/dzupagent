@@ -1077,14 +1077,15 @@ describe('9. binding axes', () => {
   it('pins the rendered request bytes under renderer claude-sdk/v1', async () => {
     // Byte-identical from dzupagent 4d9f4abd8 (binding v1) through CP04; re-pinned
     // by MVP-04-CP05, whose renderer adds freshness, omission disclosure and the report section.
+    // B1 reporting repair re-pins only the clarified report instructions; plan/task bytes stay unchanged.
     const api = renderCoordinationAgentExecutionRequest(await compose())
     const subscription = renderCoordinationAgentExecutionRequest(
       await compose({ binding: binding({ auth: { mode: 'subscription_cli', sourceRef: AUTH_SOURCE_REF } }) }),
     )
     if (!api.ok || !subscription.ok) throw new Error('render refused')
     expect(api.request).not.toHaveProperty('agentHost')
-    expect(api.attestation.requestDigest).toBe('sha256:dd2de9658ef0bc217c4630d3e1117ea80aec5e331684695c202ae6ada2b604ef')
-    expect(subscription.attestation.requestDigest).toBe('sha256:d2dfae6951dff7f4140435eeedb3a8e6cd9fd36991351e62fec19bb02f73caba')
+    expect(api.attestation.requestDigest).toBe('sha256:eb31dcffc4641efecfb5efed7421fbc2384f8ae5c9ec3327ee280f7b3951071e')
+    expect(subscription.attestation.requestDigest).toBe('sha256:8c7e4cb42d1731a29cdecb7acb7a8bb84c4584c58d948efe18547c98be6e45bc')
   })
 })
 
