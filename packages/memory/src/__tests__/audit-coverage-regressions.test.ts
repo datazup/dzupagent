@@ -10,7 +10,7 @@ import { MemoryService } from '../memory-service.js'
 import { createStore } from '../store-factory.js'
 import { logError } from '../error-log.js'
 import { createInMemoryMemoryOutbox } from '../workers/in-memory-outbox.js'
-import { claimInput, prepareInput, T0, T2, T20 } from '../workers/__tests__/fixtures.js'
+import { claimInput, prepareInput, runInput, completingPort, ref, T0, T2, T20 } from '../workers/__tests__/fixtures.js'
 import { makeCapturedRecord } from '../lifecycle/__tests__/fixtures.js'
 import { decodeMemoryRecordV1 } from '../records/decoder.js'
 import { activeFixture } from '../projections/__tests__/fixtures.js'
@@ -18,13 +18,24 @@ import { projectMemoryRecordV1, diffMemoryProjections } from '../projections/ind
 import { makeCaptureCommand } from '../lifecycle/__tests__/fixtures.js'
 import { decodeMemoryCommandV1 } from '../lifecycle/validation.js'
 import { decodeMemoryEventV1, decodeMemoryTransitionReceiptV1 } from '../lifecycle/ledger.js'
-import { capturedRecord, captureInput } from '../service/__tests__/fixtures.js'
-import { decodeLifecycleWriteInputV1 } from '../service/validation.js'
+import { capturedRecord, captureInput, transitionInput, instant } from '../service/__tests__/fixtures.js'
+import { decodeLifecycleWriteInputV1, decodeMemoryInvalidationResultV1 } from '../service/validation.js'
 import { InMemoryMemoryClient } from '../in-memory-client.js'
-import { asJsonObject, decodeReference } from '../lifecycle/validation.js'
-import { isMemoryTransitionError } from '../service/history-reducer.js'
+import { asJsonObject, decodeReference, recordDigest } from '../lifecycle/validation.js'
+import { isMemoryTransitionError, reduceMemoryHistoryCommandV1 } from '../service/history-reducer.js'
 import { MemoryTransitionError } from '../lifecycle/errors.js'
-import { storeOutcomeFailure } from '../service/service-runtime.js'
+import { storeOutcomeFailure, assertCheckpointInstruction } from '../service/service-runtime.js'
+import { InMemoryMemoryLifecycleAdapter } from '../service/in-memory-adapter.js'
+import { MemoryLifecycleService } from '../service/memory-lifecycle-service.js'
+import { fillGeneration, rolloverInput, loadSnapshot } from '../service/__tests__/checkpoint-fixtures.js'
+import { decodeMemoryServiceSnapshotV1 } from '../service/snapshot.js'
+import type { InternalMemoryServiceSnapshotV1 } from '../service/types.js'
+import { WebSocketSyncTransport } from '../sync/ws-transport.js'
+import { ObservationalMemory } from '../observational-memory.js'
+import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
+import { sealMemoryWorkerLeaseV1 } from '../workers/validation-contracts.js'
+import { decodeMemoryConsolidationResultV1, decodeMemoryReconciliationResultV1 } from '../workers/validation-results.js'
+import { digestWorkerValue } from '../workers/snapshot.js'
 
 test('knowledge paths reject ambiguous scopes and pin ancestors of the configured root', async () => {
   const root = await mkdtemp(join(tmpdir(), 'knowledge-boundary-'))
@@ -175,4 +186,130 @@ test('service failures preserve typed recovery results and in-memory teardown re
   await store.put(['fixture'], 'key', { fixture: true })
   ;(store as unknown as { clear(): void }).clear()
   expect(await store.get(['fixture'], 'key')).toBeUndefined()
+})
+
+test('checkpoint recovery rejects a different generation, owner, head, receipt or settlement history', async () => {
+  const adapter = new InMemoryMemoryLifecycleAdapter()
+  const service = new MemoryLifecycleService(adapter)
+  const full = await fillGeneration(service, 'audit-checkpoint')
+  expect((await service.remember(rolloverInput(full.record))).status).toBe('committed')
+  const snapshot = await loadSnapshot(adapter, 'audit-checkpoint')
+  const checkpoint = snapshot.checkpoints[0]!
+  const instruction = { checkpointId: checkpoint.checkpointId, checkpointedAt: checkpoint.checkpointedAt }
+  expect(() => assertCheckpointInstruction(snapshot, instruction)).not.toThrow()
+  for (const change of [{ checkpointId: 'foreign' }, { checkpointedAt: instant(0) }]) expect(() => assertCheckpointInstruction(snapshot, { ...instruction, ...change })).toThrow()
+  expect(() => assertCheckpointInstruction({ ...snapshot, checkpoints: [] }, instruction)).toThrow()
+  const changes: Array<Record<string, unknown>> = [{ generation: 3 }, { sequence: 0 }, { revision: 1 }, { records: [] }, { records: [...snapshot.records, snapshot.records[0]] }, { checkpoints: [] }]
+  for (const key of ['versionId', 'recordDigest', 'status', 'lastTransitionAt', 'retrievalEligible'] as const) changes.push({ head: { ...snapshot.head, [key]: key === 'retrievalEligible' ? !snapshot.head[key] : key === 'recordDigest' ? `sha256:${'a'.repeat(64)}` : key === 'lastTransitionAt' ? instant(0) : key === 'status' ? 'archived' : 'foreign' } })
+  for (const key of ['memoryId', 'fromGeneration', 'toGeneration', 'fromSequence', 'stateDigest', 'chainDigest', 'lastEventDigest', 'lastReceiptDigest', 'checkpointedAt'] as const) changes.push({ checkpoints: [{ ...checkpoint, [key]: typeof checkpoint[key] === 'number' ? 99 : key === 'checkpointedAt' ? instant(0) : key.endsWith('Digest') ? `sha256:${'a'.repeat(64)}` : 'foreign' }] })
+  for (const change of changes) expect(() => decodeMemoryServiceSnapshotV1({ ...snapshot, ...change }), Object.keys(change).join()).toThrow()
+  const record = snapshot.records.find(item => recordDigest(item) === snapshot.head.recordDigest)!
+  const command = transitionInput('dispute', record, snapshot.generation, snapshot.sequence, 35).command
+  expect(() => reduceMemoryHistoryCommandV1(snapshot, command)).not.toThrow()
+  const invalidCommands = [{ memoryId: 'foreign' }, { generation: 3 }, { expectedSequence: 0 }, { expectedSequence: 99 }, { transitionAt: instant(0) }, { expectedVersionId: 'foreign' }, { expectedRecordDigest: `sha256:${'a'.repeat(64)}` }, { commandId: snapshot.events[0]!.commandId }, { eventId: snapshot.events[0]!.eventId }, { receiptId: snapshot.receipts[0]!.receiptId }]
+  for (const change of invalidCommands) expect(() => reduceMemoryHistoryCommandV1(snapshot, { ...command, ...change } as typeof command)).toThrow()
+  expect(() => reduceMemoryHistoryCommandV1({ ...snapshot, records: [] } as InternalMemoryServiceSnapshotV1, command)).toThrow()
+  const reference = { owner: 'fixture', id: 'receipt', digest: `sha256:${'a'.repeat(64)}` }
+  const invalidation = { schema: 'datazup.memory.invalidation-result/v1', status: 'completed', outcomes: [{ target: { ...reference, kind: 'cache' }, status: 'completed', receiptRef: reference }] }
+  expect(decodeMemoryInvalidationResultV1(invalidation).status).toBe('completed')
+  for (const status of ['partial', 'unsupported', 'retryable']) expect(() => decodeMemoryInvalidationResultV1({ ...invalidation, status })).toThrow()
+}, 60_000)
+
+test('WebSocket connection establishment removes both temporary listeners on open and error', async () => {
+  let ws!: EventTarget & { readyState: number; send: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> }
+  class FakeWebSocket extends EventTarget {
+    readyState = 1
+    send = vi.fn()
+    close = vi.fn()
+    constructor() { super(); ws = this }
+  }
+  vi.stubGlobal('WebSocket', FakeWebSocket)
+  try {
+    const connected = WebSocketSyncTransport.fromUrl('ws://fixture.invalid')
+    const removed = vi.spyOn(ws, 'removeEventListener')
+    ws.dispatchEvent(new Event('open'))
+    const transport = await connected
+    expect(removed.mock.calls.map(([type]) => type)).toEqual(['open', 'error'])
+    await transport.close()
+    expect(ws.close).toHaveBeenCalledOnce()
+    const failed = WebSocketSyncTransport.fromUrl('ws://fixture.invalid')
+    const failedRemoved = vi.spyOn(ws, 'removeEventListener')
+    ws.dispatchEvent(new Event('error'))
+    await expect(failed).rejects.toThrow(/failed/)
+    expect(failedRemoved.mock.calls.map(([type]) => type)).toEqual(['open', 'error'])
+  } finally { vi.unstubAllGlobals() }
+})
+
+test('manual reflection of an empty observation namespace does not invoke a model', async () => {
+  const store = await createStore({ type: 'memory' })
+  const service = new MemoryService(store, [{ name: 'observations', scopeKeys: ['tenantId'], searchable: false }])
+  const invoke = vi.fn(() => { throw new Error('unexpected model invocation') })
+  const memory = new ObservationalMemory({ model: { invoke } as unknown as BaseChatModel, memoryService: service, store, namespace: 'observations', scope: { tenantId: 'tenant' } })
+  await expect(memory.forceReflect()).resolves.toMatchObject({ merged: 0 })
+  expect(invoke).not.toHaveBeenCalled()
+})
+
+test('retained content references must carry their own complete integrity identity', () => {
+  const retained = structuredClone(projection)
+  Object.assign(retained.records[0]!.content, { contentRef: { schema: 'datazup.memory.content-ref/v1', owner: 'fixture', id: 'content', digest: `sha256:${'a'.repeat(64)}`, mediaType: 'text/plain', byteLength: 1 } })
+  expect(() => diffMemoryProjections(projection, retained)).toThrow()
+  for (const field of ['owner', 'id', 'digest', 'mediaType', 'byteLength']) {
+    const invalid = structuredClone(retained)
+    delete (invalid.records[0]!.content.contentRef as unknown as Record<string, unknown>)[field]
+    expect(() => diffMemoryProjections(projection, invalid)).toThrow()
+  }
+})
+
+test('outbox restore rejects stale leases, contradictory terminal states and reordered identities', async () => {
+  const outbox = createInMemoryMemoryOutbox()
+  outbox.enqueue(outbox.prepare(prepareInput()))
+  const pending = outbox.exportState()
+  const lease = outbox.claim(claimInput()).lease!
+  const leased = outbox.exportState()
+  await outbox.runClaimed(runInput(lease), completingPort())
+  const completed = outbox.exportState()
+  for (const seed of [pending, leased, completed]) {
+    expect(createInMemoryMemoryOutbox({ seed }).exportState()).toEqual(seed)
+    for (const state of ['executing', 'reconciling', 'ambiguous', 'dead-lettered']) {
+      const invalid = structuredClone(seed)
+      Object.assign(invalid.entries[0]!, { state })
+      expect(() => createInMemoryMemoryOutbox({ seed: invalid })).toThrow()
+    }
+    for (const change of [{ attempt: 99 }, { generation: 99 }, { nextAvailableAt: '2026-08-01T00:00:00.000Z' }, { nextAvailableAt: '2027-08-01T00:00:00.000Z' }]) {
+      const invalid = structuredClone(seed)
+      Object.assign(invalid.entries[0]!, change)
+      expect(() => createInMemoryMemoryOutbox({ seed: invalid })).toThrow()
+    }
+    expect(() => createInMemoryMemoryOutbox({ seed: { ...seed, entries: [...seed.entries, seed.entries[0]] } })).toThrow()
+    expect(() => createInMemoryMemoryOutbox({ seed: { ...seed, revision: seed.revision + 1 } })).toThrow()
+  }
+  for (const change of [{ envelopeId: 'foreign' }, { envelopeDigest: `sha256:${'a'.repeat(64)}` }, { attempt: 2 }, { generation: 2 }]) {
+    const { leaseDigest: _digest, ...base } = lease
+    const changed = sealMemoryWorkerLeaseV1({ ...base, ...change } as typeof base)
+    const invalid = structuredClone(leased)
+    Object.assign(invalid.entries[0]!, { lease: changed })
+    expect(() => createInMemoryMemoryOutbox({ seed: invalid })).toThrow()
+  }
+  for (const state of ['pending', 'leased', 'ambiguous', 'dead-lettered']) {
+    const invalid = structuredClone(completed)
+    Object.assign(invalid.entries[0]!, { state })
+    expect(() => createInMemoryMemoryOutbox({ seed: invalid })).toThrow()
+  }
+})
+
+test('provider and reconciliation results cannot assert an effect that contradicts their terminal status', () => {
+  const requestDigest = `sha256:${'a'.repeat(64)}` as const
+  const seal = (base: Record<string, unknown>) => ({ ...base, resultDigest: digestWorkerValue(base) })
+  for (const status of ['completed', 'partial', 'retryable', 'terminal', 'ambiguous'] as const) {
+    const base = { schema: 'datazup.memory.consolidation-result/v1', status, reasonCode: 'fixture', finishedAt: T2, requestDigest, candidateRefs: status === 'completed' || status === 'partial' ? [ref('candidate')] : [], ...(status === 'ambiguous' ? { reconciliationRef: ref('reconcile') } : {}), providerCostMicrousd: 0, effectState: status === 'ambiguous' ? 'unknown' : status === 'completed' || status === 'partial' ? 'applied' : 'not-applied' }
+    expect(decodeMemoryConsolidationResultV1(seal(base), requestDigest, 1).status).toBe(status)
+    for (const effectState of ['applied', 'not-applied', 'unknown']) if (effectState !== base.effectState) expect(() => decodeMemoryConsolidationResultV1(seal({ ...base, effectState }), requestDigest, 1)).toThrow()
+    expect(() => decodeMemoryConsolidationResultV1(seal({ ...base, requestDigest: `sha256:${'b'.repeat(64)}` }), requestDigest, 1)).toThrow()
+  }
+  for (const status of ['proven-complete', 'proven-not-applied', 'ambiguous'] as const) {
+    const base = { schema: 'datazup.memory.reconciliation-result/v1', status, reasonCode: 'fixture', finishedAt: T2, requestDigest, candidateRefs: status === 'proven-complete' ? [ref('candidate')] : [], ...(status === 'ambiguous' ? { reconciliationRef: ref('reconcile') } : {}), providerCostMicrousd: 0, effectState: status === 'ambiguous' ? 'unknown' : status === 'proven-complete' ? 'applied' : 'not-applied' }
+    expect(decodeMemoryReconciliationResultV1(seal(base), requestDigest, 1).status).toBe(status)
+    for (const effectState of ['applied', 'not-applied', 'unknown']) if (effectState !== base.effectState) expect(() => decodeMemoryReconciliationResultV1(seal({ ...base, effectState }), requestDigest, 1)).toThrow()
+    expect(() => decodeMemoryReconciliationResultV1(seal({ ...base, requestDigest: `sha256:${'b'.repeat(64)}` }), requestDigest, 1)).toThrow()
+  }
 })

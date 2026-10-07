@@ -10,6 +10,7 @@ import { AGENT_RUNNER_STRUCTURED_OUTPUT_CAPABILITY_SCHEMA, AGENT_RUNNER_STRUCTUR
 import { AGENT_STRUCTURED_OUTPUT_REQUEST_SCHEMA, type AgentStructuredOutputRequest } from '@dzupagent/agent-types/run'
 import { createReleaseAndReconcile, type ItemBudgetLifecycleDeps } from '../pipeline/loop-executor/for-each-item-budget-release.js'
 import type { LoopBudgetReconcileOutcome } from '../pipeline/loop-executor/types.js'
+import { admitPredicateIteration, releasePredicateIteration, settlePredicateIteration, deriveIterationReservationId } from '../pipeline/loop-executor/predicate-loop-economics.js'
 
 test('runtime tool requests retain execution context and validate required arguments before dispatch', () => {
   const input: RuntimeToolHandlerInput = { nodeId: 'node', node: { id: 'node', type: 'tool', toolName: 'fixture' }, arguments: { userPrompt: 'prompt', dispatchId: 'dispatch', provider: 'fixture', instructions: 'fixture', outputKey: 'output', command: 'fixture', output: 'output', source: 'source', schema: { type: 'object' }, providers: ['one', 'two'], goal: 'fixture', model: 'fixture', tools: false, input: { retained: true }, tags: ['tag'], specialists: ['worker'], commandAllowlist: ['fixture'], merge: 'all' }, context: { state: {}, previousResults: new Map(), idempotencyKey: 'stable' } }
@@ -49,12 +50,13 @@ test('graph restore binds normal, terminal and suspended outcomes to declared co
   for (const change of [{ nodeIdempotencyKeys: { node: 'key' } }, { nodeResults: { node: result } }, { completedNodeIds: ['node'], nodeResults: { node: result } }]) {
     expect(() => validateScopedGraphCheckpointFrame(definition, { ...frame(), ...change } as ScopedGraphCheckpointFrame)).toThrow()
   }
-  expect(() => validateScopedGraphCheckpointFrame({ ...definition, boundary: { ...definition.boundary, normalExitNodeIds: [] } }, { ...completed, outcome: undefined })).toThrow(/normal exit/)
+  const { outcome: _outcome, ...completedWithoutOutcome } = completed
+  expect(() => validateScopedGraphCheckpointFrame({ ...definition, boundary: { ...definition.boundary, normalExitNodeIds: [] } }, completedWithoutOutcome)).toThrow(/normal exit/)
   const terminalDefinition: ScopedGraphCheckpointDefinition = { ...definition, boundary: { ...definition.boundary, normalExitNodeIds: [], terminalExitNodeIds: ['node'], suspendedExitNodeIds: ['node'] }, nodes: [{ id: 'node', type: 'suspend', reason: 'fixture' } as never] }
   const terminal: ScopedGraphCheckpointFrame = { completed: true, completedNodeIds: [], nodeResults: {}, nodeIdempotencyKeys: {}, outcome: { kind: 'terminal', exitNodeId: 'node' } }
   expect(() => validateScopedGraphCheckpointFrame(terminalDefinition, terminal)).not.toThrow()
   expect(() => validateScopedGraphCheckpointFrame({ ...terminalDefinition, nodes: definition.nodes }, terminal)).toThrow(/suspend node/)
-  const edge = { type: 'normal' as const, sourceNodeId: 'node', targetNodeId: 'node' }
+  const edge = { type: 'sequential' as const, sourceNodeId: 'node', targetNodeId: 'node' }
   expect(() => validateScopedGraphCheckpointFrame({ ...terminalDefinition, outgoingEdges: new Map([['node', [edge]]]) }, terminal)).toThrow(/continuation/)
   const suspended: ScopedGraphCheckpointFrame = { ...terminal, completed: false, outcome: { kind: 'suspended', exitNodeId: 'node' } }
   expect(() => validateScopedGraphCheckpointFrame(terminalDefinition, suspended)).toThrow(/continuation/)
@@ -179,4 +181,47 @@ test('budget recovery preserves unknown outcomes and only retries an authoritati
   const retrying = createReleaseAndReconcile({ ...deps, resume: { releaseIterationBudget: async () => { throw new Error('uncertain') }, settleIterationBudget: async () => { throw new Error('uncertain') }, reconcileIterationBudget: async () => ({ status: 'reserved', reservedCostCents: 10 }) } })
   expect(await retrying.resolveUnknownRelease(held, 'failed', 'transport')).toMatchObject({ status: 'blocked' })
   expect(await retrying.resolveUnknownSettlement(held, 5, 'transport')).toMatchObject({ status: 'blocked' })
+})
+
+test('predicate budget restore refuses contradictory ownership, charges and unknown host outcomes', async () => {
+  const loopNode: ItemBudgetLifecycleDeps['loopNode'] = { id: 'loop', type: 'loop', bodyNodeIds: [], maxIterations: 1, continuePredicateName: 'fixture', typedWhile: { conditionSchema: 'dzupagent.flowTypedCondition/v1', condition: {}, onExhausted: 'fail', iterationBudgetCents: 10 } }
+  const input: Parameters<typeof admitPredicateIteration>[0] = { loopNode, bodyNodes: [], state: {}, resume: undefined, iteration: 1, completedIterations: 0, bodyComplete: false }
+  const held = { iteration: 1, reservationId: deriveIterationReservationId({ loopNodeId: 'loop', iteration: 1 }), reservedCostCents: 10 }
+  for (const economics of [{ ...held, reservationId: 'foreign' }, { ...held, reservedCostCents: -1 }, { ...held, reservedCostCents: 11 }, { ...held, settledCostCents: -1 }, { ...held, settledCostCents: 1.5 }]) {
+    expect((await admitPredicateIteration({ ...input, retainedOutcome: 'reserved', retainedEconomics: economics })).status).toBe('blocked')
+  }
+  for (const outcome of ['failed', 'cancelled', 'denied', 'completed'] as const) expect((await admitPredicateIteration({ ...input, retainedOutcome: outcome, retainedEconomics: held })).status).toBe('blocked')
+  expect((await admitPredicateIteration({ ...input, retainedEconomics: held })).status).toBe('blocked')
+  expect((await admitPredicateIteration({ ...input, retainedOutcome: 'reserved' })).status).toBe('blocked')
+  const reconciliations: LoopBudgetReconcileOutcome[] = [{ status: 'unknown' }, { status: 'conflict', heldBy: 'foreign' }, { status: 'released' }, { status: 'absent' }, { status: 'reserved', reservedCostCents: 11 }, { status: 'settled', cost: { status: 'unknown' } }, { status: 'settled', cost: { status: 'known', costCents: -1 } }, { status: 'settled', cost: { status: 'known', costCents: 5 } }]
+  for (const reconciliation of reconciliations) {
+    const resume = { reconcileIterationBudget: async () => reconciliation }
+    expect((await admitPredicateIteration({ ...input, resume, retainedOutcome: 'reserved', retainedEconomics: held })).status).toBe('blocked')
+    const fresh = await admitPredicateIteration({ ...input, resume: { ...resume, reserveIterationBudget: async () => ({ status: 'unknown' as const }) } })
+    expect(fresh.status).toBe('blocked')
+    const uncertain = { ...resume, measureItemCost: async () => ({ status: 'known' as const, costCents: 5 }), settleIterationBudget: async () => { throw new Error('uncertain') }, releaseIterationBudget: async () => { throw new Error('uncertain') } }
+    const settlement = await settlePredicateIteration({ loopNode, resume: uncertain, completedIterations: 0, held, bodyResults: {} })
+    if (reconciliation.status === 'settled' && reconciliation.cost.status === 'known' && reconciliation.cost.costCents >= 0) expect(settlement).toMatchObject({ status: 'settled', settledCostCents: reconciliation.cost.costCents })
+    else expect(settlement.status).toBe('blocked')
+    const release = await releasePredicateIteration({ loopNode, resume: uncertain, completedIterations: 0, held, outcome: 'failed', reason: 'failed' })
+    expect(release.status).toBe(['absent', 'released'].includes(reconciliation.status) ? 'released' : 'blocked')
+  }
+  const stillHeld: LoopBudgetReconcileOutcome = { status: 'reserved', reservedCostCents: 10 }
+  for (const retrySucceeds of [true, false]) {
+    let releaseAttempts = 0
+    let settleAttempts = 0
+    const resume = { reconcileIterationBudget: async () => stillHeld, measureItemCost: async () => ({ status: 'known' as const, costCents: 5 }), releaseIterationBudget: async () => { if (++releaseAttempts === 1 || !retrySucceeds) throw 'uncertain' }, settleIterationBudget: async () => { if (++settleAttempts === 1 || !retrySucceeds) throw 'uncertain' } }
+    expect((await releasePredicateIteration({ loopNode, resume, completedIterations: 0, held, outcome: 'failed', reason: 'failed' })).status).toBe(retrySucceeds ? 'released' : 'blocked')
+    expect((await settlePredicateIteration({ loopNode, resume, completedIterations: 0, held, bodyResults: {} })).status).toBe(retrySucceeds ? 'settled' : 'blocked')
+    expect([releaseAttempts, settleAttempts]).toEqual([2, 2])
+  }
+  for (const thrown of [new Error('transport'), 'transport']) {
+    expect((await admitPredicateIteration({ ...input, resume: { reserveIterationBudget: async () => { throw thrown }, reconcileIterationBudget: async () => { throw thrown } } })).status).toBe('blocked')
+    const release = await releasePredicateIteration({ loopNode, resume: { releaseIterationBudget: async () => { throw thrown }, reconcileIterationBudget: async () => { throw thrown } }, held, completedIterations: 0, outcome: 'failed', reason: 'failed' })
+    expect(release.status).toBe('blocked')
+  }
+  for (const cost of [{ status: 'unknown' as const }, { status: 'known' as const, costCents: -1 }, { status: 'known' as const, costCents: 1.5 }]) {
+    const result = await settlePredicateIteration({ loopNode, resume: { measureItemCost: async () => cost }, held, completedIterations: 0, bodyResults: {} })
+    expect(result.status).toBe('blocked')
+  }
 })

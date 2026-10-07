@@ -33,7 +33,7 @@ export function summarizeAudit(evidence) {
         if (typeof gate.tests !== 'object' || Array.isArray(gate.tests)) throw new Error('Invalid test evidence')
         for (const [name, count] of Object.entries(gate.tests)) if (!['passed', 'failed', 'skipped'].includes(name) || !Number.isSafeInteger(count) || count < 0) throw new Error('Invalid test count')
       }
-      if (gate.name === 'coverage' && gate.status === 'pass' && !gate.summaryVerified) return { ...gate, status: 'incomplete', reason: 'Coverage summary artifact missing or unverified' }
+      if (gate.name === 'coverage' && gate.status === 'pass' && gate.summaryVerified !== true) return { ...gate, status: 'incomplete', reason: 'Coverage summary artifact missing or unverified' }
       return gate
     })
     return { ...context, gates }
@@ -50,7 +50,7 @@ export function summarizeAudit(evidence) {
 /** Render the same validated qualification used by machines, without inventing totals. */
 export function renderAuditMarkdown(evidence) {
   const summary = summarizeAudit(evidence)
-  const cell = value => String(value ?? '').replaceAll('|', '\\|').replaceAll('\n', ' ').replaceAll('\r', ' ')
+  const cell = value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('|', '\\|').replaceAll('\n', ' ').replaceAll('\r', ' ')
   const lines = [`# DzupAgent audit`, '', `Source: \`${summary.source}\``, '', `Qualification: **${summary.qualification}**`, '', summary.note, '', '| Context | Required gate | Result | Reason |', '| --- | --- | --- | --- |']
   for (const gate of summary.required) lines.push(`| ${cell(gate.context)} | ${cell(gate.name)} | ${gate.status} | ${cell(gate.reason)} |`)
   lines.push('', '| Context | Gate | Passed | Failed | Skipped | Evidence |', '| --- | --- | ---: | ---: | ---: | --- |')

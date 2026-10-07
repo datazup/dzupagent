@@ -4,6 +4,7 @@ import { compactCompletedToolResults } from '../tool-results/compact-completed-t
 import { cloneCompactedToolMessage, contentText, measureMessages, safeMessageType, safeToolCalls, COMPACTED_CONTENT } from '../tool-results/compaction-internals.js'
 import type { CompletedToolCompactionProfileV1 } from '../tool-results/types.js'
 import { __internals } from '../tiktoken-counter.js'
+import { applyCacheBreakpoints } from '../prompt-cache.js'
 
 const profile: CompletedToolCompactionProfileV1 = { schema: 'datazup.context.completed-tool-compaction-profile/v1', preserveRecentCompletedPairs: 0, minimumResultTokens: 1, maxCompactedResults: 1, measurement: 'allow-heuristic' }
 test('malformed profiles fail closed without touching transcript or invoking accessors', () => {
@@ -41,6 +42,40 @@ test('compaction preserves the transcript when per-result or replacement measure
   expect(compactCompletedToolResults([malformedCall], profile).reason).toBe('invalid-tool-pairing')
   const accessorCall = Object.defineProperty({}, 'id', { get() { throw new Error('untrusted') } }); Object.defineProperty(malformedCall, 'tool_calls', { value: [accessorCall], configurable: true })
   expect(compactCompletedToolResults([malformedCall], profile).reason).toBe('invalid-tool-pairing')
+})
+test('untrusted transcript methods and changing message accessors cannot produce a partial mutation', () => {
+  const call = () => new AIMessage({ content: 'calling', tool_calls: [{ id: 'call', name: 'lookup', args: {} }] })
+  const tool = () => new ToolMessage({ content: 'x'.repeat(1000), tool_call_id: 'call' })
+  expect(compactCompletedToolResults([null] as unknown as BaseMessage[], profile).reason).toBe('invalid-tool-pairing')
+  const malformed = call(); Object.defineProperty(malformed, 'tool_calls', { value: {} })
+  expect(compactCompletedToolResults([malformed], profile).reason).toBe('invalid-tool-pairing')
+  const getter = Object.defineProperty(tool(), 'tool_call_id', { get() { throw new Error('untrusted') } })
+  expect(compactCompletedToolResults([call(), getter], profile).reason).toBe('invalid-tool-pairing')
+  const messages = [call(), tool()]
+  Object.defineProperty(messages, 'slice', { value: () => { throw new Error('untrusted') } })
+  expect(compactCompletedToolResults(messages, profile).reason).toBe('invalid-input')
+  let types = 0
+  const changing = Object.assign(tool(), { _getType: () => ++types < 3 ? 'tool' : 'human' })
+  expect(compactCompletedToolResults([call(), changing], profile).reason).toBe('invalid-tool-pairing')
+  let reads = 0
+  const changingContent = Object.defineProperty(tool(), 'content', { get: () => ++reads === 1 ? 'x'.repeat(1000) : undefined })
+  expect(compactCompletedToolResults([call(), changingContent], profile).reason).toBe('invalid-input')
+  expect(compactCompletedToolResults(messages, { ...profile, targetReclaimedTokens: 0 }).reason).toBe('invalid-profile')
+  const secondCall = new AIMessage({ content: 'calling', tool_calls: [{ id: 'second', name: 'lookup', args: {} }] })
+  const secondTool = new ToolMessage({ content: 'x'.repeat(1000), tool_call_id: 'second' })
+  const compacted = compactCompletedToolResults([call(), tool(), secondCall, secondTool], { ...profile, maxCompactedResults: 2, targetReclaimedTokens: 1 })
+  expect(compacted.compactedToolCallIds).toEqual(['call'])
+})
+test('cache breakpoints preserve mixed provider content without treating non-text blocks as stable text', () => {
+  const mixed = new HumanMessage('fixture')
+  Object.assign(mixed, { content: ['text', { type: 'text', text: 1 }, null, { type: 'image_url', image_url: 'fixture' }] })
+  const output = applyCacheBreakpoints([mixed])
+  expect(output).toHaveLength(1)
+  expect(output[0]).not.toBe(mixed)
+  expect(mixed.content).toEqual(['text', { type: 'text', text: 1 }, null, { type: 'image_url', image_url: 'fixture' }])
+  const malformed = Object.assign(new HumanMessage('fixture'), { content: null })
+  expect(applyCacheBreakpoints([malformed])[0]!.content).toBeNull()
+  expect(applyCacheBreakpoints([undefined, new HumanMessage('fixture')] as unknown as BaseMessage[])).toHaveLength(1)
 })
 
 test('compaction cloning refuses unsafe values and retains supported detached artifact types', () => {

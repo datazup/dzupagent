@@ -1,6 +1,6 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "globalEnv": ["YARN_IGNORE_PATH", "YARN_CACHE_FOLDER", "YARN_GLOBAL_FOLDER", "npm_config_prefix"],
+  "globalEnv": ["YARN_IGNORE_PATH", "YARN_CACHE_FOLDER", "YARN_GLOBAL_FOLDER", "npm_config_prefix", "DATAZUP_AUDIT_WORKSPACE_ROOT"],
   "globalPassThroughEnv": ["DZUP_BUILD_CUSTODY_TOKEN"],
   "globalDependencies": [
     ".yarnrc.yml",
@@ -15,7 +15,6 @@
     "scripts/run-with-build-custody.mjs",
     "scripts/write-build-artifact-manifest.mjs"
   ],
-  "globalEnv": ["DATAZUP_AUDIT_WORKSPACE_ROOT"],
   "tasks": {
     "build": {
       "dependsOn": ["^build:verify"],
@@ -321,6 +320,17 @@
         "coverage/**"
       ],
       "outputLogs": "new-only"
+    },
+    "@dzupagent/testing#test:coverage": {
+      "dependsOn": ["^build:verify", "@dzupagent/testing#build:verify"],
+      "inputs": ["src/**", "test/**", "package.json", "tsconfig.json", "vitest.config.*"],
+      "outputs": ["coverage/**"],
+      "outputLogs": "new-only"
+    },
+    "@dzupagent/testing#test": {
+      "dependsOn": ["^build:verify", "@dzupagent/testing#build:verify"],
+      "inputs": ["src/**", "test/**", "package.json", "tsconfig.json", "vitest.config.*"],
+      "outputs": []
     },
     "@dzupagent/adapter-types#test:coverage": {
       "dependsOn": [

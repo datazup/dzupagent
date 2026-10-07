@@ -43,3 +43,9 @@ test('required gates are unique and missing contexts cannot qualify', () => {
   assert.equal(report.required[0].status, 'incomplete')
   for (const tests of ['invalid', [], { madeUp: 1 }]) assert.throws(() => summarizeAudit({ source, requiredGates: [requirement], contexts: [context('one', [{ name: 'test', status: 'pass', tests }])] }))
 })
+test('a truthy verification label cannot qualify coverage and evidence text cannot render HTML', () => {
+  const evidence = { source, requiredGates: [{ context: 'one', name: 'coverage' }], contexts: [context('one', [{ name: 'coverage', status: 'pass', summaryVerified: 'yes', evidence: '<script>fixture</script>' }])] }
+  assert.equal(summarizeAudit(evidence).qualification, 'red')
+  assert.match(renderAuditMarkdown(evidence), /&lt;script&gt;/)
+  assert.doesNotMatch(renderAuditMarkdown(evidence), /<script>/)
+})

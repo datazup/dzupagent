@@ -31,6 +31,8 @@ function validTurbo(overrides = {}) {
       '@dzupagent/agent-adapters#test:coverage': { dependsOn: ['^build:verify', '@dzupagent/agent-adapters#build:verify'] },
       '@dzupagent/adapter-types#test:coverage': { dependsOn: ['^build:verify', '@dzupagent/adapter-types#build:verify'] },
       '@dzupagent/context#test:coverage': { dependsOn: ['^build:verify', '@dzupagent/context#build:verify'] },
+      '@dzupagent/testing#test:coverage': { dependsOn: ['^build:verify', '@dzupagent/testing#build:verify'] },
+      '@dzupagent/testing#test': { dependsOn: ['^build:verify', '@dzupagent/testing#build:verify'] },
       typecheck: { dependsOn: ['^build:verify', '^typecheck'] },
       test: { dependsOn: ['^build:verify'] },
       'test:integration': { dependsOn: ['^build:verify'] },

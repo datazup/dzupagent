@@ -80,6 +80,8 @@ export function checkPortalPeerOrdering(turboConfig) {
     '@dzupagent/agent-adapters#test:coverage': '@dzupagent/agent-adapters#build:verify',
     '@dzupagent/adapter-types#test:coverage': '@dzupagent/adapter-types#build:verify',
     '@dzupagent/context#test:coverage': '@dzupagent/context#build:verify',
+    '@dzupagent/testing#test:coverage': '@dzupagent/testing#build:verify',
+    '@dzupagent/testing#test': '@dzupagent/testing#build:verify',
   }
   for (const [task, edge] of Object.entries(seams)) {
     if (!tasks[task]?.dependsOn?.includes(edge)) messages.push(`${task} requires ${edge}`)

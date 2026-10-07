@@ -20,9 +20,8 @@
  * Running every gate turns one debugging session per failure into one session
  * for all of them.
  *
- * Fail-fast semantics are preserved where they are load-bearing: a gate marked
- * `blocking` aborts the run, because gates after it would produce meaningless
- * results (e.g. artifact checks against a tree that never built).
+ * A failed build leaves dependent checks explicitly incomplete, while
+ * independent checks still run. Optional --fail-fast aborts on any failure.
  *
  * Usage:
  *   node scripts/run-gates.mjs --profile strict-ci
@@ -41,9 +40,9 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 /**
  * A gate is `{ name, run, blocking? }`.
  *
- * `blocking: true` means "stop here on failure" — reserved for the build step,
- * whose output every later gate inspects. Everything else runs unconditionally
- * so a single red gate cannot hide the rest.
+ * The build step determines whether artifact consumers can run. Its historical
+ * `blocking` annotation is retained for profile introspection; execution uses
+ * the explicit dependency list below, so a red build cannot hide audit:deps.
  */
 export const BUILD_GATE_NAME = "build:verify";
 
