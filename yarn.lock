@@ -1624,6 +1624,7 @@ __metadata:
   bin:
     dzupagent-compile: dist/bin/compile.js
     dzupagent-qualify-flow-corpus: dist/bin/qualify-corpus.js
+    dzupagent-run: dist/bin/run.js
   languageName: unknown
   linkType: soft
 
