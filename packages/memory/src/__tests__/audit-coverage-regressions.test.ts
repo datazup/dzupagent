@@ -208,7 +208,9 @@ test('relationship recovery ignores malformed persisted edges, cycles, tombstone
   expect((await graph.traverse('one', ['causes'], 3, 1)).map(item => item.key)).toEqual(['two'])
   expect(await graph.findCausalChain('one', 'missing', 1)).toBeNull()
   expect((await graph.findCausalChain('one', 'two'))?.map(edge => edge.toKey)).toEqual(['two'])
-  expect((await graph.getAllEdges()).every(edge => typeof edge.createdAt === 'number')).toBe(true)
+  const retainedEdges = await graph.getAllEdges()
+  expect(retainedEdges).toHaveLength(4)
+  expect(retainedEdges.filter(edge => typeof edge.createdAt === 'number')).toHaveLength(4)
   expect((await graph.buildAdjacency(['blocks'])).get('one')).toEqual(['three'])
   await graph.removeAllEdges('one')
   // Recovery exposes valid edge payloads but cannot infer the physical key of
