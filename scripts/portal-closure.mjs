@@ -6,7 +6,7 @@
  *
  * Why this exists
  * ---------------
- * Every intra-scope dependency in packages/*\/package.json is an exact version
+ * Publishable intra-scope dependencies in packages/*\/package.json use exact versions
  * ("0.2.0", never "workspace:"). That is correct for a publishable monorepo, and
  * inside this repo Yarn's transparent workspaces satisfy those ranges locally.
  * But the @dzupagent scope is not published anywhere, so application
@@ -61,6 +61,10 @@
  *   --json    Machine-readable report.
  *   --repo    Override the dzupagent root (default: this script's repository).
  *
+ * Private dependency leaves may instead use a relative portal to their exact
+ * package directory, as retained by the September 16 lockfile refresh. This
+ * does not waive the application's explicit transitive closure resolutions.
+ *
  * No dependencies beyond node:*.
  */
 
@@ -96,8 +100,8 @@ function toPosix(p) {
  * Problems are the graph-level invariant this script gates:
  *   DANGLING          — an @dzupagent/* dependency that is not a workspace package
  *   VERSION_MISMATCH  — declared range differs from the workspace package version
- *   PATH_PROTOCOL     — workspace:/portal:/link:/file: inside a manifest that
- *                       portal consumers cannot resolve relative to themselves
+ *   PATH_PROTOCOL     — a path protocol other than a relative dependency portal
+ *                       to the exact directory of a private graph leaf
  */
 export function readWorkspaceGraph(repoRoot = DEFAULT_REPO_ROOT) {
   const packagesDir = path.join(repoRoot, 'packages');
@@ -150,12 +154,19 @@ export function readWorkspaceGraph(repoRoot = DEFAULT_REPO_ROOT) {
         continue;
       }
       if (PATH_PROTOCOL.test(String(edge.range))) {
+        const portalPath = String(edge.range).startsWith('portal:')
+          ? String(edge.range).slice('portal:'.length)
+          : null;
+        const privateLeafPortal = target.private && target.edges.length === 0
+          && edge.kind !== 'peer' && portalPath && !path.isAbsolute(portalPath)
+          && path.resolve(pkg.directory, portalPath) === target.directory;
+        if (privateLeafPortal) continue;
         problems.push({
           code: 'PATH_PROTOCOL',
           package: pkg.name,
           dependency: edge.name,
           range: edge.range,
-          message: `${pkg.name} declares ${edge.name} as "${edge.range}"; a portal consumer resolves that path relative to itself, not to this package — use the exact version ${target.version}`,
+          message: `${pkg.name} declares ${edge.name} as "${edge.range}"; use the exact version ${target.version}, or a relative dependency portal to the exact directory of a private leaf`,
         });
         continue;
       }

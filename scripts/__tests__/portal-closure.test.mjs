@@ -127,6 +127,54 @@ test('the graph gate reports dangling, mismatched and path-protocol declarations
   }
 });
 
+test('a private leaf portal names its exact package directory and stays in consumer closure', () => {
+  const ws = makeWorkspace({
+    packages: {
+      ...BASE_PACKAGES,
+      'runtime-contracts': {
+        ...BASE_PACKAGES['runtime-contracts'],
+        dependencies: { '@dzupagent/canonical-json': 'portal:../canonical-json' },
+      },
+    },
+    app: { resolutions: { '@dzupagent/runtime-contracts': 'portal:../../dzupagent/packages/runtime-contracts' } },
+  });
+  try {
+    const graph = readWorkspaceGraph(ws.repoRoot);
+    assert.deepEqual(graph.problems, []);
+    const audit = auditConsumer(graph, ws.consumer);
+    assert.equal(audit.missing.length, 1, 'a valid internal portal does not waive the consumer closure');
+    assert.equal(audit.missing[0].name, '@dzupagent/canonical-json');
+    writeMissing(audit);
+    assert.equal(auditConsumer(graph, ws.consumer).ok, true);
+  } finally {
+    ws.cleanup();
+  }
+});
+
+test('private-leaf portal exception rejects wrong paths, publishable targets, nonleaves and peers', () => {
+  const cases = [
+    { range: 'portal:../core' },
+    { range: 'portal:/outside/canonical-json' },
+    { range: 'link:../canonical-json' },
+    { range: 'file:../canonical-json' },
+    { range: 'portal:../canonical-json', target: { private: false } },
+    { range: 'portal:../canonical-json', target: { dependencies: { '@dzupagent/core': '0.2.0' } } },
+    { range: 'portal:../canonical-json', field: 'peerDependencies' },
+  ];
+  for (const { range, target = {}, field = 'dependencies' } of cases) {
+    const ws = makeWorkspace({ packages: {
+      ...BASE_PACKAGES,
+      'canonical-json': { ...BASE_PACKAGES['canonical-json'], ...target },
+      'runtime-contracts': { name: '@dzupagent/runtime-contracts', version: '0.2.0', [field]: { '@dzupagent/canonical-json': range } },
+    } });
+    try {
+      assert.equal(readWorkspaceGraph(ws.repoRoot).problems[0]?.code, 'PATH_PROTOCOL', `${field}: ${range}`);
+    } finally {
+      ws.cleanup();
+    }
+  }
+});
+
 test('closureOf is transitive, deterministic and records the first via chain', () => {
   const ws = makeWorkspace({ packages: BASE_PACKAGES });
   try {
