@@ -1,0 +1,58 @@
+dsl: dzupflow/v2
+id: inactive-local-host
+version: 2.0.0
+inputs:
+  ready: boolean
+steps:
+  - id: draft
+    use: adapter.run@2
+    when:
+      ref: inputs.ready
+    with:
+      provider: codex
+      instructions: Draft.
+    policy:
+      timeoutMs: 30000
+      budgetCents: 100
+    retry:
+      match:
+        - ADAPTER_FAILED
+      maxAttempts: 2
+      backoff:
+        strategy: fixed
+        initialMs: 5
+        maxMs: 5
+        jitter: none
+    catch:
+      - match:
+          - ADAPTER_CANCELLED
+        action: continue
+    save:
+      result: state.draft
+      receipt: state.draftReceipt
+  - id: review
+    use: adapter.run@2
+    when:
+      ref: inputs.ready
+    with:
+      provider: codex
+      instructions: Review.
+    policy:
+      timeoutMs: 30000
+      budgetCents: 100
+    retry:
+      match:
+        - ADAPTER_FAILED
+      maxAttempts: 2
+      backoff:
+        strategy: fixed
+        initialMs: 5
+        maxMs: 5
+        jitter: none
+    catch:
+      - match:
+          - ADAPTER_CANCELLED
+        action: complete
+    save:
+      result: state.review
+      receipt: state.reviewReceipt
