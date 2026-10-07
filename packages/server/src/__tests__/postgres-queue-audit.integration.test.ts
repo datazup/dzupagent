@@ -30,6 +30,8 @@ describe.skipIf(!url)('Postgres queue ownership audit', () => {
       const job = await a.enqueue({ runId: 'audit-run', agentId: 'audit-agent', input: {}, priority: 0 })
       await a._poll(); await entered
       // Cross the original reclaim threshold while the first processor stays live.
+      // PostgreSQL now() and real queue heartbeats must share elapsed wall time.
+      // eslint-disable-next-line no-restricted-syntax -- real database lease-expiry integration cannot use a virtual JavaScript clock
       await new Promise(resolve => setTimeout(resolve, 280))
       await b._poll()
       expect(bCalls).toBe(0)

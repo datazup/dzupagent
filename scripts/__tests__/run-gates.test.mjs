@@ -16,6 +16,16 @@ const packageJson = JSON.parse(
 
 const gate = (name) => ({ name, run: `yarn ${name}` })
 
+test('workspace audit commands collect all package failures and keep Turbo flags out of ESLint arguments', () => {
+  for (const name of ['typecheck', 'lint', 'test']) {
+    const command = packageJson.scripts[name]
+    const forwarded = command.indexOf(' -- ')
+    const continueFlag = command.indexOf('--continue=always')
+    assert.ok(continueFlag >= 0, `${name} must collect failures across all packages`)
+    assert.ok(forwarded < 0 || continueFlag < forwarded, `${name} must pass continue to Turbo, not its task`)
+  }
+})
+
 // The build clause is written out inline in the chain rather than as a
 // `yarn <script>` indirection, so the parser has to recognise it by content.
 const BUILD_CLAUSE =
