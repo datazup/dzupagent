@@ -62,6 +62,20 @@ export interface DslV2FrontendMetadata {
   readonly retryPolicies: readonly DslV2RetryPolicyBinding[];
   readonly terminalCatches: readonly DslV2TerminalCatchBinding[];
   readonly multiPortSaves: readonly DslV2MultiPortSaveBinding[];
+  /**
+   * Config reference declarations from the document's `config:` block, sorted
+   * by name. Present only when the document declares `config`, so metadata
+   * for documents without it is unchanged. Names only — the host binds values.
+   */
+  readonly configReferences?: readonly DslV2ConfigReference[];
+}
+
+export type DslV2ConfigReferenceKind = "model" | "provider" | "environment";
+
+export interface DslV2ConfigReference {
+  readonly name: string;
+  readonly kind: DslV2ConfigReferenceKind;
+  readonly description?: string;
 }
 
 export interface DslV2PrimitiveImport {
