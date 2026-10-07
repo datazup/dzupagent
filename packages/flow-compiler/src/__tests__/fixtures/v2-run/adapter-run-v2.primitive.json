@@ -1,0 +1,152 @@
+{
+  "schema": "dzupagent.primitiveDefinition/v2",
+  "ref": "primitive://adapter.run@2",
+  "owner": "test.external",
+  "stability": "beta",
+  "requiresKernel": ">=1 <2",
+  "requiresProfiles": [],
+  "errorSchema": {
+    "type": "object",
+    "required": [
+      "code",
+      "message"
+    ],
+    "properties": {
+      "code": {
+        "type": "string"
+      },
+      "message": {
+        "type": "string"
+      },
+      "retryable": {
+        "type": "boolean"
+      }
+    },
+    "additionalProperties": true
+  },
+  "errors": [
+    {
+      "code": "ADAPTER_FAILED",
+      "retryable": true
+    },
+    {
+      "code": "ADAPTER_CANCELLED",
+      "retryable": false
+    }
+  ],
+  "policy": {
+    "allowedOverrides": [
+      "timeoutMs",
+      "budgetCents",
+      "requireApproval"
+    ],
+    "requiredApprovalClasses": [],
+    "requiresBudgetReservation": true
+  },
+  "evidence": {
+    "required": [
+      "provider-attempt",
+      "usage"
+    ],
+    "rawContent": "ephemeral",
+    "redactionReceiptRequired": false
+  },
+  "credentialInputPaths": [
+    "input.credential",
+    "input.credentials.*"
+  ],
+  "namespace": "adapter",
+  "name": "run",
+  "version": "2",
+  "category": "leaf",
+  "description": "Run one provider adapter call through the host registry.",
+  "requiresCapabilities": [
+    "flow.runtime.adapter.run@1",
+    "flow.runtime.credential.resolve@1"
+  ],
+  "inputSchema": {
+    "type": "object",
+    "required": [
+      "instructions",
+      "output"
+    ],
+    "properties": {
+      "provider": {
+        "type": "string"
+      },
+      "tags": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "instructions": {
+        "type": "string",
+        "minLength": 1
+      },
+      "output": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "acceptedInputClassifications": [
+    "public",
+    "internal"
+  ],
+  "credentialInputs": "handle-only",
+  "credentialResolverCapabilityRef": "flow.runtime.credential.resolve@1",
+  "outputPorts": {
+    "result": {
+      "schema": {},
+      "cardinality": "one",
+      "classification": "internal",
+      "persistence": "state"
+    },
+    "receipt": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "digest": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "digest"
+        ],
+        "additionalProperties": false
+      },
+      "cardinality": "one",
+      "classification": "internal",
+      "persistence": "state"
+    }
+  },
+  "effect": {
+    "classes": [
+      "llm"
+    ],
+    "idempotency": "at-least-once",
+    "replay": "deduplicated"
+  },
+  "execution": {
+    "kind": "runtime-leaf",
+    "handlerRef": "adapter.run",
+    "delivery": [
+      "inline",
+      "queued"
+    ],
+    "durability": [
+      "checkpointed",
+      "durable"
+    ],
+    "maySuspend": false,
+    "cancellation": "required"
+  },
+  "compatibility": {
+    "supersedes": [
+      "primitive://adapter.run@1"
+    ],
+    "deprecatedAliases": []
+  }
+}
