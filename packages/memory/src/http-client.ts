@@ -47,7 +47,7 @@ export type {
 } from "./http-client/types.js";
 
 export class HttpMemoryClient implements MemoryClient {
-  /** Retained for inspection by tooling once the wire protocol lands. */
+  /** The configuration the client was constructed with, exposed for inspection by tooling. */
   readonly config: HttpMemoryClientConfig;
 
   private readonly baseUrl: string;
