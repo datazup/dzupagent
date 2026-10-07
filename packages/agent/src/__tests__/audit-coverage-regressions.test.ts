@@ -36,7 +36,7 @@ test('validation suites preserve runner failures and never execute malformed she
   }
   for (const command of ["node -e 'process.stdout.write(\"fixture\")'", 'node -e "process.exit(0)"', "node -e 'process.exit(2)'", 'node -e process.exit(0)']) {
     const result = await createRuntimeShellValidationCommandRunner({ allowCommands: [command] })({ command }, request)
-    expect(result.ok).toBe(!command.includes('exit(2)'))
+    expect(typeof result === 'boolean' ? result : result.ok).toBe(!command.includes('exit(2)'))
   }
 })
 

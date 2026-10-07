@@ -37,6 +37,8 @@ import { sealMemoryWorkerLeaseV1 } from '../workers/validation-contracts.js'
 import { decodeMemoryConsolidationResultV1, decodeMemoryReconciliationResultV1 } from '../workers/validation-results.js'
 import { digestWorkerValue } from '../workers/snapshot.js'
 import { PersistentEntityGraph } from '../retrieval/persistent-graph.js'
+import { projectMemoryVersionChainV1 } from '../lifecycle/projection.js'
+import { RelationshipStore } from '../retrieval/relationship-store.js'
 
 test('knowledge paths reject ambiguous scopes and pin ancestors of the configured root', async () => {
   const root = await mkdtemp(join(tmpdir(), 'knowledge-boundary-'))
@@ -154,6 +156,63 @@ test.each(invalidScalarCases(projection))('projection restore rejects scalar out
 })
 test.each(invalidScalarCases(makeCaptureCommand()))('command admission rejects scalar outside its range or format: %s', (_path, input) => {
   expect(() => decodeMemoryCommandV1(input)).toThrow()
+})
+test.each(wrongTypeCases(projection).flatMap(([path]) => {
+  const copy = structuredClone(projection) as unknown as Record<string, unknown>
+  const parts = path.split('.')
+  let parent = copy
+  for (const key of parts.slice(0, -1)) parent = parent[key] as Record<string, unknown>
+  const key = parts.at(-1)!
+  const value = parent[key]
+  parent[key] = typeof value === 'number' ? value + 1 : typeof value === 'boolean' ? !value : typeof value === 'string' ? value.startsWith('sha256:') ? `sha256:${'f'.repeat(64)}` : 'tampered' : []
+  return JSON.stringify(parent[key]) === JSON.stringify(value) ? [] : [[path, copy] as [string, unknown]]
+}))('retained projection rejects well-typed tampering at %s', (_path, input) => {
+  expect(() => Reflect.apply(diffMemoryProjections, undefined, [projection, input])).toThrow()
+})
+
+test('ledger replay rejects reordered, duplicated, foreign and contradictory event effects', () => {
+  const events = projection.events
+  expect(() => projectMemoryVersionChainV1(events)).not.toThrow()
+  const secondChanges = [{ memoryId: 'foreign' }, { generation: 2 }, { sequence: 1 }, { sequence: 4 }, { occurredAt: '2020-01-01T00:00:00.000Z' }, { eventId: events[0]!.eventId }, { commandId: events[0]!.commandId }, { idempotencyKey: events[0]!.idempotencyKey }, { currentVersionId: 'foreign' }, { currentRecordDigest: `sha256:${'f'.repeat(64)}` }, { currentStatus: 'archived' }]
+  for (const change of secondChanges) {
+    const invalid = structuredClone(events)
+    Object.assign(invalid[1]!, change)
+    expect(() => projectMemoryVersionChainV1(invalid), JSON.stringify(change)).toThrow()
+  }
+  const captureEffects = [{ priorDigest: `sha256:${'f'.repeat(64)}` }, { statusFrom: 'active' }, { statusTo: 'active' }, { versionId: 'foreign' }]
+  for (const change of captureEffects) {
+    const invalid = structuredClone(events)
+    Object.assign(invalid[0]!.recordEffects[0]!, change)
+    expect(() => projectMemoryVersionChainV1(invalid), JSON.stringify(change)).toThrow()
+  }
+  for (const index of [1, 2]) for (const change of [{ priorDigest: `sha256:${'f'.repeat(64)}` }, { statusFrom: 'archived' }, { statusTo: 'archived' }, { versionId: 'foreign' }]) {
+    const invalid = structuredClone(events)
+    Object.assign(invalid[index]!.recordEffects[0]!, change)
+    expect(() => projectMemoryVersionChainV1(invalid), `${index}:${JSON.stringify(change)}`).toThrow()
+  }
+})
+
+test('relationship recovery ignores malformed persisted edges, cycles, tombstones and missing target records', async () => {
+  const store = await createStore({ type: 'memory' })
+  const graph = new RelationshipStore(store, ['notes'])
+  await graph.addEdge({ fromKey: 'one', toKey: 'two', type: 'causes', createdAt: 1 })
+  await graph.addEdge({ fromKey: 'two', toKey: 'one', type: 'causes', createdAt: 2 })
+  await graph.addEdge({ fromKey: 'one', toKey: 'three', type: 'blocks', createdAt: 3, metadata: { confidence: 1 } })
+  for (const [index, change] of [{ fromKey: 1 }, { toKey: false }, { type: null }, { createdAt: 'yesterday' }].entries()) await store.put(['notes', '__edges'], `bad-${index}`, { fromKey: 'one', toKey: 'two', type: 'causes', createdAt: 1, _direction: 'outgoing', ...change })
+  await store.put(['notes', '__edges'], 'tombstone', { fromKey: 'one', _direction: 'outgoing', _tombstone: true })
+  await store.put(['notes', '__edges'], 'bad-metadata', { fromKey: 'one', toKey: 'four', type: 'causes', createdAt: 1, metadata: [], _direction: 'outgoing' })
+  expect((await graph.traverse('one', ['causes'], 3)).map(item => item.key)).toEqual(['two', 'four'])
+  expect(await graph.traverse('one', ['causes'], -1)).toEqual([])
+  expect((await graph.traverse('one', ['causes'], 3, 1)).map(item => item.key)).toEqual(['two'])
+  expect(await graph.findCausalChain('one', 'missing', 1)).toBeNull()
+  expect((await graph.findCausalChain('one', 'two'))?.map(edge => edge.toKey)).toEqual(['two'])
+  expect((await graph.getAllEdges()).every(edge => typeof edge.createdAt === 'number')).toBe(true)
+  expect((await graph.buildAdjacency(['blocks'])).get('one')).toEqual(['three'])
+  await graph.removeAllEdges('one')
+  // Recovery exposes valid edge payloads but cannot infer the physical key of
+  // a corrupt index entry. Remove that deliberately noncanonical fixture.
+  await store.delete(['notes', '__edges'], 'bad-metadata')
+  expect(await graph.getEdges('one')).toEqual([])
 })
 test.each(wrongTypeCases(projection))('retained projection rejects wrong type at %s', (_path, input) => {
   expect(() => Reflect.apply(diffMemoryProjections, undefined, [projection, input])).toThrow()
