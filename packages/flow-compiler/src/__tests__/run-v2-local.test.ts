@@ -58,8 +58,27 @@ function countingImporter(calls: string[]) {
   };
 }
 
-function parse(stdout: string): Record<string, any> {
-  return JSON.parse(stdout) as Record<string, any>;
+interface CliJson {
+  readonly status: string;
+  readonly planSha256: string;
+  readonly hostSha256: string;
+  readonly state: Readonly<Record<string, unknown>>;
+  readonly stepOutputs: Readonly<
+    Record<string, { readonly result: unknown; readonly receipt: unknown }>
+  >;
+  readonly steps: readonly {
+    readonly id: string;
+    readonly stepSha256: string;
+    readonly handler: { readonly id: string };
+  }[];
+  readonly errors: readonly {
+    readonly code: string;
+    readonly keys?: readonly string[];
+  }[];
+}
+
+function parse(stdout: string): CliJson {
+  return JSON.parse(stdout) as CliJson;
 }
 
 async function sha256File(path: string): Promise<string> {
@@ -103,7 +122,7 @@ describe("dzupagent-run: run one V2 document from a file, configured by a file",
         receipt: { digest: "review-digest" },
       },
     });
-    expect(receipt.steps.map((step: { handler: unknown }) => step.handler)).toEqual([
+    expect(receipt.steps.map((step) => step.handler)).toEqual([
       {
         id: "adapter-run-local.mjs",
         sha256: `sha256:${await sha256File(join(dirname(config), "adapter-run-local.mjs"))}`,
@@ -140,8 +159,8 @@ describe("dzupagent-run: run one V2 document from a file, configured by a file",
       status: "completed",
       steps: [{ id: "draft" }, { id: "review" }],
     });
-    expect(receipt.steps[0].stepSha256).toBe(
-      parse(suspended.stdout).steps[0].stepSha256
+    expect(receipt.steps[0]?.stepSha256).toBe(
+      parse(suspended.stdout).steps[0]?.stepSha256
     );
     expect(calls).toEqual(["draft", "review"]);
 
@@ -192,11 +211,11 @@ describe("dzupagent-run: run one V2 document from a file, configured by a file",
         .stdout
     );
     expect(handlerReceipt.status).toBe("completed");
-    expect(handlerReceipt.stepOutputs.draft.result).toEqual({
+    expect(handlerReceipt.stepOutputs.draft?.result).toEqual({
       text: "draft-alt",
     });
-    expect(baseline.stepOutputs.draft.result).toEqual({ text: "draft-done" });
-    expect(handlerReceipt.steps[0].handler.id).toBe("adapter-run-local-alt.mjs");
+    expect(baseline.stepOutputs.draft?.result).toEqual({ text: "draft-done" });
+    expect(handlerReceipt.steps[0]?.handler.id).toBe("adapter-run-local-alt.mjs");
 
     for (const staged of [state, policy, handler]) {
       expect(await sha256File(staged.flow)).toBe(flowSha);
@@ -252,7 +271,7 @@ describe("dzupagent-run: run one V2 document from a file, configured by a file",
       expect(diagnostic.errors[0]).toMatchObject({
         code: "V2_LOCAL_HOST_CHECKPOINT_DRIFT",
       });
-      expect(diagnostic.errors[0].keys).toContain("handlers");
+      expect(diagnostic.errors[0]?.keys).toContain("handlers");
     });
 
     it("refuses an inherited policy the document's own limits would widen", async () => {
