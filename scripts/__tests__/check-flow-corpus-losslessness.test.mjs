@@ -176,3 +176,29 @@ test('lossless items are omitted from the failure details', () => {
   assert.ok(verdict.details.some((d) => d.includes('bad.yaml')))
   assert.ok(!verdict.details.some((d) => d.includes('good.yaml')))
 })
+
+test('explicit workspace root wins even for a non-repository path', async () => {
+  const { resolveAuditWorkspaceRoot } = await import('../check-flow-corpus-losslessness.mjs')
+  assert.equal(resolveAuditWorkspaceRoot('/missing/repository', '/explicit/workspace'), '/explicit/workspace')
+})
+
+test('a standalone non-repository path retains sibling-docs semantics', async () => {
+  const { resolveAuditWorkspaceRoot } = await import('../check-flow-corpus-losslessness.mjs')
+  assert.equal(resolveAuditWorkspaceRoot('/missing/standalone/repository', ''), '/missing/standalone')
+})
+
+test('repository discovery uses its Git common directory in linked worktrees', async (t) => {
+  const { spawnSync } = await import('node:child_process')
+  const { existsSync } = await import('node:fs')
+  const { dirname, resolve, join } = await import('node:path')
+  const { resolveAuditWorkspaceRoot } = await import('../check-flow-corpus-losslessness.mjs')
+  const root = resolve(import.meta.dirname, '../..')
+  const git = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: root, encoding: 'utf8' })
+  assert.equal(git.status, 0)
+  const workspace = dirname(dirname(git.stdout.trim()))
+  if (!existsSync(join(workspace, 'workspace-docs'))) {
+    t.skip('standalone checkout has no canonical sibling workspace-docs')
+    return
+  }
+  assert.equal(resolveAuditWorkspaceRoot(root, ''), workspace)
+})

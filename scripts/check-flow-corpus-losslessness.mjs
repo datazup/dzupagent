@@ -18,14 +18,26 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const ROOT = resolve(import.meta.dirname, "..");
+export function resolveAuditWorkspaceRoot(repoRoot, explicitRoot = process.env.DATAZUP_AUDIT_WORKSPACE_ROOT) {
+  if (explicitRoot) return resolve(explicitRoot);
+  const common = spawnSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], {
+    cwd: repoRoot, encoding: "utf8",
+  });
+  if (common.status === 0 && common.stdout.trim()) {
+    const canonicalWorkspace = dirname(dirname(common.stdout.trim()));
+    if (existsSync(join(canonicalWorkspace, "workspace-docs"))) return canonicalWorkspace;
+  }
+  return resolve(repoRoot, "..");
+}
 const MODULE_PATH = join(ROOT, "packages", "flow-compiler", "dist", "index.js");
 const DSL_MODULE_PATH = join(ROOT, "packages", "flow-dsl", "dist", "index.js");
 const MANIFEST_PATH = resolve(
-  process.env.DATAZUP_AUDIT_WORKSPACE_ROOT ?? resolve(ROOT, ".."),
+  resolveAuditWorkspaceRoot(ROOT),
   "workspace-docs",
   "repos",
   "dzupagent",
