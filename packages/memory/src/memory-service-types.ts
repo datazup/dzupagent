@@ -51,6 +51,19 @@ export interface MemoryServiceOptions {
 }
 
 /**
+ * Outcome of {@link MemoryService.put}. `put` never throws, so this is the
+ * only way a caller can tell a stored record from one dropped by
+ * `rejectUnsafe` or lost to a failing store.
+ *
+ * `written` reports the primary store write only; semantic indexing stays
+ * non-fatal and surfaces failures through `memory:error`.
+ */
+export type MemoryPutResult =
+  | { status: 'written'; piiRedacted: boolean }
+  | { status: 'rejected'; reason: 'unsafe_content'; threats: string[] }
+  | { status: 'failed'; error: string }
+
+/**
  * Caller-supplied context identifying the agent run that issued a read.
  * When present, MemoryService records a fire-and-forget citation via
  * the configured ReferenceTracker (if any).

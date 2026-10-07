@@ -17,6 +17,7 @@ import type { ReferenceTracker } from "./provenance/reference-tracker.js";
 import { deriveMemoryEntryId } from "./provenance/reference-tracker.js";
 import type {
   MemoryEventBus,
+  MemoryPutResult,
   MemoryServiceOptions,
   ReadContext,
 } from "./memory-service-types.js";
@@ -159,7 +160,9 @@ async function ensureCollectionOnce(
  * Persist a value under [namespace + scope] → key with sanitization,
  * PII redaction, decay metadata, and (optionally) semantic indexing.
  *
- * Non-fatal: never throws. Unsafe content is silently dropped.
+ * Non-fatal: never throws. Unsafe content is not persisted; the returned
+ * {@link MemoryPutResult} says whether the record was written, rejected or
+ * lost to a store failure.
  */
 export async function putMemoryRecord(
   ns: NamespaceConfig,
@@ -167,7 +170,8 @@ export async function putMemoryRecord(
   key: string,
   value: Record<string, unknown>,
   deps: PutDeps
-): Promise<void> {
+): Promise<MemoryPutResult> {
+  let piiRedacted = false;
   let workingValue = value;
   let textContent =
     typeof workingValue["text"] === "string"
@@ -183,7 +187,11 @@ export async function putMemoryRecord(
         namespace: ns.name,
         threats: result.threats,
       });
-      return;
+      return {
+        status: "rejected",
+        reason: "unsafe_content",
+        threats: result.threats,
+      };
     }
   }
 
@@ -196,6 +204,7 @@ export async function putMemoryRecord(
       if (piiResult.hasPII) {
         textContent = piiResult.redacted;
         workingValue = { ...workingValue, text: textContent };
+        piiRedacted = true;
         deps.eventBus?.emit({
           type: "memory:pii_redacted",
           agentId: deps.agentId ?? "unknown",
@@ -272,6 +281,7 @@ export async function putMemoryRecord(
           });
         });
     }
+    return { status: "written", piiRedacted };
   } catch (err: unknown) {
     // Non-fatal — memory write failures should not break pipelines. But a
     // fully swallowed primary write is a data-loss hazard, so log + emit a
@@ -290,6 +300,7 @@ export async function putMemoryRecord(
       message,
       agentId: deps.agentId ?? "unknown",
     });
+    return { status: "failed", error: message };
   }
 }
 

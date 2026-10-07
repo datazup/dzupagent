@@ -115,7 +115,7 @@ describe('MemoryService', () => {
       const svc = new MemoryService(makeFailingStore(), nsConfigs)
       await expect(
         svc.put('observations', { tenantId: 't1' }, 'k', { text: 'hi' }),
-      ).resolves.toBeUndefined()
+      ).resolves.toEqual({ status: 'failed', error: 'fail' })
     })
 
     it('throws on unknown namespace', async () => {
@@ -173,9 +173,10 @@ describe('MemoryService', () => {
         ensureCollection: vi.fn(),
       } as unknown as SemanticStoreAdapter
       const svc = new MemoryService(store, nsConfigs, { semanticStore: sem })
+      // The primary write succeeded; a semantic-index failure does not change that.
       await expect(
         svc.put('observations', { tenantId: 't1' }, 'k', { text: 'hi' }),
-      ).resolves.toBeUndefined()
+      ).resolves.toEqual({ status: 'written', piiRedacted: false })
     })
   })
 

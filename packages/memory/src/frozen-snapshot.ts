@@ -85,7 +85,7 @@ export class FrozenMemorySnapshot {
       this.writeBuffer.push({ namespace, scope, key, value })
       return
     }
-    return this.memoryService.put(namespace, scope, key, value)
+    await this.memoryService.put(namespace, scope, key, value)
   }
 
   /** Unfreeze — flush all buffered writes to the real store */

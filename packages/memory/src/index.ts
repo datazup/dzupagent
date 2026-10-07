@@ -23,6 +23,7 @@ export type {
   MemoryServiceOptions,
   MemoryEventBus,
   MemoryPIIResult,
+  MemoryPutResult,
   ReadContext,
 } from "./memory-service.js";
 

@@ -68,7 +68,7 @@ describe("ERR-H-12 — write-path failure telemetry", () => {
     });
     await expect(
       svc.put("observations", { tenantId: "t1" }, "k1", { text: "hello" })
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ status: "written", piiRedacted: false });
 
     // Primary write DID succeed...
     expect(put).toHaveBeenCalledTimes(1);
@@ -98,7 +98,7 @@ describe("ERR-H-12 — write-path failure telemetry", () => {
     const svc = new MemoryService(store, nsConfigs, { eventBus: { emit } });
     await expect(
       svc.put("observations", { tenantId: "t1" }, "k2", { text: "hello" })
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ status: "failed", error: "primary boom" });
 
     expect(emit).toHaveBeenCalledWith(
       expect.objectContaining({
