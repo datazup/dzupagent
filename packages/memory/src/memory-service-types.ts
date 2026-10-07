@@ -33,11 +33,16 @@ export interface MemoryServiceOptions {
   rejectUnsafe?: boolean
   semanticStore?: SemanticStoreAdapter
   referenceTracker?: ReferenceTracker
-  /** Toggle PII detection/redaction on the write path. Defaults to true. */
+  /**
+   * Toggle PII detection/redaction on the write path. Defaults to true:
+   * without an injected `detectPII`, a string `text` field is redacted with
+   * the `@dzupagent/security` scanner. Set `false` to store text verbatim.
+   */
   piiRedactionEnabled?: boolean
   /**
-   * Optional PII detector. When provided and `piiRedactionEnabled !== false`,
-   * text content is scanned and redacted before persistence. Structurally
+   * Optional PII detector, replacing the default. When provided and
+   * `piiRedactionEnabled !== false`, text content (or the JSON of a value
+   * without `text`) is scanned and redacted before persistence. Structurally
    * typed to accept `detectPII` from `@dzupagent/core/security` without a
    * compile-time dependency on core.
    */
