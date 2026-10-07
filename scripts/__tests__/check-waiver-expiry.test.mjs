@@ -364,7 +364,10 @@ test('CLI exits 0 (not 1) when a fixture has a baseline expiring soon but not ye
   }
 })
 
-test('CLI exits 0 on the real repo coverage-thresholds.json (no expired entries today)', () => {
-  const stdout = execFileSync('node', [SCRIPT_PATH], { encoding: 'utf-8' })
-  assert.match(stdout, /OK:/)
+test('CLI exits 0 on a configuration with no waiver entries', () => {
+  const { dir, configPath } = writeTempConfig({ alpha: { thresholds: { statements: 80 } } })
+  try {
+    const stdout = execFileSync('node', [SCRIPT_PATH, configPath], { encoding: 'utf-8' })
+    assert.match(stdout, /OK:/)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
 })

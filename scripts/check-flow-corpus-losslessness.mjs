@@ -25,8 +25,7 @@ const ROOT = resolve(import.meta.dirname, "..");
 const MODULE_PATH = join(ROOT, "packages", "flow-compiler", "dist", "index.js");
 const DSL_MODULE_PATH = join(ROOT, "packages", "flow-dsl", "dist", "index.js");
 const MANIFEST_PATH = resolve(
-  ROOT,
-  "..",
+  process.env.DATAZUP_AUDIT_WORKSPACE_ROOT ?? resolve(ROOT, ".."),
   "workspace-docs",
   "repos",
   "dzupagent",

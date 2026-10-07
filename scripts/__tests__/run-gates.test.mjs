@@ -88,7 +88,7 @@ test('the inline build clause is recognised as the build gate', () => {
   // gate AND a chain-only gate, and the real comparison would be pure noise.
   assert.deepEqual(parseChainGates(`yarn check:one && ${BUILD_CLAUSE}`), [
     'check:one',
-    BUILD_GATE_NAME,
+    BUILD_GATE_NAME, 'typecheck', 'lint', 'test',
   ])
 })
 

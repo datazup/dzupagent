@@ -38,7 +38,7 @@ describe('ws-control-protocol', () => {
     expect(event.runId).toBe('r1')
   })
 
-  it('unsubscribe clears filters and emits ack', async () => {
+  it('unsubscribe disables events and emits ack', async () => {
     const bus = createEventBus()
     const bridge = new EventBridge(bus)
     const ws = new MockWsClient()
@@ -53,7 +53,7 @@ describe('ws-control-protocol', () => {
     ws.sent = []
     bus.emit({ type: 'tool:called', toolName: 'search', input: {} })
     await Promise.resolve()
-    expect(ws.sent).toHaveLength(1)
+    expect(ws.sent).toHaveLength(0)
   })
 
   it('returns structured error for invalid json', () => {

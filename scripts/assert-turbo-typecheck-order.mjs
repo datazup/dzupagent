@@ -64,6 +64,16 @@ export function checkBuildOrdering(turboConfig) {
     }
   }
 
+  const seams = {
+    '@dzupagent/runtime-contracts#test': '@dzupagent/canonical-json#build:verify',
+    '@dzupagent/runtime-contracts#typecheck': '@dzupagent/canonical-json#build:verify',
+    '@dzupagent/runtime-contracts#test:coverage': '@dzupagent/canonical-json#build:verify',
+    '@dzupagent/agent#typecheck': '@dzupagent/memory#build:verify',
+    '@dzupagent/memory#test:coverage': '@dzupagent/memory#build:verify',
+  }
+  for (const [task, edge] of Object.entries(seams)) {
+    if (!tasks[task]?.dependsOn?.includes(edge)) messages.push(`${task} requires ${edge}`)
+  }
   return messages
 }
 

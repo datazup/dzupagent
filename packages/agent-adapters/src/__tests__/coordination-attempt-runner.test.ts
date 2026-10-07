@@ -68,8 +68,8 @@ const PINNED_CHECKOUT = '/storage/worktrees/pinned-checkout-mvp04cp01'
 
 type Json = Record<string, any>
 
-function sha256(content: string): string {
-  return `sha256:${createHash('sha256').update(content).digest('hex')}`
+function sha256(content: string): `sha256:${string}` {
+  return `sha256:${createHash('sha256').update(content).digest('hex')}` as const
 }
 
 /** The fixture with a resolvable task digest, resealed with the producer rule. */

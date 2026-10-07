@@ -9,8 +9,8 @@ describe('vision tier resolution', () => {
     const registry = new ModelRegistry()
     registry.setFactory(() => model)
     registry.addProvider({ provider: 'openai', apiKey: 'test-only', models: {
-      vision: { name: 'configured-image-model' },
-      chat: { name: 'configured-chat-model' },
+      vision: { name: 'configured-image-model', maxTokens: 1024 },
+      chat: { name: 'configured-chat-model', maxTokens: 1024 },
     } })
     return { registry, model }
   }

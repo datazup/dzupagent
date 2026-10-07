@@ -42,7 +42,7 @@ describe('bounded MCP byte framing', () => {
     const burst = Buffer.from((JSON.stringify({ jsonrpc: '2.0', method: 'ping' }) + '\n').repeat(2000))
     const original = Buffer.prototype.indexOf
     let searchedBytes = 0
-    const search = vi.spyOn(Buffer.prototype, 'indexOf').mockImplementation(function (this: Buffer, ...args: Parameters<Buffer['indexOf']>) {
+    const search = vi.spyOn(Buffer.prototype, 'indexOf').mockImplementation(function (this: Buffer, ...args: unknown[]) {
       const result = Reflect.apply(original, this, args) as number
       const offset = typeof args[1] === 'number' ? args[1] : 0
       searchedBytes += (result < 0 ? this.length : result + 1) - offset

@@ -436,7 +436,7 @@ async function observeAppServerRun(
   readonly failure: unknown
 }> {
   const server = fakeServer(completedScenario)
-  const spawn = vi.fn(() => server.child)
+  const spawn = vi.fn((_command: string, _args: readonly string[]) => server.child)
   const realpathCall = vi.fn(async (path: string) => path)
   const stat = vi.fn(async () => ({ isFile: () => true }))
   const access = vi.fn(async () => undefined)
@@ -562,7 +562,7 @@ describe('Codex App Server provider-session adapter', () => {
       dependencies: runtimeDependencies(server.child),
     })).toBeInstanceOf(CodexAppServerAdapter)
 
-    const spawn = vi.fn(() => server.child)
+    const spawn = vi.fn((_command: string, _args: readonly string[]) => server.child)
     expect(() => createCodexAppServerAdapter({
       attemptBinding: binding(['usage']),
       executable: executableIdentity(),
@@ -670,7 +670,7 @@ describe('Codex App Server provider-session adapter', () => {
     const directory = await mkdtemp(join(tmpdir(), 'dzupagent-app-server-executable-'))
     try {
       const server = fakeServer(completedScenario)
-      const spawn = vi.fn(() => server.child)
+      const spawn = vi.fn((_command: string, _args: readonly string[]) => server.child)
       const adapter = createCodexAppServerAdapter({
         attemptBinding: binding(),
         executable: executableIdentity(directory, await realpath(directory)),
@@ -1181,7 +1181,7 @@ describe('Codex App Server provider-session adapter', () => {
               : {}),
           },
         )
-        const spawn = vi.fn(() => server.child)
+        const spawn = vi.fn((_command: string, _args: readonly string[]) => server.child)
         const adapter = createCodexAppServerAdapter({
           attemptBinding: binding(),
           executable: executableIdentity(),
@@ -1705,7 +1705,7 @@ describe('Codex App Server adapter join receipt', () => {
   it('spawns through the containment wrapper and joins only on a signal-free exit', async () => {
     const server = fakeServer(completedScenario)
     endsOnEof(server, () => server.child.emit('exit', 0, null))
-    const spawn = vi.fn(() => server.child)
+    const spawn = vi.fn((_command: string, _args: readonly string[]) => server.child)
     const adapter = createCodexAppServerAdapter({
       attemptBinding: binding(),
       executable: executableIdentity(),

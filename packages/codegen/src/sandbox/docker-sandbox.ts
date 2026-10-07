@@ -24,12 +24,14 @@
  * streaming execution, and port exposure.
  */
 
+import { constants } from "node:fs";
+import { withContainedFile } from "./contained-file.js";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, writeFile, readFile, rm, mkdir } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, dirname, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import type { ExecResult, ExecOptions } from "./sandbox-protocol.js";
 import type {
   SandboxProtocolV2,
@@ -93,8 +95,10 @@ export class DockerSandbox implements SandboxProtocolV2 {
     }
     for (const [filePath, content] of Object.entries(files)) {
       const fullPath = this.safePath(filePath);
-      await mkdir(dirname(fullPath), { recursive: true });
-      await writeFile(fullPath, content, "utf-8");
+      await withContainedFile(this.tempDir, fullPath, true, constants.O_WRONLY | constants.O_CREAT, async file => {
+        await file.truncate(0);
+        await file.writeFile(content, "utf-8");
+      });
     }
   }
 
@@ -106,8 +110,9 @@ export class DockerSandbox implements SandboxProtocolV2 {
     for (const filePath of paths) {
       const fullPath = this.safePath(filePath);
       try {
-        result[filePath] = await readFile(fullPath, "utf-8");
-      } catch {
+        result[filePath] = await withContainedFile(this.tempDir, fullPath, false, constants.O_RDONLY, file => file.readFile("utf-8"));
+      } catch (error) {
+        if (!["ENOENT", "EACCES"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
         // File does not exist or not readable — skip
       }
     }

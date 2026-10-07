@@ -1,53 +1,18 @@
 #!/usr/bin/env node
-/**
- * check-capability-matrix-freshness.mjs
- *
- * Regenerates CAPABILITY_MATRIX.md in-process and compares with the
- * committed version. Exits non-zero if they differ (matrix is stale).
- *
- * Usage: node scripts/check-capability-matrix-freshness.mjs
- */
-
 import { readFileSync, existsSync } from 'node:fs'
-import { resolve } from 'node:path'
-import { generateCapabilityMatrix } from './generate-capability-matrix.mjs'
+import { resolve, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { renderCapabilityMatrix } from './generate-capability-matrix.mjs'
 
-const ROOT = resolve(import.meta.dirname, '..')
-const MATRIX_PATH = resolve(ROOT, 'docs/CAPABILITY_MATRIX.md')
-
-if (!existsSync(MATRIX_PATH)) {
-  console.error('docs/CAPABILITY_MATRIX.md does not exist. Run: yarn docs:capability-matrix')
-  process.exit(1)
+export function checkCapabilityMatrixFreshness(root) {
+  const target = join(root, 'docs/CAPABILITY_MATRIX.md')
+  if (!existsSync(target)) return { ok: false, code: 'MATRIX_MISSING' }
+  const normalizeDate = text => text.replace(/^Auto-generated on \d{4}-\d{2}-\d{2}\./m, 'Auto-generated on <date>.')
+  const ok = normalizeDate(readFileSync(target, 'utf8')) === normalizeDate(renderCapabilityMatrix(root))
+  return { ok, code: ok ? 'FRESH' : 'MATRIX_STALE' }
 }
-
-// Capture the committed content before regeneration
-const committed = readFileSync(MATRIX_PATH, 'utf8')
-
-// Regenerate
-console.log('Regenerating CAPABILITY_MATRIX.md...')
-generateCapabilityMatrix(ROOT)
-
-const fresh = readFileSync(MATRIX_PATH, 'utf8')
-
-// The header embeds the generation date, which changes daily and would make
-// this gate fail on any day after the file was last committed even when the
-// matrix content is unchanged. Normalize the date stamp out of both sides so
-// the comparison reflects real capability drift only.
-const normalizeDate = (text) =>
-  text.replace(
-    /^Auto-generated on \d{4}-\d{2}-\d{2}\./m,
-    'Auto-generated on <date>.',
-  )
-
-if (normalizeDate(committed) === normalizeDate(fresh)) {
-  console.log('CAPABILITY_MATRIX.md is up to date.')
-  process.exit(0)
-} else {
-  console.error(
-    'CAPABILITY_MATRIX.md is stale! Regenerate with: yarn docs:capability-matrix\n' +
-    'Then commit the updated file.',
-  )
-  // Restore the committed version so we don't leave dirty working tree in CI
-  // (the developer should regenerate locally)
-  process.exit(1)
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const result = checkCapabilityMatrixFreshness(resolve(import.meta.dirname, '..'))
+  console.log(result.ok ? 'CAPABILITY_MATRIX.md is up to date.' : result.code + ': regenerate with yarn docs:capability-matrix')
+  process.exitCode = result.ok ? 0 : 1
 }

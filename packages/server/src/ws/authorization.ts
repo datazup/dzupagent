@@ -71,6 +71,11 @@ export function createScopedAuthorizeFilter(
     if (!scope) return false
     if (scope.canSubscribeAll) return true
 
+    // Every resource restriction must be represented, even for type-only filters.
+    if ((scope.runIds !== undefined || options.canAccessRun) && !filter.runId) return false
+    if ((scope.agentIds !== undefined || options.canAccessAgent) && !filter.agentId) return false
+    if (scope.eventTypes !== undefined && !filter.eventTypes?.length) return false
+
     if (filter.runId) {
       if (options.canAccessRun) {
         const ok = await options.canAccessRun({ client, scope, runId: filter.runId })

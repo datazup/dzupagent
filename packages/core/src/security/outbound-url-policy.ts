@@ -49,6 +49,8 @@ export interface SecureFetchOptions {
   maxRedirects?: number | undefined;
   followRedirects?: boolean | undefined;
   fetchImpl?: typeof fetch | undefined;
+  /** Additional credential headers stripped on cross-origin redirects. */
+  sensitiveHeaders?: readonly string[];
 }
 
 const DEFAULT_MAX_REDIRECTS = 5;
@@ -397,6 +399,7 @@ export async function fetchWithOutboundUrlPolicy(
       redirect: "manual",
     };
     let activeFetch = fetchImpl;
+    let dispatcher: UndiciAgent | undefined;
     if (pinnedAddress) {
       // The `dispatcher` field is an undici extension. Node.js v22's built-in
       // global fetch does NOT support the dispatcher option (throws
@@ -404,19 +407,27 @@ export async function fetchWithOutboundUrlPolicy(
       // undici's own fetch, which fully supports the dispatcher API.
       // When the caller supplies their own fetchImpl we leave it alone (they
       // manage their own security posture and pinning is skipped anyway).
-      Object.assign(requestInit as Record<string, unknown>, {
-        dispatcher: createIpPinnedDispatcher(pinnedAddress) as unknown,
-      });
+      dispatcher = createIpPinnedDispatcher(pinnedAddress);
+      Object.assign(requestInit as Record<string, unknown>, { dispatcher });
       activeFetch = undiciFetch as unknown as typeof fetch;
     }
 
-    const response = await activeFetch(validation.url.href, requestInit);
+    let response: Response;
+    try {
+      response = await activeFetch(validation.url.href, requestInit);
+    } catch (error) {
+      if (dispatcher) await dispatcher.destroy();
+      throw error;
+    }
+    // Graceful close waits for the returned body to finish without blocking its reader.
+    if (dispatcher) void dispatcher.close().catch(() => dispatcher!.destroy());
 
     if (!isRedirectStatus(response.status)) return response;
 
     const location = response.headers.get("location");
     if (!location) return response;
     if (options.followRedirects === false) return response;
+    await response.body?.cancel();
     if (redirectCount === maxRedirects) {
       throw new ForgeError({
         code: "SSRF_BLOCKED",
@@ -425,13 +436,22 @@ export async function fetchWithOutboundUrlPolicy(
       });
     }
 
-    currentUrl = new URL(location, validation.url).href;
+    const nextUrl = new URL(location, validation.url);
+    const headers = new Headers(currentInit.headers);
+    if (nextUrl.origin !== validation.url.origin) {
+      for (const name of ["authorization", "cookie", "proxy-authorization", "x-api-key", "api-key", ...(options.sensitiveHeaders ?? [])]) {
+        headers.delete(name);
+      }
+    }
+    currentInit = { ...currentInit, headers };
+    currentUrl = nextUrl.href;
 
     if (
       response.status === 303 ||
       ((response.status === 301 || response.status === 302) &&
         currentInit.method?.toUpperCase() === "POST")
     ) {
+      for (const name of ["content-type", "content-length", "content-encoding", "content-language", "content-location", "transfer-encoding"]) headers.delete(name);
       const { body: _body, ...rest } = currentInit;
       currentInit = {
         ...rest,

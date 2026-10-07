@@ -206,6 +206,69 @@
       "dependsOn": ["^build:verify", "@dzupagent/dialogue-core-replay#build:verify"],
       "inputs": ["src/**", "test/**", "package.json", "tsconfig.json"],
       "outputs": []
+    },
+    "@dzupagent/runtime-contracts#test": {
+      "dependsOn": [
+        "^build:verify",
+        "@dzupagent/canonical-json#build:verify"
+      ],
+      "inputs": [
+        "src/**",
+        "test/**",
+        "package.json",
+        "tsconfig.json",
+        "vitest.config.*"
+      ],
+      "outputs": [],
+      "outputLogs": "new-only"
+    },
+    "@dzupagent/runtime-contracts#typecheck": {
+      "dependsOn": [
+        "^build:verify",
+        "@dzupagent/canonical-json#build:verify"
+      ],
+      "outputs": [],
+      "outputLogs": "new-only"
+    },
+    "@dzupagent/runtime-contracts#test:coverage": {
+      "dependsOn": [
+        "^build:verify",
+        "@dzupagent/canonical-json#build:verify"
+      ],
+      "inputs": [
+        "src/**",
+        "test/**",
+        "package.json",
+        "tsconfig.json",
+        "vitest.config.*"
+      ],
+      "outputs": [
+        "coverage/**"
+      ],
+      "outputLogs": "new-only"
+    },
+    "@dzupagent/agent#typecheck": {
+      "dependsOn": [
+        "^build:verify",
+        "@dzupagent/memory#build:verify"
+      ]
+    },
+    "@dzupagent/memory#test:coverage": {
+      "dependsOn": [
+        "^build:verify",
+        "@dzupagent/memory#build:verify"
+      ],
+      "inputs": [
+        "src/**",
+        "test/**",
+        "package.json",
+        "tsconfig.json",
+        "vitest.config.*"
+      ],
+      "outputs": [
+        "coverage/**"
+      ],
+      "outputLogs": "new-only"
     }
   }
 }

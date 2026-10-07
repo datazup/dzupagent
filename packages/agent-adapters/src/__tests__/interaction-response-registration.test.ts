@@ -19,7 +19,7 @@ function approvalFlow(shape: 'request' | 'failed-turn', policy: InteractionPolic
     async runStreamed() { throw new Error('Unexpected native provider execution') },
   }
   const resumeThread = vi.fn(() => thread)
-  const generator = shape === 'request'
+  const generator: AsyncGenerator<AgentStreamEvent, unknown, undefined> = shape === 'request'
     ? handleApprovalRequest(
         { type: 'approval_request', id: 'provider-item', message: 'Allow fixture write?', kind: 'permission' },
         { prompt: 'fixture', correlationId: 'fixture-run' }, null, null, context,

@@ -45,7 +45,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
  * whose output every later gate inspects. Everything else runs unconditionally
  * so a single red gate cannot hide the rest.
  */
-export const BUILD_GATE_NAME = "build+typecheck+lint+test";
+export const BUILD_GATE_NAME = "build:verify";
 
 const BUILD_STEP = {
   name: BUILD_GATE_NAME,
@@ -53,7 +53,7 @@ const BUILD_STEP = {
   // Yarn-managed binary and is NOT on PATH, so spawning this string with bare
   // `node` fails with "build-custody: spawn turbo ENOENT" — which, because this
   // gate is blocking, aborted the profile and hid the four gates after it.
-  run: "yarn node scripts/run-with-build-custody.mjs turbo run build:verify typecheck lint test --concurrency=4 --output-logs=new-only",
+  run: "yarn node scripts/run-with-build-custody.mjs turbo run build:verify --concurrency=4 --output-logs=new-only",
   // Artifact/coverage gates below read the build output. Running them against
   // a failed build reports noise, not signal.
   blocking: true,
@@ -111,6 +111,7 @@ export const PROFILES = {
   "strict-ci": [
     ...STATIC_CHECKS.map(asGate),
     BUILD_STEP,
+    ...["typecheck", "lint", "test"].map(asGate),
     ...POST_BUILD_CHECKS.map(asGate),
     ...ARTIFACT_CHECKS.map(asGate),
   ],
@@ -134,11 +135,11 @@ export function parseChainGates(script) {
     .split("&&")
     .map((clause) => clause.trim())
     .filter(Boolean)
-    .map((clause) =>
+    .flatMap((clause) =>
       // The build clause is spelled out inline rather than as a `yarn <script>`
       // indirection, so it is identified by what it runs, not by its prefix.
       clause.includes("turbo run build:verify")
-        ? BUILD_GATE_NAME
+        ? [BUILD_GATE_NAME, "typecheck", "lint", "test"]
         : clause.startsWith("yarn ")
           ? clause.slice("yarn ".length).trim()
           : clause
@@ -201,8 +202,13 @@ function main() {
 
   const results = [];
   let aborted = null;
+  let buildReady = true;
 
   for (const gate of gates) {
+    if (!buildReady && [...POST_BUILD_CHECKS, ...ARTIFACT_CHECKS.filter(name => name !== "audit:deps"), "typecheck", "test"].includes(gate.name)) {
+      results.push({ name: gate.name, ok: false, skipped: true, reason: "build failed", ms: 0 });
+      continue;
+    }
     process.stdout.write(`\n[run-gates] ── ${gate.name}\n`);
     const started = process.hrtime.bigint();
     const proc = spawnSync(gate.run, {
@@ -213,8 +219,9 @@ function main() {
     const ms = Number((process.hrtime.bigint() - started) / 1_000_000n);
     const ok = proc.status === 0;
     results.push({ name: gate.name, ok, ms });
+    if (gate.name === BUILD_GATE_NAME) buildReady = ok;
 
-    if (!ok && (failFast || gate.blocking)) {
+    if (!ok && failFast) {
       aborted = gate;
       break;
     }
@@ -225,7 +232,7 @@ function main() {
   console.log(`\n[run-gates] ${"─".repeat(52)}`);
   for (const r of results) {
     console.log(
-      `[run-gates] ${r.ok ? "PASS" : "FAIL"}  ${r.name} (${r.ms}ms)`
+      `[run-gates] ${r.skipped ? "INCOMPLETE" : r.ok ? "PASS" : "FAIL"}  ${r.name} (${r.ms}ms)`
     );
   }
 
