@@ -1,8 +1,8 @@
 /**
  * Notion connector — direct REST calls through the outbound URL policy.
  *
- * Read paths (`readPage`, `queryDatabase`, `listBlockChildren`, `search`) and page writes (`createPage`,
- * `updatePage`, `archivePage`) are implemented; the block writes are stubs until their own packet lands.
+ * Read paths (`readPage`, `queryDatabase`, `listBlockChildren`, `search`), page writes (`createPage`,
+ * `updatePage`, `archivePage`) and block writes (`appendBlockChildren`, `updateBlock`, `deleteBlock`).
  */
 import { fetchWithOutboundUrlPolicy, type OutboundUrlSecurityPolicy } from '@dzupagent/core/security'
 
@@ -66,6 +66,7 @@ export interface NotionSearchQuery extends NotionPaginationOptions {
 
 const DEFAULT_BASE_URL = 'https://api.notion.com'
 const DEFAULT_NOTION_VERSION = '2022-06-28'
+const MAX_BLOCK_CHILDREN = 100
 const NOTION_ID_PATTERN = /^(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
 
 function defaultNotionOutboundPolicy(baseUrl: string): OutboundUrlSecurityPolicy | undefined {
@@ -172,16 +173,36 @@ export class NotionConnector {
     })
   }
 
-  async appendBlockChildren(_blockId: string, _children: NotionPayload[]): Promise<unknown> {
-    throw new Error('NotionConnector.appendBlockChildren is not implemented')
+  /**
+   * `PATCH /v1/blocks/{blockId}/children` with `{ children }` — 1 to 100 blocks per call (Notion's limit).
+   * Larger inputs are not split here; callers chunk them so a failed chunk never leaves a hidden partial write.
+   */
+  async appendBlockChildren(blockId: string, children: NotionPayload[]): Promise<NotionList<NotionBlock>> {
+    assertNotionId('block', blockId)
+    if (
+      !Array.isArray(children) ||
+      children.length < 1 ||
+      children.length > MAX_BLOCK_CHILDREN ||
+      !children.every(isPlainObject)
+    ) {
+      throw new Error(`Invalid Notion children: expected an array of 1 to ${MAX_BLOCK_CHILDREN} block objects`)
+    }
+    return this.request<NotionList<NotionBlock>>(`/v1/blocks/${blockId}/children`, {
+      method: 'PATCH',
+      json: { children },
+    })
   }
 
-  async updateBlock(_blockId: string, _payload: NotionPayload): Promise<unknown> {
-    throw new Error('NotionConnector.updateBlock is not implemented')
+  /** `PATCH /v1/blocks/{blockId}`. */
+  async updateBlock(blockId: string, payload: NotionPayload): Promise<NotionBlock> {
+    assertNotionId('block', blockId)
+    return this.request<NotionBlock>(`/v1/blocks/${blockId}`, { method: 'PATCH', json: payload })
   }
 
-  async deleteBlock(_blockId: string): Promise<unknown> {
-    throw new Error('NotionConnector.deleteBlock is not implemented')
+  /** `DELETE /v1/blocks/{blockId}` — Notion archives the block and returns it. */
+  async deleteBlock(blockId: string): Promise<NotionBlock> {
+    assertNotionId('block', blockId)
+    return this.request<NotionBlock>(`/v1/blocks/${blockId}`, { method: 'DELETE' })
   }
 
   /**
