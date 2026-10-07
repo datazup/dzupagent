@@ -8,7 +8,7 @@ describe('redirect isolation', () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce(redirect).mockResolvedValueOnce(new Response('ok'))
     await fetchWithOutboundUrlPolicy('https://example.com/start', {
       method: 'POST', body: 'body', headers: { authorization: 'synthetic', cookie: 'synthetic', 'x-private-key': 'synthetic', 'content-type': 'text/plain' },
-    }, { fetchImpl, sensitiveHeaders: ['x-private-key'] })
+    }, { fetchImpl })
     const next = fetchImpl.mock.calls[1]?.[1]
     const headers = new Headers(next?.headers)
     expect(headers.has('authorization')).toBe(false)

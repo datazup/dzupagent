@@ -51,6 +51,8 @@ export interface SecureFetchOptions {
   fetchImpl?: typeof fetch | undefined;
   /** Additional credential headers stripped on cross-origin redirects. */
   sensitiveHeaders?: readonly string[];
+  /** Non-credential custom headers explicitly allowed across origins. Default: none. */
+  crossOriginHeaders?: readonly string[];
 }
 
 const DEFAULT_MAX_REDIRECTS = 5;
@@ -439,6 +441,8 @@ export async function fetchWithOutboundUrlPolicy(
     const nextUrl = new URL(location, validation.url);
     const headers = new Headers(currentInit.headers);
     if (nextUrl.origin !== validation.url.origin) {
+      const permitted = new Set(["accept", "accept-language", "content-type", "content-length", "content-encoding", "content-language", "range", ...(options.crossOriginHeaders ?? []).map(name => name.toLowerCase())]);
+      for (const name of [...headers.keys()]) if (!permitted.has(name.toLowerCase())) headers.delete(name);
       for (const name of ["authorization", "cookie", "proxy-authorization", "x-api-key", "api-key", ...(options.sensitiveHeaders ?? [])]) {
         headers.delete(name);
       }

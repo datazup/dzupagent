@@ -22,6 +22,11 @@ const AGENT_ADAPTERS_DEPS = [
 function validTurbo(overrides = {}) {
   return {
     tasks: {
+      '@dzupagent/runtime-contracts#test': { dependsOn: ['^build:verify', '@dzupagent/canonical-json#build:verify'] },
+      '@dzupagent/runtime-contracts#typecheck': { dependsOn: ['^build:verify', '@dzupagent/canonical-json#build:verify'] },
+      '@dzupagent/runtime-contracts#test:coverage': { dependsOn: ['^build:verify', '@dzupagent/canonical-json#build:verify'] },
+      '@dzupagent/agent#typecheck': { dependsOn: ['^build:verify', '@dzupagent/memory#build:verify'] },
+      '@dzupagent/memory#test:coverage': { dependsOn: ['^build:verify', '@dzupagent/memory#build:verify'] },
       typecheck: { dependsOn: ['^build:verify', '^typecheck'] },
       test: { dependsOn: ['^build:verify'] },
       'test:integration': { dependsOn: ['^build:verify'] },

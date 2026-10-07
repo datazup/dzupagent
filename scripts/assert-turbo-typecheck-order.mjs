@@ -64,6 +64,12 @@ export function checkBuildOrdering(turboConfig) {
     }
   }
 
+  return messages
+}
+
+export function checkPortalPeerOrdering(turboConfig) {
+  const tasks = turboConfig?.tasks ?? {}
+  const messages = []
   const seams = {
     '@dzupagent/runtime-contracts#test': '@dzupagent/canonical-json#build:verify',
     '@dzupagent/runtime-contracts#typecheck': '@dzupagent/canonical-json#build:verify',
@@ -173,6 +179,7 @@ export function checkTurboTypecheckOrder(turboConfig, packageJson) {
   }
 
   messages.push(...checkBuildOrdering(turboConfig))
+  messages.push(...checkPortalPeerOrdering(turboConfig))
   messages.push(...checkNoTopologicalDepsOnRootTasks(turboConfig))
   if (packageJson !== undefined) {
     messages.push(...checkGateScriptOrdering(packageJson))
