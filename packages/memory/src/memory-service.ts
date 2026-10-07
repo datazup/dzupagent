@@ -42,6 +42,7 @@ import type { ReferenceTracker } from './provenance/reference-tracker.js'
 import {
   type MemoryEventBus,
   type MemoryPIIResult,
+  type MemoryPutResult,
   type MemoryServiceOptions,
   type ReadContext,
 } from './memory-service-types.js'
@@ -64,6 +65,7 @@ export type {
   KeyedMemoryRecord,
   MemoryEventBus,
   MemoryPIIResult,
+  MemoryPutResult,
   MemoryServiceOptions,
   ReadContext,
 }
@@ -120,17 +122,18 @@ export class MemoryService {
    * Store a value under [namespace + scope] → key.
    *
    * When `rejectUnsafe` is true (default), values containing prompt-injection,
-   * exfiltration commands, or invisible Unicode are silently rejected.
-   * Non-fatal: errors are silently caught.
+   * exfiltration commands, or invisible Unicode are not persisted.
+   * Non-fatal: store errors are caught. The result tells the caller whether
+   * the record was `written`, `rejected` as unsafe, or `failed`.
    */
   async put(
     namespace: string,
     scope: Record<string, string>,
     key: string,
     value: Record<string, unknown>,
-  ): Promise<void> {
+  ): Promise<MemoryPutResult> {
     const ns = getNamespace(this.nsMap, namespace)
-    await putMemoryRecord(ns, scope, key, value, {
+    return putMemoryRecord(ns, scope, key, value, {
       store: this.store,
       semanticStore: this.semanticStore,
       rejectUnsafe: this.rejectUnsafe,

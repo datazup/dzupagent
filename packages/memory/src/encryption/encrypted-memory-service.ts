@@ -9,7 +9,7 @@
  * and return undefined rather than throwing.
  */
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
-import type { MemoryService } from '../memory-service.js'
+import type { MemoryPutResult, MemoryService } from '../memory-service.js'
 import type { EncryptionKeyProvider, EncryptedEnvelope } from './types.js'
 
 const ALGORITHM = 'aes-256-gcm' as const
@@ -129,13 +129,14 @@ export class EncryptedMemoryService {
   /**
    * Write a record, encrypting the value for configured namespaces.
    * Plaintext fields are preserved outside the envelope for search.
+   * Returns the inner service's {@link MemoryPutResult} unchanged.
    */
   async put(
     namespace: string,
     scope: Record<string, string>,
     key: string,
     value: Record<string, unknown>,
-  ): Promise<void> {
+  ): Promise<MemoryPutResult> {
     if (!this.shouldEncrypt(namespace)) {
       return this.memoryService.put(namespace, scope, key, value)
     }
