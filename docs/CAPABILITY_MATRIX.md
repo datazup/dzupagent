@@ -42,7 +42,7 @@ Auto-generated on 2026-10-07. Do not edit manually — run `yarn docs:capability
 | @dzupagent/server | HTTP: Hono API, Drizzle, WebSocket, queue | Stable | DrizzleCostAttributor, TokenBucketLimiter, InMemoryRunQueue, BullMQRunQueue, PostgresRunQueue, createForgeApp, buildForgeApp, startForgeRuntime, ... |
 | @dzupagent/session-control | Provider-neutral session-control contracts, reducers, adapter SPI, and conformance tools | Stable | InMemoryCommandLedger, InMemorySessionStore, validateCapabilityDeclaration, evaluateCapabilityDeclaration, validateCapabilityManifest, ... |
 | @dzupagent/subagents | Governed async background subagents for DzupAgent — portable, policy-gated, checkpointer-backed background task execution | Stable | SubagentErrorCode, BackgroundSubagentRuntime, LifecycleController, SpawnGate, InProcessRunner, isTerminalStatus, systemClock, defaultSubagentLogger, ... |
-| @dzupagent/test-utils | Shared test utilities | Alpha | MockChatModel, LLMRecorder, MockSkillStepResolver, LlmRecorder, ExactMatchScorer, createTestEventBus, createTestRunStore, createTestAgentStore, ... |
+| @dzupagent/test-utils | Shared test utilities | Stable | MockChatModel, LLMRecorder, MockSkillStepResolver, LlmRecorder, ExactMatchScorer, createTestEventBus, createTestRunStore, createTestAgentStore, ... |
 | @dzupagent/testing | Test infra: recorder, mock models | Stable | MockSkillStepResolver, LlmRecorder, ExactMatchScorer, RegexScorer, LlmJudgeScorer, withRecordedRegistry, runEvalSuite, createDemoEvalSuite, ... |
 
 ## Detailed Exports

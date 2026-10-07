@@ -110,6 +110,51 @@ test.each(wrongTypeCases(projectionRequest))('projection request rejects wrong t
   expect(() => Reflect.apply(projectMemoryRecordV1, undefined, [input])).toThrow()
 })
 const projection = projectMemoryRecordV1(projectionRequest)
+function nullFieldCases(input: unknown): Array<[string, unknown]> {
+  return wrongTypeCases(input).map(([path]) => {
+    const copy = structuredClone(input) as Record<string, unknown>
+    const parts = path.split('.')
+    let parent = copy
+    for (const key of parts.slice(0, -1)) parent = parent[key] as Record<string, unknown>
+    parent[parts.at(-1)!] = null
+    return [path, copy]
+  })
+}
+test.each(nullFieldCases(makeCapturedRecord()))('record admission rejects null for typed field %s', (_path, input) => {
+  expect(() => decodeMemoryRecordV1(input)).toThrow()
+})
+test.each(nullFieldCases(projection))('projection restore rejects null for typed field %s', (_path, input) => {
+  expect(() => Reflect.apply(diffMemoryProjections, undefined, [projection, input])).toThrow()
+})
+test.each(nullFieldCases(makeCaptureCommand()))('command admission rejects null for typed field %s', (_path, input) => {
+  expect(() => decodeMemoryCommandV1(input)).toThrow()
+})
+function invalidScalarCases(input: unknown): Array<[string, unknown]> {
+  return wrongTypeCases(input).flatMap(([path]) => {
+    const parts = path.split('.')
+    const value = parts.reduce<unknown>((parent, key) => (parent as Record<string, unknown>)[key], input)
+    // These contracts constrain every number to a nonnegative range; retain
+    // legitimate fractional confidence values and arbitrary text identifiers.
+    const replacements = typeof value === 'number' ? [-1, ...(path.includes('quality') ? [] : [0.5])]
+      : typeof value === 'string' && (value.startsWith('sha256:') || /^\d{4}-\d\d-\d\dT/.test(value)) ? ['malformed'] : []
+    return replacements.map(replacement => {
+      const copy = structuredClone(input) as Record<string, unknown>
+      let parent = copy
+      for (const key of parts.slice(0, -1)) parent = parent[key] as Record<string, unknown>
+      parent[parts.at(-1)!] = replacement
+      return [`${path}=${replacement}`, copy] as [string, unknown]
+    })
+  })
+}
+test.each(invalidScalarCases(makeCapturedRecord()))('record admission rejects scalar outside its range or format: %s', (_path, input) => {
+  expect(() => decodeMemoryRecordV1(input)).toThrow()
+})
+test.each(invalidScalarCases(projection))('projection restore rejects scalar outside its range or format: %s', (_path, input) => {
+  expect(() => Reflect.apply(diffMemoryProjections, undefined, [projection, input])).toThrow()
+})
+test.each(invalidScalarCases(makeCaptureCommand()))('command admission rejects scalar outside its range or format: %s', (_path, input) => {
+  expect(() => decodeMemoryCommandV1(input)).toThrow()
+})
 test.each(wrongTypeCases(projection))('retained projection rejects wrong type at %s', (_path, input) => {
   expect(() => Reflect.apply(diffMemoryProjections, undefined, [projection, input])).toThrow()
 })
@@ -335,6 +380,6 @@ test('entity traversal tolerates corrupt or dangling indexes without inventing m
   await graph.removeRecord('one')
   await store.put(['notes'], 'two', { arbitrary: '`beta`' })
   expect((await graph.reindexAll()).recordsProcessed).toBe(2)
-  const broken = new PersistentEntityGraph({ ...store, search: async () => { throw new Error('backend unavailable') } } as typeof store, ['notes'])
+  const broken = new PersistentEntityGraph({ ...store, search: async () => { throw new Error('backend unavailable') } } as unknown as typeof store, ['notes'])
   expect(await broken.reindexAll()).toEqual({ entitiesIndexed: 0, recordsProcessed: 0 })
 })

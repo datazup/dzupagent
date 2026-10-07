@@ -7,6 +7,7 @@ import { getString, getNumber, getObject, toJsonString } from '../utils/event-re
 import { JsonOutputSchema, RegexOutputSchema, extractJsonFromMarkdown, extractJsonFromText } from '../structured/output-schema.js'
 import { fetchWithOutboundUrlPolicy } from '../security/outbound-url-policy.js'
 import { createServer } from 'node:http'
+import type { Socket } from 'node:net'
 
 afterEach(() => vi.restoreAllMocks())
 test('prompt cache retains priority and category fallbacks until expiry, and clears stale entries on preload', async () => {
@@ -64,7 +65,7 @@ test('structured output parses valid JSON and fenced output while rejecting malf
 })
 
 test('pinned fetch releases sockets after consumption and redirect cancellation', async () => {
-  const sockets = new Set<import('node:net').Socket>()
+  const sockets = new Set<Socket>()
   const server = createServer((request, response) => {
     if (request.url === '/redirect') { response.writeHead(302, { location: '/final' }); response.end('redirect body') }
     else response.end('fixture')

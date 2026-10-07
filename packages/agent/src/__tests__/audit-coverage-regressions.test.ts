@@ -11,6 +11,53 @@ import { AGENT_STRUCTURED_OUTPUT_REQUEST_SCHEMA, type AgentStructuredOutputReque
 import { createReleaseAndReconcile, type ItemBudgetLifecycleDeps } from '../pipeline/loop-executor/for-each-item-budget-release.js'
 import type { LoopBudgetReconcileOutcome } from '../pipeline/loop-executor/types.js'
 import { admitPredicateIteration, releasePredicateIteration, settlePredicateIteration, deriveIterationReservationId } from '../pipeline/loop-executor/predicate-loop-economics.js'
+import { createRuntimeValidatePort, createRuntimeShellValidationCommandRunner } from '../pipeline/tool-handlers/validation.js'
+import type { RuntimeValidateRequest } from '../pipeline/tool-handlers/requests.js'
+import { AesGcmResumeTokenProtector, KeyringResumeTokenProtector } from '../tools/run-store-pending-contact-store.js'
+
+test('validation suites preserve runner failures and never execute malformed shell commands', async () => {
+  const request: RuntimeValidateRequest = { nodeId: 'validate', arguments: {}, context: { state: {}, previousResults: new Map() } }
+  expect(await createRuntimeValidatePort()(request)).toMatchObject({ output: { valid: true, commandResults: [] } })
+  expect(await createRuntimeValidatePort()({ ...request, ref: 'missing' })).toMatchObject({ error: { code: 'RUNTIME_VALIDATE_SUITE_NOT_FOUND' } })
+  expect(await createRuntimeValidatePort({ suites: { fixture: [{ command: 'fixture' }] } })({ ...request, ref: 'fixture' })).toMatchObject({ error: { code: 'RUNTIME_VALIDATE_RUNNER_MISSING' } })
+  for (const [expectedValid, runCommand] of [[true, async () => true], [false, async () => false], [false, async () => { throw 'runner unavailable' }]] as const) {
+    const result = await createRuntimeValidatePort({ resolveSuite: async () => ({ commands: [{ command: 'fixture', id: 'one' }] }), runCommand })({ ...request, ref: 'fixture' })
+    expect(result.output).toMatchObject({ valid: expectedValid })
+  }
+  const resolved = await createRuntimeValidatePort({ suites: { fixture: { commands: [{ command: 'fixture', id: 'fallback' }] } }, runCommand: async command => ({ command: command.command, ok: true }) })({ ...request, ref: 'fixture' })
+  expect(resolved.output).toMatchObject({ commandResults: [{ id: 'fallback', ok: true }] })
+  const inline = await createRuntimeValidatePort({ runCommand: async () => true })({ ...request, commands: [null, false, {}, { command: '' }, { command: 'fixture', id: 1, kind: 'invalid', schemaRef: false, dataPath: [], metadata: false }, { command: 'fixture', id: 'one', kind: 'schema', schemaRef: 'schema', dataPath: 'data', data: null, metadata: {} }] } as unknown as RuntimeValidateRequest)
+  expect(inline.output).toMatchObject({ commandResults: [{ command: 'fixture', ok: true }, { id: 'one', kind: 'schema', data: null }] })
+  const denied = createRuntimeShellValidationCommandRunner()
+  expect(await denied({ command: 'fixture' }, request)).toMatchObject({ ok: false, metadata: { code: 'RUNTIME_VALIDATE_COMMAND_DENIED' } })
+  const allowed = createRuntimeShellValidationCommandRunner({ allowCommand: async () => true })
+  for (const command of ['', '   ', 'fixture\\', "fixture '", 'fixture & next', 'fixture | next', 'fixture ; next', 'fixture < file', 'fixture > file', 'fixture `next`']) {
+    expect(await allowed({ command }, request), command).toMatchObject({ ok: false, metadata: { code: 'RUNTIME_VALIDATE_COMMAND_UNSAFE' } })
+  }
+  for (const command of ["node -e 'process.stdout.write(\"fixture\")'", 'node -e "process.exit(0)"', "node -e 'process.exit(2)'", 'node -e process.exit(0)']) {
+    const result = await createRuntimeShellValidationCommandRunner({ allowCommands: [command] })({ command }, request)
+    expect(result.ok).toBe(!command.includes('exit(2)'))
+  }
+})
+
+test('resume-token rotation rejects malformed envelopes, wrong context and missing keys while retaining legacy decrypt-only access', async () => {
+  const context = { tenantId: 'tenant', runId: 'run', contactId: 'contact' }
+  const key = new Uint8Array(32).fill(1)
+  const previous = new Uint8Array(32).fill(2)
+  expect(() => new AesGcmResumeTokenProtector(new Uint8Array(31))).toThrow(/KEY_INVALID/)
+  for (const current of [{ id: '', key }, { id: 'bad.id', key }, { id: 'valid', key: new Uint8Array(31) }]) expect(() => new KeyringResumeTokenProtector({ current })).toThrow()
+  expect(() => new KeyringResumeTokenProtector({ current: { id: 'one', key }, previous: [{ id: 'one', key }] })).toThrow(/DUPLICATE/)
+  expect(() => new KeyringResumeTokenProtector({ current: { id: 'one', key }, previous: Array.from({ length: 9 }, (_, i) => ({ id: `key${i}`, key })) })).toThrow(/TOO_LARGE/)
+  const legacy = new AesGcmResumeTokenProtector(previous)
+  const rotating = new KeyringResumeTokenProtector({ current: { id: 'current', key }, previous: [{ id: 'previous', key: previous }] })
+  const ciphertext = await rotating.protect('fixture-token', context)
+  expect(await rotating.unprotect(ciphertext, context)).toBe('fixture-token')
+  expect(await rotating.unprotect(await legacy.protect('legacy-token', context), context)).toBe('legacy-token')
+  for (const parts of [[], ['foreign', 'current', 'iv', 'tag', 'body'], ['aes-256-gcm-keyring-v1', '', 'iv', 'tag', 'body'], ['aes-256-gcm-keyring-v1', 'current', '', 'tag', 'body'], ['aes-256-gcm-keyring-v1', 'current', 'iv', '', 'body'], ['aes-256-gcm-keyring-v1', 'current', 'iv', 'tag', ''], ciphertext.split('.').concat('extra'), ['aes-256-gcm-keyring-v1', 'missing', 'iv', 'tag', 'body']]) await expect(rotating.unprotect(parts.join('.'), context)).rejects.toThrow()
+  await expect(rotating.unprotect(ciphertext, { ...context, tenantId: 'foreign' })).rejects.toThrow(/DECRYPTION_FAILED/)
+  await expect(rotating.unprotect(await legacy.protect('legacy-token', { ...context, contactId: 'foreign' }), context)).rejects.toThrow(/DECRYPTION_FAILED/)
+  for (const ciphertext of ['', 'foreign.iv.tag.body', 'aes-256-gcm-v1..tag.body', 'aes-256-gcm-v1.iv..body', 'aes-256-gcm-v1.iv.tag.', 'aes-256-gcm-v1.iv.tag.body.extra', 'aes-256-gcm-v1.iv.tag.body']) await expect(legacy.unprotect(ciphertext, context)).rejects.toThrow()
+})
 
 test('runtime tool requests retain execution context and validate required arguments before dispatch', () => {
   const input: RuntimeToolHandlerInput = { nodeId: 'node', node: { id: 'node', type: 'tool', toolName: 'fixture' }, arguments: { userPrompt: 'prompt', dispatchId: 'dispatch', provider: 'fixture', instructions: 'fixture', outputKey: 'output', command: 'fixture', output: 'output', source: 'source', schema: { type: 'object' }, providers: ['one', 'two'], goal: 'fixture', model: 'fixture', tools: false, input: { retained: true }, tags: ['tag'], specialists: ['worker'], commandAllowlist: ['fixture'], merge: 'all' }, context: { state: {}, previousResults: new Map(), idempotencyKey: 'stable' } }
@@ -66,7 +113,7 @@ test('graph restore binds normal, terminal and suspended outcomes to declared co
 })
 test('fork restore accepts one retained branch and rejects missing, ambiguous or foreign ownership', () => {
   const forkDefinition: ScopedGraphCheckpointDefinition = { ...definition, boundary: { ...definition.boundary, entryNodeId: 'fork', nodeIds: ['fork', 'node'] }, nodes: [{ id: 'fork', type: 'fork', forkId: 'fork-one' }, ...definition.nodes], outgoingEdges: new Map([['fork', [{ type: 'sequential', sourceNodeId: 'fork', targetNodeId: 'node' }]]]) }
-  const retained = { ...frame(), nextNodeId: 'fork', completedNodeIds: ['fork'], forkState: { 'fork-one': { branches: { node: { nodeResults: {} } } } } } as ScopedGraphCheckpointFrame
+  const retained = { ...frame(), nextNodeId: 'fork', completedNodeIds: ['fork'], forkState: { 'fork-one': { branches: { node: { nodeResults: {} } } } } } as unknown as ScopedGraphCheckpointFrame
   expect(() => validateScopedGraphCheckpointFrame(forkDefinition, retained)).not.toThrow()
   const changes = [{ completedNodeIds: [] }, { completed: true }, { nextNodeId: 'node' }, { outcome: { kind: 'suspended', exitNodeId: 'node' }, nextNodeId: undefined }, { forkState: { 'fork-one': { branches: {} } } }, { forkState: { 'fork-one': null } }, { forkState: { 'fork-one': { branches: { foreign: { nodeResults: {} } } } } }, { forkState: { 'fork-one': { branches: { node: null } } } }, { forkState: { 'fork-one': { branches: { node: { nodeResults: null } } } } }, { forkState: { 'fork-one': { branches: { node: { nodeResults: { foreign: { nodeId: 'foreign' } } } } } } }]
   for (const change of changes) expect(() => validateScopedGraphCheckpointFrame(forkDefinition, { ...retained, ...change } as ScopedGraphCheckpointFrame)).toThrow()
