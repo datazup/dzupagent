@@ -5,6 +5,7 @@
  * string with truncation and optional header.
  */
 import { PromptInjectionGuard } from '@dzupagent/security'
+import { sanitizeMemoryContent, stripInvisibleUnicode } from './memory-sanitizer.js'
 import type { FormatOptions } from './memory-types.js'
 
 /**
@@ -24,6 +25,27 @@ import type { FormatOptions } from './memory-types.js'
 const MEMORY_INJECTION_GUARD = new PromptInjectionGuard()
 
 /**
+ * DZM-P1 — placeholder shown instead of a recalled record that the
+ * memory-layer sanitizer flags on read. The stored record is untouched;
+ * callers that need the raw text still have `search`/`get`.
+ */
+const WITHHELD_RECORD = '[memory record withheld: flagged by memory sanitizer]'
+
+/** A record line that could be mistaken for a formatter-emitted marker. */
+const FORGED_MARKER = /^(\s*)\[memory\b/gim
+
+/**
+ * Read-side re-scan of one recalled record. A record stored before the
+ * write-side scan existed, or with `rejectUnsafe: false`, would otherwise
+ * reach the prompt verbatim.
+ */
+function neutralizeRecord(text: string): string {
+  const visible = stripInvisibleUnicode(text)
+  if (!sanitizeMemoryContent(visible).safe) return WITHHELD_RECORD
+  return visible.replace(FORGED_MARKER, '$1\\[memory')
+}
+
+/**
  * Format an array of memory records into a prompt-ready string.
  * Returns `''` if `records` is empty.
  */
@@ -37,9 +59,13 @@ export function formatMemoryForPrompt(
   const maxChars = options?.maxCharsPerItem ?? 2000
   const header = options?.header ?? '## Context from Memory'
 
-  const items = records.slice(0, max).map(r => {
-    const text = typeof r['text'] === 'string' ? r['text'] : JSON.stringify(r)
-    return text.length > maxChars ? text.slice(0, maxChars) + '...' : text
+  // DZM-P1: the full record is scanned before truncation so a directive past
+  // `maxChars` still withholds the record; each record gets its own marker.
+  const items = records.slice(0, max).map((r, i) => {
+    const raw = typeof r['text'] === 'string' ? r['text'] : JSON.stringify(r)
+    const text = neutralizeRecord(raw)
+    const shown = text.length > maxChars ? text.slice(0, maxChars) + '...' : text
+    return `[memory ${i + 1}]\n${shown}`
   })
 
   // SEC-H-05: the record text is untrusted. The framework-authored `header`

@@ -65,40 +65,53 @@ export const IN_MEMORY_STORE_CAPABILITIES: MemoryStoreCapabilities = {
  * Implements the LangGraph BaseStore interface without any database.
  */
 class InMemoryBaseStore {
-  private data = new Map<string, Map<string, { value: Record<string, unknown>; createdAt: Date; updatedAt: Date }>>()
+  /**
+   * Buckets keyed by `JSON.stringify(namespace)` — an injective encoding, so
+   * `['a.b','c']` and `['a','b','c']` never share a bucket. The original
+   * segment array is kept with the bucket and is never re-split from the key.
+   */
+  private data = new Map<string, {
+    namespace: string[]
+    entries: Map<string, { value: Record<string, unknown>; createdAt: Date; updatedAt: Date }>
+  }>()
   readonly capabilities = { ...DEFAULT_MEMORY_STORE_CAPABILITIES }
   readonly searchParity = 'limited' as const
 
   async setup(): Promise<void> { /* no-op */ }
 
   async get(namespace: string[], key: string): Promise<{ value: Record<string, unknown> } | undefined> {
-    const nsKey = namespace.join('.')
-    return this.data.get(nsKey)?.get(key)
+    return this.data.get(JSON.stringify(namespace))?.entries.get(key)
   }
 
   async put(namespace: string[], key: string, value: Record<string, unknown>): Promise<void> {
-    const nsKey = namespace.join('.')
-    if (!this.data.has(nsKey)) this.data.set(nsKey, new Map())
+    const nsKey = JSON.stringify(namespace)
+    let bucket = this.data.get(nsKey)
+    if (!bucket) {
+      bucket = { namespace: [...namespace], entries: new Map() }
+      this.data.set(nsKey, bucket)
+    }
     const now = new Date()
-    this.data.get(nsKey)!.set(key, { value, createdAt: now, updatedAt: now })
+    bucket.entries.set(key, { value, createdAt: now, updatedAt: now })
   }
 
   async delete(namespace: string[], key: string): Promise<void> {
-    const nsKey = namespace.join('.')
-    this.data.get(nsKey)?.delete(key)
+    this.data.get(JSON.stringify(namespace))?.entries.delete(key)
   }
 
   async search(
     namespacePrefix: string[],
     options?: StoreQueryOptions,
   ): Promise<Array<{ namespace: string[]; key: string; value: Record<string, unknown> }>> {
-    const prefix = namespacePrefix.join('.')
     let results: Array<{ namespace: string[]; key: string; value: Record<string, unknown> }> = []
 
-    for (const [nsKey, entries] of this.data) {
-      if (nsKey.startsWith(prefix)) {
+    for (const { namespace, entries } of this.data.values()) {
+      // Segment-wise prefix match: `['t1']` must not match `['t10', ...]`.
+      if (
+        namespacePrefix.length <= namespace.length &&
+        namespacePrefix.every((segment, i) => namespace[i] === segment)
+      ) {
         for (const [key, entry] of entries) {
-          results.push({ namespace: nsKey.split('.'), key, value: entry.value })
+          results.push({ namespace: [...namespace], key, value: entry.value })
         }
       }
     }
