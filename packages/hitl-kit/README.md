@@ -32,6 +32,36 @@ const tally = evaluateQuorum(
 - A vote from an id outside `approvers` throws `UnknownApproverError`; an empty,
   duplicate or blank approver list throws `InvalidQuorumPolicyError`.
 
+### Escalation chain
+
+`EscalationEngine` walks an ordered approver chain with a timeout per level.
+It sets no timers; the host calls `tick()` and the clock is injectable.
+
+```ts
+import { EscalationEngine } from '@dzupagent/hitl-kit'
+
+const engine = new EscalationEngine(
+  {
+    levels: [
+      { approvers: ['lead'], timeoutMs: 60_000 },
+      { approvers: ['manager', 'deputy'], timeoutMs: 300_000 },
+    ],
+    // onExhausted: 'reject' (default) | 'approve'
+  },
+  { onEvent: (event) => console.log(event.type) },
+)
+
+engine.tick() // escalates past any elapsed deadline
+engine.decide('manager', 'granted') // throws ApproverNotActiveError unless level 1 is active
+```
+
+- Any one approver on the active level decides; the first decision wins.
+- On timeout the next level starts at the previous deadline; earlier levels lose authority.
+- When the last level times out, `onExhausted` applies (`reject` by default).
+- Events: `level_started`, `level_timed_out`, `decided`, `exhausted`.
+- A malformed policy (no levels, empty/blank/duplicate approvers in a level,
+  non-positive-integer `timeoutMs`) throws `InvalidEscalationPolicyError`.
+
 ## License
 
 MIT
