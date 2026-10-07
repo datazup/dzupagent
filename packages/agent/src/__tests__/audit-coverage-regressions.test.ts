@@ -64,6 +64,14 @@ test('graph restore binds normal, terminal and suspended outcomes to declared co
   expect(() => validateScopedGraphCheckpointFrame({ ...terminalDefinition, outgoingEdges: new Map([['node', [edge, edge]]]) }, suspended)).toThrow(/multiple/)
   expect(() => validateScopedGraphCheckpointFrame(terminalDefinition, { ...suspended, completed: true })).toThrow(/completed=false/)
 })
+test('fork restore accepts one retained branch and rejects missing, ambiguous or foreign ownership', () => {
+  const forkDefinition: ScopedGraphCheckpointDefinition = { ...definition, boundary: { ...definition.boundary, entryNodeId: 'fork', nodeIds: ['fork', 'node'] }, nodes: [{ id: 'fork', type: 'fork', forkId: 'fork-one' }, ...definition.nodes], outgoingEdges: new Map([['fork', [{ type: 'sequential', sourceNodeId: 'fork', targetNodeId: 'node' }]]]) }
+  const retained = { ...frame(), nextNodeId: 'fork', completedNodeIds: ['fork'], forkState: { 'fork-one': { branches: { node: { nodeResults: {} } } } } } as ScopedGraphCheckpointFrame
+  expect(() => validateScopedGraphCheckpointFrame(forkDefinition, retained)).not.toThrow()
+  const changes = [{ completedNodeIds: [] }, { completed: true }, { nextNodeId: 'node' }, { outcome: { kind: 'suspended', exitNodeId: 'node' }, nextNodeId: undefined }, { forkState: { 'fork-one': { branches: {} } } }, { forkState: { 'fork-one': null } }, { forkState: { 'fork-one': { branches: { foreign: { nodeResults: {} } } } } }, { forkState: { 'fork-one': { branches: { node: null } } } }, { forkState: { 'fork-one': { branches: { node: { nodeResults: null } } } } }, { forkState: { 'fork-one': { branches: { node: { nodeResults: { foreign: { nodeId: 'foreign' } } } } } } }]
+  for (const change of changes) expect(() => validateScopedGraphCheckpointFrame(forkDefinition, { ...retained, ...change } as ScopedGraphCheckpointFrame)).toThrow()
+  expect(() => validateScopedGraphCheckpointFrame({ ...forkDefinition, nodes: [...forkDefinition.nodes, { id: 'fork-second', type: 'fork', forkId: 'fork-one' }] }, retained)).toThrow(/unique body fork/)
+})
 
 const modelRequest: AgentRunnerModelRequest = { runId: 'run', requestId: 'request', agentId: 'agent', turn: 1, attempt: 1, input: [], committedItems: [], tools: [{ toolId: 'lookup', toolRevision: 'v1', effectClass: 'read' }] }
 const answer = { item: { type: 'message' as const, itemId: 'answer', role: 'assistant' as const, content: [] }, finishReason: 'stop' as const }

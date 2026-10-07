@@ -8,7 +8,7 @@ import { FilesystemKnowledgeStore } from '../knowledge/filesystem-knowledge-stor
 import { snapshotPath } from '../knowledge/knowledge-paths.js'
 import { MemoryService } from '../memory-service.js'
 import { createStore } from '../store-factory.js'
-import { logError } from '../error-log.js'
+import { logError, noopLogger } from '../error-log.js'
 import { createInMemoryMemoryOutbox } from '../workers/in-memory-outbox.js'
 import { claimInput, prepareInput, runInput, completingPort, ref, T0, T2, T20 } from '../workers/__tests__/fixtures.js'
 import { makeCapturedRecord } from '../lifecycle/__tests__/fixtures.js'
@@ -36,6 +36,7 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { sealMemoryWorkerLeaseV1 } from '../workers/validation-contracts.js'
 import { decodeMemoryConsolidationResultV1, decodeMemoryReconciliationResultV1 } from '../workers/validation-results.js'
 import { digestWorkerValue } from '../workers/snapshot.js'
+import { PersistentEntityGraph } from '../retrieval/persistent-graph.js'
 
 test('knowledge paths reject ambiguous scopes and pin ancestors of the configured root', async () => {
   const root = await mkdtemp(join(tmpdir(), 'knowledge-boundary-'))
@@ -168,6 +169,7 @@ test('memory service reports read status and structured error correlation withou
   const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(() => { throw new Error('sink unavailable') }) }
   expect(logError({ component: 'fixture', operation: 'read', error: 'failed', errorId: 'correlation', logger })).toBe('correlation')
   expect(logger.error).toHaveBeenCalledOnce()
+  expect(logError({ component: 'fixture', operation: 'read', error: new Error('PRIVATE_FIXTURE_TEXT'), errorId: 'opaque', logger: noopLogger })).toBe('opaque')
 })
 test('service failures preserve typed recovery results and in-memory teardown removes retained records', async () => {
   expect(asJsonObject({ fixture: true }, [])).toEqual({ fixture: true })
@@ -312,4 +314,27 @@ test('provider and reconciliation results cannot assert an effect that contradic
     for (const effectState of ['applied', 'not-applied', 'unknown']) if (effectState !== base.effectState) expect(() => decodeMemoryReconciliationResultV1(seal({ ...base, effectState }), requestDigest, 1)).toThrow()
     expect(() => decodeMemoryReconciliationResultV1(seal({ ...base, requestDigest: `sha256:${'b'.repeat(64)}` }), requestDigest, 1)).toThrow()
   }
+})
+test('entity traversal tolerates corrupt or dangling indexes without inventing memory records', async () => {
+  const store = await createStore({ type: 'memory' })
+  const graph = new PersistentEntityGraph(store, ['notes'])
+  const entities = ['notes', '__entities']
+  const reverse = ['notes', '__record_entities']
+  await store.put(entities, 'alpha', { memoryKeys: ['missing', 'one'] })
+  await store.put(['notes'], 'one', { content: 'AlphaBeta uses `alpha`' })
+  await store.put(reverse, 'one', { entities: ['alpha', 'dangling', 'malformed'] })
+  await store.put(entities, 'malformed', { memoryKeys: 'invalid' })
+  expect((await graph.search('`alpha`', 3, 10)).map(item => item.key)).toEqual(['one'])
+  expect(await graph.getRelatedEntities('alpha')).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'dangling' })]))
+  expect(await graph.getRelatedEntities('malformed')).toEqual([])
+  expect(await graph.getEntities()).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'malformed', degree: 0 })]))
+  await store.put(reverse, 'one', { entities: 'invalid' })
+  expect((await graph.search('`alpha`', 3, 10)).map(item => item.key)).toEqual(['one'])
+  await graph.removeRecord('one')
+  await store.put(reverse, 'one', { entities: ['malformed', 'dangling'] })
+  await graph.removeRecord('one')
+  await store.put(['notes'], 'two', { arbitrary: '`beta`' })
+  expect((await graph.reindexAll()).recordsProcessed).toBe(2)
+  const broken = new PersistentEntityGraph({ ...store, search: async () => { throw new Error('backend unavailable') } } as typeof store, ['notes'])
+  expect(await broken.reindexAll()).toEqual({ entitiesIndexed: 0, recordsProcessed: 0 })
 })
