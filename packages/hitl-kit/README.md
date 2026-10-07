@@ -32,6 +32,32 @@ const tally = evaluateQuorum(
 - A vote from an id outside `approvers` throws `UnknownApproverError`; an empty,
   duplicate or blank approver list throws `InvalidQuorumPolicyError`.
 
+### Quorum vote storage
+
+`QuorumVoteStore` keeps the votes for one `(runId, approvalId)` request.
+`InMemoryQuorumVoteStore` is the single-process default; `recordQuorumVote`
+stores a vote and returns the new tally.
+
+```ts
+import { InMemoryQuorumVoteStore, recordQuorumVote } from '@dzupagent/hitl-kit'
+
+const store = new InMemoryQuorumVoteStore()
+const policy = { strategy: 'majority', approvers: ['alice', 'bob', 'carol'] } as const
+const tally = await recordQuorumVote(store, policy, 'run-1', 'deploy', {
+  approverId: 'alice',
+  decision: 'granted',
+})
+```
+
+- Only the first vote from each approver is stored (`recordVote` returns `false` for a repeat).
+- `recordQuorumVote` checks the policy and the voter before writing, and stores nothing
+  once the tally is `granted` or `rejected`.
+- A blank `approverId` or unknown `decision` throws `InvalidQuorumVoteError`. The in-memory
+  store deep-copies `response`, so it must be structured-cloneable.
+- Every adapter must pass `runQuorumVoteStoreContract` in
+  `src/__tests__/quorum-vote-store-contract.ts`. A database adapter needs a unique
+  `(runId, approvalId, approverId)` constraint for first-vote-wins.
+
 ### Escalation chain
 
 `EscalationEngine` walks an ordered approver chain with a timeout per level.
