@@ -27,6 +27,7 @@ import {
   COORDINATION_RENDERER_PROFILES,
   COORDINATION_EXECUTION_BINDING_V3_SCHEMA,
   composeCoordinationAttemptExecution,
+  captureCoordinationAttemptReport,
   coordinationCanonicalDigest,
   coordinationCapabilitySetDigest,
   coordinationCatalogDigest,
@@ -1076,14 +1077,15 @@ describe('9. binding axes', () => {
   it('pins the rendered request bytes under renderer claude-sdk/v1', async () => {
     // Byte-identical from dzupagent 4d9f4abd8 (binding v1) through CP04; re-pinned
     // by MVP-04-CP05, whose renderer adds freshness, omission disclosure and the report section.
+    // B1 reporting repair re-pins only the clarified report instructions; plan/task bytes stay unchanged.
     const api = renderCoordinationAgentExecutionRequest(await compose())
     const subscription = renderCoordinationAgentExecutionRequest(
       await compose({ binding: binding({ auth: { mode: 'subscription_cli', sourceRef: AUTH_SOURCE_REF } }) }),
     )
     if (!api.ok || !subscription.ok) throw new Error('render refused')
     expect(api.request).not.toHaveProperty('agentHost')
-    expect(api.attestation.requestDigest).toBe('sha256:dd2de9658ef0bc217c4630d3e1117ea80aec5e331684695c202ae6ada2b604ef')
-    expect(subscription.attestation.requestDigest).toBe('sha256:d2dfae6951dff7f4140435eeedb3a8e6cd9fd36991351e62fec19bb02f73caba')
+    expect(api.attestation.requestDigest).toBe('sha256:089466c57b9700a025a765ffc077ead5b3c481bbb38aa098079d8dd41a16d5fe')
+    expect(subscription.attestation.requestDigest).toBe('sha256:5480da7a95f997c736aa891974727d707450e771c31cdca5e78f79a6090dfe7b')
   })
 })
 
@@ -1345,6 +1347,42 @@ describe('11. renderers and reports', () => {
       expect(report).toContain('attemptId "attempt-scripts-critical"')
     }
     expect(COORDINATION_ATTEMPT_EXECUTION_ATTESTATION_SCHEMA).toBe('dzupagent.coordinationAttemptExecutionAttestation/v2')
+  })
+
+  it('defines created and untracked files as producer changes without rewriting the task', async () => {
+    for (const profile of COORDINATION_RENDERER_PROFILES) {
+      const rendered = renderCoordinationAgentExecutionRequest(await compose(routed(profile.providerId, profile.backend)))
+      if (!rendered.ok) throw new Error('render refused')
+      const { body, report } = split(rendered.request.prompt)
+      expect(body).toContain(TASK_CONTENT)
+      expect(body).not.toContain('filesBelievedChanged')
+      expect(report).toContain('repository-relative paths of files you created, modified or deleted during this attempt')
+      expect(report).toContain('Include newly created and untracked files')
+      expect(report).toContain('Use [] only if you believe this attempt made no file changes')
+      expect(report).toContain('A blocked or failed status does not erase changes already made')
+      expect(report).toContain('Do not copy the allowed-path list as a claim')
+    }
+  })
+
+  it('captures an explicit new-file claim and preserves empty or refused reports for reconciliation', () => {
+    const attemptId = 'attempt-scripts-critical'
+    const report = { schema: 'dzupagent.coordinationAttemptReport/v1', attemptId,
+      status: 'blocked', summary: 'retained output before checkpoint', filesBelievedChanged: ['r0-output.txt'],
+      validationAttempted: [], blockers: [], scopeRequests: [], nextAction: 'checkpoint' }
+    for (const transport of ['native_schema', 'wrapper_capture'] as const) {
+      const encode = (value: unknown) => transport === 'native_schema'
+        ? JSON.stringify(value) : '```coordination-report\n' + JSON.stringify(value) + '\n```'
+      const capture = (text: string) => captureCoordinationAttemptReport(text, { attemptId, transport })
+      const created = capture(encode(report))
+      expect(created.status).toBe('captured')
+      if (created.status === 'captured') expect(created.report.filesBelievedChanged).toEqual(['r0-output.txt'])
+      const empty = capture(encode({ ...report, filesBelievedChanged: [] }))
+      expect(empty.status).toBe('captured')
+      if (empty.status === 'captured') expect(empty.report.filesBelievedChanged).toEqual([])
+      expect(capture('').status).toBe('absent')
+      expect(capture(encode({ ...report, attemptId: 'other-attempt' })).status).toBe('invalid')
+      expect(capture(encode({ ...report, filesBelievedChanged: null })).status).toBe('invalid')
+    }
   })
 
   it('renders every profile from the same canonical body', async () => {
