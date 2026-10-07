@@ -2,6 +2,24 @@ import { constants } from "node:fs";
 import { mkdir, open, type FileHandle } from "node:fs/promises";
 import { resolve, relative, isAbsolute } from "node:path";
 
+/** A retained directory descriptor for lock operations under the same boundary. */
+export async function openContainedDirectory(root: string, target: string): Promise<FileHandle> {
+  const rel = relative(resolve(root), resolve(target));
+  if (isAbsolute(rel) || rel === ".." || rel.startsWith("../")) throw new Error("Path traversal detected");
+  if (process.platform !== "linux") throw new Error("Secure descriptor-relative file access requires Linux");
+  const handles: FileHandle[] = [];
+  try {
+    let parent = await open("/", constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    handles.push(parent);
+    for (const part of resolve(target).split("/").filter(Boolean)) {
+      parent = await open(`/proc/self/fd/${parent.fd}/${part}`, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+      handles.push(parent);
+    }
+    handles.pop();
+    return parent;
+  } finally { for (const handle of handles.reverse()) await handle.close(); }
+}
+
 /** Open from pinned directory descriptors, refusing every symlink component. */
 export async function withContainedFile<T>(root: string, target: string, create: boolean, flags: number, action: (file: FileHandle) => Promise<T>): Promise<T> {
   const base = resolve(root);

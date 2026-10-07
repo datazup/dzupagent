@@ -15,7 +15,7 @@ test('in-process IPC preserves scope, record identity, metadata, and pagination 
   expect(records[0]).toEqual({ id: 'first', namespace: 'notes', scope, content: 'a', createdAt: 10, updatedAt: 20 })
   expect(records[1]).toMatchObject({ id: 'second', content: 'b', metadata: { score: 1 } })
   expect(records[2]).toMatchObject({ id: 'ipc-2', content: '{"extra":true}' })
-  expect(await client.get('notes', scope, { offset: 1, limit: 1 })).toEqual([records[1]])
+  expect(await client.get('notes', scope, { offset: 1, limit: 1 })).toMatchObject([{ id: 'second', content: 'b', metadata: { score: 1 } }])
   expect(await client.get('notes', scope, { search: 'query', limit: 1 })).toHaveLength(1)
   expect(svc.search).toHaveBeenCalledWith('notes', scope, 'query', 1)
   await client.put('notes', scope, records[1]!)

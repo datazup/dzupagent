@@ -31,3 +31,15 @@ test('current MCP headers cannot contradict version, method, routing name or cli
   expect(classifyMcpHttpRequest(req(headers), request, {}).ok).toBe(false)
   expect(classifyMcpHttpRequest(req({ 'MCP-Protocol-Version': 'unsupported' }), { jsonrpc: '2.0', method: 'tools/list' }, config).ok).toBe(false)
 })
+test('MCP legacy and custom current versions preserve explicit policy and malformed list entries', () => {
+  const request: MCPRequest = { jsonrpc: '2.0', method: 'tools/list' }
+  expect(classifyMcpHttpRequest(req({ 'MCP-Protocol-Version': '2025-11-25' }), request, config)).toMatchObject({ ok: true, context: { protocolVersion: '2025-11-25' } })
+  expect(classifyMcpHttpRequest(req({}), { ...request, params: { _meta: { 'io.modelcontextprotocol/protocolVersion': 'unsupported' } } }, config).ok).toBe(false)
+  expect(classifyMcpHttpRequest(req({}), request, undefined).ok).toBe(true)
+  const cached = { current: { ...config.current!, version: 'custom', capabilities: { tools: {} }, cache: { ttlMs: 10, cacheScope: 'public' as const } } }
+  expect(buildCurrentMcpDiscoverResponse(request, cached)).toMatchObject({ result: { supportedVersions: ['custom'], capabilities: { tools: {} } } })
+  const result = decorateCurrentMcpResponse('tools/list', { jsonrpc: '2.0', id: 1, result: { tools: [null, {}, { name: 'a' }] } }, cached)
+  expect(result.result).toMatchObject({ ttlMs: 10, cacheScope: 'public' })
+  const error = { jsonrpc: '2.0' as const, id: 1, error: { code: -1, message: 'fixture' } }
+  expect(decorateCurrentMcpResponse('tools/list', error, config)).toBe(error)
+})

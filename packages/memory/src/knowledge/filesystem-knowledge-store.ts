@@ -1,5 +1,6 @@
 import { constants } from "node:fs";
-import { withContainedFile } from "./contained-file.js";
+import * as nativeFs from "node:fs";
+import { withContainedFile, openContainedDirectory } from "./contained-file.js";
 import * as fs from "node:fs/promises";
 import { EventEmitter } from "node:events";
 import lockfile from "proper-lockfile";
@@ -191,11 +192,20 @@ export class FilesystemKnowledgeStore implements KnowledgeStore {
   }
 
   private async lock(scopeKey: string): Promise<() => Promise<void>> {
-    const dir = scopeDir(this.rootDir, scopeKey);
-    await fs.mkdir(dir, { recursive: true });
-    return lockfile.lock(dir, {
-      retries: { retries: 50, minTimeout: 5, maxTimeout: 50 },
-    });
+    scopeDir(this.rootDir, scopeKey);
+    const descriptor = await openContainedDirectory(this.rootDir, this.rootDir);
+    // Keep the historical physical <scope>.lock name, but anchor it to the
+    // verified root descriptor for the entire lock lifetime.
+    const anchored = `/proc/self/fd/${descriptor.fd}/${scopeKey}`;
+    try {
+      const release = await lockfile.lock(anchored, {
+        realpath: false,
+        lockfilePath: `${anchored}.lock`,
+        fs: { ...nativeFs, stat: nativeFs.lstat, utimes: nativeFs.lutimes },
+        retries: { retries: 50, minTimeout: 5, maxTimeout: 50 },
+      });
+      return async () => { try { await release(); } finally { await descriptor.close(); } };
+    } catch (error) { await descriptor.close(); throw error; }
   }
 
   // Returns "ok" (no prior entry), "duplicate" (exact same id+kind+key+version

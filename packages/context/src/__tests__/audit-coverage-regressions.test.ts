@@ -41,3 +41,25 @@ test('ambiguous tool pairing cannot reclaim tokens or manufacture a completed to
     expect(compactCompletedToolResults(messages, profile).reason).toBe('invalid-tool-pairing')
   }
 })
+test('compaction rejects untrusted message accessors, unbounded artifacts and unproven measurement', () => {
+  const call = new AIMessage({ content: 'calling', tool_calls: [{ id: 'call', name: 'lookup', args: {} }] })
+  const result = new ToolMessage({ content: 'x'.repeat(1000), tool_call_id: 'call' })
+  const throwsType = Object.assign(new HumanMessage('fixture'), { _getType: () => { throw new Error('hostile') } })
+  expect(safeMessageType(throwsType)).toBeNull()
+  const callsGetter = Object.defineProperty(new AIMessage('fixture'), 'tool_calls', { get() { throw new Error('hostile') } })
+  expect(safeToolCalls(callsGetter)).toBeNull()
+  expect(compactCompletedToolResults([callsGetter], profile).reason).toBe('invalid-tool-pairing')
+  const invalidName = Object.defineProperty(new HumanMessage('fixture'), 'name', { value: 1 })
+  expect(() => measureMessages([invalidName], {})).toThrow(/invalid name/)
+  let deep: unknown = { value: 'fixture' }
+  for (let i = 0; i < 66; i++) deep = { child: deep }
+  expect(() => cloneCompactedToolMessage(new ToolMessage({ content: 'fixture', tool_call_id: 'call', artifact: deep }))).toThrow(/clone rejected/)
+  expect(() => cloneCompactedToolMessage(new ToolMessage({ content: 'fixture', tool_call_id: 'call', artifact: Array.from({ length: 20_001 }, () => ({})) }))).toThrow(/clone rejected/)
+  const cycle: Record<string, unknown> = { undefined: undefined }; cycle.self = cycle
+  const clone = cloneCompactedToolMessage(new ToolMessage({ content: 'fixture', tool_call_id: 'call', artifact: cycle }))
+  expect(clone.artifact.self).toBe(clone.artifact)
+  expect(() => contentText(Object.defineProperty(new HumanMessage('fixture'), 'content', { value: undefined }))).toThrow(/invalid content/)
+  const invalidCounter = { count: () => 1.5, countDetailed: () => ({ tokens: 1.5, method: 'exact' as const }) }
+  expect(compactCompletedToolResults([call, result], profile, { tokenCounter: invalidCounter }).status).toBe('rejected')
+  expect(compactCompletedToolResults([call, result], { ...profile, measurement: 'require-tokenizer' }, { tokenCounter: { count: () => 1 } }).reason).toBe('token-measurement-unproven')
+})

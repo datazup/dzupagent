@@ -11,6 +11,10 @@ import { createStore } from '../store-factory.js'
 import { logError } from '../error-log.js'
 import { createInMemoryMemoryOutbox } from '../workers/in-memory-outbox.js'
 import { claimInput, prepareInput, T0, T2, T20 } from '../workers/__tests__/fixtures.js'
+import { makeCapturedRecord } from '../lifecycle/__tests__/fixtures.js'
+import { decodeMemoryRecordV1 } from '../records/decoder.js'
+import { activeFixture } from '../projections/__tests__/fixtures.js'
+import { projectMemoryRecordV1, diffMemoryProjections } from '../projections/index.js'
 
 test('knowledge paths reject ambiguous scopes and pin ancestors of the configured root', async () => {
   const root = await mkdtemp(join(tmpdir(), 'knowledge-boundary-'))
@@ -24,6 +28,39 @@ test('knowledge paths reject ambiguous scopes and pin ancestors of the configure
     await symlink(join(root, 'outside'), join(root, 'alias'))
     await expect(withContainedFile(join(root, 'alias', 'nested'), join(root, 'alias', 'nested', 'file'), true, constants.O_CREAT | constants.O_WRONLY, async () => undefined)).rejects.toThrow(/symlink/)
   } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+// Each case corrupts one schema field in otherwise valid serialized input.
+// Arbitrary user content is intentionally left intact: its JSON types are open.
+function wrongTypeCases(input: unknown): Array<[string, unknown]> {
+  const output: Array<[string, unknown]> = []
+  const visit = (value: unknown, path: string[]) => {
+    if (value === null || value === undefined || path.includes('content')) return
+    if (typeof value !== 'object' || Array.isArray(value)) {
+      const copy = structuredClone(input)
+      let parent = copy as Record<string, unknown>
+      for (const key of path.slice(0, -1)) parent = parent[key] as Record<string, unknown>
+      parent[path.at(-1)!] = { wrongType: true }
+      output.push([path.join('.'), copy])
+    }
+    if (typeof value === 'object') for (const [key, nested] of Object.entries(value)) visit(nested, [...path, key])
+  }
+  if (input && typeof input === 'object') for (const [key, value] of Object.entries(input)) visit(value, [key])
+  return output
+}
+test.each(wrongTypeCases(makeCapturedRecord()))('serialized memory record rejects wrong type at %s', (_path, input) => {
+  expect(() => decodeMemoryRecordV1(input)).toThrow()
+})
+const projectionRequest = activeFixture().request
+test.each(wrongTypeCases(projectionRequest))('projection request rejects wrong type at %s', (_path, input) => {
+  expect(() => Reflect.apply(projectMemoryRecordV1, undefined, [input])).toThrow()
+})
+const projection = projectMemoryRecordV1(projectionRequest)
+test.each(wrongTypeCases(projection))('retained projection rejects wrong type at %s', (_path, input) => {
+  expect(() => Reflect.apply(diffMemoryProjections, undefined, [projection, input])).toThrow()
+})
+test.each(wrongTypeCases(prepareInput()))('outbox envelope rejects wrong type at %s', (_path, input) => {
+  expect(() => createInMemoryMemoryOutbox().prepare(input)).toThrow()
 })
 
 test('outbox renewal supersedes old generations and fails closed at expiry or before acquisition', () => {
