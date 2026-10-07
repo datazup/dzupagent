@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { NotionApiError, NotionConnector } from '../notion/notion-connector.js'
+import { NotionApiError, NotionConnector } from '../notion-connector.js'
 
 // Obvious placeholder; never a real credential. All requests go to an injected fake fetch.
 const TEST_TOKEN = 'test-notion-token-placeholder'

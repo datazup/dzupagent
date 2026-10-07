@@ -1,7 +1,7 @@
 /**
  * Notion connector — direct REST calls through the outbound URL policy.
  *
- * Read paths (`readPage`, `queryDatabase`) are implemented; the remaining
+ * Read paths (`readPage`, `queryDatabase`, `listBlockChildren`, `search`) are implemented; the remaining
  * methods are stubs until their own packets land.
  */
 import { fetchWithOutboundUrlPolicy, type OutboundUrlSecurityPolicy } from '@dzupagent/core/security'
@@ -43,6 +43,24 @@ export interface NotionDatabaseQuery {
   sorts?: NotionPayload[]
   start_cursor?: string
   page_size?: number
+  [key: string]: unknown
+}
+
+export interface NotionBlock {
+  object: 'block'
+  id: string
+  [key: string]: unknown
+}
+
+export interface NotionPaginationOptions {
+  start_cursor?: string
+  page_size?: number
+}
+
+export interface NotionSearchQuery extends NotionPaginationOptions {
+  query?: string
+  filter?: NotionPayload
+  sort?: NotionPayload
   [key: string]: unknown
 }
 
@@ -154,11 +172,32 @@ export class NotionConnector {
     throw new Error('NotionConnector.deleteBlock is not implemented')
   }
 
-  async listBlockChildren(_blockId: string): Promise<unknown> {
-    throw new Error('NotionConnector.listBlockChildren is not implemented')
+  /**
+   * `GET /v1/blocks/{blockId}/children` — returns one page of child blocks.
+   * Callers paginate by passing `next_cursor` back as `start_cursor`.
+   */
+  async listBlockChildren(
+    blockId: string,
+    options: NotionPaginationOptions = {},
+  ): Promise<NotionList<NotionBlock>> {
+    assertNotionId('block', blockId)
+    assertPageSize(options.page_size)
+    const params = new URLSearchParams()
+    if (options.start_cursor !== undefined) params.set('start_cursor', options.start_cursor)
+    if (options.page_size !== undefined) params.set('page_size', String(options.page_size))
+    const query = params.toString()
+    return this.request<NotionList<NotionBlock>>(
+      `/v1/blocks/${blockId}/children${query ? `?${query}` : ''}`,
+      { method: 'GET' },
+    )
   }
 
-  async search(_payload: NotionPayload): Promise<unknown> {
-    throw new Error('NotionConnector.search is not implemented')
+  /** `POST /v1/search` — returns one page of matching pages/databases. */
+  async search(payload: NotionSearchQuery = {}): Promise<NotionList<NotionPayload>> {
+    assertPageSize(payload.page_size)
+    return this.request<NotionList<NotionPayload>>('/v1/search', {
+      method: 'POST',
+      json: payload,
+    })
   }
 }
