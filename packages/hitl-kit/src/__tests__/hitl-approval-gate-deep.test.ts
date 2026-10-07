@@ -20,9 +20,15 @@ import {
   ApprovalTimeoutError,
   DuplicateApprovalError,
   InMemoryApprovalStateStore,
+  InvalidQuorumPolicyError,
   UnknownApprovalError,
+  UnknownApproverError,
+  evaluateQuorum,
+  requiredApprovals,
   type ApprovalOutcome,
   type ApprovalStateStore,
+  type QuorumPolicy,
+  type QuorumStrategy,
 } from "../index.js";
 
 // ---------------------------------------------------------------------------
@@ -108,39 +114,183 @@ describe("Single approver", () => {
 
 // ---------------------------------------------------------------------------
 /**
- * COVERAGE GAP — deliberately skipped suite (DZUPAGENT-TEST-C-14).
+ * Multi-approver quorum — DZA-HITL-quorum-20261007-R1.
  *
- * This file previously held 11 `it()` blocks whose entire subject under test
- * was `MultiApproverGate` — a class DEFINED LOCALLY in this file. Three
- * top-level describes ("Multi-approver — AND" 3, "Multi-approver — OR" 3,
- * "Multi-approver — majority rule" 4) plus one block in "Duplicate approval
- * idempotence" ("same approver granting twice is counted once
- * (MultiApproverGate)") asserted only against the local gate's own
- * quorum arithmetic. (The audit enumerated 10; the idempotence block was
- * undercounted and is removed here too — the rest of that describe drives
- * the real gate and is kept.) A grep for `MultiApproverGate` over all
- * non-test source in all 36 packages returns nothing, and neither
- * `approval-gate.ts` nor `approval-state-store.ts` exposes any
- * `requiredApprovers`, quorum, or `strategy` concept: AND / OR / majority
- * approver semantics DO NOT SHIP.
- *
- * The remaining 67 `it()` blocks in this file are NOT affected: they drive
- * the real `ApprovalGate`, `InMemoryApprovalStateStore`,
- * `ApprovalTimeoutError`, `DuplicateApprovalError` and `UnknownApprovalError`
- * imported from `../index.js`.
- *
- * UNTESTED PRODUCTION SYMBOLS — none to name for multi-approver quorum;
- * the shipped `ApprovalGate` (packages/hitl-kit/src/approval-gate.ts) is
- * single-approver by construction. Multi-approver approval is an
- * UNIMPLEMENTED FEATURE that 11 tests made look covered.
- *
- * Removed 2026-08-14 (DZUPAGENT-TEST-C-14 / RF-07).
+ * Replaces the DZUPAGENT-TEST-C-14 skip block. These tests drive the
+ * shipped pure evaluator (`evaluateQuorum` / `requiredApprovals`) exported
+ * from `../index.js`; no test-local gate.
  */
-describe.skip("multi-approver quorum (AND / OR / majority) — no production symbol ships in @dzupagent/hitl-kit", () => {
-  it("needs a shipped multi-approver symbol before AND (all must approve) can be covered", () => {});
-  it("needs a shipped multi-approver symbol before OR (any one approves) can be covered", () => {});
-  it("needs a shipped multi-approver symbol before majority rule can be covered", () => {});
-  it("needs a shipped multi-approver symbol before per-approver duplicate-decision idempotence can be covered", () => {});
+describe("Multi-approver quorum — AND (all must approve)", () => {
+  const policy: QuorumPolicy = { strategy: "all", approvers: ["alice", "bob", "carol"] };
+
+  it("requires every approver", () => {
+    expect(requiredApprovals(policy)).toBe(3);
+  });
+
+  it("stays pending until the last approver grants", () => {
+    const tally = evaluateQuorum(policy, [
+      { approverId: "alice", decision: "granted" },
+      { approverId: "bob", decision: "granted" },
+    ]);
+    expect(tally.status).toBe("pending");
+    expect(tally.granted).toEqual(["alice", "bob"]);
+    expect(tally.outstanding).toEqual(["carol"]);
+  });
+
+  it("grants once all approvers grant", () => {
+    const tally = evaluateQuorum(policy, [
+      { approverId: "carol", decision: "granted" },
+      { approverId: "alice", decision: "granted" },
+      { approverId: "bob", decision: "granted" },
+    ]);
+    expect(tally.status).toBe("granted");
+    expect(tally.granted).toEqual(["alice", "bob", "carol"]);
+    expect(tally.outstanding).toEqual([]);
+  });
+
+  it("rejects on the first rejection", () => {
+    const tally = evaluateQuorum(policy, [
+      { approverId: "alice", decision: "granted" },
+      { approverId: "bob", decision: "rejected", reason: "no" },
+    ]);
+    expect(tally.status).toBe("rejected");
+    expect(tally.rejected).toEqual(["bob"]);
+    expect(tally.outstanding).toEqual(["carol"]);
+  });
+});
+
+describe("Multi-approver quorum — OR (any one approves)", () => {
+  const policy: QuorumPolicy = { strategy: "any", approvers: ["alice", "bob", "carol"] };
+
+  it("requires a single approval", () => {
+    expect(requiredApprovals(policy)).toBe(1);
+  });
+
+  it("grants on the first grant", () => {
+    const tally = evaluateQuorum(policy, [{ approverId: "bob", decision: "granted" }]);
+    expect(tally.status).toBe("granted");
+    expect(tally.required).toBe(1);
+  });
+
+  it("stays pending while some approvers have not rejected", () => {
+    const tally = evaluateQuorum(policy, [
+      { approverId: "alice", decision: "rejected" },
+      { approverId: "bob", decision: "rejected" },
+    ]);
+    expect(tally.status).toBe("pending");
+    expect(tally.outstanding).toEqual(["carol"]);
+  });
+
+  it("rejects only when every approver rejects", () => {
+    const tally = evaluateQuorum(policy, [
+      { approverId: "alice", decision: "rejected" },
+      { approverId: "bob", decision: "rejected" },
+      { approverId: "carol", decision: "rejected" },
+    ]);
+    expect(tally.status).toBe("rejected");
+  });
+});
+
+describe("Multi-approver quorum — majority rule", () => {
+  it("needs floor(n/2)+1 grants", () => {
+    expect(requiredApprovals({ strategy: "majority", approvers: ["a"] })).toBe(1);
+    expect(requiredApprovals({ strategy: "majority", approvers: ["a", "b", "c"] })).toBe(2);
+    expect(requiredApprovals({ strategy: "majority", approvers: ["a", "b", "c", "d"] })).toBe(3);
+  });
+
+  it("grants with 2 of 3", () => {
+    const tally = evaluateQuorum({ strategy: "majority", approvers: ["a", "b", "c"] }, [
+      { approverId: "a", decision: "granted" },
+      { approverId: "b", decision: "rejected" },
+      { approverId: "c", decision: "granted" },
+    ]);
+    expect(tally.status).toBe("granted");
+  });
+
+  it("rejects with 2 of 3 rejections even before the last vote", () => {
+    const tally = evaluateQuorum({ strategy: "majority", approvers: ["a", "b", "c"] }, [
+      { approverId: "a", decision: "rejected" },
+      { approverId: "c", decision: "rejected" },
+    ]);
+    expect(tally.status).toBe("rejected");
+    expect(tally.outstanding).toEqual(["b"]);
+  });
+
+  it("fails closed on an even tie", () => {
+    const policy: QuorumPolicy = { strategy: "majority", approvers: ["a", "b", "c", "d"] };
+    expect(
+      evaluateQuorum(policy, [
+        { approverId: "a", decision: "granted" },
+        { approverId: "b", decision: "granted" },
+      ]).status
+    ).toBe("pending");
+    expect(
+      evaluateQuorum(policy, [
+        { approverId: "a", decision: "granted" },
+        { approverId: "b", decision: "granted" },
+        { approverId: "c", decision: "rejected" },
+        { approverId: "d", decision: "rejected" },
+      ]).status
+    ).toBe("rejected");
+  });
+
+  it("is pending with no votes", () => {
+    const tally = evaluateQuorum({ strategy: "majority", approvers: ["a", "b", "c"] }, []);
+    expect(tally).toEqual({
+      status: "pending",
+      required: 2,
+      granted: [],
+      rejected: [],
+      outstanding: ["a", "b", "c"],
+    });
+  });
+});
+
+describe("Multi-approver quorum — per-approver duplicate idempotence", () => {
+  it("counts a repeated grant from the same approver once", () => {
+    const tally = evaluateQuorum({ strategy: "majority", approvers: ["a", "b", "c"] }, [
+      { approverId: "a", decision: "granted" },
+      { approverId: "a", decision: "granted" },
+    ]);
+    expect(tally.status).toBe("pending");
+    expect(tally.granted).toEqual(["a"]);
+  });
+
+  it("keeps the first decision when an approver later flips", () => {
+    const tally = evaluateQuorum({ strategy: "all", approvers: ["a", "b"] }, [
+      { approverId: "a", decision: "rejected" },
+      { approverId: "a", decision: "granted" },
+      { approverId: "b", decision: "granted" },
+    ]);
+    expect(tally.status).toBe("rejected");
+    expect(tally.granted).toEqual(["b"]);
+    expect(tally.rejected).toEqual(["a"]);
+  });
+});
+
+describe("Multi-approver quorum — error cases", () => {
+  it("throws UnknownApproverError for a vote from outside the policy", () => {
+    expect(() =>
+      evaluateQuorum({ strategy: "any", approvers: ["a"] }, [
+        { approverId: "mallory", decision: "granted" },
+      ])
+    ).toThrow(UnknownApproverError);
+  });
+
+  it("rejects invalid policies", () => {
+    expect(() => requiredApprovals({ strategy: "all", approvers: [] })).toThrow(
+      InvalidQuorumPolicyError
+    );
+    expect(() => requiredApprovals({ strategy: "all", approvers: ["a", "a"] })).toThrow(
+      InvalidQuorumPolicyError
+    );
+    expect(() => requiredApprovals({ strategy: "all", approvers: ["a", " "] })).toThrow(
+      InvalidQuorumPolicyError
+    );
+    expect(() =>
+      evaluateQuorum({ strategy: "unanimous" as QuorumStrategy, approvers: ["a"] }, [])
+    ).toThrow(InvalidQuorumPolicyError);
+  });
 });
 
 

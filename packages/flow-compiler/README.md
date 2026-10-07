@@ -327,6 +327,62 @@ manifest and cannot escape its directory. The gate uses placeholder tool and
 persona resolvers to isolate authoring contract drift. A passing report is not
 provider, runtime, host-capability, or deployment qualification.
 
+## Running a V2 document locally
+
+`dzupagent-run` executes one `dzupflow/v2` document through the inactive
+provider-free local host (`runV2InactiveLocalHost`). Every step is checkpointed
+under `checkpointDirectory`. The receipt is printed as JSON on stdout.
+
+```bash
+node dist/bin/run.js ./flow.yaml --config ./run.json [--max-steps 1]
+```
+
+The `dzupagent-run` bin name is not registered in `package.json` yet. A
+workspace bin entry also changes `yarn.lock`, which needs its own approval.
+Run the built entry directly until then.
+
+Re-running the same `runId` resumes from the last checkpoint and does not replay
+a completed step. `--max-steps <n>` suspends after `n` newly processed steps.
+Exit `0` means the receipt status is `completed` or `suspended`. Exit `1` means
+any argument, config, compile or host error, or any other status. Diagnostics
+are `{ "ok": false, "errors": [...] }` on stderr, and each one names the
+offending `key` where one is attributable.
+
+`run.json` is closed, so unknown keys are refused. Paths are relative to
+`run.json`:
+
+```json
+{
+  "runId": "example-run",
+  "ownerId": "worker-1",
+  "checkpointDirectory": "./checkpoints",
+  "initialState": {},
+  "inheritedPolicy": { "timeoutMs": 60000, "budgetCents": 500 },
+  "conditionBindings": { "inputs": { "ready": true } },
+  "compilerOptions": {},
+  "hostCapabilities": ["…exactly the five V2_INACTIVE_LOCAL_TARGET_CAPABILITIES…"],
+  "primitives": ["./adapter-run-v2.primitive.json"],
+  "handlers": [{ "ref": "primitive://adapter.run@2", "module": "./handler.mjs" }]
+}
+```
+
+- `primitives` lists `PrimitiveDefinitionV2Input` JSON files. A hosted step
+  must own a multi-port save, and no built-in primitive declares two output
+  ports, so a runnable document needs at least one supplied definition. The CLI
+  computes each `semanticHash` with `definePrimitiveV2`; a supplied hash is
+  refused.
+- Each handler module default-exports one pure function. Its `handlerId` is the
+  module basename and its `handlerSha256` is the SHA-256 of its bytes. Changing
+  the bytes of a module bound to a checkpointed `runId` fails closed with
+  `V2_LOCAL_HOST_CHECKPOINT_DRIFT`.
+- `compilerOptions` accepts only `referencePortBindings` and
+  `referenceTypeBindings`. Reference policy is always `strict`.
+- The CLI fixes handler `mode`, `declaredEffects` and `replay` to
+  `provider-free-local`, `none` and `safe`. It has no provider dispatch,
+  external mutation, deployment or activation authority.
+
+`src/__tests__/fixtures/v2-run/` is a complete runnable example.
+
 ## License
 
 MIT

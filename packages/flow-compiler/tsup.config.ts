@@ -18,6 +18,7 @@ export default defineConfig([
     entry: {
       'bin/compile': 'bin/compile.ts',
       'bin/qualify-corpus': 'bin/qualify-corpus.ts',
+      'bin/run': 'bin/run.ts',
     },
     format: ['esm'],
     dts: false,
