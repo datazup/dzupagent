@@ -1,8 +1,8 @@
 /**
  * Notion connector — direct REST calls through the outbound URL policy.
  *
- * Read paths (`readPage`, `queryDatabase`, `listBlockChildren`, `search`) are implemented; the remaining
- * methods are stubs until their own packets land.
+ * Read paths (`readPage`, `queryDatabase`, `listBlockChildren`, `search`) and page writes (`createPage`,
+ * `updatePage`, `archivePage`) are implemented; the block writes are stubs until their own packet lands.
  */
 import { fetchWithOutboundUrlPolicy, type OutboundUrlSecurityPolicy } from '@dzupagent/core/security'
 
@@ -92,6 +92,10 @@ function assertPageSize(pageSize: unknown): void {
   }
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 export class NotionConnector {
   private readonly baseUrl: string
   private readonly outboundUrlPolicy: OutboundUrlSecurityPolicy | undefined
@@ -129,8 +133,12 @@ export class NotionConnector {
     return res.json() as Promise<T>
   }
 
-  async createPage(_payload: NotionPayload): Promise<unknown> {
-    throw new Error('NotionConnector.createPage is not implemented')
+  /** `POST /v1/pages` — the payload must name a `parent`; Notion validates the rest. */
+  async createPage(payload: NotionPayload): Promise<NotionPage> {
+    if (!isPlainObject(payload) || !isPlainObject(payload['parent'])) {
+      throw new Error('Invalid Notion createPage payload: expected an object with a parent')
+    }
+    return this.request<NotionPage>('/v1/pages', { method: 'POST', json: payload })
   }
 
   /** `GET /v1/pages/{pageId}`. */
@@ -139,12 +147,16 @@ export class NotionConnector {
     return this.request<NotionPage>(`/v1/pages/${pageId}`, { method: 'GET' })
   }
 
-  async updatePage(_pageId: string, _payload: NotionPayload): Promise<unknown> {
-    throw new Error('NotionConnector.updatePage is not implemented')
+  /** `PATCH /v1/pages/{pageId}`. */
+  async updatePage(pageId: string, payload: NotionPayload): Promise<NotionPage> {
+    assertNotionId('page', pageId)
+    return this.request<NotionPage>(`/v1/pages/${pageId}`, { method: 'PATCH', json: payload })
   }
 
-  async archivePage(_pageId: string): Promise<unknown> {
-    throw new Error('NotionConnector.archivePage is not implemented')
+  /** `PATCH /v1/pages/{pageId}` with `{ archived: true }` (Notion-Version `2022-06-28`). */
+  async archivePage(pageId: string): Promise<NotionPage> {
+    assertNotionId('page', pageId)
+    return this.request<NotionPage>(`/v1/pages/${pageId}`, { method: 'PATCH', json: { archived: true } })
   }
 
   /**
