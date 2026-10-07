@@ -1,6 +1,6 @@
 import { test, expect, vi } from 'vitest'
 import { constants } from 'node:fs'
-import { mkdtemp, symlink, mkdir, rm } from 'node:fs/promises'
+import { mkdtemp, symlink, mkdir, rm, stat, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { withContainedFile } from '../knowledge/contained-file.js'
@@ -15,6 +15,16 @@ import { makeCapturedRecord } from '../lifecycle/__tests__/fixtures.js'
 import { decodeMemoryRecordV1 } from '../records/decoder.js'
 import { activeFixture } from '../projections/__tests__/fixtures.js'
 import { projectMemoryRecordV1, diffMemoryProjections } from '../projections/index.js'
+import { makeCaptureCommand } from '../lifecycle/__tests__/fixtures.js'
+import { decodeMemoryCommandV1 } from '../lifecycle/validation.js'
+import { decodeMemoryEventV1, decodeMemoryTransitionReceiptV1 } from '../lifecycle/ledger.js'
+import { capturedRecord, captureInput } from '../service/__tests__/fixtures.js'
+import { decodeLifecycleWriteInputV1 } from '../service/validation.js'
+import { InMemoryMemoryClient } from '../in-memory-client.js'
+import { asJsonObject, decodeReference } from '../lifecycle/validation.js'
+import { isMemoryTransitionError } from '../service/history-reducer.js'
+import { MemoryTransitionError } from '../lifecycle/errors.js'
+import { storeOutcomeFailure } from '../service/service-runtime.js'
 
 test('knowledge paths reject ambiguous scopes and pin ancestors of the configured root', async () => {
   const root = await mkdtemp(join(tmpdir(), 'knowledge-boundary-'))
@@ -48,8 +58,40 @@ function wrongTypeCases(input: unknown): Array<[string, unknown]> {
   if (input && typeof input === 'object') for (const [key, value] of Object.entries(input)) visit(value, [key])
   return output
 }
+function missingFieldCases(input: unknown): Array<[string, unknown]> {
+  return wrongTypeCases(input).map(([path]) => {
+    const copy = structuredClone(input) as Record<string, unknown>
+    const parts = path.split('.')
+    let parent = copy
+    for (const key of parts.slice(0, -1)) parent = parent[key] as Record<string, unknown>
+    delete parent[parts.at(-1)!]
+    return [path, copy]
+  })
+}
+function emptyStringCases(input: unknown): Array<[string, unknown]> {
+  return wrongTypeCases(input).flatMap(([path]) => {
+    const parts = path.split('.')
+    const original = parts.reduce<unknown>((value, key) => (value as Record<string, unknown>)[key], input)
+    if (typeof original !== 'string') return []
+    const copy = structuredClone(input) as Record<string, unknown>
+    let parent = copy
+    for (const key of parts.slice(0, -1)) parent = parent[key] as Record<string, unknown>
+    parent[parts.at(-1)!] = ''
+    return [[path, copy] as [string, unknown]]
+  })
+}
 test.each(wrongTypeCases(makeCapturedRecord()))('serialized memory record rejects wrong type at %s', (_path, input) => {
   expect(() => decodeMemoryRecordV1(input)).toThrow()
+})
+const optionalRecordFields = new Set(['scope.workspaceId', 'temporal.validFrom', 'quality.extractionQuality'])
+test.each(missingFieldCases(makeCapturedRecord()).filter(([path]) => !optionalRecordFields.has(path)))('serialized memory record requires field %s', (_path, input) => {
+  expect(() => decodeMemoryRecordV1(input)).toThrow()
+})
+test.each(emptyStringCases(makeCapturedRecord()))('serialized memory record rejects empty string at %s', (_path, input) => {
+  expect(() => decodeMemoryRecordV1(input)).toThrow()
+})
+test.each(wrongTypeCases(makeCaptureCommand()))('lifecycle command rejects wrong type at %s', (_path, input) => {
+  expect(() => decodeMemoryCommandV1(input)).toThrow()
 })
 const projectionRequest = activeFixture().request
 test.each(wrongTypeCases(projectionRequest))('projection request rejects wrong type at %s', (_path, input) => {
@@ -59,9 +101,39 @@ const projection = projectMemoryRecordV1(projectionRequest)
 test.each(wrongTypeCases(projection))('retained projection rejects wrong type at %s', (_path, input) => {
   expect(() => Reflect.apply(diffMemoryProjections, undefined, [projection, input])).toThrow()
 })
+test.each(missingFieldCases(projection))('retained projection requires field %s', (_path, input) => {
+  expect(() => Reflect.apply(diffMemoryProjections, undefined, [projection, input])).toThrow()
+})
+test.each(wrongTypeCases(projection.events[0]))('retained lifecycle event rejects wrong type at %s', (_path, input) => {
+  expect(() => decodeMemoryEventV1(input)).toThrow()
+})
+test.each(wrongTypeCases(projection.receipts[0]))('retained lifecycle receipt rejects wrong type at %s', (_path, input) => {
+  expect(() => decodeMemoryTransitionReceiptV1(input)).toThrow()
+})
+test.each(emptyStringCases(projection))('retained projection rejects empty string at %s', (_path, input) => {
+  expect(() => Reflect.apply(diffMemoryProjections, undefined, [projection, input])).toThrow()
+})
+test.each(wrongTypeCases(captureInput(capturedRecord())))('service write envelope rejects wrong type at %s', (_path, input) => {
+  expect(() => decodeLifecycleWriteInputV1(input)).toThrow()
+})
 test.each(wrongTypeCases(prepareInput()))('outbox envelope rejects wrong type at %s', (_path, input) => {
   expect(() => createInMemoryMemoryOutbox().prepare(input)).toThrow()
 })
+
+test('a symlink occupying the historical lock path cannot touch an outside directory', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'knowledge-lock-boundary-'))
+  const outside = await mkdtemp(join(tmpdir(), 'knowledge-outside-'))
+  try {
+    await writeFile(join(outside, 'marker'), 'retained')
+    await symlink(outside, join(root, 'global.lock'))
+    const before = await stat(outside)
+    const store = new FilesystemKnowledgeStore({ rootDir: root })
+    const entry = { id: 'entry', runId: 'run', repo: null, kind: 'finding' as const, key: 'key', version: 1, authorWorkerId: null, parentId: null, createdAt: '2026-10-07T00:00:00.000Z', supersededAt: null, payload: { category: 'hotspot' as const, location: 'fixture:1', summary: 'fixture', evidence: [], confidence: 1 }, tags: [] }
+    await expect(store.append('global', entry)).rejects.toThrow()
+    expect(await readFile(join(outside, 'marker'), 'utf8')).toBe('retained')
+    expect((await stat(outside)).mtimeMs).toBe(before.mtimeMs)
+  } finally { await rm(root, { recursive: true, force: true }); await rm(outside, { recursive: true, force: true }) }
+}, 10_000)
 
 test('outbox renewal supersedes old generations and fails closed at expiry or before acquisition', () => {
   const outbox = createInMemoryMemoryOutbox()
@@ -85,4 +157,22 @@ test('memory service reports read status and structured error correlation withou
   const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(() => { throw new Error('sink unavailable') }) }
   expect(logError({ component: 'fixture', operation: 'read', error: 'failed', errorId: 'correlation', logger })).toBe('correlation')
   expect(logger.error).toHaveBeenCalledOnce()
+})
+test('service failures preserve typed recovery results and in-memory teardown removes retained records', async () => {
+  expect(asJsonObject({ fixture: true }, [])).toEqual({ fixture: true })
+  expect(() => asJsonObject([], [])).toThrow()
+  expect(decodeReference({ owner: 'fixture', id: 'reference', digest: `sha256:${'a'.repeat(64)}` }, [])).toHaveProperty('owner', 'fixture')
+  expect(isMemoryTransitionError(new MemoryTransitionError('invalid-state', []))).toBe(true)
+  expect(isMemoryTransitionError(new Error('fixture'))).toBe(false)
+  for (const [status, reason, expected] of [['conflict', 'cas-conflict', 'conflict'], ['unsupported', 'unsupported-capability', 'unsupported'], ['ambiguous', 'ambiguous-outcome', 'retryable'], ['rejected', 'capacity-exceeded', 'rejected']] as const) {
+    expect(storeOutcomeFailure({ schema: 'datazup.memory.store-outcome/v1', status, reason })).toMatchObject({ status: expected, reason, records: [] })
+  }
+  const client = new InMemoryMemoryClient()
+  await client.put('notes', { tenantId: 'tenant' }, { id: 'fixture', namespace: 'notes', scope: { tenantId: 'tenant' }, content: 'fixture', metadata: {}, createdAt: 0, updatedAt: 0 })
+  client.clear()
+  expect(await client.get('notes', { tenantId: 'tenant' })).toEqual([])
+  const store = await createStore({ type: 'memory' })
+  await store.put(['fixture'], 'key', { fixture: true })
+  ;(store as unknown as { clear(): void }).clear()
+  expect(await store.get(['fixture'], 'key')).toBeUndefined()
 })

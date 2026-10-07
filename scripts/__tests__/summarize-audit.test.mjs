@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { summarizeAudit } from '../summarize-audit.mjs'
+import { summarizeAudit, renderAuditMarkdown } from '../summarize-audit.mjs'
 const source = 'a'.repeat(40)
 const context = (id, gates) => ({ id, source, gates })
 test('green runtime tests cannot hide missing or failed qualification gates', () => {
@@ -27,4 +27,19 @@ test('rejects contradictory pass counts and malformed test evidence', () => {
     assert.throws(() => summarizeAudit({ ...base, contexts: [context('one', [{ name: 'test', status: 'pass', tests }])] }))
   }
   assert.throws(() => summarizeAudit({ ...base, contexts: [context('one', []), context('one', [])] }), /Duplicate/)
+})
+test('rendered output preserves gate reasons and execution counts without a combined total', () => {
+  const report = renderAuditMarkdown({ source, requiredGates: [{ context: 'one', name: 'coverage' }], contexts: [context('one', [{ name: 'coverage', status: 'fail', reason: 'Floor | miss\nreviewed', tests: { passed: 10, failed: 0, skipped: 1 }, evidence: 'coverage.log' }])] })
+  assert.match(report, /Qualification: \*\*red\*\*/)
+  assert.match(report, /Floor \\\| miss reviewed/)
+  assert.match(report, /\| 10 \| 0 \| 1 \| coverage.log \|/)
+  assert.doesNotMatch(report, /total passing/i)
+})
+test('required gates are unique and missing contexts cannot qualify', () => {
+  const requirement = { context: 'one', name: 'test' }
+  assert.throws(() => summarizeAudit({ source, requiredGates: [requirement, requirement], contexts: [] }), /Duplicate required/)
+  const report = summarizeAudit({ source, requiredGates: [requirement], contexts: [] })
+  assert.equal(report.qualification, 'red')
+  assert.equal(report.required[0].status, 'incomplete')
+  for (const tests of ['invalid', [], { madeUp: 1 }]) assert.throws(() => summarizeAudit({ source, requiredGates: [requirement], contexts: [context('one', [{ name: 'test', status: 'pass', tests }])] }))
 })

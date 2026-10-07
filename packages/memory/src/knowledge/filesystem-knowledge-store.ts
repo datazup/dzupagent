@@ -1,7 +1,6 @@
 import { constants } from "node:fs";
 import * as nativeFs from "node:fs";
 import { withContainedFile, openContainedDirectory } from "./contained-file.js";
-import * as fs from "node:fs/promises";
 import { EventEmitter } from "node:events";
 import lockfile from "proper-lockfile";
 import type {

@@ -23,6 +23,7 @@ test('execution boundary diagnostics reject empty messages, malformed artifacts 
   validateMessages([], 'messages', diagnostics)
   validateMessages([null, { role: 'unknown', content: '' }], 'messages', diagnostics)
   validateArtifact(null, 'artifact', diagnostics)
+  for (const artifact of [{}, { uri: ' ', digest: ' ', contentClass: ' ' }, { uri: 1, digest: 1, contentClass: 1 }]) validateArtifact(artifact, 'artifact', diagnostics)
   nonEmptyStrings([], 'values', diagnostics)
   nonEmptyStrings([null, ''], 'values', diagnostics)
   uniqueEnumValues(['one', 'one', 2], ['one'], 'enum', diagnostics)

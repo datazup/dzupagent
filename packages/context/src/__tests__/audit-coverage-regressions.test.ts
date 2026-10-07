@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest'
 import { AIMessage, ToolMessage, HumanMessage, type BaseMessage } from '@langchain/core/messages'
 import { compactCompletedToolResults } from '../tool-results/compact-completed-tool-results.js'
-import { cloneCompactedToolMessage, contentText, measureMessages, safeMessageType, safeToolCalls } from '../tool-results/compaction-internals.js'
+import { cloneCompactedToolMessage, contentText, measureMessages, safeMessageType, safeToolCalls, COMPACTED_CONTENT } from '../tool-results/compaction-internals.js'
 import type { CompletedToolCompactionProfileV1 } from '../tool-results/types.js'
 import { __internals } from '../tiktoken-counter.js'
 
@@ -17,6 +17,30 @@ test('malformed profiles fail closed without touching transcript or invoking acc
   const hostile = Object.defineProperty({ ...profile }, 'schema', { get() { invoked = true; throw new Error('getter') } })
   expect(compactCompletedToolResults(messages, hostile).reason).toBe('invalid-profile')
   expect(invoked).toBe(false)
+})
+test('compaction preserves the transcript when per-result or replacement measurement becomes untrusted', () => {
+  const call = new AIMessage({ content: 'calling', tool_calls: [{ id: 'call', name: 'lookup', args: {} }] })
+  const result = new ToolMessage({ content: 'x'.repeat(1000), tool_call_id: 'call', id: 'stable', name: 'lookup', status: 'success', artifact: {} })
+  const messages = [call, result]
+  for (const failAt of [2, 3]) {
+    let count = 0
+    const tokenCounter = { count: () => 1, countDetailed: () => { count++; if (count === failAt) throw new Error('counter unavailable'); return { tokens: count === 1 ? 1000 : 500, method: 'exact' as const } } }
+    expect(compactCompletedToolResults(messages, { ...profile, measurement: 'require-tokenizer' }, { tokenCounter }).reason).toBe('token-measurement-unproven')
+  }
+  let count = 0
+  const tokenCounter = { count: () => 1, countDetailed: () => ({ tokens: ++count === 1 ? 1000 : 500, method: count === 3 ? 'heuristic' as const : 'exact' as const }) }
+  expect(compactCompletedToolResults(messages, { ...profile, measurement: 'require-tokenizer' }, { tokenCounter }).reason).toBe('token-measurement-unproven')
+  expect(compactCompletedToolResults([call, new ToolMessage({ content: COMPACTED_CONTENT, tool_call_id: 'call' })], profile).reason).toBe('no-token-reclamation')
+  expect(compactCompletedToolResults([call, new ToolMessage({ content: 'large', tool_call_id: 'call', artifact: () => {} })], profile).reason).toBe('clone-rejected')
+  const clone = cloneCompactedToolMessage(result)
+  expect(clone).toMatchObject({ id: 'stable', name: 'lookup', status: 'success' })
+  expect(() => measureMessages([Object.assign(new HumanMessage('fixture'), { _getType: () => 1 }) as unknown as BaseMessage], {})).toThrow(/invalid message/)
+  expect(() => measureMessages([Object.assign(new ToolMessage({ content: 'fixture', tool_call_id: 'call' }), { tool_call_id: 1 }) as unknown as BaseMessage], {})).toThrow(/invalid tool call/)
+  for (const value of [null, new Proxy(new HumanMessage('fixture'), {}), Object.assign(new HumanMessage('fixture'), { _getType: undefined })]) expect(safeMessageType(value as unknown as BaseMessage)).toBeNull()
+  const malformedCall = new AIMessage('fixture'); Object.defineProperty(malformedCall, 'tool_calls', { value: [null], configurable: true })
+  expect(compactCompletedToolResults([malformedCall], profile).reason).toBe('invalid-tool-pairing')
+  const accessorCall = Object.defineProperty({}, 'id', { get() { throw new Error('untrusted') } }); Object.defineProperty(malformedCall, 'tool_calls', { value: [accessorCall], configurable: true })
+  expect(compactCompletedToolResults([malformedCall], profile).reason).toBe('invalid-tool-pairing')
 })
 
 test('compaction cloning refuses unsafe values and retains supported detached artifact types', () => {
