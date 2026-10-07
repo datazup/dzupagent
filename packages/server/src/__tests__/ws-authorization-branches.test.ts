@@ -94,11 +94,11 @@ describe('createScopedAuthorizeFilter branch coverage', () => {
   it('accepts eventTypes fully covered by scope', async () => {
     const client = new MockWsClient()
     const authorize = createScopedAuthorizeFilter({
-      resolveClientScope: () => ({ eventTypes: ['agent:started', 'agent:completed', 'tool:called'] }),
+      resolveClientScope: () => ({ runIds: ['r1'], eventTypes: ['agent:started', 'agent:completed', 'tool:called'] }),
     })
 
-    expect(await authorize({ client, filter: { eventTypes: ['agent:started'] } })).toBe(true)
-    expect(await authorize({ client, filter: { eventTypes: ['agent:started', 'tool:called'] } })).toBe(true)
+    expect(await authorize({ client, filter: { runId: 'r1', eventTypes: ['agent:started'] } })).toBe(true)
+    expect(await authorize({ client, filter: { runId: 'r1', eventTypes: ['agent:started', 'tool:called'] } })).toBe(true)
   })
 
   it('combines runId + agentId + eventTypes checks', async () => {

@@ -70,6 +70,7 @@ export function createScopedAuthorizeFilter(
     const scope = await options.resolveClientScope(client)
     if (!scope) return false
     if (scope.canSubscribeAll) return true
+    if (!filter.runId && !filter.agentId) return false
 
     // Every resource restriction must be represented, even for type-only filters.
     if ((scope.runIds !== undefined || options.canAccessRun) && !filter.runId) return false

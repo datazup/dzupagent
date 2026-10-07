@@ -182,6 +182,32 @@ function parseArgs(argv) {
   };
 }
 
+export function executeGates(gates, execute, failFast = false) {
+  const results = [];
+  let aborted = null;
+  let buildReady = true;
+
+  for (const gate of gates) {
+    if (!buildReady && [...POST_BUILD_CHECKS, ...ARTIFACT_CHECKS.filter(name => name !== "audit:deps"), "typecheck", "test"].includes(gate.name)) {
+      results.push({ name: gate.name, ok: false, skipped: true, reason: "build failed", ms: 0 });
+      continue;
+    }
+    const started = process.hrtime.bigint();
+    const proc = execute(gate);
+    const ms = Number((process.hrtime.bigint() - started) / 1_000_000n);
+    const ok = proc.status === 0;
+    results.push({ name: gate.name, ok, ms });
+    if (gate.name === BUILD_GATE_NAME) buildReady = ok;
+
+    if (!ok && failFast) {
+      aborted = gate;
+      break;
+    }
+  }
+
+  return { results, aborted };
+}
+
 function main() {
   const { profile, failFast, list } = parseArgs(process.argv.slice(2));
   const gates = PROFILES[profile];
@@ -200,32 +226,10 @@ function main() {
     return;
   }
 
-  const results = [];
-  let aborted = null;
-  let buildReady = true;
-
-  for (const gate of gates) {
-    if (!buildReady && [...POST_BUILD_CHECKS, ...ARTIFACT_CHECKS.filter(name => name !== "audit:deps"), "typecheck", "test"].includes(gate.name)) {
-      results.push({ name: gate.name, ok: false, skipped: true, reason: "build failed", ms: 0 });
-      continue;
-    }
+  const { results, aborted } = executeGates(gates, gate => {
     process.stdout.write(`\n[run-gates] ── ${gate.name}\n`);
-    const started = process.hrtime.bigint();
-    const proc = spawnSync(gate.run, {
-      cwd: ROOT,
-      shell: true,
-      stdio: "inherit",
-    });
-    const ms = Number((process.hrtime.bigint() - started) / 1_000_000n);
-    const ok = proc.status === 0;
-    results.push({ name: gate.name, ok, ms });
-    if (gate.name === BUILD_GATE_NAME) buildReady = ok;
-
-    if (!ok && failFast) {
-      aborted = gate;
-      break;
-    }
-  }
+    return spawnSync(gate.run, { cwd: ROOT, shell: true, stdio: "inherit" });
+  }, failFast);
 
   const failed = results.filter((r) => !r.ok);
 

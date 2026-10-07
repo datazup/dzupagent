@@ -8,7 +8,7 @@ describe('vision tier resolution', () => {
     const model = { invoke: vi.fn() } as unknown as BaseChatModel
     const registry = new ModelRegistry()
     registry.setFactory(() => model)
-    registry.addProvider({ provider: 'openai', apiKey: 'test-only', models: {
+    registry.addProvider({ provider: 'openai', apiKey: 'test-only', priority: 0, models: {
       vision: { name: 'configured-image-model', maxTokens: 1024 },
       chat: { name: 'configured-chat-model', maxTokens: 1024 },
     } })
