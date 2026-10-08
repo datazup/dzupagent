@@ -17,10 +17,10 @@ index dce69beb90ece5c3b0ca234a949418f9f34eedbc..60c293a253366614672e991bcf29e945
      const invalidNode = node.invalid === true && options.escapeInvalid === true;
 diff --git a/lib/depth-guard.js b/lib/depth-guard.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..ac2fc9fdcfdeaf0d78b91e63d79dc16fb00d7501
+index 0000000000000000000000000000000000000000..0f0e445c6dd1126d9fa531d567bed49908b52878
 --- /dev/null
 +++ b/lib/depth-guard.js
-@@ -0,0 +1,34 @@
+@@ -0,0 +1,43 @@
 +'use strict';
 +
 +// GHSA-vfj7-8cjw-p6xm: never recurse over attacker-controlled AST depth.
@@ -34,7 +34,16 @@ index 0000000000000000000000000000000000000000..ac2fc9fdcfdeaf0d78b91e63d79dc16f
 +
 +const assertSafeAst = ast => {
 +  const active = new WeakSet();
-+  const pending = [{ node: ast, depth: 0, parent: undefined, leave: false }];
++  const ancestors = new WeakSet();
++  let ancestor = ast;
++  let ancestorDepth = 0;
++  while (ancestor && typeof ancestor === 'object') {
++    if (++ancestorDepth > MAX_DEPTH || ancestors.has(ancestor)) reject();
++    ancestors.add(ancestor);
++    ancestor = ancestor.parent;
++  }
++  if (ancestor !== undefined && ancestor !== null) reject();
++  const pending = [{ node: ast, depth: 0, parent: ast && ast.parent, leave: false }];
 +  let count = 0;
 +  while (pending.length) {
 +    const { node, depth, parent, leave } = pending.pop();

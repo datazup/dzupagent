@@ -48,6 +48,9 @@ export function verifyBracesRemediation() {
   const rejection = error => error instanceof RangeError && error.code === 'BRACES_AST_LIMIT'
   assert.deepEqual(braces.expand('src/{a,b}/{1..3}.ts'), ['src/a/1.ts', 'src/a/2.ts', 'src/a/3.ts', 'src/b/1.ts', 'src/b/2.ts', 'src/b/3.ts'])
   assert.equal(braces.compile('src/{a,b}.ts'), 'src/(a|b).ts')
+  const parsed = braces.parse('foo/{a,b}/bar')
+  assert.equal(braces.stringify(parsed.nodes[2]), '{a,b}', 'documented subtree API must remain supported')
+  assert.equal(braces.compile(parsed.nodes[2]), '(a|b)')
   const deep = '{'.repeat(4096) + 'a,b' + '}'.repeat(4096)
   const parens = '('.repeat(4096) + 'x' + ')'.repeat(4096)
   for (const pattern of [deep, parens, '{'.repeat(4096) + 'x']) {
