@@ -13,6 +13,8 @@ export interface SlackNotificationChannelConfig {
   timeoutMs?: number
   /** Outbound URL policy. Defaults to public HTTPS destinations only. */
   urlPolicy?: OutboundUrlSecurityPolicy
+  /** Fetch implementation (default: global fetch). URL policy still applies. */
+  fetchImpl?: typeof fetch
 }
 
 const PRIORITY_EMOJI: Record<string, string> = {
@@ -27,11 +29,13 @@ export class SlackNotificationChannel implements NotificationChannel {
   private readonly webhookUrl: string
   private readonly timeoutMs: number
   private readonly urlPolicy: OutboundUrlSecurityPolicy | undefined
+  private readonly fetchImpl: typeof fetch | undefined
 
   constructor(config: SlackNotificationChannelConfig) {
     this.webhookUrl = config.webhookUrl
     this.timeoutMs = config.timeoutMs ?? 5000
     this.urlPolicy = config.urlPolicy
+    this.fetchImpl = config.fetchImpl
   }
 
   async send(notification: Notification): Promise<void> {
@@ -71,13 +75,18 @@ export class SlackNotificationChannel implements NotificationChannel {
       blocks,
     })
 
-    await fetchWithOutboundUrlPolicy(this.webhookUrl, {
+    const response = await fetchWithOutboundUrlPolicy(this.webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body,
       signal: AbortSignal.timeout(this.timeoutMs),
     }, {
       policy: this.urlPolicy,
+      fetchImpl: this.fetchImpl,
     })
+    // The webhook URL is itself a credential — report the status only.
+    if (!response.ok) {
+      throw new Error(`${this.name} notification delivery failed: HTTP ${response.status}`)
+    }
   }
 }
