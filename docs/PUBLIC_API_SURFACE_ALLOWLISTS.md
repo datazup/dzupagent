@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-10-07
+Date: 2026-10-08
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -1132,7 +1132,7 @@ No stable subpaths configured.
 
 Root index: `packages/flow-ast/src/index.ts`
 
-- Stable root sources: `9`
+- Stable root sources: `8`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
 - Migration window: Flow AST root exports are stable Layer 0 parser, validator, and contract primitives; add allowlist rules before exposing new root modules.
@@ -1155,7 +1155,6 @@ Root index: `packages/flow-ast/src/index.ts`
 | `stable` | `./parse.js` | 1 | `exact:./parse.js` | `*` |
 | `stable` | `./validate.js` | 1 | `exact:./validate.js` | `*` |
 | `stable` | `./condition-expression.js` | 1 | `exact:./condition-expression.js` | `*` |
-| `stable` | `./output-key-uniqueness.js` | 1 | `exact:./output-key-uniqueness.js` | `*` |
 | `stable` | `./unreachable-after-complete.js` | 1 | `exact:./unreachable-after-complete.js` | `*` |
 | `stable` | `./policy-numbers.js` | 1 | `exact:./policy-numbers.js` | `*` |
 

@@ -28,7 +28,7 @@ Auto-generated on 2026-10-08. Do not edit manually — run `yarn docs:capability
 | @dzupagent/evals | Evaluation: scorers, LLM judge, benchmarks | Stable | DeterministicScorer, LLMJudgeScorer, CompositeScorer, LlmJudgeScorer, ScorerRegistry, createLLMJudge, createJSONSchemaScorer, createKeywordScorer, ... |
 | @dzupagent/execution-contracts | Neutral execution isolation policies, validation, and qualification receipts | Stable | UnsupportedEnforcementDriver, CommandValidationError, EgressPolicy, HostCapabilityError, computeCatalogDigest, computePolicySignature, buildCommandCatalog, ... |
 | @dzupagent/express | Express adapter: SSE streaming, agent router | Stable | SSEHandler, SSEWriter, SSEProjectionRouter, ClientSafeError, withProjection, createAgentRouter, createMcpRequestContextAuth, ... |
-| @dzupagent/flow-ast | Flow AST contracts plus local parser and validator helpers for DzupAgent flow compiler stages | Stable | checkOutputKeyUniqueness, checkUnreachableAfterComplete, isPositiveFinitePolicyNumber, ... |
+| @dzupagent/flow-ast | Flow AST contracts plus local parser and validator helpers for DzupAgent flow compiler stages | Stable | checkUnreachableAfterComplete, isPositiveFinitePolicyNumber, normalizePositiveFinitePolicyNumber, ... |
 | @dzupagent/flow-compiler | Flow compiler for DzupAgent — compiles flow-ast into skill-chain, workflow-builder, or pipeline artifacts | Stable | TypedLoopPredicateError, InMemoryFlowRedactionReceiptCustodyStore, AgentBlueprintCompileError, AgentHandlerRegistryError, InMemoryAgentHandlerRegistry, createFlowCompiler, prepareFlowInputFromDocument, prepareFlowInputFromDsl, ... |
 | @dzupagent/flow-dsl | Textual dzupflow/v1 parser and bounded v2 compatibility frontend, formatter, validator, and graph projection for DzupAgent | Stable | CollabMacroError, InMemoryV2ImportLockChainStore, DurableV2ImportLockChainStore, canonicalizeDsl, parseDslToDocument, formatDocumentToDsl, ... |
 | @dzupagent/hitl-kit | Human-in-the-loop payload and response types for DzupAgent — clarification and approval primitives shared across adapters | Stable | ApprovalTimeoutError, DuplicateApprovalError, UnknownApprovalError, InMemoryApprovalStateStore, PostgresApprovalStateStore, requiredApprovals, evaluateQuorum, validateEscalationPolicy, ... |
@@ -256,11 +256,11 @@ Auto-generated on 2026-10-08. Do not edit manually — run `yarn docs:capability
 
 ### @dzupagent/flow-ast
 
-**Functions:** checkOutputKeyUniqueness, checkUnreachableAfterComplete, isPositiveFinitePolicyNumber, normalizePositiveFinitePolicyNumber, isNonNegativeNumber, isPositiveFiniteNumber, isFlowExpression, isFlowTypedCondition, flowChildArrays, walkFlowNodes, walkRawNodes, evaluateFlowTypedCondition
+**Functions:** checkUnreachableAfterComplete, isPositiveFinitePolicyNumber, normalizePositiveFinitePolicyNumber, isNonNegativeNumber, isPositiveFiniteNumber, isFlowExpression, isFlowTypedCondition, flowChildArrays, walkFlowNodes, walkRawNodes, evaluateFlowTypedCondition
 
-**Constants:** OUTPUT_KEY_UNIQUENESS_CODE, OUTPUT_KEY_UNIQUENESS_SEVERITY, UNREACHABLE_AFTER_COMPLETE_CODE, UNREACHABLE_AFTER_COMPLETE_SEVERITY, FLOW_TYPED_CONDITION_CAPABILITY, FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW, FLOW_CHILD_NODE_FIELDS, FLOW_BRANCH_CONTAINER_FIELD, FLOW_CHILD_CONTAINER_FIELDS, RAW_STEP_CONTAINER_FIELD, RAW_CHILD_NODE_FIELDS, RAW_SNAKE_CASE_CHILD_FIELD_ALIASES
+**Constants:** UNREACHABLE_AFTER_COMPLETE_CODE, UNREACHABLE_AFTER_COMPLETE_SEVERITY, FLOW_TYPED_CONDITION_CAPABILITY, FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW, FLOW_CHILD_NODE_FIELDS, FLOW_BRANCH_CONTAINER_FIELD, FLOW_CHILD_CONTAINER_FIELDS, RAW_STEP_CONTAINER_FIELD, RAW_CHILD_NODE_FIELDS, RAW_SNAKE_CASE_CHILD_FIELD_ALIASES
 
-**Types:** FlowFragmentCatalog, FlowFragmentCatalogEntry, FlowFragmentDsl, FlowFragmentExportSpec, FlowFragmentV1, FlowExpression, FlowExpressionAnalysis, OutputKeyDiagnostic, UnreachableAfterCompleteDiagnostic, FlowTypedCondition, FlowChildArray, FlowChildNodeField, FlowNodeVisitor, RawNodeVisitor, FlowTypedConditionEvaluationErrorCode, FlowTypedConditionEvaluationOptions, FlowTypedConditionEvaluationResult
+**Types:** FlowFragmentCatalog, FlowFragmentCatalogEntry, FlowFragmentDsl, FlowFragmentExportSpec, FlowFragmentV1, FlowExpression, FlowExpressionAnalysis, UnreachableAfterCompleteDiagnostic, FlowTypedCondition, FlowChildArray, FlowChildNodeField, FlowNodeVisitor, RawNodeVisitor, FlowTypedConditionEvaluationErrorCode, FlowTypedConditionEvaluationOptions, FlowTypedConditionEvaluationResult
 
 ### @dzupagent/flow-compiler
 
