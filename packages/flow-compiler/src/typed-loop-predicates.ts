@@ -72,6 +72,14 @@ export interface RegisterTypedLoopPredicateOptions {
    * module never advertises it on the host's behalf.
    */
   readonly hostCapabilities: readonly string[];
+  /**
+   * Bind the runtime state under this root instead of as the bindings record.
+   * `PipelineRuntime` state is flat (`set` writes `state[key]`), while
+   * `dzupflow/v2` conditions reference `state.<key>`, the root the local-host
+   * oracle binds; V2 hosts pass `"state"`. When omitted, the binding is
+   * unchanged.
+   */
+  readonly stateRoot?: "state";
 }
 
 /**
@@ -129,10 +137,11 @@ export function createTypedLoopPredicate(
     expression: typedWhile.condition,
   };
 
+  const stateRoot = options.stateRoot;
   return (state: Record<string, unknown>): boolean => {
     const result = evaluateFlowTypedCondition(condition, {
       hostCapabilities: options.hostCapabilities,
-      bindings: state,
+      bindings: stateRoot === undefined ? state : { [stateRoot]: state },
     });
     if (!result.ok) {
       throw new TypedLoopPredicateError({

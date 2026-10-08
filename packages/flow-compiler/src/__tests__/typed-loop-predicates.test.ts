@@ -185,6 +185,26 @@ describe("F-R4 — typed loop predicate registration", () => {
     expect(createTypedLoopPredicates(nodes, GRANTED)).toEqual({});
   });
 
+  it("binds flat runtime state under stateRoot, as V2 documents reference it", () => {
+    const nodes = typedLoopNodes();
+    // PipelineRuntime state is flat (`set` writes `state[key]`); V2 conditions
+    // read `state.<key>`. Same flat state, only the option varies.
+    const rooted = createTypedLoopPredicates(nodes, {
+      ...GRANTED,
+      stateRoot: "state",
+    })["loopTyped__poll__predicate"];
+    const flat =
+      createTypedLoopPredicates(nodes, GRANTED)["loopTyped__poll__predicate"];
+    if (rooted === undefined || flat === undefined) {
+      throw new Error("predicate not registered");
+    }
+
+    expect(rooted({ status: "pending" })).toBe(true);
+    expect(rooted({ status: "done" })).toBe(false);
+    // Default binding unchanged: the flat state is the bindings record.
+    expect(() => flat({ status: "pending" })).toThrow(TypedLoopPredicateError);
+  });
+
   it("fails closed when the host does not advertise the capability", () => {
     const nodes = typedLoopNodes();
     const predicate = createTypedLoopPredicates(nodes, {
