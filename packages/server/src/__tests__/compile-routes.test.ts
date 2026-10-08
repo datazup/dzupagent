@@ -365,31 +365,29 @@ steps:
 
     const res = await postCompile(app, { dsl })
     expect(res.status).toBe(200)
-    expect(mockCompileDsl).toHaveBeenCalledWith(dsl)
+    expect(mockCompileDsl).toHaveBeenCalledWith(dsl, {})
     expect(mockCompile).not.toHaveBeenCalled()
   })
 
-  it('200 — keeps the runId correlation on the compileDsl evidence', async () => {
-    mockCompileDsl.mockResolvedValueOnce({
-      ...SUCCESS_RESULT,
-      evidence: { correlationIds: { compileId: 'cid-abc-123', eventCorrelationId: 'cid-abc-123' } },
-    })
+  it('200 — passes the runId correlation to compileDsl and returns its evidence as is', async () => {
+    const evidence = {
+      correlationIds: { compileId: 'cid-abc-123', eventCorrelationId: 'run-7', runId: 'run-7' },
+    }
+    mockCompileDsl.mockResolvedValueOnce({ ...SUCCESS_RESULT, evidence })
     const app = buildApp()
+    const dsl = 'dsl: dzupflow/v1\nid: corr\nversion: 1\nsteps:\n  - complete:\n      id: done\n      result: ok\n'
 
     const res = await app.request('/api/workflows/compile?runId=run-7', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        dsl: 'dsl: dzupflow/v1\nid: corr\nversion: 1\nsteps:\n  - complete:\n      id: done\n      result: ok\n',
-      }),
+      body: JSON.stringify({ dsl }),
     })
     expect(res.status).toBe(200)
-    const body = (await res.json()) as { evidence: { correlationIds: Record<string, string> } }
-    expect(body.evidence.correlationIds).toEqual({
-      compileId: 'cid-abc-123',
-      eventCorrelationId: 'run-7',
-      runId: 'run-7',
+    expect(mockCompileDsl).toHaveBeenCalledWith(dsl, {
+      correlation: { eventCorrelationId: 'run-7', runId: 'run-7' },
     })
+    const body = (await res.json()) as { evidence: typeof evidence }
+    expect(body.evidence).toEqual(evidence)
   })
 
   it('400 — a dzupflow/v2 retry block reaches the V2 target gate (real compiler)', async () => {
