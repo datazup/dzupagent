@@ -15,6 +15,8 @@ export interface EmailWebhookNotificationChannelConfig {
   timeoutMs?: number
   /** Outbound URL policy. Defaults to public HTTPS destinations only. */
   urlPolicy?: OutboundUrlSecurityPolicy
+  /** Fetch implementation (default: global fetch). URL policy still applies. */
+  fetchImpl?: typeof fetch
 }
 
 export class EmailWebhookNotificationChannel implements NotificationChannel {
@@ -23,12 +25,14 @@ export class EmailWebhookNotificationChannel implements NotificationChannel {
   private readonly secret: string | undefined
   private readonly timeoutMs: number
   private readonly urlPolicy: OutboundUrlSecurityPolicy | undefined
+  private readonly fetchImpl: typeof fetch | undefined
 
   constructor(config: EmailWebhookNotificationChannelConfig) {
     this.webhookUrl = config.webhookUrl
     this.secret = config.secret
     this.timeoutMs = config.timeoutMs ?? 5000
     this.urlPolicy = config.urlPolicy
+    this.fetchImpl = config.fetchImpl
   }
 
   async send(notification: Notification): Promise<void> {
@@ -47,13 +51,18 @@ export class EmailWebhookNotificationChannel implements NotificationChannel {
       headers['Authorization'] = `Bearer ${this.secret}`
     }
 
-    await fetchWithOutboundUrlPolicy(this.webhookUrl, {
+    const response = await fetchWithOutboundUrlPolicy(this.webhookUrl, {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(this.timeoutMs),
     }, {
       policy: this.urlPolicy,
+      fetchImpl: this.fetchImpl,
     })
+    // Report the status only — the URL may carry a token.
+    if (!response.ok) {
+      throw new Error(`${this.name} notification delivery failed: HTTP ${response.status}`)
+    }
   }
 }
