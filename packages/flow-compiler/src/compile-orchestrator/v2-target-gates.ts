@@ -26,6 +26,7 @@ import type {
 import type { SourceReferenceSnapshot } from "./reference-snapshot.js";
 import { pipelineCatchRefusal } from "./v2-pipeline-catch.js";
 import { pipelineRetryRefusal } from "./v2-pipeline-retry.js";
+import { pipelineSaveRefusal } from "./v2-pipeline-save.js";
 
 /**
  * Stop V2-only semantics before generic artifact emission until a target has a
@@ -51,14 +52,21 @@ function multiPortSaveErrors(
   target: CompilationTarget,
   source: SourceReferenceSnapshot,
 ): CompilationError[] {
-  return (source.dslV2MultiPortSaves ?? []).map((binding) => {
+  return (source.dslV2MultiPortSaves ?? []).flatMap((binding) => {
+    // `pipeline` lowers admitted bindings (S5-S2); the rest stay refused.
+    const refusal =
+      target === "pipeline" ? pipelineSaveRefusal(binding) : undefined;
+    if (target === "pipeline" && refusal === undefined) return [];
     const path = `${binding.authoredPath}.save`;
     return {
       stage: 4 as const,
       code: "V2_MULTI_SAVE_TARGET_UNSUPPORTED",
       message:
-        `Multi-port save for ${binding.primitiveRef} is valid, but the selected "${target}" target has no reviewed ` +
-        `${FLOW_PRIMITIVE_MULTI_PORT_SAVE_CAPABILITY} typed state-write contract. Artifact emission is blocked.`,
+        refusal === undefined
+          ? `Multi-port save for ${binding.primitiveRef} is valid, but the selected "${target}" target has no reviewed ` +
+            `${FLOW_PRIMITIVE_MULTI_PORT_SAVE_CAPABILITY} typed state-write contract. Artifact emission is blocked.`
+          : `Multi-port save for ${binding.primitiveRef} is valid, but the "pipeline" target cannot write it: ` +
+            `${refusal}. Artifact emission is blocked.`,
       nodePath: path,
       category: "lowering" as const,
       ...sourceSpan(source, path),

@@ -172,6 +172,16 @@ emitting the deterministic V1 compatibility anchor as complete semantics.
 Typed-condition, policy, retry, catch, and multi-port-save adoption gaps
 accumulate.
 
+The opt-in `target: "pipeline"` adopts multi-port save on unguarded top-level
+steps. Each binding becomes one `stateWrites` binding on the step's node
+(`port`, state `key`, `cardinality`). As on the local-host oracle, the ports
+are written together on success, a missing optional port is skipped, a missing
+required port fails the run with nothing written, and a failed or caught step
+writes nothing. On `pipeline` the gate still refuses a multi-port save on
+nested steps, on any step with no single primitive node, and on any port
+classified `secret` (pipeline state is checkpointed). Port value schemas are
+not carried in the artifact; the handler owns them.
+
 `@dzupagent/flow-compiler/v2-inactive-local-target` provides one
 provider-free, qualification-only adoption contract for the complete five
 capability set. It requires strict reference validation, an additive exact
@@ -422,9 +432,9 @@ const result = await createFlowCompiler({ toolResolver, target: "pipeline" })
 // result.target === "pipeline"; result.reasons[0].code === "TARGET_OPTION"
 ```
 
-- Every stage-4 target gate runs against `pipeline`. The five V2-only features
-  (typed `when`, `policy`, `retry`, `catch`, multi-port `save`) are still
-  refused there until `PipelineRuntime` supports them.
+- Every stage-4 target gate runs against `pipeline`. `retry`, `catch` and
+  multi-port `save` on unguarded top-level steps lower onto the node (see
+  above); typed `when` and `policy` are still refused there.
 - Shape validation keeps natural routing, and the option is not passed to
   semantic resolution. `target: "codev-runtime"` keeps its meaning; the two
   values cannot be combined in one compile.

@@ -290,6 +290,9 @@ export async function runCompile(
     ...(sourceReferences.dslV2TerminalCatches === undefined
       ? {}
       : { v2TerminalCatches: sourceReferences.dslV2TerminalCatches }),
+    ...(sourceReferences.dslV2MultiPortSaves === undefined
+      ? {}
+      : { v2MultiPortSaves: sourceReferences.dslV2MultiPortSaves }),
   });
   if (!lowered.ok) return failCompile(fail, 4, lowered.errors);
 

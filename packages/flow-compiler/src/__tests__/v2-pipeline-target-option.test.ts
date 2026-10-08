@@ -108,13 +108,12 @@ describe("compiler option target: \"pipeline\" (S5-RT)", () => {
         ["V2_POLICY_TARGET_UNSUPPORTED", "root.steps[1].policy"],
         // S5-R2 lowers top-level `retry:` on pipeline, so no retry gate.
         // S5-C2 lowers top-level `catch:` on pipeline, so no catch gate.
-        ["V2_MULTI_SAVE_TARGET_UNSUPPORTED", "root.steps[0].save"],
-        ["V2_MULTI_SAVE_TARGET_UNSUPPORTED", "root.steps[1].save"],
+        // S5-S2 lowers top-level multi-port `save:` on pipeline, so no save gate.
       ].sort(),
     );
     expect(
       result.errors.filter((error) => error.message.includes('"pipeline"')),
-    ).toHaveLength(6);
+    ).toHaveLength(4);
   });
 
   it("runs a loop-free V2 document to completion on PipelineRuntime", async () => {
