@@ -8,6 +8,7 @@ import type {
 } from "./types.js";
 import { withV2SourceLineage } from "./source-lineage.js";
 import { parseV2TypedCondition } from "./typed-condition.js";
+import { parseV2ConfigReferences } from "./config-references.js";
 import type { PrimitivePolicyLimits } from "./policy-narrowing.js";
 import type { V2LoweringContext } from "./lower-v2-context.js";
 import { lowerV2CoreStep, wrapV2GuardedStep } from "./lower-v2-kernel.js";
@@ -44,6 +45,7 @@ const TOP_LEVEL_KEYS = new Set([
   "durability",
   "imports",
   "steps",
+  "config",
 ]);
 const STEP_KEYS = new Set([
   "id",
@@ -142,6 +144,7 @@ export function lowerDslV2Document(
     diagnostics
   );
   const steps = lowerSteps(raw.steps, "root.steps", "steps", context);
+  const configReferences = parseV2ConfigReferences(raw.config, diagnostics);
   validateV2PrimitiveImportClosure(imports, context.bindings, diagnostics);
   if (diagnostics.length > 0) {
     return {
@@ -209,6 +212,7 @@ export function lowerDslV2Document(
     retryPolicies: context.retryPolicies,
     terminalCatches: context.terminalCatches,
     multiPortSaves: context.multiPortSaves,
+    ...(configReferences === undefined ? {} : { configReferences }),
   }) as DslV2FrontendMetadata;
   return {
     ok: true,
