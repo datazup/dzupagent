@@ -263,6 +263,12 @@ function lowerBranch(
 /**
  * Bounded iteration. Unlike core.branch the condition lives in `with`, matching
  * the v1 loop node, which evaluates it against state before each iteration.
+ *
+ * A typed condition (keyed expression object, the `when` syntax) lowers to
+ * `typedCondition` behind the fail-closed shadow string, which the `pipeline`
+ * target lowers to a real LoopNode (S5-L). A string keeps the legacy lowering.
+ * No typed source bindings are recorded: the source-map projection maps them
+ * below `when` only, so spans fall back to `with.condition` instead.
  */
 function lowerLoop(
   input: Record<string, unknown>,
@@ -272,14 +278,22 @@ function lowerLoop(
   context: V2LoweringContext,
   lowerSteps: LowerSteps
 ): Readonly<Record<string, unknown>> {
-  const condition =
+  const legacyCondition =
     typeof input.condition === "string" && input.condition.length > 0
       ? input.condition
       : undefined;
-  if (condition === undefined) {
+  const typedCondition =
+    isRecord(input.condition)
+      ? parseV2TypedCondition(
+          input.condition,
+          `${authoredPath}.with.condition`,
+          context.diagnostics
+        )
+      : undefined;
+  if (legacyCondition === undefined && typedCondition === undefined) {
     context.diagnostics.push(
       required(
-        "core.loop@1 requires a non-empty string with.condition",
+        "core.loop@1 requires a non-empty string or typed with.condition",
         `${authoredPath}.with.condition`
       )
     );
@@ -363,7 +377,13 @@ function lowerLoop(
     loop: withV2SourceLineage(
       {
         ...base,
-        condition: condition ?? "",
+        condition:
+          typedCondition == null
+            ? (legacyCondition ?? "")
+            : FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW,
+        ...(typedCondition == null
+          ? {}
+          : { typedCondition: typedCondition.condition }),
         body: bodySteps,
         ...(typeof input.maxIterations === "number"
           ? { maxIterations: input.maxIterations }
@@ -410,4 +430,8 @@ function required(message: string, path: string): DslDiagnostic {
 
 function unsupported(message: string, path: string): DslDiagnostic {
   return { phase: "normalize", code: "UNSUPPORTED_FIELD", message, path };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
