@@ -7,7 +7,7 @@ import {
 } from "@dzupagent/flow-ast/typed-condition-evaluator";
 
 import { routeTarget } from "../route-target.js";
-import type { FlowRequirementSummary } from "../types.js";
+import type { CompilationTarget, FlowRequirementSummary } from "../types.js";
 import { semanticHash, visitFlow } from "./hashing.js";
 import { FLOW_NODE_CAPABILITY_REGISTRY } from "./node-registry.js";
 import { TARGET_CAPABILITY_MANIFESTS } from "./target-manifests.js";
@@ -17,11 +17,17 @@ import type {
   HostReadinessResult,
 } from "./types.js";
 
-export function collectFlowRequirements(ast: FlowNode): FlowRequirementSummary {
+/**
+ * `target` overrides the routed target; the compiler passes it when the
+ * `target: "pipeline"` option selected the lowerer.
+ */
+export function collectFlowRequirements(
+  ast: FlowNode,
+  target: CompilationTarget = routeTarget(ast).target
+): FlowRequirementSummary {
   const nodeKinds = new Set<FlowNodeKind>();
   visitFlow(ast, (node) => nodeKinds.add(node.type));
 
-  const target = routeTarget(ast).target;
   // A kind missing from the registry can only come from a forward-version or
   // untyped (JS) artifact. Treat it as unsupported so readiness blocks instead
   // of crashing on an undefined descriptor.
