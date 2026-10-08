@@ -33,8 +33,6 @@ import { isDeepStrictEqual } from 'node:util'
 import type {
   CoordinationAssignmentDiagnostic,
   CoordinationAttemptExecutionPlan,
-  CoordinationExecutionBackend,
-  CoordinationExecutionProviderId,
   CoordinationSha256Digest,
 } from '@dzupagent/adapter-types'
 
@@ -63,8 +61,8 @@ import {
   type RunAgentExecutionOptions,
 } from './run-agent-execution.js'
 
-export const COORDINATION_ATTEMPT_CORRELATION_SCHEMA =
-  'dzupagent.coordinationAttemptCorrelation/v2' as const
+import { COORDINATION_ATTEMPT_CORRELATION_SCHEMA, type CoordinationAttemptCorrelation } from './coordination-attempt-correlation.js'
+export { COORDINATION_ATTEMPT_CORRELATION_SCHEMA, type CoordinationAttemptCorrelation } from './coordination-attempt-correlation.js'
 
 /** What the host may supply: where to run and how to stop. Never a binding fact. */
 export interface CoordinationAttemptHost {
@@ -75,26 +73,6 @@ export interface CoordinationAttemptHost {
 }
 
 /** Attempt identity computed from the plan and its render attestation. */
-export interface CoordinationAttemptCorrelation {
-  readonly schema: typeof COORDINATION_ATTEMPT_CORRELATION_SCHEMA
-  readonly planDigest: CoordinationSha256Digest
-  readonly requestDigest: CoordinationSha256Digest
-  readonly assignmentDigest: CoordinationSha256Digest
-  readonly canonicalSeal: CoordinationSha256Digest
-  readonly assignmentId: string
-  readonly attemptId: string
-  /** The coordination session the assignment enrolled. */
-  readonly sessionId: string
-  /** The execution binding that issued the plan's execution fact. */
-  readonly bindingId: string
-  /** Opaque provider-session reference the attempt opens. */
-  readonly sessionRef: string
-  readonly providerId: CoordinationExecutionProviderId
-  readonly backend: CoordinationExecutionBackend
-  /** The plan's agent host; `null` is the provider's own host. Never merged into `providerId`. */
-  readonly agentHost: string | null
-  readonly tariffRef: string
-}
 
 export type CoordinationAttemptUsage =
   | { readonly status: 'reported'; readonly usage: NonNullable<AgentExecutionResult['usage']> }

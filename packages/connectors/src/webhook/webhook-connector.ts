@@ -58,6 +58,8 @@ export interface WebhookConnectorConfig {
    * Defaults to "id".
    */
   eventIdBodyField?: string;
+  /** Maximum completed or partial event IDs retained in memory. Default 10,000. */
+  maxProcessedEvents?: number;
 }
 
 export interface DeliveryOptions {
@@ -123,13 +125,17 @@ export class WebhookConnector {
       WebhookConnectorConfig,
       "eventTypeHeader" | "eventTypeBodyField" | "eventIdBodyField"
     >
-  > & { secret?: string };
+  > & { secret?: string; maxProcessedEvents: number };
 
   private readonly handlers: Map<string, WebhookHandlerFn[]> = new Map();
-  private readonly processedIds: Set<string> = new Set();
+  private readonly deliveries = new Map<string, Set<WebhookHandlerFn>>();
+  private readonly inFlight = new Map<string, Promise<boolean>>();
 
   constructor(config: WebhookConnectorConfig = {}) {
+    const maxProcessedEvents = config.maxProcessedEvents ?? 10_000;
+    if (!Number.isSafeInteger(maxProcessedEvents) || maxProcessedEvents < 1) throw new Error("maxProcessedEvents must be a positive safe integer");
     this.config = {
+      maxProcessedEvents,
       secret: config.secret,
       eventTypeHeader: config.eventTypeHeader ?? "x-event-type",
       eventTypeBodyField: config.eventTypeBodyField ?? "type",
@@ -268,16 +274,31 @@ export class WebhookConnector {
   // -------------------------------------------------------------------------
 
   /**
-   * Process an event exactly once by event ID.
+   * Deduplicate successful handlers within bounded in-memory retention.
+   * Failed handlers remain retryable; errors reject the returned promise.
    * Returns true if the event was processed, false if it was a duplicate.
    */
   async processOnce(event: WebhookEvent): Promise<boolean> {
-    if (this.processedIds.has(event.id)) {
-      return false;
-    }
-    this.processedIds.add(event.id);
-    await this.route(event);
-    return true;
+    const existing = this.inFlight.get(event.id);
+    if (existing) { await existing; return false; }
+    const completed = this.deliveries.get(event.id) ?? new Set<WebhookHandlerFn>();
+    const handlers = [...(this.handlers.get(event.type) ?? [])];
+    if (this.deliveries.has(event.id) && handlers.every(h => completed.has(h))) return false;
+    const delivery = Promise.resolve().then(async () => {
+      const results = await Promise.allSettled(handlers.filter(h => !completed.has(h)).map(async h => {
+        await h(event);
+        completed.add(h);
+      }));
+      this.deliveries.delete(event.id);
+      this.deliveries.set(event.id, completed);
+      const limit = this.config.maxProcessedEvents;
+      while (this.deliveries.size > limit) this.deliveries.delete(this.deliveries.keys().next().value!);
+      const errors = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+      if (errors.length) throw new AggregateError(errors.map(r => r.reason), "Webhook delivery failed");
+      return true;
+    });
+    this.inFlight.set(event.id, delivery);
+    try { return await delivery; } finally { this.inFlight.delete(event.id); }
   }
 
   // -------------------------------------------------------------------------

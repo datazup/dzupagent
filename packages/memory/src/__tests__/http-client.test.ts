@@ -126,6 +126,39 @@ describe('HttpMemoryClient response contract', () => {
   })
 })
 
+// DZM-P4: every scope field the request supplies must match the record, not only tenantId.
+describe('HttpMemoryClient workspace/project scope enforcement', () => {
+  const narrow = { tenantId: 'tenant-1', workspaceId: 'ws-1', projectId: 'project-1', taskId: 'task-1' }
+  const own: MemoryRecord = { ...record, scope: narrow }
+  const foreign: Array<[string, MemoryRecord['scope']]> = [
+    ['foreign workspace', { ...narrow, workspaceId: 'ws-2' }],
+    ['foreign project', { ...narrow, projectId: 'project-2' }],
+    ['foreign task', { ...narrow, taskId: 'task-2' }],
+    ['missing workspace', { tenantId: 'tenant-1', projectId: 'project-1', taskId: 'task-1' }],
+  ]
+
+  it.each(foreign)('GET rejects a %s record', async (_name, recordScope) => {
+    const body = JSON.stringify([own, { ...own, id: 'record-2', scope: recordScope }])
+    await expect(clientFor(body).get('facts', narrow)).rejects.toMatchObject({
+      name: 'HttpMemoryResponseError', operation: 'get', errorCode: 'HTTP_MEMORY_INVALID_RESPONSE',
+    })
+  })
+
+  it.each(foreign)('PUT refuses a %s record before any request', async (_name, recordScope) => {
+    const fetch = vi.fn(async () => new Response(null, { status: 204 }))
+    const client = new HttpMemoryClient({ baseUrl: 'https://memory.example', fetch })
+    await expect(client.put('facts', narrow, { ...own, scope: recordScope })).rejects.toThrow(/scope/)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('accepts records matching every supplied field and leaves omitted fields unconstrained', async () => {
+    await expect(clientFor(JSON.stringify([own])).get('facts', narrow)).resolves.toEqual([own])
+    const wsScope = { tenantId: 'tenant-1', workspaceId: 'ws-1' }
+    await expect(clientFor(JSON.stringify([own])).get('facts', wsScope)).resolves.toEqual([own])
+    await expect(clientFor(null, 204).put('facts', wsScope, own)).resolves.toBeUndefined()
+  })
+})
+
 // DZUPAGENT-GAP4-06-20261003-R1: diagnostics describe the validated result.
 describe('HttpMemoryClient terminal diagnostics', () => {
   it.each([

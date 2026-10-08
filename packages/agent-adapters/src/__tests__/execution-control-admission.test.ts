@@ -271,10 +271,10 @@ describe('execution-control admission', () => {
       const mutable = input as AgentInput & {
         executionControlRequirement: unknown
       }
-      mutable.executionControlRequirement = {
+      Reflect.set(mutable, "executionControlRequirement", {
         schema: requirement().schema,
         tools: { mode: 'provider-default' },
-      }
+      })
     }, 'execution_control_requirement_changed_after_admission'],
     ['toolPolicy', (input: AgentInput) => {
       if (input.policyContext?.activePolicy) {

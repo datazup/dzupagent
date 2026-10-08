@@ -94,11 +94,11 @@ describe('createScopedAuthorizeFilter branch coverage', () => {
   it('accepts eventTypes fully covered by scope', async () => {
     const client = new MockWsClient()
     const authorize = createScopedAuthorizeFilter({
-      resolveClientScope: () => ({ eventTypes: ['agent:started', 'agent:completed', 'tool:called'] }),
+      resolveClientScope: () => ({ runIds: ['r1'], eventTypes: ['agent:started', 'agent:completed', 'tool:called'] }),
     })
 
-    expect(await authorize({ client, filter: { eventTypes: ['agent:started'] } })).toBe(true)
-    expect(await authorize({ client, filter: { eventTypes: ['agent:started', 'tool:called'] } })).toBe(true)
+    expect(await authorize({ client, filter: { runId: 'r1', eventTypes: ['agent:started'] } })).toBe(true)
+    expect(await authorize({ client, filter: { runId: 'r1', eventTypes: ['agent:started', 'tool:called'] } })).toBe(true)
   })
 
   it('combines runId + agentId + eventTypes checks', async () => {
@@ -117,14 +117,14 @@ describe('createScopedAuthorizeFilter branch coverage', () => {
     expect(await authorize({ client, filter: { runId: 'r1', agentId: 'a1', eventTypes: ['tool:called'] } })).toBe(false)
   })
 
-  it('allows unscoped filter when allowUnscoped is true and scope valid', async () => {
+  it('rejects an unscoped filter despite allowUnscoped when resource permissions are restricted', async () => {
     const client = new MockWsClient()
     const authorize = createScopedAuthorizeFilter({
       resolveClientScope: () => ({ runIds: ['r1'] }),
       allowUnscoped: true,
     })
 
-    expect(await authorize({ client, filter: {} })).toBe(true)
+    expect(await authorize({ client, filter: {} })).toBe(false)
   })
 
   it('rejects unscoped filter when allowUnscoped is true but scope is null', async () => {

@@ -22,6 +22,17 @@ const AGENT_ADAPTERS_DEPS = [
 function validTurbo(overrides = {}) {
   return {
     tasks: {
+      '@dzupagent/runtime-contracts#test': { dependsOn: ['^build:verify', '@dzupagent/canonical-json#build:verify'] },
+      '@dzupagent/runtime-contracts#typecheck': { dependsOn: ['^build:verify', '@dzupagent/canonical-json#build:verify'] },
+      '@dzupagent/runtime-contracts#test:coverage': { dependsOn: ['^build:verify', '@dzupagent/canonical-json#build:verify'] },
+      '@dzupagent/agent#typecheck': { dependsOn: ['^build:verify', '@dzupagent/memory#build:verify'] },
+      '@dzupagent/memory#test:coverage': { dependsOn: ['^build:verify', '@dzupagent/memory#build:verify'] },
+      '@dzupagent/agent#test:coverage': { dependsOn: ['^build:verify', '@dzupagent/agent#build:verify'] },
+      '@dzupagent/agent-adapters#test:coverage': { dependsOn: ['^build:verify', '@dzupagent/agent-adapters#build:verify'] },
+      '@dzupagent/adapter-types#test:coverage': { dependsOn: ['^build:verify', '@dzupagent/adapter-types#build:verify'] },
+      '@dzupagent/context#test:coverage': { dependsOn: ['^build:verify', '@dzupagent/context#build:verify'] },
+      '@dzupagent/testing#test:coverage': { dependsOn: ['^build:verify', '@dzupagent/testing#build:verify'] },
+      '@dzupagent/testing#test': { dependsOn: ['^build:verify', '@dzupagent/testing#build:verify'] },
       typecheck: { dependsOn: ['^build:verify', '^typecheck'] },
       test: { dependsOn: ['^build:verify'] },
       'test:integration': { dependsOn: ['^build:verify'] },

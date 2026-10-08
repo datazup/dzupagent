@@ -52,10 +52,16 @@ export function validateRecord(
 
   validateScope(record.scope);
 
-  if (record.scope.tenantId !== scope.tenantId) {
-    throw new Error(
-      "Memory record scope tenantId must match request scope tenantId"
-    );
+  // Same rule as InMemoryMemoryClient.scopeMatches: every field the request
+  // scope supplies must match; omitted fields do not constrain (DZM-P4).
+  for (const field of SCOPE_FIELDS) {
+    const want = scope[field];
+    if (want === undefined) continue;
+    if (record.scope[field] !== want) {
+      throw new Error(
+        `Memory record scope ${field} must match request scope ${field}`
+      );
+    }
   }
 }
 

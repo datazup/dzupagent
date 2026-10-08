@@ -349,6 +349,10 @@ export async function setupModelCall(
         transformToolResult: (name, input, result) =>
           params.transformToolResult(name, input, result),
         onUsage: (usage) => {
+          // DZC-P1 — charge real LLM usage to the token lifecycle plugin so
+          // pressure (and therefore `maybeCompress` / `shouldHalt`) tracks
+          // model input/output, matching the native `stream()` path.
+          params.config.tokenLifecyclePlugin?.onUsage(usage);
           params.options?.onUsage?.(usage);
           // MC-AGT-04 Phase 1 — accumulate per-call usage so iteration
           // snapshots can carry the full breakdown. Only collected when a

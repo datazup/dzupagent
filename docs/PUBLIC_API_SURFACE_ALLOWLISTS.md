@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-09-17
+Date: 2026-10-08
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -484,7 +484,7 @@ Root index: `packages/memory/src/index.ts`
 | `stable` | `./store-factory.js` | 3 | `exact:./store-factory.js` | `createStore`, `StoreConfig`, `StoreIndexConfig` |
 | `stable` | `./store-lifecycle.js` | 1 | `exact:./store-lifecycle.js` | `closeMemoryStore` |
 | `stable` | `./store-capabilities.js` | 1 | `exact:./store-capabilities.js` | `MemoryStoreCapabilities` |
-| `stable` | `./memory-service.js` | 5 | `exact:./memory-service.js` | `MemoryService`, `MemoryServiceOptions`, `MemoryEventBus`, `MemoryPIIResult` |
+| `stable` | `./memory-service.js` | 6 | `exact:./memory-service.js` | `MemoryService`, `MemoryServiceOptions`, `MemoryEventBus`, `MemoryPIIResult` |
 | `deprecated-transitional` | `./in-memory-client.js` | 1 | `exact:./in-memory-client.js` | `InMemoryMemoryClient` |
 | `deprecated-transitional` | `./http-client.js` | 9 | `exact:./http-client.js` | `HttpMemoryClient`, `NotImplementedError`, `HttpMemoryError`, `HttpMemoryTimeoutError` |
 | `deprecated-transitional` | `./memory-service-adapter.js` | 2 | `exact:./memory-service-adapter.js` | `memoryServiceToClient`, `MemoryServiceLike` |
@@ -1132,7 +1132,7 @@ No stable subpaths configured.
 
 Root index: `packages/flow-ast/src/index.ts`
 
-- Stable root sources: `9`
+- Stable root sources: `8`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
 - Migration window: Flow AST root exports are stable Layer 0 parser, validator, and contract primitives; add allowlist rules before exposing new root modules.
@@ -1155,7 +1155,6 @@ Root index: `packages/flow-ast/src/index.ts`
 | `stable` | `./parse.js` | 1 | `exact:./parse.js` | `*` |
 | `stable` | `./validate.js` | 1 | `exact:./validate.js` | `*` |
 | `stable` | `./condition-expression.js` | 1 | `exact:./condition-expression.js` | `*` |
-| `stable` | `./output-key-uniqueness.js` | 1 | `exact:./output-key-uniqueness.js` | `*` |
 | `stable` | `./unreachable-after-complete.js` | 1 | `exact:./unreachable-after-complete.js` | `*` |
 | `stable` | `./policy-numbers.js` | 1 | `exact:./policy-numbers.js` | `*` |
 
@@ -1202,7 +1201,7 @@ No stable subpaths configured.
 
 Root index: `packages/hitl-kit/src/index.ts`
 
-- Stable root sources: `6`
+- Stable root sources: `9`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
 - Migration window: HITL kit root exports are stable Layer 0 human-in-the-loop contracts and store primitives; add allowlist rules before exposing new root modules.
@@ -1219,6 +1218,9 @@ No stable subpaths configured.
 | `stable` | `./approval-state-store.js` | 1 | `exact:./approval-state-store.js` | `*` |
 | `stable` | `./postgres-approval-store.js` | 1 | `exact:./postgres-approval-store.js` | `*` |
 | `stable` | `./approval-gate.js` | 1 | `exact:./approval-gate.js` | `*` |
+| `stable` | `./approval-quorum.js` | 1 | `exact:./approval-quorum.js` | `*` |
+| `stable` | `./quorum-vote-store.js` | 1 | `exact:./quorum-vote-store.js` | `*` |
+| `stable` | `./escalation-engine.js` | 1 | `exact:./escalation-engine.js` | `*` |
 | `stable` | `./runtime-approval-bridge.js` | 1 | `exact:./runtime-approval-bridge.js` | `*` |
 | `stable` | `./pipeline-interaction-adapter.js` | 1 | `exact:./pipeline-interaction-adapter.js` | `*` |
 

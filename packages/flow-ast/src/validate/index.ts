@@ -164,3 +164,7 @@ export function validateFlowDocumentShape(
   validateFlowDocument(value, basePath, issues)
   return issues.map(issueToValidationError)
 }
+
+// Output-key validation is part of the existing validation entrypoint.
+export { checkOutputKeyUniqueness, OUTPUT_KEY_UNIQUENESS_CODE, OUTPUT_KEY_UNIQUENESS_SEVERITY } from "../output-key-uniqueness.js";
+export type { OutputKeyDiagnostic } from "../output-key-uniqueness.js";
