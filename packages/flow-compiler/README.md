@@ -458,6 +458,13 @@ const result = await createFlowCompiler({ toolResolver, target: "pipeline" })
 - The artifact sets no `checkpointStrategy`; the host chooses one.
 - `PipelineRuntime` does not yet write an `adapter.run` output into state.
 
+## Run correlation for DSL compiles
+
+`compileDsl(source, { correlation: { runId, eventCorrelationId } })` records
+the host's run correlation in `evidence.correlationIds`. `eventCorrelationId`
+defaults to the `compileId`, and `runId` is present only when given. Only
+`correlation` is read; a DSL compile is always `sourceKind: "dzupflow-dsl"`.
+
 ## License
 
 MIT

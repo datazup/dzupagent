@@ -399,7 +399,7 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
     compile: (input, invocationOptions) =>
       runCompile(deps, input, invocationOptions),
     compileDocument: (document) => runCompileDocument(deps, document),
-    compileDsl: (source) => runCompileDsl(deps, source),
+    compileDsl: (source, options) => runCompileDsl(deps, source, options),
     analyzeStrictReferenceMigration: (sources) =>
       analyzeStrictReferenceMigrationSources(sources, {
         compileCompatibility: (source) =>

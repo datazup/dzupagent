@@ -34,7 +34,11 @@ import { deriveDocumentReferenceTypeBindings } from "../stages/reference-symbol-
 import { deriveDocumentReferenceClassificationBindings } from "../stages/reference-classifications.js";
 import { currentFlowRefFromDocument } from "../stages/subflow-inline.js";
 
-import type { CompileSuccess, CompileFailure } from "../types.js";
+import type {
+  CompileInvocationOptions,
+  CompileSuccess,
+  CompileFailure,
+} from "../types.js";
 
 import { runCompile } from "./pipeline.js";
 import type { CompileOrchestratorDeps } from "./contracts.js";
@@ -169,11 +173,13 @@ function applyDocumentDurabilityContract(
 
 /**
  * Compile a DzupFlow text-DSL source. Prepares the input then delegates to
- * {@link runCompile}.
+ * {@link runCompile}. Only `options.correlation` is forwarded; `sourceKind` and
+ * `source` stay fixed so a caller cannot relabel a DSL compile (S5-G1-A0).
  */
 export async function runCompileDsl(
   deps: CompileOrchestratorDeps,
-  source: unknown
+  source: unknown,
+  options: Pick<CompileInvocationOptions, "correlation"> = {}
 ): Promise<CompileSuccess | CompileFailure> {
   const prepared = prepareFlowInputFromDsl(source, {
     ...(deps.opts.primitiveRegistry === undefined
@@ -212,6 +218,9 @@ export async function runCompileDsl(
     {
       sourceKind: "dzupflow-dsl",
       source,
+      ...(options.correlation === undefined
+        ? {}
+        : { correlation: options.correlation }),
     },
     prepared.document !== undefined
       ? {

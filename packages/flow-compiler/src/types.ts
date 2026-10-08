@@ -405,7 +405,15 @@ export interface FlowCompiler {
     options?: CompileInvocationOptions
   ): Promise<CompileSuccess | CompileFailure>;
   compileDocument(document: unknown): Promise<CompileSuccess | CompileFailure>;
-  compileDsl(source: unknown): Promise<CompileSuccess | CompileFailure>;
+  /**
+   * `options.correlation` threads a host run/event correlation into
+   * `evidence.correlationIds`. `sourceKind` and `source` are fixed by the DSL
+   * frontend and cannot be overridden.
+   */
+  compileDsl(
+    source: unknown,
+    options?: Pick<CompileInvocationOptions, "correlation">
+  ): Promise<CompileSuccess | CompileFailure>;
   analyzeStrictReferenceMigration(
     sources: readonly StrictReferenceMigrationSource[]
   ): Promise<StrictReferenceMigrationReport>;
