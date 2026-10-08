@@ -52,7 +52,7 @@ function makeMinimalPipeline(
   };
 }
 
-const CHECKPOINT_BINDING = (
+const maybeCheckpointBinding = (
   fixture as {
     cases: Array<{ receipt?: { schema?: string; binding?: AiExecutionBinding } }>;
   }
@@ -60,9 +60,11 @@ const CHECKPOINT_BINDING = (
   receipt?.schema === "dzupagent.aiExecutionReceipt/v2"
 )?.receipt?.binding;
 
-if (CHECKPOINT_BINDING === undefined) {
+if (maybeCheckpointBinding === undefined) {
   throw new Error("V2 fixture must provide an execution binding");
 }
+
+const CHECKPOINT_BINDING: AiExecutionBinding = maybeCheckpointBinding;
 
 function makeCheckpointEconomicsEvidence(terminal: "pending" | "recorded") {
   const reservation = {
@@ -718,7 +720,7 @@ describe("PipelineCheckpoint", () => {
 
   it("rejects corrupt or terminally contradictory loop economics evidence", () => {
     const pending = makeCheckpointEconomicsEvidence("pending");
-    const corrupt = { ...pending, evidenceDigest: `sha256:${"0".repeat(64)}` };
+    const corrupt = { ...pending, evidenceDigest: `sha256:${"0".repeat(64)}` as const };
     const checkpoint = (evidence: typeof pending) => makeCheckpoint({
       loopState: {
         loop: {

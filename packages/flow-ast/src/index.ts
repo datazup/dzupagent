@@ -7,6 +7,5 @@ export type {
 export * from "./parse.js";
 export * from "./validate.js";
 export * from "./condition-expression.js";
-export * from "./output-key-uniqueness.js";
 export * from "./unreachable-after-complete.js";
 export * from "./policy-numbers.js";

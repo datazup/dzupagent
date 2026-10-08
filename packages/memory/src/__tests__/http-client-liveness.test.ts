@@ -30,13 +30,13 @@ const hang: FetchImpl = async (_url, init) => new Promise((_resolve, reject) => 
   else init?.signal?.addEventListener('abort', abort)
 })
 
-const operations = {
-  get: (c: HttpMemoryClient, signal?: AbortSignal) =>
-    c.get('facts', scope, undefined, signal ? { signal } : undefined),
-  put: (c: HttpMemoryClient, signal?: AbortSignal) =>
-    c.put('facts', scope, record, signal ? { signal } : undefined),
-  delete: (c: HttpMemoryClient) => c.delete('facts', scope, 'record-1'),
-} as const
+function operate(op: 'get' | 'put' | 'delete', client: HttpMemoryClient, signal?: AbortSignal): Promise<unknown> {
+  switch (op) {
+    case 'get': return client.get('facts', scope, undefined, signal ? { signal } : undefined)
+    case 'put': return client.put('facts', scope, record, signal ? { signal } : undefined)
+    case 'delete': return client.delete('facts', scope, 'record-1')
+  }
+}
 
 async function settle(promise: Promise<unknown>): Promise<unknown> {
   try {
@@ -53,7 +53,7 @@ describe('HttpMemoryClient liveness (NotImplementedError is unreachable)', () =>
     ['put', respond(null, 204)],
     ['delete', respond(null, 204)],
   ] as const)('%s succeeds over mocked fetch', async (op, fetchImpl) => {
-    expect(await settle(operations[op](clientWith(fetchImpl)))).toBeUndefined()
+    expect(await settle(operate(op, clientWith(fetchImpl)))).toBeUndefined()
   })
 
   const failures: Array<[string, FetchImpl]> = [
@@ -65,7 +65,7 @@ describe('HttpMemoryClient liveness (NotImplementedError is unreachable)', () =>
 
   for (const op of ['get', 'put', 'delete'] as const) {
     it.each(failures)(`${op} maps %s to HttpMemoryError, never NotImplementedError`, async (_name, fetchImpl) => {
-      const err = await settle(operations[op](clientWith(fetchImpl)))
+      const err = await settle(operate(op, clientWith(fetchImpl)))
       if (op === 'put' && _name === 'invalid body') {
         // PUT has no response-body contract; a 200 with any body is success.
         expect(err).toBeUndefined()
@@ -76,7 +76,7 @@ describe('HttpMemoryClient liveness (NotImplementedError is unreachable)', () =>
     })
 
     it(`${op} maps a timeout to HttpMemoryError, never NotImplementedError`, async () => {
-      const err = await settle(operations[op](clientWith(hang, 5)))
+      const err = await settle(operate(op, clientWith(hang, 5)))
       expect(err).toBeInstanceOf(HttpMemoryError)
       expect(err).not.toBeInstanceOf(NotImplementedError)
     })
@@ -85,7 +85,7 @@ describe('HttpMemoryClient liveness (NotImplementedError is unreachable)', () =>
   it.each(['get', 'put'] as const)('%s maps caller abort to HttpMemoryError, never NotImplementedError', async (op) => {
     const controller = new AbortController()
     controller.abort()
-    const err = await settle(operations[op](clientWith(hang), controller.signal))
+    const err = await settle(operate(op, clientWith(hang), controller.signal))
     expect(err).toBeInstanceOf(HttpMemoryError)
     expect(err).not.toBeInstanceOf(NotImplementedError)
   })

@@ -205,7 +205,8 @@ function expectExecutionControlDenial(
     providerId,
     phase: 'registry:execution_control_denied',
   })
-  expect(denial?.details).toEqual({ admission: expectedAdmission })
+  if (denial?.type !== 'adapter:progress') throw new Error('Expected adapter progress denial')
+  expect(denial.details).toEqual({ admission: expectedAdmission })
   expect(result.error).toMatchObject({
     code: 'ALL_ADAPTERS_EXHAUSTED',
     recoverable: false,

@@ -226,7 +226,7 @@ describe('createWsControlHandler branch coverage', () => {
     expect(ack.filter?.eventTypes).toBeUndefined()
   })
 
-  it('applies custom unsubscribeFilter on unsubscribe', async () => {
+  it('cannot widen delivery through a custom unsubscribeFilter', async () => {
     const bus = createEventBus()
     const bridge = new EventBridge(bus)
     const ws = new MockWsClient()
@@ -248,9 +248,7 @@ describe('createWsControlHandler branch coverage', () => {
     })
     await Promise.resolve()
 
-    expect(ws.sent).toHaveLength(1)
-    const ev = JSON.parse(ws.sent[0] ?? '{}') as { type?: string }
-    expect(ev.type).toBe('agent:failed')
+    expect(ws.sent).toHaveLength(0)
   })
 
   it('returns UNSUPPORTED_TYPE for unknown messages', async () => {

@@ -472,11 +472,11 @@ describe('WSSessionManager', () => {
 
     await manager.handleMessage(
       wsA,
-      JSON.stringify({ type: 'subscribe', filter: { runId: 'r1' } }),
+      JSON.stringify({ type: 'subscribe', filter: { runId: 'r1', agentId: 'agent-x' } }),
     )
     await manager.handleMessage(
       wsB,
-      JSON.stringify({ type: 'subscribe', filter: { runId: 'r2' } }),
+      JSON.stringify({ type: 'subscribe', filter: { runId: 'r2', agentId: 'agent-x' } }),
     )
 
     bus.emit({ type: 'agent:started', agentId: 'agent-x', runId: 'r1' })
@@ -666,7 +666,7 @@ describe('WS authorization (scoped filter factory)', () => {
     })
     expect(
       await authorize({ client: ws, filter: { eventTypes: ['agent:started'] } }),
-    ).toBe(true)
+    ).toBe(false)
     expect(
       await authorize({
         client: ws,
@@ -725,7 +725,7 @@ describe('WS control protocol', () => {
     expect(ws.sent).toHaveLength(1)
   })
 
-  it('unsubscribe clears filter (emits ack, subsequent events delivered on wildcard baseline)', async () => {
+  it('unsubscribe emits an ack and disables subsequent events', async () => {
     const bus = createEventBus()
     const bridge = new EventBridge(bus)
     const ws = new MockWsClient()
@@ -738,7 +738,7 @@ describe('WS control protocol', () => {
     ws.reset()
     bus.emit({ type: 'tool:called', toolName: 'search', input: {} })
     await flushMicrotasks()
-    expect(ws.sent.length).toBe(1)
+    expect(ws.sent.length).toBe(0)
   })
 
   it('unsubscribe with custom unsubscribeFilter applies that filter', async () => {

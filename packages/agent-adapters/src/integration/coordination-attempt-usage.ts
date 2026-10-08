@@ -20,7 +20,7 @@
 import type { CoordinationExecutionProviderId, CoordinationSha256Digest } from '@dzupagent/adapter-types'
 
 import { coordinationCanonicalDigest, coordinationSelfDigest } from './coordination-assignment-decoder.js'
-import type { CoordinationAttemptCorrelation } from './coordination-attempt-runner.js'
+import type { CoordinationAttemptCorrelation } from './coordination-attempt-correlation.js'
 import type { AgentExecutionResult } from './run-agent-execution.js'
 
 export const COORDINATION_ATTEMPT_USAGE_SCHEMA = 'dzupagent.coordinationAttemptUsage/v1' as const

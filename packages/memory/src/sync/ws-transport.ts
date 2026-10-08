@@ -59,8 +59,8 @@ export class WebSocketSyncTransport implements SyncTransport {
       }
 
       const cleanup = (): void => {
-        ws.removeEventListener('message', onOpen as (ev: { data: unknown }) => void)
-        ws.removeEventListener('close', onError)
+        ;(ws as unknown as EventTarget).removeEventListener('open', onOpen)
+        ;(ws as unknown as EventTarget).removeEventListener('error', onError)
       }
 
       // Use addEventListener with type casting for open/error

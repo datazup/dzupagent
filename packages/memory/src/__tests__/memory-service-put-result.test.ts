@@ -6,7 +6,7 @@
  * resolved `undefined` in every case.
  */
 import { describe, it, expect, vi } from 'vitest'
-import type { BaseStore } from '@langchain/langgraph'
+import { InMemoryStore } from '@langchain/langgraph'
 import { MemoryService } from '../memory-service.js'
 import type { MemoryPutResult } from '../index.js'
 import type { NamespaceConfig } from '../memory-types.js'
@@ -16,14 +16,10 @@ const nsConfigs: NamespaceConfig[] = [
 ]
 const scope = { tenantId: 't1' }
 
-function makeStore(putImpl?: () => Promise<void>): { store: BaseStore; put: ReturnType<typeof vi.fn> } {
-  const put = vi.fn(putImpl ?? (async () => {}))
-  const store = {
-    put,
-    get: vi.fn(async () => undefined),
-    search: vi.fn(async () => []),
-    delete: vi.fn(async () => {}),
-  } as unknown as BaseStore
+function makeStore(putImpl?: () => Promise<void>) {
+  const store = new InMemoryStore()
+  const put = vi.spyOn(store, 'put')
+  if (putImpl) put.mockImplementation(putImpl)
   return { store, put }
 }
 
@@ -34,6 +30,8 @@ describe('MemoryService.put result (DZM-P2a)', () => {
     const result: MemoryPutResult = await svc.put('observations', scope, 'k', { text: 'the build uses yarn 4' })
     expect(result).toEqual({ status: 'written', piiRedacted: false })
     expect(put).toHaveBeenCalledTimes(1)
+    const namespace = put.mock.calls[0]![0]
+    expect((await store.get(namespace, 'k'))?.value).toMatchObject({ text: 'the build uses yarn 4' })
   })
 
   it('reports a rejectUnsafe drop as rejected with the threats, and still emits the event', async () => {

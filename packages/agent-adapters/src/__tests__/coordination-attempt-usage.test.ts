@@ -185,7 +185,7 @@ describe('A6. duplicate cumulative usage', () => {
   it('excludes an attempt reported with two different records', () => {
     const total = totalCoordinationAttemptUsage([
       reported('attempt-1'),
-      reported('attempt-1', { inputTokens: 500, outputTokens: 60 }),
+      reported('attempt-1', { inputTokens: 500, outputTokens: 60, cachedInputTokens: 0 }),
       reported('attempt-2'),
     ])
     expect(total.status).toBe('uncertain')
@@ -206,7 +206,7 @@ describe('A6. duplicate cumulative usage', () => {
   })
 
   it('refuses a tampered record', () => {
-    const tampered = { ...reported('attempt-1'), tokens: { inputTokens: 1, outputTokens: 1 } } as CoordinationAttemptUsageRecord
+    const tampered = { ...reported('attempt-1'), tokens: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 } } as CoordinationAttemptUsageRecord
     const total = totalCoordinationAttemptUsage([tampered])
     expect(total.status).toBe('uncertain')
     expect(total.reasons).toEqual(['USAGE_RECORD_INVALID'])
@@ -214,7 +214,7 @@ describe('A6. duplicate cumulative usage', () => {
   })
 
   it('marks a sum beyond the safe-integer range as uncertain', () => {
-    const big = { inputTokens: Number.MAX_SAFE_INTEGER, outputTokens: 1 }
+    const big = { inputTokens: Number.MAX_SAFE_INTEGER, outputTokens: 1, cachedInputTokens: 0 }
     const total = totalCoordinationAttemptUsage([reported('attempt-1', big), reported('attempt-2', big)])
     expect(total.status).toBe('uncertain')
     expect(total.reasons).toEqual(['USAGE_TOTAL_OVERFLOW'])

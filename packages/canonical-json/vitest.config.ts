@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     unstubEnvs: true,
     unstubGlobals: true,
+    coverage: { reporter: ["text", "json-summary", "json", "html"] },
     globals: false,
     environment: "node",
     include: ["src/**/*.test.ts", "src/**/*.spec.ts"],
