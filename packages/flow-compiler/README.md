@@ -133,6 +133,18 @@ returns `V2_POLICY_TARGET_UNSUPPORTED` at the authored policy span instead of
 dropping the constraint during V1 compatibility lowering. Typed-condition and
 policy adoption gaps are accumulated so authors can resolve both in one pass.
 
+The opt-in `target: "pipeline"` adopts policy on unguarded top-level steps. The
+authored `requireApproval`, `budgetCents` and `timeoutMs` are copied onto the
+step's node as `executionPolicy`. As on the local-host oracle, an
+approval-required step is never executed (`pipeline` fails the run with
+`PIPELINE_APPROVAL_REQUIRED` where the oracle reports `approval-required`), and
+the attempt durations plus retry backoff, then the attempt costs, are summed
+against the limits; going over fails the run with nothing saved and no catch.
+`budgetCents` needs the host's `nodeAttemptCostCents`; without it the run fails
+with `PIPELINE_BUDGET_COST_UNKNOWN`. The compiler passes no inherited policy. On
+`pipeline` the gate still refuses policy on nested steps and on any step with
+no single primitive node.
+
 Valid V2 primitive retry policies follow the same fail-closed target boundary.
 Stage 4 returns `V2_RETRY_TARGET_UNSUPPORTED` at the authored retry span until
 the selected target adopts `flow.retry.primitive-errors@1` with
@@ -432,9 +444,9 @@ const result = await createFlowCompiler({ toolResolver, target: "pipeline" })
 // result.target === "pipeline"; result.reasons[0].code === "TARGET_OPTION"
 ```
 
-- Every stage-4 target gate runs against `pipeline`. `retry`, `catch` and
-  multi-port `save` on unguarded top-level steps lower onto the node (see
-  above); typed `when` and `policy` are still refused there.
+- Every stage-4 target gate runs against `pipeline`. `retry`, `catch`,
+  multi-port `save` and `policy` on unguarded top-level steps lower onto the
+  node (see above); typed `when` is still refused there.
 - Shape validation keeps natural routing, and the option is not passed to
   semantic resolution. `target: "codev-runtime"` keeps its meaning; the two
   values cannot be combined in one compile.

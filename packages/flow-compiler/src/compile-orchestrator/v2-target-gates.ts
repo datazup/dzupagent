@@ -25,6 +25,7 @@ import type {
 } from "../types.js";
 import type { SourceReferenceSnapshot } from "./reference-snapshot.js";
 import { pipelineCatchRefusal } from "./v2-pipeline-catch.js";
+import { pipelinePolicyRefusal } from "./v2-pipeline-policy.js";
 import { pipelineRetryRefusal } from "./v2-pipeline-retry.js";
 import { pipelineSaveRefusal } from "./v2-pipeline-save.js";
 
@@ -156,14 +157,21 @@ function policyNarrowingErrors(
   target: CompilationTarget,
   source: SourceReferenceSnapshot,
 ): CompilationError[] {
-  return (source.dslV2PolicyNarrowings ?? []).map((binding) => {
+  return (source.dslV2PolicyNarrowings ?? []).flatMap((binding) => {
+    // `pipeline` lowers admitted bindings (S5-PC); the rest stay refused.
+    const refusal =
+      target === "pipeline" ? pipelinePolicyRefusal(binding) : undefined;
+    if (target === "pipeline" && refusal === undefined) return [];
     const path = `${binding.authoredPath}.policy`;
     return {
       stage: 4 as const,
       code: "V2_POLICY_TARGET_UNSUPPORTED",
       message:
-        `Policy narrowing for ${binding.primitiveRef} is valid, but the selected "${target}" target has no reviewed ` +
-        `${FLOW_PRIMITIVE_POLICY_NARROWING_CAPABILITY} enforcement contract. Artifact emission is blocked.`,
+        refusal === undefined
+          ? `Policy narrowing for ${binding.primitiveRef} is valid, but the selected "${target}" target has no reviewed ` +
+            `${FLOW_PRIMITIVE_POLICY_NARROWING_CAPABILITY} enforcement contract. Artifact emission is blocked.`
+          : `Policy narrowing for ${binding.primitiveRef} is valid, but the "pipeline" target cannot enforce it: ` +
+            `${refusal}. Artifact emission is blocked.`,
       nodePath: path,
       category: "lowering" as const,
       ...sourceSpan(source, path),

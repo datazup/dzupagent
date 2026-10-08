@@ -15,6 +15,7 @@
 import type { FlowNode, ResolvedTool } from "@dzupagent/flow-ast";
 import type {
   DslV2MultiPortSaveBinding,
+  DslV2PolicyNarrowingBinding,
   DslV2RetryPolicyBinding,
   DslV2TerminalCatchBinding,
 } from "@dzupagent/flow-dsl";
@@ -26,6 +27,7 @@ import { lowerPipelineLoop } from "../lower/lower-pipeline-loop.js";
 import type { LoweredPorts } from "../lower/_shared-types.js";
 import { admitSuspendedExits } from "../suspended-exit-admission.js";
 import { applyPipelineCatches } from "./v2-pipeline-catch.js";
+import { applyPipelinePolicies } from "./v2-pipeline-policy.js";
 import { applyPipelineRetries } from "./v2-pipeline-retry.js";
 import { applyPipelineSaves } from "./v2-pipeline-save.js";
 import type {
@@ -48,6 +50,8 @@ export interface LoweringInput {
   readonly v2TerminalCatches?: readonly DslV2TerminalCatchBinding[];
   /** V2 multi-port save bindings the `pipeline` target admitted (S5-S2). */
   readonly v2MultiPortSaves?: readonly DslV2MultiPortSaveBinding[];
+  /** V2 policy narrowings the `pipeline` target admitted (S5-PC). */
+  readonly v2PolicyNarrowings?: readonly DslV2PolicyNarrowingBinding[];
 }
 
 /**
@@ -231,6 +235,12 @@ export function lowerAdmittedFlow(input: LoweringInput): LoweringResult {
         "V2_MULTI_SAVE_TARGET_UNSUPPORTED",
         "Multi-port save",
         "save",
+      ),
+      ...unmappedV2Errors(
+        applyPipelinePolicies(lowered.artifact, input.v2PolicyNarrowings ?? []),
+        "V2_POLICY_TARGET_UNSUPPORTED",
+        "Policy narrowing",
+        "policy",
       ),
     ];
     if (unmapped.length > 0) return { ok: false, errors: unmapped };

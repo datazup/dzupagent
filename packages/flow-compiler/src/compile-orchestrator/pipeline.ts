@@ -293,6 +293,9 @@ export async function runCompile(
     ...(sourceReferences.dslV2MultiPortSaves === undefined
       ? {}
       : { v2MultiPortSaves: sourceReferences.dslV2MultiPortSaves }),
+    ...(sourceReferences.dslV2PolicyNarrowings === undefined
+      ? {}
+      : { v2PolicyNarrowings: sourceReferences.dslV2PolicyNarrowings }),
   });
   if (!lowered.ok) return failCompile(fail, 4, lowered.errors);
 
