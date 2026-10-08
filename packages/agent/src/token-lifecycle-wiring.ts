@@ -15,9 +15,15 @@
  * loop.
  */
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import type { BaseMessage } from '@langchain/core/messages'
+import {
+  SystemMessage,
+  type AIMessage,
+  type BaseMessage,
+  type ToolMessage,
+} from '@langchain/core/messages'
 import type { TokenUsage } from '@dzupagent/core/llm'
 import {
+  formatSummaryContext,
   type TokenLifecycleManager,
   type TokenLifecycleStatus,
 } from '@dzupagent/context'
@@ -67,7 +73,9 @@ export interface AgentLoopPlugin {
   trackPhase: (phase: string, tokens: number) => void
   /**
    * Run `autoCompress` when the manager's status is `critical` or
-   * `exhausted`. Returns `{ compressed: false }` otherwise.
+   * `exhausted`. Returns `{ compressed: false }` otherwise. A compressed
+   * transcript keeps its leading system messages (with the summary merged
+   * into the first) and any tool-call exchange still awaiting results.
    */
   maybeCompress: (
     messages: BaseMessage[],
@@ -89,6 +97,112 @@ export interface AgentLoopPlugin {
   reset: () => void
   /** Tear down internal listeners. Safe to call multiple times. */
   cleanup: () => void
+}
+
+/** Header written by `formatSummaryContext` (same shape as `buildPreparedMessages`). */
+const SUMMARY_PREFIX = '## Prior Conversation Context\n\n'
+
+type TextBlock = { type?: string; text?: unknown }
+
+function isSummaryBlock(block: TextBlock): boolean {
+  return block.type === 'text'
+    && typeof block.text === 'string'
+    && block.text.startsWith(SUMMARY_PREFIX)
+}
+
+/** Read the summary section previously merged into a system message. */
+function readSummary(content: BaseMessage['content']): string | null {
+  if (typeof content === 'string') {
+    const idx = content.indexOf(SUMMARY_PREFIX)
+    return idx < 0 ? null : content.slice(idx + SUMMARY_PREFIX.length)
+  }
+  const block = (content as TextBlock[]).find(isSummaryBlock)
+  return block ? (block.text as string).slice(SUMMARY_PREFIX.length) : null
+}
+
+/** Replace (or add) the summary section of a system message's content. */
+function writeSummary(
+  content: BaseMessage['content'],
+  summaryContext: string,
+): BaseMessage['content'] {
+  if (typeof content === 'string') {
+    const idx = content.indexOf(SUMMARY_PREFIX)
+    const base = (idx < 0 ? content : content.slice(0, idx)).trimEnd()
+    if (!summaryContext) return base
+    return base ? `${base}\n\n${summaryContext}` : summaryContext
+  }
+  const blocks = (content as TextBlock[]).filter(block => !isSummaryBlock(block))
+  if (summaryContext) blocks.push({ type: 'text', text: summaryContext })
+  return blocks as BaseMessage['content']
+}
+
+/**
+ * Index where an unresolved tool-call exchange starts: the last AI message,
+ * when it carries tool calls that no later ToolMessage answers yet. Returns
+ * `messages.length` when nothing is pending.
+ */
+function pendingToolCallStart(messages: BaseMessage[]): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]!._getType() !== 'ai') continue
+    const calls = (messages[i] as AIMessage).tool_calls ?? []
+    const answered = new Set(
+      messages
+        .slice(i + 1)
+        .filter(m => m._getType() === 'tool')
+        .map(m => (m as ToolMessage).tool_call_id),
+    )
+    const pending = calls.some(call => !call.id || !answered.has(call.id))
+    return pending ? i : messages.length
+  }
+  return messages.length
+}
+
+/**
+ * Compress a live agent transcript without breaking its shape (DZC-P1b).
+ *
+ * Leading system messages (the agent instructions) and a trailing tool-call
+ * exchange that is still waiting for its results are kept out of
+ * `autoCompress`. The summary is merged into the first system message as a
+ * `## Prior Conversation Context` section; a section already there is fed back
+ * as the existing summary and replaced, so repeated compressions update it.
+ * When nothing is compressed the caller's array is returned unchanged.
+ */
+async function compressTranscript(
+  hooks: TokenLifecycleHooks,
+  messages: BaseMessage[],
+  model: BaseChatModel,
+  existingSummary: string | null,
+  autoCompressConfig: AutoCompressConfig | undefined,
+): Promise<CompressResult> {
+  let headEnd = 0
+  while (headEnd < messages.length && messages[headEnd]!._getType() === 'system') {
+    headEnd++
+  }
+  const tailStart = Math.max(headEnd, pendingToolCallStart(messages))
+  const head = messages.slice(0, headEnd)
+  const body = messages.slice(headEnd, tailStart)
+  const tail = messages.slice(tailStart)
+
+  const priorSummary = existingSummary ?? (head[0] ? readSummary(head[0].content) : null)
+  const result = await hooks.maybeCompress(body, model, priorSummary, autoCompressConfig)
+  if (!result.compressed) return { ...result, messages }
+
+  const summaryContext = formatSummaryContext(result.summary || priorSummary)
+  const first = head[0]
+  const adoptedHead = first
+    ? [
+        new SystemMessage({
+          content: writeSummary(first.content, summaryContext),
+          additional_kwargs: first.additional_kwargs,
+          ...(first.name !== undefined ? { name: first.name } : {}),
+          ...(first.id !== undefined ? { id: first.id } : {}),
+        }),
+        ...head.slice(1),
+      ]
+    : summaryContext
+      ? [new SystemMessage(summaryContext)]
+      : []
+  return { ...result, messages: [...adoptedHead, ...result.messages, ...tail] }
 }
 
 /**
@@ -159,7 +273,7 @@ export function createTokenLifecyclePlugin(
       if (status === 'ok' || status === 'warn') {
         return { messages, summary: existingSummary, compressed: false }
       }
-      return hooks.maybeCompress(messages, model, existingSummary, autoCompressConfig)
+      return compressTranscript(hooks, messages, model, existingSummary, autoCompressConfig)
     },
     shouldHalt() {
       if (disposed) return false

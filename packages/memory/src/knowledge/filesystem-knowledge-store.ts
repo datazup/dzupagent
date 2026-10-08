@@ -1,5 +1,6 @@
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
+import { constants } from "node:fs";
+import * as nativeFs from "node:fs";
+import { withContainedFile, openContainedDirectory } from "./contained-file.js";
 import { EventEmitter } from "node:events";
 import lockfile from "proper-lockfile";
 import type {
@@ -13,7 +14,6 @@ import type {
 import { KnowledgeCollisionError } from "@dzupagent/agent-types/fleet";
 import {
   entriesPath,
-  knowledgeDir,
   scopeDir,
   snapshotPath,
 } from "./knowledge-paths.js";
@@ -26,7 +26,10 @@ interface Options {
 // disjoint on-disk directory name. Prefixes prevent collisions between
 // (e.g.) a run literally named "global" and the global scope itself.
 function parseScope(scope: string): string {
-  const [k, id] = scope.split(":", 2);
+  if (scope === "global") return "global";
+  const parts = scope.split(":");
+  const [k, id] = parts;
+  if (parts.length !== 2 || !id || id.includes("/") || id.includes(String.fromCharCode(92)) || id.includes(String.fromCharCode(0))) throw new Error(`Invalid scope: ${scope}`);
   if (k === "run" && id) return `run-${id}`;
   if (k === "global" && !id) return "global";
   if (k === "repo" && id) return `repo-${id}`;
@@ -91,12 +94,9 @@ export class FilesystemKnowledgeStore implements KnowledgeStore {
 
   async append(scope: string, entry: KnowledgeEnvelope): Promise<KnowledgeRef> {
     const scopeKey = parseScope(scope);
-    const dir = knowledgeDir(this.rootDir, scopeKey);
-    await fs.mkdir(path.join(dir, "snapshots", entry.kind), {
-      recursive: true,
-    });
+    assertKnowledgeKind(entry, "append");
     const ndjson = entriesPath(this.rootDir, scopeKey);
-    await fs.mkdir(path.dirname(ndjson), { recursive: true });
+    await withContainedFile(this.rootDir, ndjson, true, constants.O_WRONLY | constants.O_CREAT, async () => undefined);
 
     const release = await this.lock(scopeKey);
     try {
@@ -106,13 +106,10 @@ export class FilesystemKnowledgeStore implements KnowledgeStore {
         // Return success so callers can safely retry.
         return { id: entry.id, version: entry.version };
       }
-      const handle = await fs.open(ndjson, "a");
-      try {
+      await withContainedFile(this.rootDir, ndjson, false, constants.O_WRONLY | constants.O_APPEND, async handle => {
         await handle.write(JSON.stringify(entry) + "\n");
         await handle.sync();
-      } finally {
-        await handle.close();
-      }
+      });
       await this.updateSnapshot(scopeKey, entry);
     } finally {
       await release();
@@ -130,9 +127,14 @@ export class FilesystemKnowledgeStore implements KnowledgeStore {
     const scopeKey = parseScope(scope);
     const file = snapshotPath(this.rootDir, scopeKey, kind, key);
     try {
-      const buf = await fs.readFile(file, "utf8");
+      let buf: string;
+      try { buf = await this.readContained(file); } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        buf = await this.readContained(snapshotPath(this.rootDir, scopeKey, kind, key, true));
+      }
       const parsed = JSON.parse(buf) as unknown;
       assertKnowledgeKind(parsed, file);
+      if ((parsed as KnowledgeEnvelope).kind !== kind || (parsed as KnowledgeEnvelope).key !== key) return null;
       return parsed as T;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
@@ -149,7 +151,7 @@ export class FilesystemKnowledgeStore implements KnowledgeStore {
     const entriesFile = entriesPath(this.rootDir, scopeKey);
     let raw: string;
     try {
-      raw = await fs.readFile(entriesFile, "utf8");
+      raw = await this.readContained(entriesFile);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
       throw err;
@@ -184,12 +186,25 @@ export class FilesystemKnowledgeStore implements KnowledgeStore {
     };
   }
 
+  private readContained(file: string): Promise<string> {
+    return withContainedFile(this.rootDir, file, false, constants.O_RDONLY, handle => handle.readFile("utf8"));
+  }
+
   private async lock(scopeKey: string): Promise<() => Promise<void>> {
-    const dir = scopeDir(this.rootDir, scopeKey);
-    await fs.mkdir(dir, { recursive: true });
-    return lockfile.lock(dir, {
-      retries: { retries: 50, minTimeout: 5, maxTimeout: 50 },
-    });
+    scopeDir(this.rootDir, scopeKey);
+    const descriptor = await openContainedDirectory(this.rootDir, this.rootDir);
+    // Keep the historical physical <scope>.lock name, but anchor it to the
+    // verified root descriptor for the entire lock lifetime.
+    const anchored = `/proc/self/fd/${descriptor.fd}/${scopeKey}`;
+    try {
+      const release = await lockfile.lock(anchored, {
+        realpath: false,
+        lockfilePath: `${anchored}.lock`,
+        fs: { ...nativeFs, stat: nativeFs.lstat, utimes: nativeFs.lutimes },
+        retries: { retries: 50, minTimeout: 5, maxTimeout: 50 },
+      });
+      return async () => { try { await release(); } finally { await descriptor.close(); } };
+    } catch (error) { await descriptor.close(); throw error; }
   }
 
   // Returns "ok" (no prior entry), "duplicate" (exact same id+kind+key+version
@@ -203,7 +218,7 @@ export class FilesystemKnowledgeStore implements KnowledgeStore {
   ): Promise<"ok" | "duplicate"> {
     let raw: string;
     try {
-      raw = await fs.readFile(entriesPath(this.rootDir, scopeKey), "utf8");
+      raw = await this.readContained(entriesPath(this.rootDir, scopeKey));
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return "ok";
       throw err;
@@ -239,13 +254,16 @@ export class FilesystemKnowledgeStore implements KnowledgeStore {
     let current: KnowledgeEnvelope | null = null;
     try {
       current = JSON.parse(
-        await fs.readFile(file, "utf8")
+        await this.readContained(file)
       ) as KnowledgeEnvelope;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     }
     if (!current || entry.version > current.version) {
-      await fs.writeFile(file, JSON.stringify(entry, null, 2));
+      await withContainedFile(this.rootDir, file, true, constants.O_WRONLY | constants.O_CREAT, async handle => {
+        await handle.truncate(0);
+        await handle.writeFile(JSON.stringify(entry, null, 2));
+      });
     }
   }
 }

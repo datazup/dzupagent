@@ -860,27 +860,11 @@
       }
     },
     "test-utils": {
-      "baseline": {
-        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values. RF-09: staged target repaired - it previously pointed below this package's own floor on branches, which would have graded a regression as progress.",
-        "since": "2026-08-04",
-        "reviewBy": "2026-09-22",
-        "thresholds": {
-          "statements": 62.76,
-          "branches": 90.22,
-          "functions": 58.45,
-          "lines": 62.76
-        },
-        "targets": [
-          {
-            "by": "2026-09-22",
-            "thresholds": {
-              "statements": 70,
-              "branches": 90.22,
-              "functions": 60,
-              "lines": 70
-            }
-          }
-        ]
+      "thresholds": {
+        "statements": 70,
+        "branches": 90.22,
+        "functions": 60,
+        "lines": 70
       }
     },
     "testing": {

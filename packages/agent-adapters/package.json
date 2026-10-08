@@ -96,7 +96,7 @@
     }
   },
   "scripts": {
-    "build": "node ../../scripts/run-with-build-custody.mjs --shell \"node ../../scripts/prepare-build-artifact-manifest.mjs && tsup && tsc --emitDeclarationOnly --declarationMap false && node ../../scripts/write-build-artifact-manifest.mjs\"",
+    "build": "node ../../scripts/run-with-build-custody.mjs --shell \"node ../../scripts/prepare-build-artifact-manifest.mjs && tsup && tsc --emitDeclarationOnly --declarationMap false && node ../../scripts/prune-private-declarations.mjs . && node ../../scripts/write-build-artifact-manifest.mjs\"",
     "build:verify": "node ../../scripts/run-with-build-custody.mjs node ../../scripts/check-build-artifact-integrity.mjs",
     "typecheck": "yarn typecheck:deps && tsc --noEmit",
     "typecheck:deps": "node ../../scripts/build-workspace-deps.mjs @dzupagent/agent-adapters",
@@ -133,6 +133,7 @@
   },
   "devDependencies": {
     "@langchain/core": "^1.1.39",
+    "@types/node": "^22.0.0",
     "tsup": "*",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4",

@@ -241,7 +241,7 @@ describe('OpenAI Responses exact hard-budget boundary', () => {
   })
 
   it('omits both tool keys from exact zero-tool count and create bodies', async () => {
-    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
       const url = String(input)
       if (url.endsWith('/responses/input_tokens')) {
         return jsonResponse({ input_tokens: 123 })

@@ -175,6 +175,59 @@ describe('EmailWebhookNotificationChannel', () => {
   })
 })
 
+describe('injected fetch and delivery failures', () => {
+  let globalFetch: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    globalFetch = vi.fn()
+    vi.stubGlobal('fetch', globalFetch)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  const channels = [
+    {
+      name: 'slack',
+      make: (fetchImpl: typeof fetch) => new SlackNotificationChannel({
+        webhookUrl: 'https://hooks.slack.com/services/T000/B000/secretpart',
+        urlPolicy: { resolveDns: false },
+        fetchImpl,
+      }),
+    },
+    {
+      name: 'email-webhook',
+      make: (fetchImpl: typeof fetch) => new EmailWebhookNotificationChannel({
+        webhookUrl: 'https://email.example.com/send?token=secretpart',
+        urlPolicy: { resolveDns: false },
+        fetchImpl,
+      }),
+    },
+  ]
+
+  for (const { name, make } of channels) {
+    it(`${name}: sends through the injected fetch, never the global`, async () => {
+      const fetchImpl = vi.fn(async () => new Response('ok', { status: 200 }))
+      await make(fetchImpl).send(makeNotification())
+      expect(fetchImpl).toHaveBeenCalledTimes(1)
+      expect(globalFetch).not.toHaveBeenCalled()
+    })
+
+    it(`${name}: rejects on a non-2xx response without leaking the webhook URL`, async () => {
+      const fetchImpl = vi.fn(async () => new Response('no_service', { status: 404 }))
+      const error = await make(fetchImpl).send(makeNotification()).then(
+        () => undefined,
+        (err: unknown) => err as Error,
+      )
+      expect(error).toBeInstanceOf(Error)
+      expect(error!.message).toContain(name)
+      expect(error!.message).toContain('404')
+      expect(error!.message).not.toContain('secretpart')
+    })
+  }
+})
+
 describe('WebhookChannel outbound URL policy', () => {
   let mockFetch: ReturnType<typeof vi.fn>
 

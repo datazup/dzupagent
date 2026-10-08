@@ -195,7 +195,7 @@ function runTypecheck(pkg) {
     ;(linesByFile[file] ??= []).push({ line, code })
   }
 
-  return { total: errors.length, perFile, perCode, linesByFile }
+  return { total: errors.length, perFile, perCode, linesByFile, diagnostics: lines.filter(line => ERROR_LINE_RE.test(line)).slice(0, 20) }
 }
 
 /**
@@ -420,6 +420,7 @@ function main() {
   }
 
   const currentTotal = Object.values(current).reduce((n, p) => n + p.total, 0)
+  for (const pkg of targets) for (const diagnostic of current[pkg].diagnostics ?? []) console.error(`[${pkg}] ${diagnostic}`)
   console.log(
     `[check-test-typecheck] test-file type errors: ${currentTotal} across ${targets.length} package(s)`
   )

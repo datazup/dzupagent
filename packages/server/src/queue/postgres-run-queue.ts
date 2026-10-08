@@ -160,6 +160,7 @@ export class PostgresRunQueue implements RunQueue {
     this.workerId = config.workerId ?? `pg-worker-${randomUUID()}`;
     this.pollIntervalMs = config.pollIntervalMs ?? 500;
     this.claimTimeoutMs = config.claimTimeoutMs ?? 60_000;
+    if (!Number.isSafeInteger(this.claimTimeoutMs) || this.claimTimeoutMs < 3) throw new Error("claimTimeoutMs must be a safe integer >= 3");
     this.tenantId = config.tenantId;
     // Fair scheduling only applies to shared (tenant-agnostic) workers; a
     // tenant-scoped worker is already fair. Default on for shared workers.
@@ -411,11 +412,28 @@ export class PostgresRunQueue implements RunQueue {
     const abort = new AbortController();
     const timeout = setTimeout(() => abort.abort(), this.config.jobTimeoutMs);
 
-    const promise = this.processor(job, abort.signal)
-      .then(() => this.markCompleted(job))
-      .catch((error: unknown) => this.handleFailure(job, error))
+    let renewing = false;
+    let lostOwnership = false;
+    const heartbeat = setInterval(() => {
+      if (renewing || lostOwnership) return;
+      renewing = true;
+      void Promise.resolve().then(() => this.db.execute(sql`
+        UPDATE flow_jobs SET claimed_at = now(), updated_at = now()
+        WHERE id = ${job.id} AND status = 'claimed'
+          AND claimed_by = ${this.workerId} AND attempts = ${job.attempts}
+        RETURNING id
+      `)).then(result => {
+        if (toRows(result).length === 0) { lostOwnership = true; abort.abort(); }
+      }).catch(() => { lostOwnership = true; abort.abort(); }).finally(() => { renewing = false; });
+    }, Math.max(1, Math.floor(this.claimTimeoutMs / 3)));
+    heartbeat.unref();
+
+    const promise = Promise.resolve().then(() => this.processor!(job, abort.signal))
+      .then(() => lostOwnership ? undefined : this.markCompleted(job))
+      .catch((error: unknown) => lostOwnership ? undefined : this.handleFailure(job, error))
       .finally(() => {
         clearTimeout(timeout);
+        clearInterval(heartbeat);
         this.active.delete(job.id);
       });
 
@@ -424,7 +442,7 @@ export class PostgresRunQueue implements RunQueue {
 
   private async markCompleted(job: RunJob): Promise<void> {
     await this.db.execute(sql`
-      UPDATE flow_jobs SET status = 'completed', updated_at = now() WHERE id = ${job.id}
+      UPDATE flow_jobs SET status = 'completed', updated_at = now() WHERE id = ${job.id} AND status = 'claimed' AND claimed_by = ${this.workerId} AND attempts = ${job.attempts}
     `);
   }
 
@@ -435,11 +453,11 @@ export class PostgresRunQueue implements RunQueue {
       await this.db.execute(sql`
         UPDATE flow_jobs
         SET status = 'pending', claimed_at = NULL, claimed_by = NULL, error = ${message}, updated_at = now()
-        WHERE id = ${job.id}
+        WHERE id = ${job.id} AND status = 'claimed' AND claimed_by = ${this.workerId} AND attempts = ${job.attempts}
       `);
     } else {
       await this.db.execute(sql`
-        UPDATE flow_jobs SET status = 'failed', error = ${message}, updated_at = now() WHERE id = ${job.id}
+        UPDATE flow_jobs SET status = 'failed', error = ${message}, updated_at = now() WHERE id = ${job.id} AND status = 'claimed' AND claimed_by = ${this.workerId} AND attempts = ${job.attempts}
       `);
     }
   }
