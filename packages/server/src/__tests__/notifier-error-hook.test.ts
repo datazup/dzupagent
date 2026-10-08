@@ -1,8 +1,8 @@
 /**
- * Tests for the Notifier channel-error hook (DZA-HITL-NOTIFY-20261008-P2).
+ * Tests for the Notifier channel-error hook (DZA-HITL-NOTIFY-20261008-P2/P3).
  */
-import { describe, it, expect, vi } from 'vitest'
-import { Notifier } from '../notifications/notifier.js'
+import { afterEach, describe, it, expect, vi } from 'vitest'
+import { Notifier, logNotificationChannelError } from '../notifications/notifier.js'
 import type { Notification, NotificationChannel } from '../notifications/notifier.js'
 
 function makeNotification(overrides: Partial<Notification> = {}): Notification {
@@ -113,10 +113,90 @@ describe('Notifier onChannelError', () => {
     expect(context.notification.runId).toBe('run-1')
   })
 
-  it('stays silent without a hook, as before', async () => {
-    const notifier = new Notifier({ channels: [rejectingChannel('slack', new Error('boom')), okChannel('ok')] })
+})
+
+/**
+ * Default failure logging (DZA-HITL-NOTIFY-20261008-P3): channel name and error
+ * message only, never the notification payload, error stack/cause or URL.
+ */
+describe('Notifier default channel-error logging', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('logs one line per failed channel with name and message when no hook is given', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const notifier = new Notifier({
+      channels: [
+        rejectingChannel('slack', new Error('slack notification delivery failed: HTTP 500')),
+        okChannel('ok'),
+        rejectingChannel('email-webhook', 'plain string failure'),
+      ],
+    })
 
     await expect(notifier.notify(makeNotification())).resolves.toBeUndefined()
+
+    expect(warn).toHaveBeenCalledTimes(2)
+    expect(warn).toHaveBeenNthCalledWith(1, '[Notifier] channel "slack" failed: slack notification delivery failed: HTTP 500')
+    expect(warn).toHaveBeenNthCalledWith(2, '[Notifier] channel "email-webhook" failed: plain string failure')
     expect(notifier.getHistory()).toHaveLength(1)
+  })
+
+  it('never logs the payload, URL, stack or cause', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const url = 'https://hooks.example.invalid/services/SECRET-TOKEN'
+    const error = new Error('fetch failed', { cause: new Error(`connect ECONNREFUSED ${url}`) })
+    const notification = makeNotification({
+      title: 'TITLE-SENTINEL',
+      body: 'BODY-SENTINEL',
+      metadata: { webhookUrl: url },
+    })
+    const notifier = new Notifier({ channels: [rejectingChannel('slack', error)] })
+
+    await notifier.notify(notification)
+
+    expect(warn).toHaveBeenCalledTimes(1)
+    const args = warn.mock.calls[0] ?? []
+    expect(args).toHaveLength(1)
+    const line = String(args[0])
+    expect(line).toBe('[Notifier] channel "slack" failed: fetch failed')
+    for (const forbidden of ['TITLE-SENTINEL', 'BODY-SENTINEL', 'SECRET-TOKEN', 'ECONNREFUSED', 'at ']) {
+      expect(line).not.toContain(forbidden)
+    }
+  })
+
+  it('uses a fixed message for non-Error, non-string rejections', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const notifier = new Notifier({ channels: [rejectingChannel('webhook', { url: 'https://x.invalid', body: 'secret' })] })
+
+    await notifier.notify(makeNotification())
+
+    expect(warn).toHaveBeenCalledWith('[Notifier] channel "webhook" failed: non-Error rejection')
+  })
+
+  it('exports the default logger so callers can wrap it', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    logNotificationChannelError(new Error('boom'), { channel: 'slack', notification: makeNotification() })
+
+    expect(warn).toHaveBeenCalledWith('[Notifier] channel "slack" failed: boom')
+  })
+
+  it('does not log when a caller hook is given, including a no-op opt-out', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const notifier = new Notifier({ channels: [rejectingChannel('slack', new Error('boom'))], onChannelError: () => {} })
+
+    await notifier.notify(makeNotification())
+
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('does not log when every channel succeeds', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const notifier = new Notifier({ channels: [okChannel('ok')] })
+
+    await notifier.notify(makeNotification())
+
+    expect(warn).not.toHaveBeenCalled()
   })
 })

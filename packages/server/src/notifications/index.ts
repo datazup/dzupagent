@@ -1,4 +1,4 @@
-export { Notifier, classifyEvent } from './notifier.js'
+export { Notifier, classifyEvent, logNotificationChannelError } from './notifier.js'
 export type {
   Notification,
   NotificationChannel,
