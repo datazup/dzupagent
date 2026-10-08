@@ -23,14 +23,39 @@ afterEach(async () => {
 });
 
 async function stage(
-  patch: Readonly<Record<string, unknown>> = {}
+  patch: Readonly<Record<string, unknown>> = {},
+  files: { readonly flow: string; readonly config: string } = {
+    flow: "flow.yaml",
+    config: "run.json",
+  }
 ): Promise<{ dir: string; flow: string; config: string }> {
   const dir = await mkdtemp(join(tmpdir(), "dzup-v2-run-"));
   staged.push(dir);
   await cp(FIXTURE_DIRECTORY, dir, { recursive: true });
-  const config = join(dir, "run.json");
+  const config = join(dir, files.config);
   if (Object.keys(patch).length > 0) await patchConfig(config, patch);
-  return { dir, flow: join(dir, "flow.yaml"), config };
+  return { dir, flow: join(dir, files.flow), config };
+}
+
+const CONFIG_FILES = { flow: "flow-config.yaml", config: "run-config.json" };
+const CONFIG_BINDINGS = {
+  primaryModel: "model-alpha",
+  llmProvider: "provider-local",
+  deployEnv: "env-staging",
+};
+
+function capturingImporter(invocations: unknown[]) {
+  return async (url: string) => {
+    const module = (await import(url)) as {
+      default: (invocation: unknown) => unknown;
+    };
+    return {
+      default: (invocation: unknown) => {
+        invocations.push(invocation);
+        return module.default(invocation);
+      },
+    };
+  };
 }
 
 async function patchConfig(
@@ -319,5 +344,135 @@ describe("dzupagent-run: run one V2 document from a file, configured by a file",
         errors: [{ code: "DZUPAGENT_RUN_ARGS_INVALID", key: "--config" }],
       });
     });
+  });
+});
+
+describe("dzupagent-run S2B: run.json binds the document's config references", () => {
+  it("S2B gate 1: binds declared references, shows them to the handler, and records only a digest", async () => {
+    const { flow, config } = await stage({}, CONFIG_FILES);
+    const invocations: unknown[] = [];
+    const result = await runDzupagentRunCli([flow, "--config", config], {
+      importModule: capturingImporter(invocations),
+    });
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+    const receipt = JSON.parse(result.stdout) as Record<string, unknown>;
+    expect(receipt.status).toBe("completed");
+    expect(receipt.configSha256).toMatch(/^sha256:[a-f0-9]{64}$/);
+    for (const value of Object.values(CONFIG_BINDINGS)) {
+      expect(result.stdout).not.toContain(value);
+    }
+    expect(invocations).toHaveLength(2);
+    for (const invocation of invocations as { config: unknown }[]) {
+      expect(invocation.config).toEqual(CONFIG_BINDINGS);
+      expect(Object.isFrozen(invocation.config)).toBe(true);
+    }
+  });
+
+  it("S2B gate 1: a document without config gets an empty frozen config and no receipt digest", async () => {
+    const { flow, config } = await stage();
+    const invocations: unknown[] = [];
+    const result = await runDzupagentRunCli([flow, "--config", config], {
+      importModule: capturingImporter(invocations),
+    });
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).not.toHaveProperty("configSha256");
+    for (const invocation of invocations as { config: unknown }[]) {
+      expect(invocation.config).toEqual({});
+      expect(Object.isFrozen(invocation.config)).toBe(true);
+    }
+  });
+
+  it("S2B gate 1: changing a binding value changes configSha256 and planSha256", async () => {
+    const base = await stage({}, CONFIG_FILES);
+    const changed = await stage(
+      { config: { ...CONFIG_BINDINGS, primaryModel: "model-beta" } },
+      CONFIG_FILES
+    );
+    const first = JSON.parse(
+      (await runDzupagentRunCli([base.flow, "--config", base.config])).stdout
+    ) as Record<string, unknown>;
+    const second = JSON.parse(
+      (await runDzupagentRunCli([changed.flow, "--config", changed.config]))
+        .stdout
+    ) as Record<string, unknown>;
+    expect(second.configSha256).not.toBe(first.configSha256);
+    expect(second.planSha256).not.toBe(first.planSha256);
+  });
+
+  describe("S2B gate 2: binding refusals exit 1 with key config.<name>", () => {
+    const secret = ["sk", "-", "Zq8", "x".repeat(20)].join("");
+    const cases: readonly (readonly [string, unknown, string])[] = [
+      [
+        "a missing declared name",
+        { primaryModel: "model-alpha", llmProvider: "provider-local" },
+        "config.deployEnv",
+      ],
+      [
+        "an undeclared name",
+        { ...CONFIG_BINDINGS, extraName: "x" },
+        "config.extraName",
+      ],
+      ["a non-string value", { ...CONFIG_BINDINGS, primaryModel: 7 }, "config.primaryModel"],
+      ["an empty value", { ...CONFIG_BINDINGS, primaryModel: "" }, "config.primaryModel"],
+      [
+        "a value over 256 characters",
+        { ...CONFIG_BINDINGS, primaryModel: "m".repeat(257) },
+        "config.primaryModel",
+      ],
+      [
+        "a secret-shaped value",
+        { ...CONFIG_BINDINGS, llmProvider: secret },
+        "config.llmProvider",
+      ],
+      ["a non-object config", "model-alpha", "config"],
+    ];
+    for (const [label, bindings, key] of cases) {
+      it(`refuses ${label}`, async () => {
+        const { flow, config } = await stage({ config: bindings }, CONFIG_FILES);
+        const result = await runDzupagentRunCli([flow, "--config", config]);
+        expect(result.exitCode).toBe(1);
+        expect(result.stdout).toBe("");
+        expect(parse(result.stderr)).toMatchObject({
+          ok: false,
+          errors: [{ code: "DZUPAGENT_RUN_CONFIG_INVALID", key }],
+        });
+        expect(result.stderr).not.toContain(secret);
+      });
+    }
+
+    it("refuses bindings for a document that declares no config", async () => {
+      const { flow, config } = await stage({ config: { primaryModel: "model-alpha" } });
+      const result = await runDzupagentRunCli([flow, "--config", config]);
+      expect(result.exitCode).toBe(1);
+      expect(parse(result.stderr)).toMatchObject({
+        errors: [
+          { code: "DZUPAGENT_RUN_CONFIG_INVALID", key: "config.primaryModel" },
+        ],
+      });
+    });
+  });
+
+  it("S2B gate 3: resuming with a changed binding is refused as drift naming config", async () => {
+    const { flow, config } = await stage({}, CONFIG_FILES);
+    const suspended = await runDzupagentRunCli([
+      flow,
+      "--config",
+      config,
+      "--max-steps",
+      "1",
+    ]);
+    expect(suspended.stderr).toBe("");
+    expect(parse(suspended.stdout).status).toBe("suspended");
+    await patchConfig(config, {
+      config: { ...CONFIG_BINDINGS, deployEnv: "env-production" },
+    });
+    const result = await runDzupagentRunCli([flow, "--config", config]);
+    expect(result.exitCode).toBe(1);
+    const diagnostic = parse(result.stderr);
+    expect(diagnostic.errors[0]).toMatchObject({
+      code: "V2_LOCAL_HOST_CHECKPOINT_DRIFT",
+    });
+    expect(diagnostic.errors[0]?.keys).toContain("config");
   });
 });
