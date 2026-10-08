@@ -94,6 +94,48 @@ export interface PruneResult extends MemoryOperationOutcome {
 
 export type PruneOperationResult = PruneResult & MemoryOperationResult;
 
+/** Timer pair driving a schedule. Injectable so tests need not sleep. */
+export interface PruneScheduleTimers {
+  setInterval: (callback: () => void, ms: number) => unknown;
+  clearInterval: (handle: unknown) => void;
+}
+
+export interface PruneScheduleOptions extends PruneOptions {
+  /** Milliseconds between runs. Required; must be positive and finite. */
+  intervalMs: number;
+  /** Called with every completed run's result. */
+  onResult?: (result: PruneOperationResult) => void;
+  /**
+   * Called when a run (or `onResult`) throws. Defaults to `console.error`.
+   * A failed run never stops the schedule.
+   */
+  onError?: (error: unknown) => void;
+  /** Defaults to the global timers, with the handle `unref()`'d. */
+  timers?: PruneScheduleTimers;
+}
+
+export interface PruneScheduleHandle {
+  /**
+   * Run a prune now. Shares the in-flight run if one is active. Works after
+   * `stop()` too, for a final manual pass.
+   */
+  runNow(): Promise<PruneOperationResult>;
+  /** Clear the timer. Idempotent. */
+  stop(): void;
+  readonly stopped: boolean;
+}
+
+/** Global timers, `unref()`'d so a schedule never keeps the process alive. */
+const DEFAULT_SCHEDULE_TIMERS: PruneScheduleTimers = {
+  setInterval: (callback, ms) => {
+    const handle = setInterval(callback, ms);
+    (handle as { unref?: () => void }).unref?.();
+    return handle;
+  },
+  clearInterval: (handle) =>
+    clearInterval(handle as ReturnType<typeof setInterval>),
+};
+
 interface ParsedItem {
   key: string;
   createdAt: number;
@@ -268,6 +310,83 @@ export class MemoryPruner {
       remaining: survivors.length,
       status: statusFor(degradations),
       degradations,
+    };
+  }
+
+  /**
+   * Opt-in scheduled pruning: run {@link prune} on `store` every
+   * `intervalMs`, starting one interval from now. Runs never overlap (a tick
+   * during an in-flight run is skipped) and never reject: failures go to
+   * `onError`. Call `stop()` on the returned handle to end the schedule.
+   */
+  schedule(
+    store: MemoryStore,
+    options: PruneScheduleOptions,
+  ): PruneScheduleHandle {
+    const { intervalMs, onResult, onError, timers, ...pruneOptions } =
+      options;
+    if (!(Number.isFinite(intervalMs) && intervalMs > 0)) {
+      throw new Error(
+        `intervalMs must be a positive finite number, got ${String(intervalMs)}`,
+      );
+    }
+    const timerPair = timers ?? DEFAULT_SCHEDULE_TIMERS;
+    const reportError = (error: unknown): void => {
+      if (onError) {
+        onError(error);
+        return;
+      }
+      console.error("[memory] scheduled pruner run failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    };
+
+    let inFlight: Promise<PruneOperationResult> | undefined;
+    let stopped = false;
+
+    const runNow = (): Promise<PruneOperationResult> => {
+      if (inFlight) return inFlight;
+      let run: Promise<PruneOperationResult>;
+      try {
+        run = this.prune(store, pruneOptions);
+      } catch (error) {
+        // A synchronous throw must not escape a timer callback.
+        run = Promise.reject(error);
+      }
+      inFlight = run;
+      const clear = (): void => {
+        if (inFlight === run) inFlight = undefined;
+      };
+      run.then(clear, clear);
+      return run;
+    };
+
+    const tick = (): void => {
+      if (stopped || inFlight) return;
+      runNow().then(
+        (result) => {
+          try {
+            onResult?.(result);
+          } catch (error) {
+            reportError(error);
+          }
+        },
+        reportError,
+      );
+    };
+
+    const timer = timerPair.setInterval(tick, intervalMs);
+
+    return {
+      runNow,
+      stop: () => {
+        if (stopped) return;
+        stopped = true;
+        timerPair.clearInterval(timer);
+      },
+      get stopped() {
+        return stopped;
+      },
     };
   }
 }
