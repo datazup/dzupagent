@@ -43,7 +43,7 @@ import { normalizeCodex } from '../normalize-codex.js'
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function collectGen<T>(gen: AsyncGenerator<T, void, undefined>): Promise<T[]> {
+async function collectGen<T, R>(gen: AsyncGenerator<T, R, undefined>): Promise<T[]> {
   const out: T[] = []
   for await (const e of gen) out.push(e)
   return out

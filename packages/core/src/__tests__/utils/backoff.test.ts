@@ -241,7 +241,7 @@ describe("calculateBackoff", () => {
   it("rejects an unknown jitterMode only when jitter is enabled", () => {
     const config = {
       ...baseConfig,
-      jitterMode: "full" as unknown as BackoffConfig["jitterMode"],
+      jitterMode: "full" as unknown as NonNullable<BackoffConfig["jitterMode"]>,
     };
 
     expect(calculateBackoff(2, config)).toBe(4_000);

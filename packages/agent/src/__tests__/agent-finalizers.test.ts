@@ -271,7 +271,7 @@ describe('maybeWriteBackMemory', () => {
   type PutMock = Mock<MemoryService["put"]>
 
   function makePutMock(): PutMock {
-    return vi.fn<MemoryService["put"]>(async () => undefined)
+    return vi.fn<MemoryService["put"]>(async () => ({ status: 'written', piiRedacted: false }))
   }
 
   /**

@@ -389,8 +389,8 @@ describe('A2. acknowledged realignment', () => {
     ])
     expect(result.ok && result.delivery).toMatchObject({ status: 'acknowledged', reasonCode: null, channel: 'native-steer' })
     if (!result.ok) return
-    expect(result.delivery.deliveryDigest).toBe(coordinationSelfDigest(result.delivery, 'deliveryDigest'))
-    expect(result.delivery.decisionDigest).toBe(coordinationSelfDigest(decision, 'decisionDigest'))
+    expect(result.delivery.deliveryDigest).toBe(coordinationSelfDigest({ ...result.delivery }, 'deliveryDigest'))
+    expect(result.delivery.decisionDigest).toBe(coordinationSelfDigest({ ...decision }, 'decisionDigest'))
   })
 })
 
@@ -553,7 +553,7 @@ describe('A6. fresh continuation', () => {
       generation: 7,
       planDigest: continuation.planDigest,
     })
-    expect(result.continuation.continuationDigest).toBe(coordinationSelfDigest(result.continuation, 'continuationDigest'))
+    expect(result.continuation.continuationDigest).toBe(coordinationSelfDigest({ ...result.continuation }, 'continuationDigest'))
     expect(isDeepFrozen(result)).toBe(true)
   })
 
@@ -650,7 +650,7 @@ describe('A8. same-attempt continuation', () => {
       predecessorGeneration: 7,
       generation: 8,
     })
-    expect(result.continuation.continuationDigest).toBe(coordinationSelfDigest(result.continuation, 'continuationDigest'))
+    expect(result.continuation.continuationDigest).toBe(coordinationSelfDigest({ ...result.continuation }, 'continuationDigest'))
     expect(isDeepFrozen(result)).toBe(true)
   })
 

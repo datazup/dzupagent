@@ -799,7 +799,10 @@
         { "match": "exact", "pattern": "./postgres-approval-store.js" },
         { "match": "exact", "pattern": "./approval-gate.js" },
         { "match": "exact", "pattern": "./runtime-approval-bridge.js" },
-        { "match": "exact", "pattern": "./pipeline-interaction-adapter.js" }
+        { "match": "exact", "pattern": "./pipeline-interaction-adapter.js" },
+        { "match": "exact", "pattern": "./approval-quorum.js" },
+        { "match": "exact", "pattern": "./quorum-vote-store.js" },
+        { "match": "exact", "pattern": "./escalation-engine.js" }
       ],
       "transitionalRoot": [],
       "subpaths": {},

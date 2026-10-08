@@ -197,6 +197,10 @@ export const ORPHAN_ALLOWLIST = {
     reason:
       'The `--report-only` variant, which prints counts and exits 0 by design. check:test-typecheck, gate 17 of the CI chain, is the enforcing one.',
   },
+  'audit:deps:raw': {
+    category: 'manual-utility',
+    reason: 'Raw registry audit retained for diagnostics. The enforcing audit:deps gate checks every finding and verifies the installed mitigation for the single patched braces advisory.',
+  },
   'audit:deps:summary': {
     category: 'manual-utility',
     reason:

@@ -18,7 +18,7 @@ import {
   type LoopEconomicsLeafOutcomeV2,
 } from "@dzupagent/runtime-contracts/loop-economics-evidence-v2";
 
-import { PipelineCheckpointSchema, type PipelineCheckpoint } from "../index.js";
+import { PipelineCheckpointSchema } from "../index.js";
 
 const digest = (character: string) => `sha256:${character.repeat(64)}` as const;
 
@@ -92,8 +92,8 @@ function checkpointWith(economics: Record<string, unknown>): Record<string, unkn
         iteration: 0,
         itemFrames: { "0": { itemIndex: 0, nextBodyNodeIndex: 0, economics } },
       },
-    } as NonNullable<PipelineCheckpoint["loopState"]>,
-  } satisfies Partial<PipelineCheckpoint> as Record<string, unknown>;
+    },
+  };
 }
 
 function issues(value: Record<string, unknown>): string[] {

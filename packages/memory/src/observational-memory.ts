@@ -229,6 +229,8 @@ export class ObservationalMemory {
   }
 
   private messagesSinceLastRun = 0
+  /** True while an observer run is in flight; concurrent triggers are no-ops. */
+  private observerRunning = false
 
   private readonly observerThreshold: number
   private readonly reflectorThreshold: number
@@ -294,11 +296,20 @@ export class ObservationalMemory {
       return null
     }
 
+    // A run already in flight has not yet reset the threshold/debounce state,
+    // so a second trigger would extract (and persist) the same window again.
+    if (this.observerRunning) {
+      return null
+    }
+
+    this.observerRunning = true
     try {
       return await this.runObserver(messages)
     } catch {
       // Observer failure is non-fatal
       return null
+    } finally {
+      this.observerRunning = false
     }
   }
 

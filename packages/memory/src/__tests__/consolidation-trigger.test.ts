@@ -31,6 +31,11 @@ import { runSleepConsolidation } from "../sleep-consolidator.js";
 import type { SleepConsolidationConfig } from "../sleep-consolidator.js";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { BaseStore } from "@langchain/langgraph";
+import { AIMessage, HumanMessage, type BaseMessage } from "@langchain/core/messages";
+import { ObservationalMemory } from "../observational-memory.js";
+import { ObservationExtractor } from "../observation-extractor.js";
+import { DualStreamWriter, type PendingRecord } from "../dual-stream-writer.js";
+import { createMemoryHarness, type MemoryHarness } from "../testing/memory-harness.js";
 
 // ────────────────────────────────────────────────────────────────────────────────
 // Shared mock factories
@@ -485,28 +490,152 @@ describe("Post-consolidation state", () => {
  * subject — is unambiguous (same convention as the cleared
  * `RunCancellationHarness` in `@dzupagent/agent`).
  *
- * UNTESTED PRODUCTION SYMBOLS — real threshold/debounce/timer-driven
- * scheduling does ship in `@dzupagent/memory`, and none of it is imported
- * here. These are the symbols that should carry the behaviour the deleted
- * blocks only claimed to cover:
- *   - `ObservationExtractor.shouldExtract()` — packages/memory/src/observation-extractor.ts
- *     (real `debounceMs` + minimum-message-count gate; the actual analog of
- *     the deleted "debounce" and "count-based trigger" describes)
- *   - `DualStreamWriter` flush timer — packages/memory/src/dual-stream-writer.ts
- *     (real `setTimeout`-driven idle flush + batch-size threshold; the
- *     analog of the deleted "time-based trigger" describes)
- *   - `ShortTermBuffer` automatic flush — packages/memory/src/short-term-buffer.ts
- *     (real count-threshold auto-flush)
- *   - `ObservationalMemory` observer/reflector thresholds — packages/memory/src/observational-memory.ts
- *     (real count- and importance-style thresholds driving consolidation)
- * Whether these are covered by their own `__tests__` was not verified as
- * part of this pass; they are simply not covered by THIS suite.
+ * PRODUCTION TRIGGER SYMBOLS — the real threshold/debounce/timer-driven
+ * scheduling in `@dzupagent/memory` has its own suites:
+ *   - `ObservationExtractor.shouldExtract()` — observation-extractor.test.ts
+ *   - `DualStreamWriter` batch/timer flush — dual-stream-writer.test.ts
+ *   - `ShortTermBuffer` auto-flush threshold — short-term-buffer.test.ts
+ *   - `ObservationalMemory` observer/reflector thresholds — observational-memory.test.ts
+ * The describe below covers the trigger contracts those suites did not:
+ * simultaneous triggers are idempotent, rapid additions coalesce into one
+ * timer-driven flush, and a trigger with nothing pending is a no-op.
  *
- * Removed 2026-08-14 (DZUPAGENT-TEST-C-14 / RF-07).
+ * Removed 2026-08-14 (DZUPAGENT-TEST-C-14 / RF-07); real tests 2026-10-08 (DZM-P3c).
  */
-describe.skip("consolidation triggering — production scheduling symbols in @dzupagent/memory untested by this suite", () => {
-  it("needs tests against ObservationExtractor.shouldExtract (packages/memory/src/observation-extractor.ts)", () => {});
-  it("needs tests against the DualStreamWriter flush timer (packages/memory/src/dual-stream-writer.ts)", () => {});
-  it("needs tests against ShortTermBuffer automatic flush (packages/memory/src/short-term-buffer.ts)", () => {});
-  it("needs tests against ObservationalMemory observer/reflector thresholds (packages/memory/src/observational-memory.ts)", () => {});
+describe("consolidation triggering — production scheduling symbols", () => {
+  function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
+    let resolve!: (v: T) => void;
+    const promise = new Promise<T>((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  }
+
+  function makeMessages(count: number): BaseMessage[] {
+    return Array.from({ length: count }, (_, i) =>
+      i % 2 === 0 ? new HumanMessage(`Message ${i}`) : new AIMessage(`Response ${i}`),
+    );
+  }
+
+  const observationJson = JSON.stringify([
+    { text: "User prefers dark mode", category: "preference", confidence: 0.9, evidenceRefs: ["m1"] },
+  ]);
+
+  function makeObservationalMemory(
+    model: BaseChatModel,
+    harness: MemoryHarness,
+  ): ObservationalMemory {
+    return new ObservationalMemory({
+      model,
+      memoryService: harness.memory,
+      store: harness.store,
+      namespace: harness.namespace,
+      scope: harness.scope,
+      observerThreshold: 3,
+      observerDebounceMs: 0,
+    });
+  }
+
+  it("simultaneous ObservationalMemory triggers run the observer once", async () => {
+    const gate = deferred<{ content: string }>();
+    const invoke = vi.fn(() => gate.promise);
+    const harness = createMemoryHarness({ namespace: "observations" });
+    const om = makeObservationalMemory({ invoke } as unknown as BaseChatModel, harness);
+
+    const first = om.observe(makeMessages(3));
+    const second = om.observe(makeMessages(3));
+    gate.resolve({ content: observationJson });
+    const results = await Promise.all([first, second]);
+
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(results.filter((r) => r !== null)).toHaveLength(1);
+    const stored = (await harness.snapshot()).filter(
+      (r) => r.value["text"] === "User prefers dark mode",
+    );
+    expect(stored).toHaveLength(1);
+    expect(om.getStats().observerRuns).toBe(1);
+  });
+
+  it("the observer can trigger again after an in-flight run fails", async () => {
+    const invoke = vi.fn(async () => ({ content: observationJson }));
+    const harness = createMemoryHarness({ namespace: "observations" });
+    vi.spyOn(harness.memory, "get").mockRejectedValueOnce(new Error("store down"));
+    const om = makeObservationalMemory({ invoke } as unknown as BaseChatModel, harness);
+
+    // The first run throws inside the observer (store read) and is non-fatal.
+    expect(await om.observe(makeMessages(3))).toBeNull();
+    // The guard is released: the next crossing runs the observer again.
+    expect(await om.observe(makeMessages(3))).not.toBeNull();
+    expect(invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it("rapid DualStreamWriter additions below batchSize coalesce into one timer flush", async () => {
+    vi.useFakeTimers();
+    try {
+      const onSlowPath = vi.fn(async (_records: PendingRecord[]) => {});
+      const writer = new DualStreamWriter({
+        memoryService: createMemoryHarness().memory,
+        namespace: "facts",
+        scope: { tenantId: "t1" },
+        batchSize: 10,
+        maxDelayMs: 1000,
+        onSlowPath,
+      });
+
+      await writer.ingest("k1", { text: "a" });
+      await vi.advanceTimersByTimeAsync(600);
+      await writer.ingest("k2", { text: "b" });
+      await writer.ingest("k3", { text: "c" });
+      // The deadline is set by the first pending record and is not pushed back.
+      await vi.advanceTimersByTimeAsync(401);
+
+      expect(onSlowPath).toHaveBeenCalledTimes(1);
+      expect(onSlowPath.mock.calls[0]![0].map((r) => r.key)).toEqual(["k1", "k2", "k3"]);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(onSlowPath).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a DualStreamWriter timer that fires with nothing pending is a no-op", async () => {
+    vi.useFakeTimers();
+    try {
+      const onSlowPath = vi.fn(async (_records: PendingRecord[]) => {});
+      const writer = new DualStreamWriter({
+        memoryService: createMemoryHarness().memory,
+        namespace: "facts",
+        scope: { tenantId: "t1" },
+        maxDelayMs: 1000,
+        onSlowPath,
+      });
+
+      await writer.ingest("k1", { text: "a" });
+      writer.clearPending();
+      await vi.advanceTimersByTimeAsync(1001);
+
+      expect(onSlowPath).not.toHaveBeenCalled();
+      writer.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ObservationExtractor closes its debounce window as soon as extraction starts", async () => {
+    const gate = deferred<{ content: string }>();
+    const invoke = vi.fn(() => gate.promise);
+    const extractor = new ObservationExtractor({
+      model: { invoke } as unknown as BaseChatModel,
+      minMessages: 1,
+      debounceMs: 60_000,
+    });
+
+    expect(extractor.shouldExtract(5)).toBe(true);
+    const running = extractor.extract(makeMessages(2));
+    // A second caller polling while the model call is in flight is gated.
+    expect(extractor.shouldExtract(5)).toBe(false);
+    gate.resolve({ content: "[]" });
+    await running;
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
 });

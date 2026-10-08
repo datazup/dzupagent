@@ -1,3 +1,4 @@
+import { RunFailure, attributeHostError, readText, failed, argsError, configError, primitiveError, handlerError, message } from "./run-v2-local-support.js";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
@@ -20,7 +21,6 @@ import {
   runV2InactiveLocalHost,
   V2_INACTIVE_LOCAL_TARGET_CAPABILITIES,
   type V2InactiveLocalHandlerBinding,
-  type V2InactiveLocalHostError,
 } from "./v2-inactive-local-target.js";
 
 /**
@@ -53,52 +53,13 @@ const COMPILER_OPTION_KEYS = new Set([
 ]);
 const HANDLER_KEYS = new Set(["ref", "module"]);
 /** Every config input the host binds into a run's plan and checkpoint chain. */
-const CHECKPOINT_BOUND_KEYS = Object.freeze([
-  "handlers",
-  "primitives",
-  "initialState",
-  "inheritedPolicy",
-  "conditionBindings",
-  "compilerOptions",
-  "config",
-]);
-
 const EMPTY_TOOL_RESOLVER = {
   resolve: () => null,
   listAvailable: () => [],
 };
 
-export type DzupagentRunErrorCode =
-  | "DZUPAGENT_RUN_ARGS_INVALID"
-  | "DZUPAGENT_RUN_READ_FAILED"
-  | "DZUPAGENT_RUN_CONFIG_INVALID"
-  | "DZUPAGENT_RUN_PRIMITIVE_INVALID"
-  | "DZUPAGENT_RUN_HANDLER_INVALID";
-
-export interface DzupagentRunDiagnostic {
-  readonly code: DzupagentRunErrorCode | V2InactiveLocalHostError["code"];
-  readonly message: string;
-  /** The `run.json` key or CLI argument the diagnostic is about. */
-  readonly key?: string;
-  /** Config keys that may have drifted when no single key is attributable. */
-  readonly keys?: readonly string[];
-  readonly path?: string;
-  readonly causes?: readonly string[];
-}
-
-export interface DzupagentRunCliResult {
-  readonly exitCode: 0 | 1;
-  /** The host receipt as JSON on success; empty on failure. */
-  readonly stdout: string;
-  /** `{ ok: false, errors }` as JSON on failure; empty on success. */
-  readonly stderr: string;
-}
-
-export interface DzupagentRunCliOptions {
-  /** Module loader seam; defaults to native dynamic `import()`. */
-  readonly importModule?: (url: string) => Promise<unknown>;
-}
-
+import type { DzupagentRunDiagnostic, DzupagentRunCliResult, DzupagentRunCliOptions } from "./run-v2-local-contracts.js";
+export type { DzupagentRunErrorCode, DzupagentRunDiagnostic, DzupagentRunCliResult, DzupagentRunCliOptions } from "./run-v2-local-contracts.js";
 interface DzupagentRunConfig {
   readonly runId: string;
   readonly ownerId: string;
@@ -115,12 +76,6 @@ interface DzupagentRunConfig {
   readonly handlers: readonly { readonly ref: string; readonly module: string }[];
   /** Values for the document's `config:` references; the host validates them. */
   readonly config?: Readonly<Record<string, string>>;
-}
-
-class RunFailure extends Error {
-  constructor(readonly diagnostic: DzupagentRunDiagnostic) {
-    super(diagnostic.message);
-  }
 }
 
 export async function runDzupagentRunCli(
@@ -461,75 +416,6 @@ async function loadHandlers(
     });
   }
   return handlers;
-}
-
-function attributeHostError(
-  error: V2InactiveLocalHostError
-): DzupagentRunDiagnostic {
-  if (
-    error.code === "V2_LOCAL_HOST_PLAN_INVALID" &&
-    error.path.endsWith(".policy")
-  ) {
-    return { ...error, key: "inheritedPolicy" };
-  }
-  if (
-    error.code === "V2_LOCAL_HOST_REQUEST_INVALID" &&
-    (error.path === "configBindings" || error.path.startsWith("configBindings."))
-  ) {
-    return {
-      code: "DZUPAGENT_RUN_CONFIG_INVALID",
-      message: error.message,
-      key: `config${error.path.slice("configBindings".length)}`,
-    };
-  }
-  if (error.code === "V2_LOCAL_HOST_CHECKPOINT_DRIFT") {
-    return {
-      ...error,
-      message: `${error.message}; the flow or a checkpoint-bound run.json input changed since this runId was first checkpointed (use a new runId or restore the inputs)`,
-      keys: CHECKPOINT_BOUND_KEYS,
-    };
-  }
-  return error;
-}
-
-async function readText(path: string, key: string): Promise<string> {
-  try {
-    return await readFile(path, "utf8");
-  } catch (error) {
-    throw new RunFailure({
-      code: "DZUPAGENT_RUN_READ_FAILED",
-      key,
-      message: `cannot read ${path}: ${message(error)}`,
-    });
-  }
-}
-
-function failed(errors: readonly DzupagentRunDiagnostic[]): DzupagentRunCliResult {
-  return {
-    exitCode: 1,
-    stdout: "",
-    stderr: `${JSON.stringify({ ok: false, errors }, null, 2)}\n`,
-  };
-}
-
-function argsError(key: string, text: string): RunFailure {
-  return new RunFailure({ code: "DZUPAGENT_RUN_ARGS_INVALID", key, message: text });
-}
-
-function configError(key: string, text: string): RunFailure {
-  return new RunFailure({ code: "DZUPAGENT_RUN_CONFIG_INVALID", key, message: text });
-}
-
-function primitiveError(key: string, text: string): RunFailure {
-  return new RunFailure({ code: "DZUPAGENT_RUN_PRIMITIVE_INVALID", key, message: text });
-}
-
-function handlerError(key: string, text: string): RunFailure {
-  return new RunFailure({ code: "DZUPAGENT_RUN_HANDLER_INVALID", key, message: text });
-}
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
