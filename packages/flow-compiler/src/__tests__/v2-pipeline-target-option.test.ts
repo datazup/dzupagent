@@ -94,7 +94,7 @@ describe("compiler option target: \"pipeline\" (S5-RT)", () => {
     expect(result.requirements.target).toBe("planning-dag");
   });
 
-  it("moves the five V2 gates of the five-feature fixture onto pipeline", async () => {
+  it("moves the remaining V2 gates of the five-feature fixture onto pipeline", async () => {
     const result = await compile(fiveFeatureSource(), { target: "pipeline" });
     expect("artifact" in result).toBe(false);
     if (!("errors" in result)) throw new Error("expected target gate errors");
@@ -106,8 +106,7 @@ describe("compiler option target: \"pipeline\" (S5-RT)", () => {
         ["TYPED_CONDITION_TARGET_UNSUPPORTED", "root.nodes[1].typedCondition"],
         ["V2_POLICY_TARGET_UNSUPPORTED", "root.steps[0].policy"],
         ["V2_POLICY_TARGET_UNSUPPORTED", "root.steps[1].policy"],
-        ["V2_RETRY_TARGET_UNSUPPORTED", "root.steps[0].retry"],
-        ["V2_RETRY_TARGET_UNSUPPORTED", "root.steps[1].retry"],
+        // S5-R2 lowers top-level `retry:` on pipeline, so no retry gate.
         ["V2_CATCH_TARGET_UNSUPPORTED", "root.steps[0].catch"],
         ["V2_CATCH_TARGET_UNSUPPORTED", "root.steps[1].catch"],
         ["V2_MULTI_SAVE_TARGET_UNSUPPORTED", "root.steps[0].save"],
@@ -116,7 +115,7 @@ describe("compiler option target: \"pipeline\" (S5-RT)", () => {
     );
     expect(
       result.errors.filter((error) => error.message.includes('"pipeline"')),
-    ).toHaveLength(10);
+    ).toHaveLength(8);
   });
 
   it("runs a loop-free V2 document to completion on PipelineRuntime", async () => {

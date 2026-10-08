@@ -24,6 +24,7 @@ import type {
   CompilationTarget,
 } from "../types.js";
 import type { SourceReferenceSnapshot } from "./reference-snapshot.js";
+import { pipelineRetryRefusal } from "./v2-pipeline-retry.js";
 
 /**
  * Stop V2-only semantics before generic artifact emission until a target has a
@@ -87,14 +88,21 @@ function retryPolicyErrors(
   target: CompilationTarget,
   source: SourceReferenceSnapshot,
 ): CompilationError[] {
-  return (source.dslV2RetryPolicies ?? []).map((binding) => {
+  return (source.dslV2RetryPolicies ?? []).flatMap((binding) => {
+    // `pipeline` lowers admitted bindings (S5-R2); the rest stay refused.
+    const refusal =
+      target === "pipeline" ? pipelineRetryRefusal(binding) : undefined;
+    if (target === "pipeline" && refusal === undefined) return [];
     const path = `${binding.authoredPath}.retry`;
     return {
       stage: 4 as const,
       code: "V2_RETRY_TARGET_UNSUPPORTED",
       message:
-        `Retry policy for ${binding.primitiveRef} is valid, but the selected "${target}" target has no reviewed ` +
-        `${FLOW_PRIMITIVE_RETRY_POLICY_CAPABILITY} same-invocation scheduler. Artifact emission is blocked.`,
+        refusal === undefined
+          ? `Retry policy for ${binding.primitiveRef} is valid, but the selected "${target}" target has no reviewed ` +
+            `${FLOW_PRIMITIVE_RETRY_POLICY_CAPABILITY} same-invocation scheduler. Artifact emission is blocked.`
+          : `Retry policy for ${binding.primitiveRef} is valid, but the "pipeline" target cannot schedule it: ` +
+            `${refusal}. Artifact emission is blocked.`,
       nodePath: path,
       category: "lowering" as const,
       ...sourceSpan(source, path),

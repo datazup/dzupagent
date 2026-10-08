@@ -13,6 +13,7 @@
  */
 
 import type { FlowNode, ResolvedTool } from "@dzupagent/flow-ast";
+import type { DslV2RetryPolicyBinding } from "@dzupagent/flow-dsl";
 import { PipelineDefinitionSchema } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 import { lowerSkillChain } from "../lower/lower-skill-chain.js";
@@ -20,6 +21,7 @@ import { lowerPipelineFlat } from "../lower/lower-pipeline-flat.js";
 import { lowerPipelineLoop } from "../lower/lower-pipeline-loop.js";
 import type { LoweredPorts } from "../lower/_shared-types.js";
 import { admitSuspendedExits } from "../suspended-exit-admission.js";
+import { applyPipelineRetries } from "./v2-pipeline-retry.js";
 import type {
   CompilationError,
   CompilationTarget,
@@ -34,6 +36,8 @@ export interface LoweringInput {
   readonly resolved: Map<string, ResolvedTool>;
   readonly resolvedPersonas: Map<string, string>;
   readonly opts: CompilerOptions;
+  /** V2 retry bindings the `pipeline` target admitted (S5-R2). */
+  readonly v2RetryPolicies?: readonly DslV2RetryPolicyBinding[];
 }
 
 /**
@@ -179,6 +183,27 @@ function admitPorts(
 export function lowerAdmittedFlow(input: LoweringInput): LoweringResult {
   const lowered = lowerForTarget(input);
   if ("error" in lowered) return { ok: false, errors: [lowered.error] };
+
+  if (input.target === "pipeline" && input.v2RetryPolicies !== undefined) {
+    const unmapped = applyPipelineRetries(
+      lowered.artifact,
+      input.v2RetryPolicies,
+    );
+    if (unmapped.length > 0) {
+      return {
+        ok: false,
+        errors: unmapped.map((authoredPath) => ({
+          stage: 4 as const,
+          code: "V2_RETRY_TARGET_UNSUPPORTED",
+          message:
+            `Retry policy at "${authoredPath}" has no single lowered primitive node on the "pipeline" target ` +
+            "to carry it. Artifact emission is blocked.",
+          nodePath: `${authoredPath}.retry`,
+          category: "lowering" as const,
+        })),
+      };
+    }
+  }
 
   const invalidArtifact = validateLoweredArtifact(
     lowered.artifact,

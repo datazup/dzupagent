@@ -284,6 +284,9 @@ export async function runCompile(
     resolved,
     resolvedPersonas,
     opts,
+    ...(sourceReferences.dslV2RetryPolicies === undefined
+      ? {}
+      : { v2RetryPolicies: sourceReferences.dslV2RetryPolicies }),
   });
   if (!lowered.ok) return failCompile(fail, 4, lowered.errors);
 

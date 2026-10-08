@@ -141,6 +141,14 @@ and reviewed backoff scheduling. Retry, policy, and typed-condition adoption
 gaps are reported together; generic artifact emission never silently drops
 one of these contracts.
 
+The opt-in `target: "pipeline"` adopts retry on unguarded top-level steps. The
+step's node gets `retries = maxAttempts - 1` and a `retryPolicy` with
+`retryableErrorCodes` set to the exact `match` codes. `fixed` backoff lowers to
+multiplier 1 and `exponential` to multiplier 2, both capped at `maxMs`, with no
+jitter. A retry without `backoff` waits 0 ms. Attempts and delays match the
+local-host oracle. On `pipeline` the gate still refuses `jitter: "full"`, retry
+on nested steps, and any step with no single primitive node.
+
 Valid V2 terminal catch contracts stop at the same boundary. Stage 4 returns
 `V2_CATCH_TARGET_UNSUPPORTED` at the authored catch span until a target adopts
 `flow.catch.primitive-terminal@1` with code-only terminal attempt inputs,
