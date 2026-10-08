@@ -267,8 +267,8 @@ function lowerBranch(
  * A typed condition (keyed expression object, the `when` syntax) lowers to
  * `typedCondition` behind the fail-closed shadow string, which the `pipeline`
  * target lowers to a real LoopNode (S5-L). A string keeps the legacy lowering.
- * No typed source bindings are recorded: the source-map projection maps them
- * below `when` only, so spans fall back to `with.condition` instead.
+ * Typed source bindings are recorded so the source map anchors them below
+ * `with.condition` (S5-L-SM).
  */
 function lowerLoop(
   input: Record<string, unknown>,
@@ -405,7 +405,14 @@ function lowerLoop(
           ? { progressKey: input.progressKey }
           : {}),
       },
-      coreSourceLineage("core.loop", "1", authoredPath, loweredPath)
+      {
+        ...coreSourceLineage("core.loop", "1", authoredPath, loweredPath),
+        ...(typedCondition == null
+          ? {}
+          : {
+              typedConditionBindings: typedCondition.sourceBindings,
+            }),
+      }
     ),
   };
 }

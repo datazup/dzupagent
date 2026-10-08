@@ -103,6 +103,51 @@ describe("core.loop@1 typed with.condition (S5-L1)", () => {
     });
   });
 
+  it("maps typed loop condition spans to with.condition (S5-L-SM)", () => {
+    const text = source(`      condition:
+        eq:
+          - ref: state.again
+          - true`);
+    const result = parseDslToDocument(text);
+    if (!result.ok) throw new Error(JSON.stringify(result.diagnostics, null, 2));
+    const entries = result.sourceMap?.entries ?? {};
+    const spanText = (key: string) => {
+      const span = entries[key]?.valueSpan;
+      return span === undefined ? undefined : text.slice(span.start, span.end);
+    };
+
+    const typed = entries["root.nodes[1].typedCondition"];
+    expect(typed).toMatchObject({ authoredPath: "root.steps[1].with.condition" });
+    expect(typed?.derived).not.toBe(true);
+    expect(spanText("root.nodes[1].typedCondition")).toContain("eq:");
+    expect(entries["root.nodes[1].typedCondition.expression.left.path"]).toMatchObject({
+      authoredPath: "root.steps[1].with.condition.eq[0].ref",
+    });
+    expect(spanText("root.nodes[1].typedCondition.expression.left.path")).toBe(
+      "state.again",
+    );
+    expect(spanText("root.nodes[1].typedCondition.expression.right.value")).toBe(
+      "true",
+    );
+    expect(entries["root.nodes[1].condition"]).toMatchObject({
+      authoredPath: "root.steps[1].with.condition",
+      derived: true,
+    });
+  });
+
+  it("keeps string loop conditions authored and free of typed entries", () => {
+    const result = parseDslToDocument(source("      condition: state.again"));
+    if (!result.ok) throw new Error(JSON.stringify(result.diagnostics, null, 2));
+    const entries = result.sourceMap?.entries ?? {};
+    expect(entries["root.nodes[1].condition"]).toMatchObject({
+      authoredPath: "root.steps[1].with.condition",
+    });
+    expect(entries["root.nodes[1].condition"]?.derived).not.toBe(true);
+    expect(
+      Object.keys(entries).filter((key) => key.includes("typedCondition")),
+    ).toEqual([]);
+  });
+
   it("still refuses a condition that is neither a string nor a typed expression", () => {
     for (const withLines of [
       "      maxIterations: 2",

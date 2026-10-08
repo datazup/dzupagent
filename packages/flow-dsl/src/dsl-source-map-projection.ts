@@ -359,7 +359,7 @@ function projectV2Node(
       ) {
         projectV2TypedCondition(
           `${canonicalPath}.typedCondition`,
-          marker.authoredPath,
+          `${marker.authoredPath}.${typedConditionSourceField(marker)}`,
           marker.typedConditionBindings,
           authored,
           entries,
@@ -497,9 +497,12 @@ function mapV2Field(
   if (savedPort !== undefined) {
     return { path: `save.${savedPort}`, derived: true };
   }
-  if (marker.use === "core.branch@1" && field === "condition") {
+  if (
+    (marker.use === "core.branch@1" || marker.use === "core.loop@1") &&
+    field === "condition"
+  ) {
     return {
-      path: "when",
+      path: typedConditionSourceField(marker),
       derived: marker.typedConditionBindings !== undefined,
     };
   }
@@ -509,22 +512,28 @@ function mapV2Field(
   return { path: `with.${field}`, derived: false };
 }
 
+/** Authored field holding a typed condition: `with.condition` on loops, else `when`. */
+function typedConditionSourceField(marker: V2SourceLineageMarker): string {
+  return marker.use === "core.loop@1" && marker.guardedStep !== true
+    ? "with.condition"
+    : "when";
+}
+
 function projectV2TypedCondition(
   canonicalPath: string,
-  authoredStepPath: string,
+  authoredConditionPath: string,
   bindings: Readonly<Record<string, string>>,
   authored: Map<string, MutableDslSourceEntry>,
   entries: Map<string, DslSourceMapEntry>,
 ): void {
-  const authoredWhen = `${authoredStepPath}.when`;
-  projectEntry(canonicalPath, authoredWhen, authored, entries);
-  projectEntry(`${canonicalPath}.schema`, authoredWhen, authored, entries, true);
+  projectEntry(canonicalPath, authoredConditionPath, authored, entries);
+  projectEntry(`${canonicalPath}.schema`, authoredConditionPath, authored, entries, true);
   for (const [canonicalRelative, authoredRelative] of Object.entries(bindings)) {
     projectEntry(
       `${canonicalPath}.${canonicalRelative}`,
       authoredRelative.length === 0
-        ? authoredWhen
-        : `${authoredWhen}.${authoredRelative}`,
+        ? authoredConditionPath
+        : `${authoredConditionPath}.${authoredRelative}`,
       authored,
       entries,
     );
