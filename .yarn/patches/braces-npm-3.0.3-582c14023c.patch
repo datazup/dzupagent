@@ -1,0 +1,121 @@
+diff --git a/lib/compile.js b/lib/compile.js
+index dce69beb90ece5c3b0ca234a949418f9f34eedbc..60c293a253366614672e991bcf29e94587da1664 100644
+--- a/lib/compile.js
++++ b/lib/compile.js
+@@ -1,9 +1,12 @@
+ 'use strict';
+ 
++const { assertSafeAst } = require('./depth-guard');
++
+ const fill = require('fill-range');
+ const utils = require('./utils');
+ 
+ const compile = (ast, options = {}) => {
++  assertSafeAst(ast);
+   const walk = (node, parent = {}) => {
+     const invalidBlock = utils.isInvalidBrace(parent);
+     const invalidNode = node.invalid === true && options.escapeInvalid === true;
+diff --git a/lib/depth-guard.js b/lib/depth-guard.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..ac2fc9fdcfdeaf0d78b91e63d79dc16fb00d7501
+--- /dev/null
++++ b/lib/depth-guard.js
+@@ -0,0 +1,34 @@
++'use strict';
++
++// GHSA-vfj7-8cjw-p6xm: never recurse over attacker-controlled AST depth.
++const MAX_DEPTH = 128;
++const MAX_NODES = 262144;
++const reject = () => {
++  const error = new RangeError('Brace AST exceeds safe nesting or traversal limit');
++  error.code = 'BRACES_AST_LIMIT';
++  throw error;
++};
++
++const assertSafeAst = ast => {
++  const active = new WeakSet();
++  const pending = [{ node: ast, depth: 0, parent: undefined, leave: false }];
++  let count = 0;
++  while (pending.length) {
++    const { node, depth, parent, leave } = pending.pop();
++    if (!node || typeof node !== 'object') throw new TypeError('Expected an AST node');
++    if (leave) { active.delete(node); continue; }
++    if (depth > MAX_DEPTH || ++count > MAX_NODES || active.has(node)) reject();
++    if (node.parent !== undefined && node.parent !== parent) reject();
++    active.add(node);
++    pending.push({ node, depth, parent, leave: true });
++    if (node.nodes) {
++      if (!Array.isArray(node.nodes)) throw new TypeError('Expected AST nodes array');
++      if (node.nodes.length > MAX_NODES - count) reject();
++      for (let i = node.nodes.length - 1; i >= 0; i--) {
++        pending.push({ node: node.nodes[i], depth: depth + 1, parent: node, leave: false });
++      }
++    }
++  }
++};
++
++module.exports = { MAX_DEPTH, assertSafeAst, reject };
+diff --git a/lib/expand.js b/lib/expand.js
+index 35b2c41d6afdb8f0197959e26079f266e48370d3..0369695b9e807f8cc1ec21404b1af96b32bb9205 100644
+--- a/lib/expand.js
++++ b/lib/expand.js
+@@ -1,5 +1,7 @@
+ 'use strict';
+ 
++const { assertSafeAst } = require('./depth-guard');
++
+ const fill = require('fill-range');
+ const stringify = require('./stringify');
+ const utils = require('./utils');
+@@ -31,6 +33,7 @@ const append = (queue = '', stash = '', enclose = false) => {
+ };
+ 
+ const expand = (ast, options = {}) => {
++  assertSafeAst(ast);
+   const rangeLimit = options.rangeLimit === undefined ? 1000 : options.rangeLimit;
+ 
+   const walk = (node, parent = {}) => {
+diff --git a/lib/parse.js b/lib/parse.js
+index 3a6988e629f52aee6609dc5ec290a5e9ff47cecb..1a26ec5d28dfd43351c9f548b201b57d7567533d 100644
+--- a/lib/parse.js
++++ b/lib/parse.js
+@@ -1,5 +1,7 @@
+ 'use strict';
+ 
++const { MAX_DEPTH, reject } = require('./depth-guard');
++
+ const stringify = require('./stringify');
+ 
+ /**
+@@ -144,6 +146,7 @@ const parse = (input, options = {}) => {
+ 
+     if (value === CHAR_LEFT_PARENTHESES) {
+       block = push({ type: 'paren', nodes: [] });
++      if (stack.length >= MAX_DEPTH) reject();
+       stack.push(block);
+       push({ type: 'text', value });
+       continue;
+@@ -210,6 +213,7 @@ const parse = (input, options = {}) => {
+       };
+ 
+       block = push(brace);
++      if (stack.length >= MAX_DEPTH) reject();
+       stack.push(block);
+       push({ type: 'open', value });
+       continue;
+diff --git a/lib/stringify.js b/lib/stringify.js
+index 8bcf872c31894f81a8c64d9202fd607e4fd7ea2b..e2506018ab66bc4798a301332fce05c949c7a1ca 100644
+--- a/lib/stringify.js
++++ b/lib/stringify.js
+@@ -1,8 +1,11 @@
+ 'use strict';
+ 
++const { assertSafeAst } = require('./depth-guard');
++
+ const utils = require('./utils');
+ 
+ module.exports = (ast, options = {}) => {
++  assertSafeAst(ast);
+   const stringify = (node, parent = {}) => {
+     const invalidBlock = options.escapeInvalid && utils.isInvalidBrace(parent);
+     const invalidNode = node.invalid === true && options.escapeInvalid === true;

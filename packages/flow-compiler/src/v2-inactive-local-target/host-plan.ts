@@ -1,3 +1,4 @@
+import { planPrimitive } from "./host-plan-primitive.js";
 import type { FlowNode } from "@dzupagent/flow-ast";
 import type { FlowTypedCondition } from "@dzupagent/flow-ast/expressions";
 import {
@@ -6,10 +7,6 @@ import {
   type PrimitiveDefinitionV2,
 } from "@dzupagent/flow-dsl";
 import type { PrimitiveMultiPortSaveContract } from "@dzupagent/flow-dsl/v2-multi-port-save";
-import {
-  evaluatePrimitivePolicyNarrowing,
-  type PrimitivePolicyLimits,
-} from "@dzupagent/flow-dsl/v2-policy-narrowing";
 import type { PrimitiveRetryPolicy } from "@dzupagent/flow-dsl/v2-retry-policy";
 import type { PrimitiveTerminalCatchContract } from "@dzupagent/flow-dsl/v2-terminal-catch";
 
@@ -26,7 +23,6 @@ import type {
   V2InactiveLocalHostRequest,
   V2InactiveLocalHostPrimitiveStepPlan,
   V2InactiveLocalHostStepPlan,
-  PlanBase,
 } from "./host-contracts.js";
 export type {
   V2InactiveLocalHostBranchStepPlan,
@@ -41,12 +37,10 @@ import {
 } from "./host-plan-request.js";
 import {
   cloneHostPlanRecord as cloneRecord,
-  exactHostPlanBinding as exactBinding,
   hostPlanIdentity as planIdentity,
   invalidHostPlan as invalidPlan,
   invalidHostPlanBinding as bindingInvalid,
   isPlainHostPlanRecord as isPlainRecord,
-  resolveHostPlanPrimitive as resolvePrimitive,
 } from "./host-plan-support.js";
 import { qualifyV2InactiveLocalTarget } from "./qualification.js";
 
@@ -458,82 +452,4 @@ function flattenSteps(
     output.push(primitive.step);
   }
   return { ok: true };
-}
-
-function planPrimitive(
-  base: PlanBase,
-  raw: Readonly<Record<string, unknown>>,
-  lineage: DslV2FrontendMetadata["stepLineage"][number],
-  frontend: DslV2FrontendMetadata,
-  handlers: ReadonlyMap<string, V2InactiveLocalHandlerBinding>,
-  request: V2InactiveLocalHostRequest
-):
-  | { readonly ok: true; readonly step: V2InactiveLocalHostPrimitiveStepPlan }
-  | { readonly ok: false; readonly error: V2InactiveLocalHostError } {
-  const primitiveRef = lineage.primitiveRef;
-  if (
-    primitiveRef === undefined ||
-    lineage.primitiveSemanticHash === undefined
-  ) {
-    return invalidPlan(
-      base.authoredPath,
-      "primitive step requires exact ref/hash lineage"
-    );
-  }
-  const primitive = resolvePrimitive(request, primitiveRef);
-  const handler = handlers.get(primitiveRef);
-  if (
-    primitive === undefined ||
-    handler === undefined ||
-    handler.semanticHash !== lineage.primitiveSemanticHash ||
-    handler.semanticHash !== primitive.compatibility.semanticHash
-  ) {
-    return bindingInvalid(
-      `handlers.${primitiveRef}`,
-      `step requires exact local handler ${primitiveRef}/${lineage.primitiveSemanticHash}`
-    );
-  }
-  const policy = exactBinding(frontend.policyNarrowings, base.authoredPath);
-  const retry = exactBinding(frontend.retryPolicies, base.authoredPath);
-  const terminal = exactBinding(frontend.terminalCatches, base.authoredPath);
-  const save = exactBinding(frontend.multiPortSaves, base.authoredPath);
-  if (
-    policy === undefined ||
-    retry === undefined ||
-    terminal === undefined ||
-    save === undefined
-  ) {
-    return invalidPlan(
-      base.authoredPath,
-      "every hosted primitive must own policy, retry, terminal catch, and multi-port save"
-    );
-  }
-  const narrowed = evaluatePrimitivePolicyNarrowing(
-    primitive,
-    policy.narrowing,
-    request.inheritedPolicy
-  );
-  if (!narrowed.ok) {
-    return invalidPlan(
-      `${base.authoredPath}.policy`,
-      "authored policy is incompatible with the inherited host policy",
-      narrowed.errors.map(
-        (error) => `${error.code}:${error.field ?? "root"}:${error.message}`
-      )
-    );
-  }
-  return {
-    ok: true,
-    step: deepFreeze({
-      ...base,
-      kind: "primitive" as const,
-      input: cloneRecord(isPlainRecord(raw.with) ? raw.with : {}),
-      primitive,
-      handler,
-      policy: narrowed.effectivePolicy,
-      retry: retry.retry,
-      terminalCatch: terminal.catch,
-      save: save.save,
-    }),
-  };
 }
