@@ -25,6 +25,7 @@ import type {
 } from '@dzupagent/flow-compiler'
 import type { AsyncToolResolver, ToolResolver } from '@dzupagent/flow-ast'
 
+import { compileNormalizedInput } from '../compile-input.js'
 import { sanitizeError } from '../route-error.js'
 import { buildCompileResultEvent } from '../compile-result-event.js'
 import {
@@ -127,8 +128,7 @@ export async function handleStageStreamCompile(args: StreamStageCompileArgs): Pr
 
     // Run the compile WITHOUT awaiting first, so stages can stream as they fire.
     type CompileOutcome = CompileSuccess | CompileFailure | { readonly __streamError: string }
-    const compilePromise: Promise<CompileOutcome> = compiler
-      .compile(flowInput, invocationOptions)
+    const compilePromise: Promise<CompileOutcome> = compileNormalizedInput(compiler, flowInput, invocationOptions)
       .catch((err: unknown): { readonly __streamError: string } => {
         const { safe } = sanitizeError(err)
         return { __streamError: safe } as const

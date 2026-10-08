@@ -20,6 +20,7 @@ import type {
 } from '@dzupagent/flow-compiler'
 import type { AsyncToolResolver, ToolResolver } from '@dzupagent/flow-ast'
 
+import { compileNormalizedInput } from '../compile-input.js'
 import { sanitizeError } from '../route-error.js'
 import { buildCompileResultEvent } from '../compile-result-event.js'
 import {
@@ -112,8 +113,7 @@ export async function handleSseCompile(args: SseCompileArgs): Promise<Response> 
 
     // Kick off the compile — do NOT await here; stream events as they
     // arrive. Any thrown error is captured and surfaced as an SSE error.
-    const compilePromise = compiler
-      .compile(flowInput, invocationOptions)
+    const compilePromise = compileNormalizedInput(compiler, flowInput, invocationOptions)
       .catch((err: unknown) => {
         const { safe } = sanitizeError(err)
         return { __streamError: safe } as const

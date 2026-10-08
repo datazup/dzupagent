@@ -19,6 +19,7 @@ import type {
 import type { AsyncToolResolver, ToolResolver } from '@dzupagent/flow-ast'
 import { secureLogger } from '@dzupagent/core/utils'
 
+import { compileNormalizedInput } from '../compile-input.js'
 import { sanitizeError } from '../route-error.js'
 import { buildCompileResultEvent } from '../compile-result-event.js'
 import {
@@ -64,7 +65,7 @@ export async function handleJsonCompile(args: JsonCompileArgs): Promise<Response
   })
 
   try {
-    const result = await compiler.compile(flowInput, invocationOptions)
+    const result = await compileNormalizedInput(compiler, flowInput, invocationOptions)
 
     if ('errors' in result) {
       // Failure — report the first error's stage (stages are monotonic; the

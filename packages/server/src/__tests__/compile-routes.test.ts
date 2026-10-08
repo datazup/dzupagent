@@ -67,6 +67,7 @@ function parseEventTypes(ws: MockWsClient): string[] {
 // ---------------------------------------------------------------------------
 
 const mockCompile = vi.fn()
+const mockCompileDsl = vi.fn()
 /**
  * The real `createFlowCompiler` takes exactly one `CompilerOptions` argument.
  * Declaring it here — rather than leaving `vi.fn()` at zero parameters — is
@@ -77,9 +78,12 @@ type FlowCompilerOptions = Parameters<
   typeof FlowCompilerModule.createFlowCompiler
 >[0]
 
-const mockCreateFlowCompiler = vi.fn((_opts: FlowCompilerOptions) => ({
-  compile: mockCompile,
-}))
+const mockCreateFlowCompiler = vi.fn(
+  (_opts: FlowCompilerOptions): Partial<Pick<FlowCompilerModule.FlowCompiler, 'compile' | 'compileDsl'>> => ({
+    compile: mockCompile,
+    compileDsl: mockCompileDsl,
+  }),
+)
 
 vi.mock('@dzupagent/flow-compiler', async (importOriginal) => {
   const actual = await importOriginal<typeof FlowCompilerModule>()
@@ -346,12 +350,10 @@ describe('POST /api/workflows/compile — JSON branch', () => {
     }))
   })
 
-  it('200 — accepts dzupflow DSL input and compiles the normalized root flow', async () => {
-    mockCompile.mockResolvedValueOnce(SUCCESS_RESULT)
+  it('200 — compiles dzupflow DSL input through compileDsl with the raw source', async () => {
+    mockCompileDsl.mockResolvedValueOnce(SUCCESS_RESULT)
     const app = buildApp()
-
-    const res = await postCompile(app, {
-      dsl: `
+    const dsl = `
 dsl: dzupflow/v1
 id: review_and_build
 version: 1
@@ -359,18 +361,67 @@ steps:
   - complete:
       id: done
       result: ok
-`,
+`
+
+    const res = await postCompile(app, { dsl })
+    expect(res.status).toBe(200)
+    expect(mockCompileDsl).toHaveBeenCalledWith(dsl)
+    expect(mockCompile).not.toHaveBeenCalled()
+  })
+
+  it('200 — keeps the runId correlation on the compileDsl evidence', async () => {
+    mockCompileDsl.mockResolvedValueOnce({
+      ...SUCCESS_RESULT,
+      evidence: { correlationIds: { compileId: 'cid-abc-123', eventCorrelationId: 'cid-abc-123' } },
+    })
+    const app = buildApp()
+
+    const res = await app.request('/api/workflows/compile?runId=run-7', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        dsl: 'dsl: dzupflow/v1\nid: corr\nversion: 1\nsteps:\n  - complete:\n      id: done\n      result: ok\n',
+      }),
     })
     expect(res.status).toBe(200)
-    expect(mockCompile).toHaveBeenCalledWith({
-      type: 'sequence',
-      id: 'root',
-      nodes: [
-        { type: 'complete', id: 'done', result: 'ok' },
-      ],
-    }, expect.objectContaining({
-      sourceKind: 'dzupflow-dsl',
-    }))
+    const body = (await res.json()) as { evidence: { correlationIds: Record<string, string> } }
+    expect(body.evidence.correlationIds).toEqual({
+      compileId: 'cid-abc-123',
+      eventCorrelationId: 'run-7',
+      runId: 'run-7',
+    })
+  })
+
+  it('400 — a dzupflow/v2 retry block reaches the V2 target gate (real compiler)', async () => {
+    const actual = await vi.importActual<typeof FlowCompilerModule>('@dzupagent/flow-compiler')
+    mockCreateFlowCompiler.mockImplementationOnce((cfg: FlowCompilerOptions) => actual.createFlowCompiler(cfg))
+    const app = buildApp()
+
+    const res = await postCompile(app, {
+      dsl: `
+dsl: dzupflow/v2
+id: retry-aware
+version: 2.0.0
+steps:
+  - id: draft
+    use: adapter.run@1
+    with:
+      provider: codex
+      instructions: Draft.
+    retry:
+      match:
+        - ADAPTER_FAILED
+      maxAttempts: 3
+    save:
+      result: state.draft
+`,
+    })
+    const body = (await res.json()) as { ok: boolean; errors: Array<{ code?: string; nodePath?: string }> }
+    expect(res.status).toBe(400)
+    expect(body.ok).toBe(false)
+    expect(body.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'V2_RETRY_TARGET_UNSUPPORTED', nodePath: 'root.steps[0].retry' }),
+    ]))
   })
 
   it('400 — rejects invalid dzupflow DSL before compiler execution', async () => {
