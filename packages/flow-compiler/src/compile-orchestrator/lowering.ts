@@ -13,7 +13,10 @@
  */
 
 import type { FlowNode, ResolvedTool } from "@dzupagent/flow-ast";
-import type { DslV2RetryPolicyBinding } from "@dzupagent/flow-dsl";
+import type {
+  DslV2RetryPolicyBinding,
+  DslV2TerminalCatchBinding,
+} from "@dzupagent/flow-dsl";
 import { PipelineDefinitionSchema } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 import { lowerSkillChain } from "../lower/lower-skill-chain.js";
@@ -21,6 +24,7 @@ import { lowerPipelineFlat } from "../lower/lower-pipeline-flat.js";
 import { lowerPipelineLoop } from "../lower/lower-pipeline-loop.js";
 import type { LoweredPorts } from "../lower/_shared-types.js";
 import { admitSuspendedExits } from "../suspended-exit-admission.js";
+import { applyPipelineCatches } from "./v2-pipeline-catch.js";
 import { applyPipelineRetries } from "./v2-pipeline-retry.js";
 import type {
   CompilationError,
@@ -38,6 +42,8 @@ export interface LoweringInput {
   readonly opts: CompilerOptions;
   /** V2 retry bindings the `pipeline` target admitted (S5-R2). */
   readonly v2RetryPolicies?: readonly DslV2RetryPolicyBinding[];
+  /** V2 catch bindings the `pipeline` target admitted (S5-C2). */
+  readonly v2TerminalCatches?: readonly DslV2TerminalCatchBinding[];
 }
 
 /**
@@ -179,30 +185,45 @@ function admitPorts(
   });
 }
 
+/** Fail closed for V2 bindings whose step has no single node to carry them. */
+function unmappedV2Errors(
+  authoredPaths: readonly string[],
+  code: string,
+  label: string,
+  field: string,
+): CompilationError[] {
+  return authoredPaths.map((authoredPath) => ({
+    stage: 4 as const,
+    code,
+    message:
+      `${label} at "${authoredPath}" has no single lowered primitive node on the "pipeline" target ` +
+      "to carry it. Artifact emission is blocked.",
+    nodePath: `${authoredPath}.${field}`,
+    category: "lowering" as const,
+  }));
+}
+
 /** Run stage 4 end to end: lower, validate the artifact, admit the ports. */
 export function lowerAdmittedFlow(input: LoweringInput): LoweringResult {
   const lowered = lowerForTarget(input);
   if ("error" in lowered) return { ok: false, errors: [lowered.error] };
 
-  if (input.target === "pipeline" && input.v2RetryPolicies !== undefined) {
-    const unmapped = applyPipelineRetries(
-      lowered.artifact,
-      input.v2RetryPolicies,
-    );
-    if (unmapped.length > 0) {
-      return {
-        ok: false,
-        errors: unmapped.map((authoredPath) => ({
-          stage: 4 as const,
-          code: "V2_RETRY_TARGET_UNSUPPORTED",
-          message:
-            `Retry policy at "${authoredPath}" has no single lowered primitive node on the "pipeline" target ` +
-            "to carry it. Artifact emission is blocked.",
-          nodePath: `${authoredPath}.retry`,
-          category: "lowering" as const,
-        })),
-      };
-    }
+  if (input.target === "pipeline") {
+    const unmapped = [
+      ...unmappedV2Errors(
+        applyPipelineRetries(lowered.artifact, input.v2RetryPolicies ?? []),
+        "V2_RETRY_TARGET_UNSUPPORTED",
+        "Retry policy",
+        "retry",
+      ),
+      ...unmappedV2Errors(
+        applyPipelineCatches(lowered.artifact, input.v2TerminalCatches ?? []),
+        "V2_CATCH_TARGET_UNSUPPORTED",
+        "Terminal catch",
+        "catch",
+      ),
+    ];
+    if (unmapped.length > 0) return { ok: false, errors: unmapped };
   }
 
   const invalidArtifact = validateLoweredArtifact(

@@ -24,6 +24,7 @@ import type {
   CompilationTarget,
 } from "../types.js";
 import type { SourceReferenceSnapshot } from "./reference-snapshot.js";
+import { pipelineCatchRefusal } from "./v2-pipeline-catch.js";
 import { pipelineRetryRefusal } from "./v2-pipeline-retry.js";
 
 /**
@@ -69,14 +70,21 @@ function terminalCatchErrors(
   target: CompilationTarget,
   source: SourceReferenceSnapshot,
 ): CompilationError[] {
-  return (source.dslV2TerminalCatches ?? []).map((binding) => {
+  return (source.dslV2TerminalCatches ?? []).flatMap((binding) => {
+    // `pipeline` lowers admitted bindings (S5-C2); the rest stay refused.
+    const refusal =
+      target === "pipeline" ? pipelineCatchRefusal(binding) : undefined;
+    if (target === "pipeline" && refusal === undefined) return [];
     const path = `${binding.authoredPath}.catch`;
     return {
       stage: 4 as const,
       code: "V2_CATCH_TARGET_UNSUPPORTED",
       message:
-        `Terminal catch for ${binding.primitiveRef} is valid, but the selected "${target}" target has no reviewed ` +
-        `${FLOW_PRIMITIVE_TERMINAL_CATCH_CAPABILITY} terminal-result handler. Artifact emission is blocked.`,
+        refusal === undefined
+          ? `Terminal catch for ${binding.primitiveRef} is valid, but the selected "${target}" target has no reviewed ` +
+            `${FLOW_PRIMITIVE_TERMINAL_CATCH_CAPABILITY} terminal-result handler. Artifact emission is blocked.`
+          : `Terminal catch for ${binding.primitiveRef} is valid, but the "pipeline" target cannot handle it: ` +
+            `${refusal}. Artifact emission is blocked.`,
       nodePath: path,
       category: "lowering" as const,
       ...sourceSpan(source, path),

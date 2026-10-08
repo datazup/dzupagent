@@ -287,6 +287,9 @@ export async function runCompile(
     ...(sourceReferences.dslV2RetryPolicies === undefined
       ? {}
       : { v2RetryPolicies: sourceReferences.dslV2RetryPolicies }),
+    ...(sourceReferences.dslV2TerminalCatches === undefined
+      ? {}
+      : { v2TerminalCatches: sourceReferences.dslV2TerminalCatches }),
   });
   if (!lowered.ok) return failCompile(fail, 4, lowered.errors);
 

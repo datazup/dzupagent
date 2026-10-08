@@ -156,6 +156,14 @@ same-invocation identity, and explicit continue/complete/fail handling.
 Typed-condition, policy, retry, and catch target gaps accumulate rather than
 masking one another.
 
+The opt-in `target: "pipeline"` adopts catch on unguarded top-level steps. Each
+authored clause becomes one `terminalCatch` clause on the step's node, in order,
+with the exact `match` codes as `errorCodes`. `fail` carries the authored `code`
+as `failureCode`. As on the local-host oracle, `continue` goes on to the next
+step, `complete` ends the run completed, and `fail` fails the run with that
+code. On `pipeline` the gate still refuses catch on nested steps and on any step
+with no single primitive node.
+
 Valid V2 multi-port saves also remain authoring evidence until a target adopts
 `flow.save.primitive-multi-port@1` with typed state writes and reviewed
 control-flow availability. Stage 4 returns

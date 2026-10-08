@@ -24,7 +24,7 @@ export function pipelineRetryRefusal(
   if (binding.retry.backoff?.jitter === "full") {
     return 'full jitter draws from the local-host seed, which PipelineRuntime cannot reproduce; use jitter "none"';
   }
-  if (!TOP_LEVEL_STEP.test(binding.authoredPath)) {
+  if (!isTopLevelStep(binding.authoredPath)) {
     return "retry is admitted only on top-level steps";
   }
   return undefined;
@@ -48,10 +48,36 @@ export function lowerPipelineRetry(binding: DslV2RetryPolicyBinding): {
   };
 }
 
+/** Whether an authored path names a top-level step (`root.steps[N]`). */
+export function isTopLevelStep(authoredPath: string): boolean {
+  return TOP_LEVEL_STEP.test(authoredPath);
+}
+
 interface LoweredNode {
-  retries?: number;
-  retryPolicy?: NodeRetryPolicy;
   source?: { path?: string; nodeType?: string };
+}
+
+/**
+ * The single lowered node that carries a top-level primitive step, or
+ * `undefined` when there is none or more than one (e.g. a guarded step,
+ * which lowers to a branch).
+ */
+export function topLevelStepNode(
+  artifact: unknown,
+  binding: { readonly authoredPath: string; readonly primitiveRef: string },
+): Record<string, unknown> | undefined {
+  const nodes = (artifact as { nodes?: LoweredNode[] }).nodes ?? [];
+  const index = TOP_LEVEL_STEP.exec(binding.authoredPath)?.[1];
+  if (index === undefined) return undefined;
+  const nodeType = loweredNodeType(binding.primitiveRef);
+  const targets = nodes.filter(
+    (node) =>
+      node.source?.path === `root.nodes[${index}]` &&
+      node.source.nodeType === nodeType,
+  );
+  return targets.length === 1
+    ? (targets[0] as Record<string, unknown>)
+    : undefined;
 }
 
 /**
@@ -63,19 +89,10 @@ export function applyPipelineRetries(
   artifact: unknown,
   bindings: readonly DslV2RetryPolicyBinding[],
 ): string[] {
-  const nodes = (artifact as { nodes?: LoweredNode[] }).nodes ?? [];
   const unmapped: string[] = [];
   for (const binding of bindings) {
-    const index = TOP_LEVEL_STEP.exec(binding.authoredPath)?.[1];
-    const nodeType = loweredNodeType(binding.primitiveRef);
-    const targets = nodes.filter(
-      (node) =>
-        index !== undefined &&
-        node.source?.path === `root.nodes[${index}]` &&
-        node.source.nodeType === nodeType,
-    );
-    const [target] = targets;
-    if (target === undefined || targets.length !== 1) {
+    const target = topLevelStepNode(artifact, binding);
+    if (target === undefined) {
       unmapped.push(binding.authoredPath);
       continue;
     }
