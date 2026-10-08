@@ -43,6 +43,13 @@ export interface NodeRetryPolicy {
    * runtime's own `RetryPolicy`, which node-level policies merge into.
    */
   retryableErrors?: string[];
+  /**
+   * Exact machine error codes that are retryable, compared with the failed
+   * attempt's `NodeResult.errorMetadata.code`. When set, this list is
+   * authoritative: `retryableErrors` is not consulted, an attempt without a
+   * code is not retried, and an empty list retries nothing.
+   */
+  retryableErrorCodes?: string[];
 }
 
 export interface PipelineNodeSource {

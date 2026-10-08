@@ -54,6 +54,7 @@ const PipelineNodeBaseSchema = z.object({
       backoffMultiplier: z.number().positive().optional(),
       jitter: z.boolean().optional(),
       retryableErrors: z.array(z.string()).optional(),
+      retryableErrorCodes: z.array(z.string().min(1)).optional(),
     })
     .strict()
     .optional(),

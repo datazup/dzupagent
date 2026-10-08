@@ -98,15 +98,28 @@ export function calculateBackoff(
 /**
  * Determine whether an error message is retryable according to the given policy.
  *
- * - If `policy.retryableErrors` is empty or unset, ALL errors are retryable.
+ * - If `policy.retryableErrorCodes` is set, it is authoritative: the error is
+ *   retryable iff `errorCode` exactly equals one listed code. Message
+ *   patterns are not consulted, and a missing code is never retryable.
+ * - Otherwise, if `policy.retryableErrors` is empty or unset, ALL errors are
+ *   retryable.
  * - String patterns match via `error.includes(pattern)`.
  * - RegExp patterns match via `pattern.test(error)`.
  *
- * @param error  - The error message to check
- * @param policy - Retry policy with optional retryableErrors list
+ * @param error     - The error message to check
+ * @param policy    - Retry policy with optional retryableErrors / retryableErrorCodes
+ * @param errorCode - Machine error code of the failed attempt, when known
  * @returns `true` if the error should trigger a retry
  */
-export function isRetryable(error: string, policy?: RetryPolicy): boolean {
+export function isRetryable(
+  error: string,
+  policy?: RetryPolicy,
+  errorCode?: string,
+): boolean {
+  const codes = policy?.retryableErrorCodes;
+  if (codes !== undefined) {
+    return errorCode !== undefined && codes.includes(errorCode);
+  }
   const patterns = policy?.retryableErrors;
   if (!patterns || patterns.length === 0) return true;
   return patterns.some((p) =>
@@ -144,5 +157,7 @@ export function resolveRetryPolicy(
       nodePolicy.backoffMultiplier ?? globalPolicy.backoffMultiplier,
     jitter: nodePolicy.jitter ?? globalPolicy.jitter,
     retryableErrors: nodePolicy.retryableErrors ?? globalPolicy.retryableErrors,
+    retryableErrorCodes:
+      nodePolicy.retryableErrorCodes ?? globalPolicy.retryableErrorCodes,
   });
 }

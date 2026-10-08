@@ -162,6 +162,13 @@ export interface RetryPolicy
    * - `RegExp` values match via `pattern.test(error)`
    */
   retryableErrors?: Array<string | RegExp>;
+  /**
+   * Exact machine error codes that are retryable, compared with the failed
+   * attempt's `errorMetadata.code`. When set, this list is authoritative:
+   * `retryableErrors` is not consulted, an attempt without a code is not
+   * retried, and an empty list retries nothing.
+   */
+  retryableErrorCodes?: string[];
 }
 
 // ---------------------------------------------------------------------------

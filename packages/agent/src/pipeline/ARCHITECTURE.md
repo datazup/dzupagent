@@ -150,7 +150,8 @@ Loop utilities:
 Retry utilities:
 - `DEFAULT_RETRY_POLICY`
 - `calculateBackoff(attempt, policy?)`
-- `isRetryable(error, policy?)`
+- `isRetryable(error, policy?, errorCode?)` (when `policy.retryableErrorCodes` is set, only an exact `errorCode` match retries;
+  `runNodeWithRetry` passes `NodeResult.errorMetadata.code`)
 - `resolveRetryPolicy(nodePolicy, globalPolicy)`
 
 Checkpoint stores:

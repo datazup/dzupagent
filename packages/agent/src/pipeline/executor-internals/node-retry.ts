@@ -53,7 +53,14 @@ export async function runNodeWithRetry(
     if (attempt === maxAttempts) break
 
     // Check if error is retryable
-    if (!isRetryableError(result.error, effectivePolicy)) break
+    const errorCode = result.errorMetadata?.['code']
+    if (
+      !isRetryableError(
+        result.error,
+        effectivePolicy,
+        typeof errorCode === 'string' ? errorCode : undefined,
+      )
+    ) break
 
     // Calculate backoff (with optional jitter)
     const backoffMs = calculateBackoff(attempt, effectivePolicy)
