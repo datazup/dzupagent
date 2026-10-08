@@ -266,3 +266,18 @@ export function targetReasons(
 
   return reasons;
 }
+
+/**
+ * The single reason reported when the `target: "pipeline"` compiler option,
+ * not the feature bitmask, selected the target.
+ */
+export function targetOptionReasons(
+  target: CompilationTarget
+): CompilationTargetReason[] {
+  return [
+    {
+      code: "TARGET_OPTION",
+      message: `The compiler option target: "${target}" selected the target; feature routing was not used.`,
+    },
+  ];
+}

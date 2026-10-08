@@ -393,6 +393,28 @@ offending `key` where one is attributable.
 
 `src/__tests__/fixtures/v2-run/` is a complete runnable example.
 
+## Selecting the `pipeline` target
+
+By default the compiler picks the target from the flow's features, and only a
+`for_each` or `loop` routes to `pipeline`. Pass `target: "pipeline"` to lower
+any flow with the `pipeline` lowerer, for example a loop-free `dzupflow/v2`
+document that should run on `PipelineRuntime`:
+
+```ts
+const result = await createFlowCompiler({ toolResolver, target: "pipeline" })
+  .compileDsl(source);
+// result.target === "pipeline"; result.reasons[0].code === "TARGET_OPTION"
+```
+
+- Every stage-4 target gate runs against `pipeline`. The five V2-only features
+  (typed `when`, `policy`, `retry`, `catch`, multi-port `save`) are still
+  refused there until `PipelineRuntime` supports them.
+- Shape validation keeps natural routing, and the option is not passed to
+  semantic resolution. `target: "codev-runtime"` keeps its meaning; the two
+  values cannot be combined in one compile.
+- The artifact sets no `checkpointStrategy`; the host chooses one.
+- `PipelineRuntime` does not yet write an `adapter.run` output into state.
+
 ## License
 
 MIT

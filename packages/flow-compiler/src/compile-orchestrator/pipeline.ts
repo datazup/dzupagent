@@ -51,6 +51,7 @@ import {
   countDiagnosticsByCategory,
   defaultSourceKind,
   jsonPointerToNodePath,
+  targetOptionReasons,
   targetReasons,
   toSemanticErrors,
   toCompilationWarnings,
@@ -192,7 +193,8 @@ export async function runCompile(
     ...(opts.profileRegistry !== undefined
       ? { profileRegistry: opts.profileRegistry }
       : {}),
-    ...(opts.target !== undefined ? { target: opts.target } : {}),
+    // Only `codev-runtime` is a semantic hint; `pipeline` selects the lowerer.
+    ...(opts.target === "codev-runtime" ? { target: opts.target } : {}),
     ...(opts.referencePolicy !== undefined
       ? { referencePolicy: opts.referencePolicy }
       : {}),
@@ -233,10 +235,15 @@ export async function runCompile(
   // -----------------------------------------------------------------------
   // Stage 4: Route + lower
   // -----------------------------------------------------------------------
-  const { target, bitmask } = routeTarget(ast);
+  // The `target: "pipeline"` option outranks feature routing; every gate
+  // below then runs against the selected target.
+  const routed = routeTarget(ast);
+  const targetFromOption = opts.target === "pipeline";
+  const target = targetFromOption ? "pipeline" : routed.target;
+  const { bitmask } = routed;
   const requirements = bindFlowRequirementsToPrimitiveRegistry(
     ast,
-    collectFlowRequirements(ast),
+    collectFlowRequirements(ast, target),
     opts.primitiveRegistry,
     opts.primitiveBindings,
   );
@@ -244,9 +251,13 @@ export async function runCompile(
   // Target admission gates, in the order a violation should be reported:
   // node kinds the target cannot represent, then v2 capability shortfalls,
   // then the structural on_error backstop.
+  // Under the option the anchor heuristic does not apply: the pipeline
+  // lowerer shares `lowerNodeToPipeline` with planning-dag, so the routed
+  // target's admission is the right one. Empty or unlowerable output still
+  // fails closed in `lowerAdmittedFlow`.
   const unsupportedRuntimeNodes = collectUnsupportedRuntimeNodeErrors(
     ast,
-    target,
+    routed.target,
   );
   if (unsupportedRuntimeNodes.length > 0) {
     return failCompile(fail, 4, unsupportedRuntimeNodes);
@@ -327,7 +338,9 @@ export async function runCompile(
     classificationEnvelope,
     ...(ports !== undefined ? { ports } : {}),
     warnings: compilationWarnings,
-    reasons: targetReasons(target, bitmask),
+    reasons: targetFromOption
+      ? targetOptionReasons(target)
+      : targetReasons(target, bitmask),
     requirements,
     compileId,
     evidence: buildCompileEvidence({
