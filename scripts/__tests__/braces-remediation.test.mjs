@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { verifyBracesRemediation } from '../verify-braces-remediation.mjs'
+import { verifyBracesRemediation, installedBracesLocations } from '../verify-braces-remediation.mjs'
 import { evaluateDependencyAudit } from '../audit-dependencies.mjs'
 
 const issue = { value: 'braces', children: { URL: 'https://github.com/advisories/GHSA-vfj7-8cjw-p6xm', Severity: 'high', 'Tree Versions': ['3.0.3'] } }
@@ -9,6 +9,13 @@ const audit = (rows = [issue], proof = remediation) => evaluateDependencyAudit({
 
 test('installed transitive consumer uses the exact guarded patch and rejects deep patterns and ASTs', () => {
   assert.equal(verifyBracesRemediation().status, 'verified')
+})
+test('every linked installation must use the patch and stay in the checkout', () => {
+  const patch = '.yarn/patches/braces-npm-3.0.3-582c14023c.patch'
+  const locator = `braces@patch:braces@npm%3A3.0.3#~/${patch}::version=3.0.3&hash=abcdef`
+  const valid = { [locator]: { locations: ['node_modules/braces', 'node_modules/other/node_modules/braces'] } }
+  assert.equal(installedBracesLocations(valid, patch).length, 2)
+  for (const state of [{}, { ...valid, 'braces@npm:3.0.3': { locations: ['node_modules/unsafe/node_modules/braces'] } }, { [locator]: { locations: [] } }, { [locator]: { locations: ['../escape'] } }]) assert.throws(() => installedBracesLocations(state, patch))
 })
 test('registry advisory remains reported alongside its verified remediation', () => {
   const result = audit()
