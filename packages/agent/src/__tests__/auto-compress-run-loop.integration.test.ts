@@ -236,6 +236,21 @@ describe('DzupAgent.generate() — autoCompress via tokenLifecyclePlugin (DZC-P1
     expect(contains(turn3, 'tool-result')).toBe(true)
   })
 
+  it('keeps options.context ahead of the pending tool call so its result follows it directly (DZC-P1c)', async () => {
+    const { model, agentCalls } = makeModel(9_000)
+    const { plugin } = makePlugin()
+
+    const result = await makeAgent(model, { tokenLifecyclePlugin: plugin })
+      .generate(history(), { context: 'CALLER_CONTEXT_DZC_P1C' })
+
+    expect(result.compressionLog?.length).toBeGreaterThanOrEqual(1)
+    const turn2 = agentCalls[1]!
+    expectWellFormedToolPairs(turn2)
+    expect(
+      turn2.filter(m => textOf(m) === 'CALLER_CONTEXT_DZC_P1C'),
+    ).toHaveLength(1)
+  })
+
   it('does not compress while usage stays under the threshold', async () => {
     const { model, agentCalls, summaryCalls } = makeModel(100)
     const { plugin, manager } = makePlugin()
