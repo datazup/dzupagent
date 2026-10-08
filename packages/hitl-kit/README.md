@@ -88,6 +88,29 @@ engine.decide('manager', 'granted') // throws ApproverNotActiveError unless leve
 - A malformed policy (no levels, empty/blank/duplicate approvers in a level,
   non-positive-integer `timeoutMs`) throws `InvalidEscalationPolicyError`.
 
+### Quorum and escalation on `ApprovalGate` (opt-in)
+
+`ApprovalGate` works the same as before unless you call these methods.
+
+```ts
+const gate = new ApprovalGate({ voteStore }) // voteStore defaults to in-memory
+
+// Quorum: settles the approval once the tally is terminal.
+const outcome = gate.waitForApproval(runId, 'deploy', payload)
+await gate.vote(runId, 'deploy', policy, { approverId: 'alice', decision: 'granted' })
+
+// Escalation: waits through the chain; approvers decide on the active level.
+const escalated = gate.waitForEscalation(runId, 'release', payload, escalationPolicy, { onEvent })
+await gate.decideEscalation(runId, 'release', 'lead', 'granted')
+```
+
+- `vote` grants with `{ quorum: tally }`, or rejects with `Quorum not reached: <r> of <n> approvers rejected`.
+  Any process that shares both stores can vote.
+- `decideEscalation` grants with `{ approverId, level }` and rejects with the reason you pass, or a default one.
+  When the chain runs out, the gate settles the approval according to `onExhausted`.
+- Escalation runs in a single process: the gate instance that is waiting holds level authority. A direct
+  `grant`/`reject` still ends the wait, as an operator override.
+
 ## License
 
 MIT
