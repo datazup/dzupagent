@@ -52,6 +52,31 @@ export interface NodeRetryPolicy {
   retryableErrorCodes?: string[];
 }
 
+/**
+ * One terminal-catch clause. `errorCodes` are exact machine codes compared
+ * with the failed node's final `NodeResult.errorMetadata.code`. `continue`
+ * settles the node and follows its normal edges, `complete` settles it and
+ * ends the run as completed, and `fail` fails the run with `failureCode`.
+ */
+export type NodeTerminalCatchClause =
+  | {
+      errorCodes: string[];
+      action: "continue" | "complete";
+    }
+  | {
+      errorCodes: string[];
+      action: "fail";
+      failureCode: string;
+    };
+
+/**
+ * Exact-code handling for a node's terminal failure, consulted after retries
+ * are exhausted and before error edges. A code may appear in one clause only.
+ */
+export interface NodeTerminalCatchPolicy {
+  clauses: NodeTerminalCatchClause[];
+}
+
 export interface PipelineNodeSource {
   /** Source artifact kind that produced this pipeline node. */
   kind: "flow-node";
@@ -82,6 +107,11 @@ export interface PipelineNodeBase {
    * The `retries` field above still controls max retry count.
    */
   retryPolicy?: NodeRetryPolicy;
+  /**
+   * Exact-code terminal-failure handling. Honoured for top-level nodes only;
+   * loop, for-each and fork body executors do not consult it.
+   */
+  terminalCatch?: NodeTerminalCatchPolicy;
   /**
    * W1 durability wiring (Slice 1). A declared idempotency key lowered from the
    * DSL (`meta.mutation.idempotencyKey`). When a non-empty string, the runtime

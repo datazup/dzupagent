@@ -115,6 +115,7 @@ Tests:
   - On failure result or thrown error:
     - Emits node failed event
     - Runs optional stuck-detector failure hook
+    - On a failure result only, applies `node.terminalCatch` (`terminal-catch.ts`) when `errorMetadata.code` exactly matches a clause: `continue` settles the node and follows normal edges, `complete` settles it and ends the run, `fail` fails the run with the clause `failureCode`
     - Attempts error-edge routing via extracted error code
     - Attempts recovery copilot when configured/eligible/budget-available
     - Falls back to failed run

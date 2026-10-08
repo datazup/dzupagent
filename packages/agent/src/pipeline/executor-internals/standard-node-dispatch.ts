@@ -28,6 +28,7 @@ import {
 import { getNextNodeIds, getErrorTarget } from "../pipeline-shared/edge-resolution.js";
 import { extractErrorCode } from "../pipeline-shared/error-classification.js";
 import { runNodeWithRetry } from "./node-retry.js";
+import { matchTerminalCatch } from "./terminal-catch.js";
 import {
   recordFailureInStuckDetector,
   recordSuccessInStuckDetector,
@@ -277,6 +278,30 @@ export async function dispatchStandardNode(
         context,
       );
       if (stuckAbort) return fail(stuckAbort);
+
+      // Exact-code terminal catch decides before error edges and recovery.
+      // A caught node is settled with its failed result; no output is written.
+      const caught = matchTerminalCatch(node, finalResult);
+      if (caught?.action === "fail") return fail(caught.failureCode);
+      if (caught !== undefined) {
+        completedNodeIds.push(node.id);
+        onCompleted?.();
+        await persistCheckpointWithIntegrityBoundary({
+          nodeId: node.id,
+          boundary: "node_completion",
+          save: saveCheckpoint,
+        });
+        if (caught.action === "complete") {
+          return { kind: "continue", nextNodeId: undefined };
+        }
+        const nextIds = getNextNodeIds(
+          node.id,
+          outgoingEdges,
+          config.predicates,
+          runState,
+        );
+        return { kind: "continue", nextNodeId: nextIds[0] };
+      }
 
       const errorNext = getErrorTarget(
         node.id,

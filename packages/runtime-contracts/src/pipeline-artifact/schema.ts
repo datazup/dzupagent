@@ -40,6 +40,47 @@ import { PIPELINE_SCHEMA_VERSIONS } from "./definition.js";
 // Node schemas
 // ---------------------------------------------------------------------------
 
+const TerminalCatchCodesSchema = z.array(z.string().min(1)).min(1);
+
+const NodeTerminalCatchPolicySchema = z
+  .object({
+    clauses: z
+      .array(
+        z.union([
+          z
+            .object({
+              errorCodes: TerminalCatchCodesSchema,
+              action: z.enum(["continue", "complete"]),
+            })
+            .strict(),
+          z
+            .object({
+              errorCodes: TerminalCatchCodesSchema,
+              action: z.literal("fail"),
+              failureCode: z.string().min(1),
+            })
+            .strict(),
+        ]),
+      )
+      .min(1),
+  })
+  .strict()
+  .superRefine((policy, context) => {
+    const claimed = new Set<string>();
+    policy.clauses.forEach((clause, clauseIndex) => {
+      clause.errorCodes.forEach((code, codeIndex) => {
+        if (claimed.has(code)) {
+          context.addIssue({
+            code: "custom",
+            path: ["clauses", clauseIndex, "errorCodes", codeIndex],
+            message: `terminal catch handles error code "${code}" more than once`,
+          });
+        }
+        claimed.add(code);
+      });
+    });
+  });
+
 const PipelineNodeBaseSchema = z.object({
   id: z.string().min(1),
   name: z.string().optional(),
@@ -58,6 +99,7 @@ const PipelineNodeBaseSchema = z.object({
     })
     .strict()
     .optional(),
+  terminalCatch: NodeTerminalCatchPolicySchema.optional(),
   declaredIdempotencyKey: z.string().optional(),
   idempotency: z
     .enum(["idempotent", "at-least-once", "exactly-once-required"])
