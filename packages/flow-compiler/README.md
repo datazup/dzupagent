@@ -134,11 +134,16 @@ dropping the constraint during V1 compatibility lowering. Typed-condition and
 policy adoption gaps are accumulated so authors can resolve both in one pass.
 
 The opt-in `target: "pipeline"` adopts policy on unguarded top-level steps. The
-authored `requireApproval`, `budgetCents` and `timeoutMs` are copied onto the
-step's node as `executionPolicy`. As on the local-host oracle, an
-approval-required step is never executed (`pipeline` fails the run with
-`PIPELINE_APPROVAL_REQUIRED` where the oracle reports `approval-required`), and
-the attempt durations plus retry backoff, then the attempt costs, are summed
+authored `budgetCents` and `timeoutMs` are copied onto the step's node as
+`executionPolicy`. `requireApproval` puts an approval gate (`<node>__approval`)
+in front of the step: the run suspends there with a pending approval
+interaction, executing and saving nothing, where the oracle reports
+`approval-required`. `PipelineRuntime.resumeInteraction` with an `approved`
+receipt runs the step; `rejected` fails the run with
+`PIPELINE_APPROVAL_REQUIRED` at `<node>__approval_rejected`, so neither the
+step nor any later step runs. The artifact's `schemaVersion` is then `1.1.0`
+and the gate is listed in `ports.suspensionSites`. For each step, the attempt
+durations plus retry backoff, then the attempt costs, are summed
 against the limits; going over fails the run with nothing saved and no catch.
 `budgetCents` needs the host's `nodeAttemptCostCents`; without it the run fails
 with `PIPELINE_BUDGET_COST_UNKNOWN`. The compiler passes no inherited policy. On

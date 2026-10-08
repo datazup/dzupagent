@@ -6,8 +6,9 @@
  * unguarded top-level step: loop, for-each and fork body executors do not
  * consult `executionPolicy`. The authored fields are copied as they are,
  * matching the local-host oracle's effective policy (the compiler passes no
- * inherited policy): `requireApproval` fails the run before the step runs,
- * and `timeoutMs` / `budgetCents` cap the summed attempt duration and cost.
+ * inherited policy): `timeoutMs` / `budgetCents` cap the summed attempt
+ * duration and cost. `requireApproval` is then moved onto an approval gate in
+ * front of the step by `insertPipelineApprovalGates` (S5-PO).
  *
  * @module compile-orchestrator/v2-pipeline-policy
  */

@@ -26,6 +26,7 @@ import { lowerPipelineFlat } from "../lower/lower-pipeline-flat.js";
 import { lowerPipelineLoop } from "../lower/lower-pipeline-loop.js";
 import type { LoweredPorts } from "../lower/_shared-types.js";
 import { admitSuspendedExits } from "../suspended-exit-admission.js";
+import { insertPipelineApprovalGates } from "./v2-pipeline-approval.js";
 import { applyPipelineCatches } from "./v2-pipeline-catch.js";
 import { applyPipelinePolicies } from "./v2-pipeline-policy.js";
 import { applyPipelineRetries } from "./v2-pipeline-retry.js";
@@ -244,6 +245,9 @@ export function lowerAdmittedFlow(input: LoweringInput): LoweringResult {
       ),
     ];
     if (unmapped.length > 0) return { ok: false, errors: unmapped };
+    // An approval-required step suspends at a gate for a decision (S5-PO).
+    const approvalGates = insertPipelineApprovalGates(lowered.artifact);
+    lowered.ports?.suspensionSites.push(...approvalGates);
   }
 
   const invalidArtifact = validateLoweredArtifact(

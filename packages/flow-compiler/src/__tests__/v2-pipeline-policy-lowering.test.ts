@@ -219,10 +219,14 @@ describe("V2 policy on target pipeline (S5-PC)", () => {
     const policy = { requireApproval: true, budgetCents: 40, timeoutMs: 500 } as const;
     const definition = await compilePipeline(policySource(policy));
     const oracle = await oracleRun(policy, { durationMs: 1, costCents: 1 });
-    expect(stepNode(definition, "draft").executionPolicy).toEqual(policy);
-    expect(stepNode(definition, "draft").executionPolicy).toEqual(
-      oracle.effectivePolicy,
-    );
+    expect(oracle.effectivePolicy).toEqual(policy);
+    // Approval moves to a gate in front of the step (S5-PO); the step keeps
+    // the rest of the oracle's effective policy.
+    const draft = stepNode(definition, "draft");
+    expect(draft.executionPolicy).toEqual({ budgetCents: 40, timeoutMs: 500 });
+    expect(
+      definition.nodes.find((node) => node.id === `${draft.id}__approval`),
+    ).toMatchObject({ type: "gate", gateType: "approval" });
     // Steps without a policy are untouched.
     expect(stepNode(definition, "seed").executionPolicy).toBeUndefined();
     expect(stepNode(definition, "probe").executionPolicy).toBeUndefined();
@@ -260,9 +264,10 @@ describe("V2 policy on target pipeline (S5-PC)", () => {
       attempts: 0,
       saved: undefined,
     });
+    // Suspended for a decision (S5-PO, v2-pipeline-approval-suspend.test.ts).
     expect(await runPipeline(policy, attempt)).toEqual({
-      state: "failed",
-      code: "PIPELINE_APPROVAL_REQUIRED",
+      state: "suspended",
+      code: undefined,
       draftCalls: 0,
       saved: undefined,
     });
