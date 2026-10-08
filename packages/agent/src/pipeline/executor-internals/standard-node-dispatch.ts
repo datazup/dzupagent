@@ -29,6 +29,7 @@ import { getNextNodeIds, getErrorTarget } from "../pipeline-shared/edge-resoluti
 import { extractErrorCode } from "../pipeline-shared/error-classification.js";
 import { runNodeWithRetry } from "./node-retry.js";
 import { matchTerminalCatch } from "./terminal-catch.js";
+import { applyStateWrites, planStateWrites } from "./state-writes.js";
 import {
   recordFailureInStuckDetector,
   recordSuccessInStuckDetector,
@@ -196,9 +197,15 @@ export async function dispatchStandardNode(
         output: begin.output,
         durationMs: 0,
       };
+      const replayWrites = planStateWrites(node, begin.output);
+      if (replayWrites?.ok === false) {
+        if (span) config.tracer?.endSpanWithError(span, replayWrites.error);
+        return fail(replayWrites.error);
+      }
       if (span) config.tracer?.endSpanOk(span);
       emit(nodeCompletedEvent(node.id, 0));
       nodeResults.set(node.id, replayResult);
+      applyStateWrites(runState, replayWrites);
       completedNodeIds.push(node.id);
       onCompleted?.();
       await persistCheckpointWithIntegrityBoundary({
@@ -336,6 +343,31 @@ export async function dispatchStandardNode(
       return fail(finalResult.error);
     }
 
+    // Exact-port state writes are validated in full before the node counts as
+    // completed. An invalid output fails the run and writes nothing.
+    const stateWrites = planStateWrites(node, finalResult.output);
+    if (stateWrites?.ok === false) {
+      if (
+        config.nodeLedger !== undefined &&
+        ledgerLease !== undefined &&
+        idempotencyKey !== undefined
+      ) {
+        await failNodeUnderLedger(
+          config.nodeLedger,
+          runId,
+          node.id,
+          idempotencyKey,
+          ledgerLease,
+          stateWrites.error,
+          true,
+        );
+      }
+      if (span) config.tracer?.endSpanWithError(span, stateWrites.error);
+      emit(nodeFailedEvent(node.id, stateWrites.error));
+      nodeResults.set(node.id, { ...finalResult, error: stateWrites.error });
+      return fail(stateWrites.error);
+    }
+
     if (span) config.tracer?.endSpanOk(span);
 
     // P2 (opt-in): record the completion fence-gated. A fenced-out write means
@@ -369,6 +401,7 @@ export async function dispatchStandardNode(
     ) {
       context.state[node.source.nodeId] = finalResult.output;
     }
+    applyStateWrites(context.state, stateWrites);
 
     const stuckAbort = recordSuccessInStuckDetector(
       config,

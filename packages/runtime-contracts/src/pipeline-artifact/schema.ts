@@ -81,6 +81,38 @@ const NodeTerminalCatchPolicySchema = z
     });
   });
 
+const NodeStateWritePolicySchema = z
+  .object({
+    bindings: z
+      .array(
+        z
+          .object({
+            port: z.string().min(1),
+            key: z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/),
+            cardinality: z.enum(["one", "optional", "many"]),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(32),
+  })
+  .strict()
+  .superRefine((policy, context) => {
+    for (const field of ["port", "key"] as const) {
+      const seen = new Set<string>();
+      policy.bindings.forEach((binding, index) => {
+        if (seen.has(binding[field])) {
+          context.addIssue({
+            code: "custom",
+            path: ["bindings", index, field],
+            message: `state writes bind ${field} "${binding[field]}" more than once`,
+          });
+        }
+        seen.add(binding[field]);
+      });
+    }
+  });
+
 const PipelineNodeBaseSchema = z.object({
   id: z.string().min(1),
   name: z.string().optional(),
@@ -100,6 +132,7 @@ const PipelineNodeBaseSchema = z.object({
     .strict()
     .optional(),
   terminalCatch: NodeTerminalCatchPolicySchema.optional(),
+  stateWrites: NodeStateWritePolicySchema.optional(),
   declaredIdempotencyKey: z.string().optional(),
   idempotency: z
     .enum(["idempotent", "at-least-once", "exactly-once-required"])

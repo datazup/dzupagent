@@ -106,6 +106,7 @@ Tests:
   - Emits node start event and optional span.
   - Executes node via `runNodeWithRetry(...)`.
   - On success:
+    - Validates every `node.stateWrites` binding (`state-writes.ts`) first; an invalid output fails the run with `PIPELINE_STATE_WRITE_INVALID` and writes nothing, otherwise each bound port is written to its state key (also on ledger replay)
     - Emits node completed event
     - Runs optional stuck-detector success hook
     - Runs optional trajectory calibration hook

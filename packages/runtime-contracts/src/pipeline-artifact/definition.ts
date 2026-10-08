@@ -77,6 +77,26 @@ export interface NodeTerminalCatchPolicy {
   clauses: NodeTerminalCatchClause[];
 }
 
+/**
+ * One exact-port state write. On success, `output[port]` is written to
+ * `state[key]`. `one` and `many` ports are required, and `many` must be an
+ * array; a missing `optional` port is skipped.
+ */
+export interface NodeStateWriteBinding {
+  port: string;
+  key: string;
+  cardinality: "one" | "optional" | "many";
+}
+
+/**
+ * Exact-port state writes applied together after a node succeeds. Every
+ * binding is validated before any key is written; an invalid output fails the
+ * run and writes nothing. A port or key may appear in one binding only.
+ */
+export interface NodeStateWritePolicy {
+  bindings: NodeStateWriteBinding[];
+}
+
 export interface PipelineNodeSource {
   /** Source artifact kind that produced this pipeline node. */
   kind: "flow-node";
@@ -112,6 +132,11 @@ export interface PipelineNodeBase {
    * loop, for-each and fork body executors do not consult it.
    */
   terminalCatch?: NodeTerminalCatchPolicy;
+  /**
+   * Exact-port state writes on success. Honoured for top-level nodes only;
+   * loop, for-each and fork body executors do not consult it.
+   */
+  stateWrites?: NodeStateWritePolicy;
   /**
    * W1 durability wiring (Slice 1). A declared idempotency key lowered from the
    * DSL (`meta.mutation.idempotencyKey`). When a non-empty string, the runtime
