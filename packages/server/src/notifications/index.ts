@@ -2,6 +2,7 @@ export { Notifier, classifyEvent } from './notifier.js'
 export type {
   Notification,
   NotificationChannel,
+  NotificationChannelErrorContext,
   NotifierConfig,
   NotificationTier,
   NotificationPriority,
