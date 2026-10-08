@@ -118,6 +118,7 @@ export async function executeV2InactiveLocalKernelStep(
     runId: context.request.runId,
     step,
     state: progress.state,
+    config: context.config,
     resolvedInput: resolved.value,
     condition: mergeConditionReferences(
       condition.condition,

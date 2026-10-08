@@ -334,12 +334,10 @@ provider-free local host (`runV2InactiveLocalHost`). Every step is checkpointed
 under `checkpointDirectory`. The receipt is printed as JSON on stdout.
 
 ```bash
-node dist/bin/run.js ./flow.yaml --config ./run.json [--max-steps 1]
+dzupagent-run ./flow.yaml --config ./run.json [--max-steps 1]
 ```
 
-The `dzupagent-run` bin name is not registered in `package.json` yet. A
-workspace bin entry also changes `yarn.lock`, which needs its own approval.
-Run the built entry directly until then.
+The bin is `dist/bin/run.js` (`node dist/bin/run.js …` works as well).
 
 Re-running the same `runId` resumes from the last checkpoint and does not replay
 a completed step. `--max-steps <n>` suspends after `n` newly processed steps.
@@ -362,9 +360,21 @@ offending `key` where one is attributable.
   "compilerOptions": {},
   "hostCapabilities": ["…exactly the five V2_INACTIVE_LOCAL_TARGET_CAPABILITIES…"],
   "primitives": ["./adapter-run-v2.primitive.json"],
-  "handlers": [{ "ref": "primitive://adapter.run@2", "module": "./handler.mjs" }]
+  "handlers": [{ "ref": "primitive://adapter.run@2", "module": "./handler.mjs" }],
+  "config": { "primaryModel": "model-alpha" }
 }
 ```
+
+- `config` binds the document's `config:` references (model, provider and
+  environment names). It must bind exactly the declared names with non-empty
+  strings of at most 256 characters. A secret-shaped value (API key prefix, PEM,
+  `Bearer`/`Basic` credential, JWT, `user:pass@` URL, long opaque token) is
+  refused, and the diagnostic never echoes it. Refusals are
+  `DZUPAGENT_RUN_CONFIG_INVALID` with `key: "config.<name>"`. Each handler
+  receives the bound values as a frozen `invocation.config` (`{}` when the
+  document declares none). The receipt carries only `configSha256`, never the
+  values. The bindings are part of `planSha256`, so changing one under a
+  checkpointed `runId` is refused as drift.
 
 - `primitives` lists `PrimitiveDefinitionV2Input` JSON files. A hosted step
   must own a multi-port save, and no built-in primitive declares two output
