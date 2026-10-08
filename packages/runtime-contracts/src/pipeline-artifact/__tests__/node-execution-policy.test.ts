@@ -32,7 +32,7 @@ describe("PipelineNodeBase.executionPolicy", () => {
   it("refuses requireApproval other than true and unknown keys", () => {
     expect(parses({ requireApproval: false })).toBe(false);
     expect(parses({ requireApproval: "yes" })).toBe(false);
-    expect(parses({ requireApproval: true, timeoutMs: 5 })).toBe(false);
+    expect(parses({ requireApproval: true, costCents: 5 })).toBe(false);
   });
 
   // DZA-DSL-V2-EXECUTOR-S5-20261008-PA2: cumulative node budget.
@@ -50,6 +50,23 @@ describe("PipelineNodeBase.executionPolicy", () => {
     expect(parses({ budgetCents: -1 })).toBe(false);
     expect(parses({ budgetCents: Number.POSITIVE_INFINITY })).toBe(false);
     expect(parses({ budgetCents: "5" })).toBe(false);
+  });
+
+  // DZA-DSL-V2-EXECUTOR-S5-20261008-PA3: cumulative node timeout.
+  it("admits a positive finite timeoutMs and keeps it", () => {
+    const policy: NodeExecutionPolicy = { timeoutMs: 250, budgetCents: 3 };
+    const parsed = PipelineNodeSchema.safeParse(toolNode(policy));
+    expect(parsed.success).toBe(true);
+    expect(
+      parsed.success ? parsed.data.executionPolicy : undefined,
+    ).toEqual(policy);
+  });
+
+  it("refuses a zero, negative, infinite or non-numeric timeoutMs", () => {
+    expect(parses({ timeoutMs: 0 })).toBe(false);
+    expect(parses({ timeoutMs: -1 })).toBe(false);
+    expect(parses({ timeoutMs: Number.POSITIVE_INFINITY })).toBe(false);
+    expect(parses({ timeoutMs: "5" })).toBe(false);
   });
 
   it("keeps nodes without the field valid", () => {

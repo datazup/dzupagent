@@ -106,6 +106,7 @@ Tests:
   - Emits node start event and optional span.
   - A node with `executionPolicy.requireApproval: true` (`execution-policy.ts`) fails the run with `PIPELINE_APPROVAL_REQUIRED` before its ledger lease and execution; retry, terminal catch and error edges are not consulted.
   - A node with `executionPolicy.budgetCents` is charged `config.nodeAttemptCostCents` per attempt; a total above the budget fails the run with `PIPELINE_BUDGET_EXCEEDED`, and a missing or unreadable cost with `PIPELINE_BUDGET_COST_UNKNOWN`, without catch, error edges or recovery.
+  - A node with `executionPolicy.timeoutMs` sums each attempt's reported `durationMs` plus each retry backoff; a total above the limit (checked before the budget, and before waiting on a backoff) fails the run with `PIPELINE_TIMEOUT_EXCEEDED`, and an unreadable duration with `PIPELINE_TIMEOUT_DURATION_UNKNOWN`, the same way.
   - Executes node via `runNodeWithRetry(...)`.
   - On success:
     - Validates every `node.stateWrites` binding (`state-writes.ts`) first; an invalid output fails the run with `PIPELINE_STATE_WRITE_INVALID` and writes nothing, otherwise each bound port is written to its state key (also on ledger replay)

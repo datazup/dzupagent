@@ -23,10 +23,16 @@ import {
   resolveRetryPolicy,
 } from '../retry-policy.js'
 import { nodeRetryEvent } from './runtime-events.js'
-import { createNodeBudget, nodeBudgetCents } from './execution-policy.js'
+import {
+  createNodeBudget,
+  createNodeClock,
+  nodeBudgetCents,
+  nodeTimeoutMs,
+} from './execution-policy.js'
 
 /**
- * `policyFailure` marks a node stopped by its execution policy (budget). The
+ * `policyFailure` marks a node stopped by its execution policy (time limit
+ * or budget). The
  * caller fails the run without consulting catch, error edges or recovery.
  */
 export async function runNodeWithRetry(
@@ -54,19 +60,22 @@ export async function runNodeWithRetry(
       ? undefined
       : createNodeBudget(node.id, budgetCents, config.nodeAttemptCostCents)
 
+  const timeoutMs = nodeTimeoutMs(node)
+  const clock = timeoutMs === undefined ? undefined : createNodeClock(node.id, timeoutMs)
+  const stopByPolicy = (failure: NodeResult) => ({
+    ...failure,
+    durationMs: Date.now() - nodeStartTime,
+    retryCount: nodeRetryCount,
+    policyFailure: true as const,
+  })
+
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     result = await config.nodeExecutor(node.id, node, context)
 
-    // Every attempt is charged; an over-budget attempt's output is discarded.
-    const overBudget = budget?.charge(result)
-    if (overBudget !== undefined) {
-      return {
-        ...overBudget,
-        durationMs: Date.now() - nodeStartTime,
-        retryCount: nodeRetryCount,
-        policyFailure: true,
-      }
-    }
+    // Every attempt is charged, time before cost (as the local host oracle);
+    // an attempt over either limit has its output discarded.
+    const overLimit = clock?.charge(result) ?? budget?.charge(result)
+    if (overLimit !== undefined) return stopByPolicy(overLimit)
 
     if (!result.error) break // success
 
@@ -85,6 +94,10 @@ export async function runNodeWithRetry(
 
     // Calculate backoff (with optional jitter)
     const backoffMs = calculateBackoff(attempt, effectivePolicy)
+
+    // A backoff that would exceed the time limit fails now, without waiting.
+    const overTime = clock?.chargeBackoff(backoffMs)
+    if (overTime !== undefined) return stopByPolicy(overTime)
 
     // Track retry count for trajectory calibration
     nodeRetryCount++

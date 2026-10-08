@@ -117,6 +117,7 @@ const NodeExecutionPolicySchema = z
   .object({
     requireApproval: z.literal(true).optional(),
     budgetCents: z.number().positive().finite().optional(),
+    timeoutMs: z.number().positive().finite().optional(),
   })
   .strict();
 

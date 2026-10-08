@@ -102,10 +102,14 @@ export interface NodeStateWritePolicy {
  * node is executed; retry, terminal catch and error edges are not consulted.
  * `budgetCents` caps the host-reported cost summed over every attempt; when
  * the total exceeds it, or the cost cannot be read, the run fails the same way.
+ * `timeoutMs` caps the reported attempt durations plus retry backoff summed
+ * over every attempt, and fails the run the same way (checked before the
+ * budget). The per-attempt `timeoutMs` on the node is unrelated.
  */
 export interface NodeExecutionPolicy {
   requireApproval?: true;
   budgetCents?: number;
+  timeoutMs?: number;
 }
 
 export interface PipelineNodeSource {

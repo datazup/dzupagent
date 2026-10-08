@@ -14,10 +14,13 @@ import type { NodeResult } from "../pipeline-runtime-types.js";
 export const APPROVAL_REQUIRED_CODE = "PIPELINE_APPROVAL_REQUIRED";
 export const BUDGET_EXCEEDED_CODE = "PIPELINE_BUDGET_EXCEEDED";
 export const BUDGET_COST_UNKNOWN_CODE = "PIPELINE_BUDGET_COST_UNKNOWN";
+export const TIMEOUT_EXCEEDED_CODE = "PIPELINE_TIMEOUT_EXCEEDED";
+export const TIMEOUT_DURATION_UNKNOWN_CODE = "PIPELINE_TIMEOUT_DURATION_UNKNOWN";
 
 interface ExecutionPolicyLike {
   requireApproval?: unknown;
   budgetCents?: unknown;
+  timeoutMs?: unknown;
 }
 
 function policyOf(node: { id: string }): ExecutionPolicyLike | undefined {
@@ -82,6 +85,51 @@ export function createNodeBudget(
         { code: BUDGET_EXCEEDED_CODE, costCents: spentCents, budgetCents },
       );
     },
+  };
+}
+
+/** The node's cumulative time limit in milliseconds, when it declares one. */
+export function nodeTimeoutMs(node: { id: string }): number | undefined {
+  const timeout = policyOf(node)?.timeoutMs;
+  return typeof timeout === "number" ? timeout : undefined;
+}
+
+/**
+ * Running time of one node with a cumulative limit: each attempt's reported
+ * `durationMs` plus each retry backoff. `charge` and `chargeBackoff` return
+ * a terminal failed result once the duration is unreadable or the total
+ * exceeds the limit, and `undefined` while the node is within it.
+ */
+export function createNodeClock(
+  nodeId: string,
+  timeoutMs: number,
+): {
+  charge(result: NodeResult): NodeResult | undefined;
+  chargeBackoff(backoffMs: number): NodeResult | undefined;
+} {
+  let usedMs = 0;
+  const add = (ms: number): NodeResult | undefined => {
+    usedMs += ms;
+    if (usedMs <= timeoutMs) return undefined;
+    return policyFailure(
+      nodeId,
+      `${TIMEOUT_EXCEEDED_CODE}: node "${nodeId}" used ${usedMs} of ${timeoutMs} ms`,
+      { code: TIMEOUT_EXCEEDED_CODE, durationMs: usedMs, timeoutMs },
+    );
+  };
+  return {
+    charge(result) {
+      const ms = result.durationMs;
+      if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) {
+        return policyFailure(
+          nodeId,
+          `${TIMEOUT_DURATION_UNKNOWN_CODE}: node "${nodeId}" attempt duration ${String(ms)} is not a finite non-negative number`,
+          { code: TIMEOUT_DURATION_UNKNOWN_CODE },
+        );
+      }
+      return add(ms);
+    },
+    chargeBackoff: add,
   };
 }
 
