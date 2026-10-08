@@ -98,7 +98,9 @@ export async function* streamRun(
     || typeof runState.model.stream !== 'function'
     || usesModelWrapper
   ) {
-    yield* runStreamFallback(ctx, runState, optionsWithUsage)
+    // The generate tool loop charges the plugin itself (DZC-P1); passing
+    // `optionsWithUsage` here would charge every LLM call twice.
+    yield* runStreamFallback(ctx, runState, options)
     return
   }
 
