@@ -12,6 +12,9 @@
     "scripts/build-custody.mjs",
     "scripts/check-package-export-artifacts.mjs",
     "scripts/prepare-build-artifact-manifest.mjs",
+    "scripts/prune-private-declarations.mjs",
+    "scripts/strip-declaration-module-comments.mjs",
+    ".yarn/patches/braces-npm-3.0.3-582c14023c.patch",
     "scripts/run-with-build-custody.mjs",
     "scripts/write-build-artifact-manifest.mjs"
   ],
