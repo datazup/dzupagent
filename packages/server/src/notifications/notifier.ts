@@ -49,9 +49,20 @@ export interface NotifierConfig {
   eventMapper?: (eventType: string, eventData: Record<string, unknown>) => Notification | null
   /**
    * Called once per failed channel after all sends settle. Errors thrown by
-   * the hook are contained. Without a hook, channel failures are ignored.
+   * the hook are contained. Defaults to {@link logNotificationChannelError};
+   * pass a no-op to silence channel failures.
    */
   onChannelError?: (error: unknown, context: NotificationChannelErrorContext) => void
+}
+
+/**
+ * Default channel-error hook: logs the channel name and error message only.
+ * The notification payload, error stack/cause and webhook URLs are never logged.
+ */
+export function logNotificationChannelError(error: unknown, context: NotificationChannelErrorContext): void {
+  const message =
+    error instanceof Error ? error.message : typeof error === 'string' ? error : 'non-Error rejection'
+  console.warn(`[Notifier] channel "${context.channel}" failed: ${message}`)
 }
 
 /** Tier-1 events the agent can handle itself */
@@ -92,14 +103,14 @@ export class Notifier {
   private readonly channels: NotificationChannel[]
   private readonly minPriority: NotificationPriority
   private readonly eventMapper?: NotifierConfig['eventMapper']
-  private readonly onChannelError?: NotifierConfig['onChannelError']
+  private readonly onChannelError: NonNullable<NotifierConfig['onChannelError']>
   private readonly history: Notification[] = []
 
   constructor(config: NotifierConfig) {
     this.channels = [...config.channels]
     this.minPriority = config.minPriority ?? 'low'
     this.eventMapper = config.eventMapper
-    this.onChannelError = config.onChannelError
+    this.onChannelError = config.onChannelError ?? logNotificationChannelError
   }
 
   /** Dispatch a notification to all registered channels */
@@ -117,7 +128,6 @@ export class Notifier {
       channels.map(async (ch) => ch.send(notification)),
     )
     const onChannelError = this.onChannelError
-    if (!onChannelError) return
     channels.forEach((ch, i) => {
       const result = results[i]
       if (result?.status !== 'rejected') return
