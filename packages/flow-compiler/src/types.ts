@@ -195,8 +195,15 @@ export interface CompilerOptions {
    * (e.g. `codev.planning.create_manifest`, `codev.intake.normalize`)
    * to compile cleanly without needing those tools registered in the
    * local resolver.
+   *
+   * When set to `'pipeline'`, the flow is lowered with the `pipeline`
+   * lowerer regardless of its feature bitmask, and every stage-4 target gate
+   * runs against `pipeline`. This is how a loop-free `dzupflow/v2` document
+   * reaches `PipelineRuntime`. Shape validation still uses natural routing,
+   * and the value is not forwarded to semantic resolution. When omitted,
+   * routing is unchanged.
    */
-  target?: "codev-runtime";
+  target?: "codev-runtime" | "pipeline";
   /**
    * Reference validation policy. Defaults to `compat-v1`; `strict` rejects
    * legacy/disallowed roots and malformed control references during semantic
@@ -322,7 +329,8 @@ export interface CompilationTargetReason {
     | "PARALLEL_PRESENT"
     | "SUSPEND_PRESENT"
     | "FOR_EACH_PRESENT"
-    | "RUNTIME_LEAF_PRESENT";
+    | "RUNTIME_LEAF_PRESENT"
+    | "TARGET_OPTION";
   message: string;
 }
 

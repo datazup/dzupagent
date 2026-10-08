@@ -5,9 +5,10 @@
  * (e.g. tight context-window management for OpenAI models).
  */
 
-import type {
-  TokenCounter,
-  TokenMeasurementResult,
+import {
+  estimateTokensByChars,
+  type TokenCounter,
+  type TokenMeasurementResult,
 } from './token-lifecycle.js'
 
 export class CharEstimateCounter implements TokenCounter {
@@ -17,7 +18,7 @@ export class CharEstimateCounter implements TokenCounter {
 
   countDetailed(text: string, model?: string): TokenMeasurementResult {
     return {
-      tokens: Math.ceil(text.length / 4),
+      tokens: estimateTokensByChars(text),
       method: 'heuristic',
       ...(model ? { model } : {}),
       reason: 'chars-per-token estimate',

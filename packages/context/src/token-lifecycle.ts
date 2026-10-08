@@ -128,6 +128,15 @@ export interface TokenCounter {
 }
 
 /**
+ * The package's single chars-per-token estimate. Internal: every heuristic
+ * fallback in `@dzupagent/context` routes through this so the counts agree.
+ * Not re-exported from the package index.
+ */
+export function estimateTokensByChars(text: string, charsPerToken = 4): number {
+  return Math.ceil(text.length / charsPerToken)
+}
+
+/**
  * Measure text while preserving whether the result came from a tokenizer or
  * from the legacy chars-per-token estimate.
  *
@@ -168,7 +177,7 @@ export function measureTokenText(
   }
 
   return {
-    tokens: Math.ceil(text.length / charsPerToken),
+    tokens: estimateTokensByChars(text, charsPerToken),
     method: 'heuristic',
     ...(model ? { model } : {}),
     reason: `chars-per-token estimate (${charsPerToken})`,

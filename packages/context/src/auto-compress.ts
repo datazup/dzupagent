@@ -22,7 +22,11 @@ import {
   type MessageManagerConfig,
 } from "./message-manager.js";
 import type { OffloadSink } from "./context-eviction.js";
-import type { TokenCounter, TokenMeasurementResult } from "./token-lifecycle.js";
+import {
+  estimateTokensByChars,
+  type TokenCounter,
+  type TokenMeasurementResult,
+} from "./token-lifecycle.js";
 import { compactCompletedToolResults } from './tool-results/compact-completed-tool-results.js'
 import type {
   CompletedToolCompactionProfileV1,
@@ -179,7 +183,7 @@ function measureMessageTokens(
     };
   }
   return {
-    tokens: Math.ceil(serialized.length / 4),
+    tokens: estimateTokensByChars(serialized),
     method: 'heuristic',
     reason: 'no tokenizer configured; used chars-per-token estimate',
   };
