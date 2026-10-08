@@ -16,9 +16,10 @@
  */
 
 import { createRequire } from 'node:module'
-import type {
-  TokenCounter,
-  TokenMeasurementResult,
+import {
+  estimateTokensByChars,
+  type TokenCounter,
+  type TokenMeasurementResult,
 } from './token-lifecycle.js'
 
 type JsTiktokenEncoder = { encode(text: string): number[] }
@@ -143,7 +144,7 @@ function countWithAnthropicTokenizer(text: string): number | undefined {
 }
 
 function heuristicCount(text: string): number {
-  return Math.ceil(text.length / 4)
+  return estimateTokensByChars(text)
 }
 
 const MAX_TOKENIZABLE_RUN = 2000
