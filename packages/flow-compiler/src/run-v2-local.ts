@@ -43,6 +43,7 @@ export const DZUPAGENT_RUN_CONFIG_KEYS = Object.freeze([
   "hostCapabilities",
   "primitives",
   "handlers",
+  "config",
 ] as const);
 
 const POLICY_KEYS = new Set(["timeoutMs", "budgetCents", "requireApproval"]);
@@ -59,6 +60,7 @@ const CHECKPOINT_BOUND_KEYS = Object.freeze([
   "inheritedPolicy",
   "conditionBindings",
   "compilerOptions",
+  "config",
 ]);
 
 const EMPTY_TOOL_RESOLVER = {
@@ -111,6 +113,8 @@ interface DzupagentRunConfig {
   readonly hostCapabilities: readonly string[];
   readonly primitives: readonly string[];
   readonly handlers: readonly { readonly ref: string; readonly module: string }[];
+  /** Values for the document's `config:` references; the host validates them. */
+  readonly config?: Readonly<Record<string, string>>;
 }
 
 class RunFailure extends Error {
@@ -165,6 +169,7 @@ export async function runDzupagentRunCli(
       ...(config.inheritedPolicy === undefined
         ? {}
         : { inheritedPolicy: config.inheritedPolicy }),
+      ...(config.config === undefined ? {} : { configBindings: config.config }),
       handlers,
       checkpointStore: createFileV2InactiveLocalHostStore({
         rootDirectory: resolve(configDirectory, config.checkpointDirectory),
@@ -242,7 +247,7 @@ function parseConfig(text: string): DzupagentRunConfig {
       throw configError(key, `${key} must be a non-empty string`);
     }
   }
-  for (const key of ["initialState", "conditionBindings"] as const) {
+  for (const key of ["initialState", "conditionBindings", "config"] as const) {
     if (raw[key] !== undefined && !isPlainRecord(raw[key])) {
       throw configError(key, `${key} must be an object`);
     }
@@ -262,6 +267,9 @@ function parseConfig(text: string): DzupagentRunConfig {
     hostCapabilities: parseCapabilities(raw.hostCapabilities),
     primitives: parsePaths(raw.primitives ?? [], "primitives"),
     handlers: parseHandlers(raw.handlers),
+    ...(raw.config === undefined
+      ? {}
+      : { config: raw.config as Record<string, string> }),
   };
 }
 
@@ -463,6 +471,16 @@ function attributeHostError(
     error.path.endsWith(".policy")
   ) {
     return { ...error, key: "inheritedPolicy" };
+  }
+  if (
+    error.code === "V2_LOCAL_HOST_REQUEST_INVALID" &&
+    (error.path === "configBindings" || error.path.startsWith("configBindings."))
+  ) {
+    return {
+      code: "DZUPAGENT_RUN_CONFIG_INVALID",
+      message: error.message,
+      key: `config${error.path.slice("configBindings".length)}`,
+    };
   }
   if (error.code === "V2_LOCAL_HOST_CHECKPOINT_DRIFT") {
     return {

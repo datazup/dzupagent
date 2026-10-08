@@ -1,7 +1,18 @@
+import { findConfigLiteralSecret } from "@dzupagent/flow-dsl";
+
 import type {
   V2InactiveLocalHostError,
   V2InactiveLocalHostRequest,
 } from "./host-contracts.js";
+
+const MAX_CONFIG_BINDING_LENGTH = 256;
+
+/** Diagnostic path for a config binding; a secret-shaped name is never echoed. */
+export function configBindingPath(name: string): string {
+  return `configBindings.${
+    findConfigLiteralSecret(name) === undefined ? name : "<redacted>"
+  }`;
+}
 
 export function validateV2InactiveLocalHostRequest(
   request: V2InactiveLocalHostRequest
@@ -38,6 +49,8 @@ export function validateV2InactiveLocalHostRequest(
       return invalid(path, `${path} must be a positive integer`);
     }
   }
+  const configError = validateConfigBindings(request.configBindings);
+  if (configError !== undefined) return configError;
   for (const [index, handler] of request.handlers.entries()) {
     if (
       !/^primitive:\/\/[a-z][a-z0-9_.-]*@[A-Za-z0-9][A-Za-z0-9._-]*$/.test(
@@ -54,6 +67,42 @@ export function validateV2InactiveLocalHostRequest(
       return invalid(
         `handlers[${index}]`,
         "handler requires exact identities and provider-free, effect-free, replay-safe invocation"
+      );
+    }
+  }
+  return undefined;
+}
+
+function validateConfigBindings(
+  bindings: unknown
+): V2InactiveLocalHostError | undefined {
+  if (bindings === undefined) return undefined;
+  if (!isPlainRecord(bindings)) {
+    return invalid(
+      "configBindings",
+      "configBindings must be an object mapping reference names to values"
+    );
+  }
+  for (const [name, value] of Object.entries(bindings)) {
+    const path = configBindingPath(name);
+    if (findConfigLiteralSecret(name) !== undefined) {
+      return invalid(path, "config reference name looks like a literal secret");
+    }
+    if (
+      typeof value !== "string" ||
+      value.length === 0 ||
+      value.length > MAX_CONFIG_BINDING_LENGTH
+    ) {
+      return invalid(
+        path,
+        `config binding must be a non-empty string of at most ${MAX_CONFIG_BINDING_LENGTH} characters`
+      );
+    }
+    const secretClass = findConfigLiteralSecret(value);
+    if (secretClass !== undefined) {
+      return invalid(
+        path,
+        `config binding looks like a literal secret (${secretClass}); bind a model, provider, or environment name, not a credential`
       );
     }
   }

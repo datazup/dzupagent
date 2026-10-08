@@ -11,6 +11,7 @@
 import type { BaseStore } from "@langchain/langgraph";
 import type { NamespaceConfig, SemanticStoreAdapter } from "./memory-types.js";
 import { sanitizeMemoryContent } from "./memory-sanitizer.js";
+import { defaultMemoryPIIDetector } from "./memory-pii.js";
 import { createDecayMetadata } from "./decay-engine.js";
 import type { MemoryStoreCapabilities } from "./store-capabilities.js";
 import type { ReferenceTracker } from "./provenance/reference-tracker.js";
@@ -195,12 +196,19 @@ export async function putMemoryRecord(
     }
   }
 
-  // PII detection / redaction (non-fatal). When a detector is supplied
-  // and redaction is enabled (default), rewrite `text` to the redacted
-  // form so persisted memories never contain raw PII.
-  if (deps.options?.piiRedactionEnabled !== false && deps.options?.detectPII) {
+  // PII detection / redaction (non-fatal). Unless disabled, rewrite `text`
+  // to the redacted form so persisted memories never contain raw PII. An
+  // injected detector scans the whole value; the default one only scans a
+  // string `text` field, so structured records are never given a synthetic
+  // `text` (number runs such as timestamps would otherwise match PHONE).
+  const detectPII =
+    deps.options?.detectPII ??
+    (typeof workingValue["text"] === "string"
+      ? defaultMemoryPIIDetector
+      : undefined);
+  if (deps.options?.piiRedactionEnabled !== false && detectPII) {
     try {
-      const piiResult = deps.options.detectPII(textContent);
+      const piiResult = detectPII(textContent);
       if (piiResult.hasPII) {
         textContent = piiResult.redacted;
         workingValue = { ...workingValue, text: textContent };

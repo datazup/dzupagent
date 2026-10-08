@@ -34,6 +34,8 @@ export interface V2InactiveLocalHandlerInvocation {
   readonly handlerSha256: `sha256:${string}`;
   readonly input: Readonly<Record<string, unknown>>;
   readonly state: Readonly<Record<string, unknown>>;
+  /** Host-bound values of the document's config references; `{}` when none are declared. */
+  readonly config: Readonly<Record<string, string>>;
   readonly authority: {
     readonly providerDispatch: false;
     readonly externalStateMutation: false;
@@ -191,6 +193,11 @@ export interface V2InactiveLocalHostRequest
   readonly cancellation?: { readonly aborted: boolean };
   /** Checkpoint and release after this many newly processed steps. */
   readonly maxStepsThisRun?: number;
+  /**
+   * Values for the document's `config:` references. Must bind exactly the
+   * declared names; values are bound into the plan digest, never the receipt.
+   */
+  readonly configBindings?: Readonly<Record<string, string>>;
 }
 
 export interface V2InactiveLocalHostReceipt {
@@ -201,6 +208,8 @@ export interface V2InactiveLocalHostReceipt {
   readonly sourceSha256: `sha256:${string}`;
   readonly qualificationSha256: `sha256:${string}`;
   readonly planSha256: `sha256:${string}`;
+  /** Digest of the bound config values; present only when the document declares `config`. */
+  readonly configSha256?: `sha256:${string}`;
   readonly checkpointSha256: `sha256:${string}`;
   readonly state: Readonly<Record<string, unknown>>;
   readonly stepOutputs: Readonly<Record<string, unknown>>;

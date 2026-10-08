@@ -1,13 +1,14 @@
 import type { HttpMemoryOperation } from "./types.js";
 
 /**
- * Thrown when an `HttpMemoryClient` method is invoked but the remote wire
- * protocol has not yet been implemented.  Callers should treat this as a
- * hard failure — the operation will never succeed at runtime until the
- * underlying HTTP handler is shipped.
+ * Formerly thrown by the `HttpMemoryClient` stub before the wire protocol
+ * shipped. `HttpMemoryClient` now implements `get`/`put`/`delete` over
+ * `fetch` and never throws this; failures surface as `HttpMemoryError`
+ * subclasses (see `__tests__/http-client-liveness.test.ts`).
  *
- * @internal Not intended for direct use by consumers; exposed only so that
- * callers can `instanceof`-guard against it while the protocol is in progress.
+ * @deprecated Unreachable. Kept only so existing `instanceof` guards still
+ * compile; it will be removed in the next breaking release of
+ * `@dzupagent/memory`. Guard on `HttpMemoryError` instead.
  */
 export class NotImplementedError extends Error {
   constructor(method: string) {

@@ -21,6 +21,7 @@ export interface ExecuteV2InactiveLocalHostStepInput {
   readonly runId: string;
   readonly step: V2InactiveLocalHostPrimitiveStepPlan;
   readonly state: Readonly<Record<string, unknown>>;
+  readonly config: Readonly<Record<string, string>>;
   readonly resolvedInput: Readonly<Record<string, unknown>>;
   readonly condition: {
     readonly value: boolean;
@@ -68,6 +69,7 @@ export async function executeV2InactiveLocalHostStep(
           handlerSha256: step.handler.handlerSha256,
           input: cloneRecord(input.resolvedInput),
           state: cloneRecord(input.state),
+          config: { ...input.config },
           authority: {
             providerDispatch: false as const,
             externalStateMutation: false as const,

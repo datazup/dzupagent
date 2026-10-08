@@ -3,7 +3,8 @@
  *
  * Supports:
  * - `postgres`: PostgresStore via @langchain/langgraph-checkpoint-postgres
- * - `memory`: InMemoryBaseStore for development and testing (no database required)
+ * - `memory`: InMemoryBaseStore for development and testing (no database required),
+ *   optionally bounded by `maxRecords` / `ttlMs`
  */
 import { PostgresStore } from '@langchain/langgraph-checkpoint-postgres/store'
 import type { BaseStore } from '@langchain/langgraph'
@@ -36,6 +37,18 @@ export interface StoreConfig {
   index?: StoreIndexConfig | undefined
   /** Explicit capability overrides for the returned store */
   capabilities?: Partial<MemoryStoreCapabilities> | undefined
+  /**
+   * In-memory store only: maximum number of records across all namespaces.
+   * When a `put` exceeds it, the least-recently-written records are deleted.
+   * Postgres rejects this option rather than ignoring it.
+   */
+  maxRecords?: number | undefined
+  /**
+   * In-memory store only: a record expires this many milliseconds after its
+   * last write. Expired records are never returned and are physically
+   * deleted. Postgres rejects this option rather than ignoring it.
+   */
+  ttlMs?: number | undefined
 }
 
 /**
@@ -60,6 +73,31 @@ export const IN_MEMORY_STORE_CAPABILITIES: MemoryStoreCapabilities = {
   ...DEFAULT_MEMORY_STORE_CAPABILITIES,
 }
 
+interface InMemoryEntry {
+  value: Record<string, unknown>
+  createdAt: Date
+  updatedAt: Date
+}
+
+interface InMemoryGrowthLimits {
+  maxRecords?: number | undefined
+  ttlMs?: number | undefined
+}
+
+function validateGrowthLimits(config: StoreConfig): void {
+  const { maxRecords, ttlMs } = config
+  if (maxRecords === undefined && ttlMs === undefined) return
+  if (config.type !== 'memory') {
+    throw new Error('maxRecords/ttlMs are supported only by the in-memory store')
+  }
+  if (maxRecords !== undefined && !(Number.isInteger(maxRecords) && maxRecords > 0)) {
+    throw new Error(`maxRecords must be a positive integer, got ${String(maxRecords)}`)
+  }
+  if (ttlMs !== undefined && !(Number.isFinite(ttlMs) && ttlMs > 0)) {
+    throw new Error(`ttlMs must be a positive finite number, got ${String(ttlMs)}`)
+  }
+}
+
 /**
  * Minimal in-memory BaseStore for dev/test.
  * Implements the LangGraph BaseStore interface without any database.
@@ -72,18 +110,34 @@ class InMemoryBaseStore {
    */
   private data = new Map<string, {
     namespace: string[]
-    entries: Map<string, { value: Record<string, unknown>; createdAt: Date; updatedAt: Date }>
+    entries: Map<string, InMemoryEntry>
   }>()
+  /**
+   * Every live record in write order (oldest first), keyed by
+   * `JSON.stringify([nsKey, key])`. A rewrite moves the record to the end, so
+   * the front is always the least-recently-written — the eviction and expiry
+   * candidate.
+   */
+  private writeOrder = new Map<string, { nsKey: string; key: string; entry: InMemoryEntry }>()
   readonly capabilities = { ...DEFAULT_MEMORY_STORE_CAPABILITIES }
   readonly searchParity = 'limited' as const
 
+  constructor(private readonly limits: InMemoryGrowthLimits = {}) {}
+
+  /** Number of records physically held. */
+  get size(): number {
+    return this.writeOrder.size
+  }
+
   async setup(): Promise<void> { /* no-op */ }
 
-  async get(namespace: string[], key: string): Promise<{ value: Record<string, unknown> } | undefined> {
+  async get(namespace: string[], key: string): Promise<InMemoryEntry | undefined> {
+    this.sweepExpired()
     return this.data.get(JSON.stringify(namespace))?.entries.get(key)
   }
 
   async put(namespace: string[], key: string, value: Record<string, unknown>): Promise<void> {
+    this.sweepExpired()
     const nsKey = JSON.stringify(namespace)
     let bucket = this.data.get(nsKey)
     if (!bucket) {
@@ -91,17 +145,51 @@ class InMemoryBaseStore {
       this.data.set(nsKey, bucket)
     }
     const now = new Date()
-    bucket.entries.set(key, { value, createdAt: now, updatedAt: now })
+    const entry = { value, createdAt: bucket.entries.get(key)?.createdAt ?? now, updatedAt: now }
+    bucket.entries.set(key, entry)
+
+    const orderKey = JSON.stringify([nsKey, key])
+    this.writeOrder.delete(orderKey)
+    this.writeOrder.set(orderKey, { nsKey, key, entry })
+
+    const { maxRecords } = this.limits
+    if (maxRecords !== undefined) {
+      for (const [oldest, record] of this.writeOrder) {
+        if (this.writeOrder.size <= maxRecords) break
+        this.remove(oldest, record.nsKey, record.key)
+      }
+    }
   }
 
   async delete(namespace: string[], key: string): Promise<void> {
-    this.data.get(JSON.stringify(namespace))?.entries.delete(key)
+    const nsKey = JSON.stringify(namespace)
+    this.remove(JSON.stringify([nsKey, key]), nsKey, key)
+  }
+
+  /** Physically delete expired records. Write order is expiry order, so stop at the first live one. */
+  private sweepExpired(): void {
+    const { ttlMs } = this.limits
+    if (ttlMs === undefined) return
+    const cutoff = Date.now() - ttlMs
+    for (const [orderKey, record] of this.writeOrder) {
+      if (record.entry.updatedAt.getTime() > cutoff) break
+      this.remove(orderKey, record.nsKey, record.key)
+    }
+  }
+
+  private remove(orderKey: string, nsKey: string, key: string): void {
+    this.writeOrder.delete(orderKey)
+    const bucket = this.data.get(nsKey)
+    if (!bucket) return
+    bucket.entries.delete(key)
+    if (bucket.entries.size === 0) this.data.delete(nsKey)
   }
 
   async search(
     namespacePrefix: string[],
     options?: StoreQueryOptions,
   ): Promise<Array<{ namespace: string[]; key: string; value: Record<string, unknown> }>> {
+    this.sweepExpired()
     let results: Array<{ namespace: string[]; key: string; value: Record<string, unknown> }> = []
 
     for (const { namespace, entries } of this.data.values()) {
@@ -150,6 +238,7 @@ class InMemoryBaseStore {
   /** Clear all data (for test teardown) */
   clear(): void {
     this.data.clear()
+    this.writeOrder.clear()
   }
 }
 
@@ -160,6 +249,8 @@ class InMemoryBaseStore {
  * For memory: returns an InMemoryBaseStore (no database required).
  */
 export async function createStore(config: StoreConfig): Promise<BaseStore> {
+  validateGrowthLimits(config)
+
   if (config.type === 'postgres') {
     if (!config.connectionString) {
       throw new Error('connectionString required for postgres store')
@@ -180,7 +271,7 @@ export async function createStore(config: StoreConfig): Promise<BaseStore> {
   }
 
   if (config.type === 'memory') {
-    const store = new InMemoryBaseStore()
+    const store = new InMemoryBaseStore({ maxRecords: config.maxRecords, ttlMs: config.ttlMs })
     await store.setup()
     return attachMemoryStoreCapabilities(store as unknown as BaseStore, config.capabilities)
   }

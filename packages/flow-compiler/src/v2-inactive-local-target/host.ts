@@ -390,6 +390,9 @@ function successReceipt(
     sourceSha256: context.sourceSha256,
     qualificationSha256: context.qualificationSha256,
     planSha256: context.planSha256,
+    ...(context.configSha256 === undefined
+      ? {}
+      : { configSha256: context.configSha256 }),
     checkpointSha256: checkpoint.checkpointSha256,
     state: checkpoint.state,
     stepOutputs: checkpoint.stepOutputs,

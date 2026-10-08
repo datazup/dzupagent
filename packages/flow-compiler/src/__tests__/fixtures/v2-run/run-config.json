@@ -1,0 +1,28 @@
+{
+  "runId": "fixture-config-run",
+  "ownerId": "fixture-worker",
+  "checkpointDirectory": "./checkpoints",
+  "initialState": { "retained": "before" },
+  "inheritedPolicy": { "timeoutMs": 60000, "budgetCents": 500 },
+  "conditionBindings": { "inputs": { "ready": true } },
+  "compilerOptions": {},
+  "hostCapabilities": [
+    "flow.control.typed-condition@1",
+    "flow.policy.primitive-narrowing@1",
+    "flow.retry.primitive-errors@1",
+    "flow.catch.primitive-terminal@1",
+    "flow.save.primitive-multi-port@1"
+  ],
+  "primitives": ["./adapter-run-v2.primitive.json"],
+  "handlers": [
+    {
+      "ref": "primitive://adapter.run@2",
+      "module": "./adapter-run-local.mjs"
+    }
+  ],
+  "config": {
+    "primaryModel": "model-alpha",
+    "llmProvider": "provider-local",
+    "deployEnv": "env-staging"
+  }
+}

@@ -807,4 +807,83 @@ describe("inactive provider-free multi-step V2 host", () => {
       ],
     });
   });
+
+  describe("S2B config reference bindings", () => {
+    const configSource = () =>
+      source().replace(
+        "steps:\n",
+        "config:\n  primaryModel:\n    kind: model\n  deployEnv:\n    kind: environment\nsteps:\n"
+      );
+    const bindings = { primaryModel: "model-alpha", deployEnv: "env-staging" };
+
+    it("passes frozen bindings to handlers and records only configSha256", async () => {
+      const observed: V2InactiveLocalHandlerInvocation[] = [];
+      const result = await runV2InactiveLocalHost({
+        ...fixture((invocation) => {
+          observed.push(invocation);
+          return success(invocation);
+        }),
+        runId: "config-run",
+        source: configSource(),
+        configBindings: bindings,
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.receipt.configSha256).toBe(
+        digest(stableStringify(bindings))
+      );
+      expect(JSON.stringify(result.receipt)).not.toContain("model-alpha");
+      expect(observed.map((item) => item.config)).toEqual([bindings, bindings]);
+      expect(Object.isFrozen(observed[0]?.config)).toBe(true);
+    });
+
+    it("keeps planSha256 and the receipt shape unchanged for documents without config", async () => {
+      const plain = await runV2InactiveLocalHost({
+        ...fixture(success),
+        runId: "config-absent-run",
+      });
+      const empty = await runV2InactiveLocalHost({
+        ...fixture(success),
+        runId: "config-absent-run",
+        configBindings: {},
+      });
+      expect(plain.ok && empty.ok).toBe(true);
+      if (!plain.ok || !empty.ok) return;
+      expect(plain.receipt).not.toHaveProperty("configSha256");
+      expect(empty.receipt.planSha256).toBe(plain.receipt.planSha256);
+    });
+
+    it("refuses bindings that do not match the declared references exactly", async () => {
+      for (const [configBindings, path] of [
+        [{ primaryModel: "model-alpha" }, "configBindings.deployEnv"],
+        [{ ...bindings, other: "x" }, "configBindings.other"],
+        [{ ...bindings, deployEnv: "" }, "configBindings.deployEnv"],
+      ] as const) {
+        const result = await runV2InactiveLocalHost({
+          ...fixture(success),
+          runId: "config-refused-run",
+          source: configSource(),
+          configBindings,
+        });
+        expect(result).toMatchObject({
+          ok: false,
+          errors: [{ code: "V2_LOCAL_HOST_REQUEST_INVALID", path }],
+        });
+      }
+      const undeclared = await runV2InactiveLocalHost({
+        ...fixture(success),
+        runId: "config-undeclared-run",
+        configBindings: { primaryModel: "model-alpha" },
+      });
+      expect(undeclared).toMatchObject({
+        ok: false,
+        errors: [
+          {
+            code: "V2_LOCAL_HOST_REQUEST_INVALID",
+            path: "configBindings.primaryModel",
+          },
+        ],
+      });
+    });
+  });
 });
