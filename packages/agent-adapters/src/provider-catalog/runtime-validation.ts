@@ -51,6 +51,15 @@ export function assertProviderCatalogEntry(
   if (typeof value.productIntegrated !== 'boolean') {
     throw new TypeError('provider catalog entry missing productIntegrated')
   }
+  if (typeof value.runnable !== 'boolean') {
+    throw new TypeError('provider catalog entry missing runnable')
+  }
+  if (value.runnable !== hasReceipt(value.qualificationReceiptId)) {
+    throw new TypeError('provider catalog runnable disagrees with qualificationReceiptId')
+  }
+  if (value.qualificationReceiptId !== null && typeof value.qualificationReceiptId !== 'string') {
+    throw new TypeError('provider catalog entry has invalid qualificationReceiptId')
+  }
 
   const posture = value.posture
   if (
@@ -87,6 +96,30 @@ export function assertProviderCatalogEntry(
   ) {
     throw new TypeError('provider catalog entry has invalid upstream metadata')
   }
+}
+
+/** Refusal raised when product execution selects a provider without a qualification receipt (D17). */
+export class ProviderNotRunnableError extends Error {
+  readonly code = 'PROVIDER_NOT_RUNNABLE' as const
+
+  constructor(readonly providerId: string) {
+    super(`provider ${providerId} is not runnable for product execution: missing qualification receipt`)
+    this.name = 'ProviderNotRunnableError'
+  }
+}
+
+/** Refuses an unknown provider or one that lacks `runnable: true` plus a qualification receipt id. */
+export function assertProviderRunnable(
+  providerId: string,
+  entry: ProviderCatalogEntry | undefined = PROVIDER_CATALOG[providerId as AdapterProviderId],
+): asserts entry is ProviderCatalogEntry {
+  if (entry?.runnable !== true || !hasReceipt(entry.qualificationReceiptId)) {
+    throw new ProviderNotRunnableError(providerId)
+  }
+}
+
+function hasReceipt(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

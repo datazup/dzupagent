@@ -45,7 +45,20 @@ export interface ProviderCapabilities {
  */
 export interface ProviderCatalogEntry extends ProviderCapabilities, CatalogEntry {
   monitorIntrospection: CatalogEntry['monitorTier']
+  /**
+   * True only when a qualification receipt exists for product execution
+   * (D17). Independent of `productIntegrated`, which describes UI surfacing.
+   */
+  runnable: boolean
+  /** Citable qualification receipt id; required when `runnable` is true. */
+  qualificationReceiptId: string | null
 }
+
+function qualifiedBy(receiptId: string): Pick<ProviderCatalogEntry, 'runnable' | 'qualificationReceiptId'> {
+  return { runnable: true, qualificationReceiptId: receiptId }
+}
+
+const NOT_QUALIFIED = { runnable: false, qualificationReceiptId: null } as const
 
 const normalizedOnly: EventFidelity = {
   raw: false,
@@ -85,6 +98,14 @@ function postureRef(id: string): CatalogEntry['posture'] {
  * This decision can be revisited to promote any of them to an
  * experimental / opt-in product tier by flipping `productIntegrated` to
  * true (and updating the relevant catalog/UI tests).
+ *
+ * Runnability (UD-MVP-12, D17) is separate: only providers with a citable
+ * qualification receipt are `runnable`. Receipts are recorded in
+ * workspace-docs/repos/workspace-root/docs/ai-assistant-platform/
+ * 2026-07-16-configurable-attached-ai-assistant-gap-analysis-and-implementation-plan.md
+ * (codex: AAI-B002b1d, §7.19; claude: AAI-B002b2/E001c2b3, §7.27). Every
+ * other provider, including the product-integrated qwen and crush, stays
+ * non-runnable until its own receipt id is added here.
  */
 export const PROVIDER_CATALOG = {
   claude: {
@@ -115,6 +136,7 @@ export const PROVIDER_CATALOG = {
     },
     runtimeExecution: true,
     productIntegrated: true,
+    ...qualifiedBy('AAI-B002b2/E001c2b3'),
     httpAdapterRouting: true,
     monitorIntrospection: 'deep',
     supportsReplay: true,
@@ -156,6 +178,7 @@ export const PROVIDER_CATALOG = {
     },
     runtimeExecution: true,
     productIntegrated: true,
+    ...qualifiedBy('AAI-B002b1d'),
     httpAdapterRouting: true,
     monitorIntrospection: 'deep',
     supportsReplay: true,
@@ -188,6 +211,7 @@ export const PROVIDER_CATALOG = {
     },
     runtimeExecution: true,
     productIntegrated: true,
+    ...NOT_QUALIFIED,
     httpAdapterRouting: true,
     monitorIntrospection: 'partial',
     supportsReplay: false,
@@ -220,6 +244,7 @@ export const PROVIDER_CATALOG = {
     },
     runtimeExecution: true,
     productIntegrated: true,
+    ...NOT_QUALIFIED,
     httpAdapterRouting: true,
     monitorIntrospection: 'partial',
     supportsReplay: false,
@@ -252,6 +277,7 @@ export const PROVIDER_CATALOG = {
     },
     runtimeExecution: true,
     productIntegrated: false,
+    ...NOT_QUALIFIED,
     httpAdapterRouting: true,
     monitorIntrospection: 'artifact-backed',
     supportsReplay: false,
@@ -284,6 +310,7 @@ export const PROVIDER_CATALOG = {
     },
     runtimeExecution: true,
     productIntegrated: true,
+    ...NOT_QUALIFIED,
     httpAdapterRouting: true,
     monitorIntrospection: 'artifact-backed',
     supportsReplay: false,
@@ -314,6 +341,7 @@ export const PROVIDER_CATALOG = {
     },
     runtimeExecution: true,
     productIntegrated: false,
+    ...NOT_QUALIFIED,
     httpAdapterRouting: false,
     monitorIntrospection: 'none',
     supportsReplay: false,
@@ -343,6 +371,7 @@ export const PROVIDER_CATALOG = {
     },
     runtimeExecution: true,
     productIntegrated: true,
+    ...NOT_QUALIFIED,
     httpAdapterRouting: true,
     monitorIntrospection: 'none',
     supportsReplay: false,
@@ -374,6 +403,7 @@ export const PROVIDER_CATALOG = {
     },
     runtimeExecution: true,
     productIntegrated: true,
+    ...NOT_QUALIFIED,
     httpAdapterRouting: true,
     monitorIntrospection: 'none',
     supportsReplay: false,
@@ -405,6 +435,7 @@ export const PROVIDER_CATALOG = {
     },
     runtimeExecution: true,
     productIntegrated: false,
+    ...NOT_QUALIFIED,
     httpAdapterRouting: false,
     monitorIntrospection: 'partial',
     supportsReplay: false,

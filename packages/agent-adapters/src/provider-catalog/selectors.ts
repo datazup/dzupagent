@@ -1,5 +1,6 @@
 import type { AdapterMonitorStatus, AdapterProviderId } from '../types.js'
 import { PROVIDER_CATALOG, type ProviderCatalogEntry } from './catalog.js'
+import { assertProviderRunnable } from './runtime-validation.js'
 
 export const HTTP_ROUTABLE_PROVIDER_IDS = Object.freeze(
   (Object.entries(PROVIDER_CATALOG) as Array<[AdapterProviderId, ProviderCatalogEntry]>)
@@ -19,6 +20,27 @@ export function getProductProviders(): AdapterProviderId[] {
   return Object.entries(PROVIDER_CATALOG)
     .filter(([, caps]) => caps.productIntegrated)
     .map(([id]) => id as AdapterProviderId)
+}
+
+/** Returns provider IDs qualified for product execution (runnable === true, D17). */
+export function getRunnableProviders(): AdapterProviderId[] {
+  return Object.entries(PROVIDER_CATALOG)
+    .filter(([, caps]) => caps.runnable)
+    .map(([id]) => id as AdapterProviderId)
+}
+
+/**
+ * Selects a provider for product execution, refusing unknown or non-runnable
+ * providers with ProviderNotRunnableError. `catalog` defaults to the canonical
+ * catalog and exists so a receipt-bearing entry can be supplied explicitly.
+ */
+export function selectProviderForExecution(
+  id: string,
+  catalog: Readonly<Record<string, ProviderCatalogEntry>> = PROVIDER_CATALOG,
+): ProviderCatalogEntry {
+  const entry = Object.hasOwn(catalog, id) ? catalog[id] : undefined
+  assertProviderRunnable(id, entry)
+  return entry
 }
 
 /** Returns capabilities for a given provider ID, or undefined if unknown. */
