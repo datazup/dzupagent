@@ -35,7 +35,10 @@ export type {
   V2InactiveLocalHostSetStepPlan,
   V2InactiveLocalHostStepPlan,
 } from "./host-contracts.js";
-import { validateV2InactiveLocalHostRequest } from "./host-plan-request.js";
+import {
+  configBindingPath,
+  validateV2InactiveLocalHostRequest,
+} from "./host-plan-request.js";
 import {
   cloneHostPlanRecord as cloneRecord,
   exactHostPlanBinding as exactBinding,
@@ -53,6 +56,9 @@ export interface V2InactiveLocalHostContext {
   readonly sourceSha256: `sha256:${string}`;
   readonly qualificationSha256: `sha256:${string}`;
   readonly planSha256: `sha256:${string}`;
+  /** Bound config values (sorted, frozen); `{}` when the document declares none. */
+  readonly config: Readonly<Record<string, string>>;
+  readonly configSha256?: `sha256:${string}`;
   readonly stateBefore: Readonly<Record<string, unknown>>;
   readonly steps: readonly V2InactiveLocalHostStepPlan[];
 }
@@ -110,6 +116,12 @@ export async function prepareV2InactiveLocalHost(
     );
   }
 
+  const config = bindConfigReferences(
+    prepared.frontend,
+    input.configBindings ?? {}
+  );
+  if (!config.ok) return config;
+
   const typedConditions = collectTypedConditions(
     prepared.flowInput as FlowNode
   );
@@ -131,6 +143,7 @@ export async function prepareV2InactiveLocalHost(
       conditionBindings: input.conditionBindings,
       inheritedPolicy: input.inheritedPolicy ?? {},
       cancelBeforeStep: input.cancelBeforeStep ?? null,
+      ...(config.declared ? { configBindings: config.values } : {}),
     })
   );
   return {
@@ -155,9 +168,73 @@ export async function prepareV2InactiveLocalHost(
       sourceSha256: qualification.receipt.sourceSha256,
       qualificationSha256: qualification.receipt.qualificationSha256,
       planSha256,
+      config: config.values,
+      ...(config.declared
+        ? { configSha256: digest(stableStringify(config.values)) }
+        : {}),
       stateBefore: deepFreeze(stateBefore),
       steps: deepFreeze([...planned.steps]),
     }),
+  };
+}
+
+/**
+ * Bind run-time values to the document's declared config references. The
+ * bindings must name exactly the declared references; value shape and secret
+ * refusal were already checked by request validation.
+ */
+function bindConfigReferences(
+  frontend: DslV2FrontendMetadata,
+  bindings: Readonly<Record<string, string>>
+):
+  | {
+      readonly ok: true;
+      readonly declared: boolean;
+      readonly values: Readonly<Record<string, string>>;
+    }
+  | { readonly ok: false; readonly error: V2InactiveLocalHostError } {
+  const declared = frontend.configReferences;
+  const names = new Set((declared ?? []).map((reference) => reference.name));
+  for (const name of Object.keys(bindings).sort()) {
+    if (!names.has(name)) {
+      return configBindingInvalid(
+        name,
+        declared === undefined
+          ? "the document declares no config references to bind"
+          : "config binding is not declared by the document"
+      );
+    }
+  }
+  for (const name of [...names].sort()) {
+    if (!Object.hasOwn(bindings, name)) {
+      return configBindingInvalid(
+        name,
+        "declared config reference has no binding"
+      );
+    }
+  }
+  return {
+    ok: true,
+    declared: declared !== undefined,
+    values: Object.freeze(
+      Object.fromEntries(
+        [...names].sort().map((name) => [name, bindings[name]!] as const)
+      )
+    ),
+  };
+}
+
+function configBindingInvalid(
+  name: string,
+  message: string
+): { readonly ok: false; readonly error: V2InactiveLocalHostError } {
+  return {
+    ok: false,
+    error: {
+      code: "V2_LOCAL_HOST_REQUEST_INVALID",
+      message,
+      path: configBindingPath(name),
+    },
   };
 }
 
