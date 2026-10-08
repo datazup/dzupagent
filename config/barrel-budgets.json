@@ -680,14 +680,6 @@
       "maxRootBarrelStarExports": 6,
       "maxRootBarrelSourceCount": 8,
       "maxRootIndexLines": 17,
-      "rootDebtPin": {
-        "maxRootBarrelStarExports": 7,
-        "maxRootBarrelSourceCount": 9,
-        "sourceSha256": "3ade795e852310f344812507583571e0ae4a6fed28ec7c689a8b00f1dbfb6e43",
-        "sourceCommit": "49921e7ec9b1987c53cebba5e8327266669903be",
-        "reviewBy": "2026-09-09",
-        "rationale": "Freeze the shipped AST compatibility barrel pending an explicit-export consolidation review."
-      },
       "maxFileLines": 500
     },
     "@dzupagent/flow-compiler": {

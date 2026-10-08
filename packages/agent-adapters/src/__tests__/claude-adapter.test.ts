@@ -246,7 +246,7 @@ function hostileProviderOptionsOnRead(
     get() {
       effects.reads += 1
       if (effects.reads === mutatePolicyOnRead) {
-        Object.assign(input.policyContext!.activePolicy, {
+        Object.assign(input.policyContext!.activePolicy!, {
           allowedTools: ['HostileTool'],
         })
       }
@@ -475,7 +475,7 @@ describe('ClaudeAgentAdapter', () => {
       const loadSdk = vi.spyOn(selectedAdapter, 'loadSdk')
       const input = zeroToolInput()
       selectedAdapter.admitExecutionControls?.(input, ZERO_TOOL_REQUIREMENT)
-      Object.assign(input.policyContext!.activePolicy, {
+      Object.assign(input.policyContext!.activePolicy!, {
         allowedTools: ['HostileTool'],
       })
 
@@ -576,7 +576,7 @@ describe('ClaudeAgentAdapter', () => {
       const originalLoadSdk = adapter.loadSdk.bind(adapter)
       vi.spyOn(adapter, 'loadSdk').mockImplementation(async () => {
         const sdk = await originalLoadSdk()
-        Object.assign(input.policyContext!.activePolicy, {
+        Object.assign(input.policyContext!.activePolicy!, {
           allowedTools: ['HostileTool'],
         })
         return sdk

@@ -340,14 +340,15 @@ describe("seeded route selection replay fixtures", () => {
         decidedAt: REPLAY_DECIDED_AT,
         seed: `seed-${index}`,
       });
-      counts[decision.selectedCandidateId as string] += 1;
+      const key = decision.selectedCandidateId as string;
+      counts[key] = (counts[key] ?? 0) + 1;
     }
 
     // The draw is a pure function of fixed seeds, so these shares are exact and
     // reproducible; the tolerance covers hash spread, not run-to-run variance.
-    expect(counts["alpha:sdk"] / draws).toBeCloseTo(0.1, 1);
-    expect(counts["bravo:sdk"] / draws).toBeCloseTo(0.3, 1);
-    expect(counts["charlie:sdk"] / draws).toBeCloseTo(0.6, 1);
+    expect((counts["alpha:sdk"] ?? 0) / draws).toBeCloseTo(0.1, 1);
+    expect((counts["bravo:sdk"] ?? 0) / draws).toBeCloseTo(0.3, 1);
+    expect((counts["charlie:sdk"] ?? 0) / draws).toBeCloseTo(0.6, 1);
   });
 
   it("advances the round-robin rotation instead of repeating the cursor's candidate", () => {

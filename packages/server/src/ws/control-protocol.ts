@@ -42,7 +42,7 @@ export interface WSControlHandlerOptions {
   requireScopedSubscription?: boolean
   /**
    * Filter to apply on unsubscribe.
-   * Defaults to empty filter (all events).
+   * Deprecated: unsubscribe always disables event delivery.
    */
   unsubscribeFilter?: ClientFilter
 }
@@ -105,7 +105,7 @@ export function createWsControlHandler(
 ): (raw: string) => Promise<void> {
   const allowUnscopedSubscriptions =
     options?.allowUnscopedSubscriptions ?? options?.requireScopedSubscription === false
-  const unsubscribeFilter = options?.unsubscribeFilter ?? {}
+  const unsubscribeFilter: ClientFilter = { eventTypes: [] }
 
   return async (raw: string) => {
     let parsed: unknown

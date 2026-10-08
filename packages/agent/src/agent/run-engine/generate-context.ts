@@ -19,6 +19,17 @@ function isGenerateContextMessage(
   )
 }
 
+/**
+ * A trailing AI message with tool calls is a pending exchange: its tool
+ * results are appended next, so nothing may be placed after it (DZC-P1c).
+ */
+function hasPendingToolCallTail(messages: readonly BaseMessage[]): boolean {
+  const last = messages.at(-1)
+  if (last?._getType() !== 'ai') return false
+  const toolCalls = (last as { tool_calls?: unknown[] }).tool_calls
+  return Array.isArray(toolCalls) && toolCalls.length > 0
+}
+
 /** Whether a non-empty caller context is present exactly once as the suffix. */
 export function hasExactGenerateContextSuffix(
   messages: readonly BaseMessage[],
@@ -30,14 +41,17 @@ export function hasExactGenerateContextSuffix(
   for (const message of messages) {
     if (isGenerateContextMessage(message, context)) contextCount += 1
   }
+  const suffixSlot = hasPendingToolCallTail(messages) ? -2 : -1
   return (
     contextCount === 1
-    && isGenerateContextMessage(messages.at(-1), context)
+    && isGenerateContextMessage(messages.at(suffixSlot), context)
   )
 }
 
 /**
  * Place caller context exactly once at the system-message suffix boundary.
+ * When the transcript ends with a pending tool-call exchange, the boundary is
+ * just before that AI message, so its tool results still follow it directly.
  *
  * The returned array is new only when placement must change. Message objects
  * and the caller-owned input array are never mutated. Re-applying the helper
@@ -54,8 +68,11 @@ export function appendGenerateContext(
     return messages
   }
 
-  return [
-    ...messages.filter(message => !isGenerateContextMessage(message, context)),
-    new SystemMessage(context),
-  ]
+  const rest = messages.filter(
+    message => !isGenerateContextMessage(message, context),
+  )
+  if (hasPendingToolCallTail(rest)) {
+    return [...rest.slice(0, -1), new SystemMessage(context), rest.at(-1)!]
+  }
+  return [...rest, new SystemMessage(context)]
 }

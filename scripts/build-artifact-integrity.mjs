@@ -20,10 +20,13 @@ export const ROOT_BUILD_INPUTS = [
   'turbo.json',
   'tsconfig.json',
   'yarn.lock',
+  '.yarn/patches/braces-npm-3.0.3-582c14023c.patch',
   'scripts/build-artifact-integrity.mjs',
   'scripts/build-custody.mjs',
   'scripts/check-package-export-artifacts.mjs',
   'scripts/prepare-build-artifact-manifest.mjs',
+  'scripts/prune-private-declarations.mjs',
+  'scripts/strip-declaration-module-comments.mjs',
   'scripts/run-with-build-custody.mjs',
   'scripts/write-build-artifact-manifest.mjs',
 ]

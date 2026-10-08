@@ -337,10 +337,8 @@ const FALLBACK_DESCRIPTIONS = {
   'workflow-domain': 'Workflow domain models and definitions',
 }
 
-export function generateCapabilityMatrix(root = DEFAULT_ROOT) {
+export function renderCapabilityMatrix(root = DEFAULT_ROOT) {
   const packagesDir = join(root, 'packages')
-  const outputDir = join(root, 'docs')
-  const outputFile = join(outputDir, 'CAPABILITY_MATRIX.md')
   const coverageConfig = loadCoverageConfig(root)
 
   const packageDirs = readdirSync(packagesDir, { withFileTypes: true })
@@ -439,18 +437,15 @@ export function generateCapabilityMatrix(root = DEFAULT_ROOT) {
     }
   }
 
-  if (!existsSync(outputDir)) {
-    mkdirSync(outputDir, { recursive: true })
-  }
+  return lines.join('\n')
+}
 
-  writeFileSync(outputFile, lines.join('\n'), 'utf-8')
-
-  const totalExports = packages.reduce(
-    (sum, pkg) => sum + pkg.classes.length + pkg.functions.length + pkg.types.length + pkg.constants.length,
-    0,
-  )
-
-  console.log(`Wrote ${outputFile} — ${packages.length} packages, ${totalExports} exports`)
+export function generateCapabilityMatrix(root = DEFAULT_ROOT) {
+  const outputDir = join(root, 'docs')
+  const outputFile = join(outputDir, 'CAPABILITY_MATRIX.md')
+  mkdirSync(outputDir, { recursive: true })
+  writeFileSync(outputFile, renderCapabilityMatrix(root), 'utf-8')
+  console.log(`Wrote ${outputFile}`)
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

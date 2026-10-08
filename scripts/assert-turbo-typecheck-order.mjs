@@ -67,6 +67,28 @@ export function checkBuildOrdering(turboConfig) {
   return messages
 }
 
+export function checkPortalPeerOrdering(turboConfig) {
+  const tasks = turboConfig?.tasks ?? {}
+  const messages = []
+  const seams = {
+    '@dzupagent/runtime-contracts#test': '@dzupagent/canonical-json#build:verify',
+    '@dzupagent/runtime-contracts#typecheck': '@dzupagent/canonical-json#build:verify',
+    '@dzupagent/runtime-contracts#test:coverage': '@dzupagent/canonical-json#build:verify',
+    '@dzupagent/agent#typecheck': '@dzupagent/memory#build:verify',
+    '@dzupagent/memory#test:coverage': '@dzupagent/memory#build:verify',
+    '@dzupagent/agent#test:coverage': '@dzupagent/agent#build:verify',
+    '@dzupagent/agent-adapters#test:coverage': '@dzupagent/agent-adapters#build:verify',
+    '@dzupagent/adapter-types#test:coverage': '@dzupagent/adapter-types#build:verify',
+    '@dzupagent/context#test:coverage': '@dzupagent/context#build:verify',
+    '@dzupagent/testing#test:coverage': '@dzupagent/testing#build:verify',
+    '@dzupagent/testing#test': '@dzupagent/testing#build:verify',
+  }
+  for (const [task, edge] of Object.entries(seams)) {
+    if (!tasks[task]?.dependsOn?.includes(edge)) messages.push(`${task} requires ${edge}`)
+  }
+  return messages
+}
+
 /**
  * Root tasks (`//#name`) CANNOT use `^` dependencies. The root package has no
  * workspace dependencies in Turbo's graph, so `"dependsOn": ["^build:verify"]`
@@ -163,6 +185,7 @@ export function checkTurboTypecheckOrder(turboConfig, packageJson) {
   }
 
   messages.push(...checkBuildOrdering(turboConfig))
+  messages.push(...checkPortalPeerOrdering(turboConfig))
   messages.push(...checkNoTopologicalDepsOnRootTasks(turboConfig))
   if (packageJson !== undefined) {
     messages.push(...checkGateScriptOrdering(packageJson))

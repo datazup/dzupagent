@@ -1,7 +1,7 @@
 /**
  * Memory Prioritization Tests
  *
- * Tests covering importance scoring, priority queue behavior, and
+ * Tests covering importance scoring, decay-based ranking, and
  * priority-based retrieval using the decay-engine, staleness-pruner,
  * and consolidation-types from @dzupagent/memory.
  */
@@ -177,42 +177,6 @@ describe("importance factors", () => {
     expect(score).toBeCloseTo(0.8, 5);
   });
 });
-
-// ---------------------------------------------------------------------------
-/**
- * COVERAGE GAP — deliberately skipped suite (DZUPAGENT-TEST-C-14).
- *
- * This file previously held 20 `it()` blocks whose entire subject under test
- * was `PriorityQueue` — a class DEFINED LOCALLY in this file. Five top-level
- * describes ("priority queue insertion" 4, "priority queue ordering" 3,
- * "priority queue pop" 3, "priority queue peek" 3, "priority tie-breaking" 2)
- * plus 5 of the 7 blocks in "empty priority queue edge cases" asserted only
- * against the local queue's own push/pop/peek/size/toArray/isEmpty. (The
- * audit enumerated 15; the 5 in the edge-cases describe were undercounted and
- * are removed here too — the 2 blocks in that describe that drive real
- * `findWeakMemories` / `pruneStaleMemories` are kept.) A grep for
- * `PriorityQueue` over all non-test source in all 36 packages returns
- * nothing: no priority queue ships anywhere. The file's own header (`:49`)
- * already admitted this.
- *
- * The remaining 44 `it()` blocks in this file are NOT affected: they
- * legitimately exercise the real `decay-engine` (`scoreWithDecay`,
- * `findWeakMemories`) and `staleness-pruner` (`computeStaleness`,
- * `pruneStaleMemories`) modules.
- *
- * UNTESTED PRODUCTION SYMBOLS — memory ranking as actually shipped is
- * score-based, not queue-based; there is no shipped priority-queue data
- * structure to point at. Ordering/tie-breaking behaviour that DOES ship
- * lives in `scoreWithDecay` / `findWeakMemories`
- * (packages/memory/src/decay-engine.ts), which the surviving describes in
- * this file already cover.
- *
- * Removed 2026-08-14 (DZUPAGENT-TEST-C-14 / RF-07).
- */
-describe.skip("priority queue (no production priority-queue symbol ships in @dzupagent/memory)", () => {
-  it("needs a shipped queue symbol before insertion/ordering/pop/peek/tie-breaking can be covered", () => {});
-});
-
 
 describe("priority-based retrieval", () => {
   it("memories ranked by scoreWithDecay return highest score first", () => {
@@ -690,10 +654,10 @@ describe("priority serialization", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 16. Empty priority queue — edge cases handled gracefully
+// 16. Empty inputs — edge cases handled gracefully
 // ---------------------------------------------------------------------------
 
-describe("empty priority-queue-adjacent edge cases (production helpers only)", () => {
+describe("empty-input edge cases (production helpers only)", () => {
   it("findWeakMemories on empty records returns empty array", () => {
     const result = findWeakMemories([], 0.5);
     expect(result).toEqual([]);

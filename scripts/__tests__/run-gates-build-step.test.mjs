@@ -42,11 +42,11 @@ test('the build step invokes turbo through yarn, not bare node', () => {
   )
 })
 
-test('the build step still runs the full turbo task set under build custody', () => {
+test('the build step measures build readiness separately under build custody', () => {
   const run = buildStep.run
   // Guards the fix from being "corrected" by dropping custody or tasks.
   assert.match(run, /run-with-build-custody\.mjs/)
-  assert.match(run, /turbo run build:verify typecheck lint test/)
+  assert.match(run, /turbo run build:verify/)
 })
 
 test('the build step remains blocking', () => {

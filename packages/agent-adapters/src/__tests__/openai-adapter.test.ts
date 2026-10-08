@@ -409,7 +409,7 @@ describe("OpenAIAdapter", () => {
       });
       const adapter = new OpenAIAdapter(config);
       adapter.admitExecutionControls?.(input, ZERO_TOOL_REQUIREMENT);
-      input.policyContext!.activePolicy.allowedTools = ["hostile_tool"];
+      input.policyContext!.activePolicy!.allowedTools = ["hostile_tool"];
 
       const result = await captureFailureAndEvents(adapter.execute(input));
 

@@ -1,0 +1,16 @@
+{
+  "advisory": "GHSA-vfj7-8cjw-p6xm",
+  "package": "braces",
+  "version": "3.0.3",
+  "patch": ".yarn/patches/braces-npm-3.0.3-582c14023c.patch",
+  "patchSha256": "a07ae20b7f4f29c5cb5dafe5d18df262e5896eec5909d7357e20c92a658ede8d",
+  "files": {
+    "index.js": "332ea07c7b006361aad12aa994ca75dc1db8e8382b884909e2f38f10b85c88a4",
+    "lib/parse.js": "f0850ea972df0a1e1f607c4eba5dcbb817aa39028fa1335936bc8aed6a1cd2af",
+    "lib/compile.js": "d1caf0207e634a24ff671fd5d6c5f502a6ec6faa50929b0b235aeb018c989c24",
+    "lib/expand.js": "8f099359fe052ec00be84a4c20a6d6d4fe762d21a24fd537577698cdc151cc77",
+    "lib/stringify.js": "3d8d8a007032d65646509fff2e10b6a871be60da7cc5a9379f11bfef9aebf38d",
+    "lib/depth-guard.js": "9917e3827fd0c1b21bff5c1581cafd13583585732f00ae5ca93f9071494bdbae"
+  },
+  "purpose": "Bound parsed nesting and iteratively validate external ASTs before recursive walkers; reject cycles and traversal exhaustion."
+}

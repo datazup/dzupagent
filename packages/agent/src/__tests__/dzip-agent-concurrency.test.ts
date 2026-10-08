@@ -99,7 +99,7 @@ describe('DzupAgent concurrency — per-run memory frame', () => {
       // Write side of `MemoryServicePort`. These tests exercise only the read
       // path, but the framework calls these unguarded (write-back / decay), so
       // supply inert stubs instead of casting the double past its type.
-      put: vi.fn(async (): Promise<void> => {}),
+      put: vi.fn(async () => ({ status: 'written' as const, piiRedacted: false })),
       getKeyed: vi.fn(async () => []),
       delete: vi.fn(async () => false),
     }
@@ -191,7 +191,7 @@ describe('DzupAgent concurrency — per-run memory frame', () => {
           : `## Memory Context\n- ${String(records[0]?.['text'] ?? '')}`,
       ),
       // See the write-side note on the first double.
-      put: vi.fn(async (): Promise<void> => {}),
+      put: vi.fn(async () => ({ status: 'written' as const, piiRedacted: false })),
       getKeyed: vi.fn(async () => []),
       delete: vi.fn(async () => false),
     }

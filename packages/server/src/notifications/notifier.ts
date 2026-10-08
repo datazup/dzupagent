@@ -33,6 +33,13 @@ export interface NotificationChannel {
   send(notification: Notification): Promise<void>
 }
 
+export interface NotificationChannelErrorContext {
+  /** Name of the channel whose send failed */
+  channel: string
+  /** The notification that failed to send */
+  notification: Notification
+}
+
 export interface NotifierConfig {
   /** Registered notification channels */
   channels: NotificationChannel[]
@@ -40,6 +47,11 @@ export interface NotifierConfig {
   minPriority?: NotificationPriority
   /** Custom event-to-notification mapper */
   eventMapper?: (eventType: string, eventData: Record<string, unknown>) => Notification | null
+  /**
+   * Called once per failed channel after all sends settle. Errors thrown by
+   * the hook are contained. Without a hook, channel failures are ignored.
+   */
+  onChannelError?: (error: unknown, context: NotificationChannelErrorContext) => void
 }
 
 /** Tier-1 events the agent can handle itself */
@@ -80,12 +92,14 @@ export class Notifier {
   private readonly channels: NotificationChannel[]
   private readonly minPriority: NotificationPriority
   private readonly eventMapper?: NotifierConfig['eventMapper']
+  private readonly onChannelError?: NotifierConfig['onChannelError']
   private readonly history: Notification[] = []
 
   constructor(config: NotifierConfig) {
     this.channels = [...config.channels]
     this.minPriority = config.minPriority ?? 'low'
     this.eventMapper = config.eventMapper
+    this.onChannelError = config.onChannelError
   }
 
   /** Dispatch a notification to all registered channels */
@@ -97,9 +111,22 @@ export class Notifier {
     if (this.history.length > MAX_HISTORY) {
       this.history.shift()
     }
-    await Promise.allSettled(
-      this.channels.map((ch) => ch.send(notification)),
+    const channels = [...this.channels]
+    // Wrap each send so a synchronous throw cannot skip the remaining channels
+    const results = await Promise.allSettled(
+      channels.map(async (ch) => ch.send(notification)),
     )
+    const onChannelError = this.onChannelError
+    if (!onChannelError) return
+    channels.forEach((ch, i) => {
+      const result = results[i]
+      if (result?.status !== 'rejected') return
+      try {
+        onChannelError(result.reason, { channel: ch.name, notification })
+      } catch {
+        // A failing hook must not break dispatch or hide later failures
+      }
+    })
   }
 
   /** Convert a DzupEvent to a notification and dispatch it */
