@@ -351,6 +351,12 @@ export interface PipelineRuntimeConfig {
     extractCost: (nodeId: string, result: NodeResult) => number;
   };
   /**
+   * Cost source for node `executionPolicy.budgetCents`, read once per attempt
+   * of a budgeted node only. Must return a finite non-negative number of
+   * cents; anything else, or no source at all, fails a budgeted node closed.
+   */
+  nodeAttemptCostCents?: (nodeId: string, result: NodeResult) => number | undefined;
+  /**
    * Host-authoritative conservative reservation used by loops that author a
    * hard `iterationBudgetCents` ceiling. Missing or unknown reservation fails
    * before the first body node dispatches.

@@ -100,9 +100,12 @@ export interface NodeStateWritePolicy {
 /**
  * Node execution policy. `requireApproval: true` fails the run before the
  * node is executed; retry, terminal catch and error edges are not consulted.
+ * `budgetCents` caps the host-reported cost summed over every attempt; when
+ * the total exceeds it, or the cost cannot be read, the run fails the same way.
  */
 export interface NodeExecutionPolicy {
   requireApproval?: true;
+  budgetCents?: number;
 }
 
 export interface PipelineNodeSource {

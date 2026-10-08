@@ -23,13 +23,18 @@ import {
   resolveRetryPolicy,
 } from '../retry-policy.js'
 import { nodeRetryEvent } from './runtime-events.js'
+import { createNodeBudget, nodeBudgetCents } from './execution-policy.js'
 
+/**
+ * `policyFailure` marks a node stopped by its execution policy (budget). The
+ * caller fails the run without consulting catch, error edges or recovery.
+ */
 export async function runNodeWithRetry(
   config: PipelineRuntimeConfig,
   emit: (event: PipelineRuntimeEvent) => void,
   node: PipelineNode,
   context: NodeExecutionContext,
-): Promise<NodeResult & { retryCount?: number }> {
+): Promise<NodeResult & { retryCount?: number; policyFailure?: true }> {
   const maxAttempts = (node.retries ?? 0) + 1 // retries=0 means 1 attempt (no retry)
   const effectivePolicy = resolveRetryPolicy(
     node.retryPolicy as RetryPolicy | undefined,
@@ -43,9 +48,25 @@ export async function runNodeWithRetry(
     error: 'Pipeline node did not execute',
   }
   let nodeRetryCount = 0
+  const budgetCents = nodeBudgetCents(node)
+  const budget =
+    budgetCents === undefined || config.nodeAttemptCostCents === undefined
+      ? undefined
+      : createNodeBudget(node.id, budgetCents, config.nodeAttemptCostCents)
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     result = await config.nodeExecutor(node.id, node, context)
+
+    // Every attempt is charged; an over-budget attempt's output is discarded.
+    const overBudget = budget?.charge(result)
+    if (overBudget !== undefined) {
+      return {
+        ...overBudget,
+        durationMs: Date.now() - nodeStartTime,
+        retryCount: nodeRetryCount,
+        policyFailure: true,
+      }
+    }
 
     if (!result.error) break // success
 

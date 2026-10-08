@@ -32,7 +32,9 @@ import { matchTerminalCatch } from "./terminal-catch.js";
 import { applyStateWrites, planStateWrites } from "./state-writes.js";
 import {
   APPROVAL_REQUIRED_CODE,
+  BUDGET_COST_UNKNOWN_CODE,
   approvalRequiredError,
+  budgetCostSourceMissingError,
 } from "./execution-policy.js";
 import {
   recordFailureInStuckDetector,
@@ -140,20 +142,25 @@ export async function dispatchStandardNode(
     };
   };
 
-  // An approval-required node fails closed before its lease and execution;
-  // retry, terminal catch, error edges and recovery are not consulted.
+  // An approval-required node, or a budgeted node without a cost source,
+  // fails closed before its lease and execution; retry, terminal catch, error
+  // edges and recovery are not consulted.
   const approvalError = approvalRequiredError(node);
-  if (approvalError !== undefined) {
-    if (span) config.tracer?.endSpanWithError(span, approvalError);
-    emit(nodeFailedEvent(node.id, approvalError));
+  const preflight =
+    approvalError !== undefined
+      ? { error: approvalError, code: APPROVAL_REQUIRED_CODE }
+      : budgetPreflight(node, config);
+  if (preflight !== undefined) {
+    if (span) config.tracer?.endSpanWithError(span, preflight.error);
+    emit(nodeFailedEvent(node.id, preflight.error));
     nodeResults.set(node.id, {
       nodeId: node.id,
       output: null,
       durationMs: 0,
-      error: approvalError,
-      errorMetadata: { code: APPROVAL_REQUIRED_CODE },
+      error: preflight.error,
+      errorMetadata: { code: preflight.code },
     });
-    return fail(approvalError);
+    return fail(preflight.error);
   }
 
   // P2 (opt-in): lease this node under the durable ledger. When no ledger is
@@ -296,6 +303,9 @@ export async function dispatchStandardNode(
       if (span) config.tracer?.endSpanWithError(span, finalResult.error);
       emit(nodeFailedEvent(node.id, finalResult.error));
       nodeResults.set(node.id, finalResult);
+
+      // A node stopped by its execution policy (budget) is terminal.
+      if (finalResult.policyFailure === true) return fail(finalResult.error);
 
       const stuckAbort = recordFailureInStuckDetector(
         config,
@@ -517,4 +527,17 @@ export async function dispatchStandardNode(
     // P2: always stop the lease-renewal interval, on every exit path.
     heartbeat?.stop();
   }
+}
+
+function budgetPreflight(
+  node: PipelineNode,
+  config: PipelineRuntimeConfig,
+): { error: string; code: string } | undefined {
+  const error = budgetCostSourceMissingError(
+    node,
+    config.nodeAttemptCostCents !== undefined,
+  );
+  return error === undefined
+    ? undefined
+    : { error, code: BUDGET_COST_UNKNOWN_CODE };
 }

@@ -114,7 +114,10 @@ const NodeStateWritePolicySchema = z
   });
 
 const NodeExecutionPolicySchema = z
-  .object({ requireApproval: z.literal(true).optional() })
+  .object({
+    requireApproval: z.literal(true).optional(),
+    budgetCents: z.number().positive().finite().optional(),
+  })
   .strict();
 
 const PipelineNodeBaseSchema = z.object({

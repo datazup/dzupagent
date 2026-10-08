@@ -105,6 +105,7 @@ Tests:
 5. Standard-node dispatch (`standard-node-dispatch.ts`):
   - Emits node start event and optional span.
   - A node with `executionPolicy.requireApproval: true` (`execution-policy.ts`) fails the run with `PIPELINE_APPROVAL_REQUIRED` before its ledger lease and execution; retry, terminal catch and error edges are not consulted.
+  - A node with `executionPolicy.budgetCents` is charged `config.nodeAttemptCostCents` per attempt; a total above the budget fails the run with `PIPELINE_BUDGET_EXCEEDED`, and a missing or unreadable cost with `PIPELINE_BUDGET_COST_UNKNOWN`, without catch, error edges or recovery.
   - Executes node via `runNodeWithRetry(...)`.
   - On success:
     - Validates every `node.stateWrites` binding (`state-writes.ts`) first; an invalid output fails the run with `PIPELINE_STATE_WRITE_INVALID` and writes nothing, otherwise each bound port is written to its state key (also on ledger replay)
