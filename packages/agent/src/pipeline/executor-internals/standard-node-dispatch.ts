@@ -31,6 +31,10 @@ import { runNodeWithRetry } from "./node-retry.js";
 import { matchTerminalCatch } from "./terminal-catch.js";
 import { applyStateWrites, planStateWrites } from "./state-writes.js";
 import {
+  APPROVAL_REQUIRED_CODE,
+  approvalRequiredError,
+} from "./execution-policy.js";
+import {
   recordFailureInStuckDetector,
   recordSuccessInStuckDetector,
   recordCalibration,
@@ -135,6 +139,22 @@ export async function dispatchStandardNode(
       },
     };
   };
+
+  // An approval-required node fails closed before its lease and execution;
+  // retry, terminal catch, error edges and recovery are not consulted.
+  const approvalError = approvalRequiredError(node);
+  if (approvalError !== undefined) {
+    if (span) config.tracer?.endSpanWithError(span, approvalError);
+    emit(nodeFailedEvent(node.id, approvalError));
+    nodeResults.set(node.id, {
+      nodeId: node.id,
+      output: null,
+      durationMs: 0,
+      error: approvalError,
+      errorMetadata: { code: APPROVAL_REQUIRED_CODE },
+    });
+    return fail(approvalError);
+  }
 
   // P2 (opt-in): lease this node under the durable ledger. When no ledger is
   // configured, `ledgerLease` stays undefined and the path below is identical

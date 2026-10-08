@@ -113,6 +113,10 @@ const NodeStateWritePolicySchema = z
     }
   });
 
+const NodeExecutionPolicySchema = z
+  .object({ requireApproval: z.literal(true).optional() })
+  .strict();
+
 const PipelineNodeBaseSchema = z.object({
   id: z.string().min(1),
   name: z.string().optional(),
@@ -133,6 +137,7 @@ const PipelineNodeBaseSchema = z.object({
     .optional(),
   terminalCatch: NodeTerminalCatchPolicySchema.optional(),
   stateWrites: NodeStateWritePolicySchema.optional(),
+  executionPolicy: NodeExecutionPolicySchema.optional(),
   declaredIdempotencyKey: z.string().optional(),
   idempotency: z
     .enum(["idempotent", "at-least-once", "exactly-once-required"])

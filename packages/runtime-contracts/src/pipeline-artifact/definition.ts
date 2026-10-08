@@ -97,6 +97,14 @@ export interface NodeStateWritePolicy {
   bindings: NodeStateWriteBinding[];
 }
 
+/**
+ * Node execution policy. `requireApproval: true` fails the run before the
+ * node is executed; retry, terminal catch and error edges are not consulted.
+ */
+export interface NodeExecutionPolicy {
+  requireApproval?: true;
+}
+
 export interface PipelineNodeSource {
   /** Source artifact kind that produced this pipeline node. */
   kind: "flow-node";
@@ -137,6 +145,11 @@ export interface PipelineNodeBase {
    * loop, for-each and fork body executors do not consult it.
    */
   stateWrites?: NodeStateWritePolicy;
+  /**
+   * Execution policy. Honoured for top-level nodes only; loop, for-each and
+   * fork body executors do not consult it.
+   */
+  executionPolicy?: NodeExecutionPolicy;
   /**
    * W1 durability wiring (Slice 1). A declared idempotency key lowered from the
    * DSL (`meta.mutation.idempotencyKey`). When a non-empty string, the runtime
