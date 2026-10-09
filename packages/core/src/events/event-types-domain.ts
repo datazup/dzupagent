@@ -262,7 +262,8 @@ export type DomainLifecycleEvent =
           | "PARALLEL_PRESENT"
           | "SUSPEND_PRESENT"
           | "FOR_EACH_PRESENT"
-          | "RUNTIME_LEAF_PRESENT";
+          | "RUNTIME_LEAF_PRESENT"
+          | "TARGET_OPTION";
         message: string;
       }>;
     }

@@ -77,6 +77,28 @@ describe('DzupEventBus — flow compiler events', () => {
     }
   })
 
+  it('accepts the TARGET_OPTION routing reason on flow:compile_result', () => {
+    const bus = createEventBus()
+    const handler = vi.fn()
+    bus.on('flow:compile_result', handler)
+
+    bus.emit({
+      type: 'flow:compile_result',
+      compileId: 'c-target',
+      target: 'pipeline',
+      artifact: { nodes: [], edges: [] },
+      warnings: [],
+      reasons: [{ code: 'TARGET_OPTION', message: 'Target pinned by the caller.' }],
+    })
+
+    expect(handler).toHaveBeenCalledTimes(1)
+    expect(handler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reasons: [{ code: 'TARGET_OPTION', message: 'Target pinned by the caller.' }],
+      }),
+    )
+  })
+
   it('delivers flow:compile_failed with the terminal payload shape', () => {
     const bus = createEventBus()
     const handler = vi.fn()
