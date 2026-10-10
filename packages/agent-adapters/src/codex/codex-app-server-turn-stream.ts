@@ -66,7 +66,10 @@ export async function* consumeCodexAppServerTurn(
   context: CodexAppServerTurnContext,
 ): AsyncGenerator<AgentEvent, AgentEvent | undefined, undefined> {
   const { run, correlationId, now } = context
-  let result = ''
+  // Message text by owning item, in arrival order. The completed result is
+  // assembled at the terminal event so a phase revealed late still applies.
+  const messages = new Map<string, string>()
+  let resultLength = 0
   let usage: TokenUsage | undefined
   let sawTurnStarted = false
   const messagePhases = new Map<string, AgentStreamDeltaEvent['phase']>()
@@ -136,8 +139,10 @@ export async function* consumeCodexAppServerTurn(
           'Codex app-server emitted an invalid message delta',
         )
       }
-      result += delta
-      if (result.length > MAX_RESULT_LENGTH) throw adapterError(
+      const itemId = stringValue(event.params['itemId'])
+      messages.set(itemId, (messages.get(itemId) ?? '') + delta)
+      resultLength += delta.length
+      if (resultLength > MAX_RESULT_LENGTH) throw adapterError(
         'CODEX_APP_SERVER_RESULT_LIMIT',
         'Codex app-server result exceeded its limit',
       )
@@ -160,6 +165,12 @@ export async function* consumeCodexAppServerTurn(
     if (event.method === 'turn/completed') {
       const completedTurn = assertTurnNotification(event.params, 'completed')
       assertRunEventIdentity(event.params, run, true)
+      // COORD-P20-B1-FINAL-REPORT-CAPTURE-20261010-R1: a commentary preamble is
+      // progress, never the reply; only non-commentary message text is the result.
+      let result = ''
+      for (const [id, text] of messages) {
+        if (messagePhases.get(id) !== 'commentary') result += text
+      }
       return terminalEvent(completedTurn.status, { result, usage }, context)
     }
     if (event.method === 'error') {
