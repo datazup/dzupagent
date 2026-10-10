@@ -90,3 +90,52 @@ describe('app-server normalized checkpoint event preservation', () => {
       .rejects.toMatchObject({ code: 'CODEX_APP_SERVER_STALE_TURN' })
   })
 })
+
+// Admission: COORD-P20-B1-FINAL-REPORT-CAPTURE-20261010-R1. The completed
+// result is the final answer only; a commentary preamble is never report text.
+describe('app-server completed result is the final answer only', () => {
+  const finalReport = report.replace('"filesBelievedChanged":[]', '"filesBelievedChanged":["r0-output.txt"]')
+  const usage = notification('thread/tokenUsage/updated', { tokenUsage: {
+    last: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0, reasoningOutputTokens: 0, totalTokens: 2 },
+    total: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0, reasoningOutputTokens: 0, totalTokens: 2 } } })
+  const completed = notification('turn/completed', { turn: { id: ids.turnId, items: [], status: 'completed' } })
+  const said = (id: string, phase: string | undefined, text: string, started = true) => {
+    const item = { type: 'agentMessage', id, text, phase }
+    return [
+      ...(started ? [notification('item/started', { item })] : []),
+      notification('item/agentMessage/delta', { itemId: id, delta: text }),
+      notification('item/completed', { item }),
+    ]
+  }
+
+  it('drops the commentary report and keeps the final report of the real order', async () => {
+    const edit = file(workspace + '/r0-output.txt')
+    const result = await replay([
+      ...said('commentary-message', 'commentary', report),
+      notification('item/started', { item: edit }), notification('item/completed', { item: edit }),
+      ...said('final-message', 'final_answer', finalReport),
+      usage, completed,
+    ])
+    expect(finalReport).not.toBe(report)
+    expect(result.terminal).toMatchObject({ type: 'adapter:completed', result: finalReport })
+  })
+
+  it('excludes commentary revealed only at item completion', async () => {
+    const result = await replay([
+      ...said('late-commentary', 'commentary', report, false),
+      ...said('final-message', 'final_answer', finalReport),
+      usage, completed,
+    ])
+    expect(result.terminal).toMatchObject({ type: 'adapter:completed', result: finalReport })
+  })
+
+  it('a commentary-only completed turn has no report text', async () => {
+    const result = await replay([...said('commentary-message', 'commentary', report), usage, completed])
+    expect(result.terminal).toMatchObject({ type: 'adapter:completed', result: '' })
+  })
+
+  it('keeps phase-less legacy text unchanged', async () => {
+    const result = await replay([notification('item/agentMessage/delta', { itemId: 'legacy', delta: report }), usage, completed])
+    expect(result.terminal).toMatchObject({ type: 'adapter:completed', result: report })
+  })
+})
