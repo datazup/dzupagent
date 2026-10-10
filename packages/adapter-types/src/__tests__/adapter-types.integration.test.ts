@@ -4,6 +4,7 @@ import type {
   AgentCompletedEvent,
   AgentEvent,
   AgentFailedEvent,
+  AgentFileChangeEvent,
   AgentMessageEvent,
   AgentProgressEvent,
   AgentRecoveryCancelledEvent,
@@ -37,6 +38,8 @@ function summarizeAdapterEvents(events: AgentEvent[]): string {
           return `recovery_cancelled:${event.totalAttempts}:${event.strategy}`
         case 'adapter:stream_delta':
           return `stream_delta:${event.content}`
+        case 'adapter:file_change':
+          return `file_change:${event.paths.map(change => change.path).join(',')}`
         case 'adapter:progress':
           return `progress:${event.phase}:${event.percentage ?? 'na'}`
         case 'adapter:memory_recalled':
@@ -57,6 +60,18 @@ function summarizeAdapterEvents(events: AgentEvent[]): string {
 }
 
 describe('adapter-types integration contract', () => {
+  it('models normalized file changes and optional message phase', () => {
+    const change: AgentFileChangeEvent = {
+      type: 'adapter:file_change', providerId: 'codex', timestamp: 1,
+      paths: [{ path: 'r0-output.txt', kind: 'add' }],
+    }
+    const delta: AgentStreamDeltaEvent = {
+      type: 'adapter:stream_delta', providerId: 'codex', timestamp: 2,
+      content: 'synthetic', phase: 'final_answer',
+    }
+    expect(summarizeAdapterEvents([change, delta])).toBe('file_change:r0-output.txt -> stream_delta:synthetic')
+    expect(delta.phase).toBe('final_answer')
+  })
   it('models a complete adapter lifecycle with typed discriminated events', () => {
     const started: AgentStartedEvent = {
       type: 'adapter:started',

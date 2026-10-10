@@ -1,4 +1,5 @@
-import type { AgentEvent, TokenUsage } from '../types.js'
+import { isAbsolute, relative, resolve, sep } from 'node:path'
+import type { AgentEvent, AgentFileChangeEvent, AgentStreamDeltaEvent, TokenUsage } from '../types.js'
 import type { CodexAppServerInboundEvent } from './codex-app-server-client.js'
 import {
   HUMAN_REQUEST_METHODS,
@@ -16,6 +17,7 @@ import {
 } from './codex-app-server-adapter-events.js'
 import {
   assertRunEventIdentity,
+  objectValue,
   stringValue,
 } from './codex-app-server-adapter-validation.js'
 import {
@@ -27,6 +29,8 @@ export interface CodexAppServerTurnContext {
   readonly run: ActiveRun
   /** The exact backend version admitted for this binding. */
   readonly admittedVersion: string
+  /** Validated working directory returned for the admitted thread. */
+  readonly workingDirectory: string
   readonly correlationId: string | undefined
   /** Wall-clock start of the run, used only for the completed event's duration. */
   readonly startedAt: number
@@ -65,6 +69,7 @@ export async function* consumeCodexAppServerTurn(
   let result = ''
   let usage: TokenUsage | undefined
   let sawTurnStarted = false
+  const messagePhases = new Map<string, AgentStreamDeltaEvent['phase']>()
 
   for await (const event of events) {
     context.requireRemaining()
@@ -98,6 +103,30 @@ export async function* consumeCodexAppServerTurn(
       sawTurnStarted = true
       continue
     }
+    if (event.method === 'item/started' || event.method === 'item/completed') {
+      const item = objectValue(event.params['item'])
+      if (item['type'] === 'agentMessage' || item['type'] === 'fileChange') {
+        assertRunEventIdentity(event.params, run, false)
+      }
+      if (item['type'] === 'agentMessage') {
+        const id = stringValue(item['id'])
+        const phase = item['phase']
+        if (id && (phase === 'commentary' || phase === 'final_answer')) {
+          messagePhases.set(id, phase)
+        }
+      } else if (item['type'] === 'fileChange' && event.method === 'item/completed') {
+        // Validate the entire batch before yielding; an escaping path is never
+        // silently dropped or hidden behind another path in the same item.
+        const paths = normalizedFileChanges(item['changes'], context.workingDirectory)
+        yield withCorrelation({
+          type: 'adapter:file_change',
+          providerId: 'codex',
+          paths,
+          timestamp: now(),
+        }, correlationId)
+      }
+      continue
+    }
     if (event.method === 'item/agentMessage/delta') {
       assertRunEventIdentity(event.params, run, false)
       const delta = stringValue(event.params['delta'])
@@ -116,6 +145,9 @@ export async function* consumeCodexAppServerTurn(
         type: 'adapter:stream_delta',
         providerId: 'codex',
         content: delta,
+        ...(messagePhases.get(stringValue(event.params['itemId']))
+          ? { phase: messagePhases.get(stringValue(event.params['itemId'])) }
+          : {}),
         timestamp: now(),
       }, correlationId)
       continue
@@ -138,6 +170,31 @@ export async function* consumeCodexAppServerTurn(
     }
   }
   return undefined
+}
+
+function normalizedFileChanges(value: unknown, workingDirectory: string): AgentFileChangeEvent['paths'] {
+  if (!Array.isArray(value) || value.length > 10_000) throw fileChangeInvalid()
+  return value.map(change => {
+    const entry = objectValue(change)
+    const path = stringValue(entry['path'])
+    const kind = objectValue(entry['kind'])['type']
+    if (!path || path.length > 4_096 || /[\u0000-\u001f\u007f]/u.test(path)
+      || (kind !== 'add' && kind !== 'update' && kind !== 'delete')) throw fileChangeInvalid()
+    const workspacePath = relative(workingDirectory, resolve(workingDirectory, path))
+    if (!workspacePath || workspacePath === '..' || workspacePath.startsWith('..' + sep)
+      || isAbsolute(workspacePath)) throw adapterError(
+      'CODEX_APP_SERVER_FILE_CHANGE_OUTSIDE_WORKSPACE',
+      'Codex app-server reported a file change outside the run workspace',
+    )
+    return { path: workspacePath.split(sep).join('/'), kind }
+  })
+}
+
+function fileChangeInvalid(): Error {
+  return adapterError(
+    'CODEX_APP_SERVER_FILE_CHANGE_INVALID',
+    'Codex app-server reported invalid file changes',
+  )
 }
 
 /**

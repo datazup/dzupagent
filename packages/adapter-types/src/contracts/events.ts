@@ -12,6 +12,7 @@ export type AgentEvent =
   | AgentFailedEvent
   | AgentRecoveryCancelledEvent
   | AgentStreamDeltaEvent
+  | AgentFileChangeEvent
   | AgentProgressEvent
   | AgentMemoryRecalledEvent
   | AgentSkillsCompiledEvent
@@ -119,8 +120,19 @@ export interface AgentStreamDeltaEvent {
   type: "adapter:stream_delta";
   providerId: AdapterProviderId;
   content: string;
+  /** Phase of the owning provider message, when supplied by the transport. */
+  phase?: "commentary" | "final_answer" | undefined;
   timestamp: number;
   /** Correlation ID from the originating request */
+  correlationId?: string | undefined;
+}
+
+/** Normalized provider-reported changes; paths are relative to the run workspace. */
+export interface AgentFileChangeEvent {
+  type: "adapter:file_change";
+  providerId: AdapterProviderId;
+  paths: readonly { readonly path: string; readonly kind: "add" | "update" | "delete" }[];
+  timestamp: number;
   correlationId?: string | undefined;
 }
 

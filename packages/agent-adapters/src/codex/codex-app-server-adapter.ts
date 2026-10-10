@@ -385,6 +385,7 @@ export class CodexAppServerAdapter implements AgentCLIAdapter, ProviderSessionAd
       terminal = yield* consumeCodexAppServerTurn(client.events(), {
         run,
         admittedVersion,
+        workingDirectory: String((threadResult as Record<string, unknown>)['cwd']),
         correlationId: input.correlationId,
         startedAt,
         now: this.now,
