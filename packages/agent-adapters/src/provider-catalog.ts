@@ -11,11 +11,17 @@ export {
   type ProviderToolControlSupport,
   type ToolControlSupportTier,
 } from './provider-catalog/catalog.js'
-export { assertProviderCatalogEntry } from './provider-catalog/runtime-validation.js'
+export {
+  ProviderNotRunnableError,
+  assertProviderCatalogEntry,
+  assertProviderRunnable,
+} from './provider-catalog/runtime-validation.js'
 export {
   HTTP_ROUTABLE_PROVIDER_IDS,
   getDefaultMonitorStatus,
   getMonitorableProviders,
   getProductProviders,
   getProviderCapabilities,
+  getRunnableProviders,
+  selectProviderForExecution,
 } from './provider-catalog/selectors.js'

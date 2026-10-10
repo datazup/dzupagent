@@ -4,7 +4,11 @@ import { describe, expect, it } from 'vitest'
 
 import * as facade from '../provider-catalog.js'
 import { PROVIDER_CATALOG as catalogData } from '../provider-catalog/catalog.js'
-import { assertProviderCatalogEntry as internalAssert } from '../provider-catalog/runtime-validation.js'
+import {
+  ProviderNotRunnableError,
+  assertProviderCatalogEntry as internalAssert,
+  assertProviderRunnable,
+} from '../provider-catalog/runtime-validation.js'
 import * as selectors from '../provider-catalog/selectors.js'
 
 const CATALOG_SOURCE_URLS = [
@@ -23,6 +27,10 @@ describe('provider catalog compatibility architecture', () => {
   it('re-exports the internal catalog, validator, and selectors by reference', () => {
     expect(facade.PROVIDER_CATALOG).toBe(catalogData)
     expect(facade.assertProviderCatalogEntry).toBe(internalAssert)
+    expect(facade.ProviderNotRunnableError).toBe(ProviderNotRunnableError)
+    expect(facade.assertProviderRunnable).toBe(assertProviderRunnable)
+    expect(facade.getRunnableProviders).toBe(selectors.getRunnableProviders)
+    expect(facade.selectProviderForExecution).toBe(selectors.selectProviderForExecution)
     expect(facade.HTTP_ROUTABLE_PROVIDER_IDS).toBe(selectors.HTTP_ROUTABLE_PROVIDER_IDS)
     expect(facade.getDefaultMonitorStatus).toBe(selectors.getDefaultMonitorStatus)
     expect(facade.getMonitorableProviders).toBe(selectors.getMonitorableProviders)
@@ -31,11 +39,15 @@ describe('provider catalog compatibility architecture', () => {
     expect(Object.keys(facade).sort()).toEqual([
       'HTTP_ROUTABLE_PROVIDER_IDS',
       'PROVIDER_CATALOG',
+      'ProviderNotRunnableError',
       'assertProviderCatalogEntry',
+      'assertProviderRunnable',
       'getDefaultMonitorStatus',
       'getMonitorableProviders',
       'getProductProviders',
       'getProviderCapabilities',
+      'getRunnableProviders',
+      'selectProviderForExecution',
     ])
   })
 

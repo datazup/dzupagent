@@ -976,10 +976,14 @@ export {
   PROVIDER_CATALOG,
   HTTP_ROUTABLE_PROVIDER_IDS,
   assertProviderCatalogEntry,
+  ProviderNotRunnableError,
+  assertProviderRunnable,
   getDefaultMonitorStatus,
   getMonitorableProviders,
   getProductProviders,
   getProviderCapabilities,
+  getRunnableProviders,
+  selectProviderForExecution,
 } from "./provider-catalog.js";
 export type {
   ProviderCapabilities,
