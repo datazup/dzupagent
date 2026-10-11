@@ -288,4 +288,74 @@ describe('DZUPAGENT-ERR-H-01: client-safe projection of run logs and trace', () 
       expect(res.raw).not.toContain(MARKER)
     }
   })
+
+  // AUDIT-OTHER-REMOTE-FOUR-20261011-R1-A2: /messages replays the same steps.
+  type MessagesBody = {
+    data: {
+      steps: Array<{ type: string; content: unknown; metadata?: Record<string, unknown> }>
+      totalSteps: number
+      distribution: Record<string, unknown>
+    }
+  }
+
+  for (const role of ['viewer', 'operator']) {
+    it(`redacts nested failure detail from full /messages for a non-admin (${role}) owner`, async () => {
+      const cfg = makeRoleConfig(role)
+      const run = await seedFailedRun(cfg)
+
+      const res = await get(cfg, `/api/runs/${run.id}/messages`)
+
+      expect(res.status).toBe(200)
+      expect(res.raw).not.toContain(MARKER)
+      const body = JSON.parse(res.raw) as MessagesBody
+      expect(body.data.steps).toHaveLength(3)
+      expect(body.data.totalSteps).toBe(3)
+      expect(body.data.steps[0]?.content).toBe('hello')
+      expect(body.data.steps[1]?.content).toEqual({ tool: 'db.query', error: 'Internal server error' })
+      const terminal = body.data.steps.find(s => s.type === 'system')
+      expect(terminal?.content).toEqual({ status: 'failed' })
+      expect(terminal?.metadata).toEqual({
+        error: 'Internal server error',
+        nested: [{ cause: 'Internal server error' }],
+      })
+    })
+
+    it(`redacts nested failure detail from paginated /messages for a non-admin (${role}) owner`, async () => {
+      const cfg = makeRoleConfig(role)
+      const run = await seedFailedRun(cfg)
+
+      const res = await get(cfg, `/api/runs/${run.id}/messages?from=1&to=3`)
+
+      expect(res.status).toBe(200)
+      expect(res.raw).not.toContain(MARKER)
+      const body = JSON.parse(res.raw) as MessagesBody
+      expect(body.data.steps.map(s => s.type)).toEqual(['tool_result', 'system'])
+      expect(body.data.steps[0]?.content).toEqual({ tool: 'db.query', error: 'Internal server error' })
+      expect(body.data.steps[1]?.metadata?.['error']).toBe('Internal server error')
+    })
+  }
+
+  it('keeps full failure detail on full and paginated /messages for an admin', async () => {
+    const cfg = makeRoleConfig('admin')
+    const run = await seedFailedRun(cfg)
+
+    for (const path of [`/api/runs/${run.id}/messages`, `/api/runs/${run.id}/messages?from=1&to=3`]) {
+      const res = await get(cfg, path)
+      expect(res.status).toBe(200)
+      expect(res.raw).toContain(MARKER)
+      const steps = (JSON.parse(res.raw) as MessagesBody).data.steps
+      expect(steps.some(s => s.metadata?.['error'] === DETAIL)).toBe(true)
+    }
+  })
+
+  it('still refuses a wrong-owner read of full and paginated /messages with 404', async () => {
+    const cfg = makeRoleConfig('operator')
+    const run = await seedFailedRun(cfg, 'owner-B')
+
+    for (const path of [`/api/runs/${run.id}/messages`, `/api/runs/${run.id}/messages?from=1&to=3`]) {
+      const res = await get(cfg, path)
+      expect(res.status).toBe(404)
+      expect(res.raw).not.toContain(MARKER)
+    }
+  })
 })
