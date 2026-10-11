@@ -165,7 +165,11 @@ export const INTERNAL_COMPILE_DIAGNOSTIC_MESSAGE =
 
 /** `true` for diagnostics that carry internal infrastructure detail. */
 export function isInternalCompileDiagnostic(diagnostic: CompilationDiagnostic): boolean {
-  return diagnostic.category === 'internal' || diagnostic.code.endsWith('_INFRA_ERROR')
+  // `code` is typed as required but compiler fakes and older producers omit it.
+  return (
+    diagnostic.category === 'internal' ||
+    (typeof diagnostic.code === 'string' && diagnostic.code.endsWith('_INFRA_ERROR'))
+  )
 }
 
 /**
