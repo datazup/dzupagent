@@ -25,6 +25,59 @@ import {
   loadOwnedRun,
 } from './shared.js'
 
+/**
+ * DZUPAGENT-ERR-H-01: keys whose values carry raw failure detail (driver
+ * text, stacks, causes) inside run log `data` and trace step payloads. The
+ * failure persistence path writes the unsanitized detail there for operators.
+ */
+const FAILURE_DETAIL_KEYS: ReadonlySet<string> = new Set([
+  'error',
+  'errorDetail',
+  'errorMessage',
+  'stack',
+  'cause',
+])
+const REDACTED_FAILURE_DETAIL = 'Internal server error'
+const MAX_PROJECTION_DEPTH = 32
+
+/**
+ * Replace every failure-detail value at any depth with a fixed string,
+ * leaving correlation and classification fields (traceId, phase, status,
+ * toolName, ...) intact. Boolean/numeric flags under those keys are kept.
+ */
+function redactFailureDetail(value: unknown, depth = 0): unknown {
+  if (depth > MAX_PROJECTION_DEPTH) return REDACTED_FAILURE_DETAIL
+  if (Array.isArray(value)) return value.map(item => redactFailureDetail(item, depth + 1))
+  if (value === null || typeof value !== 'object' || value instanceof Date) return value
+  const projected: Record<string, unknown> = {}
+  for (const [key, child] of Object.entries(value)) {
+    const carriesDetail =
+      FAILURE_DETAIL_KEYS.has(key) &&
+      (typeof child === 'string' || (typeof child === 'object' && child !== null))
+    projected[key] = carriesDetail ? REDACTED_FAILURE_DETAIL : redactFailureDetail(child, depth + 1)
+  }
+  return projected
+}
+
+/** Client-safe projection of a run log entry for non-admin readers. */
+function projectLogEntry(entry: LogEntry): LogEntry {
+  return entry.data === undefined ? entry : { ...entry, data: redactFailureDetail(entry.data) }
+}
+
+/** Client-safe projection of a structured trace step for non-admin readers. */
+function projectTraceStep<T extends { content?: unknown; metadata?: unknown }>(step: T): T {
+  return {
+    ...step,
+    ...(step.content !== undefined ? { content: redactFailureDetail(step.content) } : {}),
+    ...(step.metadata !== undefined ? { metadata: redactFailureDetail(step.metadata) } : {}),
+  }
+}
+
+/** Only admin-scoped reads see raw failure detail in logs and traces. */
+function readsAdminDetail(c: Context): boolean {
+  return (c as Context<AppEnv>).get('forgeRole') === 'admin'
+}
+
 /** GET /api/runs — paginated list with owner-scoped filter. */
 export async function handleListRuns(
   c: Context,
@@ -141,7 +194,8 @@ export async function handleGetLogs(
   const run = await loadOwnedRun(c, config)
   if (run instanceof Response) return run
   const logs = await config.runStore.getLogs(run.id)
-  return c.json({ data: logs })
+  // DZUPAGENT-ERR-H-01: non-admin owners get a client-safe projection.
+  return c.json({ data: readsAdminDetail(c) ? logs : logs.map(projectLogEntry) })
 }
 
 /** GET /api/runs/:id/trace — aggregated trace + usage summary. */
@@ -153,7 +207,11 @@ export async function handleGetTrace(
   const run = await loadOwnedRun(c, config)
   if (run instanceof Response) return run
 
-  const logs = await runStore.getLogs(run.id)
+  // DZUPAGENT-ERR-H-01: project before deriving events/toolCalls/steps so no
+  // derived view re-exposes raw failure detail to non-admin owners.
+  const includeAdminDetail = readsAdminDetail(c)
+  const storedLogs = await runStore.getLogs(run.id)
+  const logs = includeAdminDetail ? storedLogs : storedLogs.map(projectLogEntry)
 
   // If a traceStore is configured, include its structured step-by-step trace
   // (awaited to support both sync InMemory and async Drizzle implementations).
@@ -198,7 +256,9 @@ export async function handleGetTrace(
       ...(structuredTrace
         ? {
             trace: {
-              steps: structuredTrace.steps,
+              steps: includeAdminDetail
+                ? structuredTrace.steps
+                : structuredTrace.steps.map(projectTraceStep),
               totalSteps: structuredTrace.totalSteps,
               startedAt: structuredTrace.startedAt,
               completedAt: structuredTrace.completedAt,
