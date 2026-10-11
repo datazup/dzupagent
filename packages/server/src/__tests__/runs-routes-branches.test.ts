@@ -312,6 +312,25 @@ describe('runs routes branch coverage', () => {
     expect(captured[0]?.priority).toBe(5)
   })
 
+  it('GET /api/runs/:id/logs and /trace redact failure detail without an admin role (DZUPAGENT-ERR-H-01)', async () => {
+    const MARKER = 'SECRET-MARKER-a91b'
+    const run = await config.runStore.create({ agentId: 'agent-1', input: 'x' })
+    await config.runStore.addLog(run.id, {
+      level: 'error',
+      phase: 'run',
+      message: 'Run failed',
+      data: { error: `ECONNRESET ${MARKER}`, details: { stack: `at db ${MARKER}` } },
+    })
+
+    for (const path of [`/api/runs/${run.id}/logs`, `/api/runs/${run.id}/trace`]) {
+      const res = await app.request(path)
+      expect(res.status).toBe(200)
+      const raw = await res.text()
+      expect(raw).not.toContain(MARKER)
+      expect(raw).toContain('Run failed')
+    }
+  })
+
   it('GET /api/runs/:id/trace reports durationMs when completed', async () => {
     const run = await config.runStore.create({ agentId: 'agent-1', input: 'x' })
     const started = new Date('2024-01-01T00:00:00Z')

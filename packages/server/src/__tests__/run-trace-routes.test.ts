@@ -153,3 +153,139 @@ describe('MJ-SEC-02: owner isolation on /messages', () => {
     expect(res.status).toBe(200)
   })
 })
+
+// ---------------------------------------------------------------------------
+// DZUPAGENT-ERR-H-01: owned-run logs and trace project failure detail safely.
+// ---------------------------------------------------------------------------
+describe('DZUPAGENT-ERR-H-01: client-safe projection of run logs and trace', () => {
+  const MARKER = 'SECRET-MARKER-5e1d'
+  const DETAIL = `connect ECONNREFUSED postgres://svc:${MARKER}@10.0.0.7:5432/runs`
+
+  function makeRoleConfig(role: string): ForgeServerConfig {
+    const cfg = makeAuthTraceConfig('owner-A', 'owner-A')
+    return {
+      ...cfg,
+      auth: {
+        mode: 'api-key',
+        validateKey: async (_k: string) => ({ id: 'owner-A', ownerId: 'owner-A', role }),
+      },
+    }
+  }
+
+  async function seedFailedRun(cfg: ForgeServerConfig, ownerId = 'owner-A') {
+    await cfg.agentStore.save({ id: 'ag-err', name: 'A', instructions: '', modelTier: 'chat' })
+    const run = await cfg.runStore.create({ agentId: 'ag-err', input: 'hi', ownerId, tenantId: ownerId })
+    await cfg.runStore.addLog(run.id, {
+      level: 'info',
+      phase: 'tool_call',
+      message: 'Tool call',
+      data: {
+        toolName: 'db.query',
+        result: { rows: 0, error: { message: DETAIL, stack: `Error: ${DETAIL}\n    at query` } },
+        attempts: [{ ok: false, errorMessage: DETAIL }],
+      },
+    })
+    await cfg.runStore.addLog(run.id, {
+      level: 'error',
+      phase: 'run',
+      message: 'Run failed',
+      data: { error: DETAIL, traceId: 'trace-1' },
+    })
+    const traceStore = cfg.traceStore as InMemoryRunTraceStore
+    traceStore.startTrace(run.id, 'ag-err')
+    traceStore.addStep(run.id, { timestamp: 1000, type: 'user_input', content: 'hello' })
+    traceStore.addStep(run.id, {
+      timestamp: 2000,
+      type: 'tool_result',
+      content: { tool: 'db.query', error: DETAIL },
+    })
+    traceStore.addStep(run.id, {
+      timestamp: 3000,
+      type: 'system',
+      content: { status: 'failed' },
+      metadata: { error: DETAIL, nested: [{ cause: DETAIL }] },
+    })
+    traceStore.completeTrace(run.id)
+    return run
+  }
+
+  async function get(cfg: ForgeServerConfig, path: string) {
+    const res = await createForgeApp(cfg).request(path, { headers: { Authorization: 'Bearer tok' } })
+    return { status: res.status, raw: await res.text() }
+  }
+
+  for (const role of ['viewer', 'operator']) {
+    it(`redacts nested failure detail from /logs for a non-admin (${role}) owner`, async () => {
+      const cfg = makeRoleConfig(role)
+      const run = await seedFailedRun(cfg)
+
+      const res = await get(cfg, `/api/runs/${run.id}/logs`)
+
+      expect(res.status).toBe(200)
+      expect(res.raw).not.toContain(MARKER)
+      const body = JSON.parse(res.raw) as {
+        data: Array<{ message: string; phase?: string; data?: Record<string, unknown> }>
+      }
+      expect(body.data).toHaveLength(2)
+      const failure = body.data.find(l => l.message === 'Run failed')
+      // Correlation and classification survive; only the detail is replaced.
+      expect(failure?.data?.['traceId']).toBe('trace-1')
+      expect(failure?.data?.['error']).toBe('Internal server error')
+      const tool = body.data.find(l => l.phase === 'tool_call')
+      expect(tool?.data?.['toolName']).toBe('db.query')
+      expect((tool?.data?.['result'] as { rows: number }).rows).toBe(0)
+    })
+
+    it(`redacts nested failure detail from /trace for a non-admin (${role}) owner`, async () => {
+      const cfg = makeRoleConfig(role)
+      const run = await seedFailedRun(cfg)
+
+      const res = await get(cfg, `/api/runs/${run.id}/trace`)
+
+      expect(res.status).toBe(200)
+      expect(res.raw).not.toContain(MARKER)
+      const body = JSON.parse(res.raw) as {
+        data: {
+          events: unknown[]
+          toolCalls: Array<{ data: Record<string, unknown> }>
+          phases: string[]
+          trace: { steps: Array<{ type: string; content: unknown; metadata?: Record<string, unknown> }>; totalSteps: number }
+        }
+      }
+      expect(body.data.events).toHaveLength(2)
+      expect(body.data.phases).toEqual(['tool_call', 'run'])
+      expect(body.data.toolCalls[0]?.data['toolName']).toBe('db.query')
+      expect(body.data.trace.totalSteps).toBe(3)
+      const terminal = body.data.trace.steps.find(s => s.type === 'system')
+      expect(terminal?.content).toEqual({ status: 'failed' })
+      expect(terminal?.metadata?.['error']).toBe('Internal server error')
+    })
+  }
+
+  it('keeps full failure detail on /logs and /trace for an admin', async () => {
+    const cfg = makeRoleConfig('admin')
+    const run = await seedFailedRun(cfg)
+
+    const logs = await get(cfg, `/api/runs/${run.id}/logs`)
+    const trace = await get(cfg, `/api/runs/${run.id}/trace`)
+
+    expect(logs.status).toBe(200)
+    expect(trace.status).toBe(200)
+    expect(logs.raw).toContain(MARKER)
+    expect(trace.raw).toContain(MARKER)
+    const steps = (JSON.parse(trace.raw) as { data: { trace: { steps: Array<{ metadata?: Record<string, unknown> }> } } })
+      .data.trace.steps
+    expect(steps.some(s => s.metadata?.['error'] === DETAIL)).toBe(true)
+  })
+
+  it('still refuses a wrong-owner read of /logs and /trace with 404', async () => {
+    const cfg = makeRoleConfig('operator')
+    const run = await seedFailedRun(cfg, 'owner-B')
+
+    for (const path of [`/api/runs/${run.id}/logs`, `/api/runs/${run.id}/trace`]) {
+      const res = await get(cfg, path)
+      expect(res.status).toBe(404)
+      expect(res.raw).not.toContain(MARKER)
+    }
+  })
+})
