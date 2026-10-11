@@ -159,3 +159,107 @@ describe('POST /api/workflows/compile — ?stream=true (H5)', () => {
     expect(json.target).toBe('skill-chain')
   })
 })
+
+// ---------------------------------------------------------------------------
+// DZUPAGENT-ERR-H-02: infrastructure diagnostics never reach SSE clients.
+// ---------------------------------------------------------------------------
+
+describe('POST /api/workflows/compile?stream=true — internal diagnostic redaction (DZUPAGENT-ERR-H-02)', () => {
+  const MARKER = 'INFRA-MARKER-77c0 replica db-7 timed out'
+  const PUBLIC = 'Compilation could not complete because of an internal error'
+  const FLOW = { type: 'sequence', nodes: [{ type: 'action', toolRef: 'pm.create_task', input: {} }] }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  function buildResolverApp(resolve: () => unknown): Hono {
+    const app = new Hono()
+    app.route(
+      '/api/workflows',
+      createCompileRoutes({ toolResolver: { resolve: resolve as never, listAvailable: () => [] } }),
+    )
+    return app
+  }
+
+  async function useRealCompiler(): Promise<void> {
+    const actual = await vi.importActual<typeof FlowCompilerModule>('@dzupagent/flow-compiler')
+    mockCreateFlowCompiler.mockImplementationOnce(
+      (opts) => actual.createFlowCompiler(opts) as unknown as ReturnType<typeof mockCreateFlowCompiler>,
+    )
+  }
+
+  function errorEvent(body: string): { message: string; stage: string; compileId?: string } {
+    const match = /event: error\ndata: (.*)\n/.exec(body)
+    expect(match).not.toBeNull()
+    return JSON.parse(match![1]!) as { message: string; stage: string; compileId?: string }
+  }
+
+  it('a configured resolver failure streams a fixed public error event', async () => {
+    await useRealCompiler()
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const app = buildResolverApp(async () => {
+      throw new Error(`${MARKER}. Did you mean: "${MARKER}"`)
+    })
+
+    const res = await postCompile(app, { flow: FLOW }, '?stream=true')
+    const body = await readSSEBody(res)
+
+    expect(body).not.toContain('INFRA-MARKER')
+    const event = errorEvent(body)
+    expect(event.message).toBe(PUBLIC)
+    expect(event.stage).toBe('lower')
+    expect(typeof event.compileId).toBe('string')
+    const logged = consoleError.mock.calls.map((call) => String(call[0]))
+    expect(logged.some((line) => line.includes('INFRA-MARKER') && line.includes(event.compileId!))).toBe(true)
+  })
+
+  it('a returned internal diagnostic streams the fixed public message', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockCompile.mockResolvedValueOnce({
+      errors: [
+        {
+          stage: 3,
+          code: 'RESOLVER_INFRA_ERROR',
+          category: 'internal',
+          nodePath: 'root.nodes[0]',
+          message: MARKER,
+          suggestion: MARKER,
+        },
+      ],
+      compileId: 'cid-stream-infra',
+    })
+    const app = buildApp()
+
+    const res = await postCompile(app, { flow: FLOW }, '?stream=true')
+    const body = await readSSEBody(res)
+
+    expect(body).not.toContain('INFRA-MARKER')
+    expect(errorEvent(body)).toEqual({ message: PUBLIC, stage: 'lower', compileId: 'cid-stream-infra' })
+  })
+
+  it('authored validation diagnostics keep their message on the error event', async () => {
+    mockCompile.mockResolvedValueOnce({
+      errors: [
+        {
+          stage: 3,
+          code: 'UNRESOLVED_TOOL_REF',
+          category: 'resolution',
+          nodePath: 'root.nodes[0]',
+          message: 'Unresolved tool reference "pm.create_task"',
+        },
+      ],
+      compileId: 'cid-stream-auth',
+    })
+    const app = buildApp()
+
+    const res = await postCompile(app, { flow: FLOW }, '?stream=true')
+    const body = await readSSEBody(res)
+
+    expect(errorEvent(body).message).toBe('Unresolved tool reference "pm.create_task"')
+  })
+})

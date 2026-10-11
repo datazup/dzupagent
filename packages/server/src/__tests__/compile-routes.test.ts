@@ -1006,3 +1006,124 @@ describe('POST /api/workflows/compile — subprocess SSE branch', () => {
     expect(mockHandleSubprocessCompile).not.toHaveBeenCalled()
   })
 })
+
+// ---------------------------------------------------------------------------
+// DZUPAGENT-ERR-H-02: infrastructure diagnostics never reach JSON clients.
+// ---------------------------------------------------------------------------
+
+describe('POST /api/workflows/compile — internal diagnostic redaction (DZUPAGENT-ERR-H-02)', () => {
+  const MARKER = 'INFRA-MARKER-4411 replica db-7 timed out'
+  const PUBLIC = 'Compilation could not complete because of an internal error'
+  const FLOW = { type: 'sequence', nodes: [{ type: 'action', toolRef: 'pm.create_task', input: {} }] }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  async function useRealCompiler(): Promise<void> {
+    const actual = await vi.importActual<typeof FlowCompilerModule>('@dzupagent/flow-compiler')
+    mockCreateFlowCompiler.mockImplementationOnce(
+      (opts) => actual.createFlowCompiler(opts) as unknown as ReturnType<typeof mockCreateFlowCompiler>,
+    )
+  }
+
+  type FailureBody = {
+    ok: false
+    error: string
+    stage: number
+    compileId?: string
+    errors: Array<{ code: string; message: string; nodePath?: string; category?: string; suggestion?: string; fixes?: unknown }>
+  }
+
+  for (const [label, resolve] of [
+    ['throws', () => { throw new Error(`${MARKER}. Did you mean: "${MARKER}"`) }],
+    ['rejects', async () => { throw new Error(`${MARKER}. Did you mean: "${MARKER}"`) }],
+  ] as const) {
+    it(`500 — a configured resolver that ${label} yields a fixed public diagnostic`, async () => {
+      await useRealCompiler()
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const app = buildApp({ toolResolver: { resolve, listAvailable: () => [] } })
+
+      const res = await postCompile(app, { flow: FLOW })
+      const raw = await res.text()
+
+      expect(raw).not.toContain('INFRA-MARKER')
+      expect(res.status).toBe(500)
+      const body = JSON.parse(raw) as FailureBody
+      expect(body.ok).toBe(false)
+      expect(body.error).toBe(PUBLIC)
+      expect(body.stage).toBe(3)
+      expect(typeof body.compileId).toBe('string')
+      expect(body.errors).toHaveLength(1)
+      expect(body.errors[0]).toMatchObject({
+        code: 'RESOLVER_INFRA_ERROR',
+        category: 'internal',
+        nodePath: 'root.nodes[0]',
+        message: PUBLIC,
+      })
+      expect(body.errors[0]?.suggestion).toBeUndefined()
+      // The original diagnostic is retained in the server log, correlated.
+      const logged = consoleError.mock.calls.map((call) => String(call[0]))
+      expect(logged.some((line) => line.includes('INFRA-MARKER') && line.includes(body.compileId!))).toBe(true)
+    })
+  }
+
+  it('500 — a returned internal diagnostic drops its derived suggestion and fixes', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockCompile.mockResolvedValueOnce({
+      errors: [
+        {
+          stage: 3,
+          code: 'RESOLVER_INFRA_ERROR',
+          category: 'internal',
+          nodePath: 'root.nodes[0]',
+          message: `${MARKER}. Did you mean: "${MARKER}"`,
+          suggestion: MARKER,
+          fixes: [{ title: MARKER, edits: [] }],
+        },
+      ],
+      compileId: 'cid-infra-1',
+    })
+    const app = buildApp()
+
+    const res = await postCompile(app, { flow: FLOW })
+    const raw = await res.text()
+
+    expect(raw).not.toContain('INFRA-MARKER')
+    expect(res.status).toBe(500)
+    const body = JSON.parse(raw) as FailureBody
+    expect(body.compileId).toBe('cid-infra-1')
+    expect(body.errors[0]?.fixes).toBeUndefined()
+  })
+
+  it('400 — authored validation diagnostics keep their message and suggestion', async () => {
+    await useRealCompiler()
+    const app = buildApp({
+      toolResolver: { resolve: () => null, listAvailable: () => ['pm.create_tasks'] },
+    })
+
+    const res = await postCompile(app, { flow: FLOW })
+
+    expect(res.status).toBe(400)
+    const body = (await res.json()) as FailureBody
+    expect(body.errors[0]?.code).toBe('UNRESOLVED_TOOL_REF')
+    expect(body.errors[0]?.message).toContain('pm.create_task')
+    expect(body.error).toBe(body.errors[0]?.message)
+  })
+
+  it('500 — a thrown compiler error stays generic', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockCompile.mockRejectedValueOnce(new Error(MARKER))
+    const app = buildApp()
+
+    const res = await postCompile(app, { flow: FLOW })
+    const raw = await res.text()
+
+    expect(res.status).toBe(500)
+    expect(raw).not.toContain('INFRA-MARKER')
+  })
+})
