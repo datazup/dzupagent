@@ -45,7 +45,7 @@ const MAX_PROJECTION_DEPTH = 32
  * leaving correlation and classification fields (traceId, phase, status,
  * toolName, ...) intact. Boolean/numeric flags under those keys are kept.
  */
-function redactFailureDetail(value: unknown, depth = 0): unknown {
+export function redactFailureDetail(value: unknown, depth = 0): unknown {
   if (depth > MAX_PROJECTION_DEPTH) return REDACTED_FAILURE_DETAIL
   if (Array.isArray(value)) return value.map(item => redactFailureDetail(item, depth + 1))
   if (value === null || typeof value !== 'object' || value instanceof Date) return value
@@ -65,7 +65,7 @@ function projectLogEntry(entry: LogEntry): LogEntry {
 }
 
 /** Client-safe projection of a structured trace step for non-admin readers. */
-function projectTraceStep<T extends { content?: unknown; metadata?: unknown }>(step: T): T {
+export function projectTraceStep<T extends { content?: unknown; metadata?: unknown }>(step: T): T {
   return {
     ...step,
     ...(step.content !== undefined ? { content: redactFailureDetail(step.content) } : {}),

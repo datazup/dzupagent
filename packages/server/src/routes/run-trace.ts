@@ -10,6 +10,7 @@ import type { RunStore } from '@dzupagent/core/persistence'
 import type { RunTraceStore } from '../persistence/run-trace-store.js'
 import { computeStepDistribution } from '../persistence/run-trace-store.js'
 import { requireOwnedRun } from './run-guard.js'
+import { projectTraceStep } from './runs/list-handler.js'
 
 export interface RunTraceRouteConfig {
   runStore: RunStore
@@ -38,6 +39,12 @@ export function createRunTraceRoutes(config: RunTraceRouteConfig): Hono<AppEnv> 
       )
     }
 
+    // DZUPAGENT-ERR-H-01: only admin-scoped reads see raw failure detail in
+    // trace steps; everyone else gets the same projection as /trace.
+    const includeAdminDetail = c.get('forgeRole') === 'admin'
+    const project = <T extends { content?: unknown; metadata?: unknown }>(steps: T[]): T[] =>
+      includeAdminDetail ? steps : steps.map(projectTraceStep)
+
     const fromParam = c.req.query('from')
     const toParam = c.req.query('to')
 
@@ -53,7 +60,7 @@ export function createRunTraceRoutes(config: RunTraceRouteConfig): Hono<AppEnv> 
         )
       }
 
-      const steps = await traceStore.getSteps(runId, from, to)
+      const steps = project(await traceStore.getSteps(runId, from, to))
       const distribution = computeStepDistribution(steps)
 
       return c.json({
@@ -71,13 +78,14 @@ export function createRunTraceRoutes(config: RunTraceRouteConfig): Hono<AppEnv> 
     }
 
     // Full trace
-    const distribution = computeStepDistribution(trace.steps)
+    const steps = project(trace.steps)
+    const distribution = computeStepDistribution(steps)
 
     return c.json({
       data: {
         runId: trace.runId,
         agentId: trace.agentId,
-        steps: trace.steps,
+        steps,
         totalSteps: trace.totalSteps,
         distribution,
         startedAt: trace.startedAt,
