@@ -27,6 +27,7 @@ import {
   type CompileRouteConfig,
   type CompileSuccessResponse,
   failureBody,
+  logInternalCompileDiagnostics,
   makeCompileBus,
   makeRouteDiagnostic,
   publishToGateway,
@@ -70,8 +71,10 @@ export async function handleJsonCompile(args: JsonCompileArgs): Promise<Response
     if ('errors' in result) {
       // Failure — report the first error's stage (stages are monotonic; the
       // pipeline short-circuits at the first failing stage) along with the
-      // aggregated message list.
-      return c.json(failureBody(result.errors, result.compileId), 400)
+      // aggregated message list. DZUPAGENT-ERR-H-02: infrastructure
+      // diagnostics are logged, redacted by failureBody and reported as 500.
+      const infrastructure = logInternalCompileDiagnostics(result.errors, result.compileId)
+      return c.json(failureBody(result.errors, result.compileId), infrastructure ? 500 : 400)
     }
 
     // Success path — optional target assertion.

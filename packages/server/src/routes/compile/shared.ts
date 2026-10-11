@@ -6,6 +6,7 @@
  * exactly what it needs without depending on the others.
  */
 import { createEventBus, type DzupEvent } from '@dzupagent/core/events'
+import { secureLogger } from '@dzupagent/core/utils'
 import type {
   CompilationDiagnostic,
   CompilationStage,
@@ -154,16 +155,68 @@ export function makeRouteDiagnostic(
   return { stage, code, message, nodePath: 'root' }
 }
 
+/**
+ * DZUPAGENT-ERR-H-02: fixed client-facing message for compiler diagnostics
+ * that describe an infrastructure failure (e.g. a configured tool resolver
+ * that threw) rather than a problem with the authored flow.
+ */
+export const INTERNAL_COMPILE_DIAGNOSTIC_MESSAGE =
+  'Compilation could not complete because of an internal error'
+
+/** `true` for diagnostics that carry internal infrastructure detail. */
+export function isInternalCompileDiagnostic(diagnostic: CompilationDiagnostic): boolean {
+  return diagnostic.category === 'internal' || diagnostic.code.endsWith('_INFRA_ERROR')
+}
+
+/**
+ * Public projection of one diagnostic. Authored validation diagnostics pass
+ * through unchanged; internal ones get the fixed message and lose the
+ * suggestion and fixes derived from the original text.
+ */
+export function toPublicCompileDiagnostic(
+  diagnostic: CompilationDiagnostic,
+): CompilationDiagnostic {
+  if (!isInternalCompileDiagnostic(diagnostic)) return diagnostic
+  const { suggestion: _suggestion, fixes: _fixes, ...rest } = diagnostic
+  return { ...rest, message: INTERNAL_COMPILE_DIAGNOSTIC_MESSAGE }
+}
+
+/**
+ * Log the original text of internal diagnostics, correlated with the compile
+ * run, through the redacting server logger. Returns whether any were found so
+ * transports can classify the failure as a server error.
+ */
+export function logInternalCompileDiagnostics(
+  diagnostics: readonly CompilationDiagnostic[],
+  compileId: string | undefined,
+): boolean {
+  const internal = diagnostics.filter(isInternalCompileDiagnostic)
+  if (internal.length === 0) return false
+  secureLogger.error({
+    level: 'error',
+    operation: 'compile.diagnostics.internal',
+    ...(compileId ? { compileId } : {}),
+    diagnostics: internal.map(({ stage, code, nodePath, message }) => ({
+      stage,
+      code,
+      nodePath,
+      message,
+    })),
+  })
+  return true
+}
+
 export function failureBody(
   diagnostics: CompilationDiagnostic[],
   compileId?: string,
 ): CompileFailureResponse {
   const stage = diagnostics[0]?.stage ?? 1
+  const errors = diagnostics.map(toPublicCompileDiagnostic)
   return {
     ok: false,
-    error: diagnostics.map((diagnostic) => diagnostic.message).join('; '),
+    error: errors.map((diagnostic) => diagnostic.message).join('; '),
     stage,
-    errors: diagnostics,
+    errors,
     ...(compileId ? { compileId } : {}),
   }
 }

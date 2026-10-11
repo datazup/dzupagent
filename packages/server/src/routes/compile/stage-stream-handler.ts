@@ -32,7 +32,9 @@ import {
   FORWARDED_FLOW_COMPILE_EVENT_TYPES,
   type CompileRouteConfig,
   type ForwardedFlowCompileEvent,
+  logInternalCompileDiagnostics,
   publishToGateway,
+  toPublicCompileDiagnostic,
 } from './shared.js'
 
 /**
@@ -166,6 +168,9 @@ export async function handleStageStreamCompile(args: StreamStageCompileArgs): Pr
       }
 
       if ('errors' in result) {
+        // DZUPAGENT-ERR-H-02: log internal diagnostics and stream only their
+        // fixed public message.
+        logInternalCompileDiagnostics(result.errors, result.compileId)
         const stage = result.errors[0]?.stage
         const stageLabel =
           stage === 1 ? 'parse'
@@ -175,7 +180,9 @@ export async function handleStageStreamCompile(args: StreamStageCompileArgs): Pr
         await stream.writeSSE({
           event: 'error',
           data: JSON.stringify({
-            message: result.errors.map((e) => e.message).join('; '),
+            message: result.errors
+              .map((e) => toPublicCompileDiagnostic(e).message)
+              .join('; '),
             stage: stageLabel,
             compileId: result.compileId,
           }),
