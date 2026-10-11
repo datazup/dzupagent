@@ -21,6 +21,7 @@ import { InMemoryRunTraceStore } from '../persistence/run-trace-store.js'
 import { InMemoryReflectionStore } from '@dzupagent/agent'
 import type { RunReflectionStore } from '@dzupagent/agent'
 import type { ExecutableAgentResolver } from '../services/executable-agent-resolver.js'
+import { ClientSafeError } from '../routes/route-error.js'
 
 async function waitForTerminalStatus(
   store: InMemoryRunStore,
@@ -190,6 +191,79 @@ describe('run-worker', () => {
     const trace = await traceStore.getTrace(run.id)
     expect(trace?.completedAt).toBeGreaterThan(0)
     expect(trace?.steps.some(step => step.type === 'system' && (step.content as { status?: string }).status === 'failed')).toBe(true)
+
+    await runQueue.stop(false)
+  })
+
+  // DZUPAGENT-ERR-H-03: a Validation/NotFound/Conflict/BadRequest prefix on the
+  // message or constructor name must not turn internal text into run.error.
+  it('keeps prefix-spoofed failure detail out of the public run.error', async () => {
+    const MARKER = 'postgres://svc:SECRET-MARKER-91c2@db.internal/runs'
+    class ConflictDriverError extends Error {}
+    const failures: Error[] = [
+      new Error(`Validation: executor crashed ${MARKER}`),
+      new Error(`NotFound: row missing ${MARKER}`),
+      new ConflictDriverError(`duplicate key ${MARKER}`),
+      new Error(`BadRequest: upstream rejected ${MARKER}`),
+    ]
+    const runStore = new InMemoryRunStore()
+    const agentStore = new InMemoryAgentStore()
+    const runQueue = new InMemoryRunQueue({ concurrency: 1 })
+    await agentStore.save({ id: 'a-spoof', name: 'Spoof', instructions: 'test', modelTier: 'chat', active: true })
+
+    let next = 0
+    startRunWorker({
+      runQueue,
+      runStore,
+      agentStore,
+      eventBus: createEventBus(),
+      modelRegistry: new ModelRegistry(),
+      runExecutor: async () => {
+        throw failures[next++]!
+      },
+    })
+
+    for (const failure of failures) {
+      const run = await runStore.create({ agentId: 'a-spoof', input: {} })
+      await runQueue.enqueue({ runId: run.id, agentId: 'a-spoof', input: {}, priority: 1 })
+      expect(await waitForTerminalStatus(runStore, run.id)).toBe('failed')
+      const failed = await runStore.get(run.id)
+      expect(failed?.error).toBeTruthy()
+      expect(failed?.error).not.toContain('SECRET-MARKER')
+      expect(failed?.error).not.toBe(failure.message)
+      // Authorized internal detail is retained admin-only.
+      expect((failed?.metadata as { errorDetail?: string } | undefined)?.errorDetail).toContain('SECRET-MARKER')
+    }
+
+    await runQueue.stop(false)
+  })
+
+  it('persists the authored public message of a ClientSafeError as run.error', async () => {
+    const runStore = new InMemoryRunStore()
+    const agentStore = new InMemoryAgentStore()
+    const runQueue = new InMemoryRunQueue({ concurrency: 1 })
+    await agentStore.save({ id: 'a-safe', name: 'Safe', instructions: 'test', modelTier: 'chat', active: true })
+
+    startRunWorker({
+      runQueue,
+      runStore,
+      agentStore,
+      eventBus: createEventBus(),
+      modelRegistry: new ModelRegistry(),
+      runExecutor: async () => {
+        throw new ClientSafeError('Input document is empty', {
+          code: 'INPUT_VALIDATION',
+          internalMessage: 'parser returned 0 nodes for tenant t-9',
+        })
+      },
+    })
+
+    const run = await runStore.create({ agentId: 'a-safe', input: {} })
+    await runQueue.enqueue({ runId: run.id, agentId: 'a-safe', input: {}, priority: 1 })
+    expect(await waitForTerminalStatus(runStore, run.id)).toBe('failed')
+    const failed = await runStore.get(run.id)
+    expect(failed?.error).toBe('Input document is empty')
+    expect((failed?.metadata as { errorDetail?: string } | undefined)?.errorDetail).toContain('parser returned 0 nodes')
 
     await runQueue.stop(false)
   })

@@ -6,6 +6,8 @@ import {
   ModelRegistry,
   createEventBus,
 } from '@dzupagent/core'
+import { InMemoryClusterStore } from '../persistence/drizzle-cluster-store.js'
+import { ClientSafeError } from '../routes/route-error.js'
 
 function createTestConfig(overrides?: Partial<ForgeServerConfig>): ForgeServerConfig {
   return {
@@ -71,6 +73,70 @@ describe('App-level error handling', () => {
       'http_errors_total',
       expect.objectContaining({ path: '/api/agent-definitions/some-id' }),
     )
+  })
+})
+
+describe('Route error message disclosure (DZUPAGENT-ERR-H-03)', () => {
+  const MARKER = 'duplicate key value violates "clusters_pkey" SECRET-MARKER-c0de'
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  function clusterApp(createError: Error) {
+    const clusterStore = new InMemoryClusterStore()
+    vi.spyOn(clusterStore, 'create').mockRejectedValue(createError)
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    return createForgeApp(createTestConfig({ clusterStore }))
+  }
+
+  async function postCluster(app: ReturnType<typeof createForgeApp>) {
+    const res = await app.request('/api/clusters', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspaceType: 'sandboxed' }),
+    })
+    const raw = await res.text()
+    return { status: res.status, raw, body: JSON.parse(raw) as { error: { code: string; message: string } } }
+  }
+
+  it('keeps a Conflict-prefixed internal message out of the HTTP response', async () => {
+    const consoleError = vi.spyOn(console, 'error')
+    const app = clusterApp(new Error(`Conflict: ${MARKER}`))
+
+    const res = await postCluster(app)
+
+    expect(res.status).toBe(409)
+    expect(res.body.error.code).toBe('CONFLICT')
+    expect(res.body.error.message).toBe('Resource conflict')
+    expect(res.raw).not.toContain('SECRET-MARKER')
+    // The internal diagnostic is still logged server-side.
+    expect(consoleError.mock.calls.some(call => String(call[0]).includes('SECRET-MARKER'))).toBe(true)
+  })
+
+  it('keeps a Conflict* subclass message out of the HTTP response', async () => {
+    class ConflictDriverError extends Error {}
+    const app = clusterApp(new ConflictDriverError(MARKER))
+
+    const res = await postCluster(app)
+
+    expect(res.status).toBe(409)
+    expect(res.raw).not.toContain('SECRET-MARKER')
+  })
+
+  it('returns the authored public message of a ClientSafeError', async () => {
+    const app = clusterApp(
+      new ClientSafeError('Cluster "c1" already exists', {
+        code: 'CLUSTER_CONFLICT',
+        internalMessage: MARKER,
+      }),
+    )
+
+    const res = await postCluster(app)
+
+    expect(res.status).toBe(409)
+    expect(res.body.error.message).toBe('Cluster "c1" already exists')
+    expect(res.raw).not.toContain('SECRET-MARKER')
   })
 })
 

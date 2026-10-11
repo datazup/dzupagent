@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import type { Context } from "hono";
 import {
+  ClientSafeError,
   sanitizeError,
+  sanitizeFailureMessage,
   parseIntBounded,
   logRouteError,
   mapErrorToStatus,
@@ -21,37 +23,42 @@ describe("sanitizeError", () => {
     expect(result.internal).toBe("secret DB connection string");
   });
 
-  it("returns original message for Validation-prefixed error class name", () => {
+  // DZUPAGENT-ERR-H-03: a matching class name or message prefix classifies the
+  // error but never discloses its text; only a fixed per-class phrase is public.
+  it("returns a fixed phrase for a Validation-prefixed error class name", () => {
     class ValidationError extends Error {
       constructor(msg: string) {
         super(msg);
       }
     }
     const result = sanitizeError(new ValidationError("field X is required"));
-    expect(result.safe).toBe("field X is required");
+    expect(result.safe).toBe("Request validation failed");
     expect(result.internal).toBe("field X is required");
   });
 
-  it("returns original message for NotFound-prefixed error class name", () => {
+  it("returns a fixed phrase for a NotFound-prefixed error class name", () => {
     class NotFoundError extends Error {
       constructor(msg: string) {
         super(msg);
       }
     }
     const result = sanitizeError(new NotFoundError("Agent not found"));
-    expect(result.safe).toBe("Agent not found");
+    expect(result.safe).toBe("Resource not found");
+    expect(result.internal).toBe("Agent not found");
   });
 
-  it("returns original message when error message starts with safe prefix", () => {
+  it("returns a fixed phrase when error message starts with a BadRequest prefix", () => {
     const err = new Error("BadRequest: missing required field");
     const result = sanitizeError(err);
-    expect(result.safe).toBe("BadRequest: missing required field");
+    expect(result.safe).toBe("Bad request");
+    expect(result.internal).toBe("BadRequest: missing required field");
   });
 
-  it("returns original message for Conflict-prefixed error message", () => {
+  it("returns a fixed phrase for a Conflict-prefixed error message", () => {
     const err = new Error("Conflict: resource already exists");
     const result = sanitizeError(err);
-    expect(result.safe).toBe("Conflict: resource already exists");
+    expect(result.safe).toBe("Resource conflict");
+    expect(result.internal).toBe("Conflict: resource already exists");
   });
 
   it("handles non-Error thrown values", () => {
@@ -155,7 +162,7 @@ describe("logRouteError", () => {
     expect(typeof logged.timestamp).toBe("string");
   });
 
-  it("preserves a client-safe message for safe-prefixed errors while still logging", () => {
+  it("returns only the class phrase for safe-prefixed errors while logging the full text", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     const err = new Error("Validation: field X required");
 
@@ -166,11 +173,26 @@ describe("logRouteError", () => {
       400
     );
 
-    expect(result.safe).toBe("Validation: field X required");
+    expect(result.safe).toBe("Request validation failed");
     expect(spy).toHaveBeenCalledTimes(1);
     const logged = JSON.parse(spy.mock.calls[0]?.[0] as string);
     expect(logged.statusCode).toBe(400);
     expect(logged.operation).toBe("evals");
+    expect(logged.error.message).toBe("Validation: field X required");
+  });
+
+  it("returns the authored public message of a ClientSafeError and logs its internal text", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const err = new ClientSafeError('Agent "a1" not found', {
+      code: "AGENT_NOT_FOUND",
+      internalMessage: "lookup failed on replica db-7",
+    });
+
+    const result = logRouteError(fakeContext(), "registry", err, 404);
+
+    expect(result.safe).toBe('Agent "a1" not found');
+    const logged = JSON.parse(spy.mock.calls[0]?.[0] as string);
+    expect(logged.error.message).toBe("lookup failed on replica db-7");
   });
 
   it("defaults status to 500 and handles non-Error thrown values", () => {
@@ -240,5 +262,107 @@ describe("mapErrorToStatus (ERR-M-04)", () => {
     expect(
       mapErrorToStatus({ code: "X_CONFLICT", message: "thing not found" })
     ).toBe(409);
+  });
+});
+
+describe("explicit client-safe error contract (DZUPAGENT-ERR-H-03)", () => {
+  const MARKER = "postgres://svc:SECRET-MARKER-7f3a@db.internal:5432/runs";
+  const PREFIXES = [
+    ["Validation", "Request validation failed", 400],
+    ["NotFound", "Resource not found", 404],
+    ["Conflict", "Resource conflict", 409],
+    ["BadRequest", "Bad request", 400],
+  ] as const;
+
+  for (const [prefix, phrase, status] of PREFIXES) {
+    it(`does not disclose a sensitive suffix after a "${prefix}" message prefix`, () => {
+      const err = new Error(`${prefix}: connect failed ${MARKER}`);
+      const result = sanitizeError(err);
+      expect(result.safe).toBe(phrase);
+      expect(result.safe).not.toContain("SECRET-MARKER");
+      expect(result.internal).toContain("SECRET-MARKER");
+      // Status classification is unchanged and independent of disclosure.
+      expect(mapErrorToStatus(err)).toBe(status);
+    });
+
+    it(`does not disclose an arbitrary message of a "${prefix}*" error subclass`, () => {
+      const Named = { [`${prefix}DriverError`]: class extends Error {} }[
+        `${prefix}DriverError`
+      ]!;
+      const err = new Named(`driver failure ${MARKER}`);
+      expect(err.constructor.name).toBe(`${prefix}DriverError`);
+      const result = sanitizeError(err);
+      expect(result.safe).toBe(phrase);
+      expect(result.safe).not.toContain("SECRET-MARKER");
+      expect(result.internal).toContain("SECRET-MARKER");
+      expect(mapErrorToStatus(err)).toBe(status);
+    });
+  }
+
+  it("discloses only the authored publicMessage of a ClientSafeError", () => {
+    const err = new ClientSafeError('Cluster "c1" not found', {
+      code: "CLUSTER_NOT_FOUND",
+      internalMessage: `cluster lookup failed ${MARKER}`,
+    });
+    const result = sanitizeError(err);
+    expect(result.safe).toBe('Cluster "c1" not found');
+    expect(result.internal).toContain("SECRET-MARKER");
+    expect(err.message).toContain("SECRET-MARKER");
+    expect(mapErrorToStatus(err)).toBe(404);
+  });
+
+  it("uses the public message as the internal message when none is given", () => {
+    const err = new ClientSafeError("Invalid schedule expression");
+    expect(sanitizeError(err)).toEqual({
+      safe: "Invalid schedule expression",
+      internal: "Invalid schedule expression",
+    });
+    // Without a typed code the status falls back to the caller default.
+    expect(mapErrorToStatus(err)).toBe(500);
+    expect(mapErrorToStatus(err, 400)).toBe(400);
+  });
+
+  it("recognizes the Symbol.for brand on errors from another module copy", () => {
+    const foreign = Object.assign(new Error(`internal ${MARKER}`), {
+      [Symbol.for("dzupagent.server.clientSafeError")]: true,
+      publicMessage: "Shown to clients",
+    });
+    expect(sanitizeError(foreign).safe).toBe("Shown to clients");
+  });
+
+  it("ignores a brand whose publicMessage is not a string", () => {
+    const forged = Object.assign(new Error(`internal ${MARKER}`), {
+      [Symbol.for("dzupagent.server.clientSafeError")]: true,
+      publicMessage: { text: MARKER },
+    });
+    expect(sanitizeError(forged).safe).toBe("Internal server error");
+  });
+
+  it("does not trust a publicMessage field without the brand", () => {
+    const err = Object.assign(new Error(`internal ${MARKER}`), {
+      publicMessage: `leak ${MARKER}`,
+    });
+    expect(sanitizeError(err).safe).toBe("Internal server error");
+  });
+
+  it("keeps ordinary Prisma-shaped and generic errors generic", () => {
+    class PrismaClientKnownRequestError extends Error {
+      code = "P2002";
+    }
+    expect(
+      sanitizeError(new PrismaClientKnownRequestError(`Unique constraint ${MARKER}`)).safe
+    ).toBe("Internal server error");
+    expect(sanitizeError(new TypeError(`x is undefined ${MARKER}`)).safe).toBe(
+      "Internal server error"
+    );
+  });
+
+  it("sanitizeFailureMessage keeps prefix-spoofed detail out of the safe message", () => {
+    const { safe, detail } = sanitizeFailureMessage(
+      new Error(`Validation: run aborted ${MARKER}`)
+    );
+    expect(safe).toBe("Request validation failed");
+    expect(safe).not.toContain("SECRET-MARKER");
+    expect(detail).toContain("SECRET-MARKER");
   });
 });
