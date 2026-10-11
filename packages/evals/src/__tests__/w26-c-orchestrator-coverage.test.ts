@@ -1690,6 +1690,67 @@ describe("BenchmarkOrchestrator", () => {
       ).rejects.toThrow("BadRequest");
     });
 
+    // DZUPAGENT-ERR-H-03: authored messages carry the server's client-safe
+    // brand so the route-error sanitizer forwards them without trusting the
+    // "BadRequest" prefix.
+    const CLIENT_SAFE_ERROR_BRAND = Symbol.for("dzupagent.server.clientSafeError");
+
+    it("brands the non-strict opt-out error with a client-safe public message", async () => {
+      const orch = new BenchmarkOrchestrator({
+        suites: {
+          "qa-suite": {
+            id: "qa-suite",
+            name: "QA Suite",
+            description: "QA benchmark",
+            category: "qa" as const,
+            dataset: [{ id: "c1", input: "q", expectedOutput: "a" }],
+            scorers: [
+              { id: "s1", name: "exact", type: "deterministic" as const },
+            ],
+            baselineThresholds: { s1: 0.8 },
+          },
+        },
+        executeTarget: async () => "a",
+        store: new MockBenchmarkRunStore(),
+      });
+      const err = await orch
+        .runSuite({ suiteId: "qa-suite", targetId: "t", strict: false })
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message.startsWith("BadRequest: ")).toBe(true);
+      expect((err as Record<symbol, unknown>)[CLIENT_SAFE_ERROR_BRAND]).toBe(true);
+      expect((err as { publicMessage?: unknown }).publicMessage).toBe(
+        "Benchmark non-strict execution is disabled. Set allowNonStrictExecution to true to opt out of strict mode.",
+      );
+    });
+
+    it("brands the strict llm-judge configuration error with a client-safe public message", async () => {
+      const orch = new BenchmarkOrchestrator({
+        suites: {
+          "judge-suite": {
+            id: "judge-suite",
+            name: "Judge Suite",
+            description: "LLM judge benchmark",
+            category: "qa" as const,
+            dataset: [{ id: "c1", input: "q", expectedOutput: "a" }],
+            scorers: [{ id: "j1", name: "judge", type: "llm-judge" as const }],
+            baselineThresholds: { j1: 0.5 },
+          },
+        },
+        executeTarget: async () => "a",
+        store: new MockBenchmarkRunStore(),
+      });
+      const err = await orch
+        .runSuite({ suiteId: "judge-suite", targetId: "t" })
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message.startsWith("BadRequest: ")).toBe(true);
+      expect((err as Record<symbol, unknown>)[CLIENT_SAFE_ERROR_BRAND]).toBe(true);
+      expect((err as { publicMessage?: unknown }).publicMessage).toBe(
+        "benchmark-runner: strict mode requires BenchmarkConfig.llm for llm-judge scorer",
+      );
+    });
+
     it("allows non-strict execution when allowNonStrictExecution=true", async () => {
       const orch = new BenchmarkOrchestrator({
         suites: {

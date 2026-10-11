@@ -15,6 +15,21 @@ import { STANDARD_CRITERIA } from "../scorers/criteria.js";
 import { defaultLogger } from "@dzupagent/core/utils";
 
 /**
+ * DZUPAGENT-ERR-H-03: brand recognised by the @dzupagent/server route-error
+ * sanitizer. `Symbol.for` lets evals mark an authored client-facing message
+ * without importing the server. Only a branded error's `publicMessage` reaches
+ * clients; the `BadRequest` prefix on `.message` still maps it to HTTP 400.
+ */
+const CLIENT_SAFE_ERROR_BRAND = Symbol.for("dzupagent.server.clientSafeError");
+
+function clientSafeBadRequest(publicMessage: string): Error {
+  return Object.assign(new Error(`BadRequest: ${publicMessage}`), {
+    [CLIENT_SAFE_ERROR_BRAND]: true as const,
+    publicMessage,
+  });
+}
+
+/**
  * Emit one structured JSON log line for a judge-scoring failure/outage.
  *
  * ERR-C-21: an unreachable judge must never fail silently — it must be
@@ -248,10 +263,10 @@ async function computeScore(
     case "llm-judge": {
       if (!config?.llm) {
         if (config?.strict) {
-          // Safe-prefixed (BadRequest → 400): deliberate config-validation
-          // guidance that the route-error sanitizer may forward to the client.
-          throw new Error(
-            "BadRequest: benchmark-runner: strict mode requires BenchmarkConfig.llm for llm-judge scorer",
+          // Client-safe (BadRequest → 400): deliberate config-validation
+          // guidance that the route-error sanitizer forwards to the client.
+          throw clientSafeBadRequest(
+            "benchmark-runner: strict mode requires BenchmarkConfig.llm for llm-judge scorer",
           );
         }
         console.warn(

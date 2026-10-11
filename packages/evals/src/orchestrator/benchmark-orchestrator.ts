@@ -24,6 +24,21 @@ import {
   runBenchmark,
 } from "../benchmarks/benchmark-runner.js";
 
+/**
+ * DZUPAGENT-ERR-H-03: brand recognised by the @dzupagent/server route-error
+ * sanitizer. `Symbol.for` lets evals mark an authored client-facing message
+ * without importing the server. Only a branded error's `publicMessage` reaches
+ * clients; the `BadRequest` prefix on `.message` still maps it to HTTP 400.
+ */
+const CLIENT_SAFE_ERROR_BRAND = Symbol.for("dzupagent.server.clientSafeError");
+
+function clientSafeBadRequest(publicMessage: string): Error {
+  return Object.assign(new Error(`BadRequest: ${publicMessage}`), {
+    [CLIENT_SAFE_ERROR_BRAND]: true as const,
+    publicMessage,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Regression gate types
 // ---------------------------------------------------------------------------
@@ -134,9 +149,9 @@ export class BenchmarkOrchestrator implements BenchmarkOrchestratorLike {
 
     const strict = input.strict === false ? false : true;
     if (!strict && this.config.allowNonStrictExecution !== true) {
-      // Safe-prefixed (BadRequest → 400) deliberate validation guidance.
-      throw new Error(
-        "BadRequest: Benchmark non-strict execution is disabled. Set allowNonStrictExecution to true to opt out of strict mode.",
+      // Client-safe (BadRequest → 400) deliberate validation guidance.
+      throw clientSafeBadRequest(
+        "Benchmark non-strict execution is disabled. Set allowNonStrictExecution to true to opt out of strict mode.",
       );
     }
 
