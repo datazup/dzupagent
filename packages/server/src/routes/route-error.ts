@@ -2,8 +2,9 @@
  * Centralized route error sanitization.
  *
  * Prevents internal error details (stack traces, DB messages, system info)
- * from leaking to API clients.  Known "safe" error types preserve their
- * message; everything else returns a generic string.
+ * from leaking to API clients. Only an explicit {@link ClientSafeError}
+ * contract discloses an authored message; everything else returns a fixed
+ * string.
  */
 
 import type { Context } from "hono";
@@ -12,32 +13,82 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 const GENERIC = "Internal server error";
 
 /**
- * Error classes whose messages are safe to expose to clients.
- * Extend this set when you add new domain-specific error types that
- * carry user-facing information (e.g. validation failures).
+ * DZUPAGENT-ERR-H-03: brand marking an error whose `publicMessage` was authored
+ * for clients. `Symbol.for` keeps recognition working across duplicate module
+ * copies of this package.
  */
-const SAFE_PREFIXES = [
-  "Validation", // "Validation failed: ..."
-  "NotFound", // "NotFound: ..."
-  "Conflict", // "Conflict: ..."
-  "BadRequest", // "BadRequest: ..."
+export const CLIENT_SAFE_ERROR_BRAND: unique symbol = Symbol.for(
+  "dzupagent.server.clientSafeError"
+);
+
+/**
+ * An error carrying an authored, client-safe message.
+ *
+ * `publicMessage` is what clients see; `message` (the optional
+ * `internalMessage`, else the public message) is what server logs and admin
+ * diagnostics see. Status classification stays with {@link mapErrorToStatus}:
+ * pass a typed `code` such as `AGENT_NOT_FOUND` to surface a 4xx.
+ */
+export class ClientSafeError extends Error {
+  readonly [CLIENT_SAFE_ERROR_BRAND] = true as const;
+  readonly publicMessage: string;
+  readonly code?: string;
+
+  constructor(
+    publicMessage: string,
+    options: { code?: string; internalMessage?: string; cause?: unknown } = {}
+  ) {
+    super(
+      options.internalMessage ?? publicMessage,
+      options.cause !== undefined ? { cause: options.cause } : undefined
+    );
+    this.name = "ClientSafeError";
+    this.publicMessage = publicMessage;
+    if (options.code !== undefined) this.code = options.code;
+  }
+}
+
+/** Returns `true` for a branded error whose public message is a string. */
+export function isClientSafeError(
+  err: unknown
+): err is { publicMessage: string } {
+  if (err === null || typeof err !== "object") return false;
+  const candidate = err as Record<PropertyKey, unknown>;
+  return (
+    candidate[CLIENT_SAFE_ERROR_BRAND] === true &&
+    typeof candidate.publicMessage === "string"
+  );
+}
+
+/**
+ * DZUPAGENT-ERR-H-03: a class name or message prefix only classifies an error
+ * (see {@link mapErrorToStatus}); it never makes the error's own text public.
+ * Unbranded errors with these prefixes expose the fixed phrase instead.
+ */
+const PREFIX_PUBLIC_MESSAGES = [
+  ["Validation", "Request validation failed"],
+  ["NotFound", "Resource not found"],
+  ["Conflict", "Resource conflict"],
+  ["BadRequest", "Bad request"],
 ] as const;
 
-/** Returns `true` when the error message is safe to forward to a client. */
-function isSafeMessage(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
+/** Resolve the client-facing message for a thrown value. */
+function publicMessageFor(err: unknown): string {
+  if (isClientSafeError(err)) return err.publicMessage;
+  if (!(err instanceof Error)) return GENERIC;
   const name = err.constructor.name;
-  if (SAFE_PREFIXES.some((p) => name.startsWith(p))) return true;
-  // Errors whose message starts with a safe prefix (thrown as plain Error)
-  if (SAFE_PREFIXES.some((p) => err.message.startsWith(p))) return true;
-  return false;
+  for (const [prefix, phrase] of PREFIX_PUBLIC_MESSAGES) {
+    if (name.startsWith(prefix) || err.message.startsWith(prefix)) return phrase;
+  }
+  return GENERIC;
 }
 
 /**
  * Extract a client-safe message from an unknown thrown value.
  *
- * - Known safe errors → original message
- * - Everything else   → generic "Internal server error"
+ * - {@link ClientSafeError} (branded) → its authored `publicMessage`
+ * - Validation/NotFound/Conflict/BadRequest-prefixed → a fixed class phrase
+ * - Everything else → generic "Internal server error"
  *
  * The raw message is always returned as `internal` so callers can still
  * log it server-side.
@@ -47,8 +98,7 @@ export function sanitizeError(err: unknown): {
   internal: string;
 } {
   const internal = err instanceof Error ? err.message : String(err);
-  const safe = isSafeMessage(err) ? internal : GENERIC;
-  return { safe, internal };
+  return { safe: publicMessageFor(err), internal };
 }
 
 /**
@@ -130,8 +180,10 @@ export function logRouteError(
  *      `*_INVALID`/`*_VALIDATION` / `*_BAD_REQUEST` → 400, `*_UNAVAILABLE` → 503).
  *   2. Error class-name / message safe prefixes (NotFound → 404, Conflict → 409,
  *      Validation / BadRequest → 400). Throw sites that need a non-500 status
- *      MUST opt in: either throw a `ForgeError` with a typed `code`, or prefix
- *      the message with one of the safe tokens above.
+ *      MUST opt in: either throw a `ForgeError` (or {@link ClientSafeError})
+ *      with a typed `code`, or prefix the message with one of the safe tokens
+ *      above. A prefix only classifies; it never discloses the message
+ *      (DZUPAGENT-ERR-H-03).
  *   3. Otherwise the caller-supplied `fallback` (default 500).
  *
  * ERR-M-07/L-03: the legacy `message.includes('not found' / 'already exists')`
