@@ -86,11 +86,11 @@ describe('Route error message disclosure (DZUPAGENT-ERR-H-03)', () => {
   function clusterApp(createError: Error) {
     const clusterStore = new InMemoryClusterStore()
     vi.spyOn(clusterStore, 'create').mockRejectedValue(createError)
-    vi.spyOn(console, 'error').mockImplementation(() => {})
-    return createForgeApp(createTestConfig({ clusterStore }))
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    return { app: createForgeApp(createTestConfig({ clusterStore })), consoleError }
   }
 
-  async function postCluster(app: ReturnType<typeof createForgeApp>) {
+  async function postCluster({ app }: ReturnType<typeof clusterApp>) {
     const res = await app.request('/api/clusters', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -101,7 +101,6 @@ describe('Route error message disclosure (DZUPAGENT-ERR-H-03)', () => {
   }
 
   it('keeps a Conflict-prefixed internal message out of the HTTP response', async () => {
-    const consoleError = vi.spyOn(console, 'error')
     const app = clusterApp(new Error(`Conflict: ${MARKER}`))
 
     const res = await postCluster(app)
@@ -111,7 +110,7 @@ describe('Route error message disclosure (DZUPAGENT-ERR-H-03)', () => {
     expect(res.body.error.message).toBe('Resource conflict')
     expect(res.raw).not.toContain('SECRET-MARKER')
     // The internal diagnostic is still logged server-side.
-    expect(consoleError.mock.calls.some(call => String(call[0]).includes('SECRET-MARKER'))).toBe(true)
+    expect(app.consoleError.mock.calls.some(call => String(call[0]).includes('SECRET-MARKER'))).toBe(true)
   })
 
   it('keeps a Conflict* subclass message out of the HTTP response', async () => {
