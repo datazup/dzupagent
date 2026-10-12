@@ -808,7 +808,7 @@ Root index: `packages/agent-adapters/src/index.ts`
 | `stable` | `./runs/run-event-store.js` | 1 | `prefix:./runs/` | `RunEventStore` |
 | `stable` | `./runs/script-run-event-store.js` | 22 | `prefix:./runs/` | `ScriptRunEventStore`, `AppendManagedArtifactInput`, `AppendManagedRunEventInput`, `ManagedRunSummaryInput` |
 | `stable` | `./runs/run-log-root.js` | 1 | `prefix:./runs/` | `runLogRoot` |
-| `stable` | `./provider-catalog.js` | 10 | `exact:./provider-catalog.js` | `PROVIDER_CATALOG`, `HTTP_ROUTABLE_PROVIDER_IDS`, `assertProviderCatalogEntry`, `getDefaultMonitorStatus` |
+| `stable` | `./provider-catalog.js` | 14 | `exact:./provider-catalog.js` | `PROVIDER_CATALOG`, `HTTP_ROUTABLE_PROVIDER_IDS`, `assertProviderCatalogEntry`, `ProviderNotRunnableError` |
 | `stable` | `./normalize.js` | 2 | `exact:./normalize.js` | `normalizeEvent`, `Provider` |
 | `deprecated-transitional` | `./enrichment/enrichment-pipeline.js` | 3 | `prefix:./enrichment/` | `EnrichmentPipeline`, `EnrichmentContext`, `EnrichmentResult` |
 | `deprecated-transitional` | `./events/index.js` | 1 | `prefix:./events/` | `*` |
