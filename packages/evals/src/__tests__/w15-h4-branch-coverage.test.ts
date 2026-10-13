@@ -151,12 +151,14 @@ async function seedVersion(
   store: PromptVersionStore,
   content = 'You are a helpful assistant.',
   evalScores?: PromptVersionEvalScores,
+  metadata?: Record<string, unknown>,
 ): Promise<PromptVersion> {
   return store.save({
     promptKey: 'system',
     content,
     active: true,
     evalScores,
+    metadata,
   });
 }
 
@@ -173,7 +175,8 @@ describe('PromptOptimizer branch coverage', () => {
         passRate: 0.5,
         scorerAverages: {},
         datasetSize: 1,
-      });
+      }, { provenance: 'retained-baseline', error: 'prior-diagnostic' });
+      const before = structuredClone(seeded);
 
       const metaModel = {
         invoke: vi.fn().mockRejectedValueOnce(new Error('network blip')),
@@ -199,11 +202,13 @@ describe('PromptOptimizer branch coverage', () => {
       expect(result.originalVersion.id).toBe(seeded.id);
       expect(result.bestVersion.content).toBe(seeded.content);
       expect(result.originalVersion.content).toBe(seeded.content);
-      expect(result.bestVersion.metadata).toEqual({ ...seeded.metadata, error: 'network blip' });
+      expect(result.bestVersion.metadata).toEqual({ ...before.metadata, error: 'network blip' });
+      expect(result.bestVersion.metadata).not.toBe(seeded.metadata);
       expect(result.bestVersion).not.toBe(seeded);
       expect(result.originalVersion).toBe(seeded);
-      expect(seeded.metadata).toBeUndefined();
-      expect(await versionStore.getActive('system')).toEqual(seeded);
+      expect(result.originalVersion).toEqual(before);
+      expect(seeded).toEqual(before);
+      expect(await versionStore.getActive('system')).toEqual(before);
       expect(versionStore.activate).not.toHaveBeenCalled();
       expect(versionStore.save).toHaveBeenCalledTimes(1);
       expect(result.scoreImprovement).toBe(0);
@@ -217,7 +222,8 @@ describe('PromptOptimizer branch coverage', () => {
         passRate: 0.5,
         scorerAverages: {},
         datasetSize: 1,
-      });
+      }, { provenance: 'retained-baseline', error: 'prior-diagnostic' });
+      const before = structuredClone(seeded);
 
       const metaModel = {
         invoke: vi.fn().mockImplementation(async () => {
@@ -243,13 +249,15 @@ describe('PromptOptimizer branch coverage', () => {
       expect(result.originalVersion.id).toBe(seeded.id);
       expect(result.bestVersion.content).toBe(seeded.content);
       expect(result.originalVersion.content).toBe(seeded.content);
-      expect(result.bestVersion.metadata).toEqual({ ...seeded.metadata, error: 'plain-string-error' });
+      expect(result.bestVersion.metadata).toEqual({ ...before.metadata, error: 'plain-string-error' });
+      expect(result.bestVersion.metadata).not.toBe(seeded.metadata);
       expect(result.bestVersion).not.toBe(seeded);
       expect(result.originalVersion).toBe(seeded);
-      expect(seeded.metadata).toBeUndefined();
+      expect(result.originalVersion).toEqual(before);
+      expect(seeded).toEqual(before);
       expect(result.improved).toBe(false);
       expect(result.scoreImprovement).toBe(0);
-      expect(await versionStore.getActive('system')).toEqual(seeded);
+      expect(await versionStore.getActive('system')).toEqual(before);
       expect(versionStore.activate).not.toHaveBeenCalled();
       expect(versionStore.save).toHaveBeenCalledTimes(1);
     });
