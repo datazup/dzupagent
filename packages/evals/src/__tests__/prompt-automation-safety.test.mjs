@@ -118,6 +118,62 @@ test('a stale baseline is refused before held-out model calls', async () => {
   assert.equal(f.calls.invoke, before); assert.equal(f.calls.activate, 0);
 });
 
+test('caller-supplied failure inputs cannot be reused as held-out inputs', async () => {
+  const f = fixture(); let metaInput = '';
+  f.config.metaModel.invoke = async messages => {
+    f.calls.meta++; metaInput = messages[1].content;
+    return { content: '### Candidate 1\nBetter clarity.\n```prompt\nbetter\n```' };
+  };
+  const result = await f.optimizer.optimize({ promptKey: 'system', dataset: dataset(),
+    failures: [{ input: 'external failure', output: 'wrong', feedback: 'fix this' }] });
+  assert.ok(metaInput.includes('external failure'));
+  const before = f.calls.invoke;
+  await assert.rejects(f.optimizer.validateCandidate({ promptKey: 'system', candidateVersionId: result.bestVersion.id,
+    holdoutDataset: EvalDataset.from([{ id: 'new-heldout-id', input: 'external failure' }]) }), /overlap/);
+  assert.equal(f.calls.invoke, before); assert.equal(f.calls.activate, 0);
+});
+
+test('dataset evidence binds scorer tags and metadata with stable object-key ordering', async () => {
+  const f = fixture(); const result = await f.optimizer.optimize({ promptKey: 'system', dataset: dataset() });
+  const validate = (tags, metadata) => f.optimizer.validateCandidate({ promptKey: 'system',
+    candidateVersionId: result.bestVersion.id,
+    holdoutDataset: EvalDataset.from([{ id: 'held', input: 'new held-out question', tags, metadata }]) });
+  const initial = await validate(['quality'], { score: 1, nested: { b: 2, a: 1 } });
+  const reordered = await validate(['quality'], { nested: { a: 1, b: 2 }, score: 1 });
+  const tagChanged = await validate(['other'], { score: 1, nested: { b: 2, a: 1 } });
+  const metadataChanged = await validate(['quality'], { score: 0, nested: { b: 2, a: 1 } });
+  assert.equal(initial.holdoutDatasetDigest, reordered.holdoutDatasetDigest);
+  assert.notEqual(initial.holdoutDatasetDigest, tagChanged.holdoutDatasetDigest);
+  assert.notEqual(initial.holdoutDatasetDigest, metadataChanged.holdoutDatasetDigest);
+});
+
+test('held-out evidence and scorer inputs use a snapshot taken before asynchronous lookup', async () => {
+  const seen = []; const f = fixture({ invoke: messages => {
+    seen.push(messages[1].content); return { content: messages[0].content };
+  } });
+  const result = await f.optimizer.optimize({ promptKey: 'system', dataset: dataset() });
+  const entry = { id: 'held', input: 'new held-out question', tags: ['original'], metadata: { score: 1 } };
+  const original = EvalDataset.from([structuredClone(entry)]);
+  const external = EvalDataset.from([entry]); seen.length = 0;
+  const pending = f.optimizer.validateCandidate({ promptKey: 'system', candidateVersionId: result.bestVersion.id,
+    holdoutDataset: external });
+  entry.input = 'training question'; entry.tags[0] = 'changed'; entry.metadata.score = 0;
+  const actual = await pending;
+  const expected = await f.optimizer.validateCandidate({ promptKey: 'system', candidateVersionId: result.bestVersion.id,
+    holdoutDataset: original });
+  assert.equal(actual.holdoutDatasetDigest, expected.holdoutDatasetDigest);
+  assert.deepEqual(seen, Array(4).fill('new held-out question'));
+});
+
+for (const kind of ['nonfinite', 'function', 'cycle']) test('unsupported dataset evidence refuses before model calls: ' + kind, async () => {
+  const metadata = kind === 'nonfinite' ? { score: NaN } : kind === 'function' ? { score() {} } : {};
+  if (kind === 'cycle') metadata.self = metadata;
+  const f = fixture();
+  await assert.rejects(f.optimizer.optimize({ promptKey: 'system',
+    dataset: EvalDataset.from([{ id: 'train', input: 'training question', metadata }]) }), /JSON values/);
+  assert.equal(f.calls.invoke, 0); assert.equal(f.calls.meta, 0);
+});
+
 test('baseline changes during held-out evaluation make the evidence stale', async () => {
   let validating = false;
   const f = fixture({ invoke: (messages, versions) => {

@@ -1,6 +1,5 @@
 export { PromptVersionStore } from './prompt-version-store.js';
 export type {
-  CandidateValidationResult,
   PromptVersion,
   PromptVersionEvalScores,
   PromptVersionStoreConfig,
@@ -8,6 +7,7 @@ export type {
 
 export { PromptOptimizer } from './prompt-optimizer.js';
 export type {
+  CandidateValidationResult,
   OptimizerConfig,
   OptimizationResult,
   OptimizationCandidate,

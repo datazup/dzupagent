@@ -7,7 +7,7 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { createHash } from 'node:crypto';
 
-import type { EvalDataset } from '../dataset/eval-dataset.js';
+import { EvalDataset, type EvalEntry } from '../dataset/eval-dataset.js';
 import type { EvalInput, Scorer } from '../types.js';
 import { evaluatePrompt, mergeFailures } from './prompt-optimizer-evaluator.js';
 import { buildMetaPrompt, extractMessageText, parseCandidates } from './prompt-optimizer-generator.js';
@@ -15,12 +15,41 @@ import type { CandidateValidationResult, EvalOutcome, OptimizationCandidate, Opt
 import type { PromptVersion, PromptVersionStore } from './prompt-version-store.js';
 
 const digest = (value: string): string => createHash('sha256').update(value).digest('hex');
-const datasetDigest = (dataset: EvalDataset): string => digest(JSON.stringify(dataset.entries.map(
-  (entry) => [entry.id, entry.input, entry.expectedOutput ?? null],
-)));
+function canonicalEvidence(value: unknown, ancestors = new Set<object>()): unknown {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'object' || ancestors.has(value) || ancestors.size >= 64
+    || (!Array.isArray(value) && ![Object.prototype, null].includes(Object.getPrototypeOf(value)))) {
+    throw new Error('Dataset evidence requires finite, acyclic JSON values');
+  }
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  if (Object.getOwnPropertySymbols(value).length || Object.values(descriptors).some(item => !('value' in item))) {
+    throw new Error('Dataset evidence requires plain JSON properties');
+  }
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) return Object.freeze(Array.from(value, item => canonicalEvidence(item, ancestors)));
+    return Object.freeze(Object.fromEntries(Object.keys(value).sort().map(key => [key,
+      canonicalEvidence(descriptors[key]!.value, ancestors)])));
+  } finally { ancestors.delete(value); }
+}
+const datasetDigest = (dataset: EvalDataset): string => digest(JSON.stringify(canonicalEvidence(dataset.entries)));
+function snapshotDataset(dataset: EvalDataset): EvalDataset {
+  validateDataset(dataset);
+  const entries = dataset.entries.map(entry => Object.freeze(canonicalEvidence({
+    id: entry.id, input: entry.input, expectedOutput: entry.expectedOutput ?? null,
+    tags: entry.tags ?? null, metadata: entry.metadata ?? null,
+  }) as { id: string; input: string; expectedOutput: string | null; tags: string[] | null; metadata: Record<string, unknown> | null }));
+  return EvalDataset.from(entries.map(entry => Object.freeze({ id: entry.id, input: entry.input,
+    ...(entry.expectedOutput === null ? {} : { expectedOutput: entry.expectedOutput }),
+    ...(entry.tags === null ? {} : { tags: entry.tags }),
+    ...(entry.metadata === null ? {} : { metadata: entry.metadata }),
+  }) as EvalEntry));
+}
 function validateDataset(dataset: EvalDataset): void {
   if (!dataset.entries.length || dataset.size !== dataset.entries.length
-    || dataset.entries.some(entry => !entry.id || !entry.input)
+    || dataset.entries.some(entry => typeof entry.id !== 'string' || !entry.id
+      || typeof entry.input !== 'string' || !entry.input)
     || new Set(dataset.entries.map(entry => entry.id)).size !== dataset.size) {
     throw new Error('A nonempty dataset with unique case identities is required');
   }
@@ -63,7 +92,14 @@ export class PromptOptimizer {
     let rounds = 0;
     let originalVersion: PromptVersion | null = null;
     let latestVersion: PromptVersion | null = null;
-    validateDataset(params.dataset);
+    const trainingDataset = snapshotDataset(params.dataset);
+    const suppliedFailures = (params.failures ?? []).map(failure => {
+      if (typeof failure.input !== 'string' || !failure.input || typeof failure.output !== 'string'
+        || typeof failure.feedback !== 'string') throw new Error('Invalid supplied failure evidence');
+      return Object.freeze({ ...failure });
+    });
+    const trainingInputDigests = [...new Set([...trainingDataset.entries.map(entry => digest(entry.input)),
+      ...suppliedFailures.map(failure => digest(failure.input))])];
 
     try {
       // 1. Load current active prompt from versionStore
@@ -84,13 +120,13 @@ export class PromptOptimizer {
         return this.buildResult(originalVersion, currentVersion, allCandidates, rounds, 'aborted', startTime);
       }
 
-      let currentOutcome = await this.runEval(currentVersion.content, params.dataset);
+      let currentOutcome = await this.runEval(currentVersion.content, trainingDataset);
       let currentScore = currentOutcome.avgScore;
 
       // Baseline rescoring is local evidence, never a new active prompt version.
       originalVersion = { ...originalVersion, evalScores: {
         avgScore: currentOutcome.avgScore, passRate: currentOutcome.passRate,
-        scorerAverages: currentOutcome.scorerAverages, datasetSize: params.dataset.size,
+        scorerAverages: currentOutcome.scorerAverages, datasetSize: trainingDataset.size,
       } };
       currentVersion = originalVersion;
       latestVersion = currentVersion;
@@ -104,7 +140,7 @@ export class PromptOptimizer {
         rounds++;
 
         // 3a. Build meta-prompt with failures
-        const failures = mergeFailures(currentOutcome.failures, params.failures);
+        const failures = mergeFailures(currentOutcome.failures, suppliedFailures);
         const metaPrompt = buildMetaPrompt(
           currentVersion.content,
           currentOutcome,
@@ -145,7 +181,7 @@ export class PromptOptimizer {
             return this.buildResult(originalVersion, currentVersion, allCandidates, rounds, 'aborted', startTime);
           }
 
-          const outcome = await this.runEval(candidate.content, params.dataset);
+          const outcome = await this.runEval(candidate.content, trainingDataset);
 
           const evalCandidate: OptimizationCandidate = {
             content: candidate.content,
@@ -167,7 +203,7 @@ export class PromptOptimizer {
 
         if (improvement >= this.minImprovement && bestCandidateContent !== null) {
           // Save improved version
-          const newOutcome = await this.runEval(bestCandidateContent, params.dataset);
+          const newOutcome = await this.runEval(bestCandidateContent, trainingDataset);
           if (this.signal?.aborted) {
             return this.buildResult(originalVersion, currentVersion, allCandidates, rounds, 'aborted', startTime);
           }
@@ -189,14 +225,14 @@ export class PromptOptimizer {
               improvement,
               sourceVersionId: originalVersion.id,
               sourcePromptDigest: digest(originalVersion.content),
-              trainingDatasetDigest: datasetDigest(params.dataset),
-              trainingInputDigests: [...new Set(params.dataset.entries.map(entry => digest(entry.input)))],
+              trainingDatasetDigest: datasetDigest(trainingDataset),
+              trainingInputDigests,
             },
             evalScores: {
               avgScore: newOutcome.avgScore,
               passRate: newOutcome.passRate,
               scorerAverages: newOutcome.scorerAverages,
-              datasetSize: params.dataset.size,
+              datasetSize: trainingDataset.size,
             },
             active: false,
           });
@@ -262,7 +298,7 @@ export class PromptOptimizer {
     holdoutDataset: EvalDataset;
     minPassRate?: number;
   }): Promise<CandidateValidationResult> {
-    validateDataset(params.holdoutDataset);
+    const holdoutDataset = snapshotDataset(params.holdoutDataset);
     const minPassRate = params.minPassRate ?? 1;
     if (!Number.isFinite(minPassRate) || minPassRate < 0 || minPassRate > 1) throw new Error('Invalid held-out pass-rate threshold');
     const candidateVersion = await this.versionStore.getById(params.candidateVersionId);
@@ -279,13 +315,13 @@ export class PromptOptimizer {
       || typeof trainingDatasetDigest !== 'string' || !/^[a-f0-9]{64}$/.test(trainingDatasetDigest)) {
       throw new Error('Candidate is missing training input evidence');
     }
-    if (params.holdoutDataset.entries.some(entry => trainingInputs.includes(digest(entry.input)))) {
+    if (holdoutDataset.entries.some(entry => trainingInputs.includes(digest(entry.input)))) {
       throw new Error('Held-out inputs overlap the training dataset');
     }
-    const baseline = await this.runEval(sourceVersion.content, params.holdoutDataset);
+    const baseline = await this.runEval(sourceVersion.content, holdoutDataset);
     const candidate = this.signal?.aborted
       ? { avgScore: 0, passRate: 0, scorerAverages: {}, failures: [] }
-      : await this.runEval(candidateVersion.content, params.holdoutDataset);
+      : await this.runEval(candidateVersion.content, holdoutDataset);
     const currentSource = await this.versionStore.getActive(params.promptKey);
     const currentCandidate = await this.versionStore.getById(params.candidateVersionId);
     const reason = this.signal?.aborted ? 'aborted'
@@ -295,7 +331,7 @@ export class PromptOptimizer {
         && candidate.passRate >= Math.max(minPassRate, baseline.passRate) ? 'passed' : 'regression';
     return { passed: reason === 'passed', reason, sourceVersionId: sourceVersion.id,
       candidateVersionId: candidateVersion.id, candidatePromptDigest: digest(candidateVersion.content),
-      trainingDatasetDigest, holdoutDatasetDigest: datasetDigest(params.holdoutDataset), baseline, candidate };
+      trainingDatasetDigest, holdoutDatasetDigest: datasetDigest(holdoutDataset), baseline, candidate };
   }
 
   // ---------------------------------------------------------------------------
