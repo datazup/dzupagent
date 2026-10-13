@@ -205,11 +205,13 @@ describe("createCostScorer — budget-based scoring", () => {
     expect(result.passed).toBe(true);
   });
 
-  it("missing costCents defaults to 0 → score 1.0", async () => {
+  it("missing costCents fails without measured evidence", async () => {
     const scorer = createCostScorer({ targetCents: 10, maxCents: 20 });
     const result = await scorer.score(makeInput({ costCents: undefined }));
-    expect(result.aggregateScore).toBe(1.0);
-    expect(result.passed).toBe(true);
+    expect(result.aggregateScore).toBe(0);
+    expect(result.passed).toBe(false);
+    expect(result.measured).toBe(false);
+    expect(result.scores[0]?.reasoning).toMatch(/unavailable/i);
   });
 
   it("cost scorer config is reflected in ScorerConfig name", () => {

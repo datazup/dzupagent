@@ -389,10 +389,13 @@ describe('createCostScorer', () => {
     expect(result.aggregateScore).toBe(0.5);
   });
 
-  it('defaults to 0 cost when not provided', async () => {
+  it('rejects unavailable cost evidence', async () => {
     const scorer = createCostScorer({ targetCents: 5, maxCents: 20 });
     const result = await scorer.score({ input: 'test', output: 'response' });
-    expect(result.aggregateScore).toBe(1.0);
+    expect(result.aggregateScore).toBe(0);
+    expect(result.passed).toBe(false);
+    expect(result.measured).toBe(false);
+    expect(result.scores[0]?.reasoning).toMatch(/unavailable/i);
   });
 
   it('includes costCents in result', async () => {
