@@ -174,6 +174,22 @@ for (const kind of ['nonfinite', 'function', 'cycle']) test('unsupported dataset
   assert.equal(f.calls.invoke, 0); assert.equal(f.calls.meta, 0);
 });
 
+for (const kind of ['hidden-cycle', 'hidden-nonfinite', 'hidden-function', 'extra-array', 'hidden-array', 'sparse-array']) {
+  test('unsupported property shapes refuse before model calls: ' + kind, async () => {
+    const metadata = kind.endsWith('array') ? ['accepted'] : {};
+    if (kind === 'hidden-cycle') Object.defineProperty(metadata, 'hidden', { value: metadata });
+    if (kind === 'hidden-nonfinite') Object.defineProperty(metadata, 'hidden', { value: NaN });
+    if (kind === 'hidden-function') Object.defineProperty(metadata, 'hidden', { value() {} });
+    if (kind === 'extra-array') metadata.extra = () => {};
+    if (kind === 'hidden-array') Object.defineProperty(metadata, 'hidden', { value: metadata });
+    if (kind === 'sparse-array') metadata.length = 2;
+    const f = fixture();
+    await assert.rejects(f.optimizer.optimize({ promptKey: 'system',
+      dataset: EvalDataset.from([{ id: 'train', input: 'training question', metadata }]) }), /JSON/);
+    assert.equal(f.calls.invoke, 0); assert.equal(f.calls.meta, 0);
+  });
+}
+
 test('baseline changes during held-out evaluation make the evidence stale', async () => {
   let validating = false;
   const f = fixture({ invoke: (messages, versions) => {

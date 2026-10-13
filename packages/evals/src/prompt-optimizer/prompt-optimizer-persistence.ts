@@ -28,7 +28,17 @@ function canonicalEvidence(value: unknown, ancestors = new Set<object>()): unkno
   }
   ancestors.add(value);
   try {
-    if (Array.isArray(value)) return Object.freeze(Array.from(value, item => canonicalEvidence(item, ancestors)));
+    if (Array.isArray(value)) {
+      const keys = Object.keys(descriptors).filter(key => key !== 'length');
+      if (keys.length !== value.length || keys.some((key, index) => key !== String(index)
+        || !descriptors[key]!.enumerable)) {
+        throw new Error('Dataset evidence requires dense JSON arrays');
+      }
+      return Object.freeze(keys.map(key => canonicalEvidence(descriptors[key]!.value, ancestors)));
+    }
+    if (Object.values(descriptors).some(item => !item.enumerable)) {
+      throw new Error('Dataset evidence requires enumerable JSON properties');
+    }
     return Object.freeze(Object.fromEntries(Object.keys(value).sort().map(key => [key,
       canonicalEvidence(descriptors[key]!.value, ancestors)])));
   } finally { ancestors.delete(value); }
