@@ -382,6 +382,32 @@ describe('Codex explicit CLI backend', () => {
     expect(args.slice(-3)).toEqual(['--', 'session-1', 'continue'])
   })
 
+  it.each(['xhigh', 'max'])('forwards qualified native %s effort without falling back to defaults', (reasoning) => {
+    const adapter = new CodexCliAdapter({ model: 'gpt-6.1-sol', nativeReasoning: {
+      model: 'gpt-6.1-sol', efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      evidenceRef: 'fixture/native-observation', expiresAt: '2099-01-01T00:00:00Z',
+    } })
+    const args = adapter.buildArgs({ prompt: 'bounded', options: { reasoning } })
+    expect(args).toContain(`model_reasoning_effort="${reasoning}"`)
+  })
+
+  it.each(['ultra', 'max', '', 2, false, null])('refuses unqualified effort %s before provider dispatch', async (reasoning) => {
+    const spawn = vi.fn()
+    const adapter = new CodexCliAdapter({ runtimeDependencies: { spawn } })
+    await expect(collect(adapter.executeWithRaw({ prompt: 'bounded', options: { reasoning } }))).rejects.toThrow(/reasoning effort/)
+    expect(spawn).not.toHaveBeenCalled()
+  })
+
+  it('refuses stale, mismatched and unsupported native model mappings', () => {
+    const snapshot = { model: 'gpt-6.1-sol', efforts: ['high', 'max'], evidenceRef: 'fixture/native-observation', expiresAt: '2099-01-01T00:00:00Z' }
+    for (const nativeReasoning of [snapshot, { ...snapshot, model: 'other-model' }, { ...snapshot, expiresAt: '2000-01-01T00:00:00Z' }]) {
+      const adapter = new CodexCliAdapter({ model: 'gpt-6.1-sol', nativeReasoning })
+      expect(() => adapter.buildArgs({ prompt: 'bounded', options: { reasoning: 'xhigh' } })).toThrow(/reasoning effort/)
+    }
+    const adapter = new CodexCliAdapter({ model: 'gpt-6.1-sol', nativeReasoning: snapshot })
+    expect(() => adapter.buildArgs({ prompt: 'bounded', options: { model: 'gpt-6-astra', reasoning: 'max' } })).toThrow(/reasoning effort/)
+  })
+
   it('reuses a worker-owned private session home across provider restart', async () => {
     const workingDirectory = await mkdtemp(join(tmpdir(), 'dzupagent-codex-session-'))
     const homes: string[] = []

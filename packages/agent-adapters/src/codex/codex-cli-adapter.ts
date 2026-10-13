@@ -53,7 +53,15 @@ import {
 
 const execFileAsync = promisify(execFile);
 
-export interface CodexCliAdapterConfig extends AdapterConfig {
+export interface CodexCliAdapterConfig extends Omit<AdapterConfig, "reasoning"> {
+  /** Native effort; values beyond the legacy set require exact-model evidence. */
+  reasoning?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | undefined;
+  nativeReasoning?: {
+    readonly model: string;
+    readonly efforts: readonly string[];
+    readonly evidenceRef: string;
+    readonly expiresAt: string;
+  } | undefined;
   /** Defaults to `codex`; injectable for managed installations and tests. */
   cliPath?: string | undefined;
   /** Optional approved base Codex profile directory copied into the private CODEX_HOME. */
@@ -134,6 +142,8 @@ export class CodexCliAdapter implements AgentCLIAdapter {
     input: AgentInput
   ): AsyncGenerator<AgentStreamEvent, void, undefined> {
     assertAdapterExecutionControlsAdmitted(this, input);
+    // Refuse unsupported settings before allocating homes or spawning a process.
+    this.resolveReasoning(input);
     const sessionId = randomUUID();
     const startedAt = Date.now();
     const controller = new AbortController();
@@ -461,12 +471,24 @@ export class CodexCliAdapter implements AgentCLIAdapter {
 
   private resolveReasoning(
     input: AgentInput
-  ): "low" | "medium" | "high" | undefined {
-    const value =
-      stringOption(input.options?.["reasoning"]) ?? this.config.reasoning;
-    return value === "low" || value === "medium" || value === "high"
-      ? value
-      : undefined;
+  ): string | undefined {
+    const value = input.options && Object.hasOwn(input.options, "reasoning")
+      ? input.options["reasoning"] : this.config.reasoning;
+    if (value === undefined) return undefined;
+    const native = this.config.nativeReasoning;
+    const known = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+    const legacy = ["low", "medium", "high"];
+    const evidenceValid = native !== undefined
+      && native.model === this.resolveModel(input)
+      && typeof native.evidenceRef === "string" && native.evidenceRef.trim().length > 0
+      && Number.isFinite(Date.parse(native.expiresAt)) && Date.parse(native.expiresAt) > Date.now()
+      && Array.isArray(native.efforts) && native.efforts.length > 0
+      && native.efforts.every((effort) => known.includes(effort));
+    if (typeof value !== "string" || !known.includes(value)
+      || (native !== undefined ? !evidenceValid || !native.efforts.includes(value) : !legacy.includes(value))) {
+      throw policyRejected("Codex reasoning effort is unsupported or lacks current exact-model evidence", "unsupported_reasoning_effort");
+    }
+    return value;
   }
 
   private resolveSandbox(input: AgentInput): string {
