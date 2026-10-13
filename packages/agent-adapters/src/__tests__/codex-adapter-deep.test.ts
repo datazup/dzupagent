@@ -498,10 +498,7 @@ describe("CodexAdapter — deep coverage", () => {
   // ── Caller abort handling ─────────────────────────────
 
   describe("caller abort handling", () => {
-    it('emits adapter:completed with "(interrupted)" when caller aborts mid-stream', async () => {
-      // Pre-aborted external signal — the abort propagates via combineSignals
-      // before the iterator's first .next(), so the runStreamed event loop
-      // throws immediately and the adapter emits the "interrupted" completion.
+    it("fails a pre-aborted caller without starting SDK streaming", async () => {
       mockStartThread.mockReturnValue({
         runStreamed: vi.fn().mockImplementation((_p, opts) => {
           return Promise.resolve({
@@ -522,13 +519,12 @@ describe("CodexAdapter — deep coverage", () => {
         adapter.execute(makeInput({ signal: ctrl.signal })),
       );
       const last = events.at(-1);
-      expect(last?.type).toBe("adapter:completed");
-      if (last?.type === "adapter:completed") {
-        expect(last.result).toBe("(interrupted)");
-      }
+      expect(last).toMatchObject({ type: "adapter:failed", code: "ADAPTER_ABORTED" });
+      expect(events.some(e => e.type === "adapter:completed")).toBe(false);
+      expect(mockStartThread.mock.results[0]!.value.runStreamed).not.toHaveBeenCalled();
     }, 10_000);
 
-    it("preserves last response text when interrupted after a message", async () => {
+    it("retains partial message evidence without successful completion after interruption", async () => {
       mockStartThread.mockReturnValue({
         runStreamed: vi.fn().mockImplementation((_p, opts) => {
           return Promise.resolve({
@@ -542,6 +538,7 @@ describe("CodexAdapter — deep coverage", () => {
                   text: "partial response",
                 },
               };
+              ctrl.abort();
               if (opts?.signal?.aborted) throw new Error("aborted");
               throw new Error("aborted");
             })(),
@@ -549,15 +546,13 @@ describe("CodexAdapter — deep coverage", () => {
         }),
       });
       const ctrl = new AbortController();
-      ctrl.abort();
       const events = await collectEvents(
         adapter.execute(makeInput({ signal: ctrl.signal })),
       );
       const last = events.at(-1);
-      expect(last?.type).toBe("adapter:completed");
-      if (last?.type === "adapter:completed") {
-        expect(last.result).toBe("partial response");
-      }
+      expect(last).toMatchObject({ type: "adapter:failed", code: "ADAPTER_ABORTED" });
+      expect(events.some(e => e.type === "adapter:message" && e.content === "partial response")).toBe(true);
+      expect(events.some(e => e.type === "adapter:completed")).toBe(false);
     }, 10_000);
 
     it("interrupt() before any execute is a no-op", () => {
