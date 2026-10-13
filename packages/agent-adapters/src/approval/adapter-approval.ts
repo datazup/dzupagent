@@ -32,6 +32,7 @@
 
 import { defaultLogger } from "@dzupagent/core/utils";
 import type { DzupEvent } from "@dzupagent/core/events";
+import { ForgeError } from "@dzupagent/core/events";
 
 import type { AgentEvent, AgentStreamEvent } from "../types.js";
 import { validateWebhookUrl } from "../utils/url-validator.js";
@@ -68,6 +69,7 @@ function isProviderRawStreamEvent(
 interface PendingResolvers {
   resolve: (result: ApprovalResult) => void;
   timer: ReturnType<typeof setTimeout> | undefined;
+  removeAbortListener?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -104,7 +106,8 @@ export class AdapterApprovalGate {
    * Returns immediately for 'auto' mode.
    * For 'conditional', evaluates the condition first.
    */
-  async requestApproval(context: ApprovalContext): Promise<ApprovalResult> {
+  async requestApproval(context: ApprovalContext, signal?: AbortSignal): Promise<ApprovalResult> {
+    this.throwIfAborted(signal);
     // 1. Auto mode -- always approve
     if (this.config.mode === "auto") {
       this.recordAudit({
@@ -142,6 +145,7 @@ export class AdapterApprovalGate {
     // 3. Conditional mode -- evaluate predicate
     if (this.config.mode === "conditional" && this.config.condition) {
       const needsApproval = await this.config.condition(context);
+      this.throwIfAborted(signal);
       if (!needsApproval) {
         this.recordAudit({
           requestId: crypto.randomUUID(),
@@ -183,39 +187,13 @@ export class AdapterApprovalGate {
       mode: this.config.mode,
     });
 
-    // 5. Emit approval:requested event
-    this.emitEvent({
-      type: "approval:requested",
-      runId: context.runId,
-      contactId: requestId,
-      plan: context,
-    });
-
-    // 6. Fire-and-forget webhook notification
-    if (this.config.webhookUrl) {
-      notifyApprovalWebhook(this.config, requestId, context).catch((err: unknown) => {
-        // ERR-M-11: webhook delivery is how a human is told a gate is pending.
-        // Non-critical (must not block the approval flow), but a silent drop
-        // means the gate stalls until TTL expiry with no signal to anyone.
-        defaultLogger.warn(
-          "[AdapterApprovalGate] approval webhook notification failed",
-          {
-            operation: "approval.webhook",
-            requestId,
-            error: err instanceof Error ? err.message : String(err),
-          }
-        );
-      });
-    }
-
-    // 7. Wait for grant/reject or timeout
-    return new Promise<ApprovalResult>((resolve) => {
+    // Install exact-request resolution and cancellation before notifying listeners.
+    const approval = new Promise<ApprovalResult>((resolve, reject) => {
       const timer = setTimeout(() => {
         const req = this.pending.get(requestId);
         if (req && req.status === "pending") {
           req.status = "expired";
-          this.pending.delete(requestId);
-          this.resolvers.delete(requestId);
+          this.cleanup(requestId, resolvers);
           this.recordAudit({
             requestId,
             providerId: context.providerId,
@@ -241,8 +219,47 @@ export class AdapterApprovalGate {
         timer.unref();
       }
 
-      this.resolvers.set(requestId, { resolve, timer });
+      const resolvers: PendingResolvers = { resolve, timer };
+      this.resolvers.set(requestId, resolvers);
+      if (signal) {
+        const onAbort = (): void => {
+          const req = this.pending.get(requestId);
+          if (!req || req.status !== "pending") return;
+          req.status = "rejected";
+          this.cleanup(requestId, resolvers);
+          this.recordAudit({
+            requestId, providerId: context.providerId, action: "rejected",
+            timestamp: Date.now(), actor: "system", reason: "Approval cancelled",
+            mode: this.config.mode,
+          });
+          this.emitEvent({
+            type: "approval:rejected", runId: context.runId,
+            contactId: requestId, reason: "Approval cancelled",
+          });
+          reject(this.abortError());
+        };
+        resolvers.removeAbortListener = () => signal.removeEventListener("abort", onAbort);
+        signal.addEventListener("abort", onAbort, { once: true });
+        if (signal.aborted) onAbort();
+      }
     });
+
+    if (signal?.aborted) return approval;
+    this.emitEvent({
+      type: "approval:requested", runId: context.runId,
+      contactId: requestId, plan: context,
+    });
+
+    // A notification listener may synchronously abort, reject or grant the request.
+    if (this.config.webhookUrl && this.pending.has(requestId)) {
+      notifyApprovalWebhook(this.config, requestId, context).catch((err: unknown) => {
+        defaultLogger.warn("[AdapterApprovalGate] approval webhook notification failed", {
+          operation: "approval.webhook", requestId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
+    return approval;
   }
 
   /**
@@ -338,10 +355,7 @@ export class AdapterApprovalGate {
    */
   clear(): void {
     for (const [requestId, resolvers] of this.resolvers) {
-      if (resolvers.timer !== undefined) {
-        clearTimeout(resolvers.timer);
-      }
-      this.resolvers.delete(requestId);
+      this.cleanup(requestId, resolvers);
     }
     this.pending.clear();
   }
@@ -367,17 +381,27 @@ export class AdapterApprovalGate {
    */
   guard(
     context: ApprovalContext,
-    source: AsyncGenerator<AgentEvent>
+    source: AsyncGenerator<AgentEvent>,
+    signal?: AbortSignal,
   ): AsyncGenerator<AgentEvent>;
   guard(
     context: ApprovalContext,
-    source: AsyncGenerator<AgentStreamEvent>
+    source: AsyncGenerator<AgentStreamEvent>,
+    signal?: AbortSignal,
   ): AsyncGenerator<AgentStreamEvent>;
   async *guard(
     context: ApprovalContext,
-    source: AsyncGenerator<AgentStreamEvent>
+    source: AsyncGenerator<AgentStreamEvent>,
+    signal?: AbortSignal,
   ): AsyncGenerator<AgentStreamEvent> {
-    const result = await this.requestApproval(context);
+    let result: ApprovalResult;
+    try {
+      result = await this.requestApproval(context, signal);
+      this.throwIfAborted(signal);
+    } catch (error) {
+      await source.return(undefined);
+      throw error;
+    }
 
     if (result === "approved") {
       for await (const event of source) {
@@ -433,8 +457,17 @@ export class AdapterApprovalGate {
     if (resolvers.timer !== undefined) {
       clearTimeout(resolvers.timer);
     }
+    resolvers.removeAbortListener?.();
     this.pending.delete(requestId);
     this.resolvers.delete(requestId);
+  }
+
+  private abortError(): ForgeError {
+    return new ForgeError({ code: "AGENT_ABORTED", message: "Approval cancelled", recoverable: false });
+  }
+
+  private throwIfAborted(signal?: AbortSignal): void {
+    if (signal?.aborted) throw this.abortError();
   }
 
   /**

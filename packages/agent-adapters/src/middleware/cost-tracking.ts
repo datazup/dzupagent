@@ -147,9 +147,11 @@ export class CostTrackingMiddleware {
    *
    * All events are yielded unchanged. On `adapter:completed` events that
    * carry `usage`, cost is accumulated and budget checks are performed.
+   * On refusal, abortFn signals shutdown before the source is closed.
    */
   async *wrap<T extends AgentStreamEvent>(
-    source: AsyncGenerator<T>
+    source: AsyncGenerator<T>,
+    abortFn?: () => void,
   ): AsyncGenerator<T> {
     for await (const event of source) {
       if (isProviderRawStreamEvent(event)) {
@@ -158,7 +160,13 @@ export class CostTrackingMiddleware {
       }
 
       if (event.type === "adapter:completed" && event.usage) {
-        this.recordUsage(event.providerId, event.usage);
+        try {
+          this.recordUsage(event.providerId, event.usage);
+        } catch (error) {
+          // Signal shutdown before for-await awaits the source's finalizer.
+          abortFn?.();
+          throw error;
+        }
       }
 
       yield event;

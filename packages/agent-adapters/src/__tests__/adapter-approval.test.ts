@@ -49,6 +49,49 @@ describe("AdapterApprovalGate", () => {
   });
 
   describe("requestApproval()", () => {
+    it("cancels only the exact request and timer, retaining other pending approvals", async () => {
+      const gate = new AdapterApprovalGate({ mode: "required", timeoutMs: 5000 });
+      const first = new AbortController();
+      const second = new AbortController();
+      const firstPending = gate.requestApproval(createContext({ runId: "first" }), first.signal);
+      const rejection = expect(firstPending).rejects.toMatchObject({ code: "AGENT_ABORTED" });
+      const secondPending = gate.requestApproval(createContext({ runId: "second" }), second.signal);
+      const firstRequest = gate.listPending().find((request) => request.runId === "first")!;
+      const secondRequest = gate.listPending().find((request) => request.runId === "second")!;
+      expect(vi.getTimerCount()).toBe(2);
+      first.abort();
+      await rejection;
+      expect(gate.listPending().map((request) => request.runId)).toEqual(["second"]);
+      expect(gate.getRequest(firstRequest.requestId)).toBeUndefined();
+      expect(gate.grant(firstRequest.requestId)).toBe(false);
+      expect(vi.getTimerCount()).toBe(1);
+      gate.grant(secondRequest.requestId);
+      await expect(secondPending).resolves.toBe("approved");
+      expect(vi.getTimerCount()).toBe(0);
+      second.abort();
+      expect(gate.getAuditStore().query({ requestId: secondRequest.requestId, action: "rejected" })).toHaveLength(0);
+    });
+
+    it("cleans up cancellation triggered synchronously by the requested event", async () => {
+      const controller = new AbortController();
+      const bus = createEventBus();
+      bus.onAny((event) => { if (event.type === "approval:requested") controller.abort(); });
+      const gate = new AdapterApprovalGate({ mode: "required", eventBus: bus });
+      await expect(gate.requestApproval(createContext(), controller.signal)).rejects.toMatchObject({ code: "AGENT_ABORTED" });
+      expect(gate.listPending()).toHaveLength(0);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it("refuses a pre-aborted approval before requests, timers or auto-approval audit", async () => {
+      const controller = new AbortController();
+      controller.abort();
+      const gate = new AdapterApprovalGate({ mode: "auto" });
+      await expect(gate.requestApproval(createContext(), controller.signal)).rejects.toMatchObject({ code: "AGENT_ABORTED" });
+      expect(gate.listPending()).toHaveLength(0);
+      expect(gate.getAuditStore().query()).toHaveLength(0);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
     it("auto mode returns approved immediately", async () => {
       const gate = new AdapterApprovalGate({ mode: "auto" });
       const result = await gate.requestApproval(createContext());

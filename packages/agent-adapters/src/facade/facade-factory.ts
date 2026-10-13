@@ -84,7 +84,7 @@ export function createOrchestrator(config: OrchestratorConfig): OrchestratorFaca
     new GuardrailsPipelineStep(costTracking, config.guardrails),
     new UCLEnrichmentStep(registry, eventBus, config.dzupagent),
   )
-  const patterns = new OrchestrationPatterns(registry, eventBus)
+  const patterns = new OrchestrationPatterns(registry, eventBus, pipeline, config.defaultPolicy)
 
   return new OrchestratorFacade(registry, pipeline, patterns, sessions, {
     bridge,

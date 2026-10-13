@@ -57,6 +57,8 @@ export class AdapterGuardrails {
   private violations: GuardrailViolation[] = []
   private warningMessages: string[] = []
   private readonly handlerState: GuardrailsHandlerState
+  /** Diagnostic snapshot of the latest started stream, never its enforcement owner. */
+  private latestExecution: AdapterGuardrails | undefined
 
   constructor(config?: AdapterGuardrailsConfig) {
     this.config = {
@@ -128,7 +130,13 @@ export class AdapterGuardrails {
     source: AsyncGenerator<AgentStreamEvent>,
     abortFn?: () => void,
   ): AsyncGenerator<AgentStreamEvent> {
-    this.budget.start()
+    // Reuse settings, but give each stream its own enforcement state.
+    const execution = new AdapterGuardrails({
+      ...this.config,
+      onRuleViolation: (ruleId, severity, detail) => this.config.onRuleViolation?.(ruleId, severity, detail),
+    })
+    this.latestExecution = execution
+    execution.budget.start()
 
     for await (const event of source) {
       if (isProviderRawStreamEvent(event)) {
@@ -136,7 +144,7 @@ export class AdapterGuardrails {
         continue
       }
 
-      const result = await processGuardrailEvent(event, this.handlerState)
+      const result = await processGuardrailEvent(event, execution.handlerState)
 
       if (result.abort) {
         abortFn?.()
@@ -173,8 +181,9 @@ export class AdapterGuardrails {
     return this.config.onRuleViolation
   }
 
-  /** Get current guardrail status */
+  /** Get the latest started stream's diagnostic snapshot. Enforcement stays per stream. */
   getStatus(): GuardrailStatus {
+    if (this.latestExecution) return this.latestExecution.getStatus()
     return {
       safe: this.violations.filter(v => v.severity === 'critical').length === 0,
       violations: [...this.violations],
@@ -183,8 +192,9 @@ export class AdapterGuardrails {
     }
   }
 
-  /** Reset all tracking state */
+  /** Reset diagnostics without resetting another active stream's enforcement state. */
   reset(): void {
+    this.latestExecution = undefined
     this.budget.reset()
     this.violations.length = 0
     this.warningMessages.length = 0

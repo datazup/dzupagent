@@ -12,6 +12,9 @@ import type { BaseSupervisorContract } from '@dzupagent/agent-types'
 import type { AgentCLIAdapter } from '@dzupagent/adapter-types'
 
 import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
+import type { AdapterPipeline } from '../pipeline/adapter-pipeline.js'
+import type { PolicyConformanceMode } from '../pipeline/policy-enforcement-pipeline.js'
+import type { AdapterPolicy } from '../policy/policy-compiler.js'
 import type { AdapterProviderId } from '../types.js'
 
 /** A single subtask produced by a TaskDecomposer. */
@@ -21,7 +24,7 @@ export interface SubTask {
   preferredProvider?: AdapterProviderId | undefined
   requiresReasoning?: boolean | undefined
   requiresExecution?: boolean | undefined
-  /** Indices of subtasks that must complete before this one starts. */
+  /** Indices of successful prerequisites, including forward references. Must form a DAG. */
   dependsOn?: number[] | undefined
 }
 
@@ -39,6 +42,9 @@ export interface SubTaskResult {
   success: boolean
   durationMs: number
   error?: string | undefined
+  errorCode?: string | undefined
+  /** Immediate failed prerequisites that prevented any delegation. */
+  skippedDependencies?: number[] | undefined
   cancelled?: true | undefined
 }
 
@@ -60,6 +66,12 @@ export interface SupervisorOptions {
   context?: string | undefined
   /** Budget constraint forwarded to task descriptors. */
   budgetConstraint?: 'low' | 'medium' | 'high' | 'unlimited' | undefined
+  /** Require the configured approval gate before each delegation. */
+  requireApproval?: boolean | undefined
+  /** Approval run provenance shared by the individually tracked requests. */
+  approvalRunId?: string | undefined
+  /** Only these explicitly approved providers may be used as fallbacks. */
+  approvedFallbackProviders?: AdapterProviderId[] | undefined
   /** System prompt forwarded to subtask adapters when supported. */
   systemPrompt?: string | undefined
   /** Adapter model hint forwarded to subtask adapters when supported. */
@@ -72,8 +84,9 @@ export interface SupervisorOptions {
   reasoning?: string | undefined
   /** Prompt-preparation hint forwarded to subtask adapters when supported. */
   promptPrep?: string | undefined
-  /** Policy metadata forwarded to subtask adapters when supported. */
-  policy?: Record<string, unknown> | undefined
+  /** Per-delegation policy, compiled and enforced by the adapter pipeline. */
+  policy?: AdapterPolicy | undefined
+  policyConformanceMode?: PolicyConformanceMode | undefined
   /** Persona provenance forwarded to subtask adapters when supported. */
   personaId?: string | undefined
 }
@@ -81,6 +94,8 @@ export interface SupervisorOptions {
 /** Configuration for the SupervisorOrchestrator. */
 export interface SupervisorConfig extends BaseSupervisorContract<AgentCLIAdapter> {
   registry: ProviderAdapterRegistry
+  /** Reuse the caller's configured governance pipeline for every delegation. */
+  pipeline?: AdapterPipeline | undefined
   eventBus?: DzupEventBus | undefined
   decomposer?: TaskDecomposer | undefined
   /** Maximum subtasks executing concurrently. Default 3. */

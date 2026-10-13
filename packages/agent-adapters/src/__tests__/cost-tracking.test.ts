@@ -45,6 +45,47 @@ function makeCompletedEvent(
 // ---------------------------------------------------------------------------
 
 describe('CostTrackingMiddleware', () => {
+  it('keeps cost accounting cumulative across concurrent and consecutive wrappers', async () => {
+    const middleware = new CostTrackingMiddleware({ maxBudgetCents: 100 })
+    const completion = makeCompletedEvent('codex', { inputTokens: 1, outputTokens: 1, costCents: 2 })
+    await Promise.all([
+      collectAll(middleware.wrap(yieldEvents([completion]))),
+      collectAll(middleware.wrap(yieldEvents([completion]))),
+    ])
+    await collectAll(middleware.wrap(yieldEvents([completion])))
+    expect(middleware.getUsage().totalCostCents).toBe(6)
+    expect(middleware.getUsage().perProvider['codex']?.invocations).toBe(3)
+  })
+
+  it('signals a cost refusal before awaiting the source finalizer and preserves BUDGET_EXCEEDED', async () => {
+    const controller = new AbortController()
+    const middleware = new CostTrackingMiddleware({ maxBudgetCents: 1 })
+    let abortedAtClosure = false
+    let finalized = false
+    async function* source(): AsyncGenerator<AgentEvent> {
+      try {
+        yield makeCompletedEvent('codex', { inputTokens: 1, outputTokens: 1, costCents: 2 })
+      } finally {
+        abortedAtClosure = controller.signal.aborted
+        if (!controller.signal.aborted) {
+          await new Promise<void>((resolve) => controller.signal.addEventListener('abort', () => resolve(), { once: true }))
+        }
+        finalized = true
+      }
+    }
+    const pending = collectAll(middleware.wrap(source(), () => controller.abort()))
+    const timeout = setTimeout(() => controller.abort(), 500)
+    try {
+      await expect(pending).rejects.toMatchObject({ code: 'BUDGET_EXCEEDED' })
+      expect(abortedAtClosure).toBe(true)
+      expect(finalized).toBe(true)
+      expect(middleware.getUsage().totalCostCents).toBe(2)
+    } finally {
+      clearTimeout(timeout)
+      controller.abort()
+    }
+  }, 1000)
+
   let bus: DzupEventBus
   let emitted: DzupEvent[]
 

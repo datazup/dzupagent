@@ -9,6 +9,8 @@
 import type { DzupEventBus } from '@dzupagent/core/events'
 
 import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
+import type { AdapterPipeline } from '../pipeline/adapter-pipeline.js'
+import type { AdapterPolicy } from '../policy/policy-compiler.js'
 import {
   SupervisorOrchestrator,
   type SupervisorOptions as BaseSupervisorOptions,
@@ -39,17 +41,9 @@ import type {
   TaskDescriptor,
 } from '../types.js'
 
-export interface FacadeSupervisorOptions extends Omit<BaseSupervisorOptions, never> {
+export interface FacadeSupervisorOptions extends BaseSupervisorOptions {
   decomposer?: TaskDecomposer | undefined
   maxConcurrentDelegations?: number | undefined
-  systemPrompt?: string | undefined
-  model?: string | undefined
-  tools?: boolean | undefined
-  outputSchema?: Record<string, unknown> | undefined
-  reasoning?: string | undefined
-  promptPrep?: string | undefined
-  policy?: Record<string, unknown> | undefined
-  personaId?: string | undefined
 }
 
 export interface ParallelOptions
@@ -90,6 +84,8 @@ export class OrchestrationPatterns {
   constructor(
     private readonly _registry: ProviderAdapterRegistry,
     private readonly _eventBus: DzupEventBus,
+    private readonly _pipeline?: AdapterPipeline,
+    private readonly _defaultPolicy?: AdapterPolicy,
   ) {}
 
   async supervisor(goal: string, options?: FacadeSupervisorOptions): Promise<SupervisorResult> {
@@ -98,13 +94,11 @@ export class OrchestrationPatterns {
       eventBus: this._eventBus,
       decomposer: options?.decomposer,
       maxConcurrentDelegations: options?.maxConcurrentDelegations,
+      pipeline: this._pipeline,
     })
     return orchestrator.execute(goal, {
-      ...(options?.signal !== undefined ? { signal: options.signal } : {}),
-      ...(options?.workingDirectory !== undefined ? { workingDirectory: options.workingDirectory } : {}),
-      ...(options?.context !== undefined ? { context: options.context } : {}),
-      ...(options?.budgetConstraint !== undefined ? { budgetConstraint: options.budgetConstraint } : {}),
-      ...runtimePatternOptions(options),
+      ...options,
+      policy: options?.policy ?? this._defaultPolicy,
     })
   }
 

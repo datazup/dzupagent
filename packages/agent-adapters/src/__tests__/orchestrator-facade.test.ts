@@ -556,6 +556,273 @@ describe("OrchestratorFacade", () => {
   });
 
   describe("supervisor()", () => {
+    it.each(["stuck", "iterations"] as const)(
+      "isolates %s state across concurrent delegations and consecutive runs while accumulating cost",
+      async (mode) => {
+        const adapter = createMockAdapter("codex");
+        let starts = 0;
+        let ready = Promise.resolve();
+        let release!: () => void;
+        adapter.execute = async function* (input) {
+          if (++starts === 2) release();
+          yield { type: "adapter:tool_call", providerId: "codex", toolName: "read_file", input: { path: "same" }, timestamp: Date.now() };
+          await ready;
+          yield { type: "adapter:completed", providerId: "codex", sessionId: input.prompt,
+            result: input.prompt, durationMs: 0, timestamp: Date.now(),
+            usage: { inputTokens: 1, outputTokens: 1, costCents: 3 } };
+        };
+        const facade = createOrchestrator({
+          adapters: [adapter], eventBus: bus, costTrackingConfig: { maxBudgetCents: 100 },
+          guardrails: new AdapterGuardrails(mode === "stuck"
+            ? { stuckDetector: { maxRepeatCalls: 2 } }
+            : { stuckDetector: false, maxIterations: 2 }),
+        });
+        for (let run = 0; run < 2; run++) {
+          starts = 0;
+          ready = new Promise<void>((resolve) => { release = resolve; });
+          const result = await facade.supervisor("concurrent reads", {
+            maxConcurrentDelegations: 2,
+            decomposer: { async decompose() { return [
+              { description: "first", tags: [] }, { description: "second", tags: [] },
+            ]; } },
+          });
+          expect(result.subtaskResults.map((entry) => entry.success)).toEqual([true, true]);
+          expect(result.subtaskResults.map((entry) => entry.result)).toEqual(["first", "second"]);
+        }
+        expect(facade.costTracking?.getUsage().totalCostCents).toBe(12);
+        expect(facade.costTracking?.getUsage().perProvider.codex?.invocations).toBe(4);
+      }, 1000,
+    );
+
+    it("cancels a pending approval and descendants promptly with zero preparation, routing or provider effects", async () => {
+      vi.useFakeTimers();
+      const controller = new AbortController();
+      const gate = new AdapterApprovalGate({ mode: "required", timeoutMs: 300000, eventBus: bus });
+      const adapter = createMockAdapter("codex");
+      const execute = vi.spyOn(adapter, "execute");
+      const configure = vi.spyOn(adapter, "configure");
+      const facade = createOrchestrator({ adapters: [adapter], approvalGate: gate, eventBus: bus });
+      const prepare = vi.spyOn(facade.pipeline, "prepare");
+      const route = vi.spyOn(facade.registry, "getForTask");
+      try {
+        const pending = facade.supervisor("cancel approval", {
+          signal: controller.signal, requireApproval: true, maxConcurrentDelegations: 1,
+          decomposer: { async decompose() { return [
+            { description: "root", tags: [] },
+            { description: "child", tags: [], dependsOn: [0] },
+            { description: "queued", tags: [] },
+          ]; } },
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(gate.listPending()).toHaveLength(1);
+        expect(vi.getTimerCount()).toBe(1);
+        const requestId = gate.listPending()[0]!.requestId;
+        controller.abort();
+        const result = await pending;
+        expect(result.cancelled).toBe(true);
+        expect(result.subtaskResults.every((entry) => entry.cancelled && entry.errorCode === "AGENT_ABORTED")).toBe(true);
+        expect(result.subtaskResults[1]?.skippedDependencies).toEqual([0]);
+        expect(result.subtaskResults.every((entry) => entry.providerId === null)).toBe(true);
+        expect(gate.listPending()).toHaveLength(0);
+        expect(vi.getTimerCount()).toBe(0);
+        expect(gate.grant(requestId)).toBe(false);
+        expect(prepare).not.toHaveBeenCalled();
+        expect(route).not.toHaveBeenCalled();
+        expect(execute).not.toHaveBeenCalled();
+        expect(configure).not.toHaveBeenCalled();
+      } finally {
+        controller.abort();
+        gate.dispose();
+        vi.useRealTimers();
+      }
+    }, 1000);
+
+    it("fails closed when approval is required and no gate is configured", async () => {
+      const adapter = createMockAdapter("codex");
+      const execute = vi.spyOn(adapter, "execute");
+      const facade = createOrchestrator({ adapters: [adapter], defaultPolicy: { approvalRequired: true } });
+      const route = vi.spyOn(facade.registry, "getForTask");
+      const result = await facade.supervisor("requires a gate");
+      expect(result.subtaskResults[0]).toMatchObject({
+        success: false, providerId: null, errorCode: "ADAPTER_EXECUTION_FAILED",
+        error: "Supervisor approval is required but no approval gate is configured",
+      });
+      expect(execute).not.toHaveBeenCalled();
+      expect(route).not.toHaveBeenCalled();
+    });
+
+    it("requires approval for each delegation before preparation, routing, or provider effects", async () => {
+      const gate = new AdapterApprovalGate({ mode: "required", timeoutMs: 1000, eventBus: bus });
+      const adapter = createMockAdapter("codex");
+      const execute = vi.spyOn(adapter, "execute");
+      const configure = vi.spyOn(adapter, "configure");
+      const facade = createOrchestrator({ adapters: [adapter], approvalGate: gate, eventBus: bus });
+      const prepare = vi.spyOn(facade.pipeline, "prepare");
+      const route = vi.spyOn(facade.registry, "getForTask");
+      const pending = facade.supervisor("two tasks", {
+        requireApproval: true, approvalRunId: "supervisor-approval",
+        decomposer: { async decompose() { return [
+          { description: "first", tags: ["one"], preferredProvider: "codex" as const },
+          { description: "second", tags: ["two"], preferredProvider: "codex" as const },
+        ]; } },
+      });
+      await vi.waitFor(() => expect(gate.listPending()).toHaveLength(2));
+      expect(execute).not.toHaveBeenCalled();
+      expect(configure).not.toHaveBeenCalled();
+      expect(route).not.toHaveBeenCalled();
+      expect(prepare).not.toHaveBeenCalled();
+      const requests = gate.listPending();
+      expect(requests.map((request) => request.runId)).toEqual(["supervisor-approval", "supervisor-approval"]);
+      expect(requests.map((request) => request.context.tags)).toEqual([["one"], ["two"]]);
+      for (const request of requests) expect(gate.reject(request.requestId, "refused")).toBe(true);
+      const result = await pending;
+      expect(result.subtaskResults.every((entry) => !entry.success && entry.error === "Approval rejected")).toBe(true);
+      expect(execute).not.toHaveBeenCalled();
+      expect(configure).not.toHaveBeenCalled();
+      expect(route).not.toHaveBeenCalled();
+      expect(prepare).not.toHaveBeenCalled();
+      expect(facade.costTracking?.getUsage().totalCostCents).toBe(0);
+    });
+
+    it("enforces default approval policy even when requireApproval is false, then reuses the configured pipeline on grant", async () => {
+      const gate = new AdapterApprovalGate({ mode: "required", timeoutMs: 1000, eventBus: bus });
+      const adapter = createMockAdapter("codex");
+      const execute = vi.spyOn(adapter, "execute");
+      const facade = createOrchestrator({
+        adapters: [adapter], approvalGate: gate, eventBus: bus,
+        defaultPolicy: { approvalRequired: true, sandboxMode: "read-only", maxTurns: 5 },
+      });
+      const prepare = vi.spyOn(facade.pipeline, "prepare");
+      const wrap = vi.spyOn(facade.pipeline, "wrapStream");
+      const pending = facade.supervisor("approved task", { requireApproval: false });
+      await vi.waitFor(() => expect(gate.listPending()).toHaveLength(1));
+      expect(execute).not.toHaveBeenCalled();
+      gate.grant(gate.listPending()[0]!.requestId, "reviewer");
+      const result = await pending;
+      expect(result.subtaskResults[0]?.success).toBe(true);
+      expect(prepare).toHaveBeenCalledTimes(1);
+      expect(wrap).toHaveBeenCalledTimes(1);
+      const input = execute.mock.calls[0]![0];
+      expect(input).toMatchObject({ maxTurns: 5, options: { sandboxMode: "read-only" } });
+      expect(input.policyContext?.activePolicy).toEqual({ approvalRequired: true, sandboxMode: "read-only", maxTurns: 5 });
+      expect(facade.costTracking?.getUsage().perProvider.codex?.invocations).toBe(1);
+    });
+
+    it("enforces default policy conformance before provider invocation without implicit fallback", async () => {
+      const primary = createMockAdapter("openai");
+      const fallback = createMockAdapter("codex");
+      const primaryExecute = vi.spyOn(primary, "execute");
+      const fallbackExecute = vi.spyOn(fallback, "execute");
+      const facade = createOrchestrator({
+        adapters: [primary, fallback], eventBus: bus,
+        defaultPolicy: { networkAccess: false },
+        router: { name: "explicit", route: () => ({ provider: "openai", fallbackProviders: ["codex"], reason: "test", confidence: 1 }) },
+      });
+      const result = await facade.supervisor("strict policy task");
+      expect(result.subtaskResults[0]?.success).toBe(false);
+      expect(primaryExecute).not.toHaveBeenCalled();
+      expect(fallbackExecute).not.toHaveBeenCalled();
+      expect(emitted.some((event) => event.type === "policy:conformance_violation")).toBe(true);
+      const approved = await facade.supervisor("explicitly approved fallback", { approvedFallbackProviders: ["codex"] });
+      expect(approved.subtaskResults[0]).toMatchObject({ success: true, providerId: "codex" });
+      expect(primaryExecute).not.toHaveBeenCalled();
+      expect(fallbackExecute).toHaveBeenCalledTimes(1);
+    });
+
+    it("refuses a measured budget overrun, aborts the delegation signal, and skips its descendants", async () => {
+      const adapter = createMockAdapter("codex");
+      let signal: AbortSignal | undefined;
+      let aborted = false;
+      adapter.execute = async function* (input) {
+        signal = input.signal;
+        signal!.addEventListener("abort", () => { aborted = true; }, { once: true });
+        yield { type: "adapter:completed", providerId: "codex", sessionId: "s", result: "over budget",
+          usage: { inputTokens: 1, outputTokens: 1, costCents: 2 }, durationMs: 0, timestamp: Date.now() };
+      };
+      const execute = vi.spyOn(adapter, "execute");
+      const facade = createOrchestrator({ adapters: [adapter], eventBus: bus, costTrackingConfig: { maxBudgetCents: 1 } });
+      const result = await facade.supervisor("budget", { decomposer: { async decompose() { return [
+        { description: "root", tags: [] }, { description: "child", tags: [], dependsOn: [0] },
+      ]; } } });
+      expect(result.subtaskResults[0]).toMatchObject({ success: false, errorCode: "BUDGET_EXCEEDED" });
+      expect(result.subtaskResults[1]).toMatchObject({ providerId: null, skippedDependencies: [0], success: false });
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(signal?.aborted).toBe(true);
+      expect(aborted).toBe(true);
+      expect(facade.costTracking?.getUsage().totalCostCents).toBe(2);
+    });
+
+    it("uses configured stuck detection to cancel actual provider work before more effects", async () => {
+      const adapter = createMockAdapter("codex");
+      let cancelled = false;
+      let afterViolation = false;
+      adapter.execute = async function* (input) {
+        input.signal!.addEventListener("abort", () => { cancelled = true; }, { once: true });
+        for (let index = 0; index < 2; index++) {
+          yield { type: "adapter:tool_call", providerId: "codex", toolName: "read_file", input: { path: "same" }, timestamp: Date.now() };
+        }
+        afterViolation = true;
+        yield { type: "adapter:completed", providerId: "codex", sessionId: "s", result: "unreachable", durationMs: 0, timestamp: Date.now() };
+      };
+      const guardrails = new AdapterGuardrails({ stuckDetector: { maxRepeatCalls: 2 }, eventBus: bus });
+      const facade = createOrchestrator({ adapters: [adapter], guardrails, eventBus: bus });
+      const result = await facade.supervisor("stuck task");
+      expect(result.subtaskResults[0]).toMatchObject({ success: false, errorCode: "GUARDRAIL_VIOLATION" });
+      expect(cancelled).toBe(true);
+      expect(afterViolation).toBe(false);
+      expect(guardrails.getStatus().stuckStatus.stuck).toBe(true);
+      expect(emitted.some((event) => event.type === "agent:stuck_detected")).toBe(true);
+    });
+
+    it("cancels actual delegation from a default policy guardrail overlay", async () => {
+      const adapter = createMockAdapter("claude");
+      let cancelled = false;
+      adapter.execute = async function* (input) {
+        input.signal!.addEventListener("abort", () => { cancelled = true; }, { once: true });
+        yield { type: "adapter:tool_call", providerId: "claude", toolName: "forbidden", input: {}, timestamp: Date.now() };
+      };
+      const facade = createOrchestrator({ adapters: [adapter], eventBus: bus, defaultPolicy: { blockedTools: ["forbidden"] } });
+      const result = await facade.supervisor("policy overlay");
+      expect(result.subtaskResults[0]).toMatchObject({ success: false, errorCode: "GUARDRAIL_VIOLATION" });
+      expect(cancelled).toBe(true);
+    });
+
+    it("refuses a zero-iteration policy budget before any provider invocation", async () => {
+      const adapter = createMockAdapter("codex");
+      const execute = vi.spyOn(adapter, "execute");
+      const facade = createOrchestrator({ adapters: [adapter], defaultPolicy: { maxTurns: 0 } });
+      const result = await facade.supervisor("zero iteration budget");
+      expect(result.subtaskResults[0]).toMatchObject({ success: false, errorCode: "GUARDRAIL_VIOLATION" });
+      expect(result.subtaskResults[0]?.error).toContain("Iteration limit exceeded");
+      expect(execute).not.toHaveBeenCalled();
+    });
+
+    it("propagates caller abort through the configured pipeline into the adapter signal", async () => {
+      const controller = new AbortController();
+      const adapter = createMockAdapter("codex");
+      let signal: AbortSignal | undefined;
+      let cancelled = false;
+      let started!: () => void;
+      const ready = new Promise<void>((resolve) => { started = resolve; });
+      adapter.execute = async function* (input) {
+        signal = input.signal;
+        await new Promise<void>((resolve) => {
+          signal!.addEventListener("abort", () => { cancelled = true; resolve(); }, { once: true });
+          started();
+        });
+        throw new ForgeError({ code: "AGENT_ABORTED", message: "provider aborted", recoverable: false });
+      };
+      const facade = createOrchestrator({ adapters: [adapter], eventBus: bus });
+      const pending = facade.supervisor("cancel", { signal: controller.signal });
+      await ready;
+      controller.abort();
+      const result = await pending;
+      expect(result.cancelled).toBe(true);
+      expect(result.subtaskResults[0]).toMatchObject({ success: false, cancelled: true, errorCode: "AGENT_ABORTED" });
+      expect(signal?.aborted).toBe(true);
+      expect(cancelled).toBe(true);
+    });
+
     it("delegates goal and returns supervisor result", async () => {
       const facade = createOrchestrator({
         adapters: [claudeAdapter],
@@ -566,6 +833,7 @@ describe("OrchestratorFacade", () => {
 
       expect(result.goal).toBe("Implement feature. Test it.");
       expect(result.subtaskResults.length).toBeGreaterThan(0);
+      expect(result.subtaskResults.every((entry) => entry.success)).toBe(true);
       expect(result.totalDurationMs).toBeGreaterThanOrEqual(0);
     });
   });

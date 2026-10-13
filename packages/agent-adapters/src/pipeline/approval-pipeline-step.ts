@@ -19,6 +19,8 @@ export interface BuildApprovalContextArgs {
   providerId?: AdapterProviderId | undefined
   approvalRunId?: string | undefined
   tags?: string[] | undefined
+  /** Cancels the exact pending request before execution. */
+  signal?: AbortSignal | undefined
 }
 
 export class ApprovalPipelineStep {
@@ -49,6 +51,6 @@ export class ApprovalPipelineStep {
   ): AsyncGenerator<T, void, undefined> {
     if (!this._gate || !args.requireApproval) return stream
     const context = this.buildContext(args)
-    return this._gate.guard(context, stream) as AsyncGenerator<T, void, undefined>
+    return this._gate.guard(context, stream, args.signal) as AsyncGenerator<T, void, undefined>
   }
 }

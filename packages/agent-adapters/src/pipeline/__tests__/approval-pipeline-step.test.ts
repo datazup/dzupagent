@@ -23,6 +23,27 @@ async function* makeStream(): AsyncGenerator<AgentEvent, void, undefined> {
 }
 
 describe('ApprovalPipelineStep', () => {
+  it('forwards cancellation to the exact pending approval without consuming the source', async () => {
+    const controller = new AbortController()
+    const gate = new AdapterApprovalGate({ mode: 'required', timeoutMs: 5000 })
+    const step = new ApprovalPipelineStep(gate)
+    let executions = 0
+    async function* source(): AsyncGenerator<AgentEvent, void, undefined> {
+      executions++
+      yield* makeStream()
+    }
+    const wrapped = step.wrap(source(), { prompt: 'cancel', requireApproval: true, signal: controller.signal })
+    const pending = wrapped.next()
+    const rejection = expect(pending).rejects.toMatchObject({ code: 'AGENT_ABORTED' })
+    await vi.waitFor(() => expect(gate.listPending()).toHaveLength(1))
+    const requestId = gate.listPending()[0]!.requestId
+    controller.abort()
+    await rejection
+    expect(gate.listPending()).toHaveLength(0)
+    expect(gate.grant(requestId)).toBe(false)
+    expect(executions).toBe(0)
+  }, 1000)
+
   it('reports disabled when no gate is configured', () => {
     const step = new ApprovalPipelineStep(undefined)
     expect(step.enabled).toBe(false)

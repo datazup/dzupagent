@@ -164,6 +164,63 @@ describe("AdapterStuckDetector", () => {
 // ---------------------------------------------------------------------------
 
 describe("AdapterGuardrails", () => {
+  describe("per-stream enforcement state", () => {
+    it("keeps concurrent identical reads and under-limit iterations independent", async () => {
+      const guardrails = new AdapterGuardrails({ maxIterations: 2, stuckDetector: { maxRepeatCalls: 2 } });
+      const read = makeToolCallEvent("read_file", { path: "same" });
+      const results = await Promise.all([
+        collectEvents(guardrails.wrap(eventStream([read, makeCompletedEvent("first")]))),
+        collectEvents(guardrails.wrap(eventStream([read, makeCompletedEvent("second")]))),
+      ]);
+      expect(results.map((events) => events.map((event) => event.type))).toEqual([
+        ["adapter:tool_call", "adapter:completed"],
+        ["adapter:tool_call", "adapter:completed"],
+      ]);
+      expect(guardrails.getStatus().budgetState.iterations).toBe(1);
+      expect(guardrails.getStatus().stuckStatus.stuck).toBe(false);
+    });
+
+    it("does not inherit stuck or iteration history on consecutive streams", async () => {
+      const guardrails = new AdapterGuardrails({ maxIterations: 2, stuckDetector: { maxRepeatCalls: 2 } });
+      for (let index = 0; index < 3; index++) {
+        const events = await collectEvents(guardrails.wrap(eventStream([
+          makeToolCallEvent("read_file", { path: "same" }), makeCompletedEvent(),
+        ])));
+        expect(events.map((event) => event.type)).toEqual(["adapter:tool_call", "adapter:completed"]);
+      }
+    });
+
+    it("does not reset an earlier stream's duration origin when a later stream starts", async () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(10_000);
+        const guardrails = new AdapterGuardrails({ maxDurationMs: 100, stuckDetector: false });
+        const early = guardrails.wrap(eventStream([makeStartedEvent(), makeToolCallEvent("early")]));
+        expect((await early.next()).value).toMatchObject({ type: "adapter:started" });
+        vi.setSystemTime(10_060);
+        const later = guardrails.wrap(eventStream([makeStartedEvent(), makeToolCallEvent("later"), makeCompletedEvent()]));
+        expect((await later.next()).value).toMatchObject({ type: "adapter:started" });
+        vi.setSystemTime(10_101);
+        expect((await early.next()).value).toMatchObject({ type: "adapter:failed", code: "GUARDRAIL_VIOLATION" });
+        await early.return(undefined);
+        expect((await later.next()).value).toMatchObject({ type: "adapter:tool_call" });
+        expect((await later.next()).value).toMatchObject({ type: "adapter:completed" });
+        await later.return(undefined);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("resetting diagnostics leaves an active stream's iteration budget intact", async () => {
+      const guardrails = new AdapterGuardrails({ maxIterations: 2, stuckDetector: false });
+      const stream = guardrails.wrap(eventStream([makeToolCallEvent("first"), makeToolCallEvent("second")]));
+      expect((await stream.next()).value).toMatchObject({ type: "adapter:tool_call" });
+      guardrails.reset();
+      expect((await stream.next()).value).toMatchObject({ type: "adapter:failed", code: "GUARDRAIL_VIOLATION" });
+      await stream.return(undefined);
+    });
+  });
+
   let bus: DzupEventBus;
   let emitted: DzupEvent[];
 

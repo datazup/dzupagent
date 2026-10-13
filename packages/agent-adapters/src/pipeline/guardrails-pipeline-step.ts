@@ -11,6 +11,7 @@ import { AdapterGuardrails } from '../guardrails/adapter-guardrails.js'
 import type { AdapterGuardrailsConfig } from '../guardrails/adapter-guardrails-types.js'
 import type { AgentInput, AgentStreamEvent } from '../types.js'
 import { POLICY_GUARDRAILS_OPTION_KEY } from './policy-enforcement-pipeline.js'
+import { mergeAbortSignals } from '../utils/abort-signal-helpers.js'
 
 export class GuardrailsPipelineStep {
   constructor(
@@ -34,23 +35,56 @@ export class GuardrailsPipelineStep {
     stream: AsyncGenerator<T, void, undefined>,
     input?: AgentInput,
   ): AsyncGenerator<T, void, undefined> {
+    const overlayConfig = this.readPolicyGuardrailOverlay(input)
+    if (!this.enabled && !overlayConfig) return stream
+
+    // Update the shared input before the lazy provider stream is consumed.
+    // Closing an iterator alone does not cancel the underlying provider work.
+    const controller = new AbortController()
+    const merged = mergeAbortSignals(input?.signal, controller.signal)
+    if (input) input.signal = merged.signal
+    const abort = (): void => controller.abort()
     let wrapped = stream
 
     if (this._costTracking) {
-      wrapped = this._costTracking.wrap(wrapped) as AsyncGenerator<T, void, undefined>
+      wrapped = this._costTracking.wrap(wrapped, abort) as AsyncGenerator<T, void, undefined>
     }
 
     if (this._guardrails) {
-      wrapped = this._guardrails.wrap(wrapped) as AsyncGenerator<T, void, undefined>
+      wrapped = this._guardrails.wrap(wrapped, abort) as AsyncGenerator<T, void, undefined>
     }
 
-    const overlayConfig = this.readPolicyGuardrailOverlay(input)
     if (overlayConfig) {
       const overlay = new AdapterGuardrails(overlayConfig)
-      wrapped = overlay.wrap(wrapped) as AsyncGenerator<T, void, undefined>
+      wrapped = overlay.wrap(wrapped, abort) as AsyncGenerator<T, void, undefined>
     }
 
-    return wrapped
+    // A yield* finally runs after awaiting inner return. Intercept closure
+    // first so a provider finalizer waiting for its abort signal can finish.
+    return {
+      async next(value?: undefined) {
+        try {
+          const result = await wrapped.next(value)
+          if (result.done) merged.cleanup?.()
+          return result
+        } catch (error) {
+          abort()
+          merged.cleanup?.()
+          throw error
+        }
+      },
+      async return(value: void | PromiseLike<void>) {
+        abort()
+        try { return await wrapped.return(value) }
+        finally { merged.cleanup?.() }
+      },
+      async throw(error: unknown) {
+        abort()
+        try { return await wrapped.throw(error) }
+        finally { merged.cleanup?.() }
+      },
+      [Symbol.asyncIterator]() { return this },
+    }
   }
 
   private readPolicyGuardrailOverlay(input: AgentInput | undefined): AdapterGuardrailsConfig | undefined {

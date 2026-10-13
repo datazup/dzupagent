@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createEventBus } from '@dzupagent/core'
 import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
@@ -184,6 +184,121 @@ describe('SupervisorOrchestrator', () => {
   beforeEach(() => {
     bus = createEventBus()
     emitted = collectBusEvents(bus)
+  })
+
+  describe('complete dependency graph', () => {
+    it.each([-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY, 3, 1])(
+      'rejects invalid edge %s before routing or execution, even with an independent root',
+      async (dependency) => {
+        const registry = createMockRegistry(createMockAdapter('codex', []))
+        const route = vi.spyOn(registry, 'getForTask')
+        const execute = vi.spyOn(registry, 'executeWithFallback')
+        const supervisor = new SupervisorOrchestrator({
+          registry,
+          decomposer: { async decompose() {
+            return [
+              { description: 'independent', tags: [] },
+              { description: 'invalid', tags: [], dependsOn: [dependency] },
+              { description: 'later', tags: [] },
+            ]
+          } },
+        })
+        await expect(supervisor.execute('invalid graph')).rejects.toThrow('Invalid supervisor dependency')
+        expect(route).not.toHaveBeenCalled()
+        expect(execute).not.toHaveBeenCalled()
+      },
+    )
+
+    it('rejects a disconnected cycle before the independent root can invoke a provider', async () => {
+      const registry = createMockRegistry(createMockAdapter('codex', []))
+      const route = vi.spyOn(registry, 'getForTask')
+      const execute = vi.spyOn(registry, 'executeWithFallback')
+      const supervisor = new SupervisorOrchestrator({
+        registry,
+        decomposer: { async decompose() {
+          return [
+            { description: 'root', tags: [] },
+            { description: 'cycle a', tags: [], dependsOn: [2] },
+            { description: 'cycle b', tags: [], dependsOn: [1] },
+          ]
+        } },
+      })
+      await expect(supervisor.execute('cycle')).rejects.toThrow('contains a cycle')
+      expect(route).not.toHaveBeenCalled()
+      expect(execute).not.toHaveBeenCalled()
+    })
+
+    it('schedules forward prerequisites and preserves original order with bounded concurrency', async () => {
+      const registry = createMockRegistry(createMockAdapter('codex', []))
+      const starts: string[] = []
+      let active = 0
+      let peak = 0
+      let releaseRoots!: () => void
+      const rootsReady = new Promise<void>((resolve) => { releaseRoots = resolve })
+      vi.spyOn(registry, 'executeWithFallback').mockImplementation(async function* (input) {
+        starts.push(input.prompt)
+        peak = Math.max(peak, ++active)
+        if (input.prompt.startsWith('root')) await rootsReady
+        yield {
+          type: 'adapter:completed', providerId: 'codex', sessionId: input.prompt,
+          result: input.prompt, durationMs: 0, timestamp: Date.now(),
+        }
+        active--
+      })
+      const subtasks: SubTask[] = [
+        { description: 'join', tags: [], dependsOn: [2, 3] },
+        { description: 'tail', tags: [], dependsOn: [0] },
+        { description: 'root a', tags: [] },
+        { description: 'root b', tags: [] },
+      ]
+      const supervisor = new SupervisorOrchestrator({
+        registry, maxConcurrentDelegations: 2,
+        decomposer: { async decompose() { return subtasks } },
+      })
+      const pending = supervisor.execute('forward DAG')
+      await vi.waitFor(() => expect(starts).toEqual(['root a', 'root b']))
+      expect(active).toBe(2)
+      releaseRoots()
+      const result = await pending
+      expect(starts).toEqual(['root a', 'root b', 'join', 'tail'])
+      expect(peak).toBe(2)
+      expect(result.subtaskResults.map((entry) => entry.result)).toEqual(subtasks.map((entry) => entry.description))
+      expect(result.subtaskResults.every((entry) => entry.success)).toBe(true)
+    })
+
+    it.each(['event', 'throw'] as const)('skips transitive descendants of a forward prerequisite failure (%s)', async (mode) => {
+      const registry = createMockRegistry(createMockAdapter('codex', []))
+      const starts: string[] = []
+      vi.spyOn(registry, 'executeWithFallback').mockImplementation(async function* (input) {
+        starts.push(input.prompt)
+        if (input.prompt === 'failed root') {
+          if (mode === 'throw') throw new Error('root failed')
+          yield { type: 'adapter:failed', providerId: 'codex', error: 'root failed', timestamp: Date.now() }
+          return
+        }
+        yield {
+          type: 'adapter:completed', providerId: 'codex', sessionId: 's',
+          result: 'independent success', durationMs: 0, timestamp: Date.now(),
+        }
+      })
+      const supervisor = new SupervisorOrchestrator({
+        registry,
+        decomposer: { async decompose() {
+          return [
+            { description: 'child', tags: [], dependsOn: [2] },
+            { description: 'grandchild', tags: [], dependsOn: [0] },
+            { description: 'failed root', tags: [] },
+            { description: 'independent', tags: [] },
+          ]
+        } },
+      })
+      const result = await supervisor.execute('failed DAG')
+      expect(starts).toEqual(['failed root', 'independent'])
+      expect(result.subtaskResults[0]).toMatchObject({ success: false, providerId: null, skippedDependencies: [2] })
+      expect(result.subtaskResults[1]).toMatchObject({ success: false, providerId: null, skippedDependencies: [0] })
+      expect(result.subtaskResults[2]).toMatchObject({ success: false, error: 'root failed' })
+      expect(result.subtaskResults[3]?.success).toBe(true)
+    })
   })
 
   describe('execute()', () => {
@@ -498,6 +613,37 @@ describe('SupervisorOrchestrator', () => {
   })
 
   describe('AbortSignal cancellation', () => {
+    it('classifies cancellation while waiting for the semaphore as AGENT_ABORTED and never invokes queued tasks', async () => {
+      const controller = new AbortController()
+      const registry = createMockRegistry(createMockAdapter('codex', []))
+      const execute = vi.spyOn(registry, 'executeWithFallback').mockImplementation(async function* (input) {
+        await new Promise<void>((resolve) => {
+          input.signal!.addEventListener('abort', () => resolve(), { once: true })
+        })
+        yield { type: 'adapter:failed', providerId: 'codex', error: 'aborted', code: 'AGENT_ABORTED', timestamp: Date.now() }
+      })
+      const supervisor = new SupervisorOrchestrator({
+        registry, maxConcurrentDelegations: 1,
+        decomposer: { async decompose() {
+          return [
+            { description: 'active', tags: [] },
+            { description: 'queued', tags: [] },
+            { description: 'dependent', tags: [], dependsOn: [1] },
+          ]
+        } },
+      })
+      const pending = supervisor.execute('cancel queue', { signal: controller.signal })
+      await vi.waitFor(() => expect(execute).toHaveBeenCalledTimes(1))
+      controller.abort()
+      const result = await pending
+      expect(result.cancelled).toBe(true)
+      expect(execute).toHaveBeenCalledTimes(1)
+      expect(result.subtaskResults).toHaveLength(3)
+      expect(result.subtaskResults.every((entry) => entry.cancelled && entry.errorCode === 'AGENT_ABORTED')).toBe(true)
+      expect(result.subtaskResults[1]?.providerId).toBeNull()
+      expect(result.subtaskResults[2]?.skippedDependencies).toEqual([1])
+    })
+
     it('returns a cancelled result when signal is already aborted', async () => {
       const adapter = createMockAdapter('claude', [])
       const registry = createMockRegistry(adapter)

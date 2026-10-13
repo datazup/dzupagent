@@ -6,11 +6,16 @@
  * adapters via the registry's fallback chain.
  */
 
-import { ForgeError } from '@dzupagent/core/events'
+import { createEventBus, ForgeError } from '@dzupagent/core/events'
 import type { DzupEventBus } from '@dzupagent/core/events'
 import { Semaphore } from '@dzupagent/core/utils'
 
 import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
+import { AdapterPipeline } from '../pipeline/adapter-pipeline.js'
+import { ApprovalPipelineStep } from '../pipeline/approval-pipeline-step.js'
+import { GuardrailsPipelineStep } from '../pipeline/guardrails-pipeline-step.js'
+import { PolicyEnforcementPipeline } from '../pipeline/policy-enforcement-pipeline.js'
+import { UCLEnrichmentStep } from '../pipeline/ucl-enrichment-step.js'
 import type {
   AdapterProviderId,
   AgentCompletedEvent,
@@ -33,7 +38,7 @@ import type {
 
 function buildAbortError(message: string): ForgeError {
   return new ForgeError({
-    code: 'BUDGET_EXCEEDED',
+    code: 'AGENT_ABORTED',
     message,
     recoverable: false,
   })
@@ -81,12 +86,19 @@ export class SupervisorOrchestrator {
   private readonly eventBus: DzupEventBus | undefined
   private readonly decomposer: TaskDecomposer
   private readonly maxConcurrent: number
+  private readonly pipeline: AdapterPipeline
 
   constructor(config: SupervisorConfig) {
     this.registry = config.registry
     this.eventBus = config.eventBus
     this.decomposer = config.decomposer ?? new KeywordTaskDecomposer()
     this.maxConcurrent = normalizeConcurrency(config.maxConcurrentDelegations)
+    this.pipeline = config.pipeline ?? new AdapterPipeline(
+      new PolicyEnforcementPipeline(this.registry),
+      new ApprovalPipelineStep(undefined),
+      new GuardrailsPipelineStep(undefined, undefined),
+      new UCLEnrichmentStep(this.registry, this.eventBus ?? createEventBus(), undefined),
+    )
   }
 
   /**
@@ -115,13 +127,14 @@ export class SupervisorOrchestrator {
       return { goal, subtaskResults: [], totalDurationMs: Date.now() - overallStart }
     }
 
-    // 2. Build plan and emit event
-    const assignments = subtasks.map((st) => {
-      const task = this.buildTaskDescriptor(st, options)
-      const { decision } = this.registry.getForTask(task)
-      const specialistId = decision.provider === 'auto' ? 'auto' : decision.provider
-      return { task: st.description, specialistId }
-    })
+    // Validate the whole graph before routing, policy projection or provider effects.
+    this.validateDependencies(subtasks)
+
+    // The plan describes intent. Provider selection happens only after approval.
+    const assignments = subtasks.map((st) => ({
+      task: st.description,
+      specialistId: st.preferredProvider ?? 'auto',
+    }))
 
     const isKeywordDecomposer = this.decomposer instanceof KeywordTaskDecomposer
     emitSupervisorEvent(this.eventBus, {
@@ -161,41 +174,36 @@ export class SupervisorOrchestrator {
     const semaphore = new Semaphore(this.maxConcurrent)
     const results: SubTaskResult[] = new Array(subtasks.length)
     // Promises that resolve when each subtask completes (for dependency tracking)
-    const completions: Promise<void>[] = []
+    const resolveCompletions: Array<() => void> = []
+    const completions = subtasks.map(() => new Promise<void>((resolve) => {
+      resolveCompletions.push(resolve)
+    }))
     let completedCount = 0
     const totalTasks = subtasks.length
 
-    for (let i = 0; i < subtasks.length; i++) {
-      const idx = i
-      const subtask = subtasks[idx] as SubTask // bounds-checked by loop condition
-
+    const executions = subtasks.map((subtask, idx) => {
       // Build a promise that waits for dependencies, then executes
-      const taskPromise = (async (): Promise<void> => {
+      return (async (): Promise<void> => {
         try {
           // Wait for dependencies
           const deps = subtask.dependsOn
           if (deps && deps.length > 0) {
-            const depPromises: Promise<void>[] = []
-            for (const depIdx of deps) {
-              const p = completions[depIdx]
-              if (depIdx >= 0 && p) depPromises.push(p)
-            }
-            await Promise.all(depPromises)
+            await Promise.all(deps.map((depIdx) => completions[depIdx]))
 
             // Check if any dependency failed
-            for (const depIdx of deps) {
-              const depResult = depIdx >= 0 ? results[depIdx] : undefined
-              if (depResult && !depResult.success) {
-                results[idx] = {
-                  subtask,
-                  providerId: null, // no execution happened
-                  result: '',
-                  success: false,
-                  durationMs: 0,
-                  error: `Skipped: dependency subtask ${String(depIdx)} failed`,
-                }
-                return
+            const failed = deps.filter((depIdx) => !results[depIdx]?.success)
+            if (failed.length > 0) {
+              results[idx] = {
+                subtask,
+                providerId: null, // no execution happened
+                result: '',
+                success: false,
+                durationMs: 0,
+                error: `Skipped: dependency subtask ${String(failed[0])} failed`,
+                skippedDependencies: failed,
+                ...(options?.signal?.aborted ? { cancelled: true as const, errorCode: 'AGENT_ABORTED' } : {}),
               }
+              return
             }
           }
 
@@ -208,34 +216,33 @@ export class SupervisorOrchestrator {
             }
             const result = await this.executeSingleSubtask(subtask, options)
             results[idx] = result
-            completedCount++
-            emitProgressEvent(this.eventBus, completedCount, totalTasks, result.providerId)
           } finally {
             if (acquired) {
               semaphore.release()
             }
           }
         } catch (err) {
-          if (ForgeError.is(err) && err.code === 'AGENT_ABORTED') {
-            results[idx] = {
-              subtask,
-              providerId: null,
-              result: '',
-              success: false,
-              durationMs: 0,
-              error: err.message,
-              cancelled: true,
-            }
-            return
+          const error = err instanceof Error ? err : new Error(String(err))
+          const cancelled = options?.signal?.aborted || (ForgeError.is(err) && err.code === 'AGENT_ABORTED')
+          results[idx] = {
+            subtask,
+            providerId: null,
+            result: '',
+            success: false,
+            durationMs: 0,
+            error: error.message,
+            ...(ForgeError.is(err) ? { errorCode: err.code } : {}),
+            ...(cancelled ? { cancelled: true as const, errorCode: 'AGENT_ABORTED' } : {}),
           }
-          throw err
+        } finally {
+          completedCount++
+          emitProgressEvent(this.eventBus, completedCount, totalTasks, results[idx]?.providerId ?? null)
+          resolveCompletions[idx]?.()
         }
       })()
+    })
 
-      completions.push(taskPromise)
-    }
-
-    await Promise.all(completions)
+    await Promise.all(executions)
     return results
   }
 
@@ -244,14 +251,7 @@ export class SupervisorOrchestrator {
     options?: SupervisorOptions,
   ): Promise<SubTaskResult> {
     const task = this.buildTaskDescriptor(subtask, options)
-    const { decision } = this.registry.getForTask(task)
-    const specialistId = decision.provider === 'auto' ? 'auto' : decision.provider
-
-    emitSupervisorEvent(this.eventBus, {
-      type: 'supervisor:delegating',
-      specialistId,
-      task: subtask.description,
-    })
+    let specialistId: string = subtask.preferredProvider ?? 'auto'
 
     const input: AgentInput = {
       prompt: subtask.description,
@@ -284,46 +284,88 @@ export class SupervisorOrchestrator {
     let sessionId: string | undefined
     let success = false
     let errorMessage: string | undefined
+    let errorCode: string | undefined
     let cancelled = false
+    let delegated = false
 
     try {
-      const generator = this.registry.executeWithFallback(input, task)
+      const requireApproval = options?.requireApproval === true || options?.policy?.approvalRequired === true
+      if (requireApproval && !this.pipeline.approval.enabled) {
+        throw new ForgeError({
+          code: 'ADAPTER_EXECUTION_FAILED',
+          message: 'Supervisor approval is required but no approval gate is configured',
+          recoverable: false,
+        })
+      }
+      // Keep all preparation/routing/adapter effects behind the approval gate.
+      const delegate = async function* (this: SupervisorOrchestrator): AsyncGenerator<AgentEvent, void, undefined> {
+        this.throwIfAborted(options?.signal)
+        await this.pipeline.prepare({
+          input,
+          preferredProvider: subtask.preferredProvider,
+          policy: options?.policy,
+          policyConformanceMode: options?.policyConformanceMode,
+        })
+        this.throwIfAborted(options?.signal)
+        const { decision } = this.registry.getForTask(task)
+        specialistId = decision.provider
+        delegated = true
+        emitSupervisorEvent(this.eventBus, {
+          type: 'supervisor:delegating',
+          specialistId,
+          task: subtask.description,
+        })
+        yield* this.pipeline.wrapStream(this.registry.executeWithFallback(input, task), input, {
+          prompt: subtask.description,
+          requireApproval: false, // already gated before preparation
+        })
+      }.bind(this)
+      const generator = this.pipeline.approval.wrap(delegate(), {
+        prompt: subtask.description,
+        providerId: subtask.preferredProvider,
+        tags: subtask.tags,
+        approvalRunId: options?.approvalRunId,
+        requireApproval,
+        signal: options?.signal,
+      })
 
       for await (const event of generator) {
         this.throwIfAborted(options?.signal)
 
         if (this.isCompletedEvent(event)) {
           resultText = event.result
-          resultProviderId = event.providerId
+          resultProviderId = delegated ? event.providerId : null
           sessionId = event.sessionId
           success = true
+          errorMessage = undefined
+          errorCode = undefined
+          cancelled = false
         } else if (this.isFailedEvent(event)) {
           // Adapter-level failures are emitted as events but the generator
           // may continue to the next fallback. We only record the last failure
           // if no completion event arrives.
           errorMessage = event.error
-          resultProviderId = event.providerId
+          errorCode = event.code
+          resultProviderId = delegated ? event.providerId : null
           sessionId = event.sessionId
+          success = false
+          cancelled = event.code === 'AGENT_ABORTED'
         }
       }
 
       // If we exited the loop without a completed event but also without
       // throwing, the last failure event holds the error.
-      if (!success && errorMessage) {
-        // Already captured via the event loop above
-      } else if (!success) {
+      this.throwIfAborted(options?.signal)
+      if (!success && !errorMessage) {
         errorMessage = 'Adapter completed without producing a result event'
       }
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err))
-      if (ForgeError.is(error) && error.code === 'AGENT_ABORTED') {
-        success = false
-        errorMessage = error.message
-        cancelled = true
-      } else {
-        success = false
-        errorMessage = error.message
-      }
+      success = false
+      errorMessage = error.message
+      errorCode = ForgeError.is(error) ? error.code : undefined
+      cancelled = options?.signal?.aborted === true || errorCode === 'AGENT_ABORTED'
+      if (cancelled) errorCode = 'AGENT_ABORTED'
     }
 
     const durationMs = Date.now() - startMs
@@ -343,6 +385,7 @@ export class SupervisorOrchestrator {
       success,
       durationMs,
       ...(errorMessage !== undefined ? { error: errorMessage } : {}),
+      ...(errorCode !== undefined ? { errorCode } : {}),
       ...(cancelled ? { cancelled: true as const } : {}),
     }
   }
@@ -352,10 +395,34 @@ export class SupervisorOrchestrator {
       prompt: subtask.description,
       tags: subtask.tags,
       preferredProvider: subtask.preferredProvider,
+      approvedFallbackProviders: options?.approvedFallbackProviders,
       requiresExecution: subtask.requiresExecution,
       requiresReasoning: subtask.requiresReasoning,
       workingDirectory: options?.workingDirectory,
       budgetConstraint: options?.budgetConstraint,
+    }
+  }
+
+  private validateDependencies(subtasks: SubTask[]): void {
+    const remaining = subtasks.map((subtask) => subtask.dependsOn?.length ?? 0)
+    const dependents: number[][] = subtasks.map(() => [])
+    for (const [idx, subtask] of subtasks.entries()) {
+      for (const dependency of subtask.dependsOn ?? []) {
+        if (!Number.isInteger(dependency) || dependency < 0 || dependency >= subtasks.length || dependency === idx) {
+          throw new Error(`Invalid supervisor dependency ${String(dependency)} for subtask ${String(idx)}`)
+        }
+        dependents[dependency]!.push(idx)
+      }
+    }
+    const ready = remaining.flatMap((count, idx) => count === 0 ? [idx] : [])
+    for (let cursor = 0; cursor < ready.length; cursor++) {
+      for (const dependent of dependents[ready[cursor]!]!) {
+        remaining[dependent] = remaining[dependent]! - 1
+        if (remaining[dependent] === 0) ready.push(dependent)
+      }
+    }
+    if (ready.length !== subtasks.length) {
+      throw new Error('Supervisor dependency graph contains a cycle')
     }
   }
 
