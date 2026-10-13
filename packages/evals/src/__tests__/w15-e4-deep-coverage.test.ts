@@ -1595,7 +1595,7 @@ describe('PromptExperiment', () => {
     expect(report.variants).toHaveLength(2);
   });
 
-  it('should handle usage_metadata for cost estimation', async () => {
+  it('keeps token usage without pricing evidence as unknown cost', async () => {
     const model = {
       invoke: vi.fn().mockResolvedValue({
         content: 'output',
@@ -1608,7 +1608,8 @@ describe('PromptExperiment', () => {
       concurrency: 1,
     });
     const report = await experiment.run(makeExperimentVariants(), makeExperimentDataset(1));
-    expect(report.variants[0]!.avgCostCents).toBeGreaterThan(0);
+    expect(report.variants[0]!.avgCostCents).toBeNull();
+    expect(report.variants[0]!.costState).toBe('unknown');
   });
 
   it('should handle paired t-test with single entry (n<2)', async () => {
