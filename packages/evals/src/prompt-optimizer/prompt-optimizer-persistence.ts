@@ -269,7 +269,11 @@ export class PromptOptimizer {
       const errMsg = error instanceof Error ? error.message : String(error);
 
       if (originalVersion && latestVersion) {
-        return this.buildResult(originalVersion, latestVersion, allCandidates, rounds, 'error', startTime);
+        const diagnosticVersion: PromptVersion = {
+          ...latestVersion,
+          metadata: { ...latestVersion.metadata, error: errMsg },
+        };
+        return this.buildResult(originalVersion, diagnosticVersion, allCandidates, rounds, 'error', startTime);
       }
 
       // Re-throw if we can't even load the original version
