@@ -7,6 +7,9 @@ import {
   type ApprovalContext,
 } from "../approval/adapter-approval.js";
 import type { AdapterProviderId, AgentEvent } from "../types.js";
+import type { AgentCLIAdapter } from "../types.js";
+import { createOrchestrator } from "../facade/orchestrator-facade.js";
+import { stubCapabilities } from "./adapter-capability-stub.js";
 import { collectEvents } from "./test-helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -34,6 +37,36 @@ function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
   return events;
 }
 
+function deferredCondition() {
+  let resolve!: (value: boolean) => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<boolean>((accept, decline) => {
+    resolve = accept;
+    reject = decline;
+  });
+  return { promise, resolve, reject };
+}
+
+// Fake-clock ceiling keeps an uncancellable predicate regression finite.
+async function settleConditionalWait<T>(promise: Promise<T>) {
+  let timer!: ReturnType<typeof setTimeout>;
+  const bounded = Promise.race([
+    promise,
+    new Promise<"deadline">((resolve) => {
+      timer = setTimeout(() => resolve("deadline"), 500);
+    }),
+  ]).then(
+    (result) => ({ result }),
+    (error: unknown) => ({ error }),
+  );
+  try {
+    await vi.advanceTimersByTimeAsync(500);
+    return await bounded;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -49,6 +82,180 @@ describe("AdapterApprovalGate", () => {
   });
 
   describe("requestApproval()", () => {
+    it.each(["false", "true", "reject"] as const)(
+      "cancels an unresolved conditional predicate and ignores its late %s settlement",
+      async (late) => {
+        const controller = new AbortController();
+        const deferred = deferredCondition();
+        const condition = vi.fn(() => deferred.promise);
+        const bus = createEventBus();
+        const events = collectBusEvents(bus);
+        const gate = new AdapterApprovalGate({ mode: "conditional", condition, eventBus: bus });
+        const add = vi.spyOn(controller.signal, "addEventListener");
+        const remove = vi.spyOn(controller.signal, "removeEventListener");
+        const unhandled = vi.fn();
+        process.on("unhandledRejection", unhandled);
+        try {
+          const pending = gate.requestApproval(createContext(), controller.signal);
+          expect(condition).toHaveBeenCalledTimes(1);
+          expect(gate.listPending()).toHaveLength(0);
+          expect(vi.getTimerCount()).toBe(0);
+          controller.abort();
+          const outcome = await settleConditionalWait(pending);
+          expect(outcome).toMatchObject({ error: { code: "AGENT_ABORTED" } });
+          expect(remove).toHaveBeenCalledWith("abort", add.mock.calls[0]![1]);
+
+          if (late === "reject") deferred.reject(new Error("late predicate rejection"));
+          else deferred.resolve(late === "true");
+          await vi.advanceTimersByTimeAsync(0);
+          expect(gate.listPending()).toHaveLength(0);
+          expect(gate.getAuditStore().query()).toHaveLength(0);
+          expect(events).toHaveLength(0);
+          expect(vi.getTimerCount()).toBe(0);
+          expect(unhandled).not.toHaveBeenCalled();
+        } finally {
+          controller.abort();
+          deferred.resolve(false);
+          gate.dispose();
+          process.off("unhandledRejection", unhandled);
+        }
+      }, 1000,
+    );
+
+    it("preserves conditional auto-approval and required approval with a signal", async () => {
+      for (const asynchronous of [false, true]) {
+        for (const needsApproval of [false, true]) {
+          const controller = new AbortController();
+          const gate = new AdapterApprovalGate({
+            mode: "conditional",
+            condition: () => asynchronous ? Promise.resolve(needsApproval) : needsApproval,
+          });
+          const remove = vi.spyOn(controller.signal, "removeEventListener");
+          const pending = gate.requestApproval(createContext(), controller.signal);
+          await vi.advanceTimersByTimeAsync(0);
+          expect(remove).toHaveBeenCalled();
+          expect(gate.listPending()).toHaveLength(needsApproval ? 1 : 0);
+          if (needsApproval) gate.grant(gate.listPending()[0]!.requestId);
+          await expect(pending).resolves.toBe("approved");
+          controller.abort();
+          expect(gate.getAuditStore().query({ action: "rejected" })).toHaveLength(0);
+          expect(vi.getTimerCount()).toBe(0);
+          gate.dispose();
+        }
+      }
+    });
+
+    it.each([false, true])("preserves a conditional predicate error and removes its listener (async=%s)", async (asynchronous) => {
+      const controller = new AbortController();
+      const predicateError = new Error("condition refused");
+      const gate = new AdapterApprovalGate({
+        mode: "conditional",
+        condition: () => {
+          if (asynchronous) return Promise.reject(predicateError);
+          throw predicateError;
+        },
+      });
+      const add = vi.spyOn(controller.signal, "addEventListener");
+      const remove = vi.spyOn(controller.signal, "removeEventListener");
+      await expect(gate.requestApproval(createContext(), controller.signal)).rejects.toBe(predicateError);
+      expect(remove).toHaveBeenCalledWith("abort", add.mock.calls[0]![1]);
+      controller.abort();
+      expect(gate.listPending()).toHaveLength(0);
+      expect(gate.getAuditStore().query()).toHaveLength(0);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it("observes rejection when the predicate synchronously aborts before returning its promise", async () => {
+      const controller = new AbortController();
+      const deferred = deferredCondition();
+      const gate = new AdapterApprovalGate({
+        mode: "conditional",
+        condition: () => { controller.abort(); return deferred.promise; },
+      });
+      await expect(gate.requestApproval(createContext(), controller.signal))
+        .rejects.toMatchObject({ code: "AGENT_ABORTED" });
+      deferred.reject(new Error("late rejection after synchronous abort"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(gate.listPending()).toHaveLength(0);
+      expect(gate.getAuditStore().query()).toHaveLength(0);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it.each(["false", "true", "reject"] as const)(
+      "releases supervisor cancellation while a conditional predicate is pending, before late %s",
+      async (late) => {
+        const controller = new AbortController();
+        const deferred = deferredCondition();
+        const condition = vi.fn(() => deferred.promise);
+        const bus = createEventBus();
+        const events = collectBusEvents(bus);
+        const gate = new AdapterApprovalGate({ mode: "conditional", condition, eventBus: bus });
+        const adapter: AgentCLIAdapter = {
+          providerId: "codex",
+          getCapabilities: () => stubCapabilities(),
+          async *execute() { yield { type: "adapter:completed", providerId: "codex",
+            sessionId: "unexpected", result: "unexpected", durationMs: 0, timestamp: Date.now() }; },
+          async *resumeSession() {},
+          interrupt() {},
+          configure() {},
+          async healthCheck() {
+            return { healthy: true, providerId: "codex", sdkInstalled: true, cliAvailable: true };
+          },
+        };
+        const facade = createOrchestrator({ adapters: [adapter], approvalGate: gate, eventBus: bus });
+        const prepare = vi.spyOn(facade.pipeline, "prepare");
+        const route = vi.spyOn(facade.registry, "getForTask");
+        const execute = vi.spyOn(adapter, "execute");
+        const configure = vi.spyOn(adapter, "configure");
+        const unhandled = vi.fn();
+        process.on("unhandledRejection", unhandled);
+        try {
+          const pending = facade.supervisor("cancel unresolved condition", {
+            signal: controller.signal, requireApproval: true, maxConcurrentDelegations: 1,
+            decomposer: { async decompose() { return [
+              { description: "root", tags: [] },
+              { description: "child", tags: [], dependsOn: [0] },
+              { description: "queued", tags: [] },
+            ]; } },
+          });
+          await vi.advanceTimersByTimeAsync(0);
+          expect(condition).toHaveBeenCalledTimes(1);
+          expect(gate.listPending()).toHaveLength(0);
+          expect(vi.getTimerCount()).toBe(0);
+          controller.abort();
+          const outcome = await settleConditionalWait(pending);
+          expect(outcome).not.toHaveProperty("error");
+          expect(outcome).toMatchObject({ result: { cancelled: true } });
+          if (!("result" in outcome) || outcome.result === "deadline") {
+            throw new Error("Conditional cancellation did not settle within 500ms");
+          }
+          expect(outcome.result.subtaskResults.every((entry) =>
+            entry.cancelled && entry.errorCode === "AGENT_ABORTED" && entry.providerId === null,
+          )).toBe(true);
+          expect(outcome.result.subtaskResults[1]?.skippedDependencies).toEqual([0]);
+
+          if (late === "reject") deferred.reject(new Error("late supervisor predicate rejection"));
+          else deferred.resolve(late === "true");
+          await vi.advanceTimersByTimeAsync(0);
+          expect(gate.listPending()).toHaveLength(0);
+          expect(gate.getAuditStore().query()).toHaveLength(0);
+          expect(vi.getTimerCount()).toBe(0);
+          expect(events.filter((event) => event.type.startsWith("approval:") ||
+            event.type === "supervisor:delegating")).toHaveLength(0);
+          expect(prepare).not.toHaveBeenCalled();
+          expect(route).not.toHaveBeenCalled();
+          expect(execute).not.toHaveBeenCalled();
+          expect(configure).not.toHaveBeenCalled();
+          expect(unhandled).not.toHaveBeenCalled();
+        } finally {
+          controller.abort();
+          deferred.resolve(false);
+          gate.dispose();
+          process.off("unhandledRejection", unhandled);
+        }
+      }, 1000,
+    );
+
     it("cancels only the exact request and timer, retaining other pending approvals", async () => {
       const gate = new AdapterApprovalGate({ mode: "required", timeoutMs: 5000 });
       const first = new AbortController();

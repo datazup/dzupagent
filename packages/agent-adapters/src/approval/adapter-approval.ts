@@ -144,7 +144,10 @@ export class AdapterApprovalGate {
 
     // 3. Conditional mode -- evaluate predicate
     if (this.config.mode === "conditional" && this.config.condition) {
-      const needsApproval = await this.config.condition(context);
+      const needsApproval = await this.waitForCondition(
+        () => this.config.condition!(context),
+        signal,
+      );
       this.throwIfAborted(signal);
       if (!needsApproval) {
         this.recordAudit({
@@ -451,6 +454,52 @@ export class AdapterApprovalGate {
         error: err instanceof Error ? err.message : String(err),
       });
     }
+  }
+
+  private waitForCondition(
+    condition: () => boolean | Promise<boolean>,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    if (!signal) return Promise.resolve(condition());
+
+    return new Promise<boolean>((resolve, reject) => {
+      let settled = false;
+      const onAbort = (): void => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", onAbort);
+        reject(this.abortError());
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
+
+      try {
+        // Attach both settlement handlers even if the predicate aborts
+        // synchronously. Its later rejection must still be observed.
+        Promise.resolve(condition()).then(
+          (needsApproval) => {
+            if (settled) return;
+            settled = true;
+            signal.removeEventListener("abort", onAbort);
+            resolve(needsApproval);
+          },
+          (error: unknown) => {
+            if (settled) return;
+            settled = true;
+            signal.removeEventListener("abort", onAbort);
+            reject(error);
+          },
+        );
+      } catch (error) {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      }
+    });
   }
 
   private cleanup(requestId: string, resolvers: PendingResolvers): void {

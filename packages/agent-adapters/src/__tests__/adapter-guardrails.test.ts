@@ -7,6 +7,9 @@ import {
   AdapterGuardrails,
 } from "../guardrails/adapter-guardrails.js";
 import type { AgentEvent } from "../types.js";
+import type { AgentCLIAdapter, AgentInput } from "../types.js";
+import { createOrchestrator } from "../facade/orchestrator-facade.js";
+import { stubCapabilities } from "./adapter-capability-stub.js";
 import { collectEvents } from "./test-helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -501,6 +504,136 @@ describe("AdapterGuardrails", () => {
   });
 
   describe("output filter", () => {
+    it.each(["throw", "reject"] as const)(
+      "aborts before signal-dependent source closure on an output filter %s",
+      async (failure) => {
+        const controller = new AbortController();
+        const callbackError = new Error("output filter refused");
+        const subsequentSourceEffect = vi.fn();
+        const downstreamEffect = vi.fn();
+        let abortedAtFinalizerEntry = false;
+        let finalized = false;
+        let timer!: ReturnType<typeof setTimeout>;
+        const guardrails = new AdapterGuardrails({
+          outputFilter: () => {
+            if (failure === "throw") throw callbackError;
+            return Promise.reject(callbackError);
+          },
+        });
+        async function* source(): AsyncGenerator<AgentEvent> {
+          try {
+            yield makeCompletedEvent("rejected output");
+            subsequentSourceEffect();
+            yield makeCompletedEvent("must not be consumed");
+          } finally {
+            abortedAtFinalizerEntry = controller.signal.aborted;
+            if (!controller.signal.aborted) {
+              await new Promise<void>((resolve) => {
+                controller.signal.addEventListener("abort", () => resolve(), { once: true });
+              });
+            }
+            finalized = true;
+          }
+        }
+        const abort = vi.fn(() => controller.abort());
+        const consume = async () => {
+          for await (const event of guardrails.wrap(source(), abort)) downstreamEffect(event);
+        };
+        const outcome = consume().then(() => "unexpected success", (error: unknown) => error);
+        try {
+          const result = await Promise.race([
+            outcome,
+            new Promise<"deadline">((resolve) => {
+              timer = setTimeout(() => { controller.abort(); resolve("deadline"); }, 500);
+            }),
+          ]);
+          expect(result).toBe(callbackError);
+          expect(abortedAtFinalizerEntry).toBe(true);
+          expect(finalized).toBe(true);
+          expect(abort).toHaveBeenCalledTimes(1);
+          expect(subsequentSourceEffect).not.toHaveBeenCalled();
+          expect(downstreamEffect).not.toHaveBeenCalled();
+        } finally {
+          clearTimeout(timer);
+          controller.abort();
+          await outcome;
+        }
+      }, 1000,
+    );
+
+    it("settles a supervisor filter rejection and never delegates its dependent child", async () => {
+      const controller = new AbortController();
+      const callbackError = new Error("supervisor output filter refused");
+      let abortedAtFinalizerEntry = false;
+      let finalized = false;
+      let timer!: ReturnType<typeof setTimeout>;
+      const subsequentSourceEffect = vi.fn();
+      const adapter: AgentCLIAdapter = {
+        providerId: "codex",
+        getCapabilities: () => stubCapabilities(),
+        async *execute(input: AgentInput) {
+          try {
+            yield { ...makeCompletedEvent("rejected output"), providerId: "codex" as const };
+            subsequentSourceEffect();
+          } finally {
+            abortedAtFinalizerEntry = input.signal?.aborted === true;
+            if (!input.signal?.aborted) {
+              await new Promise<void>((resolve) => {
+                input.signal?.addEventListener("abort", () => resolve(), { once: true });
+              });
+            }
+            finalized = true;
+          }
+        },
+        async *resumeSession() {},
+        interrupt() {},
+        configure() {},
+        async healthCheck() {
+          return { healthy: true, providerId: "codex", sdkInstalled: true, cliAvailable: true };
+        },
+      };
+      const guardrails = new AdapterGuardrails({ outputFilter: async () => { throw callbackError; } });
+      const facade = createOrchestrator({ adapters: [adapter], guardrails });
+      const execute = vi.spyOn(adapter, "execute");
+      const prepare = vi.spyOn(facade.pipeline, "prepare");
+      const route = vi.spyOn(facade.registry, "getForTask");
+      const pending = facade.supervisor("reject output before dependent delegation", {
+        signal: controller.signal, maxConcurrentDelegations: 1,
+        decomposer: { async decompose() { return [
+          { description: "root", tags: [] },
+          { description: "child", tags: [], dependsOn: [0] },
+        ]; } },
+      }).then((result) => result, (error: unknown) => ({ unexpectedError: error }));
+      try {
+        const result = await Promise.race([
+          pending,
+          new Promise<"deadline">((resolve) => {
+            timer = setTimeout(() => { controller.abort(); resolve("deadline"); }, 500);
+          }),
+        ]);
+        if (result === "deadline" || "unexpectedError" in result) {
+          throw new Error("Supervisor filter cancellation did not settle within 500ms");
+        }
+        expect(abortedAtFinalizerEntry).toBe(true);
+        expect(finalized).toBe(true);
+        expect(result.subtaskResults[0]).toMatchObject({
+          success: false, error: callbackError.message,
+        });
+        expect(result.subtaskResults[1]).toMatchObject({
+          success: false, providerId: null, skippedDependencies: [0],
+        });
+        expect(execute).toHaveBeenCalledTimes(1);
+        expect(prepare).toHaveBeenCalledTimes(1);
+        expect(route).toHaveBeenCalledTimes(1);
+        expect(subsequentSourceEffect).not.toHaveBeenCalled();
+      } finally {
+        clearTimeout(timer);
+        controller.abort();
+        await pending;
+        vi.restoreAllMocks();
+      }
+    }, 1000);
+
     it("applies output filter on completion and modifies result", async () => {
       const guardrails = new AdapterGuardrails({
         maxIterations: 100,

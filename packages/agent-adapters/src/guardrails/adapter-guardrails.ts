@@ -144,7 +144,18 @@ export class AdapterGuardrails {
         continue
       }
 
-      const result = await processGuardrailEvent(event, execution.handlerState)
+      let result: Awaited<ReturnType<typeof processGuardrailEvent>>
+      try {
+        result = await processGuardrailEvent(event, execution.handlerState)
+      } catch (error) {
+        // Abort before for-await awaits source.return(), whose finalizer may
+        // itself need the delegation signal. Preserve the processing error.
+        try {
+          abortFn?.()
+        } finally {
+          throw error
+        }
+      }
 
       if (result.abort) {
         abortFn?.()
