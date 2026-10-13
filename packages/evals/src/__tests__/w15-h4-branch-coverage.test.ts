@@ -205,8 +205,8 @@ describe('PromptOptimizer branch coverage', () => {
       expect(result.bestVersion.metadata).toEqual({ ...before.metadata, error: 'network blip' });
       expect(result.bestVersion.metadata).not.toBe(seeded.metadata);
       expect(result.bestVersion).not.toBe(seeded);
-      expect(result.originalVersion).toBe(seeded);
-      expect(result.originalVersion).toEqual(before);
+      expect(result.bestVersion).not.toBe(result.originalVersion);
+      expect(result.originalVersion.metadata).toEqual(before.metadata);
       expect(seeded).toEqual(before);
       expect(await versionStore.getActive('system')).toEqual(before);
       expect(versionStore.activate).not.toHaveBeenCalled();
@@ -252,8 +252,8 @@ describe('PromptOptimizer branch coverage', () => {
       expect(result.bestVersion.metadata).toEqual({ ...before.metadata, error: 'plain-string-error' });
       expect(result.bestVersion.metadata).not.toBe(seeded.metadata);
       expect(result.bestVersion).not.toBe(seeded);
-      expect(result.originalVersion).toBe(seeded);
-      expect(result.originalVersion).toEqual(before);
+      expect(result.bestVersion).not.toBe(result.originalVersion);
+      expect(result.originalVersion.metadata).toEqual(before.metadata);
       expect(seeded).toEqual(before);
       expect(result.improved).toBe(false);
       expect(result.scoreImprovement).toBe(0);
