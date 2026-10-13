@@ -1,7 +1,7 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "globalEnv": ["YARN_IGNORE_PATH", "YARN_CACHE_FOLDER", "YARN_GLOBAL_FOLDER", "npm_config_prefix", "DATAZUP_AUDIT_WORKSPACE_ROOT"],
-  "globalPassThroughEnv": ["DZUP_BUILD_CUSTODY_TOKEN"],
+  "globalPassThroughEnv": ["DZUP_BUILD_CUSTODY_TOKEN", "YARN_INSTALL_STATE_PATH"],
   "globalDependencies": [
     ".yarnrc.yml",
     "package.json",
