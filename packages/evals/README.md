@@ -23,6 +23,53 @@ npm install @dzupagent/evals
 
 Evaluation framework for LLM agent outputs. Provides deterministic scorers, LLM-as-judge scorers, composite scoring, dataset management with JSON/JSONL/CSV loaders, a concurrent evaluation runner with regression detection, four built-in benchmark suites, and CI-compatible report formatters.
 
+## Prompt automation safety
+
+`PromptOptimizer.optimize()` produces **inactive candidates**. It never calls
+`activate()`, and baseline rescoring does not create a new active version or
+count as a prompt improvement. Confirmed training improvements retain their
+source-version identity, source content digest, training dataset digest and
+input digests. A regression on confirmation is discarded. Rounds and candidates
+must each be finite integers from 1 through 10; a nonempty dataset and scorer
+set are required.
+
+Run held-out evaluation separately:
+
+```ts
+const proposal = await optimizer.optimize({ promptKey, dataset: training })
+const evidence = await optimizer.validateCandidate({
+  promptKey,
+  candidateVersionId: proposal.bestVersion.id,
+  holdoutDataset: holdout,
+})
+```
+
+Training input reuse is rejected even when case IDs change. The active baseline
+must match before evaluation and after it; the candidate must still be inactive
+and unchanged. By default all held-out cases must pass, without regressing
+against the held-out baseline. Every configured scorer is a required check:
+an unmeasured check cannot disappear from the pass rate. `evidence.passed` is
+evaluation evidence, **not activation or authority**. The host owns independent
+review, task/model/effort qualification, freshness, spend controls and explicit
+promotion. Reverify these immediately before using the existing version-store
+activation API. Do not promote solely from training score or `improved`.
+
+`PromptExperiment` no longer applies one invented rate to `total_tokens`.
+Provide a `costObservation(response, entry)` callback when the host has cost
+evidence. It returns `{ costCents, basis: 'reported' | 'estimated', evidenceRef }`.
+Reported values are not automatically reconciled billing; estimates retain
+their label. Missing cost is unknown, never free. Reported zero remains zero.
+`avgCostCents` is now nullable: it is `null` for unknown, partial or mixed-basis
+coverage. `costState` exposes the distinction, and each completed entry retains
+its cost observation where supplied. Consumers must handle this nullable field
+before ranking by cost. A mandatory cost scorer fails on missing or invalid
+cost instead of substituting zero. No current model prices are embedded here.
+
+Provider-free checks are in `src/__tests__/prompt-automation-safety.test.mjs`.
+They bundle current source with installed dependencies and use fake model/store
+ports. They do not qualify a real provider or replace the package's Vitest,
+typecheck, declaration or consumer gates.
+
 ## Installation
 
 ```bash

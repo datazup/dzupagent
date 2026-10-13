@@ -233,7 +233,11 @@ export function createCostScorer(config: CostScorerConfig): Scorer<EvalInput> {
 
     async score(input: EvalInput): Promise<ScorerResult> {
       const startTime = Date.now();
-      const costCents = input.costCents ?? 0;
+      const costCents = input.costCents;
+      if (costCents === undefined || !Number.isFinite(costCents) || costCents < 0) {
+        return { scorerId, scores: [{ criterion: 'cost', score: 0, reasoning: 'Cost evidence is unavailable or invalid' }],
+          aggregateScore: 0, passed: false, measured: false, durationMs: Date.now() - startTime };
+      }
 
       let score: number;
       let reasoning: string;

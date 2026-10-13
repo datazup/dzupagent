@@ -9,6 +9,7 @@
  */
 
 export type {
+  CandidateValidationResult,
   EvalOutcome,
   OptimizationCandidate,
   OptimizationResult,

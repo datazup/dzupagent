@@ -15,6 +15,7 @@ import type { EvalInput, ScorerResult } from '../types.js';
 import { acquireSemaphore, mean } from './prompt-experiment-stats.js';
 import type {
   ExperimentConfig,
+  CostObservation,
   PromptVariant,
   VariantResult,
   VariantResultEntry,
@@ -59,7 +60,7 @@ export async function runVariant(
   const { model, scorers, signal, onProgress } = config;
   const entryResults: VariantResultEntry[] = [];
   const latencies: number[] = [];
-  const costs: number[] = [];
+  const costs: CostObservation[] = [];
   let completed = 0;
 
   const promises = dataset.entries.map(async (entry: EvalEntry) => {
@@ -82,14 +83,17 @@ export async function runVariant(
 
       const output = extractOutputText(response.content);
 
-      // Extract cost if available from usage metadata
-      const usageMetadata = response.usage_metadata as
-        | { total_tokens?: number }
-        | undefined;
-      const costCents = usageMetadata?.total_tokens
-        ? (usageMetadata.total_tokens / 1000) * 0.1
-        : 0;
-      costs.push(costCents);
+      // Token counts alone are not prices or billing evidence.
+      const cost = config.costObservation?.(response, entry);
+      if (cost !== undefined) {
+        if (!Number.isFinite(cost.costCents) || cost.costCents < 0
+          || !['reported', 'estimated'].includes(cost.basis)
+          || typeof cost.evidenceRef !== 'string' || !cost.evidenceRef.trim()) {
+          throw new Error('Invalid experiment cost observation');
+        }
+        costs.push(cost);
+      }
+      const costCents = cost?.costCents;
 
       // Build eval input and run scorers
       const evalInput: EvalInput = {
@@ -122,6 +126,7 @@ export async function runVariant(
         output,
         scorerResults,
         aggregateScore,
+        ...(cost === undefined ? {} : { cost }),
       });
 
       completed++;
@@ -146,12 +151,16 @@ export async function runVariant(
   const passRate =
     entryResults.length > 0
       ? entryResults.filter((e) =>
-          e.scorerResults.length > 0 && e.scorerResults.every((sr) => sr.passed),
+          e.scorerResults.length > 0 && e.scorerResults.every((sr) => sr.measured !== false && sr.passed),
         ).length / entryResults.length
       : 0;
 
   const avgLatencyMs = latencies.length > 0 ? mean(latencies) : 0;
-  const avgCostCents = costs.length > 0 ? mean(costs) : 0;
+  const costState: VariantResult['costState'] = costs.length === 0 ? 'unknown'
+    : costs.length !== entryResults.length ? 'partial'
+    : costs.some(cost => cost.basis !== costs[0]!.basis) ? 'mixed' : costs[0]!.basis;
+  const avgCostCents = costState === 'reported' || costState === 'estimated'
+    ? mean(costs.map(cost => cost.costCents)) : null;
 
   // Per-scorer averages
   const scorerSums = new Map<string, { total: number; count: number }>();
@@ -179,6 +188,7 @@ export async function runVariant(
     passRate,
     avgLatencyMs,
     avgCostCents,
+    costState,
     scorerAverages,
   };
 }

@@ -5,13 +5,26 @@
 
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { createHash } from 'node:crypto';
 
 import type { EvalDataset } from '../dataset/eval-dataset.js';
 import type { EvalInput, Scorer } from '../types.js';
 import { evaluatePrompt, mergeFailures } from './prompt-optimizer-evaluator.js';
 import { buildMetaPrompt, extractMessageText, parseCandidates } from './prompt-optimizer-generator.js';
-import type { EvalOutcome, OptimizationCandidate, OptimizationResult, OptimizerConfig } from './prompt-optimizer-types.js';
+import type { CandidateValidationResult, EvalOutcome, OptimizationCandidate, OptimizationResult, OptimizerConfig } from './prompt-optimizer-types.js';
 import type { PromptVersion, PromptVersionStore } from './prompt-version-store.js';
+
+const digest = (value: string): string => createHash('sha256').update(value).digest('hex');
+const datasetDigest = (dataset: EvalDataset): string => digest(JSON.stringify(dataset.entries.map(
+  (entry) => [entry.id, entry.input, entry.expectedOutput ?? null],
+)));
+function validateDataset(dataset: EvalDataset): void {
+  if (!dataset.entries.length || dataset.size !== dataset.entries.length
+    || dataset.entries.some(entry => !entry.id || !entry.input)
+    || new Set(dataset.entries.map(entry => entry.id)).size !== dataset.size) {
+    throw new Error('A nonempty dataset with unique case identities is required');
+  }
+}
 
 export class PromptOptimizer {
   private readonly metaModel: BaseChatModel;
@@ -32,6 +45,9 @@ export class PromptOptimizer {
     this.maxRounds = config.maxRounds ?? 3;
     this.minImprovement = config.minImprovement ?? 0.02;
     this.signal = config.signal;
+    if (![this.maxCandidates, this.maxRounds].every(value => Number.isInteger(value) && value >= 1 && value <= 10)
+      || !Number.isFinite(this.minImprovement) || this.minImprovement < 0 || this.minImprovement > 1
+      || !this.scorers.length) throw new Error('Bounded optimization settings and at least one scorer are required');
   }
 
   /**
@@ -45,6 +61,9 @@ export class PromptOptimizer {
     const startTime = Date.now();
     const allCandidates: OptimizationCandidate[] = [];
     let rounds = 0;
+    let originalVersion: PromptVersion | null = null;
+    let latestVersion: PromptVersion | null = null;
+    validateDataset(params.dataset);
 
     try {
       // 1. Load current active prompt from versionStore
@@ -57,7 +76,8 @@ export class PromptOptimizer {
         );
       }
 
-      const originalVersion = currentVersion;
+      originalVersion = currentVersion;
+      latestVersion = currentVersion;
 
       // 2. Run baseline eval
       if (this.signal?.aborted) {
@@ -67,15 +87,13 @@ export class PromptOptimizer {
       let currentOutcome = await this.runEval(currentVersion.content, params.dataset);
       let currentScore = currentOutcome.avgScore;
 
-      // Update baseline version with eval scores if it didn't have them
-      if (!currentVersion.evalScores) {
-        currentVersion = await this.saveVersionWithScores(
-          currentVersion,
-          currentOutcome,
-          params.dataset.size,
-          true,
-        );
-      }
+      // Baseline rescoring is local evidence, never a new active prompt version.
+      originalVersion = { ...originalVersion, evalScores: {
+        avgScore: currentOutcome.avgScore, passRate: currentOutcome.passRate,
+        scorerAverages: currentOutcome.scorerAverages, datasetSize: params.dataset.size,
+      } };
+      currentVersion = originalVersion;
+      latestVersion = currentVersion;
 
       // 3. Optimization rounds
       for (let round = 0; round < this.maxRounds; round++) {
@@ -150,6 +168,16 @@ export class PromptOptimizer {
         if (improvement >= this.minImprovement && bestCandidateContent !== null) {
           // Save improved version
           const newOutcome = await this.runEval(bestCandidateContent, params.dataset);
+          if (this.signal?.aborted) {
+            return this.buildResult(originalVersion, currentVersion, allCandidates, rounds, 'aborted', startTime);
+          }
+          if (newOutcome.avgScore - currentScore < this.minImprovement || newOutcome.passRate < currentOutcome.passRate) {
+            return this.buildResult(originalVersion, currentVersion, allCandidates, rounds, 'no_improvement', startTime);
+          }
+          const active = await this.versionStore.getActive(params.promptKey);
+          if (!active || active.id !== originalVersion.id || active.content !== originalVersion.content) {
+            throw new Error('Active prompt changed while preparing a candidate');
+          }
 
           const newVersion = await this.versionStore.save({
             promptKey: params.promptKey,
@@ -159,6 +187,10 @@ export class PromptOptimizer {
               optimizationRound: round + 1,
               reasoning: bestCandidateReasoning,
               improvement,
+              sourceVersionId: originalVersion.id,
+              sourcePromptDigest: digest(originalVersion.content),
+              trainingDatasetDigest: datasetDigest(params.dataset),
+              trainingInputDigests: [...new Set(params.dataset.entries.map(entry => digest(entry.input)))],
             },
             evalScores: {
               avgScore: newOutcome.avgScore,
@@ -166,10 +198,11 @@ export class PromptOptimizer {
               scorerAverages: newOutcome.scorerAverages,
               datasetSize: params.dataset.size,
             },
-            active: true,
+            active: false,
           });
 
           currentVersion = newVersion;
+          latestVersion = currentVersion;
           currentOutcome = newOutcome;
           currentScore = newOutcome.avgScore;
           // Continue to next round
@@ -180,17 +213,18 @@ export class PromptOptimizer {
       }
 
       // Completed all rounds
-      const improved = currentVersion.id !== originalVersion.id;
+      const improved = currentVersion.content !== originalVersion.content;
       const exitReason = improved ? 'improved' : 'max_rounds';
-
-      // Activate best version
-      await this.versionStore.activate(currentVersion.id);
 
       return this.buildResult(originalVersion, currentVersion, allCandidates, rounds, exitReason, startTime);
     } catch (error: unknown) {
       // If we have partial results, return them with error exit reason
       const durationMs = Date.now() - startTime;
       const errMsg = error instanceof Error ? error.message : String(error);
+
+      if (originalVersion && latestVersion) {
+        return this.buildResult(originalVersion, latestVersion, allCandidates, rounds, 'error', startTime);
+      }
 
       // Re-throw if we can't even load the original version
       if (rounds === 0 && allCandidates.length === 0) {
@@ -221,6 +255,49 @@ export class PromptOptimizer {
     }
   }
 
+  /** Validate an inactive candidate on disjoint held-out inputs; never promote it. */
+  async validateCandidate(params: {
+    promptKey: string;
+    candidateVersionId: string;
+    holdoutDataset: EvalDataset;
+    minPassRate?: number;
+  }): Promise<CandidateValidationResult> {
+    validateDataset(params.holdoutDataset);
+    const minPassRate = params.minPassRate ?? 1;
+    if (!Number.isFinite(minPassRate) || minPassRate < 0 || minPassRate > 1) throw new Error('Invalid held-out pass-rate threshold');
+    const candidateVersion = await this.versionStore.getById(params.candidateVersionId);
+    const sourceVersion = await this.versionStore.getActive(params.promptKey);
+    if (!candidateVersion || candidateVersion.active || candidateVersion.promptKey !== params.promptKey
+      || !sourceVersion || candidateVersion.metadata?.sourceVersionId !== sourceVersion.id
+      || candidateVersion.metadata?.sourcePromptDigest !== digest(sourceVersion.content)) {
+      throw new Error('Candidate is unqualified or its source prompt changed');
+    }
+    const trainingInputs = candidateVersion.metadata?.trainingInputDigests;
+    const trainingDatasetDigest = candidateVersion.metadata?.trainingDatasetDigest;
+    if (!Array.isArray(trainingInputs) || !trainingInputs.length
+      || trainingInputs.some(value => typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value))
+      || typeof trainingDatasetDigest !== 'string' || !/^[a-f0-9]{64}$/.test(trainingDatasetDigest)) {
+      throw new Error('Candidate is missing training input evidence');
+    }
+    if (params.holdoutDataset.entries.some(entry => trainingInputs.includes(digest(entry.input)))) {
+      throw new Error('Held-out inputs overlap the training dataset');
+    }
+    const baseline = await this.runEval(sourceVersion.content, params.holdoutDataset);
+    const candidate = this.signal?.aborted
+      ? { avgScore: 0, passRate: 0, scorerAverages: {}, failures: [] }
+      : await this.runEval(candidateVersion.content, params.holdoutDataset);
+    const currentSource = await this.versionStore.getActive(params.promptKey);
+    const currentCandidate = await this.versionStore.getById(params.candidateVersionId);
+    const reason = this.signal?.aborted ? 'aborted'
+      : !currentSource || currentSource.id !== sourceVersion.id || currentSource.content !== sourceVersion.content
+        || !currentCandidate || currentCandidate.content !== candidateVersion.content || currentCandidate.active ? 'source_changed'
+      : candidate.avgScore - baseline.avgScore >= this.minImprovement
+        && candidate.passRate >= Math.max(minPassRate, baseline.passRate) ? 'passed' : 'regression';
+    return { passed: reason === 'passed', reason, sourceVersionId: sourceVersion.id,
+      candidateVersionId: candidateVersion.id, candidatePromptDigest: digest(candidateVersion.content),
+      trainingDatasetDigest, holdoutDatasetDigest: datasetDigest(params.holdoutDataset), baseline, candidate };
+  }
+
   // ---------------------------------------------------------------------------
   // Private: Eval delegate
   // ---------------------------------------------------------------------------
@@ -239,28 +316,6 @@ export class PromptOptimizer {
   // Private: Version persistence helpers
   // ---------------------------------------------------------------------------
 
-  private async saveVersionWithScores(
-    version: PromptVersion,
-    outcome: EvalOutcome,
-    datasetSize: number,
-    active: boolean,
-  ): Promise<PromptVersion> {
-    // We re-save the version with eval scores attached
-    return this.versionStore.save({
-      promptKey: version.promptKey,
-      content: version.content,
-      parentVersionId: version.parentVersionId,
-      metadata: { ...version.metadata, baselineRescore: true },
-      evalScores: {
-        avgScore: outcome.avgScore,
-        passRate: outcome.passRate,
-        scorerAverages: outcome.scorerAverages,
-        datasetSize,
-      },
-      active,
-    });
-  }
-
   private buildResult(
     originalVersion: PromptVersion,
     bestVersion: PromptVersion,
@@ -269,7 +324,7 @@ export class PromptOptimizer {
     exitReason: OptimizationResult['exitReason'],
     startTime: number,
   ): OptimizationResult {
-    const improved = bestVersion.id !== originalVersion.id;
+    const improved = bestVersion.content !== originalVersion.content;
     const scoreImprovement =
       bestVersion.evalScores && originalVersion.evalScores
         ? bestVersion.evalScores.avgScore - originalVersion.evalScores.avgScore

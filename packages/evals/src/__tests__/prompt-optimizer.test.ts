@@ -480,7 +480,7 @@ Reasoning.
   });
 
   describe('baseline version without evalScores', () => {
-    it('re-saves baseline with eval scores when missing', async () => {
+    it('does not replace the active baseline while collecting eval scores', async () => {
       const versionStore = makeMockVersionStore();
       // Seed without evalScores
       await seedVersion(versionStore, 'You are helpful.', undefined);
@@ -493,13 +493,14 @@ Reasoning.
         maxRounds: 1,
       });
 
-      await optimizer.optimize({
+      const result = await optimizer.optimize({
         promptKey: 'system',
         dataset: makeDataset(1),
       });
 
-      // save should have been called at least twice: initial seed + re-score
-      expect(versionStore.save).toHaveBeenCalledTimes(2);
+      expect(versionStore.save).toHaveBeenCalledTimes(1);
+      expect(result.improved).toBe(false);
+      expect(versionStore.activate).not.toHaveBeenCalled();
     });
   });
 

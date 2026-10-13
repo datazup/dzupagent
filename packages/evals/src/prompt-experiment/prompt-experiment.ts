@@ -34,6 +34,7 @@ import type {
 
 // Re-export public types for back-compat with the package barrel.
 export type {
+  CostObservation,
   ExperimentConfig,
   ExperimentReport,
   PairedComparison,

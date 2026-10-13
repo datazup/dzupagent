@@ -1,5 +1,6 @@
 export { PromptVersionStore } from './prompt-version-store.js';
 export type {
+  CandidateValidationResult,
   PromptVersion,
   PromptVersionEvalScores,
   PromptVersionStoreConfig,

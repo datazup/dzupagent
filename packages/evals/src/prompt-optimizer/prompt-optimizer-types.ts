@@ -38,7 +38,7 @@ export interface OptimizationCandidate {
 }
 
 export interface OptimizationResult {
-  /** Was the prompt improved? */
+  /** Did an inactive candidate improve the training score? This is not promotion. */
   improved: boolean;
   /** Original prompt version */
   originalVersion: PromptVersion;
@@ -54,6 +54,19 @@ export interface OptimizationResult {
   exitReason: 'improved' | 'no_improvement' | 'max_rounds' | 'aborted' | 'error';
   /** Total duration */
   durationMs: number;
+}
+
+/** Held-out evidence only. A passed result never activates a version. */
+export interface CandidateValidationResult {
+  passed: boolean;
+  reason: 'passed' | 'regression' | 'source_changed' | 'aborted';
+  sourceVersionId: string;
+  candidateVersionId: string;
+  candidatePromptDigest: string;
+  trainingDatasetDigest: string;
+  holdoutDatasetDigest: string;
+  baseline: EvalOutcome;
+  candidate: EvalOutcome;
 }
 
 export interface EvalOutcome {

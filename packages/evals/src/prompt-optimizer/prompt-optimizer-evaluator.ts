@@ -76,9 +76,8 @@ export async function evaluatePrompt(
       : 0;
     // Unmeasured scorers carry no evidence; counting them as passes would let
     // an unconfigured scorer promote a prompt variant on no basis.
-    const measuredResults = scorerResults.filter((sr) => sr.measured !== false);
     const entryPassed =
-      measuredResults.length > 0 && measuredResults.every((sr) => sr.passed);
+      scorerResults.length > 0 && scorerResults.every((sr) => sr.measured !== false && sr.passed);
 
     totalScore += entryScore;
     if (entryPassed) passCount++;

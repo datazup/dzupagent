@@ -344,7 +344,7 @@ describe('PromptExperiment', () => {
   });
 
   describe('cost estimation from usage metadata', () => {
-    it('extracts cost from usage_metadata', async () => {
+    it('keeps token usage separate from cost when no tariff observation is supplied', async () => {
       const model = {
         invoke: vi.fn().mockResolvedValue({
           content: 'output',
@@ -361,11 +361,12 @@ describe('PromptExperiment', () => {
       const report = await experiment.run(makeVariants(), makeDataset(1));
 
       for (const v of report.variants) {
-        expect(v.avgCostCents).toBeGreaterThan(0);
+        expect(v.avgCostCents).toBeNull();
+        expect(v.costState).toBe('unknown');
       }
     });
 
-    it('defaults cost to 0 when no usage metadata', async () => {
+    it('reports unknown cost when there is no cost observation', async () => {
       const model = {
         invoke: vi.fn().mockResolvedValue({
           content: 'output',
@@ -381,7 +382,8 @@ describe('PromptExperiment', () => {
       const report = await experiment.run(makeVariants(), makeDataset(1));
 
       for (const v of report.variants) {
-        expect(v.avgCostCents).toBe(0);
+        expect(v.avgCostCents).toBeNull();
+        expect(v.costState).toBe('unknown');
       }
     });
   });

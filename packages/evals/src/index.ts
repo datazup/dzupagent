@@ -176,6 +176,7 @@ export {
 // Prompt Experiment (A/B testing for system prompts)
 export { PromptExperiment } from './prompt-experiment/index.js';
 export type {
+  CostObservation,
   PromptVariant,
   ExperimentConfig,
   VariantResult,
@@ -187,6 +188,7 @@ export type {
 // Prompt Optimizer (LLM-driven prompt rewriting + version store)
 export { PromptVersionStore, PromptOptimizer } from './prompt-optimizer/index.js';
 export type {
+  CandidateValidationResult,
   PromptVersion,
   PromptVersionEvalScores,
   PromptVersionStoreConfig,

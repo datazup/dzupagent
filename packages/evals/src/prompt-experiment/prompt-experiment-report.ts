@@ -16,14 +16,14 @@ export function buildMarkdownReport(report: ExperimentReport): string {
 
   // Variants table
   lines.push('## Variants');
-  lines.push('| Variant | Avg Score | Pass Rate | Avg Latency |');
-  lines.push('|---------|-----------|-----------|-------------|');
+  lines.push('| Variant | Avg Score | Pass Rate | Avg Latency | Avg Cost (cents) | Cost Evidence |');
+  lines.push('|---------|-----------|-----------|-------------|------------------|---------------|');
   for (const v of report.variants) {
     const latency = v.avgLatencyMs < 1000
       ? `${v.avgLatencyMs.toFixed(0)}ms`
       : `${(v.avgLatencyMs / 1000).toFixed(1)}s`;
     lines.push(
-      `| ${v.variantName} | ${v.avgScore.toFixed(2)} | ${(v.passRate * 100).toFixed(0)}% | ${latency} |`,
+      `| ${v.variantName} | ${v.avgScore.toFixed(2)} | ${(v.passRate * 100).toFixed(0)}% | ${latency} | ${v.avgCostCents === null ? 'unknown' : v.avgCostCents.toFixed(3)} | ${v.costState} |`,
     );
   }
   lines.push('');

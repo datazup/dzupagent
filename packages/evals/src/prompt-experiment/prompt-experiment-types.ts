@@ -8,6 +8,8 @@
  */
 
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import type { BaseMessage } from '@langchain/core/messages';
+import type { EvalEntry } from '../dataset/eval-dataset.js';
 
 import type { EvalInput, Scorer, ScorerResult } from '../types.js';
 
@@ -29,6 +31,14 @@ export interface ExperimentConfig {
   signal?: AbortSignal;
   /** Progress callback */
   onProgress?: (variant: string, completed: number, total: number) => void;
+  /** Host-observed cost or an explicitly labelled estimate. Missing is unknown. */
+  costObservation?: (response: BaseMessage, entry: EvalEntry) => CostObservation | undefined;
+}
+
+export interface CostObservation {
+  costCents: number;
+  basis: 'reported' | 'estimated';
+  evidenceRef: string;
 }
 
 export interface VariantResultEntry {
@@ -36,6 +46,7 @@ export interface VariantResultEntry {
   output: string;
   scorerResults: ScorerResult[];
   aggregateScore: number;
+  cost?: CostObservation | undefined;
 }
 
 export interface VariantResult {
@@ -47,7 +58,9 @@ export interface VariantResult {
   avgScore: number;
   passRate: number;
   avgLatencyMs: number;
-  avgCostCents: number;
+  /** Null unless every completed entry has cost evidence with the same basis. */
+  avgCostCents: number | null;
+  costState: 'unknown' | 'partial' | 'mixed' | 'reported' | 'estimated';
   /** Per-scorer averages */
   scorerAverages: Record<string, number>;
 }
