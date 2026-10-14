@@ -278,6 +278,29 @@ describe('runStreamedThread', () => {
     expect(collected.at(-1)).toMatchObject({ type: 'adapter:completed', sessionId: 'requested-thread' })
   })
 
+  it('clears the timeout before exposing an explicit resume mismatch', async () => {
+    const abort = vi.fn()
+    const ctx = makeCtx({
+      isResume: true,
+      getSessionId: () => 'requested-thread',
+      abort,
+    })
+    const stream = runStreamedThread(
+      makeThread([{ type: 'thread.started', thread_id: 'sibling-thread' }]),
+      makeInput({ options: { timeoutMs: 1_000 } }),
+      makeCodexInstance(), new AbortController().signal, ctx,
+    )
+
+    // A consumer may stop at the terminal failure without advancing the generator.
+    expect((await stream.next()).value).toMatchObject({
+      type: 'adapter:failed', code: 'ADAPTER_RESUME_THREAD_MISMATCH',
+    })
+    expect(vi.getTimerCount()).toBe(0)
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(abort).not.toHaveBeenCalled()
+    await stream.return()
+  })
+
   it('emits adapter:started event for thread.started SDK event', async () => {
     const events: CodexStreamEvent[] = [
       { type: 'thread.started', thread_id: 'tid-start' },
@@ -694,6 +717,63 @@ describe('runStreamedThread', () => {
     expect(completed).toHaveLength(1)
     const c = completed[0] as { type: string; result?: string }
     expect(c.result).toBe('Resumed result')
+    expect(codex.resumeThread).toHaveBeenCalledExactlyOnceWith('tid-pause', {})
+    expect(ctx.getSessionId()).toBe('tid-pause')
+  })
+
+  it('rejects a sibling thread inside approval auto-resume and clears both timers', async () => {
+    const abort = vi.fn()
+    const codex = makeCodexInstance(makeThread([
+      { type: 'thread.started', thread_id: 'sibling-thread' },
+      { type: 'item.completed', item: { type: 'agent_message', id: 'm1', text: 'sibling output' } },
+      { type: 'turn.completed' },
+    ]))
+    const ctx = makeCtx({ isApprovalCapable: () => true, abort })
+    const collected = await collectAll(runStreamedThread(
+      makeThread([
+        { type: 'thread.started', thread_id: 'requested-thread' },
+        { type: 'turn.failed', error: { message: 'requires approval to execute shell command' } },
+      ]),
+      makeInput({ options: { timeoutMs: 1_000 } }),
+      codex, new AbortController().signal, ctx,
+    ))
+
+    expect(codex.resumeThread).toHaveBeenCalledExactlyOnceWith('requested-thread', {})
+    expect(ctx.getSessionId()).toBe('requested-thread')
+    expect(collected.at(-1)).toMatchObject({
+      type: 'adapter:failed', code: 'ADAPTER_RESUME_THREAD_MISMATCH', sessionId: 'requested-thread',
+    })
+    expect(collected.some(e => e.type === 'adapter:message' || e.type === 'adapter:completed')).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(abort).not.toHaveBeenCalled()
+  })
+
+  it('refuses approval auto-resume without an established thread id before SDK dispatch', async () => {
+    const abort = vi.fn()
+    const codex = makeCodexInstance(makeThread([
+      { type: 'thread.started', thread_id: 'unbound-thread' },
+      { type: 'item.completed', item: { type: 'agent_message', id: 'm1', text: 'unbound output' } },
+      { type: 'turn.completed' },
+    ]))
+    const ctx = makeCtx({ isApprovalCapable: () => true, abort })
+    const collected = await collectAll(runStreamedThread(
+      makeThread([
+        { type: 'turn.failed', error: { message: 'requires approval to execute shell command' } },
+      ]),
+      makeInput({ options: { timeoutMs: 1_000 } }),
+      codex, new AbortController().signal, ctx,
+    ))
+
+    expect(codex.resumeThread).not.toHaveBeenCalled()
+    expect(ctx.getSessionId()).toBeNull()
+    expect(collected.at(-1)).toMatchObject({
+      type: 'adapter:failed', code: 'ADAPTER_RESUME_THREAD_ID_MISSING',
+    })
+    expect(collected.some(e => e.type === 'adapter:message' || e.type === 'adapter:completed')).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(abort).not.toHaveBeenCalled()
   })
 
   it('emits adapter:failed with INTERACTION_DENIED when approval is denied', async () => {
