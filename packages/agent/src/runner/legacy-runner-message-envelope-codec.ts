@@ -3,6 +3,7 @@ import {
   HumanMessage,
   SystemMessage,
   type BaseMessage,
+  type StandardMessageStructure,
 } from '@langchain/core/messages'
 import type { AgentMessageItem } from '@dzupagent/agent-types/run'
 
@@ -24,6 +25,8 @@ export interface LegacyMessageEnvelopeEntry {
   readonly itemId: string
   readonly itemDigest: string
   readonly usageMetadata?: BasicUsageMetadata
+  /** Preserve whether LangChain included usage in its serialized constructor. */
+  readonly usageInConstructor?: boolean
 }
 
 interface BasicUsageMetadata {
@@ -148,7 +151,11 @@ export function captureMessageEnvelopeEntry(
     itemId: item.itemId,
     itemDigest: digestRunnerJson(item),
     ...(retainedUsage === undefined || retainedUsage === false
-      ? {} : { usageMetadata: retainedUsage }),
+      ? {} : {
+          usageMetadata: retainedUsage,
+          ...(Object.hasOwn(message.toDict().data, 'usage_metadata')
+            ? { usageInConstructor: true } : {}),
+        }),
   }
 }
 
@@ -159,7 +166,9 @@ export function validMessageEnvelopeEntry(
   const keys = object(value) ? Object.keys(value).sort().join('|') : ''
   const expectedKeys = value !== null && typeof value === 'object'
     && 'usageMetadata' in value
-    ? 'content|index|itemDigest|itemId|role|usageMetadata'
+    ? ('usageInConstructor' in value
+        ? 'content|index|itemDigest|itemId|role|usageInConstructor|usageMetadata'
+        : 'content|index|itemDigest|itemId|role|usageMetadata')
     : 'content|index|itemDigest|itemId|role'
   if (!object(value)
       || keys !== expectedKeys
@@ -170,6 +179,7 @@ export function validMessageEnvelopeEntry(
       || !object(value.content)
       || Object.keys(value.content).sort().join('|') !== 'encoding|value') return false
   const retainedUsage = value.usageMetadata
+  if (value.usageInConstructor !== undefined && value.usageInConstructor !== true) return false
   if (retainedUsage !== undefined && (value.role !== 'ai'
       || !object(retainedUsage)
       || Object.keys(retainedUsage).sort().join('|') !== 'input_tokens|output_tokens|total_tokens'
@@ -187,12 +197,16 @@ export function validMessageEnvelopeEntry(
 }
 
 export function reconstructLegacyMessage(entry: LegacyMessageEnvelopeEntry): BaseMessage {
-  const messageContent = entry.content.encoding === 'string'
+  const messageContent: BaseMessage['content'] = entry.content.encoding === 'string'
     ? entry.content.value
     : entry.content.value.map((block) => ({ ...block }))
   if (entry.role === 'system') return new SystemMessage(messageContent)
   if (entry.role === 'human') return new HumanMessage(messageContent)
-  const message = new AIMessage(messageContent)
+  const message = entry.usageInConstructor === true && entry.usageMetadata !== undefined
+    ? new AIMessage<StandardMessageStructure>({
+        content: messageContent, usage_metadata: { ...entry.usageMetadata },
+      })
+    : new AIMessage(messageContent)
   if (entry.usageMetadata !== undefined) {
     ;(message as unknown as { usage_metadata: BasicUsageMetadata }).usage_metadata =
       entry.usageMetadata

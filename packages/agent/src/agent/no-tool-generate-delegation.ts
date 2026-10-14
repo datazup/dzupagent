@@ -275,6 +275,14 @@ function sameSource(
     && digestRunnerJson(actual) === digestRunnerJson(expected)
 }
 
+function freezeData<T>(value: T): T {
+  if (value !== null && typeof value === 'object') {
+    for (const child of Object.values(value)) freezeData(child)
+    Object.freeze(value)
+  }
+  return value
+}
+
 async function dispatchOnce(
   request: AgentRunnerNoToolDelegationRequest,
   dispatch: (request: AgentRunnerNoToolDelegationRequest) => Promise<AgentRunnerNoToolDelegationOutcome>,
@@ -364,10 +372,10 @@ export async function maybeDelegateNoToolGenerate(input: {
 
   const control = new RunControl()
   const request: AgentRunnerNoToolDelegationRequest = {
-    admission: created.admission,
-    input: created.requestInput,
+    admission: freezeData(created.admission),
+    input: freezeData(created.requestInput),
     preparedMessages: created.preparedMessages,
-    profile: created.profile,
+    profile: freezeData(created.profile),
     control,
     ...(options.signal === undefined ? {} : { signal: options.signal }),
   }
@@ -382,6 +390,12 @@ export async function maybeDelegateNoToolGenerate(input: {
     })
   }
   if (outcome.status === 'rejected-before-dispatch') {
+    if (options.signal?.aborted) {
+      throw delegationError({
+        code: 'cancelled-before-dispatch', phase: 'before-dispatch',
+        replay: 'not-dispatched', admission: created.admission,
+      })
+    }
     if (!normalizedCode(outcome.code)) {
       throw delegationError({
         code: 'bridge-rejection-malformed',
@@ -422,10 +436,12 @@ export async function maybeDelegateNoToolGenerate(input: {
     })
   }
 
-  if (outcome.result.state.runId !== runId
-      || outcome.result.state.agent.initialAgentId !== input.agentId
-      || outcome.result.state.agent.currentAgentId !== input.agentId
-      || outcome.result.state.agent.behaviorDigest !== created.requestInput.behaviorDigest) {
+  const state = outcome.result?.state
+  if (state === undefined || state === null || state.agent === undefined || state.agent === null
+      || state.runId !== runId
+      || state.agent.initialAgentId !== input.agentId
+      || state.agent.currentAgentId !== input.agentId
+      || state.agent.behaviorDigest !== created.requestInput.behaviorDigest) {
     throw delegationError({
       code: 'post-dispatch-runner-source-mismatch',
       phase: 'after-dispatch',

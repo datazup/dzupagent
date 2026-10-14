@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { readFileSync } from 'node:fs'
+import ts from 'typescript'
 import { tsImport } from 'tsx/esm/api'
 import { AIMessage, HumanMessage } from '@langchain/core/messages'
 
@@ -22,7 +26,16 @@ const optIn = (policy = 'fail-closed', extra = {}) => ({
 const message = (content = 'answer', extra = {}) => new AIMessage({
   content, usage_metadata: usage, ...extra,
 })
-const dicts = (result) => ({ ...result, messages: result.messages.map((value) => value.toDict()) })
+const dicts = (result) => ({
+  ...result,
+  messages: result.messages.map((value) => value.toDict()),
+  ...(result.middlewareState === undefined ? {} : {
+    middlewareState: {
+      ...result.middlewareState,
+      messages: result.middlewareState.messages.map((value) => value.toDict()),
+    },
+  }),
+})
 
 function fixture({ content = 'answer', mode = 'completed', config = {}, onDispatch } = {}) {
   let legacyCalls = 0
@@ -41,6 +54,10 @@ function fixture({ content = 'answer', mode = 'completed', config = {}, onDispat
         return { status: mode, code: 'fixture-not-ready', source: request.admission.source }
       }
       if (mode === 'throw') throw new Error('untrusted provider detail')
+      if (mode === 'malformed-completion') {
+        return { status: 'completed', source: request.admission.source }
+      }
+      if (mode === 'mutate-admission') request.admission.source.runId = 'changed'
       if (mode === 'throw-before-dispatch-error') {
         throw new AgentRunnerNoToolDelegationError({
           code: 'untrusted-certification', phase: 'before-dispatch', replay: 'not-dispatched',
@@ -102,7 +119,7 @@ for (const content of ['answer', [{ type: 'text', text: 'standard block' }]]) {
   test(`public opt-in matches the independently executed legacy ${typeof content} result`, async () => {
     const value = fixture({ content })
     const input = [new HumanMessage('first'), new AIMessage('history'), new HumanMessage('last')]
-    const legacy = await value.agent.generate(input)
+    const legacy = await value.agent.generate(input, { runId: 'r5n-native-run' })
     const actual = await value.agent.generate(input, optIn())
     assert.deepEqual(dicts(actual), dicts(legacy))
     assert.deepEqual(value.counts(), { legacyCalls: 1, modelCalls: 1 })
@@ -145,7 +162,7 @@ test('fail-closed admission rejects unsupported config/options before lifecycle 
     const value = fixture(scenario)
     await assert.rejects(value.agent.generate(scenario.input ?? [new HumanMessage('reject')],
       scenario.options ?? optIn()), (error) => {
-      assert.ok(error instanceof AgentRunnerNoToolDelegationError)
+      assert.equal(error.name, 'AgentRunnerNoToolDelegationError')
       assert.equal(error.replay, 'not-dispatched')
       return true
     })
@@ -183,13 +200,14 @@ test('bridge-certified pre-dispatch refusal follows the selected policy', async 
 })
 
 for (const mode of ['failed-after-dispatch', 'outcome-unknown', 'throw', 'throw-before-dispatch-error',
+  'malformed-completion', 'mutate-admission',
   'partial-usage', 'source-drift', 'run-drift', 'envelope-failure', 'session-state', 'adapter-state',
   'context-state', 'handoff-state']) {
   test(`${mode} never replays through legacy even with fallback selected`, async () => {
     const value = fixture({ mode })
     await assert.rejects(value.agent.generate([new HumanMessage('no replay')], optIn('fallback-to-legacy')),
       (error) => {
-        assert.ok(error instanceof AgentRunnerNoToolDelegationError)
+        assert.equal(error.name, 'AgentRunnerNoToolDelegationError')
         assert.notEqual(error.replay, 'not-dispatched')
         assert.equal(error.message.includes('untrusted provider detail'), false)
         return true
@@ -205,6 +223,8 @@ test('input snapshots and source bindings survive caller mutation and JSON recon
   const value = fixture({ onDispatch(request) {
     user.content = 'changed by caller'
     assert.equal(Object.isFrozen(request.preparedMessages), true)
+    assert.equal(Object.isFrozen(request.admission.source), true)
+    assert.equal(Object.isFrozen(request.input.items[0]), true)
     assert.equal(request.preparedMessages.at(-1).content, 'original')
     assert.equal(validateAgentRunnerNoToolDelegationSource(clone(request.admission.source)), true)
     assert.equal(request.admission.source.inputDigest, digestRunnerJson(clone(request.input)))
@@ -221,4 +241,77 @@ test('launch keeps the legacy path even when generate options include opt-in', a
   assert.equal((await handle.result()).status, 'completed')
   assert.deepEqual(value.counts(), { legacyCalls: 1, modelCalls: 0 })
   assert.equal(value.requests.length, 0)
+})
+
+test('production TypeScript passes without emitting into shared dependency artifacts', () => {
+  const packageRoot = fileURLToPath(new URL('../../', import.meta.url))
+  function diagnostics(root) {
+    const configFile = path.join(root, 'tsconfig.json')
+    const config = ts.readConfigFile(configFile, ts.sys.readFile)
+    assert.equal(config.error, undefined)
+    const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, root)
+    assert.equal(parsed.errors.length, 0)
+    const program = ts.createProgram({
+      rootNames: parsed.fileNames,
+      options: { ...parsed.options, noEmit: true, incremental: false, composite: false },
+    })
+    return ts.getPreEmitDiagnostics(program).map((diagnostic) => ({
+      file: diagnostic.file ? path.relative(root, diagnostic.file.fileName) : '<configuration>',
+      code: diagnostic.code,
+      line: diagnostic.file && diagnostic.start !== undefined
+        ? diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start).line + 1 : 0,
+      message: ts.flattenDiagnosticMessageText(diagnostic.messageText, ' ').replaceAll(root, '<package>'),
+    }))
+  }
+  assert.deepEqual(diagnostics(packageRoot).map(({ file, code, line, message }) => ({
+    file, code, line, message,
+  })), [])
+})
+
+test('public declaration emission stays within the existing budget without writing dist', () => {
+  const packageRoot = fileURLToPath(new URL('../../', import.meta.url))
+  const configFile = path.join(packageRoot, 'tsconfig.build.json')
+  const config = ts.readConfigFile(configFile, ts.sys.readFile)
+  assert.equal(config.error, undefined)
+  const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, packageRoot)
+  assert.equal(parsed.errors.length, 0)
+  const program = ts.createProgram({ rootNames: parsed.fileNames, options: {
+    ...parsed.options, noEmit: false, emitDeclarationOnly: true,
+    declarationMap: false, incremental: false, composite: false,
+  } })
+  const declarations = new Map()
+  const emission = program.emit(undefined, (file, text) => {
+    if (!file.endsWith('.d.ts')) return
+    const sourceFile = path.join(packageRoot, 'src', path.relative(path.join(packageRoot, 'dist'), file)
+      .replace(/\.d\.ts$/, '.ts'))
+    const comment = readFileSync(sourceFile, 'utf8').match(/^(\/\*\*[\s\S]*?\*\/)(?=\s*import\b)/)?.[1]
+    declarations.set(file, comment && text.startsWith(comment)
+      ? text.slice(comment.length).replace(/^\s*\n/, '') : text)
+  })
+  assert.equal(emission.emitSkipped, false)
+  assert.deepEqual(emission.diagnostics.map(({ code }) => code), [])
+  const manifest = JSON.parse(readFileSync(path.join(packageRoot, 'package.json'), 'utf8'))
+  const retained = new Set()
+  const pending = Object.values(manifest.exports).map((entry) => path.resolve(packageRoot, entry.types))
+  while (pending.length > 0) {
+    const file = pending.pop()
+    if (retained.has(file)) continue
+    const text = declarations.get(file)
+    assert.notEqual(text, undefined, 'every public declaration must resolve')
+    retained.add(file)
+    for (const reference of ts.preProcessFile(text, true, true).importedFiles) {
+      if (!reference.fileName.startsWith('.')) continue
+      const target = path.resolve(path.dirname(file), reference.fileName)
+      const candidates = [target, target.replace(/\.js$/, '.d.ts'), `${target}.d.ts`,
+        path.join(target, 'index.d.ts')]
+      const dependency = candidates.find((candidate) => declarations.has(candidate))
+      assert.notEqual(dependency, undefined, 'every relative declaration import must resolve')
+      pending.push(dependency)
+    }
+  }
+  const bytes = [...retained].reduce((sum, file) => sum + Buffer.byteLength(declarations.get(file)), 0)
+  const budgets = JSON.parse(readFileSync(path.join(packageRoot, '../../scripts/dts-budgets.json'), 'utf8'))
+  const budget = budgets.packages['@dzupagent/agent']
+  assert.ok(retained.size <= budget.maxDeclarationFiles, `declaration count ${retained.size}/${budget.maxDeclarationFiles}`)
+  assert.ok(bytes <= budget.maxDeclarationBytes, `declaration bytes ${bytes}/${budget.maxDeclarationBytes}`)
 })

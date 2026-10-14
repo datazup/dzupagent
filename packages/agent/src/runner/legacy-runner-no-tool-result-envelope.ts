@@ -391,10 +391,23 @@ export function projectLegacyNoToolGenerateResult(
     hitIterationLimit: false,
     stopReason: 'complete',
     toolStats: [],
+    middlewareState: {
+      agentId: input.result.state.agent.initialAgentId,
+      ...(input.profile.claims.find((claim) => claim.obligation === 'legacy-result-projection')
+        ?.binding.entrypoint === 'generate-opt-in' ? { runId: input.result.state.runId } : {}),
+      messages: messages.slice(0, -1),
+      maxIterations: input.profile.claims.find((claim) =>
+        claim.obligation === 'bounded-model-turns')?.binding.maxModelTurns,
+      tools: [],
+    },
   }
   const resultBody = {
     content: result.content,
-    messages: allEntries.map(({ index, role, content }) => ({ index, role, content })),
+    messages: allEntries.map(({ index, role, content, usageMetadata, usageInConstructor }) => ({
+      index, role, content,
+      ...(usageMetadata === undefined ? {} : { usageMetadata }),
+      ...(usageInConstructor === undefined ? {} : { usageInConstructor }),
+    })),
     usage: result.usage,
     hitIterationLimit: result.hitIterationLimit,
     stopReason: result.stopReason,
