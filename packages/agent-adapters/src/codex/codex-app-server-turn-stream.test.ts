@@ -162,4 +162,10 @@ describe('app-server resume tolerates prior-turn usage of the same thread', () =
     await expect(replay([usageFor(ids.turnId, 'foreign-thread'), completed]))
       .rejects.toMatchObject({ code: 'CODEX_APP_SERVER_STALE_TURN' })
   })
+
+  it('refuses another thread even when its turn id is not this run', async () => {
+    // A thread check dropped in favour of a turn-only skip would silently ignore this report.
+    await expect(replay([usageFor('other-turn', 'foreign-thread'), completed]))
+      .rejects.toMatchObject({ code: 'CODEX_APP_SERVER_STALE_TURN' })
+  })
 })
