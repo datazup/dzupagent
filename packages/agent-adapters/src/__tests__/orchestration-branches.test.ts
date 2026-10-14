@@ -754,7 +754,7 @@ describe('SupervisorOrchestrator branch coverage', () => {
     expect(result.subtaskResults[0]!.error).toBe('plain-string-error')
   })
 
-  it('dependency depIdx of -1 is silently ignored (no prerequisite)', async () => {
+  it('dependency depIdx of -1 fails closed before any subtask runs', async () => {
     const registry = registryFor(async function* () {
       yield completedEvent('claude', 'done')
     })
@@ -773,8 +773,7 @@ describe('SupervisorOrchestrator branch coverage', () => {
         },
       },
     })
-    const result = await supervisor.execute('g')
-    expect(result.subtaskResults[0]!.success).toBe(true)
+    await expect(supervisor.execute('g')).rejects.toThrow('Invalid supervisor dependency -1 for subtask 0')
   })
 
   it('emits progress events after each subtask completion', async () => {
