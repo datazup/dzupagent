@@ -175,4 +175,11 @@ describe('app-server resume tolerates prior-turn usage of the same thread', () =
     await expect(replay([usageFor(ids.turnId), usageFor(''), completed]))
       .rejects.toMatchObject({ code: 'CODEX_APP_SERVER_STALE_TURN' })
   })
+
+  it('refuses a same-thread usage report that omits the turn id', async () => {
+    const { turnId: _omitted, ...params } = usageFor('omitted').params as Record<string, unknown>
+    const omitted = { kind: 'notification', method: 'thread/tokenUsage/updated', params } as CodexAppServerInboundEvent
+    await expect(replay([usageFor(ids.turnId), omitted, completed]))
+      .rejects.toMatchObject({ code: 'CODEX_APP_SERVER_STALE_TURN' })
+  })
 })
