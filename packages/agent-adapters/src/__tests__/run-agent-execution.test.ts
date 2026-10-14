@@ -176,7 +176,7 @@ describe("runAgentExecution", () => {
       assertPreparedInput: () => { reserved = true; },
       async *guardAdapterStart() {
         expect(reserved).toBe(true);
-        throw new ForgeError("POLICY_DENIED", "fresh final guard refused", { recoverable: false });
+        throw new ForgeError({ code: "POLICY_DENIED", message: "fresh final guard refused", recoverable: false });
       },
     });
     expect(result.ok).toBe(false); expect(invoked).not.toHaveBeenCalled();
