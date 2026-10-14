@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type {
@@ -144,39 +143,21 @@ export class CodexCliAdapter implements AgentCLIAdapter {
     assertAdapterExecutionControlsAdmitted(this, input);
     // Refuse unsupported settings before allocating homes or spawning a process.
     this.resolveReasoning(input);
-    const sessionId = randomUUID();
-    const startedAt = Date.now();
+    if (input.resumeSessionId !== undefined && !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u.test(input.resumeSessionId)) {
+      throw policyRejected("Native Codex resume identity is invalid", "native_session_identity_invalid");
+    }
+    // Correlation is not native resume authority. Only thread.started may bind it.
+    let sessionId = "";
     const controller = new AbortController();
     this.abortControllers.add(controller);
     const signal = combineSignals(input.signal, controller.signal);
-
-    const model = this.resolveModel(input);
-    yield withCorrelation(
-      {
-        type: "adapter:started",
-        providerId: "codex",
-        sessionId,
-        timestamp: Date.now(),
-        prompt: input.prompt,
-        ...(input.systemPrompt !== undefined
-          ? { systemPrompt: input.systemPrompt }
-          : {}),
-        ...(model ? { model } : {}),
-        workingDirectory:
-          input.workingDirectory ?? this.config.workingDirectory,
-        ...({
-          backend: "cli",
-          telemetry: { codex_backend_selected: "cli" },
-        } as Record<string, unknown>),
-      } as AgentEvent,
-      input
-    );
 
     try {
       const prepared = await this.prepareCliRun(input);
       let ordinal = 0;
       let completed = false;
       let failed = false;
+      let started = false;
       let lastAssistantResult = "";
       for await (const record of runJsonlProcess(
         {
@@ -193,45 +174,51 @@ export class CodexCliAdapter implements AgentCLIAdapter {
         this.runtimeDependencies
       )) {
         ordinal += 1;
+        if (record["type"] === "thread.started") {
+          const nativeId = record["thread_id"];
+          if (typeof nativeId !== "string" || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u.test(nativeId)
+            || (sessionId && nativeId !== sessionId)
+            || (input.resumeSessionId !== undefined && nativeId !== input.resumeSessionId)) {
+            throw policyRejected("Native Codex session identity changed", "native_session_identity_mismatch");
+          }
+          sessionId = nativeId;
+        }
+        if (!sessionId) throw policyRejected("Native Codex session identity is missing", "native_session_identity_missing");
+        for (const key of ["thread_id", "session_id"] as const) {
+          if (record[key] !== undefined && record[key] !== sessionId) throw policyRejected("Native Codex session identity changed", "native_session_identity_mismatch");
+        }
         const raw = wrapRawEvent(record, sessionId, input, ordinal);
         yield raw;
         const mapped = this.mapProviderEvent(record, sessionId, input);
         if (!mapped) continue;
         const mappedEvents = Array.isArray(mapped) ? mapped : [mapped];
         for (const candidate of mappedEvents) {
+          if (candidate.type === "adapter:started") {
+            if (started) continue;
+            started = true;
+          }
           if (
             candidate.type === "adapter:message" &&
             candidate.role === "assistant"
           ) {
             lastAssistantResult = candidate.content;
           }
+          const nativeEvent = { ...candidate, sessionId };
           const event =
             candidate.type === "adapter:completed" &&
             !candidate.result &&
             lastAssistantResult
-              ? { ...candidate, result: lastAssistantResult }
-              : candidate;
+              ? { ...nativeEvent, result: lastAssistantResult }
+              : nativeEvent;
           if (event.type === "adapter:completed") completed = true;
           if (event.type === "adapter:failed") failed = true;
           yield withCorrelation(event, input);
         }
       }
-      if (!completed && !failed) {
-        yield withCorrelation(
-          {
-            type: "adapter:completed",
-            providerId: "codex",
-            sessionId,
-            result: "",
-            durationMs: Date.now() - startedAt,
-            timestamp: Date.now(),
-          },
-          input
-        );
-      }
+      if (!completed && !failed) throw policyRejected("Native Codex terminal event is missing", "native_terminal_missing");
     } catch (error) {
       const failed = toFailedEvent(error, sessionId, input);
-      yield failed;
+      if (sessionId) yield failed;
       throw error;
     } finally {
       this.abortControllers.delete(controller);
@@ -326,7 +313,7 @@ export class CodexCliAdapter implements AgentCLIAdapter {
     if (outputSchemaPath) args.push("--output-schema", outputSchemaPath);
     args.push("--");
     if (input.resumeSessionId) args.push(input.resumeSessionId);
-    args.push(input.prompt);
+    args.push([input.systemPrompt, input.prompt].filter(Boolean).join("\n\n"));
     return args;
   }
 

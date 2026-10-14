@@ -27,7 +27,9 @@ type FakeChild = ChildProcess & {
   pid: number
 }
 
-function createChild(): FakeChild {
+const NATIVE_ID = '11111111-1111-1111-1111-111111111111'
+
+function createChild(emitStarted = true): FakeChild {
   const child = new EventEmitter() as FakeChild
   child.stdout = new PassThrough()
   child.stderr = new PassThrough()
@@ -36,6 +38,7 @@ function createChild(): FakeChild {
   child.signalCode = null
   child.pid = Math.floor(Math.random() * 10_000) + 1
   child.kill = vi.fn()
+  if (emitStarted) queueMicrotask(() => child.stdout.write(JSON.stringify({ type: 'thread.started', thread_id: NATIVE_ID }) + '\n'))
   return child
 }
 
@@ -164,6 +167,33 @@ async function observeCliRun(
 }
 
 describe('Codex explicit CLI backend', () => {
+  it('includes standing context in the actual native prompt exactly once', () => {
+    const adapter = new CodexCliAdapter();
+    expect(adapter.buildArgs({ prompt: 'task', systemPrompt: 'standing' }).at(-1)).toBe('standing\n\ntask');
+  })
+
+  it.each(['missing', 'foreign'])('refuses %s native identity without synthetic started events', async mode => {
+    const events: AgentStreamEvent[] = [];
+    const adapter = new CodexCliAdapter({ runtimeDependencies: { spawn: () => {
+      const child = createChild(false);
+      queueMicrotask(() => {
+        if (mode === 'foreign') child.stdout.write(JSON.stringify({ type: 'thread.started', thread_id: '22222222-2222-2222-2222-222222222222' }) + '\n');
+        child.stdout.write('{"type":"turn.completed"}\n'); child.stdout.end(); child.stderr.end();
+        child.exitCode = 0; child.emit('close', 0, null);
+      });
+      return child;
+    } } });
+    const run = async () => { for await (const event of adapter.executeWithRaw({ prompt: 'inert', resumeSessionId: NATIVE_ID })) events.push(event); };
+    await expect(run()).rejects.toThrow(/Native Codex session identity/);
+    expect(events.some(event => event.type === 'adapter:started')).toBe(false);
+  })
+
+  it('rejects nonnative resume before constructing a CLI home or spawning', async () => {
+    const spawn = vi.fn();
+    const adapter = new CodexCliAdapter({ runtimeDependencies: { spawn } });
+    await expect(collect(adapter.executeWithRaw({ prompt: 'inert', resumeSessionId: 'controller-shaped-id' }))).rejects.toThrow(/resume identity/);
+    expect(spawn).not.toHaveBeenCalled();
+  })
   it('returns one stable unsupported admission from the selected CLI instance', () => {
     const adapter = new CodexCliAdapter()
 
@@ -258,8 +288,8 @@ describe('Codex explicit CLI backend', () => {
   it('pairs Codex file-change start and completion events with one stable tool call id', () => {
     const adapter = new CodexCliAdapter()
     const item = { id: 'file-change-1', type: 'file_change', changes: [{ path: 'src/a.ts', kind: 'modified' }] }
-    const started = adapter.mapProviderEvent({ type: 'item.started', item }, 'session-1', { prompt: 'test' })
-    const completed = adapter.mapProviderEvent({ type: 'item.completed', item }, 'session-1', { prompt: 'test' })
+    const started = adapter.mapProviderEvent({ type: 'item.started', item }, NATIVE_ID, { prompt: 'test' })
+    const completed = adapter.mapProviderEvent({ type: 'item.completed', item }, NATIVE_ID, { prompt: 'test' })
     expect(started).toMatchObject({ type: 'adapter:tool_call', toolName: 'file_edit', toolCallId: 'file-change-1' })
     expect(completed).toMatchObject({ type: 'adapter:tool_result', toolName: 'file_edit', toolCallId: 'file-change-1' })
   })
@@ -280,7 +310,7 @@ describe('Codex explicit CLI backend', () => {
     [undefined, 'true', false],
   ])('maps skipGitRepoCheck config=%s input=%s to flag=%s for exec and resume', (configured, perCall, enabled) => {
     const adapter = new CodexCliAdapter({ skipGitRepoCheck: configured as boolean | undefined })
-    for (const resumeSessionId of [undefined, 'session-1']) {
+    for (const resumeSessionId of [undefined, NATIVE_ID]) {
       const args = adapter.buildArgs({
         prompt: 'inspect',
         resumeSessionId,
@@ -366,7 +396,7 @@ describe('Codex explicit CLI backend', () => {
 
     await collect(adapter.executeWithRaw({
       prompt: 'continue',
-      resumeSessionId: 'session-1',
+      resumeSessionId: NATIVE_ID,
       outputSchema: { type: 'object' },
     }))
 
@@ -379,7 +409,7 @@ describe('Codex explicit CLI backend', () => {
     expect(args).not.toContain('--resume')
     const schemaPath = args[args.indexOf('--output-schema') + 1]!
     expect(schemaPath).toBe(join(String(calls[0]!.env.CODEX_HOME), 'output-schema.json'))
-    expect(args.slice(-3)).toEqual(['--', 'session-1', 'continue'])
+    expect(args.slice(-3)).toEqual(['--', NATIVE_ID, 'continue'])
   })
 
   it.each(['xhigh', 'max'])('forwards qualified native %s effort without falling back to defaults', (reasoning) => {
@@ -431,13 +461,13 @@ describe('Codex explicit CLI backend', () => {
     try {
       await collect(adapter.executeWithRaw({ prompt: 'pause', workingDirectory }))
       const sessionPath = join(homes[0]!, 'sessions', 'resume.jsonl')
-      await writeFile(sessionPath, '{"thread":"session-1"}\n', { mode: 0o600 })
+      await writeFile(sessionPath, JSON.stringify({ thread: NATIVE_ID }) + '\n', { mode: 0o600 })
       await collect(adapter.executeWithRaw({
-        prompt: 'continue', workingDirectory, resumeSessionId: 'session-1',
+        prompt: 'continue', workingDirectory, resumeSessionId: NATIVE_ID,
       }))
 
       expect(homes[1]).toBe(homes[0])
-      await expect(readFile(sessionPath, 'utf8')).resolves.toContain('session-1')
+      await expect(readFile(sessionPath, 'utf8')).resolves.toContain(NATIVE_ID)
     } finally {
       await rm(workingDirectory, { recursive: true, force: true })
     }
@@ -479,7 +509,7 @@ describe('Codex explicit CLI backend', () => {
       const adapter = recordingAdapter(homes, homeRoot)
       try {
         await collect(adapter.executeWithRaw({ prompt: 'pause', workingDirectory: checkout }))
-        await collect(adapter.executeWithRaw({ prompt: 'continue', workingDirectory: checkout, resumeSessionId: 'session-1' }))
+        await collect(adapter.executeWithRaw({ prompt: 'continue', workingDirectory: checkout, resumeSessionId: NATIVE_ID }))
         await collect(adapter.executeWithRaw({ prompt: 'other', workingDirectory: other }))
 
         const realRoot = await realpath(homeRoot)
@@ -535,7 +565,7 @@ describe('Codex explicit CLI backend', () => {
         spawn: () => {
           const child = createChild()
           queueMicrotask(() => {
-            child.stdout.write('{"type":"thread.started","thread_id":"cli-thread-1"}\n')
+            child.stdout.write('{"type":"thread.started","thread_id":"11111111-1111-1111-1111-111111111111"}\n')
             child.stdout.write('{"type":"item.completed","item":{"id":"item-1","type":"agent_message","text":"final answer"}}\n')
             child.stdout.write('{"type":"turn.completed","usage":{"input_tokens":7,"output_tokens":2}}\n')
             child.stdout.end()
@@ -549,7 +579,8 @@ describe('Codex explicit CLI backend', () => {
     })
 
     const events = await collect(adapter.executeWithRaw({ prompt: 'dotted events' }))
-    expect(events.find((event) => event.type === 'adapter:message')).toMatchObject({ content: 'final answer' })
+    expect(events.find((event) => event.type === 'adapter:message')).toMatchObject({ content: 'final answer', sessionId: NATIVE_ID })
+    expect(new Set(events.map(event => event.sessionId))).toEqual(new Set([NATIVE_ID]))
     expect([...events].reverse().find((event) => event.type === 'adapter:completed')).toMatchObject({
       result: 'final answer',
       usage: { inputTokens: 7, outputTokens: 2 },

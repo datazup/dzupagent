@@ -4,6 +4,7 @@ import type { McpServerDescriptor } from '@dzupagent/runtime-contracts'
 import { createClaudeBackendAdapter } from '../claude/claude-backend.js'
 import { createCodexBackendAdapter } from '../codex/codex-backend.js'
 import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
+import type { AdapterPipeline } from '../pipeline/adapter-pipeline.js'
 import type {
   AdapterConfig,
   AdapterCapabilityProfile,
@@ -98,6 +99,10 @@ export interface AgentExecutionResult {
 export type AgentExecutionEventListener = (event: AgentEvent) => void
 
 export interface RunAgentExecutionOptions {
+  pipeline?: AdapterPipeline | undefined
+  /** Lazy host preparation, after approval and before construction. */
+  beforePrepare?: (() => void | Promise<void>) | undefined
+  assertPreparedInput?: PrepareAgentExecutionRunnerOptions['assertPreparedInput']
   /** Private host hook for explicit binary/profile materialization. */
   materializeAdapter?: PrepareAgentExecutionRunnerOptions['materializeAdapter']
   /** Resolves only the explicitly selected secretRef; returned values are never retained. */
@@ -153,6 +158,10 @@ export interface PreparedAgentExecutionEventProjection {
 }
 
 export interface PrepareAgentExecutionRunnerOptions {
+  /** Same-registry controls supplied by the admitted in-process host. */
+  pipeline?: AdapterPipeline | undefined
+  /** Final input accounting runs after allowed UCL/policy enrichment. */
+  assertPreparedInput?: ((input: AgentInput, task: TaskDescriptor) => void | Promise<void>) | undefined
   /**
    * Invocation boundary after routing, progress listeners and policy warnings.
    * The guard must call invoke only while admission is current. Preparation
@@ -342,6 +351,34 @@ function frozenCapabilityProfile(profile: AdapterCapabilityProfile): Readonly<Ad
   })
 }
 
+const APPROVED_PREPARATIONS = new WeakSet<PrepareAgentExecutionRunnerOptions>()
+
+/** Gate the whole preparation, including adapter construction, in the same
+ * pipeline. Only this lazy boundary can mark preparation as already approved. */
+async function runGovernedAgentExecution(
+  request: AgentExecutionRequest,
+  pipeline: AdapterPipeline,
+  prepare: () => PrepareAgentExecutionRunnerOptions | Promise<PrepareAgentExecutionRunnerOptions>,
+  runOptions: RunPreparedAgentExecutionOptions = {},
+): Promise<AgentExecutionResult> {
+  let result: AgentExecutionResult | undefined
+  const operation = async function* (): AsyncGenerator<AgentEvent, void, undefined> {
+    const options = await prepare()
+    if (options.pipeline !== pipeline) {
+      throw new AgentExecutionConfigurationError('AGENT_EXECUTION_PIPELINE_DRIFT', 'Preparation changed the approved pipeline')
+    }
+    APPROVED_PREPARATIONS.add(options)
+    try {
+      result = await runPreparedAgentExecution(request, prepareAgentExecutionRunner(request, options), runOptions)
+    } finally { APPROVED_PREPARATIONS.delete(options) }
+  }
+  for await (const _event of pipeline.approval.wrap(operation(), {
+    prompt: request.prompt, providerId: request.providerId, signal: request.signal, requireApproval: true,
+  })) { /* runPreparedAgentExecution owns awaited event delivery */ }
+  if (!result) throw new AgentExecutionConfigurationError('AGENT_EXECUTION_APPROVAL_REQUIRED', 'Execution did not pass approval')
+  return result
+}
+
 export function prepareAgentExecutionRunner(
   request: AgentExecutionRequest,
   options: PrepareAgentExecutionRunnerOptions = {},
@@ -427,11 +464,21 @@ export function prepareAgentExecutionRunner(
   PREPARED_RUNNER_STATE.set(preparedRunner, {
     resumeSessionId,
     async *executeWithFallback(input, task) {
-      const projectedInput = options.projectInput?.(input, task) ?? input
-      if (resumeSessionId !== undefined && projectedInput.resumeSessionId !== resumeSessionId) {
-        throw new AgentExecutionConfigurationError('AGENT_EXECUTION_RESUME_MISMATCH', 'Host projection changed the prepared native session')
+      const delegate = async function* (): AsyncGenerator<AgentEvent, void, undefined> {
+        const projectedInput = options.projectInput?.(input, task) ?? input
+        if (options.pipeline) await options.pipeline.prepare({ input: projectedInput, preferredProvider: request.providerId })
+        if (resumeSessionId !== undefined && projectedInput.resumeSessionId !== resumeSessionId) {
+          throw new AgentExecutionConfigurationError('AGENT_EXECUTION_RESUME_MISMATCH', 'Host projection changed the prepared native session')
+        }
+        await options.assertPreparedInput?.(projectedInput, task)
+        const stream = registry.executeWithFallback(projectedInput, task)
+        yield* (options.pipeline ? options.pipeline.wrapStream(stream, projectedInput,
+          { prompt: projectedInput.prompt, providerId: request.providerId, signal: projectedInput.signal, requireApproval: false }) : stream)
       }
-      for await (const event of registry.executeWithFallback(projectedInput, task)) {
+      // The lazy delegate ensures approval settles before projection/UCL/router.
+      const stream = options.pipeline && !APPROVED_PREPARATIONS.has(options) ? options.pipeline.approval.wrap(delegate(),
+        { prompt: input.prompt, providerId: request.providerId, signal: input.signal, requireApproval: true }) : delegate()
+      for await (const event of stream) {
         const projection = options.projectEvent
           ? await options.projectEvent(event)
           : { events: [event] }
@@ -573,12 +620,14 @@ export async function runPreparedAgentExecution(
   const events: AgentEvent[] = []
   const attempted = new Set<AdapterProviderId>()
   let lastFailedEvent: AgentFailedEvent | undefined
+  let completedEvent: Extract<AgentEvent, { type: 'adapter:completed' }> | undefined
 
   try {
     const prepared = requirePreparedRunner(request, preparedRunner)
     const input = projectAgentInput(request)
     const task = projectTaskDescriptor(request)
     for await (const event of prepared.state.executeWithFallback(input, task)) {
+      if (completedEvent) throw new AgentExecutionConfigurationError('AGENT_EXECUTION_TERMINAL_DRIFT', 'Event followed completed execution')
       events.push(event)
       await onEvent?.(event)
       collectProviderId(event, attempted)
@@ -588,18 +637,17 @@ export async function runPreparedAgentExecution(
       }
 
       if (event.type === 'adapter:completed') {
-        return {
-          ok: true,
-          providerId: event.providerId,
-          ...(request.model ? { model: request.model } : {}),
-          text: event.result,
-          events,
-          ...(event.usage ? { usage: event.usage } : {}),
-          durationMs: now() - startMs,
-          attemptedProviders: [...attempted],
-          runnerAttestation: prepared.runner.attestation,
-        }
+        completedEvent = event
       }
+    }
+    // Success is provisional until the entire stream, async listeners and
+    // generator finalizers settle. A late failure must remain unsuccessful.
+    if (completedEvent && !lastFailedEvent) {
+      return { ok: true, providerId: completedEvent.providerId,
+        ...(request.model ? { model: request.model } : {}), text: completedEvent.result,
+        events, ...(completedEvent.usage ? { usage: completedEvent.usage } : {}),
+        durationMs: now() - startMs, attemptedProviders: [...attempted],
+        runnerAttestation: prepared.runner.attestation }
     }
 
     const error: AgentExecutionError = {
@@ -652,17 +700,27 @@ export async function runAgentExecution(
     projectInput,
     projectEvent,
     guardAdapterStart,
+    pipeline,
+    assertPreparedInput,
+    beforePrepare,
   } = options
   try {
-    const preparedRunner = prepareAgentExecutionRunner(request, {
+    const prepare = async (): Promise<PrepareAgentExecutionRunnerOptions> => {
+      await beforePrepare?.()
+      return {
       materializeAdapter,
       resolveApiKey,
       requiredCapabilities,
       projectInput,
       projectEvent,
       guardAdapterStart,
-    })
-    return runPreparedAgentExecution(request, preparedRunner, { onEvent, now })
+      pipeline,
+      assertPreparedInput,
+      }
+    }
+    if (pipeline) return await runGovernedAgentExecution(request, pipeline, prepare, { onEvent, now })
+    const preparedRunner = prepareAgentExecutionRunner(request, await prepare())
+    return await runPreparedAgentExecution(request, preparedRunner, { onEvent, now })
   } catch (err: unknown) {
     const error = extractFailure(err, undefined)
     return {

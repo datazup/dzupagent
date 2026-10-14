@@ -10,6 +10,7 @@ import type {
   AgentExecutionRequest,
   PrepareAgentExecutionRunnerOptions,
 } from "../integration/run-agent-execution.js";
+import type { AdapterPipeline } from "../pipeline/adapter-pipeline.js";
 import type {
   AdapterCapabilityProfile,
   AdapterConfig,
@@ -165,6 +166,51 @@ function prepareFakeRunner(
 }
 
 describe("runAgentExecution", () => {
+  it("waits for listeners and generator cleanup and preserves a late failure", async () => {
+    const request = exactRequest({ prompt: "inert", resumeSessionId: "native-session", approvedFallbackProviders: [] });
+    const adapter = createFakeAdapter("codex");
+    let finalized = false, listened = false;
+    adapter.resumeSession = async function* () {
+      try {
+        yield { type: "adapter:completed", providerId: "codex", sessionId: "native-session", result: "provisional", timestamp: 1, durationMs: 1 };
+      } finally {
+        await Promise.resolve(); finalized = true;
+        throw new Error("late finalizer failure");
+      }
+    };
+    const result = await runPreparedAgentExecution(request, prepareFakeRunner(request, adapter), {
+      onEvent: async () => { await Promise.resolve(); listened = true; },
+    });
+    expect(finalized).toBe(true); expect(listened).toBe(true); expect(result.ok).toBe(false);
+  });
+
+  it("gates construction lazily, enriches once and retains the same pipeline", async () => {
+    const order: string[] = [];
+    const pipeline = {
+      approval: { async *wrap(stream: AsyncGenerator<AgentEvent>, args: { requireApproval: boolean }) {
+        if (args.requireApproval) { order.push("approval"); await Promise.resolve(); }
+        yield* stream;
+      } },
+      async prepare({ input }: { input: AgentInput }) { order.push("ucl"); input.systemPrompt = "materialized standing context"; return input; },
+      async *wrapStream(stream: AsyncGenerator<AgentEvent>) { order.push("controls"); yield* stream; },
+    } as unknown as AdapterPipeline;
+    const result = await runAgentExecution(exactRequest({ prompt: "inert", resumeSessionId: "native-session", approvedFallbackProviders: [] }), {
+      pipeline, beforePrepare: () => { order.push("prepare"); },
+      materializeAdapter: () => { order.push("materialize"); return createFakeAdapter("codex", {
+        onResume: (_id, input) => { order.push("resume"); expect(input.systemPrompt).toBe("materialized standing context"); },
+      }); },
+      assertPreparedInput: input => { order.push("capacity"); expect(input.systemPrompt).toBe("materialized standing context"); },
+    });
+    expect(result.ok).toBe(true);
+    expect(order).toEqual(["approval", "prepare", "materialize", "ucl", "capacity", "controls", "resume"]);
+  });
+
+  it("denied approval performs no adapter preparation or construction", async () => {
+    const beforePrepare = vi.fn(), materializeAdapter = vi.fn(() => createFakeAdapter("codex"));
+    const pipeline = { approval: { async *wrap() { throw new Error("approval denied"); } } } as unknown as AdapterPipeline;
+    const result = await runAgentExecution(exactRequest({ prompt: "inert" }), { pipeline, beforePrepare, materializeAdapter });
+    expect(result.ok).toBe(false); expect(beforePrepare).not.toHaveBeenCalled(); expect(materializeAdapter).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     adapterFactories.createCodexBackendAdapter.mockReset();
     adapterFactories.createClaudeBackendAdapter.mockReset();
