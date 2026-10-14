@@ -168,6 +168,19 @@ function prepareFakeRunner(
 }
 
 describe("runAgentExecution", () => {
+  it("a fresh final guard refusal after prepared-input reservation never invokes the adapter", async () => {
+    let reserved = false;
+    const invoked = vi.fn();
+    const result = await runAgentExecution(exactRequest({ prompt: "inert", resumeSessionId: "native-session", approvedFallbackProviders: [] }), {
+      materializeAdapter: () => createFakeAdapter("codex", { onResume: invoked }),
+      assertPreparedInput: () => { reserved = true; },
+      async *guardAdapterStart() {
+        expect(reserved).toBe(true);
+        throw new ForgeError("POLICY_DENIED", "fresh final guard refused", { recoverable: false });
+      },
+    });
+    expect(result.ok).toBe(false); expect(invoked).not.toHaveBeenCalled();
+  });
   it("lets real guardrails install cancellation before freezing the prepared payload", async () => {
     const guardrails = new GuardrailsPipelineStep(undefined, new AdapterGuardrails({ maxIterations: 5 }));
     let finalSignal: AbortSignal | undefined;
