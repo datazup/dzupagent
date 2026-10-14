@@ -192,7 +192,9 @@ describe("runAgentExecution", () => {
         yield* stream;
       } },
       async prepare({ input }: { input: AgentInput }) { order.push("ucl"); input.systemPrompt = "materialized standing context"; return input; },
-      async *wrapStream(stream: AsyncGenerator<AgentEvent>) { order.push("controls"); yield* stream; },
+      wrapStream(stream: AsyncGenerator<AgentEvent>, input: AgentInput) {
+        order.push("controls"); input.signal = new AbortController().signal; return stream;
+      },
     } as unknown as AdapterPipeline;
     const result = await runAgentExecution(exactRequest({ prompt: "inert", resumeSessionId: "native-session", approvedFallbackProviders: [] }), {
       pipeline, beforePrepare: () => { order.push("prepare"); },
@@ -202,7 +204,7 @@ describe("runAgentExecution", () => {
       assertPreparedInput: input => { order.push("capacity"); expect(input.systemPrompt).toBe("materialized standing context"); },
     });
     expect(result.ok).toBe(true);
-    expect(order).toEqual(["approval", "prepare", "materialize", "ucl", "capacity", "controls", "resume"]);
+    expect(order).toEqual(["approval", "prepare", "materialize", "ucl", "controls", "capacity", "resume"]);
   });
 
   it("denied approval performs no adapter preparation or construction", async () => {

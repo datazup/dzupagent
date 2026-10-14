@@ -470,10 +470,14 @@ export function prepareAgentExecutionRunner(
         if (resumeSessionId !== undefined && projectedInput.resumeSessionId !== resumeSessionId) {
           throw new AgentExecutionConfigurationError('AGENT_EXECUTION_RESUME_MISMATCH', 'Host projection changed the prepared native session')
         }
-        await options.assertPreparedInput?.(projectedInput, task)
         const stream = registry.executeWithFallback(projectedInput, task)
-        yield* (options.pipeline ? options.pipeline.wrapStream(stream, projectedInput,
-          { prompt: projectedInput.prompt, providerId: request.providerId, signal: projectedInput.signal, requireApproval: false }) : stream)
+        // Guardrail wrapping installs the cancellation signal on this same input.
+        // Freeze/account only after every predispatch projection is materialized.
+        const controlledStream = options.pipeline ? options.pipeline.wrapStream(stream, projectedInput,
+          { prompt: projectedInput.prompt, providerId: request.providerId, signal: projectedInput.signal, requireApproval: false }) : stream
+        try { await options.assertPreparedInput?.(projectedInput, task) }
+        catch (error) { await controlledStream.return(); throw error }
+        yield* controlledStream
       }
       // The lazy delegate ensures approval settles before projection/UCL/router.
       const stream = options.pipeline && !APPROVED_PREPARATIONS.has(options) ? options.pipeline.approval.wrap(delegate(),
