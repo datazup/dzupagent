@@ -168,7 +168,7 @@ function prepareFakeRunner(
 }
 
 describe("runAgentExecution", () => {
-  it("lets real guardrails install cancellation before final input is frozen", async () => {
+  it("lets real guardrails install cancellation before freezing the prepared payload", async () => {
     const guardrails = new GuardrailsPipelineStep(undefined, new AdapterGuardrails({ maxIterations: 5 }));
     let finalSignal: AbortSignal | undefined;
     const pipeline = {
@@ -179,11 +179,30 @@ describe("runAgentExecution", () => {
     const result = await runAgentExecution(exactRequest({ prompt: "inert", resumeSessionId: "native-session", approvedFallbackProviders: [] }), {
       pipeline,
       materializeAdapter: () => createFakeAdapter("codex", { onResume: (_id, input) => {
-        expect(input.signal).toBe(finalSignal); expect(Object.isFrozen(input)).toBe(true);
+        // The registry creates an attempt object with a chained signal. Payload
+        // identity, rather than object/signal identity, is the preserved boundary.
+        expect(input.prompt).toBe("inert"); expect(input.resumeSessionId).toBe("native-session");
+        expect(input.signal).toBeDefined(); expect(input.signal?.aborted).toBe(finalSignal?.aborted);
       } }),
       assertPreparedInput: input => { finalSignal = input.signal; Object.freeze(input.options); Object.freeze(input); },
     });
     expect(finalSignal).toBeDefined(); expect(result.ok).toBe(true);
+  });
+
+  it("propagates real guardrail cancellation through the registry attempt signal", async () => {
+    const controller = new AbortController();
+    const guardrails = new GuardrailsPipelineStep(undefined, new AdapterGuardrails({ maxIterations: 5 }));
+    const pipeline = { approval: { wrap: (stream: AsyncGenerator<AgentEvent>) => stream },
+      async prepare() {}, wrapStream: (stream: AsyncGenerator<AgentEvent>, input: AgentInput) => guardrails.wrap(stream, input),
+    } as unknown as AdapterPipeline;
+    let propagated = false;
+    await runAgentExecution(exactRequest({ prompt: "inert", signal: controller.signal,
+      resumeSessionId: "native-session", approvedFallbackProviders: [] }), {
+      pipeline, materializeAdapter: () => createFakeAdapter("codex", { onResume: (_id, input) => {
+        controller.abort(); propagated = input.signal?.aborted === true;
+      } }), assertPreparedInput: input => { Object.freeze(input.options); Object.freeze(input); },
+    });
+    expect(propagated).toBe(true);
   });
   it("waits for listeners and generator cleanup and preserves a late failure", async () => {
     const request = exactRequest({ prompt: "inert", resumeSessionId: "native-session", approvedFallbackProviders: [] });
