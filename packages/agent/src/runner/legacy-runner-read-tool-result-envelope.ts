@@ -55,6 +55,9 @@ function closedJson(value: unknown, ancestors = new Set<object>()): void {
         && !(Array.isArray(value) && prototype === Array.prototype)) throw new Error('prototype')
     for (const key of Object.getOwnPropertyNames(value)) {
       if (Array.isArray(value) && key === 'length') continue
+      if (Array.isArray(value) && (!/^(0|[1-9][0-9]*)$/u.test(key) || Number(key) >= value.length)) {
+        throw new Error('array-extension')
+      }
       const descriptor = Object.getOwnPropertyDescriptor(value, key)
       if (descriptor?.enumerable !== true || !('value' in descriptor)) throw new Error('descriptor')
       closedJson(descriptor.value, ancestors)
@@ -266,7 +269,8 @@ export function projectLegacyReadToolGenerateResult(input: {
         || !boundMessageEnvelopeEntry(envelope.finalAssistant, observed.final)
         || !usageMatches(envelope.assistantCall, observed.usage[0]!)
         || !usageMatches(envelope.finalAssistant, observed.usage[1]!)) return reject('message-binding-invalid')
-    const messages = [...envelope.preparedInput.map(reconstructLegacyMessage),
+    const preparedMessages = envelope.preparedInput.map(reconstructLegacyMessage)
+    const messages = [...preparedMessages,
       assistantMessage(envelope.assistantCall, observed),
       new ToolMessage({ content: observed.outputText, tool_call_id: observed.call.callId, name: observed.call.toolId }),
       reconstructLegacyMessage(envelope.finalAssistant)]
@@ -278,11 +282,11 @@ export function projectLegacyReadToolGenerateResult(input: {
       messages, usage: observed.completed.usage, hitIterationLimit: false, stopReason: 'complete',
       toolStats: [{ name: observed.call.toolId, calls: 1, errors: 0, totalMs: durationMs, avgMs: Math.round(durationMs) }],
       middlewareState: { agentId: observed.state.agent.initialAgentId, runId: observed.state.runId,
-        messages: messages.slice(0, -1), maxIterations, tools: [observed.call.toolId] },
+        messages: preparedMessages, maxIterations, tools: [observed.call.toolId] },
     }
     return { status: 'projected', result, resultDigest: digestRunnerJson({
       ...result, messages: messages.map((message) => message.toDict()), middlewareState: {
-        ...result.middlewareState, messages: messages.slice(0, -1).map((message) => message.toDict()),
+        ...result.middlewareState, messages: preparedMessages.map((message) => message.toDict()),
       },
     }) }
   } catch {
