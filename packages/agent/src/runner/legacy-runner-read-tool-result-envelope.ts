@@ -1,4 +1,4 @@
-import { AIMessage, ToolMessage, type BaseMessage, type StandardMessageStructure } from '@langchain/core/messages'
+import { AIMessage, HumanMessage, SystemMessage, ToolMessage, type BaseMessage, type StandardMessageStructure } from '@langchain/core/messages'
 import type { GenerateResult } from '../agent/agent-types.js'
 import type { AgentRunnerResult } from './runner-ports.js'
 import { assertDurableJson, cloneDurableJson, digestRunnerJson } from './runner-durable-json.js'
@@ -68,6 +68,31 @@ function denseArray(value: unknown): boolean {
 
 function identity(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= 192 && value.trim() === value
+}
+
+function instant(value: unknown): value is string {
+  return typeof value === 'string' && Number.isFinite(Date.parse(value))
+}
+
+/** Reject own accessors and serializer overrides before reading message values. */
+function boundedMessageShape(value: BaseMessage): boolean {
+  const prototype = Object.getPrototypeOf(value)
+  const baseline = prototype === AIMessage.prototype ? new AIMessage('')
+    : prototype === ToolMessage.prototype ? new ToolMessage({ content: '', tool_call_id: 'shape-only' })
+    : prototype === HumanMessage.prototype ? new HumanMessage('')
+    : prototype === SystemMessage.prototype ? new SystemMessage('') : undefined
+  if (baseline === undefined || !keys(value, Object.getOwnPropertyNames(baseline))) return false
+  const actualSymbols = Object.getOwnPropertySymbols(value)
+  const expectedSymbols = Object.getOwnPropertySymbols(baseline)
+  return actualSymbols.length === expectedSymbols.length && actualSymbols.every((symbol) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, symbol)
+    return expectedSymbols.includes(symbol) && descriptor !== undefined && 'value' in descriptor
+      && descriptor.value === Object.getOwnPropertyDescriptor(baseline, symbol)?.value
+  }) && Object.getOwnPropertyNames(value).every((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    return descriptor !== undefined && 'value' in descriptor
+      && descriptor.enumerable === Object.getOwnPropertyDescriptor(baseline, key)?.enumerable
+  })
 }
 
 /** Check descriptors before JSON operations, which otherwise skip hidden data or invoke accessors. */
@@ -174,6 +199,9 @@ function inspect(profile: LegacyRunnerExecutionProfile, result: AgentRunnerResul
   ]) || !same(state.context, { state: 'absent' }) || state.attempt.number !== 1
       || !keys(state.agent, ['initialAgentId', 'currentAgentId', 'behaviorDigest'])
       || !keys(state.attempt, ['number', 'startedAt'])
+      || !instant(state.createdAt) || !instant(state.updatedAt) || !instant(state.attempt.startedAt)
+      || [state.input, state.committedItems, state.invocations, state.interactions,
+        state.interactionDecisions, state.handoffs].some((value) => !denseArray(value))
       || state.agent.initialAgentId !== state.agent.currentAgentId
       || state.interactions.length !== 0 || state.interactionDecisions.length !== 0
       || state.handoffs.length !== 0 || state.invocations.length !== 1
@@ -215,7 +243,8 @@ function inspect(profile: LegacyRunnerExecutionProfile, result: AgentRunnerResul
   if (!keys(state.usage, ['records']) || usage.length !== 2 || usage.some((record) =>
     !keys(record, ['usageId', 'source', 'accountingSource', 'recordedAt', 'inputTokens', 'outputTokens', 'totalTokens'])
       || record.source !== 'model' || typeof record.accountingSource !== 'string' || record.accountingSource.length === 0
-      || typeof record.recordedAt !== 'string' || !Number.isSafeInteger(record.inputTokens) || Number(record.inputTokens) < 0
+      || !instant(record.recordedAt) || !identity(record.usageId)
+      || !Number.isSafeInteger(record.inputTokens) || Number(record.inputTokens) < 0
       || !Number.isSafeInteger(record.outputTokens) || Number(record.outputTokens) < 0
       || record.totalTokens !== Number(record.inputTokens) + Number(record.outputTokens))) {
     throw new Error('complete-two-turn-usage-required')
@@ -252,6 +281,7 @@ function inspect(profile: LegacyRunnerExecutionProfile, result: AgentRunnerResul
   ]
   if (result.events.length !== trace.length || result.events.some((event, index) =>
     !keys(event, ['schema', 'runId', 'eventId', 'sequence', 'stateRevision', 'attempt', 'occurredAt', 'type', 'payload'])
+      || !identity(event.eventId) || !instant(event.occurredAt)
       || event.type !== trace[index]!.type || !same(event.payload, trace[index]!.payload))) {
     throw new Error('qualified-event-trace-invalid')
   }
@@ -295,7 +325,9 @@ export function captureLegacyReadToolResultEnvelope(input: {
 }): { readonly status: 'captured'; readonly envelope: LegacyReadToolResultEnvelope } | Rejected {
   try {
     if (!dataRecord(input, ['profile', 'result', 'preparedInput', 'assistantCall', 'toolMessage', 'finalAssistant', 'timing'])
-        || !denseArray(input.preparedInput)) return reject('capture-input-malformed')
+        || !denseArray(input.preparedInput)
+        || [...input.preparedInput, input.assistantCall, input.toolMessage, input.finalAssistant]
+          .some((message) => !boundedMessageShape(message))) return reject('capture-input-malformed')
     const observed = inspect(input.profile, input.result)
     durable(input.timing)
     if (!validTiming(input.timing, observed)) return reject('timing-invalid')

@@ -193,7 +193,9 @@ describe('R5O single-read legacy result/timing envelope', () => {
     'event-call', 'duplicate-item', 'completion-evidence', 'event-extension', 'payload-extension',
     'usage-extension', 'usage-record-extension', 'budget-extension', 'budget-limits-extension',
     'budget-consumed-extension', 'tool-selection', 'model-itemids', 'model-callids', 'model-turn',
-    'item-event', 'usage-source', 'malformed-revision', 'malformed-agent', 'empty-request'])(
+    'item-event', 'usage-source', 'malformed-revision', 'malformed-agent', 'empty-request',
+    'interactions-object', 'decisions-object', 'handoffs-object', 'created-number', 'updated-number',
+    'attempt-time-number', 'usage-time-number', 'event-time-number', 'invalid-time'])(
     'rejects %s runner drift and never replays execution', async (mode) => {
       const value = await scenario()
       const result = mutable(value.input.result)
@@ -244,6 +246,15 @@ describe('R5O single-read legacy result/timing envelope', () => {
           Object.assign(event.payload!, { requestId: '' })
         }
       }
+      if (mode === 'interactions-object') Object.assign(result.state, { interactions: { length: 0 } })
+      if (mode === 'decisions-object') Object.assign(result.state, { interactionDecisions: { length: 0 } })
+      if (mode === 'handoffs-object') Object.assign(result.state, { handoffs: { length: 0 } })
+      if (mode === 'created-number') Object.assign(result.state, { createdAt: 7 })
+      if (mode === 'updated-number') Object.assign(result.state, { updatedAt: 7 })
+      if (mode === 'attempt-time-number') Object.assign(result.state.attempt, { startedAt: 7 })
+      if (mode === 'usage-time-number') Object.assign(result.state.usage.records[0]!, { recordedAt: 7 })
+      if (mode === 'event-time-number') Object.assign(result.events[0]!, { occurredAt: 7 })
+      if (mode === 'invalid-time') Object.assign(result.state, { createdAt: 'not-an-instant' })
       expect(captureLegacyReadToolResultEnvelope({ ...value.input, result }).status).toBe('rejected')
       expect(projectLegacyReadToolGenerateResult({ ...value.projection, result }).status).toBe('rejected')
       expect(value.calls).toEqual({ legacyModel: 2, legacyTool: 1, runnerModel: 2, runnerTool: 1 })
@@ -268,6 +279,19 @@ describe('R5O single-read legacy result/timing envelope', () => {
       expect(sideEffects).toBe(0)
     },
   )
+
+  it('rejects message accessors and serializer overrides before invoking them', async () => {
+    for (const field of ['content', 'toDict']) {
+      const value = await scenario()
+      let sideEffects = 0
+      if (field === 'content') Object.defineProperty(value.input.assistantCall, 'content', {
+        enumerable: true, get() { sideEffects += 1; return 'Reading.' },
+      })
+      else Object.assign(value.input.assistantCall, { toDict() { sideEffects += 1; return {} } })
+      expect(captureLegacyReadToolResultEnvelope(value.input).status).toBe('rejected')
+      expect(sideEffects).toBe(0)
+    }
+  })
 
   it.each(['profile', 'claim', 'capture', 'prepared-array'])(
     'rejects re-digested or otherwise hidden %s extensions before capture', async (mode) => {
