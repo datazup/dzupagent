@@ -174,7 +174,8 @@ describe('R5O single-read legacy result/timing envelope', () => {
   )
 
   it.each(['input', 'call', 'output', 'order', 'effect', 'retry', 'failed', 'unknown', 'suspended',
-    'context', 'session', 'adapter', 'sandbox', 'structured', 'handoff', 'usage', 'extension', 'invocation-extension'])(
+    'context', 'session', 'adapter', 'sandbox', 'structured', 'handoff', 'usage', 'extension', 'invocation-extension',
+    'event-call', 'duplicate-item', 'completion-evidence'])(
     'rejects %s runner drift and never replays execution', async (mode) => {
       const value = await scenario()
       const result = mutable(value.input.result)
@@ -199,6 +200,9 @@ describe('R5O single-read legacy result/timing envelope', () => {
       if (mode === 'usage') result.state.usage.records.pop()
       if (mode === 'extension') Object.assign(result.state, { extension: true })
       if (mode === 'invocation-extension') Object.assign(result.state.invocations[0]!, { extension: true })
+      if (mode === 'event-call') Object.assign(result.events.find((event) => event.type === 'tool.started')!.payload!, { callId: 'drift' })
+      if (mode === 'duplicate-item') result.state.committedItems[3]!.itemId = result.state.input[0]!.itemId
+      if (mode === 'completion-evidence') Object.assign(result.state.invocations[0]!, { completionEvidence: { resultDigest: 'drift' } })
       expect(captureLegacyReadToolResultEnvelope({ ...value.input, result }).status).toBe('rejected')
       expect(projectLegacyReadToolGenerateResult({ ...value.projection, result }).status).toBe('rejected')
       expect(value.calls).toEqual({ legacyModel: 2, legacyTool: 1, runnerModel: 2, runnerTool: 1 })

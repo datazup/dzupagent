@@ -124,6 +124,7 @@ function inspect(profile: LegacyRunnerExecutionProfile, result: AgentRunnerResul
   }
   const [assistant, call, output, final] = state.committedItems
   const invocation = state.invocations[0]!
+  const allItems = [...state.input, ...state.committedItems]
   if (assistant?.type !== 'message' || assistant.role !== 'assistant'
       || call?.type !== 'tool-call' || output?.type !== 'tool-result'
       || final?.type !== 'message' || final.role !== 'assistant'
@@ -132,6 +133,9 @@ function inspect(profile: LegacyRunnerExecutionProfile, result: AgentRunnerResul
       || !keys(call, ['type', 'itemId', 'callId', 'toolId', 'arguments'])
       || !keys(output, ['type', 'itemId', 'callId', 'output', 'isError'])
       || output.isError !== false || typeof output.output !== 'string'
+      || allItems.some((item) => typeof item.itemId !== 'string' || item.itemId.length === 0)
+      || new Set(allItems.map((item) => item.itemId)).size !== allItems.length
+      || call.arguments === null || typeof call.arguments !== 'object' || Array.isArray(call.arguments)
       || !keys(invocation, ['invocationId', 'callId', 'attempt', 'inputDigest', 'toolId',
         'toolRevision', 'effectClass', 'state', 'resultDigest', 'completionEvidence'])
       || invocation.effectClass !== 'read' || invocation.state !== 'completed'
@@ -140,13 +144,20 @@ function inspect(profile: LegacyRunnerExecutionProfile, result: AgentRunnerResul
       || call.callId !== invocation.callId || output.callId !== call.callId
       || call.toolId !== invocation.toolId || invocation.inputDigest !== digestRunnerJson(call.arguments)
       || invocation.resultDigest !== digestRunnerJson(output.output)) throw new Error('read-binding-invalid')
+  if (!same(invocation.completionEvidence, { resultDigest: invocation.resultDigest })
+      || (result.events.at(-1)!.payload as Record<string, unknown>).finalItemId !== final.itemId) {
+    throw new Error('completion-binding-invalid')
+  }
   const starts = result.events.filter((event) => event.type === 'tool.started')
   const finishes = result.events.filter((event) => event.type === 'tool.completed')
   if (starts.length !== 1 || finishes.length !== 1 || starts[0]!.sequence >= finishes[0]!.sequence
       || [starts[0]!, finishes[0]!].some((event) => {
         const payload = event.payload as Record<string, unknown>
         return payload.invocationId !== invocation.invocationId || payload.executionAttempt !== 1
-      }) || (finishes[0]!.payload as Record<string, unknown>).resultDigest !== invocation.resultDigest
+      }) || !keys(starts[0]!.payload as object, ['invocationId', 'callId', 'executionAttempt'])
+      || (starts[0]!.payload as Record<string, unknown>).callId !== call.callId
+      || !keys(finishes[0]!.payload as object, ['invocationId', 'executionAttempt', 'resultDigest', 'effectClass'])
+      || (finishes[0]!.payload as Record<string, unknown>).resultDigest !== invocation.resultDigest
       || (finishes[0]!.payload as Record<string, unknown>).effectClass !== 'read') {
     throw new Error('read-lifecycle-invalid')
   }
