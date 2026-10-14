@@ -478,6 +478,20 @@ describe("runAgentExecution", () => {
     expect(onResume).not.toHaveBeenCalled();
   });
 
+  it("keeps a pinned native session when one projection object serves repeated runs", async () => {
+    const sessionId = "00000000-0000-4000-8000-000000000001";
+    const onResume = vi.fn();
+    const request = exactRequest({ prompt: "continue", resumeSessionId: sessionId, approvedFallbackProviders: [] });
+    let shared: AgentInput | undefined;
+    const prepared = prepareFakeRunner(request, createFakeAdapter("codex", { onResume }), {
+      projectInput(input) { shared ??= input; return shared; },
+    });
+    await expect(runPreparedAgentExecution(request, prepared)).resolves.toMatchObject({ ok: true });
+    await expect(runPreparedAgentExecution(request, prepared)).resolves.toMatchObject({ ok: true });
+    expect(onResume).toHaveBeenCalledTimes(2);
+    expect(() => { shared!.resumeSessionId = "foreign-session"; }).toThrow("Host start guard changed the prepared native session");
+  });
+
   it("never ignores a subscription profile when no qualified materializer is injected", async () => {
     expect(() =>
       prepareAgentExecutionRunner({

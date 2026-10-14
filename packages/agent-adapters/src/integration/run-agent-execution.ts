@@ -471,6 +471,23 @@ export function prepareAgentExecutionRunner(
         if (resumeSessionId !== undefined && projectedInput.resumeSessionId !== resumeSessionId) {
           throw new AgentExecutionConfigurationError('AGENT_EXECUTION_RESUME_MISMATCH', 'Host projection changed the prepared native session')
         }
+        // The registry clones each attempt, so a later write to the validated
+        // projection would otherwise be silently dropped. Pin the identity so a
+        // host start guard cannot rewrite it after validation.
+        const pinned = Object.getOwnPropertyDescriptor(projectedInput, 'resumeSessionId')
+        if (resumeSessionId !== undefined && pinned?.configurable !== false) {
+          Object.defineProperty(projectedInput, 'resumeSessionId', {
+            enumerable: true,
+            configurable: false,
+            get: () => resumeSessionId,
+            set: () => {
+              throw new AgentExecutionConfigurationError('AGENT_EXECUTION_RESUME_MISMATCH', 'Host start guard changed the prepared native session')
+            },
+          })
+        } else if (resumeSessionId !== undefined && pinned?.writable === true) {
+          // A sealed projection can still be made read-only.
+          Object.defineProperty(projectedInput, 'resumeSessionId', { writable: false })
+        }
         const stream = registry.executeWithFallback(projectedInput, task)
         // Guardrail wrapping installs the cancellation signal on this same input.
         // Freeze/account only after every predispatch projection is materialized.

@@ -580,7 +580,7 @@ describe('Codex explicit CLI backend', () => {
 
     const events = await collect(adapter.executeWithRaw({ prompt: 'dotted events' }))
     expect(events.find((event) => event.type === 'adapter:message')).toMatchObject({ content: 'final answer', sessionId: NATIVE_ID })
-    expect(new Set(events.map(event => event.sessionId))).toEqual(new Set([NATIVE_ID]))
+    expect(new Set(events.map(event => event.type === 'adapter:provider_raw' ? event.rawEvent.sessionId : event.sessionId))).toEqual(new Set([NATIVE_ID]))
     expect([...events].reverse().find((event) => event.type === 'adapter:completed')).toMatchObject({
       result: 'final answer',
       usage: { inputTokens: 7, outputTokens: 2 },
@@ -829,8 +829,10 @@ describe('Codex explicit CLI backend', () => {
       })
       return child
     })
+    // The bound must admit the mandatory native thread.started line plus the
+    // successful run's terminal line, and still reject the 512-byte overflow.
     const adapter = new CodexCliAdapter({
-      runtimeLimits: { stdoutBytes: 80 },
+      runtimeLimits: { stdoutBytes: 256 },
       runtimeDependencies: {
         spawn,
         killProcessTree: (child, signal) => {
