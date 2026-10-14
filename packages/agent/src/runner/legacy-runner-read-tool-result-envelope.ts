@@ -146,7 +146,7 @@ function inspect(profile: LegacyRunnerExecutionProfile, result: AgentRunnerResul
       || !Number.isSafeInteger(record.outputTokens) || Number(record.outputTokens) < 0)) {
     throw new Error('complete-two-turn-usage-required')
   }
-  return { state, assistant, call, output, final, invocation, usage, completed: completed.report.exactSubset }
+  return { state, assistant, call, output, outputText: output.output, final, invocation, usage, completed: completed.report.exactSubset }
 }
 
 function validTiming(timing: LegacyReadToolTiming, observed: ReturnType<typeof inspect>): boolean {
@@ -200,7 +200,7 @@ export function captureLegacyReadToolResultEnvelope(input: {
       preparedInput.push(entry)
     }
     // Retain the assistant's ordinary envelope independently of its canonical call.
-    const stripped = input.assistantCall.toDict().data.usage_metadata !== undefined
+    const stripped = Object.hasOwn(input.assistantCall.toDict().data, 'usage_metadata')
       ? new AIMessage<StandardMessageStructure>({ content: input.assistantCall.content,
           usage_metadata: input.assistantCall.usage_metadata! })
       : new AIMessage(input.assistantCall.content)
@@ -210,7 +210,7 @@ export function captureLegacyReadToolResultEnvelope(input: {
     if (typeof assistantCall === 'string' || typeof finalAssistant === 'string'
         || !usageMatches(assistantCall, observed.usage[0]!) || !usageMatches(finalAssistant, observed.usage[1]!)
         || !exactMessage(input.assistantCall, assistantMessage(assistantCall, observed))
-        || !exactMessage(input.toolMessage, new ToolMessage({ content: observed.output.output,
+        || !exactMessage(input.toolMessage, new ToolMessage({ content: observed.outputText,
           tool_call_id: observed.call.callId, name: observed.call.toolId }))
         || !exactMessage(input.finalAssistant, reconstructLegacyMessage(finalAssistant))) {
       return reject('output-message-invalid')
@@ -261,7 +261,7 @@ export function projectLegacyReadToolGenerateResult(input: {
         || !usageMatches(envelope.finalAssistant, observed.usage[1]!)) return reject('message-binding-invalid')
     const messages = [...envelope.preparedInput.map(reconstructLegacyMessage),
       assistantMessage(envelope.assistantCall, observed),
-      new ToolMessage({ content: observed.output.output, tool_call_id: observed.call.callId, name: observed.call.toolId }),
+      new ToolMessage({ content: observed.outputText, tool_call_id: observed.call.callId, name: observed.call.toolId }),
       reconstructLegacyMessage(envelope.finalAssistant)]
     const durationMs = envelope.timing.completedMs - envelope.timing.startedMs
     const maxIterations = input.profile.claims.find((claim) => claim.obligation === 'bounded-model-turns')?.binding.maxModelTurns

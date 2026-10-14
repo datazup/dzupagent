@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { DzupAgent } from '../agent/dzip-agent.js'
 import { InMemoryAgentRunner, digestRunnerJson, type AgentRunnerModelInvocationResult } from '../runner.js'
 import { buildRunnerProviderFreeExecutionProfile } from '../runner/legacy-runner-execution-profile.js'
-import { createLegacyRunnerMessageItem } from '../runner/legacy-runner-message-envelope-codec.js'
+import { createLegacyRunnerMessageItem, captureMessageEnvelopeEntry, reconstructLegacyMessage } from '../runner/legacy-runner-message-envelope-codec.js'
 import {
   captureLegacyReadToolResultEnvelope, projectLegacyReadToolGenerateResult,
   LEGACY_READ_TOOL_TIMING_POLICY, type LegacyReadToolTiming,
@@ -103,7 +103,20 @@ async function scenario(constructorUsage = false, blocks = false) {
     toolMessage: legacy.messages[prepared.length + 1] as Parameters<typeof captureLegacyReadToolResultEnvelope>[0]['toolMessage'],
     finalAssistant: messages[1]!, timing }
   const captured = captureLegacyReadToolResultEnvelope(input)
-  if (captured.status !== 'captured') throw new Error(`Capture rejected: ${captured.reason}`)
+  if (captured.status !== 'captured') {
+    const diagnostics = prepared.map((message, index) => {
+      const item = result.state.input[index]!
+      if (item.type !== 'message') return 'non-message'
+      const entry = captureMessageEnvelopeEntry(message, item, index)
+      if (typeof entry === 'string') return entry
+      const expected = reconstructLegacyMessage(entry)
+      return { actualKeys: Object.getOwnPropertyNames(message), expectedKeys: Object.getOwnPropertyNames(expected),
+        samePrototype: Object.getPrototypeOf(message) === Object.getPrototypeOf(expected),
+        accessors: Object.entries(Object.getOwnPropertyDescriptors(message)).filter(([, d]) => !('value' in d)).map(([key]) => key),
+        actual: message.toDict(), expected: expected.toDict() }
+    })
+    throw new Error(`Capture rejected: ${captured.reason}; ${JSON.stringify(diagnostics)}`)
+  }
   const projection = { profile, result, envelope: captured.envelope,
     expectedEnvelopeDigest: captured.envelope.envelopeDigest }
   return { input, projection, legacy, calls }
