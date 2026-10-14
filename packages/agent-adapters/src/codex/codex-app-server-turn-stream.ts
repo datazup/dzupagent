@@ -160,10 +160,13 @@ export async function* consumeCodexAppServerTurn(
     if (event.method === 'thread/tokenUsage/updated') {
       // G3-ADAPTER-RESUME-USAGE-FIX-20261014-R1: after thread/resume Codex
       // reports the thread's usage for its previous turn. It is not this run's
-      // usage; ignore it. Another thread's report still fails closed.
+      // usage; ignore it. Another thread's report still fails closed, and so does
+      // one without the turnId the protocol requires (G3-USAGE-TURNID-TIGHTEN-20261014-R1).
+      const usageTurnId = stringValue(event.params['turnId'])
       if (
         stringValue(event.params['threadId']) === run.threadId
-        && stringValue(event.params['turnId']) !== run.turnId
+        && usageTurnId !== ''
+        && usageTurnId !== run.turnId
       ) continue
       assertRunEventIdentity(event.params, run, false)
       usage = tokenUsage(event.params['tokenUsage'])

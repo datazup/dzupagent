@@ -168,4 +168,18 @@ describe('app-server resume tolerates prior-turn usage of the same thread', () =
     await expect(replay([usageFor('other-turn', 'foreign-thread'), completed]))
       .rejects.toMatchObject({ code: 'CODEX_APP_SERVER_STALE_TURN' })
   })
+
+  // Admission: G3-USAGE-TURNID-TIGHTEN-20261014-R1. The protocol requires turnId;
+  // a same-thread report without one is not a prior turn and must not be skipped.
+  it('refuses a same-thread usage report with an empty turn id', async () => {
+    await expect(replay([usageFor(ids.turnId), usageFor(''), completed]))
+      .rejects.toMatchObject({ code: 'CODEX_APP_SERVER_STALE_TURN' })
+  })
+
+  it('refuses a same-thread usage report that omits the turn id', async () => {
+    const { turnId: _omitted, ...params } = usageFor('omitted').params as Record<string, unknown>
+    const omitted = { kind: 'notification', method: 'thread/tokenUsage/updated', params } as CodexAppServerInboundEvent
+    await expect(replay([usageFor(ids.turnId), omitted, completed]))
+      .rejects.toMatchObject({ code: 'CODEX_APP_SERVER_STALE_TURN' })
+  })
 })

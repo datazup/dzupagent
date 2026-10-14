@@ -38,7 +38,11 @@ function createChild(emitStarted = true): FakeChild {
   child.signalCode = null
   child.pid = Math.floor(Math.random() * 10_000) + 1
   child.kill = vi.fn()
-  if (emitStarted) queueMicrotask(() => child.stdout.write(JSON.stringify({ type: 'thread.started', thread_id: NATIVE_ID }) + '\n'))
+  // A child killed before this microtask runs has already ended stdout; a real
+  // killed process writes nothing more, so the fake must not write after end.
+  if (emitStarted) queueMicrotask(() => {
+    if (!child.stdout.writableEnded) child.stdout.write(JSON.stringify({ type: 'thread.started', thread_id: NATIVE_ID }) + '\n')
+  })
   return child
 }
 
@@ -718,6 +722,25 @@ describe('Codex explicit CLI backend', () => {
     await expect(collect(adapter.executeWithRaw({ prompt: 'mcp', options: { mcpServers: [{ id: 'local' }] } })))
       .rejects.toMatchObject({ code: 'CAPABILITY_DENIED' })
     expect(spawn).toHaveBeenCalledTimes(1)
+  })
+
+  it('maps a cancellation that lands before spawn to AGENT_ABORTED', async () => {
+    // The abort is already set when the child is spawned, so the tree is killed
+    // and stdout ends before the child's first queued record is written.
+    const controller = new AbortController()
+    controller.abort()
+    const adapter = new CodexCliAdapter({
+      runtimeDependencies: {
+        spawn: () => createChild(),
+        killProcessTree: (child, signal) => {
+          const fake = child as FakeChild
+          fake.stdout.end()
+          fake.stderr.end()
+          setTimeout(() => child.emit('close', null, signal), 0)
+        },
+      },
+    })
+    await expect(collect(adapter.executeWithRaw({ prompt: 'cancel', signal: controller.signal }))).rejects.toMatchObject({ code: 'AGENT_ABORTED' })
   })
 
   it('maps raw, normalized, structured output, auth failure, timeout, cancellation, overflow, and cleanup without SDK fallback', async () => {
