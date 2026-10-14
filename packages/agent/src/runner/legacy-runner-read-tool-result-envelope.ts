@@ -75,8 +75,15 @@ function same(left: unknown, right: unknown): boolean {
 }
 
 function exactMessage(actual: BaseMessage, expected: BaseMessage): boolean {
+  const actualSymbols = Object.getOwnPropertySymbols(actual)
+  const expectedSymbols = Object.getOwnPropertySymbols(expected)
   return Object.getPrototypeOf(actual) === Object.getPrototypeOf(expected)
-    && Object.getOwnPropertySymbols(actual).length === 0
+    && actualSymbols.length === expectedSymbols.length
+    && actualSymbols.every((symbol) => {
+      const descriptor = Object.getOwnPropertyDescriptor(actual, symbol)
+      return expectedSymbols.includes(symbol) && descriptor !== undefined && 'value' in descriptor
+        && descriptor.value === Object.getOwnPropertyDescriptor(expected, symbol)?.value
+    })
     && keys(actual, Object.getOwnPropertyNames(expected))
     && Object.getOwnPropertyNames(actual).every((key) => {
       const descriptor = Object.getOwnPropertyDescriptor(actual, key)
