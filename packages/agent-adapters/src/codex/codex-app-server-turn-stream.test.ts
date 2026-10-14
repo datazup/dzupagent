@@ -145,16 +145,17 @@ describe('app-server completed result is the final answer only', () => {
 // report is not this run's usage and is not a reason to fail the run; a usage
 // report for another thread still is.
 describe('app-server resume tolerates prior-turn usage of the same thread', () => {
-  const usageFor = (turnId: string, threadId = ids.threadId, total = 2) =>
+  const usageFor = (turnId: string, threadId = ids.threadId, inputTokens = 1) =>
     ({ kind: 'notification', method: 'thread/tokenUsage/updated', params: { threadId, turnId, tokenUsage: {
-      last: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0, reasoningOutputTokens: 0, totalTokens: total },
-      total: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0, reasoningOutputTokens: 0, totalTokens: total } } } }) as CodexAppServerInboundEvent
+      last: { inputTokens, outputTokens: 1, cachedInputTokens: 0, reasoningOutputTokens: 0, totalTokens: inputTokens + 1 },
+      total: { inputTokens, outputTokens: 1, cachedInputTokens: 0, reasoningOutputTokens: 0, totalTokens: inputTokens + 1 } } } }) as CodexAppServerInboundEvent
   const completed = notification('turn/completed', { turn: { id: ids.turnId, items: [], status: 'completed' } })
 
   it('ignores a previous turn usage report and keeps only its own', async () => {
-    const result = await replay([usageFor('previous-turn', ids.threadId, 99), usageFor(ids.turnId), completed])
-    expect(result.terminal).toMatchObject({ type: 'adapter:completed' })
-    expect(JSON.stringify(result.terminal)).not.toContain('99')
+    // The prior turn's report arrives after this turn's own; it must not overwrite it.
+    const result = await replay([usageFor(ids.turnId), usageFor('previous-turn', ids.threadId, 99), completed])
+    expect(result.terminal).toMatchObject({ type: 'adapter:completed',
+      usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 } })
   })
 
   it('still refuses a usage report for another thread', async () => {
