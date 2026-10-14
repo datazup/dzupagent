@@ -73,6 +73,17 @@ function configurationIneligibility(
   options: GenerateOptions,
   runState?: PreparedRunState,
 ): string | undefined {
+  const prototype = Object.getPrototypeOf(config)
+  if ((prototype !== Object.prototype && prototype !== null)
+      || Object.getOwnPropertySymbols(config).length !== 0
+      || Object.getOwnPropertyNames(config).some((field) => {
+        const descriptor = Object.getOwnPropertyDescriptor(config, field)
+        return descriptor?.enumerable !== true
+          || descriptor?.get !== undefined || descriptor?.set !== undefined
+          || (descriptor?.value !== undefined && !ALLOWED_CONFIG_FIELDS.has(field))
+      })) {
+    return 'configuration-extension-enabled'
+  }
   if (effectiveOptionKeys(options).some((key) => !ALLOWED_GENERATE_OPTION_FIELDS.has(key))) {
     return 'generate-options-unsupported'
   }
@@ -90,21 +101,17 @@ function configurationIneligibility(
   if (config.memoryWriteBack !== undefined && config.memoryWriteBack !== false) {
     return 'memory-write-back-enabled'
   }
-  const prototype = Object.getPrototypeOf(config)
-  if ((prototype !== Object.prototype && prototype !== null)
-      || Object.getOwnPropertySymbols(config).length !== 0
-      || Object.getOwnPropertyNames(config).some((field) => {
-        const descriptor = Object.getOwnPropertyDescriptor(config, field)
-        return descriptor?.get !== undefined || descriptor?.set !== undefined
-          || (descriptor?.value !== undefined && !ALLOWED_CONFIG_FIELDS.has(field))
-      })) {
-    return 'configuration-extension-enabled'
-  }
   if (runState?.memoryFrame !== undefined) return 'memory-frame-present'
   if (config.maxIterations !== undefined) return 'legacy-max-iterations-ambiguous'
   const guardrails = config.guardrails
   if (guardrails === undefined
       || !exactKeys(guardrails, ['maxIterations', 'stuckDetector'])
+      || Object.getOwnPropertyNames(guardrails).length !== 2
+      || Object.getPrototypeOf(guardrails) !== Object.prototype
+      || Object.getOwnPropertyNames(guardrails).some((field) => {
+        const descriptor = Object.getOwnPropertyDescriptor(guardrails, field)
+        return descriptor?.get !== undefined || descriptor?.set !== undefined
+      })
       || guardrails.stuckDetector !== false
       || !Number.isSafeInteger(guardrails.maxIterations)
       || Number(guardrails.maxIterations) < 1) {
@@ -137,12 +144,12 @@ export function preflightNoToolGenerateDelegation(
       code: 'cancelled-before-dispatch', phase: 'before-dispatch', replay: 'not-dispatched',
     })
   }
-  const bridge = config.experimentalNoToolGenerateBridge
-  const reason = bridge === undefined || bridge === null
+  const ineligible = configurationIneligibility(config, options ?? {})
+  const bridge = ineligible === undefined ? config.experimentalNoToolGenerateBridge : undefined
+  const reason = ineligible ?? (bridge === undefined || bridge === null
       || !normalizedIdentity(bridge.bridgeId) || typeof bridge.dispatch !== 'function'
     ? 'bridge-unavailable'
-    : configurationIneligibility(config, options ?? {})
-      ?? (!normalizedIdentity(options?.runId) ? 'run-id-required' : undefined)
+    : (!normalizedIdentity(options?.runId) ? 'run-id-required' : undefined))
   if (reason !== undefined) {
     failClosedOrFallback(optIn.preDispatchPolicy, reason, 'admission')
     return false
@@ -351,14 +358,14 @@ export async function maybeDelegateNoToolGenerate(input: {
       replay: 'not-dispatched',
     })
   }
+  const ineligible = configurationIneligibility(input.config, options, input.runState)
+  if (ineligible !== undefined) {
+    return failClosedOrFallback(policy, ineligible, 'admission')
+  }
   const bridge = input.config.experimentalNoToolGenerateBridge
   if (bridge === undefined || !normalizedIdentity(bridge.bridgeId)
       || typeof bridge.dispatch !== 'function') {
     return failClosedOrFallback(policy, 'bridge-unavailable', 'admission')
-  }
-  const ineligible = configurationIneligibility(input.config, options, input.runState)
-  if (ineligible !== undefined) {
-    return failClosedOrFallback(policy, ineligible, 'admission')
   }
   const runId = options.runId
   if (!normalizedIdentity(runId)) {

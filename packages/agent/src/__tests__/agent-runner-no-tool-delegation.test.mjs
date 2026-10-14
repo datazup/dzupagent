@@ -188,17 +188,19 @@ test('cancellation before admission or during preparation performs no dispatch',
 })
 
 test('non-enumerable and accessor policies cannot bypass fail-closed admission', async () => {
-  for (const accessor of [false, true]) {
+  for (const field of ['hooks', 'tools', 'experimentalNoToolGenerateBridge']) {
+    for (const accessor of [false, true]) {
     let sideEffects = 0
     const value = fixture()
-    Object.defineProperty(value.agent.getConfig(), 'hooks', accessor
-      ? { get() { sideEffects += 1; return {} } }
-      : { value: { onRunStart() { sideEffects += 1 } } })
+    Object.defineProperty(value.agent.getConfig(), field, accessor
+      ? { enumerable: false, get() { sideEffects += 1; return {} } }
+      : { enumerable: false, value: { onRunStart() { sideEffects += 1 } } })
     await assert.rejects(value.agent.generate([new HumanMessage('hidden policy')], optIn()), {
       code: 'configuration-extension-enabled', replay: 'not-dispatched',
     })
     assert.equal(sideEffects, 0)
     assert.deepEqual(value.counts(), { legacyCalls: 0, modelCalls: 0 })
+    }
   }
 })
 
