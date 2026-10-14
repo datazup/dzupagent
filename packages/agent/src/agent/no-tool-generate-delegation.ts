@@ -90,8 +90,14 @@ function configurationIneligibility(
   if (config.memoryWriteBack !== undefined && config.memoryWriteBack !== false) {
     return 'memory-write-back-enabled'
   }
-  if (Object.entries(config).some(([field, value]) =>
-    value !== undefined && !ALLOWED_CONFIG_FIELDS.has(field))) {
+  const prototype = Object.getPrototypeOf(config)
+  if ((prototype !== Object.prototype && prototype !== null)
+      || Object.getOwnPropertySymbols(config).length !== 0
+      || Object.getOwnPropertyNames(config).some((field) => {
+        const descriptor = Object.getOwnPropertyDescriptor(config, field)
+        return descriptor?.get !== undefined || descriptor?.set !== undefined
+          || (descriptor?.value !== undefined && !ALLOWED_CONFIG_FIELDS.has(field))
+      })) {
     return 'configuration-extension-enabled'
   }
   if (runState?.memoryFrame !== undefined) return 'memory-frame-present'

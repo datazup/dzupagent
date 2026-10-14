@@ -187,6 +187,21 @@ test('cancellation before admission or during preparation performs no dispatch',
   }
 })
 
+test('non-enumerable and accessor policies cannot bypass fail-closed admission', async () => {
+  for (const accessor of [false, true]) {
+    let sideEffects = 0
+    const value = fixture()
+    Object.defineProperty(value.agent.getConfig(), 'hooks', accessor
+      ? { get() { sideEffects += 1; return {} } }
+      : { value: { onRunStart() { sideEffects += 1 } } })
+    await assert.rejects(value.agent.generate([new HumanMessage('hidden policy')], optIn()), {
+      code: 'configuration-extension-enabled', replay: 'not-dispatched',
+    })
+    assert.equal(sideEffects, 0)
+    assert.deepEqual(value.counts(), { legacyCalls: 0, modelCalls: 0 })
+  }
+})
+
 test('bridge-certified pre-dispatch refusal follows the selected policy', async () => {
   const fallback = fixture({ mode: 'rejected-before-dispatch' })
   await fallback.agent.generate([new HumanMessage('fallback')], optIn('fallback-to-legacy'))
