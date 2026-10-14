@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createEventBus } from '@dzupagent/core'
 import type { PipelineDefinition } from '@dzupagent/core/pipeline'
 import { PipelineRuntime } from '@dzupagent/agent/pipeline'
@@ -15,6 +15,7 @@ import type {
   AdapterRuntimeToolOrchestrator,
 } from '../runtime-tool-bridge.js'
 import { stubCapabilities } from '../../__tests__/adapter-capability-stub.js'
+import type { SubTaskResult, SupervisorResult } from '../../orchestration/supervisor.js'
 
 describe('adapter runtime tool bridge', () => {
   it('executes prompt runtime nodes through OrchestratorFacade.run', async () => {
@@ -376,6 +377,175 @@ describe('adapter runtime tool bridge', () => {
     ])
   })
 
+  it.each([
+    {
+      name: 'mixed success and failure',
+      subtasks: [supervisorSubtask('Review'), supervisorSubtask('Implement', { success: false, error: 'implementation failed', result: 'partial patch' })],
+      cancelled: false, code: 'ADAPTER_RUNTIME_FAILED', count: 1,
+      errors: ['implementation failed'],
+    },
+    {
+      name: 'all failures',
+      subtasks: [supervisorSubtask('Review', { success: false, error: 'review failed' }), supervisorSubtask('Implement', { success: false, error: 'implementation failed' })],
+      cancelled: false, code: 'ADAPTER_RUNTIME_FAILED', count: 2,
+      errors: ['review failed', 'implementation failed'],
+    },
+    {
+      name: 'skipped prerequisite',
+      subtasks: [
+        supervisorSubtask('Implement', { success: false, error: 'implementation failed' }),
+        supervisorSubtask('Validate', { subtask: { description: 'Validate', tags: [], dependsOn: [0] }, providerId: null, sessionId: undefined, success: false, result: '', durationMs: 0, error: 'Skipped: dependency subtask 0 failed' }),
+      ],
+      cancelled: false, code: 'ADAPTER_RUNTIME_FAILED', count: 2,
+      errors: ['implementation failed', 'Skipped: dependency subtask 0 failed'],
+    },
+    {
+      name: 'subtask cancellation without aggregate cancellation flag',
+      subtasks: [supervisorSubtask('Review'), supervisorSubtask('Implement', { success: false, cancelled: true, error: 'operator cancelled', result: 'partial patch' })],
+      cancelled: false, code: 'ADAPTER_RUNTIME_CANCELLED', count: 1,
+      errors: ['operator cancelled'],
+    },
+    {
+      name: 'aggregate cancellation before delegation',
+      subtasks: [], cancelled: true, code: 'ADAPTER_RUNTIME_CANCELLED', count: 0,
+      errors: ['cancelled'],
+    },
+    {
+      name: 'aggregate cancellation after successful delegation',
+      subtasks: [supervisorSubtask('Review')], cancelled: true, code: 'ADAPTER_RUNTIME_CANCELLED', count: 0,
+      errors: ['cancelled'],
+    },
+    {
+      name: 'unsuccessful subtask without error text',
+      subtasks: [supervisorSubtask('Review', { success: false })],
+      cancelled: false, code: 'ADAPTER_RUNTIME_FAILED', count: 1,
+      errors: ['Review: unsuccessful'],
+    },
+  ])('fails before validation, output binding and success checkpoints for $name', async ({ subtasks, cancelled, code, count, errors }) => {
+    const aggregate: SupervisorResult = {
+      goal: 'Coordinate review.', subtaskResults: subtasks, totalDurationMs: 5,
+      ...(cancelled ? { cancelled: true as const } : {}),
+    }
+    const original = structuredClone(aggregate)
+    const unused = vi.fn(async (): Promise<never> => { throw new Error('unexpected facade call') })
+    const orchestrator: AdapterRuntimeToolOrchestrator = {
+      run: unused, race: unused, parallel: unused,
+      supervisor: vi.fn(async () => aggregate),
+    }
+    const validate = vi.fn(async () => ({ output: 'validated' }))
+    const handlers = createAdapterRuntimeToolHandlers({ orchestrator, validate })
+    let state: Record<string, unknown> | undefined
+    const supervisorHandler = handlers['dzup.runtime.adapter.supervisor']!
+    handlers['dzup.runtime.adapter.supervisor'] = async (input) => {
+      state = input.context.state
+      return supervisorHandler(input)
+    }
+    const definition = runtimeToolDefinition({
+      id: 'supervisor_failure', toolName: 'dzup.runtime.adapter.supervisor',
+      arguments: { goal: aggregate.goal, output: 'supervisorResult' },
+    })
+    definition.checkpointStrategy = 'after_each_node'
+    definition.nodes.push({ id: 'validate_after', type: 'tool', toolName: 'dzup.runtime.validate', arguments: { ref: 'acceptance' } })
+    definition.edges.push({ type: 'sequential', sourceNodeId: 'supervisor_failure', targetNodeId: 'validate_after' })
+    const save = vi.fn(async () => {})
+    const events: string[] = []
+    const result = await new PipelineRuntime({
+      definition, nodeExecutor: unexpectedFallback, runtimeToolHandlers: handlers,
+      checkpointStore: {
+        save, load: async () => undefined, loadVersion: async () => undefined,
+        listVersions: async () => [], delete: async () => {}, prune: async () => 0,
+      },
+      onEvent: (event) => { events.push(event.type) },
+    }).execute({ supervisorResult: 'prior output', sentinel: 'keep' })
+
+    expect(result.state).toBe('failed')
+    const node = result.nodeResults.get('supervisor_failure')
+    expect(node?.output).toEqual(original)
+    expect(aggregate).toEqual(original)
+    expect(node?.errorMetadata).toMatchObject({
+      code, retryable: code !== 'ADAPTER_RUNTIME_CANCELLED',
+      unsuccessfulSubtaskCount: count, totalSubtaskCount: subtasks.length,
+    })
+    for (const error of errors) expect(node?.error).toContain(error)
+    expect(node?.providerSessionRefs ?? []).toEqual(subtasks.flatMap((subtask) =>
+      subtask.providerId !== null && subtask.sessionId !== undefined
+        ? [{ provider: subtask.providerId, sessionId: subtask.sessionId, label: 'adapter.supervisor' }] : [],
+    ))
+    expect(state).toEqual({ supervisorResult: 'prior output', sentinel: 'keep' })
+    expect(validate).not.toHaveBeenCalled()
+    expect(result.nodeResults.has('validate_after')).toBe(false)
+    expect(events).toContain('pipeline:node_failed')
+    expect(events).not.toContain('pipeline:node_completed')
+    expect(events).not.toContain('pipeline:completed')
+    expect(save).not.toHaveBeenCalled()
+    expect(unused).not.toHaveBeenCalled()
+  })
+
+  it('does not retry a cancelled supervisor timeout or replace its aggregate/session evidence', async () => {
+    const cancelled: SupervisorResult = {
+      goal: 'Coordinate review.', totalDurationMs: 5, cancelled: true,
+      subtaskResults: [supervisorSubtask('Implement', {
+        success: false, cancelled: true, error: 'provider timeout',
+        result: 'partial patch', sessionId: 'cancelled-session',
+      })],
+    }
+    const original = structuredClone(cancelled)
+    const supervisor = vi.fn()
+      .mockResolvedValueOnce(cancelled)
+      .mockResolvedValue({ goal: cancelled.goal, subtaskResults: [supervisorSubtask('Implement')], totalDurationMs: 1 })
+    const unused = vi.fn(async (): Promise<never> => { throw new Error('unexpected facade call') })
+    const orchestrator: AdapterRuntimeToolOrchestrator = { run: unused, race: unused, parallel: unused, supervisor }
+    const validate = vi.fn(async () => ({ output: 'validated' }))
+    const handlers = createAdapterRuntimeToolHandlers({ orchestrator, validate })
+    let state: Record<string, unknown> | undefined
+    const supervisorHandler = handlers['dzup.runtime.adapter.supervisor']!
+    handlers['dzup.runtime.adapter.supervisor'] = async (input) => {
+      state = input.context.state
+      return supervisorHandler(input)
+    }
+    const definition = runtimeToolDefinition({
+      id: 'supervisor_cancelled', toolName: 'dzup.runtime.adapter.supervisor',
+      arguments: { goal: cancelled.goal, output: 'supervisorResult' },
+    })
+    definition.nodes[0]!.retries = 1
+    definition.checkpointStrategy = 'after_each_node'
+    definition.nodes.push({ id: 'validate_after', type: 'tool', toolName: 'dzup.runtime.validate', arguments: { ref: 'acceptance' } })
+    definition.edges.push({ type: 'sequential', sourceNodeId: 'supervisor_cancelled', targetNodeId: 'validate_after' })
+    const save = vi.fn(async () => {})
+    const events: string[] = []
+    const controller = new AbortController()
+    const result = await new PipelineRuntime({
+      definition, nodeExecutor: unexpectedFallback, runtimeToolHandlers: handlers,
+      retryPolicy: { initialBackoffMs: 1, retryableErrors: ['timeout'] }, signal: controller.signal,
+      checkpointStore: {
+        save, load: async () => undefined, loadVersion: async () => undefined,
+        listVersions: async () => [], delete: async () => {}, prune: async () => 0,
+      },
+      onEvent: (event) => { events.push(event.type) },
+    }).execute({ supervisorResult: 'prior output' })
+
+    expect(controller.signal.aborted).toBe(false)
+    expect(supervisor).toHaveBeenCalledOnce()
+    expect(result.state).toBe('failed')
+    const node = result.nodeResults.get('supervisor_cancelled')
+    expect(node?.error).toContain('provider timeout')
+    expect(node?.errorMetadata).toMatchObject({ code: 'ADAPTER_RUNTIME_CANCELLED', retryable: false })
+    expect(node?.output).toEqual(original)
+    expect(node?.providerSessionRefs).toEqual([
+      { provider: 'codex', sessionId: 'cancelled-session', label: 'adapter.supervisor' },
+    ])
+    expect(cancelled).toEqual(original)
+    expect(state).toEqual({ supervisorResult: 'prior output' })
+    expect(validate).not.toHaveBeenCalled()
+    expect(result.nodeResults.has('validate_after')).toBe(false)
+    expect(events).toContain('pipeline:node_failed')
+    expect(events).not.toContain('pipeline:node_retry')
+    expect(events).not.toContain('pipeline:node_completed')
+    expect(events).not.toContain('pipeline:completed')
+    expect(save).not.toHaveBeenCalled()
+    expect(unused).not.toHaveBeenCalled()
+  })
+
   it('propagates rich runtime options into race, parallel, and supervisor facade APIs', async () => {
     const calls: Array<{ method: string; options: unknown; signal?: AbortSignal }> = []
     const orchestrator: AdapterRuntimeToolOrchestrator = {
@@ -662,6 +832,13 @@ describe('adapter runtime tool bridge', () => {
     ])
   })
 })
+
+function supervisorSubtask(description: string, overrides: Partial<SubTaskResult> = {}): SubTaskResult {
+  return {
+    subtask: { description, tags: [] }, providerId: 'codex', sessionId: `sess-${description}`,
+    result: 'useful output', success: true, durationMs: 1, ...overrides,
+  }
+}
 
 function runtimeToolDefinition(node: {
   id: string

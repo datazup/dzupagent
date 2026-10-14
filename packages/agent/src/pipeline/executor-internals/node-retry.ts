@@ -82,6 +82,10 @@ export async function runNodeWithRetry(
     // Last attempt — don't retry
     if (attempt === maxAttempts) break
 
+    // Explicit terminal outcomes take precedence over code/message retry policies.
+    // Keep this attempt's original output and session evidence instead of retrying.
+    if (result.errorMetadata?.['retryable'] === false) break
+
     // Check if error is retryable
     const errorCode = result.errorMetadata?.['code']
     if (

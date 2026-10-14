@@ -327,6 +327,72 @@ describe('PipelineRuntime — retry exhaustion', () => {
     expect(delaysSeen).toEqual([100, 200, 400])
   })
 
+  it.each([
+    { name: 'matching message pattern', policy: { retryableErrors: ['timeout'] } },
+    { name: 'matching error code', policy: { retryableErrorCodes: ['ADAPTER_RUNTIME_CANCELLED'] } },
+    { name: 'unfiltered retry policy', policy: {} },
+  ])('preserves explicit non-retryable evidence under $name', async ({ policy }) => {
+    const terminal: NodeResult = {
+      nodeId: 'A', output: { partialOutput: 'retained work', cancelled: true }, durationMs: 1,
+      error: 'provider timeout',
+      errorMetadata: { code: 'ADAPTER_RUNTIME_CANCELLED', retryable: false },
+      providerSessionRefs: [{ provider: 'codex', sessionId: 'cancelled-session' }],
+    }
+    let callCount = 0
+    const events: PipelineRuntimeEvent[] = []
+    const executor: NodeExecutor = async (nodeId) => {
+      callCount++
+      return callCount === 1 ? terminal : { nodeId, output: 'would succeed on retry', durationMs: 1 }
+    }
+    const runtime = new PipelineRuntime({
+      definition: makeLinearPipeline([
+        { id: 'A', type: 'agent', agentId: 'a1', retries: 1 },
+        { id: 'after', type: 'agent', agentId: 'a2' },
+      ]),
+      nodeExecutor: executor,
+      retryPolicy: { initialBackoffMs: 1, ...policy },
+      onEvent: collectEvents(events),
+    })
+
+    const pending = runtime.execute()
+    await vi.runAllTimersAsync()
+    const result = await pending
+
+    expect(result.state).toBe('failed')
+    expect(callCount).toBe(1)
+    expect(result.nodeResults.has('after')).toBe(false)
+    expect(result.nodeResults.get('A')).toMatchObject({
+      output: terminal.output, error: terminal.error,
+      errorMetadata: terminal.errorMetadata, providerSessionRefs: terminal.providerSessionRefs,
+    })
+    expect(events.some((event) => event.type === 'pipeline:node_retry')).toBe(false)
+    expect(events.some((event) => event.type === 'pipeline:node_completed')).toBe(false)
+    expect(events.some((event) => event.type === 'pipeline:completed')).toBe(false)
+  })
+
+  it.each([undefined, true])('still retries a matching failure when retryable metadata is %s', async (retryable) => {
+    let callCount = 0
+    const executor: NodeExecutor = async (nodeId) => {
+      callCount++
+      return callCount === 1
+        ? { nodeId, output: null, durationMs: 1, error: 'provider timeout', ...(retryable === true ? { errorMetadata: { retryable: true } } : {}) }
+        : { nodeId, output: 'successful retry', durationMs: 1 }
+    }
+    const runtime = new PipelineRuntime({
+      definition: makeSingleNodePipeline({ id: 'A', type: 'agent', agentId: 'a1', retries: 1 }),
+      nodeExecutor: executor,
+      retryPolicy: { initialBackoffMs: 1, retryableErrors: ['timeout'] },
+    })
+
+    const pending = runtime.execute()
+    await vi.runAllTimersAsync()
+    const result = await pending
+
+    expect(result.state).toBe('completed')
+    expect(callCount).toBe(2)
+    expect(result.nodeResults.get('A')?.output).toBe('successful retry')
+  })
+
   it('non-retryable error stops at first attempt despite retries > 0', async () => {
     let callCount = 0
     const executor: NodeExecutor = async (nodeId) => {

@@ -37,6 +37,8 @@ export interface AgentExecutionRequest {
   /** Explicit legacy cross-provider fallback authorization. */
   approvedFallbackProviders?: AgentExecutionProviderId[] | undefined
   prompt: string
+  /** Exact provider-native session selected by the owning host; never an inferred fence ID. */
+  resumeSessionId?: string | undefined
   workingDirectory?: string | undefined
   model?: string | undefined
   reasoning?: AgentExecutionReasoning | undefined
@@ -303,6 +305,7 @@ export function stripApiAuthenticationEnvironment(
 }
 
 type PreparedRunnerState = {
+  resumeSessionId: string | undefined
   executeWithFallback: (
     input: AgentInput,
     task: TaskDescriptor,
@@ -343,6 +346,14 @@ export function prepareAgentExecutionRunner(
   request: AgentExecutionRequest,
   options: PrepareAgentExecutionRunnerOptions = {},
 ): PreparedAgentExecutionRunner {
+  const resumeSessionId = request.resumeSessionId
+  if (resumeSessionId !== undefined && (
+    typeof resumeSessionId !== 'string' || resumeSessionId.length === 0 || resumeSessionId.length > 512
+    || resumeSessionId.trim() !== resumeSessionId || /[\x00-\x1f\x7f]/u.test(resumeSessionId)
+    || (request.approvedFallbackProviders?.length ?? 0) > 0
+  )) {
+    throw new AgentExecutionConfigurationError('AGENT_EXECUTION_RESUME_INVALID', 'Resume requires an exact native session and no fallback')
+  }
   const adapter = materializeSelectedAdapter(request, options)
   if (adapter.providerId !== request.providerId) {
     throw new AgentExecutionConfigurationError(
@@ -352,10 +363,14 @@ export function prepareAgentExecutionRunner(
   }
 
   const observed = frozenCapabilityProfile(adapter.getCapabilities())
+  const requiredCapabilities = [...new Set([
+    ...(options.requiredCapabilities ?? []),
+    ...(resumeSessionId !== undefined ? ['supportsResume' as const] : []),
+  ])]
   const required = Object.fromEntries(
-    (options.requiredCapabilities ?? []).map((capability) => [capability, true]),
+    requiredCapabilities.map((capability) => [capability, true]),
   ) as Partial<Record<AgentExecutionBooleanCapability, true>>
-  for (const capability of options.requiredCapabilities ?? []) {
+  for (const capability of requiredCapabilities) {
     if (!capabilityValue(observed, capability)) {
       throw new AgentExecutionConfigurationError(
         'AGENT_EXECUTION_CAPABILITY_REQUIRED',
@@ -363,18 +378,30 @@ export function prepareAgentExecutionRunner(
       )
     }
   }
+  if (resumeSessionId !== undefined && typeof adapter.resumeSession !== 'function') {
+    throw new AgentExecutionConfigurationError('AGENT_EXECUTION_CAPABILITY_REQUIRED', 'Resume method is required')
+  }
 
   const registry = new ProviderAdapterRegistry({ executionTimeoutMs: request.timeoutMs })
   // DZUPAGENT-GAP4-01-20261003-R1: keep the guard next to the actual
   // invocation, including raw execution and resume. Bind methods to the real
   // adapter so class private fields and optional methods keep their semantics.
   const guard = options.guardAdapterStart
-  const guardedAdapter = guard ? new Proxy(adapter, {
+  const guardedAdapter = guard || resumeSessionId !== undefined ? new Proxy(adapter, {
     get(target, key) {
       const value = Reflect.get(target, key, target)
       if (typeof value !== 'function') return value
       if (key === 'execute' || key === 'executeWithRaw' || key === 'resumeSession') {
-        return (...args: unknown[]) => guard(() => Reflect.apply(value, target, args))
+        return (...args: unknown[]) => {
+          const invoke = (): AsyncGenerator<AgentStreamEvent, void, undefined> => {
+            if (resumeSessionId !== undefined && (key !== 'resumeSession' || args[0] !== resumeSessionId
+              || (args[1] as AgentInput | undefined)?.resumeSessionId !== resumeSessionId)) {
+              throw new AgentExecutionConfigurationError('AGENT_EXECUTION_RESUME_MISMATCH', 'Prepared native resume identity changed')
+            }
+            return Reflect.apply(value, target, args) as AsyncGenerator<AgentStreamEvent, void, undefined>
+          }
+          return guard ? guard(invoke) : invoke()
+        }
       }
       return value.bind(target)
     },
@@ -398,8 +425,12 @@ export function prepareAgentExecutionRunner(
   })
   const preparedRunner: PreparedAgentExecutionRunner = Object.freeze({ attestation })
   PREPARED_RUNNER_STATE.set(preparedRunner, {
+    resumeSessionId,
     async *executeWithFallback(input, task) {
       const projectedInput = options.projectInput?.(input, task) ?? input
+      if (resumeSessionId !== undefined && projectedInput.resumeSessionId !== resumeSessionId) {
+        throw new AgentExecutionConfigurationError('AGENT_EXECUTION_RESUME_MISMATCH', 'Host projection changed the prepared native session')
+      }
       for await (const event of registry.executeWithFallback(projectedInput, task)) {
         const projection = options.projectEvent
           ? await options.projectEvent(event)
@@ -424,6 +455,10 @@ function requirePreparedRunner(
     )
   }
   const selection = preparedRunner.attestation.selection
+  if (state.resumeSessionId !== request.resumeSessionId
+    || (state.resumeSessionId !== undefined && (request.approvedFallbackProviders?.length ?? 0) > 0)) {
+    throw new AgentExecutionConfigurationError('AGENT_EXECUTION_RESUME_MISMATCH', 'Execution request differs from the prepared native session')
+  }
   if (
     selection.providerId !== request.providerId ||
     selection.backend !== request.backend ||
@@ -471,6 +506,7 @@ function projectAgentInput(request: AgentExecutionRequest): AgentInput {
 
   return {
     prompt: request.prompt,
+    ...(request.resumeSessionId !== undefined ? { resumeSessionId: request.resumeSessionId } : {}),
     ...(request.systemPrompt ? { systemPrompt: request.systemPrompt } : {}),
     ...(request.signal ? { signal: request.signal } : {}),
     ...(request.outputSchema ? { outputSchema: request.outputSchema } : {}),

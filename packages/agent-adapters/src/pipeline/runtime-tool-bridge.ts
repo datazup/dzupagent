@@ -224,12 +224,25 @@ async function runAdapterSupervisorRuntimeTool(
     ...runtimeCommonOptions(request),
   })
 
-  if (result.cancelled === true) {
+  const unsuccessful = result.subtaskResults.filter(
+    (subtask) => !subtask.success || subtask.cancelled === true,
+  )
+  const cancelled = result.cancelled === true
+    || result.subtaskResults.some((subtask) => subtask.cancelled === true)
+
+  if (cancelled || unsuccessful.length > 0) {
+    const summary = unsuccessful.map((subtask) =>
+      `${subtask.subtask.description}: ${subtask.error ?? (subtask.cancelled ? 'cancelled' : 'unsuccessful')}`,
+    ).join('; ')
     return {
       error: {
-        message: 'Adapter supervisor execution was cancelled',
-        code: 'ADAPTER_RUNTIME_CANCELLED',
-        retryable: false,
+        message: `${cancelled ? 'Adapter supervisor execution was cancelled' : 'Adapter supervisor execution failed'}${summary ? `: ${summary}` : ''}`,
+        code: cancelled ? 'ADAPTER_RUNTIME_CANCELLED' : 'ADAPTER_RUNTIME_FAILED',
+        retryable: !cancelled,
+        metadata: {
+          unsuccessfulSubtaskCount: unsuccessful.length,
+          totalSubtaskCount: result.subtaskResults.length,
+        },
       },
       output: result,
       providerSessionRefs: supervisorSessionRefs(result, 'adapter.supervisor'),

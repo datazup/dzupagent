@@ -290,6 +290,89 @@ describe("runAgentExecution", () => {
     );
   });
 
+  it("projects the requested native session through the real registry without ordinary execute", async () => {
+    const sessionId = "00000000-0000-4000-8000-000000000001";
+    const onExecute = vi.fn();
+    const onResume = vi.fn();
+    const controller = new AbortController();
+    const request = exactRequest({
+      prompt: "continue exactly", resumeSessionId: sessionId,
+      approvedFallbackProviders: [], workingDirectory: "/owned/repo",
+      model: "fixed-model", reasoning: "high", timeoutMs: 1000,
+      outputSchema: { type: "object" }, signal: controller.signal,
+    });
+    const prepared = prepareFakeRunner(request, createFakeAdapter("codex", {
+      onExecute, onResume, usage: { inputTokens: 7, outputTokens: 3 },
+    }));
+    const result = await runPreparedAgentExecution(request, prepared);
+    expect(result).toMatchObject({ ok: true, usage: { inputTokens: 7, outputTokens: 3 } });
+    expect(result.events).toContainEqual(expect.objectContaining({ type: "adapter:completed", sessionId }));
+    expect(onExecute).not.toHaveBeenCalled();
+    expect(onResume).toHaveBeenCalledTimes(1);
+    expect(onResume).toHaveBeenCalledWith(sessionId, expect.objectContaining({
+      resumeSessionId: sessionId, workingDirectory: request.workingDirectory,
+      outputSchema: request.outputSchema, signal: expect.any(AbortSignal),
+      options: expect.objectContaining({ model: "fixed-model", reasoning: "high", timeoutMs: 1000 }),
+    }));
+    expect(prepared.attestation.capabilityEvidence.required.supportsResume).toBe(true);
+  });
+
+  it.each(["", " spaced ", "bad\nidentity", null])("refuses invalid resume identity %j before materialization", (resumeSessionId) => {
+    const materializeAdapter = vi.fn(() => createFakeAdapter("codex"));
+    expect(() => prepareAgentExecutionRunner(exactRequest({
+      prompt: "continue", resumeSessionId: resumeSessionId as unknown as string,
+    }), { materializeAdapter })).toThrow("Resume requires an exact native session and no fallback");
+    expect(materializeAdapter).not.toHaveBeenCalled();
+  });
+
+  it("refuses fallback and an unsupported or missing resume implementation", () => {
+    const request = exactRequest({ prompt: "continue", resumeSessionId: "native-session" });
+    const materializeAdapter = vi.fn(() => createFakeAdapter("codex"));
+    expect(() => prepareAgentExecutionRunner({ ...request, approvedFallbackProviders: ["claude"] }, {
+      materializeAdapter,
+    })).toThrow("Resume requires an exact native session and no fallback");
+    expect(materializeAdapter).not.toHaveBeenCalled();
+    const unsupported = createFakeAdapter("codex");
+    unsupported.getCapabilities = () => ({ ...capabilities, supportsResume: false });
+    expect(() => prepareFakeRunner(request, unsupported)).toThrow("supportsResume");
+    const missing = createFakeAdapter("codex");
+    Reflect.deleteProperty(missing, "resumeSession");
+    expect(() => prepareFakeRunner(request, missing)).toThrow("Resume method is required");
+  });
+
+  it.each([undefined, "foreign-session"])("refuses projection erasure/replacement %j without invocation", async (projectedId) => {
+    const onExecute = vi.fn(), onResume = vi.fn();
+    const request = exactRequest({ prompt: "continue", resumeSessionId: "native-session" });
+    const prepared = prepareFakeRunner(request, createFakeAdapter("codex", { onExecute, onResume }), {
+      projectInput: input => ({ ...input, resumeSessionId: projectedId }),
+    });
+    await expect(runPreparedAgentExecution(request, prepared)).resolves.toMatchObject({
+      ok: false, code: "AGENT_EXECUTION_RESUME_MISMATCH",
+    });
+    expect(onExecute).not.toHaveBeenCalled();
+    expect(onResume).not.toHaveBeenCalled();
+  });
+
+  it("pins preparation identity across changed requests and a late host start guard", async () => {
+    const onExecute = vi.fn(), onResume = vi.fn();
+    const request = exactRequest({ prompt: "continue", resumeSessionId: "native-session" });
+    let projectedInput: AgentInput | undefined;
+    const prepared = prepareFakeRunner(request, createFakeAdapter("codex", { onExecute, onResume }), {
+      projectInput(input) { projectedInput = input; return input; },
+      async *guardAdapterStart(invoke) {
+        if (projectedInput) projectedInput.resumeSessionId = "foreign-session";
+        yield* invoke();
+      },
+    });
+    await expect(runPreparedAgentExecution({ ...request, resumeSessionId: "foreign-session" }, prepared)).resolves.toMatchObject({
+      ok: false, code: "AGENT_EXECUTION_RESUME_MISMATCH",
+    });
+    const late = await runPreparedAgentExecution(request, prepared);
+    expect(late.ok).toBe(false);
+    expect(onExecute).not.toHaveBeenCalled();
+    expect(onResume).not.toHaveBeenCalled();
+  });
+
   it("never ignores a subscription profile when no qualified materializer is injected", async () => {
     expect(() =>
       prepareAgentExecutionRunner({
