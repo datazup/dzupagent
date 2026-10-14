@@ -3,9 +3,10 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { tool } from '@langchain/core/tools'
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
+import { createHash } from 'node:crypto'
 import { DzupAgent } from '../agent/dzip-agent.js'
 import { InMemoryAgentRunner, digestRunnerJson, type AgentRunnerModelInvocationResult } from '../runner.js'
-import { buildRunnerProviderFreeExecutionProfile } from '../runner/legacy-runner-execution-profile.js'
+import { buildRunnerProviderFreeExecutionProfile, evaluateRunnerProviderFreeExecutionProfile } from '../runner/legacy-runner-execution-profile.js'
 import { createLegacyRunnerMessageItem } from '../runner/legacy-runner-message-envelope-codec.js'
 import {
   captureLegacyReadToolResultEnvelope, projectLegacyReadToolGenerateResult,
@@ -19,6 +20,13 @@ const usage = [{ input_tokens: 10, output_tokens: 4, total_tokens: 14 },
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
 type Mutable<T> = { -readonly [K in keyof T]: Mutable<T[K]> }
 const mutable = <T>(value: T): Mutable<T> => clone(value) as Mutable<T>
+
+function canonicalProfile(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(canonicalProfile).join(',')}]`
+  return `{${Object.entries(value).sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, item]) => `${JSON.stringify(key)}:${canonicalProfile(item)}`).join(',')}}`
+}
 
 function comparable(result: Awaited<ReturnType<DzupAgent['generate']>>) {
   return { ...result, messages: result.messages.map((message) => message.toDict()),
@@ -269,7 +277,8 @@ describe('R5O single-read legacy result/timing envelope', () => {
         const profile = mutable(input.profile)
         Object.assign(mode === 'profile' ? profile : profile.claims[0]!, { extension: true })
         const { profileDigest: _digest, ...body } = profile
-        profile.profileDigest = digestRunnerJson(body)
+        profile.profileDigest = createHash('sha256').update(canonicalProfile(body)).digest('hex')
+        expect(evaluateRunnerProviderFreeExecutionProfile(profile, behaviorDigest).status).toBe('eligible')
         input.profile = profile
       }
       if (mode === 'capture') Object.assign(input, { extension: true })
