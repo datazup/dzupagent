@@ -110,6 +110,30 @@ function makeMessages(count: number): BaseMessage[] {
   return msgs
 }
 
+function textMessages(...texts: string[]): BaseMessage[] {
+  return texts.map(text => new HumanMessage(text))
+}
+
+/** Message contents the observer presented to the model on one invoke call. */
+function extractionInput(
+  model: { invoke: ReturnType<typeof vi.fn> },
+  callIndex: number,
+): string[] {
+  const prompt = model.invoke.mock.calls[callIndex]![0] as BaseMessage[]
+  const text = prompt[1]!.content as string
+  return [...text.matchAll(/^\[m\d+\] \w+: (.*)$/gm)].map(match => match[1]!)
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
 /** LLM response that returns observations as JSON */
 function observationResponse(observations: Array<{ text: string; category: string; confidence: number }>): string {
   return JSON.stringify(observations.map(observation => ({
@@ -224,6 +248,113 @@ describe('ObservationalMemory', () => {
       // Second call with just 2 messages (below threshold after reset)
       const result2 = await sut.observe(makeMessages(2))
       expect(result2).toBeNull()
+    })
+  })
+
+  // -----------------------------------------------------------------------
+  // observe() — extraction input is the delta since the last success (MEM-01)
+  // -----------------------------------------------------------------------
+
+  describe('observe() message buffer', () => {
+    it('extracts every message accumulated across below-threshold calls', async () => {
+      sut = createOM({ observerThreshold: 6 })
+
+      expect(await sut.observe(textMessages('delta-1-a', 'delta-1-b'))).toBeNull()
+      expect(await sut.observe(textMessages('delta-2-a', 'delta-2-b'))).toBeNull()
+      const result = await sut.observe(textMessages('delta-3-a', 'delta-3-b'))
+
+      expect(result).not.toBeNull()
+      expect(model.invoke).toHaveBeenCalledTimes(1)
+      expect(extractionInput(model, 0)).toEqual([
+        'delta-1-a', 'delta-1-b',
+        'delta-2-a', 'delta-2-b',
+        'delta-3-a', 'delta-3-b',
+      ])
+    })
+
+    it('keeps messages that arrive during an in-flight run for the next run only', async () => {
+      const firstInvoke = deferred<{ content: string }>()
+      model.invoke.mockImplementationOnce(() => firstInvoke.promise)
+      sut = createOM({ observerThreshold: 2 })
+
+      const firstRun = sut.observe(textMessages('first-a', 'first-b'))
+      await vi.waitFor(() => expect(model.invoke).toHaveBeenCalledTimes(1))
+      expect(await sut.observe(textMessages('during-run'))).toBeNull()
+      firstInvoke.resolve({ content: '[]' })
+      expect(await firstRun).not.toBeNull()
+
+      const secondRun = await sut.observe(textMessages('after-run'))
+
+      expect(secondRun).not.toBeNull()
+      expect(model.invoke).toHaveBeenCalledTimes(2)
+      expect(extractionInput(model, 0)).toEqual(['first-a', 'first-b'])
+      expect(extractionInput(model, 1)).toEqual(['during-run', 'after-run'])
+    })
+
+    it('keeps a failed run\'s messages for the retry', async () => {
+      memoryService.get.mockRejectedValueOnce(new Error('store connection lost'))
+      sut = createOM({ observerThreshold: 2 })
+
+      expect(await sut.observe(textMessages('failed-a', 'failed-b'))).toBeNull()
+      const retry = await sut.observe(textMessages('retry-c'))
+
+      expect(retry).not.toBeNull()
+      expect(model.invoke).toHaveBeenCalledTimes(2)
+      expect(extractionInput(model, 1)).toEqual(['failed-a', 'failed-b', 'retry-c'])
+    })
+
+    it('bounds the buffer, dropping the oldest messages and reporting the drop count', async () => {
+      const events: ObservationLifecycleEvent[] = []
+      sut = createOM({
+        observerThreshold: 1,
+        onObservationLifecycleEvent: event => events.push(event),
+      })
+      const texts = Array.from({ length: 250 }, (_, index) => `bounded-${index}`)
+
+      const result = await sut.observe(textMessages(...texts))
+
+      expect(result).not.toBeNull()
+      expect(extractionInput(model, 0)).toEqual(texts.slice(50))
+      expect(events).toContainEqual(expect.objectContaining({
+        type: 'observation:candidate:pruned',
+        count: 50,
+        reason: expect.stringContaining('observer message buffer'),
+      }))
+    })
+
+    it('does not let a run that fails after reset() restore its messages', async () => {
+      const pendingGet = deferred<Record<string, unknown>[]>()
+      memoryService.get.mockImplementationOnce(() => pendingGet.promise)
+      sut = createOM({ observerThreshold: 2 })
+
+      const firstRun = sut.observe(textMessages('stale-a', 'stale-b'))
+      await vi.waitFor(() => expect(memoryService.get).toHaveBeenCalledTimes(1))
+      sut.reset()
+      pendingGet.reject(new Error('store connection lost'))
+      expect(await firstRun).toBeNull()
+
+      const next = await sut.observe(textMessages('fresh-a', 'fresh-b'))
+
+      expect(next).not.toBeNull()
+      expect(extractionInput(model, 1)).toEqual(['fresh-a', 'fresh-b'])
+    })
+
+    it('keeps messages that arrive after reset() during an in-flight run', async () => {
+      const firstInvoke = deferred<{ content: string }>()
+      model.invoke.mockImplementationOnce(() => firstInvoke.promise)
+      sut = createOM({ observerThreshold: 2 })
+
+      const firstRun = sut.observe(textMessages('stale-a', 'stale-b'))
+      await vi.waitFor(() => expect(model.invoke).toHaveBeenCalledTimes(1))
+      sut.reset()
+      expect(await sut.observe(textMessages('fresh-a'))).toBeNull()
+      firstInvoke.resolve({ content: '[]' })
+      await firstRun
+
+      const next = await sut.observe(textMessages('fresh-b'))
+
+      expect(next).not.toBeNull()
+      expect(extractionInput(model, 1)).toEqual(['fresh-a', 'fresh-b'])
     })
   })
 
