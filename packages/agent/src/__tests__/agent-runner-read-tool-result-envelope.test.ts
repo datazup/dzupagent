@@ -175,7 +175,10 @@ describe('R5O single-read legacy result/timing envelope', () => {
 
   it.each(['input', 'call', 'output', 'order', 'effect', 'retry', 'failed', 'unknown', 'suspended',
     'context', 'session', 'adapter', 'sandbox', 'structured', 'handoff', 'usage', 'extension', 'invocation-extension',
-    'event-call', 'duplicate-item', 'completion-evidence'])(
+    'event-call', 'duplicate-item', 'completion-evidence', 'event-extension', 'payload-extension',
+    'usage-extension', 'usage-record-extension', 'budget-extension', 'budget-limits-extension',
+    'budget-consumed-extension', 'tool-selection', 'model-itemids', 'model-callids', 'model-turn',
+    'item-event', 'usage-source'])(
     'rejects %s runner drift and never replays execution', async (mode) => {
       const value = await scenario()
       const result = mutable(value.input.result)
@@ -203,6 +206,19 @@ describe('R5O single-read legacy result/timing envelope', () => {
       if (mode === 'event-call') Object.assign(result.events.find((event) => event.type === 'tool.started')!.payload!, { callId: 'drift' })
       if (mode === 'duplicate-item') result.state.committedItems[3]!.itemId = result.state.input[0]!.itemId
       if (mode === 'completion-evidence') Object.assign(result.state.invocations[0]!, { completionEvidence: { resultDigest: 'drift' } })
+      if (mode === 'event-extension') Object.assign(result.events[0]!, { extension: true })
+      if (mode === 'payload-extension') Object.assign(result.events[0]!.payload!, { extension: true })
+      if (mode === 'usage-extension') Object.assign(result.state.usage, { extension: true })
+      if (mode === 'usage-record-extension') Object.assign(result.state.usage.records[0]!, { extension: true })
+      if (mode === 'budget-extension') Object.assign(result.state.budget, { extension: true })
+      if (mode === 'budget-limits-extension') result.state.budget.limits.extension = true
+      if (mode === 'budget-consumed-extension') result.state.budget.consumed.extension = true
+      if (mode === 'tool-selection') Object.assign(result.events.find((event) => event.type === 'tool.selected')!.payload!, { callId: 'drift' })
+      if (mode === 'model-itemids') Object.assign(result.events.find((event) => event.type === 'model.completed')!.payload!, { itemIds: ['drift'] })
+      if (mode === 'model-callids') Object.assign(result.events.find((event) => event.type === 'model.completed')!.payload!, { callIds: ['drift'] })
+      if (mode === 'model-turn') Object.assign(result.events.find((event) => event.type === 'model.completed')!.payload!, { turn: 99 })
+      if (mode === 'item-event') Object.assign(result.events.find((event) => event.type === 'item.added')!.payload!, { itemId: 'drift' })
+      if (mode === 'usage-source') Object.assign(result.events.find((event) => event.type === 'usage.recorded')!.payload!, { accountingSource: 'drift' })
       expect(captureLegacyReadToolResultEnvelope({ ...value.input, result }).status).toBe('rejected')
       expect(projectLegacyReadToolGenerateResult({ ...value.projection, result }).status).toBe('rejected')
       expect(value.calls).toEqual({ legacyModel: 2, legacyTool: 1, runnerModel: 2, runnerTool: 1 })

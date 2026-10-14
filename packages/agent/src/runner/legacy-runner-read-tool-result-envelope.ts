@@ -148,24 +148,50 @@ function inspect(profile: LegacyRunnerExecutionProfile, result: AgentRunnerResul
       || (result.events.at(-1)!.payload as Record<string, unknown>).finalItemId !== final.itemId) {
     throw new Error('completion-binding-invalid')
   }
-  const starts = result.events.filter((event) => event.type === 'tool.started')
-  const finishes = result.events.filter((event) => event.type === 'tool.completed')
-  if (starts.length !== 1 || finishes.length !== 1 || starts[0]!.sequence >= finishes[0]!.sequence
-      || [starts[0]!, finishes[0]!].some((event) => {
-        const payload = event.payload as Record<string, unknown>
-        return payload.invocationId !== invocation.invocationId || payload.executionAttempt !== 1
-      }) || !keys(starts[0]!.payload as object, ['invocationId', 'callId', 'executionAttempt'])
-      || (starts[0]!.payload as Record<string, unknown>).callId !== call.callId
-      || !keys(finishes[0]!.payload as object, ['invocationId', 'executionAttempt', 'resultDigest', 'effectClass'])
-      || (finishes[0]!.payload as Record<string, unknown>).resultDigest !== invocation.resultDigest
-      || (finishes[0]!.payload as Record<string, unknown>).effectClass !== 'read') {
-    throw new Error('read-lifecycle-invalid')
-  }
   const usage = state.usage.records
-  if (usage.length !== 2 || usage.some((record) =>
-    !Number.isSafeInteger(record.inputTokens) || Number(record.inputTokens) < 0
-      || !Number.isSafeInteger(record.outputTokens) || Number(record.outputTokens) < 0)) {
+  if (!keys(state.usage, ['records']) || usage.length !== 2 || usage.some((record) =>
+    !keys(record, ['usageId', 'source', 'accountingSource', 'recordedAt', 'inputTokens', 'outputTokens', 'totalTokens'])
+      || record.source !== 'model' || typeof record.accountingSource !== 'string' || record.accountingSource.length === 0
+      || typeof record.recordedAt !== 'string' || !Number.isSafeInteger(record.inputTokens) || Number(record.inputTokens) < 0
+      || !Number.isSafeInteger(record.outputTokens) || Number(record.outputTokens) < 0
+      || record.totalTokens !== Number(record.inputTokens) + Number(record.outputTokens))) {
     throw new Error('complete-two-turn-usage-required')
+  }
+  if (!same(state.budget, { policyRef: 'runner/unbounded-local', policyRevision: '1',
+    status: 'within-limit', limits: {}, consumed: {} })) throw new Error('budget-profile-unsupported')
+
+  // This is the exact one-read, two-turn completion trace; extra events and every
+  // unrepresented payload field are outside the qualified subset.
+  const request1 = (result.events[1]?.payload as Record<string, unknown> | undefined)?.requestId
+  const request2 = (result.events[10]?.payload as Record<string, unknown> | undefined)?.requestId
+  if (typeof request1 !== 'string' || typeof request2 !== 'string' || request1.length === 0
+      || request2.length === 0 || request1 === request2) throw new Error('model-request-identity-invalid')
+  const trace = [
+    { type: 'run.started', payload: { status: 'running' } },
+    { type: 'model.requested', payload: { requestId: request1, turn: 1 } },
+    { type: 'model.completed', payload: { requestId: request1, turn: 1, itemType: 'message',
+      itemCount: 2, itemIds: [assistant.itemId, call.itemId], callIds: [call.callId],
+      usageId: usage[0]!.usageId, finishReason: 'tool-calls' } },
+    { type: 'usage.recorded', payload: { usageId: usage[0]!.usageId, accountingSource: usage[0]!.accountingSource } },
+    { type: 'item.added', payload: { itemId: assistant.itemId, itemType: 'message' } },
+    { type: 'item.added', payload: { itemId: call.itemId, itemType: 'tool-call' } },
+    { type: 'tool.selected', payload: { invocationId: invocation.invocationId, callId: call.callId,
+      toolId: call.toolId, toolRevision: invocation.toolRevision, inputDigest: invocation.inputDigest } },
+    { type: 'tool.started', payload: { invocationId: invocation.invocationId, callId: call.callId, executionAttempt: 1 } },
+    { type: 'tool.completed', payload: { invocationId: invocation.invocationId,
+      executionAttempt: 1, resultDigest: invocation.resultDigest, effectClass: 'read' } },
+    { type: 'item.added', payload: { itemId: output.itemId, itemType: 'tool-result' } },
+    { type: 'model.requested', payload: { requestId: request2, turn: 2 } },
+    { type: 'model.completed', payload: { requestId: request2, turn: 2, itemType: 'message',
+      itemCount: 1, itemIds: [final.itemId], callIds: [], usageId: usage[1]!.usageId, finishReason: 'stop' } },
+    { type: 'usage.recorded', payload: { usageId: usage[1]!.usageId, accountingSource: usage[1]!.accountingSource } },
+    { type: 'item.added', payload: { itemId: final.itemId, itemType: 'message' } },
+    { type: 'run.completed', payload: { status: 'completed', finalItemId: final.itemId } },
+  ]
+  if (result.events.length !== trace.length || result.events.some((event, index) =>
+    !keys(event, ['schema', 'runId', 'eventId', 'sequence', 'stateRevision', 'attempt', 'occurredAt', 'type', 'payload'])
+      || event.type !== trace[index]!.type || !same(event.payload, trace[index]!.payload))) {
+    throw new Error('qualified-event-trace-invalid')
   }
   return { state, assistant, call, output, outputText: output.output, final, invocation, usage, completed: completed.report.exactSubset }
 }
