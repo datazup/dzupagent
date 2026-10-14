@@ -331,15 +331,30 @@ export async function* runStreamedThread(
       if (event.type === "turn.failed") {
         const approvalErrMsg = detectApprovalPause(event, input, ctx);
         if (approvalErrMsg !== null) {
+          const approvalContext = ctx.buildApprovalContext(input);
+          const approvalSessionId = ctx.getSessionId();
+          // The fallback ID is only a local event label. It must never select
+          // an SDK thread when approval arrives before thread.started.
+          if (approvalContext.policy.mode === "auto-approve" && !approvalSessionId) {
+            clearTimeout(timeoutHandle);
+            yield withCorrelationId(makeFailedEvent({
+              providerId: ctx.providerId,
+              sessionId,
+              error: "Codex approval auto-resume requires an established thread ID; run stopped",
+              code: "ADAPTER_RESUME_THREAD_ID_MISSING",
+              timestamp: now(),
+            }), input.correlationId);
+            return;
+          }
           yield* handleStreamTurnFailedApproval(
             approvalErrMsg,
             input,
-            sessionId,
+            approvalSessionId ?? sessionId,
             codex,
             signal,
             providerEventId,
             parentProviderEventId,
-            ctx.buildApprovalContext(input),
+            approvalContext,
             (resumedThread) =>
               runStreamedThread(resumedThread, input, codex, signal, ctx),
           );

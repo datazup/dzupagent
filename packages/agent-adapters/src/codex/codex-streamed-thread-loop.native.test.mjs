@@ -27,7 +27,7 @@ test('streamed Codex identity, approval and adapter regressions pass', async () 
       include: fixtures, environment: 'node', globals: false,
       unstubEnvs: true, unstubGlobals: true, testTimeout: 30_000,
       fileParallelism: false, maxWorkers: 1, minWorkers: 1,
-      pool: 'forks', cache: false, update: false, reporters: ['default'],
+      pool: 'forks', cache: false, update: false, reporters: ['default'], silent: true,
     }, { configFile: false, cacheDir })
     assert.ok(vitest, 'installed Vitest must start')
     const files = vitest.state.getFiles()
