@@ -39,6 +39,7 @@ import type { MemoryConfigSlice } from './agent-types-memory.js'
 import type { ObservabilityConfigSlice } from './agent-types-observability.js'
 import type { SecurityConfig } from './agent-types-security.js'
 import type { AgentHardBudgetConfig } from './runtime-hard-budget.js'
+import type { AgentRunnerNoToolDelegationBridge } from '../runner/no-tool-generate-delegation.js'
 
 /** Configuration for creating a DzupAgent */
 export interface DzupAgentConfig extends MemoryConfigSlice, ObservabilityConfigSlice {
@@ -342,4 +343,7 @@ export interface DzupAgentConfig extends MemoryConfigSlice, ObservabilityConfigS
    * ```
    */
   outputFilters?: OutputFilter[]
+
+  /** Process-local experimental bridge. Direct generate calls must also opt in. */
+  experimentalNoToolGenerateBridge?: AgentRunnerNoToolDelegationBridge
 }

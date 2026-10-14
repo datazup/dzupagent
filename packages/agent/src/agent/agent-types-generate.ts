@@ -9,9 +9,18 @@ import type { CompressionDegradation } from "@dzupagent/context";
 import type { ToolStat, StopReason } from "./tool-loop.js";
 import type { StuckError } from "./stuck-error.js";
 import type { RunLearnings } from "./tool-loop-learning.js";
+import type { AgentRunnerNoToolPreDispatchPolicy } from "../runner/no-tool-generate-delegation.js";
 
 /** Options for a single generate/stream call */
 export interface GenerateOptions {
+  /**
+   * Default-off direct generate delegation for the exact no-tool profile.
+   * Legacy fallback is permitted only before dispatch under explicit policy.
+   */
+  experimentalNoToolGenerateDelegation?: {
+    readonly enabled: true;
+    readonly preDispatchPolicy: AgentRunnerNoToolPreDispatchPolicy;
+  };
   /**
    * Durable run identifier for per-run provenance. When provided, prompt
    * memory reads can cite this run without storing prompt content.

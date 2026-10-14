@@ -48,6 +48,10 @@ import { bindTools as bindToolsHelper } from "./provider-selection.js";
 import { resolveMemoryRunId } from "./dzip-agent-resolvers.js";
 import { createRunDeadline } from "./run-deadline.js";
 import {
+  maybeDelegateNoToolGenerate,
+  preflightNoToolGenerateDelegation,
+} from "./no-tool-generate-delegation.js";
+import {
   buildRunHookContext,
   dispatchOnRunComplete,
   dispatchOnRunError,
@@ -155,6 +159,7 @@ export async function runGenerate(
   messages: BaseMessage[],
   options?: GenerateOptions
 ): Promise<GenerateResult> {
+  const delegate = preflightNoToolGenerateDelegation(deps.config, options);
   const hookCtx = buildRunHookContext(
     deps.config,
     deps.agentId,
@@ -176,6 +181,16 @@ export async function runGenerate(
           deps.middlewareRuntime.runBeforeAgentHooks(initialState),
       })
     );
+
+    if (delegate) {
+      const delegated = await maybeDelegateNoToolGenerate({
+        agentId: deps.agentId,
+        config: deps.config,
+        options,
+        runState,
+      });
+      if (delegated !== undefined) return delegated;
+    }
 
     const result = await executeGenerateRun(
       omitUndefined<ExecuteGenerateRunParams>({
