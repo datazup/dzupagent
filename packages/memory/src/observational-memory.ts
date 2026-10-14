@@ -605,6 +605,8 @@ export class ObservationalMemory {
     const dropped = messages.length - cap
     this.pendingMessages = dropped > 0 ? messages.slice(dropped) : messages
     if (dropped > 0) {
+      // Dropped messages will never be extracted, so stop counting them.
+      this.messagesSinceLastRun = Math.max(0, this.messagesSinceLastRun - dropped)
       this.emitLifecycleCount(
         'observation:candidate:pruned',
         dropped,
