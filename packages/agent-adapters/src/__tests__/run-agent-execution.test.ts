@@ -11,6 +11,8 @@ import type {
   PrepareAgentExecutionRunnerOptions,
 } from "../integration/run-agent-execution.js";
 import type { AdapterPipeline } from "../pipeline/adapter-pipeline.js";
+import { GuardrailsPipelineStep } from "../pipeline/guardrails-pipeline-step.js";
+import { AdapterGuardrails } from "../guardrails/adapter-guardrails.js";
 import type {
   AdapterCapabilityProfile,
   AdapterConfig,
@@ -166,6 +168,23 @@ function prepareFakeRunner(
 }
 
 describe("runAgentExecution", () => {
+  it("lets real guardrails install cancellation before final input is frozen", async () => {
+    const guardrails = new GuardrailsPipelineStep(undefined, new AdapterGuardrails({ maxIterations: 5 }));
+    let finalSignal: AbortSignal | undefined;
+    const pipeline = {
+      approval: { wrap: (stream: AsyncGenerator<AgentEvent>) => stream },
+      async prepare() {},
+      wrapStream: (stream: AsyncGenerator<AgentEvent>, input: AgentInput) => guardrails.wrap(stream, input),
+    } as unknown as AdapterPipeline;
+    const result = await runAgentExecution(exactRequest({ prompt: "inert", resumeSessionId: "native-session", approvedFallbackProviders: [] }), {
+      pipeline,
+      materializeAdapter: () => createFakeAdapter("codex", { onResume: (_id, input) => {
+        expect(input.signal).toBe(finalSignal); expect(Object.isFrozen(input)).toBe(true);
+      } }),
+      assertPreparedInput: input => { finalSignal = input.signal; Object.freeze(input.options); Object.freeze(input); },
+    });
+    expect(finalSignal).toBeDefined(); expect(result.ok).toBe(true);
+  });
   it("waits for listeners and generator cleanup and preserves a late failure", async () => {
     const request = exactRequest({ prompt: "inert", resumeSessionId: "native-session", approvedFallbackProviders: [] });
     const adapter = createFakeAdapter("codex");
