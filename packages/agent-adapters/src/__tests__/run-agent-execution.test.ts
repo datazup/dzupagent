@@ -178,11 +178,17 @@ describe("runAgentExecution", () => {
     } as unknown as AdapterPipeline;
     const result = await runAgentExecution(exactRequest({ prompt: "inert", resumeSessionId: "native-session", approvedFallbackProviders: [] }), {
       pipeline,
+      async *guardAdapterStart(invoke, input) {
+        expect(input?.prompt).toBe("inert"); expect(input?.resumeSessionId).toBe("native-session");
+        Object.freeze(input?.options); Object.freeze(input);
+        yield* invoke();
+      },
       materializeAdapter: () => createFakeAdapter("codex", { onResume: (_id, input) => {
         // The registry creates an attempt object with a chained signal. Payload
         // identity, rather than object/signal identity, is the preserved boundary.
         expect(input.prompt).toBe("inert"); expect(input.resumeSessionId).toBe("native-session");
         expect(input.signal).toBeDefined(); expect(input.signal?.aborted).toBe(finalSignal?.aborted);
+        expect(Object.isFrozen(input)).toBe(true);
       } }),
       assertPreparedInput: input => { finalSignal = input.signal; Object.freeze(input.options); Object.freeze(input); },
     });

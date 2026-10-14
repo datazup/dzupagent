@@ -169,6 +169,7 @@ export interface PrepareAgentExecutionRunnerOptions {
    */
   guardAdapterStart?: ((
     invoke: () => AsyncGenerator<AgentStreamEvent, void, undefined>,
+    input?: AgentInput,
   ) => AsyncGenerator<AgentStreamEvent, void, undefined>) | undefined
   /** Private host hook for explicit binary/profile materialization. */
   materializeAdapter?: ((input: {
@@ -437,7 +438,7 @@ export function prepareAgentExecutionRunner(
             }
             return Reflect.apply(value, target, args) as AsyncGenerator<AgentStreamEvent, void, undefined>
           }
-          return guard ? guard(invoke) : invoke()
+          return guard ? guard(invoke, args[key === 'resumeSession' ? 1 : 0] as AgentInput) : invoke()
         }
       }
       return value.bind(target)
