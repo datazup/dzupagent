@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { readFileSync } from 'node:fs'
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs'
 import ts from 'typescript'
 import { tsImport } from 'tsx/esm/api'
 import { AIMessage, HumanMessage } from '@langchain/core/messages'
@@ -37,7 +37,7 @@ const dicts = (result) => ({
   }),
 })
 
-function fixture({ content = 'answer', mode = 'completed', config = {}, onDispatch } = {}) {
+function fixture({ content = 'answer', mode = 'completed', config = {}, onDispatch, onModel } = {}) {
   let legacyCalls = 0
   let modelCalls = 0
   const requests = []
@@ -64,11 +64,15 @@ function fixture({ content = 'answer', mode = 'completed', config = {}, onDispat
         })
       }
       const counts = new Map()
+      const runnerInput = clone(request.input)
+      if (mode === 'input-content-drift') runnerInput.items.at(-1).content[0].text = 'changed input'
+      if (mode === 'input-item-id-drift') runnerInput.items.at(-1).itemId = 'changed-item-identity'
       const result = await new InMemoryAgentRunner({
         model: {
           adapterId: 'r5n-provider-free-model/v1',
           async invoke() {
             modelCalls += 1
+            onModel?.()
             return {
               status: 'completed',
               item: { type: 'message', itemId: 'assistant-final', role: 'assistant', content:
@@ -89,7 +93,7 @@ function fixture({ content = 'answer', mode = 'completed', config = {}, onDispat
         now: () => '2026-10-14T14:00:00.000Z',
         maxModelTurns: request.admission.maxModelTurns,
         maxToolAttempts: request.admission.maxToolAttempts,
-      }).run(clone(request.input), { control: request.control })
+      }).run(runnerInput, { control: request.control })
       if (mode === 'failed-after-dispatch' || mode === 'outcome-unknown') {
         return { status: mode, code: 'fixture-failure', source: request.admission.source }
       }
@@ -204,6 +208,65 @@ test('non-enumerable and accessor policies cannot bypass fail-closed admission',
   }
 })
 
+test('hidden, inherited, symbol and accessor options fail without reading policy data', async () => {
+  for (const policy of ['fail-closed', 'fallback-to-legacy']) {
+    for (const kind of ['hidden', 'inherited', 'accessor', 'symbol', 'opt-in-accessor',
+      'opt-in-hidden', 'opt-in-inherited', 'nested-accessor', 'nested-hidden',
+      'nested-inherited', 'nested-symbol']) {
+      let sideEffects = 0
+      const options = optIn(policy)
+      if (kind === 'hidden') Object.defineProperty(options, 'temperature', { value: 0.5 })
+      if (kind === 'inherited') Object.setPrototypeOf(options, { maxTokens: 3 })
+      if (kind === 'accessor') Object.defineProperty(options, 'stop', {
+        enumerable: true, get() { sideEffects += 1; return ['stop'] },
+      })
+      if (kind === 'symbol') options[Symbol('unsupported')] = true
+      if (kind === 'opt-in-accessor') Object.defineProperty(options, 'experimentalNoToolGenerateDelegation', {
+        enumerable: true, get() { sideEffects += 1; return { enabled: true, preDispatchPolicy: policy } },
+      })
+      if (kind === 'opt-in-hidden') Object.defineProperty(options, 'experimentalNoToolGenerateDelegation', {
+        enumerable: false,
+      })
+      if (kind === 'opt-in-inherited') {
+        const inherited = options.experimentalNoToolGenerateDelegation
+        delete options.experimentalNoToolGenerateDelegation
+        Object.setPrototypeOf(options, { experimentalNoToolGenerateDelegation: inherited })
+      }
+      const nested = options.experimentalNoToolGenerateDelegation
+      if (kind === 'nested-accessor') Object.defineProperty(nested, 'preDispatchPolicy', {
+        enumerable: true, get() { sideEffects += 1; return policy },
+      })
+      if (kind === 'nested-hidden') Object.defineProperty(nested, 'enabled', { enumerable: false })
+      if (kind === 'nested-inherited') Object.setPrototypeOf(nested, { unsupported: true })
+      if (kind === 'nested-symbol') nested[Symbol('unsupported')] = true
+      // The fixture must not read the getter it is testing.
+      sideEffects = 0
+      const value = fixture()
+      await assert.rejects(value.agent.generate([new HumanMessage('options')], options), (error) => {
+        assert.equal(error.name, 'AgentRunnerNoToolDelegationError')
+        assert.equal(error.replay, 'not-dispatched')
+        return true
+      })
+      assert.equal(sideEffects, 0, kind)
+      assert.deepEqual(value.counts(), { legacyCalls: 0, modelCalls: 0 }, kind)
+      assert.equal(value.requests.length, 0, kind)
+    }
+  }
+})
+
+test('cancellation during delegated model invocation cannot replay legacy', async () => {
+  const controller = new AbortController()
+  const value = fixture({ onModel() { controller.abort() } })
+  await assert.rejects(value.agent.generate([new HumanMessage('cancel after dispatch')],
+    optIn('fallback-to-legacy', { signal: controller.signal })), (error) => {
+    assert.equal(error.name, 'AgentRunnerNoToolDelegationError')
+    assert.equal(error.replay, 'forbidden-after-dispatch')
+    return true
+  })
+  assert.deepEqual(value.counts(), { legacyCalls: 0, modelCalls: 1 })
+  assert.equal(value.requests.length, 1)
+})
+
 test('bridge-certified pre-dispatch refusal follows the selected policy', async () => {
   const fallback = fixture({ mode: 'rejected-before-dispatch' })
   await fallback.agent.generate([new HumanMessage('fallback')], optIn('fallback-to-legacy'))
@@ -219,7 +282,7 @@ test('bridge-certified pre-dispatch refusal follows the selected policy', async 
 for (const mode of ['failed-after-dispatch', 'outcome-unknown', 'throw', 'throw-before-dispatch-error',
   'malformed-completion', 'mutate-admission',
   'partial-usage', 'source-drift', 'run-drift', 'envelope-failure', 'session-state', 'adapter-state',
-  'context-state', 'handoff-state']) {
+  'context-state', 'handoff-state', 'input-content-drift', 'input-item-id-drift']) {
   test(`${mode} never replays through legacy even with fallback selected`, async () => {
     const value = fixture({ mode })
     await assert.rejects(value.agent.generate([new HumanMessage('no replay')], optIn('fallback-to-legacy')),
@@ -240,6 +303,9 @@ test('input snapshots and source bindings survive caller mutation and JSON recon
   const value = fixture({ onDispatch(request) {
     user.content = 'changed by caller'
     assert.equal(Object.isFrozen(request.preparedMessages), true)
+    assert.equal(Object.isFrozen(request.preparedMessages.at(-1)), true)
+    assert.equal(Object.isFrozen(request.preparedMessages.at(-1).lc_kwargs), true)
+    assert.throws(() => { request.preparedMessages.at(-1).content = 'changed by bridge' }, TypeError)
     assert.equal(Object.isFrozen(request.admission.source), true)
     assert.equal(Object.isFrozen(request.input.items[0]), true)
     assert.equal(request.preparedMessages.at(-1).content, 'original')
@@ -250,6 +316,17 @@ test('input snapshots and source bindings survive caller mutation and JSON recon
   assert.equal(result.messages.at(-2).content, 'original')
   assert.equal(user.content, 'changed by caller')
   assert.deepEqual(value.counts(), { legacyCalls: 0, modelCalls: 1 })
+})
+
+test('block content in bridge-owned snapshots is immutable', async () => {
+  const value = fixture({ onDispatch(request) {
+    const content = request.preparedMessages.at(-1).content
+    assert.equal(Object.isFrozen(content), true)
+    assert.equal(Object.isFrozen(content[0]), true)
+    assert.throws(() => { content[0].text = 'changed by bridge' }, TypeError)
+  } })
+  const result = await value.agent.generate([new HumanMessage([{ type: 'text', text: 'original block' }])], optIn())
+  assert.deepEqual(result.messages.at(-2).content, [{ type: 'text', text: 'original block' }])
 })
 
 test('launch keeps the legacy path even when generate options include opt-in', async () => {
@@ -331,4 +408,37 @@ test('public declaration emission stays within the existing budget without writi
   const budget = budgets.packages['@dzupagent/agent']
   assert.ok(retained.size <= budget.maxDeclarationFiles, `declaration count ${retained.size}/${budget.maxDeclarationFiles}`)
   assert.ok(bytes <= budget.maxDeclarationBytes, `declaration bytes ${bytes}/${budget.maxDeclarationBytes}`)
+})
+
+test('restored and prerequisite runner Vitest fixtures pass through the installed library', async () => {
+  const { startVitest } = await import('vitest/node')
+  const packageRoot = fileURLToPath(new URL('../../', import.meta.url))
+  assert.ok(process.env.TMPDIR?.startsWith('/data/storage/datazup-runtime/ninel/'))
+  const cacheDir = mkdtempSync(path.join(process.env.TMPDIR, 'r5n-vitest-'))
+  const fixtures = [
+    'agent-runner-completed-result-projection', 'agent-runner-no-tool-result-envelope',
+    'agent-runner-no-tool-generate-delegation', 'agent-runner-execution-profile',
+    'agent-runner-legacy-compatibility', 'in-memory-agent-runner',
+    'agent-runner-ordered-model-items', 'agent-runner-exact-resume',
+    'agent-runner-inline-host', 'agent-runner-transactional-session',
+  ].map((name) => `src/__tests__/${name}.test.ts`)
+  let vitest
+  try {
+    vitest = await startVitest('test', [], {
+      root: packageRoot, config: false, run: true, watch: false,
+      include: fixtures, environment: 'node', globals: false,
+      unstubEnvs: true, unstubGlobals: true, testTimeout: 30_000,
+      fileParallelism: false, maxWorkers: 1, minWorkers: 1,
+      pool: 'forks', cache: false, update: false, reporters: ['default'],
+    }, { configFile: false, cacheDir })
+    const files = vitest.state.getFiles()
+    assert.equal(files.length, fixtures.length, 'every admitted fixture must run')
+    assert.deepEqual(vitest.state.getUnhandledErrors(), [])
+    assert.deepEqual(files.filter((file) => file.result?.state !== 'pass')
+      .map((file) => ({ file: path.basename(file.filepath), state: file.result?.state,
+        errors: file.result?.errors?.map((error) => error.message) })), [])
+  } finally {
+    await vitest?.close()
+    rmSync(cacheDir, { recursive: true, force: true })
+  }
 })

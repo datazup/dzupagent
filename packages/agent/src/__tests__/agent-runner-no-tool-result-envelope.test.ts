@@ -222,11 +222,26 @@ describe('AgentRunner R5M no-tool legacy result envelope', () => {
       toolStats: [],
     })
     expect(Object.keys(projected.result).sort()).toEqual(
-      ['content', 'hitIterationLimit', 'messages', 'stopReason', 'toolStats', 'usage'].sort(),
+      Object.keys(value.legacy.result).sort(),
     )
     expect(messageDicts(projected.result.messages)).toEqual(
       messageDicts(value.legacy.result.messages),
     )
+    expect({
+      ...projected.result,
+      messages: messageDicts(projected.result.messages),
+      middlewareState: {
+        ...projected.result.middlewareState,
+        messages: messageDicts(projected.result.middlewareState?.messages ?? []),
+      },
+    }).toEqual({
+      ...value.legacy.result,
+      messages: messageDicts(value.legacy.result.messages),
+      middlewareState: {
+        ...value.legacy.result.middlewareState,
+        messages: messageDicts(value.legacy.result.middlewareState?.messages ?? []),
+      },
+    })
     expect(projected.report.fullGenerateResultCompatible).toBe(true)
   })
 

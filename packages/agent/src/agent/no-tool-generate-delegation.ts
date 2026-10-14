@@ -63,9 +63,47 @@ function exactKeys(value: object, expected: readonly string[]): boolean {
 }
 
 function effectiveOptionKeys(options: GenerateOptions): string[] {
-  return Object.entries(options)
-    .filter(([, value]) => value !== undefined)
-    .map(([key]) => key)
+  return Object.getOwnPropertyNames(options)
+    .filter((key) => Object.getOwnPropertyDescriptor(options, key)?.value !== undefined)
+}
+
+function plainDataRecord(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  const prototype = Object.getPrototypeOf(value)
+  return (prototype === Object.prototype || prototype === null)
+    && Object.getOwnPropertySymbols(value).length === 0
+    && Object.getOwnPropertyNames(value).every((key) => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key)
+      return descriptor?.enumerable === true && 'value' in descriptor
+    })
+}
+
+function readOptIn(options: GenerateOptions | undefined):
+NonNullable<GenerateOptions['experimentalNoToolGenerateDelegation']> | undefined {
+  if (options === undefined) return undefined
+  const descriptor = Object.getOwnPropertyDescriptor(options, 'experimentalNoToolGenerateDelegation')
+  if (descriptor === undefined && !('experimentalNoToolGenerateDelegation' in options)) {
+    return undefined
+  }
+  if (descriptor !== undefined && 'value' in descriptor && descriptor.value === undefined) {
+    return undefined
+  }
+  // Inspect descriptors before reading any option, including the opt-in itself.
+  // Malformed records cannot select fallback through inherited or accessor data.
+  if (!plainDataRecord(options) || descriptor === undefined) {
+    throw delegationError({
+      code: 'generate-options-malformed', phase: 'admission', replay: 'not-dispatched',
+    })
+  }
+  const optIn = descriptor.value as GenerateOptions['experimentalNoToolGenerateDelegation']
+  if (!plainDataRecord(optIn) || !exactKeys(optIn, ['enabled', 'preDispatchPolicy'])
+      || optIn.enabled !== true
+      || (optIn.preDispatchPolicy !== 'fail-closed' && optIn.preDispatchPolicy !== 'fallback-to-legacy')) {
+    throw delegationError({
+      code: 'delegation-opt-in-malformed', phase: 'admission', replay: 'not-dispatched',
+    })
+  }
+  return optIn
 }
 
 function configurationIneligibility(
@@ -129,16 +167,8 @@ export function preflightNoToolGenerateDelegation(
   config: DzupAgentConfig,
   options: GenerateOptions | undefined,
 ): boolean {
-  const optIn = options?.experimentalNoToolGenerateDelegation
+  const optIn = readOptIn(options)
   if (optIn === undefined) return false
-  if (optIn === null || typeof optIn !== 'object' || Array.isArray(optIn)
-      || !exactKeys(optIn, ['enabled', 'preDispatchPolicy'])
-      || optIn.enabled !== true
-      || !['fail-closed', 'fallback-to-legacy'].includes(String(optIn.preDispatchPolicy))) {
-    throw delegationError({
-      code: 'delegation-opt-in-malformed', phase: 'admission', replay: 'not-dispatched',
-    })
-  }
   if (options?.signal?.aborted) {
     throw delegationError({
       code: 'cancelled-before-dispatch', phase: 'before-dispatch', replay: 'not-dispatched',
@@ -212,7 +242,7 @@ function createAdmission(input: {
   const preparedMessages: PreparedRunState['preparedMessages'] = preparedEntries.map(
     (entry) => reconstructLegacyMessage(entry),
   )
-  Object.freeze(preparedMessages)
+  freezeData(preparedMessages)
   const observedMessageTokens = estimateConversationTokensForMessages(preparedMessages)
   const behaviorDigest = digestRunnerJson({
     schema: R5N_BEHAVIOR_SCHEMA,
@@ -337,18 +367,8 @@ export async function maybeDelegateNoToolGenerate(input: {
   readonly options: GenerateOptions | undefined
   readonly runState: PreparedRunState
 }): Promise<GenerateResult | undefined> {
-  const optIn = input.options?.experimentalNoToolGenerateDelegation
+  const optIn = readOptIn(input.options)
   if (optIn === undefined) return undefined
-  if (optIn === null || typeof optIn !== 'object' || Array.isArray(optIn)
-      || !exactKeys(optIn, ['enabled', 'preDispatchPolicy'])
-      || optIn.enabled !== true
-      || !['fail-closed', 'fallback-to-legacy'].includes(String(optIn.preDispatchPolicy))) {
-    throw delegationError({
-      code: 'delegation-opt-in-malformed',
-      phase: 'admission',
-      replay: 'not-dispatched',
-    })
-  }
   const policy = optIn.preDispatchPolicy
   const options = input.options ?? {}
   if (options.signal?.aborted) {
@@ -450,7 +470,15 @@ export async function maybeDelegateNoToolGenerate(input: {
   }
 
   const state = outcome.result?.state
+  let inputMatches = false
+  try {
+    inputMatches = digestRunnerJson({ ...created.requestInput, items: state?.input })
+      === created.admission.source.inputDigest
+  } catch {
+    // Malformed completion input has no trustworthy binding to the admitted run.
+  }
   if (state === undefined || state === null || state.agent === undefined || state.agent === null
+      || !inputMatches
       || state.runId !== runId
       || state.agent.initialAgentId !== input.agentId
       || state.agent.currentAgentId !== input.agentId
@@ -460,6 +488,12 @@ export async function maybeDelegateNoToolGenerate(input: {
       phase: 'after-dispatch',
       replay: 'forbidden-after-dispatch',
       admission: created.admission,
+    })
+  }
+  if (options.signal?.aborted) {
+    throw delegationError({
+      code: 'cancelled-after-dispatch', phase: 'after-dispatch',
+      replay: 'forbidden-after-dispatch', admission: created.admission,
     })
   }
   let captured: ReturnType<typeof captureLegacyNoToolResultEnvelope>
@@ -484,6 +518,13 @@ export async function maybeDelegateNoToolGenerate(input: {
       phase: 'after-dispatch',
       replay: 'forbidden-after-dispatch',
       admission: created.admission,
+    })
+  }
+  if (digestRunnerJson(captured.envelope.preparedInput)
+      !== created.admission.source.preparedMessageDigest) {
+    throw delegationError({
+      code: 'post-dispatch-prepared-input-mismatch', phase: 'after-dispatch',
+      replay: 'forbidden-after-dispatch', admission: created.admission,
     })
   }
   let projected: ReturnType<typeof projectLegacyNoToolGenerateResult>
