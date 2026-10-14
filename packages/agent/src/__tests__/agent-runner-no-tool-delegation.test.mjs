@@ -417,6 +417,7 @@ test('restored and prerequisite runner Vitest fixtures pass through the installe
   assert.ok(process.env.TMPDIR?.startsWith('/data/storage/datazup-runtime/ninel/'))
   const cacheDir = mkdtempSync(path.join(process.env.TMPDIR, 'r5n-vitest-'))
   const fixtures = [
+    'agent-runner-read-tool-generate-delegation',
     'agent-runner-read-tool-result-envelope',
     'agent-runner-completed-result-projection', 'agent-runner-no-tool-result-envelope',
     'agent-runner-no-tool-generate-delegation', 'agent-runner-execution-profile',

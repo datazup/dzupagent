@@ -25,7 +25,7 @@ export interface LegacyReadToolTiming {
 
 export interface LegacyReadToolResultEnvelope {
   readonly schema: typeof LEGACY_READ_TOOL_ENVELOPE_SCHEMA
-  readonly entrypoint: 'not-delegated'
+  readonly entrypoint: 'not-delegated' | 'generate-single-read-opt-in'
   readonly profileDigest: string
   readonly behaviorDigest: string
   readonly runnerResultDigest: string
@@ -75,7 +75,7 @@ function instant(value: unknown): value is string {
 }
 
 /** Reject own accessors and serializer overrides before reading message values. */
-function boundedMessageShape(value: BaseMessage): boolean {
+export function boundedMessageShape(value: BaseMessage): boolean {
   const prototype = Object.getPrototypeOf(value)
   const baseline = prototype === AIMessage.prototype ? new AIMessage('')
     : prototype === ToolMessage.prototype ? new ToolMessage({ content: '', tool_call_id: 'shape-only' })
@@ -155,7 +155,7 @@ function messageDataEqual(left: unknown, right: unknown, ancestors = new Set<obj
   }
 }
 
-function exactMessage(actual: BaseMessage, expected: BaseMessage): boolean {
+export function exactMessage(actual: BaseMessage, expected: BaseMessage): boolean {
   const actualSymbols = Object.getOwnPropertySymbols(actual)
   const expectedSymbols = Object.getOwnPropertySymbols(expected)
   return Object.getPrototypeOf(actual) === Object.getPrototypeOf(expected)
@@ -189,8 +189,11 @@ function inspect(profile: LegacyRunnerExecutionProfile, result: AgentRunnerResul
   if (completed.status !== 'projected' || completed.report.outcome !== 'completed'
       || completed.report.exactSubset === undefined) throw new Error('completed-result-evidence-inexact')
   const projection = profile.claims.find((claim) => claim.obligation === 'legacy-result-projection')
-  if (projection?.disposition !== 'disabled'
-      || projection.binding.entrypoint !== 'runner-direct-only') throw new Error('direct-profile-required')
+  const entrypoint = projection?.disposition === 'disabled' && projection.binding.entrypoint === 'runner-direct-only'
+    ? 'not-delegated' as const
+    : projection?.disposition === 'supported' && projection.binding.entrypoint === 'generate-single-read-opt-in'
+      ? 'generate-single-read-opt-in' as const : undefined
+  if (entrypoint === undefined) throw new Error('read-profile-required')
   const state = result.state
   if (!keys(result, ['state', 'events']) || !keys(state, [
     'schema', 'runId', 'revision', 'status', 'agent', 'attempt', 'input', 'committedItems',
@@ -285,7 +288,7 @@ function inspect(profile: LegacyRunnerExecutionProfile, result: AgentRunnerResul
       || event.type !== trace[index]!.type || !same(event.payload, trace[index]!.payload))) {
     throw new Error('qualified-event-trace-invalid')
   }
-  return { state, assistant, call, output, outputText: output.output, final, invocation, usage, completed: completed.report.exactSubset }
+  return { state, assistant, call, output, outputText: output.output, final, invocation, usage, entrypoint, completed: completed.report.exactSubset }
 }
 
 function validTiming(timing: LegacyReadToolTiming, observed: ReturnType<typeof inspect>): boolean {
@@ -359,7 +362,7 @@ export function captureLegacyReadToolResultEnvelope(input: {
       return reject('output-message-invalid')
     }
     const body = {
-      schema: LEGACY_READ_TOOL_ENVELOPE_SCHEMA, entrypoint: 'not-delegated' as const,
+      schema: LEGACY_READ_TOOL_ENVELOPE_SCHEMA, entrypoint: observed.entrypoint,
       profileDigest: input.profile.profileDigest, behaviorDigest: input.profile.behaviorDigest,
       runnerResultDigest: digestRunnerJson(input.result), preparedInput, assistantCall, finalAssistant,
       timing: cloneDurableJson(input.timing),
@@ -385,7 +388,7 @@ export function projectLegacyReadToolGenerateResult(input: {
     if (!keys(envelope, ['schema', 'entrypoint', 'profileDigest', 'behaviorDigest', 'runnerResultDigest',
       'preparedInput', 'assistantCall', 'finalAssistant', 'timing', 'envelopeDigest'])) return reject('envelope-malformed')
     const { envelopeDigest, ...body } = envelope
-    if (envelope.schema !== LEGACY_READ_TOOL_ENVELOPE_SCHEMA || envelope.entrypoint !== 'not-delegated'
+    if (envelope.schema !== LEGACY_READ_TOOL_ENVELOPE_SCHEMA || envelope.entrypoint !== observed.entrypoint
         || envelope.profileDigest !== input.profile.profileDigest
         || envelope.behaviorDigest !== input.profile.behaviorDigest
         || envelope.runnerResultDigest !== digestRunnerJson(input.result)

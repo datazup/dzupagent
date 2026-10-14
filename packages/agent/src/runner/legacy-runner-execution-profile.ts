@@ -52,6 +52,7 @@ export type LegacyExecutionEvidenceCode =
   | 'host-bounded-input'
   | 'r5m-no-tool-generate-result'
   | 'r5n-no-tool-generate-delegation'
+  | 'r5p-single-read-generate-delegation'
   | 'runner-direct-only'
 
 export interface LegacyExecutionCapabilityClaim {
@@ -81,6 +82,7 @@ export interface RunnerProviderFreeProfileInput {
     | 'runner-direct-only'
     | 'no-tool-generate-result/v1'
     | 'no-tool-generate-delegation/v1'
+    | 'single-read-generate-delegation/v1'
 }
 
 export type LegacyExecutionIneligibilityCode =
@@ -210,7 +212,12 @@ function expectations(input: RunnerProviderFreeProfileInput): Readonly<Record<Le
             entrypoint: 'generate-opt-in',
             projection: 'no-tool-generate-result/v1',
           })
-        : {
+        : input.legacyResultProjection === 'single-read-generate-delegation/v1'
+          ? supported('host', 'r5p-single-read-generate-delegation', {
+              entrypoint: 'generate-single-read-opt-in', projection: 'single-read-generate-result/v1',
+              effectClass: 'read', maxCalls: 1, timingPolicy: 'host-elapsed-ms/v1',
+            })
+          : {
           owner: 'host',
           disposition: 'disabled',
           evidence: ['runner-direct-only'],
@@ -287,7 +294,9 @@ function validInput(input: RunnerProviderFreeProfileInput): boolean {
     && (input.legacyResultProjection === undefined
       || input.legacyResultProjection === 'runner-direct-only'
       || input.legacyResultProjection === 'no-tool-generate-result/v1'
-      || input.legacyResultProjection === 'no-tool-generate-delegation/v1')
+      || input.legacyResultProjection === 'no-tool-generate-delegation/v1'
+      || (input.legacyResultProjection === 'single-read-generate-delegation/v1'
+        && input.maxToolAttempts === 1 && input.maxModelTurns >= 2 && !input.structuredOutputRequested))
 }
 
 export function buildRunnerProviderFreeExecutionProfile(
@@ -349,7 +358,9 @@ export function evaluateRunnerProviderFreeExecutionProfile(
     ? resultProjection.entrypoint === 'generate-opt-in'
       ? 'no-tool-generate-delegation/v1'
       : 'no-tool-generate-result/v1'
-    : resultProjection?.entrypoint === 'runner-direct-only'
+    : resultProjection?.projection === 'single-read-generate-result/v1'
+      ? 'single-read-generate-delegation/v1'
+      : resultProjection?.entrypoint === 'runner-direct-only'
       ? 'runner-direct-only'
       : undefined
   const input: RunnerProviderFreeProfileInput = {

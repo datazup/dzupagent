@@ -51,6 +51,7 @@ import {
   maybeDelegateNoToolGenerate,
   preflightNoToolGenerateDelegation,
 } from "./no-tool-generate-delegation.js";
+import { preflightReadToolGenerateDelegation, maybeDelegateReadToolGenerate } from "./read-tool-generate-delegation.js";
 import {
   buildRunHookContext,
   dispatchOnRunComplete,
@@ -159,7 +160,8 @@ export async function runGenerate(
   messages: BaseMessage[],
   options?: GenerateOptions
 ): Promise<GenerateResult> {
-  const delegate = preflightNoToolGenerateDelegation(deps.config, options);
+  const readDelegate = preflightReadToolGenerateDelegation(deps.config, options);
+  const delegate = readDelegate ? false : preflightNoToolGenerateDelegation(deps.config, options);
   const hookCtx = buildRunHookContext(
     deps.config,
     deps.agentId,
@@ -181,6 +183,11 @@ export async function runGenerate(
           deps.middlewareRuntime.runBeforeAgentHooks(initialState),
       })
     );
+
+    if (readDelegate) {
+      const delegated = await maybeDelegateReadToolGenerate({ agentId: deps.agentId, config: deps.config, options, runState });
+      if (delegated !== undefined) return delegated;
+    }
 
     if (delegate) {
       const delegated = await maybeDelegateNoToolGenerate({

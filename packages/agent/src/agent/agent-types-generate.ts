@@ -13,6 +13,11 @@ import type { AgentRunnerNoToolPreDispatchPolicy } from "../runner/no-tool-gener
 
 /** Options for a single generate/stream call */
 export interface GenerateOptions {
+  /** Default-off exact single-read delegation; fallback is allowed only before dispatch. */
+  experimentalReadToolGenerateDelegation?: {
+    readonly enabled: true;
+    readonly preDispatchPolicy: AgentRunnerNoToolPreDispatchPolicy;
+  };
   /**
    * Default-off direct generate delegation for the exact no-tool profile.
    * Legacy fallback is permitted only before dispatch under explicit policy.
