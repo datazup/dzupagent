@@ -1332,12 +1332,10 @@ describe("CodexAdapter", () => {
         events.push(event);
       }
 
-      // Should have a started event and a completed event (interrupted)
+      // Interruption is a failed terminal result, never successful completion.
       expect(events.some((e) => e.type === "adapter:started")).toBe(true);
-      const completed = events.find((e) => e.type === "adapter:completed");
-      if (completed?.type === "adapter:completed") {
-        expect(completed.result).toBe("(interrupted)");
-      }
+      expect(events.at(-1)).toMatchObject({ type: "adapter:failed", code: "ADAPTER_ABORTED" });
+      expect(events.some(e => e.type === "adapter:completed")).toBe(false);
     });
 
     it("is a no-op when nothing is running", () => {
@@ -1439,10 +1437,8 @@ describe("CodexAdapter", () => {
         events.push(event);
       }
 
-      const completed = events.find((e) => e.type === "adapter:completed");
-      if (completed?.type === "adapter:completed") {
-        expect(completed.result).toBe("(interrupted)");
-      }
+      expect(events.at(-1)).toMatchObject({ type: "adapter:failed", code: "ADAPTER_ABORTED" });
+      expect(events.some(e => e.type === "adapter:completed")).toBe(false);
     });
 
     it("handles pre-aborted external signal", async () => {

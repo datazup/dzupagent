@@ -4,7 +4,7 @@
  * Covers the critical paths:
  *   - Normal happy-path completion (events mapped, adapter:completed emitted)
  *   - Timeout auto-abort path (adapter:failed with ADAPTER_TIMEOUT code)
- *   - Caller-abort path mid-stream (adapter:completed with partial result)
+ *   - Caller-abort path mid-stream (adapter:failed, partial messages retained)
  *   - Caller-abort BEFORE stream starts (adapter:failed)
  *   - runStreamed() throws before events start
  *   - turn.failed non-approval failure (adapter:failed propagated)
@@ -396,7 +396,8 @@ describe('runStreamedThread', () => {
     const abortCtrl = new AbortController()
     abortCtrl.abort()
 
-    const thread = makeThrowingThread(new Error('aborted'))
+    const runStreamed = vi.fn().mockRejectedValue(new Error('aborted'))
+    const thread: CodexThread = { runStreamed }
     const codex = makeCodexInstance()
     const ctx = makeCtx()
     const input = makeInput()
@@ -408,12 +409,12 @@ describe('runStreamedThread', () => {
     const collected = await genPromise
 
     expect(collected).toHaveLength(1)
-    // Pre-abort throws; since signal is aborted, code = ADAPTER_EXECUTION_FAILED
-    // (because didTimeout=false but signal.aborted=true → caller_abort path)
     expect(collected[0]?.type).toBe('adapter:failed')
+    expect(runStreamed).not.toHaveBeenCalled()
+    expect((collected[0] as { code?: string }).code).toBe('ADAPTER_ABORTED')
   })
 
-  it('emits adapter:completed (interrupted) when caller aborts mid-stream', async () => {
+  it('emits adapter:failed without completion when caller aborts mid-stream', async () => {
     // Use real timers for this test (fake timers can't drive abort-based async generators)
     vi.useRealTimers()
 
@@ -452,9 +453,36 @@ describe('runStreamedThread', () => {
     const collected = await genPromise
 
     const last = collected[collected.length - 1]
-    // When caller aborts (didTimeout=false), the loop emits adapter:completed
-    expect(last?.type).toBe('adapter:completed')
+    expect(last?.type).toBe('adapter:failed')
+    expect((last as { code?: string }).code).toBe('ADAPTER_ABORTED')
+    expect(collected.some(e => e.type === 'adapter:completed')).toBe(false)
   }, 5000)
+
+  it('fails a graceful EOF after caller cancellation and preserves partial message evidence', async () => {
+    const ctrl = new AbortController()
+    const thread: CodexThread = {
+      async runStreamed() {
+        return { events: (async function* () {
+          yield { type: 'thread.started', thread_id: 'resumed-thread' } as CodexStreamEvent
+          yield { type: 'item.completed', item: { type: 'agent_message', id: 'partial', text: 'partial response' } } as CodexStreamEvent
+          ctrl.abort()
+        })() }
+      },
+    }
+    const collected = await collectAll(runStreamedThread(thread, makeInput(), makeCodexInstance(), ctrl.signal, makeCtx()))
+    expect(collected.some(e => e.type === 'adapter:message' && e.content === 'partial response')).toBe(true)
+    expect(collected.some(e => e.type === 'adapter:completed')).toBe(false)
+    expect(collected.at(-1)).toMatchObject({ type: 'adapter:failed', code: 'ADAPTER_ABORTED', sessionId: 'resumed-thread' })
+  })
+
+  it('preserves an upstream timeout code before starting SDK effects', async () => {
+    const ctrl = new AbortController()
+    ctrl.abort(Object.assign(new Error('timeout'), { code: 'ADAPTER_TIMEOUT' }))
+    const runStreamed = vi.fn()
+    const collected = await collectAll(runStreamedThread({ runStreamed }, makeInput(), makeCodexInstance(), ctrl.signal, makeCtx()))
+    expect(runStreamed).not.toHaveBeenCalled()
+    expect(collected.at(-1)).toMatchObject({ type: 'adapter:failed', code: 'ADAPTER_TIMEOUT' })
+  })
 
   it('emits adapter:failed when an upstream registry timeout aborts mid-stream', async () => {
     vi.useRealTimers()

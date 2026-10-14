@@ -134,6 +134,28 @@ export async function* runStreamedThread(
 
   let streamedTurn: { events: AsyncIterable<CodexStreamEvent> };
 
+  const abortFailure = (): AgentStreamEvent => {
+    const reason: unknown = signal.reason;
+    const timedOut = didTimeout ||
+      (reason !== null && typeof reason === "object" &&
+        "code" in reason && reason.code === "ADAPTER_TIMEOUT");
+    return withCorrelationId(makeFailedEvent({
+      providerId: ctx.providerId,
+      sessionId,
+      error: timedOut
+        ? `Codex adapter timed out after ${now() - startTime}ms`
+        : "Codex adapter execution cancelled",
+      code: timedOut ? "ADAPTER_TIMEOUT" : "ADAPTER_ABORTED",
+      timestamp: now(),
+    }), input.correlationId);
+  };
+
+  if (signal.aborted) {
+    clearTimeout(timeoutHandle);
+    yield abortFailure();
+    return;
+  }
+
   try {
     streamedTurn = await thread.runStreamed(input.prompt, {
       signal,
@@ -155,18 +177,7 @@ export async function* runStreamedThread(
         "[codex-streamed-thread:run] runStreamed() aborted before stream events",
         { sessionId, reason, durationMs, error: errMsg },
       );
-      yield withCorrelationId(
-        makeFailedEvent({
-          providerId: ctx.providerId,
-          sessionId,
-          error: didTimeout
-            ? `Codex adapter timed out after ${durationMs}ms`
-            : errMsg,
-          code: didTimeout ? "ADAPTER_TIMEOUT" : "ADAPTER_EXECUTION_FAILED",
-          timestamp: now(),
-        }),
-        input.correlationId,
-      );
+      yield abortFailure();
       return;
     }
 
@@ -189,6 +200,10 @@ export async function* runStreamedThread(
 
   try {
     for await (const event of streamedTurn.events) {
+      if (signal.aborted) {
+        yield abortFailure();
+        return;
+      }
       if (event.type === "thread.started" && event.thread_id) {
         sessionId = event.thread_id;
         ctx.setSessionId(sessionId);
@@ -389,25 +404,7 @@ export async function* runStreamedThread(
         lastEventType,
         lastEventAgeMs: now() - lastEventAt,
       });
-      yield withCorrelationId(
-        isTimeoutAbort
-          ? makeFailedEvent({
-              providerId: ctx.providerId,
-              sessionId,
-              error: `Codex adapter timed out after ${now() - startTime}ms`,
-              code: "ADAPTER_TIMEOUT",
-              timestamp: now(),
-            })
-          : makeCompletedEvent({
-              providerId: ctx.providerId,
-              sessionId,
-              result: finalResponse || "(interrupted)",
-              usage: lastUsage,
-              durationMs: now() - startTime,
-              timestamp: now(),
-            }),
-        input.correlationId,
-      );
+      yield abortFailure();
       return;
     }
 
@@ -437,6 +434,11 @@ export async function* runStreamedThread(
     return;
   } finally {
     clearTimeout(timeoutHandle);
+  }
+
+  if (signal.aborted) {
+    yield abortFailure();
+    return;
   }
 
   defaultLogger.debug("[codex-streamed-thread:run] completed normally", {

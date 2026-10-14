@@ -361,10 +361,8 @@ describe("CodexAdapter concurrency isolation", () => {
       await doneB.catch(() => undefined);
     }
     expect(outcome).toBe("terminated");
-    const completedB = eventsB.find((e) => e.type === "adapter:completed");
-    if (completedB?.type === "adapter:completed") {
-      expect(completedB.result).toBe("(interrupted)");
-    }
+    expect(eventsB.at(-1)).toMatchObject({ type: "adapter:failed", code: "ADAPTER_ABORTED", sessionId: "thread-B" });
+    expect(eventsB.some(e => e.type === "adapter:completed")).toBe(false);
   });
 
   it("caller AbortSignal cancels its own run only (authoritative per-turn cancellation)", async () => {
@@ -397,11 +395,8 @@ describe("CodexAdapter concurrency isolation", () => {
 
     acA.abort();
     await doneA;
-    const completedA = eventsA.find((e) => e.type === "adapter:completed");
-    expect(completedA).toBeDefined();
-    if (completedA?.type === "adapter:completed") {
-      expect(completedA.result).toBe("(interrupted)");
-    }
+    expect(eventsA.at(-1)).toMatchObject({ type: "adapter:failed", code: "ADAPTER_ABORTED", sessionId: "thread-A" });
+    expect(eventsA.some(e => e.type === "adapter:completed")).toBe(false);
 
     gateB.open();
     await doneB;
