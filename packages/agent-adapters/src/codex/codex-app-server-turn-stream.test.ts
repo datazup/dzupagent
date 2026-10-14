@@ -139,3 +139,26 @@ describe('app-server completed result is the final answer only', () => {
     expect(result.terminal).toMatchObject({ type: 'adapter:completed', result: report })
   })
 })
+
+// Admission: G3-ADAPTER-RESUME-USAGE-FIX-20261014-R1. After thread/resume, Codex
+// 0.162.1 reports the resumed thread's token usage for its previous turn. That
+// report is not this run's usage and is not a reason to fail the run; a usage
+// report for another thread still is.
+describe('app-server resume tolerates prior-turn usage of the same thread', () => {
+  const usageFor = (turnId: string, threadId = ids.threadId, total = 2) =>
+    ({ kind: 'notification', method: 'thread/tokenUsage/updated', params: { threadId, turnId, tokenUsage: {
+      last: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0, reasoningOutputTokens: 0, totalTokens: total },
+      total: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0, reasoningOutputTokens: 0, totalTokens: total } } } }) as CodexAppServerInboundEvent
+  const completed = notification('turn/completed', { turn: { id: ids.turnId, items: [], status: 'completed' } })
+
+  it('ignores a previous turn usage report and keeps only its own', async () => {
+    const result = await replay([usageFor('previous-turn', ids.threadId, 99), usageFor(ids.turnId), completed])
+    expect(result.terminal).toMatchObject({ type: 'adapter:completed' })
+    expect(JSON.stringify(result.terminal)).not.toContain('99')
+  })
+
+  it('still refuses a usage report for another thread', async () => {
+    await expect(replay([usageFor(ids.turnId, 'foreign-thread'), completed]))
+      .rejects.toMatchObject({ code: 'CODEX_APP_SERVER_STALE_TURN' })
+  })
+})
