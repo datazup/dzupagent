@@ -139,3 +139,33 @@ describe('app-server completed result is the final answer only', () => {
     expect(result.terminal).toMatchObject({ type: 'adapter:completed', result: report })
   })
 })
+
+// Admission: G3-ADAPTER-RESUME-USAGE-FIX-20261014-R1. After thread/resume, Codex
+// 0.162.1 reports the resumed thread's token usage for its previous turn. That
+// report is not this run's usage and is not a reason to fail the run; a usage
+// report for another thread still is.
+describe('app-server resume tolerates prior-turn usage of the same thread', () => {
+  const usageFor = (turnId: string, threadId = ids.threadId, inputTokens = 1) =>
+    ({ kind: 'notification', method: 'thread/tokenUsage/updated', params: { threadId, turnId, tokenUsage: {
+      last: { inputTokens, outputTokens: 1, cachedInputTokens: 0, reasoningOutputTokens: 0, totalTokens: inputTokens + 1 },
+      total: { inputTokens, outputTokens: 1, cachedInputTokens: 0, reasoningOutputTokens: 0, totalTokens: inputTokens + 1 } } } }) as CodexAppServerInboundEvent
+  const completed = notification('turn/completed', { turn: { id: ids.turnId, items: [], status: 'completed' } })
+
+  it('ignores a previous turn usage report and keeps only its own', async () => {
+    // The prior turn's report arrives after this turn's own; it must not overwrite it.
+    const result = await replay([usageFor(ids.turnId), usageFor('previous-turn', ids.threadId, 99), completed])
+    expect(result.terminal).toMatchObject({ type: 'adapter:completed',
+      usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 } })
+  })
+
+  it('still refuses a usage report for another thread', async () => {
+    await expect(replay([usageFor(ids.turnId, 'foreign-thread'), completed]))
+      .rejects.toMatchObject({ code: 'CODEX_APP_SERVER_STALE_TURN' })
+  })
+
+  it('refuses another thread even when its turn id is not this run', async () => {
+    // A thread check dropped in favour of a turn-only skip would silently ignore this report.
+    await expect(replay([usageFor('other-turn', 'foreign-thread'), completed]))
+      .rejects.toMatchObject({ code: 'CODEX_APP_SERVER_STALE_TURN' })
+  })
+})
