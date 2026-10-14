@@ -121,6 +121,13 @@ describe('R5O single-read legacy result/timing envelope', () => {
       expect(actual.result.toolStats).toEqual([{ name: 'read-record', calls: 1, errors: 0, totalMs: 25, avgMs: 25 }])
       expect(value.calls).toEqual({ legacyModel: 2, legacyTool: 1, runnerModel: 2, runnerTool: 1 })
       expect(Object.keys(actual.result).sort()).toEqual(Object.keys(value.legacy).sort())
+      for (const [index, message] of actual.result.messages.entries()) {
+        const original = value.legacy.messages[index]!
+        for (const field of ['id', 'name', 'content', 'additional_kwargs', 'response_metadata',
+          'usage_metadata', 'tool_calls', 'invalid_tool_calls', 'tool_call_id', 'artifact', 'status', 'metadata']) {
+          expect(Reflect.get(message, field)).toEqual(Reflect.get(original, field))
+        }
+      }
     },
   )
 
@@ -178,7 +185,7 @@ describe('R5O single-read legacy result/timing envelope', () => {
     'event-call', 'duplicate-item', 'completion-evidence', 'event-extension', 'payload-extension',
     'usage-extension', 'usage-record-extension', 'budget-extension', 'budget-limits-extension',
     'budget-consumed-extension', 'tool-selection', 'model-itemids', 'model-callids', 'model-turn',
-    'item-event', 'usage-source'])(
+    'item-event', 'usage-source', 'malformed-revision', 'malformed-agent', 'empty-request'])(
     'rejects %s runner drift and never replays execution', async (mode) => {
       const value = await scenario()
       const result = mutable(value.input.result)
@@ -219,9 +226,55 @@ describe('R5O single-read legacy result/timing envelope', () => {
       if (mode === 'model-turn') Object.assign(result.events.find((event) => event.type === 'model.completed')!.payload!, { turn: 99 })
       if (mode === 'item-event') Object.assign(result.events.find((event) => event.type === 'item.added')!.payload!, { itemId: 'drift' })
       if (mode === 'usage-source') Object.assign(result.events.find((event) => event.type === 'usage.recorded')!.payload!, { accountingSource: 'drift' })
+      if (mode === 'malformed-revision') {
+        Object.assign(result.state.invocations[0]!, { toolRevision: 7 })
+        Object.assign(result.events.find((event) => event.type === 'tool.selected')!.payload!, { toolRevision: 7 })
+      }
+      if (mode === 'malformed-agent') Object.assign(result.state.agent, { initialAgentId: 7, currentAgentId: 7 })
+      if (mode === 'empty-request') {
+        for (const event of result.events.filter((event) => event.type === 'model.requested' || event.type === 'model.completed').slice(0, 2)) {
+          Object.assign(event.payload!, { requestId: '' })
+        }
+      }
       expect(captureLegacyReadToolResultEnvelope({ ...value.input, result }).status).toBe('rejected')
       expect(projectLegacyReadToolGenerateResult({ ...value.projection, result }).status).toBe('rejected')
       expect(value.calls).toEqual({ legacyModel: 2, legacyTool: 1, runnerModel: 2, runnerTool: 1 })
+    },
+  )
+
+  it.each(['artifact', 'status', 'metadata', 'id', 'symbol', 'hidden-field', 'accessor'])(
+    'rejects post-constructor %s message data even when toDict omits it', async (field) => {
+      const value = await scenario()
+      const message = value.input.toolMessage
+      let sideEffects = 0
+      if (field === 'artifact') Object.assign(message, { artifact: { unsupported: true } })
+      if (field === 'status') Object.assign(message, { status: 'error' })
+      if (field === 'metadata') Object.assign(message, { metadata: { unsupported: true } })
+      if (field === 'id') Object.assign(message, { id: 'foreign' })
+      if (field === 'symbol') Object.assign(message, { [Symbol('unsupported')]: true })
+      if (field === 'hidden-field') Object.defineProperty(message, 'extension', { value: true })
+      if (field === 'accessor') Object.defineProperty(message, 'artifact', {
+        enumerable: true, get() { sideEffects += 1; return undefined },
+      })
+      expect(captureLegacyReadToolResultEnvelope(value.input).status).toBe('rejected')
+      expect(sideEffects).toBe(0)
+    },
+  )
+
+  it.each(['profile', 'claim', 'capture', 'prepared-array'])(
+    'rejects re-digested or otherwise hidden %s extensions before capture', async (mode) => {
+      const value = await scenario()
+      const input = { ...value.input }
+      if (mode === 'profile' || mode === 'claim') {
+        const profile = mutable(input.profile)
+        Object.assign(mode === 'profile' ? profile : profile.claims[0]!, { extension: true })
+        const { profileDigest: _digest, ...body } = profile
+        profile.profileDigest = digestRunnerJson(body)
+        input.profile = profile
+      }
+      if (mode === 'capture') Object.assign(input, { extension: true })
+      if (mode === 'prepared-array') Object.defineProperty(input.preparedInput, 'extension', { value: true })
+      expect(captureLegacyReadToolResultEnvelope(input).status).toBe('rejected')
     },
   )
 

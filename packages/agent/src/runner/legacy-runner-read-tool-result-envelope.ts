@@ -43,6 +43,33 @@ function keys(value: object, expected: readonly string[]): boolean {
   return Object.getOwnPropertyNames(value).sort().join('|') === [...expected].sort().join('|')
 }
 
+function dataRecord(value: unknown, expected: readonly string[]): boolean {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  const prototype = Object.getPrototypeOf(value)
+  return (prototype === Object.prototype || prototype === null)
+    && Object.getOwnPropertySymbols(value).length === 0 && keys(value, expected)
+    && Object.getOwnPropertyNames(value).every((key) => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key)
+      return descriptor?.enumerable === true && 'value' in descriptor
+    })
+}
+
+function denseArray(value: unknown): boolean {
+  return Array.isArray(value) && Object.getPrototypeOf(value) === Array.prototype
+    && Object.getOwnPropertySymbols(value).length === 0
+    && Object.getOwnPropertyNames(value).length === value.length + 1
+    && Object.getOwnPropertyNames(value).every((key) => {
+      if (key === 'length') return true
+      const descriptor = Object.getOwnPropertyDescriptor(value, key)
+      return /^(0|[1-9][0-9]*)$/u.test(key) && Number(key) < value.length
+        && descriptor?.enumerable === true && 'value' in descriptor
+    })
+}
+
+function identity(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 192 && value.trim() === value
+}
+
 /** Check descriptors before JSON operations, which otherwise skip hidden data or invoke accessors. */
 function closedJson(value: unknown, ancestors = new Set<object>()): void {
   if (value === null || typeof value !== 'object') return
@@ -77,6 +104,32 @@ function same(left: unknown, right: unknown): boolean {
   return digestRunnerJson(left) === digestRunnerJson(right)
 }
 
+/** Undefined is legitimate on message instances, but unknown own data must not vanish in toDict(). */
+function messageDataEqual(left: unknown, right: unknown, ancestors = new Set<object>()): boolean {
+  if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object') {
+    return typeof left !== 'function' && Object.is(left, right)
+  }
+  if (ancestors.has(left) || ancestors.has(right)) return false
+  const prototype = Object.getPrototypeOf(left)
+  if (prototype !== Object.getPrototypeOf(right)
+      || (prototype !== Object.prototype && prototype !== null && prototype !== Array.prototype)
+      || Object.getOwnPropertySymbols(left).length !== 0 || Object.getOwnPropertySymbols(right).length !== 0
+      || !keys(left, Object.getOwnPropertyNames(right))) return false
+  ancestors.add(left)
+  ancestors.add(right)
+  try {
+    return Object.getOwnPropertyNames(left).every((key) => {
+      const actual = Object.getOwnPropertyDescriptor(left, key)
+      const expected = Object.getOwnPropertyDescriptor(right, key)
+      return actual !== undefined && expected !== undefined && 'value' in actual && 'value' in expected
+        && actual.enumerable === expected.enumerable && messageDataEqual(actual.value, expected.value, ancestors)
+    })
+  } finally {
+    ancestors.delete(left)
+    ancestors.delete(right)
+  }
+}
+
 function exactMessage(actual: BaseMessage, expected: BaseMessage): boolean {
   const actualSymbols = Object.getOwnPropertySymbols(actual)
   const expectedSymbols = Object.getOwnPropertySymbols(expected)
@@ -90,13 +143,20 @@ function exactMessage(actual: BaseMessage, expected: BaseMessage): boolean {
     && keys(actual, Object.getOwnPropertyNames(expected))
     && Object.getOwnPropertyNames(actual).every((key) => {
       const descriptor = Object.getOwnPropertyDescriptor(actual, key)
-      return descriptor !== undefined && 'value' in descriptor
+      const wanted = Object.getOwnPropertyDescriptor(expected, key)
+      return descriptor !== undefined && wanted !== undefined && 'value' in descriptor && 'value' in wanted
+        && descriptor.enumerable === wanted.enumerable && messageDataEqual(descriptor.value, wanted.value)
     })
     && same(actual.toDict(), expected.toDict())
 }
 
 function inspect(profile: LegacyRunnerExecutionProfile, result: AgentRunnerResult) {
   durable({ profile, result })
+  if (!dataRecord(profile, ['schema', 'profileId', 'behaviorDigest', 'claims', 'profileDigest'])
+      || !denseArray(profile.claims) || profile.claims.some((claim) =>
+        !dataRecord(claim, ['obligation', 'disposition', 'owner', 'evidence', 'binding']))) {
+    throw new Error('profile-schema-unsupported')
+  }
   const completed = projectLegacyCompletedRunnerResult({
     profile, expectedProfileDigest: profile.profileDigest,
     expectedBehaviorDigest: profile.behaviorDigest, result,
@@ -133,7 +193,10 @@ function inspect(profile: LegacyRunnerExecutionProfile, result: AgentRunnerResul
       || !keys(call, ['type', 'itemId', 'callId', 'toolId', 'arguments'])
       || !keys(output, ['type', 'itemId', 'callId', 'output', 'isError'])
       || output.isError !== false || typeof output.output !== 'string'
-      || allItems.some((item) => typeof item.itemId !== 'string' || item.itemId.length === 0)
+      || allItems.some((item) => !identity(item.itemId))
+      || !identity(state.runId) || !identity(state.agent.initialAgentId) || !identity(state.agent.currentAgentId)
+      || !identity(call.callId) || !identity(call.toolId) || !identity(invocation.invocationId)
+      || !identity(invocation.toolRevision)
       || new Set(allItems.map((item) => item.itemId)).size !== allItems.length
       || call.arguments === null || typeof call.arguments !== 'object' || Array.isArray(call.arguments)
       || !keys(invocation, ['invocationId', 'callId', 'attempt', 'inputDigest', 'toolId',
@@ -164,8 +227,7 @@ function inspect(profile: LegacyRunnerExecutionProfile, result: AgentRunnerResul
   // unrepresented payload field are outside the qualified subset.
   const request1 = (result.events[1]?.payload as Record<string, unknown> | undefined)?.requestId
   const request2 = (result.events[10]?.payload as Record<string, unknown> | undefined)?.requestId
-  if (typeof request1 !== 'string' || typeof request2 !== 'string' || request1.length === 0
-      || request2.length === 0 || request1 === request2) throw new Error('model-request-identity-invalid')
+  if (!identity(request1) || !identity(request2) || request1 === request2) throw new Error('model-request-identity-invalid')
   const trace = [
     { type: 'run.started', payload: { status: 'running' } },
     { type: 'model.requested', payload: { requestId: request1, turn: 1 } },
@@ -232,6 +294,8 @@ export function captureLegacyReadToolResultEnvelope(input: {
   readonly timing: LegacyReadToolTiming
 }): { readonly status: 'captured'; readonly envelope: LegacyReadToolResultEnvelope } | Rejected {
   try {
+    if (!dataRecord(input, ['profile', 'result', 'preparedInput', 'assistantCall', 'toolMessage', 'finalAssistant', 'timing'])
+        || !denseArray(input.preparedInput)) return reject('capture-input-malformed')
     const observed = inspect(input.profile, input.result)
     durable(input.timing)
     if (!validTiming(input.timing, observed)) return reject('timing-invalid')
