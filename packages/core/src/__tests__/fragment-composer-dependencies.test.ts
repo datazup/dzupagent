@@ -21,10 +21,11 @@ describe('composeAdvancedFragments dependency closure', () => {
       { maxTokens: 12 },
     )
 
+    // A is dropped; B alone still fits the budget and is kept on its own.
     expect(result.included).not.toContain('A')
-    expect(result.included).toEqual([])
-    expect(result.excluded).toEqual(expect.arrayContaining(['A', 'B']))
-    expect(result.content).toBe('')
+    expect(result.included).toEqual(['B'])
+    expect(result.excluded).toEqual(['A'])
+    expect(result.content).toBe(body('b'))
     expect(result.warnings.some((w) => w.includes('"A"'))).toBe(true)
   })
 

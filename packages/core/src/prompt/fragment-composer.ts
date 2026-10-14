@@ -89,10 +89,15 @@ function estimateTokens(text: string, model?: string): number {
  *
  * Resolution order:
  * 1. Evaluate conditions — exclude fragments whose condition returns false.
- * 2. Resolve dependencies — pull in required fragments (transitively).
+ * 2. Resolve dependencies — pull in required fragments (transitively). Fragments with a
+ *    missing or circular dependency are excluded with a warning.
  * 3. Detect conflicts — when two conflicting fragments are both included, keep the higher-priority one.
+ *    Fragments whose dependency was evicted are excluded too.
  * 4. Sort by priority (descending) then by original order.
- * 5. Trim to maxTokens budget if specified.
+ * 5. Trim to maxTokens budget if specified. A fragment is admitted only together with its
+ *    dependencies, and the joined content (separators included) must fit the budget.
+ *
+ * Every included fragment's dependencies are also included.
  */
 export function composeAdvancedFragments(
   fragments: ComposableFragment[],
@@ -121,35 +126,72 @@ export function composeAdvancedFragments(
 
   // Step 2: resolve dependencies (transitive)
   const resolvedIds = new Set<string>()
+  /** Fragments that can never be included, with the reason recorded. */
+  const unsatisfiable = new Map<string, string>()
 
-  function resolve(id: string, chain: Set<string>): void {
+  function resolve(id: string, chain: string[]): void {
     if (resolvedIds.has(id)) return
-    if (chain.has(id)) {
+    const cycleStart = chain.indexOf(id)
+    if (cycleStart !== -1) {
       warnings.push(`Circular dependency detected involving "${id}". Skipping.`)
+      for (const member of chain.slice(cycleStart)) {
+        unsatisfiable.set(member, 'circular dependency')
+      }
       return
     }
     const frag = byId.get(id)
     if (!frag) return
-    chain.add(id)
+    const nextChain = [...chain, id]
 
     if (frag.dependencies) {
       for (const dep of frag.dependencies) {
+        if (!byId.has(dep)) {
+          unsatisfiable.set(id, `depends on "${dep}" which is not in the fragment set`)
+          continue
+        }
         if (!conditionPassed.has(dep)) {
           warnings.push(`Dependency "${dep}" of "${id}" excluded by condition. Including anyway.`)
           conditionPassed.add(dep)
         }
-        resolve(dep, new Set(chain))
+        resolve(dep, nextChain)
       }
     }
     resolvedIds.add(id)
   }
 
   for (const id of conditionPassed) {
-    resolve(id, new Set())
+    resolve(id, [])
   }
 
-  // Step 3: conflict resolution — higher priority wins
   const excluded = new Set<string>()
+  for (const [id, reason] of unsatisfiable) {
+    excluded.add(id)
+    warnings.push(`Fragment "${id}" excluded: ${reason}.`)
+  }
+
+  /**
+   * Exclude every resolved fragment that depends on an excluded fragment,
+   * transitively, so the remaining set is closed under dependencies.
+   */
+  function enforceDependencyClosure(): void {
+    let changed = true
+    while (changed) {
+      changed = false
+      for (const frag of fragments) {
+        if (!resolvedIds.has(frag.id) || excluded.has(frag.id)) continue
+        const missing = frag.dependencies?.find((dep) => excluded.has(dep))
+        if (missing !== undefined) {
+          excluded.add(frag.id)
+          warnings.push(`Fragment "${frag.id}" excluded: dependency "${missing}" is not included.`)
+          changed = true
+        }
+      }
+    }
+  }
+
+  enforceDependencyClosure()
+
+  // Step 3: conflict resolution — higher priority wins
   const resolvedArray = fragments.filter((f) => resolvedIds.has(f.id))
 
   for (const frag of resolvedArray) {
@@ -173,6 +215,8 @@ export function composeAdvancedFragments(
     }
   }
 
+  enforceDependencyClosure()
+
   // Step 4: sort by priority desc, then original order
   const ordered = resolvedArray
     .filter((f) => !excluded.has(f.id))
@@ -181,34 +225,73 @@ export function composeAdvancedFragments(
       return fragments.indexOf(a) - fragments.indexOf(b)
     })
 
-  // Step 5: budget trimming
-  const included: string[] = []
+  // Step 5: budget trimming — a fragment is admitted together with its
+  // not-yet-included dependencies, and only when both the summed part
+  // estimates and the joined content (separators included) fit the budget.
+  const separator = '\n\n---\n\n'
+  const includedSet = new Set<string>()
   const finalExcluded: string[] = []
-  const parts: string[] = []
   let usedTokens = 0
   const maxTokens = options?.maxTokens ?? Infinity
 
+  function pendingGroup(frag: ComposableFragment): ComposableFragment[] {
+    const group = new Map<string, ComposableFragment>()
+    const visit = (f: ComposableFragment): void => {
+      if (includedSet.has(f.id) || group.has(f.id)) return
+      group.set(f.id, f)
+      for (const dep of f.dependencies ?? []) {
+        const depFrag = byId.get(dep)
+        if (depFrag) visit(depFrag)
+      }
+    }
+    visit(frag)
+    return [...group.values()]
+  }
+
   for (const frag of ordered) {
-    const fragTokens = estimateTokens(frag.content, options?.model)
-    if (usedTokens + fragTokens > maxTokens) {
+    if (includedSet.has(frag.id)) continue
+    const group = pendingGroup(frag)
+    const groupTokens = group.reduce((sum, f) => sum + estimateTokens(f.content, options?.model), 0)
+    if (usedTokens + groupTokens > maxTokens) {
       finalExcluded.push(frag.id)
-      warnings.push(`Fragment "${frag.id}" excluded: exceeds token budget.`)
+      warnings.push(
+        group.length > 1
+          ? `Fragment "${frag.id}" excluded: exceeds token budget together with its dependencies.`
+          : `Fragment "${frag.id}" excluded: exceeds token budget.`,
+      )
       continue
     }
-    included.push(frag.id)
-    parts.push(frag.content)
-    usedTokens += fragTokens
+    if (maxTokens !== Infinity) {
+      const candidate = ordered
+        .filter((f) => includedSet.has(f.id) || group.includes(f))
+        .map((f) => f.content)
+        .join(separator)
+      if (estimateTokens(candidate, options?.model) > maxTokens) {
+        finalExcluded.push(frag.id)
+        warnings.push(`Fragment "${frag.id}" excluded: exceeds token budget once joined with separators.`)
+        continue
+      }
+    }
+    for (const f of group) {
+      includedSet.add(f.id)
+      const wasExcluded = finalExcluded.indexOf(f.id)
+      if (wasExcluded !== -1) finalExcluded.splice(wasExcluded, 1)
+    }
+    usedTokens += groupTokens
   }
+
+  const includedFragments = ordered.filter((f) => includedSet.has(f.id))
+  const included = includedFragments.map((f) => f.id)
 
   // Add condition-excluded and conflict-excluded to the excluded list
   for (const frag of fragments) {
-    if (!included.includes(frag.id) && !finalExcluded.includes(frag.id)) {
+    if (!includedSet.has(frag.id) && !finalExcluded.includes(frag.id)) {
       finalExcluded.push(frag.id)
     }
   }
 
   return {
-    content: parts.join('\n\n---\n\n'),
+    content: includedFragments.map((f) => f.content).join(separator),
     included,
     excluded: finalExcluded,
     warnings,
