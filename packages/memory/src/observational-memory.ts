@@ -229,6 +229,10 @@ export class ObservationalMemory {
   }
 
   private messagesSinceLastRun = 0
+  /** Messages fed since the last successful observer run (oldest first, bounded). */
+  private pendingMessages: BaseMessage[] = []
+  /** Bumped by reset() so an in-flight run cannot restore a cleared buffer. */
+  private bufferEpoch = 0
   /** True while an observer run is in flight; concurrent triggers are no-ops. */
   private observerRunning = false
 
@@ -284,6 +288,7 @@ export class ObservationalMemory {
    */
   async observe(messages: BaseMessage[]): Promise<ObserverResult | null> {
     this.messagesSinceLastRun += messages.length
+    this.bufferMessages(this.pendingMessages.concat(messages))
 
     if (this.messagesSinceLastRun < this.observerThreshold) {
       return null
@@ -302,11 +307,25 @@ export class ObservationalMemory {
       return null
     }
 
+    // Messages arriving while this run is in flight land in a fresh buffer
+    // and wait for the next run.
+    const batch = this.pendingMessages
+    const batchCount = this.messagesSinceLastRun
+    const epoch = this.bufferEpoch
+    this.pendingMessages = []
     this.observerRunning = true
     try {
-      return await this.runObserver(messages)
+      const result = await this.runObserver(batch)
+      if (epoch === this.bufferEpoch) {
+        this.messagesSinceLastRun = Math.max(0, this.messagesSinceLastRun - batchCount)
+      }
+      return result
     } catch {
-      // Observer failure is non-fatal
+      // Observer failure is non-fatal; keep the batch for the retry unless
+      // reset() cleared the buffer meanwhile.
+      if (epoch === this.bufferEpoch) {
+        this.bufferMessages(batch.concat(this.pendingMessages))
+      }
       return null
     } finally {
       this.observerRunning = false
@@ -567,6 +586,8 @@ export class ObservationalMemory {
   /** Reset counters (e.g., at session start) */
   reset(): void {
     this.messagesSinceLastRun = 0
+    this.pendingMessages = []
+    this.bufferEpoch++
     this.stats = {
       totalObservations: 0,
       observerRuns: 0,
@@ -577,6 +598,20 @@ export class ObservationalMemory {
   }
 
   // ---------- Private --------------------------------------------------------
+
+  /** Store `messages` as the pending buffer, dropping the oldest beyond the cap. */
+  private bufferMessages(messages: BaseMessage[]): void {
+    const cap = Math.max(200, 4 * this.observerThreshold)
+    const dropped = messages.length - cap
+    this.pendingMessages = dropped > 0 ? messages.slice(dropped) : messages
+    if (dropped > 0) {
+      this.emitLifecycleCount(
+        'observation:candidate:pruned',
+        dropped,
+        `observer message buffer exceeded ${cap} messages; dropped oldest`,
+      )
+    }
+  }
 
   private async runObserver(messages: BaseMessage[]): Promise<ObserverResult> {
     await this.initializeObservationCandidates()
@@ -708,7 +743,6 @@ export class ObservationalMemory {
       this.stats.totalObservations += persisted.length
     }
 
-    this.messagesSinceLastRun = 0
     this.stats.lastObserverRun = Date.now()
     this.stats.observerRuns++
 
