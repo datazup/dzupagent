@@ -7,6 +7,7 @@ import type { BaseStore } from '@langchain/langgraph'
 import { MemoryService } from '../memory-service.js'
 import { MemoryServiceObservationCandidateStore } from '../observation-candidate-store.js'
 import type { ObservationCandidateStore } from '../observation-candidate-store.js'
+import { StagedWriter } from '../staged-writer.js'
 import { HumanMessage, AIMessage } from '@langchain/core/messages'
 import type { BaseMessage } from '@langchain/core/messages'
 
@@ -122,6 +123,18 @@ function extractionInput(
   const prompt = model.invoke.mock.calls[callIndex]![0] as BaseMessage[]
   const text = prompt[1]!.content as string
   return [...text.matchAll(/^\[m\d+\] \w+: (.*)$/gm)].map(match => match[1]!)
+}
+
+/** Private trigger counter next to the buffer it counts. */
+function bufferState(memory: ObservationalMemory): { counted: number; buffered: number } {
+  const internals = memory as unknown as {
+    messagesSinceLastRun: number
+    pendingMessages: BaseMessage[]
+  }
+  return {
+    counted: internals.messagesSinceLastRun,
+    buffered: internals.pendingMessages.length,
+  }
 }
 
 function deferred<T>() {
@@ -355,6 +368,101 @@ describe('ObservationalMemory', () => {
 
       expect(next).not.toBeNull()
       expect(extractionInput(model, 1)).toEqual(['fresh-a', 'fresh-b'])
+    })
+
+    it('stops counting messages the buffer cap dropped while debounced', async () => {
+      sut = createOM({ observerThreshold: 2, observerDebounceMs: 60_000 })
+      expect(await sut.observe(textMessages('first-a', 'first-b'))).not.toBeNull()
+
+      const texts = Array.from({ length: 250 }, (_, index) => `debounced-${index}`)
+      expect(await sut.observe(textMessages(...texts))).toBeNull()
+
+      expect(bufferState(sut)).toEqual({ counted: 200, buffered: 200 })
+    })
+
+    it('stops counting messages the buffer cap dropped when a failed run restores its batch', async () => {
+      const pendingGet = deferred<Record<string, unknown>[]>()
+      memoryService.get.mockImplementationOnce(() => pendingGet.promise)
+      sut = createOM({ observerThreshold: 2 })
+
+      const firstRun = sut.observe(textMessages('failed-a', 'failed-b'))
+      await vi.waitFor(() => expect(memoryService.get).toHaveBeenCalledTimes(1))
+      const texts = Array.from({ length: 250 }, (_, index) => `during-${index}`)
+      expect(await sut.observe(textMessages(...texts))).toBeNull()
+      pendingGet.reject(new Error('store connection lost'))
+      expect(await firstRun).toBeNull()
+
+      expect(bufferState(sut)).toEqual({ counted: 200, buffered: 200 })
+    })
+  })
+
+  // -----------------------------------------------------------------------
+  // observe() — retry after a run that failed past persistence
+  // -----------------------------------------------------------------------
+
+  describe('observe() retry after a partially persisted run', () => {
+    const extracted = [
+      { text: 'User prefers dark mode', category: 'preference', confidence: 0.9 },
+      { text: 'Project uses TypeScript', category: 'fact', confidence: 0.95 },
+    ]
+
+    async function storedTexts(): Promise<string[]> {
+      const records = await sut.getObservations()
+      return records.map(record => record['text'] as string).sort()
+    }
+
+    it('does not store a duplicate when candidate cleanup throws after flushConfirmedObservations persisted', async () => {
+      model = createMockModel([observationResponse(extracted), observationResponse(extracted)])
+      const candidateStore: ObservationCandidateStore = {
+        load: vi.fn().mockResolvedValue([]),
+        put: vi.fn().mockResolvedValue(true),
+        remove: vi.fn()
+          .mockRejectedValueOnce(new Error('candidate database down'))
+          .mockResolvedValue(true),
+        getReceipt: vi.fn().mockResolvedValue(null),
+        putReceipt: vi.fn().mockResolvedValue(true),
+        prune: vi.fn().mockResolvedValue(0),
+      }
+      sut = createOM({
+        observerThreshold: 1,
+        observationWriteMode: 'candidate-first',
+        candidateStore,
+        // Auto-confirms both extractions so the observer run itself flushes them.
+        stagedWriter: new StagedWriter(),
+      })
+
+      expect(await sut.observe(makeMessages(2))).toBeNull()
+      // The first confirmed record was persisted before cleanup threw.
+      expect(await storedTexts()).toEqual(['User prefers dark mode'])
+
+      const retry = await sut.observe([])
+
+      expect(retry).not.toBeNull()
+      expect(model.invoke).toHaveBeenCalledTimes(2)
+      expect(retry!.skippedDuplicates).toBe(1)
+      expect(retry!.persisted.map(observation => observation.text)).toEqual([
+        'Project uses TypeScript',
+      ])
+      expect(await storedTexts()).toEqual(['Project uses TypeScript', 'User prefers dark mode'])
+      expect(memoryService.put).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not store a duplicate when a direct write throws after an earlier one persisted', async () => {
+      model = createMockModel([observationResponse(extracted), observationResponse(extracted)])
+      const put = memoryService.put.getMockImplementation()!
+      memoryService.put
+        .mockImplementationOnce(put)
+        .mockRejectedValueOnce(new Error('write failed'))
+      sut = createOM({ observerThreshold: 1 })
+
+      expect(await sut.observe(makeMessages(2))).toBeNull()
+      expect(await storedTexts()).toEqual(['User prefers dark mode'])
+
+      const retry = await sut.observe([])
+
+      expect(retry).not.toBeNull()
+      expect(retry!.skippedDuplicates).toBe(1)
+      expect(await storedTexts()).toEqual(['Project uses TypeScript', 'User prefers dark mode'])
     })
   })
 
