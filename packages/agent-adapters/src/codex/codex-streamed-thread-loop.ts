@@ -87,6 +87,10 @@ export async function* runStreamedThread(
   ctx: RunStreamedThreadContext,
 ): AsyncGenerator<AgentStreamEvent, void, undefined> {
   const startTime = now();
+  // A session id present on entry is the thread this run was asked to resume
+  // (explicit resume, or the auto-resume after an approval pause). The first
+  // thread.started must name that same thread.
+  const requestedThreadId = ctx.getSessionId();
   let sessionId = ctx.getSessionId() ?? `codex-${Date.now()}`;
   let lastUsage: TokenUsage | undefined;
   let finalResponse = "";
@@ -202,6 +206,29 @@ export async function* runStreamedThread(
     for await (const event of streamedTurn.events) {
       if (signal.aborted) {
         yield abortFailure();
+        return;
+      }
+      if (
+        event.type === "thread.started" &&
+        event.thread_id &&
+        requestedThreadId &&
+        event.thread_id !== requestedThreadId
+      ) {
+        clearTimeout(timeoutHandle);
+        defaultLogger.error(
+          "[codex-streamed-thread:run] thread.started names a different thread than the one requested",
+          { requestedThreadId, receivedThreadId: event.thread_id },
+        );
+        yield withCorrelationId(
+          makeFailedEvent({
+            providerId: ctx.providerId,
+            sessionId,
+            error: "Codex resumed a different thread than the one requested; run stopped",
+            code: "ADAPTER_RESUME_THREAD_MISMATCH",
+            timestamp: now(),
+          }),
+          input.correlationId,
+        );
         return;
       }
       if (event.type === "thread.started" && event.thread_id) {

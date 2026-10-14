@@ -227,6 +227,57 @@ describe('runStreamedThread', () => {
     expect(capturedSessionId).toBe('assigned-session')
   })
 
+  it('fails a resumed turn whose thread.started names a different thread and keeps the requested session id', async () => {
+    const thread = makeThread([
+      { type: 'thread.started', thread_id: 'sibling-thread' },
+      { type: 'item.completed', item: { type: 'agent_message', id: 'm1', text: 'from sibling' } },
+      { type: 'turn.completed' },
+    ])
+    let sessionId: string | null = 'requested-thread'
+    const ctx = makeCtx({
+      isResume: true,
+      getSessionId: () => sessionId,
+      setSessionId: (id) => { sessionId = id },
+    })
+
+    const genPromise = collectAll(
+      runStreamedThread(thread, makeInput(), makeCodexInstance(), new AbortController().signal, ctx),
+    )
+    await vi.runAllTimersAsync()
+    const collected = await genPromise
+
+    expect(sessionId).toBe('requested-thread')
+    expect(collected.at(-1)).toMatchObject({
+      type: 'adapter:failed',
+      code: 'ADAPTER_RESUME_THREAD_MISMATCH',
+      sessionId: 'requested-thread',
+    })
+    expect(collected.some(e => e.type === 'adapter:completed')).toBe(false)
+    expect(collected.some(e => e.type === 'adapter:message')).toBe(false)
+  })
+
+  it('accepts a resumed turn whose thread.started matches the requested thread', async () => {
+    const thread = makeThread([
+      { type: 'thread.started', thread_id: 'requested-thread' },
+      { type: 'turn.completed' },
+    ])
+    let sessionId: string | null = 'requested-thread'
+    const ctx = makeCtx({
+      isResume: true,
+      getSessionId: () => sessionId,
+      setSessionId: (id) => { sessionId = id },
+    })
+
+    const genPromise = collectAll(
+      runStreamedThread(thread, makeInput(), makeCodexInstance(), new AbortController().signal, ctx),
+    )
+    await vi.runAllTimersAsync()
+    const collected = await genPromise
+
+    expect(collected.some(e => e.type === 'adapter:failed')).toBe(false)
+    expect(collected.at(-1)).toMatchObject({ type: 'adapter:completed', sessionId: 'requested-thread' })
+  })
+
   it('emits adapter:started event for thread.started SDK event', async () => {
     const events: CodexStreamEvent[] = [
       { type: 'thread.started', thread_id: 'tid-start' },
@@ -606,9 +657,9 @@ describe('runStreamedThread', () => {
     ]
     const thread = makeThread(events)
 
-    // Resumed thread returns a simple completed turn
+    // Resumed thread returns a simple completed turn on the SAME thread id
     const resumedEvents: CodexStreamEvent[] = [
-      { type: 'thread.started', thread_id: 'tid-resumed' },
+      { type: 'thread.started', thread_id: 'tid-pause' },
       {
         type: 'item.completed',
         item: { type: 'agent_message', id: 'i1', text: 'Resumed result' },
