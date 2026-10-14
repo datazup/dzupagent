@@ -67,7 +67,7 @@ function selection(options?: GenerateOptions) {
 
 function eligibility(config: DzupAgentConfig, options: GenerateOptions, state?: PreparedRunState): string | undefined {
   if (!readToolDataRecord(config) || Object.keys(config).some((key) => config[key] !== undefined && !fields.has(key))) return 'configuration-unsupported'
-  if (Object.keys(options).some((key) => options[key] !== undefined && !optionFields.has(key))) return 'options-unsupported'
+  if (Object.keys(options).some((key) => Object.getOwnPropertyDescriptor(options, key)?.value !== undefined && !optionFields.has(key))) return 'options-unsupported'
   if (options.signal !== undefined && !(options.signal instanceof AbortSignal)) return 'signal-invalid'
   if (typeof config.instructions !== 'string' || !readToolIdentity(config.id)
       || (config.instructionsMode !== undefined && config.instructionsMode !== 'static')
