@@ -104,17 +104,24 @@ import {
   shouldRunFailover as shouldRunFailoverHelper,
 } from "./provider-selection.js";
 import { validateNoToolGenerateOptions } from "./no-tool-generate-delegation.js";
+import { validateReadToolGenerateOptions } from "./read-tool-generate-delegation.js";
 
 // Re-export for backward compatibility — tests and external consumers
 // import `extractJsonFromText` from `dzip-agent.js`.
 export { extractJsonFromText };
 
-function withoutNoToolGenerateDelegation(
+function withoutGenerateDelegation(
   options: GenerateOptions | undefined
 ): GenerateOptions | undefined {
-  if (options?.experimentalNoToolGenerateDelegation === undefined) return options;
-  const { experimentalNoToolGenerateDelegation: _optIn, ...legacyOptions } = options;
-  return legacyOptions;
+  if (options === undefined) return options;
+  if (!("experimentalNoToolGenerateDelegation" in options)
+      && !("experimentalReadToolGenerateDelegation" in options)) return options;
+  const descriptors = Object.getOwnPropertyDescriptors(options);
+  delete descriptors.experimentalNoToolGenerateDelegation;
+  delete descriptors.experimentalReadToolGenerateDelegation;
+  return Object.defineProperties({}, Object.fromEntries(
+    Object.entries(descriptors).filter(([, descriptor]) => descriptor.enumerable)
+  )) as GenerateOptions;
 }
 
 export class DzupAgent {
@@ -230,6 +237,7 @@ export class DzupAgent {
     options?: GenerateOptions
   ): Promise<GenerateResult> {
     validateNoToolGenerateOptions(options);
+    validateReadToolGenerateOptions(options);
     // AGENT-M-14 — record the cross-agent `asTool` depth for this run so the
     // tool produced by `asTool()` can accumulate depth across nested
     // invocations and reject once the ceiling is reached. `generate` calls are
@@ -291,7 +299,7 @@ export class DzupAgent {
             this.resolveMemoryReadContext(options)
           ),
         generate: (msgs, opts) =>
-          this.generate(msgs, withoutNoToolGenerateDelegation(opts)),
+          this.generate(msgs, withoutGenerateDelegation(opts)),
       },
       messages,
       schema,
@@ -393,7 +401,7 @@ export class DzupAgent {
       {
         agentId: this.id,
         generate: (msgs, opts) =>
-          this.generate(msgs, withoutNoToolGenerateDelegation(opts)),
+          this.generate(msgs, withoutGenerateDelegation(opts)),
       },
       messages,
       options

@@ -20,7 +20,8 @@ const comparable = (value: Awaited<ReturnType<DzupAgent['generate']>>) => ({
 })
 
 function fixture(input: { mode?: string; blocks?: boolean; constructorUsage?: boolean;
-  config?: Record<string, unknown>; onModel?: (turn: number) => void; onRead?: () => void } = {}) {
+  config?: Record<string, unknown>; onModel?: (turn: number) => void; onRead?: () => void;
+  onDispatch?: (request: AgentRunnerReadToolDelegationRequest) => void } = {}) {
   const mode = input.mode ?? 'completed'
   let clock = 1000
   const counts = { legacyModel: 0, runnerModel: 0, tools: 0, dispatch: 0 }
@@ -44,6 +45,7 @@ function fixture(input: { mode?: string; blocks?: boolean; constructorUsage?: bo
     binding: { toolId: call.name, toolRevision: '1', effectClass: 'read', maxCalls: 1, timingPolicy: 'host-elapsed-ms/v1' },
     async dispatch(request) {
       counts.dispatch += 1; requests.push(request)
+      input.onDispatch?.(request)
       if (mode === 'throw') throw new Error('untrusted provider detail')
       if (mode === 'rejected-before-dispatch' || mode === 'late-port') return { status: 'rejected-before-dispatch', source: request.admission.source, code: 'not-ready' }
       if (mode === 'mutate-admission') Object.assign(request.admission.source, { runId: 'foreign' })
@@ -88,7 +90,13 @@ function fixture(input: { mode?: string; blocks?: boolean; constructorUsage?: bo
         assistantCall: messages[0]!, toolMessage, finalAssistant: messages[1]! } satisfies AgentRunnerReadToolDelegationOutcome
     },
   }
-  const model = { bindTools() { return this }, async invoke() { return messages[(counts.legacyModel++) % 2]! } } as unknown as BaseChatModel
+  const model = { bindTools() { return this }, async invoke() {
+    const index = (counts.legacyModel++) % 2
+    if (mode === 'structured-correction' && counts.legacyModel >= 4) {
+      return new AIMessage({ content: '{"answer":"done"}', usage_metadata: usage[1]! })
+    }
+    return messages[index]!
+  } } as unknown as BaseChatModel
   const config = { id: 'r5p-agent', instructions: 'Read one deterministic record.', model, tools: [read],
     guardrails: { maxIterations: 4, stuckDetector: false as const }, memoryWriteBack: false,
     toolExecution: { wrapToolResults: false }, experimentalReadToolGenerateBridge: bridge, ...input.config }
@@ -207,6 +215,95 @@ describe('R5P public single-read delegation', () => {
     Object.assign(message, { id: 'assigned-after-construction' })
     await expect(value.agent.generate([message], options())).rejects.toMatchObject({ replay: 'not-dispatched' })
     expect(value.counts.dispatch).toBe(0)
+  })
+
+  it('launch retains the legacy path when read delegation is present', async () => {
+    const value = fixture()
+    const handle = await value.agent.launch([new HumanMessage('Read')], { generateOptions: options() })
+    expect((await handle.result()).status).toBe('completed')
+    expect(value.counts).toEqual({ legacyModel: 2, runnerModel: 0, tools: 1, dispatch: 0 })
+  })
+
+  it('structured fallback and schema correction never dispatch read delegation', async () => {
+    const value = fixture({ mode: 'structured-correction' })
+    const actual = await value.agent.generateStructured([new HumanMessage('Read')], z.object({ answer: z.string() }), options())
+    expect(actual.data).toEqual({ answer: 'done' })
+    expect(value.counts).toEqual({ legacyModel: 4, runnerModel: 0, tools: 2, dispatch: 0 })
+  })
+
+  it.each(['_agentToolDepth', '_memoryReadContext', 'context'])(
+    'validates before reading the foreign %s option accessor', async (field) => {
+      const value = fixture()
+      const selected = options()
+      let effects = 0
+      Object.defineProperty(selected, field, { enumerable: true, get() { effects += 1; return undefined } })
+      await expect(value.agent.generate([new HumanMessage('Read')], selected)).rejects.toMatchObject({ replay: 'not-dispatched' })
+      expect(effects).toBe(0)
+      expect(value.counts).toEqual({ legacyModel: 0, runnerModel: 0, tools: 0, dispatch: 0 })
+    })
+
+  it.each(['fallback-to-legacy', 'invalid-policy'])(
+    'does not change admitted fail-closed policy to %s during dispatch', async (next) => {
+      const selected = options()
+      const value = fixture({ mode: 'rejected-before-dispatch', onDispatch() {
+        Object.assign(selected.experimentalReadToolGenerateDelegation, { preDispatchPolicy: next })
+      } })
+      await expect(value.agent.generate([new HumanMessage('Read')], selected)).rejects.toMatchObject({ replay: 'not-dispatched' })
+      expect(value.requests[0]!.admission.policy).toBe('fail-closed')
+      expect(value.counts.legacyModel).toBe(0); expect(value.counts.tools).toBe(0)
+    })
+
+  it('retains explicitly admitted fallback if caller policy changes to fail-closed', async () => {
+    const selected = options('fallback-to-legacy')
+    const value = fixture({ mode: 'rejected-before-dispatch', onDispatch() {
+      selected.experimentalReadToolGenerateDelegation.preDispatchPolicy = 'fail-closed'
+    } })
+    await value.agent.generate([new HumanMessage('Read')], selected)
+    expect(value.requests[0]!.admission.policy).toBe('fallback-to-legacy')
+    expect(value.counts).toEqual({ legacyModel: 2, runnerModel: 0, tools: 1, dispatch: 1 })
+  })
+
+  it.each(['model', 'read'])('retains and detaches the original signal when changed during %s', async (when) => {
+    const original = new AbortController(), replacement = new AbortController()
+    const selected = { ...options('fallback-to-legacy'), signal: original.signal }
+    const remove = vi.spyOn(original.signal, 'removeEventListener')
+    const add = vi.spyOn(original.signal, 'addEventListener')
+    const mutate = () => { selected.signal = replacement.signal; original.abort() }
+    const value = fixture({ onModel(turn) { if (when === 'model' && turn === 1) mutate() },
+      onRead() { if (when === 'read') mutate() } })
+    try {
+      await expect(value.agent.generate([new HumanMessage('Read')], selected)).rejects.toMatchObject({ name: 'AgentRunnerReadToolDelegationError' })
+      expect(value.requests[0]!.signal).toBe(original.signal)
+      const listener = add.mock.calls.find(([kind]) => kind === 'abort')?.[1]
+      expect(listener).toBeDefined()
+      expect(remove).toHaveBeenCalledWith('abort', listener)
+      expect(value.counts.legacyModel).toBe(0)
+      expect(value.counts.tools).toBe(when === 'read' ? 1 : 0)
+    } finally { remove.mockRestore(); add.mockRestore() }
+  })
+
+  it.each(['number', 'object', 'undefined', 'null'])(
+    'rejects a %s refusal code without coercion or legacy fallback', async (kind) => {
+      const value = fixture()
+      let coercions = 0
+      const code = kind === 'number' ? 7 : kind === 'undefined' ? undefined : kind === 'null' ? null
+        : { toString() { coercions += 1; return 'coerced-code' } }
+      value.bridge.dispatch = async (request) => ({ status: 'rejected-before-dispatch', source: request.admission.source, code } as never)
+      await expect(value.agent.generate([new HumanMessage('Read')], options('fallback-to-legacy'))).rejects.toMatchObject({ replay: 'forbidden-unknown-outcome' })
+      expect(coercions).toBe(0); expect(value.counts.legacyModel).toBe(0); expect(value.counts.tools).toBe(0)
+    })
+
+  it('rejects accessor tool arguments before invoking the configured tool', async () => {
+    const value = fixture()
+    let effects = 0
+    const args = Object.defineProperty({}, 'recordId', { enumerable: true, get() { effects += 1; return 'one' } })
+    value.bridge.dispatch = async (request) => {
+      await request.readTool.execute({ runId: request.admission.source.runId, invocationId: 'invalid-args',
+        callId: 'invalid-args', attempt: 1, input: args }).catch(() => {})
+      return { status: 'rejected-before-dispatch', source: request.admission.source, code: 'not-ready' }
+    }
+    await expect(value.agent.generate([new HumanMessage('Read')], options('fallback-to-legacy'))).rejects.toMatchObject({ replay: 'forbidden-after-dispatch' })
+    expect(effects).toBe(0); expect(value.counts.tools).toBe(0); expect(value.counts.legacyModel).toBe(0)
   })
 })
 

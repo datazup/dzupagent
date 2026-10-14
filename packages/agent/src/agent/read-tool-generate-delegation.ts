@@ -52,7 +52,7 @@ function freeze<T>(value: T): T {
   return value
 }
 
-function selection(options?: GenerateOptions) {
+export function validateReadToolGenerateOptions(options?: GenerateOptions) {
   if (options === undefined) return undefined
   const descriptor = Object.getOwnPropertyDescriptor(options, 'experimentalReadToolGenerateDelegation')
   if (descriptor === undefined && !('experimentalReadToolGenerateDelegation' in options)) return undefined
@@ -98,7 +98,7 @@ function fallback(policy: AgentRunnerReadToolPreDispatchPolicy, code: string,
 }
 
 export function preflightReadToolGenerateDelegation(config: DzupAgentConfig, options?: GenerateOptions): boolean {
-  const optIn = selection(options)
+  const optIn = validateReadToolGenerateOptions(options)
   if (optIn === undefined) return false
   // Signal shape is checked before reading its native aborted accessor.
   if (options?.signal instanceof AbortSignal && options.signal.aborted) throw error('cancelled-before-dispatch', 'before-dispatch')
@@ -111,12 +111,14 @@ export async function maybeDelegateReadToolGenerate(input: {
   readonly agentId: string; readonly config: DzupAgentConfig; readonly options: GenerateOptions | undefined
   readonly runState: PreparedRunState
 }): Promise<GenerateResult | undefined> {
-  const optIn = selection(input.options)
+  const optIn = validateReadToolGenerateOptions(input.options)
   if (optIn === undefined) return undefined
   const options = input.options ?? {}
+  const policy = optIn.preDispatchPolicy
+  const signal = options.signal
   const reason = eligibility(input.config, options, input.runState)
-  if (reason !== undefined) return fallback(optIn.preDispatchPolicy, reason, 'admission')
-  if (options.signal?.aborted) throw error('cancelled-before-dispatch', 'before-dispatch')
+  if (reason !== undefined) return fallback(policy, reason, 'admission')
+  if (signal?.aborted) throw error('cancelled-before-dispatch', 'before-dispatch')
   const bridge = input.config.experimentalReadToolGenerateBridge!
   const binding = freeze(cloneDurableJson(bridge.binding))
   const runId = options.runId!
@@ -134,7 +136,7 @@ export async function maybeDelegateReadToolGenerate(input: {
       if (typeof entry === 'string' || !exactMessage(message, reconstructLegacyMessage(entry))) throw new Error('message-envelope')
       items.push(item); entries.push(entry)
     }
-  } catch { return fallback(optIn.preDispatchPolicy, 'prepared-input-ineligible', 'admission') }
+  } catch { return fallback(policy, 'prepared-input-ineligible', 'admission') }
   const preparedMessages = freeze(entries.map(reconstructLegacyMessage))
   const maxModelTurns = input.runState.maxIterations
   const behaviorDigest = digestRunnerJson({ schema: 'dzupagent.singleReadGenerateBehavior/v1',
@@ -145,7 +147,7 @@ export async function maybeDelegateReadToolGenerate(input: {
     profile = freeze(buildRunnerProviderFreeExecutionProfile({ behaviorDigest, maxModelTurns, maxToolAttempts: 1,
       observedMessageCount: preparedMessages.length, observedMessageTokens: estimateConversationTokensForMessages(preparedMessages),
       structuredOutputRequested: false, legacyResultProjection: 'single-read-generate-delegation/v1' }))
-  } catch { return fallback(optIn.preDispatchPolicy, 'prepared-input-outside-profile-bounds', 'admission') }
+  } catch { return fallback(policy, 'prepared-input-outside-profile-bounds', 'admission') }
   const requestInput = freeze({ agentId: input.agentId, behaviorDigest, items })
   const sourceBody = { schema: 'dzupagent.agentRunnerReadToolDelegationSource/v1' as const,
     bridgeId: bridge.bridgeId, runId, agentId: input.agentId, behaviorDigest,
@@ -153,11 +155,11 @@ export async function maybeDelegateReadToolGenerate(input: {
     preparedMessageDigest: digestRunnerJson(entries), readTool: binding }
   const source = freeze({ ...sourceBody, sourceDigest: digestRunnerJson(sourceBody) })
   const admissionBody = { schema: 'dzupagent.agentRunnerReadToolDelegationAdmission/v1' as const,
-    decision: 'delegate' as const, policy: optIn.preDispatchPolicy, source,
+    decision: 'delegate' as const, policy, source,
     observedMessageCount: preparedMessages.length, observedMessageTokens: estimateConversationTokensForMessages(preparedMessages),
     maxModelTurns, maxToolAttempts: 1 }
   const admission = freeze({ ...admissionBody, admissionDigest: digestRunnerJson(admissionBody) })
-  if (!validateAgentRunnerReadToolDelegationAdmission(admission)) return fallback(optIn.preDispatchPolicy, 'admission-invalid', 'admission')
+  if (!validateAgentRunnerReadToolDelegationAdmission(admission)) return fallback(policy, 'admission-invalid', 'admission')
 
   const control = new RunControl()
   let closed = false, attempted = false, violated = false
@@ -172,41 +174,42 @@ export async function maybeDelegateReadToolGenerate(input: {
             || value.runId !== runId || !readToolIdentity(value.invocationId) || !readToolIdentity(value.callId)
             || value.attempt !== 1 || !readToolDataRecord(value.input)) throw new Error('request-binding')
         json(value.input)
-        if (options.signal?.aborted || control.observeAtSafePoint('before-tool-dispatch').action !== 'continue') throw new Error('cancelled')
+        if (signal?.aborted || control.observeAtSafePoint('before-tool-dispatch').action !== 'continue') throw new Error('cancelled')
         const args = cloneDurableJson(value.input)
         const inputDigest = digestRunnerJson(args)
         const startedMs = Date.now()
-        const output: unknown = await invokeTool(args, options.signal === undefined ? undefined : { signal: options.signal })
+        const output: unknown = await invokeTool(args, signal === undefined ? undefined : { signal })
         const completedMs = Date.now()
         if (typeof output !== 'string') throw new Error('output-profile')
         observed = { timing: { policy: 'host-elapsed-ms/v1', runId, invocationId: value.invocationId,
           callId: value.callId, attempt: 1, startedMs, completedMs }, inputDigest, resultDigest: digestRunnerJson(output) }
-        if (closed || options.signal?.aborted) throw new Error('cancelled-or-closed')
+        if (closed || signal?.aborted) throw new Error('cancelled-or-closed')
         return { status: 'completed' as const, output }
       } catch { violated = true; throw error('read-port-failed-or-cancelled', 'after-dispatch', admission) }
     },
   })
   const request = Object.freeze({ admission, input: requestInput, preparedMessages, profile, control, readTool,
-    ...(options.signal === undefined ? {} : { signal: options.signal }) })
+    ...(signal === undefined ? {} : { signal }) })
   const cancel = () => { control.requestCancel() }
-  options.signal?.addEventListener('abort', cancel, { once: true })
+  signal?.addEventListener('abort', cancel, { once: true })
   let outcome: AgentRunnerReadToolDelegationOutcome
   try {
-    if (options.signal?.aborted) throw error('cancelled-before-dispatch', 'before-dispatch', admission)
+    if (signal?.aborted) throw error('cancelled-before-dispatch', 'before-dispatch', admission)
     try { outcome = await dispatch(request) }
     catch { throw error('bridge-threw-with-unknown-outcome', 'outcome-unknown', admission) }
-  } finally { closed = true; options.signal?.removeEventListener('abort', cancel) }
+  } finally { closed = true; signal?.removeEventListener('abort', cancel) }
   if (!readToolDataRecord(outcome) || !validateAgentRunnerReadToolDelegationSource(outcome.source)
       || digestRunnerJson(outcome.source) !== digestRunnerJson(source)) throw error('bridge-source-binding-unknown', 'outcome-unknown', admission)
   if (outcome.status === 'rejected-before-dispatch') {
-    if (attempted || violated || options.signal?.aborted) throw error('bridge-refusal-after-read-or-cancel', 'after-dispatch', admission)
-    if (!readToolDataRecord(outcome, ['status', 'source', 'code']) || !/^[a-z0-9][a-z0-9._-]{0,127}$/u.test(outcome.code)) throw error('bridge-refusal-malformed', 'outcome-unknown', admission)
-    return fallback(optIn.preDispatchPolicy, 'bridge-rejected-before-dispatch', 'before-dispatch', admission)
+    if (attempted || violated || signal?.aborted) throw error('bridge-refusal-after-read-or-cancel', 'after-dispatch', admission)
+    if (!readToolDataRecord(outcome, ['status', 'source', 'code']) || typeof outcome.code !== 'string'
+        || !/^[a-z0-9][a-z0-9._-]{0,127}$/u.test(outcome.code)) throw error('bridge-refusal-malformed', 'outcome-unknown', admission)
+    return fallback(policy, 'bridge-rejected-before-dispatch', 'before-dispatch', admission)
   }
   if (outcome.status !== 'completed') throw error('bridge-failed-or-outcome-unknown',
     outcome.status === 'failed-after-dispatch' ? 'after-dispatch' : 'outcome-unknown', admission)
   if (!readToolDataRecord(outcome, ['status', 'source', 'result', 'assistantCall', 'toolMessage', 'finalAssistant'])
-      || options.signal?.aborted || violated || observed === undefined) throw error('post-dispatch-completion-invalid', 'after-dispatch', admission)
+      || signal?.aborted || violated || observed === undefined) throw error('post-dispatch-completion-invalid', 'after-dispatch', admission)
   try {
     json(outcome.result)
     const state = outcome.result.state
