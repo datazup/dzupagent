@@ -179,7 +179,9 @@ describe('R5O single-read legacy result/timing envelope', () => {
       const value = await scenario()
       const result = mutable(value.input.result)
       const call = result.state.committedItems[1]!
-      if (mode === 'input') result.state.input[0]!.itemId = 'drift'
+      if (mode === 'input') Object.assign(result.state.input[0]!, {
+        content: [{ type: 'text', text: 'different admitted content' }],
+      })
       if (mode === 'call' && call.type === 'tool-call') call.callId = 'drift'
       if (mode === 'output') Object.assign(result.state.committedItems[2]!, { output: 'drift' })
       if (mode === 'order') result.state.committedItems.reverse()
@@ -197,10 +199,30 @@ describe('R5O single-read legacy result/timing envelope', () => {
       if (mode === 'usage') result.state.usage.records.pop()
       if (mode === 'extension') Object.assign(result.state, { extension: true })
       if (mode === 'invocation-extension') Object.assign(result.state.invocations[0]!, { extension: true })
+      expect(captureLegacyReadToolResultEnvelope({ ...value.input, result }).status).toBe('rejected')
       expect(projectLegacyReadToolGenerateResult({ ...value.projection, result }).status).toBe('rejected')
       expect(value.calls).toEqual({ legacyModel: 2, legacyTool: 1, runnerModel: 2, runnerTool: 1 })
     },
   )
+
+  it('rejects input identity drift after capture and projection-profile drift before capture', async () => {
+    const value = await scenario()
+    const result = mutable(value.projection.result)
+    result.state.input[0]!.itemId = 'different-input-identity'
+    expect(projectLegacyReadToolGenerateResult({ ...value.projection, result }).status).toBe('rejected')
+    const profile = buildRunnerProviderFreeExecutionProfile({ behaviorDigest, maxModelTurns: 4,
+      maxToolAttempts: 2, observedMessageCount: 2, observedMessageTokens: 256,
+      structuredOutputRequested: false, legacyResultProjection: 'no-tool-generate-delegation/v1' })
+    expect(captureLegacyReadToolResultEnvelope({ ...value.input, profile }).status).toBe('rejected')
+  })
+
+  it('rejects sparse arrays and array extensions before reading their values', async () => {
+    const value = await scenario()
+    const result = mutable(value.input.result)
+    delete result.events[0]
+    Object.assign(result.events, { extension: true })
+    expect(captureLegacyReadToolResultEnvelope({ ...value.input, result }).status).toBe('rejected')
+  })
 
   it.each(['digest', 'prepared-content', 'assistant-usage', 'tool-metadata', 'final-metadata', 'new-field'])(
     'rejects %s envelope or unsupported message evidence', async (mode) => {
