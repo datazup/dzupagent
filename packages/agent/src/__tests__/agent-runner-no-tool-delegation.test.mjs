@@ -210,7 +210,7 @@ test('non-enumerable and accessor policies cannot bypass fail-closed admission',
 
 test('hidden, inherited, symbol and accessor options fail without reading policy data', async () => {
   for (const policy of ['fail-closed', 'fallback-to-legacy']) {
-    for (const kind of ['hidden', 'inherited', 'accessor', 'symbol', 'opt-in-accessor',
+    for (const kind of ['hidden', 'inherited', 'accessor', 'depth-accessor', 'symbol', 'opt-in-accessor',
       'opt-in-hidden', 'opt-in-inherited', 'nested-accessor', 'nested-hidden',
       'nested-inherited', 'nested-symbol']) {
       let sideEffects = 0
@@ -219,6 +219,9 @@ test('hidden, inherited, symbol and accessor options fail without reading policy
       if (kind === 'inherited') Object.setPrototypeOf(options, { maxTokens: 3 })
       if (kind === 'accessor') Object.defineProperty(options, 'stop', {
         enumerable: true, get() { sideEffects += 1; return ['stop'] },
+      })
+      if (kind === 'depth-accessor') Object.defineProperty(options, '_agentToolDepth', {
+        enumerable: true, get() { sideEffects += 1; return 1 },
       })
       if (kind === 'symbol') options[Symbol('unsupported')] = true
       if (kind === 'opt-in-accessor') Object.defineProperty(options, 'experimentalNoToolGenerateDelegation', {
@@ -232,15 +235,13 @@ test('hidden, inherited, symbol and accessor options fail without reading policy
         delete options.experimentalNoToolGenerateDelegation
         Object.setPrototypeOf(options, { experimentalNoToolGenerateDelegation: inherited })
       }
-      const nested = options.experimentalNoToolGenerateDelegation
+      const nested = Object.getOwnPropertyDescriptor(options, 'experimentalNoToolGenerateDelegation')?.value
       if (kind === 'nested-accessor') Object.defineProperty(nested, 'preDispatchPolicy', {
         enumerable: true, get() { sideEffects += 1; return policy },
       })
       if (kind === 'nested-hidden') Object.defineProperty(nested, 'enabled', { enumerable: false })
       if (kind === 'nested-inherited') Object.setPrototypeOf(nested, { unsupported: true })
       if (kind === 'nested-symbol') nested[Symbol('unsupported')] = true
-      // The fixture must not read the getter it is testing.
-      sideEffects = 0
       const value = fixture()
       await assert.rejects(value.agent.generate([new HumanMessage('options')], options), (error) => {
         assert.equal(error.name, 'AgentRunnerNoToolDelegationError')

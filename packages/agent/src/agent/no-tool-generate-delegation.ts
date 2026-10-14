@@ -78,7 +78,7 @@ function plainDataRecord(value: unknown): value is Record<string, unknown> {
     })
 }
 
-function readOptIn(options: GenerateOptions | undefined):
+export function validateNoToolGenerateOptions(options: GenerateOptions | undefined):
 NonNullable<GenerateOptions['experimentalNoToolGenerateDelegation']> | undefined {
   if (options === undefined) return undefined
   const descriptor = Object.getOwnPropertyDescriptor(options, 'experimentalNoToolGenerateDelegation')
@@ -167,7 +167,7 @@ export function preflightNoToolGenerateDelegation(
   config: DzupAgentConfig,
   options: GenerateOptions | undefined,
 ): boolean {
-  const optIn = readOptIn(options)
+  const optIn = validateNoToolGenerateOptions(options)
   if (optIn === undefined) return false
   if (options?.signal?.aborted) {
     throw delegationError({
@@ -367,7 +367,7 @@ export async function maybeDelegateNoToolGenerate(input: {
   readonly options: GenerateOptions | undefined
   readonly runState: PreparedRunState
 }): Promise<GenerateResult | undefined> {
-  const optIn = readOptIn(input.options)
+  const optIn = validateNoToolGenerateOptions(input.options)
   if (optIn === undefined) return undefined
   const policy = optIn.preDispatchPolicy
   const options = input.options ?? {}

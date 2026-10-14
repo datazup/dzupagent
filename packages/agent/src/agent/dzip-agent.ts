@@ -103,6 +103,7 @@ import {
   getProviderAttempts as getProviderAttemptsHelper,
   shouldRunFailover as shouldRunFailoverHelper,
 } from "./provider-selection.js";
+import { validateNoToolGenerateOptions } from "./no-tool-generate-delegation.js";
 
 // Re-export for backward compatibility — tests and external consumers
 // import `extractJsonFromText` from `dzip-agent.js`.
@@ -228,6 +229,7 @@ export class DzupAgent {
     messages: BaseMessage[],
     options?: GenerateOptions
   ): Promise<GenerateResult> {
+    validateNoToolGenerateOptions(options);
     // AGENT-M-14 — record the cross-agent `asTool` depth for this run so the
     // tool produced by `asTool()` can accumulate depth across nested
     // invocations and reject once the ceiling is reached. `generate` calls are
