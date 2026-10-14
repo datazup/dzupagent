@@ -727,7 +727,7 @@ describe('createLatencyScorer — additional edge cases', () => {
 });
 
 describe('createCostScorer — additional edge cases', () => {
-  it('defaults costCents to 0 when undefined', async () => {
+  it('rejects undefined cost evidence', async () => {
     const scorer = createCostScorer({
       id: 'cost-default',
       targetCents: 1,
@@ -738,8 +738,10 @@ describe('createCostScorer — additional edge cases', () => {
       output: 'result',
       // costCents omitted
     });
-    expect(result.aggregateScore).toBe(1.0);
-    expect(result.passed).toBe(true);
+    expect(result.aggregateScore).toBe(0);
+    expect(result.passed).toBe(false);
+    expect(result.measured).toBe(false);
+    expect(result.scores[0]?.reasoning).toMatch(/unavailable/i);
   });
 
   it('includes costCents in result', async () => {

@@ -151,12 +151,14 @@ async function seedVersion(
   store: PromptVersionStore,
   content = 'You are a helpful assistant.',
   evalScores?: PromptVersionEvalScores,
+  metadata?: Record<string, unknown>,
 ): Promise<PromptVersion> {
   return store.save({
     promptKey: 'system',
     content,
     active: true,
     evalScores,
+    metadata,
   });
 }
 
@@ -168,12 +170,13 @@ describe('PromptOptimizer branch coverage', () => {
   describe('mid-optimization error with partial results', () => {
     it('returns error exit reason when metaModel throws after baseline', async () => {
       const versionStore = makeMockVersionStore();
-      await seedVersion(versionStore, 'base prompt', {
+      const seeded = await seedVersion(versionStore, 'base prompt', {
         avgScore: 0.5,
         passRate: 0.5,
         scorerAverages: {},
         datasetSize: 1,
-      });
+      }, { provenance: 'retained-baseline', error: 'prior-diagnostic' });
+      const before = structuredClone(seeded);
 
       const metaModel = {
         invoke: vi.fn().mockRejectedValueOnce(new Error('network blip')),
@@ -187,10 +190,7 @@ describe('PromptOptimizer branch coverage', () => {
         maxRounds: 1,
       });
 
-      // The error happens after rounds++, so rounds === 1, no candidates yet
-      // -> re-thrown since allCandidates.length === 0 but rounds !== 0
-      // Actually looking at code: if (rounds === 0 && allCandidates.length === 0) throw error.
-      // Here rounds === 1, so it returns partial result with 'error' reason.
+      // An error after measuring the baseline must preserve that baseline.
       const result = await optimizer.optimize({
         promptKey: 'system',
         dataset: makeDataset(1),
@@ -198,20 +198,32 @@ describe('PromptOptimizer branch coverage', () => {
 
       expect(result.exitReason).toBe('error');
       expect(result.improved).toBe(false);
-      expect(result.bestVersion.id).toBe('error-fallback');
-      expect(result.originalVersion.id).toBe('error-fallback');
+      expect(result.bestVersion.id).toBe(seeded.id);
+      expect(result.originalVersion.id).toBe(seeded.id);
+      expect(result.bestVersion.content).toBe(seeded.content);
+      expect(result.originalVersion.content).toBe(seeded.content);
+      expect(result.bestVersion.metadata).toEqual({ ...before.metadata, error: 'network blip' });
+      expect(result.bestVersion.metadata).not.toBe(seeded.metadata);
+      expect(result.bestVersion).not.toBe(seeded);
+      expect(result.bestVersion).not.toBe(result.originalVersion);
+      expect(result.originalVersion.metadata).toEqual(before.metadata);
+      expect(seeded).toEqual(before);
+      expect(await versionStore.getActive('system')).toEqual(before);
+      expect(versionStore.activate).not.toHaveBeenCalled();
+      expect(versionStore.save).toHaveBeenCalledTimes(1);
       expect(result.scoreImprovement).toBe(0);
       expect(result.durationMs).toBeGreaterThanOrEqual(0);
     });
 
-    it('error with string error value (not Error instance) formats to string', async () => {
+    it('retains the baseline after a non-Error throw', async () => {
       const versionStore = makeMockVersionStore();
-      await seedVersion(versionStore, 'base prompt', {
+      const seeded = await seedVersion(versionStore, 'base prompt', {
         avgScore: 0.5,
         passRate: 0.5,
         scorerAverages: {},
         datasetSize: 1,
-      });
+      }, { provenance: 'retained-baseline', error: 'prior-diagnostic' });
+      const before = structuredClone(seeded);
 
       const metaModel = {
         invoke: vi.fn().mockImplementation(async () => {
@@ -233,7 +245,21 @@ describe('PromptOptimizer branch coverage', () => {
       });
 
       expect(result.exitReason).toBe('error');
-      expect(result.bestVersion.metadata?.['error']).toBe('plain-string-error');
+      expect(result.bestVersion.id).toBe(seeded.id);
+      expect(result.originalVersion.id).toBe(seeded.id);
+      expect(result.bestVersion.content).toBe(seeded.content);
+      expect(result.originalVersion.content).toBe(seeded.content);
+      expect(result.bestVersion.metadata).toEqual({ ...before.metadata, error: 'plain-string-error' });
+      expect(result.bestVersion.metadata).not.toBe(seeded.metadata);
+      expect(result.bestVersion).not.toBe(seeded);
+      expect(result.bestVersion).not.toBe(result.originalVersion);
+      expect(result.originalVersion.metadata).toEqual(before.metadata);
+      expect(seeded).toEqual(before);
+      expect(result.improved).toBe(false);
+      expect(result.scoreImprovement).toBe(0);
+      expect(await versionStore.getActive('system')).toEqual(before);
+      expect(versionStore.activate).not.toHaveBeenCalled();
+      expect(versionStore.save).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -254,7 +280,7 @@ describe('PromptOptimizer branch coverage', () => {
         scorers: [makeScorer(0.3)],
         versionStore,
         maxRounds: 1,
-        minImprovement: 10, // Won't improve
+        minImprovement: 1, // Equal scores cannot improve by this threshold.
       });
 
       const result = await optimizer.optimize({
@@ -589,8 +615,8 @@ describe('PromptOptimizer branch coverage', () => {
     });
   });
 
-  describe('empty scorer array branch', () => {
-    it('handles empty scorer array (entryScore=0, entryPassed=false)', async () => {
+  describe('empty scorer array admission', () => {
+    it('rejects before invoking either model', async () => {
       const versionStore = makeMockVersionStore();
       await seedVersion(versionStore, 'base', {
         avgScore: 0,
@@ -599,20 +625,17 @@ describe('PromptOptimizer branch coverage', () => {
         datasetSize: 1,
       });
 
-      const optimizer = new PromptOptimizer({
-        metaModel: makeMockModel(['no candidates']),
-        evalModel: makeMockModel(['output']),
-        scorers: [], // No scorers
+      const metaModel = makeMockModel(['no candidates']);
+      const evalModel = makeMockModel(['output']);
+      expect(() => new PromptOptimizer({
+        metaModel,
+        evalModel,
+        scorers: [],
         versionStore,
         maxRounds: 1,
-      });
-
-      const result = await optimizer.optimize({
-        promptKey: 'system',
-        dataset: makeDataset(1),
-      });
-
-      expect(result.exitReason).toBe('no_improvement');
+      })).toThrow(/at least one scorer/);
+      expect(metaModel.invoke).not.toHaveBeenCalled();
+      expect(evalModel.invoke).not.toHaveBeenCalled();
     });
   });
 });

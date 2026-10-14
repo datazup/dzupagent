@@ -779,10 +779,13 @@ describe("createCostScorer (calibration pipeline)", () => {
     expect(r.aggregateScore).toBeCloseTo(0.5);
   });
 
-  it("missing costCents defaults to 0 → score is 1.0", async () => {
+  it("missing costCents fails without measured evidence", async () => {
     const s = createCostScorer({ targetCents: 5, maxCents: 50 });
     const r = await s.score(makeEvalInput("out"));
-    expect(r.aggregateScore).toBe(1.0);
+    expect(r.aggregateScore).toBe(0);
+    expect(r.passed).toBe(false);
+    expect(r.measured).toBe(false);
+    expect(r.scores[0]?.reasoning).toMatch(/unavailable/i);
   });
 
   it("result includes costCents in the result", async () => {

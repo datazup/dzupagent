@@ -352,7 +352,7 @@ Prompt 3.
         versionStore,
         maxRounds: 1,
         maxCandidates: 2,
-        minImprovement: 10, // won't improve
+        minImprovement: 1, // Equal scores cannot improve by this threshold.
       });
 
       const result = await optimizer.optimize({
@@ -466,7 +466,7 @@ Reasoning.
         scorers: [makeScorer(0.5)],
         versionStore,
         maxRounds: 1,
-        minImprovement: 10, // won't improve
+        minImprovement: 1, // Equal scores cannot improve by this threshold.
       });
 
       const result = await optimizer.optimize({
