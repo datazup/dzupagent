@@ -52,7 +52,8 @@ describe('Crush CLI convergence contract', () => {
     mockSpawnAndStreamJsonl.mockImplementation(async function* () {
       yield { type: 'text_result', content: 'CRUSH_OK' }
     })
-    const events = await collectEvents(new CrushAdapter().execute({ prompt: 'x' }))
+    const { workspace } = await fixtureProfile()
+    const events = await collectEvents(new CrushAdapter({ workingDirectory: workspace }).execute({ prompt: 'x' }))
     expect(events.map((event) => event.type)).toEqual(['adapter:started', 'adapter:completed'])
     expect(events.at(-1)).toMatchObject({ providerId: 'crush', result: 'CRUSH_OK' })
   })
@@ -237,7 +238,9 @@ describe('Crush CLI convergence contract', () => {
     [{ sandboxMode: 'full-access' }, { prompt: 'x', policyContext: { activePolicy: { approvalRequired: false, networkAccess: false } } }, 'deny network'],
     [{ model: 'unqualified' }, { prompt: 'x' }, 'provider/model'],
   ] as const)('refuses unsupported or identity-ambiguous input before spawn: %s', async (config, input, expected) => {
-    const events = await collectEvents(new CrushAdapter(config).execute(input))
+    // A private cwd, so an ancestor .crushrc (a workspace root may hold one) cannot preempt the refusal under test.
+    const { workspace } = await fixtureProfile()
+    const events = await collectEvents(new CrushAdapter({ ...config, workingDirectory: workspace }).execute(input))
     expect(events.at(-1)).toMatchObject({ type: 'adapter:failed', code: 'CAPABILITY_DENIED' })
     expect((events.at(-1) as { error?: string }).error).toContain(expected)
     expect(mockSpawnAndStreamJsonl).not.toHaveBeenCalled()
@@ -268,6 +271,21 @@ describe('Crush CLI convergence contract', () => {
     await writeFile(join(workspace, '.crushrc'), 'true\n')
     const events = await collectEvents(new CrushAdapter({ cliBaseProfileRoot: profile }).execute({ prompt: 'x', workingDirectory: nested }))
     expect(events.at(-1)).toMatchObject({ type: 'adapter:failed', code: 'CAPABILITY_DENIED' })
+    expect((events.at(-1) as { error?: string }).error).toContain(join(workspace, '.crushrc'))
+    expect(mockSpawnAndStreamJsonl).not.toHaveBeenCalled()
+  })
+
+  it('falls back to process.cwd() without a working directory and refuses its .crushrc before spawn', async () => {
+    const { profile, workspace } = await fixtureProfile()
+    await writeFile(join(workspace, '.crushrc'), 'true\n')
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(workspace)
+    try {
+      const events = await collectEvents(new CrushAdapter({ cliBaseProfileRoot: profile }).execute({ prompt: 'x' }))
+      expect(events.at(-1)).toMatchObject({ type: 'adapter:failed', code: 'CAPABILITY_DENIED' })
+      expect((events.at(-1) as { error?: string }).error).toContain(join(workspace, '.crushrc'))
+    } finally {
+      cwd.mockRestore()
+    }
     expect(mockSpawnAndStreamJsonl).not.toHaveBeenCalled()
   })
 

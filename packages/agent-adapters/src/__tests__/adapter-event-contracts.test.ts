@@ -1,4 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterAll, describe, it, expect, vi, beforeEach } from 'vitest'
 
 import { GeminiCLIAdapter } from '../gemini/gemini-adapter.js'
 import { QwenAdapter } from '../qwen/qwen-adapter.js'
@@ -118,6 +121,11 @@ function normalizeEvent(event: AgentEvent): Record<string, unknown> {
   }
 }
 
+// Crush refuses project config (.crushrc, crush.json, ...) in any ancestor of its cwd, and a
+// workspace root may hold one, so Crush runs here use a private temp cwd, not process.cwd().
+const crushCwd = mkdtempSync(join(tmpdir(), 'crush-hermetic-cwd-'))
+afterAll(() => rmSync(crushCwd, { recursive: true, force: true }))
+
 describe('Adapter event contracts (fixture-based)', () => {
   const { mockIsBinaryAvailable, mockSpawnAndStreamJsonl } = getProcessHelperMocks()
 
@@ -175,7 +183,7 @@ describe('Adapter event contracts (fixture-based)', () => {
     },
     {
       fixture: 'crush-events',
-      adapter: new CrushAdapter(),
+      adapter: new CrushAdapter({ workingDirectory: crushCwd }),
       expected: [
         { type: 'adapter:started', providerId: 'crush' },
         { type: 'adapter:message', providerId: 'crush', role: 'assistant', content: 'hello from crush' },
@@ -187,7 +195,7 @@ describe('Adapter event contracts (fixture-based)', () => {
     },
     {
       fixture: 'crush-error-events',
-      adapter: new CrushAdapter(),
+      adapter: new CrushAdapter({ workingDirectory: crushCwd }),
       expected: [
         { type: 'adapter:started', providerId: 'crush' },
         { type: 'adapter:failed', providerId: 'crush', error: 'crush failed', code: 'CRUSH_ERR' },
@@ -247,7 +255,7 @@ describe('Adapter event contracts (fixture-based)', () => {
     },
     {
       provider: 'crush',
-      adapter: new CrushAdapter(),
+      adapter: new CrushAdapter({ workingDirectory: crushCwd }),
       records: [
         { type: 'unknown_event', payload: 'ignored' },
         { type: 'error', error: { message: 'crush failed', code: 'CRUSH_ERR' } },
@@ -319,7 +327,7 @@ describe('Adapter event contracts (fixture-based)', () => {
         yield { type: 'completed', output: 'ok', duration_ms: 1 }
       })
 
-      const adapter = new CrushAdapter()
+      const adapter = new CrushAdapter({ workingDirectory: crushCwd })
       const events = await collectEvents(adapter.execute({ prompt: 'test' }))
 
       const started = events.find((e): e is AgentStartedEvent => e.type === 'adapter:started')

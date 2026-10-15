@@ -1,4 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterAll, describe, it, expect, vi, beforeEach } from 'vitest'
 
 import { ForgeError } from '@dzupagent/core'
 
@@ -10,6 +13,11 @@ vi.mock('../utils/process-helpers.js', () => ({
   spawnAndStreamJsonl: vi.fn(),
 }))
 
+// Crush refuses project config (.crushrc, crush.json, ...) in any ancestor of its cwd, and a
+// workspace root may hold one, so Crush runs here use a private temp cwd, not process.cwd().
+const crushCwd = mkdtempSync(join(tmpdir(), 'crush-hermetic-cwd-'))
+afterAll(() => rmSync(crushCwd, { recursive: true, force: true }))
+
 describe('CrushAdapter', () => {
   const { mockIsBinaryAvailable, mockSpawnAndStreamJsonl } = getProcessHelperMocks()
 
@@ -19,7 +27,7 @@ describe('CrushAdapter', () => {
 
   it('throws ADAPTER_SDK_NOT_INSTALLED when crush binary is missing', async () => {
     mockIsBinaryAvailable.mockResolvedValue(false)
-    const adapter = new CrushAdapter()
+    const adapter = new CrushAdapter({ workingDirectory: crushCwd })
 
     await expect(adapter.execute({ prompt: 'hello' }).next()).rejects.toMatchObject({
       code: 'ADAPTER_SDK_NOT_INSTALLED',
@@ -45,7 +53,7 @@ describe('CrushAdapter', () => {
       }
     })
 
-    const adapter = new CrushAdapter()
+    const adapter = new CrushAdapter({ workingDirectory: crushCwd })
     const events = await collectEvents(adapter.execute({ prompt: 'build' }))
 
     expect(events.map((e) => e.type)).toEqual([
@@ -95,7 +103,7 @@ describe('CrushAdapter', () => {
       yield { type: 'completed', content: { text: 'done' }, duration_ms: 5 }
     })
 
-    const adapter = new CrushAdapter()
+    const adapter = new CrushAdapter({ workingDirectory: crushCwd })
     const events = await collectEvents(adapter.execute({ prompt: 'x' }))
 
     expect(events.map((e) => e.type)).toEqual([
@@ -125,7 +133,7 @@ describe('CrushAdapter', () => {
       yield { type: 'completed', output: { text: 'done' }, duration_ms: 14 }
     })
 
-    const adapter = new CrushAdapter()
+    const adapter = new CrushAdapter({ workingDirectory: crushCwd })
     const events = await collectEvents(adapter.execute({ prompt: 'x' }))
 
     expect(events.map((e) => e.type)).toEqual([
@@ -172,6 +180,7 @@ describe('CrushAdapter', () => {
     })
 
     const adapter = new CrushAdapter({
+      workingDirectory: crushCwd,
       providerOptions: {
         quantization: '   ',
         gpuLayers: -1,
@@ -199,7 +208,7 @@ describe('CrushAdapter', () => {
       }
     })
 
-    const adapter = new CrushAdapter()
+    const adapter = new CrushAdapter({ workingDirectory: crushCwd })
     const events = await collectEvents(adapter.execute({ prompt: 'hello' }))
 
     const completed = events[1]
@@ -218,7 +227,7 @@ describe('CrushAdapter', () => {
       throw new Error('crush failed')
     })
 
-    const adapter = new CrushAdapter()
+    const adapter = new CrushAdapter({ workingDirectory: crushCwd })
     const events = await collectEvents(adapter.execute({ prompt: 'x' }))
 
     expect(events.map((e) => e.type)).toEqual(['adapter:started', 'adapter:failed'])
@@ -230,7 +239,7 @@ describe('CrushAdapter', () => {
   })
 
   it('throws ADAPTER_SESSION_NOT_FOUND on resumeSession', async () => {
-    const adapter = new CrushAdapter()
+    const adapter = new CrushAdapter({ workingDirectory: crushCwd })
 
     await expect(collectEvents(adapter.resumeSession('sess', { prompt: 'resume' }))).rejects.toMatchObject({
       code: 'CAPABILITY_DENIED',
@@ -247,7 +256,7 @@ describe('CrushAdapter', () => {
       })
     })
 
-    const adapter = new CrushAdapter()
+    const adapter = new CrushAdapter({ workingDirectory: crushCwd })
     await expect(collectEvents(adapter.execute({ prompt: 'x' }))).rejects.toMatchObject({
       code: 'ADAPTER_TIMEOUT',
     })
@@ -271,7 +280,7 @@ describe('CrushAdapter', () => {
 
     const events: Array<{ type: string, error?: string }> = []
     const run = (async () => {
-      for await (const event of new CrushAdapter().execute({ prompt: 'x' })) events.push(event as { type: string, error?: string })
+      for await (const event of new CrushAdapter({ workingDirectory: crushCwd }).execute({ prompt: 'x' })) events.push(event as { type: string, error?: string })
     })()
     await expect(run).rejects.toBe(original)
     const failed = events.find(event => event.type === 'adapter:failed')
@@ -287,7 +296,7 @@ describe('CrushAdapter', () => {
       yield { type: 'message', content: 'still running' }
     })
 
-    const adapter = new CrushAdapter()
+    const adapter = new CrushAdapter({ workingDirectory: crushCwd })
     const events = await collectEvents(adapter.execute({ prompt: 'x' }))
 
     expect(events.map((e) => e.type)).toEqual([
@@ -309,7 +318,7 @@ describe('CrushAdapter', () => {
       yield { type: 'error', error: { message: 'provider failure', code: 'CRUSH_ERR' } }
     })
 
-    const adapter = new CrushAdapter()
+    const adapter = new CrushAdapter({ workingDirectory: crushCwd })
     const events = await collectEvents(adapter.execute({ prompt: 'x' }))
 
     expect(events.map((e) => e.type)).toEqual([
@@ -324,7 +333,7 @@ describe('CrushAdapter', () => {
       yield { type: 'completed', result: 'ok' }
     })
 
-    const adapter = new CrushAdapter({ sandboxMode: 'workspace-write' })
+    const adapter = new CrushAdapter({ workingDirectory: crushCwd, sandboxMode: 'workspace-write' })
     const events = await collectEvents(adapter.execute({ prompt: 'x' }))
     expect(events.at(-1)).toMatchObject({ type: 'adapter:failed', code: 'CAPABILITY_DENIED' })
     expect(mockSpawnAndStreamJsonl).not.toHaveBeenCalled()
@@ -336,7 +345,7 @@ describe('CrushAdapter', () => {
       yield { type: 'completed', result: 'ok' }
     })
 
-    const adapter = new CrushAdapter({ sandboxMode: 'read-only' })
+    const adapter = new CrushAdapter({ workingDirectory: crushCwd, sandboxMode: 'read-only' })
     await collectEvents(adapter.execute({ prompt: 'x' }))
 
     const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!
@@ -350,14 +359,14 @@ describe('CrushAdapter', () => {
       yield { type: 'completed', result: 'ok' }
     })
 
-    const adapter = new CrushAdapter({ sandboxMode: 'full-access' })
+    const adapter = new CrushAdapter({ workingDirectory: crushCwd, sandboxMode: 'full-access' })
     const events = await collectEvents(adapter.execute({ prompt: 'x' }))
     expect(events.at(-1)).toMatchObject({ type: 'adapter:failed', code: 'CAPABILITY_DENIED' })
     expect(mockSpawnAndStreamJsonl).not.toHaveBeenCalled()
   })
 
   it('exposes runtime capabilities', () => {
-    const adapter = new CrushAdapter()
+    const adapter = new CrushAdapter({ workingDirectory: crushCwd })
     expect(adapter.getCapabilities?.()).toEqual({
       supportsResume: false,
       supportsFork: false,

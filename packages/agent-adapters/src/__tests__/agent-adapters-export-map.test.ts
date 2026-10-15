@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { execFile } from 'node:child_process'
-import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, lstat, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -102,8 +102,11 @@ describe('agent-adapters export map', () => {
       "await Promise.all([import('@dzupagent/agent-adapters/introspection'), import('@dzupagent/agent-adapters/observability/dashboard')])",
     ], { cwd: process.cwd() })
 
-    const fixtureDir = await mkdtemp(join(process.cwd(), '.types-resolution-'))
+    const fixtureDir = await mkdtemp(join(tmpdir(), 'agent-adapters-types-resolution-'))
     try {
+      // Keep generated consumers outside the checkout while resolving the real workspace package exports.
+      await writeFile(join(fixtureDir, 'package.json'), '{"type":"module"}\n', 'utf8')
+      await symlink(join(process.cwd(), '../../node_modules'), join(fixtureDir, 'node_modules'), 'dir')
       const fixture = join(fixtureDir, 'consumer.ts')
       await writeFile(fixture, [
         "import { AdapterInstallationInspector, createNodeProbeRunner, resolveNodeProbeExecutable } from '@dzupagent/agent-adapters/introspection'",
@@ -272,7 +275,7 @@ describe('agent-adapters export map', () => {
     }))
   })
 
-  it('imports recently published subpaths from packed tarball output when dist exists', async () => {
+  it('imports recently published subpaths from packed tarball output when dist exists', async (ctx) => {
     try {
       await access(join(process.cwd(), 'dist/index.js'))
     } catch {
@@ -293,7 +296,7 @@ describe('agent-adapters export map', () => {
           npm_config_cache: join(tempDir, '.npm-cache'),
         },
       })
-      const [packed] = JSON.parse(stdout) as Array<{ filename: string }>
+      const [packed] = JSON.parse(stdout) as Array<{ filename: string, files: Array<{ path: string }> }>
       if (!packed) {
         throw new Error(`npm pack --json returned no entries: ${stdout}`)
       }
@@ -301,6 +304,18 @@ describe('agent-adapters export map', () => {
       await execFileAsync('tar', ['-xzf', join(tempDir, filename), '-C', tempDir])
 
       const packageRoot = join(tempDir, 'package')
+      // npm pack does not follow a symlinked dist (a Storage worktree links the canonical build),
+      // so only that layout may skip; a real dist directory missing from the pack is a packaging
+      // regression. A pack that carries dist must still carry every subpath below.
+      const packedDist = await access(join(packageRoot, 'dist/index.js')).then(() => true, () => false)
+      if (!packedDist) {
+        if (packed.files.some(({ path }) => path === 'dist' || path.startsWith('dist/'))) {
+          throw new Error('packed tarball contains a partial dist without dist/index.js')
+        }
+        const distIsSymlink = await lstat(join(process.cwd(), 'dist')).then((info) => info.isSymbolicLink(), () => false)
+        if (!distIsSymlink) throw new Error('packed tarball carries no dist/index.js although dist is a local directory')
+        ctx.skip('packed tarball carries no dist/index.js because dist is a symlink, which npm pack does not follow')
+      }
       const imports = await Promise.all([
         import(pathToFileURL(join(packageRoot, 'dist/pipeline/index.js')).href),
         import(pathToFileURL(join(packageRoot, 'dist/runs/index.js')).href),
