@@ -1,5 +1,5 @@
 {
-  "maxSleeps": 137,
-  "note": "DZUPAGENT-TEST-L-01 baseline: ratchets down only. Bump only via --update-baseline after converting sleeps to fake timers / vi.waitFor, never to accommodate new sleeps.",
-  "updatedAt": "2026-08-14"
+  "maxSleeps": 245,
+  "note": "DZUPAGENT-TEST-L-01 baseline: ratchets down only. Lower it via --update-baseline after converting sleeps to fake timers / vi.waitFor; raising it needs --allow-raise and must never accommodate new sleeps. 2026-10-15 DZUPAGENT-TEST-H-07 re-pin: the balanced-paren scanner now counts arrow-callback and multi-line setTimeout calls the old [^)]*? line regex missed. On the same tree the old scanner counted 140 and the new one 248, so the previous 137 is carried forward plus exactly that +108 detection delta. Sleeps added since the 137 pin are NOT absorbed and still fail the gate.",
+  "updatedAt": "2026-10-15"
 }

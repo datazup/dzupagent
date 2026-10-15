@@ -411,7 +411,7 @@ describe('compile route — RunEventStore persistence', () => {
     })
     expect(res.status).toBe(200)
     await res.text()
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => expect(store.appendArtifact).toHaveBeenCalled())
 
     expect(store.appendArtifact).toHaveBeenCalledTimes(1)
     const event = (store.appendArtifact as ReturnType<typeof vi.fn>).mock.calls[0]![0] as Parameters<RunEventStore['appendArtifact']>[0]
@@ -447,7 +447,20 @@ describe('compile route — RunEventStore persistence', () => {
     })
     expect(await stageRes.text()).toContain('TARGET_MISMATCH')
 
-    await new Promise((r) => setTimeout(r, 10))
-    expect(store.appendArtifact).not.toHaveBeenCalled()
+    // Fence: a later successful stage-stream compile persists through the same
+    // path, so once its artifact is observed any persistence the mismatch run
+    // could have scheduled would already have happened.
+    mockCompile.mockResolvedValueOnce(SUCCESS_RESULT)
+    const fenceRes = await app.request('/api/workflows/compile?stream=true&runId=fence', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(makeFlowBody()),
+    })
+    await fenceRes.text()
+    await vi.waitFor(() => expect(store.appendArtifact).toHaveBeenCalled())
+    const runIds = (store.appendArtifact as ReturnType<typeof vi.fn>).mock.calls.map(
+      (call) => (call[0] as Parameters<RunEventStore['appendArtifact']>[0]).runId,
+    )
+    expect(runIds).toEqual(['fence'])
   })
 })

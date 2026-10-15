@@ -188,7 +188,7 @@ Internal dependencies:
 Package metadata:
 
 - `package.json` exports `./persistence` -> `dist/persistence.js`.
-- `@langchain/langgraph-checkpoint-postgres` is a runtime `dependency` (`^1.0.1`) imported by `checkpointer.ts`.
+- `@langchain/langgraph-checkpoint-postgres` (`^1.0.1`) is loaded by `checkpointer.ts` with a dynamic import inside the `postgres` branch only, so importing `@dzupagent/core` never evaluates it. It is still listed under `dependencies`; moving it to an optional peer dependency is a pending manifest change.
 
 ## Integration Points
 

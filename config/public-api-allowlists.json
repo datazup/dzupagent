@@ -805,7 +805,9 @@
         { "match": "exact", "pattern": "./escalation-engine.js" }
       ],
       "transitionalRoot": [],
-      "subpaths": {},
+      "subpaths": {
+        "./testing": "framework-agnostic QuorumVoteStore adapter contract suite (DZUPAGENT-TEST-M-25)"
+      },
       "migrationWindow": "HITL kit root exports are stable Layer 0 human-in-the-loop contracts and store primitives; add allowlist rules before exposing new root modules."
     },
     {
@@ -834,16 +836,18 @@
         { "match": "exact", "pattern": "./adapter.js" },
         { "match": "exact", "pattern": "./commands.js" },
         { "match": "exact", "pattern": "./command-ledger.js" },
-        { "match": "exact", "pattern": "./in-memory-command-ledger.js" },
         { "match": "exact", "pattern": "./dispatch.js" },
-        { "match": "exact", "pattern": "./conformance.js" },
         { "match": "exact", "pattern": "./session-types.js" },
         { "match": "exact", "pattern": "./session-reducer.js" },
-        { "match": "exact", "pattern": "./in-memory-session-store.js" },
         { "match": "exact", "pattern": "./validation.js" }
       ],
-      "transitionalRoot": [],
+      "transitionalRoot": [
+        { "match": "exact", "pattern": "./in-memory-command-ledger.js" },
+        { "match": "exact", "pattern": "./conformance.js" },
+        { "match": "exact", "pattern": "./in-memory-session-store.js" }
+      ],
       "subpaths": {
+        "./testing": "reference in-memory session store and command ledger plus conformance helpers (DZUPAGENT-ARCH-M-14); root re-exports are transitional",
         "./fixtures/session-control-conformance-v1.json": "versioned provider-free session-control conformance fixture"
       },
       "migrationWindow": "Session-control root exports and the versioned fixture are stable provider-neutral semantics; product authority, persistence, transport, and provider implementations remain in consuming hosts."

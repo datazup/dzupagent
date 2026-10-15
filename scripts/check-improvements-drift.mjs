@@ -10,13 +10,7 @@ function getAllowlistPath(root) {
 }
 
 function readText(root, pathname) {
-  const candidates = [pathname]
-  if (pathname.startsWith('.docs/')) {
-    const withoutDot = pathname.slice(1)
-    candidates.push(withoutDot, withoutDot.replace(/^docs\//, ''))
-  }
-
-  for (const candidate of candidates) {
+  for (const candidate of docCandidates(pathname)) {
     const filePath = join(root, candidate)
     if (existsSync(filePath)) return readFileSync(filePath, 'utf8')
   }
@@ -25,17 +19,59 @@ function readText(root, pathname) {
 }
 
 function readOptionalText(root, pathname) {
+  for (const candidate of docCandidates(pathname)) {
+    const filePath = join(root, candidate)
+    if (existsSync(filePath)) return readFileSync(filePath, 'utf8')
+  }
+
+  return null
+}
+
+function docCandidates(pathname) {
   const candidates = [pathname]
   if (pathname.startsWith('.docs/')) {
     const withoutDot = pathname.slice(1)
     candidates.push(withoutDot, withoutDot.replace(/^docs\//, ''))
   }
+  return candidates
+}
 
-  for (const candidate of candidates) {
-    const filePath = join(root, candidate)
-    if (existsSync(filePath)) return readFileSync(filePath, 'utf8')
+/**
+ * A source document the gate compares against must exist. Every check used to
+ * sit behind `if (doc)`, so with all four documents absent the gate reported
+ * "Findings: 0" while checking nothing (DZUPAGENT-TEST-C-16). A missing
+ * document, or a document that no longer carries the row a check reads, is now
+ * a finding that names the path. These findings are never allowlist-suppressible:
+ * suppressing them would restore the vacuous pass.
+ */
+const MISSING_SOURCE_FINDING_IDS = new Set(['source-doc-missing', 'source-row-missing'])
+
+function requireSourceDoc(root, findings, pathname) {
+  const text = readOptionalText(root, pathname)
+  if (text === null) {
+    findings.push({
+      id: 'source-doc-missing',
+      label: pathname,
+      path: pathname,
+      message: `Source document ${pathname} is missing, so the checks that read it cannot run. `
+        + 'Restore the document or retire this gate from the verify chains and run-gates STATIC_CHECKS.',
+      evidence: `looked for: ${docCandidates(pathname).join(', ')}`,
+      sourceState: 'doc-absent',
+    })
   }
+  return text
+}
 
+function requireSourceRow(findings, row, { path, label }) {
+  if (row) return row
+  findings.push({
+    id: 'source-row-missing',
+    label,
+    path,
+    message: `${path} no longer contains the "${label}" entry this gate checks, so the check cannot run.`,
+    evidence: `missing entry: ${label}`,
+    sourceState: 'row-absent',
+  })
   return null
 }
 
@@ -210,9 +246,12 @@ export function evaluateImprovementDrift({
     ]
     const markerPattern = /\bstub\b|\bTODO\b/i
 
-    const qwenDoc = readOptionalText(root, docs[0])
+    const qwenDoc = requireSourceDoc(root, findings, docs[0])
     if (qwenDoc) {
-      const qwenRow = findLastTableRow(qwenDoc, 'Qwen adapter maturity')
+      const qwenRow = requireSourceRow(findings, findLastTableRow(qwenDoc, 'Qwen adapter maturity'), {
+        path: docs[0],
+        label: 'Qwen adapter maturity',
+      })
       if (qwenRow) {
         pushMarkerFinding(findings, {
           id: 'adapter-maturity-qwen',
@@ -224,7 +263,10 @@ export function evaluateImprovementDrift({
         })
       }
 
-      const crushRow = findLastTableRow(qwenDoc, 'Crush adapter maturity')
+      const crushRow = requireSourceRow(findings, findLastTableRow(qwenDoc, 'Crush adapter maturity'), {
+        path: docs[0],
+        label: 'Crush adapter maturity',
+      })
       if (crushRow) {
         pushMarkerFinding(findings, {
           id: 'adapter-maturity-crush',
@@ -237,9 +279,12 @@ export function evaluateImprovementDrift({
       }
     }
 
-    const planDoc = readOptionalText(root, docs[1])
+    const planDoc = requireSourceDoc(root, findings, docs[1])
     if (planDoc) {
-      const planRow = findLastTableRow(planDoc, 'Phase 2.2 migrate Gemini/Qwen/Crush')
+      const planRow = requireSourceRow(findings, findLastTableRow(planDoc, 'Phase 2.2 migrate Gemini/Qwen/Crush'), {
+        path: docs[1],
+        label: 'Phase 2.2 migrate Gemini/Qwen/Crush',
+      })
       if (planRow) {
         pushMarkerFinding(findings, {
           id: 'adapter-maturity-plan-phase-2-2-qwen',
@@ -263,12 +308,15 @@ export function evaluateImprovementDrift({
 
   // Check 2: strict gate claims vs current inventory status.
   {
-    const testDoc = readOptionalText(root, '.docs/improvements/TEST.md')
+    const testDoc = requireSourceDoc(root, findings, '.docs/improvements/TEST.md')
     if (testDoc) {
       const inventory = runStrictInventoryGateImpl()
       const strictPass = inventory.passed
 
-      const testRow = findLastTableRow(testDoc, 'Strict verification gate (`verify:strict`)')
+      const testRow = requireSourceRow(findings, findLastTableRow(testDoc, 'Strict verification gate (`verify:strict`)'), {
+        path: '.docs/improvements/TEST.md',
+        label: 'Strict verification gate (`verify:strict`)',
+      })
       if (testRow) {
         const expectedPass = statusImpliesMarkers(testRow.status)
         const docSaysPass = !expectedPass.expectedMarkers
@@ -285,9 +333,12 @@ export function evaluateImprovementDrift({
       }
     }
 
-    const trackerDoc = readOptionalText(root, '.docs/improvements/CONSOLIDATED_IMPLEMENTATION_TRACKER.md')
+    const trackerDoc = requireSourceDoc(root, findings, '.docs/improvements/CONSOLIDATED_IMPLEMENTATION_TRACKER.md')
     if (trackerDoc) {
-      const trackerRow = findHeadingStatus(trackerDoc, '### P2-04: Improvement-doc drift CI check')
+      const trackerRow = requireSourceRow(findings, findHeadingStatus(trackerDoc, '### P2-04: Improvement-doc drift CI check'), {
+        path: '.docs/improvements/CONSOLIDATED_IMPLEMENTATION_TRACKER.md',
+        label: '### P2-04: Improvement-doc drift CI check',
+      })
       if (trackerRow) {
         const docSaysDone = normalizeClaim(trackerRow.status) === 'done'
         const scriptExists = existsSync(join(root, 'scripts', 'check-improvements-drift.mjs'))
@@ -306,7 +357,8 @@ export function evaluateImprovementDrift({
   }
 
   const ignored = allowlist.ignoredFindings ?? []
-  const activeFindings = findings.filter((finding) => !isSuppressed(finding, ignored))
+  const activeFindings = findings.filter((finding) => MISSING_SOURCE_FINDING_IDS.has(finding.id)
+    || !isSuppressed(finding, ignored))
 
   return {
     allowlist,

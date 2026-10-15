@@ -10,6 +10,10 @@
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
+    "./testing": {
+      "import": "./dist/testing.js",
+      "types": "./dist/testing.d.ts"
+    },
     "./fixtures/session-control-conformance-v1.json": {
       "types": "./fixtures/session-control-conformance-v1.d.ts",
       "default": "./fixtures/session-control-conformance-v1.json"

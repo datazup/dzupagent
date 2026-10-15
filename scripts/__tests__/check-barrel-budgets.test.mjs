@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -636,6 +636,150 @@ test('a brand-new package or pin is not ratcheted growth (there is no base numbe
   assert.deepEqual(result.growth, [])
 })
 
+// --- Deadline and rename ratchet (DZUPAGENT-ARCH-H-10) --------------------------
+//
+// The ratchet walked numeric leaves only, so a pin's reviewBy (the date that makes
+// it fail closed) could be pushed out indefinitely without a signature, and a pin
+// renamed within its package escaped as "deleted + brand-new".
+
+function deadlineConfig(reviewBy, extra = {}) {
+  return {
+    packages: {
+      '@dzupagent/alpha': {
+        maxRootIndexLines: 10,
+        rootDebtPin: { maxRootIndexLines: 12, reviewBy, rationale: 'kept', sourceSha256: 'f'.repeat(64) },
+      },
+    },
+    ...extra,
+  }
+}
+
+test('a reviewBy moved LATER without an acceptedGrowth record fails the ratchet', () => {
+  const result = evaluateBudgetRatchet({
+    budgetConfig: deadlineConfig('2026-11-30'),
+    baseBudgetConfig: deadlineConfig('2026-09-30'),
+    now: NOW,
+  })
+  assert.equal(result.ok, false)
+  assert.deepEqual(result.growth, [{
+    key: '@dzupagent/alpha/rootDebtPin/reviewBy',
+    from: '2026-09-30',
+    to: '2026-11-30',
+  }])
+  const text = result.messages.join('\n')
+  assert.match(text, /review deadline moved LATER \(2026-09-30 -> 2026-11-30\)/)
+  // Copy-pasteable record with JSON string values.
+  assert.match(text, /"from": "2026-09-30", "to": "2026-11-30"/)
+})
+
+test('a reviewBy moved EARLIER (or unchanged) needs no signature', () => {
+  for (const reviewBy of ['2026-09-30', '2026-09-01']) {
+    const result = evaluateBudgetRatchet({
+      budgetConfig: deadlineConfig(reviewBy),
+      baseBudgetConfig: deadlineConfig('2026-09-30'),
+      now: NOW,
+    })
+    assert.equal(result.ok, true, reviewBy)
+    assert.deepEqual(result.growth, [])
+  }
+})
+
+test('a reviewBy extension passes with an exact, current acceptedGrowth record', () => {
+  const record = growthRecord({
+    key: '@dzupagent/alpha/rootDebtPin/reviewBy',
+    from: '2026-09-30',
+    to: '2026-11-30',
+  })
+  const result = evaluateBudgetRatchet({
+    budgetConfig: deadlineConfig('2026-11-30', { acceptedGrowth: [record] }),
+    baseBudgetConfig: deadlineConfig('2026-09-30'),
+    now: NOW,
+  })
+  assert.equal(result.ok, true, result.messages.join('\n'))
+  assert.equal(result.accepted.length, 1)
+
+  const wrongTarget = evaluateBudgetRatchet({
+    budgetConfig: deadlineConfig('2026-12-31', { acceptedGrowth: [record] }),
+    baseBudgetConfig: deadlineConfig('2026-09-30'),
+    now: NOW,
+  })
+  assert.equal(wrongTarget.ok, false)
+})
+
+test('nested per-file pin reviewBy dates are ratcheted, other strings are not', () => {
+  const base = {
+    packages: {
+      '@dzupagent/alpha': {
+        maxFileLines: 500,
+        fileLineDebtPins: {
+          'src/big.ts': { maxLines: 600, reviewBy: '2026-09-01', sourceSha256: 'a'.repeat(64), sourceCommit: 'b'.repeat(40) },
+        },
+      },
+    },
+  }
+  const grown = JSON.parse(JSON.stringify(base))
+  const pin = grown.packages['@dzupagent/alpha'].fileLineDebtPins['src/big.ts']
+  pin.reviewBy = '2026-10-01'
+  pin.sourceSha256 = 'c'.repeat(64)
+  pin.sourceCommit = 'd'.repeat(40)
+  const result = evaluateBudgetRatchet({ budgetConfig: grown, baseBudgetConfig: base, now: NOW })
+  assert.deepEqual(result.growth.map((move) => move.key), [
+    '@dzupagent/alpha/fileLineDebtPins/src/big.ts/reviewBy',
+  ])
+})
+
+function renameConfig(pins) {
+  return { packages: { '@dzupagent/alpha': { maxFileLines: 500, fileLineDebtPins: pins } } }
+}
+
+test('a renamed pin with a higher maxLines fails the ratchet', () => {
+  const result = evaluateBudgetRatchet({
+    budgetConfig: renameConfig({ 'src/renamed.ts': { maxLines: 640, shrinkTarget: 500, reviewBy: '2026-09-01' } }),
+    baseBudgetConfig: renameConfig({ 'src/original.ts': { maxLines: 600, shrinkTarget: 500, reviewBy: '2026-09-01' } }),
+    now: NOW,
+  })
+  assert.equal(result.ok, false)
+  assert.deepEqual(result.growth, [{
+    key: '@dzupagent/alpha/fileLineDebtPins/src/renamed.ts/maxLines',
+    from: 600,
+    to: 640,
+    renamedFrom: '@dzupagent/alpha/fileLineDebtPins/src/original.ts',
+  }])
+  assert.match(result.messages.join('\n'), /renamed\.ts\/maxLines \(renamed from .*original\.ts\): moved AWAY \(?/)
+})
+
+test('a renamed pin is paired by digest first, and a later reviewBy on it fails too', () => {
+  const result = evaluateBudgetRatchet({
+    budgetConfig: renameConfig({
+      'src/a-moved.ts': { maxLines: 700, reviewBy: '2026-12-01', sourceSha256: '1'.repeat(64) },
+      'src/z-moved.ts': { maxLines: 550, reviewBy: '2026-09-01', sourceSha256: '2'.repeat(64) },
+    }),
+    baseBudgetConfig: renameConfig({
+      'src/a.ts': { maxLines: 550, reviewBy: '2026-09-01', sourceSha256: '2'.repeat(64) },
+      'src/z.ts': { maxLines: 700, reviewBy: '2026-09-01', sourceSha256: '1'.repeat(64) },
+    }),
+    now: NOW,
+  })
+  // Digest pairing maps a-moved <- z (700 -> 700) and z-moved <- a (550 -> 550):
+  // only the deadline extension on a-moved is growth.
+  assert.deepEqual(result.growth, [{
+    key: '@dzupagent/alpha/fileLineDebtPins/src/a-moved.ts/reviewBy',
+    from: '2026-09-01',
+    to: '2026-12-01',
+    renamedFrom: '@dzupagent/alpha/fileLineDebtPins/src/z.ts',
+  }])
+})
+
+test('a renamed pin that keeps or lowers its numbers and deadline needs no signature', () => {
+  const result = evaluateBudgetRatchet({
+    budgetConfig: renameConfig({ 'src/lib/original.ts': { maxLines: 590, shrinkTarget: 500, reviewBy: '2026-09-01' } }),
+    baseBudgetConfig: renameConfig({ 'src/original.ts': { maxLines: 600, shrinkTarget: 500, reviewBy: '2026-09-01' } }),
+    now: NOW,
+  })
+  assert.equal(result.ok, true, result.messages.join('\n'))
+  assert.deepEqual(result.growth, [])
+})
+
 // --- Ratchet base selection (DZUPAGENT-ARCH-C-04) -----------------------------
 //
 // The ratchet used to compare against HEAD. Once a raise is committed HEAD's copy
@@ -778,6 +922,84 @@ test('resolveRatchetBase honours an explicit ref and never defaults to HEAD when
     assert.equal(explicit.source, 'explicit')
     assert.equal(explicit.commit, headCommit)
     assert.equal(explicit.equalsHead, true)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// --- Live budget coverage (DZUPAGENT-ARCH-M-11) --------------------------------
+//
+// core had no per-file ceiling, flow-compiler's root barrel was uncapped, four
+// packages had no entry at all, and only two star-export barrels had export-count
+// caps. These assertions keep the live budget file from regressing to that.
+
+const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url))
+
+function liveBudgetPackages() {
+  return JSON.parse(readFileSync(join(REPO_ROOT, 'config', 'barrel-budgets.json'), 'utf8')).packages
+}
+
+function workspacePackages() {
+  const packagesDir = join(REPO_ROOT, 'packages')
+  return readdirSync(packagesDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => join(packagesDir, entry.name, 'package.json'))
+    .filter((manifest) => existsSync(manifest))
+    .map((manifest) => ({
+      name: JSON.parse(readFileSync(manifest, 'utf8')).name,
+      dir: join(manifest, '..'),
+    }))
+}
+
+test('every packages/* workspace has a budget entry with a per-file ceiling', () => {
+  const budgets = liveBudgetPackages()
+  const missing = workspacePackages()
+    .filter(({ name }) => typeof budgets[name]?.maxFileLines !== 'number')
+    .map(({ name }) => name)
+  assert.deepEqual(missing, [])
+})
+
+test('core carries a per-file ceiling and flow-compiler a root-barrel cap', () => {
+  const budgets = liveBudgetPackages()
+  assert.equal(budgets['@dzupagent/core'].maxFileLines, 500)
+  for (const metric of ['maxRootIndexLines', 'maxRootBarrelExplicitExports', 'maxRootBarrelStarExports']) {
+    assert.equal(typeof budgets['@dzupagent/flow-compiler'][metric], 'number', metric)
+  }
+})
+
+test('every root barrel that uses export-star carries explicit- and star-export caps', () => {
+  const budgets = liveBudgetPackages()
+  const uncapped = []
+  for (const { name, dir } of workspacePackages()) {
+    const indexPath = join(dir, 'src', 'index.ts')
+    if (!existsSync(indexPath)) continue
+    if (!/^\s*export\s+(?:type\s+)?\*\s+from/m.test(readFileSync(indexPath, 'utf8'))) continue
+    const budget = budgets[name] ?? {}
+    if (typeof budget.maxRootBarrelExplicitExports !== 'number'
+      || typeof budget.maxRootBarrelStarExports !== 'number') {
+      uncapped.push(name)
+    }
+  }
+  assert.deepEqual(uncapped, [])
+})
+
+test('a new export-star line in a capped barrel fails the gate', () => {
+  const root = createFixtureRoot({ indexLines: 2 })
+  try {
+    const budgetConfig = {
+      packages: {
+        '@dzupagent/alpha': { maxRootBarrelExplicitExports: 2, maxRootBarrelStarExports: 0 },
+      },
+    }
+    assert.equal(evaluateBarrelBudgets({ root, budgetConfig }).ok, true)
+    writeFileSync(
+      join(root, 'packages', 'alpha', 'src', 'index.ts'),
+      "export { thing } from './thing.js'\nexport { thing } from './thing.js'\nexport * from './more.js'\n",
+      'utf8',
+    )
+    const result = evaluateBarrelBudgets({ root, budgetConfig })
+    assert.equal(result.ok, false)
+    assert.match(result.messages.join('\n'), /maxRootBarrelStarExports exceeded \(measured 1, budget 0\)/)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

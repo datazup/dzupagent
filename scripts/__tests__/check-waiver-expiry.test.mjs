@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { test } from 'node:test'
@@ -8,12 +8,16 @@ import { fileURLToPath } from 'node:url'
 
 import {
   loadWaivers,
+  loadBarrelDebtPins,
+  resolveBarrelBudgetsPath,
   checkWaivers,
   formatReport,
   resolveWarnDays,
 } from '../check-waiver-expiry.mjs'
 
 const SCRIPT_PATH = fileURLToPath(new URL('../check-waiver-expiry.mjs', import.meta.url))
+const LIVE_COVERAGE_PATH = fileURLToPath(new URL('../../coverage-thresholds.json', import.meta.url))
+const LIVE_BARREL_BUDGETS_PATH = fileURLToPath(new URL('../../config/barrel-budgets.json', import.meta.url))
 
 function writeTempConfig(packages) {
   const dir = mkdtempSync(join(tmpdir(), 'waiver-test-'))
@@ -284,23 +288,112 @@ test('formatReport includes all entries in table format', () => {
   assert.match(report, /Reason/)
 })
 
-// --- Integration: real coverage-thresholds.json current waivers all active ---
+// --- ratchet.reviewBy + barrel debt pins (DZUPAGENT-TEST-H-06) ---
 
-test('current waivers are all active as of 2026-04-05', () => {
+test('loadWaivers harvests ratchet.reviewBy entries', () => {
   const { dir, configPath } = writeTempConfig({
-    codegen: { waiver: { reason: 'baseline', until: '2026-07-31' } },
-    context: { waiver: { reason: 'baseline', until: '2026-07-31' } },
-    'create-dzupagent': { waiver: { reason: 'baseline', until: '2026-06-30' } },
-    playground: { waiver: { reason: 'baseline', until: '2026-06-30' } },
-    'test-utils': { waiver: { reason: 'baseline', until: '2026-06-30' } },
-    testing: { waiver: { reason: 'baseline', until: '2026-06-30' } },
+    alpha: { thresholds: { statements: 80 }, ratchet: { reason: 'floor review', reviewBy: '2026-09-01' } },
+    beta: { thresholds: { statements: 80 } },
   })
-
   try {
     const waivers = loadWaivers(configPath)
-    const result = checkWaivers(waivers, new Date('2026-04-05'), 0)
-    assert.equal(result.expired.length, 0, 'Expected no expired waivers')
-    assert.equal(result.active.length, 6)
+    assert.deepEqual(waivers, [
+      { pkg: 'alpha', source: 'ratchet', reason: 'floor review', expiresOn: '2026-09-01' },
+    ])
+    const result = checkWaivers(waivers, new Date('2026-10-15'), 0)
+    assert.equal(result.expired.length, 1)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('live coverage-thresholds.json: every dated ratchet entry is harvested', () => {
+  const config = JSON.parse(readFileSync(LIVE_COVERAGE_PATH, 'utf-8'))
+  const dated = Object.entries(config.packages ?? {})
+    .filter(([, entry]) => typeof entry.ratchet?.reviewBy === 'string')
+    .map(([pkg, entry]) => `${pkg}@${entry.ratchet.reviewBy}`)
+    .sort()
+  assert.ok(dated.length > 0, 'expected dated ratchet entries in the live config')
+  const harvested = loadWaivers(LIVE_COVERAGE_PATH)
+    .filter((entry) => entry.source === 'ratchet')
+    .map((entry) => `${entry.pkg}@${entry.expiresOn}`)
+    .sort()
+  assert.deepEqual(harvested, dated)
+})
+
+test('loadBarrelDebtPins harvests rootDebtPin and fileLineDebtPins reviewBy dates', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'waiver-test-'))
+  const budgetPath = join(dir, 'barrel-budgets.json')
+  writeFileSync(budgetPath, JSON.stringify({
+    packages: {
+      '@dzupagent/alpha': {
+        maxRootIndexLines: 10,
+        rootDebtPin: { maxRootIndexLines: 12, reviewBy: '2026-09-30', rationale: 'root debt' },
+        fileLineDebtPins: { 'src/big.ts': { maxLines: 600, reviewBy: '2026-11-30', rationale: 'file debt' } },
+      },
+      '@dzupagent/beta': { maxRootIndexLines: 10 },
+    },
+  }))
+  try {
+    assert.deepEqual(loadBarrelDebtPins(budgetPath), [
+      { pkg: '@dzupagent/alpha', source: 'barrel-root-pin', reason: 'root debt', expiresOn: '2026-09-30' },
+      { pkg: '@dzupagent/alpha:src/big.ts', source: 'barrel-file-pin', reason: 'file debt', expiresOn: '2026-11-30' },
+    ])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('live barrel-budgets.json: every debt pin reviewBy is harvested', () => {
+  const config = JSON.parse(readFileSync(LIVE_BARREL_BUDGETS_PATH, 'utf-8'))
+  let expected = 0
+  for (const entry of Object.values(config.packages ?? {})) {
+    if (entry.rootDebtPin) expected += 1
+    expected += Object.keys(entry.fileLineDebtPins ?? {}).length
+  }
+  assert.equal(loadBarrelDebtPins(LIVE_BARREL_BUDGETS_PATH).length, expected)
+})
+
+test('resolveBarrelBudgetsPath: default config reads the repo budget file, a fixture does not', () => {
+  assert.equal(resolveBarrelBudgetsPath([], true), LIVE_BARREL_BUDGETS_PATH)
+  assert.equal(resolveBarrelBudgetsPath([], false), undefined)
+  assert.equal(resolveBarrelBudgetsPath(['--no-barrel-budgets'], true), undefined)
+  assert.equal(resolveBarrelBudgetsPath(['--barrel-budgets=/x.json'], false), '/x.json')
+})
+
+test('CLI exits 1 and lists a lapsed ratchet entry', () => {
+  const { dir, configPath } = writeTempConfig({
+    'lapsed-pkg': { thresholds: { statements: 80 }, ratchet: { reason: 'floor review', reviewBy: '2026-01-01' } },
+  })
+  try {
+    assert.throws(
+      () => execFileSync('node', [SCRIPT_PATH, configPath], { encoding: 'utf-8' }),
+      (err) => {
+        assert.equal(err.status, 1)
+        assert.match(err.stdout, /\[ratchet\] lapsed-pkg: expired 2026-01-01/)
+        return true
+      },
+    )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('CLI reads barrel debt pins named by --barrel-budgets', () => {
+  const { dir, configPath } = writeTempConfig({})
+  const budgetPath = join(dir, 'barrel-budgets.json')
+  writeFileSync(budgetPath, JSON.stringify({
+    packages: { '@dzupagent/alpha': { rootDebtPin: { reviewBy: '2026-01-01', rationale: 'root debt' } } },
+  }))
+  try {
+    assert.throws(
+      () => execFileSync('node', [SCRIPT_PATH, configPath, `--barrel-budgets=${budgetPath}`], { encoding: 'utf-8' }),
+      (err) => {
+        assert.equal(err.status, 1)
+        assert.match(err.stdout, /\[barrel-root-pin\] @dzupagent\/alpha: expired 2026-01-01/)
+        return true
+      },
+    )
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

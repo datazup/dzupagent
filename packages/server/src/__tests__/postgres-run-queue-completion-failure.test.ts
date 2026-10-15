@@ -177,16 +177,19 @@ describe('PostgresRunQueue outcome handling (DZUPAGENT-ERR-H-82)', () => {
       queue.start(async () => { throw new Error('processor failed') })
 
       await queue._poll()
-      // Let the dispatch chain settle without stop() attaching a handler.
-      await new Promise((resolve) => setTimeout(resolve, 20))
+      // Wait for the dispatch chain to settle (observed through the logged
+      // failure) without stop() attaching a handler first. vi.waitFor polls
+      // across macrotasks, so an unhandled rejection would have fired by then.
+      await vi.waitFor(() => {
+        expect(error).toHaveBeenCalledWith(expect.objectContaining({
+          operation: 'run-queue.postgres.settle',
+          jobId: 'job-1',
+          error: 'db down',
+        }))
+      })
       await queue.stop()
 
       expect(unhandled).not.toHaveBeenCalled()
-      expect(error).toHaveBeenCalledWith(expect.objectContaining({
-        operation: 'run-queue.postgres.settle',
-        jobId: 'job-1',
-        error: 'db down',
-      }))
     } finally {
       process.off('unhandledRejection', unhandled)
     }

@@ -4,8 +4,8 @@
  * `(runId, approvalId)`.
  *
  * {@link InMemoryQuorumVoteStore} is the single-process default. Durable
- * adapters must pass the shared contract suite in
- * `src/__tests__/quorum-vote-store-contract.ts`.
+ * adapters must pass the shared contract suite `runQuorumVoteStoreContract`
+ * published on `@dzupagent/hitl-kit/testing`.
  */
 
 import {

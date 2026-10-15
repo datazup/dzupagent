@@ -3,13 +3,13 @@
  * These types are intentionally domain-agnostic and do not depend on
  * workflow orchestration services.
  */
-export * from "./planning.js";
-export * from "./execution.js";
-export * from "./ledger.js";
-export * from "./schedule.js";
-export * from "./script-runs.js";
-export * from "./pipeline.js";
-export * from "./pipeline-interaction.js";
+export type { FeatureBrief, PersonaProfile, PersonaRoleType, WorkItem } from "./planning.js";
+export type { ExecutionRun, ExecutionRunStatus, PromptRecord, PromptType } from "./execution.js";
+export type { Artifact, ArtifactType, BudgetBucket, CostLedgerEntry } from "./ledger.js";
+export type { ScheduleType, WorkflowSchedule } from "./schedule.js";
+export type { ApprovalDecision, ApprovalDecisionRecord, ManagedArtifactRef, ManagedArtifactType, ManagedRunCorrelation, ManagedRunEvent, ManagedRunEventLevel, ManagedRunEventType, ManagedRunStatus, ManagedRunSummary, ReviewDecision, ReviewDecisionRecord, ValidationRecord, ValidationStatus } from "./script-runs.js";
+export type { CancellationSignal, LoopMetrics, NodeExecutionContext, NodeExecutor, NodeResult, PipelineRunResult, PipelineRuntimeEvent, PipelineState, ProviderSessionRef } from "./pipeline.js";
+export { PIPELINE_INTERACTION_LIMITS, PIPELINE_INTERACTION_RESUME_SCHEMA, PIPELINE_INTERACTION_SPEC_SCHEMA, PIPELINE_PENDING_INTERACTION_SCHEMA, createPipelineInteractionId, createPipelineInteractionResumeV1, createPipelineInteractionSpecV1, createPipelinePendingInteractionV1, deserializePipelineInteractionResumeV1, deserializePipelineInteractionSpecV1, deserializePipelinePendingInteractionV1, digestPipelineDefinition, digestPipelineInteractionValue, serializePipelineInteractionResumeV1, serializePipelineInteractionSpecV1, serializePipelinePendingInteractionV1, validatePipelineInteractionResumeV1, validatePipelineInteractionSpecV1, validatePipelinePendingInteractionV1, type PipelineApprovalInteractionResponseV1, type PipelineApprovalInteractionSpecV1, type PipelineApprovalRequestSchemaV1, type PipelineClarificationInteractionResponseV1, type PipelineClarificationInteractionSpecV1, type PipelineClarificationRequestSchemaV1, type PipelineInteractionRecordV1, type PipelineInteractionRequestSchemaV1, type PipelineInteractionResponseV1, type PipelineInteractionResumeInputV1, type PipelineInteractionResumeV1, type PipelineInteractionScopeV1, type PipelineInteractionSpecInputV1, type PipelineInteractionSpecV1, type PipelineInteractionStatePortV1, type PipelineInteractionValidationIssue, type PipelineInteractionValidationResult, type PipelinePendingInteractionInputV1, type PipelinePendingInteractionV1, type PipelineSha256Digest } from "./pipeline-interaction.js";
 // Canonical execution/gate/local-model contracts use explicit named
 // re-exports (not `export *`) so the reviewed public surface stays
 // enumerable for the package-tiers governance gate.

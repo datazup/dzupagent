@@ -483,17 +483,102 @@ export function evaluateBarrelBudgets({ root, budgetConfig, now = new Date() }) 
  * Every number under `packages` is a ceiling or a target, so a generic walk is
  * both sufficient and fail-safe: a knob added later is ratcheted automatically
  * instead of silently escaping. Arrays ($comment prose) carry no budgets.
+ *
+ * Deadline dates are ratcheted too (DZUPAGENT-ARCH-H-10): a `reviewBy` is what
+ * makes a debt pin fail closed, so pushing it later is growth exactly like
+ * raising a number. Other string leaves (digests, commits, prose) are not
+ * budgets and stay out of the walk.
  */
-function collectNumericLeaves(value, prefix, accumulator) {
+const DEADLINE_LEAF_KEYS = new Set(['reviewBy']);
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function collectRatchetLeaves(value, prefix, accumulator, leafKey = '') {
   if (typeof value === 'number') {
     accumulator.set(prefix, value);
     return accumulator;
   }
+  if (typeof value === 'string') {
+    if (DEADLINE_LEAF_KEYS.has(leafKey) && ISO_DATE_RE.test(value)
+      && Number.isFinite(Date.parse(`${value}T00:00:00.000Z`))) {
+      accumulator.set(prefix, value);
+    }
+    return accumulator;
+  }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return accumulator;
   for (const [key, entry] of Object.entries(value)) {
-    collectNumericLeaves(entry, prefix === '' ? key : `${prefix}/${key}`, accumulator);
+    collectRatchetLeaves(entry, prefix === '' ? key : `${prefix}/${key}`, accumulator, key);
   }
   return accumulator;
+}
+
+/** Maps whose keys name individual pins (a rename there is a transition, not a new pin). */
+const PIN_MAP_KEYS = ['fileLineDebtPins'];
+
+function basenameOf(pinKey) {
+  const parts = pinKey.split('/');
+  return parts[parts.length - 1];
+}
+
+/**
+ * A pin key that disappears while another appears in the same package's pin map
+ * is a rename, and a rename must not escape the ratchet as "deletion plus a
+ * brand-new pin" (DZUPAGENT-ARCH-H-10). Pairs are matched by identical
+ * sourceSha256 first (a pure move), then by identical file basename, then the
+ * remaining removed/added keys pair up in sorted order. Each pair maps the new
+ * pin's leaves onto the removed pin's base values, so a renamed pin with a
+ * higher maxLines (or a later reviewBy) is growth that needs a signature.
+ */
+function collectRenamedPinBases(currentPackages, basePackages) {
+  const renames = [];
+  for (const [packageName, currentEntry] of Object.entries(currentPackages ?? {})) {
+    const baseEntry = basePackages?.[packageName];
+    if (!baseEntry || typeof baseEntry !== 'object' || !currentEntry || typeof currentEntry !== 'object') continue;
+    for (const mapKey of PIN_MAP_KEYS) {
+      const currentMap = currentEntry[mapKey];
+      const baseMap = baseEntry[mapKey];
+      if (!currentMap || typeof currentMap !== 'object' || Array.isArray(currentMap)) continue;
+      if (!baseMap || typeof baseMap !== 'object' || Array.isArray(baseMap)) continue;
+      const removed = Object.keys(baseMap).filter((key) => !(key in currentMap)).sort();
+      const added = Object.keys(currentMap).filter((key) => !(key in baseMap)).sort();
+      if (removed.length === 0 || added.length === 0) continue;
+
+      const pairs = [];
+      const take = (matches) => {
+        for (const addedKey of [...added]) {
+          const removedKey = removed.find((candidate) => matches(candidate, addedKey));
+          if (removedKey === undefined) continue;
+          pairs.push({ removedKey, addedKey });
+          removed.splice(removed.indexOf(removedKey), 1);
+          added.splice(added.indexOf(addedKey), 1);
+        }
+      };
+      take((removedKey, addedKey) => {
+        const before = baseMap[removedKey]?.sourceSha256;
+        return typeof before === 'string' && before === currentMap[addedKey]?.sourceSha256;
+      });
+      take((removedKey, addedKey) => basenameOf(removedKey) === basenameOf(addedKey));
+      while (removed.length > 0 && added.length > 0) {
+        pairs.push({ removedKey: removed.shift(), addedKey: added.shift() });
+      }
+
+      for (const { removedKey, addedKey } of pairs) {
+        const prefix = `${packageName}/${mapKey}`;
+        const baseLeaves = collectRatchetLeaves(baseMap[removedKey], '', new Map());
+        renames.push({
+          from: `${prefix}/${removedKey}`,
+          to: `${prefix}/${addedKey}`,
+          baseLeaves,
+        });
+      }
+    }
+  }
+  return renames;
+}
+
+function isGrowth(previous, value) {
+  if (typeof previous === 'number' && typeof value === 'number') return value > previous;
+  if (typeof previous === 'string' && typeof value === 'string') return value > previous;
+  return false;
 }
 
 function validateAcceptedGrowthRecord({ record, approvers, now }) {
@@ -533,8 +618,10 @@ function validateAcceptedGrowthRecord({ record, approvers, now }) {
  *
  * This compares the budget file against its committed base and requires an
  * explicit signature for any number that moved AWAY from its target. Since a
- * target is always below its pin, "away" means "up". Moving a number DOWN, or
- * deleting a satisfied pin, needs nothing.
+ * target is always below its pin, "away" means "up". A `reviewBy` deadline
+ * moved LATER is growth too, and a pin renamed within its package is compared
+ * against the pin it replaced (DZUPAGENT-ARCH-H-10). Moving a number DOWN, an
+ * earlier deadline, or deleting a satisfied pin, needs nothing.
  *
  * Each record authorises exactly one `{ key, from, to }` transition and is
  * consumed once, so one signature cannot cover two raises.
@@ -553,14 +640,28 @@ export function evaluateBudgetRatchet({ budgetConfig, baseBudgetConfig, now = ne
     throw new Error('acceptedGrowthApprovers must be an array of non-empty strings');
   }
 
-  const current = collectNumericLeaves(budgetConfig?.packages ?? {}, '', new Map());
-  const base = collectNumericLeaves(baseBudgetConfig?.packages ?? {}, '', new Map());
+  const current = collectRatchetLeaves(budgetConfig?.packages ?? {}, '', new Map());
+  const base = collectRatchetLeaves(baseBudgetConfig?.packages ?? {}, '', new Map());
+
+  // A renamed pin inherits the base values of the pin it replaced.
+  const renamedFrom = new Map();
+  for (const rename of collectRenamedPinBases(budgetConfig?.packages, baseBudgetConfig?.packages)) {
+    for (const [leaf, value] of rename.baseLeaves) {
+      const key = `${rename.to}/${leaf}`;
+      if (!base.has(key)) {
+        base.set(key, value);
+        renamedFrom.set(key, rename.from);
+      }
+    }
+  }
 
   const growth = [];
   for (const [key, value] of current) {
     const previous = base.get(key);
-    if (previous === undefined || value <= previous) continue;
-    growth.push({ key, from: previous, to: value });
+    if (previous === undefined || !isGrowth(previous, value)) continue;
+    const move = { key, from: previous, to: value };
+    if (renamedFrom.has(key)) move.renamedFrom = renamedFrom.get(key);
+    growth.push(move);
   }
 
   const messages = [];
@@ -572,15 +673,21 @@ export function evaluateBudgetRatchet({ budgetConfig, baseBudgetConfig, now = ne
       && record?.from === move.from
       && record?.to === move.to);
     if (index === -1) {
-      messages.push(
-        `${move.key}: moved AWAY from its shrink target (${move.from} -> ${move.to}) `
-        + `with no acceptedGrowth signature. A budget or pin may move DOWN freely; moving it UP `
-        + `is accepting debt. Either bring it back to ${move.from} by relocating or extracting `
-        + `code instead of re-pinning, or add this to "acceptedGrowth" in the budget file: `
-        + `{ "key": "${move.key}", "from": ${move.from}, "to": ${move.to}, `
+      const renamed = move.renamedFrom === undefined ? '' : ` (renamed from ${move.renamedFrom})`;
+      const signature = `{ "key": "${move.key}", "from": ${JSON.stringify(move.from)}, `
+        + `"to": ${JSON.stringify(move.to)}, `
         + `"reason": "<why this growth is accepted>", "approvedBy": "<signer>", `
-        + `"date": "<YYYY-MM-DD>" }`,
-      );
+        + `"date": "<YYYY-MM-DD>" }`;
+      messages.push(typeof move.to === 'string'
+        ? `${move.key}${renamed}: review deadline moved LATER (${move.from} -> ${move.to}) `
+          + `with no acceptedGrowth signature. Extending a reviewBy keeps a debt pin alive, so it `
+          + `is accepting debt exactly like raising a number. Either keep ${move.from} and retire `
+          + `the debt, or add this to "acceptedGrowth" in the budget file: ${signature}`
+        : `${move.key}${renamed}: moved AWAY from its shrink target (${move.from} -> ${move.to}) `
+          + `with no acceptedGrowth signature. A budget or pin may move DOWN freely; moving it UP `
+          + `is accepting debt. Either bring it back to ${move.from} by relocating or extracting `
+          + `code instead of re-pinning, or add this to "acceptedGrowth" in the budget file: `
+          + signature);
       continue;
     }
     consumed.add(index);

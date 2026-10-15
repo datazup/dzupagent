@@ -247,6 +247,65 @@
           "maxRootBarrelExplicitExports": 935,
           "maxRootIndexLines": 1327
         }
+      },
+      "maxFileLines": 500,
+      "fileLineDebtPins": {
+        "src/events/event-types-orchestration.ts": {
+          "maxLines": 579,
+          "shrinkTarget": 500,
+          "sourceSha256": "3f1ccfd9869fcca9b4efe1315ffb14dff7ede4d6f41e554ad9c92cfd5b8a6a4f",
+          "sourceCommit": "1bc0e576a55875680be23c2dc1d9f3144cf75a10",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 QF-34 (DZUPAGENT-ARCH-M-11): core had no per-file ceiling, so this file sat above 500 lines with no pin. Frozen at exactly 579 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
+        },
+        "src/index.ts": {
+          "maxLines": 1336,
+          "shrinkTarget": 500,
+          "sourceSha256": "cf4020140c8a05eafdeba57502bd8416ddaf601a506acb394e2d60bf41fa2412",
+          "sourceCommit": "1bc0e576a55875680be23c2dc1d9f3144cf75a10",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 QF-34 (DZUPAGENT-ARCH-M-11): core had no per-file ceiling, so this file sat above 500 lines with no pin. Frozen at exactly 1336 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
+        },
+        "src/llm/model-registry.ts": {
+          "maxLines": 870,
+          "shrinkTarget": 500,
+          "sourceSha256": "ffc6c629d8da5ff0b02eb1ff8e1331dae435ea7a427f357e780af310af89b054",
+          "sourceCommit": "1bc0e576a55875680be23c2dc1d9f3144cf75a10",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 QF-34 (DZUPAGENT-ARCH-M-11): core had no per-file ceiling, so this file sat above 500 lines with no pin. Frozen at exactly 870 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
+        },
+        "src/mcp/mcp-client.ts": {
+          "maxLines": 662,
+          "shrinkTarget": 500,
+          "sourceSha256": "250ab60e0233a3d2efb1c68b2cdd7934fea3d773a72a4ca01397e4e26fb16da4",
+          "sourceCommit": "1bc0e576a55875680be23c2dc1d9f3144cf75a10",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 QF-34 (DZUPAGENT-ARCH-M-11): core had no per-file ceiling, so this file sat above 500 lines with no pin. Frozen at exactly 662 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
+        },
+        "src/pipeline/pipeline-checkpoint-store.ts": {
+          "maxLines": 728,
+          "shrinkTarget": 500,
+          "sourceSha256": "1c097b6827fc0d211e2c4e0183732dbcb69aa966bbd0bda07bc344f967aa8798",
+          "sourceCommit": "1bc0e576a55875680be23c2dc1d9f3144cf75a10",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 QF-34 (DZUPAGENT-ARCH-M-11): core had no per-file ceiling, so this file sat above 500 lines with no pin. Frozen at exactly 728 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
+        },
+        "src/pipeline/pipeline-serialization.ts": {
+          "maxLines": 956,
+          "shrinkTarget": 500,
+          "sourceSha256": "3bedc008d483eaf2c6cd904577e3f74a59f2b262fe592d33de231e9951316f3f",
+          "sourceCommit": "1bc0e576a55875680be23c2dc1d9f3144cf75a10",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 QF-34 (DZUPAGENT-ARCH-M-11): core had no per-file ceiling, so this file sat above 500 lines with no pin. Frozen at exactly 956 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
+        },
+        "src/subagent/subagent-spawner.ts": {
+          "maxLines": 536,
+          "shrinkTarget": 500,
+          "sourceSha256": "92cb28320ef6218c0478e85629453ac649b93aab80a8d8d9dfb5f8fedf75d7bf",
+          "sourceCommit": "1bc0e576a55875680be23c2dc1d9f3144cf75a10",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 QF-34 (DZUPAGENT-ARCH-M-11): core had no per-file ceiling, so this file sat above 500 lines with no pin. Frozen at exactly 536 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
+        }
       }
     },
     "@dzupagent/security": {
@@ -254,6 +313,8 @@
       "maxFileLines": 500
     },
     "@dzupagent/agent": {
+      "maxRootBarrelExplicitExports": 448,
+      "maxRootBarrelStarExports": 1,
       "maxRootIndexLines": 732,
       "maxFileLines": 500,
       "fileLineDebtPins": {
@@ -487,14 +548,20 @@
       }
     },
     "@dzupagent/rag": {
+      "maxRootBarrelExplicitExports": 49,
+      "maxRootBarrelStarExports": 1,
       "maxRootIndexLines": 75,
       "maxFileLines": 500
     },
     "@dzupagent/connectors": {
+      "maxRootBarrelExplicitExports": 73,
+      "maxRootBarrelStarExports": 1,
       "maxRootIndexLines": 95,
       "maxFileLines": 500
     },
     "@dzupagent/agent-adapters": {
+      "maxRootBarrelExplicitExports": 657,
+      "maxRootBarrelStarExports": 1,
       "maxRootIndexLines": 870,
       "rootDebtPin": {
         "maxRootIndexLines": 984,
@@ -628,13 +695,16 @@
       "maxFileLines": 500
     },
     "@dzupagent/runtime-contracts": {
+      "maxRootBarrelExplicitExports": 213,
+      "maxRootBarrelStarExports": 0,
+      "maxRootBarrelSourceCount": 14,
       "maxRootIndexLines": 115,
       "rootDebtPin": {
         "maxRootIndexLines": 172,
-        "sourceSha256": "5e6fa7908ed97c7294bad443e3345ccae79e29d1bcd173b868f8be1e84308617",
-        "sourceCommit": "c9dd6b0ace9790d3fe6962f62e5ee370a59c761a",
-        "reviewBy": "2026-11-30",
-        "rationale": "2026-08-30 workspace closure: freeze the already-integrated neutral runtime-contract compatibility root at exactly 172 lines, 14 sources, 137 explicit exports, and seven star exports. The lower 115-line target remains enforced. Renewed 2026-10-15 (RF-03 / DZUPAGENT-ARCH-H-09): bytes and line count unchanged since the pin; no growth.",
+        "sourceSha256": "6d3874ea73505a1ace1d1ed79b9beafcc5b4078afbebc6fb2d494375b1c319ad",
+        "sourceCommit": "1bc0e576a55875680be23c2dc1d9f3144cf75a10",
+        "reviewBy": "2026-09-30",
+        "rationale": "2026-08-30 workspace closure: freeze the already-integrated neutral runtime-contract compatibility root at exactly 172 lines, 14 sources, 137 explicit exports, and seven star exports. The lower 115-line target remains enforced. Renewal pending approver signature (RF-03 / DZUPAGENT-ARCH-H-09): bytes and line count unchanged since the pin; reviewBy not extended. Re-bound 2026-10-15 (RF-06 / DZUPAGENT-ARCH-H-11): the seven export-star lines became seven explicit re-export lines with the identical export-name set; line count unchanged at 172, star exports capped at 0 and explicit exports at 213.",
         "shrinkTargets": {
           "maxRootIndexLines": 115
         }
@@ -676,6 +746,8 @@
       }
     },
     "@dzupagent/execution-contracts": {
+      "maxRootBarrelExplicitExports": 6,
+      "maxRootBarrelStarExports": 7,
       "maxRootIndexLines": 16,
       "maxFileLines": 500,
       "fileLineDebtPins": {
@@ -700,6 +772,9 @@
       }
     },
     "@dzupagent/session-control": {
+      "maxRootBarrelExplicitExports": 131,
+      "maxRootBarrelStarExports": 0,
+      "maxRootBarrelSourceCount": 12,
       "maxRootIndexLines": 12,
       "maxFileLines": 500
     },
@@ -708,6 +783,8 @@
       "maxFileLines": 500
     },
     "@dzupagent/eval-contracts": {
+      "maxRootBarrelExplicitExports": 0,
+      "maxRootBarrelStarExports": 4,
       "maxRootIndexLines": 13,
       "maxFileLines": 500
     },
@@ -744,6 +821,8 @@
       "maxFileLines": 500
     },
     "@dzupagent/adapter-types": {
+      "maxRootBarrelExplicitExports": 0,
+      "maxRootBarrelStarExports": 27,
       "maxRootIndexLines": 28,
       "rootDebtPin": {
         "maxRootIndexLines": 33,
@@ -773,6 +852,8 @@
       }
     },
     "@dzupagent/adapter-rules": {
+      "maxRootBarrelExplicitExports": 15,
+      "maxRootBarrelStarExports": 1,
       "maxRootIndexLines": 30,
       "maxFileLines": 500
     },
@@ -790,8 +871,8 @@
         "maxRootIndexLines": 41,
         "sourceSha256": "04fd88a7d4d1ca0e8cca03025d567bd24dc468e726a5e8c7e821efd10af99c43",
         "sourceCommit": "2694577565a61591fa3549f2f6931d569e16bb34",
-        "reviewBy": "2026-11-30",
-        "rationale": "Freeze the consolidated current stateless MCP compatibility export with zero slack while future contracts remain subpath-only. Renewed 2026-10-15 (RF-03 / DZUPAGENT-ARCH-H-09): bytes and line count unchanged since the pin; no growth."
+        "reviewBy": "2026-09-11",
+        "rationale": "Freeze the consolidated current stateless MCP compatibility export with zero slack while future contracts remain subpath-only. Renewal pending approver signature (RF-03 / DZUPAGENT-ARCH-H-09): bytes and line count unchanged since the pin; reviewBy not extended."
       },
       "maxFileLines": 500
     },
@@ -803,6 +884,10 @@
       "maxFileLines": 500
     },
     "@dzupagent/flow-compiler": {
+      "maxRootBarrelExplicitExports": 189,
+      "maxRootBarrelStarExports": 1,
+      "maxRootBarrelSourceCount": 36,
+      "maxRootIndexLines": 435,
       "maxFileLines": 500,
       "fileLineDebtPins": {
         "src/stages/shape-validate-rules/control-flow.ts": {
@@ -832,6 +917,8 @@
       }
     },
     "@dzupagent/flow-dsl": {
+      "maxRootBarrelExplicitExports": 0,
+      "maxRootBarrelStarExports": 15,
       "maxRootIndexLines": 15,
       "maxFileLines": 500,
       "fileLineDebtPins": {
@@ -882,6 +969,8 @@
       "maxFileLines": 500
     },
     "@dzupagent/scraper": {
+      "maxRootBarrelExplicitExports": 7,
+      "maxRootBarrelStarExports": 1,
       "maxRootIndexLines": 10,
       "maxFileLines": 500
     },
@@ -934,10 +1023,14 @@
       "maxFileLines": 500
     },
     "@dzupagent/code-edit-kit": {
+      "maxRootBarrelExplicitExports": 20,
+      "maxRootBarrelStarExports": 1,
       "maxRootIndexLines": 29,
       "maxFileLines": 500
     },
     "@dzupagent/hitl-kit": {
+      "maxRootBarrelExplicitExports": 0,
+      "maxRootBarrelStarExports": 9,
       "maxRootIndexLines": 5,
       "rootDebtPin": {
         "maxRootIndexLines": 6,
@@ -950,6 +1043,44 @@
     },
     "@dzupagent/subagents": {
       "maxRootIndexLines": 212,
+      "maxFileLines": 500
+    },
+    "@dzupagent/canonical-json": {
+      "maxRootBarrelExplicitExports": 0,
+      "maxRootBarrelStarExports": 0,
+      "maxRootBarrelSourceCount": 0,
+      "maxRootIndexLines": 442,
+      "maxFileLines": 500
+    },
+    "create-dzupagent": {
+      "maxRootBarrelExplicitExports": 51,
+      "maxRootBarrelStarExports": 0,
+      "maxRootBarrelSourceCount": 14,
+      "maxRootIndexLines": 78,
+      "maxFileLines": 500
+    },
+    "@dzupagent/testing": {
+      "maxRootBarrelExplicitExports": 59,
+      "maxRootBarrelStarExports": 0,
+      "maxRootBarrelSourceCount": 14,
+      "maxRootIndexLines": 97,
+      "maxFileLines": 500,
+      "fileLineDebtPins": {
+        "src/sdlc-mvp-evidence.ts": {
+          "maxLines": 942,
+          "shrinkTarget": 500,
+          "sourceSha256": "88fa4c172e95f6113b5eb6287b36f39b4ef6d49269e174bdae23de7eef7fd8ab",
+          "sourceCommit": "1bc0e576a55875680be23c2dc1d9f3144cf75a10",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 QF-34 (DZUPAGENT-ARCH-M-11): this package had no barrel-budget entry, so this file sat above 500 lines with no pin. Frozen at exactly 942 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
+        }
+      }
+    },
+    "@dzupagent/test-utils": {
+      "maxRootBarrelExplicitExports": 66,
+      "maxRootBarrelStarExports": 0,
+      "maxRootBarrelSourceCount": 7,
+      "maxRootIndexLines": 133,
       "maxFileLines": 500
     }
   }
