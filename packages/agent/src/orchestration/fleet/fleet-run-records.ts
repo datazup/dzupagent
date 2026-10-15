@@ -9,6 +9,7 @@
  * @module orchestration/fleet/fleet-run-records
  */
 import { ulid } from "ulidx";
+import { KnowledgeCollisionError } from "@dzupagent/agent-types/fleet";
 import type {
   KnowledgeEnvelope,
   KnowledgeStore,
@@ -48,7 +49,21 @@ export async function writeTaskControlState(
     payload,
     tags: ["control"],
   };
-  await knowledge.append(`run:${runId}`, env);
+  // A worker's task-state write in the same millisecond can derive the same
+  // version (RepoAgent uses the same clock-based scheme). Step past it the way
+  // RepoAgent does rather than failing the control operation.
+  const scope = `run:${runId}`;
+  for (let attempt = 0; attempt < 1000; attempt += 1) {
+    try {
+      await knowledge.append(scope, env);
+      return;
+    } catch (error) {
+      if (!(error instanceof KnowledgeCollisionError) || attempt === 999) {
+        throw error;
+      }
+      env.version += 1;
+    }
+  }
 }
 
 /** Record a policy decision and the inputs it was asked about. */
