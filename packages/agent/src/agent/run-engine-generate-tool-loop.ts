@@ -142,6 +142,9 @@ export function buildPolicyConfig(
     ...(toolExec?.wrapToolResults !== undefined
       ? { wrapToolResults: toolExec.wrapToolResults }
       : {}),
+    ...(toolExec?.maxToolResultChars !== undefined
+      ? { maxToolResultChars: toolExec.maxToolResultChars }
+      : {}),
     ...(toolExec?.timeouts !== undefined
       ? { toolTimeouts: toolExec.timeouts }
       : {}),

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { BrowserPool } from '../browser-pool.js'
+import { BrowserPool, resolveLaunchArgs } from '../browser-pool.js'
 
 // Mock puppeteer and puppeteer-extra so no real browser is launched
 vi.mock('puppeteer', () => {
@@ -541,16 +541,46 @@ describe('BrowserPool', () => {
   describe('launch arguments', () => {
     it('uses custom launch args when provided', async () => {
       const customArgs = ['--disable-gpu', '--no-sandbox']
-      pool = new BrowserPool({ stealth: false, maxConcurrency: 1, launchArgs: customArgs })
+      pool = new BrowserPool({
+        stealth: false,
+        maxConcurrency: 1,
+        launchArgs: customArgs,
+        unsafeDisableSandbox: true,
+      })
       const mockBrowser = createMockBrowser()
 
       const puppeteer = await import('puppeteer')
       ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(mockBrowser)
 
       await pool.acquire()
-      expect(puppeteer.default.launch).toHaveBeenCalledWith(
-        expect.objectContaining({ args: customArgs }),
-      )
+      const args = (puppeteer.default.launch as ReturnType<typeof vi.fn>).mock.calls[0]![0].args as string[]
+      expect(args).toEqual(expect.arrayContaining(customArgs))
+    })
+
+    it('default launch args keep the Chromium sandbox (DZUPAGENT-SEC-H-16)', async () => {
+      pool = new BrowserPool({ stealth: false, maxConcurrency: 1 })
+      const puppeteer = await import('puppeteer')
+      ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(createMockBrowser())
+
+      await pool.acquire()
+      const args = (puppeteer.default.launch as ReturnType<typeof vi.fn>).mock.calls.at(-1)![0].args as string[]
+      for (const flag of ['--no-sandbox', '--disable-setuid-sandbox', '--no-zygote', '--single-process']) {
+        expect(args).not.toContain(flag)
+      }
+    })
+
+    it('refuses sandbox-disabling launch args without the explicit opt-in', () => {
+      expect(() => resolveLaunchArgs({ launchArgs: ['--no-sandbox'] })).toThrow(/unsafeDisableSandbox/)
+    })
+
+    it('refuses the unsafe opt-in in production', () => {
+      const prev = process.env['NODE_ENV']
+      process.env['NODE_ENV'] = 'production'
+      try {
+        expect(() => resolveLaunchArgs({ unsafeDisableSandbox: true })).toThrow(/production/)
+      } finally {
+        process.env['NODE_ENV'] = prev
+      }
     })
 
     it('uses custom executable path when provided', async () => {

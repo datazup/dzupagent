@@ -127,6 +127,35 @@ export function deriveStandardMemoryPromptBounds(
   return { maxItems, maxCharsPerItem }
 }
 
+const FENCE_OPEN_RE = /<\s*untrusted_content\b[^>]*>/gi
+const FENCE_CLOSE_RE = /<\s*\/\s*untrusted_content\s*>/gi
+const FENCE_TAG_AT_START_RE = /^<\s*\/?\s*untrusted_content\b/i
+
+/**
+ * Close every `<untrusted_content>` block a truncated prefix left open, after
+ * dropping a fence tag that the cut split in half. The closing tag is always
+ * the last line of the result.
+ */
+function closeOpenFences(prefix: string): string {
+  let head = prefix
+  const lastLt = head.lastIndexOf('<')
+  if (lastLt !== -1 && !head.slice(lastLt).includes('>')) {
+    const fragment = head.slice(lastLt).replace(/\s+/g, '').toLowerCase()
+    if (
+      FENCE_TAG_AT_START_RE.test(fragment)
+      || '<untrusted_content'.startsWith(fragment)
+      || '</untrusted_content'.startsWith(fragment)
+    ) {
+      head = head.slice(0, lastLt)
+    }
+  }
+  const opens = head.match(FENCE_OPEN_RE)?.length ?? 0
+  const closes = head.match(FENCE_CLOSE_RE)?.length ?? 0
+  const unclosed = Math.max(0, opens - closes)
+  if (unclosed === 0) return head
+  return head.trimEnd() + '\n</untrusted_content>'.repeat(unclosed)
+}
+
 export function boundContextToTokenBudget(
   context: string | null,
   memoryBudget: number,
@@ -140,7 +169,9 @@ export function boundContextToTokenBudget(
 
   while (low <= high) {
     const mid = Math.floor((low + high) / 2)
-    const candidate = context.slice(0, mid)
+    // DZUPAGENT-SEC-H-05: the budget includes the re-closed envelope, so the
+    // recalled records never end up in an unterminated untrusted block.
+    const candidate = closeOpenFences(context.slice(0, mid))
     if (estimateTokens(candidate) <= memoryBudget) {
       best = candidate
       low = mid + 1
