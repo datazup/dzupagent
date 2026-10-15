@@ -308,6 +308,213 @@ describe("CodexAdapter", () => {
     });
   });
 
+  // ASA A12: mocked SDK contracts only; these do not qualify live model/effort
+  // availability or establish zero-tool enforcement from read-only options.
+  describe("ASA SDK route contract", () => {
+    const route = {
+      model: "gpt-6.1-sol",
+      reasoning: "medium" as const,
+      sandboxMode: "read-only" as const,
+      approvalPolicy: "never",
+      networkAccessEnabled: false,
+    };
+    const outputSchema = {
+      type: "object",
+      properties: { summary: { type: "string" } },
+      required: ["summary"],
+      additionalProperties: false,
+    };
+
+    it("binds the Sol medium route, schema and native identity across execute and resume", async () => {
+      const nativeThreadId = "thread-asa-a12-native";
+      const customAdapter = new CodexAdapter(route);
+      const executeThread = createMockThread([
+        threadStartedEvent(nativeThreadId),
+        turnCompletedEvent(),
+      ]);
+      const resumeThread = createMockThread([
+        threadStartedEvent(nativeThreadId),
+        turnCompletedEvent(),
+      ]);
+      mockStartThread.mockReturnValue(executeThread);
+      mockResumeThread.mockReturnValue(resumeThread);
+      const input = makeInput({ outputSchema });
+      const expectedOptions = {
+        model: route.model,
+        modelReasoningEffort: route.reasoning,
+        sandboxMode: route.sandboxMode,
+        approvalPolicy: route.approvalPolicy,
+        networkAccessEnabled: route.networkAccessEnabled,
+      };
+
+      const executed = await collectEvents(customAdapter.execute(input));
+      const completed = executed.find((e) => e.type === "adapter:completed");
+      expect(completed).toMatchObject({ sessionId: nativeThreadId });
+      if (completed?.type !== "adapter:completed") {
+        throw new Error("Expected native-thread completion before resume");
+      }
+      const resumed = await collectEvents(
+        customAdapter.resumeSession(completed.sessionId, input),
+      );
+
+      expect(mockStartThread).toHaveBeenCalledExactlyOnceWith(expectedOptions);
+      expect(mockResumeThread).toHaveBeenCalledExactlyOnceWith(
+        nativeThreadId,
+        expectedOptions,
+      );
+      for (const [events, isResume] of [
+        [executed, false],
+        [resumed, true],
+      ] as const) {
+        expect(events.filter((e) => e.type === "adapter:started")).toEqual([
+          expect.objectContaining({
+            providerId: "codex",
+            sessionId: nativeThreadId,
+            model: route.model,
+            isResume,
+          }),
+        ]);
+        expect(events.filter((e) => e.type === "adapter:completed")).toEqual([
+          expect.objectContaining({ sessionId: nativeThreadId }),
+        ]);
+        expect(events.some((e) => e.type === "adapter:failed")).toBe(false);
+      }
+      for (const thread of [executeThread, resumeThread]) {
+        expect(thread.runStreamed).toHaveBeenCalledExactlyOnceWith(
+          input.prompt,
+          { signal: expect.any(AbortSignal), outputSchema },
+        );
+        expect(thread.runStreamed.mock.calls[0]?.[1].outputSchema).toBe(
+          outputSchema,
+        );
+      }
+      expect(mockCodexCtor).toHaveBeenCalledTimes(2);
+    });
+
+    it.each(["execute", "resume"] as const)(
+      "keeps per-call model and reasoning precedence independent on %s",
+      async (entrypoint) => {
+        const customAdapter = new CodexAdapter(route);
+        const cases = [
+          {
+            options: { model: "per-call-model" },
+            model: "per-call-model",
+            reasoning: route.reasoning,
+          },
+          {
+            options: { reasoning: "high" },
+            model: route.model,
+            reasoning: "high",
+          },
+          {
+            options: { model: "per-call-model", reasoning: "high" },
+            model: "per-call-model",
+            reasoning: "high",
+          },
+          { options: {}, model: route.model, reasoning: route.reasoning },
+        ];
+        // Other values are precedence sentinels, not live route qualifications.
+        for (const [index, testCase] of cases.entries()) {
+          const nativeThreadId = `thread-asa-a12-${entrypoint}-${index}`;
+          const thread = createMockThread([
+            threadStartedEvent(nativeThreadId),
+            turnCompletedEvent(),
+          ]);
+          mockStartThread.mockReturnValue(thread);
+          mockResumeThread.mockReturnValue(thread);
+          const input = makeInput({ options: testCase.options });
+          const events = await collectEvents(
+            entrypoint === "execute"
+              ? customAdapter.execute(input)
+              : customAdapter.resumeSession(nativeThreadId, input),
+          );
+          const expectedOptions = {
+            model: testCase.model,
+            modelReasoningEffort: testCase.reasoning,
+            sandboxMode: "read-only",
+            approvalPolicy: "never",
+            networkAccessEnabled: false,
+          };
+          if (entrypoint === "execute") {
+            expect(mockStartThread).toHaveBeenNthCalledWith(
+              index + 1,
+              expectedOptions,
+            );
+            expect(mockResumeThread).not.toHaveBeenCalled();
+          } else {
+            expect(mockResumeThread).toHaveBeenNthCalledWith(
+              index + 1,
+              nativeThreadId,
+              expectedOptions,
+            );
+            expect(mockStartThread).not.toHaveBeenCalled();
+          }
+          expect(events.find((e) => e.type === "adapter:started")).toMatchObject({
+            model: testCase.model,
+            sessionId: nativeThreadId,
+          });
+          expect(thread.runStreamed).toHaveBeenCalledTimes(1);
+        }
+        expect(mockCodexCtor).toHaveBeenCalledTimes(cases.length);
+      },
+    );
+
+    it.each(["execute", "resume"] as const)(
+      "terminates an unavailable-model failure without fallback or a second dispatch on %s",
+      async (entrypoint) => {
+        const nativeThreadId = "thread-asa-a12-unavailable";
+        const customAdapter = new CodexAdapter(route);
+        const failure = "The requested model gpt-6.1-sol is unavailable";
+        const thread = createMockThread([
+          threadStartedEvent(nativeThreadId),
+          { type: "turn.failed", error: { message: failure } },
+          // A terminal failure must stop iteration before this success event.
+          turnCompletedEvent(),
+        ]);
+        mockStartThread.mockReturnValue(thread);
+        mockResumeThread.mockReturnValue(thread);
+        const input = makeInput({ outputSchema });
+        const events = await collectEvents(
+          entrypoint === "execute"
+            ? customAdapter.execute(input)
+            : customAdapter.resumeSession(nativeThreadId, input),
+        );
+
+        expect(events.filter((e) => e.type === "adapter:failed")).toEqual([
+          expect.objectContaining({
+            sessionId: nativeThreadId,
+            error: failure,
+            code: "ADAPTER_EXECUTION_FAILED",
+          }),
+        ]);
+        expect(events.at(-1)?.type).toBe("adapter:failed");
+        expect(events.some((e) => e.type === "adapter:completed")).toBe(false);
+        expect(mockCodexCtor).toHaveBeenCalledTimes(1);
+        expect(mockStartThread).toHaveBeenCalledTimes(
+          entrypoint === "execute" ? 1 : 0,
+        );
+        expect(mockResumeThread).toHaveBeenCalledTimes(
+          entrypoint === "resume" ? 1 : 0,
+        );
+        expect(thread.runStreamed).toHaveBeenCalledExactlyOnceWith(
+          input.prompt,
+          { signal: expect.any(AbortSignal), outputSchema },
+        );
+        const threadOptions =
+          entrypoint === "execute"
+            ? mockStartThread.mock.calls[0]?.[0]
+            : mockResumeThread.mock.calls[0]?.[1];
+        expect(threadOptions).toEqual({
+          model: route.model,
+          modelReasoningEffort: route.reasoning,
+          sandboxMode: "read-only",
+          approvalPolicy: "never",
+          networkAccessEnabled: false,
+        });
+      },
+    );
+  });
+
   describe("dynamic workflow defaults", () => {
     it("defaults generated dynamic workflow network access to disabled", () => {
       const config = applyDynamicWorkflowCodexDefaults({});
