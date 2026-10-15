@@ -41,8 +41,13 @@ afterEach(async () => {
 describe("writeTaskControlState version collisions", () => {
   it("records the control state when a worker already holds the same task-state version", async () => {
     const store = new FilesystemKnowledgeStore({ rootDir: tmp });
-    // The version the control writer derives for task "t1" at NOW.
+    // The version the control writer derives for task "t1" at NOW. Probe it on
+    // an uncontested run so a change to the formula cannot silently stop this
+    // test from forcing a collision.
     const contested = NOW * 1000 + ("1".charCodeAt(0) % 1000);
+    await writeTaskControlState(store, "probe", "t1", "blocked", "probe");
+    const [probe] = await queryAll(store, "run:probe");
+    expect(probe?.version).toBe(contested);
     await store.append("run:r1", {
       id: ulid(),
       runId: "r1",
