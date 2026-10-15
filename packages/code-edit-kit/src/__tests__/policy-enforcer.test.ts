@@ -102,6 +102,29 @@ describe('DefaultPolicyEnforcer — workspace-write tier', () => {
     rmSync(tmp, { recursive: true, force: true })
   })
 
+  it('rejects relative paths that traverse outside the workspace root', async () => {
+    const enforcer = new DefaultPolicyEnforcer([], 'workspace-write', tmp)
+    for (const escape of ['../escape.ts', 'src/../../escape.ts', '..\\..\\outside.ts', '..']) {
+      const res = await enforcer.enforce({
+        diff: VALID_DIFF,
+        filesModified: [escape],
+      })
+      expect(res.valid, escape).toBe(false)
+      expect(res.reason).toContain('outside workspace')
+    }
+    rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it('allows relative paths that normalize back inside the workspace root', async () => {
+    const enforcer = new DefaultPolicyEnforcer([], 'workspace-write', tmp)
+    const res = await enforcer.enforce({
+      diff: VALID_DIFF,
+      filesModified: ['./src/../lib/b.ts', 'src\\c.ts'],
+    })
+    expect(res.valid).toBe(true)
+    rmSync(tmp, { recursive: true, force: true })
+  })
+
   it('rejects when workspaceRoot is missing', async () => {
     // Intentionally omit workspaceRoot to exercise the guard.
     const enforcer = new DefaultPolicyEnforcer([], 'workspace-write')

@@ -349,10 +349,16 @@ export class LocalWorkspace implements Workspace {
     fileGlob: string | undefined,
     maxResults: number,
   ): Promise<SearchResult[] | null> {
-    const args = ['--json', '--max-count', String(maxResults), query]
+    // The query is model-controlled: pass it only as the `-e` operand so a
+    // value such as `-Le.` can never be parsed as ripgrep flags (e.g. `-L`
+    // would follow symlinks out of the workspace). `--fixed-strings` keeps the
+    // literal semantics of the builtin fallback, and `--no-follow` pins the
+    // symlink policy regardless of any user ripgrep config.
+    const args = ['--json', '--no-follow', '--fixed-strings', '--max-count', String(maxResults)]
     if (fileGlob) {
       args.push('--glob', fileGlob)
     }
+    args.push('-e', query)
 
     try {
       const result = await this.runCommand('rg', args)

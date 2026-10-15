@@ -2,13 +2,24 @@
  * Docker-based sandbox for running commands in an isolated container.
  * Extracted from apps/api sandbox-runner.ts and adapted to SandboxProtocol.
  *
- * Secure sandbox flags applied by default (secure/validation mode):
+ * Secure sandbox flags applied by default (secure/validation mode), shared by
+ * one-shot runs and long-lived sessions:
  *   --network=none          no outbound network
+ *   --pull=never            never pull an image implicitly
  *   --read-only             container filesystem is read-only
- *   --tmpfs /tmp            writable temp only (size-capped)
- *   --tmpfs /work           writable workspace overlay (size-capped)
- *   --no-new-privileges     no privilege escalation (via --security-opt)
  *   --cap-drop ALL          no Linux capabilities
+ *   --user <uid>:<gid>      run as the host owner of the upload dir, not root
+ *   --tmpfs /tmp            writable temp only (size-capped)
+ *   -v <upload>:/work:ro    the single /work mount (read-only)
+ *   --no-new-privileges     no privilege escalation (via --security-opt)
+ *   --init                  a real PID 1 that forwards signals and reaps
+ *
+ * Timeouts (SEC-M-56): one-shot containers are named, and on timeout the
+ * container itself is killed and removed (not just the local docker client).
+ * A timed-out `executeStream` command kills its session container.
+ *
+ * Session env vars (SEC-M-57) are passed through a mode-0600 `--env-file`
+ * outside the mounted upload dir, never as `-e KEY=value` argv.
  *
  * Command execution (SEC-H-02): `execute(argv: string[])` runs the program
  * directly via `docker run ... -- argv[0] argv[1] ...` with NO `sh -c`, so
@@ -33,6 +44,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ExecResult, ExecOptions } from "./sandbox-protocol.js";
+import {
+  buildDockerIsolationArgs,
+  forceRemoveDockerContainer,
+  killDockerContainer,
+  writeDockerEnvFile,
+} from "./docker-sandbox-support.js";
 import type {
   SandboxProtocolV2,
   SessionOptions,
@@ -148,7 +165,8 @@ export class DockerSandbox implements SandboxProtocolV2 {
 
     const timeout = options?.timeoutMs ?? this.timeoutMs;
     const cwd = options?.cwd ?? "/work";
-    const dockerArgs = this.buildRunArgs(cwd, command);
+    const containerName = `forge-run-${randomUUID()}`;
+    const dockerArgs = this.buildRunArgs(cwd, command, containerName);
 
     let timedOut = false;
     try {
@@ -166,6 +184,9 @@ export class DockerSandbox implements SandboxProtocolV2 {
       };
       if (execErr.killed === true) {
         timedOut = true;
+        // Killing the docker CLI client does not stop the container: kill and
+        // remove it by name before reporting the timeout (SEC-M-56).
+        await forceRemoveDockerContainer(containerName);
       }
       return {
         exitCode: typeof execErr.code === "number" ? execErr.code : 1,
@@ -195,13 +216,22 @@ export class DockerSandbox implements SandboxProtocolV2 {
     const sessionId = `forge-session-${randomUUID()}`;
     const timeout = opts?.timeoutMs ?? this.timeoutMs;
 
-    const dockerArgs = this.buildSessionArgs(sessionId, opts?.envVars);
+    const envDir = await writeDockerEnvFile(opts?.envVars);
+    const envFile = envDir ? join(envDir, "session.env") : undefined;
+    const dockerArgs = this.buildSessionArgs(sessionId, envFile);
 
-    // Start a detached container that stays alive
-    await execFileAsync("docker", dockerArgs, {
-      timeout,
-      maxBuffer: 10 * 1024 * 1024,
-    });
+    try {
+      // Start a detached container that stays alive
+      await execFileAsync("docker", dockerArgs, {
+        timeout,
+        maxBuffer: 10 * 1024 * 1024,
+      });
+    } finally {
+      // The docker client reads --env-file before creating the container.
+      if (envDir) {
+        await rm(envDir, { recursive: true, force: true });
+      }
+    }
 
     return { sessionId };
   }
@@ -225,9 +255,13 @@ export class DockerSandbox implements SandboxProtocolV2 {
     ]);
 
     let timedOut = false;
+    let containerKill: Promise<void> | undefined;
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill("SIGKILL");
+      // Killing the `docker exec` client leaves the command running inside the
+      // session container; kill the container itself (SEC-M-56).
+      containerKill = killDockerContainer(sessionId);
     }, timeout);
 
     try {
@@ -291,6 +325,9 @@ export class DockerSandbox implements SandboxProtocolV2 {
       }
     } finally {
       clearTimeout(timer);
+      if (containerKill) {
+        await containerKill;
+      }
     }
   }
 
@@ -334,17 +371,18 @@ export class DockerSandbox implements SandboxProtocolV2 {
     return resolved;
   }
 
+  private isolationArgs(): string[] {
+    return buildDockerIsolationArgs({
+      memoryLimit: this.memoryLimit,
+      cpuLimit: this.cpuLimit,
+      previewMode: this.previewMode,
+      uploadDir: this.tempDir,
+    });
+  }
+
   /**
-   * Build docker run args for one-shot execution.
-   *
-   * In preview mode: allow network, read-write workspace mount.
-   * In secure mode (default), the locked-down flag matrix is:
-   *   --network=none          no outbound network
-   *   --read-only             container filesystem is read-only
-   *   --cap-drop=ALL          no Linux capabilities
-   *   --tmpfs=/tmp            writable temp only (size-capped)
-   *   --tmpfs=/work           writable workspace overlay (size-capped)
-   *   --security-opt=no-new-privileges   no privilege escalation
+   * Build docker run args for one-shot execution: a named container (so a
+   * timeout can kill it) with the shared isolation flags.
    *
    * SECURITY (SEC-H-02): When `command` is a `string[]`, the program is invoked
    * directly as `<image> argv[0] argv[1] ...` after a `--` terminator, with no
@@ -352,35 +390,18 @@ export class DockerSandbox implements SandboxProtocolV2 {
    * metacharacters are never interpreted. A `string` falls back to the legacy
    * `sh -c <command>` explicit-shell path.
    */
-  private buildRunArgs(cwd: string, command: string | string[]): string[] {
+  private buildRunArgs(
+    cwd: string,
+    command: string | string[],
+    containerName: string
+  ): string[] {
     const args = [
       "run",
       "--rm",
-      `--memory=${this.memoryLimit}`,
-      `--cpus=${this.cpuLimit}`,
-      "--security-opt=no-new-privileges",
-      "--stop-timeout=5",
+      "--name",
+      containerName,
+      ...this.isolationArgs(),
     ];
-
-    if (this.previewMode) {
-      // Preview mode: allow network and read-write workspace
-      args.push("--tmpfs=/tmp:size=100m", "-v", `${this.tempDir}:/work`);
-    } else {
-      // Secure mode (default): locked-down
-      args.push(
-        "--network=none",
-        "--pull=never",
-        "--read-only",
-        "--cap-drop=ALL",
-        // With DAC capabilities dropped, container root cannot read a host
-        // mkdtemp directory (0700). Preserve its owner's access, without
-        // widening host permissions or restoring container capabilities.
-        `--user=${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`,
-        "--tmpfs=/tmp:size=100m",
-        "-v",
-        `${this.tempDir}:/work:ro`
-      );
-    }
 
     args.push("-w", cwd, this.image);
 
@@ -399,42 +420,21 @@ export class DockerSandbox implements SandboxProtocolV2 {
   }
 
   /**
-   * Build docker run args for a long-lived session container.
-   * Uses `tail -f /dev/null` to keep the container alive.
+   * Build docker run args for a long-lived session container with the same
+   * isolation flags as one-shot runs. Uses `tail -f /dev/null` to keep the
+   * container alive. Env vars arrive only through `envFile`.
    */
-  private buildSessionArgs(
-    sessionId: string,
-    envVars?: Record<string, string>
-  ): string[] {
+  private buildSessionArgs(sessionId: string, envFile?: string): string[] {
     const args = [
       "run",
       "-d",
       "--name",
       sessionId,
-      `--memory=${this.memoryLimit}`,
-      `--cpus=${this.cpuLimit}`,
-      "--security-opt=no-new-privileges",
+      ...this.isolationArgs(),
     ];
 
-    if (this.previewMode) {
-      args.push("-v", `${this.tempDir}:/work`);
-    } else {
-      // Secure mode flag matrix (see buildRunArgs for the full description).
-      args.push(
-        "--network=none",
-        "--read-only",
-        "--cap-drop=ALL",
-        "--tmpfs=/tmp:size=100m",
-        "--tmpfs=/work:size=200m",
-        "-v",
-        `${this.tempDir}:/work:ro`
-      );
-    }
-
-    if (envVars) {
-      for (const [key, value] of Object.entries(envVars)) {
-        args.push("-e", `${key}=${value}`);
-      }
+    if (envFile) {
+      args.push("--env-file", envFile);
     }
 
     args.push("-w", "/work", this.image, "tail", "-f", "/dev/null");

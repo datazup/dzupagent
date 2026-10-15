@@ -124,22 +124,24 @@ describe('DockerSandbox', () => {
     expect(args[vIdx + 1]).toBe('/tmp/t:/work:ro')
   })
 
-  it('buildSessionArgs injects env vars', () => {
+  it('buildSessionArgs passes env vars only through --env-file (SEC-M-57)', () => {
     const sb = new DockerSandbox()
-    const s = sb as unknown as { buildSessionArgs(id: string, env?: Record<string, string>): string[] }
+    const s = sb as unknown as { buildSessionArgs(id: string, envFile?: string): string[] }
     ;(sb as unknown as Record<string, unknown>)['tempDir'] = '/tmp/t'
-    const args = s.buildSessionArgs('session-abc', { FOO: 'bar', BAZ: 'qux' })
-    expect(args).toContain('-e')
-    expect(args).toContain('FOO=bar')
-    expect(args).toContain('BAZ=qux')
+    const args = s.buildSessionArgs('session-abc', '/tmp/forge-sandbox-env-x/session.env')
+    const idx = args.indexOf('--env-file')
+    expect(idx).toBeGreaterThanOrEqual(0)
+    expect(args[idx + 1]).toBe('/tmp/forge-sandbox-env-x/session.env')
+    expect(args).not.toContain('-e')
   })
 
-  it('buildSessionArgs without env vars has no -e flags', () => {
+  it('buildSessionArgs without env vars has no -e or --env-file flags', () => {
     const sb = new DockerSandbox()
-    const s = sb as unknown as { buildSessionArgs(id: string, env?: Record<string, string>): string[] }
+    const s = sb as unknown as { buildSessionArgs(id: string, envFile?: string): string[] }
     ;(sb as unknown as Record<string, unknown>)['tempDir'] = '/tmp/t'
     const args = s.buildSessionArgs('session-abc')
     expect(args).not.toContain('-e')
+    expect(args).not.toContain('--env-file')
   })
 
   it('stopSession() completes without error even if docker not available', async () => {
