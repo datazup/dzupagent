@@ -3,7 +3,7 @@
   "packet": "MEM-P000",
   "sourceIdentity": {
     "kind": "content-digest-set",
-    "digest": "sha256:03e6d0365abfeeddb09177b22c7d8573ccde2bf61cd3d73a7bcb926d61d35616",
+    "digest": "sha256:ccabd2bbf989882050d8bf5e619b215fa26839a2965bbcf87e9b4020fb2f41b6",
     "inputs": [
       {
         "path": "config/memory-api-census.v1.json",
@@ -40,7 +40,7 @@
       },
       {
         "path": "packages/agent/package.json",
-        "sha256": "sha256:076915074ee7c74e79cca602a42424bfc8edb2af336d9ae1a986a806949df313"
+        "sha256": "sha256:66069ba1a0dc8a20946b1235ee7336c3556b016bb379b0991d81257c80c01c26"
       },
       {
         "path": "packages/agent/src/__tests__/boundary/memory-client-boundary.test.ts",
@@ -60,7 +60,7 @@
       },
       {
         "path": "packages/agent/src/__tests__/memory-context-loader.test.ts",
-        "sha256": "sha256:b6fe0095430c6b4f2c0ae5e97adb34362931bcece835332398e7aa0a88a91331"
+        "sha256": "sha256:741f589566a30b28c9d982fc2f9666c2f5adcbc6166b013a2daefeea3b51d94a"
       },
       {
         "path": "packages/agent/src/agent/memory-context-loader-arrow.ts",
@@ -68,7 +68,7 @@
       },
       {
         "path": "packages/agent/src/agent/memory-context-loader-standard.ts",
-        "sha256": "sha256:9e42d6673e3e3fb91d10e55b43ddcda4d63af727b655693514b4051c22918253"
+        "sha256": "sha256:8d6d82f29fa3a4bf5f48597d6a8c981baae33d289a1efe0ff370224abfa5f6da"
       },
       {
         "path": "packages/agent/src/agent/memory-context-loader-types.ts",
@@ -100,7 +100,7 @@
       },
       {
         "path": "packages/context/src/auto-compress.ts",
-        "sha256": "sha256:b1e7a926d60b54b3e3d760d5f65c7c255a1781459f55c2b2ee7b34e474109b34"
+        "sha256": "sha256:83029198dd0b670446f6fdca83b9b8583df261ea831daa5b34cc951084200044"
       },
       {
         "path": "packages/context/src/context-eviction.ts",
@@ -112,7 +112,7 @@
       },
       {
         "path": "packages/context/src/token-lifecycle.ts",
-        "sha256": "sha256:0e25fe9b44f015fde94f5fdb68c446b54d599237f928117fc98804f64c18cce2"
+        "sha256": "sha256:1c2ba407df21dd93fa5f1aae22f6e2b7e9a03502c0fddd20611cff1bd694b4f2"
       },
       {
         "path": "packages/context/src/tool-results/__tests__/compact-completed-tool-results.test.ts",
@@ -184,7 +184,7 @@
       },
       {
         "path": "packages/memory/src/__tests__/memory-service.test.ts",
-        "sha256": "sha256:78cbf486128905b9263cc8171882815368eb96ecd651ef475076efad9635b230"
+        "sha256": "sha256:bb6bfd1207635cab82441e7b3e5f6b88c9ff2f305209cd6bcade2f5c93afaff4"
       },
       {
         "path": "packages/memory/src/__tests__/namespace-isolation.test.ts",
@@ -300,11 +300,11 @@
       },
       {
         "path": "packages/memory/src/memory-service-store.ts",
-        "sha256": "sha256:5b3473afbc3791da661140d42adb7ecbd9946d83fddd5d10bae1bf0ca0aa4fdb"
+        "sha256": "sha256:9c1d4635fadb9248660652d8ebe4ce13b9e929882eecdc795e03195f5d139a23"
       },
       {
         "path": "packages/memory/src/memory-service.ts",
-        "sha256": "sha256:e12d341095b9f9c172199b9b8eb32d4144db9d9f6bbe68f3980e56b5ebd6afab"
+        "sha256": "sha256:21a3c4d579c5fee60e102ad04c635c9fdf732f8e7f5e44050e08d283342bd05f"
       },
       {
         "path": "packages/memory/src/observation-candidate-store.ts",
@@ -440,7 +440,7 @@
       },
       {
         "path": "packages/memory/src/retrieval/stage-runtime.ts",
-        "sha256": "sha256:efc351079ba1c5c8a40ba9d5ed112e90a7312d1a1184c1620d717126f2334886"
+        "sha256": "sha256:1b7a1822ffe22a1b7bae2b9ab5c62f141b042e34c60b9403c75529e2f1bff211"
       },
       {
         "path": "packages/memory/src/retrieval/v1-types.ts",
