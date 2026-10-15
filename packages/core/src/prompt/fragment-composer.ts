@@ -92,7 +92,8 @@ function estimateTokens(text: string, model?: string): number {
  * 2. Resolve dependencies — pull in required fragments (transitively). Fragments with a
  *    missing or circular dependency are excluded with a warning.
  * 3. Detect conflicts — when two conflicting fragments are both included, keep the higher-priority one.
- *    Fragments whose dependency was evicted are excluded too.
+ *    Fragments whose dependency was evicted are excluded too. A fragment evicted by a fragment
+ *    that is itself dropped later is restored when nothing kept conflicts with it.
  * 4. Sort by priority (descending) then by original order.
  * 5. Trim to maxTokens budget if specified. A fragment is admitted only together with its
  *    dependencies, and the joined content (separators included) must fit the budget.
@@ -164,6 +165,20 @@ export function composeAdvancedFragments(
   }
 
   const excluded = new Set<string>()
+  /** Conflict and closure exclusions that may be undone, with their warning. */
+  const reversible = new Map<string, string>()
+
+  function exclude(id: string, warning: string): void {
+    excluded.add(id)
+    reversible.set(id, warning)
+    warnings.push(warning)
+  }
+
+  function dropWarning(warning: string | undefined): void {
+    const index = warning === undefined ? -1 : warnings.indexOf(warning)
+    if (index !== -1) warnings.splice(index, 1)
+  }
+
   for (const [id, reason] of unsatisfiable) {
     excluded.add(id)
     warnings.push(`Fragment "${id}" excluded: ${reason}.`)
@@ -181,8 +196,7 @@ export function composeAdvancedFragments(
         if (!resolvedIds.has(frag.id) || excluded.has(frag.id)) continue
         const missing = frag.dependencies?.find((dep) => excluded.has(dep))
         if (missing !== undefined) {
-          excluded.add(frag.id)
-          warnings.push(`Fragment "${frag.id}" excluded: dependency "${missing}" is not included.`)
+          exclude(frag.id, `Fragment "${frag.id}" excluded: dependency "${missing}" is not included.`)
           changed = true
         }
       }
@@ -204,11 +218,9 @@ export function composeAdvancedFragments(
 
         // Both are included — evict the lower priority one
         if (frag.priority >= other.priority) {
-          excluded.add(conflictId)
-          warnings.push(`Excluded "${conflictId}" (conflicts with "${frag.id}", lower priority).`)
+          exclude(conflictId, `Excluded "${conflictId}" (conflicts with "${frag.id}", lower priority).`)
         } else {
-          excluded.add(frag.id)
-          warnings.push(`Excluded "${frag.id}" (conflicts with "${conflictId}", lower priority).`)
+          exclude(frag.id, `Excluded "${frag.id}" (conflicts with "${conflictId}", lower priority).`)
           break
         }
       }
@@ -217,13 +229,37 @@ export function composeAdvancedFragments(
 
   enforceDependencyClosure()
 
+  // Restore, highest priority first, every reversibly excluded fragment whose
+  // dependencies are kept and which conflicts with no kept fragment — e.g. a
+  // conflict partner whose evictor the closure pass dropped. Budget still
+  // applies in step 5.
+  const byPriority = (a: ComposableFragment, b: ComposableFragment): number => {
+    if (b.priority !== a.priority) return b.priority - a.priority
+    return fragments.indexOf(a) - fragments.indexOf(b)
+  }
+  const conflictsWithKept = (frag: ComposableFragment): boolean =>
+    resolvedArray.some(
+      (other) =>
+        other.id !== frag.id &&
+        !excluded.has(other.id) &&
+        (frag.conflicts?.includes(other.id) === true || other.conflicts?.includes(frag.id) === true),
+    )
+  let restored = true
+  while (restored) {
+    restored = false
+    for (const frag of resolvedArray.filter((f) => reversible.has(f.id)).sort(byPriority)) {
+      if (frag.dependencies?.some((dep) => excluded.has(dep)) || conflictsWithKept(frag)) continue
+      excluded.delete(frag.id)
+      dropWarning(reversible.get(frag.id))
+      reversible.delete(frag.id)
+      restored = true
+    }
+  }
+
   // Step 4: sort by priority desc, then original order
   const ordered = resolvedArray
     .filter((f) => !excluded.has(f.id))
-    .sort((a, b) => {
-      if (b.priority !== a.priority) return b.priority - a.priority
-      return fragments.indexOf(a) - fragments.indexOf(b)
-    })
+    .sort(byPriority)
 
   // Step 5: budget trimming — a fragment is admitted together with its
   // not-yet-included dependencies, and only when both the summed part
@@ -231,6 +267,8 @@ export function composeAdvancedFragments(
   const separator = '\n\n---\n\n'
   const includedSet = new Set<string>()
   const finalExcluded: string[] = []
+  /** Budget warning per excluded fragment, dropped if a dependent admits it later. */
+  const budgetWarnings = new Map<string, string>()
   let usedTokens = 0
   const maxTokens = options?.maxTokens ?? Infinity
 
@@ -254,11 +292,12 @@ export function composeAdvancedFragments(
     const groupTokens = group.reduce((sum, f) => sum + estimateTokens(f.content, options?.model), 0)
     if (usedTokens + groupTokens > maxTokens) {
       finalExcluded.push(frag.id)
-      warnings.push(
+      const warning =
         group.length > 1
           ? `Fragment "${frag.id}" excluded: exceeds token budget together with its dependencies.`
-          : `Fragment "${frag.id}" excluded: exceeds token budget.`,
-      )
+          : `Fragment "${frag.id}" excluded: exceeds token budget.`
+      budgetWarnings.set(frag.id, warning)
+      warnings.push(warning)
       continue
     }
     if (maxTokens !== Infinity) {
@@ -268,14 +307,19 @@ export function composeAdvancedFragments(
         .join(separator)
       if (estimateTokens(candidate, options?.model) > maxTokens) {
         finalExcluded.push(frag.id)
-        warnings.push(`Fragment "${frag.id}" excluded: exceeds token budget once joined with separators.`)
+        const warning = `Fragment "${frag.id}" excluded: exceeds token budget once joined with separators.`
+        budgetWarnings.set(frag.id, warning)
+        warnings.push(warning)
         continue
       }
     }
     for (const f of group) {
       includedSet.add(f.id)
       const wasExcluded = finalExcluded.indexOf(f.id)
-      if (wasExcluded !== -1) finalExcluded.splice(wasExcluded, 1)
+      if (wasExcluded !== -1) {
+        finalExcluded.splice(wasExcluded, 1)
+        dropWarning(budgetWarnings.get(f.id))
+      }
     }
     usedTokens += groupTokens
   }
