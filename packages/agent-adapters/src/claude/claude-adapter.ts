@@ -27,6 +27,7 @@ import {
   mapResultMessage,
   mapStreamEventMessage,
   mapToolProgressMessage,
+  mapUserToolResults,
 } from './claude-event-mapper.js'
 import {
   type BuiltClaudeQuery,
@@ -48,6 +49,7 @@ import {
   isStreamEvent,
   isSystemMessage,
   isToolProgressMessage,
+  isUserMessage,
 } from './claude-sdk-types.js'
 
 /**
@@ -155,6 +157,7 @@ export class ClaudeAgentAdapter
     if (resolver) this.activeResolvers.add(resolver)
     const startTime = Date.now()
     const toolProgressState: ToolProgressState = { lastToolStartTime: 0, lastToolName: '' }
+    const toolNamesByCallId = new Map<string, string>()
     let activeConversation: ClaudeConversation | null = null
     let runController: AbortController | null = null
     const adapter = this
@@ -191,7 +194,8 @@ export class ClaudeAgentAdapter
       },
       mapRawEvent(raw: ClaudeSDKMessage, context: StreamContext): AgentEvent | AgentEvent[] | null {
         if (isSystemMessage(raw)) { context.sessionId = raw.session_id; return null }
-        if (isAssistantMessage(raw)) return mapAssistantMessage(raw, context.input)
+        if (isAssistantMessage(raw)) return mapAssistantMessage(raw, context.input, toolNamesByCallId)
+        if (isUserMessage(raw)) return mapUserToolResults(raw, context.input, toolNamesByCallId)
         if (isToolProgressMessage(raw)) return mapToolProgressMessage(raw, context.input, toolProgressState, resolver, policy)
         if (isStreamEvent(raw)) return mapStreamEventMessage(raw, context.input)
         if (isResultMessage(raw)) return mapResultMessage(raw, context.input, context, startTime)

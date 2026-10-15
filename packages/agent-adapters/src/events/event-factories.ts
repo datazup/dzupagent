@@ -94,6 +94,7 @@ export function makeMessageEvent(args: MakeMessageEventArgs): AgentMessageEvent 
 export interface MakeToolCallEventArgs {
   providerId: AdapterProviderId
   toolName: string
+  toolCallId?: string | undefined
   input: unknown
   correlationId?: string | undefined
   timestamp?: number
@@ -104,6 +105,7 @@ export function makeToolCallEvent(args: MakeToolCallEventArgs): AgentToolCallEve
     type: 'adapter:tool_call',
     providerId: args.providerId,
     toolName: args.toolName,
+    ...(args.toolCallId !== undefined ? { toolCallId: args.toolCallId } : {}),
     input: args.input,
     timestamp: args.timestamp ?? Date.now(),
     ...(args.correlationId !== undefined ? { correlationId: args.correlationId } : {}),
@@ -113,8 +115,10 @@ export function makeToolCallEvent(args: MakeToolCallEventArgs): AgentToolCallEve
 export interface MakeToolResultEventArgs {
   providerId: AdapterProviderId
   toolName: string
+  toolCallId?: string | undefined
   output: string
   durationMs: number
+  isError?: boolean | undefined
   correlationId?: string | undefined
   timestamp?: number
 }
@@ -124,8 +128,10 @@ export function makeToolResultEvent(args: MakeToolResultEventArgs): AgentToolRes
     type: 'adapter:tool_result',
     providerId: args.providerId,
     toolName: args.toolName,
+    ...(args.toolCallId !== undefined ? { toolCallId: args.toolCallId } : {}),
     output: args.output,
     durationMs: args.durationMs,
+    ...(args.isError !== undefined ? { isError: args.isError } : {}),
     timestamp: args.timestamp ?? Date.now(),
     ...(args.correlationId !== undefined ? { correlationId: args.correlationId } : {}),
   }

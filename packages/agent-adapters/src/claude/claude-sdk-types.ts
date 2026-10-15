@@ -17,7 +17,7 @@ export interface ClaudeConversation {
 
 /** Union of SDK message types we handle. */
 export interface ClaudeSDKMessage {
-  type: 'system' | 'assistant' | 'result' | 'tool_progress' | 'stream_event'
+  type: 'system' | 'assistant' | 'user' | 'result' | 'tool_progress' | 'stream_event'
   [key: string]: unknown
 }
 
@@ -38,10 +38,27 @@ export function isSystemMessage(
   return msg.type === 'system' && typeof (msg as Record<string, unknown>)['session_id'] === 'string'
 }
 
-export function isAssistantMessage(
-  msg: ClaudeSDKMessage,
-): msg is ClaudeSDKMessage & { content: unknown[] } {
-  return msg.type === 'assistant' && Array.isArray((msg as Record<string, unknown>)['content'])
+/**
+ * Content blocks of an assistant or user SDK message. The SDK carries
+ * Messages API content under `message.content`; a top-level `content` array
+ * is accepted as the legacy shape.
+ */
+export function messageContentBlocks(msg: ClaudeSDKMessage): unknown[] | undefined {
+  const message = (msg as Record<string, unknown>)['message']
+  if (message !== null && typeof message === 'object') {
+    const content = (message as Record<string, unknown>)['content']
+    if (Array.isArray(content)) return content
+  }
+  const content = (msg as Record<string, unknown>)['content']
+  return Array.isArray(content) ? content : undefined
+}
+
+export function isAssistantMessage(msg: ClaudeSDKMessage): boolean {
+  return msg.type === 'assistant' && messageContentBlocks(msg) !== undefined
+}
+
+export function isUserMessage(msg: ClaudeSDKMessage): boolean {
+  return msg.type === 'user' && messageContentBlocks(msg) !== undefined
 }
 
 export interface ResultMessage extends ClaudeSDKMessage {
@@ -62,7 +79,8 @@ export interface ToolProgressMessage extends ClaudeSDKMessage {
   tool_name: string
   input?: unknown
   output?: string
-  status: 'started' | 'completed' | 'failed'
+  /** Legacy shape only; SDK progress heartbeats carry no status. */
+  status?: 'started' | 'completed' | 'failed'
   duration_ms?: number
 }
 

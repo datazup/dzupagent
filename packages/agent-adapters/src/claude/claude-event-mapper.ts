@@ -33,7 +33,10 @@ import {
   type StreamEventMessage,
   type ToolProgressMessage,
   extractTextFromContentBlocks,
+  isContentBlock,
+  messageContentBlocks,
 } from './claude-sdk-types.js'
+import { serializeProviderPayload } from '../utils/provider-event-normalization.js'
 
 // ---------------------------------------------------------------------------
 // Permission mode mapping
@@ -98,19 +101,68 @@ export function extractQuestionFromToolInput(input: unknown): string {
 // Per-message-type mappers
 // ---------------------------------------------------------------------------
 
-/** Map an `assistant` SDK message → unified `adapter:message` event. */
+/**
+ * Map an `assistant` SDK message → `adapter:message` for its text plus one
+ * `adapter:tool_call` per `tool_use` block. Tool names are recorded by call id
+ * so the matching `tool_result` can be attributed.
+ */
 export function mapAssistantMessage(
-  raw: ClaudeSDKMessage & { content: unknown[] },
+  raw: ClaudeSDKMessage,
   input: AgentInput,
-): AgentEvent | null {
-  const text = extractTextFromContentBlocks(raw.content)
-  if (text.length === 0) return null
-  return makeMessageEvent({
-    providerId: 'claude',
-    content: text,
-    role: 'assistant',
-    correlationId: input.correlationId,
-  })
+  toolNamesByCallId: Map<string, string>,
+): AgentEvent[] | null {
+  const blocks = messageContentBlocks(raw) ?? []
+  const events: AgentEvent[] = []
+  const text = extractTextFromContentBlocks(blocks)
+  if (text.length > 0) {
+    events.push(makeMessageEvent({
+      providerId: 'claude',
+      content: text,
+      role: 'assistant',
+      correlationId: input.correlationId,
+    }))
+  }
+  for (const block of blocks) {
+    if (!isContentBlock(block) || block.type !== 'tool_use') continue
+    const part = block as unknown as Record<string, unknown>
+    const toolName = typeof part['name'] === 'string' ? part['name'] : 'unknown'
+    const toolCallId = typeof part['id'] === 'string' ? part['id'] : undefined
+    if (toolCallId) toolNamesByCallId.set(toolCallId, toolName)
+    events.push(makeToolCallEvent({
+      providerId: 'claude',
+      toolName,
+      toolCallId,
+      input: part['input'] ?? {},
+      correlationId: input.correlationId,
+    }))
+  }
+  return events.length > 0 ? events : null
+}
+
+/** Map the `tool_result` blocks of a `user` SDK message → `adapter:tool_result` events. */
+export function mapUserToolResults(
+  raw: ClaudeSDKMessage,
+  input: AgentInput,
+  toolNamesByCallId: Map<string, string>,
+): AgentEvent[] | null {
+  const events: AgentEvent[] = []
+  for (const block of messageContentBlocks(raw) ?? []) {
+    if (!isContentBlock(block) || block.type !== 'tool_result') continue
+    const part = block as unknown as Record<string, unknown>
+    const toolCallId = typeof part['tool_use_id'] === 'string' ? part['tool_use_id'] : undefined
+    const toolName = toolCallId ? toolNamesByCallId.get(toolCallId) ?? 'unknown' : 'unknown'
+    if (toolCallId) toolNamesByCallId.delete(toolCallId)
+    events.push(makeToolResultEvent({
+      providerId: 'claude',
+      toolName,
+      toolCallId,
+      output: serializeProviderPayload(part['content']) ?? '',
+      durationMs: 0,
+      isError: typeof part['is_error'] === 'boolean' ? part['is_error'] : undefined,
+      correlationId: input.correlationId,
+    }))
+  }
+  return events.length > 0 ? events : null
 }
 
 /** State carried across tool_progress messages — owned by the adapter. */
@@ -132,6 +184,9 @@ export function mapToolProgressMessage(
   resolver: InteractionResolver | null,
   policy: InteractionPolicy,
 ): AgentEvent | null {
+  // SDK progress heartbeats carry no status; the call and its result arrive
+  // as assistant `tool_use` and user `tool_result` blocks instead.
+  if (raw.status === undefined) return null
   if (raw.status === 'started') {
     state.lastToolStartTime = Date.now()
     state.lastToolName = raw.tool_name
