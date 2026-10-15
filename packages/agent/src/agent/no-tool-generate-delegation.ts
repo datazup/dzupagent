@@ -26,12 +26,12 @@ import {
   validateAgentRunnerNoToolDelegationAdmission,
   validateAgentRunnerNoToolDelegationSource,
   type AgentRunnerNoToolDelegationAdmission,
-  type AgentRunnerNoToolDelegationOutcome,
   type AgentRunnerNoToolDelegationRequest,
   type AgentRunnerNoToolDelegationSource,
   type AgentRunnerNoToolPreDispatchPolicy,
 } from '../runner/no-tool-generate-delegation.js'
 import { digestRunnerJson } from '../runner/runner-values.js'
+import { dispatchOnce } from './no-tool-dispatch-once.js'
 
 const R5N_BEHAVIOR_SCHEMA = 'dzupagent.experimentalNoToolGenerateBehavior/v1' as const
 const MAX_TOOL_ATTEMPTS = 2
@@ -324,37 +324,6 @@ function freezeData<T>(value: T): T {
     Object.freeze(value)
   }
   return value
-}
-
-async function dispatchOnce(
-  request: AgentRunnerNoToolDelegationRequest,
-  dispatch: (request: AgentRunnerNoToolDelegationRequest) => Promise<AgentRunnerNoToolDelegationOutcome>,
-): Promise<AgentRunnerNoToolDelegationOutcome> {
-  const cancel = (): void => {
-    request.control.requestCancel()
-  }
-  request.signal?.addEventListener('abort', cancel, { once: true })
-  try {
-    if (request.signal?.aborted) {
-      cancel()
-      throw delegationError({
-        code: 'cancelled-before-dispatch', phase: 'before-dispatch',
-        replay: 'not-dispatched', admission: request.admission,
-      })
-    }
-    try {
-      return await dispatch(request)
-    } catch {
-      throw delegationError({
-        code: 'bridge-threw-with-unknown-outcome',
-        phase: 'outcome-unknown',
-        replay: 'forbidden-unknown-outcome',
-        admission: request.admission,
-      })
-    }
-  } finally {
-    request.signal?.removeEventListener('abort', cancel)
-  }
 }
 
 /**

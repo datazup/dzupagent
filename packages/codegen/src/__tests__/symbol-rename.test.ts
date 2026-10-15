@@ -747,21 +747,21 @@ describe("template literal preservation", () => {
     expect(content).toContain("function hello("); // declaration renamed
   });
 
-  it("does not rename expression inside ${} in template literal", () => {
+  it("renames the declaration but leaves a ${} template expression unrenamed (current behaviour)", () => {
     const files = makeFiles({
       "src/display.ts":
         'export const label = "foo";\nconst html = `value: ${label}`;\n',
     });
 
-    // In this case `${label}` is code, not a string — it SHOULD be renamed
-    // because the tokenizer treats ${...} as code embedded in the template.
-    // This test documents the CURRENT behaviour: the identifier inside ${} IS
-    // renamed because it is a code expression.
+    // `${label}` is code, not string text, but the tokenizer currently treats
+    // the whole template literal as a string, so the identifier inside the
+    // `${}` expression is NOT renamed. This documents the CURRENT behaviour;
+    // renaming inside `${}` would change this test.
     const { updatedFiles } = renameSymbol(files, "label", "caption");
     const content = updatedFiles.get("src/display.ts")!;
     expect(content).toContain("const caption");
-    // The template itself contains the identifier in a ${} expression
-    expect(content).toContain("caption");
+    expect(content).toContain("`value: ${label}`");
+    expect(content).not.toContain("${caption}");
   });
 });
 

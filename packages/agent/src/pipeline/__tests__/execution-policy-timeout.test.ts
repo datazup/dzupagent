@@ -6,8 +6,11 @@
  * exceeds the limit the run fails: no further attempt runs, output is
  * discarded, state is not written, and terminal catch and error edges are not
  * consulted. An unreadable duration fails closed.
+ *
+ * The limit is also a deadline: a hung attempt is stopped when the remaining
+ * time is spent, and an attempt is charged at least its measured duration.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { PipelineDefinition } from "@dzupagent/core";
 
 import { PipelineRuntime } from "../pipeline-runtime.js";
@@ -178,6 +181,57 @@ describe("PipelineRuntime executionPolicy.timeoutMs", () => {
       );
       expect(calls).toEqual(["A"]);
     }
+  });
+
+  it("stops a hung attempt at the deadline and aborts its signal", async () => {
+    let seenSignal: AbortSignal | undefined;
+    const executor: NodeExecutor = async (nodeId, _node, context) => {
+      if (nodeId !== "A") return { nodeId, durationMs: 1, output: { ok: nodeId } };
+      seenSignal = context.signal as AbortSignal | undefined;
+      return new Promise<NodeResult>(() => undefined);
+    };
+    const runtime = new PipelineRuntime({
+      definition: pipeline({ executionPolicy: { timeoutMs: 100 }, retries: 2 }),
+      nodeExecutor: executor,
+    });
+    const started = Date.now();
+    const result = await runtime.execute({});
+    const elapsed = Date.now() - started;
+    expect(result.state).toBe("failed");
+    expect(result.error).toMatch(/^PIPELINE_TIMEOUT_EXCEEDED: node "A" used \d+ of 100 ms$/);
+    expect(result.nodeResults.get("A")?.errorMetadata?.["code"]).toBe(
+      "PIPELINE_TIMEOUT_EXCEEDED",
+    );
+    expect(elapsed).toBeGreaterThanOrEqual(95);
+    expect(elapsed).toBeLessThan(2_000);
+    expect(seenSignal?.aborted).toBe(true);
+  });
+
+  it("charges the measured duration when an attempt under-reports it", async () => {
+    const calls: string[] = [];
+    const executor: NodeExecutor = async (nodeId) => {
+      calls.push(nodeId);
+      if (nodeId !== "A") return { nodeId, durationMs: 0, output: { ok: nodeId } };
+      // The attempt takes 40 ms of (fake) wall clock but reports 0.
+      vi.setSystemTime(Date.now() + 40);
+      return { ...failed(0) };
+    };
+    const runtime = new PipelineRuntime({
+      definition: pipeline({ executionPolicy: { timeoutMs: 60 }, retries: 1 }),
+      nodeExecutor: executor,
+      retryPolicy: { initialBackoffMs: 30, maxBackoffMs: 30 },
+    });
+    vi.useFakeTimers();
+    let result: Awaited<ReturnType<PipelineRuntime["execute"]>>;
+    try {
+      result = await runtime.execute({});
+    } finally {
+      vi.useRealTimers();
+    }
+    // Reported 0 + backoff 30 would fit; measured >= 40 + 30 does not.
+    expect(result.state).toBe("failed");
+    expect(result.error).toMatch(/^PIPELINE_TIMEOUT_EXCEEDED: node "A" used \d+ of 60 ms$/);
+    expect(calls).toEqual(["A"]);
   });
 
   it("leaves a node without the limit unchanged", async () => {

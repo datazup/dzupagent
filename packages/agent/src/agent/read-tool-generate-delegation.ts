@@ -9,6 +9,7 @@ import { boundedMessageShape, exactMessage, captureLegacyReadToolResultEnvelope,
 import { assertDurableJson, cloneDurableJson } from '../runner/runner-durable-json.js'
 import { digestRunnerJson } from '../runner/runner-values.js'
 import { RunControl } from '../runner/run-control.js'
+import { isDispatchCancellation } from './no-tool-dispatch-once.js'
 import {
   AgentRunnerReadToolDelegationError, readToolDataRecord, readToolIdentity,
   validateAgentRunnerReadToolBinding, validateAgentRunnerReadToolDelegationAdmission,
@@ -22,9 +23,10 @@ const fields = new Set(['id', 'name', 'description', 'instructions', 'model', 't
   'toolExecution', 'experimentalReadToolGenerateBridge'])
 const optionFields = new Set(['runId', 'signal', 'maxIterations', 'experimentalReadToolGenerateDelegation'])
 const error = (code: string, phase: ConstructorParameters<typeof AgentRunnerReadToolDelegationError>[1],
-  admission?: AgentRunnerReadToolDelegationAdmission) =>
+  admission?: AgentRunnerReadToolDelegationAdmission, cause?: unknown) =>
   new AgentRunnerReadToolDelegationError(code, phase, phase === 'admission' || phase === 'before-dispatch'
-    ? 'not-dispatched' : phase === 'outcome-unknown' ? 'forbidden-unknown-outcome' : 'forbidden-after-dispatch', admission)
+    ? 'not-dispatched' : phase === 'outcome-unknown' ? 'forbidden-unknown-outcome' : 'forbidden-after-dispatch', admission,
+  cause === undefined ? undefined : { cause })
 
 function dense(value: unknown): value is unknown[] {
   return Array.isArray(value) && Object.getPrototypeOf(value) === Array.prototype
@@ -196,7 +198,10 @@ export async function maybeDelegateReadToolGenerate(input: {
   try {
     if (signal?.aborted) throw error('cancelled-before-dispatch', 'before-dispatch', admission)
     try { outcome = await dispatch(request) }
-    catch { throw error('bridge-threw-with-unknown-outcome', 'outcome-unknown', admission) }
+    catch (cause) {
+      throw error(isDispatchCancellation(signal, cause) ? 'cancelled-during-dispatch'
+        : 'bridge-threw-with-unknown-outcome', 'outcome-unknown', admission, cause)
+    }
   } finally { closed = true; signal?.removeEventListener('abort', cancel) }
   if (!readToolDataRecord(outcome) || !validateAgentRunnerReadToolDelegationSource(outcome.source)
       || digestRunnerJson(outcome.source) !== digestRunnerJson(source)) throw error('bridge-source-binding-unknown', 'outcome-unknown', admission)

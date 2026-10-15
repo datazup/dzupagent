@@ -26,7 +26,7 @@ import {
   nodeFailedEvent,
 } from "./runtime-events.js";
 import { getNextNodeIds, getErrorTarget } from "../pipeline-shared/edge-resolution.js";
-import { extractErrorCode } from "../pipeline-shared/error-classification.js";
+import { extractErrorCode, nodeResultErrorCode } from "../pipeline-shared/error-classification.js";
 import { runNodeWithRetry } from "./node-retry.js";
 import { matchTerminalCatch } from "./terminal-catch.js";
 import { applyStateWrites, planStateWrites } from "./state-writes.js";
@@ -343,7 +343,7 @@ export async function dispatchStandardNode(
       const errorNext = getErrorTarget(
         node.id,
         errorEdges,
-        extractErrorCode(finalResult.error),
+        nodeResultErrorCode(finalResult),
       );
       if (errorNext) {
         if (saveErrorEdgeCheckpoint !== undefined) {

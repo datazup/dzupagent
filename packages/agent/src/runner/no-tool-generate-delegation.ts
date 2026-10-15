@@ -113,8 +113,13 @@ export class AgentRunnerNoToolDelegationError extends Error {
     readonly phase: AgentRunnerNoToolDelegationErrorPhase
     readonly replay: AgentRunnerNoToolDelegationReplay
     readonly admission?: AgentRunnerNoToolDelegationAdmission
+    /** Original failure, kept off the public message for operators and onRunError. */
+    readonly cause?: unknown
   }) {
-    super(`AgentRunner no-tool delegation failed: ${input.code}`)
+    super(
+      `AgentRunner no-tool delegation failed: ${input.code}`,
+      input.cause === undefined ? undefined : { cause: input.cause },
+    )
     this.name = 'AgentRunnerNoToolDelegationError'
     this.code = input.code
     this.phase = input.phase

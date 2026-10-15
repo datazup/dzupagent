@@ -48,8 +48,13 @@ export class AgentRunnerReadToolDelegationError extends Error {
     readonly phase: 'admission' | 'before-dispatch' | 'after-dispatch' | 'outcome-unknown',
     readonly replay: 'not-dispatched' | 'forbidden-after-dispatch' | 'forbidden-unknown-outcome',
     readonly admission?: AgentRunnerReadToolDelegationAdmission,
+    /** Original failure, kept off the public message. */
+    options?: { readonly cause?: unknown },
   ) {
-    super(`AgentRunner read-tool delegation failed: ${code}`)
+    super(
+      `AgentRunner read-tool delegation failed: ${code}`,
+      options?.cause === undefined ? undefined : { cause: options.cause },
+    )
     this.name = 'AgentRunnerReadToolDelegationError'
   }
 }

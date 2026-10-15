@@ -95,7 +95,7 @@ export function nodeTimeoutMs(node: { id: string }): number | undefined {
 }
 
 /**
- * Running time of one node with a cumulative limit: each attempt's reported
+ * Running time of one node with a cumulative limit: each attempt's charged
  * `durationMs` plus each retry backoff. `charge` and `chargeBackoff` return
  * a terminal failed result once the duration is unreadable or the total
  * exceeds the limit, and `undefined` while the node is within it.
@@ -106,6 +106,8 @@ export function createNodeClock(
 ): {
   charge(result: NodeResult): NodeResult | undefined;
   chargeBackoff(backoffMs: number): NodeResult | undefined;
+  /** Milliseconds left before the limit; never negative. */
+  remainingMs(): number;
 } {
   let usedMs = 0;
   const add = (ms: number): NodeResult | undefined => {
@@ -130,6 +132,7 @@ export function createNodeClock(
       return add(ms);
     },
     chargeBackoff: add,
+    remainingMs: () => Math.max(0, timeoutMs - usedMs),
   };
 }
 
