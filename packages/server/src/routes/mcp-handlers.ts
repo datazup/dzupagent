@@ -46,9 +46,9 @@ import {
 } from "./mcp-helpers.js";
 
 /**
- * Config slice required by the MCP route handlers. Resolved by the composition
- * root in `./mcp`, which also guarantees `mcpManager` is configured (a `use("*")`
- * guard returns 503 before any handler runs, so `mcpManager!` is safe here).
+ * Config slice required by the MCP route handlers. The `./mcp` mount's
+ * `use("*")` guard returns 503 when `mcpManager` is missing; handlers still
+ * narrow it via `manager()` so registration elsewhere fails closed.
  */
 export type McpHandlerConfig = Pick<
   ForgeServerConfig,
@@ -62,15 +62,18 @@ export function registerMcpHandlers(
   app: Hono<AppEnv>,
   config: McpHandlerConfig
 ): void {
+  // Narrowed per request, like the mount's 503 guard: fail closed by name.
+  const manager = (): NonNullable<McpHandlerConfig["mcpManager"]> => {
+    if (!config.mcpManager) throw new Error("MCP manager not configured");
+    return config.mcpManager;
+  };
   // -------------------------------------------------------------------------
   // Server routes
   // -------------------------------------------------------------------------
 
   // GET /servers — list all servers
   app.get("/servers", async (c) => {
-    const servers = await config.mcpManager!.listServers(
-      getRequestingTenantId(c)
-    );
+    const servers = await manager().listServers(getRequestingTenantId(c));
     return c.json({
       data: servers.map(redactMcpDefinition),
       count: servers.length,
@@ -137,7 +140,7 @@ export function registerMcpHandlers(
     if (urlPolicyError) return urlPolicyError;
 
     try {
-      const server = await config.mcpManager!.addServer(body, tenantId);
+      const server = await manager().addServer(body, tenantId);
       return c.json({ data: redactMcpDefinition(server) }, 201);
     } catch (err) {
       const { safe, internal } = sanitizeError(err);
@@ -155,10 +158,7 @@ export function registerMcpHandlers(
   // GET /servers/:id — get a server
   app.get("/servers/:id", async (c) => {
     const id = c.req.param("id");
-    const server = await config.mcpManager!.getServer(
-      id,
-      getRequestingTenantId(c)
-    );
+    const server = await manager().getServer(id, getRequestingTenantId(c));
     if (!server) {
       return c.json(
         {
@@ -200,7 +200,7 @@ export function registerMcpHandlers(
       );
     }
 
-    const existing = await config.mcpManager!.getServer(id, tenantId);
+    const existing = await manager().getServer(id, tenantId);
     if (!existing) {
       return c.json(
         {
@@ -267,7 +267,7 @@ export function registerMcpHandlers(
     }
 
     try {
-      const updated = await config.mcpManager!.updateServer(
+      const updated = await manager().updateServer(
         id,
         patch,
         tenantId
@@ -291,7 +291,7 @@ export function registerMcpHandlers(
       // SEC-H-02: only the owning tenant may delete. `removeServer` is a no-op
       // for a resource the caller does not own, so a cross-tenant delete
       // resolves to the same 404 as a missing server.
-      const existing = await config.mcpManager!.getServer(id, tenantId);
+      const existing = await manager().getServer(id, tenantId);
       if (!existing) {
         return c.json(
           {
@@ -303,7 +303,7 @@ export function registerMcpHandlers(
           404
         );
       }
-      await config.mcpManager!.removeServer(id, tenantId);
+      await manager().removeServer(id, tenantId);
       return c.body(null, 204);
     } catch (err) {
       const { safe, internal } = sanitizeError(err);
@@ -317,7 +317,7 @@ export function registerMcpHandlers(
     const id = c.req.param("id");
     const tenantId = getRequestingTenantId(c);
     try {
-      const server = await config.mcpManager!.enableServer(id, tenantId);
+      const server = await manager().enableServer(id, tenantId);
       return c.json({ data: redactMcpDefinition(server) });
     } catch (err) {
       const { safe, internal } = sanitizeError(err);
@@ -334,7 +334,7 @@ export function registerMcpHandlers(
     const id = c.req.param("id");
     const tenantId = getRequestingTenantId(c);
     try {
-      const server = await config.mcpManager!.disableServer(id, tenantId);
+      const server = await manager().disableServer(id, tenantId);
       return c.json({ data: redactMcpDefinition(server) });
     } catch (err) {
       const { safe, internal } = sanitizeError(err);
@@ -351,7 +351,7 @@ export function registerMcpHandlers(
     const id = c.req.param("id");
     const tenantId = getRequestingTenantId(c);
     try {
-      const server = await config.mcpManager!.getServer(id, tenantId);
+      const server = await manager().getServer(id, tenantId);
       if (!server) {
         return c.json(
           {
@@ -370,7 +370,7 @@ export function registerMcpHandlers(
       );
       if (urlPolicyError) return urlPolicyError;
 
-      const result = await config.mcpManager!.testServer(id, tenantId);
+      const result = await manager().testServer(id, tenantId);
       return c.json({ data: result });
     } catch (err) {
       const { safe, internal } = sanitizeError(err);
@@ -385,9 +385,7 @@ export function registerMcpHandlers(
 
   // GET /profiles — list all profiles
   app.get("/profiles", async (c) => {
-    const profiles = await config.mcpManager!.listProfiles(
-      getRequestingTenantId(c)
-    );
+    const profiles = await manager().listProfiles(getRequestingTenantId(c));
     return c.json({ data: profiles, count: profiles.length });
   });
 
@@ -433,7 +431,7 @@ export function registerMcpHandlers(
     }
 
     try {
-      const profile = await config.mcpManager!.addProfile(body, tenantId);
+      const profile = await manager().addProfile(body, tenantId);
       return c.json({ data: profile }, 201);
     } catch (err) {
       const { safe, internal } = sanitizeError(err);
@@ -451,10 +449,7 @@ export function registerMcpHandlers(
   // GET /profiles/:id — get a profile
   app.get("/profiles/:id", async (c) => {
     const id = c.req.param("id");
-    const profile = await config.mcpManager!.getProfile(
-      id,
-      getRequestingTenantId(c)
-    );
+    const profile = await manager().getProfile(id, getRequestingTenantId(c));
     if (!profile) {
       return c.json(
         {
@@ -475,7 +470,7 @@ export function registerMcpHandlers(
     const tenantId = getRequestingTenantId(c);
     try {
       // SEC-H-02: cross-tenant delete resolves to 404 (resource is invisible).
-      const existing = await config.mcpManager!.getProfile(id, tenantId);
+      const existing = await manager().getProfile(id, tenantId);
       if (!existing) {
         return c.json(
           {
@@ -487,7 +482,7 @@ export function registerMcpHandlers(
           404
         );
       }
-      await config.mcpManager!.removeProfile(id, tenantId);
+      await manager().removeProfile(id, tenantId);
       return c.body(null, 204);
     } catch (err) {
       const { safe, internal } = sanitizeError(err);

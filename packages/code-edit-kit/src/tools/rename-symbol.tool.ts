@@ -90,22 +90,22 @@ export async function renameSymbol(input: RenameSymbolInput): Promise<RenameSymb
   const declarations: Declaration[] = []
 
   const fn = sourceFile.getFunction(symbolName)
-  if (fn) declarations.push(fn as unknown as Declaration)
+  if (fn) declarations.push(fn)
 
   const cls = sourceFile.getClass(symbolName)
-  if (cls) declarations.push(cls as unknown as Declaration)
+  if (cls) declarations.push(cls)
 
   const iface = sourceFile.getInterface(symbolName)
-  if (iface) declarations.push(iface as unknown as Declaration)
+  if (iface) declarations.push(iface)
 
   const typeAlias = sourceFile.getTypeAlias(symbolName)
-  if (typeAlias) declarations.push(typeAlias as unknown as Declaration)
+  if (typeAlias) declarations.push(typeAlias)
 
   const en = sourceFile.getEnum(symbolName)
-  if (en) declarations.push(en as unknown as Declaration)
+  if (en) declarations.push(en)
 
   const variable = sourceFile.getVariableDeclaration(symbolName)
-  if (variable) declarations.push(variable as unknown as Declaration)
+  if (variable) declarations.push(variable)
 
   if (declarations.length === 0) {
     throw new Error(

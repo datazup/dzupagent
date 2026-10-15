@@ -108,12 +108,31 @@ describe('Approvals routes — grant / reject decision flows', () => {
       const emitted: unknown[] = []
       eventBus.onAny((e) => { emitted.push(e) })
 
-      await post(app, `/api/approvals/${run.id}/ap-2/grant`, { approvedBy: 'operator' })
+      await post(app, `/api/approvals/${run.id}/ap-2/grant`, { approvedBy: 'someone-else' })
 
       const granted = emitted.find((e) => (e as { type: string }).type === 'approval:granted')
       expect(granted).toBeDefined()
       expect((granted as { runId: string }).runId).toBe(run.id)
-      expect((granted as { approvedBy?: string }).approvedBy).toBe('operator')
+      // DZUPAGENT-SEC-M-35: attributed to the authenticated key, never the body claim.
+      expect((granted as { approvedBy?: string }).approvedBy).toBe('key-1')
+    })
+
+    it('omits approvedBy when no authenticated key id is present', async () => {
+      const run = await runStore.create({ agentId: 'a1', input: 'x' })
+      await approvalStore.createPending(run.id, 'ap-anon', {})
+
+      const eventBus = createEventBus()
+      const app = new Hono()
+      app.route('/api/approvals', createApprovalsRoutes({ approvalStore, eventBus, runStore }))
+      const emitted: unknown[] = []
+      eventBus.onAny((e) => { emitted.push(e) })
+
+      const res = await post(app, `/api/approvals/${run.id}/ap-anon/grant`, { approvedBy: 'someone-else' })
+
+      expect(res.status).toBe(200)
+      const granted = emitted.find((e) => (e as { type: string }).type === 'approval:granted')
+      expect(granted).toBeDefined()
+      expect(granted).not.toHaveProperty('approvedBy')
     })
 
     it('accepts grant with no request body (malformed JSON falls back to empty)', async () => {

@@ -69,7 +69,7 @@ async function extractHashRoutes(page: Page): Promise<string[]> {
       try {
         const appEl = document.querySelector('#app') ?? document.querySelector('[data-v-app]')
         if (appEl) {
-          const vueApp = (appEl as unknown as Record<string, unknown>).__vue_app__
+          const vueApp: unknown = Reflect.get(appEl, '__vue_app__')
           if (vueApp) {
             const globalProps = (vueApp as Record<string, unknown>).config as Record<string, unknown> | undefined
             const gp = globalProps?.globalProperties as Record<string, unknown> | undefined
@@ -112,7 +112,7 @@ async function extractSpaRoutes(page: Page): Promise<string[]> {
       const appEl = document.querySelector('#app') ?? document.querySelector('[data-v-app]')
       if (appEl) {
         // Vue 3 stores __vue_app__ on the mount element
-        const vueApp = (appEl as unknown as Record<string, unknown>).__vue_app__
+        const vueApp: unknown = Reflect.get(appEl, '__vue_app__')
         if (vueApp) {
           const globalProps = (vueApp as Record<string, unknown>).config as Record<string, unknown> | undefined
           const gp = globalProps?.globalProperties as Record<string, unknown> | undefined
@@ -137,8 +137,8 @@ async function extractSpaRoutes(page: Page): Promise<string[]> {
       // Look for router state on common React root elements
       const reactRoots = document.querySelectorAll('[data-reactroot], #root, #__next')
       for (const root of reactRoots) {
-        const fiber = (root as unknown as Record<string, unknown>)._reactRootContainer
-          ?? (root as unknown as Record<string, unknown>).__reactFiber$
+        const fiber: unknown = Reflect.get(root, '_reactRootContainer')
+          ?? Reflect.get(root, '__reactFiber$')
         if (fiber) {
           // Walk fiber tree to find RouterProvider/BrowserRouter context
           // This is a best-effort approach

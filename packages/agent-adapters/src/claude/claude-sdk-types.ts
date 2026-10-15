@@ -88,7 +88,7 @@ export interface ContentBlock {
   tool_use?: { name: string; input: unknown }
 }
 
-export function isContentBlock(value: unknown): value is ContentBlock {
+function isContentBlock(value: unknown): value is ContentBlock {
   return typeof value === 'object' && value !== null && 'type' in value
 }
 

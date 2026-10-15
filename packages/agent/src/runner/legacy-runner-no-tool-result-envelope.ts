@@ -22,6 +22,7 @@ import {
   validMessageEnvelopeEntry,
   type LegacyMessageEnvelopeEntry,
 } from './legacy-runner-message-envelope-codec.js'
+import { exactKeys } from '../utils/exact-keys.js'
 
 export type {
   LegacyMessageContentEnvelope,
@@ -139,10 +140,6 @@ function projectionClaim(profile: LegacyRunnerExecutionProfile): boolean {
     && claim.disposition === 'supported'
     && supportedEntrypoint
     && claim.binding.projection === 'no-tool-generate-result/v1'
-}
-
-function exactKeys(value: Readonly<Record<string, unknown>>, keys: readonly string[]): boolean {
-  return Object.keys(value).sort().join('|') === [...keys].sort().join('|')
 }
 
 function validEnvelopeShape(envelope: LegacyNoToolResultEnvelope): boolean {

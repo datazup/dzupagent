@@ -22,7 +22,7 @@
  * outside the mounted upload dir, never as `-e KEY=value` argv.
  *
  * Command execution (SEC-H-02): `execute(argv: string[])` runs the program
- * directly via `docker run ... -- argv[0] argv[1] ...` with NO `sh -c`, so
+ * directly via `docker run ... <image> argv[0] argv[1] ...` with NO `sh -c`, so
  * shell metacharacters are never interpreted and injection is impossible. A
  * `string` is still accepted for backward compatibility and runs as an
  * explicit, opt-in `sh -c <command>` shell command.
@@ -385,8 +385,8 @@ export class DockerSandbox implements SandboxProtocolV2 {
    * timeout can kill it) with the shared isolation flags.
    *
    * SECURITY (SEC-H-02): When `command` is a `string[]`, the program is invoked
-   * directly as `<image> argv[0] argv[1] ...` after a `--` terminator, with no
-   * `sh -c`, so each element is an independent argument and shell
+   * directly as `<image> argv[0] argv[1] ...`, with no `sh -c`, so each
+   * element is an independent argument and shell
    * metacharacters are never interpreted. A `string` falls back to the legacy
    * `sh -c <command>` explicit-shell path.
    */
@@ -408,9 +408,13 @@ export class DockerSandbox implements SandboxProtocolV2 {
     if (Array.isArray(command)) {
       // Safe argv mode: invoke the program directly, no shell. Each element is
       // passed as a distinct argument — `$(...)`, `;`, `|`, backticks, and
-      // globs are NOT expanded. The `--` terminator stops Docker from
-      // interpreting any leading argv element as a docker flag.
-      args.push("--", ...command);
+      // globs are NOT expanded. Docker stops flag parsing at the image name
+      // and forwards every later argument verbatim, so no `--` separator is
+      // needed (one would be run as the container command — SEC-L-33).
+      if (command.length === 0) {
+        throw new Error("DockerSandbox.execute: argv must not be empty");
+      }
+      args.push(...command);
     } else {
       // Legacy explicit-shell mode: caller opted into shell interpretation.
       args.push("sh", "-c", command);

@@ -42,6 +42,7 @@ import {
   cloneDurableJson,
   digestRunnerJson,
 } from './runner-durable-json.js'
+import { exactKeys } from '../utils/exact-keys.js'
 
 // PUBLIC API, not an internal convenience: `src/runner.ts` reaches the package
 // barrel via `export * from './runner/runner-values.js'`, so dropping this
@@ -99,10 +100,6 @@ function diagnostic(code: AiExecutionDiagnostic['code'], path: string, message: 
 
 function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
-
-function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
-  return Object.keys(value).sort().join('|') === [...keys].sort().join('|')
 }
 
 function inlineToolGrantIds(value: unknown): readonly string[] | undefined {

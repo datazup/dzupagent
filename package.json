@@ -75,6 +75,7 @@
     "check:terminal-tool-event-guards": "node scripts/check-terminal-tool-event-guards.mjs",
     "check:waiver-expiry": "node scripts/check-waiver-expiry.mjs",
     "check:test-sleeps": "node scripts/check-test-sleeps.mjs",
+    "check:dead-exports": "node scripts/check-dead-exports.mjs",
     "check:test-naming": "node scripts/check-test-naming.mjs",
     "test:scripts": "node --test \"scripts/__tests__/*.test.mjs\"",
     "check:test-typecheck": "node scripts/run-with-build-custody.mjs turbo run build:verify && node scripts/check-test-typecheck.mjs",

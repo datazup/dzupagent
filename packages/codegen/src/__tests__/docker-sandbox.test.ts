@@ -12,6 +12,8 @@ import { readFileSync, statSync } from "node:fs";
 // without performing any `$(...)`, glob, or `;` expansion — proving that shell
 // metacharacters are passed through literally.
 const calls: string[][] = [];
+/** The default DockerSandbox image; docker treats every later arg as the command. */
+const IMAGE = "node:20-slim";
 // Env files captured at the moment `docker run --env-file` is invoked.
 const envFiles: Array<{ path: string; content: string; mode: number }> = [];
 
@@ -71,13 +73,14 @@ vi.mock("node:child_process", async (importOriginal) => {
         return {} as never;
       }
 
-      // Simulate `docker run ... -- echo <literal...>`: emit the literal args
-      // joined by spaces, exactly as `echo` (no shell) would, WITHOUT
-      // performing any `$(...)`/glob/`;` expansion.
+      // Simulate `docker run ... <image> echo <literal...>`: docker stops
+      // flag parsing at the image, so everything after it is the command.
+      // Emit the literal args joined by spaces, exactly as `echo` (no shell)
+      // would, WITHOUT performing any `$(...)`/glob/`;` expansion.
       let stdout = "";
-      const sep = args.indexOf("--");
-      if (sep !== -1 && args[sep + 1] === "echo") {
-        stdout = args.slice(sep + 2).join(" ") + "\n";
+      const image = args.indexOf(IMAGE);
+      if (image !== -1 && args[image + 1] === "echo") {
+        stdout = args.slice(image + 2).join(" ") + "\n";
       }
       cb(null, { stdout, stderr: "" });
       return {} as never;
@@ -137,17 +140,25 @@ describe("DockerSandbox argv execution (SEC-H-02)", () => {
   it("passes each argv element as an independent docker argument", async () => {
     await sandbox.execute(["node", "-e", "console.log(1)"]);
     const dockerArgs = invocation(0);
-    const sep = dockerArgs.indexOf("--");
-    expect(sep).toBeGreaterThan(-1);
-    // Elements after `--` match argv positionally — none merged or split.
-    expect(dockerArgs.slice(sep + 1)).toEqual(["node", "-e", "console.log(1)"]);
+    const image = dockerArgs.indexOf(IMAGE);
+    expect(image).toBeGreaterThan(-1);
+    // Elements after the image match argv positionally — none merged or split.
+    expect(dockerArgs.slice(image + 1)).toEqual(["node", "-e", "console.log(1)"]);
   });
 
-  it("uses the -- terminator and no sh -c in argv mode", async () => {
-    await sandbox.execute(["ls", "-la"]);
+  it("places argv directly after the image with no -- and no sh -c (SEC-L-33)", async () => {
+    await sandbox.execute(["echo", "hi"]);
     const dockerArgs = invocation(0);
-    expect(dockerArgs).toContain("--");
+    // Docker stops flag parsing at the image and would run a `--` as the
+    // container command, so the argv must follow the image directly.
+    expect(dockerArgs.slice(-3)).toEqual([IMAGE, "echo", "hi"]);
+    expect(dockerArgs).not.toContain("--");
     expect(dockerArgs).not.toContain("sh");
+  });
+
+  it("refuses an empty argv instead of running the image's default command", async () => {
+    await expect(sandbox.execute([])).rejects.toThrow(/argv must not be empty/);
+    expect(calls).toHaveLength(0);
   });
 
   it("includes the secure flag matrix in the docker invocation", async () => {
@@ -172,7 +183,7 @@ describe("DockerSandbox argv execution (SEC-H-02)", () => {
     expect(dockerArgs).toContain("sh");
     expect(dockerArgs).toContain("-c");
     expect(dockerArgs).toContain("echo hi");
-    // The shell path does NOT use the argv `--` terminator.
+    // Neither path passes a `--` after the image.
     expect(dockerArgs).not.toContain("--");
   });
 

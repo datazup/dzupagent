@@ -4,6 +4,7 @@ import type { AgentRunnerResult } from './in-memory-agent-runner.js'
 import type { RunControl } from './run-control.js'
 import type { LegacyRunnerExecutionProfile } from './legacy-runner-execution-profile.js'
 import { digestRunnerJson } from './runner-values.js'
+import { exactKeys } from '../utils/exact-keys.js'
 
 export const AGENT_RUNNER_NO_TOOL_DELEGATION_ADMISSION_SCHEMA =
   'dzupagent.agentRunnerNoToolDelegationAdmission/v1' as const
@@ -130,10 +131,6 @@ export class AgentRunnerNoToolDelegationError extends Error {
 
 function object(value: unknown): value is Readonly<Record<string, unknown>> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
-
-function exactKeys(value: Readonly<Record<string, unknown>>, expected: readonly string[]): boolean {
-  return Object.keys(value).sort().join('|') === [...expected].sort().join('|')
 }
 
 function validIdentity(value: unknown): value is string {

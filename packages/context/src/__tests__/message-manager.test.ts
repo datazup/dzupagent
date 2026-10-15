@@ -16,6 +16,7 @@ import {
   STRUCTURED_SUMMARY_PROFILE_V1,
   formatSummaryContext,
 } from '../message-manager.js'
+import { TiktokenCounter } from '../tiktoken-counter.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -127,6 +128,30 @@ describe('shouldSummarize', () => {
     })
     // JSON.stringify of content array will be longer, pushing over token limit
     expect(shouldSummarize([msg])).toBe(true)
+  })
+
+  it('uses the tokenizer-backed counter by default for a known model', () => {
+    const counted = vi.spyOn(TiktokenCounter.prototype, 'count')
+    try {
+      // 'a ' x 1000: chars/4 estimates 500 tokens; the cl100k/o200k
+      // tokenizers count roughly one token per word (~1000).
+      const msgs = [new HumanMessage('a '.repeat(1_000))]
+      expect(shouldSummarize(msgs, { maxMessageTokens: 800 })).toBe(false)
+      expect(counted).not.toHaveBeenCalled()
+
+      expect(shouldSummarize(msgs, { maxMessageTokens: 800, summaryModelId: 'gpt-4o' })).toBe(true)
+      expect(counted).toHaveBeenCalledWith(expect.any(String), 'gpt-4o')
+      expect(new TiktokenCounter().countDetailed('a b', 'gpt-4o').method).toBe('exact')
+    } finally {
+      counted.mockRestore()
+    }
+  })
+
+  it('keeps the chars/N path when charsPerToken is overridden for a known model', () => {
+    const msgs = [new HumanMessage('a '.repeat(1_000))]
+    expect(
+      shouldSummarize(msgs, { maxMessageTokens: 800, charsPerToken: 4, summaryModelId: 'gpt-4o' }),
+    ).toBe(false)
   })
 })
 

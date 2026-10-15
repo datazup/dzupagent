@@ -65,6 +65,29 @@ describe('SlackNotificationChannel', () => {
     expect(body.blocks[2].type).toBe('context')
   })
 
+  it('escapes Slack control characters so event text renders literally', async () => {
+    const channel = new SlackNotificationChannel({
+      webhookUrl: 'https://hooks.slack.com/services/test',
+      urlPolicy: { resolveDns: false },
+    })
+
+    await channel.send(
+      makeNotification({
+        body: 'Click <https://x|Approve> now <!channel> & <@U123>',
+        runId: 'run-<!here>',
+      }),
+    )
+
+    const body = JSON.parse(mockFetch.mock.calls[0]![1].body as string)
+    expect(body.blocks[1].text.type).toBe('mrkdwn')
+    expect(body.blocks[1].text.text).toBe(
+      'Click &lt;https://x|Approve&gt; now &lt;!channel&gt; &amp; &lt;@U123&gt;',
+    )
+    const contextTexts = body.blocks[2].elements.map((e: { text: string }) => e.text).join(' ')
+    expect(contextTexts).toContain('run-&lt;!here&gt;')
+    expect(JSON.stringify(body.blocks)).not.toMatch(/<https:|<!channel>|<!here>/)
+  })
+
   // 2
   it('includes priority emoji in the message', async () => {
     const channel = new SlackNotificationChannel({

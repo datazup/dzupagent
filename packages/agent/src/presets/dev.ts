@@ -85,7 +85,7 @@ export interface DevToolGovernancePreset {
  * the same hardening footprint they would get in production — minus the
  * scanner-failure withholding behavior.
  */
-export function createDevToolGovernancePreset(
+function createDevToolGovernancePreset(
   options: DevToolGovernancePresetOptions,
 ): DevToolGovernancePreset {
   const production = createProductionToolGovernancePreset(options)

@@ -17,6 +17,16 @@ export interface SlackNotificationChannelConfig {
   fetchImpl?: typeof fetch
 }
 
+/**
+ * Escape text for a Slack `mrkdwn` field using Slack's documented control
+ * character escaping (`&`, `<`, `>`). Notification text can carry
+ * model-influenced content, so without this a body could inject
+ * `<https://evil|Approve>` links or `<!channel>` mentions into the channel.
+ */
+function escapeSlackMrkdwn(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
 const PRIORITY_EMOJI: Record<string, string> = {
   critical: '\u{1F534}',
   high: '\u{1F534}',
@@ -53,7 +63,7 @@ export class SlackNotificationChannel implements NotificationChannel {
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: notification.body,
+          text: escapeSlackMrkdwn(notification.body),
         },
       },
       {
@@ -61,10 +71,10 @@ export class SlackNotificationChannel implements NotificationChannel {
         elements: [
           {
             type: 'mrkdwn',
-            text: `*Priority:* ${notification.priority} | *Tier:* ${notification.tier}`,
+            text: `*Priority:* ${escapeSlackMrkdwn(notification.priority)} | *Tier:* ${escapeSlackMrkdwn(notification.tier)}`,
           },
           ...(notification.runId
-            ? [{ type: 'mrkdwn' as const, text: `*Run:* ${notification.runId}` }]
+            ? [{ type: 'mrkdwn' as const, text: `*Run:* ${escapeSlackMrkdwn(notification.runId)}` }]
             : []),
         ],
       },

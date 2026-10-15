@@ -207,6 +207,38 @@ function getSafeScopeKeys(scope: Record<string, string>): string[] {
   return Object.keys(scope).sort()
 }
 
+type MemoryFinalizerName = 'decay' | 'prune' | 'consolidate'
+
+/**
+ * Report a failed fire-and-forget memory finalizer as one `memory:error`
+ * event naming the finalizer. Only the error class name is surfaced, never
+ * the raw message (store errors can carry connection details). The emit is
+ * itself guarded: the finalizers run as `void` promises, so a throwing
+ * listener here would otherwise become an unhandled rejection.
+ */
+function emitFinalizerError(
+  agentId: string,
+  config: DzupAgentConfig,
+  namespace: string,
+  scope: Record<string, string>,
+  finalizer: MemoryFinalizerName,
+  err: unknown,
+): void {
+  const errorName = err instanceof Error ? err.name : typeof err
+  try {
+    config.eventBus?.emit({
+      type: 'memory:error',
+      agentId,
+      namespace,
+      key: `finalizer:${finalizer}`,
+      scopeKeys: getSafeScopeKeys(scope),
+      message: `memory ${finalizer} finalizer failed (${errorName})`,
+    })
+  } catch {
+    // A failing listener must not turn a background sweep into a crash.
+  }
+}
+
 interface DecayRecord {
   _key?: string
   _decay?: DecayMetadata
@@ -268,8 +300,9 @@ async function runMemoryDecay(
         scopeKeys: getSafeScopeKeys(scope),
       })
     }
-  } catch {
-    // Decay sweep failures are non-fatal
+  } catch (err) {
+    // Decay sweep failures are non-fatal, but must stay observable.
+    emitFinalizerError(agentId, config, namespace, scope, 'decay', err)
   }
 }
 
@@ -346,8 +379,10 @@ async function runMemoryPruner(
         scopeKeys: getSafeScopeKeys(scope),
       })
     }
-  } catch {
-    // Pruner failures are non-fatal — memory hygiene must never abort a run.
+  } catch (err) {
+    // Pruner failures are non-fatal — memory hygiene must never abort a run,
+    // but a permanently failing prune must not be invisible.
+    emitFinalizerError(agentId, config, namespace, scope, 'prune', err)
   }
 }
 
@@ -406,8 +441,9 @@ export async function runConsolidateFinalizer(
         scopeKeys: getSafeScopeKeys(scope),
       })
     }
-  } catch {
-    // Consolidation failures are non-fatal.
+  } catch (err) {
+    // Consolidation failures are non-fatal, but must stay observable.
+    emitFinalizerError(agentId, config, namespace, scope, 'consolidate', err)
   }
 }
 

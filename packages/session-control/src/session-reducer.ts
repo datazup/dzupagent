@@ -181,6 +181,9 @@ export function reduceSessionEvent(
     case 'command.acknowledged':
       break
     case 'interaction.requested':
+      if (pendingInteraction !== undefined) {
+        return failure('interaction_already_pending', 'another interaction is already pending')
+      }
       pendingInteraction = {
         interactionRef: payload.interactionRef as NonNullable<typeof pendingInteraction>['interactionRef'],
         interactionClass: payload.interactionClass as NonNullable<typeof pendingInteraction>['interactionClass'],

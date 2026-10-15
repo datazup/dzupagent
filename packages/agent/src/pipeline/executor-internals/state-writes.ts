@@ -2,12 +2,14 @@
  * Exact-port state writes for a node's successful output.
  *
  * The persisted shape is `PipelineNodeBase.stateWrites` in
- * `@dzupagent/runtime-contracts/pipeline-artifact`. It is mirrored
- * structurally here, as `terminal-catch.ts` mirrors `terminalCatch`, so the
- * runtime does not depend on a contract build that already carries the field.
+ * `@dzupagent/runtime-contracts/pipeline-artifact`, read here through the
+ * typed `PipelineNode` so contract drift fails the typecheck. The runtime
+ * guards stay: a persisted definition is still untrusted JSON.
  *
  * @module pipeline/executor-internals/state-writes
  */
+
+import type { PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 export const STATE_WRITE_INVALID = "PIPELINE_STATE_WRITE_INVALID";
 
@@ -15,21 +17,15 @@ export type StateWritePlan =
   | { ok: true; writes: Array<[key: string, value: unknown]> }
   | { ok: false; error: string };
 
-interface StateWriteBindingLike {
-  port: string;
-  key: string;
-  cardinality: string;
-}
-
 /**
  * Validate every binding against `output` before anything is written.
  * Returns `undefined` when the node declares no state writes.
  */
 export function planStateWrites(
-  node: { id: string },
+  node: Pick<PipelineNode, "id" | "stateWrites">,
   output: unknown,
 ): StateWritePlan | undefined {
-  const policy = (node as { stateWrites?: { bindings?: unknown } }).stateWrites;
+  const policy = node.stateWrites;
   if (policy === undefined || !Array.isArray(policy.bindings)) return undefined;
   const invalid = (detail: string): StateWritePlan => ({
     ok: false,
@@ -40,7 +36,7 @@ export function planStateWrites(
   }
 
   const writes: Array<[string, unknown]> = [];
-  for (const binding of policy.bindings as StateWriteBindingLike[]) {
+  for (const binding of policy.bindings) {
     const value = output[binding.port];
     if (value === undefined) {
       if (binding.cardinality === "optional") continue;

@@ -32,6 +32,7 @@ import {
 } from '../runner/no-tool-generate-delegation.js'
 import { digestRunnerJson } from '../runner/runner-values.js'
 import { dispatchOnce } from './no-tool-dispatch-once.js'
+import { exactKeys } from '../utils/exact-keys.js'
 
 const R5N_BEHAVIOR_SCHEMA = 'dzupagent.experimentalNoToolGenerateBehavior/v1' as const
 const MAX_TOOL_ATTEMPTS = 2
@@ -56,10 +57,6 @@ function normalizedIdentity(value: unknown): value is string {
 
 function normalizedCode(value: unknown): value is string {
   return typeof value === 'string' && /^[a-z0-9][a-z0-9._-]{0,127}$/u.test(value)
-}
-
-function exactKeys(value: object, expected: readonly string[]): boolean {
-  return Object.keys(value).sort().join('|') === [...expected].sort().join('|')
 }
 
 function effectiveOptionKeys(options: GenerateOptions): string[] {

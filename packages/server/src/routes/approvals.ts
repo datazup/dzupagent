@@ -11,7 +11,9 @@
  *   POST /api/approvals/:runId/:approvalId/reject
  *
  * Both routes accept an optional JSON body:
- *   - grant:  `{ response?: unknown }`
+ *   - grant:  `{ response?: unknown }` — the `approval:granted` event names
+ *     the authenticated API key id as `approvedBy`; a client-supplied
+ *     `approvedBy` is ignored, so the audit trail cannot be self-asserted.
  *   - reject: `{ reason?: string }`
  *
  * When the configured store does not know about the `(runId, approvalId)`
@@ -27,6 +29,7 @@ import type { DzupEventBus } from '@dzupagent/core/events'
 import type { RunStore } from '@dzupagent/core/persistence'
 
 import { requireOwnedRun } from './run-guard.js'
+import { getRequestingKeyId } from './runs/shared.js'
 
 export interface ApprovalRoutesConfig {
   approvalStore: ApprovalStateStore
@@ -60,9 +63,12 @@ export function createApprovalsRoutes(config: ApprovalRoutesConfig): Hono<AppEnv
     const ownedRun = await requireOwnedRun(c as Context, runId, runStore)
     if (ownedRun instanceof Response) return ownedRun
 
+    // A body `approvedBy` is a client claim and is deliberately not read: the
+    // grant is attributed to the authenticated key (DZUPAGENT-SEC-M-35).
     const body = await c.req
-      .json<{ response?: unknown; approvedBy?: string }>()
-      .catch(() => ({} as { response?: unknown; approvedBy?: string }))
+      .json<{ response?: unknown }>()
+      .catch(() => ({} as { response?: unknown }))
+    const approvedBy = getRequestingKeyId(c as Context)
 
     try {
       await approvalStore.grant(runId, approvalId, body.response)
@@ -85,7 +91,7 @@ export function createApprovalsRoutes(config: ApprovalRoutesConfig): Hono<AppEnv
       type: 'approval:granted',
       runId,
       contactId: approvalId,
-      ...(typeof body.approvedBy === 'string' ? { approvedBy: body.approvedBy } : {}),
+      ...(approvedBy !== undefined ? { approvedBy } : {}),
     })
 
     return c.json({ data: { runId, approvalId, decision: 'granted' } })
