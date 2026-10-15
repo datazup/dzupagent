@@ -63,6 +63,7 @@ export function isUserMessage(msg: ClaudeSDKMessage): boolean {
 
 export interface ResultMessage extends ClaudeSDKMessage {
   subtype: string
+  is_error?: boolean
   result?: string
   session_id?: string
   usage?: Record<string, unknown>

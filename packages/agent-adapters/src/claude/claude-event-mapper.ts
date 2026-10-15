@@ -248,7 +248,7 @@ export function mapStreamEventMessage(
 
 /**
  * Map a `result` SDK message → `adapter:completed` (+ optional cache_stats)
- * or `adapter:failed` based on the message subtype.
+ * or `adapter:failed` based on the message subtype and `is_error` flag.
  */
 export function mapResultMessage(
   raw: ResultMessage,
@@ -260,7 +260,10 @@ export function mapResultMessage(
     ? raw.duration_ms
     : Date.now() - startTime
 
-  if (raw.subtype === 'success') {
+  // The SDK reports a provider API rejection (e.g. an HTTP 400) as subtype
+  // `success` with `is_error: true` and the error text in `result`.
+  const apiError = raw.is_error === true
+  if (raw.subtype === 'success' && !apiError) {
     const tokenUsage = extractTokenUsage(raw.usage)
     const sessionId = raw.session_id ?? context.sessionId
     const completedEvent = makeCompletedEvent({
@@ -314,8 +317,10 @@ export function mapResultMessage(
     sessionId: failedSessionId,
     error: typeof raw.error === 'string'
       ? raw.error
-      : `Claude agent failed with subtype: ${raw.subtype}`,
-    code: raw.subtype,
+      : apiError && typeof raw.result === 'string' && raw.result.length > 0
+        ? raw.result
+        : `Claude agent failed with subtype: ${raw.subtype}`,
+    code: apiError && raw.subtype === 'success' ? 'is_error' : raw.subtype,
     usage: failedUsage,
     correlationId: input.correlationId,
   })
