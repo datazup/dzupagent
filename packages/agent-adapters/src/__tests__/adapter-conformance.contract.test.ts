@@ -1,4 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterAll, describe, it, expect, vi, beforeEach } from 'vitest'
 
 import { ForgeError } from '@dzupagent/core'
 
@@ -83,6 +86,11 @@ function expectAutonomousToolLoopEvidence(events: AgentEvent[]): void {
   ).toBeGreaterThan(toolResultIndex)
 }
 
+// Crush refuses project config (.crushrc, crush.json, ...) in any ancestor of its cwd, and a
+// workspace root may hold one, so Crush runs here use a private temp cwd, not process.cwd().
+const crushCwd = mkdtempSync(join(tmpdir(), 'crush-hermetic-cwd-'))
+afterAll(() => rmSync(crushCwd, { recursive: true, force: true }))
+
 describe('CLI adapter conformance contract', () => {
   const { mockIsBinaryAvailable, mockSpawnAndStreamJsonl } = getProcessHelperMocks()
 
@@ -116,7 +124,7 @@ describe('CLI adapter conformance contract', () => {
     },
     {
       providerId: 'crush',
-      adapter: new CrushAdapter(),
+      adapter: new CrushAdapter({ workingDirectory: crushCwd }),
       completedRecord: {
         type: 'completed',
         output: 'crush done',
@@ -306,7 +314,7 @@ describe('CLI adapter conformance contract', () => {
   })
 
   it('crush keeps resume unsupported as an explicit contract', async () => {
-    const adapter = new CrushAdapter()
+    const adapter = new CrushAdapter({ workingDirectory: crushCwd })
 
     await expect(drainEvents(adapter.resumeSession('sess-1', { prompt: 'resume' }))).rejects.toMatchObject({
       code: 'CAPABILITY_DENIED',

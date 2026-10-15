@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { CrushAdapter } from '../crush/crush-adapter.js'
 import { QwenAdapter } from '../qwen/qwen-adapter.js'
@@ -34,12 +37,17 @@ function terminalEventTypes(events: AgentEvent[]): Array<'adapter:completed' | '
     .map((event) => event.type)
 }
 
+// Crush refuses project config (.crushrc, crush.json, ...) in any ancestor of its cwd, and a
+// workspace root may hold one, so Crush runs here use a private temp cwd, not process.cwd().
+const crushCwd = mkdtempSync(join(tmpdir(), 'crush-hermetic-cwd-'))
+afterAll(() => rmSync(crushCwd, { recursive: true, force: true }))
+
 describe('adapter chaos and fault-injection coverage', () => {
   const { mockIsBinaryAvailable, mockSpawnAndStreamJsonl } = getProcessHelperMocks()
 
   const cases: ChaosCase[] = [
     { name: 'qwen', adapter: new QwenAdapter() },
-    { name: 'crush', adapter: new CrushAdapter() },
+    { name: 'crush', adapter: new CrushAdapter({ workingDirectory: crushCwd }) },
   ]
 
   beforeEach(() => {
