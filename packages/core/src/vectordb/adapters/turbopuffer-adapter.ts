@@ -18,6 +18,7 @@ import type {
   DistanceMetric,
 } from '../types.js'
 import { vectorHttpErrorToForgeError } from '../http-error.js'
+import { delay } from '../../utils/abortable-delay.js'
 
 /** Configuration for the Turbopuffer adapter */
 export interface TurbopufferAdapterConfig {
@@ -169,7 +170,7 @@ export class TurbopufferAdapter implements VectorStore {
       if (res.status === 429 && attempt < this.maxRetries) {
         const retryAfter = res.headers.get('retry-after')
         const delayMs = retryAfter ? Number(retryAfter) * 1000 : 1000 * (attempt + 1)
-        await this.sleep(delayMs)
+        await delay(delayMs)
         lastError = vectorHttpErrorToForgeError(
           res.status,
           `rate limited, attempt ${attempt + 1}`,
@@ -198,10 +199,6 @@ export class TurbopufferAdapter implements VectorStore {
     }
 
     throw lastError ?? vectorHttpErrorToForgeError(429, 'request failed after retries', 'turbopuffer')
-  }
-
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms))
   }
 
   // --- Collection lifecycle ---

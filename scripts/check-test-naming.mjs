@@ -13,6 +13,12 @@
  * A test filename is flagged when it matches /^w\d+/i (optionally with a
  * letter/dash suffix, e.g. `w15-h4-...`, `w1-w3-...`).
  *
+ * DZUPAGENT-TEST-L-22: audit-provenance names (`audit-coverage-regressions`,
+ * `audit-fixes`, `audit-findings`, ...) are refused the same way, with no
+ * allowlist: an audit scenario belongs in the spec of the module it exercises.
+ * Module names that merely contain "audit" (`audit-trail`, `compliance-audit`)
+ * are not flagged.
+ *
  * Usage:
  *   node scripts/check-test-naming.mjs               # fail on new violations
  *   node scripts/check-test-naming.mjs --report-only  # print, exit 0
@@ -28,6 +34,15 @@ const PACKAGES_DIR = join(ROOT, 'packages')
 const ALLOWLIST_FILE = join(__dirname, 'check-test-naming.allowlist.json')
 
 const WORK_ITEM_RE = /^w\d+/i
+export const AUDIT_PROVENANCE_RE = /(^|[-_.])audit[-_](coverage|regressions?|fix(es)?|findings?|remediations?)([-_.]|$)/i
+
+export function isWorkItemTestName(name) {
+  return WORK_ITEM_RE.test(name)
+}
+
+export function isAuditProvenanceTestName(name) {
+  return AUDIT_PROVENANCE_RE.test(name)
+}
 
 const reportOnly = process.argv.includes('--report-only')
 
@@ -60,8 +75,12 @@ function main() {
     if (!existsSync(srcDir)) continue
     for (const file of findTestFiles(srcDir)) {
       const name = basename(file)
-      if (!WORK_ITEM_RE.test(name)) continue
       const rel = relative(ROOT, file)
+      if (isAuditProvenanceTestName(name)) {
+        violations.push(rel)
+        continue
+      }
+      if (!isWorkItemTestName(name)) continue
       if (allowlist.has(rel)) {
         grandfathered.push(rel)
       } else {
@@ -76,7 +95,7 @@ function main() {
 
   if (violations.length > 0) {
     console.error(
-      `\n[check-test-naming] FAIL: ${violations.length} NEW work-item-named test file(s) found:\n` +
+      `\n[check-test-naming] FAIL: ${violations.length} NEW work-item- or audit-named test file(s) found:\n` +
         violations.map((f) => `  ${f}`).join('\n') +
         '\n\nName test files after the module/behavior they cover (e.g. ' +
         '`message-manager-compression.test.ts`), not after a ticket/work-item ' +
@@ -90,4 +109,4 @@ function main() {
   console.log('[check-test-naming] OK — no new work-item-named test files.')
 }
 
-main()
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) main()

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { test } from 'node:test'
@@ -565,4 +565,16 @@ test('the checked-in workspace coverage config has no ratchet inversions', () =>
   const repoRoot = new URL('../../', import.meta.url).pathname
   const config = loadCoverageThresholdConfig(repoRoot)
   assert.deepEqual(validateCoverageConfig(config), [])
+})
+
+test('no package vitest config declares inline coverage thresholds (DZUPAGENT-TEST-M-19)', () => {
+  // coverage-thresholds.json is the single source of coverage floors; an inline
+  // vitest `coverage.thresholds` block silently disagrees with it.
+  const packagesDir = new URL('../../packages/', import.meta.url).pathname
+  const offenders = readdirSync(packagesDir)
+    .map((name) => join(packagesDir, name, 'vitest.config.ts'))
+    .filter((configPath) => existsSync(configPath))
+    .filter((configPath) => /\bthresholds\s*:/.test(readFileSync(configPath, 'utf8')))
+    .map((configPath) => configPath.slice(packagesDir.length))
+  assert.deepEqual(offenders, [])
 })

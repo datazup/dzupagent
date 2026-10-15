@@ -1,7 +1,7 @@
 import { readdirSync, existsSync, readFileSync } from 'node:fs'
 import { basename, dirname, extname, join, relative } from 'node:path'
-import { execFileSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
+import { isRipgrepAvailable, runRipgrep } from './lib/ripgrep.mjs'
 
 // ---------------------------------------------------------------------------
 // ripgrep availability + node:fs fallback (DZUPAGENT-TEST-L-09)
@@ -10,18 +10,15 @@ import { pathToFileURL } from 'node:url'
 // without the ripgrep binary that used to crash the whole gate with an opaque
 // `spawnSync rg ENOENT`. We probe once and fall back to a node:fs walk so the
 // gate stays runnable everywhere (the behavior-based scan already reads file
-// contents anyway).
+// contents anyway). The probe and spawn live in scripts/lib/ripgrep.mjs.
 
-let ripgrepAvailable = null
 function hasRipgrep() {
-  if (ripgrepAvailable !== null) return ripgrepAvailable
-  try {
-    execFileSync('rg', ['--version'], { stdio: 'ignore' })
-    ripgrepAvailable = true
-  } catch {
-    ripgrepAvailable = false
-  }
-  return ripgrepAvailable
+  return isRipgrepAvailable()
+}
+
+function countOutputLines(output) {
+  const trimmed = output.trim()
+  return trimmed.length === 0 ? 0 : trimmed.split('\n').length
 }
 
 // Convert an rg-style `-g` glob into an anchored RegExp, mirroring the subset
@@ -264,20 +261,10 @@ function countTrueIntegrationTestFiles(srcPath, repoRoot) {
       }
     }).length
   }
-  try {
-    const output = execFileSync(
-      'rg',
-      ['-l', '-e', trueIntegrationMarkerPattern, srcPath, '-g', '*test.ts', '-g', '*test.tsx', '-g', '*test.mjs', '-g', '*test.mts'],
-      { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
-    )
-    const trimmed = output.trim()
-    return trimmed.length === 0 ? 0 : trimmed.split('\n').length
-  } catch (error) {
-    if (error && typeof error === 'object' && 'status' in error && error.status === 1) {
-      return 0
-    }
-    throw error
-  }
+  return countOutputLines(runRipgrep(
+    ['-l', '-e', trueIntegrationMarkerPattern, srcPath, '-g', '*test.ts', '-g', '*test.tsx', '-g', '*test.mjs', '-g', '*test.mts'],
+    { cwd: repoRoot },
+  ))
 }
 
 /**
@@ -298,21 +285,7 @@ function createContext(repoRoot) {
 }
 
 function rgCount(args, repoRoot) {
-  try {
-    const output = execFileSync('rg', args, {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-
-    const trimmed = output.trim()
-    return trimmed.length === 0 ? 0 : trimmed.split('\n').length
-  } catch (error) {
-    if (error && typeof error === 'object' && 'status' in error && error.status === 1) {
-      return 0
-    }
-    throw error
-  }
+  return countOutputLines(runRipgrep(args, { cwd: repoRoot }))
 }
 
 function countTestFiles(srcPath, patterns, repoRoot) {
@@ -743,16 +716,8 @@ function buildCapabilityReport(repoRoot = process.cwd()) {
     if (hasRipgrep()) {
       const rgArgs = ['--files', srcRelPath]
       for (const p of patterns) rgArgs.push('-g', p)
-      try {
-        const out = execFileSync('rg', rgArgs, {
-          cwd: repoRoot,
-          encoding: 'utf8',
-          stdio: ['ignore', 'pipe', 'pipe'],
-        }).trim()
-        if (out.length > 0) files = out.split('\n').map((f) => f.trim()).filter(Boolean)
-      } catch (err) {
-        if (!(err && typeof err === 'object' && 'status' in err && err.status === 1)) throw err
-      }
+      const out = runRipgrep(rgArgs, { cwd: repoRoot }).trim()
+      if (out.length > 0) files = out.split('\n').map((f) => f.trim()).filter(Boolean)
     } else {
       files = walkMatchingFiles(srcRelPath, patterns, repoRoot)
     }

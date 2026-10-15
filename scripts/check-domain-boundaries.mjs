@@ -38,31 +38,21 @@
  *   node scripts/check-domain-boundaries.mjs
  */
 
-import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { isRipgrepAvailable, runRipgrepLines, warnRipgrepFallback } from './lib/ripgrep.mjs'
 
 /**
  * DZUPAGENT-ARCH-C-02: `rg` is not guaranteed to be installed on every host
- * this gate runs on (it is absent on at least one CI/dev environment in
- * active use). Probe for it once, so the gate can fall back to a pure-Node
- * search instead of hard-crashing with an unhandled `ENOENT` from
- * `spawnSync`.
+ * this gate runs on. The shared helper (scripts/lib/ripgrep.mjs) probes for it
+ * once, so the gate can fall back to a pure-Node search instead of
+ * hard-crashing with an unhandled `ENOENT` from `spawnSync`.
  */
-function probeRipgrep() {
-  try {
-    execFileSync('rg', ['--version'], { stdio: 'ignore' })
-    return true
-  } catch {
-    return false
-  }
-}
-
-const ripgrepAvailable = probeRipgrep()
+const ripgrepAvailable = isRipgrepAvailable()
 if (!ripgrepAvailable) {
-  console.warn(
-    '[check-domain-boundaries] `rg` (ripgrep) is not installed on this host; ' +
-      'falling back to a pure-Node source scan for the domain-import check.',
+  warnRipgrepFallback(
+    'check-domain-boundaries',
+    'falling back to a pure-Node source scan for the domain-import check.',
   )
 }
 
@@ -104,20 +94,7 @@ const HONO_ROUTE_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'AL
  * Run ripgrep and return matching lines (empty array = no matches).
  */
 function rg(args) {
-  try {
-    const output = execFileSync('rg', args, {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-    return output.trim().split('\n').filter(Boolean)
-  } catch (error) {
-    // rg exits with code 1 when no matches are found — that is success here
-    if (error && typeof error === 'object' && 'status' in error && error.status === 1) {
-      return []
-    }
-    throw error
-  }
+  return runRipgrepLines(args, { cwd: repoRoot })
 }
 
 /**

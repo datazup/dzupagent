@@ -16,6 +16,7 @@
 
 import { KeyedTokenBucketRateLimiter } from "@dzupagent/security";
 import { ForgeError } from "../errors/forge-error.js";
+import { delay } from "../utils/abortable-delay.js";
 
 /** Configuration for {@link TokenBucket}. */
 export interface TokenBucketConfig {
@@ -150,11 +151,7 @@ export class TokenBucket {
         });
       }
 
-      await sleep(waitMs);
+      await delay(Math.max(0, waitMs));
     }
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
 }

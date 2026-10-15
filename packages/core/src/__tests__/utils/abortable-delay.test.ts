@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync } from 'node:fs'
+import { join, relative } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { delay } from '../../utils/abortable-delay.js'
 
@@ -60,5 +63,41 @@ describe('delay (abortable-delay)', () => {
       await delay(0, tracker.signal)
     }
     expect(tracker.count()).toBe(0)
+  })
+})
+
+describe('single sleep implementation in core (DZUPAGENT-ARCH-M-09)', () => {
+  const srcDir = fileURLToPath(new URL('../../', import.meta.url))
+  const promiseSleep = /setTimeout\(\s*resolve\s*[,)]|setTimeout\(\s*\(\)\s*=>\s*resolve\(\)\s*[,)]/
+
+  function productionSources(dir: string, out: string[] = []): string[] {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === '__tests__' || entry.name === 'node_modules') continue
+      const full = join(dir, entry.name)
+      if (entry.isDirectory()) productionSources(full, out)
+      else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts') && !entry.name.endsWith('.d.ts')) out.push(full)
+    }
+    return out
+  }
+
+  it('keeps promise-based sleeps out of production modules other than utils/abortable-delay.ts', () => {
+    const offenders = productionSources(srcDir)
+      .filter((file) => promiseSleep.test(readFileSync(file, 'utf8')))
+      .map((file) => relative(srcDir, file))
+    expect(offenders).toEqual([])
+  })
+
+  it('routes the former private sleep copies through the shared delay helper', () => {
+    for (const file of [
+      'rate-limit/token-bucket.ts',
+      'vectordb/embeddings/openai-embedding.ts',
+      'vectordb/embeddings/internal-embedding.ts',
+      'vectordb/adapters/turbopuffer-adapter.ts',
+      'protocol/a2a-client-adapter.ts',
+      'protocol/a2a-sse-stream-reconnect.ts',
+      'llm/invoke.ts',
+    ]) {
+      expect(readFileSync(join(srcDir, file), 'utf8'), file).toMatch(/utils\/abortable-delay\.js'|utils\/abortable-delay\.js"/)
+    }
   })
 })

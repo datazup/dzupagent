@@ -12,6 +12,7 @@ import {
 import { vectorHttpErrorToForgeError } from "../http-error.js";
 import type { ForgeError } from "../../errors/forge-error.js";
 import { calculateBackoff } from "../../utils/backoff.js";
+import { delay } from "../../utils/abortable-delay.js";
 
 export interface InternalEmbeddingConfig {
   /** Base URL of the internal embedder (default: 'http://localhost:8001') */
@@ -31,10 +32,6 @@ export interface InternalEmbeddingConfig {
 }
 
 const MAX_RETRY_DELAY_MS = 30_000;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 interface InternalEmbedResponse {
   dense: number[][];
@@ -89,7 +86,7 @@ export function createInternalEmbedding(
           multiplier: 2,
           jitter: true,
         });
-        await sleep(Math.min(backoffMs, MAX_RETRY_DELAY_MS));
+        await delay(Math.min(backoffMs, MAX_RETRY_DELAY_MS));
         continue;
       }
 

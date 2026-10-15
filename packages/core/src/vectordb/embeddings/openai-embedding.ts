@@ -11,6 +11,7 @@ import {
 import { vectorHttpErrorToForgeError } from "../http-error.js";
 import type { ForgeError } from "../../errors/forge-error.js";
 import { calculateBackoff } from "../../utils/backoff.js";
+import { delay } from "../../utils/abortable-delay.js";
 
 export interface OpenAIEmbeddingConfig {
   apiKey: string;
@@ -41,10 +42,6 @@ function parseRetryAfterMs(response: Response): number | null {
   const dateMs = Date.parse(header);
   if (!Number.isNaN(dateMs)) return dateMs - Date.now();
   return null;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 interface OpenAIEmbeddingResponseData {
@@ -113,7 +110,7 @@ export function createOpenAIEmbedding(
           Math.max(retryAfterMs ?? backoffMs, 0),
           MAX_RETRY_DELAY_MS
         );
-        await sleep(delayMs);
+        await delay(delayMs);
         continue;
       }
 

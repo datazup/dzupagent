@@ -19,12 +19,7 @@ export default defineConfig({
         'src/**/__fixtures__/**',
         'src/**/index.ts',
       ],
-      thresholds: {
-        statements: 40,
-        branches: 30,
-        functions: 30,
-        lines: 40,
-      },
+      // Thresholds managed centrally in coverage-thresholds.json.
     },
   },
 });

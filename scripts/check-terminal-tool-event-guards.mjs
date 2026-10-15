@@ -9,9 +9,9 @@
  *   node scripts/check-terminal-tool-event-guards.mjs
  */
 
-import { execFileSync } from 'node:child_process'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join, relative } from 'node:path'
+import { isRipgrepAvailable, runRipgrep, warnRipgrepFallback } from './lib/ripgrep.mjs'
 
 const DEFAULT_SEARCH_ROOT = 'packages'
 const DEFAULT_IGNORED_FILES = new Set([
@@ -21,36 +21,13 @@ const DEFAULT_IGNORED_FILES = new Set([
 
 const EVENT_MATCH_REGEX = /type:\s*['"]tool:(result|error)['"]/
 
-function probeRipgrep() {
-  try {
-    execFileSync('rg', ['--version'], { stdio: 'ignore' })
-    return true
-  } catch {
-    return false
-  }
-}
-
-const ripgrepAvailable = probeRipgrep()
+const ripgrepAvailable = isRipgrepAvailable()
 if (!ripgrepAvailable) {
-  console.warn(
-    '[check-terminal-tool-event-guards] `rg` (ripgrep) is not installed on this host; ' +
-      'falling back to a pure-Node source scan.',
-  )
+  warnRipgrepFallback('check-terminal-tool-event-guards')
 }
 
 function rg(args, cwd) {
-  try {
-    return execFileSync('rg', args, {
-      cwd,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-  } catch (error) {
-    if (error && typeof error === 'object' && 'status' in error && error.status === 1) {
-      return ''
-    }
-    throw error
-  }
+  return runRipgrep(args, { cwd })
 }
 
 function walkSourceFiles(dir, out = []) {

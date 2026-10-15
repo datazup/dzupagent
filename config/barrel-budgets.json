@@ -890,14 +890,6 @@
       "maxRootIndexLines": 435,
       "maxFileLines": 500,
       "fileLineDebtPins": {
-        "src/stages/shape-validate-rules/control-flow.ts": {
-          "maxLines": 666,
-          "shrinkTarget": 500,
-          "sourceSha256": "6422b8bc10c885fd37f17dcced95260041625928ccc21e34c92d3094e14ee289",
-          "sourceCommit": "c9ea639cdc3547c7e26fe01ac62b8a31297248fc",
-          "reviewBy": "2026-11-16",
-          "rationale": "RF-03: module was over the ceiling with no pin, so the gate was red. Frozen at its current 666 bytes-bound LOC pending extraction down to the 500-LOC target."
-        },
         "src/execution-mapper.ts": {
           "maxLines": 660,
           "shrinkTarget": 500,
