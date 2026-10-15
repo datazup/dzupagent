@@ -974,6 +974,42 @@ describe('POST /api/workflows/compile — subprocess SSE branch', () => {
     )
   })
 
+  it('passes the raw DSL source and the requested target to handleSubprocessCompile (DZUPAGENT-CODE-H-13)', async () => {
+    const dsl = 'dsl: dzupflow/v1\nid: raw_source\nversion: 1\nsteps:\n  - complete:\n      id: done\n      result: ok\n'
+    const app = buildApp()
+
+    await app.request('/api/workflows/compile?subprocess=true', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+      body: JSON.stringify({ dsl, target: 'pipeline' }),
+    })
+
+    expect(mockHandleSubprocessCompile).toHaveBeenCalledWith(
+      expect.anything(),
+      dsl,
+      expect.objectContaining({ requestedTarget: 'pipeline' }),
+    )
+  })
+
+  it('passes the document object to handleSubprocessCompile', async () => {
+    const document = {
+      dsl: 'dzupflow/v1',
+      id: 'doc_flow',
+      version: 1,
+      root: { type: 'sequence', id: 'root', nodes: [{ type: 'complete', id: 'done', result: 'ok' }] },
+    }
+    const app = buildApp()
+
+    const res = await app.request('/api/workflows/compile?subprocess=true', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+      body: JSON.stringify({ document }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(mockHandleSubprocessCompile).toHaveBeenCalledWith(expect.anything(), document, expect.anything())
+  })
+
   it('400 — validation still runs before subprocess branch (missing flow)', async () => {
     const app = buildApp()
 

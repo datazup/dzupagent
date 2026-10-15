@@ -54,8 +54,9 @@ export function applyMiddleware(
 ): ComposedMiddleware {
   applyCors(app, config);
   applySecurityHeaders(app, config);
-  applyRateLimit(app, config);
+  const rateLimit = applyRateLimit(app, config);
   const effectiveAuth = applyAuthAndRbac(app, config);
+  rateLimit.applyPostAuth();
   applyJsonBodySizeLimit(app, config);
   applyShutdownGuard(app, config);
   applyRequestMetrics(app, config);

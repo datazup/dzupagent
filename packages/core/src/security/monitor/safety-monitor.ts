@@ -71,6 +71,21 @@ export interface SafetyMonitorConfig {
   policy?: SecurityPolicyConfig;
 }
 
+/** A rule whose `check` threw during a scan, so its category went unscanned. */
+export interface SafetyRuleFailure {
+  ruleId: string;
+  category: SafetyCategory;
+  /** The rule's configured action, i.e. what a detection would have done. */
+  action: SafetyAction;
+}
+
+/** Result of {@link SafetyMonitor.scanContentDetailed}. */
+export interface SafetyScanResult {
+  violations: SafetyViolation[];
+  /** Rules that threw; empty when every rule produced a verdict. */
+  failedRules: SafetyRuleFailure[];
+}
+
 export interface SafetyMonitor {
   /** Attach to an event bus, subscribing to relevant events */
   attach(eventBus: DzupEventBus): void;
@@ -81,6 +96,16 @@ export interface SafetyMonitor {
     content: string,
     context?: Record<string, unknown>
   ): SafetyViolation[];
+  /**
+   * Like {@link scanContent}, but also reports the rules that threw. A failed
+   * rule is a category that was not scanned; callers enforcing a fail-closed
+   * policy must treat it as an unknown verdict, not as a clean one.
+   * Optional so that hand-written monitors stay valid implementations.
+   */
+  scanContentDetailed?(
+    content: string,
+    context?: Record<string, unknown>
+  ): SafetyScanResult;
   /** Get all recorded violations */
   getViolations(): ReadonlyArray<SafetyViolation>;
   /** Clear recorded violations and unsubscribe */
@@ -220,11 +245,12 @@ export function createSafetyMonitor(
     }
   }
 
-  function scanContent(
+  function scanContentDetailed(
     content: string,
     context?: Record<string, unknown>
-  ): SafetyViolation[] {
+  ): SafetyScanResult {
     const found: SafetyViolation[] = [];
+    const failedRules: SafetyRuleFailure[] = [];
     for (const rule of rules) {
       try {
         const violation = rule.check(content, context);
@@ -242,9 +268,21 @@ export function createSafetyMonitor(
           rule: rule.category,
           error: String(err),
         });
+        failedRules.push({
+          ruleId: rule.id,
+          category: rule.category,
+          action: rule.action,
+        });
       }
     }
-    return found;
+    return { violations: found, failedRules };
+  }
+
+  function scanContent(
+    content: string,
+    context?: Record<string, unknown>
+  ): SafetyViolation[] {
+    return scanContentDetailed(content, context).violations;
   }
 
   function attach(eventBus: DzupEventBus): void {
@@ -293,6 +331,7 @@ export function createSafetyMonitor(
     attach,
     detach,
     scanContent,
+    scanContentDetailed,
     getViolations: () => [...violations],
     dispose,
   };

@@ -6,6 +6,9 @@ import {
   TokenBucketLimiter,
   extractDefaultRateLimitKey,
 } from '../middleware/rate-limiter.js'
+import { createForgeApp } from '../app.js'
+import { InMemoryRunStore, InMemoryAgentStore, ModelRegistry, createEventBus } from '@dzupagent/core'
+import type { PostgresApiKeyStore, ApiKeyRecord } from '../persistence/api-key-store.js'
 
 describe('TokenBucketLimiter', () => {
   let limiter: TokenBucketLimiter
@@ -398,5 +401,101 @@ describe('rateLimiterMiddleware tier enforcement', () => {
     })
     expect(p1.status).toBe(200)
     expect(p1.headers.get('X-RateLimit-Limit')).toBe('3')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// DZUPAGENT-SEC-H-23: limiting through the composed app, with real auth.
+// ---------------------------------------------------------------------------
+
+describe('rate limiting through createForgeApp (DZUPAGENT-SEC-H-23)', () => {
+  function makeRecord(id: string, tier: string): ApiKeyRecord {
+    return {
+      id,
+      ownerId: `owner-${id}`,
+      name: id,
+      role: 'operator',
+      rateLimitTier: tier,
+      tenantId: 'default',
+      createdAt: new Date(),
+      expiresAt: null,
+      revokedAt: null,
+      lastUsedAt: null,
+      metadata: {},
+    }
+  }
+
+  function buildForgeApp() {
+    const records = new Map<string, ApiKeyRecord>([
+      ['raw-a', makeRecord('key-a', 'standard')],
+      ['raw-b', makeRecord('key-b', 'standard')],
+      ['raw-premium', makeRecord('key-premium', 'premium')],
+    ])
+    const apiKeyStore = {
+      validate: async (raw: string) => records.get(raw) ?? null,
+      create: async () => { throw new Error('not implemented') },
+      revoke: async () => {},
+      list: async () => [],
+      get: async () => null,
+    } as unknown as PostgresApiKeyStore
+    return createForgeApp({
+      runStore: new InMemoryRunStore(),
+      agentStore: new InMemoryAgentStore(),
+      eventBus: createEventBus(),
+      modelRegistry: new ModelRegistry(),
+      auth: { mode: 'api-key' },
+      apiKeyStore,
+      rateLimit: {
+        maxRequests: 2,
+        windowMs: 60_000,
+        tiers: { premium: { maxRequests: 5, windowMs: 60_000 } },
+      },
+    })
+  }
+
+  /** `@hono/node-server` exposes the socket as `c.env.incoming.socket`. */
+  function fromAddress(remoteAddress: string) {
+    return { incoming: { socket: { remoteAddress } } }
+  }
+
+  async function hammer(
+    app: ReturnType<typeof buildForgeApp>,
+    count: number,
+    address: string,
+    rawKey?: string,
+  ): Promise<number[]> {
+    const statuses: number[] = []
+    for (let i = 0; i < count; i++) {
+      const res = await app.request(
+        '/api/runs',
+        rawKey ? { headers: { Authorization: `Bearer ${rawKey}` } } : {},
+        fromAddress(address),
+      )
+      statuses.push(res.status)
+    }
+    return statuses
+  }
+
+  it('gives two authenticated keys on one address independent buckets', async () => {
+    const app = buildForgeApp()
+
+    expect(await hammer(app, 3, '198.51.100.7', 'raw-a')).toEqual([200, 200, 429])
+    expect(await hammer(app, 2, '198.51.100.7', 'raw-b')).toEqual([200, 200])
+  })
+
+  it('applies the tier limit of a key resolved by the real auth middleware', async () => {
+    const app = buildForgeApp()
+
+    const statuses = await hammer(app, 6, '198.51.100.8', 'raw-premium')
+    expect(statuses).toEqual([200, 200, 200, 200, 200, 429])
+  })
+
+  it('does not let an unauthenticated flood from one address 429 another', async () => {
+    const app = buildForgeApp()
+
+    expect(await hammer(app, 3, '203.0.113.1')).toEqual([401, 401, 429])
+    expect(await hammer(app, 1, '203.0.113.2')).toEqual([401])
+    // Authenticated traffic from the flooded address is not charged to it either.
+    expect(await hammer(app, 1, '203.0.113.2', 'raw-a')).toEqual([200])
   })
 })

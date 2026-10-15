@@ -66,7 +66,7 @@ export type {
 // --- Monitor ---
 export { createSafetyMonitor, getBuiltInRules } from './monitor/index.js'
 export type {
-  SafetyMonitor, SafetyMonitorConfig,
+  SafetyMonitor, SafetyMonitorConfig, SafetyScanResult, SafetyRuleFailure,
   SafetyCategory, SafetySeverity, SafetyAction, SafetyViolation, SafetyRule,
   InjectionScannerCallback, PiiScannerCallback,
 } from './monitor/index.js'

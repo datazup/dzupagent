@@ -45,6 +45,20 @@ describe('extractDefaultRateLimitKey', () => {
     expect(key).toMatch(/^ip:[a-f0-9]{64}$/)
   })
 
+  it('keys an unauthenticated request on its connection address (DZUPAGENT-SEC-H-23)', () => {
+    const a = extractDefaultRateLimitKey({
+      ...makeContext({}),
+      env: { incoming: { socket: { remoteAddress: '192.0.2.1' } } },
+    })
+    const b = extractDefaultRateLimitKey({
+      ...makeContext({}),
+      env: { incoming: { socket: { remoteAddress: '192.0.2.2' } } },
+    })
+    expect(a).toMatch(/^ip:[a-f0-9]{64}$/)
+    expect(a).not.toBe(b)
+    expect(a).not.toBe(extractDefaultRateLimitKey(makeContext({})))
+  })
+
   it('uses a resolved principal when available', () => {
     const key = extractDefaultRateLimitKey({
       ...makeContext({ Authorization: 'Bearer raw-token' }),

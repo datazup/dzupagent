@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { EventEmitter, Readable, PassThrough } from 'node:stream'
+import { secureLogger } from '@dzupagent/core/utils'
 import { buildCompileResultEvent } from '../routes/compile-result-event.js'
 
 // ---- child_process mock ----------------------------------------------------
@@ -136,7 +137,10 @@ const successLines = [
 ]
 
 describe('SpawnCompilerBridge', () => {
-  beforeEach(() => { spawnMock.mockClear() })
+  beforeEach(() => {
+    spawnMock.mockClear()
+    vi.restoreAllMocks()
+  })
 
   it('returns a sanitized 503 and logs one structured error when spawn fails', async () => {
     const child = new EventEmitter() as ChildMock
@@ -364,11 +368,13 @@ describe('SpawnCompilerBridge', () => {
     expect(eventTypes).toContain('flow:compile_failed')
 
     const failed = events.find((e) => e.event === 'flow:compile_failed')!
-    const payload = JSON.parse(failed.data) as { type: string; phase?: string; message?: string }
+    const payload = JSON.parse(failed.data) as { type: string; phase?: string; message?: string; compileId?: string }
     expect(payload.type).toBe('error')
     expect(payload.phase).toBe('subprocess')
     expect(payload.message).toMatch(/code=137/)
-    expect(payload.message).toMatch(/OOM killed by kernel/)
+    // DZUPAGENT-ERR-H-16: stderr is server-log only.
+    expect(failed.data).not.toMatch(/OOM killed by kernel/)
+    expect(payload.compileId).toBe(compileId)
     // Note that the discarded partial result is mentioned for diagnosis.
     expect(payload.message).toMatch(/partial result frame discarded/i)
   })
@@ -379,6 +385,7 @@ describe('SpawnCompilerBridge', () => {
     ]
     const child = makeChildWithExit(earlyExitLines, 1, 'fatal: bad input\n')
     spawnMock.mockReturnValueOnce(child)
+    const log = vi.spyOn(secureLogger, 'error').mockImplementation(() => undefined)
 
     const { stream, events } = makeStream()
     await handleSubprocessCompile(makeCtx(stream), {})
@@ -389,9 +396,16 @@ describe('SpawnCompilerBridge', () => {
     const payload = JSON.parse(failed!.data) as { type: string; phase?: string; message?: string }
     expect(payload.phase).toBe('subprocess')
     expect(payload.message).toMatch(/code=1/)
-    expect(payload.message).toMatch(/fatal: bad input/)
+    expect(failed!.data).not.toMatch(/fatal: bad input/)
     // No partial-result note when there was no buffered result.
     expect(payload.message).not.toMatch(/partial result frame/i)
+    // The server log carries the stderr text with the compileId.
+    expect(log).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'compile.subprocess.failed',
+      phase: 'subprocess',
+      compileId,
+      detail: 'fatal: bad input',
+    }))
   })
 
   it('reports a subprocess failure when child is killed by a signal (code=null)', async () => {
@@ -407,6 +421,102 @@ describe('SpawnCompilerBridge', () => {
     const payload = JSON.parse(failed!.data) as { type: string; phase?: string; message?: string }
     expect(payload.message).toMatch(/code=null/)
     expect(payload.message).toMatch(/signal=SIGKILL/)
+    expect(failed!.data).not.toMatch(/killed by SIGKILL/)
+  })
+
+  it('redacts the raw message of a child error frame and logs it with the compileId', async () => {
+    const lines = [
+      JSON.stringify({ type: 'error', phase: 'compile', compileId, message: 'TypeError at /srv/app/node_modules/x.js:12' }),
+    ]
+    const child = makeChildWithExit(lines, 0)
+    spawnMock.mockReturnValueOnce(child)
+    const log = vi.spyOn(secureLogger, 'error').mockImplementation(() => undefined)
+
+    const { stream, events } = makeStream()
+    await handleSubprocessCompile(makeCtx(stream), {})
+
+    const failed = events.find((e) => e.event === 'flow:compile_failed')!
+    expect(failed.data).not.toMatch(/node_modules|TypeError/)
+    expect(JSON.parse(failed.data)).toMatchObject({ type: 'error', phase: 'compile', compileId })
+    expect(log).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'compile.subprocess.failed',
+      compileId,
+      detail: 'TypeError at /srv/app/node_modules/x.js:12',
+    }))
+  })
+
+  it('projects internal child diagnostics and keeps authored ones', async () => {
+    const lines = [
+      JSON.stringify({
+        type: 'error',
+        phase: 'compile',
+        compileId,
+        errors: [
+          { stage: 3, code: 'TOOL_RESOLVER_INFRA_ERROR', message: 'db-7 at 10.0.0.4 timed out', nodePath: 'root' },
+          { stage: 2, code: 'MISSING_REQUIRED_FIELD', message: 'bad shape', nodePath: 'root.steps[0]' },
+        ],
+      }),
+    ]
+    const child = makeChildWithExit(lines, 0)
+    spawnMock.mockReturnValueOnce(child)
+    vi.spyOn(secureLogger, 'error').mockImplementation(() => undefined)
+
+    const { stream, events } = makeStream()
+    await handleSubprocessCompile(makeCtx(stream), {})
+
+    const failed = events.find((e) => e.event === 'flow:compile_failed')!
+    expect(failed.data).not.toMatch(/10\.0\.0\.4/)
+    const payload = JSON.parse(failed.data) as { errors: Array<{ code: string; message: string }> }
+    expect(payload.errors).toEqual([
+      expect.objectContaining({ code: 'TOOL_RESOLVER_INFRA_ERROR', message: expect.stringMatching(/internal error/) }),
+      expect.objectContaining({ code: 'MISSING_REQUIRED_FIELD', message: 'bad shape' }),
+    ])
+  })
+
+  it('does not echo malformed child stdout to the client', async () => {
+    const child = makeChild(['SECRET_LOOKING_STDOUT /home/x'])
+    spawnMock.mockReturnValueOnce(child)
+    vi.spyOn(secureLogger, 'error').mockImplementation(() => undefined)
+
+    const { stream, events } = makeStream()
+    await handleSubprocessCompile(makeCtx(stream), {})
+
+    const failed = events.find((e) => e.event === 'flow:compile_failed')!
+    expect(JSON.parse(failed.data)).toMatchObject({ phase: 'protocol' })
+    expect(failed.data).not.toMatch(/SECRET_LOOKING_STDOUT/)
+  })
+
+  it('reports TARGET_MISMATCH instead of a result when the routed target differs', async () => {
+    const child = makeChildWithExit(successLines, 0)
+    spawnMock.mockReturnValueOnce(child)
+    const publish = vi.fn()
+
+    const { stream, events } = makeStream()
+    await handleSubprocessCompile(makeCtx(stream), { type: 'action', tool: 't' }, {
+      requestedTarget: 'pipeline',
+      eventGateway: { publish } as never,
+    })
+
+    expect(events.map((e) => e.event)).not.toContain('flow:compile_result')
+    const failed = events.find((e) => e.event === 'flow:compile_failed')!
+    expect(JSON.parse(failed.data)).toMatchObject({
+      type: 'error',
+      compileId,
+      errors: [expect.objectContaining({ code: 'TARGET_MISMATCH', stage: 4 })],
+    })
+    expect(publish).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'flow:compile_result' }))
+  })
+
+  it('emits the result when the requested target matches', async () => {
+    const child = makeChildWithExit(successLines, 0)
+    spawnMock.mockReturnValueOnce(child)
+
+    const { stream, events } = makeStream()
+    await handleSubprocessCompile(makeCtx(stream), { type: 'action', tool: 't' }, {
+      requestedTarget: 'skill-chain',
+    })
+
+    expect(events[events.length - 1]?.event).toBe('flow:compile_result')
   })
 
   it('still emits flow:compile_result when child exits cleanly (code=0) — sanity', async () => {

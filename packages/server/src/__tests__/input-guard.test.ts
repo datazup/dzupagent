@@ -10,6 +10,7 @@ import {
 import type { Run } from '@dzupagent/core'
 import { InMemoryRunQueue } from '../queue/run-queue.js'
 import { startRunWorker, type RunExecutor } from '../runtime/run-worker.js'
+import { createSafetyMonitor as createSourceSafetyMonitor } from '../../../core/src/security/monitor/safety-monitor.js'
 
 describe('createInputGuard', () => {
   describe('maxInputLength', () => {
@@ -176,11 +177,17 @@ describe('createInputGuard', () => {
       expect(typeof result.allowed).toBe('boolean')
     })
 
-    it('fails closed with an unknown scan status when the scanner throws', async () => {
-      const safetyMonitor = createSafetyMonitor()
-      vi.spyOn(safetyMonitor, 'scanContent').mockImplementation(() => {
-        throw new Error('scanner unavailable')
-      })
+    // DZUPAGENT-ERR-H-80: the real monitor isolates a throwing rule instead of
+    // throwing, so these use a real monitor whose injection scanner throws.
+    // The monitor comes from the core source in this checkout: the guard
+    // depends on `scanContentDetailed`, which a stale core build lacks.
+    const throwingInjectionScanner = (): never => {
+      throw new Error('scanner unavailable')
+    }
+
+    it('fails closed with an unknown scan status when the injection scanner throws', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      const safetyMonitor = createSourceSafetyMonitor({ injectionScanner: throwingInjectionScanner })
       const guard = createInputGuard({ safetyMonitor, redactPii: false })
 
       const result = await guard.scan('untrusted input')
@@ -189,13 +196,12 @@ describe('createInputGuard', () => {
       expect(result.reason).toBe('Input safety scanner unavailable')
       expect(result.scanStatus).toBe('unknown')
       expect(result.violations).toBeUndefined()
+      vi.restoreAllMocks()
     })
 
     it('does not forge a clean scan when explicitly configured to fail open', async () => {
-      const safetyMonitor = createSafetyMonitor()
-      vi.spyOn(safetyMonitor, 'scanContent').mockImplementation(() => {
-        throw new Error('scanner unavailable')
-      })
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      const safetyMonitor = createSourceSafetyMonitor({ injectionScanner: throwingInjectionScanner })
       const guard = createInputGuard({
         safetyMonitor,
         redactPii: false,
@@ -207,6 +213,55 @@ describe('createInputGuard', () => {
       expect(result.allowed).toBe(true)
       expect(result.scanStatus).toBe('unknown')
       expect(result.violations).toBeUndefined()
+      vi.restoreAllMocks()
+    })
+
+    it('still blocks a detected violation when another rule failed', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      const safetyMonitor = createSourceSafetyMonitor({ injectionScanner: throwingInjectionScanner })
+      const guard = createInputGuard({ safetyMonitor, redactPii: false, scanFailureMode: 'fail-open' })
+
+      const result = await guard.scan('use AKIAIOSFODNN7EXAMPLE to deploy')
+
+      expect(result.allowed).toBe(false)
+      expect(result.reason).toMatch(/^secret_leak:/)
+      vi.restoreAllMocks()
+    })
+
+    it('ignores a failed rule whose action could not block', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      const safetyMonitor = createSourceSafetyMonitor({
+        rules: [{
+          id: 'custom:log-only',
+          category: 'tool_abuse',
+          severity: 'warning',
+          action: 'log',
+          check() { throw new Error('boom') },
+        }],
+      })
+      const guard = createInputGuard({ safetyMonitor, redactPii: false })
+
+      const result = await guard.scan('benign input')
+
+      expect(result.allowed).toBe(true)
+      expect(result.scanStatus).toBeUndefined()
+      vi.restoreAllMocks()
+    })
+
+    it('fails closed when a monitor without scanContentDetailed throws', async () => {
+      const safetyMonitor = {
+        attach: () => undefined,
+        detach: () => undefined,
+        scanContent: () => { throw new Error('scanner unavailable') },
+        getViolations: () => [],
+        dispose: () => undefined,
+      }
+      const guard = createInputGuard({ safetyMonitor, redactPii: false })
+
+      const result = await guard.scan('untrusted input')
+
+      expect(result.allowed).toBe(false)
+      expect(result.scanStatus).toBe('unknown')
     })
   })
 })

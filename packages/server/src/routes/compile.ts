@@ -108,7 +108,7 @@ export function createCompileRoutes(config: CompileRouteConfig = {}): Hono<AppEn
     if (!normalizedInput.ok) {
       return c.json(failureBody(normalizedInput.diagnostics), 400)
     }
-    const { flowInput } = normalizedInput.value
+    const { flowInput, kind } = normalizedInput.value
     const runId = c.req.query('runId') ?? ''
     const invocationOptions = makeCompileInvocationOptions(body, normalizedInput.value, runId)
 
@@ -138,8 +138,14 @@ export function createCompileRoutes(config: CompileRouteConfig = {}): Hono<AppEn
 
     // Subprocess SSE branch (?subprocess=true) — only honoured when the client
     // also requests SSE; falls through to the JSON branch otherwise.
+    // DZUPAGENT-CODE-H-13: the child receives the authored source, not the
+    // canonicalized flowInput, so `dzupagent-compile` reaches compileDsl /
+    // compileDocument and keeps the dzupflow/v2 retry, catch and policy gates.
     if (wantsSse && c.req.query('subprocess') === 'true') {
-      return handleSubprocessCompile(c, flowInput, { eventGateway: config.eventGateway })
+      return handleSubprocessCompile(c, subprocessCompileInput(kind, body, flowInput), {
+        eventGateway: config.eventGateway,
+        requestedTarget,
+      })
     }
 
     if (wantsStageStream) {
@@ -180,4 +186,21 @@ export function createCompileRoutes(config: CompileRouteConfig = {}): Hono<AppEn
   })
 
   return app
+}
+
+/**
+ * The stdin payload for `dzupagent-compile`. Its input router compiles JSON
+ * text through the lossy `compile()` entry and only non-JSON text through
+ * `compileDsl`, so DSL goes as the raw source (the DSL's YAML subset rejects
+ * JSON-form input during normalization) and documents as the document object,
+ * which the CLI routes to `compileDocument`.
+ */
+function subprocessCompileInput(
+  kind: 'flow' | 'document' | 'dsl',
+  body: CompileRequestBody,
+  flowInput: string | object,
+): string | object {
+  if (kind === 'dsl') return body.dsl as string
+  if (kind === 'document') return body.document as object
+  return flowInput
 }
