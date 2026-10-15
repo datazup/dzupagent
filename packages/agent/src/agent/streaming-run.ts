@@ -47,6 +47,7 @@ import {
 import { runStreamFallback } from './streaming-run-fallback.js'
 import type { StreamRunContext } from './streaming-run-types.js'
 import { enforceAgentHardBudget } from './runtime-hard-budget.js'
+import { emitLlmInvoked } from './run-engine-generate-tool-loop.js'
 import { injectPromptCacheMarkersForModel } from '@dzupagent/context'
 import { hasExactGenerateContextSuffix } from './run-engine/generate-context.js'
 
@@ -92,6 +93,15 @@ export async function* streamRun(
   const optionsWithUsage: GenerateOptions | undefined = tokenPlugin
     ? omitUndefined({ ...(options ?? {}), onUsage: wrappedOnUsage })
     : options
+  // DZUPAGENT-AGENT-H-54 — the native stream path records usage per model
+  // call here, so it also emits the `llm:invoked` event the run-metrics bridge
+  // and compliance logger consume, matching the generate tool loop. The
+  // fallback branch below runs the generate tool loop, which emits it itself.
+  const streamRunId = options?.runId ?? ctx.config.toolExecution?.runId
+  const recordStreamUsage = (usage: TokenUsage): void => {
+    wrappedOnUsage?.(usage)
+    emitLlmInvoked(ctx.config.eventBus, ctx.agentId, streamRunId, usage)
+  }
 
   if (
     !('stream' in runState.model)
@@ -229,7 +239,7 @@ export async function* streamRun(
       chunks,
       activeModelName: opened.activeModelName,
       runState,
-      wrappedOnUsage,
+      wrappedOnUsage: recordStreamUsage,
     }))
 
     // Token lifecycle auto-compression — invoked AFTER usage has been

@@ -5,6 +5,7 @@ import type { ObservationalMemoryConfig } from '../observational-memory.js'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseStore } from '@langchain/langgraph'
 import { MemoryService } from '../memory-service.js'
+import { createStore } from '../store-factory.js'
 import { MemoryServiceObservationCandidateStore } from '../observation-candidate-store.js'
 import type { ObservationCandidateStore } from '../observation-candidate-store.js'
 import { HumanMessage, AIMessage } from '@langchain/core/messages'
@@ -91,6 +92,9 @@ function createMockMemoryService(
     ),
     search: vi.fn().mockResolvedValue(existingRecords),
     formatForPrompt: vi.fn().mockReturnValue('## Relevant Observations\n\nSome observation'),
+    getNamespaceTuple: vi.fn().mockImplementation(
+      (namespace: string, scope: Record<string, string>) => [namespace, ...Object.values(scope)],
+    ),
   } as unknown as MemoryService & {
     put: ReturnType<typeof vi.fn>
     get: ReturnType<typeof vi.fn>
@@ -783,6 +787,47 @@ describe('ObservationalMemory', () => {
 
       expect(result.before).toBe(10)
       expect(store.delete).toHaveBeenCalled()
+    })
+  })
+
+  describe('reflect() against a real MemoryService namespace (DZUPAGENT-AGENT-H-66)', () => {
+    it('prunes the lowest-confidence observations from the namespace MemoryService wrote', async () => {
+      const realStore = await createStore({ type: 'memory' })
+      const scope = { tenantId: 't1', agentId: 'a1' }
+      const realService = new MemoryService(realStore, [
+        { name: 'observations', scopeKeys: ['tenantId', 'agentId'] },
+      ])
+      // An unrelated namespace sharing the scope values must be untouched.
+      const otherService = new MemoryService(realStore, [
+        { name: 'facts', scopeKeys: ['tenantId', 'agentId'] },
+      ])
+      for (let i = 0; i < 8; i++) {
+        await realService.put('observations', scope, `obs-${i}`, {
+          text: `distinct observation number ${i} about topic ${String.fromCharCode(97 + i)}`,
+          confidence: (i + 1) / 10,
+        })
+      }
+      await otherService.put('facts', scope, 'fact-0', { text: 'keep me', confidence: 0.01 })
+
+      const om = new ObservationalMemory({
+        model: createMockModel(Array.from({ length: 50 }, () => JSON.stringify({ action: 'noop', reason: 'unique' }))),
+        memoryService: realService,
+        store: realStore,
+        namespace: 'observations',
+        scope,
+        observerDebounceMs: 0,
+        reflectorTargetCount: 5,
+        reflectorMaxLLMCalls: 0,
+      })
+
+      const result = await om.reflect()
+
+      expect(result.before).toBe(8)
+      expect(result.pruned).toBe(3)
+      expect(result.after).toBe(5)
+      const remaining = await realService.getKeyed('observations', scope)
+      expect(remaining.map(r => r.key).sort()).toEqual(['obs-3', 'obs-4', 'obs-5', 'obs-6', 'obs-7'])
+      expect(await otherService.get('facts', scope)).toHaveLength(1)
     })
   })
 

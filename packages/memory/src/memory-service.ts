@@ -147,6 +147,18 @@ export class MemoryService {
   // ---------- Read ------------------------------------------------------------
 
   /**
+   * The store namespace tuple records of `namespace` are written under for
+   * `scope`: `[namespace, ...scope values in scopeKeys order]`. Lets callers
+   * that operate on the raw store (e.g. the observational-memory reflector)
+   * address the same records as `put()`/`get()`.
+   *
+   * Throws on an unknown namespace or a missing scope key.
+   */
+  getNamespaceTuple(namespace: string, scope: Record<string, string>): string[] {
+    return buildNamespaceTuple(getNamespace(this.nsMap, namespace), scope)
+  }
+
+  /**
    * Retrieve records from a namespace.
    * If `key` is provided, fetches that single item; otherwise lists all via search.
    * Non-fatal: returns [] on error.

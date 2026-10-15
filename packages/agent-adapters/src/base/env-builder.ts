@@ -10,6 +10,13 @@ const DEFAULT_SENSITIVE_PATTERNS: RegExp[] = [
   /^JWT_SECRET$/i,
   /^COOKIE_SECRET$/i,
   /TOKEN(?!_LIMIT|_COUNT|S_PER)/i,
+  // Third-party provider keys (FOO_API_KEY, OPENAI_APIKEY), cloud access keys
+  // (AWS_ACCESS_KEY_ID) and credential file pointers
+  // (GOOGLE_APPLICATION_CREDENTIALS) are never inherited by a child CLI unless
+  // explicitly allow-listed via `envFilter.allowedVars`.
+  /API_?KEY/i,
+  /ACCESS_KEY/i,
+  /CREDENTIALS/i,
 ]
 
 /**

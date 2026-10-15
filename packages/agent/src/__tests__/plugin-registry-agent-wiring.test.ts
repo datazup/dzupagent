@@ -366,8 +366,9 @@ describe("pluginRegistry — plugin middleware reaches the run", () => {
   });
 
   it("pins the ONE first-wins seam: a plugin's wrapModelCall PRE-EMPTS the config's", async () => {
-    // `AgentMiddlewareRuntime.invokeModel` selects with `.find(...)`, i.e.
-    // FIRST-wins — the opposite of the other three seams. Plugins-first
+    // `AgentMiddlewareRuntime.invokeModel` composes wrappers with the FIRST
+    // outermost, so a short-circuiting first wrapper wins — the opposite of
+    // the other three seams. Plugins-first
     // therefore lets a plugin pre-empt the app here. That asymmetry is
     // pre-existing behaviour of the middleware runtime, and reordering the
     // merge to hide it would break the three last-wins seams. It is locked

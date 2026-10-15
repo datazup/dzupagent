@@ -61,6 +61,15 @@ import type { AdapterHealthMonitor } from "./health-monitor.js";
 import type { AdapterRegistryCore } from "./registry-core.js";
 import { resolveTaskTenantId, TagBasedRouter } from "./task-router.js";
 
+/**
+ * Yielded failure codes that report a cancellation rather than a provider
+ * fault; never recorded against the provider's circuit breaker.
+ */
+const CALLER_ABORT_FAILURE_CODES: ReadonlySet<string> = new Set([
+  "AGENT_ABORTED",
+  "ADAPTER_ABORTED",
+]);
+
 function isProviderRawStreamEvent(
   event: AgentStreamEvent
 ): event is Extract<AgentStreamEvent, { type: "adapter:provider_raw" }> {
@@ -300,6 +309,24 @@ export class AdapterRegistryRouter {
           outcome.usage
         );
         return undefined;
+      }
+      // DZUPAGENT-ERR-H-81 — a caller cancellation is not a provider fault.
+      // Adapters with `emitFailedOnAbort` report it by YIELDING an
+      // AGENT_ABORTED/ADAPTER_ABORTED failure instead of throwing; treat that
+      // (or any failure observed while the caller signal is aborted) like a
+      // thrown AGENT_ABORTED: no circuit-breaker failure, no provider:failed,
+      // no fallback to the next provider. A registry timeout stays a failure.
+      if (
+        !getDidTimeout() &&
+        (input.signal?.aborted === true ||
+          CALLER_ABORT_FAILURE_CODES.has(outcome.code))
+      ) {
+        throw new ForgeError({
+          code: "AGENT_ABORTED",
+          message: `Adapter ${providerId} run was cancelled by the caller`,
+          recoverable: false,
+          context: { providerId, adapterCode: outcome.code },
+        });
       }
       return handleAttemptFailure(
         this.health,

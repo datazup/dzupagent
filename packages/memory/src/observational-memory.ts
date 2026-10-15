@@ -39,6 +39,7 @@ import type { MemoryService } from './memory-service.js'
 import type { Observation } from './observation-extractor.js'
 import { ObservationExtractor } from './observation-extractor.js'
 import { SemanticConsolidator } from './semantic-consolidation.js'
+import { searchAllInNamespace } from './memory-service-store.js'
 import type { StagedRecord, StagedWriter } from './staged-writer.js'
 import { PolicyAwareStagedWriter } from './policy-aware-staged-writer.js'
 import { defaultWritePolicy } from './write-policy.js'
@@ -954,26 +955,33 @@ export class ObservationalMemory {
       maxLLMCalls: this.reflectorMaxLLMCalls,
     })
 
-    // Build the namespace tuple from NamespaceConfig via a search call
-    // to determine the store tuple. We search for one record and derive
-    // the namespace from it. Instead, we can build it from scope keys
-    // by matching the MemoryService convention (scope values as tuple).
-    const namespaceTuple = Object.values(scope)
+    // The store tuple MemoryService writes this namespace under:
+    // [namespace, ...scope values in scopeKeys order] (DZUPAGENT-AGENT-H-66 —
+    // `Object.values(scope)` omitted the namespace name, so consolidation and
+    // pruning never touched the real records).
+    let namespaceTuple: string[] | undefined
+    try {
+      namespaceTuple = memoryService.getNamespaceTuple(namespace, scope)
+    } catch {
+      namespaceTuple = undefined
+    }
 
     let llmCallsUsed = 0
     let merged = 0
 
-    try {
-      const result = await consolidator.consolidate(store, namespaceTuple)
-      llmCallsUsed = result.llmCallsUsed
-      merged = result.actions.filter(
-        a => a.decision.action === 'merge' ||
-             a.decision.action === 'update' ||
-             a.decision.action === 'noop' ||
-             a.decision.action === 'delete',
-      ).length
-    } catch {
-      // Consolidation failure is non-fatal — continue to pruning
+    if (namespaceTuple) {
+      try {
+        const result = await consolidator.consolidate(store, namespaceTuple)
+        llmCallsUsed = result.llmCallsUsed
+        merged = result.actions.filter(
+          a => a.decision.action === 'merge' ||
+               a.decision.action === 'update' ||
+               a.decision.action === 'noop' ||
+               a.decision.action === 'delete',
+        ).length
+      } catch {
+        // Consolidation failure is non-fatal — continue to pruning
+      }
     }
 
     // 3. If still over target, prune lowest-confidence entries
@@ -981,7 +989,7 @@ export class ObservationalMemory {
     try {
       const remaining = await memoryService.get(namespace, scope)
 
-      if (remaining.length > this.reflectorTargetCount) {
+      if (namespaceTuple && remaining.length > this.reflectorTargetCount) {
         // Sort by confidence ascending (lowest first)
         const withConfidence = remaining.map(r => ({
           value: r,
@@ -994,7 +1002,7 @@ export class ObservationalMemory {
 
         // Use store.search to find and delete entries by their text content.
         // This is necessary because MemoryService.get doesn't return keys.
-        const rawItems = await store.search(namespaceTuple, { limit: 500 })
+        const rawItems = await searchAllInNamespace(store, namespaceTuple)
         const keyMap = new Map<string, string>()
         for (const item of rawItems) {
           const text = typeof (item.value as Record<string, unknown>)['text'] === 'string'

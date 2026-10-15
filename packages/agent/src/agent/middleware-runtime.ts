@@ -72,28 +72,61 @@ export class AgentMiddlewareRuntime {
   }
 
   /**
+   * Run the model call through every `wrapModelCall` middleware, composed as
+   * an onion in configured order: the first wrapper is outermost, and each
+   * wrapper's `model.invoke(...)` enters the next wrapper, with the innermost
+   * reaching the real model. A wrapper that returns without calling
+   * `model.invoke` short-circuits the wrappers inside it (DZUPAGENT-AGENT-H-50:
+   * previously only the first wrapper ran at all).
+   *
    * @param options.signal Run/deadline cancellation (ORCH-DSL-L1-C-01). Passed
    *   through to `model.invoke` so providers that honour it stop work at the
-   *   source. Optional so existing callers are unaffected.
+   *   source. It is also exposed on each wrapper's context as `signal`, and is
+   *   injected into the real `model.invoke` call even when a wrapper invokes
+   *   the model without forwarding options. Optional so existing callers are
+   *   unaffected.
    */
   async invokeModel(
     model: BaseChatModel,
     messages: BaseMessage[],
     options: { signal?: AbortSignal } = {}
   ): Promise<BaseMessage> {
-    const wrapper = (this.config.middleware ?? []).find(
-      (middleware) => typeof middleware.wrapModelCall === "function"
-    );
-
-    if (wrapper?.wrapModelCall) {
-      return wrapper.wrapModelCall(model, messages, {
-        agentId: this.config.agentId,
-      });
+    const { signal } = options;
+    const wrappers: WrapModelCall[] = [];
+    for (const middleware of this.config.middleware ?? []) {
+      const wrap = middleware.wrapModelCall;
+      if (typeof wrap === "function") {
+        // Keep the middleware as `this`, as the former method call did.
+        wrappers.push((m, msgs, config) => wrap.call(middleware, m, msgs, config));
+      }
     }
 
-    return options.signal
-      ? model.invoke(messages, { signal: options.signal })
-      : model.invoke(messages);
+    const [outermost, ...innerWrappers] = wrappers;
+    if (outermost === undefined) {
+      return signal
+        ? model.invoke(messages, { signal })
+        : model.invoke(messages);
+    }
+
+    const context: Record<string, unknown> = {
+      agentId: this.config.agentId,
+      ...(signal ? { signal } : {}),
+    };
+
+    // Innermost model: the real model, or (with a signal) a view of it whose
+    // `invoke` always carries the run signal.
+    let next: BaseChatModel = signal
+      ? withInvoke(model, (msgs, callOptions) =>
+          model.invoke(msgs, { ...(callOptions ?? {}), signal })
+        )
+      : model;
+
+    for (const wrapper of innerWrappers.reverse()) {
+      const inner = next;
+      next = withInvoke(model, (msgs) => wrapper(inner, msgs, context));
+    }
+
+    return outermost(next, messages, context);
   }
 
   async transformToolResult(
@@ -117,4 +150,29 @@ export class AgentMiddlewareRuntime {
 
     return current;
   }
+}
+
+type WrapModelCall = NonNullable<AgentMiddleware["wrapModelCall"]>;
+type InvokeOptions = Parameters<BaseChatModel["invoke"]>[1];
+
+/**
+ * A view of `model` whose `invoke` is replaced; every other member resolves on
+ * the real model (methods bound to it).
+ */
+function withInvoke(
+  model: BaseChatModel,
+  invoke: (
+    messages: BaseMessage[],
+    options?: InvokeOptions
+  ) => Promise<BaseMessage>
+): BaseChatModel {
+  return new Proxy(model, {
+    get(target, prop) {
+      if (prop === "invoke") return invoke;
+      const value: unknown = Reflect.get(target, prop, target);
+      return typeof value === "function"
+        ? (value as (...args: unknown[]) => unknown).bind(target)
+        : value;
+    },
+  });
 }

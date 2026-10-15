@@ -138,12 +138,15 @@ describe('Goose CLI convergence contract', () => {
 
   it('projects stdio, streamable HTTP, and builtin extensions only from explicit per-run descriptors', async () => {
     const { profile, workspace } = await fixtureProfile()
-    mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, args) {
+    mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, args, options) {
       expect(args).toEqual(expect.arrayContaining([
-        '--with-extension', "AUTH='secret value' 'node' 'server.js' '--safe'",
+        '--with-extension', "'node' 'server.js' '--safe'",
         '--with-streamable-http-extension', 'https://mcp.example.test/v1',
         '--with-builtin', 'developer',
       ]))
+      // DZUPAGENT-AGENT-H-47: the resolved value is in the child env, not argv.
+      expect(args.join('\n')).not.toContain('secret value')
+      expect(options!.env!['AUTH']).toBe('secret value')
       yield { type: 'text_result', content: 'ok' }
     })
     await collectEvents(new GooseAdapter({ cliBaseProfileRoot: profile }).execute(fullAccess({

@@ -65,7 +65,7 @@ describe('AgentMiddlewareRuntime', () => {
     expect(hook).toHaveBeenCalledWith({})
   })
 
-  it('uses the first wrapModelCall middleware and skips model.invoke fallback', async () => {
+  it('runs the first wrapModelCall outermost; a short-circuiting outer wrapper skips inner wrappers and model.invoke', async () => {
     let modelInvoked = false
     const model = {
       invoke: async () => {
@@ -88,9 +88,21 @@ describe('AgentMiddlewareRuntime', () => {
 
     expect(result).toBeInstanceOf(AIMessage)
     expect((result as AIMessage).content).toBe('wrapped-result')
-    expect(firstWrapper).toHaveBeenCalledWith(model, [message], { agentId: 'agent-2' })
+    expect(firstWrapper).toHaveBeenCalledWith(expect.anything(), [message], { agentId: 'agent-2' })
     expect(secondWrapper).not.toHaveBeenCalled()
     expect(modelInvoked).toBe(false)
+  })
+
+  it('passes the real model to a single wrapper when no signal is given', async () => {
+    const model = { invoke: vi.fn() }
+    const wrapper = vi.fn().mockResolvedValue(new AIMessage({ content: 'w' }))
+    const runtime = new AgentMiddlewareRuntime({
+      agentId: 'agent-2b',
+      middleware: [{ name: 'only', wrapModelCall: wrapper }],
+    })
+    const message = new HumanMessage('hello')
+    await runtime.invokeModel(model as never, [message])
+    expect(wrapper).toHaveBeenCalledWith(model, [message], { agentId: 'agent-2b' })
   })
 
   it('falls back to model.invoke when no wrapModelCall middleware exists', async () => {

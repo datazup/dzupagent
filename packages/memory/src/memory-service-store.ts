@@ -332,6 +332,32 @@ export interface KeyedMemoryRecord {
   value: Record<string, unknown>;
 }
 
+/** Page size for full-namespace reads. */
+export const FULL_READ_PAGE_SIZE = 500;
+/** Upper bound on records a full-namespace read returns. */
+export const FULL_READ_MAX_RECORDS = 50_000;
+
+/**
+ * Read a whole namespace with explicit, paginated `search` calls
+ * (DZUPAGENT-AGENT-H-40). LangGraph stores default `search` to 10 results, so
+ * an option-less call silently truncates every full read on Postgres.
+ */
+export async function searchAllInNamespace(
+  store: BaseStore,
+  tuple: string[],
+  pageSize: number = FULL_READ_PAGE_SIZE,
+  maxRecords: number = FULL_READ_MAX_RECORDS,
+): Promise<Awaited<ReturnType<BaseStore["search"]>>> {
+  const all: Awaited<ReturnType<BaseStore["search"]>> = [];
+  for (let offset = 0; offset < maxRecords; offset += pageSize) {
+    const limit = Math.min(pageSize, maxRecords - offset);
+    const page = await store.search(tuple, { limit, offset });
+    all.push(...page);
+    if (page.length < limit) break;
+  }
+  return all;
+}
+
 /**
  * Read every record in a namespace together with its store key.
  *
@@ -349,7 +375,7 @@ export async function getKeyedMemoryRecords(
 ): Promise<KeyedMemoryRecord[]> {
   const tuple = buildNamespaceTuple(ns, scope);
   try {
-    const items = await store.search(tuple);
+    const items = await searchAllInNamespace(store, tuple);
     return items.map((i) => ({
       key: i.key,
       value: i.value as Record<string, unknown>,
@@ -380,7 +406,7 @@ export async function getMemoryRecords(
       const item = await deps.store.get(tuple, key);
       results = item ? [item.value as Record<string, unknown>] : [];
     } else {
-      const items = await deps.store.search(tuple);
+      const items = await searchAllInNamespace(deps.store, tuple);
       results = items.map((i) => i.value as Record<string, unknown>);
     }
   } catch {
