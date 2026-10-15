@@ -72,7 +72,7 @@ export interface NodeIdempotencyKeyContext {
   /**
    * W1: a declared idempotency key lowered from the DSL
    * (`meta.mutation.idempotencyKey`). When a non-empty string it WINS — the
-   * returned key is the namespaced declared key (`dzup:v1:declared:{k}`) and the
+   * returned key is the namespaced declared key (`dzup:v1:declared:run:{runId}:{k}`) and the
    * canonical derivation is bypassed entirely. Absent ⇒ derived key, unchanged.
    */
   declaredKey?: string;
@@ -137,9 +137,14 @@ export function nodeIdempotencyKey(
     // 100-invoice loop charges one invoice. Scoping keeps the operator's intent
     // ("this work is exactly-once") while making the unit the item.
     // Outside a loop there is no scope and the key is unchanged.
+    // DZUPAGENT-AGENT-H-61: the declared key is scoped to the run. Unscoped,
+    // run 2..N of the same flow (or another tenant's run on a shared ledger)
+    // would replay run 1's output instead of executing. A resume of the same
+    // run keeps the same runId and therefore still replays.
+    const base = `dzup:v1:declared:run:${runId}:${declared}`;
     return context.scope === undefined
-      ? `dzup:v1:declared:${declared}`
-      : `dzup:v1:declared:${declared}:item:${context.scope.loopNodeId}:${context.scope.itemIndex}`;
+      ? base
+      : `${base}:item:${context.scope.loopNodeId}:${context.scope.itemIndex}`;
   }
 
   return materializeIdempotencyKey({

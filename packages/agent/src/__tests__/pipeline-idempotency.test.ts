@@ -15,6 +15,11 @@ import {
   nodeIdempotencyContext,
 } from "../pipeline/pipeline-shared/idempotency.js";
 import {
+  beginNodeUnderLedger,
+  CrossRunReplayError,
+} from "../pipeline/executor-internals/node-ledger-integration.js";
+import { InMemoryDurableNodeLedger } from "@dzupagent/core";
+import {
   canonicalInputDigest,
   materializeIdempotencyKey,
 } from "@dzupagent/runtime-contracts";
@@ -230,10 +235,10 @@ describe("nodeIdempotencyKey — canonical key format (N3 / N3b)", () => {
       input: { arguments: { id: 1 } },
     });
     expect(nodeIdempotencyKey("run-1", node.id, context)).toBe(
-      "dzup:v1:declared:order-123"
+      "dzup:v1:declared:run:run-1:order-123"
     );
     expect(nodeIdempotencyKey("run-1", node.id, { input: { id: 1 } })).not.toBe(
-      "dzup:v1:declared:order-123"
+      "dzup:v1:declared:run:run-1:order-123"
     );
   });
 });
@@ -272,7 +277,7 @@ describe("W1 durability wiring — declared-key short-circuit matrix (T1-T4, T7)
     const declared = nodeIdempotencyKey("run-1", "node-x", {
       declaredKey: "k",
     });
-    expect(declared).toBe("dzup:v1:declared:k");
+    expect(declared).toBe("dzup:v1:declared:run:run-1:k");
 
     const derived = nodeIdempotencyKey("run-1", "node-x");
     expect(declared).not.toBe(derived);
@@ -304,7 +309,7 @@ describe("W1 durability wiring — declared-key short-circuit matrix (T1-T4, T7)
       nodeIdempotencyContext(plainNode)
     );
 
-    expect(declaredKey).toBe("dzup:v1:declared:batch-key-1");
+    expect(declaredKey).toBe("dzup:v1:declared:run:run-batch:batch-key-1");
 
     const plainGolden = materializeIdempotencyKey({
       sourceHash: "",
@@ -404,7 +409,7 @@ describe("W1 durability wiring — declared-key short-circuit matrix (T1-T4, T7)
       loweredWithDecls.id,
       nodeIdempotencyContext(loweredWithDecls)
     );
-    expect(key).toBe("dzup:v1:declared:ticket-123");
+    expect(key).toBe("dzup:v1:declared:run:run-roundtrip:ticket-123");
 
     // Simulates the shape lowerAction produces for an action WITHOUT any
     // durability decls — must be identical to the pre-W1 baseline: a node
@@ -504,15 +509,15 @@ describe("E2 — item-scoped idempotency keys", () => {
       scope: { loopNodeId: "invoices", itemIndex: 1 },
     });
 
-    expect(item0).toBe("dzup:v1:declared:order-123:item:invoices:0");
-    expect(item1).toBe("dzup:v1:declared:order-123:item:invoices:1");
+    expect(item0).toBe("dzup:v1:declared:run:run-1:order-123:item:invoices:0");
+    expect(item1).toBe("dzup:v1:declared:run:run-1:order-123:item:invoices:1");
     expect(item0).not.toBe(item1);
   });
 
   it("a declared key OUTSIDE a loop is unchanged", () => {
     expect(
       nodeIdempotencyKey("run-1", "charge", { declaredKey: "order-123" })
-    ).toBe("dzup:v1:declared:order-123");
+    ).toBe("dzup:v1:declared:run:run-1:order-123");
   });
 
   it("the declared key still wins over the derived form when scoped", () => {
@@ -523,6 +528,46 @@ describe("E2 — item-scoped idempotency keys", () => {
       scope: { loopNodeId: "loop-1", itemIndex: 0 },
     });
 
-    expect(declared).toBe("dzup:v1:declared:k:item:loop-1:0");
+    expect(declared).toBe("dzup:v1:declared:run:run-1:k:item:loop-1:0");
+  });
+});
+
+describe("DZUPAGENT-AGENT-H-61 — declared keys are run-scoped on a shared ledger", () => {
+  it("two runs with the same declared key both execute; a resume of the same run replays", async () => {
+    const ledger = new InMemoryDurableNodeLedger();
+    const ctx = { declaredKey: "order-123" };
+    const key1 = nodeIdempotencyKey("run-1", "charge", ctx);
+    const key2 = nodeIdempotencyKey("run-2", "charge", ctx);
+    expect(key1).not.toBe(key2);
+
+    const first = await beginNodeUnderLedger(ledger, "run-1", "charge", key1, "run-1", Date.now());
+    expect(first.kind).toBe("lease");
+    if (first.kind !== "lease") throw new Error("unreachable");
+    await ledger.complete({
+      runId: "run-1",
+      nodeId: "charge",
+      idempotencyKey: key1,
+      fenceToken: first.lease.fenceToken,
+      output: { charged: "run-1" },
+    });
+
+    const second = await beginNodeUnderLedger(ledger, "run-2", "charge", key2, "run-2", Date.now());
+    expect(second.kind).toBe("lease");
+
+    const resume = await beginNodeUnderLedger(ledger, "run-1", "charge", key1, "run-1", Date.now());
+    expect(resume).toEqual({ kind: "replay", output: { charged: "run-1" } });
+  });
+
+  it("refuses to replay a completion recorded by a different run", async () => {
+    const ledger = {
+      getByIdempotencyKey: async () => ({ runId: "run-1", output: { charged: "run-1" } }),
+      acquire: async () => null,
+      heartbeat: async () => true,
+      complete: async () => undefined,
+      fail: async () => undefined,
+    };
+    await expect(
+      beginNodeUnderLedger(ledger, "run-2", "charge", "legacy-key", "run-2", Date.now()),
+    ).rejects.toBeInstanceOf(CrossRunReplayError);
   });
 });

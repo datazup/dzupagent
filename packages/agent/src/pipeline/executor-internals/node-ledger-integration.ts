@@ -29,6 +29,24 @@ export type BeginNodeOutcome =
   | { kind: "lease"; lease: NodeLeaseLike }
   | { kind: "busy" };
 
+/**
+ * Thrown by {@link beginNodeUnderLedger} when the ledger holds a completion for
+ * the idempotency key that belongs to a different run.
+ */
+export class CrossRunReplayError extends Error {
+  readonly code = "NODE_LEDGER_CROSS_RUN_REPLAY";
+  constructor(
+    readonly idempotencyKey: string,
+    readonly priorRunId: string,
+    readonly runId: string,
+  ) {
+    super(
+      `Refusing to replay node output recorded by run ${priorRunId} into run ${runId}`,
+    );
+    this.name = "CrossRunReplayError";
+  }
+}
+
 /** Handle for a running heartbeat loop. */
 export interface HeartbeatHandle {
   /**
@@ -117,6 +135,11 @@ export async function beginNodeUnderLedger(
 ): Promise<BeginNodeOutcome> {
   const prior = await ledger.getByIdempotencyKey(idempotencyKey);
   if (prior !== undefined) {
+    // DZUPAGENT-AGENT-H-61: never hand one run another run's output. Keys are
+    // run-scoped, so a mismatch means a legacy or colliding row — refuse it.
+    if (typeof prior.runId === "string" && prior.runId !== runId) {
+      throw new CrossRunReplayError(idempotencyKey, prior.runId, runId);
+    }
     return { kind: "replay", output: prior.output };
   }
   const lease = (await ledger.acquire(

@@ -805,12 +805,12 @@ steps:
     expect(validateHandler).toHaveBeenCalledTimes(1);
     expect(seen.arguments).toEqual({ ref: "schema.review" });
     expect(seen.initialState).toEqual({ document: "draft" });
-    expect(seen.idempotencyKey).toBe("dzup:v1:declared:review-validate");
+    expect(seen.idempotencyKey).toBe(`dzup:v1:declared:run:${result.runId}:review-validate`);
 
     const checkpoint = await checkpointStore.load(result.runId);
     expect(checkpoint?.completedNodeIds).toEqual([runtimeNode.id]);
     expect(checkpoint?.nodeIdempotencyKeys).toEqual({
-      [runtimeNode.id]: "dzup:v1:declared:review-validate",
+      [runtimeNode.id]: `dzup:v1:declared:run:${result.runId}:review-validate`,
     });
     expect(checkpoint?.events?.some((event) => event.type === "pipeline:node_completed")).toBe(
       true,
