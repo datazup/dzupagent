@@ -19,6 +19,7 @@ const mockQuery = vi.fn()
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: mockQuery }))
 
 const { ClaudeAgentAdapter } = await import('../claude/claude-adapter.js')
+const { buildQueryOptions } = await import('../claude/claude-query-builder.js')
 
 const system = { type: 'system', subtype: 'init', session_id: 'sess-sdk', model: 'claude-opus-5-5', tools: ['Read'] }
 const result = { type: 'result', subtype: 'success', result: 'Done', session_id: 'sess-sdk', duration_ms: 10 }
@@ -121,5 +122,23 @@ describe('Claude SDK tool events (A22-C1-CLAUDE-TOOL-EVENTS-20261015-R1)', () =>
     ])
 
     expect(events.find(e => e.type === 'adapter:message')).toMatchObject({ content: 'legacy' })
+  })
+
+  it('restricts available SDK tools to the policy allowlist, not only auto-approval', () => {
+    const built = buildQueryOptions({
+      input: {
+        prompt: 'inspect',
+        policyContext: {
+          activePolicy: { allowedTools: ['Read', 'Grep', 'Glob', 'Bash'], blockedTools: ['Write', 'Edit'] },
+          conformanceMode: 'warn-only',
+        },
+      } as never,
+      config: { providerOptions: { tools: ['TodoWrite', 'Agent'] } },
+      interactionPolicy: { mode: 'auto-approve' },
+    })
+
+    expect(built.options['allowedTools']).toEqual(['Read', 'Grep', 'Glob', 'Bash'])
+    expect(built.options['tools']).toEqual(['Read', 'Grep', 'Glob', 'Bash'])
+    expect(built.options['disallowedTools']).toEqual(['Write', 'Edit'])
   })
 })
