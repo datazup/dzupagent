@@ -798,6 +798,63 @@ describe('POST /api/workflows/compile — SSE in-process branch', () => {
     })
   })
 
+  it('SSE stream reports TARGET_MISMATCH instead of a result for a mismatched target (DZUPAGENT-CODE-M-17)', async () => {
+    let capturedBus: DzupEventBus | null = null
+
+    mockCreateFlowCompiler.mockImplementationOnce(
+      (cfg: FlowCompilerOptions) => {
+        capturedBus = cfg.eventBus ?? null
+        return {
+          compile: vi.fn().mockImplementationOnce(async () => {
+            capturedBus?.emit({ type: 'flow:compile_started', compileId: 'c-tm', inputKind: 'object' })
+            capturedBus?.emit({ type: 'flow:compile_completed', compileId: 'c-tm', target: 'skill-chain', durationMs: 3 })
+            return SUCCESS_RESULT
+          }),
+        }
+      },
+    )
+
+    const gateway = new InMemoryEventGateway()
+    const published: string[] = []
+    gateway.subscribe({}, (envelope) => {
+      published.push(envelope.payload.type)
+    })
+    const app = buildApp({ eventGateway: gateway })
+    const res = await postCompile(
+      app,
+      { flow: { type: 'action', tool: 't' }, target: 'pipeline' },
+      { Accept: 'text/event-stream' },
+    )
+
+    const raw = await readSSERaw(res, 3000, 'error')
+    const pairs = parseSSEPairs(raw)
+    expect(pairs.map((p) => p.event)).not.toContain('flow:compile_result')
+    const errorEvent = pairs.find((p) => p.event === 'error')
+    expect(errorEvent).toBeDefined()
+    expect(JSON.parse(errorEvent!.data)).toMatchObject({
+      ok: false,
+      compileId: 'cid-abc-123',
+      errors: [expect.objectContaining({ code: 'TARGET_MISMATCH', stage: 4 })],
+    })
+    expect(published).not.toContain('flow:compile_result')
+  })
+
+  it('stage stream (?stream=true) reports TARGET_MISMATCH for a mismatched target', async () => {
+    mockCompile.mockResolvedValueOnce(SUCCESS_RESULT)
+
+    const app = buildApp()
+    const res = await app.request('/api/workflows/compile?stream=true', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ flow: { type: 'action', tool: 't' }, target: 'pipeline' }),
+    })
+
+    const pairs = parseSSEPairs(await res.text())
+    expect(pairs.map((p) => p.event)).not.toContain('result')
+    const errorEvent = pairs.find((p) => p.event === 'error')
+    expect(JSON.parse(errorEvent!.data)).toMatchObject({ code: 'TARGET_MISMATCH', compileId: 'cid-abc-123' })
+  })
+
   it('SSE stream emits flow:compile_failed when compiler emits failure event', async () => {
     let capturedBus: DzupEventBus | null = null
 

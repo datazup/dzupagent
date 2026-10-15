@@ -18,6 +18,7 @@ import { ConcreteRunHandle } from '@dzupagent/agent/runtime'
 import type { ForgeServerConfig } from '../../composition/types.js'
 import type { AppEnv } from '../../types.js'
 import { sanitizeRunForResponse } from '../../security/run-metadata-secrets.js'
+import { logRouteError } from '../route-error.js'
 import { parseIntBounded } from '../schemas.js'
 import {
   getRequestingKeyId,
@@ -177,12 +178,20 @@ export async function handleListCheckpoints(
   if (run instanceof Response) return run
 
   try {
+    // DZUPAGENT-ERR-H-74: a run with no journal entries has no checkpoints —
+    // the only case answered with an empty list. It is checked up front
+    // because fromRunId reports it with the same error class it uses for
+    // other states, so a catch-all could not tell it from a journal outage.
+    const entries = await config.journal.getAll(id)
+    if (entries.length === 0) {
+      return c.json({ data: { runId: id, checkpoints: [] } })
+    }
     const handle = await ConcreteRunHandle.fromRunId(id, config.journal)
     const checkpoints = await handle.getCheckpoints()
     return c.json({ data: { runId: id, checkpoints } })
-  } catch {
-    // fromRunId may throw if journal has no entries — treat as empty checkpoints
-    return c.json({ data: { runId: id, checkpoints: [] } })
+  } catch (err) {
+    const { safe } = logRouteError(c, 'runs.checkpoints', err, 503)
+    return c.json({ error: { code: 'CHECKPOINTS_UNAVAILABLE', message: safe } }, 503)
   }
 }
 

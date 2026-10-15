@@ -10,7 +10,7 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../types.js";
 import type { ForgeServerConfig } from "../composition/types.js";
-import { sanitizeError } from "./route-error.js";
+import { mapErrorToStatus, sanitizeError } from "./route-error.js";
 import { notFound } from "./crud-helpers.js";
 import { secureLogger } from "@dzupagent/core/utils";
 import type {
@@ -106,11 +106,19 @@ export function createSkillRoutes(
 
       return c.json({ data: results }, 201);
     } catch (err) {
+      // DZUPAGENT-ERR-H-68: only a typed client error (see mapErrorToStatus)
+      // is a 4xx validation failure; any other throw is a server fault.
+      const status = mapErrorToStatus(err, 500);
       const { safe, internal } = sanitizeError(err);
       secureLogger.error(`[skills] ${internal}`);
       return c.json(
-        { error: { code: "VALIDATION_ERROR", message: safe } },
-        400
+        {
+          error: {
+            code: status >= 500 ? "INTERNAL_ERROR" : "VALIDATION_ERROR",
+            message: safe,
+          },
+        },
+        status
       );
     }
   });

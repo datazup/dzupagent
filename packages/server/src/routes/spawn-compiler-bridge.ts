@@ -26,12 +26,13 @@ import type {
 } from '@dzupagent/flow-compiler'
 import type { DzupEvent } from '@dzupagent/core/events'
 import { secureLogger } from '@dzupagent/core/utils'
+import type { RunEventStore } from '@dzupagent/agent-adapters/runs'
 import type { EventGateway } from '../events/event-gateway.js'
 import { buildCompileResultEvent } from './compile-result-event.js'
 import { logRouteError } from './route-error.js'
 import {
+  finalizeCompileSuccess,
   logInternalCompileDiagnostics,
-  makeRouteDiagnostic,
   toPublicCompileDiagnostic,
 } from './compile/shared.js'
 
@@ -380,6 +381,8 @@ export interface SubprocessCompileOptions {
    * a `TARGET_MISMATCH` failure, as in the JSON branch.
    */
   requestedTarget?: CompilationTarget
+  /** Persists a success the same way as every in-process branch. */
+  runEventStore?: RunEventStore
 }
 
 /**
@@ -423,28 +426,26 @@ export async function handleSubprocessCompile(
         if (ac.signal.aborted) break
 
         if (line.type === 'result') {
-          const requestedTarget = options?.requestedTarget
-          if (requestedTarget !== undefined && line.target !== requestedTarget) {
-            const errors = [
-              makeRouteDiagnostic(
-                4,
-                'TARGET_MISMATCH',
-                `Requested target "${requestedTarget}" does not match compiler-routed target "${line.target}"`,
-              ),
-            ]
+          // Target assertion, gateway publish and persistence are shared
+          // with every in-process branch (DZUPAGENT-CODE-M-17).
+          const finalized = finalizeCompileSuccess(line, {
+            requestedTarget: options?.requestedTarget,
+            runId,
+            config: { eventGateway: options?.eventGateway, runEventStore: options?.runEventStore },
+          })
+          if (!finalized.ok) {
             await stream.writeSSE({
               event: 'flow:compile_failed',
               data: JSON.stringify({
                 type: 'error',
                 phase: 'target',
                 compileId: line.compileId,
-                message: errors[0]!.message,
-                errors,
+                message: finalized.failure.error,
+                errors: finalized.failure.errors,
               }),
             })
             continue
           }
-          options?.eventGateway?.publish(buildCompileResultEvent(line))
           await stream.writeSSE({
             event: 'flow:compile_result',
             data: JSON.stringify(buildCompileResultEvent(line)),

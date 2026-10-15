@@ -14,7 +14,11 @@
  * helpers below to preserve the original public import surface.
  */
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { mapErrorToStatus, sanitizeError } from "./route-error.js";
+import {
+  isClientSafeError,
+  mapErrorToStatus,
+  sanitizeError,
+} from "./route-error.js";
 import type {
   EvalOrchestratorLike,
   EvalRunStatus,
@@ -248,6 +252,13 @@ function isInvalidStateError(error: unknown): boolean {
   return code === "INVALID_STATE";
 }
 
+const EVAL_NOT_FOUND_MESSAGE = "Eval resource not found";
+
+function isNodeSystemError(error: Error): boolean {
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" && code.startsWith("ERR_");
+}
+
 export function mapEvalRouteError(error: unknown): EvalRouteErrorResponse {
   if (isExecutionUnavailableError(error)) {
     return {
@@ -266,10 +277,20 @@ export function mapEvalRouteError(error: unknown): EvalRouteErrorResponse {
   // ERR-M-04: derive not-found via the shared status mapper rather than an
   // inline English substring match. A non-404 error returns the 500 fallback,
   // which never equals 404, so it correctly falls through to the 500 branch.
-  if (error instanceof Error && mapErrorToStatus(error, 500) === 404) {
+  // DZUPAGENT-ERR-H-68: a Node system error (`ERR_MODULE_NOT_FOUND` and
+  // friends, whose message carries absolute paths) is an infrastructure
+  // failure, not a missing resource; and a 404 body carries a fixed message
+  // unless the error's message was authored for clients.
+  if (
+    error instanceof Error &&
+    !isNodeSystemError(error) &&
+    mapErrorToStatus(error, 500) === 404
+  ) {
     return {
       status: 404,
-      error: buildNotFoundError(error.message),
+      error: buildNotFoundError(
+        isClientSafeError(error) ? error.publicMessage : EVAL_NOT_FOUND_MESSAGE,
+      ),
     };
   }
 

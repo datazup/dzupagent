@@ -2,19 +2,19 @@
  * In-process SSE branch of `POST /compile` (Accept: text/event-stream).
  *
  * Streams `flow:compile_*` lifecycle events as they fire and emits a terminal
- * `flow:compile_result` event on success or `error` on failure. Persists the
- * compiled artifact to the configured `runEventStore` when a `runId` query
- * parameter is supplied.
+ * `flow:compile_result` event on success or `error` on failure (including a
+ * `TARGET_MISMATCH` against the requested target). Post-compile handling runs
+ * through `finalizeCompileSuccess`, the same step as every other branch.
  *
  * Extracted from `routes/compile.ts` (RF-23).
  */
 import type { Context } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { createEventBus } from '@dzupagent/core/events'
-import { secureLogger } from '@dzupagent/core/utils'
 import { createFlowCompiler } from '@dzupagent/flow-compiler'
 import type {
   AsyncPersonaResolver,
+  CompilationTarget,
   CompileInvocationOptions,
   PersonaResolver,
 } from '@dzupagent/flow-compiler'
@@ -26,6 +26,7 @@ import { buildCompileResultEvent } from '../compile-result-event.js'
 import {
   FORWARDED_FLOW_COMPILE_EVENT_TYPES,
   type CompileRouteConfig,
+  finalizeCompileSuccess,
   type ForwardedFlowCompileEvent,
   isCompileSuccessResult,
   isStreamErrorResult,
@@ -36,6 +37,7 @@ export interface SseCompileArgs {
   c: Context
   flowInput: string | object
   invocationOptions: CompileInvocationOptions
+  requestedTarget: CompilationTarget | undefined
   runId: string
   config: CompileRouteConfig
   effectivePersonaResolver: PersonaResolver | AsyncPersonaResolver | undefined
@@ -47,19 +49,12 @@ export async function handleSseCompile(args: SseCompileArgs): Promise<Response> 
     c,
     flowInput,
     invocationOptions,
+    requestedTarget,
     runId,
     config,
     effectivePersonaResolver,
     resolveToolResolver,
   } = args
-
-  // Optional runId query param: when provided, the compile artifact is
-  // persisted under this run rather than under the compileId. When absent
-  // and a runEventStore is configured we emit a warning and skip
-  // persistence so appendArtifact is never called with an undefined runId.
-  if (!runId && config.runEventStore) {
-    secureLogger.warn('SSE compile: runId missing, skipping persistence')
-  }
 
   // Expose the run correlation id as a response header for client traceability.
   if (runId) {
@@ -137,44 +132,28 @@ export async function handleSseCompile(args: SseCompileArgs): Promise<Response> 
       }
 
       const result = await compilePromise
-      if (!closed && isStreamErrorResult(result)) {
-        await stream.writeSSE({
-          event: 'error',
-          data: JSON.stringify({ error: result.__streamError }),
-        })
-      } else if (!closed && isCompileSuccessResult(result)) {
-        publishToGateway(config, buildCompileResultEvent(result))
-        await stream.writeSSE({
-          event: 'flow:compile_result',
-          data: JSON.stringify(buildCompileResultEvent(result)),
-        })
-      }
-
-      if (
-        runId &&
-        config.runEventStore &&
-        isCompileSuccessResult(result)
-      ) {
-        // Persist the SSE compile result (fire-and-forget).
-        const r = result
-        config.runEventStore.appendArtifact({
-          runId,
-          providerId: 'claude',
-          timestamp: Date.now(),
-          artifactType: 'output',
-          path: `compile:${r.compileId}`,
-          action: 'created',
-          metadata: {
-            type: 'compile:completed',
-            target: r.target,
-            artifact: r.artifact,
-            evidence: r.evidence,
-            warnings: r.warnings,
-            reasons: r.reasons,
-          },
-        }).catch(() => {
-          // Store errors are handled internally by RunEventStore (logged to stderr).
-        })
+      if (isStreamErrorResult(result)) {
+        if (!closed) {
+          await stream.writeSSE({
+            event: 'error',
+            data: JSON.stringify({ error: result.__streamError }),
+          })
+        }
+      } else if (isCompileSuccessResult(result)) {
+        // Target assertion, gateway publish and persistence (keyed on the
+        // optional runId, else the compileId) — DZUPAGENT-CODE-M-17.
+        const finalized = finalizeCompileSuccess(result, { requestedTarget, runId, config })
+        if (!closed && !finalized.ok) {
+          await stream.writeSSE({
+            event: 'error',
+            data: JSON.stringify(finalized.failure),
+          })
+        } else if (!closed) {
+          await stream.writeSSE({
+            event: 'flow:compile_result',
+            data: JSON.stringify(buildCompileResultEvent(result)),
+          })
+        }
       }
     } finally {
       unsubscribe()

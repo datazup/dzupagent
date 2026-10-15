@@ -27,6 +27,7 @@ import type { EventGateway } from '../../events/event-gateway.js'
 import type { PersonaStore } from '../../personas/persona-store.js'
 import { getSerializedJsonSizeBytes } from '../../validation/route-validator.js'
 import type { NormalizedCompileInput } from '../compile-input.js'
+import { buildCompileResultEvent } from '../compile-result-event.js'
 
 /** Allowed compilation targets — mirrors `CompilationTarget` in flow-compiler. */
 export const ALLOWED_TARGETS: readonly CompilationTarget[] = [
@@ -71,8 +72,9 @@ export interface CompileRouteConfig {
    */
   knowledgeIndexPath?: string
   /**
-   * Optional {@link RunEventStore} instance. When provided, a successful
-   * compile persists an artifact event (type `'other'`, action `'created'`)
+   * Optional {@link RunEventStore} instance. When provided, every successful
+   * compile on every branch persists one artifact event (type `'output'`,
+   * action `'created'`) — see {@link finalizeCompileSuccess} for the rule —
    * so that `/runs/:id/artifacts` can serve the compile result without
    * requiring a backfill pass. Errors from the store are silently suppressed
    * (the store already logs to stderr internally).
@@ -263,6 +265,92 @@ export function publishToGateway(config: CompileRouteConfig, event: DzupEvent): 
   } catch {
     // Shared publication is best-effort; compile route behavior must not fail.
   }
+}
+
+/**
+ * Producer identity recorded on compile artifacts. A compile result is made by
+ * the flow compiler, not by any adapter provider, and `AdapterProviderId` has
+ * no compiler member, so the required field carries this neutral value.
+ */
+export const COMPILE_ARTIFACT_PROVIDER_ID =
+  'flow-compiler' as Parameters<RunEventStore['appendArtifact']>[0]['providerId']
+
+/** The fields of a compiler success every branch can supply. */
+export interface CompileSuccessPayload {
+  compileId: string
+  target: CompilationTarget
+  artifact: unknown
+  warnings: readonly CompilationWarning[]
+  reasons?: readonly CompilationTargetReason[]
+  evidence?: FlowCompileEvidence
+}
+
+export interface FinalizeCompileOptions {
+  requestedTarget: CompilationTarget | undefined
+  /** Caller-supplied `?runId`, or `''` when absent. */
+  runId: string
+  config: Pick<CompileRouteConfig, 'eventGateway' | 'runEventStore'>
+}
+
+export type FinalizeCompileOutcome =
+  | { ok: true }
+  | { ok: false; failure: CompileFailureResponse }
+
+/**
+ * DZUPAGENT-CODE-M-17: the one post-compile step that every `/compile` branch
+ * (JSON, in-process SSE, `?stream=true` and subprocess SSE) runs on a
+ * compiler success, so the branches cannot diverge:
+ *
+ * 1. Target assertion — a requested target that differs from the routed one
+ *    is a `TARGET_MISMATCH` failure; nothing is published or persisted.
+ * 2. Publication of the terminal `flow:compile_result` event to the shared
+ *    gateway (best-effort).
+ * 3. Persistence — when a `runEventStore` is configured, every success is
+ *    appended once (fire-and-forget) under the caller's `?runId`, or under the
+ *    `compileId` when no runId was given, at path `compile:<compileId>`, with
+ *    the neutral {@link COMPILE_ARTIFACT_PROVIDER_ID}. A client that
+ *    disconnects from a streaming branch does not skip persistence.
+ */
+export function finalizeCompileSuccess(
+  result: CompileSuccessPayload,
+  options: FinalizeCompileOptions,
+): FinalizeCompileOutcome {
+  const { requestedTarget, runId, config } = options
+  if (requestedTarget !== undefined && result.target !== requestedTarget) {
+    const diagnostics = [
+      makeRouteDiagnostic(
+        4,
+        'TARGET_MISMATCH',
+        `Requested target "${requestedTarget}" does not match compiler-routed target "${result.target}"`,
+      ),
+    ]
+    return { ok: false, failure: failureBody(diagnostics, result.compileId) }
+  }
+
+  publishToGateway(config, buildCompileResultEvent(result))
+
+  if (config.runEventStore) {
+    config.runEventStore.appendArtifact({
+      runId: runId || result.compileId,
+      providerId: COMPILE_ARTIFACT_PROVIDER_ID,
+      timestamp: Date.now(),
+      artifactType: 'output',
+      path: `compile:${result.compileId}`,
+      action: 'created',
+      metadata: {
+        type: 'compile:completed',
+        target: result.target,
+        artifact: result.artifact,
+        evidence: result.evidence,
+        warnings: result.warnings,
+        reasons: result.reasons ?? [],
+      },
+    }).catch(() => {
+      // Store errors are handled internally by RunEventStore (logged to stderr).
+    })
+  }
+
+  return { ok: true }
 }
 
 export function makeCompileBus(

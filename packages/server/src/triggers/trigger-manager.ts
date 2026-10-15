@@ -5,6 +5,7 @@
  * Webhook triggers fire on demand via HTTP.
  * Chain triggers fire when a specified agent completes a run.
  */
+import { secureLogger } from '@dzupagent/core/utils'
 
 export type TriggerType = 'cron' | 'webhook' | 'chain'
 
@@ -73,6 +74,11 @@ export interface TriggerManagerOptions {
    * webhook + chain triggers. Defaults to false (legacy per-process cron).
    */
   externalCronSource?: boolean
+  /**
+   * Called once for every rejected `onTrigger` invocation (cron tick, webhook
+   * or chain), after the failure is logged. Errors thrown here are ignored.
+   */
+  onTriggerError?: (trigger: TriggerConfig, error: unknown) => void
 }
 
 export class TriggerManager {
@@ -80,12 +86,14 @@ export class TriggerManager {
   private cronTimers: Map<string, ReturnType<typeof setInterval>> = new Map()
   private started = false
   private readonly externalCronSource: boolean
+  private readonly onTriggerError: TriggerManagerOptions['onTriggerError']
 
   constructor(
     private readonly onTrigger: (trigger: TriggerConfig) => Promise<void>,
     options: TriggerManagerOptions = {},
   ) {
     this.externalCronSource = options.externalCronSource ?? false
+    this.onTriggerError = options.onTriggerError
   }
 
   register(trigger: AnyTrigger): void {
@@ -145,7 +153,7 @@ export class TriggerManager {
     const merged: TriggerConfig = payload
       ? { ...trigger, input: payload }
       : trigger
-    await this.onTrigger(merged)
+    await this.invokeReported(merged)
   }
 
   /** Notify completion of an agent run — fires matching chain triggers. */
@@ -154,10 +162,47 @@ export class TriggerManager {
       (t): t is ChainTriggerConfig =>
         t.type === 'chain' && t.enabled && t.afterAgentId === agentId,
     )
-    await Promise.all(chains.map((t) => this.onTrigger(t)))
+    await Promise.all(chains.map((t) => this.invokeReported(t)))
   }
 
   // --- Private helpers ---
+
+  /**
+   * Invoke `onTrigger` synchronously (so a timer tick fires in the same turn)
+   * and report a synchronous throw or a rejection before passing it on.
+   */
+  private invokeReported(trigger: TriggerConfig): Promise<void> {
+    let pending: Promise<void>
+    try {
+      pending = Promise.resolve(this.onTrigger(trigger))
+    } catch (err) {
+      pending = Promise.reject(err)
+    }
+    return pending.catch((err: unknown) => {
+      this.reportFailure(trigger, err)
+      throw err
+    })
+  }
+
+  /**
+   * DZUPAGENT-ERR-M-91: one structured log per failed firing, keyed on the
+   * trigger id. Only the error class is logged; the host callback's message
+   * may carry run input or driver detail.
+   */
+  private reportFailure(trigger: TriggerConfig, err: unknown): void {
+    secureLogger.error({
+      operation: 'trigger.fire_failed',
+      triggerId: trigger.id,
+      triggerType: trigger.type,
+      agentId: trigger.agentId,
+      errorClass: err instanceof Error ? err.name || err.constructor.name : typeof err,
+    })
+    try {
+      this.onTriggerError?.(trigger, err)
+    } catch {
+      // A failing observer must not turn into an unhandled rejection.
+    }
+  }
 
   private startCronTimer(trigger: AnyTrigger): void {
     if (trigger.type !== 'cron') return
@@ -168,7 +213,11 @@ export class TriggerManager {
     const intervalMs = cronToIntervalMs(trigger.schedule)
     const timer = setInterval(() => {
       if (trigger.enabled) {
-        void this.onTrigger(trigger)
+        // Timer callbacks have no caller to reject to: a rejection here would
+        // be unhandled (fatal under Node's default mode), so it is reported.
+        this.invokeReported(trigger).catch(() => {
+          // Already reported.
+        })
       }
     }, intervalMs)
     // Allow the process to exit even if timers are pending

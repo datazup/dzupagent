@@ -618,3 +618,62 @@ describe('Benchmark routes', () => {
     expect(invalidBody.error.message).toContain('cursor')
   })
 })
+
+describe('benchmark routes — infrastructure failures (DZUPAGENT-ERR-H-68)', () => {
+  class FailingStore extends InMemoryBenchmarkRunStore {
+    override async saveRun(): Promise<void> {
+      throw new Error('connect ECONNREFUSED 10.0.0.9:5432')
+    }
+  }
+
+  it('a store outage on POST /runs is a 5xx with a non-validation code and no raw text', async () => {
+    const app = createForgeApp(createTestConfig(new FailingStore()))
+    const res = await req(app, 'POST', '/api/benchmarks/runs', { suiteId: 'qa', targetId: 'target-1' })
+
+    expect(res.status).toBe(500)
+    const raw = await res.text()
+    expect(raw).not.toContain('ECONNREFUSED')
+    const body = JSON.parse(raw) as { error: { code: string } }
+    expect(body.error.code).toBe('INTERNAL_ERROR')
+    expect(body.error.code).not.toBe('VALIDATION_ERROR')
+  })
+
+  it('an unconfigured orchestrator answers 503', async () => {
+    const config = createTestConfig()
+    config.benchmark = { suites: { qa: defaultQaSuite }, executeTarget: async () => 'x' }
+    const app = createForgeApp(config)
+    const res = await req(app, 'POST', '/api/benchmarks/runs', { suiteId: 'qa', targetId: 'target-1' })
+
+    expect(res.status).toBe(503)
+    const body = await res.json() as { error: { code: string } }
+    expect(body.error.code).toBe('SERVICE_UNAVAILABLE')
+  })
+
+  it('a malformed JSON body is still a 400 validation error', async () => {
+    const app = createForgeApp(createTestConfig())
+    const res = await app.request('/api/benchmarks/runs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{not json',
+    })
+
+    expect(res.status).toBe(400)
+    const body = await res.json() as { error: { code: string } }
+    expect(body.error.code).toBe('VALIDATION_ERROR')
+  })
+
+  it('a baseline for a run of another suite is a typed 400, not a 5xx', async () => {
+    const store = new InMemoryBenchmarkRunStore()
+    const app = createForgeApp(createTestConfig(store))
+    const created = await req(app, 'POST', '/api/benchmarks/runs', { suiteId: 'qa', targetId: 'target-1' })
+    const run = (await created.json() as { data: { id: string } }).data
+
+    const res = await req(app, 'PUT', '/api/benchmarks/baselines/other-suite', {
+      targetId: 'target-1',
+      runId: run.id,
+    })
+    expect(res.status).toBe(400)
+    const body = await res.json() as { error: { code: string } }
+    expect(body.error.code).toBe('BASELINE_UPDATE_FAILED')
+  })
+})

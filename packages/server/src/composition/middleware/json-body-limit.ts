@@ -1,7 +1,13 @@
 /**
  * JSON body-size-guard middleware slice of the Hono app composition. Extracted
  * from the legacy `composition/middleware.ts` god-module (DZUPAGENT-ARCH-M-06).
- * Behaviour is unchanged, including the SEC-M-04 streaming size check.
+ * Includes the SEC-M-04 streaming size check.
+ *
+ * DZUPAGENT-SEC-H-25: the cap applies to every POST/PUT/PATCH body whatever
+ * its Content-Type (or none). Handlers call `c.req.json()`, which parses any
+ * body, so keying the cap on a JSON Content-Type let a caller skip it simply by
+ * omitting or changing the header. Hosts that mount upload routes raise their
+ * ceiling through `jsonBodyLimit.routeMaxBytes`.
  */
 import type { Hono } from "hono";
 import type { AppEnv } from "../../types.js";
@@ -25,7 +31,7 @@ export function applyJsonBodySizeLimit(
 
   const limits = resolveJsonBodyLimits(config.jsonBodyLimit);
   app.use("*", async (c, next) => {
-    if (!shouldCheckJsonBodySize(c.req.method, c.req.header("content-type"))) {
+    if (!shouldCheckBodySize(c.req.method)) {
       return next();
     }
 
@@ -113,20 +119,8 @@ function positiveIntegerOr(
     : fallback;
 }
 
-function shouldCheckJsonBodySize(
-  method: string,
-  contentType: string | undefined
-): boolean {
-  if (method !== "POST" && method !== "PUT" && method !== "PATCH") {
-    return false;
-  }
-  if (!contentType) {
-    return false;
-  }
-  const normalized = contentType.toLowerCase();
-  return (
-    normalized.includes("application/json") || normalized.includes("+json")
-  );
+function shouldCheckBodySize(method: string): boolean {
+  return method === "POST" || method === "PUT" || method === "PATCH";
 }
 
 function parseContentLength(value: string | undefined): number | undefined {

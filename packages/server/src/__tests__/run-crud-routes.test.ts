@@ -702,12 +702,12 @@ describe('GET /api/runs/:id/checkpoints', () => {
   })
 
   it('200 — returns empty checkpoints array when journal has no entries for run', async () => {
-    // Configure a minimal journal object — fromRunId will throw, which the handler
-    // catches and returns empty checkpoints instead of an error.
+    // A journal with no entries for the run is the one case answered with an
+    // empty list (DZUPAGENT-ERR-H-74); any other journal error is a 503.
     const configWithJournal = createTestConfig()
     configWithJournal.journal = {
       append: async () => {},
-      read: async () => [],
+      getAll: async () => [],
     } as unknown as ForgeServerConfig['journal']
     await configWithJournal.agentStore.save({
       id: 'agent-1',

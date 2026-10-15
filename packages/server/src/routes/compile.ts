@@ -23,9 +23,12 @@
  * ```
  *
  * If `target` is provided and does not match the compiler's auto-routed
- * target, a 400 is returned (guard against silent target drift between
- * caller intent and lowerer choice). When `target` is omitted the compiler's
- * routing decision is authoritative.
+ * target, every branch reports `TARGET_MISMATCH` (a 400 on the JSON branch,
+ * an error frame on the streaming branches) — guard against silent target
+ * drift between caller intent and lowerer choice. When `target` is omitted
+ * the compiler's routing decision is authoritative. Every branch finishes a
+ * success through `finalizeCompileSuccess`, so persistence to a configured
+ * `runEventStore` is the same everywhere (keyed on `?runId`, else compileId).
  *
  * Per-mode handlers live under `./compile/*` (RF-23). This file is the thin
  * Hono wiring layer that parses the body, validates the optional `target`,
@@ -144,6 +147,7 @@ export function createCompileRoutes(config: CompileRouteConfig = {}): Hono<AppEn
     if (wantsSse && c.req.query('subprocess') === 'true') {
       return handleSubprocessCompile(c, subprocessCompileInput(kind, body, flowInput), {
         eventGateway: config.eventGateway,
+        runEventStore: config.runEventStore,
         requestedTarget,
       })
     }
@@ -154,6 +158,7 @@ export function createCompileRoutes(config: CompileRouteConfig = {}): Hono<AppEn
         flowInput,
         invocationOptions,
         requestedTarget,
+        runId,
         config,
         effectivePersonaResolver,
         resolveToolResolver,
@@ -165,6 +170,7 @@ export function createCompileRoutes(config: CompileRouteConfig = {}): Hono<AppEn
         c,
         flowInput,
         invocationOptions,
+        requestedTarget,
         runId,
         config,
         effectivePersonaResolver,

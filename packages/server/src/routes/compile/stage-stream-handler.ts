@@ -27,10 +27,10 @@ import type { AsyncToolResolver, ToolResolver } from '@dzupagent/flow-ast'
 
 import { compileNormalizedInput } from '../compile-input.js'
 import { sanitizeError } from '../route-error.js'
-import { buildCompileResultEvent } from '../compile-result-event.js'
 import {
   FORWARDED_FLOW_COMPILE_EVENT_TYPES,
   type CompileRouteConfig,
+  finalizeCompileSuccess,
   type ForwardedFlowCompileEvent,
   logInternalCompileDiagnostics,
   publishToGateway,
@@ -57,6 +57,8 @@ export interface StreamStageCompileArgs {
   flowInput: string | object
   invocationOptions: CompileInvocationOptions
   requestedTarget: CompilationTarget | undefined
+  /** Caller-supplied `?runId`, or `''` when absent. */
+  runId: string
   config: CompileRouteConfig
   effectivePersonaResolver: PersonaResolver | AsyncPersonaResolver | undefined
   resolveToolResolver: () => Promise<ToolResolver | AsyncToolResolver>
@@ -73,6 +75,7 @@ export async function handleStageStreamCompile(args: StreamStageCompileArgs): Pr
     flowInput,
     invocationOptions,
     requestedTarget,
+    runId,
     config,
     effectivePersonaResolver,
     resolveToolResolver,
@@ -157,9 +160,9 @@ export async function handleStageStreamCompile(args: StreamStageCompileArgs): Pr
       await drainStages()
 
       const result = await compilePromise
-      if (closed) return
 
       if ('__streamError' in result) {
+        if (closed) return
         await stream.writeSSE({
           event: 'error',
           data: JSON.stringify({ message: result.__streamError, stage: 'codegen' }),
@@ -168,6 +171,7 @@ export async function handleStageStreamCompile(args: StreamStageCompileArgs): Pr
       }
 
       if ('errors' in result) {
+        if (closed) return
         // DZUPAGENT-ERR-H-02: log internal diagnostics and stream only their
         // fixed public message.
         logInternalCompileDiagnostics(result.errors, result.compileId)
@@ -190,20 +194,23 @@ export async function handleStageStreamCompile(args: StreamStageCompileArgs): Pr
         return
       }
 
-      // Success path — optional target assertion mirrors the JSON branch.
-      if (requestedTarget !== undefined && result.target !== requestedTarget) {
+      // Success path — target assertion, gateway publish and persistence are
+      // shared with every other branch (DZUPAGENT-CODE-M-17).
+      const finalized = finalizeCompileSuccess(result, { requestedTarget, runId, config })
+      if (closed) return
+      if (!finalized.ok) {
         await stream.writeSSE({
           event: 'error',
           data: JSON.stringify({
-            message: `Requested target "${requestedTarget}" does not match compiler-routed target "${result.target}"`,
+            message: finalized.failure.error,
             stage: 'codegen',
+            code: 'TARGET_MISMATCH',
             compileId: result.compileId,
           }),
         })
         return
       }
 
-      publishToGateway(config, buildCompileResultEvent(result))
       await stream.writeSSE({
         event: 'result',
         data: JSON.stringify({

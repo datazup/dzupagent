@@ -175,7 +175,7 @@ export class TokenBucketLimiter {
 }
 
 function isHealthPath(path: string): boolean {
-  return path.startsWith('/api/health')
+  return path === '/api/health' || path.startsWith('/api/health/')
 }
 
 function rateLimitedResponse(

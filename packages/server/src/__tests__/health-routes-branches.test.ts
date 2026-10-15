@@ -153,7 +153,9 @@ describe("health routes branch coverage", () => {
   });
 
   it("GET /api/health/metrics returns empty array when no collector", async () => {
-    const app = createForgeApp(createTestConfig());
+    const app = createForgeApp(
+      createTestConfig({ prometheusMetrics: { access: { mode: "unsafe-public" } } }),
+    );
     const res = await app.request("/api/health/metrics");
     const data = (await res.json()) as { metrics: unknown[] };
     expect(data.metrics).toEqual([]);
@@ -163,7 +165,12 @@ describe("health routes branch coverage", () => {
     const collector = new MetricsCollector();
     collector.increment("test_counter");
 
-    const app = createForgeApp(createTestConfig({ metrics: collector }));
+    const app = createForgeApp(
+      createTestConfig({
+        metrics: collector,
+        prometheusMetrics: { access: { mode: "unsafe-public" } },
+      }),
+    );
     const res = await app.request("/api/health/metrics");
     const data = (await res.json()) as { metrics: Array<{ name: string }> };
     expect(data.metrics.length).toBeGreaterThan(0);

@@ -519,6 +519,26 @@ describe('SpawnCompilerBridge', () => {
     expect(events[events.length - 1]?.event).toBe('flow:compile_result')
   })
 
+  it('persists a success like the in-process branches and never on a mismatch (DZUPAGENT-CODE-M-17)', async () => {
+    const appendArtifact = vi.fn().mockResolvedValue(undefined)
+    const runEventStore = { appendArtifact } as never
+
+    spawnMock.mockReturnValueOnce(makeChildWithExit(successLines, 0))
+    const first = makeStream()
+    await handleSubprocessCompile(makeCtx(first.stream, { runId: 'run-sub-1' }), {}, { runEventStore })
+    expect(appendArtifact).toHaveBeenCalledTimes(1)
+    expect(appendArtifact.mock.calls[0]![0]).toMatchObject({
+      runId: 'run-sub-1',
+      providerId: 'flow-compiler',
+      path: `compile:${compileId}`,
+    })
+
+    spawnMock.mockReturnValueOnce(makeChildWithExit(successLines, 0))
+    const second = makeStream()
+    await handleSubprocessCompile(makeCtx(second.stream), {}, { runEventStore, requestedTarget: 'pipeline' })
+    expect(appendArtifact).toHaveBeenCalledTimes(1)
+  })
+
   it('still emits flow:compile_result when child exits cleanly (code=0) — sanity', async () => {
     const child = makeChildWithExit(successLines, 0)
     spawnMock.mockReturnValueOnce(child)

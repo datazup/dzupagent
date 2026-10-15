@@ -209,6 +209,23 @@ describe('Workflow routes', () => {
       expect(json.steps).toHaveLength(2)
     })
 
+    it('answers 500 INTERNAL_ERROR, not 400, when the resolver itself fails (DZUPAGENT-ERR-H-68)', async () => {
+      const failing: SkillStepResolver = {
+        canResolve() {
+          throw new Error('skill catalog connection reset')
+        },
+        async resolve() {
+          throw new Error('unreachable')
+        },
+      }
+      const failingApp = createForgeApp(createTestConfig({ resolver: failing }))
+      const res = await req(failingApp, 'POST', '/api/workflows/dry-run', { steps: ['summarize'] })
+      expect(res.status).toBe(500)
+      const raw = await res.text()
+      expect(raw).not.toContain('connection reset')
+      expect((JSON.parse(raw) as { error: { code: string } }).error.code).toBe('INTERNAL_ERROR')
+    })
+
     it('returns 400 for missing steps and text', async () => {
       const res = await req(app, 'POST', '/api/workflows/dry-run', {})
       expect(res.status).toBe(400)

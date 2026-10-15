@@ -264,4 +264,36 @@ describe('Run routes — extended coverage', () => {
     const res = await appWithJournal.request('/api/runs/nonexistent/checkpoints')
     expect(res.status).toBe(404)
   })
+
+  it('GET /api/runs/:id/checkpoints returns 200 [] for a run with no journal entries', async () => {
+    const configWithJournal = createTestConfig()
+    configWithJournal.journal = { getAll: vi.fn().mockResolvedValue([]) } as unknown as ForgeServerConfig['journal']
+    const appWithJournal = createForgeApp(configWithJournal)
+    const run = await configWithJournal.runStore.create({ agentId: 'agent-1', input: 'test' })
+
+    const res = await appWithJournal.request(`/api/runs/${run.id}/checkpoints`)
+    expect(res.status).toBe(200)
+    const data = await res.json() as { data: { runId: string; checkpoints: unknown[] } }
+    expect(data.data).toEqual({ runId: run.id, checkpoints: [] })
+  })
+
+  it('GET /api/runs/:id/checkpoints returns 503 and logs once when the journal throws (DZUPAGENT-ERR-H-74)', async () => {
+    const configWithJournal = createTestConfig()
+    configWithJournal.journal = {
+      getAll: vi.fn().mockRejectedValue(new Error('connection terminated: db-7')),
+    } as unknown as ForgeServerConfig['journal']
+    const appWithJournal = createForgeApp(configWithJournal)
+    const run = await configWithJournal.runStore.create({ agentId: 'agent-1', input: 'test' })
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    const res = await appWithJournal.request(`/api/runs/${run.id}/checkpoints`)
+    expect(res.status).toBe(503)
+    const raw = await res.text()
+    expect(raw).not.toContain('db-7')
+    expect((JSON.parse(raw) as { error: { code: string } }).error.code).toBe('CHECKPOINTS_UNAVAILABLE')
+    const checkpointLogs = errorLog.mock.calls.filter(([line]) =>
+      typeof line === 'string' && line.includes('"operation":"runs.checkpoints"'),
+    )
+    expect(checkpointLogs).toHaveLength(1)
+  })
 })

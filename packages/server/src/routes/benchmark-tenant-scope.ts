@@ -22,6 +22,7 @@ import type {
   BenchmarkRunRecord,
   BenchmarkRunStore,
 } from "@dzupagent/eval-contracts";
+import { ClientSafeError } from "./route-error.js";
 
 /**
  * Internal metadata key used to stamp tenant ownership onto benchmark records.
@@ -201,6 +202,15 @@ export class TenantScopedBenchmarkOrchestrator {
       // 404-equivalent: do not leak existence of a cross-tenant run.
       // NotFound-prefixed so the sanitizer forwards this safe message at 404.
       throw new Error(`NotFound: Run "${input.runId}" not found`);
+    }
+    // DZUPAGENT-ERR-H-68: a run from another suite/target is a caller error.
+    // Typed here so the route answers 400 instead of the 5xx it gives an
+    // unclassified orchestrator throw.
+    if (run.suiteId !== input.suiteId || run.targetId !== input.targetId) {
+      throw new ClientSafeError(
+        "runId does not belong to the given suite and target",
+        { code: "BENCHMARK_BASELINE_INVALID" },
+      );
     }
     return this.opts.orchestrator.setBaseline(input);
   }

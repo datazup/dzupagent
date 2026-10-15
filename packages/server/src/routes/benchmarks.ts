@@ -122,6 +122,46 @@ function parseCursor(raw: string | undefined): {
   }
 }
 
+/**
+ * DZUPAGENT-ERR-H-68: error response for a benchmark write route. Only a typed
+ * client error (a ClientSafeError / `code` such as `*_NOT_FOUND`, `*_INVALID`,
+ * or a NotFound/Validation/BadRequest/Conflict prefix) keeps a 4xx and the
+ * route's failure code; anything unclassified — a store outage, a thrown
+ * driver error — is a 5xx with an internal code. The client always receives
+ * the sanitized message (ERR-M-02).
+ */
+function benchmarkErrorResponse(
+  c: Context<AppEnv>,
+  error: unknown,
+  failureCode: string,
+): Response {
+  const status = mapErrorToStatus(error, 500);
+  const logged = logRouteError(c, "benchmarks", error, status);
+  const code =
+    status === 503
+      ? "SERVICE_UNAVAILABLE"
+      : status >= 500
+        ? "INTERNAL_ERROR"
+        : failureCode;
+  return c.json({ error: { code, message: logged.safe } }, status);
+}
+
+/** Parsed JSON object body, or `undefined` for a malformed or non-object body. */
+async function readJsonBody<T extends object>(
+  c: Context<AppEnv>,
+): Promise<T | undefined> {
+  try {
+    const body = await c.req.json<unknown>();
+    return body !== null && typeof body === "object" ? (body as T) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function buildValidationErrorBody(message: string) {
+  return { error: { code: "VALIDATION_ERROR", message } };
+}
+
 function buildValidationError(message: string) {
   return { code: "VALIDATION_ERROR", message };
 }
@@ -142,11 +182,19 @@ function parseStrict(raw: unknown): { strict?: boolean; invalid: boolean } {
  * Fallback orchestrator used when the host doesn't supply a concrete one.
  * Write endpoints throw 503; read endpoints proxy directly to the store.
  */
+/** Typed so `mapErrorToStatus` answers 503 rather than a client-error status. */
+function orchestratorUnavailable(): Error {
+  return Object.assign(
+    new Error("Benchmark orchestrator is not configured on this server"),
+    { code: "BENCHMARK_ORCHESTRATOR_UNAVAILABLE" },
+  );
+}
+
 class ReadOnlyBenchmarkOrchestrator implements BenchmarkOrchestratorLike {
   constructor(private readonly store: BenchmarkRunStore) {}
 
   async runSuite(): Promise<never> {
-    throw new Error("Benchmark orchestrator is not configured on this server");
+    throw orchestratorUnavailable();
   }
 
   async getRun(runId: string) {
@@ -158,11 +206,11 @@ class ReadOnlyBenchmarkOrchestrator implements BenchmarkOrchestratorLike {
   }
 
   async compareRuns(): Promise<never> {
-    throw new Error("Benchmark orchestrator is not configured on this server");
+    throw orchestratorUnavailable();
   }
 
   async setBaseline(): Promise<never> {
-    throw new Error("Benchmark orchestrator is not configured on this server");
+    throw orchestratorUnavailable();
   }
 
   async getBaseline(suiteId: string, targetId: string) {
@@ -254,13 +302,14 @@ export function createBenchmarkRoutes(
 
   app.post("/runs", async (c) => {
     try {
-      const body = await c.req.json<{
+      const body = await readJsonBody<{
         suiteId: string;
         targetId: string;
         strict?: unknown;
         metadata?: Record<string, unknown>;
         artifact?: unknown;
-      }>();
+      }>(c);
+      if (!body) return c.json(buildValidationErrorBody("Invalid JSON body"), 400);
       if (!body.suiteId || !body.targetId) {
         return c.json(
           {
@@ -311,19 +360,7 @@ export function createBenchmarkRoutes(
 
       return c.json({ data: run }, 201);
     } catch (error) {
-      const status = mapErrorToStatus(error, 400);
-      const logged = logRouteError(c, "benchmarks", error, status);
-      // ERR-M-02: always forward the sanitized message, never raw internal text.
-      // `sanitizeError` already preserves messages from typed safe errors
-      // (Validation/NotFound/Conflict/BadRequest classes + safe-prefixed
-      // messages), so actionable 4xx detail still passes through; an unclassified
-      // error that `mapErrorToStatus` defaulted to 4xx no longer leaks DB/system
-      // internals.
-      const message = logged.safe;
-      return c.json(
-        { error: { code: "BENCHMARK_RUN_FAILED", message } },
-        status,
-      );
+      return benchmarkErrorResponse(c, error, "BENCHMARK_RUN_FAILED");
     }
   });
 
@@ -341,10 +378,11 @@ export function createBenchmarkRoutes(
 
   app.post("/compare", async (c) => {
     try {
-      const body = await c.req.json<{
+      const body = await readJsonBody<{
         currentRunId: string;
         previousRunId?: string;
-      }>();
+      }>(c);
+      if (!body) return c.json(buildValidationErrorBody("Invalid JSON body"), 400);
       if (!body.currentRunId) {
         return c.json(
           {
@@ -392,19 +430,7 @@ export function createBenchmarkRoutes(
       const compared = await scoped.compareRuns(currentRun.id, baseline.runId);
       return c.json({ data: compared });
     } catch (error) {
-      const status = mapErrorToStatus(error, 400);
-      const logged = logRouteError(c, "benchmarks", error, status);
-      // ERR-M-02: always forward the sanitized message, never raw internal text.
-      // `sanitizeError` already preserves messages from typed safe errors
-      // (Validation/NotFound/Conflict/BadRequest classes + safe-prefixed
-      // messages), so actionable 4xx detail still passes through; an unclassified
-      // error that `mapErrorToStatus` defaulted to 4xx no longer leaks DB/system
-      // internals.
-      const message = logged.safe;
-      return c.json(
-        { error: { code: "BENCHMARK_COMPARE_FAILED", message } },
-        status,
-      );
+      return benchmarkErrorResponse(c, error, "BENCHMARK_COMPARE_FAILED");
     }
   });
 
@@ -422,7 +448,8 @@ export function createBenchmarkRoutes(
   app.put("/baselines/:suiteId", async (c) => {
     try {
       const suiteId = c.req.param("suiteId");
-      const body = await c.req.json<{ targetId: string; runId: string }>();
+      const body = await readJsonBody<{ targetId: string; runId: string }>(c);
+      if (!body) return c.json(buildValidationErrorBody("Invalid JSON body"), 400);
       if (!suiteId || !body.targetId || !body.runId) {
         return c.json(
           {
@@ -442,19 +469,7 @@ export function createBenchmarkRoutes(
       });
       return c.json({ data: baseline });
     } catch (error) {
-      const status = mapErrorToStatus(error, 400);
-      const logged = logRouteError(c, "benchmarks", error, status);
-      // ERR-M-02: always forward the sanitized message, never raw internal text.
-      // `sanitizeError` already preserves messages from typed safe errors
-      // (Validation/NotFound/Conflict/BadRequest classes + safe-prefixed
-      // messages), so actionable 4xx detail still passes through; an unclassified
-      // error that `mapErrorToStatus` defaulted to 4xx no longer leaks DB/system
-      // internals.
-      const message = logged.safe;
-      return c.json(
-        { error: { code: "BASELINE_UPDATE_FAILED", message } },
-        status,
-      );
+      return benchmarkErrorResponse(c, error, "BASELINE_UPDATE_FAILED");
     }
   });
 
