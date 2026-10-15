@@ -93,6 +93,10 @@ jobs:
         with:
           path: .ci-isolated/dzupagent
           persist-credentials: false
+          # check:barrel-budgets ratchets the budget file against HEAD's first
+          # parent / merge base with main, and refuses a HEAD base in CI
+          # (DZUPAGENT-ARCH-C-04). A depth-1 clone has neither.
+          fetch-depth: 0
       - name: Create Scripts contract source read token
         id: scripts-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1

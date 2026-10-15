@@ -7,40 +7,38 @@ import type { BaseStore } from "@langchain/langgraph";
 import { MemoryService } from "../memory-service.js";
 import { getKeyedMemoryRecords } from "../memory-service-store.js";
 import type { NamespaceConfig } from "../memory-types.js";
+import { createStoreDouble } from "./helpers/store-double.js";
 
-/** Mirrors LangGraph BaseStore: `limit` defaults to 10, `offset` to 0. */
-function makeDefaultLimitStore(count: number): BaseStore {
-  const rows = Array.from({ length: count }, (_, i) => ({
-    namespace: ["facts", "t1"],
-    key: `k${i}`,
-    value: { text: `fact ${i}` },
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  }));
-  return {
-    search: async (_ns: string[], opts?: { limit?: number; offset?: number }) => {
-      const offset = opts?.offset ?? 0;
-      const limit = opts?.limit ?? 10;
-      return rows.slice(offset, offset + limit);
-    },
-    get: async () => null,
-    put: async () => undefined,
-    delete: async () => undefined,
-  } as unknown as BaseStore;
+/**
+ * The shared InMemoryStore double (DZUPAGENT-TEST-H-09): a real LangGraph
+ * store, so `limit` defaults to 10, `offset` to 0 and `search` is scoped to
+ * the namespace prefix. `count` records go under the read namespace and a
+ * sibling tenant carries records that must never be returned.
+ */
+async function makeDefaultLimitStore(count: number): Promise<BaseStore> {
+  const double = createStoreDouble();
+  for (let i = 0; i < count; i++) {
+    await double.seed(["facts", "t1"], `k${i}`, { text: `fact ${i}` });
+  }
+  for (let i = 0; i < 3; i++) {
+    await double.seed(["facts", "t2"], `other-${i}`, { text: `other tenant ${i}` });
+  }
+  return double.store;
 }
 
 const ns: NamespaceConfig[] = [{ name: "facts", scopeKeys: ["tenantId"] }];
 
 describe("MemoryService full reads on a store with a default search limit", () => {
   it("get() returns all 25 records, not the store's default 10", async () => {
-    const svc = new MemoryService(makeDefaultLimitStore(25), ns);
+    const svc = new MemoryService(await makeDefaultLimitStore(25), ns);
     const records = await svc.get("facts", { tenantId: "t1" });
     expect(records).toHaveLength(25);
   });
 
   it("getKeyedMemoryRecords paginates past one page", async () => {
-    const records = await getKeyedMemoryRecords(ns[0]!, { tenantId: "t1" }, makeDefaultLimitStore(1_234));
+    const records = await getKeyedMemoryRecords(ns[0]!, { tenantId: "t1" }, await makeDefaultLimitStore(1_234));
     expect(records).toHaveLength(1_234);
     expect(new Set(records.map((r) => r.key)).size).toBe(1_234);
+    expect(records.some((r) => r.key.startsWith("other-"))).toBe(false);
   });
 });

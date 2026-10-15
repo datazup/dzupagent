@@ -15,9 +15,9 @@
  * Regenerate after fixing violations: `yarn lint:baseline:update`
  * (preview the diff with `yarn lint:baseline:check`).
  *
- * The gated rules — 698 violations across 309 files:
+ * The gated rules — 683 violations across 307 files:
  *   - `real-set-timeout`        — real `setTimeout` in a test (prefer fake timers)   — 361 instances
- *   - `stateless-memory-double` — `{get,put}` spy, no `getKeyed`                     — 135 instances
+ *   - `stateless-memory-double` — `{get,put}` spy, no `getKeyed`                     — 120 instances
  *   - `vacuous-every`           — `expect(xs.every(p)).toBe(true)`, true on empty    — 202 instances
  *
  * Those four numbers are NOT prose: scripts/__tests__/test-quality-baseline.test.mjs
@@ -247,39 +247,37 @@ export const TEST_QUALITY_BASELINE_COUNTS = {
   "packages/memory-ipc/src/__tests__/adapters/letta-adapter.test.ts": { "vacuous-every": 1 },
   "packages/memory-ipc/src/__tests__/adapters/mastra-adapter.test.ts": { "vacuous-every": 1 },
   "packages/memory-ipc/src/__tests__/adapters/mcp-kg-adapter.test.ts": { "vacuous-every": 1 },
-  "packages/memory/src/__tests__/consolidation-sanitizer-deep.test.ts": { "stateless-memory-double": 1 },
-  "packages/memory/src/__tests__/consolidation-summarization.test.ts": { "stateless-memory-double": 1, "vacuous-every": 1 },
-  "packages/memory/src/__tests__/consolidation-trigger.test.ts": { "stateless-memory-double": 1, "real-set-timeout": 1 },
+  "packages/memory/src/__tests__/consolidation-summarization.test.ts": { "vacuous-every": 1 },
+  "packages/memory/src/__tests__/consolidation-trigger.test.ts": { "real-set-timeout": 1 },
   "packages/memory/src/__tests__/cross-tenant-isolation.test.ts": { "stateless-memory-double": 2 },
   "packages/memory/src/__tests__/dual-stream-writer.test.ts": { "stateless-memory-double": 1 },
   "packages/memory/src/__tests__/episodic-memory.test.ts": { "vacuous-every": 2 },
-  "packages/memory/src/__tests__/lesson-pipeline.test.ts": { "stateless-memory-double": 1, "vacuous-every": 1 },
+  "packages/memory/src/__tests__/lesson-pipeline.test.ts": { "vacuous-every": 1 },
   "packages/memory/src/__tests__/mcp-memory-server.test.ts": { "stateless-memory-double": 1 },
   "packages/memory/src/__tests__/memory-aware-extractor.test.ts": { "stateless-memory-double": 1 },
-  "packages/memory/src/__tests__/memory-consolidation-strategies.test.ts": { "stateless-memory-double": 12 },
+  "packages/memory/src/__tests__/memory-consolidation-strategies.test.ts": { "stateless-memory-double": 11 },
   "packages/memory/src/__tests__/memory-consolidation-wiring.test.ts": { "stateless-memory-double": 3 },
-  "packages/memory/src/__tests__/memory-consolidation.test.ts": { "stateless-memory-double": 4, "vacuous-every": 1 },
+  "packages/memory/src/__tests__/memory-consolidation.test.ts": { "stateless-memory-double": 3, "vacuous-every": 1 },
   "packages/memory/src/__tests__/memory-export-import.test.ts": { "stateless-memory-double": 1 },
   "packages/memory/src/__tests__/memory-indexing-ttl.test.ts": { "stateless-memory-double": 1, "vacuous-every": 1 },
   "packages/memory/src/__tests__/memory-integrator.test.ts": { "stateless-memory-double": 1 },
   "packages/memory/src/__tests__/memory-provenance-causal.integration.test.ts": { "stateless-memory-double": 1 },
   "packages/memory/src/__tests__/memory-service-store-failure-telemetry.test.ts": { "stateless-memory-double": 2 },
-  "packages/memory/src/__tests__/memory-service.test.ts": { "stateless-memory-double": 3 },
+  "packages/memory/src/__tests__/memory-service.test.ts": { "stateless-memory-double": 1 },
   "packages/memory/src/__tests__/multi-network-memory.test.ts": { "stateless-memory-double": 1 },
   "packages/memory/src/__tests__/namespace-isolation.test.ts": { "stateless-memory-double": 1, "real-set-timeout": 1 },
   "packages/memory/src/__tests__/observation-candidate-store.test.ts": { "stateless-memory-double": 1 },
-  "packages/memory/src/__tests__/observational-memory.test.ts": { "stateless-memory-double": 2 },
+  "packages/memory/src/__tests__/observational-memory.test.ts": { "stateless-memory-double": 1 },
   "packages/memory/src/__tests__/persistent-graph.test.ts": { "stateless-memory-double": 5 },
   "packages/memory/src/__tests__/relationship-store.test.ts": { "stateless-memory-double": 1, "vacuous-every": 2 },
-  "packages/memory/src/__tests__/rule-engine-branches.test.ts": { "stateless-memory-double": 3 },
-  "packages/memory/src/__tests__/rule-engine.test.ts": { "stateless-memory-double": 1, "vacuous-every": 3 },
+  "packages/memory/src/__tests__/rule-engine-branches.test.ts": { "stateless-memory-double": 1 },
+  "packages/memory/src/__tests__/rule-engine.test.ts": { "vacuous-every": 3 },
   "packages/memory/src/__tests__/scoped-memory.test.ts": { "stateless-memory-double": 1 },
   "packages/memory/src/__tests__/search-retrieval.test.ts": { "stateless-memory-double": 3, "vacuous-every": 1, "real-set-timeout": 2 },
-  "packages/memory/src/__tests__/semantic-consolidation.test.ts": { "stateless-memory-double": 2 },
+  "packages/memory/src/__tests__/semantic-consolidation.test.ts": { "stateless-memory-double": 1 },
   "packages/memory/src/__tests__/session-search.test.ts": { "vacuous-every": 1 },
   "packages/memory/src/__tests__/short-term-buffer.test.ts": { "stateless-memory-double": 2 },
-  "packages/memory/src/__tests__/skill-acquisition-branches.test.ts": { "stateless-memory-double": 2 },
-  "packages/memory/src/__tests__/skill-acquisition.test.ts": { "stateless-memory-double": 1 },
+  "packages/memory/src/__tests__/skill-acquisition-branches.test.ts": { "stateless-memory-double": 1 },
   "packages/memory/src/__tests__/skill-packs-loader-failure-telemetry.test.ts": { "stateless-memory-double": 4 },
   "packages/memory/src/__tests__/skill-packs.test.ts": { "stateless-memory-double": 1 },
   "packages/memory/src/__tests__/sleep-consolidator.test.ts": { "stateless-memory-double": 1 },

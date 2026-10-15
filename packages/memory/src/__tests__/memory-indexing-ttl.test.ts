@@ -1259,17 +1259,17 @@ describe("Edge cases", () => {
 
   it("pageSize option affects how many items are fetched per scan", async () => {
     const now = BASE_NOW;
-    const searchCalls: Array<{ limit: number | undefined }> = [];
+    const searchCalls: Array<{ namespace: string[]; limit: number | undefined }> = [];
     const store: ConsolidationStore = {
-      search: vi.fn(async (_ns, opts) => {
-        searchCalls.push({ limit: opts?.limit });
+      search: vi.fn(async (namespace, opts) => {
+        searchCalls.push({ namespace, limit: opts?.limit });
         return [];
       }),
       put: vi.fn(),
       delete: vi.fn(),
     };
-    await new MemoryPruner().prune(store, { pageSize: 42, now: () => now });
-    expect(searchCalls[0]!.limit).toBe(42);
+    await new MemoryPruner().prune(store, { pageSize: 42, now: () => now, namespace: ["t1", "lessons"] });
+    expect(searchCalls[0]).toEqual({ namespace: ["t1", "lessons"], limit: 42 });
   });
 
   it("SessionSearch: indexedCount stays correct across repeated rebuild cycles", async () => {

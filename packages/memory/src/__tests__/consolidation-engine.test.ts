@@ -1,44 +1,41 @@
 /**
  * Tests for `ConsolidationEngine` (MC-02).
  *
- * Uses a structurally-typed mock store mirroring `BaseStore`'s interface
- * — no LangGraph dependency required for these unit tests.
+ * Uses the shared InMemoryStore double (DZUPAGENT-TEST-H-09), which honours
+ * namespace-prefix search and the default limit like a real `BaseStore`.
  */
 import { describe, it, expect, vi } from 'vitest'
 import {
   ConsolidationEngine,
   type ConsolidationStore,
-  type ConsolidationStoreItem,
 } from '../consolidation-engine.js'
+import { createStoreDouble } from './helpers/store-double.js'
+import type { StoreDouble } from './helpers/store-double.js'
 
 interface MockStore extends ConsolidationStore {
-  data: Map<string, Record<string, unknown>>
+  double: StoreDouble
 }
 
-function createMockStore(
+/**
+ * Shared InMemoryStore double (DZUPAGENT-TEST-H-09): `search` honours the
+ * namespace prefix and the default limit of 10, so records seeded under one
+ * namespace are invisible to a consolidation of another. Fixtures are seeded
+ * under the tuple the engine derives from `consolidate(scope, namespace)`.
+ */
+async function createMockStore(
   records: Array<{ key: string; value: Record<string, unknown> }> = [],
-): MockStore {
-  const data = new Map<string, Record<string, unknown>>()
+  namespace: string[] = ['teamX', 'session'],
+): Promise<MockStore> {
+  const double = createStoreDouble()
   for (const { key, value } of records) {
-    data.set(key, value)
+    await double.seed(namespace, key, value)
   }
-  return {
-    data,
-    search: vi.fn(async (_ns: string[]): Promise<ConsolidationStoreItem[]> => {
-      return [...data.entries()].map(([key, value]) => ({ key, value }))
-    }),
-    put: vi.fn(async (_ns: string[], key: string, value: Record<string, unknown>) => {
-      data.set(key, value)
-    }),
-    delete: vi.fn(async (_ns: string[], key: string) => {
-      data.delete(key)
-    }),
-  }
+  return Object.assign(double.store, { double }) as unknown as MockStore
 }
 
 describe('ConsolidationEngine', () => {
   it('consolidates 4 entries with same key prefix into 1 summary', async () => {
-    const store = createMockStore([
+    const store = await createMockStore([
       { key: 'task:a', value: { text: 'task A done' } },
       { key: 'task:b', value: { text: 'task B done' } },
       { key: 'task:c', value: { text: 'task C done' } },
@@ -59,7 +56,7 @@ describe('ConsolidationEngine', () => {
     expect(result.degradations).toEqual([])
 
     // Summary entry exists with joined text
-    const summary = store.data.get('task:__summary__')
+    const summary = (await store.double.valueOf('task:__summary__'))
     expect(summary).toBeDefined()
     expect(summary!['kind']).toBe('summary')
     expect(typeof summary!['text']).toBe('string')
@@ -74,7 +71,7 @@ describe('ConsolidationEngine', () => {
   })
 
   it('marks children with strength 0.1', async () => {
-    const store = createMockStore([
+    const store = await createMockStore([
       { key: 'task:1', value: { text: 'one' } },
       { key: 'task:2', value: { text: 'two' } },
       { key: 'task:3', value: { text: 'three' } },
@@ -84,7 +81,7 @@ describe('ConsolidationEngine', () => {
     await engine.consolidate('teamX', 'session', store)
 
     for (const childKey of ['task:1', 'task:2', 'task:3']) {
-      const child = store.data.get(childKey)
+      const child = (await store.double.valueOf(childKey))
       expect(child).toBeDefined()
       const decay = child!['_decay'] as Record<string, unknown>
       expect(decay).toBeDefined()
@@ -94,7 +91,7 @@ describe('ConsolidationEngine', () => {
   })
 
   it('returns correct provenance map across multiple clusters', async () => {
-    const store = createMockStore([
+    const store = await createMockStore([
       { key: 'task:a', value: { text: 'a' } },
       { key: 'task:b', value: { text: 'b' } },
       { key: 'task:c', value: { text: 'c' } },
@@ -122,12 +119,12 @@ describe('ConsolidationEngine', () => {
       'result:3',
     ])
     // Lonely cluster (size 1) was not consolidated
-    expect(store.data.get('context:lonely')).toBeDefined()
-    expect(store.data.get('context:__summary__')).toBeUndefined()
+    expect((await store.double.valueOf('context:lonely'))).toBeDefined()
+    expect((await store.double.valueOf('context:__summary__'))).toBeUndefined()
   })
 
   it('returns 0 summarised on an empty store', async () => {
-    const store = createMockStore()
+    const store = await createMockStore()
     const engine = new ConsolidationEngine()
     const result = await engine.consolidate('teamX', 'empty', store)
 
@@ -142,7 +139,7 @@ describe('ConsolidationEngine', () => {
   })
 
   it('uses llmJudge when supplied', async () => {
-    const store = createMockStore([
+    const store = await createMockStore([
       { key: 'task:a', value: { text: 'alpha' } },
       { key: 'task:b', value: { text: 'beta' } },
       { key: 'task:c', value: { text: 'gamma' } },
@@ -153,12 +150,12 @@ describe('ConsolidationEngine', () => {
     await engine.consolidate('teamX', 'session', store)
 
     expect(llmJudge).toHaveBeenCalledTimes(1)
-    const summary = store.data.get('task:__summary__')
+    const summary = (await store.double.valueOf('task:__summary__'))
     expect(summary!['text']).toBe('LLM-derived summary text')
   })
 
   it('falls back to join when llmJudge throws', async () => {
-    const store = createMockStore([
+    const store = await createMockStore([
       { key: 'task:a', value: { text: 'alpha' } },
       { key: 'task:b', value: { text: 'beta' } },
       { key: 'task:c', value: { text: 'gamma' } },
@@ -179,21 +176,21 @@ describe('ConsolidationEngine', () => {
         target: 'task',
       },
     ])
-    const summary = store.data.get('task:__summary__')
+    const summary = (await store.double.valueOf('task:__summary__'))
     expect(summary!['text']).toContain('alpha')
     expect(summary!['text']).toContain('gamma')
   })
 
   it('reports a partial result when a consolidated child cannot be marked', async () => {
-    const store = createMockStore([
+    const store = await createMockStore([
       { key: 'task:a', value: { text: 'alpha' } },
       { key: 'task:b', value: { text: 'beta' } },
       { key: 'task:c', value: { text: 'gamma' } },
     ])
     ;(store.put as ReturnType<typeof vi.fn>).mockImplementation(
-      async (_namespace: string[], key: string, value: Record<string, unknown>) => {
+      async (namespace: string[], key: string, value: Record<string, unknown>) => {
         if (key === 'task:b') throw new Error('child update failed')
-        store.data.set(key, value)
+        await store.double.seed(namespace, key, value)
       },
     )
 
@@ -217,7 +214,7 @@ describe('ConsolidationEngine', () => {
   })
 
   it('skips already-written summary entries (idempotent)', async () => {
-    const store = createMockStore([
+    const store = await createMockStore([
       { key: 'task:a', value: { text: 'a' } },
       { key: 'task:b', value: { text: 'b' } },
       { key: 'task:c', value: { text: 'c' } },

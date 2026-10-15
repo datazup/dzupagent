@@ -3,6 +3,8 @@ import { SemanticConsolidator, consolidateWithLLM } from '../semantic-consolidat
 import type { SemanticConsolidationConfig } from '../semantic-consolidation.js'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseStore } from '@langchain/langgraph'
+import { createStoreDouble } from './helpers/store-double.js'
+import type { StoreDouble } from './helpers/store-double.js'
 
 // ---------------------------------------------------------------------------
 // Helpers: mock store + mock LLM
@@ -13,37 +15,26 @@ interface MockStoreRecord {
   value: Record<string, unknown>
 }
 
-function createMockStore(records: MockStoreRecord[] = []) {
-  const data = new Map<string, Record<string, unknown>>()
+/** Namespace the consolidator specs read; fixtures are seeded here. */
+const SEEDED_NAMESPACE = ['tenant1', 'lessons']
+
+/**
+ * Shared InMemoryStore double (DZUPAGENT-TEST-H-09): `search` honours the
+ * namespace prefix and the default limit of 10, so records seeded under one
+ * namespace are invisible to a consolidation of another.
+ */
+async function createMockStore(records: MockStoreRecord[] = [], namespace: string[] = SEEDED_NAMESPACE) {
+  const double = createStoreDouble()
   for (const r of records) {
-    data.set(r.key, r.value)
+    await double.seed(namespace, r.key, r.value)
   }
-
-  const store = {
-    search: vi.fn().mockImplementation((_ns: string[], opts?: { query?: string; limit?: number }) => {
-      const items = [...data.entries()].map(([key, value]) => ({ key, value }))
-      if (opts?.query) {
-        // For semantic search, return all items (the mock doesn't do real similarity)
-        return Promise.resolve(items.slice(0, opts.limit ?? items.length))
-      }
-      return Promise.resolve(items.slice(0, opts?.limit ?? items.length))
-    }),
-    put: vi.fn().mockImplementation((_ns: string[], key: string, value: Record<string, unknown>) => {
-      data.set(key, value)
-      return Promise.resolve()
-    }),
-    delete: vi.fn().mockImplementation((_ns: string[], key: string) => {
-      data.delete(key)
-      return Promise.resolve()
-    }),
-    get: vi.fn().mockImplementation((_ns: string[], key: string) => {
-      const value = data.get(key)
-      return Promise.resolve(value ? { key, value } : undefined)
-    }),
-    _data: data,
+  return Object.assign(double.store, { _double: double }) as unknown as BaseStore & {
+    _double: StoreDouble
+    put: ReturnType<typeof vi.fn>
+    get: ReturnType<typeof vi.fn>
+    search: ReturnType<typeof vi.fn>
+    delete: ReturnType<typeof vi.fn>
   }
-
-  return store as unknown as BaseStore & { _data: Map<string, Record<string, unknown>> }
 }
 
 function createMockModel(responses: string[]) {
@@ -68,11 +59,11 @@ function jsonResp(action: string, reason: string, mergedContent?: string): strin
 // ---------------------------------------------------------------------------
 
 describe('SemanticConsolidator', () => {
-  const namespace = ['tenant1', 'lessons']
+  const namespace = SEEDED_NAMESPACE
 
   describe('empty namespace', () => {
     it('returns zero counts when namespace is empty', async () => {
-      const store = createMockStore([])
+      const store = await createMockStore([])
       const model = createMockModel([])
       const consolidator = new SemanticConsolidator({ model })
 
@@ -88,7 +79,7 @@ describe('SemanticConsolidator', () => {
 
   describe('NOOP action (duplicates)', () => {
     it('removes duplicate record A when LLM says NOOP', async () => {
-      const store = createMockStore([
+      const store = await createMockStore([
         { key: 'rec-1', value: { text: 'Always use strict mode in TypeScript' } },
         { key: 'rec-2', value: { text: 'TypeScript strict mode should always be enabled' } },
       ])
@@ -108,7 +99,7 @@ describe('SemanticConsolidator', () => {
 
   describe('MERGE action', () => {
     it('merges two records into one with combined content', async () => {
-      const store = createMockStore([
+      const store = await createMockStore([
         { key: 'rec-1', value: { text: 'Use Prisma for database access' } },
         { key: 'rec-2', value: { text: 'Prisma should be used with strict typing' } },
       ])
@@ -135,7 +126,7 @@ describe('SemanticConsolidator', () => {
     it('preserves source evidence from both records', async () => {
       const firstEvidence = { ref: 'observation-message:run:m1', excerpt: 'A' }
       const secondEvidence = { ref: 'observation-message:run:m2', excerpt: 'B' }
-      const store = createMockStore([
+      const store = await createMockStore([
         {
           key: 'rec-1',
           value: { text: 'Use Prisma', evidenceReferences: [firstEvidence] },
@@ -151,7 +142,7 @@ describe('SemanticConsolidator', () => {
 
       await new SemanticConsolidator({ model }).consolidate(store, namespace)
 
-      expect(store._data.get('rec-2')?.['evidenceReferences']).toEqual([
+      expect((await store._double.valueOf('rec-2'))?.['evidenceReferences']).toEqual([
         secondEvidence,
         firstEvidence,
       ])
@@ -160,7 +151,7 @@ describe('SemanticConsolidator', () => {
 
   describe('UPDATE action', () => {
     it('updates target record and removes source', async () => {
-      const store = createMockStore([
+      const store = await createMockStore([
         { key: 'rec-1', value: { text: 'Node 18 is the current LTS' } },
         { key: 'rec-2', value: { text: 'Node 16 is the current LTS' } },
       ])
@@ -183,7 +174,7 @@ describe('SemanticConsolidator', () => {
 
   describe('DELETE action', () => {
     it('deletes obsolete record A', async () => {
-      const store = createMockStore([
+      const store = await createMockStore([
         { key: 'old', value: { text: 'Use var for variable declarations' } },
         { key: 'new', value: { text: 'Use const/let for variable declarations' } },
       ])
@@ -201,7 +192,7 @@ describe('SemanticConsolidator', () => {
 
   describe('ADD action', () => {
     it('keeps both records when they contain different information', async () => {
-      const store = createMockStore([
+      const store = await createMockStore([
         { key: 'rec-1', value: { text: 'Always validate user input' } },
         { key: 'rec-2', value: { text: 'Use rate limiting on API endpoints' } },
       ])
@@ -220,7 +211,7 @@ describe('SemanticConsolidator', () => {
 
   describe('CONTRADICT action', () => {
     it('flags contradicting records with metadata', async () => {
-      const store = createMockStore([
+      const store = await createMockStore([
         { key: 'rec-1', value: { text: 'Use REST for all APIs' } },
         { key: 'rec-2', value: { text: 'Use GraphQL for all APIs' } },
       ])
@@ -255,7 +246,7 @@ describe('SemanticConsolidator', () => {
         key: `rec-${i}`,
         value: { text: `Memory record number ${i} with unique content` },
       }))
-      const store = createMockStore(records)
+      const store = await createMockStore(records)
       const model = createMockModel(
         Array.from({ length: 50 }, () => jsonResp('add', 'keep both')),
       )
@@ -270,7 +261,7 @@ describe('SemanticConsolidator', () => {
 
   describe('LLM failure handling', () => {
     it('skips pairs when LLM call fails', async () => {
-      const store = createMockStore([
+      const store = await createMockStore([
         { key: 'rec-1', value: { text: 'First record' } },
         { key: 'rec-2', value: { text: 'Second record' } },
       ])
@@ -288,7 +279,7 @@ describe('SemanticConsolidator', () => {
     })
 
     it('skips pairs when LLM returns unparseable response', async () => {
-      const store = createMockStore([
+      const store = await createMockStore([
         { key: 'rec-1', value: { text: 'First record' } },
         { key: 'rec-2', value: { text: 'Second record' } },
       ])
@@ -303,7 +294,7 @@ describe('SemanticConsolidator', () => {
     })
 
     it('handles LLM response wrapped in markdown code blocks', async () => {
-      const store = createMockStore([
+      const store = await createMockStore([
         { key: 'rec-1', value: { text: 'Duplicate A' } },
         { key: 'rec-2', value: { text: 'Duplicate B' } },
       ])
@@ -319,7 +310,7 @@ describe('SemanticConsolidator', () => {
     })
 
     it('handles invalid action in LLM response', async () => {
-      const store = createMockStore([
+      const store = await createMockStore([
         { key: 'rec-1', value: { text: 'Record A' } },
         { key: 'rec-2', value: { text: 'Record B' } },
       ])
@@ -338,7 +329,7 @@ describe('SemanticConsolidator', () => {
 
   describe('pair deduplication', () => {
     it('does not compare the same pair twice (A-B and B-A)', async () => {
-      const store = createMockStore([
+      const store = await createMockStore([
         { key: 'rec-1', value: { text: 'Record alpha' } },
         { key: 'rec-2', value: { text: 'Record beta' } },
       ])
@@ -357,7 +348,7 @@ describe('SemanticConsolidator', () => {
 
   describe('records with empty text', () => {
     it('skips records without text content', async () => {
-      const store = createMockStore([
+      const store = await createMockStore([
         { key: 'rec-1', value: { data: 123 } }, // no text field — extractText returns JSON
         { key: 'rec-2', value: { text: '' } },   // empty text
         { key: 'rec-3', value: { text: 'Valid record' } },
@@ -410,7 +401,7 @@ describe('SemanticConsolidator', () => {
 
 describe('consolidateWithLLM', () => {
   it('is a convenience wrapper that returns a result', async () => {
-    const store = createMockStore([])
+    const store = await createMockStore([])
     const model = createMockModel([])
     const config: SemanticConsolidationConfig = { model }
 

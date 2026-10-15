@@ -44,6 +44,7 @@
 import { randomUUID } from "node:crypto";
 import { sql, type SQL } from "drizzle-orm";
 import { secureLogger } from "@dzupagent/core/utils";
+import { jobErrorFields, markCompletedWithRetry } from "./postgres-run-queue-outcome.js";
 import type {
   RunQueue,
   RunJob,
@@ -87,22 +88,6 @@ export interface PostgresRunQueueConfig extends Partial<RunQueueConfig> {
    * on a shared worker to restore the plain priority/created_at ordering.
    */
   fairScheduling?: boolean;
-}
-
-/** Attempts at persisting `completed` after the processor succeeded. */
-const MARK_COMPLETED_ATTEMPTS = 3;
-/** Linear backoff step between `completed` persistence attempts. */
-const MARK_COMPLETED_BACKOFF_MS = 100;
-
-/** Structured log fields for a job-scoped queue error. */
-function jobErrorFields(job: RunJob, error: unknown): Record<string, unknown> {
-  return {
-    jobId: job.id,
-    runId: job.runId,
-    attempt: job.attempts,
-    errorClass: error instanceof Error ? error.constructor.name : typeof error,
-    error: error instanceof Error ? error.message : String(error),
-  };
 }
 
 /** Raw `flow_jobs` row as returned by the driver (snake_case columns). */
@@ -463,7 +448,7 @@ export class PostgresRunQueue implements RunQueue {
     // path.
     const promise = Promise.resolve().then(() => this.processor!(job, abort.signal))
       .then(
-        () => lostOwnership ? undefined : this.markCompletedWithRetry(job),
+        () => lostOwnership ? undefined : markCompletedWithRetry(job, (settled) => this.markCompleted(settled)),
         (error: unknown) => lostOwnership ? undefined : this.handleFailure(job, error),
       )
       .catch((error: unknown) => {
@@ -481,28 +466,6 @@ export class PostgresRunQueue implements RunQueue {
       });
 
     this.active.set(job.id, { promise, abort });
-  }
-
-  /**
-   * Persist `completed` with a bounded retry. Exhausting the attempts rejects
-   * (logged by the dispatch chain); the row stays `claimed`, never `pending`.
-   */
-  private async markCompletedWithRetry(job: RunJob): Promise<void> {
-    for (let attempt = 1; ; attempt++) {
-      try {
-        await this.markCompleted(job);
-        return;
-      } catch (error) {
-        if (attempt >= MARK_COMPLETED_ATTEMPTS) throw error;
-        secureLogger.warn({
-          level: "warn",
-          operation: "run-queue.postgres.complete",
-          message: `persisting completed failed (try ${attempt}/${MARK_COMPLETED_ATTEMPTS}); retrying`,
-          ...jobErrorFields(job, error),
-        });
-        await new Promise((resolve) => setTimeout(resolve, MARK_COMPLETED_BACKOFF_MS * attempt));
-      }
-    }
   }
 
   private async markCompleted(job: RunJob): Promise<void> {

@@ -10,43 +10,19 @@ import { MemoryServiceObservationCandidateStore } from '../observation-candidate
 import type { ObservationCandidateStore } from '../observation-candidate-store.js'
 import { HumanMessage, AIMessage } from '@langchain/core/messages'
 import type { BaseMessage } from '@langchain/core/messages'
+import { createStoreDouble } from './helpers/store-double.js'
 
 // ---------------------------------------------------------------------------
 // Mock factories
 // ---------------------------------------------------------------------------
 
-interface MockStoreRecord {
-  key: string
-  value: Record<string, unknown>
-}
-
-function createMockStore(records: MockStoreRecord[] = []) {
-  const data = new Map<string, Record<string, unknown>>()
-  for (const r of records) {
-    data.set(r.key, r.value)
-  }
-
-  const store = {
-    search: vi.fn().mockImplementation((_ns: string[], opts?: { query?: string; limit?: number }) => {
-      const items = [...data.entries()].map(([key, value]) => ({ key, value }))
-      return Promise.resolve(items.slice(0, opts?.limit ?? items.length))
-    }),
-    put: vi.fn().mockImplementation((_ns: string[], key: string, value: Record<string, unknown>) => {
-      data.set(key, value)
-      return Promise.resolve()
-    }),
-    delete: vi.fn().mockImplementation((_ns: string[], key: string) => {
-      data.delete(key)
-      return Promise.resolve()
-    }),
-    get: vi.fn().mockImplementation((_ns: string[], key: string) => {
-      const value = data.get(key)
-      return Promise.resolve(value ? { key, value } : undefined)
-    }),
-    _data: data,
-  }
-
-  return store as unknown as BaseStore & { _data: Map<string, Record<string, unknown>> }
+/**
+ * Shared InMemoryStore double (DZUPAGENT-TEST-H-09): `search` honours the
+ * namespace prefix and the default limit of 10, unlike the key-only map this
+ * replaced, so a reflector that searches the wrong namespace finds nothing.
+ */
+function createMockStore(): BaseStore {
+  return createStoreDouble().store
 }
 
 function createMockModel(responses: string[]) {
@@ -153,7 +129,7 @@ function observationResponse(observations: Array<{ text: string; category: strin
 describe('ObservationalMemory', () => {
   let model: BaseChatModel & { invoke: ReturnType<typeof vi.fn> }
   let memoryService: ReturnType<typeof createMockMemoryService>
-  let store: ReturnType<typeof createMockStore>
+  let store: BaseStore
   let sut: ObservationalMemory
 
   const defaultScope = { tenantId: 't1', observations: 'obs' }
@@ -771,13 +747,16 @@ describe('ObservationalMemory', () => {
         .mockResolvedValueOnce(records)     // second call: after consolidation
         .mockResolvedValueOnce(records.slice(5)) // third call: after pruning
 
-      // Store also returns records for the pruning step
-      store = createMockStore(
-        records.map((r, i) => ({
-          key: `obs-${i}`,
-          value: r as unknown as Record<string, unknown>,
-        })),
-      )
+      // Store also returns records for the pruning step, under the tuple
+      // MemoryService derives for the namespace (name first, then scope values).
+      const observationsTuple = ['observations', ...Object.values(defaultScope)]
+      const double = createStoreDouble()
+      for (const [i, r] of records.entries()) {
+        await double.seed(observationsTuple, `obs-${i}`, r as unknown as Record<string, unknown>)
+      }
+      // A sibling namespace sharing the scope values must never be pruned.
+      await double.seed(Object.values(defaultScope), 'not-an-observation', { text: 'other', confidence: 0 })
+      store = double.store
 
       sut = createOM({
         reflectorTargetCount: 5,
@@ -786,7 +765,11 @@ describe('ObservationalMemory', () => {
       const result = await sut.reflect()
 
       expect(result.before).toBe(10)
-      expect(store.delete).toHaveBeenCalled()
+      expect(double.del).toHaveBeenCalled()
+      for (const call of double.del.mock.calls) {
+        expect(call[0]).toEqual(observationsTuple)
+      }
+      expect(await double.records(Object.values(defaultScope))).toHaveLength(1)
     })
   })
 

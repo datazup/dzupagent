@@ -28,3 +28,15 @@ test('pinned source metadata survives install normalization without rewriting th
     assert.throws(() => checkPublishMetadata(root, 'missing'), /full commit/)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
+
+test('the real package manifests pass the publish metadata check (build-independent failures)', () => {
+  // DZUPAGENT-ARCH-H-12: a normalizing sync flattened create-dzupagent's bin to a
+  // string and the Publish job stopped before any release. The fixture test above
+  // proves the checker; this one runs it against the live manifests so the same
+  // regression fails test:scripts. Missing bin targets depend on a build and are
+  // left to the Publish job, which runs after `yarn build`.
+  const report = checkPublishMetadata()
+  assert.ok(report.checkedPackages > 0)
+  const failures = report.failures.filter((failure) => !failure.includes('target is missing after build'))
+  assert.deepEqual(failures, [])
+})

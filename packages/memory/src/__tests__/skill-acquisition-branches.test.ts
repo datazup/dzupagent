@@ -2,28 +2,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { SkillAcquisitionEngine } from '../skill-acquisition.js'
 import type { ScanLesson, ScanRule } from '../skill-acquisition.js'
 import type { BaseStore } from '@langchain/langgraph'
+import { createStoreDouble } from './helpers/store-double.js'
 
+/**
+ * Shared InMemoryStore double (DZUPAGENT-TEST-H-09): `search` honours the
+ * namespace prefix and the default limit of 10. Its methods are pass-through spies.
+ */
 function createMockStore() {
-  const data = new Map<string, Record<string, unknown>>()
-  const store = {
-    search: vi.fn(async (_ns: string[], opts?: { query?: string; limit?: number }) => {
-      const items = [...data.entries()].map(([key, value]) => ({ key, value }))
-      return items.slice(0, opts?.limit ?? items.length)
-    }),
-    put: vi.fn(async (_ns: string[], key: string, value: Record<string, unknown>) => {
-      data.set(key, value)
-    }),
-    delete: vi.fn(async (_ns: string[], key: string) => {
-      data.delete(key)
-    }),
-    get: vi.fn(async (_ns: string[], key: string) => {
-      const value = data.get(key)
-      return value ? { key, value } : undefined
-    }),
-    _data: data,
-  }
-  return store as unknown as BaseStore & {
-    _data: Map<string, Record<string, unknown>>
+  return createStoreDouble().store as BaseStore & {
     put: ReturnType<typeof vi.fn>
     get: ReturnType<typeof vi.fn>
     delete: ReturnType<typeof vi.fn>

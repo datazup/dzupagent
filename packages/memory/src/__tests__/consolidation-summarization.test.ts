@@ -17,8 +17,9 @@ import { describe, it, expect, vi } from "vitest";
 import {
   ConsolidationEngine,
   type ConsolidationStore,
-  type ConsolidationStoreItem,
 } from "../consolidation-engine.js";
+import { createStoreDouble } from "./helpers/store-double.js";
+import type { StoreDouble } from "./helpers/store-double.js";
 import {
   consolidateNamespace,
   consolidateAll,
@@ -49,59 +50,32 @@ interface StoreRecord {
 }
 
 interface MockConsolidationStore extends ConsolidationStore {
-  data: Map<string, Record<string, unknown>>;
+  double: StoreDouble;
 }
 
-function makeConsolidationStore(
+/**
+ * Shared InMemoryStore double (DZUPAGENT-TEST-H-09): `search` honours the
+ * namespace prefix and the default limit of 10, so a consolidation of one
+ * namespace never sees another's records. Fixtures are seeded under the tuple
+ * `engine.consolidate("scope", "ns", store)` derives.
+ */
+async function makeConsolidationStore(
   records: StoreRecord[] = [],
-): MockConsolidationStore {
-  const data = new Map<string, Record<string, unknown>>();
-  for (const r of records) data.set(r.key, r.value);
-  return {
-    data,
-    search: vi.fn(
-      async (_ns: string[]): Promise<ConsolidationStoreItem[]> =>
-        [...data.entries()].map(([key, value]) => ({ key, value })),
-    ),
-    put: vi.fn(
-      async (_ns: string[], key: string, value: Record<string, unknown>) => {
-        data.set(key, value);
-      },
-    ),
-    delete: vi.fn(async (_ns: string[], key: string) => {
-      data.delete(key);
-    }),
-  };
+  namespace: string[] = ["scope", "ns"],
+): Promise<MockConsolidationStore> {
+  const double = createStoreDouble();
+  for (const r of records) await double.seed(namespace, r.key, r.value);
+  return Object.assign(double.store, { double }) as unknown as MockConsolidationStore;
 }
 
-function makeBaseStore(
+/** The same shared double as a `BaseStore`, seeded under `namespace`. */
+async function makeBaseStore(
   records: StoreRecord[] = [],
-): BaseStore & { _data: Map<string, Record<string, unknown>> } {
-  const data = new Map<string, Record<string, unknown>>();
-  for (const r of records) data.set(r.key, r.value);
-  const store = {
-    _data: data,
-    search: vi.fn((_ns: string[], _opts?: { limit?: number }) =>
-      Promise.resolve(
-        [...data.entries()].map(([key, value]) => ({ key, value })),
-      ),
-    ),
-    put: vi.fn((_ns: string[], key: string, value: Record<string, unknown>) => {
-      data.set(key, value);
-      return Promise.resolve();
-    }),
-    delete: vi.fn((_ns: string[], key: string) => {
-      data.delete(key);
-      return Promise.resolve();
-    }),
-    get: vi.fn((_ns: string[], key: string) => {
-      const value = data.get(key);
-      return Promise.resolve(value ? { key, value } : undefined);
-    }),
-  };
-  return store as unknown as BaseStore & {
-    _data: Map<string, Record<string, unknown>>;
-  };
+  namespace: string[] = ["ns"],
+): Promise<BaseStore & { double: StoreDouble }> {
+  const double = createStoreDouble();
+  for (const r of records) await double.seed(namespace, r.key, r.value);
+  return Object.assign(double.store, { double });
 }
 
 function entry(
@@ -132,7 +106,7 @@ describe("Merge strategies — latest-wins (consolidateNamespace)", () => {
   it("keeps the newer entry when two entries share identical text", async () => {
     const older = new Date(NOW - 5000).toISOString();
     const newer = new Date(NOW).toISOString();
-    const store = makeBaseStore([
+    const store = await makeBaseStore([
       { key: "dup:old", value: { text: "exact duplicate", timestamp: older } },
       { key: "dup:new", value: { text: "exact duplicate", timestamp: newer } },
     ]);
@@ -141,15 +115,15 @@ describe("Merge strategies — latest-wins (consolidateNamespace)", () => {
     ]);
     expect(result.merged).toBe(1);
     // Older key should be deleted
-    expect(store._data.has("dup:old")).toBe(false);
+    expect(((await store.double.valueOf("dup:old")) !== undefined)).toBe(false);
     // Newer key should survive
-    expect(store._data.has("dup:new")).toBe(true);
+    expect(((await store.double.valueOf("dup:new")) !== undefined)).toBe(true);
   });
 
   it("keeps the older entry when it is newer than the candidate", async () => {
     const older = new Date(NOW - 10000).toISOString();
     const newer = new Date(NOW - 1000).toISOString();
-    const store = makeBaseStore([
+    const store = await makeBaseStore([
       // Note: "existing" is newer here
       {
         key: "dup:first",
@@ -165,13 +139,13 @@ describe("Merge strategies — latest-wins (consolidateNamespace)", () => {
     ]);
     expect(result.merged).toBe(1);
     // The second entry (older timestamp) should be deleted
-    expect(store._data.has("dup:second")).toBe(false);
-    expect(store._data.has("dup:first")).toBe(true);
+    expect(((await store.double.valueOf("dup:second")) !== undefined)).toBe(false);
+    expect(((await store.double.valueOf("dup:first")) !== undefined)).toBe(true);
   });
 
   it("does not merge entries with different content", async () => {
     const ts = new Date(NOW).toISOString();
-    const store = makeBaseStore([
+    const store = await makeBaseStore([
       {
         key: "a",
         value: { text: "completely different content here", timestamp: ts },
@@ -185,14 +159,14 @@ describe("Merge strategies — latest-wins (consolidateNamespace)", () => {
       "ns",
     ]);
     expect(result.merged).toBe(0);
-    expect(store._data.size).toBe(2);
+    expect((await store.double.records()).length).toBe(2);
   });
 
   it("merges three duplicate entries into one (multi-dedup)", async () => {
     const t1 = new Date(NOW - 3000).toISOString();
     const t2 = new Date(NOW - 2000).toISOString();
     const t3 = new Date(NOW - 1000).toISOString();
-    const store = makeBaseStore([
+    const store = await makeBaseStore([
       { key: "k1", value: { text: "repeated lesson text", timestamp: t1 } },
       { key: "k2", value: { text: "repeated lesson text", timestamp: t2 } },
       { key: "k3", value: { text: "repeated lesson text", timestamp: t3 } },
@@ -257,14 +231,14 @@ describe("Merge strategies — oldest-wins (dedupLessons representative)", () =>
 
 describe("Merge strategies — union merge (ConsolidationEngine)", () => {
   it("summary text contains content from all source entries (union)", async () => {
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       { key: "chunk:a", value: { text: "first chunk content" } },
       { key: "chunk:b", value: { text: "second chunk content" } },
       { key: "chunk:c", value: { text: "third chunk content" } },
     ]);
     const engine = new ConsolidationEngine();
     await engine.consolidate("scope", "ns", store);
-    const summary = store.data.get("chunk:__summary__");
+    const summary = (await store.double.valueOf("chunk:__summary__"));
     expect(summary).toBeDefined();
     expect(summary!["text"]).toContain("first chunk content");
     expect(summary!["text"]).toContain("second chunk content");
@@ -272,14 +246,14 @@ describe("Merge strategies — union merge (ConsolidationEngine)", () => {
   });
 
   it("separator between entries is present in default join", async () => {
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       { key: "fact:1", value: { text: "alpha" } },
       { key: "fact:2", value: { text: "beta" } },
       { key: "fact:3", value: { text: "gamma" } },
     ]);
     const engine = new ConsolidationEngine();
     await engine.consolidate("scope", "ns", store);
-    const summary = store.data.get("fact:__summary__");
+    const summary = (await store.double.valueOf("fact:__summary__"));
     expect(typeof summary!["text"]).toBe("string");
     // Default join uses '\n---\n'
     expect(summary!["text"]).toContain("---");
@@ -291,7 +265,7 @@ describe("Merge strategies — union merge (ConsolidationEngine)", () => {
       entries.push(...e);
       return "union summary";
     });
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       { key: "obs:a", value: { text: "observation A" } },
       { key: "obs:b", value: { text: "observation B" } },
       { key: "obs:c", value: { text: "observation C" } },
@@ -546,7 +520,7 @@ describe("Conflict resolution — duplicate keys by merge strategy", () => {
   it("consolidateNamespace merges exact-text duplicates (same first 100 chars)", async () => {
     const ts = new Date(NOW).toISOString();
     const older = new Date(NOW - 1000).toISOString();
-    const store = makeBaseStore([
+    const store = await makeBaseStore([
       {
         key: "entry:1",
         value: {
@@ -561,7 +535,7 @@ describe("Conflict resolution — duplicate keys by merge strategy", () => {
           timestamp: ts,
         },
       },
-    ]);
+    ], ["test"]);
     const result = await consolidateNamespace(store as unknown as BaseStore, [
       "test",
     ]);
@@ -571,10 +545,10 @@ describe("Conflict resolution — duplicate keys by merge strategy", () => {
   it("consolidateNamespace does not merge entries with >100 char common prefix if rest differs", async () => {
     const ts = new Date(NOW).toISOString();
     const prefix = "a".repeat(100);
-    const store = makeBaseStore([
+    const store = await makeBaseStore([
       { key: "k1", value: { text: `${prefix}DIFFERS`, timestamp: ts } },
       { key: "k2", value: { text: `${prefix}UNIQUE`, timestamp: ts } },
-    ]);
+    ], ["test"]);
     const result = await consolidateNamespace(store as unknown as BaseStore, [
       "test",
     ]);
@@ -583,7 +557,7 @@ describe("Conflict resolution — duplicate keys by merge strategy", () => {
   });
 
   it("consolidateNamespace handles no duplicates gracefully", async () => {
-    const store = makeBaseStore([
+    const store = await makeBaseStore([
       {
         key: "a",
         value: {
@@ -598,16 +572,16 @@ describe("Conflict resolution — duplicate keys by merge strategy", () => {
           timestamp: new Date().toISOString(),
         },
       },
-    ]);
+    ], ["test"]);
     const result = await consolidateNamespace(store as unknown as BaseStore, [
       "test",
     ]);
     expect(result.merged).toBe(0);
-    expect(store._data.size).toBe(2);
+    expect((await store.double.records()).length).toBe(2);
   });
 
   it("ConsolidationEngine: conflict between same-prefix keys resolved by single summary", async () => {
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       { key: "conflict:v1", value: { text: "version 1 of the fact" } },
       { key: "conflict:v2", value: { text: "version 2 of the fact" } },
       { key: "conflict:v3", value: { text: "version 3 of the fact" } },
@@ -617,12 +591,12 @@ describe("Conflict resolution — duplicate keys by merge strategy", () => {
     expect(result.summarized).toBe(3);
     expect(result.summaries).toEqual(["conflict:__summary__"]);
     // All versions are folded into one summary
-    const summary = store.data.get("conflict:__summary__");
+    const summary = (await store.double.valueOf("conflict:__summary__"));
     expect(summary!["consolidatedFrom"]).toHaveLength(3);
   });
 
   it("ConsolidationEngine marks conflicting children with low strength (decay wins)", async () => {
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       { key: "val:old", value: { text: "old value" } },
       { key: "val:mid", value: { text: "mid value" } },
       { key: "val:new", value: { text: "new value" } },
@@ -630,7 +604,7 @@ describe("Conflict resolution — duplicate keys by merge strategy", () => {
     const engine = new ConsolidationEngine();
     await engine.consolidate("scope", "ns", store);
     for (const key of ["val:old", "val:mid", "val:new"]) {
-      const record = store.data.get(key)!;
+      const record = (await store.double.valueOf(key))!;
       const decay = record["_decay"] as Record<string, unknown>;
       expect(decay["strength"]).toBe(0.1);
     }
@@ -640,7 +614,7 @@ describe("Conflict resolution — duplicate keys by merge strategy", () => {
 describe("Conflict resolution — metadata conflicts", () => {
   it("ConsolidationEngine preserves original decay halfLifeMs on child update", async () => {
     const customHalfLife = 48 * 60 * 60 * 1000; // 48 hours
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       {
         key: "meta:a",
         value: {
@@ -685,7 +659,7 @@ describe("Conflict resolution — metadata conflicts", () => {
     await engine.consolidate("scope", "ns", store);
 
     for (const key of ["meta:a", "meta:b", "meta:c"]) {
-      const record = store.data.get(key)!;
+      const record = (await store.double.valueOf(key))!;
       const decay = record["_decay"] as Record<string, unknown>;
       // halfLifeMs should be preserved from original
       expect(decay["halfLifeMs"]).toBe(customHalfLife);
@@ -695,7 +669,7 @@ describe("Conflict resolution — metadata conflicts", () => {
   });
 
   it("ConsolidationEngine preserves original accessCount on child update", async () => {
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       {
         key: "acc:a",
         value: {
@@ -714,7 +688,7 @@ describe("Conflict resolution — metadata conflicts", () => {
     ]);
     const engine = new ConsolidationEngine();
     await engine.consolidate("scope", "ns", store);
-    const record = store.data.get("acc:a")!;
+    const record = (await store.double.valueOf("acc:a"))!;
     const decay = record["_decay"] as Record<string, unknown>;
     expect(decay["accessCount"]).toBe(42);
   });
@@ -759,7 +733,7 @@ describe("Conflict resolution — value conflicts", () => {
       return "resolved: use typescript strict mode always";
     });
 
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       {
         key: "pref:opt1",
         value: { text: "use typescript strict mode always" },
@@ -780,14 +754,14 @@ describe("Conflict resolution — value conflicts", () => {
     expect(receivedTexts).toContain("use typescript strict mode always");
     expect(receivedTexts).toContain("use typescript loose mode sometimes");
 
-    const summary = store.data.get("pref:__summary__");
+    const summary = (await store.double.valueOf("pref:__summary__"));
     expect(summary!["text"]).toBe(
       "resolved: use typescript strict mode always",
     );
   });
 
   it("fallback join when LLM fails preserves all values", async () => {
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       { key: "choice:a", value: { text: "option alpha" } },
       { key: "choice:b", value: { text: "option beta" } },
       { key: "choice:c", value: { text: "option gamma" } },
@@ -798,7 +772,7 @@ describe("Conflict resolution — value conflicts", () => {
     const engine = new ConsolidationEngine({ llmJudge: failingJudge });
     await engine.consolidate("scope", "ns", store);
 
-    const summary = store.data.get("choice:__summary__");
+    const summary = (await store.double.valueOf("choice:__summary__"));
     expect(summary!["text"]).toContain("option alpha");
     expect(summary!["text"]).toContain("option beta");
     expect(summary!["text"]).toContain("option gamma");
@@ -809,18 +783,18 @@ describe("Conflict resolution — value conflicts", () => {
 
 describe("Summarization triggers — count threshold (ConsolidationEngine minClusterSize)", () => {
   it("does not consolidate when cluster has fewer than 3 entries (default)", async () => {
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       { key: "grp:a", value: { text: "a" } },
       { key: "grp:b", value: { text: "b" } },
     ]);
     const engine = new ConsolidationEngine();
     const result = await engine.consolidate("scope", "ns", store);
     expect(result.summarized).toBe(0);
-    expect(store.data.has("grp:__summary__")).toBe(false);
+    expect(((await store.double.valueOf("grp:__summary__")) !== undefined)).toBe(false);
   });
 
   it("consolidates at exactly the minimum cluster size (3)", async () => {
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       { key: "grp:a", value: { text: "a" } },
       { key: "grp:b", value: { text: "b" } },
       { key: "grp:c", value: { text: "c" } },
@@ -828,22 +802,22 @@ describe("Summarization triggers — count threshold (ConsolidationEngine minClu
     const engine = new ConsolidationEngine();
     const result = await engine.consolidate("scope", "ns", store);
     expect(result.summarized).toBe(3);
-    expect(store.data.has("grp:__summary__")).toBe(true);
+    expect(((await store.double.valueOf("grp:__summary__")) !== undefined)).toBe(true);
   });
 
   it("custom minClusterSize=2 consolidates 2-entry clusters", async () => {
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       { key: "pair:x", value: { text: "x value" } },
       { key: "pair:y", value: { text: "y value" } },
     ]);
     const engine = new ConsolidationEngine({ minClusterSize: 2 });
     const result = await engine.consolidate("scope", "ns", store);
     expect(result.summarized).toBe(2);
-    expect(store.data.has("pair:__summary__")).toBe(true);
+    expect(((await store.double.valueOf("pair:__summary__")) !== undefined)).toBe(true);
   });
 
   it("custom minClusterSize=5 skips 4-entry cluster", async () => {
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       { key: "grp:a", value: { text: "a" } },
       { key: "grp:b", value: { text: "b" } },
       { key: "grp:c", value: { text: "c" } },
@@ -860,7 +834,7 @@ describe("Summarization triggers — count threshold (ConsolidationEngine minClu
       key: `item:${i}`,
       value: { text: `unique content number ${i}`, timestamp: ts },
     }));
-    const store = makeBaseStore(records);
+    const store = await makeBaseStore(records);
     const result = await consolidateNamespace(
       store as unknown as BaseStore,
       ["ns"],
@@ -877,7 +851,7 @@ describe("Summarization triggers — time-based (consolidateNamespace maxAgeMs)"
   it("prunes entries older than maxAgeMs", async () => {
     const ancient = new Date(NOW - 100 * MS_PER_DAY).toISOString();
     const fresh = new Date(NOW).toISOString();
-    const store = makeBaseStore([
+    const store = await makeBaseStore([
       { key: "old", value: { text: "old content", timestamp: ancient } },
       { key: "new", value: { text: "new content", timestamp: fresh } },
     ]);
@@ -893,7 +867,7 @@ describe("Summarization triggers — time-based (consolidateNamespace maxAgeMs)"
 
   it("does not prune entries within maxAgeMs window", async () => {
     const recent = new Date(NOW - 5 * MS_PER_DAY).toISOString();
-    const store = makeBaseStore([
+    const store = await makeBaseStore([
       { key: "a", value: { text: "recent a", timestamp: recent } },
       { key: "b", value: { text: "recent b", timestamp: recent } },
     ]);
@@ -908,7 +882,7 @@ describe("Summarization triggers — time-based (consolidateNamespace maxAgeMs)"
   });
 
   it("entries without timestamps are not pruned by age", async () => {
-    const store = makeBaseStore([
+    const store = await makeBaseStore([
       { key: "notimestamp", value: { text: "no timestamp present" } },
     ]);
     const result = await consolidateNamespace(
@@ -926,40 +900,40 @@ describe("Summarization triggers — time-based (consolidateNamespace maxAgeMs)"
 
 describe("Summary content — key facts preserved", () => {
   it("summary text joins all source texts with separator", async () => {
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       { key: "note:1", value: { text: "TypeScript is strongly typed" } },
       { key: "note:2", value: { text: "Use interfaces over type aliases" } },
       { key: "note:3", value: { text: "Enable strict mode in tsconfig" } },
     ]);
     const engine = new ConsolidationEngine();
     await engine.consolidate("scope", "ns", store);
-    const summary = store.data.get("note:__summary__");
+    const summary = (await store.double.valueOf("note:__summary__"));
     expect(summary!["text"]).toContain("TypeScript is strongly typed");
     expect(summary!["text"]).toContain("Use interfaces over type aliases");
     expect(summary!["text"]).toContain("Enable strict mode in tsconfig");
   });
 
   it('summary entry has kind="summary"', async () => {
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       { key: "obs:a", value: { text: "first" } },
       { key: "obs:b", value: { text: "second" } },
       { key: "obs:c", value: { text: "third" } },
     ]);
     const engine = new ConsolidationEngine();
     await engine.consolidate("scope", "ns", store);
-    const summary = store.data.get("obs:__summary__");
+    const summary = (await store.double.valueOf("obs:__summary__"));
     expect(summary!["kind"]).toBe("summary");
   });
 
   it("summary entry stores consolidatedFrom with source keys", async () => {
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       { key: "step:1", value: { text: "step one" } },
       { key: "step:2", value: { text: "step two" } },
       { key: "step:3", value: { text: "step three" } },
     ]);
     const engine = new ConsolidationEngine();
     await engine.consolidate("scope", "ns", store);
-    const summary = store.data.get("step:__summary__");
+    const summary = (await store.double.valueOf("step:__summary__"));
     const from = summary!["consolidatedFrom"] as string[];
     expect(from).toContain("step:1");
     expect(from).toContain("step:2");
@@ -967,14 +941,14 @@ describe("Summary content — key facts preserved", () => {
   });
 
   it("summary entry has decay with strength=1 (enters at full strength)", async () => {
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       { key: "task:a", value: { text: "a" } },
       { key: "task:b", value: { text: "b" } },
       { key: "task:c", value: { text: "c" } },
     ]);
     const engine = new ConsolidationEngine();
     await engine.consolidate("scope", "ns", store);
-    const summary = store.data.get("task:__summary__");
+    const summary = (await store.double.valueOf("task:__summary__"));
     const decay = summary!["_decay"] as Record<string, unknown>;
     expect(decay["strength"]).toBe(1);
   });
@@ -982,7 +956,7 @@ describe("Summary content — key facts preserved", () => {
 
 describe("Summary content — source entries marked after summary", () => {
   it("each source entry gets consolidatedInto pointing to summary key", async () => {
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       { key: "src:1", value: { text: "one" } },
       { key: "src:2", value: { text: "two" } },
       { key: "src:3", value: { text: "three" } },
@@ -990,13 +964,13 @@ describe("Summary content — source entries marked after summary", () => {
     const engine = new ConsolidationEngine();
     await engine.consolidate("scope", "ns", store);
     for (const key of ["src:1", "src:2", "src:3"]) {
-      const record = store.data.get(key)!;
+      const record = (await store.double.valueOf(key))!;
       expect(record["consolidatedInto"]).toBe("src:__summary__");
     }
   });
 
   it("source entries are rewritten with strength 0.1 to accelerate decay", async () => {
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       {
         key: "item:a",
         value: {
@@ -1016,14 +990,14 @@ describe("Summary content — source entries marked after summary", () => {
     const engine = new ConsolidationEngine();
     await engine.consolidate("scope", "ns", store);
     for (const key of ["item:a", "item:b", "item:c"]) {
-      const record = store.data.get(key)!;
+      const record = (await store.double.valueOf(key))!;
       const decay = record["_decay"] as Record<string, unknown>;
       expect(decay["strength"]).toBe(0.1);
     }
   });
 
   it("summary key ends with :__summary__ suffix", async () => {
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       { key: "doc:x", value: { text: "x" } },
       { key: "doc:y", value: { text: "y" } },
       { key: "doc:z", value: { text: "z" } },
@@ -1034,7 +1008,7 @@ describe("Summary content — source entries marked after summary", () => {
   });
 
   it("second consolidation pass is idempotent (no re-summarization)", async () => {
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       { key: "mem:a", value: { text: "a" } },
       { key: "mem:b", value: { text: "b" } },
       { key: "mem:c", value: { text: "c" } },
@@ -1045,7 +1019,7 @@ describe("Summary content — source entries marked after summary", () => {
     expect(r1.summarized).toBe(3);
     expect(r2.summarized).toBe(0);
     // Still only one summary key
-    const summaryKeys = [...store.data.keys()].filter((k) =>
+    const summaryKeys = (await store.double.records()).map((r) => r.key).filter((k) =>
       k.endsWith(":__summary__"),
     );
     expect(summaryKeys).toHaveLength(1);
@@ -1056,28 +1030,32 @@ describe("Summary content — source entries marked after summary", () => {
 
 describe("Namespace consolidation — scoped to namespace", () => {
   it("ConsolidationEngine consolidates only within the (scope, namespace) pair", async () => {
-    // Two namespaces share same key prefixes but only one is consolidated
-    const store = makeConsolidationStore([
-      { key: "task:a", value: { text: "ns1 task A" } },
-      { key: "task:b", value: { text: "ns1 task B" } },
-      { key: "task:c", value: { text: "ns1 task C" } },
-    ]);
-    const store2 = makeConsolidationStore([
-      { key: "task:x", value: { text: "ns2 task X" } },
-      { key: "task:y", value: { text: "ns2 task Y" } },
-      { key: "task:z", value: { text: "ns2 task Z" } },
-    ]);
+    // Two namespaces in ONE store share key prefixes; only one is consolidated.
+    const store = await makeConsolidationStore(
+      [
+        { key: "task:a", value: { text: "ns1 task A" } },
+        { key: "task:b", value: { text: "ns1 task B" } },
+        { key: "task:c", value: { text: "ns1 task C" } },
+      ],
+      ["scope", "namespace1"],
+    );
+    for (const key of ["task:x", "task:y", "task:z"]) {
+      await store.double.seed(["scope", "namespace2"], key, { text: `ns2 ${key}` });
+    }
 
     const engine = new ConsolidationEngine();
-    await engine.consolidate("scope", "namespace1", store);
-    // ns2 store should be untouched
-    expect(store2.data.has("task:__summary__")).toBe(false);
-    // ns1 store should have summary
-    expect(store.data.has("task:__summary__")).toBe(true);
+    const result = await engine.consolidate("scope", "namespace1", store);
+    expect(result.summarized).toBe(3);
+    // namespace2 is untouched: no summary and no child marked into one
+    const ns2 = await store.double.records(["scope", "namespace2"]);
+    expect(ns2.map((r) => r.key).sort()).toEqual(["task:x", "task:y", "task:z"]);
+    expect(ns2.filter((r) => r.value["consolidatedInto"] !== undefined)).toHaveLength(0);
+    // namespace1 has the summary
+    expect(await store.double.valueOf("task:__summary__", ["scope", "namespace1"])).toBeDefined();
   });
 
   it("consolidateAll processes each namespace independently", async () => {
-    const store = makeBaseStore([
+    const store = await makeBaseStore([
       {
         key: "item:1",
         value: { text: "ns1 item 1", timestamp: new Date().toISOString() },
@@ -1101,7 +1079,7 @@ describe("Namespace consolidation — scoped to namespace", () => {
   });
 
   it("store search is called with the correct namespace tuple", async () => {
-    const store = makeConsolidationStore();
+    const store = await makeConsolidationStore();
     const engine = new ConsolidationEngine();
     await engine.consolidate("tenant-42", "lessons", store);
     expect(store.search).toHaveBeenCalledWith(
@@ -1111,29 +1089,31 @@ describe("Namespace consolidation — scoped to namespace", () => {
   });
 
   it("two separate namespaces with same prefix produce separate summaries", async () => {
-    // Same store, different search results per namespace is simulated
-    // by giving each namespace its own store instance
-    const storeA = makeConsolidationStore([
-      { key: "log:1", value: { text: "log entry 1" } },
-      { key: "log:2", value: { text: "log entry 2" } },
-      { key: "log:3", value: { text: "log entry 3" } },
-    ]);
-    const storeB = makeConsolidationStore([
-      { key: "log:4", value: { text: "log entry 4" } },
-      { key: "log:5", value: { text: "log entry 5" } },
-      { key: "log:6", value: { text: "log entry 6" } },
-    ]);
+    // One store; the namespace-aware double keeps the two clusters apart.
+    const store = await makeConsolidationStore(
+      [
+        { key: "log:1", value: { text: "log entry 1" } },
+        { key: "log:2", value: { text: "log entry 2" } },
+        { key: "log:3", value: { text: "log entry 3" } },
+      ],
+      ["scope", "nsA"],
+    );
+    for (const key of ["log:4", "log:5", "log:6"]) {
+      await store.double.seed(["scope", "nsB"], key, { text: `log entry ${key.slice(4)}` });
+    }
     const engine = new ConsolidationEngine();
-    await engine.consolidate("scope", "nsA", storeA);
-    await engine.consolidate("scope", "nsB", storeB);
-    expect(storeA.data.has("log:__summary__")).toBe(true);
-    expect(storeB.data.has("log:__summary__")).toBe(true);
+    await engine.consolidate("scope", "nsA", store);
+    await engine.consolidate("scope", "nsB", store);
+    const summaryA = await store.double.valueOf("log:__summary__", ["scope", "nsA"]);
+    const summaryB = await store.double.valueOf("log:__summary__", ["scope", "nsB"]);
+    expect(summaryA?.["consolidatedFrom"]).toEqual(["log:1", "log:2", "log:3"]);
+    expect(summaryB?.["consolidatedFrom"]).toEqual(["log:4", "log:5", "log:6"]);
   });
 });
 
 describe("Namespace consolidation — cross-namespace isolation", () => {
   it("consolidateAll returns independent results per namespace", async () => {
-    const store = makeBaseStore([
+    const store = await makeBaseStore([
       {
         key: "k1",
         value: { text: "data from ns1", timestamp: new Date().toISOString() },
@@ -1177,13 +1157,13 @@ describe("Namespace consolidation — cross-namespace isolation", () => {
 
 describe("Edge cases — single entry", () => {
   it("ConsolidationEngine does not consolidate a single-entry cluster", async () => {
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       { key: "lonely:only", value: { text: "I am alone" } },
     ]);
     const engine = new ConsolidationEngine();
     const result = await engine.consolidate("scope", "ns", store);
     expect(result.summarized).toBe(0);
-    expect(store.data.has("lonely:__summary__")).toBe(false);
+    expect(((await store.double.valueOf("lonely:__summary__")) !== undefined)).toBe(false);
   });
 
   it("dedupLessons with single entry returns it unchanged", () => {
@@ -1215,12 +1195,12 @@ describe("Edge cases — single entry", () => {
   });
 
   it("consolidateNamespace with single entry returns before=1, merged=0, pruned=0", async () => {
-    const store = makeBaseStore([
+    const store = await makeBaseStore([
       {
         key: "solo",
         value: { text: "one entry", timestamp: new Date().toISOString() },
       },
-    ]);
+    ], ["test"]);
     const result = await consolidateNamespace(store as unknown as BaseStore, [
       "test",
     ]);
@@ -1232,7 +1212,7 @@ describe("Edge cases — single entry", () => {
 
 describe("Edge cases — empty store", () => {
   it("ConsolidationEngine returns zero result on empty store", async () => {
-    const store = makeConsolidationStore([]);
+    const store = await makeConsolidationStore([]);
     const engine = new ConsolidationEngine();
     const result = await engine.consolidate("scope", "ns", store);
     expect(result.summarized).toBe(0);
@@ -1242,7 +1222,7 @@ describe("Edge cases — empty store", () => {
   });
 
   it("consolidateNamespace returns zero result on empty store", async () => {
-    const store = makeBaseStore([]);
+    const store = await makeBaseStore([]);
     const result = await consolidateNamespace(store as unknown as BaseStore, [
       "ns",
     ]);
@@ -1253,7 +1233,7 @@ describe("Edge cases — empty store", () => {
   });
 
   it("consolidateAll returns empty array for empty namespace list", async () => {
-    const store = makeBaseStore([]);
+    const store = await makeBaseStore([]);
     const results = await consolidateAll(store as unknown as BaseStore, []);
     expect(results).toEqual([]);
   });
@@ -1334,7 +1314,7 @@ describe("Edge cases — all entries expired", () => {
   });
 
   it("ConsolidationEngine no-ops when all entries are already consolidated", async () => {
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       {
         key: "task:a",
         value: { text: "a", consolidatedInto: "task:__summary__" },
@@ -1379,7 +1359,7 @@ describe("Edge cases — all entries identical", () => {
   });
 
   it("ConsolidationEngine consolidates all identical-prefix entries into one summary", async () => {
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       { key: "same:1", value: { text: "identical" } },
       { key: "same:2", value: { text: "identical" } },
       { key: "same:3", value: { text: "identical" } },
@@ -1405,7 +1385,7 @@ describe("Edge cases — all entries identical", () => {
   it("consolidateNamespace handles all identical texts in store", async () => {
     const ts = new Date(NOW).toISOString();
     const older = new Date(NOW - 1000).toISOString();
-    const store = makeBaseStore([
+    const store = await makeBaseStore([
       { key: "dup1", value: { text: "same text", timestamp: older } },
       { key: "dup2", value: { text: "same text", timestamp: ts } },
     ]);
@@ -1418,7 +1398,7 @@ describe("Edge cases — all entries identical", () => {
 
 describe("Edge cases — result shape completeness", () => {
   it("ConsolidationEngine result always has all required fields", async () => {
-    const store = makeConsolidationStore();
+    const store = await makeConsolidationStore();
     const engine = new ConsolidationEngine();
     const result = await engine.consolidate("s", "n", store);
     expect(result).toHaveProperty("summarized");
@@ -1428,7 +1408,7 @@ describe("Edge cases — result shape completeness", () => {
   });
 
   it("consolidateNamespace result always has all required fields", async () => {
-    const store = makeBaseStore();
+    const store = await makeBaseStore();
     const result = await consolidateNamespace(store as unknown as BaseStore, [
       "ns",
     ]);
@@ -1467,18 +1447,15 @@ describe("Edge cases — result shape completeness", () => {
   });
 
   it("ConsolidationEngine handles store.put throwing on summary — skips cluster non-fatally", async () => {
-    const data = new Map<string, Record<string, unknown>>([
-      ["grp:a", { text: "a" }],
-      ["grp:b", { text: "b" }],
-      ["grp:c", { text: "c" }],
-    ]);
-    const store: ConsolidationStore = {
-      search: vi.fn(async () =>
-        [...data.entries()].map(([key, value]) => ({ key, value })),
-      ),
-      put: vi.fn().mockRejectedValue(new Error("write failed")),
-      delete: vi.fn(),
-    };
+    const store = await makeConsolidationStore(
+      [
+        { key: "grp:a", value: { text: "a" } },
+        { key: "grp:b", value: { text: "b" } },
+        { key: "grp:c", value: { text: "c" } },
+      ],
+      ["s", "n"],
+    );
+    store.double.put.mockRejectedValue(new Error("write failed"));
     const engine = new ConsolidationEngine();
     const result = await engine.consolidate("s", "n", store);
     // summary write failed → cluster was skipped
