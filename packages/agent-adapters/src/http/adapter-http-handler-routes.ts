@@ -47,20 +47,22 @@ function dispatchStreamRun(
 
 function dispatchStreamSupervisor(
   ctx: HandlerContext,
-  body: SupervisorRequestBody
+  body: SupervisorRequestBody,
+  correlationId?: string
 ): HttpStreamResponse {
   return streamSupervisor(
-    { orchestrator: ctx.orchestrator, eventBus: ctx.eventBus },
+    { orchestrator: ctx.orchestrator, eventBus: ctx.eventBus, correlationId },
     body
   );
 }
 
 function dispatchStreamParallel(
   ctx: HandlerContext,
-  body: ParallelRequestBody
+  body: ParallelRequestBody,
+  correlationId?: string
 ): HttpStreamResponse {
   return streamParallel(
-    { orchestrator: ctx.orchestrator, eventBus: ctx.eventBus },
+    { orchestrator: ctx.orchestrator, eventBus: ctx.eventBus, correlationId },
     body
   );
 }
@@ -107,10 +109,10 @@ export async function handleRun(
 export async function handleSupervisor(
   ctx: HandlerContext,
   body: SupervisorRequestBody,
-  _correlationId?: string
+  correlationId?: string
 ): Promise<HttpResult> {
   if (body.stream) {
-    return dispatchStreamSupervisor(ctx, body);
+    return dispatchStreamSupervisor(ctx, body, correlationId);
   }
 
   try {
@@ -128,10 +130,10 @@ export async function handleSupervisor(
 export async function handleParallel(
   ctx: HandlerContext,
   body: ParallelRequestBody,
-  _correlationId?: string
+  correlationId?: string
 ): Promise<HttpResult> {
   if (body.stream) {
-    return dispatchStreamParallel(ctx, body);
+    return dispatchStreamParallel(ctx, body, correlationId);
   }
 
   try {

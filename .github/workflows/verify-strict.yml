@@ -274,6 +274,14 @@ jobs:
           done
           echo "Qdrant did not become ready" >&2; exit 1
 
+      # DZUPAGENT-TEST-M-24: the agent-adapters test:integration suites are the
+      # only proof that no Codex app-server descendant outlives close(). They
+      # need an unprivileged bwrap PID namespace; fail here, visibly, if absent.
+      - name: Check bwrap PID-namespace prerequisite
+        run: |
+          command -v bwrap >/dev/null || { echo "bwrap is not installed" >&2; exit 1; }
+          bwrap --unshare-pid --ro-bind / / true || { echo "bwrap --unshare-pid is not usable" >&2; exit 1; }
+
       - name: Run required integration suites (fail-closed)
         run: yarn test:required-integration
     if: ${{ (github.repository == 'datazup/dzupagent' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request') }}

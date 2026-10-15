@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createEventBus } from "@dzupagent/core";
+import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   AdapterHttpHandler,
@@ -840,6 +843,66 @@ describe("AdapterHttpHandler", () => {
   // -------------------------------------------------------------------------
   // Error handling
   // -------------------------------------------------------------------------
+
+  describe("POST /run workingDirectory containment", () => {
+    let base: string;
+    let root: string;
+    let outside: string;
+
+    beforeEach(async () => {
+      base = await realpath(await mkdtemp(join(tmpdir(), "adapter-http-wd-")));
+      root = join(base, "root");
+      outside = join(base, "outside");
+      await mkdir(join(root, "project"), { recursive: true });
+      await mkdir(outside);
+      await symlink(outside, join(root, "escape"));
+    });
+
+    afterEach(async () => {
+      await rm(base, { recursive: true, force: true });
+    });
+
+    function rootedHandler(): AdapterHttpHandler {
+      return new AdapterHttpHandler({
+        orchestrator,
+        allowUnauthenticated: true,
+        allowedWorkingDirectoryRoots: [root],
+      });
+    }
+
+    it.each([
+      ["the filesystem root", () => "/"],
+      ["a symlink escaping the root", () => join(root, "escape")],
+      ["a dot-dot escape", () => join(root, "..", "outside")],
+      ["a missing directory", () => join(root, "missing")],
+    ])("rejects %s with 400 and never runs", async (_label, dir) => {
+      const result = await rootedHandler().handle(
+        makeRequest("POST", "/run", { prompt: "hi", workingDirectory: dir() }),
+      );
+      const json = asJsonResponse(result as HttpResponse);
+      expect(json.status).toBe(400);
+      expect(JSON.stringify(json.body)).toContain("workingDirectory");
+      expect(orchestrator.run).not.toHaveBeenCalled();
+    });
+
+    it("accepts a directory inside the root and forwards its real path", async () => {
+      const result = await rootedHandler().handle(
+        makeRequest("POST", "/run", { prompt: "hi", workingDirectory: join(root, "project") }),
+      );
+      expect(asJsonResponse(result as HttpResponse).status).toBe(200);
+      expect(orchestrator.run).toHaveBeenCalledWith(
+        "hi",
+        expect.objectContaining({ workingDirectory: join(root, "project") }),
+      );
+    });
+
+    it("defaults the allowed root to the process cwd", async () => {
+      const result = await handler.handle(
+        makeRequest("POST", "/run", { prompt: "hi", workingDirectory: "/" }),
+      );
+      expect(asJsonResponse(result as HttpResponse).status).toBe(400);
+    });
+  });
 
   describe("error handling", () => {
     it("returns 500 on orchestrator error", async () => {

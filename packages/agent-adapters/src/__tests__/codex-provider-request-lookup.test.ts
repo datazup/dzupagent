@@ -94,6 +94,38 @@ describe('Codex provider request restart lookup', () => {
     })
   })
 
+  it.each([undefined, { CODEX_HOME: '/explicit/codex-home' }])(
+    'filters parent secrets from the lookup child env (explicit env %o)',
+    async (env) => {
+      const saved = { JWT_SECRET: process.env.JWT_SECRET, DATABASE_URL: process.env.DATABASE_URL }
+      process.env.JWT_SECRET = 'parent-jwt'
+      process.env.DATABASE_URL = 'postgres://parent'
+      let childEnv: NodeJS.ProcessEnv | undefined
+      try {
+        await lookupCodexProviderRequest({
+          threadId: 'thread-1',
+          ...(env ? { env } : {}),
+          dependencies: {
+            spawn(_command, _args, options) {
+              childEnv = options.env
+              return createAppServer({ id: 'thread-1', status: { type: 'idle' }, turns: [] })
+            },
+          },
+        })
+      } finally {
+        for (const [key, value] of Object.entries(saved)) {
+          if (value === undefined) delete process.env[key]
+          else process.env[key] = value
+        }
+      }
+      expect(childEnv).toBeDefined()
+      expect(childEnv!['JWT_SECRET']).toBeUndefined()
+      expect(childEnv!['DATABASE_URL']).toBeUndefined()
+      expect(childEnv!['PATH']).toBe(process.env.PATH)
+      if (env) expect(childEnv!['CODEX_HOME']).toBe('/explicit/codex-home')
+    },
+  )
+
   it('keeps active and unknown threads nonterminal', () => {
     expect(
       normalizeCodexThreadReadResult({

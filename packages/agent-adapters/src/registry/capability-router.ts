@@ -302,28 +302,30 @@ export class CapabilityRouter implements TaskRoutingStrategy {
     for (const providerId of availableProviders) {
       const cap = this.capabilities.get(providerId)
       if (!cap) {
-        scored.push({ provider: providerId, score: 0, reasons: ['unknown provider'] })
+        // An unknown provider cannot prove it has any required capability.
+        if (requiredTags.size === 0) {
+          scored.push({ provider: providerId, score: 0, reasons: ['unknown provider'] })
+        }
         continue
       }
+
+      // Required tags are hard requirements: a provider missing any of them
+      // is ineligible rather than merely penalised.
+      let meetsRequirements = true
+      for (const reqTag of requiredTags) {
+        if (!cap.capabilities.has(reqTag)) {
+          meetsRequirements = false
+          break
+        }
+      }
+      if (!meetsRequirements) continue
 
       let score = 0
       const reasons: string[] = []
 
-      // Check required tags — provider must have ALL of them
-      let meetsRequirements = true
       for (const reqTag of requiredTags) {
-        if (cap.capabilities.has(reqTag)) {
-          score += REQUIRED_TAG_WEIGHT
-          reasons.push(`has required "${reqTag}"`)
-        } else {
-          meetsRequirements = false
-        }
-      }
-
-      // If provider fails a hard requirement, heavily penalise
-      if (!meetsRequirements) {
-        score -= 100
-        reasons.push('missing required capability')
+        score += REQUIRED_TAG_WEIGHT
+        reasons.push(`has required "${reqTag}"`)
       }
 
       // Check preferred tags
@@ -364,8 +366,20 @@ export class CapabilityRouter implements TaskRoutingStrategy {
       scored.push({ provider: providerId, score, reasons })
     }
 
-    // Sort by score descending
-    scored.sort((a, b) => b.score - a.score)
+    if (scored.length === 0) {
+      return {
+        provider: 'auto',
+        reason: `No available provider has the required capabilities: ${[...requiredTags].join(', ')}`,
+        fallbackProviders: [],
+        confidence: 0,
+      }
+    }
+
+    // Sort by score descending; break ties by provider id so the decision
+    // does not depend on registration order.
+    scored.sort((a, b) =>
+      b.score !== a.score ? b.score - a.score : a.provider < b.provider ? -1 : a.provider > b.provider ? 1 : 0,
+    )
 
     const best = scored[0]!
     const fallbacks = scored.slice(1).map((s) => s.provider)

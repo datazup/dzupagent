@@ -5,6 +5,9 @@
  * for all HTTP request bodies.
  */
 
+import { realpath, stat } from 'node:fs/promises'
+import { isAbsolute, relative, resolve, sep } from 'node:path'
+
 import { z } from 'zod'
 
 import { HTTP_ROUTABLE_PROVIDER_IDS } from '../provider-catalog.js'
@@ -78,6 +81,39 @@ export const RunRequestSchema = z.object({
   policyConformanceMode: PolicyConformanceModeSchema.optional(),
   options: RunOptionsSchema.optional(),
 })
+
+/**
+ * `workingDirectory` becomes the spawned CLI's cwd (and Claude's `--add-dir`),
+ * so the schema's length check is not enough: the requested directory is
+ * realpath'd (following symlinks) and must sit inside one of the allowed roots,
+ * themselves realpath'd. With no roots configured the process cwd is the only
+ * root. Returns the resolved path to hand to the adapter, or `undefined` when
+ * the directory is missing or escapes every root.
+ */
+export async function resolveAllowedWorkingDirectory(
+  requested: string,
+  allowedRoots: readonly string[] | undefined,
+): Promise<string | undefined> {
+  const roots = allowedRoots && allowedRoots.length > 0 ? allowedRoots : [process.cwd()]
+  let target: string
+  try {
+    target = await realpath(resolve(requested))
+    if (!(await stat(target)).isDirectory()) return undefined
+  } catch {
+    return undefined
+  }
+  for (const root of roots) {
+    let realRoot: string
+    try {
+      realRoot = await realpath(resolve(root))
+    } catch {
+      continue
+    }
+    const rel = relative(realRoot, target)
+    if (rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))) return target
+  }
+  return undefined
+}
 
 export const SupervisorRequestSchema = z.object({
   goal: z.string().min(1).max(100_000),

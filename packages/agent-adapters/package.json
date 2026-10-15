@@ -102,6 +102,7 @@
     "typecheck:deps": "node ../../scripts/build-workspace-deps.mjs @dzupagent/agent-adapters",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:integration": "vitest run src/codex/codex-app-server-containment.test.ts src/__tests__/codex-app-server-adapter.test.ts",
     "test:orchestration:race": "vitest run src/__tests__/parallel-executor.test.ts src/__tests__/orchestrator-facade.test.ts src/__tests__/parallel-executor.contract.test.ts src/__tests__/parallel-executor-unhandled-rejection.test.ts",
     "test:orchestration:cancel": "vitest run src/__tests__/parallel-executor.test.ts src/__tests__/orchestrator-facade.test.ts src/__tests__/contract-net.test.ts src/__tests__/map-reduce.test.ts",
     "test:orchestration:contracts": "vitest run src/__tests__/parallel-executor.contract.test.ts src/__tests__/parallel-executor-unhandled-rejection.test.ts src/__tests__/adapter-registry.test.ts src/__tests__/event-bus-bridge.test.ts",

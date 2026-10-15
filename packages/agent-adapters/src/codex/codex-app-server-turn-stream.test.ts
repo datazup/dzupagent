@@ -158,6 +158,12 @@ describe('app-server resume tolerates prior-turn usage of the same thread', () =
       usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 } })
   })
 
+  it('sums the per-call usage of every update in the same turn', async () => {
+    const result = await replay([usageFor(ids.turnId, ids.threadId, 100), usageFor(ids.turnId, ids.threadId, 50), completed])
+    expect(result.terminal).toMatchObject({ type: 'adapter:completed',
+      usage: { inputTokens: 150, outputTokens: 2, cachedInputTokens: 0 } })
+  })
+
   it('still refuses a usage report for another thread', async () => {
     await expect(replay([usageFor(ids.turnId, 'foreign-thread'), completed]))
       .rejects.toMatchObject({ code: 'CODEX_APP_SERVER_STALE_TURN' })
