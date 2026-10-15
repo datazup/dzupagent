@@ -11,7 +11,7 @@
 import type { BaseStore } from "@langchain/langgraph";
 import type { NamespaceConfig, SemanticStoreAdapter } from "./memory-types.js";
 import { sanitizeMemoryContent } from "./memory-sanitizer.js";
-import { defaultMemoryPIIDetector } from "./memory-pii.js";
+import { defaultMemoryPIIDetector, redactStringLeaves } from "./memory-pii.js";
 import { createDecayMetadata } from "./decay-engine.js";
 import type { MemoryStoreCapabilities } from "./store-capabilities.js";
 import type { ReferenceTracker } from "./provenance/reference-tracker.js";
@@ -174,7 +174,7 @@ export async function putMemoryRecord(
 ): Promise<MemoryPutResult> {
   let piiRedacted = false;
   let workingValue = value;
-  let textContent =
+  const textContent =
     typeof workingValue["text"] === "string"
       ? (workingValue["text"] as string)
       : JSON.stringify(workingValue);
@@ -196,30 +196,62 @@ export async function putMemoryRecord(
     }
   }
 
-  // PII detection / redaction (non-fatal). Unless disabled, rewrite `text`
-  // to the redacted form so persisted memories never contain raw PII. An
-  // injected detector scans the whole value; the default one only scans a
-  // string `text` field, so structured records are never given a synthetic
-  // `text` (number runs such as timestamps would otherwise match PHONE).
-  const detectPII =
-    deps.options?.detectPII ??
-    (typeof workingValue["text"] === "string"
-      ? defaultMemoryPIIDetector
-      : undefined);
-  if (deps.options?.piiRedactionEnabled !== false && detectPII) {
+  // PII detection / redaction. Unless disabled:
+  // - a string `text` field is redacted (default or injected detector);
+  // - a structured value bound for a searchable namespace has every string
+  //   leaf redacted, so neither the stored record nor the searchable `text`
+  //   synthesized from it below carries raw PII (numbers are never scanned —
+  //   timestamps would match PHONE — nor are ids, digests and metadata);
+  // - any other structured value is scanned only by an injected detector,
+  //   whose redacted JSON becomes `text` (the default detector never grafts a
+  //   synthetic `text` onto it).
+  if (deps.options?.piiRedactionEnabled !== false) {
+    const structured = typeof workingValue["text"] !== "string";
     try {
-      const piiResult = detectPII(textContent);
-      if (piiResult.hasPII) {
-        textContent = piiResult.redacted;
-        workingValue = { ...workingValue, text: textContent };
-        piiRedacted = true;
+      if (structured && ns.searchable) {
+        const redaction = redactStringLeaves(
+          workingValue,
+          deps.options?.detectPII ?? defaultMemoryPIIDetector
+        );
+        if (redaction.hasPII) {
+          workingValue = redaction.value;
+          piiRedacted = true;
+        }
+      } else {
+        const detectPII =
+          deps.options?.detectPII ??
+          (structured ? undefined : defaultMemoryPIIDetector);
+        const piiResult = detectPII?.(textContent);
+        if (piiResult?.hasPII) {
+          workingValue = { ...workingValue, text: piiResult.redacted };
+          piiRedacted = true;
+        }
+      }
+      if (piiRedacted) {
         deps.eventBus?.emit({
           type: "memory:pii_redacted",
           agentId: deps.agentId ?? "unknown",
         });
       }
-    } catch {
-      // PII detection must never abort a write
+    } catch (err: unknown) {
+      // A failing detector must never turn redaction off silently: refuse
+      // the write (nothing raw is persisted) and surface the failure. Only
+      // the error class is reported — the message may echo the scanned text.
+      const errorClass = err instanceof Error ? err.name : typeof err;
+      // eslint-disable-next-line no-console
+      console.error("[memory] PII detection failed; write refused", {
+        namespace: ns.name,
+        key,
+        errorClass,
+      });
+      deps.eventBus?.emit({
+        type: "memory:pii_redaction_failed",
+        namespace: ns.name,
+        key,
+        errorClass,
+        agentId: deps.agentId ?? "unknown",
+      });
+      return { status: "rejected", reason: "pii_detection_failed", threats: [] };
     }
   }
 

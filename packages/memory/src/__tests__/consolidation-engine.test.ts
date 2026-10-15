@@ -229,6 +229,34 @@ describe('ConsolidationEngine', () => {
     expect(second.summaries).toEqual([])
   })
 
+  it('merges a second run over disjoint children into the prior summary (AGENT-H-42)', async () => {
+    const store = await createMockStore([
+      { key: 'task:a', value: { text: 'first A' } },
+      { key: 'task:b', value: { text: 'first B' } },
+      { key: 'task:c', value: { text: 'first C' } },
+    ])
+    const engine = new ConsolidationEngine()
+    await engine.consolidate('teamX', 'session', store)
+    const firstSummary = await store.double.valueOf('task:__summary__')
+
+    await store.double.seed(['teamX', 'session'], 'task:d', { text: 'second D' })
+    await store.double.seed(['teamX', 'session'], 'task:e', { text: 'second E' })
+    await store.double.seed(['teamX', 'session'], 'task:f', { text: 'second F' })
+    const second = await engine.consolidate('teamX', 'session', store)
+
+    expect(second.summaries).toEqual(['task:__summary__'])
+    expect(second.provenance['task:__summary__']).toEqual(['task:d', 'task:e', 'task:f'])
+    const summary = await store.double.valueOf('task:__summary__')
+    expect(summary?.['consolidatedFrom']).toEqual([
+      'task:a', 'task:b', 'task:c', 'task:d', 'task:e', 'task:f',
+    ])
+    const text = summary?.['text'] as string
+    for (const part of ['first A', 'first B', 'first C', 'second D', 'second E', 'second F']) {
+      expect(text).toContain(part)
+    }
+    expect(summary?.['createdAt']).toBe(firstSummary?.['createdAt'])
+  })
+
   it('returns a zero result when search throws', async () => {
     const store: ConsolidationStore = {
       search: () => Promise.reject(new Error('boom')),

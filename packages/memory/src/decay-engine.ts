@@ -2,7 +2,7 @@
  * Ebbinghaus forgetting curve decay engine for memory records.
  *
  * Implements exponential decay with spaced-repetition reinforcement:
- *   strength = e^(-elapsed / halfLife)
+ *   strength = storedStrength * e^(-elapsed / halfLife)
  *
  * Each access doubles the half-life (up to MAX_HALF_LIFE), so frequently
  * retrieved memories persist longer — mirroring human memory consolidation.
@@ -36,17 +36,33 @@ const DEFAULT_PRUNE_THRESHOLD = 0.1
 
 /**
  * Calculate current memory strength using exponential decay.
- * Formula: strength = e^(-elapsed / halfLife)
+ * Formula: strength = baseStrength * e^(-elapsed / halfLife)
+ *
+ * `baseStrength` is the stored `meta.strength` — the strength the record had
+ * at `lastAccessedAt` (1 after a reinforcement, the importance weight for a
+ * fresh record, 0.1 for a consolidated child). A missing or non-finite stored
+ * strength reads as 1; out-of-range values are clamped into [0, 1].
+ *
+ * Note: `halfLifeMs` is used as the e-folding time constant (strength falls
+ * to 1/e, not 1/2, after one `halfLifeMs`); the Arrow `batchDecayUpdate`
+ * path in `@dzupagent/memory-ipc` uses the same curve.
  */
 export function calculateStrength(meta: DecayMetadata, now?: number): number {
   const currentTime = now ?? Date.now()
   const elapsed = Math.max(0, currentTime - meta.lastAccessedAt)
+  const base = baseStrength(meta.strength)
   // Mirror columnar-ops-decay: a zero/negative/non-finite half-life would
   // produce NaN or 0-everywhere strengths and poison eviction ordering.
   if (!Number.isFinite(meta.halfLifeMs) || meta.halfLifeMs <= 0) {
-    return elapsed <= 0 ? 1 : Math.exp(-elapsed / DEFAULT_HALF_LIFE_MS)
+    return elapsed <= 0 ? base : base * Math.exp(-elapsed / DEFAULT_HALF_LIFE_MS)
   }
-  return Math.exp(-elapsed / meta.halfLifeMs)
+  return base * Math.exp(-elapsed / meta.halfLifeMs)
+}
+
+/** Stored strength as a decay base: non-finite reads as 1, clamped to [0, 1]. */
+function baseStrength(stored: unknown): number {
+  if (typeof stored !== 'number' || !Number.isFinite(stored)) return 1
+  return Math.max(0, Math.min(1, stored))
 }
 
 /**

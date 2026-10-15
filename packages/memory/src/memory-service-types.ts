@@ -35,14 +35,20 @@ export interface MemoryServiceOptions {
   referenceTracker?: ReferenceTracker
   /**
    * Toggle PII detection/redaction on the write path. Defaults to true:
-   * without an injected `detectPII`, a string `text` field is redacted with
-   * the `@dzupagent/security` scanner. Set `false` to store text verbatim.
+   * without an injected `detectPII`, a string `text` field — and, for a
+   * structured value in a searchable namespace, every string leaf except
+   * ids, digests and `_`-prefixed metadata — is redacted with the
+   * `@dzupagent/security` scanner. Set `false` to store values verbatim.
    */
   piiRedactionEnabled?: boolean
   /**
    * Optional PII detector, replacing the default. When provided and
-   * `piiRedactionEnabled !== false`, text content (or the JSON of a value
-   * without `text`) is scanned and redacted before persistence. Structurally
+   * `piiRedactionEnabled !== false`, text content (the string leaves of a
+   * structured value in a searchable namespace, else `text` or the JSON of a
+   * value without `text`) is scanned and redacted before persistence; a
+   * throwing detector makes `put`
+   * return `{ status: 'rejected', reason: 'pii_detection_failed' }` and emit
+   * `memory:pii_redaction_failed`. Structurally
    * typed to accept `detectPII` from `@dzupagent/core/security` without a
    * compile-time dependency on core.
    */
@@ -65,7 +71,16 @@ export interface MemoryServiceOptions {
  */
 export type MemoryPutResult =
   | { status: 'written'; piiRedacted: boolean }
-  | { status: 'rejected'; reason: 'unsafe_content'; threats: string[] }
+  | {
+      status: 'rejected'
+      /**
+       * `unsafe_content`: refused by `rejectUnsafe` (see `threats`).
+       * `pii_detection_failed`: the PII detector threw, so the value could not
+       * be redacted and was not persisted (`threats` is empty).
+       */
+      reason: 'unsafe_content' | 'pii_detection_failed'
+      threats: string[]
+    }
   | { status: 'failed'; error: string }
 
 /**

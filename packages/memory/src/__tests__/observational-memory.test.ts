@@ -960,18 +960,59 @@ describe('ObservationalMemory', () => {
   // -----------------------------------------------------------------------
 
   describe('non-fatal error handling', () => {
-    it('should return empty extracted array when LLM extraction fails', async () => {
-      // ObservationExtractor.extract() catches LLM errors internally and returns []
-      // So runObserver completes but with no observations extracted
+    it('returns null, keeps the batch and emits a failure event when LLM extraction fails (ERR-M-93)', async () => {
       model = {
-        invoke: vi.fn().mockRejectedValue(new Error('LLM down')),
+        invoke: vi.fn()
+          .mockRejectedValueOnce(new TypeError('LLM down: secret-endpoint'))
+          .mockResolvedValue({ content: '[]' }),
       } as unknown as BaseChatModel & { invoke: ReturnType<typeof vi.fn> }
-      sut = createOM({ observerThreshold: 1 })
+      const events: ObservationLifecycleEvent[] = []
+      sut = createOM({
+        observerThreshold: 2,
+        onObservationLifecycleEvent: event => events.push(event),
+      })
 
-      const result = await sut.observe(makeMessages(2))
-      expect(result).not.toBeNull()
-      expect(result!.extracted).toEqual([])
-      expect(result!.skippedDuplicates).toBe(0)
+      const result = await sut.observe(textMessages('kept-a', 'kept-b'))
+      expect(result).toBeNull()
+      expect(sut.getStats().observerRuns).toBe(0)
+      expect(sut.getStats().lastObserverRun).toBeNull()
+      expect(memoryService.put).not.toHaveBeenCalled()
+      expect(events).toContainEqual(expect.objectContaining({
+        type: 'observation:observer:failed',
+        count: 2,
+        reason: 'extraction-failed:TypeError',
+      }))
+      expect(JSON.stringify(events)).not.toContain('secret-endpoint')
+
+      // The failed batch is retried together with the next messages.
+      const retry = await sut.observe(textMessages('next-c'))
+      expect(retry).not.toBeNull()
+      expect(extractionInput(model, 1)).toEqual(['kept-a', 'kept-b', 'next-c'])
+    })
+
+    it('does not retry a failed extraction before observerDebounceMs elapses (ERR-M-93)', async () => {
+      vi.useFakeTimers()
+      try {
+        model = {
+          invoke: vi.fn()
+            .mockRejectedValueOnce(new Error('LLM down'))
+            .mockResolvedValue({ content: '[]' }),
+        } as unknown as BaseChatModel & { invoke: ReturnType<typeof vi.fn> }
+        sut = createOM({ observerThreshold: 1, observerDebounceMs: 60_000 })
+
+        expect(await sut.observe(makeMessages(2))).toBeNull()
+        expect(model.invoke).toHaveBeenCalledTimes(1)
+
+        vi.advanceTimersByTime(30_000)
+        expect(await sut.observe(makeMessages(1))).toBeNull()
+        expect(model.invoke).toHaveBeenCalledTimes(1)
+
+        vi.advanceTimersByTime(30_001)
+        expect(await sut.observe(makeMessages(1))).not.toBeNull()
+        expect(model.invoke).toHaveBeenCalledTimes(2)
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('should return null when memoryService.get throws during observe', async () => {

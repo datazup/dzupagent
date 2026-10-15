@@ -37,7 +37,10 @@ import type { BaseMessage } from '@langchain/core/messages'
 import type { BaseStore } from '@langchain/langgraph'
 import type { MemoryService } from './memory-service.js'
 import type { Observation } from './observation-extractor.js'
-import { ObservationExtractor } from './observation-extractor.js'
+import {
+  ObservationExtractionError,
+  ObservationExtractor,
+} from './observation-extractor.js'
 import { SemanticConsolidator } from './semantic-consolidation.js'
 import { searchAllInNamespace } from './memory-service-store.js'
 import type { StagedRecord, StagedWriter } from './staged-writer.js'
@@ -134,6 +137,11 @@ export type ObservationLifecycleEventType =
   | 'observation:candidate:restored'
   | 'observation:candidate:pruned'
   | 'observation:candidate:persistence-failed'
+  /**
+   * An observer run failed (model extraction or store). `count` is the number
+   * of messages kept for the retry; `reason` names the failure class only.
+   */
+  | 'observation:observer:failed'
 
 export interface ObservationLifecycleEvent {
   schema: 'dzupagent/observation-lifecycle-event/v1'
@@ -236,6 +244,8 @@ export class ObservationalMemory {
   private bufferEpoch = 0
   /** True while an observer run is in flight; concurrent triggers are no-ops. */
   private observerRunning = false
+  /** When the last observer run failed; the debounce also applies after it. */
+  private lastFailedObserverRun: number | null = null
 
   private readonly observerThreshold: number
   private readonly reflectorThreshold: number
@@ -301,6 +311,14 @@ export class ObservationalMemory {
     ) {
       return null
     }
+    // A failed run is debounced too, so an outage costs one attempt per
+    // window rather than one per turn.
+    if (
+      this.lastFailedObserverRun !== null &&
+      Date.now() - this.lastFailedObserverRun < this.observerDebounceMs
+    ) {
+      return null
+    }
 
     // A run already in flight has not yet reset the threshold/debounce state,
     // so a second trigger would extract (and persist) the same window again.
@@ -321,12 +339,17 @@ export class ObservationalMemory {
         this.messagesSinceLastRun = Math.max(0, this.messagesSinceLastRun - batchCount)
       }
       return result
-    } catch {
+    } catch (error: unknown) {
       // Observer failure is non-fatal; keep the batch for the retry unless
-      // reset() cleared the buffer meanwhile.
+      // reset() cleared the buffer meanwhile, and make the failure visible.
       if (epoch === this.bufferEpoch) {
         this.bufferMessages(batch.concat(this.pendingMessages))
+        this.lastFailedObserverRun = Date.now()
       }
+      const reason = error instanceof ObservationExtractionError
+        ? `extraction-failed:${error.errorClass}`
+        : `observer-failed:${error instanceof Error ? error.name : typeof error}`
+      this.emitLifecycleCount('observation:observer:failed', batch.length, reason)
       return null
     } finally {
       this.observerRunning = false
@@ -589,6 +612,7 @@ export class ObservationalMemory {
     this.messagesSinceLastRun = 0
     this.pendingMessages = []
     this.bufferEpoch++
+    this.lastFailedObserverRun = null
     this.stats = {
       totalObservations: 0,
       observerRuns: 0,
@@ -637,7 +661,13 @@ export class ObservationalMemory {
         : {}),
     })
 
-    const observations = await extractor.extract(messages)
+    // A model failure must not read as an empty run: throwing keeps the
+    // batch (see observe()) instead of consuming it.
+    const extraction = await extractor.extractWithOutcome(messages)
+    if (extraction.status === 'failed') {
+      throw new ObservationExtractionError(extraction.errorClass)
+    }
+    const observations = extraction.observations
 
     // Load existing observations for dedup
     const existing = await this.config.memoryService.get(

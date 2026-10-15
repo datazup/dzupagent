@@ -334,6 +334,21 @@ describe('ObservationExtractor', () => {
       await expect(extractor.extract(sampleMessages())).resolves.toEqual([])
     })
 
+    it('extractWithOutcome reports a model failure by class, without its message (ERR-M-93)', async () => {
+      const { model } = createThrowingModel(new RangeError('quota exceeded for key sk-123'))
+      const extractor = new ObservationExtractor({ model, minMessages: 1, debounceMs: 0 })
+      const outcome = await extractor.extractWithOutcome(sampleMessages())
+      expect(outcome).toEqual({ status: 'failed', errorClass: 'RangeError' })
+      expect(extractor.count).toBe(0)
+    })
+
+    it('extractWithOutcome treats an unparseable answer as a completed empty run', async () => {
+      const { model } = createMockModel('no json here')
+      const extractor = new ObservationExtractor({ model, minMessages: 1, debounceMs: 0 })
+      await expect(extractor.extractWithOutcome(sampleMessages()))
+        .resolves.toEqual({ status: 'completed', observations: [] })
+    })
+
     it('returns [] when model returns empty content gracefully', async () => {
       const invokeMock = vi.fn().mockResolvedValue({ content: '' })
       const model = { invoke: invokeMock } as unknown as BaseChatModel

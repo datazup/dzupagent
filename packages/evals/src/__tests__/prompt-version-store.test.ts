@@ -27,18 +27,26 @@ class InMemoryBaseStore {
     this.data.get(nsKey)!.set(key, value);
   }
 
-  async get(namespace: string[], key: string): Promise<Record<string, unknown> | undefined> {
+  async get(
+    namespace: string[],
+    key: string,
+  ): Promise<{ namespace: string[]; key: string; value: Record<string, unknown> } | null> {
     const nsKey = this.nsKey(namespace);
-    return this.data.get(nsKey)?.get(key);
+    const value = this.data.get(nsKey)?.get(key);
+    // A BaseStore returns an Item (or null), not the bare value.
+    return value === undefined ? null : { namespace, key, value };
   }
 
-  async search(namespace: string[]): Promise<Array<{ key: string; value: Record<string, unknown> }>> {
-    const results: Array<{ key: string; value: Record<string, unknown> }> = [];
+  async search(
+    namespace: string[],
+    options?: { limit?: number; offset?: number },
+  ): Promise<Array<{ namespace: string[]; key: string; value: Record<string, unknown> }>> {
+    const results: Array<{ namespace: string[]; key: string; value: Record<string, unknown> }> = [];
     const nsKey = this.nsKey(namespace);
     const ns = this.data.get(nsKey);
     if (ns) {
       for (const [key, value] of ns.entries()) {
-        results.push({ key, value });
+        results.push({ namespace, key, value });
       }
     }
 
@@ -46,13 +54,24 @@ class InMemoryBaseStore {
     for (const [storedNs, entries] of this.data.entries()) {
       if (storedNs.startsWith(nsKey + '::') && storedNs !== nsKey) {
         for (const [key, value] of entries.entries()) {
-          results.push({ key, value });
+          results.push({ namespace: storedNs.split('::'), key, value });
         }
       }
     }
 
-    return results;
+    if (this.defaultLimit === undefined && options === undefined) return results;
+    // LangGraph semantics: `limit` defaults to 10, `offset` to 0.
+    const offset = options?.offset ?? 0;
+    const limit = options?.limit ?? this.defaultLimit ?? 10;
+    return results.slice(offset, offset + limit);
   }
+
+  /**
+   * `undefined`: legacy mock behaviour (an option-less search returns every
+   * row). A number: an option-less search returns at most that many rows, as
+   * a LangGraph store does with its default limit of 10.
+   */
+  constructor(private readonly defaultLimit?: number) {}
 
   async delete(namespace: string[], key: string): Promise<void> {
     const nsKey = this.nsKey(namespace);
@@ -340,6 +359,76 @@ describe('PromptVersionStore', () => {
       const versions = await customStore.listVersions('p1');
       expect(versions).toHaveLength(1);
       expect(versions[0]?.content).toBe('test');
+    });
+  });
+
+  describe('stores with a default search limit (AGENT-M-52)', () => {
+    it('saving 15 active versions yields versions 1..15 and exactly one active', async () => {
+      const limited = new InMemoryBaseStore(10);
+      const versionStore = new PromptVersionStore({ store: limited as unknown as BaseStore });
+
+      for (let i = 1; i <= 15; i++) {
+        await versionStore.save({ promptKey: 'p', content: `v${i}`, active: true });
+      }
+
+      const versions = await versionStore.listVersions('p');
+      expect(versions.map((v) => v.version)).toEqual(
+        Array.from({ length: 15 }, (_, i) => 15 - i),
+      );
+      expect(versions.filter((v) => v.active).map((v) => v.version)).toEqual([15]);
+      expect((await versionStore.getActive('p'))?.version).toBe(15);
+    });
+
+    it('finds, activates and rolls back to an early version past the default limit', async () => {
+      const limited = new InMemoryBaseStore(10);
+      const versionStore = new PromptVersionStore({ store: limited as unknown as BaseStore });
+      const saved = [];
+      for (let i = 1; i <= 15; i++) {
+        saved.push(await versionStore.save({ promptKey: 'p', content: `v${i}` }));
+      }
+      for (let i = 0; i < 12; i++) {
+        await versionStore.save({ promptKey: `other-${i}`, content: 'x' });
+      }
+
+      const first = saved[0]!;
+      expect(await versionStore.getById(first.id)).toMatchObject({ version: 1 });
+      expect(await versionStore.listPromptKeys()).toHaveLength(13);
+
+      await versionStore.activate(first.id);
+      expect((await versionStore.getActive('p'))?.id).toBe(first.id);
+
+      const rolled = await versionStore.rollback('p', saved[1]!.id);
+      expect(rolled.version).toBe(16);
+      const active = (await versionStore.listVersions('p')).filter((v) => v.active);
+      expect(active.map((v) => v.id)).toEqual([rolled.id]);
+    });
+
+    it('allocates distinct version numbers to concurrent saves', async () => {
+      const limited = new InMemoryBaseStore(10);
+      const versionStore = new PromptVersionStore({ store: limited as unknown as BaseStore });
+
+      const saved = await Promise.all(
+        Array.from({ length: 12 }, (_, i) =>
+          versionStore.save({ promptKey: 'p', content: `c${i}`, active: true }),
+        ),
+      );
+
+      expect(saved.map((v) => v.version).sort((a, b) => a - b)).toEqual(
+        Array.from({ length: 12 }, (_, i) => i + 1),
+      );
+      const active = (await versionStore.listVersions('p')).filter((v) => v.active);
+      expect(active).toHaveLength(1);
+    });
+
+    it('never reuses a version number recorded by the counter', async () => {
+      const limited = new InMemoryBaseStore(10);
+      const versionStore = new PromptVersionStore({ store: limited as unknown as BaseStore });
+      const v1 = await versionStore.save({ promptKey: 'p', content: 'a' });
+      const v2 = await versionStore.save({ promptKey: 'p', content: 'b' });
+      await limited.delete(['prompt-versions', 'p'], v2.id);
+
+      const v3 = await versionStore.save({ promptKey: 'p', content: 'c' });
+      expect([v1.version, v3.version]).toEqual([1, 3]);
     });
   });
 });

@@ -98,6 +98,18 @@ describe('decay-engine', () => {
       const meta = makeMeta({ lastAccessedAt: 1000, halfLifeMs: 0 })
       expect(calculateStrength(meta, 1000)).toBe(1)
     })
+
+    it('scales the decay curve by the stored strength (AGENT-H-44)', () => {
+      const meta = makeMeta({ strength: 0.1, lastAccessedAt: 0, halfLifeMs: 1000 })
+      expect(calculateStrength(meta, 0)).toBeCloseTo(0.1, 10)
+      expect(calculateStrength(meta, 1000)).toBeCloseTo(0.1 * Math.exp(-1), 10)
+    })
+
+    it('reads a non-finite stored strength as 1 and clamps out-of-range values', () => {
+      expect(calculateStrength(makeMeta({ strength: Number.NaN, lastAccessedAt: 0 }), 0)).toBe(1)
+      expect(calculateStrength(makeMeta({ strength: 5, lastAccessedAt: 0 }), 0)).toBe(1)
+      expect(calculateStrength(makeMeta({ strength: -1, lastAccessedAt: 0 }), 0)).toBe(0)
+    })
   })
 
   describe('reinforceMemory', () => {
@@ -240,7 +252,7 @@ describe('decay-engine', () => {
     it('respects custom threshold', () => {
       const now = Date.now()
       const mediumMeta: DecayMetadata = {
-        strength: 0, accessCount: 0,
+        strength: 1, accessCount: 0,
         lastAccessedAt: now - 1000, // ~0.37 after 1 halfLife
         createdAt: now - 1000,
         halfLifeMs: 1000,
@@ -249,6 +261,23 @@ describe('decay-engine', () => {
       expect(findWeakMemories([{ key: 'm', meta: mediumMeta }], 0.1)).toHaveLength(0)
       // Looser threshold 0.5 -> weak
       expect(findWeakMemories([{ key: 'm', meta: mediumMeta }], 0.5)).toHaveLength(1)
+    })
+
+    it('returns a freshly consolidated child (strength 0.1) immediately (AGENT-H-44)', () => {
+      const now = Date.now()
+      const child: DecayMetadata = {
+        strength: 0.1, accessCount: 0, lastAccessedAt: now,
+        createdAt: now, halfLifeMs: 24 * 60 * 60 * 1000,
+      }
+      const fresh: DecayMetadata = { ...child, strength: 1 }
+      const weak = findWeakMemories(
+        [{ key: 'child', meta: child }, { key: 'fresh', meta: fresh }],
+        0.5,
+      )
+      expect(weak.map(w => w.key)).toEqual(['child'])
+      // At the default 0.1 threshold, any elapsed time pushes it below.
+      const later = { ...child, lastAccessedAt: now - 1 }
+      expect(findWeakMemories([{ key: 'child', meta: later }]).map(w => w.key)).toEqual(['child'])
     })
 
     it('preserves key through result', () => {

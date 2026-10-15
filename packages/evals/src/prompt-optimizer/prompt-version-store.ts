@@ -3,8 +3,18 @@
  * linked to eval scores. Uses BaseStore from @langchain/langgraph.
  */
 
-import type { BaseStore } from '@langchain/langgraph';
+import type { BaseStore, Item } from '@langchain/langgraph';
 import crypto from 'node:crypto';
+
+/**
+ * Page size for full reads. LangGraph stores apply a default `search` limit
+ * of 10, so every read here pages explicitly instead of relying on it.
+ */
+const SEARCH_PAGE_SIZE = 100;
+/** Upper bound on records one full read returns (runaway-store guard). */
+const SEARCH_MAX_RECORDS = 100_000;
+/** Per-prompt-key record holding the last allocated version number. */
+const VERSION_COUNTER_KEY = '__version_counter__';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -42,6 +52,8 @@ export interface PromptVersionStoreConfig {
 export class PromptVersionStore {
   private readonly store: BaseStore;
   private readonly namespace: string[];
+  /** Tail of the per-prompt-key write chain (serializes save/activate). */
+  private readonly keyLocks = new Map<string, Promise<unknown>>();
 
   constructor(config: PromptVersionStoreConfig) {
     this.store = config.store;
@@ -59,10 +71,18 @@ export class PromptVersionStore {
     evalScores?: PromptVersionEvalScores | undefined;
     active?: boolean | undefined;
   }): Promise<PromptVersion> {
-    const existing = await this.listVersions(params.promptKey);
-    const nextVersion = existing.length > 0
-      ? Math.max(...existing.map((v) => v.version)) + 1
-      : 1;
+    return this.withKeyLock(params.promptKey, () => this.saveLocked(params));
+  }
+
+  private async saveLocked(params: {
+    promptKey: string;
+    content: string;
+    parentVersionId?: string | undefined;
+    metadata?: Record<string, unknown> | undefined;
+    evalScores?: PromptVersionEvalScores | undefined;
+    active?: boolean | undefined;
+  }): Promise<PromptVersion> {
+    const nextVersion = await this.allocateVersion(params.promptKey);
 
     const id = crypto.randomUUID();
     const version: PromptVersion = {
@@ -105,7 +125,7 @@ export class PromptVersionStore {
 
     for (const promptKey of keys) {
       const ns = [...this.namespace, promptKey];
-      const items = await this.store.search(ns);
+      const items = await this.searchAll(ns);
 
       for (const item of items) {
         const version = item.value['value'] as PromptVersion | undefined;
@@ -123,7 +143,7 @@ export class PromptVersionStore {
    */
   async listVersions(promptKey: string, limit?: number): Promise<PromptVersion[]> {
     const ns = [...this.namespace, promptKey];
-    const items = await this.store.search(ns);
+    const items = await this.searchAll(ns);
 
     const versions: PromptVersion[] = [];
     for (const item of items) {
@@ -147,18 +167,28 @@ export class PromptVersionStore {
    * Set a version as the active one (deactivates previous).
    */
   async activate(versionId: string): Promise<void> {
-    const version = await this.getById(versionId);
-    if (!version) {
+    const found = await this.getById(versionId);
+    if (!found) {
       throw new Error(`PromptVersion not found: ${versionId}`);
     }
 
-    // Deactivate all versions for this prompt key
-    await this.deactivateAll(version.promptKey);
+    await this.withKeyLock(found.promptKey, async () => {
+      // Re-read under the lock: a concurrent save/activate may have changed it.
+      const ns = [...this.namespace, found.promptKey];
+      const current = (await this.store.get(ns, versionId))?.value['value'] as
+        | PromptVersion
+        | undefined;
+      if (!current) {
+        throw new Error(`PromptVersion not found: ${versionId}`);
+      }
 
-    // Activate the target version
-    const ns = [...this.namespace, version.promptKey];
-    const updated: PromptVersion = { ...version, active: true };
-    await this.store.put(ns, versionId, { value: updated });
+      // Deactivate all versions for this prompt key
+      await this.deactivateAll(found.promptKey);
+
+      // Activate the target version
+      const updated: PromptVersion = { ...current, active: true };
+      await this.store.put(ns, versionId, { value: updated });
+    });
   }
 
   /**
@@ -246,7 +276,7 @@ export class PromptVersionStore {
    */
   async listPromptKeys(): Promise<string[]> {
     // Search at the base namespace level to find all sub-namespaces
-    const items = await this.store.search(this.namespace);
+    const items = await this.searchAll(this.namespace);
     const keys = new Set<string>();
 
     for (const item of items) {
@@ -265,7 +295,7 @@ export class PromptVersionStore {
 
   private async deactivateAll(promptKey: string): Promise<void> {
     const ns = [...this.namespace, promptKey];
-    const items = await this.store.search(ns);
+    const items = await this.searchAll(ns);
 
     for (const item of items) {
       const version = item.value['value'] as PromptVersion | undefined;
@@ -274,5 +304,65 @@ export class PromptVersionStore {
         await this.store.put(ns, version.id, { value: updated });
       }
     }
+  }
+
+  /**
+   * Allocate the next version number for `promptKey` and record it in the
+   * counter record. Callers hold the key lock. The counter is the floor, the
+   * stored versions the fallback (pre-counter data, or a lost counter), so a
+   * number is never handed out twice.
+   */
+  private async allocateVersion(promptKey: string): Promise<number> {
+    const ns = [...this.namespace, promptKey];
+    const counterItem = await this.store.get(ns, VERSION_COUNTER_KEY);
+    const counted = counterItem?.value['lastVersion'];
+    const lastCounted = typeof counted === 'number' && Number.isFinite(counted) ? counted : 0;
+    const existing = await this.listVersions(promptKey);
+    const lastStored = existing.length > 0 ? Math.max(...existing.map((v) => v.version)) : 0;
+    const next = Math.max(lastCounted, lastStored) + 1;
+    await this.store.put(ns, VERSION_COUNTER_KEY, { lastVersion: next });
+    return next;
+  }
+
+  /**
+   * Run `fn` after every earlier save/activate for `promptKey` settled.
+   * `BaseStore` has no compare-and-set, so concurrent writers on one store
+   * instance are serialized here; the chain survives a failed `fn`.
+   */
+  private withKeyLock<T>(promptKey: string, fn: () => Promise<T>): Promise<T> {
+    const previous = this.keyLocks.get(promptKey) ?? Promise.resolve();
+    const run = previous.then(fn, fn);
+    const tail = run.catch(() => undefined);
+    this.keyLocks.set(promptKey, tail);
+    void tail.then(() => {
+      if (this.keyLocks.get(promptKey) === tail) this.keyLocks.delete(promptKey);
+    });
+    return run;
+  }
+
+  /**
+   * Read every record under `namespacePrefix`, page by page. A store that
+   * ignores `offset` (returns the same rows again) ends the scan once a page
+   * contributes nothing new.
+   */
+  private async searchAll(namespacePrefix: string[]): Promise<Item[]> {
+    const seen = new Set<string>();
+    const all: Item[] = [];
+    for (let offset = 0; all.length < SEARCH_MAX_RECORDS; offset += SEARCH_PAGE_SIZE) {
+      const page = await this.store.search(namespacePrefix, {
+        limit: SEARCH_PAGE_SIZE,
+        offset,
+      });
+      let added = 0;
+      for (const item of page) {
+        const id = `${(item.namespace ?? []).join('\u0000')}\u0001${item.key}`;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        all.push(item);
+        added++;
+      }
+      if (page.length < SEARCH_PAGE_SIZE || added === 0) break;
+    }
+    return all;
   }
 }
