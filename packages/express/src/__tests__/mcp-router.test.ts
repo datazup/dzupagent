@@ -507,6 +507,56 @@ describe("createMcpRouter", () => {
   });
 
   describe("auth scoping to basePath", () => {
+    describe.each([
+      { method: "GET", basePath: "/mcp", path: "/MCP/tools", discovery: "listTools" },
+      { method: "GET", basePath: "/mcp", path: "/McP/RESOURCES", discovery: "listResources" },
+      { method: "GET", basePath: "/mcp", path: "/MCP/resource-templates", discovery: "listResourceTemplates" },
+      { method: "GET", basePath: "/mcp", path: "/MCP/tools/", discovery: "listTools" },
+      { method: "POST", basePath: "/mcp", path: "/mcp", discovery: undefined },
+      { method: "POST", basePath: "/mcp", path: "/MCP", discovery: undefined },
+      { method: "POST", basePath: "/mcp", path: "/McP/", discovery: undefined },
+      { method: "GET", basePath: "/custom/mcp", path: "/CUSTOM/MCP/tools", discovery: "listTools" },
+      { method: "POST", basePath: "/custom/mcp", path: "/CUSTOM/MCP", discovery: undefined },
+    ] as const)("mounted $method $path", ({ method, basePath, path, discovery }) => {
+      it.each([false, true])("enforces configured auth (authorized=%s)", async (authorized) => {
+        const server = buildServer();
+        const handleRequest = vi.spyOn(server, "handleRequest");
+        const discoveryHandlers = {
+          listTools: vi.spyOn(server, "listTools"),
+          listResources: vi.spyOn(server, "listResources"),
+          listResourceTemplates: vi.spyOn(server, "listResourceTemplates"),
+        };
+        const middleware = vi.fn(auth);
+        const app = express();
+        app.use(express.json());
+        app.use("/api/v1", createMcpRouter({ server, auth: middleware, basePath }));
+        const payload = method === "POST"
+          ? JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" })
+          : undefined;
+        const req = createRequest(method, `/api/v1${path}`, payload, {
+          ...(authorized ? { "x-api-key": "secret" } : {}),
+          ...(payload ? {
+            "content-type": "application/json",
+            "content-length": String(Buffer.byteLength(payload)),
+          } : {}),
+        });
+        const state = await dispatch(app, req, createResponse(app));
+
+        expect(state.statusCode).toBe(authorized ? 200 : 401);
+        expect(middleware).toHaveBeenCalledTimes(1);
+        if (!authorized) {
+          expect(handleRequest).not.toHaveBeenCalled();
+          for (const handler of Object.values(discoveryHandlers)) {
+            expect(handler).not.toHaveBeenCalled();
+          }
+        } else if (method === "POST") {
+          expect(handleRequest).toHaveBeenCalledTimes(1);
+        } else if (discovery) {
+          expect(discoveryHandlers[discovery]).toHaveBeenCalledTimes(1);
+        }
+      });
+    });
+
     const auth = (req: Request, res: Response, next: NextFunction): void => {
       if (req.headers["x-api-key"] !== "secret") {
         res.status(401).json({ error: "Unauthorized" });

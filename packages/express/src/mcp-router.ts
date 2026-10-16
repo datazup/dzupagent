@@ -31,17 +31,10 @@ export function createMcpRouter(config: MCPRouterConfig): Router {
   const exposeResourceTemplates = config.expose?.resourceTemplates ?? true;
 
   if (config.auth) {
-    // Scope auth to basePath and its subpaths only. The router may be mounted
-    // at a shared prefix (e.g. app.use('/api/v1', mcpRouter)); router-wide
-    // auth would otherwise 401 sibling routes registered after this router.
-    const auth = config.auth;
-    router.use((req: Request, res: Response, next: NextFunction): void => {
-      if (req.path === basePath || req.path.startsWith(`${basePath}/`)) {
-        auth(req, res, next);
-        return;
-      }
-      next();
-    });
+    // Let Express match the authentication boundary using the same path
+    // semantics as the handlers, including case-insensitive routing. Mounting
+    // at basePath also leaves sibling routes under a shared prefix accessible.
+    router.use(basePath, config.auth);
   }
 
   router.post(
