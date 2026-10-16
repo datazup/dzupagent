@@ -191,14 +191,23 @@ describe("project_docs.list", () => {
 
 describe("project_docs.read", () => {
   let tmp: string;
+  let outside: string;
 
   beforeAll(async () => {
     tmp = await mkTempDir("app-tools-read-");
+    outside = await mkTempDir("app-tools-read-outside-");
     await fs.writeFile(path.join(tmp, "hello.txt"), "hello world");
+    await fs.writeFile(path.join(outside, "secret.txt"), "outside content");
+    await fs.mkdir(path.join(tmp, "docs", "nested"), { recursive: true });
+    await fs.writeFile(
+      path.join(tmp, "docs", "nested", "plain.txt"),
+      "nested content",
+    );
   });
 
   afterAll(async () => {
     await fs.rm(tmp, { recursive: true, force: true });
+    await fs.rm(outside, { recursive: true, force: true });
   });
 
   it("reads a file under rootDir", async () => {
@@ -219,6 +228,88 @@ describe("project_docs.read", () => {
     );
     await expect(exec.execute({ path: "../etc/passwd" })).rejects.toThrow(
       /outside rootDir/,
+    );
+  });
+
+  it("refuses a file symlink pointing outside rootDir", async () => {
+    await fs.symlink(
+      path.join(outside, "secret.txt"),
+      path.join(tmp, "outside-file.txt"),
+    );
+    const { executors } = createBuiltinToolRegistry({ rootDir: tmp });
+    const exec = getExecutor<{ path: string }, { content: string }>(
+      executors,
+      "project_docs.read",
+    );
+    await expect(exec.execute({ path: "outside-file.txt" })).rejects.toThrow(
+      "project_docs.read refused to read outside rootDir",
+    );
+  });
+
+  it("refuses a directory-step symlink pointing outside rootDir", async () => {
+    await fs.symlink(outside, path.join(tmp, "outside-dir"), "dir");
+    const { executors } = createBuiltinToolRegistry({ rootDir: tmp });
+    const exec = getExecutor<{ path: string }, { content: string }>(
+      executors,
+      "project_docs.read",
+    );
+    await expect(exec.execute({ path: "outside-dir/secret.txt" })).rejects.toThrow(
+      "project_docs.read refused to read outside rootDir",
+    );
+  });
+
+  it("refuses a symlink that resolves inside rootDir", async () => {
+    await fs.symlink(
+      path.join(tmp, "hello.txt"),
+      path.join(tmp, "inside-file.txt"),
+    );
+    const { executors } = createBuiltinToolRegistry({ rootDir: tmp });
+    const exec = getExecutor<{ path: string }, { content: string }>(
+      executors,
+      "project_docs.read",
+    );
+    await expect(exec.execute({ path: "inside-file.txt" })).rejects.toThrow(
+      "project_docs.read refused to read outside rootDir",
+    );
+  });
+
+  it("reads a nested plain file under rootDir", async () => {
+    const { executors } = createBuiltinToolRegistry({ rootDir: tmp });
+    const exec = getExecutor<{ path: string }, { content: string }>(
+      executors,
+      "project_docs.read",
+    );
+    await expect(exec.execute({ path: "docs/nested/plain.txt" })).resolves.toEqual({
+      content: "nested content",
+    });
+  });
+
+  it("reads a plain file with rootDir configured through a symlinked parent", async () => {
+    await fs.symlink(
+      path.join(tmp, "docs"),
+      path.join(tmp, "linked-parent"),
+      "dir",
+    );
+    const { executors } = createBuiltinToolRegistry({
+      rootDir: path.join(tmp, "linked-parent", "nested"),
+    });
+    const exec = getExecutor<{ path: string }, { content: string }>(
+      executors,
+      "project_docs.read",
+    );
+    await expect(exec.execute({ path: "plain.txt" })).resolves.toEqual({
+      content: "nested content",
+    });
+  });
+
+  it("refuses a subdirectory as a non-regular target", async () => {
+    const { executors } = createBuiltinToolRegistry({ rootDir: tmp });
+    const exec = getExecutor<{ path: string }, { content: string }>(
+      executors,
+      "project_docs.read",
+    );
+    await expect(exec.execute({ path: "docs" })).rejects.toThrow(
+      "project_docs.read refused to read outside rootDir",
     );
   });
 });

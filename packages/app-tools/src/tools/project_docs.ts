@@ -1,5 +1,6 @@
-import { promises as fs } from "node:fs";
+import { constants, promises as fs } from "node:fs";
 import type { Dirent } from "node:fs";
+import type { FileHandle } from "node:fs/promises";
 import * as path from "node:path";
 import type { DomainToolDefinition } from "../types.js";
 import type {
@@ -123,6 +124,46 @@ interface ReadOutput {
   content: string;
 }
 
+/** Read from pinned directory descriptors, refusing every symlink component. */
+async function readContainedFile(rootDir: string, rel: string): Promise<string> {
+  if (!rel) {
+    throw new Error("project_docs.read refused to read outside rootDir");
+  }
+  const handles: FileHandle[] = [];
+  const directoryFlags =
+    constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
+  try {
+    let parent = await fs.open("/", directoryFlags);
+    handles.push(parent);
+    const parts = [...rootDir.split("/").filter(Boolean), ...rel.split("/")];
+    const leaf = parts.pop()!;
+    for (const part of parts) {
+      parent = await fs.open(`/proc/self/fd/${parent.fd}/${part}`, directoryFlags);
+      handles.push(parent);
+    }
+    const file = await fs.open(
+      `/proc/self/fd/${parent.fd}/${leaf}`,
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    );
+    handles.push(file);
+    if (!(await file.stat()).isFile()) {
+      throw new Error("project_docs.read refused to read outside rootDir");
+    }
+    return await file.readFile("utf-8");
+  } catch (error) {
+    if (
+      ["ELOOP", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")
+    ) {
+      throw new Error("project_docs.read refused to read outside rootDir", {
+        cause: error,
+      });
+    }
+    throw error;
+  } finally {
+    await Promise.all(handles.map((handle) => handle.close()));
+  }
+}
+
 function buildProjectDocsRead(
   rootDir: string,
 ): ExecutableDomainTool<ReadInput, ReadOutput> {
@@ -163,7 +204,11 @@ function buildProjectDocsRead(
       if (relCheck.startsWith("..") || path.isAbsolute(relCheck)) {
         throw new Error("project_docs.read refused to read outside rootDir");
       }
-      const content = await fs.readFile(resolved, "utf-8");
+      if (process.platform !== "linux") {
+        throw new Error("project_docs.read refused to read outside rootDir");
+      }
+      const canonicalRoot = await fs.realpath(rootDir);
+      const content = await readContainedFile(canonicalRoot, relCheck);
       return { content };
     },
   };
