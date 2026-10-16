@@ -80,6 +80,14 @@ describe("InMemoryPipelineInteractionStatePort", () => {
     });
   });
 
+  it("defaults to the wall clock when no clock is injected", async () => {
+    const store = new InMemoryPipelineInteractionStatePort();
+    const { spec, pending, receipt } = fixture();
+    await store.ensurePending(spec, pending);
+    // The fixture expires in 2030, so the real clock still accepts the receipt.
+    expect((await store.recordReceipt(receipt)).receipt).toEqual(receipt);
+  });
+
   it("treats the exact expiry instant as expired", async () => {
     const { spec, pending, receipt } = fixture();
     const store = new InMemoryPipelineInteractionStatePort({
