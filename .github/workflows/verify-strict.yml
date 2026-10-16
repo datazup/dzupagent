@@ -197,6 +197,46 @@ jobs:
         working-directory: .ci-isolated/dzupagent
         shell: bash
 
+  # DZUPAGENT-ARCH-H-09: the barrel and publish gates used to be observed only
+  # after merge, because every job above is restricted to main pushes. This job
+  # runs them on pull requests too. Operator decision 2026-10-16: same-repo PRs
+  # only, so a fork PR never reaches the self-hosted builder.
+  pr-budget-gates:
+    runs-on:
+      group: datazup-public-builders
+      labels: coolify-cicd-codev
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          # The barrel ratchet compares against the merge base with main
+          # (DZUPAGENT-ARCH-C-04); a depth-1 clone has none.
+          fetch-depth: 0
+
+      # MUST precede setup-node (see the circular-deps job).
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: yarn
+          cache-dependency-path: yarn.lock
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Check barrel budgets
+        run: yarn check:barrel-budgets
+
+      - name: Check publish metadata
+        run: yarn check:publish-metadata
+    if: ${{ (github.repository == 'datazup/dzupagent' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) }}
+
   # TEST-H-02: fail-closed integration lane. The fail-closed helpers
   # (requireIntegration / requireIntegrationEnv, RUN_REQUIRED_INTEGRATION=1)
   # already exist; before this job, no workflow provisioned services or set the

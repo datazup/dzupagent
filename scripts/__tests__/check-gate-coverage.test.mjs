@@ -94,7 +94,9 @@ test('a gate wired only by a GitHub workflow counts as reachable', () => {
       scripts: realScripts,
       workflows: realWorkflows,
     }),
-    ['.github/workflows/publish.yml']
+    // verify-strict.yml runs it too, in the same-repo pull_request
+    // pr-budget-gates job (DZUPAGENT-ARCH-H-09).
+    ['.github/workflows/publish.yml', '.github/workflows/verify-strict.yml']
   )
 })
 

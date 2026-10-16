@@ -195,6 +195,18 @@
       "outputs": [],
       "outputLogs": "new-only"
     },
+    "test:packaging": {
+      "dependsOn": ["^build:verify", "build:verify"],
+      "inputs": ["src/**", "package.json", "tsconfig.json", "vitest.config.*"],
+      "outputs": [],
+      "outputLogs": "new-only"
+    },
+    "@dzupagent/agent-adapters#test:integration": {
+      "dependsOn": ["^build:verify"],
+      "inputs": ["src/**", "package.json", "tsconfig.json", "vitest.config.*"],
+      "passThroughEnv": ["RUN_REQUIRED_INTEGRATION"],
+      "outputs": []
+    },
     "@dzupagent/server#test:integration": {
       "dependsOn": ["^build:verify"],
       "inputs": [

@@ -780,6 +780,24 @@ test('a renamed pin that keeps or lowers its numbers and deadline needs no signa
   assert.deepEqual(result.growth, [])
 })
 
+test('a retired pin is never paired with an unrelated new pin by sorted position', () => {
+  // DZUPAGENT-CODE-M-14: retiring src/codex/adapter.ts while unrelated pins are
+  // added elsewhere (or several in its own directory) is a deletion, not a rename.
+  const result = evaluateBudgetRatchet({
+    budgetConfig: renameConfig({
+      'src/approval/approval.ts': { maxLines: 900, shrinkTarget: 500, reviewBy: '2026-12-01' },
+      'src/codex/app-server.ts': { maxLines: 800, shrinkTarget: 500, reviewBy: '2026-12-01' },
+      'src/codex/client.ts': { maxLines: 700, shrinkTarget: 500, reviewBy: '2026-12-01' },
+    }),
+    baseBudgetConfig: renameConfig({
+      'src/codex/adapter.ts': { maxLines: 600, shrinkTarget: 500, reviewBy: '2026-09-01' },
+    }),
+    now: NOW,
+  })
+  assert.equal(result.ok, true, result.messages.join('\n'))
+  assert.deepEqual(result.growth, [])
+})
+
 // --- Ratchet base selection (DZUPAGENT-ARCH-C-04) -----------------------------
 //
 // The ratchet used to compare against HEAD. Once a raise is committed HEAD's copy

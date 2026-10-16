@@ -519,12 +519,19 @@ function basenameOf(pinKey) {
   return parts[parts.length - 1];
 }
 
+function dirnameOf(pinKey) {
+  const index = pinKey.lastIndexOf('/');
+  return index === -1 ? '' : pinKey.slice(0, index);
+}
+
 /**
  * A pin key that disappears while another appears in the same package's pin map
  * is a rename, and a rename must not escape the ratchet as "deletion plus a
  * brand-new pin" (DZUPAGENT-ARCH-H-10). Pairs are matched by identical
- * sourceSha256 first (a pure move), then by identical file basename, then the
- * remaining removed/added keys pair up in sorted order. Each pair maps the new
+ * sourceSha256 first (a pure move), then by identical file basename, then by
+ * path: a directory left with exactly one removed and one added key pairs
+ * them. Keys are never paired by sorted position, which matched a retired pin
+ * with an unrelated new one (DZUPAGENT-CODE-M-14). Each pair maps the new
  * pin's leaves onto the removed pin's base values, so a renamed pin with a
  * higher maxLines (or a later reviewBy) is growth that needs a signature.
  */
@@ -557,8 +564,12 @@ function collectRenamedPinBases(currentPackages, basePackages) {
         return typeof before === 'string' && before === currentMap[addedKey]?.sourceSha256;
       });
       take((removedKey, addedKey) => basenameOf(removedKey) === basenameOf(addedKey));
-      while (removed.length > 0 && added.length > 0) {
-        pairs.push({ removedKey: removed.shift(), addedKey: added.shift() });
+      for (const directory of new Set(removed.map(dirnameOf))) {
+        const removedHere = removed.filter((key) => dirnameOf(key) === directory);
+        const addedHere = added.filter((key) => dirnameOf(key) === directory);
+        if (removedHere.length === 1 && addedHere.length === 1) {
+          pairs.push({ removedKey: removedHere[0], addedKey: addedHere[0] });
+        }
       }
 
       for (const { removedKey, addedKey } of pairs) {

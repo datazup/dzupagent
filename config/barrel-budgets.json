@@ -572,14 +572,6 @@
       },
       "maxFileLines": 500,
       "fileLineDebtPins": {
-        "src/codex/codex-adapter.ts": {
-          "maxLines": 544,
-          "shrinkTarget": 500,
-          "sourceSha256": "431edecbf99abedd380a8ca239e2903e1ef4ca4b5fbd58272262a349c3c3f651",
-          "sourceCommit": "6208e29c98539ce0846289ed80af65ab554e88ce",
-          "reviewBy": "2026-11-16",
-          "rationale": "RF-03: module was over the ceiling with no pin, so the gate was red. Frozen at its current 544 bytes-bound LOC pending extraction down to the 500-LOC target."
-        },
         "src/integration/run-agent-execution.ts": {
           "maxLines": 615,
           "shrinkTarget": 500,

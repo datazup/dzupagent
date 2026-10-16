@@ -206,11 +206,6 @@ export const ORPHAN_ALLOWLIST = {
     reason:
       'The `--json` variant of audit:deps, for tooling that wants to parse the advisory list. audit:deps itself IS wired — it is the last gate of the strict-ci profile and of all three verify chains.',
   },
-  'check:dead-exports': {
-    category: 'pending-wiring',
-    reason:
-      'New shrink-only dead-runtime-export ratchet (DZUPAGENT-CODE-H-04), green at its checked-in baseline. Adding it to the CI chain means editing the run-gates strict-ci profile and all three verify chains together, which the audit packet that introduced it did not own.',
-  },
 }
 
 /** The chain CI executes, via the run-gates strict-ci profile. */
