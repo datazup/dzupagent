@@ -49,12 +49,7 @@ export default defineConfig({
         // a silent omission — DZUPAGENT-TEST-C-15 coverage gap closeout.
         "src/bin/sdlc-mvp-evidence.ts",
       ],
-      thresholds: {
-        statements: 40,
-        branches: 30,
-        functions: 30,
-        lines: 40,
-      },
+      // Thresholds managed centrally in coverage-thresholds.json.
     },
   },
 });

@@ -6,10 +6,7 @@
  * @module pipeline/loop-executor/for-each-loop
  */
 
-import type {
-  PipelineForEachItemEconomics,
-  PipelineForEachItemOutcome,
-} from "@dzupagent/core/pipeline";
+import type { PipelineForEachItemOutcome } from "@dzupagent/core/pipeline";
 import type { LoopNode, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type {
   NodeExecutor,
@@ -26,117 +23,37 @@ import type { ForEachEconomicsV2Preparation } from "./budget-types.js";
 import {
   ForEachItemEconomicsV2Custody,
   createForEachV2LeafExecutor,
-  restoreForEachEconomicsV2Custody,
 } from "./for-each-item-economics-v2.js";
 import { canonicalInputDigest } from "@dzupagent/runtime-contracts";
-import type { LoopEconomicsEvidenceV1 } from "@dzupagent/runtime-contracts/loop-economics-evidence";
 import { resolveStatePath, setStatePath } from "./state-path.js";
-import {
-  advanceCompletedPrefix,
-  type ForEachMergeState,
-} from "./for-each-merge.js";
+import type { ForEachMergeState } from "./for-each-merge.js";
 import { createItemBudgetLifecycle } from "./for-each-item-budget.js";
 import { fenceForEachGraphOperations } from "./for-each-graph.js";
+import type { HeldItemReservation } from "./for-each-reservation.js";
+
 import {
-  deriveItemReservationId,
-  type HeldItemEconomicsV2,
-  type HeldItemReservation,
-} from "./for-each-reservation.js";
+  aggregateReceiptResult,
+  collectIterationValue,
+  readAggregateReceipt,
+  type ForEachContract,
+} from "./for-each-aggregate-receipt.js";
+import {
+  createForEachItemCustody,
+  type ForEachRunContext,
+} from "./for-each-run-context.js";
+import {
+  blockRetainedItem,
+  settlePreparedCompletion,
+} from "./for-each-item-resume.js";
+import { admitItemReservation } from "./for-each-item-admission.js";
+import {
+  releaseIncompleteItem,
+  settleCompletedItem,
+} from "./for-each-item-exits.js";
+import { createForEachPrefixFlush } from "./for-each-flush.js";
 
 // Re-exported for the direct unit test that pins the reservation-id wire format.
 export { deriveItemReservationId } from "./for-each-reservation.js";
-
-const FOR_EACH_AGGREGATE_RECEIPT_V1 =
-  "dzupagent/for-each-aggregate-receipt/v1" as const;
-
-interface ForEachKnownValue {
-  readonly status: "known";
-  readonly value?: unknown;
-}
-
-interface ForEachAggregateReceiptV1 {
-  readonly schema: typeof FOR_EACH_AGGREGATE_RECEIPT_V1;
-  readonly loopNodeId: string;
-  readonly itemIndex: number;
-  readonly itemValue: ForEachKnownValue;
-  readonly collectedValue?: ForEachKnownValue;
-  readonly finalBodyResult: {
-    readonly nodeId: string;
-    readonly output: ForEachKnownValue;
-  };
-}
-
-/**
- * The loop node cannot be one of its own admitted leaf body nodes, so its id is
- * a collision-free slot in the durable `bodyResults` record. Keeping the
- * receipt inside that already-serialized record avoids widening the core
- * checkpoint schema while the checkpoint's root definition digest, loop id,
- * source digest and item-index key bind the receipt to its definition.
- */
-function aggregateReceiptResult(
-  loopNodeId: string,
-  itemIndex: number,
-  itemValue: unknown,
-  collectedValue: ForEachKnownValue | undefined,
-  finalBodyResult: NodeResult
-): NodeResult {
-  const receipt: ForEachAggregateReceiptV1 = {
-    schema: FOR_EACH_AGGREGATE_RECEIPT_V1,
-    loopNodeId,
-    itemIndex,
-    itemValue: { status: "known", value: itemValue },
-    ...(collectedValue === undefined ? {} : { collectedValue }),
-    finalBodyResult: {
-      nodeId: finalBodyResult.nodeId,
-      output: { status: "known", value: finalBodyResult.output },
-    },
-  };
-  return { nodeId: loopNodeId, output: receipt, durationMs: 0 };
-}
-
-function readAggregateReceipt(
-  loopNodeId: string,
-  itemIndex: number,
-  itemValue: unknown,
-  bodyResults: Readonly<Record<string, NodeResult>> | undefined
-): ForEachAggregateReceiptV1 | undefined {
-  const receiptResult = bodyResults?.[loopNodeId];
-  if (receiptResult?.nodeId !== loopNodeId) return undefined;
-  const candidate = receiptResult.output;
-  if (typeof candidate !== "object" || candidate === null) return undefined;
-  const record = candidate as Partial<ForEachAggregateReceiptV1>;
-  const collected = record.collectedValue;
-  const final = record.finalBodyResult;
-  if (
-    record.schema !== FOR_EACH_AGGREGATE_RECEIPT_V1 ||
-    record.loopNodeId !== loopNodeId ||
-    record.itemIndex !== itemIndex ||
-    record.itemValue?.status !== "known" ||
-    (collected !== undefined && collected.status !== "known") ||
-    typeof final !== "object" ||
-    final === null ||
-    typeof final.nodeId !== "string" ||
-    final.nodeId.length === 0 ||
-    typeof final.output !== "object" ||
-    final.output === null ||
-    final.output.status !== "known"
-  ) {
-    return undefined;
-  }
-  try {
-    if (
-      canonicalInputDigest(record.itemValue.value) !==
-      canonicalInputDigest(itemValue)
-    ) {
-      return undefined;
-    }
-  } catch {
-    return undefined;
-  }
-  return record as ForEachAggregateReceiptV1;
-}
-
-type ForEachContract = NonNullable<LoopNode["forEach"]>;
 
 export async function executeForEachLoop(
   loopNode: LoopNode,
@@ -420,95 +337,24 @@ export async function executeForEachLoop(
       },
     };
   }
-  const {
-    reserveItem,
-    validateRetainedItemEconomics,
-    reconcileUnknownReservation,
-    settleItem,
-    releaseItem,
-    readReconciledSettledCost,
-    resolveUnknownRelease,
-    resolveUnknownSettlement,
-  } = createItemBudgetLifecycle({
+  const lifecycle = createItemBudgetLifecycle({
     loopNode,
     bodyNodes,
     itemBudgetCents,
     resume,
     ...(economicsV2 === undefined ? {} : { economicsV2 }),
   });
+  const {
+    reserveItem,
+    reconcileUnknownReservation,
+    releaseItem,
+    resolveUnknownRelease,
+  } = lifecycle;
 
   // DSL-V2-HOST-BRIDGE-20260918: per-item V2 custody (selections and leaf
-  // outcomes), keyed by item index. Its snapshot rides in every economics
-  // record the loop writes, so it is durable exactly when the frame is.
-  const custodies = new Map<number, ForEachItemEconomicsV2Custody>();
-  const economicsV2Of = (
-    held: HeldItemReservation | undefined,
-    index: number
-  ): HeldItemEconomicsV2 | undefined => {
-    if (
-      held?.economicsV2 !== undefined &&
-      held.economicsV2.evidence.resolution.status !== "pending"
-    ) {
-      return held.economicsV2;
-    }
-    const custody = custodies.get(index);
-    if (custody === undefined) return held?.economicsV2;
-    const snapshot = custody.snapshot();
-    return {
-      evidence: snapshot.evidence,
-      ...(snapshot.leafOutcomes === undefined ? {} : { leafOutcomes: snapshot.leafOutcomes }),
-    };
-  };
-  const itemEconomics = (
-    held: HeldItemReservation,
-    index: number,
-    settledCostCents?: number
-  ): PipelineForEachItemEconomics => {
-    const v2 = economicsV2Of(held, index);
-    return {
-      reservationId: held.reservationId,
-      reservedCostCents: held.reservedCostCents,
-      ...(settledCostCents === undefined ? {} : { settledCostCents }),
-      ...(held.evidence === undefined ? {} : { evidence: held.evidence }),
-      ...(v2 === undefined ? {} : { evidenceV2: v2.evidence }),
-      ...(v2?.leafOutcomes === undefined ? {} : { leafOutcomesV2: [...v2.leafOutcomes] }),
-    };
-  };
-  const heldFrom = (
-    index: number,
-    attempt: number,
-    economics: PipelineForEachItemEconomics
-  ): HeldItemReservation => ({
-    itemIndex: index,
-    attempt,
-    reservationId: economics.reservationId,
-    reservedCostCents: economics.reservedCostCents,
-    ...(economics.evidence === undefined ? {} : { evidence: economics.evidence }),
-    ...(economics.evidenceV2 === undefined
-      ? {}
-      : {
-          economicsV2: {
-            evidence: economics.evidenceV2,
-            ...(economics.leafOutcomesV2 === undefined ? {} : { leafOutcomes: economics.leafOutcomesV2 }),
-          },
-        }),
-  });
-  const restoreCustody = (
-    index: number,
-    economics: PipelineForEachItemEconomics
-  ): ForEachItemEconomicsV2Custody | undefined => {
-    if (economicsV2 === undefined || economics.evidenceV2 === undefined) return undefined;
-    const custody = restoreForEachEconomicsV2Custody(economicsV2.inventory, {
-      evidenceV2: economics.evidenceV2,
-      ...(economics.leafOutcomesV2 === undefined ? {} : { leafOutcomesV2: economics.leafOutcomesV2 }),
-    });
-    custodies.set(index, custody);
-    return custody;
-  };
-  const adoptResolved = (index: number, evidence: HeldItemEconomicsV2["evidence"]): void => {
-    if (economicsV2 === undefined) return;
-    custodies.set(index, restoreForEachEconomicsV2Custody(economicsV2.inventory, { evidenceV2: evidence }));
-  };
+  // outcomes), keyed by item index, owned by `for-each-run-context.ts`.
+  const itemCustody = createForEachItemCustody(economicsV2);
+  const { custodies, itemEconomics, heldFrom, restoreCustody } = itemCustody;
 
   // 24-G: every index that reaches a terminal state, recorded here so the
   // never-dispatched tail can be completed once the worker loop stops. Held
@@ -622,6 +468,34 @@ export async function executeForEachLoop(
     return true;
   };
 
+  // DZUPAGENT-CODE-H-11: the item boundary helpers receive exactly the values
+  // and closures they previously captured from this function.
+  const run: ForEachRunContext = {
+    ...itemCustody,
+    loopNode,
+    bodyNodes,
+    contract,
+    items,
+    resume,
+    startTime,
+    itemBudgetCents,
+    v2Mode,
+    economicsV2,
+    lifecycle,
+    iterationDurations,
+    terminalOutcomes,
+    breachBudget,
+    fail: (error) => {
+      firstError ??= error;
+    },
+    failOverride: (error) => {
+      firstError = error;
+    },
+    recordTerminalOutcome,
+    checkpointAggregateReceipt,
+    restoreSettledItem,
+  };
+
   const runIteration = async (index: number): Promise<void> => {
     // A completed frame or terminal outcome is a permanent no-redispatch
     // boundary, including when it lies beyond the ordered prefix. Restoration
@@ -631,169 +505,7 @@ export async function executeForEachLoop(
     // body-complete receipt identifies the recoverable settle boundary below.
     const itemResume = resume?.itemFrames?.[String(index)];
     const priorOutcome = resume?.itemOutcomes?.[String(index)];
-    const retainedCandidates = [
-      itemResume?.economics === undefined
-        ? undefined
-        : {
-            attempt: itemResume.attempt ?? 0,
-            economics: itemResume.economics,
-          },
-      priorOutcome?.economics === undefined
-        ? undefined
-        : {
-            attempt: priorOutcome.attempt ?? 0,
-            economics: priorOutcome.economics,
-          },
-    ].filter((candidate) => candidate !== undefined);
-    let retainedEconomicsError: string | undefined;
-    if (
-      itemBudgetCents !== undefined &&
-      (resume?.budgetEvidenceMode === "required" || v2Mode) &&
-      retainedCandidates.length === 0 &&
-      ((itemResume?.nextBodyNodeIndex ?? 0) > 0 ||
-        priorOutcome?.outcome === "completed")
-    ) {
-      retainedEconomicsError =
-        "evidence-required resume state contains durable work without reservation economics";
-    }
-    for (const candidate of retainedCandidates) {
-      retainedEconomicsError ??= validateRetainedItemEconomics(
-        index,
-        candidate.attempt,
-        candidate.economics
-      );
-    }
-    if (
-      retainedEconomicsError === undefined &&
-      retainedCandidates.length === 2
-    ) {
-      if (v2Mode) {
-        // The terminal record is written after the last frame and may carry
-        // later outcomes (releases, an unknown leaf); both must be the same
-        // admission, and the later record is the custody of record.
-        if (
-          retainedCandidates[0]!.economics.evidenceV2?.admissionDigest !==
-          retainedCandidates[1]!.economics.evidenceV2?.admissionDigest
-        ) {
-          retainedEconomicsError =
-            "item frame and terminal outcome carry different V2 admissions";
-        }
-      } else {
-        try {
-          if (
-            canonicalInputDigest(retainedCandidates[0]!.economics) !==
-            canonicalInputDigest(retainedCandidates[1]!.economics)
-          ) {
-            retainedEconomicsError =
-              "item frame and terminal outcome carry different economics evidence";
-          }
-        } catch {
-          retainedEconomicsError =
-            "retained economics evidence is not canonically serializable";
-        }
-      }
-    }
-    if (retainedEconomicsError !== undefined) {
-      terminalOutcomes.add(index);
-      breachBudget();
-      firstError ??= {
-        nodeId: loopNode.id,
-        output: null,
-        durationMs: Date.now() - startTime,
-        error:
-          `Loop "${loopNode.id}" item ${index} checkpoint exact economics ` +
-          `evidence is invalid: ${retainedEconomicsError}; redispatch is blocked`,
-      };
-      return;
-    }
-    if (
-      priorOutcome?.outcome !== "completed" &&
-      priorOutcome?.economics?.settledCostCents !== undefined
-    ) {
-      // A failed/cancelled/denied attempt that was nevertheless charged must
-      // never become a retry candidate. The terminal set lacks a dedicated
-      // "failed-but-charged" tag, so retain its exact economics and stop here.
-      terminalOutcomes.add(index);
-      breachBudget();
-      firstError ??= {
-        nodeId: loopNode.id,
-        output: null,
-        durationMs: Date.now() - startTime,
-        error:
-          `Loop "${loopNode.id}" item ${index} is terminal with a settled ` +
-          `charge of ${priorOutcome.economics.settledCostCents} cents; ` +
-          "redispatch is blocked",
-      };
-      return;
-    }
-    // DSL-V2-HOST-BRIDGE-20260918 (§3.4 row 3): a V2 unit blocked on an
-    // unknown leaf may re-present exactly that leaf — the frame's dispatch
-    // intent — to the host under the same key. Anything else stays blocked.
-    const v2ResumableUnknown = (): boolean => {
-      const economics = priorOutcome?.economics;
-      const frame = itemResume?.graph?.frame as LoopBodyGraphCheckpointState | undefined;
-      if (economicsV2 === undefined || economics?.evidenceV2 === undefined || frame === undefined) return false;
-      const custody = restoreForEachEconomicsV2Custody(economicsV2.inventory, {
-        evidenceV2: economics.evidenceV2,
-        ...(economics.leafOutcomesV2 === undefined ? {} : { leafOutcomesV2: economics.leafOutcomesV2 }),
-      });
-      const unknown = custody.unknownNodeIds();
-      return unknown.length > 0 && unknown.every((nodeId) => nodeId === frame.nextNodeId);
-    };
-    if (
-      priorOutcome?.outcome === "outcome_unknown" &&
-      itemResume?.nextBodyNodeIndex !== bodyNodes.length &&
-      !v2ResumableUnknown()
-    ) {
-      // Without a body-complete receipt the checkpoint does not retain which
-      // lifecycle boundary became unobservable. Re-dispatching would guess
-      // that an earlier reserve/release left no live money, so keep the item
-      // blocked for operator reconciliation. Body-complete settle recovery is
-      // the one distinguishable case and continues below.
-      terminalOutcomes.add(index);
-      breachBudget();
-      firstError ??= {
-        nodeId: loopNode.id,
-        output: null,
-        durationMs: Date.now() - startTime,
-        error:
-          `Loop "${loopNode.id}" item ${index} has a durable outcome-unknown ` +
-          "reservation without a body-complete receipt; redispatch is blocked",
-      };
-      return;
-    }
-    const frameCompleted = itemResume?.outcome === "completed";
-    if (priorOutcome?.outcome === "completed" || frameCompleted) {
-      terminalOutcomes.add(index);
-      if (frameCompleted && priorOutcome?.outcome !== "completed") {
-        const economics = itemResume.economics;
-        const held =
-          economics === undefined
-            ? undefined
-            : heldFrom(index, itemResume.attempt ?? 0, economics);
-        await recordTerminalOutcome(
-          index,
-          "completed",
-          held,
-          economics?.settledCostCents
-        );
-      }
-      if (await restoreSettledItem(index)) return;
-      // A completed item is never a redispatch candidate. A checkpoint written
-      // before aggregate receipts existed may be unreconstructible (notably a
-      // single-body collect-from-state item); fail closed rather than repeat
-      // its effects or charge it again.
-      breachBudget();
-      firstError ??= {
-        nodeId: loopNode.id,
-        output: null,
-        durationMs: Date.now() - startTime,
-        error:
-          `Loop "${loopNode.id}" item ${index} is durably completed but its ` +
-          "aggregate/output receipt is missing or corrupt; redispatch is blocked",
-      };
-      return;
-    }
+    if (await blockRetainedItem(run, index, itemResume, priorOutcome)) return;
 
     const iteration = index + 1;
     const iterStart = Date.now();
@@ -847,223 +559,15 @@ export async function executeForEachLoop(
       ...((itemResume?.bodyResults ?? {}) as Record<string, NodeResult>),
     };
 
-    const preparedReceipt = readAggregateReceipt(
-      loopNode.id,
-      index,
-      itemResume?.graph === undefined ? items[index] : itemResume.graph.state[contract.as],
-      itemResume?.bodyResults
-    );
     if (startBodyNodeIndex >= bodyNodes.length) {
-      const blockPreparedCompletion = async (
-        reason: string,
-        outcome: PipelineForEachItemOutcome = "outcome_unknown",
-        settledCostCents?: number,
-        terminalEvidence?: LoopEconomicsEvidenceV1
-      ): Promise<void> => {
-        breachBudget();
-        firstError ??= {
-          nodeId: loopNode.id,
-          output: preparedReceipt?.finalBodyResult?.output.value ?? null,
-          durationMs: Date.now() - startTime,
-          error:
-            `Loop "${loopNode.id}" item ${index} has completed body work that ` +
-            `cannot be settled safely: ${reason}; redispatch is blocked`,
-        };
-        const economics = itemResume?.economics;
-        await recordTerminalOutcome(
-          index,
-          outcome,
-          economics === undefined
-            ? undefined
-            : {
-                ...heldFrom(index, resumedAttempt, economics),
-                ...(terminalEvidence === undefined
-                  ? {}
-                  : { evidence: terminalEvidence }),
-              },
-          settledCostCents ?? economics?.settledCostCents
-        );
-        iterationDurations[index] = Date.now() - iterStart;
-      };
-
-      if (
-        startBodyNodeIndex !== bodyNodes.length ||
-        preparedReceipt === undefined
-      ) {
-        await blockPreparedCompletion(
-          "its aggregate/output receipt is missing, corrupt, or has an invalid body cursor"
-        );
-        return;
-      }
-
-      const receiptBodyResults = Object.fromEntries(
-        Object.entries(retainedBodyResults).filter(
-          ([nodeId]) => nodeId !== loopNode.id
-        )
-      );
-      const economics = itemResume?.economics;
-      if (economics === undefined) {
-        if (itemBudgetCents !== undefined) {
-          await blockPreparedCompletion(
-            "the strict ceiling receipt has no reservation economics"
-          );
-          return;
-        }
-        await checkpointAggregateReceipt({
-          index,
-          attempt: resumedAttempt,
-          outcome: "completed",
-          held: undefined,
-          bodyResults: retainedBodyResults,
-        });
-        await recordTerminalOutcome(index, "completed", undefined);
-        if (!(await restoreSettledItem(index, { ...itemResume!, outcome: "completed" }))) {
-          await blockPreparedCompletion("its durable aggregate could not be restored");
-        }
-        return;
-      }
-
-      let resumedHeld: HeldItemReservation = heldFrom(index, resumedAttempt, economics);
-      if (v2Mode) {
-        // The body-complete receipt must carry a custody that its own frame
-        // agrees with and that every leaf has resolved; only then is there a
-        // settled record to charge against.
-        const custody = restoreCustody(index, economics);
-        const frame = itemResume?.graph?.frame as LoopBodyGraphCheckpointState | undefined;
-        const custodyError = custody === undefined
-          ? "the body-complete receipt carries no V2 record"
-          : frame === undefined
-            ? "the body-complete receipt carries no graph frame"
-            : custody.applyFrame(frame);
-        if (custodyError !== undefined) {
-          await blockPreparedCompletion(`its V2 leaf custody is inconsistent: ${custodyError}`);
-          return;
-        }
-        const resolution = custody!.resolve();
-        if (resolution.status !== "settled") {
-          await blockPreparedCompletion(
-            `its V2 leaf accounting is unresolved: ${resolution.status === "pending" ? resolution.error : "a leaf outcome is unknown"}`
-          );
-          return;
-        }
-        adoptResolved(index, resolution.evidence);
-        resumedHeld = { ...resumedHeld, economicsV2: { evidence: resolution.evidence } };
-      }
-      const reconciliation = await reconcileUnknownReservation(
+      await settlePreparedCompletion(run, {
         index,
+        itemResume,
+        startBodyNodeIndex,
         resumedAttempt,
-        "resume of a durable body-complete aggregate receipt",
-        "settle",
-        resumedHeld
-      );
-
-      let settledCostCents: number | undefined;
-      let settledEvidence: LoopEconomicsEvidenceV1 | undefined;
-      let settledEvidenceV2: HeldItemEconomicsV2["evidence"] | undefined;
-      let settlementOverrun: string | undefined;
-      if (reconciliation.status === "settled") {
-        const settled = readReconciledSettledCost(reconciliation, "settle");
-        if ("error" in settled) {
-          await blockPreparedCompletion(settled.error);
-          return;
-        }
-        settledCostCents = settled.settledCostCents;
-        settledEvidence = settled.evidence;
-        settledEvidenceV2 = settled.evidenceV2;
-      } else if (reconciliation.status === "reserved") {
-        if (
-          !Number.isSafeInteger(reconciliation.reservedCostCents) ||
-          reconciliation.reservedCostCents !== economics.reservedCostCents
-        ) {
-          await blockPreparedCompletion(
-            "reconciliation disagreed with the durable reservation amount"
-          );
-          return;
-        }
-        if (reconciliation.evidence !== undefined) {
-          resumedHeld = { ...resumedHeld, evidence: reconciliation.evidence };
-        }
-        const settlement = await settleItem(resumedHeld, receiptBodyResults);
-        if (settlement !== undefined && "settledCostCents" in settlement) {
-          settledCostCents = settlement.settledCostCents;
-          settledEvidence = settlement.evidence;
-          settledEvidenceV2 = settlement.evidenceV2;
-          settlementOverrun = settlement.overrun;
-        } else if (settlement !== undefined && "outcomeUnknown" in settlement) {
-          const resolved = await resolveUnknownSettlement(
-            resumedHeld,
-            settlement.actualCostCents,
-            settlement.outcomeUnknown,
-            settlement.evidence,
-            settlement.evidenceV2
-          );
-          if (resolved.status === "blocked") {
-            await blockPreparedCompletion(resolved.error);
-            return;
-          }
-          settledCostCents = resolved.settledCostCents;
-          settledEvidence = resolved.evidence;
-          settledEvidenceV2 = resolved.evidenceV2;
-          settlementOverrun = resolved.overrun;
-        } else {
-          const detail =
-            settlement !== undefined && "costUnknown" in settlement
-              ? settlement.costUnknown
-              : "settlement produced no authoritative receipt";
-          await blockPreparedCompletion(detail);
-          return;
-        }
-      } else {
-        const detail =
-          reconciliation.status === "blocked"
-            ? reconciliation.error
-            : `reconciliation returned ${reconciliation.status}; ` +
-              "completed work is not authoritatively charged";
-        await blockPreparedCompletion(detail);
-        return;
-      }
-
-      if (settledCostCents === undefined) {
-        await blockPreparedCompletion(
-          "settlement produced no authoritative known cost"
-        );
-        return;
-      }
-      if (
-        settlementOverrun !== undefined ||
-        settledCostCents > economics.reservedCostCents
-      ) {
-        await blockPreparedCompletion(
-          settlementOverrun ??
-            `settled ${settledCostCents} cents against a ${economics.reservedCostCents}-cent reservation`,
-          "failed",
-          settledCostCents,
-          settledEvidence
-        );
-        return;
-      }
-      const settledHeld: HeldItemReservation = {
-        ...resumedHeld,
-        ...(settledEvidence === undefined ? {} : { evidence: settledEvidence }),
-        ...(settledEvidenceV2 === undefined ? {} : { economicsV2: { evidence: settledEvidenceV2 } }),
-      };
-      await checkpointAggregateReceipt({
-        index,
-        attempt: resumedAttempt,
-        outcome: "completed",
-        held: settledHeld,
-        settledCostCents,
-        bodyResults: retainedBodyResults,
+        retainedBodyResults,
+        iterStart,
       });
-      await recordTerminalOutcome(
-        index,
-        "completed",
-        settledHeld,
-        settledCostCents
-      );
-      if (!(await restoreSettledItem(index, { ...itemResume!, outcome: "completed" }))) {
-        await blockPreparedCompletion("its durable aggregate could not be restored");
-      }
       return;
     }
 
@@ -1121,171 +625,15 @@ export async function executeForEachLoop(
     // source of truth for whether a reservation is outstanding, and every one
     // of the three exits below reconciles it exactly once.
     const held = resumedGraphHold ?? await reserveItem(index, attempt, iterationState);
-    // A thrown reserve is reconciled before dispatch. Absent/released proves a
-    // clean denial; reserved proves a hold exists and therefore requires the
-    // strict host's release lifecycle before denial. Settled, unknown, and
-    // conflict cannot authorize body work and remain blocked.
-    if (typeof held === "object" && held !== null && "outcomeUnknown" in held) {
-      const reconciliation = await reconcileUnknownReservation(
-        index,
-        attempt,
-        held.outcomeUnknown,
-        "reserve"
-      );
-      let reconciledHeld: HeldItemReservation | undefined;
-      let blocked: string | undefined;
-      if (reconciliation.status === "blocked") {
-        blocked = reconciliation.error;
-      } else if (reconciliation.status === "settled") {
-        const settled = readReconciledSettledCost(reconciliation, "reserve");
-        blocked =
-          "error" in settled
-            ? settled.error
-            : `Loop "${loopNode.id}" item ${index} was charged ` +
-              `${settled.settledCostCents} cents before its body was admitted; ` +
-              "dispatch is blocked";
-      } else if (reconciliation.status === "reserved") {
-        if (
-          !Number.isSafeInteger(reconciliation.reservedCostCents) ||
-          reconciliation.reservedCostCents < 0 ||
-          reconciliation.reservedCostCents > (itemBudgetCents as number)
-        ) {
-          blocked =
-            `Loop "${loopNode.id}" item ${index} reserve reconciliation ` +
-            `reported invalid hold ${String(reconciliation.reservedCostCents)}`;
-        } else {
-          reconciledHeld = {
-            itemIndex: index,
-            attempt,
-            reservationId: deriveItemReservationId({
-              ...(resume?.budgetRunId === undefined
-                ? {}
-                : { runId: resume.budgetRunId }),
-              loopNodeId: loopNode.id,
-              itemIndex: index,
-              attempt,
-            }),
-            reservedCostCents: reconciliation.reservedCostCents,
-            ...(reconciliation.evidence === undefined
-              ? {}
-              : { evidence: reconciliation.evidence }),
-          };
-          const release = await releaseItem(reconciledHeld, "failed");
-          if (release !== undefined) {
-            const releaseResolution = await resolveUnknownRelease(
-              reconciledHeld,
-              "failed",
-              release.outcomeUnknown
-            );
-            if (releaseResolution.status !== "released") {
-              blocked =
-                releaseResolution.status === "blocked"
-                  ? releaseResolution.error
-                  : `Loop "${loopNode.id}" item ${index} was charged ` +
-                    `${releaseResolution.settledCostCents} cents while closing ` +
-                    "a reserve that failed before dispatch";
-            }
-          }
-        }
-      }
-
-      if (held.malformed === true && blocked === undefined) {
-        blocked =
-          `Loop "${loopNode.id}" item ${index} reserve returned malformed ` +
-          "evidence; reconciliation cannot turn that contradictory response " +
-          "into authoritative admission";
-      }
-
-      if (blocked !== undefined) {
-        breachBudget();
-        firstError ??= {
-          nodeId: loopNode.id,
-          output: null,
-          durationMs: Date.now() - startTime,
-          error: blocked,
-        };
-        await recordTerminalOutcome(index, "outcome_unknown", reconciledHeld);
-        iterationDurations[index] = Date.now() - iterStart;
-        return;
-      }
-
-      breachBudget();
-      firstError ??= {
-        nodeId: loopNode.id,
-        output: null,
-        durationMs: Date.now() - startTime,
-        error:
-          `Loop "${loopNode.id}" item ${index} budget is unknown: ` +
-          "its reservation failed and was reconciled as not outstanding",
-      };
-      // A clean no-hold denial still consumes a retry attempt. Retain that
-      // identity without inventing reservation economics; the selected graph
-      // continues to identify the earlier released hold until reserve succeeds.
-      await recordTerminalOutcome(index, "denied", reconciledHeld, undefined,
-        retryReleasedGraph ? attempt : undefined);
-      iterationDurations[index] = Date.now() - iterStart;
-      return;
-    }
-
-    if (
-      typeof held === "object" &&
-      held !== null &&
-      "deniedHeld" in held
-    ) {
-      const deniedHeld = held.deniedHeld;
-      const release = await releaseItem(deniedHeld, "failed");
-      const resolution =
-        release === undefined
-          ? ({ status: "released" } as const)
-          : await resolveUnknownRelease(
-              deniedHeld,
-              "failed",
-              release.outcomeUnknown
-            );
-      if (resolution.status !== "released") {
-        breachBudget();
-        firstError ??= {
-          nodeId: loopNode.id,
-          output: null,
-          durationMs: Date.now() - startTime,
-          error:
-            resolution.status === "blocked"
-              ? resolution.error
-              : `Loop "${loopNode.id}" item ${index} was charged ` +
-                `${resolution.settledCostCents} cents while closing an ` +
-                "over-ceiling reservation",
-        };
-        await recordTerminalOutcome(
-          index,
-          "outcome_unknown",
-          held.retainEvidence === false ? undefined : deniedHeld
-        );
-        iterationDurations[index] = Date.now() - iterStart;
-        return;
-      }
-
-      breachBudget();
-      firstError ??= {
-        nodeId: loopNode.id,
-        output: null,
-        durationMs: Date.now() - startTime,
-        error:
-          held.denialReason ??
-          (`Loop "${loopNode.id}" item ${index} reservation of ` +
-            `${deniedHeld.reservedCostCents} cents exceeds its ` +
-            `${String(itemBudgetCents)}-cent ceiling and was released`),
-      };
-      await recordTerminalOutcome(
-        index,
-        "denied",
-        held.retainEvidence === false ? undefined : deniedHeld,
-        undefined, retryReleasedGraph ? attempt : undefined
-      );
-      iterationDurations[index] = Date.now() - iterStart;
-      return;
-    }
-
-    const admittedHeld: HeldItemReservation | undefined = held;
+    const admission = await admitItemReservation(run, {
+      index,
+      attempt,
+      held,
+      retryReleasedGraph,
+      iterStart,
+    });
+    if (admission.terminal) return;
+    const admittedHeld: HeldItemReservation | undefined = admission.held;
     // DSL-V2-HOST-BRIDGE-20260918: a fresh admission (first attempt, or a
     // retry of a released attempt) opens its custody here. A retry may
     // continue a retained frame only if that frame recorded no leaf: a
@@ -1321,7 +669,7 @@ export async function executeForEachLoop(
       }
     }
 
-    if (loopNode.bodyGraph !== undefined && held?.evidence !== undefined) {
+    if (loopNode.bodyGraph !== undefined && admittedHeld?.evidence !== undefined) {
       completedBody = false;
       firstError ??= { nodeId: loopNode.id, output: null, durationMs: Date.now() - startTime,
         error: "Conditional items require V2 selected/skipped-leaf economics; V1 exact evidence was returned by the reservation host" };
@@ -1482,321 +830,30 @@ export async function executeForEachLoop(
     }
 
     if (!completedBody) {
-      // DSL-V2-HOST-BRIDGE-20260918 (§3.4): an unproven leaf — the host could
-      // not say whether it dispatched, or the custody contradicts its frame —
-      // leaves money and effects in an unknown state. Nothing is released or
-      // settled; the record and its outcomes are retained for reconciliation.
-      if (custody !== undefined && custodyBlocked !== undefined) {
-        breachBudget();
-        firstError = {
-          nodeId: loopNode.id,
-          output: null,
-          durationMs: Date.now() - startTime,
-          error:
-            `Loop "${loopNode.id}" item ${index} V2 leaf accounting is unresolved: ` +
-            `${custodyBlocked}; redispatch is blocked until the host reconciles`,
-        };
-        await recordTerminalOutcome(index, "outcome_unknown", admittedHeld);
-        iterationDurations[index] = Date.now() - iterStart;
-        return;
-      }
-      // V2: every leaf that never dispatched is released with the reason the
-      // unit stopped for, so the host receives a resolved record that keeps
-      // the charges it recorded and returns nothing else blind.
-      let terminalHeld: HeldItemReservation | undefined = admittedHeld;
-      if (custody !== undefined && admittedHeld !== undefined) {
-        custody.releaseRemaining(haltedBeforeBody ? "cancelled-before-dispatch" : "prior-leaf-failed");
-        const resolution = custody.resolve();
-        if (resolution.status === "settled") {
-          adoptResolved(index, resolution.evidence);
-          terminalHeld = { ...admittedHeld, economicsV2: { evidence: resolution.evidence } };
-        }
-      }
-      // F: exits 1 and 2 — aborted, or a body node failed. The item never
-      // completed, so its reservation is returned in full rather than settled.
-      // Leaking here is the original defect reproduced one level down.
-      // 24-I: an item halted mid-flight by another worker's budget breach was
-      // stopped by a signal, not by its own body reporting an error, so it
-      // releases as `aborted` exactly like a host cancellation does. Reading
-      // `context.signal` alone here would release it as `failed` and tell the
-      // host this item's work errored when it never ran.
-      const releaseOutcome = await releaseItem(
-        terminalHeld,
-        haltedBeforeBody ? "aborted" : "failed"
-      );
-      // G2d (prereq 7): a release that could not be observed leaves this item
-      // in a non-terminal settlement state. Reconcile is the only proof; until
-      // it answers, the loop stops rather than reporting a clean failure over
-      // an unaccounted reservation.
-      //
-      // This OVERWRITES `firstError` rather than using `??=`, unlike every
-      // other exit. The body error that triggered this release is already
-      // recorded, but an unaccounted reservation is the strictly more severe
-      // fact: a failed item is an expected outcome the author can handle,
-      // whereas money in an unknown state is an operator-visible integrity
-      // breach. Reporting the body error here would hide it.
-      let releaseUnresolved = false;
-      let releaseSettledCostCents: number | undefined;
-      let releaseSettledEvidence: LoopEconomicsEvidenceV1 | undefined;
-      let releaseSettledEvidenceV2: HeldItemEconomicsV2["evidence"] | undefined;
-      if (releaseOutcome !== undefined) {
-        const resolution = await resolveUnknownRelease(
-          // `releaseItem` returns an unknown marker only when it received a
-          // concrete reservation, so this correlation is guaranteed here.
-          terminalHeld as HeldItemReservation,
-          haltedBeforeBody ? "aborted" : "failed",
-          releaseOutcome.outcomeUnknown
-        );
-        if (resolution.status === "blocked") {
-          releaseUnresolved = true;
-          breachBudget();
-          firstError = {
-            nodeId: loopNode.id,
-            output: null,
-            durationMs: Date.now() - startTime,
-            error: resolution.error,
-          };
-        } else if (resolution.status === "settled") {
-          releaseSettledCostCents = resolution.settledCostCents;
-          releaseSettledEvidence = resolution.evidence;
-          releaseSettledEvidenceV2 = resolution.evidenceV2;
-          breachBudget();
-          firstError = {
-            nodeId: loopNode.id,
-            output: null,
-            durationMs: Date.now() - startTime,
-            error:
-              `Loop "${loopNode.id}" item ${index} failed before completion ` +
-              `but release reconciliation proves it was charged ` +
-              `${resolution.settledCostCents} cents; redispatch is blocked`,
-          };
-        }
-      }
-      // 24-G exits 1 and 2. `aborted` and `failed` are kept distinct for the
-      // same reason `denied` is: a cancelled item was stopped by a signal
-      // while a failed one ran and its body reported an error, and an operator
-      // reconciling work against spend needs to tell those apart.
-      //
-      // An unresolvable release outranks both. The item's work did stop, but
-      // its reservation's state is unproven, and reporting a clean `failed`
-      // over money in an unknown state is precisely what G2d fails closed on.
-      // This mirrors the `firstError` overwrite directly above.
-      await recordTerminalOutcome(
+      await releaseIncompleteItem(run, {
         index,
-        releaseUnresolved
-          ? "outcome_unknown"
-          : // 24-I: `haltedBeforeBody` covers a host abort AND a breach raised
-          // by another worker. Both stopped this item at the dispatch gate
-          // with no body error of its own, which is what `cancelled` means.
-          haltedBeforeBody
-          ? "cancelled"
-          : "failed",
-        // The reservation was released rather than settled, so it carries no
-        // settled cost — a released reservation charged nothing.
-        terminalHeld === undefined
-          ? undefined
-          : {
-              ...terminalHeld,
-              ...(releaseSettledEvidence === undefined ? {} : { evidence: releaseSettledEvidence }),
-              ...(releaseSettledEvidenceV2 === undefined ? {} : { economicsV2: { evidence: releaseSettledEvidenceV2 } }),
-            },
-        releaseSettledCostCents
-      );
-      iterationDurations[index] = Date.now() - iterStart;
+        custody,
+        custodyBlocked,
+        admittedHeld,
+        haltedBeforeBody,
+        iterStart,
+      });
       return;
     }
 
-    // DSL-V2-HOST-BRIDGE-20260918: the body completed, so every leaf must be
-    // recorded or released; the resolved record is what settlement charges.
-    let completedHeld: HeldItemReservation | undefined = admittedHeld;
-    if (custody !== undefined && admittedHeld !== undefined) {
-      const resolution = custody.resolve();
-      if (resolution.status !== "settled") {
-        breachBudget();
-        firstError ??= {
-          nodeId: loopNode.id,
-          output: lastBodyResult?.output ?? null,
-          durationMs: Date.now() - startTime,
-          error:
-            `Loop "${loopNode.id}" item ${index} completed its body but its V2 leaf ` +
-            `accounting is unresolved: ${resolution.status === "pending" ? resolution.error : "a leaf outcome is unknown"}; ` +
-            "redispatch is blocked",
-        };
-        await recordTerminalOutcome(index, "outcome_unknown", admittedHeld);
-        iterationDurations[index] = Date.now() - iterStart;
-        return;
-      }
-      adoptResolved(index, resolution.evidence);
-      completedHeld = { ...admittedHeld, economicsV2: { evidence: resolution.evidence } };
-    }
-    const collectedValue =
-      contract.collect === undefined
-        ? undefined
-        : {
-            status: "known" as const,
-            value: collectIterationValue(
-              iterationState,
-              iterationPreviousResults,
-              contract.collect.from
-            ),
-          };
-    const aggregateBodyResults: Record<string, NodeResult> = {
-      ...retainedBodyResults,
-      [loopNode.id]: aggregateReceiptResult(
-        loopNode.id,
-        index,
-        iterationState[contract.as],
-        collectedValue,
-        lastBodyResult!
-      ),
-    };
-    // Persist the output receipt BEFORE settlement. If the process dies after
-    // the host applies the charge but before the completed checkpoint, resume
-    // reconciles this exact reservation and restores this receipt; it never
-    // dispatches the item body to rebuild output.
-    await checkpointAggregateReceipt({
+    const completion = await settleCompletedItem(run, {
       index,
       attempt,
-      outcome: "running",
-      held: completedHeld,
-      bodyResults: aggregateBodyResults,
+      custody,
+      admittedHeld,
+      iterationState,
+      iterationPreviousResults,
+      retainedBodyResults,
+      lastBodyResult,
+      iterStart,
     });
-
-    // F: exit 3 — the item completed. Reconcile actual spend against the
-    // reservation, releasing the unspent delta. An overrun fails the loop
-    // closed (operator decision, 08-16): the authored ceiling was breached.
-    let settlement = await settleItem(completedHeld, retainedBodyResults);
-    if (
-      settlement !== undefined &&
-      "costUnknown" in settlement
-    ) {
-      breachBudget();
-      firstError ??= {
-        nodeId: loopNode.id,
-        output: lastBodyResult?.output ?? null,
-        durationMs: Date.now() - startTime,
-        error:
-          `Loop "${loopNode.id}" item ${index} usage/cost is unknown; ` +
-          `settlement was not attempted: ${settlement.costUnknown}`,
-      };
-      await recordTerminalOutcome(
-        index,
-        "outcome_unknown",
-        completedHeld
-      );
-      iterationDurations[index] = Date.now() - iterStart;
-      return;
-    }
-    // G2d (prereq 7): the settle call itself was unobservable. The item's work
-    // is DONE and was charged, so this is not a release path — refunding could
-    // return money the host already took. Only reconciliation can prove the
-    // reservation's terminal state, and until it does the loop fails closed.
-    // 24-G: narrowed on the marker key rather than on `typeof === "object"`,
-    // because a clean settle now also returns an object. Matching on the shape
-    // alone would route every successful settlement into reconciliation.
-    if (
-      settlement !== undefined &&
-      "outcomeUnknown" in settlement
-    ) {
-      const resolution = await resolveUnknownSettlement(
-        completedHeld as HeldItemReservation,
-        settlement.actualCostCents,
-        settlement.outcomeUnknown,
-        settlement.evidence,
-        settlement.evidenceV2
-      );
-      if (resolution.status === "blocked") {
-        breachBudget();
-        firstError ??= {
-          nodeId: loopNode.id,
-          output: lastBodyResult?.output ?? null,
-          durationMs: Date.now() - startTime,
-          error: resolution.error,
-        };
-        await recordTerminalOutcome(
-          index,
-          "outcome_unknown",
-          completedHeld
-        );
-        iterationDurations[index] = Date.now() - iterStart;
-        return;
-      }
-      settlement = {
-        settledCostCents: resolution.settledCostCents,
-        ...(resolution.evidence === undefined
-          ? {}
-          : { evidence: resolution.evidence }),
-        ...(resolution.evidenceV2 === undefined
-          ? {}
-          : { evidenceV2: resolution.evidenceV2 }),
-        ...(resolution.overrun === undefined
-          ? {}
-          : { overrun: resolution.overrun }),
-      };
-    }
-    if (settlement !== undefined && "overrun" in settlement) {
-      breachBudget();
-      firstError ??= {
-        nodeId: loopNode.id,
-        output: lastBodyResult?.output ?? null,
-        durationMs: Date.now() - startTime,
-        error: settlement.overrun,
-      };
-      // 24-G: the item's body succeeded but it settled past its authored
-      // ceiling, which fails the loop closed. It is `failed` rather than
-      // `completed`: the work finished, but the item did not complete within
-      // the terms it was admitted under, and reporting `completed` would let
-      // accounting close over a breach.
-      await recordTerminalOutcome(
-        index,
-        "failed",
-        completedHeld === undefined
-          ? undefined
-          : {
-              ...completedHeld,
-              ...(settlement.evidence === undefined ? {} : { evidence: settlement.evidence }),
-              ...(settlement.evidenceV2 === undefined ? {} : { economicsV2: { evidence: settlement.evidenceV2 } }),
-            },
-        settlement.settledCostCents
-      );
-      iterationDurations[index] = Date.now() - iterStart;
-      return;
-    }
-
-    const settledCostCents =
-      settlement !== undefined && "settledCostCents" in settlement
-        ? settlement.settledCostCents
-        : undefined;
-    const settledHeld: HeldItemReservation | undefined =
-      completedHeld === undefined ||
-      settlement === undefined ||
-      !("settledCostCents" in settlement)
-        ? completedHeld
-        : {
-            ...completedHeld,
-            ...(settlement.evidence === undefined ? {} : { evidence: settlement.evidence }),
-            ...(settlement.evidenceV2 === undefined ? {} : { economicsV2: { evidence: settlement.evidenceV2 } }),
-          };
-    // Persist completion and its exact output before publishing the terminal
-    // accounting record. Either record can independently block redispatch;
-    // the completed frame additionally restores single-body aggregation.
-    await checkpointAggregateReceipt({
-      index,
-      attempt,
-      outcome: "completed",
-      held: settledHeld,
-      ...(settledCostCents === undefined ? {} : { settledCostCents }),
-      bodyResults: aggregateBodyResults,
-    });
-
-    // 24-G exit 3. The item completed and settled, so its economics is
-    // terminal too — this is the only exit that records a settled cost.
-    await recordTerminalOutcome(
-      index,
-      "completed",
-      settledHeld,
-      settledCostCents
-    );
+    if (completion === undefined) return;
+    const { collectedValue } = completion;
 
     results[index] = lastBodyResult;
     if (contract.collect !== undefined) {
@@ -1810,32 +867,13 @@ export async function executeForEachLoop(
     await flushQueue;
   };
 
-  const flushPrefix = async (): Promise<void> => {
-    // The merge itself is synchronous and lives in `for-each-merge.ts`; only
-    // the publish-and-checkpoint tail below is async. A zero return means the
-    // cursor did not move, and no checkpoint may be written for it.
-    const retired = advanceCompletedPrefix(merge, contract);
-    if (retired === 0) return;
-
-    if (contract.collect !== undefined) {
-      setStatePath(
-        context.state,
-        contract.collect.into,
-        collected.slice(0, merge.flushedPrefix)
-      );
-    }
-    if (contract.attachAs !== undefined) {
-      setStatePath(context.state, contract.source, merge.enrichedItems);
-    }
-    if (contract.accumulator !== undefined) {
-      setStatePath(
-        context.state,
-        contract.accumulator.key,
-        merge.accumulatorValues
-      );
-    }
-    await resume?.onIterationComplete?.(merge.flushedPrefix);
-  };
+  const flushPrefix = createForEachPrefixFlush({
+    merge,
+    contract,
+    context,
+    collected,
+    resume,
+  });
   // Source attachment and aggregate publication must share the checkpoint
   // queue: another item's frame cannot snapshot half of a prefix transition.
   const flushCompletedPrefix = graphFence ? graphFence.serialize(flushPrefix) : flushPrefix;
@@ -1987,16 +1025,6 @@ export async function executeForEachLoop(
       terminationReason: "condition_met",
     },
   };
-}
-
-function collectIterationValue(
-  state: Record<string, unknown>,
-  previousResults: Map<string, NodeResult>,
-  from: string
-): unknown {
-  const resolved = resolveStatePath(state, from);
-  if (resolved.found) return resolved.value;
-  return previousResults.get(from)?.output;
 }
 
 function forEachOutput(

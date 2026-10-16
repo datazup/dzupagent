@@ -5,8 +5,8 @@
  * Three permission tiers mirror the codegen sandbox tiers:
  *
  * - `read-only`       — any write operation is denied outright.
- * - `workspace-write` — absolute paths outside `workspaceRoot` are denied;
- *                       relative paths are allowed.
+ * - `workspace-write` — paths that resolve outside `workspaceRoot` are
+ *                       denied; relative paths are resolved against the root.
  * - `full-access`     — enforcer is a no-op and only hooks are evaluated.
  */
 import type {
@@ -40,8 +40,8 @@ function stripTrailingSlash(p: string): string {
 
 /**
  * Collapse `a/b/../c` to `a/c`. Does not resolve against cwd — callers must
- * already pass an absolute path or rely on the relative-path fast-path in
- * {@link DefaultPolicyEnforcer.enforce}.
+ * already pass an absolute path (relative paths are joined onto the
+ * workspace root in {@link DefaultPolicyEnforcer.enforce}).
  */
 function normalizePath(p: string): string {
   const slashed = normalizeSeparators(p)
@@ -118,9 +118,12 @@ export class DefaultPolicyEnforcer implements PolicyEnforcer {
       const rootWithSep = root.endsWith('/') ? root : root + '/'
       const files = input.filesModified ?? []
       for (const path of files) {
-        // Relative paths are workspace-relative by definition and allowed.
-        if (!isAbsolutePath(path)) continue
-        const resolved = stripTrailingSlash(normalizePath(path))
+        // Relative paths are workspace-relative: resolve them against the
+        // root so `../escape.ts` is contained exactly like an absolute path.
+        const candidate = isAbsolutePath(path)
+          ? path
+          : `${rootWithSep}${normalizeSeparators(path)}`
+        const resolved = stripTrailingSlash(normalizePath(candidate))
         if (resolved !== root && !resolved.startsWith(rootWithSep)) {
           return {
             valid: false,

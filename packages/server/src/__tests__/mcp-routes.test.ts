@@ -12,7 +12,9 @@ import {
   createEventBus,
   InMemoryMcpManager,
 } from "@dzupagent/core";
-import type { Hono } from "hono";
+import { Hono } from "hono";
+import { createMcpRoutes } from "../routes/mcp.js";
+import { registerMcpHandlers } from "../routes/mcp-handlers.js";
 import type { AppEnv } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -699,5 +701,28 @@ describe("MCP routes", () => {
     // so we get 404 from Hono.
     const res = await req(noMcpApp, "GET", "/api/mcp/servers");
     expect(res.status).toBe(404);
+  });
+
+  it("returns 503 from the mount guard when the manager is absent", async () => {
+    const routes = createMcpRoutes({});
+    const res = await routes.request("/servers");
+    expect(res.status).toBe(503);
+  });
+
+  it("fails closed with a named error when handlers are registered without the guard", async () => {
+    const bare = new Hono<AppEnv>();
+    const errors: unknown[] = [];
+    bare.onError((err, c) => {
+      errors.push(err);
+      return c.json({ error: "handler failed" }, 500);
+    });
+    registerMcpHandlers(bare, {});
+
+    const res = await bare.request("/servers");
+    expect(res.status).toBe(500);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(Error);
+    expect(errors[0]).not.toBeInstanceOf(TypeError);
+    expect((errors[0] as Error).message).toBe("MCP manager not configured");
   });
 });

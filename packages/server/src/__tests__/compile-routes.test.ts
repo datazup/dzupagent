@@ -798,6 +798,63 @@ describe('POST /api/workflows/compile — SSE in-process branch', () => {
     })
   })
 
+  it('SSE stream reports TARGET_MISMATCH instead of a result for a mismatched target (DZUPAGENT-CODE-M-17)', async () => {
+    let capturedBus: DzupEventBus | null = null
+
+    mockCreateFlowCompiler.mockImplementationOnce(
+      (cfg: FlowCompilerOptions) => {
+        capturedBus = cfg.eventBus ?? null
+        return {
+          compile: vi.fn().mockImplementationOnce(async () => {
+            capturedBus?.emit({ type: 'flow:compile_started', compileId: 'c-tm', inputKind: 'object' })
+            capturedBus?.emit({ type: 'flow:compile_completed', compileId: 'c-tm', target: 'skill-chain', durationMs: 3 })
+            return SUCCESS_RESULT
+          }),
+        }
+      },
+    )
+
+    const gateway = new InMemoryEventGateway()
+    const published: string[] = []
+    gateway.subscribe({}, (envelope) => {
+      published.push(envelope.payload.type)
+    })
+    const app = buildApp({ eventGateway: gateway })
+    const res = await postCompile(
+      app,
+      { flow: { type: 'action', tool: 't' }, target: 'pipeline' },
+      { Accept: 'text/event-stream' },
+    )
+
+    const raw = await readSSERaw(res, 3000, 'error')
+    const pairs = parseSSEPairs(raw)
+    expect(pairs.map((p) => p.event)).not.toContain('flow:compile_result')
+    const errorEvent = pairs.find((p) => p.event === 'error')
+    expect(errorEvent).toBeDefined()
+    expect(JSON.parse(errorEvent!.data)).toMatchObject({
+      ok: false,
+      compileId: 'cid-abc-123',
+      errors: [expect.objectContaining({ code: 'TARGET_MISMATCH', stage: 4 })],
+    })
+    expect(published).not.toContain('flow:compile_result')
+  })
+
+  it('stage stream (?stream=true) reports TARGET_MISMATCH for a mismatched target', async () => {
+    mockCompile.mockResolvedValueOnce(SUCCESS_RESULT)
+
+    const app = buildApp()
+    const res = await app.request('/api/workflows/compile?stream=true', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ flow: { type: 'action', tool: 't' }, target: 'pipeline' }),
+    })
+
+    const pairs = parseSSEPairs(await res.text())
+    expect(pairs.map((p) => p.event)).not.toContain('result')
+    const errorEvent = pairs.find((p) => p.event === 'error')
+    expect(JSON.parse(errorEvent!.data)).toMatchObject({ code: 'TARGET_MISMATCH', compileId: 'cid-abc-123' })
+  })
+
   it('SSE stream emits flow:compile_failed when compiler emits failure event', async () => {
     let capturedBus: DzupEventBus | null = null
 
@@ -972,6 +1029,42 @@ describe('POST /api/workflows/compile — subprocess SSE branch', () => {
       flowInput,
       expect.objectContaining({ eventGateway: undefined }),
     )
+  })
+
+  it('passes the raw DSL source and the requested target to handleSubprocessCompile (DZUPAGENT-CODE-H-13)', async () => {
+    const dsl = 'dsl: dzupflow/v1\nid: raw_source\nversion: 1\nsteps:\n  - complete:\n      id: done\n      result: ok\n'
+    const app = buildApp()
+
+    await app.request('/api/workflows/compile?subprocess=true', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+      body: JSON.stringify({ dsl, target: 'pipeline' }),
+    })
+
+    expect(mockHandleSubprocessCompile).toHaveBeenCalledWith(
+      expect.anything(),
+      dsl,
+      expect.objectContaining({ requestedTarget: 'pipeline' }),
+    )
+  })
+
+  it('passes the document object to handleSubprocessCompile', async () => {
+    const document = {
+      dsl: 'dzupflow/v1',
+      id: 'doc_flow',
+      version: 1,
+      root: { type: 'sequence', id: 'root', nodes: [{ type: 'complete', id: 'done', result: 'ok' }] },
+    }
+    const app = buildApp()
+
+    const res = await app.request('/api/workflows/compile?subprocess=true', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+      body: JSON.stringify({ document }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(mockHandleSubprocessCompile).toHaveBeenCalledWith(expect.anything(), document, expect.anything())
   })
 
   it('400 — validation still runs before subprocess branch (missing flow)', async () => {

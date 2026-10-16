@@ -16,6 +16,7 @@ import {
   STRUCTURED_SUMMARY_PROFILE_V1,
   formatSummaryContext,
 } from '../message-manager.js'
+import { TiktokenCounter } from '../tiktoken-counter.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -127,6 +128,30 @@ describe('shouldSummarize', () => {
     })
     // JSON.stringify of content array will be longer, pushing over token limit
     expect(shouldSummarize([msg])).toBe(true)
+  })
+
+  it('uses the tokenizer-backed counter by default for a known model', () => {
+    const counted = vi.spyOn(TiktokenCounter.prototype, 'count')
+    try {
+      // 'a ' x 1000: chars/4 estimates 500 tokens; the cl100k/o200k
+      // tokenizers count roughly one token per word (~1000).
+      const msgs = [new HumanMessage('a '.repeat(1_000))]
+      expect(shouldSummarize(msgs, { maxMessageTokens: 800 })).toBe(false)
+      expect(counted).not.toHaveBeenCalled()
+
+      expect(shouldSummarize(msgs, { maxMessageTokens: 800, summaryModelId: 'gpt-4o' })).toBe(true)
+      expect(counted).toHaveBeenCalledWith(expect.any(String), 'gpt-4o')
+      expect(new TiktokenCounter().countDetailed('a b', 'gpt-4o').method).toBe('exact')
+    } finally {
+      counted.mockRestore()
+    }
+  })
+
+  it('keeps the chars/N path when charsPerToken is overridden for a known model', () => {
+    const msgs = [new HumanMessage('a '.repeat(1_000))]
+    expect(
+      shouldSummarize(msgs, { maxMessageTokens: 800, charsPerToken: 4, summaryModelId: 'gpt-4o' }),
+    ).toBe(false)
   })
 })
 
@@ -369,6 +394,61 @@ describe('repairOrphanedToolPairs', () => {
 // ---------------------------------------------------------------------------
 // summarizeAndTrim
 // ---------------------------------------------------------------------------
+
+describe('fence-aware truncation (DZUPAGENT-AGENT-H-53)', () => {
+  const fenced = (body: string) =>
+    `<untrusted_content source="tool_result">\n${body}\n</untrusted_content>`
+  const countOpen = (s: string) => (s.match(/<untrusted_content\b[^>]*>/g) ?? []).length
+  const countClose = (s: string) => (s.match(/<\/untrusted_content>/g) ?? []).length
+
+  it('pruneToolResults re-closes a fence cut by the preview limit', () => {
+    const msgs: BaseMessage[] = []
+    for (let i = 0; i < 8; i++) {
+      msgs.push(makeAIWithToolCalls(`call ${i}`, `tc-${i}`))
+      msgs.push(makeToolMessage(`tc-${i}`, fenced('X'.repeat(2000))))
+    }
+    const result = pruneToolResults(msgs)
+    const pruned = result.filter(m =>
+      typeof m.content === 'string' && m.content.includes('[Tool result pruned]'),
+    )
+    expect(pruned.length).toBe(2)
+    for (const m of pruned) {
+      const c = m.content as string
+      expect(countOpen(c)).toBe(1)
+      expect(countClose(c)).toBe(1)
+      expect(c.trimEnd().endsWith('</untrusted_content>')).toBe(true)
+      expect(c).toContain('...[pruned]')
+    }
+  })
+
+  it('drops a fence tag split by the cut point instead of leaving half a tag', () => {
+    const msgs: BaseMessage[] = []
+    const content = 'A'.repeat(100) + fenced('Y'.repeat(500))
+    for (let i = 0; i < 7; i++) {
+      msgs.push(makeAIWithToolCalls(`call ${i}`, `tc-${i}`))
+      msgs.push(makeToolMessage(`tc-${i}`, content))
+    }
+    const result = pruneToolResults(msgs, { prunedToolResultMaxChars: 110 })
+    const c = at(result, 1).content as string
+    expect(c).toContain('[Tool result pruned]')
+    expect(c).not.toContain('<untrusted_')
+    expect(countClose(c)).toBe(0)
+  })
+
+  it('summarizeAndTrim sends balanced fences to the summarizer', async () => {
+    const model = createMockModel(VALID_STRUCTURED_SUMMARY)
+    const msgs: BaseMessage[] = []
+    for (let i = 0; i < 10; i++) {
+      msgs.push(makeAIWithToolCalls(`call ${i}`, `tc-${i}`))
+      msgs.push(makeToolMessage(`tc-${i}`, fenced('Z'.repeat(2000))))
+    }
+    await summarizeAndTrim(msgs, null, model, { keepRecentMessages: 2 })
+    const invoke = model.invoke as unknown as ReturnType<typeof vi.fn>
+    const prompt = String((invoke.mock.calls[0]?.[0] as BaseMessage[])[1]?.content)
+    expect(countOpen(prompt)).toBeGreaterThan(0)
+    expect(countOpen(prompt)).toBe(countClose(prompt))
+  })
+})
 
 describe('summarizeAndTrim', () => {
   it('validates required sections without requiring exact heading levels or case', () => {

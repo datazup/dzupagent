@@ -50,6 +50,18 @@ export { InMemoryRunTraceStore, computeStepDistribution } from './persistence/ru
 export { DrizzleRunTraceStore } from './persistence/drizzle-run-trace-store.js'
 export { DrizzleV2ImportLockChainBackend } from './persistence/drizzle-import-lock-chain-backend.js'
 export type { DrizzleV2ImportLockChainBackendOptions } from './persistence/drizzle-import-lock-chain-backend.js'
+// ORM-bound implementations (DZUPAGENT-ARCH-M-03). The root entrypoint keeps
+// deprecated aliases for one minor; new ORM-bound classes are added here only.
+export { PostgresRunQueue } from './queue/postgres-run-queue.js'
+export type { PostgresRunQueueConfig, PostgresRunQueueDatabase } from './queue/postgres-run-queue.js'
+export { createPostgresNodeLedger } from './persistence/create-node-ledger.js'
+export { PostgresFlowArtifactStore } from './persistence/flow-artifact-store.js'
+export { PostgresFlowApprovalStore } from './persistence/flow-approval-store.js'
+export { DrizzleAdapterMetaStore } from './runtime/adapter-meta-store.js'
+export { DrizzleEventStore } from './runtime/event-store.js'
+export { DrizzleCostAttributor } from './services/cost-attributor.js'
+export type { CostAttributorDatabase } from './services/cost-attributor.js'
+export { DrizzleTenantRunQuota } from './security/tenant-run-quota.js'
 export type {
   TraceStep,
   RunTrace,

@@ -33,6 +33,12 @@
  *   node scripts/check-barrel-budgets.mjs --json     # machine-readable output
  *   node scripts/check-barrel-budgets.mjs --budget-file <path>
  *   node scripts/check-barrel-budgets.mjs --base-ref origin/main   # ratchet base
+ *
+ * Ratchet base (DZUPAGENT-ARCH-C-04): with no --base-ref / BARREL_BUDGET_BASE_REF
+ * the base is DERIVED, never HEAD. Comparing against HEAD's own copy sees zero
+ * growth whenever the raise is committed, which is every CI and post-commit run.
+ * See `resolveRatchetBase`. In CI (env CI set) a base that resolves to HEAD's
+ * own commit, or a base that cannot be read, fails the gate instead of skipping.
  */
 
 import { spawnSync } from 'node:child_process';
@@ -45,7 +51,9 @@ import { pathToFileURL } from 'node:url';
 import { summarizeRootBarrel } from './measure-dts-build.mjs';
 
 const DEFAULT_BUDGET_FILE = 'config/barrel-budgets.json';
-const DEFAULT_BASE_REF = 'HEAD';
+const DEFAULT_BASE_REF = 'auto';
+/** Branches whose merge base with HEAD is the ratchet base, most local first. */
+const MAINLINE_REFS = ['refs/heads/main', 'refs/remotes/origin/main'];
 
 /**
  * An acceptedGrowth signature authorises ONE transition and then goes stale.
@@ -71,6 +79,7 @@ function parseArgs(argv) {
     json: false,
     budgetFile: DEFAULT_BUDGET_FILE,
     baseRef: process.env['BARREL_BUDGET_BASE_REF'] || DEFAULT_BASE_REF,
+    ci: isNonInteractiveRun(process.env),
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -125,7 +134,9 @@ Options:
   --budget-file <path>    Budget file (default: ${DEFAULT_BUDGET_FILE})
   --base-ref <ref>        Git ref the ratchet compares against
                           (default: ${DEFAULT_BASE_REF}; env BARREL_BUDGET_BASE_REF).
-                          Use the merge base on a PR, e.g. --base-ref origin/main
+                          auto = merge base of HEAD with refs/heads/main or
+                          origin/main, or HEAD's first parent when HEAD is
+                          already on main. In CI a base equal to HEAD fails.
   -h, --help              Show this help`);
 }
 
@@ -472,17 +483,117 @@ export function evaluateBarrelBudgets({ root, budgetConfig, now = new Date() }) 
  * Every number under `packages` is a ceiling or a target, so a generic walk is
  * both sufficient and fail-safe: a knob added later is ratcheted automatically
  * instead of silently escaping. Arrays ($comment prose) carry no budgets.
+ *
+ * Deadline dates are ratcheted too (DZUPAGENT-ARCH-H-10): a `reviewBy` is what
+ * makes a debt pin fail closed, so pushing it later is growth exactly like
+ * raising a number. Other string leaves (digests, commits, prose) are not
+ * budgets and stay out of the walk.
  */
-function collectNumericLeaves(value, prefix, accumulator) {
+const DEADLINE_LEAF_KEYS = new Set(['reviewBy']);
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function collectRatchetLeaves(value, prefix, accumulator, leafKey = '') {
   if (typeof value === 'number') {
     accumulator.set(prefix, value);
     return accumulator;
   }
+  if (typeof value === 'string') {
+    if (DEADLINE_LEAF_KEYS.has(leafKey) && ISO_DATE_RE.test(value)
+      && Number.isFinite(Date.parse(`${value}T00:00:00.000Z`))) {
+      accumulator.set(prefix, value);
+    }
+    return accumulator;
+  }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return accumulator;
   for (const [key, entry] of Object.entries(value)) {
-    collectNumericLeaves(entry, prefix === '' ? key : `${prefix}/${key}`, accumulator);
+    collectRatchetLeaves(entry, prefix === '' ? key : `${prefix}/${key}`, accumulator, key);
   }
   return accumulator;
+}
+
+/** Maps whose keys name individual pins (a rename there is a transition, not a new pin). */
+const PIN_MAP_KEYS = ['fileLineDebtPins'];
+
+function basenameOf(pinKey) {
+  const parts = pinKey.split('/');
+  return parts[parts.length - 1];
+}
+
+function dirnameOf(pinKey) {
+  const index = pinKey.lastIndexOf('/');
+  return index === -1 ? '' : pinKey.slice(0, index);
+}
+
+/**
+ * A pin key that disappears while another appears in the same package's pin map
+ * is a rename, and a rename must not escape the ratchet as "deletion plus a
+ * brand-new pin" (DZUPAGENT-ARCH-H-10). Pairs are matched by identical
+ * sourceSha256 first (a pure move), then by identical file basename, then by
+ * path: a directory left with exactly one removed and one added key pairs
+ * them. A removed pin whose file still exists is a retired (satisfied) pin,
+ * not a move, and is never paired; keys are never paired by sorted position.
+ * Both used to match a retired pin with an unrelated new one
+ * (DZUPAGENT-CODE-M-14). Each pair maps the new
+ * pin's leaves onto the removed pin's base values, so a renamed pin with a
+ * higher maxLines (or a later reviewBy) is growth that needs a signature.
+ */
+function collectRenamedPinBases(currentPackages, basePackages, pinFileExists) {
+  const renames = [];
+  for (const [packageName, currentEntry] of Object.entries(currentPackages ?? {})) {
+    const baseEntry = basePackages?.[packageName];
+    if (!baseEntry || typeof baseEntry !== 'object' || !currentEntry || typeof currentEntry !== 'object') continue;
+    for (const mapKey of PIN_MAP_KEYS) {
+      const currentMap = currentEntry[mapKey];
+      const baseMap = baseEntry[mapKey];
+      if (!currentMap || typeof currentMap !== 'object' || Array.isArray(currentMap)) continue;
+      if (!baseMap || typeof baseMap !== 'object' || Array.isArray(baseMap)) continue;
+      const removed = Object.keys(baseMap)
+        .filter((key) => !(key in currentMap) && !pinFileExists(packageName, key))
+        .sort();
+      const added = Object.keys(currentMap).filter((key) => !(key in baseMap)).sort();
+      if (removed.length === 0 || added.length === 0) continue;
+
+      const pairs = [];
+      const take = (matches) => {
+        for (const addedKey of [...added]) {
+          const removedKey = removed.find((candidate) => matches(candidate, addedKey));
+          if (removedKey === undefined) continue;
+          pairs.push({ removedKey, addedKey });
+          removed.splice(removed.indexOf(removedKey), 1);
+          added.splice(added.indexOf(addedKey), 1);
+        }
+      };
+      take((removedKey, addedKey) => {
+        const before = baseMap[removedKey]?.sourceSha256;
+        return typeof before === 'string' && before === currentMap[addedKey]?.sourceSha256;
+      });
+      take((removedKey, addedKey) => basenameOf(removedKey) === basenameOf(addedKey));
+      for (const directory of new Set(removed.map(dirnameOf))) {
+        const removedHere = removed.filter((key) => dirnameOf(key) === directory);
+        const addedHere = added.filter((key) => dirnameOf(key) === directory);
+        if (removedHere.length === 1 && addedHere.length === 1) {
+          pairs.push({ removedKey: removedHere[0], addedKey: addedHere[0] });
+        }
+      }
+
+      for (const { removedKey, addedKey } of pairs) {
+        const prefix = `${packageName}/${mapKey}`;
+        const baseLeaves = collectRatchetLeaves(baseMap[removedKey], '', new Map());
+        renames.push({
+          from: `${prefix}/${removedKey}`,
+          to: `${prefix}/${addedKey}`,
+          baseLeaves,
+        });
+      }
+    }
+  }
+  return renames;
+}
+
+function isGrowth(previous, value) {
+  if (typeof previous === 'number' && typeof value === 'number') return value > previous;
+  if (typeof previous === 'string' && typeof value === 'string') return value > previous;
+  return false;
 }
 
 function validateAcceptedGrowthRecord({ record, approvers, now }) {
@@ -522,13 +633,20 @@ function validateAcceptedGrowthRecord({ record, approvers, now }) {
  *
  * This compares the budget file against its committed base and requires an
  * explicit signature for any number that moved AWAY from its target. Since a
- * target is always below its pin, "away" means "up". Moving a number DOWN, or
- * deleting a satisfied pin, needs nothing.
+ * target is always below its pin, "away" means "up". A `reviewBy` deadline
+ * moved LATER is growth too, and a pin renamed within its package is compared
+ * against the pin it replaced (DZUPAGENT-ARCH-H-10). Moving a number DOWN, an
+ * earlier deadline, or deleting a satisfied pin, needs nothing.
  *
  * Each record authorises exactly one `{ key, from, to }` transition and is
  * consumed once, so one signature cannot cover two raises.
  */
-export function evaluateBudgetRatchet({ budgetConfig, baseBudgetConfig, now = new Date() }) {
+export function evaluateBudgetRatchet({
+  budgetConfig,
+  baseBudgetConfig,
+  now = new Date(),
+  pinFileExists = () => false,
+}) {
   const records = budgetConfig?.acceptedGrowth ?? [];
   if (!Array.isArray(records)) {
     throw new Error(
@@ -542,14 +660,28 @@ export function evaluateBudgetRatchet({ budgetConfig, baseBudgetConfig, now = ne
     throw new Error('acceptedGrowthApprovers must be an array of non-empty strings');
   }
 
-  const current = collectNumericLeaves(budgetConfig?.packages ?? {}, '', new Map());
-  const base = collectNumericLeaves(baseBudgetConfig?.packages ?? {}, '', new Map());
+  const current = collectRatchetLeaves(budgetConfig?.packages ?? {}, '', new Map());
+  const base = collectRatchetLeaves(baseBudgetConfig?.packages ?? {}, '', new Map());
+
+  // A renamed pin inherits the base values of the pin it replaced.
+  const renamedFrom = new Map();
+  for (const rename of collectRenamedPinBases(budgetConfig?.packages, baseBudgetConfig?.packages, pinFileExists)) {
+    for (const [leaf, value] of rename.baseLeaves) {
+      const key = `${rename.to}/${leaf}`;
+      if (!base.has(key)) {
+        base.set(key, value);
+        renamedFrom.set(key, rename.from);
+      }
+    }
+  }
 
   const growth = [];
   for (const [key, value] of current) {
     const previous = base.get(key);
-    if (previous === undefined || value <= previous) continue;
-    growth.push({ key, from: previous, to: value });
+    if (previous === undefined || !isGrowth(previous, value)) continue;
+    const move = { key, from: previous, to: value };
+    if (renamedFrom.has(key)) move.renamedFrom = renamedFrom.get(key);
+    growth.push(move);
   }
 
   const messages = [];
@@ -561,15 +693,21 @@ export function evaluateBudgetRatchet({ budgetConfig, baseBudgetConfig, now = ne
       && record?.from === move.from
       && record?.to === move.to);
     if (index === -1) {
-      messages.push(
-        `${move.key}: moved AWAY from its shrink target (${move.from} -> ${move.to}) `
-        + `with no acceptedGrowth signature. A budget or pin may move DOWN freely; moving it UP `
-        + `is accepting debt. Either bring it back to ${move.from} by relocating or extracting `
-        + `code instead of re-pinning, or add this to "acceptedGrowth" in the budget file: `
-        + `{ "key": "${move.key}", "from": ${move.from}, "to": ${move.to}, `
+      const renamed = move.renamedFrom === undefined ? '' : ` (renamed from ${move.renamedFrom})`;
+      const signature = `{ "key": "${move.key}", "from": ${JSON.stringify(move.from)}, `
+        + `"to": ${JSON.stringify(move.to)}, `
         + `"reason": "<why this growth is accepted>", "approvedBy": "<signer>", `
-        + `"date": "<YYYY-MM-DD>" }`,
-      );
+        + `"date": "<YYYY-MM-DD>" }`;
+      messages.push(typeof move.to === 'string'
+        ? `${move.key}${renamed}: review deadline moved LATER (${move.from} -> ${move.to}) `
+          + `with no acceptedGrowth signature. Extending a reviewBy keeps a debt pin alive, so it `
+          + `is accepting debt exactly like raising a number. Either keep ${move.from} and retire `
+          + `the debt, or add this to "acceptedGrowth" in the budget file: ${signature}`
+        : `${move.key}${renamed}: moved AWAY from its shrink target (${move.from} -> ${move.to}) `
+          + `with no acceptedGrowth signature. A budget or pin may move DOWN freely; moving it UP `
+          + `is accepting debt. Either bring it back to ${move.from} by relocating or extracting `
+          + `code instead of re-pinning, or add this to "acceptedGrowth" in the budget file: `
+          + signature);
       continue;
     }
     consumed.add(index);
@@ -627,6 +765,80 @@ export function readBaseBudgetConfig({ root, budgetPath, baseRef }) {
   }
 }
 
+function isNonInteractiveRun(env) {
+  const value = env['CI'];
+  return typeof value === 'string' && value !== '' && value !== '0' && value.toLowerCase() !== 'false';
+}
+
+function gitLine(root, args) {
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+  if (result.error !== undefined || result.status !== 0) return undefined;
+  const line = (result.stdout ?? '').trim();
+  return line === '' ? undefined : line;
+}
+
+function resolveCommit(root, ref) {
+  return gitLine(root, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
+}
+
+/**
+ * Picks the commit the budget-file ratchet compares against (DZUPAGENT-ARCH-C-04).
+ *
+ * The old default was HEAD. HEAD's copy of the budget file is byte-identical to
+ * the working copy once a raise is committed, so the ratchet saw no growth in CI
+ * and in every post-commit run, and an upward re-pin never needed a signature.
+ *
+ * - An explicit ref (--base-ref / BARREL_BUDGET_BASE_REF other than "auto") is
+ *   used as given.
+ * - Otherwise the merge base of HEAD with refs/heads/main, then origin/main. On a
+ *   branch that is the fork point, so every commit on the branch is ratcheted.
+ * - When HEAD is already on main (the merge base IS HEAD), HEAD's first parent,
+ *   so the commit that just landed is ratcheted. A pull_request merge commit
+ *   with no local main also lands here: its first parent is the base tip.
+ * - Nothing resolvable: HEAD, flagged so the caller can refuse it in CI.
+ *
+ * Returns { ref, commit, source, headCommit, equalsHead }.
+ */
+export function resolveRatchetBase({ root, baseRef = DEFAULT_BASE_REF }) {
+  const headCommit = resolveCommit(root, 'HEAD');
+  const describe = (ref, source) => {
+    const commit = resolveCommit(root, ref);
+    return {
+      ref,
+      commit,
+      source,
+      headCommit,
+      equalsHead: commit !== undefined && commit === headCommit,
+    };
+  };
+
+  if (baseRef !== undefined && baseRef !== '' && baseRef !== 'auto') {
+    return describe(baseRef, 'explicit');
+  }
+  if (headCommit === undefined) {
+    return describe('HEAD', 'no-head');
+  }
+  let onMainline;
+  for (const mainline of MAINLINE_REFS) {
+    if (resolveCommit(root, mainline) === undefined) continue;
+    const mergeBase = gitLine(root, ['merge-base', 'HEAD', mainline]);
+    if (mergeBase === undefined) continue;
+    if (mergeBase !== headCommit) {
+      return describe(mergeBase, `merge-base with ${mainline}`);
+    }
+    onMainline = mainline;
+    break;
+  }
+  const parent = resolveCommit(root, 'HEAD^1');
+  if (parent !== undefined) {
+    return describe(
+      parent,
+      onMainline === undefined ? 'first parent (no mainline ref)' : `first parent (HEAD is on ${onMainline})`,
+    );
+  }
+  return describe('HEAD', 'fallback: no merge base and no parent commit');
+}
+
 function printReport(measurements) {
   for (const measurement of measurements) {
     console.log(`\n${measurement.packageName} (${measurement.packageDir})`);
@@ -651,16 +863,42 @@ async function main() {
   const budgetConfig = JSON.parse(readFileSync(budgetPath, 'utf8'));
   const measured = evaluateBarrelBudgets({ root, budgetConfig });
 
-  const base = readBaseBudgetConfig({ root, budgetPath, baseRef: options.baseRef });
-  const ratchet = base.available
-    ? evaluateBudgetRatchet({ budgetConfig, baseBudgetConfig: base.config })
+  const resolvedBase = resolveRatchetBase({ root, baseRef: options.baseRef });
+  const baseLabel = resolvedBase.commit !== undefined && resolvedBase.commit !== resolvedBase.ref
+    ? `${resolvedBase.ref} (${resolvedBase.source}; ${resolvedBase.commit.slice(0, 12)})`
+    : `${resolvedBase.ref} (${resolvedBase.source})`;
+  const base = readBaseBudgetConfig({ root, budgetPath, baseRef: resolvedBase.commit ?? resolvedBase.ref });
+  let ratchet = base.available
+    ? evaluateBudgetRatchet({
+      budgetConfig,
+      baseBudgetConfig: base.config,
+      pinFileExists: (packageName, pinKey) => existsSync(path.join(root, packageDirFor(packageName), pinKey)),
+    })
     : { ok: true, skipped: true, reason: base.reason, messages: [], growth: [], accepted: [], unusedRecords: [] };
+
+  // In CI a base equal to HEAD (or no readable base) makes the ratchet inert, so
+  // it fails closed rather than passing with "no growth" (DZUPAGENT-ARCH-C-04).
+  if (options.ci && (resolvedBase.equalsHead || ratchet.skipped === true)) {
+    const why = ratchet.skipped === true
+      ? `the ratchet base could not be read (${ratchet.reason})`
+      : `the ratchet base ${baseLabel} is HEAD's own commit, so a committed raise shows no growth`;
+    ratchet = {
+      ...ratchet,
+      ok: false,
+      skipped: false,
+      messages: [
+        ...ratchet.messages,
+        `ratchet base refused in a non-interactive run: ${why}. Fetch main (fetch-depth: 0) or pass `
+          + '--base-ref <merge-base commit> / BARREL_BUDGET_BASE_REF',
+      ],
+    };
+  }
 
   const result = {
     ...measured,
     ok: measured.ok && ratchet.ok,
     messages: [...measured.messages, ...ratchet.messages],
-    ratchet: { baseRef: options.baseRef, ...ratchet },
+    ratchet: { baseRef: resolvedBase.commit ?? resolvedBase.ref, baseSource: resolvedBase.source, ...ratchet },
   };
 
   if (options.json) {
@@ -674,6 +912,7 @@ async function main() {
   }
 
   printReport(result.measurements);
+  console.log(`\nratchet base: ${baseLabel}`);
 
   if (ratchet.skipped === true) {
     console.warn(
@@ -682,7 +921,7 @@ async function main() {
     );
   } else {
     if (ratchet.accepted.length > 0) {
-      console.log(`\nAccepted budget growth vs ${options.baseRef}: ${ratchet.accepted.length}`);
+      console.log(`\nAccepted budget growth vs ${baseLabel}: ${ratchet.accepted.length}`);
       for (const move of ratchet.accepted) {
         console.log(`  - ${move.key}: ${move.from} -> ${move.to} (${move.approvedBy}, ${move.date})`);
       }
@@ -733,7 +972,7 @@ async function main() {
   console.error('  - Do NOT lower a budget by removing/renaming a root export — that breaks published consumers.');
   console.error('  - If a deliberate relocation moved a cluster to a subpath (root re-export kept), the counts stay flat.');
   console.error('  - Re-pinning a number UPWARD is no longer self-service: it needs an acceptedGrowth');
-  console.error(`    signature in the budget file (ratchet base: ${options.baseRef}).`);
+  console.error(`    signature in the budget file (ratchet base: ${baseLabel}).`);
   process.exitCode = 1;
 }
 

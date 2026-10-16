@@ -429,6 +429,59 @@ describe("composition/middleware", () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
+  it("rejects a 10 MB POST to /api/runs that omits Content-Type before the handler parses it (DZUPAGENT-SEC-H-25)", async () => {
+    const app = new Hono<AppEnv>();
+    applyMiddleware(app, baseConfig());
+    const handler = vi.fn(async (c) => c.json({ data: await c.req.json() }));
+    app.post("/api/runs", handler);
+
+    // A byte-array body carries no implicit Content-Type.
+    const body = new TextEncoder().encode(
+      JSON.stringify({ input: "x".repeat(10 * 1_048_576) })
+    );
+    const request = new Request("http://localhost/api/runs", {
+      method: "POST",
+      body,
+    });
+    expect(request.headers.get("content-type")).toBeNull();
+
+    const res = await app.request(request);
+    expect(res.status).toBe(413);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("applies the cap to a non-JSON Content-Type as well", async () => {
+    const app = new Hono<AppEnv>();
+    applyMiddleware(app, baseConfig({ jsonBodyLimit: { defaultMaxBytes: 10 } }));
+    const handler = vi.fn((c) => c.json({ ok: true }));
+    app.post("/api/echo", handler);
+
+    const res = await app.request("/api/echo", {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({ message: "too large" }),
+    });
+
+    expect(res.status).toBe(413);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("still lets a small body without Content-Type reach the handler", async () => {
+    const app = new Hono<AppEnv>();
+    applyMiddleware(app, baseConfig());
+    app.post("/api/echo", async (c) => c.json({ data: await c.req.json() }));
+
+    const res = await app.request(
+      new Request("http://localhost/api/echo", {
+        method: "POST",
+        body: new TextEncoder().encode(JSON.stringify({ message: "ok" })),
+      })
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ data: { message: "ok" } });
+  });
+
   it("honors route-specific JSON body size overrides", async () => {
     const app = new Hono<AppEnv>();
     applyMiddleware(

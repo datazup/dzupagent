@@ -9,6 +9,7 @@ import type { PipelineDefinition, PipelineValidationResult, PipelineValidationEr
 import { validateForEachAdmission } from './for-each-admission.js'
 import { projectValidationEdgeTargets } from './loop-executor/edge-target-projections.js'
 import { validateInteractionNodes } from './loop-executor/definition-validation/interaction-nodes.js'
+import { validateBodyNodeExecutionPolicy } from './loop-executor/definition-validation/body-node-execution-policy.js'
 import { bfsReachable, detectCycles, findUnsupportedForkBranchShape } from './loop-executor/definition-validation/graph-helpers.js'
 
 /**
@@ -407,6 +408,8 @@ export function validatePipeline(definition: PipelineDefinition): PipelineValida
       }
     }
   }
+
+  validateBodyNodeExecutionPolicy(definition, nodeMap, forkNodes, joinNodes, errors)
 
   // --- No error handlers ---
   const hasErrorEdge = definition.edges.some(e => e.type === 'error')

@@ -131,6 +131,12 @@ export interface ToolExecutionConfig {
   wrapToolResults?: boolean
 
   /**
+   * Maximum characters of one tool result kept in the model's history.
+   * Forwarded to {@link ToolLoopConfig.maxToolResultChars}.
+   */
+  maxToolResultChars?: number
+
+  /**
    * Per-tool execution timeouts in milliseconds. Forwarded to
    * {@link ToolLoopConfig.toolTimeouts}.
    */

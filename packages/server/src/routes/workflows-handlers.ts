@@ -12,7 +12,7 @@ import {
   SkillChainExecutor,
 } from '@dzupagent/agent/workflow'
 import type { DryRunResult } from '@dzupagent/agent/workflow'
-import { sanitizeError } from './route-error.js'
+import { mapErrorToStatus, sanitizeError } from './route-error.js'
 import {
   type DryRunBody,
   type ExecuteWorkflowBody,
@@ -154,11 +154,14 @@ export function createWorkflowRoutes(config: WorkflowRouteConfig): Hono<AppEnv> 
       const dryRunResult: DryRunResult = executor.dryRun(chain)
       return c.json(dryRunResult)
     } catch (err) {
+      // DZUPAGENT-ERR-H-68: only a typed client error (see mapErrorToStatus)
+      // is a 4xx validation failure; any other throw is a server fault.
+      const status = mapErrorToStatus(err, 500)
       const { safe, internal } = sanitizeError(err)
       secureLogger.error(`[workflows] dry-run: ${internal}`)
       return c.json(
-        { error: { code: 'VALIDATION_ERROR', message: safe } },
-        400,
+        { error: { code: status >= 500 ? 'INTERNAL_ERROR' : 'VALIDATION_ERROR', message: safe } },
+        status,
       )
     }
   })

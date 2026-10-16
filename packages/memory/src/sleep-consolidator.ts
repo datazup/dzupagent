@@ -391,6 +391,10 @@ export class SleepConsolidator {
       // Build an Arrow frame directly from store search results
       const builder = new FrameBuilder()
       const nsString = namespace.join('/')
+      // Stored per-row strength (frame row order). `batchDecayUpdate` returns
+      // the pure time curve, so it is scaled by this base to match
+      // `calculateStrength` (a consolidated child stores 0.1).
+      const baseStrengths: number[] = []
 
       for (let i = 0; i < items.length; i++) {
         const item = items[i]
@@ -420,6 +424,12 @@ export class SleepConsolidator {
             }
           : undefined
 
+        const stored = decayValue?.strength
+        baseStrengths.push(
+          typeof stored === 'number' && Number.isFinite(stored)
+            ? Math.max(0, Math.min(1, stored))
+            : 1,
+        )
         builder.add(
           {
             text: typeof value['text'] === 'string' ? value['text'] : null,
@@ -446,7 +456,9 @@ export class SleepConsolidator {
 
       let pruned = 0
       for (let i = 0; i < updatedStrengths.length; i++) {
-        const strength = updatedStrengths[i]
+        const decayed = updatedStrengths[i]
+        const strength =
+          decayed === undefined ? undefined : decayed * (baseStrengths[i] ?? 1)
         if (strength !== undefined && strength < this.decayPruneThreshold) {
           const key = records[i]?.meta.key
           if (key) {

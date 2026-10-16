@@ -3,12 +3,21 @@
  * legacy `until`) date has passed, and warns when one is approaching.
  * Runs in < 100ms — no test execution needed.
  *
- * Understands two dated-entry shapes in coverage-thresholds.json:
+ * Understands three dated-entry shapes in coverage-thresholds.json:
  *   - `packages.<pkg>.waiver.{reason, until}`      (legacy waiver shape)
  *   - `packages.<pkg>.baseline.{reason, reviewBy}`  (ratchet baseline shape, DZUPAGENT-TEST-C-15)
+ *   - `packages.<pkg>.ratchet.{reason, reviewBy}`   (enforced ratchet shape, DZUPAGENT-TEST-H-06)
+ *
+ * It also harvests the `reviewBy` of every barrel-budget debt pin
+ * (`rootDebtPin` and `fileLineDebtPins.<file>`) in config/barrel-budgets.json,
+ * so a lapsed debt-pin review is visible here as well as in check:barrel-budgets.
  *
  * Usage:
- *   node scripts/check-waiver-expiry.mjs [configPath] [--warn-days=N]
+ *   node scripts/check-waiver-expiry.mjs [configPath] [--warn-days=N] [--barrel-budgets=<path>|--no-barrel-budgets]
+ *
+ * With no configPath the repository's coverage-thresholds.json and
+ * config/barrel-budgets.json are read. With an explicit configPath only that file
+ * is read unless --barrel-budgets=<path> names a budget file too.
  *
  * Env:
  *   WAIVER_WARN_DAYS — overrides the default warn window (in days). CLI flag wins.
@@ -23,6 +32,7 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const DEFAULT_CONFIG_PATH = join(__dirname, '..', 'coverage-thresholds.json')
+const DEFAULT_BARREL_BUDGETS_PATH = join(__dirname, '..', 'config', 'barrel-budgets.json')
 
 // Nearest real reviewBy in the repo as of 2026-08-04 is 2026-09-01 (28 days out).
 // A 21-day warn window surfaces it now, with a week of margin before the window
@@ -61,9 +71,67 @@ export function loadWaivers(configPath) {
         expiresOn: entry.baseline.reviewBy,
       })
     }
+    // Every package now records its enforced floor under `ratchet`, and the
+    // review obligation lives in ratchet.reviewBy. Reading only waiver/baseline
+    // left every ratchet date invisible (DZUPAGENT-TEST-H-06).
+    if (entry.ratchet) {
+      waivers.push({
+        pkg,
+        source: 'ratchet',
+        reason: entry.ratchet.reason ?? '(no reason given)',
+        expiresOn: entry.ratchet.reviewBy,
+      })
+    }
   }
 
   return waivers
+}
+
+/**
+ * Reads config/barrel-budgets.json and returns one dated entry per debt pin:
+ * the package `rootDebtPin` and every `fileLineDebtPins.<file>` entry.
+ * @param {string} budgetPath
+ * @returns {{ pkg: string, source: string, reason: string, expiresOn: string | undefined }[]}
+ */
+export function loadBarrelDebtPins(budgetPath) {
+  const config = JSON.parse(readFileSync(budgetPath, 'utf-8'))
+  const packages = config.packages ?? {}
+  const pins = []
+
+  for (const [pkg, entry] of Object.entries(packages)) {
+    if (!entry || typeof entry !== 'object') continue
+    if (entry.rootDebtPin) {
+      pins.push({
+        pkg,
+        source: 'barrel-root-pin',
+        reason: entry.rootDebtPin.rationale ?? '(no rationale given)',
+        expiresOn: entry.rootDebtPin.reviewBy,
+      })
+    }
+    for (const [file, pin] of Object.entries(entry.fileLineDebtPins ?? {})) {
+      pins.push({
+        pkg: `${pkg}:${file}`,
+        source: 'barrel-file-pin',
+        reason: pin?.rationale ?? '(no rationale given)',
+        expiresOn: pin?.reviewBy,
+      })
+    }
+  }
+
+  return pins
+}
+
+/**
+ * Resolves which barrel-budget file (if any) the CLI should read.
+ * @param {string[]} argv
+ * @param {boolean} usingDefaultConfig
+ * @returns {string | undefined}
+ */
+export function resolveBarrelBudgetsPath(argv, usingDefaultConfig) {
+  if (argv.includes('--no-barrel-budgets')) return undefined
+  const flag = argv.find((a) => a.startsWith('--barrel-budgets='))
+  if (flag) return flag.slice('--barrel-budgets='.length)
+  return usingDefaultConfig ? DEFAULT_BARREL_BUDGETS_PATH : undefined
 }
 
 /**
@@ -164,11 +232,16 @@ const isMain =
   fileURLToPath(import.meta.url).endsWith(process.argv[1].replace(/^.*[\\/]/, ''))
 
 if (isMain) {
-  const positional = process.argv.slice(2).filter((a) => !a.startsWith('--'))
+  const argv = process.argv.slice(2)
+  const positional = argv.filter((a) => !a.startsWith('--'))
   const configPath = positional[0] ?? DEFAULT_CONFIG_PATH
-  const warnDays = resolveWarnDays(process.argv.slice(2))
+  const warnDays = resolveWarnDays(argv)
+  const barrelBudgetsPath = resolveBarrelBudgetsPath(argv, positional[0] === undefined)
 
-  const waivers = loadWaivers(configPath)
+  const waivers = [
+    ...loadWaivers(configPath),
+    ...(barrelBudgetsPath === undefined ? [] : loadBarrelDebtPins(barrelBudgetsPath)),
+  ]
   const results = checkWaivers(waivers, new Date(), warnDays)
   const report = formatReport(results)
 
@@ -194,7 +267,7 @@ if (isMain) {
 
   if (results.expired.length > 0) {
     console.log(
-      `FAIL: ${results.expired.length} entr(y/ies) have expired. Add coverage thresholds or extend the review date.`,
+      `FAIL: ${results.expired.length} entr(y/ies) have expired. Review each one: raise the floor toward its target, retire the debt, or renew the date with the review recorded.`,
     )
     for (const w of results.expired) {
       console.log(`  - [${w.source}] ${w.pkg}: expired ${w.expiresOn} — ${w.reason}`)

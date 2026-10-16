@@ -90,6 +90,8 @@ export class CircuitBreaker {
   private state: CircuitState = "closed";
   private failureCount = 0;
   private halfOpenAttempts = 0;
+  /** When the most recent half-open probe was admitted. */
+  private lastProbeAt = 0;
   private lastFailureAt = 0;
   /** Effective (possibly jittered) cooldown for the current OPEN window. */
   private currentCooldownMs = 0;
@@ -173,7 +175,15 @@ export class CircuitBreaker {
     this.config.onTransition?.(event);
   }
 
-  /** Check if a request can proceed. Returns false if circuit is OPEN. */
+  /**
+   * Check if a request can proceed. Returns false if circuit is OPEN.
+   *
+   * In HALF-OPEN an admitted call is a probe and is counted
+   * (DZUPAGENT-AGENT-H-20): at most `halfOpenMaxAttempts` callers are let
+   * through until a result is recorded. A probe slot whose caller never
+   * reports back is released after one cooldown window, so an abandoned
+   * probe cannot pin the breaker shut.
+   */
   canExecute(): boolean {
     switch (this.state) {
       case "closed":
@@ -184,15 +194,32 @@ export class CircuitBreaker {
         const elapsed = Date.now() - this.lastFailureAt;
         if (elapsed >= this.currentCooldownMs) {
           this.transitionTo("half-open");
-          this.halfOpenAttempts = 0;
+          // The transition call is always the first probe, even when
+          // halfOpenMaxAttempts is 0, so the breaker can recover.
+          this.halfOpenAttempts = 1;
+          this.lastProbeAt = Date.now();
           return true;
         }
         return false;
       }
 
       case "half-open":
-        return this.halfOpenAttempts < this.config.halfOpenMaxAttempts;
+        return this.admitProbe();
     }
+  }
+
+  private admitProbe(): boolean {
+    const now = Date.now();
+    if (
+      this.halfOpenAttempts >= this.config.halfOpenMaxAttempts &&
+      now - this.lastProbeAt >= this.currentCooldownMs
+    ) {
+      this.halfOpenAttempts = 0;
+    }
+    if (this.halfOpenAttempts >= this.config.halfOpenMaxAttempts) return false;
+    this.halfOpenAttempts++;
+    this.lastProbeAt = now;
+    return true;
   }
 
   /** Record a successful call. Resets failure count and closes circuit. */

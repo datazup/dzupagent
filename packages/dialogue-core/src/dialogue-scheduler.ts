@@ -11,6 +11,7 @@ import {
   evaluateRuleDecision,
   parseDecisionBlock,
   shouldStopAfterDecision,
+  withDecisionParseSuffix,
 } from "./scheduler/decision-block.js";
 import { evaluateModeGate } from "./scheduler/mode-gate.js";
 import { expandRunSpecSchedule } from "./scheduler/schedule-expansion.js";
@@ -189,6 +190,7 @@ export class DialogueScheduler {
       input.schedule === undefined
         ? expandRunSpecSchedule(input.runSpec)
         : { items: input.schedule };
+    let decisionParse: DecisionBlock["diagnostic"];
 
     for (const item of schedulePlan.items) {
       const turnBoundaryStop = getTurnBoundaryStopReason(
@@ -210,6 +212,7 @@ export class DialogueScheduler {
       this.applyExecutedTurn(context, executedTurn);
 
       const stopDecision = executedTurn.decision;
+      decisionParse ??= stopDecision?.diagnostic;
 
       if (shouldStopAfterDecision(stopDecision)) {
         context.result.stopReason = `decision=${stopDecision.verdict}`;
@@ -217,7 +220,10 @@ export class DialogueScheduler {
       }
     }
 
-    context.result.stopReason ??= schedulePlan.stopReason;
+    context.result.stopReason = withDecisionParseSuffix(
+      context.result.stopReason ?? schedulePlan.stopReason,
+      decisionParse
+    );
     context.result.activeParticipantId = context.activeParticipantId;
 
     return context.result;

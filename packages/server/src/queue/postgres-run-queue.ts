@@ -43,6 +43,8 @@
  */
 import { randomUUID } from "node:crypto";
 import { sql, type SQL } from "drizzle-orm";
+import { secureLogger } from "@dzupagent/core/utils";
+import { jobErrorFields, markCompletedWithRetry } from "./postgres-run-queue-outcome.js";
 import type {
   RunQueue,
   RunJob,
@@ -424,13 +426,39 @@ export class PostgresRunQueue implements RunQueue {
         RETURNING id
       `)).then(result => {
         if (toRows(result).length === 0) { lostOwnership = true; abort.abort(); }
-      }).catch(() => { lostOwnership = true; abort.abort(); }).finally(() => { renewing = false; });
+      }).catch((error: unknown) => {
+        // A renewal error is not proof of lost ownership, but the claim can no
+        // longer be fenced, so the job is aborted — never silently.
+        secureLogger.warn({
+          level: "warn",
+          operation: "run-queue.postgres.renew",
+          message: "claim renewal failed; aborting job",
+          ...jobErrorFields(job, error),
+        });
+        lostOwnership = true;
+        abort.abort();
+      }).finally(() => { renewing = false; });
     }, Math.max(1, Math.floor(this.claimTimeoutMs / 3)));
     heartbeat.unref();
 
+    // DZUPAGENT-ERR-H-82: processor failure and completion persistence are
+    // separate outcomes. A succeeded processor never reaches handleFailure, so
+    // a DB blip while writing `completed` cannot re-queue a finished run. The
+    // terminal catch keeps a failing handleFailure off the unhandled-rejection
+    // path.
     const promise = Promise.resolve().then(() => this.processor!(job, abort.signal))
-      .then(() => lostOwnership ? undefined : this.markCompleted(job))
-      .catch((error: unknown) => lostOwnership ? undefined : this.handleFailure(job, error))
+      .then(
+        () => lostOwnership ? undefined : markCompletedWithRetry(job, (settled) => this.markCompleted(settled)),
+        (error: unknown) => lostOwnership ? undefined : this.handleFailure(job, error),
+      )
+      .catch((error: unknown) => {
+        secureLogger.error({
+          level: "error",
+          operation: "run-queue.postgres.settle",
+          message: "failed to persist the job outcome",
+          ...jobErrorFields(job, error),
+        });
+      })
       .finally(() => {
         clearTimeout(timeout);
         clearInterval(heartbeat);

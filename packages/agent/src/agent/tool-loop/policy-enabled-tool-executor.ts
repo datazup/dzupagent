@@ -23,6 +23,29 @@ import {
   maybeEmitCheckpointEvent,
 } from "./result-pipeline.js";
 
+/** Default per-result cap for model-visible tool output (≈25k tokens). */
+export const DEFAULT_MAX_TOOL_RESULT_CHARS = 100_000;
+
+/**
+ * DZUPAGENT-AGENT-H-12 — bound one tool result before it enters history. The
+ * marker is appended before fencing, so it sits inside the closed fence.
+ */
+export function capToolResultForContext(
+  text: string,
+  maxChars: number | undefined,
+): { text: string; truncation?: { originalChars: number; keptChars: number } } {
+  const limit =
+    maxChars === undefined || !(maxChars > 0)
+      ? DEFAULT_MAX_TOOL_RESULT_CHARS
+      : maxChars;
+  if (text.length <= limit) return { text };
+  const kept = Math.floor(limit);
+  return {
+    text: `${text.slice(0, kept)}\n...[tool result truncated: kept ${kept} of ${text.length} characters]`,
+    truncation: { originalChars: text.length, keptChars: kept },
+  };
+}
+
 export interface PolicyEnabledToolExecutorParams {
   toolMap: Map<string, StructuredToolInterface>;
   config: ToolLoopConfig;
@@ -120,7 +143,8 @@ export async function executePolicyEnabledToolCall(
     // Observability (`onToolResult`, `emitToolResult`, span) intentionally
     // sees the RAW result string; only the context-bound ToolMessage is
     // wrapped. Opt out with `wrapToolResults === false`.
-    const contextContent = fenceToolResult(resultStr, fenceOptions(config));
+    const capped = capToolResultForContext(resultStr, config.maxToolResultChars);
+    const contextContent = fenceToolResult(capped.text, fenceOptions(config));
 
     message = new ToolMessage({
       content: contextContent,
@@ -134,6 +158,7 @@ export async function executePolicyEnabledToolCall(
       durationMs: Date.now() - startMs,
       inputMetadataKeys: validatedKeys,
       output: resultStr,
+      ...(capped.truncation !== undefined ? { truncation: capped.truncation } : {}),
     });
     maybeEmitCheckpointEvent(config, toolName, result ?? resultStr);
     endSpan(span, {

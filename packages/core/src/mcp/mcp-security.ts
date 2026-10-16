@@ -250,17 +250,64 @@ export function sanitizeMcpEnv(
 
 /**
  * Path-like argument key names used by filesystem MCP tools.
- * `MCPClient.invokeTool()` validates any arg whose key is in this set
- * when `MCPServerConfig.filesystemRoot` is configured.
+ * `MCPClient.invokeTool()` validates any arg whose key is in this set — at any
+ * nesting depth, string or string-array valued — when
+ * `MCPServerConfig.filesystemRoot` is configured (DZUPAGENT-SEC-H-13: the
+ * standard filesystem server's `read_multiple_files {paths}` and
+ * `move_file {source, destination}` shapes are covered).
  */
 export const PATH_ARG_KEYS: ReadonlySet<string> = new Set([
   "path",
+  "paths",
   "filePath",
+  "filePaths",
   "file",
+  "files",
   "dir",
+  "dirs",
   "root",
   "directory",
+  "directories",
+  "source",
+  "sourcePath",
+  "destination",
+  "destinationPath",
+  "target",
+  "targetPath",
+  "from",
+  "to",
+  "cwd",
+  "workingDirectory",
 ]);
+
+/**
+ * Collect every path-bearing string in `args`: string or string-array values
+ * whose key is in {@link PATH_ARG_KEYS}, found by walking nested objects and
+ * arrays. Bounded in depth so a hostile argument tree cannot recurse forever.
+ */
+export function collectPathArgValues(args: unknown, depth = 0): string[] {
+  if (depth > 8 || args === null || typeof args !== "object") return [];
+  const found: string[] = [];
+  const entries = Array.isArray(args)
+    ? args.map((v) => [undefined, v] as const)
+    : Object.entries(args as Record<string, unknown>);
+  for (const [key, value] of entries) {
+    if (key !== undefined && PATH_ARG_KEYS.has(key)) {
+      if (typeof value === "string") {
+        found.push(value);
+        continue;
+      }
+      if (Array.isArray(value) && value.every((v) => typeof v === "string")) {
+        found.push(...(value as string[]));
+        continue;
+      }
+    }
+    if (value !== null && typeof value === "object") {
+      found.push(...collectPathArgValues(value, depth + 1));
+    }
+  }
+  return found;
+}
 
 /**
  * Assert that `userPath` resolves within `rootDir`.

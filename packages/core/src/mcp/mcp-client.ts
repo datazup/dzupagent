@@ -18,7 +18,7 @@ import {
   sanitizeMcpEnv,
   assertMcpCommandAllowed,
   assertPathWithinRoot,
-  PATH_ARG_KEYS,
+  collectPathArgValues,
 } from "./mcp-security.js";
 import { assertCommandNotDestructive } from "../security/destructive-command-guard.js";
 import { fetchWithOutboundUrlPolicy } from "../security/outbound-url-policy.js";
@@ -272,25 +272,23 @@ export class MCPClient {
     // Jailed-fs guard: reject path args that escape the configured filesystem root.
     const { filesystemRoot } = conn.config;
     if (filesystemRoot != null && filesystemRoot.length > 0) {
-      for (const [key, value] of Object.entries(args)) {
-        if (PATH_ARG_KEYS.has(key) && typeof value === "string") {
-          try {
-            assertPathWithinRoot(value, filesystemRoot);
-          } catch (err) {
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text:
-                    err instanceof Error
-                      ? `MCP_PATH_ESCAPE: ${err.message}`
-                      : "MCP_PATH_ESCAPE: path rejected",
-                },
-              ],
-              isError: true,
-              errorCode: "MCP_PATH_ESCAPE",
-            };
-          }
+      for (const value of collectPathArgValues(args)) {
+        try {
+          assertPathWithinRoot(value, filesystemRoot);
+        } catch (err) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text:
+                  err instanceof Error
+                    ? `MCP_PATH_ESCAPE: ${err.message}`
+                    : "MCP_PATH_ESCAPE: path rejected",
+              },
+            ],
+            isError: true,
+            errorCode: "MCP_PATH_ESCAPE",
+          };
         }
       }
     }

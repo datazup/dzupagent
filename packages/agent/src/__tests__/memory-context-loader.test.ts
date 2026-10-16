@@ -8,6 +8,7 @@ import {
   ArrowRuntimeNotInjectedError,
   type ArrowMemoryRuntime,
 } from '../agent/memory-context-loader.js'
+import { boundContextToTokenBudget } from '../agent/memory-context-loader-budget.js'
 
 function createMemoryService() {
   return {
@@ -839,5 +840,25 @@ describe('AgentMemoryContextLoader per-agent limits (M-08)', () => {
     // With a 50-token ceiling the result must fit within ~200 chars.
     expect(result.context).not.toBeNull()
     expect(result.context!.length).toBeLessThan(500)
+  })
+})
+
+describe('boundContextToTokenBudget fence balance (DZUPAGENT-SEC-H-05)', () => {
+  const wrapped = [
+    '## Context from Memory',
+    '',
+    '<untrusted_content source="memory_recall">',
+    ...Array.from({ length: 30 }, (_, i) => `[memory ${i + 1}]\n${'poisoned-record-text '.repeat(40)}`),
+    '</untrusted_content>',
+  ].join('\n')
+
+  it.each([60, 150, 400, 900])('keeps exactly one closed fence under a binding budget of %i tokens', (budget) => {
+    expect(estimateTokens(wrapped)).toBeGreaterThan(budget)
+    const bounded = boundContextToTokenBudget(wrapped, budget)
+    expect(bounded).not.toBeNull()
+    expect(estimateTokens(bounded!)).toBeLessThanOrEqual(budget)
+    expect(bounded!.match(/<untrusted_content\b[^>]*>/g)?.length).toBe(1)
+    expect(bounded!.match(/<\/untrusted_content>/g)?.length).toBe(1)
+    expect(bounded!.split('\n').at(-1)).toBe('</untrusted_content>')
   })
 })

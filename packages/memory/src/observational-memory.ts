@@ -37,8 +37,12 @@ import type { BaseMessage } from '@langchain/core/messages'
 import type { BaseStore } from '@langchain/langgraph'
 import type { MemoryService } from './memory-service.js'
 import type { Observation } from './observation-extractor.js'
-import { ObservationExtractor } from './observation-extractor.js'
+import {
+  ObservationExtractionError,
+  ObservationExtractor,
+} from './observation-extractor.js'
 import { SemanticConsolidator } from './semantic-consolidation.js'
+import { searchAllInNamespace } from './memory-service-store.js'
 import type { StagedRecord, StagedWriter } from './staged-writer.js'
 import { PolicyAwareStagedWriter } from './policy-aware-staged-writer.js'
 import { defaultWritePolicy } from './write-policy.js'
@@ -133,6 +137,11 @@ export type ObservationLifecycleEventType =
   | 'observation:candidate:restored'
   | 'observation:candidate:pruned'
   | 'observation:candidate:persistence-failed'
+  /**
+   * An observer run failed (model extraction or store). `count` is the number
+   * of messages kept for the retry; `reason` names the failure class only.
+   */
+  | 'observation:observer:failed'
 
 export interface ObservationLifecycleEvent {
   schema: 'dzupagent/observation-lifecycle-event/v1'
@@ -235,6 +244,8 @@ export class ObservationalMemory {
   private bufferEpoch = 0
   /** True while an observer run is in flight; concurrent triggers are no-ops. */
   private observerRunning = false
+  /** When the last observer run failed; the debounce also applies after it. */
+  private lastFailedObserverRun: number | null = null
 
   private readonly observerThreshold: number
   private readonly reflectorThreshold: number
@@ -300,6 +311,14 @@ export class ObservationalMemory {
     ) {
       return null
     }
+    // A failed run is debounced too, so an outage costs one attempt per
+    // window rather than one per turn.
+    if (
+      this.lastFailedObserverRun !== null &&
+      Date.now() - this.lastFailedObserverRun < this.observerDebounceMs
+    ) {
+      return null
+    }
 
     // A run already in flight has not yet reset the threshold/debounce state,
     // so a second trigger would extract (and persist) the same window again.
@@ -320,12 +339,17 @@ export class ObservationalMemory {
         this.messagesSinceLastRun = Math.max(0, this.messagesSinceLastRun - batchCount)
       }
       return result
-    } catch {
+    } catch (error: unknown) {
       // Observer failure is non-fatal; keep the batch for the retry unless
-      // reset() cleared the buffer meanwhile.
+      // reset() cleared the buffer meanwhile, and make the failure visible.
       if (epoch === this.bufferEpoch) {
         this.bufferMessages(batch.concat(this.pendingMessages))
+        this.lastFailedObserverRun = Date.now()
       }
+      const reason = error instanceof ObservationExtractionError
+        ? `extraction-failed:${error.errorClass}`
+        : `observer-failed:${error instanceof Error ? error.name : typeof error}`
+      this.emitLifecycleCount('observation:observer:failed', batch.length, reason)
       return null
     } finally {
       this.observerRunning = false
@@ -588,6 +612,7 @@ export class ObservationalMemory {
     this.messagesSinceLastRun = 0
     this.pendingMessages = []
     this.bufferEpoch++
+    this.lastFailedObserverRun = null
     this.stats = {
       totalObservations: 0,
       observerRuns: 0,
@@ -638,7 +663,13 @@ export class ObservationalMemory {
         : {}),
     })
 
-    const observations = await extractor.extract(messages)
+    // A model failure must not read as an empty run: throwing keeps the
+    // batch (see observe()) instead of consuming it.
+    const extraction = await extractor.extractWithOutcome(messages)
+    if (extraction.status === 'failed') {
+      throw new ObservationExtractionError(extraction.errorClass)
+    }
+    const observations = extraction.observations
 
     // Load existing observations for dedup
     const existing = await this.config.memoryService.get(
@@ -956,26 +987,33 @@ export class ObservationalMemory {
       maxLLMCalls: this.reflectorMaxLLMCalls,
     })
 
-    // Build the namespace tuple from NamespaceConfig via a search call
-    // to determine the store tuple. We search for one record and derive
-    // the namespace from it. Instead, we can build it from scope keys
-    // by matching the MemoryService convention (scope values as tuple).
-    const namespaceTuple = Object.values(scope)
+    // The store tuple MemoryService writes this namespace under:
+    // [namespace, ...scope values in scopeKeys order] (DZUPAGENT-AGENT-H-66 —
+    // `Object.values(scope)` omitted the namespace name, so consolidation and
+    // pruning never touched the real records).
+    let namespaceTuple: string[] | undefined
+    try {
+      namespaceTuple = memoryService.getNamespaceTuple(namespace, scope)
+    } catch {
+      namespaceTuple = undefined
+    }
 
     let llmCallsUsed = 0
     let merged = 0
 
-    try {
-      const result = await consolidator.consolidate(store, namespaceTuple)
-      llmCallsUsed = result.llmCallsUsed
-      merged = result.actions.filter(
-        a => a.decision.action === 'merge' ||
-             a.decision.action === 'update' ||
-             a.decision.action === 'noop' ||
-             a.decision.action === 'delete',
-      ).length
-    } catch {
-      // Consolidation failure is non-fatal — continue to pruning
+    if (namespaceTuple) {
+      try {
+        const result = await consolidator.consolidate(store, namespaceTuple)
+        llmCallsUsed = result.llmCallsUsed
+        merged = result.actions.filter(
+          a => a.decision.action === 'merge' ||
+               a.decision.action === 'update' ||
+               a.decision.action === 'noop' ||
+               a.decision.action === 'delete',
+        ).length
+      } catch {
+        // Consolidation failure is non-fatal — continue to pruning
+      }
     }
 
     // 3. If still over target, prune lowest-confidence entries
@@ -983,7 +1021,7 @@ export class ObservationalMemory {
     try {
       const remaining = await memoryService.get(namespace, scope)
 
-      if (remaining.length > this.reflectorTargetCount) {
+      if (namespaceTuple && remaining.length > this.reflectorTargetCount) {
         // Sort by confidence ascending (lowest first)
         const withConfidence = remaining.map(r => ({
           value: r,
@@ -996,7 +1034,7 @@ export class ObservationalMemory {
 
         // Use store.search to find and delete entries by their text content.
         // This is necessary because MemoryService.get doesn't return keys.
-        const rawItems = await store.search(namespaceTuple, { limit: 500 })
+        const rawItems = await searchAllInNamespace(store, namespaceTuple)
         const keyMap = new Map<string, string>()
         for (const item of rawItems) {
           const text = typeof (item.value as Record<string, unknown>)['text'] === 'string'

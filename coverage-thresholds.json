@@ -229,8 +229,8 @@
       "ratchet": {
         "since": "2026-08-04",
         "enforcedOn": "2026-08-14",
-        "reviewBy": "2026-09-01",
-        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "reviewBy": "2026-12-16",
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed. 2026-10-16 QF-20 (DZUPAGENT-CODE-M-16) review: local per-package measurement on the audit-impl branch (not CI) statements 94.84, branches 94.08, functions 100, lines 94.84, every metric at or above its floor; floors unchanged, reviewBy 2026-09-01 -> 2026-12-16.",
         "target": {
           "statements": 94.84,
           "branches": 94.08,
@@ -249,8 +249,8 @@
       "ratchet": {
         "since": "2026-08-04",
         "enforcedOn": "2026-08-14",
-        "reviewBy": "2026-09-01",
-        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "reviewBy": "2026-12-16",
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed. 2026-10-16 QF-20 (DZUPAGENT-CODE-M-16) review: local per-package measurement on the audit-impl branch (not CI) statements 90.67, branches 88.73, functions 95.55, lines 90.67, every metric at or above its floor; floors unchanged, reviewBy 2026-09-01 -> 2026-12-16.",
         "target": {
           "statements": 83.04,
           "branches": 83.84,
@@ -329,8 +329,8 @@
       "ratchet": {
         "since": "2026-08-04",
         "enforcedOn": "2026-08-14",
-        "reviewBy": "2026-09-01",
-        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "reviewBy": "2026-12-16",
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed. 2026-10-16 QF-20 (DZUPAGENT-CODE-M-16) review: local per-package measurement on the audit-impl branch (not CI) statements 99.06, branches 93.12, functions 97.5, lines 99.06, every metric at or above its floor; floors unchanged, reviewBy 2026-09-01 -> 2026-12-16.",
         "target": {
           "statements": 92.76,
           "branches": 91.01,
@@ -349,8 +349,8 @@
       "ratchet": {
         "since": "2026-08-04",
         "enforcedOn": "2026-08-14",
-        "reviewBy": "2026-09-01",
-        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "reviewBy": "2026-12-16",
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed. 2026-10-16 QF-20 (DZUPAGENT-CODE-M-16) review: local per-package measurement on the audit-impl branch (not CI) statements 98.54, branches 90, functions 95.74, lines 98.54, every metric at or above its floor; floors unchanged, reviewBy 2026-09-01 -> 2026-12-16.",
         "target": {
           "statements": 98.61,
           "branches": 88.63,
@@ -369,8 +369,8 @@
       "ratchet": {
         "since": "2026-08-04",
         "enforcedOn": "2026-08-14",
-        "reviewBy": "2026-09-01",
-        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "reviewBy": "2026-12-16",
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed. 2026-10-16 QF-20 (DZUPAGENT-CODE-M-16) review: local per-package measurement on the audit-impl branch (not CI) statements 100, branches 100, functions 100, lines 100, every metric at or above its floor; floors unchanged, reviewBy 2026-09-01 -> 2026-12-16.",
         "target": {
           "statements": 100,
           "branches": 100,
@@ -389,8 +389,8 @@
       "ratchet": {
         "since": "2026-08-04",
         "enforcedOn": "2026-08-14",
-        "reviewBy": "2026-09-01",
-        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "reviewBy": "2026-12-16",
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed. 2026-10-16 QF-20 (DZUPAGENT-CODE-M-16) review: local per-package measurement on the audit-impl branch (not CI) statements 89.28, branches 75.7, functions 93.47, lines 89.28, every metric at or above its floor; floors unchanged, reviewBy 2026-09-01 -> 2026-12-16.",
         "target": {
           "statements": 88.47,
           "branches": 75.47,
@@ -429,8 +429,8 @@
       "ratchet": {
         "since": "2026-08-04",
         "enforcedOn": "2026-08-14",
-        "reviewBy": "2026-09-01",
-        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "reviewBy": "2026-12-16",
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed. 2026-10-16 QF-20 (DZUPAGENT-CODE-M-16) review: local per-package measurement on the audit-impl branch (not CI) statements 90.43, branches 90.2, functions 97, lines 90.43, every metric at or above its floor; floors unchanged, reviewBy 2026-09-01 -> 2026-12-16.",
         "target": {
           "statements": 90.62,
           "branches": 91.05,
@@ -469,8 +469,8 @@
       "ratchet": {
         "since": "2026-08-04",
         "enforcedOn": "2026-08-14",
-        "reviewBy": "2026-09-01",
-        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "reviewBy": "2026-12-16",
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed. 2026-10-16 QF-20 (DZUPAGENT-CODE-M-16) review: local per-package measurement on the audit-impl branch (not CI) statements 88.32, branches 81.75, functions 94.31, lines 88.32, every metric at or above its floor; floors unchanged, reviewBy 2026-09-01 -> 2026-12-16.",
         "target": {
           "statements": 87.94,
           "branches": 81.11,
@@ -489,8 +489,8 @@
       "ratchet": {
         "since": "2026-08-04",
         "enforcedOn": "2026-08-14",
-        "reviewBy": "2026-09-22",
-        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "reviewBy": "2026-12-16",
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed. 2026-10-16 QF-20 (DZUPAGENT-CODE-M-16) review: local per-package measurement on the audit-impl branch (not CI) statements 98.75, branches 91.8, functions 100, lines 98.75, every metric at or above its floor; floors unchanged, reviewBy 2026-09-22 -> 2026-12-16.",
         "target": {
           "statements": 98.75,
           "branches": 91.8,
@@ -509,8 +509,8 @@
       "ratchet": {
         "since": "2026-08-04",
         "enforcedOn": "2026-08-14",
-        "reviewBy": "2026-09-22",
-        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "reviewBy": "2026-12-16",
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed. 2026-10-16 QF-20 (DZUPAGENT-CODE-M-16) review: local per-package measurement on the audit-impl branch (not CI) statements 98.03, branches 93.75, functions 99.36, lines 98.03, every metric at or above its floor; floors unchanged, reviewBy 2026-09-22 -> 2026-12-16.",
         "target": {
           "statements": 99,
           "branches": 97,
@@ -529,8 +529,8 @@
       "ratchet": {
         "since": "2026-08-04",
         "enforcedOn": "2026-08-14",
-        "reviewBy": "2026-09-22",
-        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "reviewBy": "2026-12-16",
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed. 2026-10-16 QF-20 (DZUPAGENT-CODE-M-16) review: local per-package measurement on the audit-impl branch (not CI) statements 85.69, branches 80.93, functions 81.13, lines 85.69, every metric at or above its floor; floors unchanged, reviewBy 2026-09-22 -> 2026-12-16.",
         "target": {
           "statements": 83.98,
           "branches": 79.08,
@@ -589,8 +589,8 @@
       "ratchet": {
         "since": "2026-08-04",
         "enforcedOn": "2026-08-14",
-        "reviewBy": "2026-10-15",
-        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "reviewBy": "2026-12-16",
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed. 2026-10-16 QF-20 (DZUPAGENT-CODE-M-16) review: local per-package measurement on the audit-impl branch (not CI) statements 92.16, branches 85.78, functions 90.16, lines 92.16, every metric at or above its floor; floors unchanged, reviewBy 2026-10-15 -> 2026-12-16.",
         "target": {
           "statements": 92.18,
           "branches": 85.75,
@@ -609,8 +609,8 @@
       "ratchet": {
         "since": "2026-08-04",
         "enforcedOn": "2026-08-14",
-        "reviewBy": "2026-09-22",
-        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "reviewBy": "2026-12-16",
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed. 2026-10-16 QF-20 (DZUPAGENT-CODE-M-16) review: local per-package measurement on the audit-impl branch (not CI) statements 100, branches 100, functions 100, lines 100, every metric at or above its floor; floors unchanged, reviewBy 2026-09-22 -> 2026-12-16.",
         "target": {
           "statements": 100,
           "branches": 100,
@@ -649,8 +649,8 @@
       "ratchet": {
         "since": "2026-08-04",
         "enforcedOn": "2026-08-14",
-        "reviewBy": "2026-10-15",
-        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "reviewBy": "2026-12-16",
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed. 2026-10-16 QF-20 (DZUPAGENT-CODE-M-16) review: local per-package measurement on the audit-impl branch (not CI) statements 91.36, branches 84.35, functions 100, lines 91.36, every metric at or above its floor; floors unchanged, reviewBy 2026-10-15 -> 2026-12-16.",
         "target": {
           "statements": 90.9,
           "branches": 83.67,
@@ -689,8 +689,8 @@
       "ratchet": {
         "since": "2026-08-04",
         "enforcedOn": "2026-08-14",
-        "reviewBy": "2026-10-15",
-        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "reviewBy": "2026-12-16",
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed. 2026-10-16 QF-20 (DZUPAGENT-CODE-M-16) review: local per-package measurement on the audit-impl branch (not CI) statements 87.72, branches 82.22, functions 96.56, lines 87.72, every metric at or above its floor; floors unchanged, reviewBy 2026-10-15 -> 2026-12-16.",
         "target": {
           "statements": 86.05,
           "branches": 79.71,
@@ -709,8 +709,8 @@
       "ratchet": {
         "since": "2026-08-04",
         "enforcedOn": "2026-08-14",
-        "reviewBy": "2026-10-15",
-        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "reviewBy": "2026-12-16",
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed. 2026-10-16 QF-20 (DZUPAGENT-CODE-M-16) review: local per-package measurement on the audit-impl branch (not CI) statements 86.56, branches 83.49, functions 97.12, lines 86.56, every metric at or above its floor; floors unchanged, reviewBy 2026-10-15 -> 2026-12-16.",
         "target": {
           "statements": 83.95,
           "branches": 80.46,
@@ -729,8 +729,8 @@
       "ratchet": {
         "since": "2026-08-04",
         "enforcedOn": "2026-08-14",
-        "reviewBy": "2026-10-15",
-        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "reviewBy": "2026-12-16",
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed. 2026-10-16 QF-20 (DZUPAGENT-CODE-M-16) review: local per-package measurement on the audit-impl branch (not CI) statements 97.53, branches 95.6, functions 100, lines 97.53, every metric at or above its floor; floors unchanged, reviewBy 2026-10-15 -> 2026-12-16.",
         "target": {
           "statements": 95.34,
           "branches": 90.21,
@@ -809,8 +809,8 @@
       "ratchet": {
         "since": "2026-08-04",
         "enforcedOn": "2026-08-14",
-        "reviewBy": "2026-09-22",
-        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "reviewBy": "2026-12-16",
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed. 2026-10-16 QF-20 (DZUPAGENT-CODE-M-16) review: local per-package measurement on the audit-impl branch (not CI) statements 81.54, branches 72.98, functions 97.57, lines 81.54, every metric at or above its floor; floors unchanged, reviewBy 2026-09-22 -> 2026-12-16.",
         "target": {
           "statements": 79.53,
           "branches": 73.6,
@@ -829,8 +829,8 @@
       "ratchet": {
         "since": "2026-08-04",
         "enforcedOn": "2026-08-14",
-        "reviewBy": "2026-09-22",
-        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "reviewBy": "2026-12-16",
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed. 2026-10-16 QF-20 (DZUPAGENT-CODE-M-16) review: local per-package measurement on the audit-impl branch (not CI) statements 98.07, branches 91.5, functions 100, lines 98.07, every metric at or above its floor; floors unchanged, reviewBy 2026-09-22 -> 2026-12-16.",
         "target": {
           "statements": 98.01,
           "branches": 91.52,
@@ -877,8 +877,8 @@
       "ratchet": {
         "since": "2026-08-04",
         "enforcedOn": "2026-08-14",
-        "reviewBy": "2026-09-22",
-        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed.",
+        "reviewBy": "2026-12-16",
+        "reason": "RF-09 (DZUPAGENT-TEST-C-15): the 2026-08-04 measured floor already meets or exceeds defaultThresholds on every metric, so it is enforced directly instead of being staged as a concession. Floors are unchanged from the staged baseline; only the enforcement mode changed. 2026-10-16 QF-20 (DZUPAGENT-CODE-M-16) review: local per-package measurement on the audit-impl branch (not CI) statements 95.68, branches 88.5, functions 98, lines 95.68, every metric at or above its floor; floors unchanged, reviewBy 2026-09-22 -> 2026-12-16.",
         "target": {
           "statements": 100,
           "branches": 100,

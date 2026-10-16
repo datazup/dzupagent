@@ -50,7 +50,7 @@ export { createCostAttributorRoutes } from "./routes/cost-attributor.routes.js";
 export type { CostAttributorRouteConfig } from "./routes/cost-attributor.routes.js";
 
 // --- Cost Showback (S4-E) ---
-export { DrizzleCostAttributor } from "./services/cost-attributor.js";
+export { DrizzleCostAttributor } from "./services/cost-attributor.js"; // deprecated root alias: import from "@dzupagent/server/ops"
 export type {
   CostAttributor,
   CostAttributorQuery,
@@ -98,17 +98,17 @@ export {
 export type { TenantScopeConfig } from "./middleware/tenant-scope.js";
 
 // --- Persistence ---
-// NOTE: PostgresRunStore / PostgresAgentStore are intentionally NOT re-exported
-// from the root barrel. Per config/server-api-tiers.json they are
-// `secondary/candidate-subpath` (too implementation-specific for the default
-// root surface) and are exposed via the `@dzupagent/server/ops` subpath. The
-// server-api-surface gate enforces this contraction.
+// NOTE: Postgres/Drizzle stores belong on the `@dzupagent/server/ops` subpath;
+// PostgresRunStore / PostgresAgentStore are never root-exported. ORM-bound
+// classes still re-exported below are deprecated root aliases kept for one
+// minor (DZUPAGENT-ARCH-M-03): ops re-exports each, so add new ORM-bound
+// implementations to ./ops only.
 
 // --- Queue ---
 export { InMemoryRunQueue } from "./queue/run-queue.js";
 export { BullMQRunQueue } from "./queue/bullmq-run-queue.js";
 export type { BullMQRunQueueConfig } from "./queue/bullmq-run-queue.js";
-export { PostgresRunQueue } from "./queue/postgres-run-queue.js";
+export { PostgresRunQueue } from "./queue/postgres-run-queue.js"; // deprecated root alias: import from "@dzupagent/server/ops"
 export type {
   PostgresRunQueueConfig,
   PostgresRunQueueDatabase,
@@ -213,7 +213,7 @@ export type {
 export {
   InMemoryTenantRunQuota,
   DrizzleTenantRunQuota,
-} from "./security/tenant-run-quota.js";
+} from "./security/tenant-run-quota.js"; // DrizzleTenantRunQuota: deprecated root alias, use "@dzupagent/server/ops"
 export type {
   TenantRunQuota,
   TenantRunQuotaResult,
@@ -227,11 +227,11 @@ export {
 export type { RedisLikeConnection } from "./guardrails/redis-guardrail-client.js";
 
 // --- Persistence Factories ---
-export { createPostgresNodeLedger } from "./persistence/create-node-ledger.js";
+export { createPostgresNodeLedger } from "./persistence/create-node-ledger.js"; // deprecated root alias: import from "@dzupagent/server/ops"
 export {
   InMemoryFlowArtifactStore,
   PostgresFlowArtifactStore,
-} from "./persistence/flow-artifact-store.js";
+} from "./persistence/flow-artifact-store.js"; // PostgresFlowArtifactStore: deprecated root alias, use "@dzupagent/server/ops"
 export type {
   FlowArtifact,
   FlowArtifactStore,
@@ -239,7 +239,7 @@ export type {
 export {
   InMemoryFlowApprovalStore,
   PostgresFlowApprovalStore,
-} from "./persistence/flow-approval-store.js";
+} from "./persistence/flow-approval-store.js"; // PostgresFlowApprovalStore: deprecated root alias, use "@dzupagent/server/ops"
 export type {
   FlowApproval,
   FlowApprovalStatus,
@@ -248,7 +248,7 @@ export type {
 export {
   InMemoryAdapterMetaStore,
   DrizzleAdapterMetaStore,
-} from "./runtime/adapter-meta-store.js";
+} from "./runtime/adapter-meta-store.js"; // DrizzleAdapterMetaStore: deprecated root alias, use "@dzupagent/server/ops"
 export type {
   AdapterMeta,
   AdapterMetaStore,
@@ -258,7 +258,7 @@ export type {
 export {
   InMemoryEventStore,
   DrizzleEventStore,
-} from "./runtime/event-store.js";
+} from "./runtime/event-store.js"; // DrizzleEventStore: deprecated root alias, use "@dzupagent/server/ops"
 export type {
   EventStore,
   FlowEvent,

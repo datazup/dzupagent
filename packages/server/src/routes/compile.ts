@@ -23,9 +23,12 @@
  * ```
  *
  * If `target` is provided and does not match the compiler's auto-routed
- * target, a 400 is returned (guard against silent target drift between
- * caller intent and lowerer choice). When `target` is omitted the compiler's
- * routing decision is authoritative.
+ * target, every branch reports `TARGET_MISMATCH` (a 400 on the JSON branch,
+ * an error frame on the streaming branches) — guard against silent target
+ * drift between caller intent and lowerer choice. When `target` is omitted
+ * the compiler's routing decision is authoritative. Every branch finishes a
+ * success through `finalizeCompileSuccess`, so persistence to a configured
+ * `runEventStore` is the same everywhere (keyed on `?runId`, else compileId).
  *
  * Per-mode handlers live under `./compile/*` (RF-23). This file is the thin
  * Hono wiring layer that parses the body, validates the optional `target`,
@@ -108,7 +111,7 @@ export function createCompileRoutes(config: CompileRouteConfig = {}): Hono<AppEn
     if (!normalizedInput.ok) {
       return c.json(failureBody(normalizedInput.diagnostics), 400)
     }
-    const { flowInput } = normalizedInput.value
+    const { flowInput, kind } = normalizedInput.value
     const runId = c.req.query('runId') ?? ''
     const invocationOptions = makeCompileInvocationOptions(body, normalizedInput.value, runId)
 
@@ -138,8 +141,15 @@ export function createCompileRoutes(config: CompileRouteConfig = {}): Hono<AppEn
 
     // Subprocess SSE branch (?subprocess=true) — only honoured when the client
     // also requests SSE; falls through to the JSON branch otherwise.
+    // DZUPAGENT-CODE-H-13: the child receives the authored source, not the
+    // canonicalized flowInput, so `dzupagent-compile` reaches compileDsl /
+    // compileDocument and keeps the dzupflow/v2 retry, catch and policy gates.
     if (wantsSse && c.req.query('subprocess') === 'true') {
-      return handleSubprocessCompile(c, flowInput, { eventGateway: config.eventGateway })
+      return handleSubprocessCompile(c, subprocessCompileInput(kind, body, flowInput), {
+        eventGateway: config.eventGateway,
+        runEventStore: config.runEventStore,
+        requestedTarget,
+      })
     }
 
     if (wantsStageStream) {
@@ -148,6 +158,7 @@ export function createCompileRoutes(config: CompileRouteConfig = {}): Hono<AppEn
         flowInput,
         invocationOptions,
         requestedTarget,
+        runId,
         config,
         effectivePersonaResolver,
         resolveToolResolver,
@@ -159,6 +170,7 @@ export function createCompileRoutes(config: CompileRouteConfig = {}): Hono<AppEn
         c,
         flowInput,
         invocationOptions,
+        requestedTarget,
         runId,
         config,
         effectivePersonaResolver,
@@ -180,4 +192,21 @@ export function createCompileRoutes(config: CompileRouteConfig = {}): Hono<AppEn
   })
 
   return app
+}
+
+/**
+ * The stdin payload for `dzupagent-compile`. Its input router compiles JSON
+ * text through the lossy `compile()` entry and only non-JSON text through
+ * `compileDsl`, so DSL goes as the raw source (the DSL's YAML subset rejects
+ * JSON-form input during normalization) and documents as the document object,
+ * which the CLI routes to `compileDocument`.
+ */
+function subprocessCompileInput(
+  kind: 'flow' | 'document' | 'dsl',
+  body: CompileRequestBody,
+  flowInput: string | object,
+): string | object {
+  if (kind === 'dsl') return body.dsl as string
+  if (kind === 'document') return body.document as object
+  return flowInput
 }

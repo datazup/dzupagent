@@ -12,20 +12,29 @@
  */
 
 import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { type Readable } from 'node:stream'
 import { streamSSE } from 'hono/streaming'
 import type { Context } from 'hono'
 import type {
+  CompilationDiagnostic,
   CompilationTarget,
   CompilationTargetReason,
   CompilationWarning,
 } from '@dzupagent/flow-compiler'
 import type { DzupEvent } from '@dzupagent/core/events'
+import { secureLogger } from '@dzupagent/core/utils'
+import type { RunEventStore } from '@dzupagent/agent-adapters/runs'
 import type { EventGateway } from '../events/event-gateway.js'
 import { buildCompileResultEvent } from './compile-result-event.js'
 import { logRouteError } from './route-error.js'
+import {
+  finalizeCompileSuccess,
+  logInternalCompileDiagnostics,
+  toPublicCompileDiagnostic,
+} from './compile/shared.js'
 
 /** Every line emitted by `dzupagent-compile` stdout. */
 type NdjsonLine =
@@ -51,6 +60,15 @@ type NdjsonLine =
       reasons?: CompilationTargetReason[]
     }
   | { type: 'error'; phase: string; message?: string; errors?: unknown[]; compileId?: string }
+
+/**
+ * Error frame as produced by {@link spawnAndStream}. `internalDetail` carries
+ * server-only text (child stderr, malformed stdout) and never reaches clients.
+ */
+type BridgeErrorFrame = Extract<NdjsonLine, { type: 'error' }> & { internalDetail?: string }
+
+/** Fixed client-facing message for a child `error` frame that carries raw text. */
+const SUBPROCESS_INTERNAL_ERROR_MESSAGE = 'Compilation subprocess failed because of an internal error'
 
 /** Resolve the absolute path to the installed `dzupagent-compile` binary. */
 function resolveBinaryPath(): string {
@@ -157,7 +175,7 @@ async function createSpawnSession(): Promise<SpawnSession> {
 async function* spawnAndStream(
   opts: SpawnBridgeOptions,
   session: SpawnSession,
-): AsyncGenerator<NdjsonLine> {
+): AsyncGenerator<NdjsonLine | BridgeErrorFrame> {
   const { flowJson, signal } = opts
   const {
     child,
@@ -175,8 +193,8 @@ async function* spawnAndStream(
   }
   signal?.addEventListener('abort', onAbort, { once: true })
 
-  // Drain stderr so it doesn't block the child's output pipe and so we can
-  // surface diagnostics when the child exits non-zero.
+  // Drain stderr so it doesn't block the child's output pipe and so the server
+  // log can carry it when the child exits non-zero (never the client frame).
   const stderrChunks: string[] = []
   child.stderr?.setEncoding('utf8')
   child.stderr?.on('data', (chunk: string) => stderrChunks.push(chunk))
@@ -199,6 +217,8 @@ async function* spawnAndStream(
   let buffer = ''
   let terminal = false
   let bufferedResult: Extract<NdjsonLine, { type: 'result' }> | null = null
+  // Last compileId seen on any frame, so the exit failure can be correlated.
+  let lastCompileId: string | undefined
   try {
     for await (const chunk of readable) {
       if (aborted) break
@@ -212,9 +232,16 @@ async function* spawnAndStream(
         let parsed: NdjsonLine
         try {
           parsed = JSON.parse(trimmed) as NdjsonLine
+          const frameCompileId = (parsed as { compileId?: unknown }).compileId
+          if (typeof frameCompileId === 'string') lastCompileId = frameCompileId
         } catch {
           // Malformed line — emit as fatal error and stop.
-          yield { type: 'error', phase: 'protocol', message: `Malformed NDJSON: ${trimmed}` }
+          yield {
+            type: 'error',
+            phase: 'protocol',
+            message: 'Malformed NDJSON from dzupagent-compile',
+            internalDetail: trimmed,
+          }
           terminal = true
           break
         }
@@ -245,7 +272,12 @@ async function* spawnAndStream(
           yield parsed
         }
       } catch {
-        yield { type: 'error', phase: 'protocol', message: `Malformed NDJSON tail: ${buffer}` }
+        yield {
+          type: 'error',
+          phase: 'protocol',
+          message: 'Malformed NDJSON tail from dzupagent-compile',
+          internalDetail: buffer,
+        }
       }
     }
 
@@ -270,14 +302,17 @@ async function* spawnAndStream(
         const codeStr = exitState.code === null ? 'null' : String(exitState.code)
         const sigStr = exitState.signal === null ? '' : ` signal=${exitState.signal}`
         const stderrText = stderrChunks.join('').trim()
-        const stderrSummary = stderrText.length > 0 ? stderrText : '(no stderr)'
         const partialNote = bufferedResult !== null
           ? ' (partial result frame discarded — exit was non-zero)'
           : ''
+        // DZUPAGENT-ERR-H-16: stderr (stack traces, install paths, OOM text)
+        // is server-log only; the client sees the exit code/signal.
         yield {
           type: 'error',
           phase: 'subprocess',
-          message: `dzupagent-compile exited with code=${codeStr}${sigStr}: ${stderrSummary}${partialNote}`,
+          compileId: bufferedResult?.compileId ?? lastCompileId ?? randomUUID(),
+          message: `dzupagent-compile exited with code=${codeStr}${sigStr}${partialNote}`,
+          internalDetail: stderrText.length > 0 ? stderrText : '(no stderr)',
         }
       }
     }
@@ -295,17 +330,73 @@ async function* spawnAndStream(
   }
 }
 
+function isDiagnostic(value: unknown): value is CompilationDiagnostic {
+  return typeof value === 'object' && value !== null && typeof (value as { message?: unknown }).message === 'string'
+}
+
+/**
+ * Client projection of a child/bridge error frame (DZUPAGENT-ERR-H-16).
+ * Raw text — bridge `internalDetail`, and the free-form `message` the CLI
+ * writes for a thrown error — is logged with the compileId and replaced;
+ * diagnostics go through the same internal-diagnostic redaction as the
+ * in-process compile paths.
+ */
+function toPublicErrorFrame(
+  c: Context,
+  frame: BridgeErrorFrame,
+): Extract<NdjsonLine, { type: 'error' }> {
+  const { internalDetail, ...rest } = frame
+  const errors = Array.isArray(frame.errors) ? frame.errors.filter(isDiagnostic) : undefined
+  if (errors) logInternalCompileDiagnostics(errors, frame.compileId)
+
+  // Bridge-authored frames carry an already safe message; a CLI frame's
+  // message is the text of whatever the child threw.
+  const bridgeAuthored = internalDetail !== undefined
+  const rawChildMessage = !bridgeAuthored && frame.message !== undefined
+  if (bridgeAuthored || rawChildMessage) {
+    secureLogger.error({
+      level: 'error',
+      operation: 'compile.subprocess.failed',
+      method: c.req.method,
+      path: c.req.path,
+      phase: frame.phase,
+      ...(frame.compileId ? { compileId: frame.compileId } : {}),
+      detail: bridgeAuthored ? internalDetail : frame.message,
+    })
+  }
+
+  return {
+    ...rest,
+    ...(rawChildMessage ? { message: SUBPROCESS_INTERNAL_ERROR_MESSAGE } : {}),
+    ...(frame.errors !== undefined
+      ? { errors: (errors ?? []).map(toPublicCompileDiagnostic) }
+      : {}),
+  }
+}
+
+export interface SubprocessCompileOptions {
+  eventGateway?: EventGateway
+  /**
+   * Target the caller asked for. A routed target that differs is reported as
+   * a `TARGET_MISMATCH` failure, as in the JSON branch.
+   */
+  requestedTarget?: CompilationTarget
+  /** Persists a success the same way as every in-process branch. */
+  runEventStore?: RunEventStore
+}
+
 /**
  * Hono handler that streams `dzupagent-compile` output as SSE.
  * Drop-in replacement for the in-process SSE branch in compile.ts.
  *
  * @param c      Hono context with the parsed flow body already validated.
- * @param flowInput  The flow value; will be JSON-serialised before piping.
+ * @param flowInput  The CLI input: raw DSL source text, a flow JSON string, or
+ *                   a flow/document object that is JSON-serialised before piping.
  */
 export async function handleSubprocessCompile(
   c: Context,
   flowInput: string | object,
-  options?: { eventGateway?: EventGateway },
+  options?: SubprocessCompileOptions,
 ): Promise<Response> {
   const flowJson = typeof flowInput === 'string' ? flowInput : JSON.stringify(flowInput)
 
@@ -335,7 +426,26 @@ export async function handleSubprocessCompile(
         if (ac.signal.aborted) break
 
         if (line.type === 'result') {
-          options?.eventGateway?.publish(buildCompileResultEvent(line))
+          // Target assertion, gateway publish and persistence are shared
+          // with every in-process branch (DZUPAGENT-CODE-M-17).
+          const finalized = finalizeCompileSuccess(line, {
+            requestedTarget: options?.requestedTarget,
+            runId,
+            config: { eventGateway: options?.eventGateway, runEventStore: options?.runEventStore },
+          })
+          if (!finalized.ok) {
+            await stream.writeSSE({
+              event: 'flow:compile_failed',
+              data: JSON.stringify({
+                type: 'error',
+                phase: 'target',
+                compileId: line.compileId,
+                message: finalized.failure.error,
+                errors: finalized.failure.errors,
+              }),
+            })
+            continue
+          }
           await stream.writeSSE({
             event: 'flow:compile_result',
             data: JSON.stringify(buildCompileResultEvent(line)),
@@ -343,7 +453,7 @@ export async function handleSubprocessCompile(
         } else if (line.type === 'error') {
           await stream.writeSSE({
             event: 'flow:compile_failed',
-            data: JSON.stringify(line),
+            data: JSON.stringify(toPublicErrorFrame(c, line)),
           })
         } else {
           // lifecycle event — forward as-is

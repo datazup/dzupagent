@@ -57,7 +57,14 @@ function makeConfig(
     memoryNamespace: "test-ns",
     memoryScope: { tenant: "tenant-1" },
     memoryWriteBack: true,
-    memory: { getStore: () => store, put: async () => undefined },
+    // getKeyed/delete are required MemoryServicePort members (the decay
+    // sweep calls them); omitting them now surfaces a decay memory:error.
+    memory: {
+      getStore: () => store,
+      put: async () => undefined,
+      getKeyed: async () => [],
+      delete: async () => true,
+    },
     eventBus: { emit },
     // Consolidation is a sibling fire-and-forget sweep; keep it off so the
     // only memory:error under test can come from the pruner.

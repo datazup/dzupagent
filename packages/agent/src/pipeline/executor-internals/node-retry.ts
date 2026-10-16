@@ -28,6 +28,7 @@ import {
   createNodeClock,
   nodeBudgetCents,
   nodeTimeoutMs,
+  TIMEOUT_EXCEEDED_CODE,
 } from './execution-policy.js'
 
 /**
@@ -70,11 +71,44 @@ export async function runNodeWithRetry(
   })
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    result = await config.nodeExecutor(node.id, node, context)
+    if (clock === undefined) {
+      result = await config.nodeExecutor(node.id, node, context)
+    } else {
+      // The time limit is a deadline, not only post-hoc accounting: the
+      // attempt runs under a signal that aborts once the remaining time is
+      // spent, and a hung attempt is abandoned at the deadline. The attempt is
+      // charged the larger of its reported and its locally measured duration,
+      // so an under-reporting executor cannot outrun the limit.
+      const attemptStart = Date.now()
+      const remainingMs = clock.remainingMs()
+      const outcome = await runAttemptWithDeadline(
+        (signal) => config.nodeExecutor(node.id, node, { ...context, signal }),
+        remainingMs,
+        context.signal,
+      )
+      const elapsedMs = Date.now() - attemptStart
+      if (outcome === DEADLINE) {
+        // The deadline passed, so the attempt used more than what was left.
+        const overTime = clock.charge({
+          nodeId: node.id,
+          output: undefined,
+          durationMs: Math.max(elapsedMs, remainingMs + 1),
+        })
+        return stopByPolicy(overTime ?? timeoutFallback(node.id))
+      }
+      result = outcome
+      const reported = result.durationMs
+      const overTime = clock.charge(
+        typeof reported === 'number' && Number.isFinite(reported) && reported >= 0
+          ? { ...result, durationMs: Math.max(reported, elapsedMs) }
+          : result,
+      )
+      if (overTime !== undefined) return stopByPolicy(overTime)
+    }
 
     // Every attempt is charged, time before cost (as the local host oracle);
     // an attempt over either limit has its output discarded.
-    const overLimit = clock?.charge(result) ?? budget?.charge(result)
+    const overLimit = budget?.charge(result)
     if (overLimit !== undefined) return stopByPolicy(overLimit)
 
     if (!result.error) break // success
@@ -125,6 +159,44 @@ export async function runNodeWithRetry(
   }
 
   return { ...result, durationMs: Date.now() - nodeStartTime, retryCount: nodeRetryCount }
+}
+
+const DEADLINE = Symbol('node-deadline')
+
+function timeoutFallback(nodeId: string): NodeResult {
+  return { nodeId, output: undefined, durationMs: 0, error: `${TIMEOUT_EXCEEDED_CODE}: node "${nodeId}" deadline elapsed`, errorMetadata: { code: TIMEOUT_EXCEEDED_CODE } }
+}
+
+/**
+ * Run one attempt under a deadline of `remainingMs`. The attempt receives a
+ * signal that aborts when the deadline passes or when `parent` aborts. When
+ * the deadline wins, the attempt's eventual settlement is ignored.
+ */
+async function runAttemptWithDeadline(
+  attempt: (signal: AbortSignal) => Promise<NodeResult>,
+  remainingMs: number,
+  parent: NodeExecutionContext['signal'],
+): Promise<NodeResult | typeof DEADLINE> {
+  const controller = new AbortController()
+  const onParentAbort = () => controller.abort()
+  if (parent?.aborted === true) controller.abort()
+  else parent?.addEventListener?.('abort', onParentAbort)
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const deadline = new Promise<typeof DEADLINE>((resolve) => {
+    timer = setTimeout(() => {
+      controller.abort()
+      resolve(DEADLINE)
+    }, remainingMs)
+  })
+  const run = attempt(controller.signal)
+  // An abandoned attempt that later rejects must not surface as unhandled.
+  run.catch(() => undefined)
+  try {
+    return await Promise.race([run, deadline])
+  } finally {
+    clearTimeout(timer)
+    parent?.removeEventListener?.('abort', onParentAbort)
+  }
 }
 
 /**

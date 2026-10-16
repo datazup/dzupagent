@@ -3,30 +3,16 @@
  * events onto {@link Notification}s so approval escalation reaches the
  * configured channels (Slack, email webhook, ...).
  *
- * The event shape is mirrored structurally (not imported) so this module does
- * not depend on hitl-kit's build output. Pass the handler from
+ * The event type is imported from hitl-kit (a declared dependency), so a new
+ * `EscalationEvent` variant fails this module's typecheck until
+ * {@link escalationEventToNotification} handles it. Pass the handler from
  * {@link createEscalationNotificationHandler} as the engine's `onEvent`.
  */
+import type { EscalationEvent } from '@dzupagent/hitl-kit'
 import type { Notification, Notifier } from './notifier.js'
 
-/** Structural mirror of hitl-kit `EscalationEvent`. */
-export type EscalationEventLike =
-  | { type: 'level_started'; level: number; approvers: string[]; at: number; deadline: number }
-  | { type: 'level_timed_out'; level: number; at: number }
-  | {
-      type: 'decided'
-      level: number
-      approverId: string
-      decision: 'granted' | 'rejected'
-      reason?: string
-      at: number
-    }
-  | {
-      type: 'exhausted'
-      action: 'reject' | 'approve'
-      decision: 'granted' | 'rejected'
-      at: number
-    }
+/** hitl-kit `EscalationEvent`; kept as an alias for existing importers. */
+export type EscalationEventLike = EscalationEvent
 
 export interface EscalationNotificationContext {
   /** Approval request id; prefixes notification ids for de-duplication. */

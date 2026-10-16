@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   SleepConsolidator,
   runSleepConsolidation,
@@ -10,6 +10,25 @@ import type {
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseStore } from '@langchain/langgraph'
 import type { CausalGraph } from '../causal/causal-graph.js'
+
+// DZUPAGENT-TEST-M-10: pass the real memory-ipc through, wrapping
+// `batchDecayUpdate` in a spy so the Arrow-path tests can prove the columnar
+// path actually ran. (A throwing `vi.mock` used to sit inside one `it()`;
+// hoisted file-wide, it made every Arrow test silently run the standard path.)
+// The spy is hoisted so it stays the same function if the factory re-runs
+// after `vi.resetModules()`.
+const { batchDecayUpdateSpy, memoryIpcPassthrough } = vi.hoisted(() => {
+  const spy = vi.fn()
+  return {
+    batchDecayUpdateSpy: spy,
+    memoryIpcPassthrough: async (importOriginal: () => Promise<unknown>) => {
+      const actual = await importOriginal() as typeof import('@dzupagent/memory-ipc')
+      spy.mockImplementation(actual.batchDecayUpdate)
+      return { ...actual, batchDecayUpdate: spy }
+    },
+  }
+})
+vi.mock('@dzupagent/memory-ipc', memoryIpcPassthrough)
 
 // ---------------------------------------------------------------------------
 // Mock factories
@@ -406,6 +425,10 @@ describe('SleepConsolidator', () => {
   // ---- Arrow-accelerated decay-prune --------------------------------------
 
   describe('Arrow-accelerated decay-prune (useArrow)', () => {
+    beforeEach(() => {
+      batchDecayUpdateSpy.mockClear()
+    })
+
     it('should prune weak records via Arrow path', async () => {
       const now = Date.now()
       const weakRecord = {
@@ -455,6 +478,9 @@ describe('SleepConsolidator', () => {
       )
       expect(deletedKeys).toContain('weak')
       expect(deletedKeys).not.toContain('strong')
+      // The columnar pass ran over both records (not the standard fallback).
+      expect(batchDecayUpdateSpy).toHaveBeenCalledTimes(1)
+      expect(batchDecayUpdateSpy.mock.calls[0]![0].numRows).toBe(2)
     })
 
     it('should not prune strong records via Arrow path', async () => {
@@ -484,6 +510,7 @@ describe('SleepConsolidator', () => {
 
       const report = await consolidator.run(store, [['test', 'ns']])
       expect(report.namespaces[0]!.pruned).toBe(0)
+      expect(batchDecayUpdateSpy).toHaveBeenCalledTimes(1)
     })
 
     it('should handle empty store via Arrow path', async () => {
@@ -514,44 +541,81 @@ describe('SleepConsolidator', () => {
       // Should not throw, should not prune
       const report = await consolidator.run(store, [['test', 'ns']])
       expect(report.namespaces[0]!.pruned).toBe(0)
+      expect(batchDecayUpdateSpy).toHaveBeenCalledTimes(1)
     })
 
-    it('should fall back to standard path when Arrow import fails', async () => {
-      // We mock the dynamic import to fail
-      vi.mock('@dzupagent/memory-ipc', () => {
-        throw new Error('Module not found')
-      })
-
+    it('should prune a freshly consolidated child (stored strength 0.1) via Arrow path', async () => {
       const now = Date.now()
       const store = createMockStore([
         {
-          key: 'weak',
+          key: 'task:a',
           value: {
-            text: 'old',
+            text: 'consolidated child',
+            consolidatedInto: 'task:__summary__',
             _decay: {
-              strength: 0.001,
-              accessCount: 1,
-              lastAccessedAt: now - 365 * 24 * 60 * 60 * 1000,
-              createdAt: now - 365 * 24 * 60 * 60 * 1000,
+              strength: 0.1,
+              accessCount: 0,
+              lastAccessedAt: now - 1000,
+              createdAt: now - 1000,
               halfLifeMs: 24 * 60 * 60 * 1000,
             },
           },
         },
       ])
-
       const consolidator = new SleepConsolidator(
-        createConfig({
-          phases: ['decay-prune'],
-          decayPruneThreshold: 0.1,
-          useArrow: true,
-        }),
+        createConfig({ phases: ['decay-prune'], decayPruneThreshold: 0.1, useArrow: true }),
       )
 
-      // Should fall back to standard and still prune the weak record
       const report = await consolidator.run(store, [['test', 'ns']])
-      expect(report.namespaces[0]!.pruned).toBeGreaterThanOrEqual(1)
+      expect(batchDecayUpdateSpy).toHaveBeenCalledTimes(1)
+      expect(report.namespaces[0]!.pruned).toBe(1)
+      expect(store._data.has('task:a')).toBe(false)
+    })
 
-      vi.restoreAllMocks()
+    it('should fall back to standard path when Arrow import fails', async () => {
+      // Scoped to this test: a fresh module graph in which the dynamic
+      // import of memory-ipc rejects.
+      vi.resetModules()
+      vi.doMock('@dzupagent/memory-ipc', () => {
+        throw new Error('Module not found')
+      })
+      try {
+        const { SleepConsolidator: IsolatedConsolidator } = await import('../sleep-consolidator.js')
+
+        const now = Date.now()
+        const store = createMockStore([
+          {
+            key: 'weak',
+            value: {
+              text: 'old',
+              _decay: {
+                strength: 0.001,
+                accessCount: 1,
+                lastAccessedAt: now - 365 * 24 * 60 * 60 * 1000,
+                createdAt: now - 365 * 24 * 60 * 60 * 1000,
+                halfLifeMs: 24 * 60 * 60 * 1000,
+              },
+            },
+          },
+        ])
+
+        const consolidator = new IsolatedConsolidator(
+          createConfig({
+            phases: ['decay-prune'],
+            decayPruneThreshold: 0.1,
+            useArrow: true,
+          }),
+        )
+
+        // Should fall back to standard and still prune the weak record
+        const report = await consolidator.run(store, [['test', 'ns']])
+        expect(report.namespaces[0]!.pruned).toBe(1)
+        expect(batchDecayUpdateSpy).not.toHaveBeenCalled()
+      } finally {
+        // Restore the file-level passthrough (doUnmock would drop it too).
+        vi.doMock('@dzupagent/memory-ipc', memoryIpcPassthrough)
+        vi.resetModules()
+      }
     })
 
     it('should produce identical results to standard path', async () => {
@@ -608,6 +672,7 @@ describe('SleepConsolidator', () => {
         }),
       )
       const standardReport = await standardConsolidator.run(storeStandard, [['test', 'ns']])
+      expect(batchDecayUpdateSpy).not.toHaveBeenCalled()
 
       // Run Arrow path
       const storeArrow = createMockStore(JSON.parse(JSON.stringify(records)) as MockStoreRecord[])
@@ -619,6 +684,9 @@ describe('SleepConsolidator', () => {
         }),
       )
       const arrowReport = await arrowConsolidator.run(storeArrow, [['test', 'ns']])
+      // The comparison is only meaningful if the Arrow path really ran.
+      expect(batchDecayUpdateSpy).toHaveBeenCalledTimes(1)
+      expect(standardReport.namespaces[0]!.pruned).toBe(1)
 
       // Both paths should prune the same number of records
       expect(arrowReport.namespaces[0]!.pruned).toBe(standardReport.namespaces[0]!.pruned)

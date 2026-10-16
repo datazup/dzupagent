@@ -88,6 +88,8 @@ export type AgentDomainEvent =
       inputMetadataKeys?: string[]
       /** Outcome discriminator. `'success'` is the canonical happy path. */
       status?: 'success'
+      /** Present when the model-visible result was cut to the tool-loop cap. */
+      truncation?: { originalChars: number; keptChars: number }
       /** Owning tenant; consumed by event-gateway tenant filtering (DZUPAGENT-SEC-M-01). */
       tenantId?: string
     }

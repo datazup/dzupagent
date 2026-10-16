@@ -35,6 +35,14 @@ export interface DecisionBlock {
   criteria: DecisionCriterion[];
   rationale: string;
   wouldFlipIf?: string;
+  /**
+   * Additive diagnostic, present only when the verdict is a fallback rather
+   * than a recognised decision: `unparseable` (output was not a JSON object),
+   * `unrecognized-verdict` (no valid verdict field) or `rule-not-evaluated`
+   * (a rule decide policy that dialogue-core cannot evaluate). The verdict
+   * itself keeps the frozen `continue` fallback; hosts use this to detect it.
+   */
+  diagnostic?: "unparseable" | "unrecognized-verdict" | "rule-not-evaluated";
 }
 
 export interface TurnEventTiming {

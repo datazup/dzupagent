@@ -153,46 +153,96 @@ function isCommandEvidence(value: unknown): value is CommandEvidence {
   )
 }
 
+type AppliedResult<T extends AdapterCapabilityOperationResult> = Extract<T, { status: 'applied' }>
+type CandidateResult = Record<string, unknown> & { readonly status: string }
+
+function isAcceptedResult(
+  input: CandidateResult,
+): input is CandidateResult & Extract<AdapterOperationResult, { status: 'accepted' }> {
+  return input.status === 'accepted' && hasExactFields(input, ['status'])
+}
+
+function isProviderWaitingResult(
+  input: CandidateResult,
+): input is CandidateResult & Extract<AdapterOperationResult, { status: 'provider_waiting' }> {
+  return (
+    input.status === 'provider_waiting' &&
+    hasExactFields(input, ['status'], ['evidence']) &&
+    (input.evidence === undefined || isCommandEvidence(input.evidence))
+  )
+}
+
+function isAppliedResult(
+  input: CandidateResult,
+): input is CandidateResult & AppliedResult<AdapterOperationResult> {
+  return (
+    input.status === 'applied' &&
+    hasExactFields(input, ['status', 'evidence']) &&
+    isCommandEvidence(input.evidence)
+  )
+}
+
+function isInteractionRequiredResult(
+  input: CandidateResult,
+): input is CandidateResult & AdapterFailureOrInteraction & { status: 'interaction_required' } {
+  return (
+    input.status === 'interaction_required' &&
+    hasExactFields(input, ['status', 'interactionRef']) &&
+    isOpaqueReference(input.interactionRef)
+  )
+}
+
+function isFailedResult(
+  input: CandidateResult,
+): input is CandidateResult & AdapterFailureOrInteraction & { status: 'failed' } {
+  return (
+    input.status === 'failed' &&
+    hasExactFields(input, ['status', 'failureCode']) &&
+    typeof input.failureCode === 'string' &&
+    SAFE_FAILURE_CODE.test(input.failureCode)
+  )
+}
+
+function isCandidateResult(input: unknown): input is CandidateResult {
+  return isRecord(input) && typeof input.status === 'string'
+}
+
 function validateCommandAdapterResult(
   input: unknown,
 ): AdapterOperationResultValidation<AdapterOperationResult> {
-  if (!isRecord(input) || typeof input.status !== 'string') {
+  if (!isCandidateResult(input)) {
     return { ok: false, failureCode: 'invalid_adapter_result' }
   }
   switch (input.status) {
     case 'accepted':
-      return hasExactFields(input, ['status'])
-        ? { ok: true, value: input as unknown as AdapterOperationResult }
+      return isAcceptedResult(input)
+        ? { ok: true, value: input }
         : { ok: false, failureCode: 'invalid_adapter_result' }
     case 'provider_waiting':
-      return hasExactFields(input, ['status'], ['evidence']) &&
-        (input.evidence === undefined || isCommandEvidence(input.evidence))
-        ? { ok: true, value: input as unknown as AdapterOperationResult }
+      return isProviderWaitingResult(input)
+        ? { ok: true, value: input }
         : { ok: false, failureCode: 'invalid_adapter_result' }
     case 'applied':
-      if (!hasExactFields(input, ['status', 'evidence']) || !isCommandEvidence(input.evidence)) {
-        return { ok: false, failureCode: 'application_evidence_required' }
-      }
-      return APPLICATION_EVIDENCE_KINDS.has(input.evidence.kind)
-        ? { ok: true, value: input as unknown as AdapterOperationResult }
+      return isAppliedResult(input) && APPLICATION_EVIDENCE_KINDS.has(input.evidence.kind)
+        ? { ok: true, value: input }
         : { ok: false, failureCode: 'application_evidence_required' }
     case 'interaction_required':
-      return hasExactFields(input, ['status', 'interactionRef']) &&
-        isOpaqueReference(input.interactionRef)
-        ? { ok: true, value: input as unknown as AdapterOperationResult }
+      return isInteractionRequiredResult(input)
+        ? { ok: true, value: input }
         : { ok: false, failureCode: 'interaction_reference_required' }
     case 'failed':
-      return hasExactFields(input, ['status', 'failureCode']) &&
-        typeof input.failureCode === 'string' &&
-        SAFE_FAILURE_CODE.test(input.failureCode)
-        ? { ok: true, value: input as unknown as AdapterOperationResult }
+      return isFailedResult(input)
+        ? { ok: true, value: input }
         : { ok: false, failureCode: 'invalid_adapter_result' }
     default:
       return { ok: false, failureCode: 'invalid_adapter_result' }
   }
 }
 
-function isCoherentTailEventBatch(events: unknown, nextSequence: unknown): boolean {
+function isCoherentTailEventBatch(
+  events: unknown,
+  nextSequence: unknown,
+): events is readonly NormalizedSessionEvent[] {
   if (!Array.isArray(events) || !Number.isSafeInteger(nextSequence) || Number(nextSequence) < 0) {
     return false
   }
@@ -218,11 +268,44 @@ function isCoherentTailEventBatch(events: unknown, nextSequence: unknown): boole
   return prior === undefined || Number(nextSequence) === prior.sequence + 1
 }
 
+type AppliedCandidate = CandidateResult & { readonly status: 'applied'; readonly evidence: CommandEvidence }
+
+function isAppliedCandidate(input: CandidateResult): input is AppliedCandidate {
+  return input.status === 'applied' && isCommandEvidence(input.evidence)
+}
+
+function isStartAppliedResult(
+  input: AppliedCandidate,
+): input is AppliedCandidate & AppliedResult<StartSessionAdapterResult> {
+  return hasExactFields(input, ['status', 'sessionRef', 'evidence']) && isOpaqueReference(input.sessionRef)
+}
+
+function isTailAppliedResult(
+  input: AppliedCandidate,
+): input is AppliedCandidate & AppliedResult<TailSessionEventsAdapterResult> {
+  return (
+    hasExactFields(input, ['status', 'events', 'nextSequence', 'evidence']) &&
+    isCoherentTailEventBatch(input.events, input.nextSequence)
+  )
+}
+
+function isLookupMissResult(
+  input: AppliedCandidate,
+): input is AppliedCandidate & AppliedResult<LookupSessionAfterRestartAdapterResult> & { snapshot: null } {
+  return input.snapshot === null
+}
+
+function isSnapshotAppliedResult(
+  input: AppliedCandidate,
+): input is AppliedCandidate & AppliedResult<ObserveSessionAdapterResult> {
+  return validateSessionSnapshot(input.snapshot).ok
+}
+
 function validateSpecializedResult(
   input: unknown,
   capability: 'start' | 'observe' | 'tail_events' | 'lookup_after_restart',
 ): AdapterOperationResultValidation {
-  if (!isRecord(input) || typeof input.status !== 'string') {
+  if (!isCandidateResult(input)) {
     return { ok: false, failureCode: 'invalid_adapter_result' }
   }
   if (input.status !== 'applied') {
@@ -232,32 +315,28 @@ function validateSpecializedResult(
     }
     return { ok: false, failureCode: 'invalid_adapter_result' }
   }
-  if (!isCommandEvidence(input.evidence) || !APPLICATION_EVIDENCE_KINDS.has(input.evidence.kind)) {
+  if (!isAppliedCandidate(input) || !APPLICATION_EVIDENCE_KINDS.has(input.evidence.kind)) {
     return { ok: false, failureCode: 'application_evidence_required' }
   }
+  const applied = input
   if (capability === 'start') {
-    return hasExactFields(input, ['status', 'sessionRef', 'evidence']) &&
-      isOpaqueReference(input.sessionRef)
-      ? { ok: true, value: input as unknown as StartSessionAdapterResult }
+    return isStartAppliedResult(applied)
+      ? { ok: true, value: applied }
       : { ok: false, failureCode: 'session_reference_required' }
   }
   if (capability === 'tail_events') {
-    return hasExactFields(input, ['status', 'events', 'nextSequence', 'evidence']) &&
-      isCoherentTailEventBatch(input.events, input.nextSequence)
-      ? { ok: true, value: input as unknown as TailSessionEventsAdapterResult }
+    return isTailAppliedResult(applied)
+      ? { ok: true, value: applied }
       : { ok: false, failureCode: 'invalid_event_batch' }
   }
-  if (!hasExactFields(input, ['status', 'snapshot', 'evidence'])) {
+  if (!hasExactFields(applied, ['status', 'snapshot', 'evidence'])) {
     return { ok: false, failureCode: 'invalid_adapter_result' }
   }
-  if (capability === 'lookup_after_restart' && input.snapshot === null) {
-    return { ok: true, value: input as unknown as LookupSessionAfterRestartAdapterResult }
+  if (capability === 'lookup_after_restart' && isLookupMissResult(applied)) {
+    return { ok: true, value: applied }
   }
-  return validateSessionSnapshot(input.snapshot).ok
-    ? {
-        ok: true,
-        value: input as unknown as ObserveSessionAdapterResult | LookupSessionAfterRestartAdapterResult,
-      }
+  return isSnapshotAppliedResult(applied)
+    ? { ok: true, value: applied }
     : { ok: false, failureCode: 'invalid_session_snapshot' }
 }
 

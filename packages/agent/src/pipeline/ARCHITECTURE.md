@@ -105,6 +105,7 @@ Tests:
 5. Standard-node dispatch (`standard-node-dispatch.ts`):
   - Emits node start event and optional span.
   - A node with `executionPolicy.requireApproval: true` (`execution-policy.ts`) fails the run with `PIPELINE_APPROVAL_REQUIRED` before its ledger lease and execution; retry, terminal catch and error edges are not consulted.
+  - `executionPolicy` is enforced here only. A definition that sets it on a loop, for-each or fork branch body node is refused by `validatePipeline` (`EXECUTION_POLICY_ON_BODY_NODE`) before any node executes.
   - A node with `executionPolicy.budgetCents` is charged `config.nodeAttemptCostCents` per attempt; a total above the budget fails the run with `PIPELINE_BUDGET_EXCEEDED`, and a missing or unreadable cost with `PIPELINE_BUDGET_COST_UNKNOWN`, without catch, error edges or recovery.
   - A node with `executionPolicy.timeoutMs` sums each attempt's reported `durationMs` plus each retry backoff; a total above the limit (checked before the budget, and before waiting on a backoff) fails the run with `PIPELINE_TIMEOUT_EXCEEDED`, and an unreadable duration with `PIPELINE_TIMEOUT_DURATION_UNKNOWN`, the same way.
   - Executes node via `runNodeWithRetry(...)`.

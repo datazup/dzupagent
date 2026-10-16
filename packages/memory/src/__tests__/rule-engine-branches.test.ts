@@ -1,28 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { DynamicRuleEngine } from '../rule-engine.js'
 import type { BaseStore } from '@langchain/langgraph'
+import { createStoreDouble } from './helpers/store-double.js'
 
+/**
+ * Shared InMemoryStore double (DZUPAGENT-TEST-H-09): `search` honours the
+ * namespace prefix and the default limit of 10. `double` seeds and inspects
+ * records without going through the spied methods.
+ */
 function mockStore() {
-  const data = new Map<string, Record<string, unknown>>()
-  return {
-    store: {
-      search: vi.fn(async (_ns: string[], opts?: { limit?: number }) => {
-        const items = [...data.entries()].map(([key, value]) => ({ key, value }))
-        return items.slice(0, opts?.limit ?? items.length)
-      }),
-      put: vi.fn(async (_ns: string[], key: string, value: Record<string, unknown>) => {
-        data.set(key, value)
-      }),
-      delete: vi.fn(async (_ns: string[], key: string) => {
-        data.delete(key)
-      }),
-      get: vi.fn(async (_ns: string[], key: string) => {
-        const value = data.get(key)
-        return value ? { key, value } : undefined
-      }),
-    } as unknown as BaseStore,
-    data,
-  }
+  const double = createStoreDouble()
+  return { store: double.store, double }
 }
 
 function failingStore(): BaseStore {
@@ -235,14 +223,14 @@ describe('DynamicRuleEngine — branch targeting', () => {
     it('decays old rules and keeps them above threshold', async () => {
       const rule = await engine.addRule({ content: 'old rule content', scope: [], confidence: 0.9 })
       // Manipulate stored record to look old
-      const { data } = m
-      const stored = data.get(rule.id)!
-      stored['createdAt'] = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString()
-      stored['lastAppliedAt'] = null
+      await m.double.update(rule.id, {
+        createdAt: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString(),
+        lastAppliedAt: null,
+      })
 
       const decayed = await engine.decayStaleRules(30, 0.5)
       expect(decayed).toBe(1)
-      const updated = data.get(rule.id)!
+      const updated = (await m.double.valueOf(rule.id))!
       expect((updated['confidence'] as number) < 0.9).toBe(true)
     })
 
@@ -252,19 +240,18 @@ describe('DynamicRuleEngine — branch targeting', () => {
         scope: [],
         confidence: 0.11,
       })
-      const stored = m.data.get(rule.id)!
-      stored['createdAt'] = new Date(0).toISOString()
-      stored['lastAppliedAt'] = null
+      await m.double.update(rule.id, { createdAt: new Date(0).toISOString(), lastAppliedAt: null })
 
       await engine.decayStaleRules(30, 0.5)
-      expect(m.data.has(rule.id)).toBe(false)
+      expect(await m.double.valueOf(rule.id)).toBeUndefined()
     })
 
     it('uses lastAppliedAt when present (instead of createdAt)', async () => {
       const rule = await engine.addRule({ content: 'uses last applied rule', scope: [] })
-      const stored = m.data.get(rule.id)!
-      stored['createdAt'] = new Date(0).toISOString()
-      stored['lastAppliedAt'] = new Date().toISOString() // recent
+      await m.double.update(rule.id, {
+        createdAt: new Date(0).toISOString(),
+        lastAppliedAt: new Date().toISOString(), // recent
+      })
       // With lastAppliedAt recent, rule should NOT decay
       const decayed = await engine.decayStaleRules(1, 0.5)
       expect(decayed).toBe(0)

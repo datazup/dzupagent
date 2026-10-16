@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { retrieveMemoryV1 } from '../retrieve-memory-v1.js'
+import { invokeBoundedStage } from '../stage-runtime.js'
 import {
   candidate,
   instant,
@@ -160,5 +161,51 @@ describe('retrieveMemoryV1 deterministic selection', () => {
       reason: 'no-eligible-candidates',
       records: [],
     })
+  })
+})
+
+describe('invokeBoundedStage failure cause (ERR-H-70)', () => {
+  it('carries a reason code and error id on a failed outcome, never the raw message', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const failure = Object.assign(new Error('pg: relation memory_secret_table missing'), {
+        code: 'ECONNREFUSED',
+      })
+      const outcome = await invokeBoundedStage(1_000, async () => { throw failure })
+
+      expect(outcome.status).toBe('failed')
+      expect(outcome.reasonCode).toBe('backend-unavailable')
+      expect(outcome.errorId).toEqual(expect.any(String))
+      expect(JSON.stringify(outcome)).not.toContain('memory_secret_table')
+      // The full detail goes to exactly one log line, joined by errorId.
+      expect(errorSpy).toHaveBeenCalledTimes(1)
+      expect(String(errorSpy.mock.calls[0]?.[0])).toContain(outcome.errorId!)
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+
+  it('distinguishes an aborted stage from a port crash', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const aborted = await invokeBoundedStage(1_000, async () => {
+        throw Object.assign(new Error('aborted'), { name: 'AbortError' })
+      })
+      const crashed = await invokeBoundedStage(1_000, async () => { throw new TypeError('x is undefined') })
+      const nonError = await invokeBoundedStage(1_000, () => Promise.reject('bare string'))
+      expect(aborted.reasonCode).toBe('operation-aborted')
+      expect(crashed.reasonCode).toBe('invalid-request')
+      expect(nonError.reasonCode).toBe('unknown-error')
+      expect(new Set([aborted.errorId, crashed.errorId, nonError.errorId]).size).toBe(3)
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+
+  it('leaves completed and timed-out outcomes without failure fields', async () => {
+    const completed = await invokeBoundedStage(1_000, async () => 7)
+    expect(completed).toEqual({ status: 'completed', value: 7 })
+    const timedOut = await invokeBoundedStage(5, () => new Promise(() => {}))
+    expect(timedOut).toEqual({ status: 'timed-out' })
   })
 })

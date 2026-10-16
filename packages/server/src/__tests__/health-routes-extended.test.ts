@@ -154,8 +154,10 @@ describe("Health routes — extended", () => {
     expect(data.checks["modelRegistry"]?.status).toBe("degraded");
   });
 
-  it("GET /api/health/metrics returns metrics JSON", async () => {
-    const app = createForgeApp(createTestConfig());
+  it("GET /api/health/metrics returns metrics JSON when metrics access is public", async () => {
+    const app = createForgeApp(
+      createTestConfig({ prometheusMetrics: { access: { mode: "unsafe-public" } } }),
+    );
     const res = await app.request("/api/health/metrics");
     expect(res.status).toBe(200);
     const data = (await res.json()) as {

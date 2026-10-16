@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import type { ChildProcess, SpawnOptions } from 'node:child_process'
+import { filterSensitiveEnvVars } from '../base/env-builder.js'
 import type {
   ProviderRequestLookupResult,
 } from '../types.js'
@@ -46,7 +47,12 @@ export async function lookupCodexProviderRequest(
       ['app-server', '--stdio'],
       {
         stdio: ['pipe', 'pipe', 'pipe'],
-        ...(options.env ? { env: { ...process.env, ...options.env } } : {}),
+        // Never hand the full parent environment to the app-server child:
+        // sensitive variables are filtered before the explicit env is layered on.
+        env: {
+          ...filterSensitiveEnvVars({ ...process.env } as Record<string, string>),
+          ...options.env,
+        },
       },
     )
     let stdoutBuffer = ''

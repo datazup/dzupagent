@@ -22,6 +22,7 @@ import {
   CodexAppServerAdapter,
   createCodexAppServerAdapter,
 } from '../codex/codex-app-server-adapter.js'
+import { requireIntegration } from './require-integration.js'
 import { CodexAppServerStdioClient } from '../codex/codex-app-server-client.js'
 import { threadStartParams } from '../codex/codex-app-server-adapter-config.js'
 import { CodexAdapter } from '../codex/codex-adapter.js'
@@ -1851,7 +1852,13 @@ async function runRealDouble(containment: boolean) {
   }
 }
 
-describe.skipIf(!PID_NAMESPACE_USABLE)('Codex App Server adapter real containment', () => {
+const realContainmentGate = requireIntegration({
+  name: 'Codex App Server adapter real containment',
+  available: PID_NAMESPACE_USABLE,
+  reason: 'bwrap --unshare-pid is not usable on this host',
+})
+
+describe.skipIf(realContainmentGate.shouldSkip)('Codex App Server adapter real containment', () => {
   it('control: without containment the descendant effect outlives the run', async () => {
     const result = await runRealDouble(false)
     expect(result).toEqual({ completed: true, joined: undefined, effectWritten: true })

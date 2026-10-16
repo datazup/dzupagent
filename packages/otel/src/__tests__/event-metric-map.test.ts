@@ -93,6 +93,13 @@ describe('EVENT_METRIC_MAP', () => {
       'memory:written': { type: 'memory:written', namespace: 'ns', key: 'k' },
       'memory:searched': { type: 'memory:searched', namespace: 'ns', query: 'q', resultCount: 1 },
       'memory:error': { type: 'memory:error', namespace: 'ns', message: 'err' },
+      'memory:pii_redaction_failed': {
+        type: 'memory:pii_redaction_failed',
+        namespace: 'ns',
+        key: 'k',
+        errorClass: 'TypeError',
+        agentId: 'a1',
+      },
       'budget:warning': { type: 'budget:warning', level: 'warn', usage: { percent: 80 } },
       'budget:exceeded': { type: 'budget:exceeded', reason: 'cost', usage: { percent: 100 } },
       'pipeline:phase_changed': { type: 'pipeline:phase_changed', phase: 'gen', previousPhase: 'plan' },

@@ -28,6 +28,20 @@
 import type { FailureType } from '../../recovery/recovery-types.js'
 
 /**
+ * The code an error edge routes on for a failed node result: the structured
+ * `errorMetadata.code` when the node reports one (as retry and terminal catch
+ * already match), and the code parsed from the error message only when not.
+ */
+export function nodeResultErrorCode(result: {
+  error?: unknown
+  errorMetadata?: Record<string, unknown>
+}): string | undefined {
+  const code = result.errorMetadata?.['code']
+  if (typeof code === 'string' && code.length > 0) return code
+  return extractErrorCode(result.error)
+}
+
+/**
  * Try to extract a structured error code from `error`.
  *
  * Returns `undefined` when no recognisable code is present. The returned

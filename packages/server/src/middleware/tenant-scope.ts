@@ -49,7 +49,7 @@ export function tenantScopeMiddleware(
 
   return async (c, next) => {
     // Health endpoints bypass tenant scoping
-    if (c.req.path.startsWith("/api/health")) {
+    if (c.req.path === "/api/health" || c.req.path.startsWith("/api/health/")) {
       return next();
     }
 

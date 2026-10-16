@@ -49,7 +49,7 @@ export interface CodexAppServerTurnContext {
  * maps to, returning the terminal event once the provider reports a final turn
  * status.
  *
- * The turn's accumulated state -- the streamed result, the last usage report and
+ * The turn's accumulated state -- the streamed result, the summed usage reports and
  * whether a start has been seen -- lives here for the length of the stream and
  * nowhere else. That is the whole reason this is a separate unit: the accumulator
  * has invariants of its own (a bounded total, exactly one start, usage required
@@ -169,7 +169,9 @@ export async function* consumeCodexAppServerTurn(
         && usageTurnId !== run.turnId
       ) continue
       assertRunEventIdentity(event.params, run, false)
-      usage = tokenUsage(event.params['tokenUsage'])
+      // Each update's `last` covers one model call; a tool-loop turn makes
+      // several, so the turn's usage is their sum, not the final report alone.
+      usage = addTokenUsage(usage, tokenUsage(event.params['tokenUsage']))
       continue
     }
     if (event.method === 'turn/completed') {
@@ -216,6 +218,20 @@ function fileChangeInvalid(): Error {
     'CODEX_APP_SERVER_FILE_CHANGE_INVALID',
     'Codex app-server reported invalid file changes',
   )
+}
+
+/** Adds one model call's usage to the turn's running total. */
+function addTokenUsage(total: TokenUsage | undefined, next: TokenUsage): TokenUsage {
+  if (!total) return next
+  const cacheWriteTokens = total.cacheWriteTokens === undefined && next.cacheWriteTokens === undefined
+    ? undefined
+    : (total.cacheWriteTokens ?? 0) + (next.cacheWriteTokens ?? 0)
+  return {
+    inputTokens: total.inputTokens + next.inputTokens,
+    outputTokens: total.outputTokens + next.outputTokens,
+    cachedInputTokens: (total.cachedInputTokens ?? 0) + (next.cachedInputTokens ?? 0),
+    ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {}),
+  }
 }
 
 /**

@@ -18,6 +18,7 @@ import { OrchestrationError } from '../orchestration/orchestration-error.js'
 import { AgentCircuitBreaker } from '../orchestration/circuit-breaker.js'
 import { UsePartialMergeStrategy } from '../orchestration/merge/index.js'
 import { LLMRouting } from '../orchestration/routing/llm-routing.js'
+import { DEFAULT_ORCHESTRATION_FANOUT } from '../orchestration/concurrency-runner.js'
 
 // ---------------------------------------------------------------------------
 // Shared mock helpers
@@ -257,6 +258,50 @@ describe('AgentOrchestrator.parallel', () => {
     it('empty agents array returns empty string', async () => {
       const result = await AgentOrchestrator.parallel([], 'input')
       expect(result).toBe('')
+    })
+  })
+
+  describe('default concurrency cap', () => {
+    function createTrackedAgents(count: number) {
+      const tracker = { inFlight: 0, peak: 0 }
+      const agents = Array.from({ length: count }, (_, i) =>
+        createAgentWithModel(`p${i}`, {
+          invoke: vi.fn(async () => {
+            tracker.inFlight++
+            tracker.peak = Math.max(tracker.peak, tracker.inFlight)
+            // Yield a few turns so sibling invocations overlap.
+            for (let turn = 0; turn < 5; turn++) await Promise.resolve()
+            tracker.inFlight--
+            return new AIMessage({ content: `r${i}`, response_metadata: {} })
+          }),
+          bindTools: vi.fn(function (this: BaseChatModel) { return this }),
+          _modelType: () => 'base_chat_model',
+          _llmType: () => 'mock',
+        } as unknown as BaseChatModel),
+      )
+      return { agents, tracker }
+    }
+
+    it('runs at most DEFAULT_ORCHESTRATION_FANOUT agents at once when maxConcurrency is omitted', async () => {
+      const { agents, tracker } = createTrackedAgents(50)
+      const result = await AgentOrchestrator.parallel(agents, 'input')
+      expect(result).toContain('--- Agent 50 ---')
+      expect(tracker.peak).toBeGreaterThan(1)
+      expect(tracker.peak).toBeLessThanOrEqual(DEFAULT_ORCHESTRATION_FANOUT)
+    })
+
+    it('applies the same default on the merge-strategy path', async () => {
+      const { agents, tracker } = createTrackedAgents(50)
+      await AgentOrchestrator.parallel(agents, 'input', undefined, {
+        mergeStrategy: new UsePartialMergeStrategy<string>(),
+      })
+      expect(tracker.peak).toBeLessThanOrEqual(DEFAULT_ORCHESTRATION_FANOUT)
+    })
+
+    it('honours an explicit maxConcurrency', async () => {
+      const { agents, tracker } = createTrackedAgents(12)
+      await AgentOrchestrator.parallel(agents, 'input', undefined, { maxConcurrency: 2 })
+      expect(tracker.peak).toBeLessThanOrEqual(2)
     })
   })
 

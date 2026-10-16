@@ -24,8 +24,9 @@ import { describe, it, expect, vi } from "vitest";
 import {
   ConsolidationEngine,
   type ConsolidationStore,
-  type ConsolidationStoreItem,
 } from "../consolidation-engine.js";
+import { createStoreDouble } from "./helpers/store-double.js";
+import type { StoreDouble } from "./helpers/store-double.js";
 import { consolidateNamespace } from "../memory-consolidation.js";
 import { runSleepConsolidation } from "../sleep-consolidator.js";
 import type { SleepConsolidationConfig } from "../sleep-consolidator.js";
@@ -47,80 +48,32 @@ interface StoreRecord {
 }
 
 interface MockConsolidationStore extends ConsolidationStore {
-  data: Map<string, Record<string, unknown>>;
-  searchCalls: number;
-  putCalls: number;
-  deleteCalls: number;
+  double: StoreDouble;
 }
 
-function makeConsolidationStore(
+/**
+ * Shared InMemoryStore double (DZUPAGENT-TEST-H-09): `search` honours the
+ * namespace prefix and the default limit of 10, so a consolidation of one
+ * namespace never sees another's records. Fixtures are seeded under the tuple
+ * `engine.consolidate("scope", "ns", store)` derives.
+ */
+async function makeConsolidationStore(
   records: StoreRecord[] = [],
-): MockConsolidationStore {
-  const data = new Map<string, Record<string, unknown>>();
-  for (const r of records) data.set(r.key, r.value);
-  let searchCalls = 0;
-  let putCalls = 0;
-  let deleteCalls = 0;
-
-  const store: MockConsolidationStore = {
-    get data() {
-      return data;
-    },
-    get searchCalls() {
-      return searchCalls;
-    },
-    get putCalls() {
-      return putCalls;
-    },
-    get deleteCalls() {
-      return deleteCalls;
-    },
-    search: vi.fn(async (_ns: string[]): Promise<ConsolidationStoreItem[]> => {
-      searchCalls++;
-      return [...data.entries()].map(([key, value]) => ({ key, value }));
-    }),
-    put: vi.fn(
-      async (_ns: string[], key: string, value: Record<string, unknown>) => {
-        putCalls++;
-        data.set(key, value);
-      },
-    ),
-    delete: vi.fn(async (_ns: string[], key: string) => {
-      deleteCalls++;
-      data.delete(key);
-    }),
-  };
-  return store;
+  namespace: string[] = ["scope", "ns"],
+): Promise<MockConsolidationStore> {
+  const double = createStoreDouble();
+  for (const r of records) await double.seed(namespace, r.key, r.value);
+  return Object.assign(double.store, { double }) as unknown as MockConsolidationStore;
 }
 
-function makeBaseStore(
+/** The same shared double as a `BaseStore`, seeded under `namespace`. */
+async function makeBaseStore(
   records: StoreRecord[] = [],
-): BaseStore & { _data: Map<string, Record<string, unknown>> } {
-  const data = new Map<string, Record<string, unknown>>();
-  for (const r of records) data.set(r.key, r.value);
-  const store = {
-    _data: data,
-    search: vi.fn((_ns: string[], _opts?: { limit?: number }) => {
-      return Promise.resolve(
-        [...data.entries()].map(([key, value]) => ({ key, value })),
-      );
-    }),
-    put: vi.fn((_ns: string[], key: string, value: Record<string, unknown>) => {
-      data.set(key, value);
-      return Promise.resolve();
-    }),
-    delete: vi.fn((_ns: string[], key: string) => {
-      data.delete(key);
-      return Promise.resolve();
-    }),
-    get: vi.fn((_ns: string[], key: string) => {
-      const value = data.get(key);
-      return Promise.resolve(value ? { key, value } : undefined);
-    }),
-  };
-  return store as unknown as BaseStore & {
-    _data: Map<string, Record<string, unknown>>;
-  };
+  namespace: string[] = ["ns"],
+): Promise<BaseStore & { double: StoreDouble }> {
+  const double = createStoreDouble();
+  for (const r of records) await double.seed(namespace, r.key, r.value);
+  return Object.assign(double.store, { double });
 }
 
 function makeMockModel(): BaseChatModel {
@@ -248,7 +201,7 @@ class ConsolidationTriggerHarness {
 
 describe("Post-consolidation state", () => {
   it("children are marked with consolidatedInto after count trigger", async () => {
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       { key: "task:a", value: { text: "task A" } },
       { key: "task:b", value: { text: "task B" } },
       { key: "task:c", value: { text: "task C" } },
@@ -268,7 +221,7 @@ describe("Post-consolidation state", () => {
 
     // Check child marking
     for (const key of ["task:a", "task:b", "task:c"]) {
-      const entry = store.data.get(key);
+      const entry = (await store.double.valueOf(key));
       expect(entry).toBeDefined();
       expect(entry!["consolidatedInto"]).toBe("task:__summary__");
       const decay = entry!["_decay"] as Record<string, unknown>;
@@ -277,7 +230,7 @@ describe("Post-consolidation state", () => {
   });
 
   it("summary entry is created with full strength and correct metadata", async () => {
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       { key: "note:1", value: { text: "note one" } },
       { key: "note:2", value: { text: "note two" } },
       { key: "note:3", value: { text: "note three" } },
@@ -295,7 +248,7 @@ describe("Post-consolidation state", () => {
     await trigger.add();
     await trigger.add();
 
-    const summary = store.data.get("note:__summary__");
+    const summary = (await store.double.valueOf("note:__summary__"));
     expect(summary).toBeDefined();
     expect(summary!["kind"]).toBe("summary");
     expect(summary!["text"]).toContain("note one");
@@ -308,7 +261,7 @@ describe("Post-consolidation state", () => {
   });
 
   it("re-running after consolidation does not double-summarize (idempotent post-state)", async () => {
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       { key: "obs:1", value: { text: "first" } },
       { key: "obs:2", value: { text: "second" } },
       { key: "obs:3", value: { text: "third" } },
@@ -323,11 +276,11 @@ describe("Post-consolidation state", () => {
     expect(r2.summaries).toEqual([]);
 
     // Original summary is still there
-    expect(store.data.has("obs:__summary__")).toBe(true);
+    expect(((await store.double.valueOf("obs:__summary__")) !== undefined)).toBe(true);
   });
 
   it("provenance map accurately tracks which keys were consolidated", async () => {
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       { key: "fact:alpha", value: { text: "alpha" } },
       { key: "fact:beta", value: { text: "beta" } },
       { key: "fact:gamma", value: { text: "gamma" } },
@@ -354,7 +307,7 @@ describe("Post-consolidation state", () => {
     const older = new Date(now.getTime() - 5000).toISOString();
     const newer = now.toISOString();
 
-    const store = makeBaseStore([
+    const store = await makeBaseStore([
       { key: "dup:old", value: { text: "duplicate entry", timestamp: older } },
       { key: "dup:new", value: { text: "duplicate entry", timestamp: newer } },
       { key: "unique:x", value: { text: "unique content", timestamp: newer } },
@@ -369,7 +322,7 @@ describe("Post-consolidation state", () => {
   });
 
   it("post-consolidation store has fewer records than before (net reduction)", async () => {
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       { key: "data:1", value: { text: "first entry" } },
       { key: "data:2", value: { text: "second entry" } },
       { key: "data:3", value: { text: "third entry" } },
@@ -377,20 +330,20 @@ describe("Post-consolidation state", () => {
     ]);
     const engine = new ConsolidationEngine();
 
-    const beforeSize = store.data.size;
+    const beforeSize = (await store.double.records()).length;
     await engine.consolidate("scope", "ns", store);
     // Summary added: size is now beforeSize + 1 (4 original + 1 summary)
     // but children are marked, not deleted (engine marks, decay engine later deletes)
     // So store size grows by 1 (summary entry)
-    expect(store.data.size).toBe(beforeSize + 1);
+    expect((await store.double.records()).length).toBe(beforeSize + 1);
     // But summarized count reflects children absorbed
-    const summary = store.data.get("data:__summary__");
+    const summary = (await store.double.valueOf("data:__summary__"));
     expect(summary).toBeDefined();
     expect((summary!["consolidatedFrom"] as string[]).length).toBe(4);
   });
 
   it("LLM-judge result replaces default join text in summary", async () => {
-    const store = makeConsolidationStore([
+    const store = await makeConsolidationStore([
       { key: "item:a", value: { text: "alpha detail" } },
       { key: "item:b", value: { text: "beta detail" } },
       { key: "item:c", value: { text: "gamma detail" } },
@@ -412,14 +365,14 @@ describe("Post-consolidation state", () => {
     await trigger.add();
     await trigger.add();
 
-    const summary = store.data.get("item:__summary__");
+    const summary = (await store.double.valueOf("item:__summary__"));
     expect(summary!["text"]).toBe("AI-generated summary of 3 items");
     expect(llmJudge).toHaveBeenCalledTimes(1);
   });
 
   it("SleepConsolidator decay-prune phase removes children below threshold after consolidation", async () => {
     const now = Date.now();
-    const store = makeBaseStore([
+    const store = await makeBaseStore([
       {
         key: "old-task",
         value: {
@@ -462,7 +415,7 @@ describe("Post-consolidation state", () => {
     );
     // The consolidated child with strength=0.1 is above 0.05 so may not be pruned
     // depending on halfLife recalculation, but the summary with strength=1.0 is safe
-    expect(store._data.has("task:__summary__")).toBe(true);
+    expect(((await store.double.valueOf("task:__summary__")) !== undefined)).toBe(true);
     expect(typeof report.namespaces[0]!.pruned).toBe("number");
   });
 });

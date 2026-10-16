@@ -230,17 +230,34 @@ describe("metrics tracking — failure count, success count, state", () => {
     expect(b2.getState()).toBe("closed");
   });
 
-  it("canExecute does not increment halfOpenAttempts (pure read)", () => {
+  it("half-open admits at most halfOpenMaxAttempts probes until a result is recorded (DZUPAGENT-AGENT-H-20)", () => {
     vi.useFakeTimers();
     const b = makeBreaker({ halfOpenMaxAttempts: 1 });
     b.recordFailure();
     b.recordFailure();
     b.recordFailure();
     vi.advanceTimersByTime(1000);
-    // canExecute should return true for the first call
+    // The first caller is the probe.
     expect(b.canExecute()).toBe(true);
-    // canExecute again — halfOpenAttempts is NOT incremented by canExecute;
-    // it is only reset by recordSuccess/recordFailure/reset. So still true.
+    // A concurrent second caller is refused while the probe is in flight.
+    expect(b.canExecute()).toBe(false);
+    // The probe succeeds → closed → traffic flows again.
+    b.recordSuccess();
+    expect(b.canExecute()).toBe(true);
+    expect(b.canExecute()).toBe(true);
+  });
+
+  it("an abandoned probe slot is released after one cooldown window", () => {
+    vi.useFakeTimers();
+    const b = makeBreaker({ halfOpenMaxAttempts: 1 });
+    b.recordFailure();
+    b.recordFailure();
+    b.recordFailure();
+    vi.advanceTimersByTime(1000);
+    expect(b.canExecute()).toBe(true);
+    expect(b.canExecute()).toBe(false);
+    vi.advanceTimersByTime(60_000);
+    expect(b.getState()).toBe("half-open");
     expect(b.canExecute()).toBe(true);
   });
 });

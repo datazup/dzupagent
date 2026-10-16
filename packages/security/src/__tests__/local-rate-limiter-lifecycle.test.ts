@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest'
 import { FixedWindowRateLimiter, KeyedTokenBucketRateLimiter } from '../rate-limit/local.js'
 
-test('rate-limit cleanup preserves live tenants and releases expired or explicitly reset tenants', () => {
+test('fixed-window cleanup preserves live tenants and releases expired or explicitly reset tenants', () => {
   let now = 0
   const window = new FixedWindowRateLimiter({ maxRequests: 2, windowMs: 10, now: () => now })
   expect(window.check('old')).toBe(true)
@@ -15,7 +15,10 @@ test('rate-limit cleanup preserves live tenants and releases expired or explicit
   expect(window.remaining('live')).toBe(2)
   window.check('live'); window.reset()
   expect(window.remaining('live')).toBe(2)
+})
 
+test('token-bucket cleanup preserves live tenants and releases idle or explicitly reset tenants', () => {
+  let now = 10
   const bucket = new KeyedTokenBucketRateLimiter({ capacity: 2, refillPerMs: 0.1, now: () => now })
   expect(bucket.inspect('empty')).toEqual({ tokens: 2, capacity: 2 })
   expect(bucket.consume('old', 2).allowed).toBe(true)

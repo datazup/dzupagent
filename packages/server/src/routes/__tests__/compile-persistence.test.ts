@@ -9,6 +9,9 @@
  *  SSE branch:
  *   4. Successful SSE compile — appendArtifact called after terminal event.
  *   5. Failed SSE compile (compiler returns errors) — store NOT called.
+ *  All branches (DZUPAGENT-CODE-M-17): one rule — every success persists under
+ *  ?runId or the compileId, with the neutral 'flow-compiler' provider id, and
+ *  a TARGET_MISMATCH persists nothing.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Hono } from 'hono'
@@ -355,7 +358,7 @@ describe('compile route — RunEventStore persistence', () => {
     expect(store.appendArtifact).not.toHaveBeenCalled()
   })
 
-  it('SSE branch: does NOT call appendArtifact when runId query param is missing', async () => {
+  it('SSE branch: falls back to compileId when runId query param is missing (same rule as JSON)', async () => {
     let capturedBus: DzupEventBus | null = null
 
     mockCreateFlowCompiler.mockImplementationOnce(
@@ -384,103 +387,80 @@ describe('compile route — RunEventStore persistence', () => {
 
     const store = makeMockStore()
     const app = buildApp(store)
-    // No runId in query params — persistence must be skipped.
     const res = await postCompileSSE(app, makeFlowBody())
 
     expect(res.status).toBe(200)
-    expect(res.headers.get('content-type')).toContain('text/event-stream')
-
     await drainSSE(res)
     await new Promise((r) => setTimeout(r, 10))
 
-    // Guard: runId is missing so appendArtifact must NOT be called even though
-    // the compile succeeded and a runEventStore is configured.
-    expect(store.appendArtifact).not.toHaveBeenCalled()
-  })
-})
-
-// ---------------------------------------------------------------------------
-// SSE compile — X-Run-Id response header
-// ---------------------------------------------------------------------------
-
-describe('SSE compile — X-Run-Id response header', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mockCreateFlowCompiler.mockImplementation(() => ({ compile: mockCompile }))
+    expect(store.appendArtifact).toHaveBeenCalledTimes(1)
+    const event = (store.appendArtifact as ReturnType<typeof vi.fn>).mock.calls[0]![0] as Parameters<RunEventStore['appendArtifact']>[0]
+    expect(event.runId).toBe(SUCCESS_RESULT.compileId)
+    expect(event.path).toBe(`compile:${SUCCESS_RESULT.compileId}`)
   })
 
-  it('sets X-Run-Id header when runId query param is provided', async () => {
-    let capturedBus: DzupEventBus | null = null
+  it('stage-stream branch: persists under ?runId like the other branches', async () => {
+    mockCompile.mockResolvedValueOnce(SUCCESS_RESULT)
 
-    mockCreateFlowCompiler.mockImplementationOnce(
-      (cfg: FlowCompilerOptions) => {
-        capturedBus = cfg.eventBus ?? null
-        return {
-          compile: vi.fn().mockImplementationOnce(async () => {
-            if (capturedBus) {
-              capturedBus.emit({
-                type: 'flow:compile_started',
-                compileId: SUCCESS_RESULT.compileId,
-                inputKind: 'object',
-              })
-              capturedBus.emit({
-                type: 'flow:compile_completed',
-                compileId: SUCCESS_RESULT.compileId,
-                target: SUCCESS_RESULT.target,
-                durationMs: 5,
-              })
-            }
-            return SUCCESS_RESULT
-          }),
-        }
-      },
-    )
-
-    const app = buildApp()
-    const res = await postCompileSSE(app, makeFlowBody(), { runId: 'run-abc-123' })
-
+    const store = makeMockStore()
+    const app = buildApp(store)
+    const res = await app.request('/api/workflows/compile?stream=true&runId=run-stage-7', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(makeFlowBody()),
+    })
     expect(res.status).toBe(200)
-    expect(res.headers.get('content-type')).toContain('text/event-stream')
-    expect(res.headers.get('X-Run-Id')).toBe('run-abc-123')
+    await res.text()
+    await vi.waitFor(() => expect(store.appendArtifact).toHaveBeenCalled())
 
-    await drainSSE(res)
+    expect(store.appendArtifact).toHaveBeenCalledTimes(1)
+    const event = (store.appendArtifact as ReturnType<typeof vi.fn>).mock.calls[0]![0] as Parameters<RunEventStore['appendArtifact']>[0]
+    expect(event.runId).toBe('run-stage-7')
+    expect(event.path).toBe(`compile:${SUCCESS_RESULT.compileId}`)
   })
 
-  it('does not set X-Run-Id header when runId is absent', async () => {
-    let capturedBus: DzupEventBus | null = null
+  it('no branch records the hard-coded provider id "claude"', async () => {
+    mockCompile.mockResolvedValueOnce(SUCCESS_RESULT)
 
-    mockCreateFlowCompiler.mockImplementationOnce(
-      (cfg: FlowCompilerOptions) => {
-        capturedBus = cfg.eventBus ?? null
-        return {
-          compile: vi.fn().mockImplementationOnce(async () => {
-            if (capturedBus) {
-              capturedBus.emit({
-                type: 'flow:compile_started',
-                compileId: SUCCESS_RESULT.compileId,
-                inputKind: 'object',
-              })
-              capturedBus.emit({
-                type: 'flow:compile_completed',
-                compileId: SUCCESS_RESULT.compileId,
-                target: SUCCESS_RESULT.target,
-                durationMs: 5,
-              })
-            }
-            return SUCCESS_RESULT
-          }),
-        }
-      },
+    const store = makeMockStore()
+    const app = buildApp(store)
+    await postCompile(app, makeFlowBody())
+    await Promise.resolve()
+
+    const event = (store.appendArtifact as ReturnType<typeof vi.fn>).mock.calls[0]![0] as Parameters<RunEventStore['appendArtifact']>[0]
+    expect(event.providerId).toBe('flow-compiler')
+  })
+
+  it('JSON and stage-stream branches persist nothing on TARGET_MISMATCH', async () => {
+    const store = makeMockStore()
+    const app = buildApp(store)
+
+    mockCompile.mockResolvedValueOnce(SUCCESS_RESULT)
+    const jsonRes = await postCompile(app, { ...makeFlowBody(), target: 'pipeline' })
+    expect(jsonRes.status).toBe(400)
+
+    mockCompile.mockResolvedValueOnce(SUCCESS_RESULT)
+    const stageRes = await app.request('/api/workflows/compile?stream=true&runId=r1', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...makeFlowBody(), target: 'pipeline' }),
+    })
+    expect(await stageRes.text()).toContain('TARGET_MISMATCH')
+
+    // Fence: a later successful stage-stream compile persists through the same
+    // path, so once its artifact is observed any persistence the mismatch run
+    // could have scheduled would already have happened.
+    mockCompile.mockResolvedValueOnce(SUCCESS_RESULT)
+    const fenceRes = await app.request('/api/workflows/compile?stream=true&runId=fence', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(makeFlowBody()),
+    })
+    await fenceRes.text()
+    await vi.waitFor(() => expect(store.appendArtifact).toHaveBeenCalled())
+    const runIds = (store.appendArtifact as ReturnType<typeof vi.fn>).mock.calls.map(
+      (call) => (call[0] as Parameters<RunEventStore['appendArtifact']>[0]).runId,
     )
-
-    const app = buildApp()
-    // No runId — header must be absent.
-    const res = await postCompileSSE(app, makeFlowBody())
-
-    expect(res.status).toBe(200)
-    expect(res.headers.get('content-type')).toContain('text/event-stream')
-    expect(res.headers.get('X-Run-Id')).toBeNull()
-
-    await drainSSE(res)
+    expect(runIds).toEqual(['fence'])
   })
 })

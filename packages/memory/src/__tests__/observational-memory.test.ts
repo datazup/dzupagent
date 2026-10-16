@@ -5,48 +5,25 @@ import type { ObservationalMemoryConfig } from '../observational-memory.js'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseStore } from '@langchain/langgraph'
 import { MemoryService } from '../memory-service.js'
+import { createStore } from '../store-factory.js'
 import { MemoryServiceObservationCandidateStore } from '../observation-candidate-store.js'
 import type { ObservationCandidateStore } from '../observation-candidate-store.js'
 import { StagedWriter } from '../staged-writer.js'
 import { HumanMessage, AIMessage } from '@langchain/core/messages'
 import type { BaseMessage } from '@langchain/core/messages'
+import { createStoreDouble } from './helpers/store-double.js'
 
 // ---------------------------------------------------------------------------
 // Mock factories
 // ---------------------------------------------------------------------------
 
-interface MockStoreRecord {
-  key: string
-  value: Record<string, unknown>
-}
-
-function createMockStore(records: MockStoreRecord[] = []) {
-  const data = new Map<string, Record<string, unknown>>()
-  for (const r of records) {
-    data.set(r.key, r.value)
-  }
-
-  const store = {
-    search: vi.fn().mockImplementation((_ns: string[], opts?: { query?: string; limit?: number }) => {
-      const items = [...data.entries()].map(([key, value]) => ({ key, value }))
-      return Promise.resolve(items.slice(0, opts?.limit ?? items.length))
-    }),
-    put: vi.fn().mockImplementation((_ns: string[], key: string, value: Record<string, unknown>) => {
-      data.set(key, value)
-      return Promise.resolve()
-    }),
-    delete: vi.fn().mockImplementation((_ns: string[], key: string) => {
-      data.delete(key)
-      return Promise.resolve()
-    }),
-    get: vi.fn().mockImplementation((_ns: string[], key: string) => {
-      const value = data.get(key)
-      return Promise.resolve(value ? { key, value } : undefined)
-    }),
-    _data: data,
-  }
-
-  return store as unknown as BaseStore & { _data: Map<string, Record<string, unknown>> }
+/**
+ * Shared InMemoryStore double (DZUPAGENT-TEST-H-09): `search` honours the
+ * namespace prefix and the default limit of 10, unlike the key-only map this
+ * replaced, so a reflector that searches the wrong namespace finds nothing.
+ */
+function createMockStore(): BaseStore {
+  return createStoreDouble().store
 }
 
 function createMockModel(responses: string[]) {
@@ -92,6 +69,9 @@ function createMockMemoryService(
     ),
     search: vi.fn().mockResolvedValue(existingRecords),
     formatForPrompt: vi.fn().mockReturnValue('## Relevant Observations\n\nSome observation'),
+    getNamespaceTuple: vi.fn().mockImplementation(
+      (namespace: string, scope: Record<string, string>) => [namespace, ...Object.values(scope)],
+    ),
   } as unknown as MemoryService & {
     put: ReturnType<typeof vi.fn>
     get: ReturnType<typeof vi.fn>
@@ -162,7 +142,7 @@ function observationResponse(observations: Array<{ text: string; category: strin
 describe('ObservationalMemory', () => {
   let model: BaseChatModel & { invoke: ReturnType<typeof vi.fn> }
   let memoryService: ReturnType<typeof createMockMemoryService>
-  let store: ReturnType<typeof createMockStore>
+  let store: BaseStore
   let sut: ObservationalMemory
 
   const defaultScope = { tenantId: 't1', observations: 'obs' }
@@ -875,13 +855,16 @@ describe('ObservationalMemory', () => {
         .mockResolvedValueOnce(records)     // second call: after consolidation
         .mockResolvedValueOnce(records.slice(5)) // third call: after pruning
 
-      // Store also returns records for the pruning step
-      store = createMockStore(
-        records.map((r, i) => ({
-          key: `obs-${i}`,
-          value: r as unknown as Record<string, unknown>,
-        })),
-      )
+      // Store also returns records for the pruning step, under the tuple
+      // MemoryService derives for the namespace (name first, then scope values).
+      const observationsTuple = ['observations', ...Object.values(defaultScope)]
+      const double = createStoreDouble()
+      for (const [i, r] of records.entries()) {
+        await double.seed(observationsTuple, `obs-${i}`, r as unknown as Record<string, unknown>)
+      }
+      // A sibling namespace sharing the scope values must never be pruned.
+      await double.seed(Object.values(defaultScope), 'not-an-observation', { text: 'other', confidence: 0 })
+      store = double.store
 
       sut = createOM({
         reflectorTargetCount: 5,
@@ -890,7 +873,52 @@ describe('ObservationalMemory', () => {
       const result = await sut.reflect()
 
       expect(result.before).toBe(10)
-      expect(store.delete).toHaveBeenCalled()
+      expect(double.del).toHaveBeenCalled()
+      for (const call of double.del.mock.calls) {
+        expect(call[0]).toEqual(observationsTuple)
+      }
+      expect(await double.records(Object.values(defaultScope))).toHaveLength(1)
+    })
+  })
+
+  describe('reflect() against a real MemoryService namespace (DZUPAGENT-AGENT-H-66)', () => {
+    it('prunes the lowest-confidence observations from the namespace MemoryService wrote', async () => {
+      const realStore = await createStore({ type: 'memory' })
+      const scope = { tenantId: 't1', agentId: 'a1' }
+      const realService = new MemoryService(realStore, [
+        { name: 'observations', scopeKeys: ['tenantId', 'agentId'] },
+      ])
+      // An unrelated namespace sharing the scope values must be untouched.
+      const otherService = new MemoryService(realStore, [
+        { name: 'facts', scopeKeys: ['tenantId', 'agentId'] },
+      ])
+      for (let i = 0; i < 8; i++) {
+        await realService.put('observations', scope, `obs-${i}`, {
+          text: `distinct observation number ${i} about topic ${String.fromCharCode(97 + i)}`,
+          confidence: (i + 1) / 10,
+        })
+      }
+      await otherService.put('facts', scope, 'fact-0', { text: 'keep me', confidence: 0.01 })
+
+      const om = new ObservationalMemory({
+        model: createMockModel(Array.from({ length: 50 }, () => JSON.stringify({ action: 'noop', reason: 'unique' }))),
+        memoryService: realService,
+        store: realStore,
+        namespace: 'observations',
+        scope,
+        observerDebounceMs: 0,
+        reflectorTargetCount: 5,
+        reflectorMaxLLMCalls: 0,
+      })
+
+      const result = await om.reflect()
+
+      expect(result.before).toBe(8)
+      expect(result.pruned).toBe(3)
+      expect(result.after).toBe(5)
+      const remaining = await realService.getKeyed('observations', scope)
+      expect(remaining.map(r => r.key).sort()).toEqual(['obs-3', 'obs-4', 'obs-5', 'obs-6', 'obs-7'])
+      expect(await otherService.get('facts', scope)).toHaveLength(1)
     })
   })
 
@@ -1040,18 +1068,59 @@ describe('ObservationalMemory', () => {
   // -----------------------------------------------------------------------
 
   describe('non-fatal error handling', () => {
-    it('should return empty extracted array when LLM extraction fails', async () => {
-      // ObservationExtractor.extract() catches LLM errors internally and returns []
-      // So runObserver completes but with no observations extracted
+    it('returns null, keeps the batch and emits a failure event when LLM extraction fails (ERR-M-93)', async () => {
       model = {
-        invoke: vi.fn().mockRejectedValue(new Error('LLM down')),
+        invoke: vi.fn()
+          .mockRejectedValueOnce(new TypeError('LLM down: secret-endpoint'))
+          .mockResolvedValue({ content: '[]' }),
       } as unknown as BaseChatModel & { invoke: ReturnType<typeof vi.fn> }
-      sut = createOM({ observerThreshold: 1 })
+      const events: ObservationLifecycleEvent[] = []
+      sut = createOM({
+        observerThreshold: 2,
+        onObservationLifecycleEvent: event => events.push(event),
+      })
 
-      const result = await sut.observe(makeMessages(2))
-      expect(result).not.toBeNull()
-      expect(result!.extracted).toEqual([])
-      expect(result!.skippedDuplicates).toBe(0)
+      const result = await sut.observe(textMessages('kept-a', 'kept-b'))
+      expect(result).toBeNull()
+      expect(sut.getStats().observerRuns).toBe(0)
+      expect(sut.getStats().lastObserverRun).toBeNull()
+      expect(memoryService.put).not.toHaveBeenCalled()
+      expect(events).toContainEqual(expect.objectContaining({
+        type: 'observation:observer:failed',
+        count: 2,
+        reason: 'extraction-failed:TypeError',
+      }))
+      expect(JSON.stringify(events)).not.toContain('secret-endpoint')
+
+      // The failed batch is retried together with the next messages.
+      const retry = await sut.observe(textMessages('next-c'))
+      expect(retry).not.toBeNull()
+      expect(extractionInput(model, 1)).toEqual(['kept-a', 'kept-b', 'next-c'])
+    })
+
+    it('does not retry a failed extraction before observerDebounceMs elapses (ERR-M-93)', async () => {
+      vi.useFakeTimers()
+      try {
+        model = {
+          invoke: vi.fn()
+            .mockRejectedValueOnce(new Error('LLM down'))
+            .mockResolvedValue({ content: '[]' }),
+        } as unknown as BaseChatModel & { invoke: ReturnType<typeof vi.fn> }
+        sut = createOM({ observerThreshold: 1, observerDebounceMs: 60_000 })
+
+        expect(await sut.observe(makeMessages(2))).toBeNull()
+        expect(model.invoke).toHaveBeenCalledTimes(1)
+
+        vi.advanceTimersByTime(30_000)
+        expect(await sut.observe(makeMessages(1))).toBeNull()
+        expect(model.invoke).toHaveBeenCalledTimes(1)
+
+        vi.advanceTimersByTime(30_001)
+        expect(await sut.observe(makeMessages(1))).not.toBeNull()
+        expect(model.invoke).toHaveBeenCalledTimes(2)
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('should return null when memoryService.get throws during observe', async () => {

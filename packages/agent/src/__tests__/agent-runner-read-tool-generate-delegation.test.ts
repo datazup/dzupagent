@@ -169,6 +169,22 @@ describe('R5P public single-read delegation', () => {
       expect(value.counts.tools).toBeLessThanOrEqual(1)
     })
 
+  it('keeps a thrown bridge error as cause and classifies an abort during dispatch', async () => {
+    const thrown = fixture({ mode: 'throw' })
+    const failure = await thrown.agent.generate([new HumanMessage('Read')], options('fallback-to-legacy')).catch((e: unknown) => e)
+    expect(failure).toMatchObject({ code: 'bridge-threw-with-unknown-outcome', replay: 'forbidden-unknown-outcome',
+      message: 'AgentRunner read-tool delegation failed: bridge-threw-with-unknown-outcome' })
+    expect((failure as Error).cause).toMatchObject({ message: 'untrusted provider detail' })
+
+    const controller = new AbortController()
+    const aborted = fixture({ mode: 'throw', onDispatch() { controller.abort() } })
+    const cancelled = await aborted.agent.generate([new HumanMessage('Read')],
+      { ...options('fallback-to-legacy'), signal: controller.signal }).catch((e: unknown) => e)
+    expect(cancelled).toMatchObject({ code: 'cancelled-during-dispatch', phase: 'outcome-unknown',
+      replay: 'forbidden-unknown-outcome', message: 'AgentRunner read-tool delegation failed: cancelled-during-dispatch' })
+    expect(aborted.counts.legacyModel).toBe(0)
+  })
+
   it('revokes a retained read port before pre-dispatch fallback', async () => {
     const value = fixture({ mode: 'late-port' })
     await value.agent.generate([new HumanMessage('Read')], options('fallback-to-legacy'))

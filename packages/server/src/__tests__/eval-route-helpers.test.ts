@@ -7,6 +7,8 @@ import {
   canCancelRun,
   canRetryRun,
 } from "../routes/evals.js";
+import { mapEvalRouteError } from "../routes/evals-helpers.js";
+import { ClientSafeError } from "../routes/route-error.js";
 
 // CODE-M-05: unit tests for the pure validators/mappers extracted out of the
 // inline route handlers in `createEvalRoutes`. These assert the exact behaviour
@@ -223,4 +225,34 @@ describe("canRetryRun", () => {
       expect(canRetryRun(status)).toBe(false);
     }
   );
+});
+
+describe("mapEvalRouteError (DZUPAGENT-ERR-H-68)", () => {
+  it("never forwards an ERR_MODULE_NOT_FOUND message and treats it as a 500", () => {
+    const err = Object.assign(
+      new Error("Cannot find module '/srv/app/node_modules/x/index.js'"),
+      { code: "ERR_MODULE_NOT_FOUND" },
+    );
+    const mapped = mapEvalRouteError(err);
+    expect(mapped.status).toBe(500);
+    expect(JSON.stringify(mapped.error)).not.toContain("/srv/app");
+  });
+
+  it("builds an unbranded 404 body from a fixed message", () => {
+    const err = Object.assign(new Error("row 42 missing in eval_runs at db-3"), {
+      code: "EVAL_RUN_NOT_FOUND",
+    });
+    const mapped = mapEvalRouteError(err);
+    expect(mapped.status).toBe(404);
+    expect(JSON.stringify(mapped.error)).not.toContain("db-3");
+  });
+
+  it("forwards the public message of a client-safe 404", () => {
+    const err = new ClientSafeError("Eval suite \"qa\" not found", {
+      code: "EVAL_SUITE_NOT_FOUND",
+    });
+    const mapped = mapEvalRouteError(err);
+    expect(mapped.status).toBe(404);
+    expect(mapped.error.message).toBe('Eval suite "qa" not found');
+  });
 });

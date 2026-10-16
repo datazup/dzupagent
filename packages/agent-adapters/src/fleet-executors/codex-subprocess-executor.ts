@@ -8,6 +8,7 @@ import type {
   WorkerSpec,
   WorkerEvent,
 } from "@dzupagent/agent-types/fleet";
+import { filterSensitiveEnvVars } from "../base/env-builder.js";
 import { parseCodexLine } from "./worker-event-parser.js";
 
 export interface CodexSubprocessOptions {
@@ -20,6 +21,11 @@ export interface CodexSubprocessOptions {
   approvalPolicy?: string;
   networkAccessEnabled?: boolean;
   codexConfig?: Record<string, unknown>;
+  /**
+   * Explicit environment for the child. Layered over the parent environment
+   * after sensitive variables (secrets, tokens, provider keys, DATABASE_URL)
+   * have been filtered out, so only what is named here is granted.
+   */
   env?: NodeJS.ProcessEnv;
   enableDynamicWorkflowSubprocessMode?: boolean;
 }
@@ -27,6 +33,18 @@ export interface CodexSubprocessOptions {
 const DEFAULT_CODEX_MODEL = "gpt-5.4-mini";
 const DEFAULT_CODEX_REASONING = "medium";
 const DEFAULT_CODEX_APPROVAL_POLICY = "never";
+
+/**
+ * The child is an LLM agent with shell tools: it inherits the parent
+ * environment only after {@link filterSensitiveEnvVars}, plus the caller's
+ * explicit `env`.
+ */
+function codexSubprocessEnv(explicit?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return {
+    ...filterSensitiveEnvVars({ ...process.env } as Record<string, string>),
+    ...explicit,
+  };
+}
 
 export class CodexSubprocessExecutor implements Executor {
   readonly id = "codex-subprocess";
@@ -53,7 +71,7 @@ export class CodexSubprocessExecutor implements Executor {
       args,
       {
         cwd: spec.repoPath,
-        env: { ...process.env, ...this.options.env },
+        env: codexSubprocessEnv(this.options.env),
         stdio: ["pipe", "pipe", "pipe"],
       }
     );

@@ -153,11 +153,12 @@ export interface DzupAgentConfig extends MemoryConfigSlice, ObservabilityConfigS
    *    `wrapToolCall` result transforms) the app wins.
    *
    *    ⚠️ ONE seam is first-wins and therefore inverts:
-   *    `AgentMiddlewareRuntime.invokeModel` picks the FIRST middleware that
-   *    declares `wrapModelCall` (`.find(...)`), so a plugin-supplied
-   *    `wrapModelCall` pre-empts one supplied here. That asymmetry is
-   *    pre-existing behaviour of the middleware runtime, not something this
-   *    field introduces; it is pinned by a test rather than silently inherited.
+   *    `AgentMiddlewareRuntime.invokeModel` composes every `wrapModelCall`
+   *    with the FIRST one outermost, so a plugin-supplied `wrapModelCall`
+   *    wraps one supplied here and can pre-empt it by not calling
+   *    `model.invoke`. That asymmetry is behaviour of the middleware runtime,
+   *    not something this field introduces; it is pinned by a test rather
+   *    than silently inherited.
    *
    * ## Timing
    *

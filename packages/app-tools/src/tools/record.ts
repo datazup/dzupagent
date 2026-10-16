@@ -16,7 +16,9 @@ import type {
  *
  * When `RecordToolOptions.recordsDir` is provided, `record.append` also writes
  * each entry as a JSONL line to `{recordsDir}/{namespace}.jsonl` for durable
- * persistence. The in-memory store is always updated regardless.
+ * persistence. The in-memory store is always updated regardless. In that mode
+ * the namespace must match `^[A-Za-z0-9_-]{1,64}$` so it cannot escape
+ * `recordsDir`.
  */
 
 export interface RecordToolOptions {
@@ -40,6 +42,26 @@ interface AppendInput {
 interface AppendOutput {
   namespace: string;
   count: number;
+}
+
+/**
+ * Namespaces become file names under `recordsDir`, so only a conservative
+ * character set is accepted there (no separators, dots or traversal).
+ */
+const FILE_NAMESPACE_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+function resolveRecordFile(recordsDir: string, ns: string): string {
+  if (!FILE_NAMESPACE_PATTERN.test(ns)) {
+    throw new Error(
+      "record.append: namespace must match /^[A-Za-z0-9_-]{1,64}$/ when recordsDir is set",
+    );
+  }
+  const root = path.resolve(recordsDir);
+  const filePath = path.resolve(root, `${ns}.jsonl`);
+  if (path.dirname(filePath) !== root) {
+    throw new Error("record.append refused to write outside recordsDir");
+  }
+  return filePath;
 }
 
 function buildRecordAppend(
@@ -88,12 +110,14 @@ function buildRecordAppend(
     definition,
     async execute(input: AppendInput): Promise<AppendOutput> {
       const ns = input.namespace ?? "default";
+      // Validate before mutating the in-memory store so a rejected namespace
+      // leaves no partial state behind.
+      const filePath = recordsDir ? resolveRecordFile(recordsDir, ns) : undefined;
       const bucket = store.get(ns) ?? [];
       bucket.push(input.entry);
       store.set(ns, bucket);
 
-      if (recordsDir) {
-        const filePath = path.join(recordsDir, `${ns}.jsonl`);
+      if (recordsDir && filePath) {
         const line =
           JSON.stringify({ entry: input.entry, ts: new Date().toISOString() }) +
           "\n";

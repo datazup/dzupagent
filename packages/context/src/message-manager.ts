@@ -19,8 +19,13 @@ import {
 } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { TokenCounter } from './token-lifecycle.js'
-import { CharEstimateCounter } from './char-estimate-counter.js'
+import {
+  DEFAULT_TOKEN_COUNTER,
+  estimateTokens,
+  resolveTokenCounter,
+} from './message-token-estimate.js'
 import { resolveModelId } from './prompt-cache-injector.js'
+import { truncatePreservingFences } from './fence-truncation.js'
 
 export interface SummaryProfile {
   /** Stable prompt/validation contract identifier. */
@@ -99,9 +104,9 @@ export interface MessageManagerConfig {
    */
   charsPerToken?: number
   /**
-   * Pluggable token counter. Defaults to {@link CharEstimateCounter}
-   * (chars/4 heuristic). Swap in {@link TiktokenCounter} for precise
-   * OpenAI-compatible counts.
+   * Pluggable token counter. When unset, a known model id (`summaryModelId`,
+   * or the summarization model) selects {@link TiktokenCounter}; otherwise
+   * (or when `charsPerToken` is overridden) the chars/N heuristic is used.
    */
   tokenCounter?: TokenCounter
   /** Number of recent messages whose tool results are preserved (default 6) */
@@ -167,21 +172,6 @@ const DEFAULTS: Omit<
   preserveRecentToolResults: 6,
   prunedToolResultMaxChars: 120,
   summaryValidation: 'off',
-}
-
-/** Shared default. Constructed once so callers that don't inject a counter
- *  do not pay a per-call allocation cost. */
-const DEFAULT_TOKEN_COUNTER: TokenCounter = new CharEstimateCounter()
-
-/**
- * Resolve the effective token counter from a user-supplied config, with a
- * single fallback to the shared default. When the caller leaves
- * `tokenCounter` unset but overrides `charsPerToken`, the default counter
- * is still used and the per-call estimator falls through to the `/
- * charsPerToken` path so the historical behaviour is preserved.
- */
-function resolveTokenCounter(config?: MessageManagerConfig): TokenCounter {
-  return config?.tokenCounter ?? DEFAULT_TOKEN_COUNTER
 }
 
 // ---------- Structured summary template --------------------------------------
@@ -276,25 +266,6 @@ function emitContextEvent(
 }
 
 /**
- * Local token-estimate helper. When the caller has wired a
- * {@link TokenCounter} into `MessageManagerConfig.tokenCounter`, this
- * delegates to it (passing `model` when available). Otherwise it falls back
- * to the legacy `length / charsPerToken` shape so tests and callers that
- * tune only `charsPerToken` keep working unchanged.
- */
-function estimateTokens(
-  text: string,
-  charsPerToken: number,
-  counter?: TokenCounter,
-  model?: string,
-): number {
-  if (counter && counter !== DEFAULT_TOKEN_COUNTER) {
-    return counter.count(text, model)
-  }
-  return Math.ceil(text.length / charsPerToken)
-}
-
-/**
  * Check if a message is a ToolMessage (tool result).
  */
 function isToolMessage(m: BaseMessage): m is ToolMessage {
@@ -345,9 +316,7 @@ export function pruneToolResults(
     if (!indicesToPrune.has(i) || !isToolMessage(m)) return m
 
     const content = getMessageContent(m)
-    const preview = content.length > maxChars
-      ? content.slice(0, maxChars) + '...[pruned]'
-      : content
+    const preview = truncatePreservingFences(content, maxChars, '...[pruned]')
 
     const fields: { content: string; tool_call_id: string; name?: string } = {
       content: `[Tool result pruned] ${preview}`,
@@ -470,12 +439,13 @@ export function shouldSummarize(
 
   if (messages.length > cfg.maxMessages) return true
 
-  // When an explicit tokenCounter is wired, use it (accurate per-message
-  // count); otherwise sum chars and divide (legacy behaviour).
-  const counter = resolveTokenCounter(config)
-  if (config?.tokenCounter && counter !== DEFAULT_TOKEN_COUNTER) {
+  // A wired or model-selected counter counts per message; otherwise sum
+  // chars and divide (legacy behaviour).
+  const modelId = config?.summaryModelId?.trim()
+  const counter = resolveTokenCounter(config, modelId)
+  if (counter !== DEFAULT_TOKEN_COUNTER) {
     const totalTokens = messages.reduce(
-      (sum, m) => sum + counter.count(getMessageContent(m)),
+      (sum, m) => sum + counter.count(getMessageContent(m), modelId),
       0,
     )
     return totalTokens > cfg.maxMessageTokens
@@ -548,16 +518,13 @@ export async function summarizeAndTrim(
     .map(m => {
       const role = m._getType()
       const content = getMessageContent(m)
-      return `[${role}]: ${content.slice(0, 500)}`
+      return `[${role}]: ${truncatePreservingFences(content, 500)}`
     })
     .join('\n')
 
   // Scale summary budget: ~20% of the old content's token estimate
-  const oldTokens = estimateTokens(
-    formattedOld,
-    cfg.charsPerToken,
-    resolveTokenCounter(config),
-  )
+  const counter = resolveTokenCounter(config, modelId)
+  const oldTokens = estimateTokens(formattedOld, cfg.charsPerToken, counter, modelId)
   const summaryBudget = Math.min(Math.max(Math.round(oldTokens * 0.2), 200), 2000)
 
   const userPrompt = existingSummary

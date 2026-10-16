@@ -54,9 +54,11 @@ const tally = await recordQuorumVote(store, policy, 'run-1', 'deploy', {
   once the tally is `granted` or `rejected`.
 - A blank `approverId` or unknown `decision` throws `InvalidQuorumVoteError`. The in-memory
   store deep-copies `response`, so it must be structured-cloneable.
-- Every adapter must pass `runQuorumVoteStoreContract` in
-  `src/__tests__/quorum-vote-store-contract.ts`. A database adapter needs a unique
-  `(runId, approvalId, approverId)` constraint for first-vote-wins.
+- Every adapter must pass `runQuorumVoteStoreContract`, published on
+  `@dzupagent/hitl-kit/testing`. Pass your runner's `describe` and `it`:
+  `runQuorumVoteStoreContract("MyStore", () => makeStore(), { describe, it })`.
+  The suite includes a concurrent first-vote-wins case, so a database adapter needs
+  a unique `(runId, approvalId, approverId)` constraint.
 
 ### Escalation chain
 

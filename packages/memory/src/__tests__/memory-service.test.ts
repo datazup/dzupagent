@@ -3,33 +3,19 @@ import { MemoryService } from '../memory-service.js'
 import type { BaseStore } from '@langchain/langgraph'
 import type { NamespaceConfig, SemanticStoreAdapter } from '../memory-types.js'
 import type { ReferenceTracker } from '../provenance/reference-tracker.js'
+import { createStoreDouble } from './helpers/store-double.js'
 
-function makeStore(): {
-  store: BaseStore
-  data: Map<string, Record<string, unknown>>
-  put: ReturnType<typeof vi.fn>
-  search: ReturnType<typeof vi.fn>
-  get: ReturnType<typeof vi.fn>
-  del: ReturnType<typeof vi.fn>
-} {
-  const data = new Map<string, Record<string, unknown>>()
-  const put = vi.fn(async (_ns: string[], key: string, value: Record<string, unknown>) => {
-    data.set(key, value)
-  })
-  const search = vi.fn(async (_ns: string[], opts?: { query?: string; limit?: number }) => {
-    const items = [...data.entries()].map(([key, value]) => ({ key, value }))
-    return opts?.limit !== undefined ? items.slice(0, opts.limit) : items
-  })
-  const get = vi.fn(async (_ns: string[], key: string) => {
-    const value = data.get(key)
-    return value ? { key, value } : undefined
-  })
-  const del = vi.fn(async (_ns: string[], key: string) => {
-    data.delete(key)
-  })
-  const store = { put, search, get, delete: del } as unknown as BaseStore
-  return { store, data, put, search, get, del }
+/**
+ * Backed by the shared InMemoryStore double (DZUPAGENT-TEST-H-09): `search`
+ * honours the namespace prefix and LangGraph's default limit of 10, so a read
+ * that forgets to page or targets the wrong namespace fails here.
+ */
+function makeStore() {
+  return createStoreDouble()
 }
+
+const DECISIONS_T1_P1 = ['decisions', 't1', 'p1']
+const OBSERVATIONS_T1 = ['observations', 't1']
 
 function makeFailingStore(): BaseStore {
   return {
@@ -182,8 +168,8 @@ describe('MemoryService', () => {
 
   describe('get', () => {
     it('returns single record when key provided', async () => {
-      const { store, data } = makeStore()
-      data.set('k1', { text: 'v1' })
+      const { store, seed } = makeStore()
+      await seed(DECISIONS_T1_P1, 'k1', { text: 'v1' })
       const svc = new MemoryService(store, nsConfigs)
       const result = await svc.get('decisions', { tenantId: 't1', projectId: 'p1' }, 'k1')
       expect(result).toEqual([{ text: 'v1' }])
@@ -197,12 +183,31 @@ describe('MemoryService', () => {
     })
 
     it('lists all items when no key provided', async () => {
-      const { store, data } = makeStore()
-      data.set('a', { text: 'A' })
-      data.set('b', { text: 'B' })
+      const { store, seed } = makeStore()
+      await seed(DECISIONS_T1_P1, 'a', { text: 'A' })
+      await seed(DECISIONS_T1_P1, 'b', { text: 'B' })
       const svc = new MemoryService(store, nsConfigs)
       const result = await svc.get('decisions', { tenantId: 't1', projectId: 'p1' })
       expect(result).toHaveLength(2)
+    })
+
+    it('lists every record past the store default page of 10 (DZUPAGENT-AGENT-H-40)', async () => {
+      const { store, seed } = makeStore()
+      for (let i = 0; i < 25; i++) {
+        await seed(DECISIONS_T1_P1, `k${String(i).padStart(2, '0')}`, { text: `decision ${i}` })
+      }
+      const svc = new MemoryService(store, nsConfigs)
+      const result = await svc.get('decisions', { tenantId: 't1', projectId: 'p1' })
+      expect(result).toHaveLength(25)
+    })
+
+    it('lists only the requested scope, never a sibling tenant', async () => {
+      const { store, seed } = makeStore()
+      await seed(DECISIONS_T1_P1, 'mine', { text: 'mine' })
+      await seed(['decisions', 't2', 'p1'], 'theirs', { text: 'theirs' })
+      const svc = new MemoryService(store, nsConfigs)
+      const result = await svc.get('decisions', { tenantId: 't1', projectId: 'p1' })
+      expect(result).toEqual([{ text: 'mine' }])
     })
 
     it('returns [] when store throws', async () => {
@@ -229,11 +234,12 @@ describe('MemoryService', () => {
     })
 
     it('returns true on successful delete', async () => {
-      const { store, data } = makeStore()
-      data.set('k1', { text: 'v' })
+      const { store, seed, records } = makeStore()
+      await seed(OBSERVATIONS_T1, 'k1', { text: 'v' })
       const svc = new MemoryService(store, nsConfigs)
       const r = await svc.delete('observations', { tenantId: 't1' }, 'k1')
       expect(r).toBe(true)
+      expect(await records(OBSERVATIONS_T1)).toEqual([])
     })
 
     it('returns false when underlying delete throws', async () => {
@@ -245,8 +251,8 @@ describe('MemoryService', () => {
 
   describe('search', () => {
     it('falls back to get() when namespace not searchable', async () => {
-      const { store, data } = makeStore()
-      data.set('k1', { text: 'decision' })
+      const { store, seed } = makeStore()
+      await seed(DECISIONS_T1_P1, 'k1', { text: 'decision' })
       const svc = new MemoryService(store, nsConfigs)
       const results = await svc.search(
         'decisions',
@@ -257,8 +263,8 @@ describe('MemoryService', () => {
     })
 
     it('preserves read context when non-searchable search falls back to get()', async () => {
-      const { store, data } = makeStore()
-      data.set('k1', { id: 'decision-1', text: 'decision' })
+      const { store, seed } = makeStore()
+      await seed(DECISIONS_T1_P1, 'k1', { id: 'decision-1', text: 'decision' })
       const tracker = {
         trackReference: vi.fn(async () => undefined),
       }
@@ -286,9 +292,9 @@ describe('MemoryService', () => {
     })
 
     it('returns decay-scored results (no semantic store)', async () => {
-      const { store, data } = makeStore()
+      const { store, seed } = makeStore()
       const now = Date.now()
-      data.set('a', {
+      await seed(OBSERVATIONS_T1, 'a', {
         text: 'old',
         _decay: {
           strength: 0.1, accessCount: 0,
@@ -297,7 +303,7 @@ describe('MemoryService', () => {
           halfLifeMs: 1000,
         },
       })
-      data.set('b', {
+      await seed(OBSERVATIONS_T1, 'b', {
         text: 'new',
         _decay: {
           strength: 1, accessCount: 0, lastAccessedAt: now,
@@ -317,8 +323,8 @@ describe('MemoryService', () => {
     })
 
     it('applies RRF fusion when semantic store provided', async () => {
-      const { store, data } = makeStore()
-      data.set('k1', { text: 'keyword only' })
+      const { store, seed } = makeStore()
+      await seed(OBSERVATIONS_T1, 'k1', { text: 'keyword only' })
       const sem: SemanticStoreAdapter = {
         search: vi.fn().mockResolvedValue([
           { id: 'k2', text: 'vector only', score: 0.9, metadata: {} },
@@ -334,8 +340,8 @@ describe('MemoryService', () => {
     })
 
     it('gracefully handles semantic-store vector failures (fuse fallback)', async () => {
-      const { store, data } = makeStore()
-      data.set('k1', { text: 'value' })
+      const { store, seed } = makeStore()
+      await seed(OBSERVATIONS_T1, 'k1', { text: 'value' })
       const sem: SemanticStoreAdapter = {
         search: vi.fn().mockRejectedValue(new Error('boom')),
         upsert: vi.fn().mockResolvedValue(undefined),

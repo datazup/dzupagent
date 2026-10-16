@@ -23,6 +23,29 @@ export interface WebSocketLike {
   readonly readyState: number
 }
 
+/**
+ * Adapt a standard (global) WebSocket to {@link WebSocketLike}. The standard
+ * API already provides every member; the adapter only bridges the narrower
+ * handler signatures so no structural cast is needed at the call site.
+ */
+function adaptGlobalWebSocket(socket: WebSocket): WebSocketLike {
+  return {
+    send: (data: string) => socket.send(data),
+    addEventListener: (event: 'message' | 'close', handler: (ev: { data: unknown }) => void) => {
+      if (event === 'message') socket.addEventListener('message', handler)
+      else socket.addEventListener('close', handler as () => void)
+    },
+    removeEventListener: (event: 'message' | 'close', handler: (ev: { data: unknown }) => void) => {
+      if (event === 'message') socket.removeEventListener('message', handler)
+      else socket.removeEventListener('close', handler as () => void)
+    },
+    close: () => socket.close(),
+    get readyState() {
+      return socket.readyState
+    },
+  }
+}
+
 /** WebSocket readyState constants. */
 const WS_OPEN = 1
 
@@ -46,11 +69,11 @@ export class WebSocketSyncTransport implements SyncTransport {
   static fromUrl(url: string): Promise<WebSocketSyncTransport> {
     return new Promise((resolve, reject) => {
       // Use global WebSocket (available in modern Node.js and browsers)
-      const ws = new WebSocket(url) as unknown as WebSocketLike
+      const socket = new WebSocket(url)
 
       const onOpen = (): void => {
         cleanup()
-        resolve(new WebSocketSyncTransport(ws))
+        resolve(new WebSocketSyncTransport(adaptGlobalWebSocket(socket)))
       }
 
       const onError = (): void => {
@@ -59,13 +82,12 @@ export class WebSocketSyncTransport implements SyncTransport {
       }
 
       const cleanup = (): void => {
-        ;(ws as unknown as EventTarget).removeEventListener('open', onOpen)
-        ;(ws as unknown as EventTarget).removeEventListener('error', onError)
+        socket.removeEventListener('open', onOpen)
+        socket.removeEventListener('error', onError)
       }
 
-      // Use addEventListener with type casting for open/error
-      ;(ws as unknown as EventTarget).addEventListener('open', onOpen)
-      ;(ws as unknown as EventTarget).addEventListener('error', onError)
+      socket.addEventListener('open', onOpen)
+      socket.addEventListener('error', onError)
     })
   }
 

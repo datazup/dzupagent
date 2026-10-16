@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 
 import { filterSensitiveEnvVars } from '../base/base-cli-adapter.js'
-import { buildSpawnEnv } from '../base/env-builder.js'
+import { buildEnv, buildSpawnEnv } from '../base/env-builder.js'
 import { ADAPTER_TRACE_ENV_OPTION } from '../observability/adapter-tracer.js'
 
 describe('Environment Variable Filtering', () => {
@@ -94,6 +94,32 @@ describe('Environment Variable Filtering', () => {
     const original = { ...env }
     filterSensitiveEnvVars(env)
     expect(env).toEqual(original)
+  })
+
+  it('filters API key, access key and credentials vars by default', () => {
+    const result = filterSensitiveEnvVars({
+      PATH: '/usr/bin',
+      FOO_API_KEY: 'k1',
+      OPENAI_APIKEY: 'k2',
+      AWS_ACCESS_KEY_ID: 'AKIA',
+      GOOGLE_APPLICATION_CREDENTIALS: '/tmp/creds.json',
+      API_KEY_HEADER_NAME: 'x-api-key',
+    })
+    expect(result).toEqual({ PATH: '/usr/bin' })
+  })
+
+  it('buildEnv drops an inherited FOO_API_KEY unless it is allow-listed', () => {
+    const previous = process.env['FOO_API_KEY']
+    process.env['FOO_API_KEY'] = 'parent-key'
+    try {
+      expect(buildEnv({})).not.toHaveProperty('FOO_API_KEY')
+      expect(buildEnv({ env: { FOO_API_KEY: 'override' } })).not.toHaveProperty('FOO_API_KEY')
+      expect(buildEnv({ envFilter: { allowedVars: ['FOO_API_KEY'] } }))
+        .toHaveProperty('FOO_API_KEY', 'parent-key')
+    } finally {
+      if (previous === undefined) delete process.env['FOO_API_KEY']
+      else process.env['FOO_API_KEY'] = previous
+    }
   })
 
   it('re-filters the final environment after per-run trace overlays', () => {

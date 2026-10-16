@@ -1,10 +1,9 @@
 import { expect, test } from 'vitest'
 import { AIMessage, ToolMessage, HumanMessage, type BaseMessage } from '@langchain/core/messages'
-import { compactCompletedToolResults } from '../tool-results/compact-completed-tool-results.js'
-import { cloneCompactedToolMessage, contentText, measureMessages, safeMessageType, safeToolCalls, COMPACTED_CONTENT } from '../tool-results/compaction-internals.js'
-import type { CompletedToolCompactionProfileV1 } from '../tool-results/types.js'
-import { __internals } from '../tiktoken-counter.js'
-import { applyCacheBreakpoints } from '../prompt-cache.js'
+import { compactCompletedToolResults } from '../compact-completed-tool-results.js'
+import { cloneCompactedToolMessage, contentText, measureMessages, safeMessageType, safeToolCalls, COMPACTED_CONTENT } from '../compaction-internals.js'
+import type { CompletedToolCompactionProfileV1 } from '../types.js'
+import { __internals } from '../../tiktoken-counter.js'
 
 const profile: CompletedToolCompactionProfileV1 = { schema: 'datazup.context.completed-tool-compaction-profile/v1', preserveRecentCompletedPairs: 0, minimumResultTokens: 1, maxCompactedResults: 1, measurement: 'allow-heuristic' }
 test('malformed profiles fail closed without touching transcript or invoking accessors', () => {
@@ -66,18 +65,6 @@ test('untrusted transcript methods and changing message accessors cannot produce
   const compacted = compactCompletedToolResults([call(), tool(), secondCall, secondTool], { ...profile, maxCompactedResults: 2, targetReclaimedTokens: 1 })
   expect(compacted.compactedToolCallIds).toEqual(['call'])
 })
-test('cache breakpoints preserve mixed provider content without treating non-text blocks as stable text', () => {
-  const mixed = new HumanMessage('fixture')
-  Object.assign(mixed, { content: ['text', { type: 'text', text: 1 }, null, { type: 'image_url', image_url: 'fixture' }] })
-  const output = applyCacheBreakpoints([mixed])
-  expect(output).toHaveLength(1)
-  expect(output[0]).not.toBe(mixed)
-  expect(mixed.content).toEqual(['text', { type: 'text', text: 1 }, null, { type: 'image_url', image_url: 'fixture' }])
-  const malformed = Object.assign(new HumanMessage('fixture'), { content: null })
-  expect(applyCacheBreakpoints([malformed])[0]!.content).toBeNull()
-  expect(applyCacheBreakpoints([undefined, new HumanMessage('fixture')] as unknown as BaseMessage[])).toHaveLength(1)
-})
-
 test('compaction cloning refuses unsafe values and retains supported detached artifact types', () => {
   const artifact = { map: new Map([['key', { value: 1 }]]), set: new Set(['value']), date: new Date(0), regexp: /fixture/, buffer: new Uint8Array([1]), bigint: 1n, nil: null }
   const original = new ToolMessage({ content: 'long output', tool_call_id: 'call', artifact })

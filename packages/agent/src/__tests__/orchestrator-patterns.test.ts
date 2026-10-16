@@ -140,15 +140,16 @@ describe("AgentOrchestrator.sequential", () => {
       model: createFailModel("middle-agent-exploded"),
       instructions: "You fail",
     });
-    const agentC = createAgent("c", [{ content: "never-reached" }]);
+    const modelC = createMockModel([{ content: "never-reached" }]);
+    const agentC = createAgentWithModel("c", "never reached", modelC);
 
     await expect(
       AgentOrchestrator.sequential([agentA, failAgent, agentC], "start"),
     ).rejects.toThrow("middle-agent-exploded");
 
-    // Agent C should never have been called — the error from the middle agent
-    // aborts the chain before C is reached.
-    // NOTE: no assertion exists here; see report.
+    // Agent C is never called — the error from the middle agent aborts the
+    // chain before C is reached.
+    expect(modelC.invoke).not.toHaveBeenCalled();
   });
 
   it("preserves content fidelity through the chain", async () => {

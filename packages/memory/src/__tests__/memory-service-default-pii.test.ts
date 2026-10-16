@@ -82,4 +82,63 @@ describe('MemoryService default PII redaction (DZM-P2b)', () => {
     expect(stored).toMatchObject(value)
     expect(stored).not.toHaveProperty('text')
   })
+
+  it('redacts nested leaves and the indexed text of a structured value in a searchable namespace (AGENT-M-51)', async () => {
+    const { store, put } = makeStore()
+    const upsert = vi.fn(async () => {})
+    const semanticStore = { ensureCollection: vi.fn(async () => {}), upsert }
+    const svc = new MemoryService(
+      store,
+      [{ name: 'facts', scopeKeys: ['tenantId'], searchable: true }],
+      { semanticStore: semanticStore as never },
+    )
+    const digest = 'a1b2c3d4'.repeat(8)
+    const runId = '550e8400-e29b-41d4-a716-446655440000'
+    const result = await svc.put('facts', scope, 'k', {
+      contact: { email: 'jane.doe@example.com' },
+      notes: ['call jane.doe@example.com'],
+      createdAt: 1696687200000,
+      runId,
+      evidence: [{ contentDigest: digest, ref: `message:${runId}`, label: `sha256:${digest}` }],
+    })
+    expect(result).toEqual({ status: 'written', piiRedacted: true })
+    const stored = await storedValue(store, put)
+    expect(JSON.stringify(stored)).not.toContain('jane.doe@example.com')
+    // numbers, ids, digests and references are never rewritten
+    expect(stored).toMatchObject({
+      createdAt: 1696687200000,
+      runId,
+      evidence: [{ contentDigest: digest, ref: `message:${runId}`, label: `sha256:${digest}` }],
+    })
+    expect(stored['text']).toEqual(expect.stringContaining('[REDACTED-EMAIL]'))
+    await vi.waitFor(() => expect(upsert).toHaveBeenCalledTimes(1))
+    const indexed = JSON.stringify(upsert.mock.calls[0])
+    expect(indexed).not.toContain('jane.doe@example.com')
+    expect(indexed).toContain('[REDACTED-EMAIL]')
+  })
+
+  it('refuses the write and emits memory:pii_redaction_failed when the detector throws (ERR-H-50)', async () => {
+    const { store, put } = makeStore()
+    const emit = vi.fn()
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const detectPII = vi.fn(() => {
+      throw new TypeError('scanner crashed on jane.doe@example.com')
+    })
+    const svc = new MemoryService(store, nsConfigs, { detectPII, eventBus: { emit } })
+    const result = await svc.put('observations', scope, 'k', { text: 'mail jane.doe@example.com' })
+    errorSpy.mockRestore()
+
+    expect(result).toEqual({ status: 'rejected', reason: 'pii_detection_failed', threats: [] })
+    expect(put).not.toHaveBeenCalled()
+    expect(await store.search(['observations'])).toEqual([])
+    expect(emit).toHaveBeenCalledWith({
+      type: 'memory:pii_redaction_failed',
+      namespace: 'observations',
+      key: 'k',
+      errorClass: 'TypeError',
+      agentId: 'unknown',
+    })
+    // the event never carries the raw message (it may echo the scanned text)
+    expect(JSON.stringify(emit.mock.calls)).not.toContain('jane.doe@example.com')
+  })
 })

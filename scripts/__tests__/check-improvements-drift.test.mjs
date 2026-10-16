@@ -2,9 +2,13 @@ import assert from 'node:assert/strict'
 import { mkdirSync, rmSync, writeFileSync, mkdtempSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { spawnSync } from 'node:child_process'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import { evaluateImprovementDrift } from '../check-improvements-drift.mjs'
+
+const SCRIPT_PATH = fileURLToPath(new URL('../check-improvements-drift.mjs', import.meta.url))
 
 function writeText(root, pathname, content) {
   const filePath = join(root, pathname)
@@ -109,12 +113,16 @@ test('treats unknown maturity statuses as actionable findings', () => {
   }
 })
 
-test('skips improvement-doc checks when archived docs are absent', () => {
+test('absent source documents are findings that name each path (DZUPAGENT-TEST-C-16)', () => {
   const root = mkdtempSync(join(tmpdir(), 'dzupagent-drift-test-'))
   try {
     writeText(root, 'packages/agent-adapters/src/qwen/qwen-adapter.ts', '// TODO: old marker\n')
     writeText(root, 'packages/agent-adapters/src/crush/crush-adapter.ts', '// TODO: old marker\n')
     writeText(root, 'scripts/check-improvements-drift.mjs', '// present\n')
+    // An allowlist entry must not be able to hide a missing document.
+    writeText(root, 'scripts/check-improvements-drift.allowlist.json', JSON.stringify({
+      ignoredFindings: [{ id: 'source-doc-missing' }],
+    }))
 
     const report = evaluateImprovementDrift({
       root,
@@ -123,7 +131,56 @@ test('skips improvement-doc checks when archived docs are absent', () => {
       },
     })
 
-    assert.equal(report.activeFindings.length, 0)
+    assert.notEqual(report.activeFindings.length, 0)
+    assert.deepEqual(
+      report.activeFindings.map((finding) => [finding.id, finding.path]),
+      [
+        ['source-doc-missing', '.docs/improvements/CORE_AGENT_ADAPTERS_IMPROVEMENTS.md'],
+        ['source-doc-missing', '.docs/improvements/CORE_AGENT_ADAPTERS_IMPLEMENTATION_PLAN.md'],
+        ['source-doc-missing', '.docs/improvements/TEST.md'],
+        ['source-doc-missing', '.docs/improvements/CONSOLIDATED_IMPLEMENTATION_TRACKER.md'],
+      ],
+    )
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a present document that lost the checked row is a finding, not a silent skip', () => {
+  const root = mkdtempSync(join(tmpdir(), 'dzupagent-drift-test-'))
+  try {
+    writeBaseDocs(root, {
+      qwenStatus: 'done',
+      crushStatus: 'done',
+      planStatus: 'done',
+      qwenSource: '// clean qwen source\n',
+      crushSource: '// clean crush source\n',
+    })
+    writeText(root, 'improvements/TEST.md', '# TEST\n\nNo table any more.\n')
+
+    const report = evaluateImprovementDrift({
+      root,
+      runStrictInventoryGateImpl: () => ({ passed: true, output: '' }),
+    })
+
+    assert.deepEqual(
+      report.activeFindings.map((finding) => [finding.id, finding.path]),
+      [['source-row-missing', '.docs/improvements/TEST.md']],
+    )
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the gate exits 1 at a root with no source documents', () => {
+  const root = mkdtempSync(join(tmpdir(), 'dzupagent-drift-test-'))
+  try {
+    writeText(root, 'packages/agent-adapters/src/qwen/qwen-adapter.ts', '// clean\n')
+    writeText(root, 'packages/agent-adapters/src/crush/crush-adapter.ts', '// clean\n')
+    writeText(root, 'scripts/check-runtime-test-inventory.mjs', '// unused\n')
+    const run = spawnSync(process.execPath, [SCRIPT_PATH], { cwd: root, encoding: 'utf8' })
+    assert.equal(run.status, 1, run.stdout + run.stderr)
+    assert.match(run.stdout, /\[source-doc-missing\] Source document \.docs\/improvements\/TEST\.md is missing/)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

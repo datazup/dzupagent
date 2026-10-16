@@ -517,7 +517,9 @@ describe("DialogueScheduler", () => {
       "selected path",
       "merge point",
     ]);
-    expect(result.stopReason).toBe("loop=maxIterations");
+    // The fake critic answers the review turn with prose, so the fallback
+    // `continue` is marked on the stopReason (DZUPAGENT-ERR-C-24).
+    expect(result.stopReason).toBe("loop=maxIterations;decision-parse=unparseable");
     expect(result.turnsCompleted).toBe(5);
     expect(result.traceEmits).toBe(10);
     assertAllFakesOnly(ports);

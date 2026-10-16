@@ -152,3 +152,37 @@ describe('RunStorePendingContactStore', () => {
     expect(recovered.contact.pauseLeaseId).toBe('claim-recovery')
   })
 })
+
+describe('resume-token key rotation', () => {
+  const context = { tenantId: 'tenant', runId: 'run', contactId: 'contact' }
+  const key = new Uint8Array(32).fill(1)
+  const previous = new Uint8Array(32).fill(2)
+  const legacy = (): AesGcmResumeTokenProtector => new AesGcmResumeTokenProtector(previous)
+  const rotating = (): KeyringResumeTokenProtector => new KeyringResumeTokenProtector({ current: { id: 'current', key }, previous: [{ id: 'previous', key: previous }] })
+
+  it('rejects invalid keys, key ids and keyrings at construction', () => {
+    expect(() => new AesGcmResumeTokenProtector(new Uint8Array(31))).toThrow(/KEY_INVALID/)
+    for (const current of [{ id: '', key }, { id: 'bad.id', key }, { id: 'valid', key: new Uint8Array(31) }]) expect(() => new KeyringResumeTokenProtector({ current })).toThrow()
+    expect(() => new KeyringResumeTokenProtector({ current: { id: 'one', key }, previous: [{ id: 'one', key }] })).toThrow(/DUPLICATE/)
+    expect(() => new KeyringResumeTokenProtector({ current: { id: 'one', key }, previous: Array.from({ length: 9 }, (_, i) => ({ id: `key${i}`, key })) })).toThrow(/TOO_LARGE/)
+  })
+
+  it('round-trips current tokens and keeps legacy tokens decrypt-only', async () => {
+    const ring = rotating()
+    expect(await ring.unprotect(await ring.protect('fixture-token', context), context)).toBe('fixture-token')
+    expect(await ring.unprotect(await legacy().protect('legacy-token', context), context)).toBe('legacy-token')
+  })
+
+  it('rejects malformed keyring envelopes, missing keys and a foreign context', async () => {
+    const ring = rotating()
+    const ciphertext = await ring.protect('fixture-token', context)
+    for (const parts of [[], ['foreign', 'current', 'iv', 'tag', 'body'], ['aes-256-gcm-keyring-v1', '', 'iv', 'tag', 'body'], ['aes-256-gcm-keyring-v1', 'current', '', 'tag', 'body'], ['aes-256-gcm-keyring-v1', 'current', 'iv', '', 'body'], ['aes-256-gcm-keyring-v1', 'current', 'iv', 'tag', ''], ciphertext.split('.').concat('extra'), ['aes-256-gcm-keyring-v1', 'missing', 'iv', 'tag', 'body']]) await expect(ring.unprotect(parts.join('.'), context)).rejects.toThrow()
+    await expect(ring.unprotect(ciphertext, { ...context, tenantId: 'foreign' })).rejects.toThrow(/DECRYPTION_FAILED/)
+    await expect(ring.unprotect(await legacy().protect('legacy-token', { ...context, contactId: 'foreign' }), context)).rejects.toThrow(/DECRYPTION_FAILED/)
+  })
+
+  it('rejects malformed legacy envelopes', async () => {
+    const protector = legacy()
+    for (const ciphertext of ['', 'foreign.iv.tag.body', 'aes-256-gcm-v1..tag.body', 'aes-256-gcm-v1.iv..body', 'aes-256-gcm-v1.iv.tag.', 'aes-256-gcm-v1.iv.tag.body.extra', 'aes-256-gcm-v1.iv.tag.body']) await expect(protector.unprotect(ciphertext, context)).rejects.toThrow()
+  })
+})

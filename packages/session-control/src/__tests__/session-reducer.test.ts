@@ -185,6 +185,51 @@ describe('session event reducer', () => {
     ).toMatchObject({ ok: false, issue: { code: 'interaction_mismatch' } })
   })
 
+  it('refuses a second interaction request while one is pending', () => {
+    const requested = reduceSessionEvent(
+      snapshot(),
+      event({
+        type: 'interaction.requested',
+        payload: {
+          interactionRef: 'interaction_6Fd2jL8w',
+          interactionClass: 'informational_clarification' satisfies InteractionClass,
+        },
+      }),
+    )
+    if (!requested.ok) throw new Error(requested.issue.code)
+
+    expect(
+      reduceSessionEvent(
+        requested.snapshot,
+        event({
+          eventId: asOpaqueReference('event_5Ec1iK7v'),
+          eventDigest: asSha256Digest(`sha256:${'d'.repeat(64)}`),
+          sequence: 2,
+          type: 'interaction.requested',
+          payload: {
+            interactionRef: 'interaction_4Db0hJ6u',
+            interactionClass: 'repository_mutation' satisfies InteractionClass,
+          },
+        }),
+      ),
+    ).toMatchObject({ ok: false, issue: { code: 'interaction_already_pending' } })
+    expect(requested.snapshot.pendingInteraction).toMatchObject({
+      interactionRef: 'interaction_6Fd2jL8w',
+    })
+
+    const resolved = reduceSessionEvent(
+      requested.snapshot,
+      event({
+        eventId: asOpaqueReference('event_5Ec1iK7v'),
+        eventDigest: asSha256Digest(`sha256:${'d'.repeat(64)}`),
+        sequence: 2,
+        type: 'interaction.resolved',
+        payload: { interactionRef: 'interaction_6Fd2jL8w' },
+      }),
+    )
+    expect(resolved).toMatchObject({ ok: true, snapshot: { status: 'idle' } })
+  })
+
   it.each([
     ['turn.completed', { turnRef: 'turn_9Jm5nR4z' }],
     ['session.status_changed', { status: 'idle' }],

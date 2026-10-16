@@ -24,6 +24,25 @@
 import { createSafetyMonitor, detectPII } from '@dzupagent/core/security'
 import type { SafetyMonitor, SafetyViolation } from '@dzupagent/core/security'
 
+/**
+ * `SafetyMonitor.scanContentDetailed` (core) reports the rules that threw.
+ * Declared structurally so a monitor built from an older core, or a
+ * hand-written one, still works through the plain `scanContent` path.
+ */
+interface DetailedScanMonitor {
+  scanContentDetailed?(
+    content: string,
+    context?: Record<string, unknown>,
+  ): {
+    violations: SafetyViolation[]
+    failedRules: ReadonlyArray<{ action: SafetyViolation['action'] }>
+  }
+}
+
+function isBlockingAction(action: SafetyViolation['action']): boolean {
+  return action === 'block' || action === 'kill'
+}
+
 /** Default maximum serialized input length (characters). */
 export const DEFAULT_MAX_INPUT_LENGTH = 50_000
 
@@ -48,7 +67,8 @@ export interface InputGuardConfig {
   safetyMonitor?: SafetyMonitor
   /**
    * Controls behaviour when the safety scanner itself throws an unexpected
-   * error.
+   * error, or when a blocking rule (for example the prompt-injection rule)
+   * throws so that its category went unscanned.
    *
    * - `'fail-closed'` (default) — scanner errors cause the input to be
    *   rejected with `{ allowed: false, reason: 'Input safety scanner unavailable' }`.
@@ -157,10 +177,35 @@ export function createInputGuard(config?: InputGuardConfig): InputGuard {
 
       // --- 2. Injection / secret / escalation scan ---
       // Scan the serialized form so nested string fields are covered.
+      // DZUPAGENT-ERR-H-80: the monitor isolates a throwing rule and keeps
+      // scanning, so a scanner failure surfaces as a failed blocking rule, not
+      // as a throw. Both mean "no verdict" for a category that could block.
       let violations: SafetyViolation[]
+      let blockingRuleFailed = false
       try {
-        violations = monitor.scanContent(serialized, { source: 'input-guard' })
+        const detailedMonitor = monitor as SafetyMonitor & DetailedScanMonitor
+        if (typeof detailedMonitor.scanContentDetailed === 'function') {
+          const result = detailedMonitor.scanContentDetailed(serialized, { source: 'input-guard' })
+          violations = result.violations
+          blockingRuleFailed = result.failedRules.some((rule) => isBlockingAction(rule.action))
+        } else {
+          violations = monitor.scanContent(serialized, { source: 'input-guard' })
+        }
       } catch {
+        blockingRuleFailed = true
+        violations = []
+      }
+
+      const blocking = violations.find((v) => isBlockingAction(v.action))
+      if (blocking) {
+        return {
+          allowed: false,
+          reason: `${blocking.category}: ${blocking.message}`,
+          violations,
+        }
+      }
+
+      if (blockingRuleFailed) {
         if (scanFailureMode === 'fail-open') {
           return {
             allowed: true,
@@ -173,17 +218,6 @@ export function createInputGuard(config?: InputGuardConfig): InputGuard {
           reason: 'Input safety scanner unavailable',
           scanStatus: 'unknown',
           violations: undefined,
-        }
-      }
-
-      const blocking = violations.find(
-        (v) => v.action === 'block' || v.action === 'kill',
-      )
-      if (blocking) {
-        return {
-          allowed: false,
-          reason: `${blocking.category}: ${blocking.message}`,
-          violations,
         }
       }
 

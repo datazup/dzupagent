@@ -17,6 +17,7 @@ import type {
 import type { ForgeMessage, ForgePayload } from './message-types.js'
 import { createForgeMessage, createMessageId } from './message-factory.js'
 import { ForgeError } from '../errors/forge-error.js'
+import { delay as abortableDelay } from '../utils/abortable-delay.js'
 import { streamA2ATask } from './a2a-sse-stream.js'
 
 // ---------------------------------------------------------------------------
@@ -438,36 +439,16 @@ export class A2AClientAdapter implements ProtocolAdapter {
 // ---------------------------------------------------------------------------
 
 /**
- * Sleep for the given duration, respecting an optional abort signal.
+ * Sleep for the given duration; an abort (before or during the wait) rejects
+ * with PROTOCOL_SEND_FAILED instead of resolving.
  */
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(
-        new ForgeError({
-          code: 'PROTOCOL_SEND_FAILED',
-          message: 'Send aborted during retry delay',
-          recoverable: false,
-        }),
-      )
-      return
-    }
-
-    const timer = setTimeout(resolve, ms)
-
-    signal?.addEventListener(
-      'abort',
-      () => {
-        clearTimeout(timer)
-        reject(
-          new ForgeError({
-            code: 'PROTOCOL_SEND_FAILED',
-            message: 'Send aborted during retry delay',
-            recoverable: false,
-          }),
-        )
-      },
-      { once: true },
-    )
-  })
+async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  await abortableDelay(ms, signal)
+  if (signal?.aborted) {
+    throw new ForgeError({
+      code: 'PROTOCOL_SEND_FAILED',
+      message: 'Send aborted during retry delay',
+      recoverable: false,
+    })
+  }
 }

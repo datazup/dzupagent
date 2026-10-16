@@ -142,6 +142,13 @@ export interface AdapterHttpConfig {
    * @default false
    */
   allowUnauthenticated?: boolean | undefined
+  /**
+   * Roots a `POST /run` `workingDirectory` must resolve inside (after
+   * following symlinks). A request outside every root is rejected with 400.
+   *
+   * @default [process.cwd()]
+   */
+  allowedWorkingDirectoryRoots?: readonly string[] | undefined
   /** Endpoints that don't require auth (e.g., '/health') */
   publicEndpoints?: string[] | undefined
   /** Rate limit configuration. If set, enables rate limiting. */

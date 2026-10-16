@@ -251,4 +251,42 @@ writeSync(1, JSON.stringify({ type: "exit", code: 0 }) + "\\n");
     await handle.cancel("cleanup");
     await handle.wait();
   });
+  it("does not hand parent secrets to the codex child", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "codex-fake-"));
+    const script = path.join(tmp, "env.js");
+    const envFile = path.join(tmp, "env.json");
+    await fs.writeFile(
+      script,
+      `import { writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(envFile)}, JSON.stringify(process.env));
+process.exit(0);
+`,
+    );
+    const saved = { JWT_SECRET: process.env.JWT_SECRET, DATABASE_URL: process.env.DATABASE_URL };
+    process.env.JWT_SECRET = "parent-jwt";
+    process.env.DATABASE_URL = "postgres://parent";
+    try {
+      const exec = new CodexSubprocessExecutor({
+        command: process.execPath,
+        args: [script],
+        env: { CODEX_HOME: "/explicit/codex-home" },
+      });
+      const handle = await exec.spawn(makeWorkerSpec(tmp));
+      for await (const _event of handle.events) {
+        // drain
+      }
+      await handle.wait();
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+
+    const childEnv = JSON.parse(await fs.readFile(envFile, "utf8")) as Record<string, string>;
+    expect(childEnv.JWT_SECRET).toBeUndefined();
+    expect(childEnv.DATABASE_URL).toBeUndefined();
+    expect(childEnv.CODEX_HOME).toBe("/explicit/codex-home");
+    expect(childEnv.PATH).toBe(process.env.PATH);
+  });
 });

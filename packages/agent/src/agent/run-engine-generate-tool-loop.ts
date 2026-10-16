@@ -51,6 +51,40 @@ import {
 import { resolveHumanContactRunContext } from "../tools/human-contact-invocation.js";
 
 /**
+ * Emit the `llm:invoked` usage event for one model call. Shared by the
+ * generate tool loop and the native `stream()` path (DZUPAGENT-AGENT-H-54) so
+ * the run-metrics bridge and the compliance logger see the same event shape
+ * for every run.
+ *
+ * ORCH-DSL-L1-H-16 — `runId` must ride along: the run-metrics bridge
+ * (`attachRunMetricsBridge`) early-returns on `llm:invoked` events that lack
+ * one, so omitting it silently zeroes per-run token and cost accumulation.
+ */
+export function emitLlmInvoked(
+  eventBus: DzupAgentConfig["eventBus"],
+  agentId: string,
+  runId: string | undefined,
+  usage: TokenUsage
+): void {
+  eventBus?.emit({
+    type: "llm:invoked",
+    agentId,
+    ...(runId !== undefined ? { runId } : {}),
+    model: usage.model,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    ...(usage.cacheReadTokens !== undefined
+      ? { cacheReadTokens: usage.cacheReadTokens }
+      : {}),
+    ...(usage.cacheWriteTokens !== undefined
+      ? { cacheWriteTokens: usage.cacheWriteTokens }
+      : {}),
+    costCents: calculateCostCents(usage),
+    timestamp: Date.now(),
+  });
+}
+
+/**
  * Output of {@link prepareGuardPrelude}. Threads the compression log
  * accumulator and the resolved tool-execution policy bundle through to
  * {@link setupModelCall}.
@@ -141,6 +175,9 @@ export function buildPolicyConfig(
       : {}),
     ...(toolExec?.wrapToolResults !== undefined
       ? { wrapToolResults: toolExec.wrapToolResults }
+      : {}),
+    ...(toolExec?.maxToolResultChars !== undefined
+      ? { maxToolResultChars: toolExec.maxToolResultChars }
       : {}),
     ...(toolExec?.timeouts !== undefined
       ? { toolTimeouts: toolExec.timeouts }
@@ -364,28 +401,15 @@ export async function setupModelCall(
           // Compliance / audit — ISO/IEC 42001 traceability: every LLM
           // invocation must be recorded in the audit store. The event bus
           // listener in ComplianceAuditLogger picks this up automatically.
-          // ORCH-DSL-L1-H-16 — `runId` must ride along: the run-metrics bridge
-          // (`attachRunMetricsBridge`) early-returns on `llm:invoked` events
-          // that lack one, so omitting it silently zeroed per-run token and
-          // cost accumulation for every run. Resolved unconditionally rather
-          // than from `runStateRunId`, which is `undefined` unless a run-state
-          // store is configured — the same resolution the model hooks use.
-          params.config.eventBus?.emit({
-            type: "llm:invoked",
-            agentId: params.agentId,
-            ...(hookRunId !== undefined ? { runId: hookRunId } : {}),
-            model: usage.model,
-            inputTokens: usage.inputTokens,
-            outputTokens: usage.outputTokens,
-            ...(usage.cacheReadTokens !== undefined
-              ? { cacheReadTokens: usage.cacheReadTokens }
-              : {}),
-            ...(usage.cacheWriteTokens !== undefined
-              ? { cacheWriteTokens: usage.cacheWriteTokens }
-              : {}),
-            costCents: calculateCostCents(usage),
-            timestamp: Date.now(),
-          });
+          // Resolved unconditionally rather than from `runStateRunId`, which
+          // is `undefined` unless a run-state store is configured — the same
+          // resolution the model hooks use.
+          emitLlmInvoked(
+            params.config.eventBus,
+            params.agentId,
+            hookRunId,
+            usage
+          );
         },
         // MC-AGT-04 Phase 1 — fire-and-forget run-state snapshot at every
         // iteration boundary when a store is configured. The hook is a

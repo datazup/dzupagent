@@ -441,7 +441,7 @@ export interface NodeLedgerLike {
   }): Promise<void>;
   getByIdempotencyKey(
     idempotencyKey: string
-  ): Promise<{ output?: unknown } | undefined>;
+  ): Promise<{ output?: unknown; runId?: string } | undefined>;
 }
 
 /** Lease shape the runtime reads back from `acquire`. */

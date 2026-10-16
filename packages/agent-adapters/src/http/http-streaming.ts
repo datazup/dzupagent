@@ -6,7 +6,11 @@
  * main handler so the routing class stays focused on dispatch.
  */
 
+import { randomUUID } from 'node:crypto'
+
+import { ForgeError } from '@dzupagent/core/events'
 import type { DzupEventBus } from '@dzupagent/core/events'
+import { defaultLogger } from '@dzupagent/core/utils'
 
 import type { OrchestratorFacade } from '../facade/orchestrator-facade.js'
 import { StreamingHandler } from '../streaming/streaming-handler.js'
@@ -26,6 +30,56 @@ import type {
 interface StreamContext {
   orchestrator: OrchestratorFacade
   eventBus: DzupEventBus | undefined
+  /** Correlation ID of the originating request, used to tie the log to the client frame. */
+  correlationId?: string | undefined
+}
+
+/**
+ * Turns a streaming failure into a client-safe `adapter:failed` event.
+ *
+ * The raw exception text (provider output, paths, hosts) is logged once,
+ * server-side, under a correlation id. The client frame and the bus delta only
+ * carry a stable code and a fixed message, never the thrown message.
+ */
+function streamFailure(
+  ctx: StreamContext,
+  err: unknown,
+  operation: string,
+  providerId: AgentEvent['providerId'],
+  correlationId: string | undefined,
+): AgentEvent {
+  const correlation = correlationId ?? ctx.correlationId ?? randomUUID()
+  const code = err instanceof ForgeError ? err.code : 'INTERNAL_ERROR'
+  defaultLogger.error('[AdapterHttpHandler] stream operation failed', {
+    operation,
+    correlationId: correlation,
+    code,
+    error: err instanceof Error ? err.message : String(err),
+    name: err instanceof Error ? err.constructor.name : typeof err,
+    stack: err instanceof Error ? err.stack : undefined,
+  })
+
+  if (ctx.eventBus) {
+    try {
+      ctx.eventBus.emit({
+        type: 'agent:stream_delta',
+        agentId: 'http-handler',
+        runId: `stream-${operation}`,
+        content: `[error] ${code}`,
+      })
+    } catch {
+      // Event bus failure is non-fatal
+    }
+  }
+
+  return {
+    type: 'adapter:failed',
+    providerId,
+    error: `Operation "${operation}" failed`,
+    code,
+    timestamp: Date.now(),
+    correlationId: correlation,
+  }
 }
 
 function toStreamResponse(
@@ -69,25 +123,13 @@ export function streamRun(
 
       yield* stream
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err)
-      if (eventBus) {
-        try {
-          eventBus.emit({
-            type: 'agent:stream_delta',
-            agentId: 'http-handler',
-            runId: 'stream-run',
-            content: `[error] ${errorMessage}`,
-          })
-        } catch {
-          // Event bus failure is non-fatal
-        }
-      }
-      const failEvent: AgentEvent = {
-        type: 'adapter:failed',
-        providerId: resolveRuntimeFallbackProviderId(orchestrator.registry, body.preferredProvider),
-        error: errorMessage,
-        timestamp: Date.now(),
-      }
+      const failEvent = streamFailure(
+        ctx,
+        err,
+        'run',
+        resolveRuntimeFallbackProviderId(orchestrator.registry, body.preferredProvider),
+        input.correlationId,
+      )
       yield failEvent
     }
   }
@@ -121,12 +163,13 @@ export function streamSupervisor(
       }
       yield completedEvent
     } catch (err) {
-      const failEvent: AgentEvent = {
-        type: 'adapter:failed',
-        providerId: resolveRuntimeFallbackProviderId(orchestrator.registry),
-        error: err instanceof Error ? err.message : String(err),
-        timestamp: Date.now(),
-      }
+      const failEvent = streamFailure(
+        ctx,
+        err,
+        'supervisor',
+        resolveRuntimeFallbackProviderId(orchestrator.registry),
+        undefined,
+      )
       yield failEvent
     }
   }
@@ -163,12 +206,13 @@ export function streamParallel(
       }
       yield completedEvent
     } catch (err) {
-      const failEvent: AgentEvent = {
-        type: 'adapter:failed',
-        providerId: resolveRuntimeFallbackProviderId(orchestrator.registry, undefined, body.providers),
-        error: err instanceof Error ? err.message : String(err),
-        timestamp: Date.now(),
-      }
+      const failEvent = streamFailure(
+        ctx,
+        err,
+        'parallel',
+        resolveRuntimeFallbackProviderId(orchestrator.registry, undefined, body.providers),
+        undefined,
+      )
       yield failEvent
     }
   }

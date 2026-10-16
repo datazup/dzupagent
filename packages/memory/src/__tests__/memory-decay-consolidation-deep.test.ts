@@ -17,8 +17,9 @@ import {
 import {
   ConsolidationEngine,
   type ConsolidationStore,
-  type ConsolidationStoreItem,
 } from "../consolidation-engine.js";
+import { createStoreDouble } from "./helpers/store-double.js";
+import type { StoreDouble } from "./helpers/store-double.js";
 import { createStore } from "../store-factory.js";
 import type { MemoryStoreCapabilities } from "../store-capabilities.js";
 import type { StoreQueryOptions } from "../store-factory.js";
@@ -48,30 +49,24 @@ function makeMeta(overrides?: Partial<DecayMetadata>): DecayMetadata {
 }
 
 interface MockStore extends ConsolidationStore {
-  data: Map<string, Record<string, unknown>>;
+  double: StoreDouble;
 }
 
-function createMockStore(
+/**
+ * Shared InMemoryStore double (DZUPAGENT-TEST-H-09): `search` honours the
+ * namespace prefix and the default limit of 10, so records seeded under one
+ * namespace are invisible to a consolidation of another. Fixtures are seeded
+ * under the tuple the engine derives from `consolidate(scope, namespace)`.
+ */
+async function createMockStore(
   records: Array<{ key: string; value: Record<string, unknown> }> = [],
-): MockStore {
-  const data = new Map<string, Record<string, unknown>>();
+  namespace: string[] = ["s", "n"],
+): Promise<MockStore> {
+  const double = createStoreDouble();
   for (const { key, value } of records) {
-    data.set(key, value);
+    await double.seed(namespace, key, value);
   }
-  return {
-    data,
-    search: vi.fn(async (_ns: string[]): Promise<ConsolidationStoreItem[]> => {
-      return [...data.entries()].map(([key, value]) => ({ key, value }));
-    }),
-    put: vi.fn(
-      async (_ns: string[], key: string, value: Record<string, unknown>) => {
-        data.set(key, value);
-      },
-    ),
-    delete: vi.fn(async (_ns: string[], key: string) => {
-      data.delete(key);
-    }),
-  };
+  return Object.assign(double.store, { double }) as unknown as MockStore;
 }
 
 interface SearchableStore {
@@ -280,7 +275,7 @@ describe("DecayEngine — deep coverage", () => {
 describe("ConsolidationEngine — deep coverage", () => {
   describe("minClusterSize configuration", () => {
     it("uses minClusterSize=2 when configured", async () => {
-      const store = createMockStore([
+      const store = await createMockStore([
         { key: "task:a", value: { text: "alpha" } },
         { key: "task:b", value: { text: "beta" } },
       ]);
@@ -293,7 +288,7 @@ describe("ConsolidationEngine — deep coverage", () => {
 
     it("does NOT consolidate when cluster size equals default threshold minus 1", async () => {
       // Default minClusterSize = 3, so 2 items should be skipped
-      const store = createMockStore([
+      const store = await createMockStore([
         { key: "task:a", value: { text: "alpha" } },
         { key: "task:b", value: { text: "beta" } },
       ]);
@@ -304,7 +299,7 @@ describe("ConsolidationEngine — deep coverage", () => {
     });
 
     it("uses minClusterSize=4 when configured — skips cluster of 3", async () => {
-      const store = createMockStore([
+      const store = await createMockStore([
         { key: "task:a", value: { text: "alpha" } },
         { key: "task:b", value: { text: "beta" } },
         { key: "task:c", value: { text: "gamma" } },
@@ -317,7 +312,7 @@ describe("ConsolidationEngine — deep coverage", () => {
 
   describe("key prefix parsing", () => {
     it("groups keys by leading colon-delimited segment", async () => {
-      const store = createMockStore([
+      const store = await createMockStore([
         { key: "group:x", value: { text: "1" } },
         { key: "group:y", value: { text: "2" } },
         { key: "group:z", value: { text: "3" } },
@@ -332,7 +327,7 @@ describe("ConsolidationEngine — deep coverage", () => {
     });
 
     it("keys without colon delimiter form single-item clusters (not consolidated)", async () => {
-      const store = createMockStore([
+      const store = await createMockStore([
         { key: "standalone", value: { text: "no colon" } },
         { key: "another", value: { text: "no colon either" } },
         { key: "third", value: { text: "still no colon" } },
@@ -344,7 +339,7 @@ describe("ConsolidationEngine — deep coverage", () => {
     });
 
     it("does not double-count keys that are already summaries", async () => {
-      const store = createMockStore([
+      const store = await createMockStore([
         { key: "task:a", value: { text: "alpha" } },
         { key: "task:b", value: { text: "beta" } },
         { key: "task:c", value: { text: "gamma" } },
@@ -363,7 +358,7 @@ describe("ConsolidationEngine — deep coverage", () => {
 
   describe("already-consolidated children", () => {
     it("skips items that already have consolidatedInto set", async () => {
-      const store = createMockStore([
+      const store = await createMockStore([
         {
           key: "task:a",
           value: { text: "alpha", consolidatedInto: "task:__summary__" },
@@ -421,7 +416,7 @@ describe("ConsolidationEngine — deep coverage", () => {
   describe("preserving existing decay fields on child rewrite", () => {
     it("preserves existing decay.createdAt and accessCount on child rewrite", async () => {
       const originalCreatedAt = Date.now() - 100_000;
-      const store = createMockStore([
+      const store = await createMockStore([
         {
           key: "task:a",
           value: {
@@ -441,7 +436,7 @@ describe("ConsolidationEngine — deep coverage", () => {
       const engine = new ConsolidationEngine();
       await engine.consolidate("s", "n", store);
 
-      const child = store.data.get("task:a")!;
+      const child = (await store.double.valueOf("task:a"))!;
       const decay = child["_decay"] as Record<string, unknown>;
       // Original values preserved
       expect(decay["createdAt"]).toBe(originalCreatedAt);
@@ -453,14 +448,14 @@ describe("ConsolidationEngine — deep coverage", () => {
 
   describe("durationMs", () => {
     it("returns a non-negative durationMs even for zero-work runs", async () => {
-      const store = createMockStore();
+      const store = await createMockStore();
       const engine = new ConsolidationEngine();
       const result = await engine.consolidate("s", "n", store);
       expect(result.durationMs).toBeGreaterThanOrEqual(0);
     });
 
     it("returns a positive durationMs when work was done", async () => {
-      const store = createMockStore([
+      const store = await createMockStore([
         { key: "task:a", value: { text: "alpha" } },
         { key: "task:b", value: { text: "beta" } },
         { key: "task:c", value: { text: "gamma" } },
@@ -487,7 +482,7 @@ describe("ConsolidationEngine — deep coverage", () => {
 
   describe("multi-cluster consolidation result integrity", () => {
     it("provenance keys map each summary to its exact children", async () => {
-      const store = createMockStore([
+      const store = await createMockStore([
         { key: "alpha:1", value: { text: "1" } },
         { key: "alpha:2", value: { text: "2" } },
         { key: "alpha:3", value: { text: "3" } },
@@ -1041,7 +1036,7 @@ describe("DecayEngine — additional edge cases", () => {
 describe("ConsolidationEngine — additional edge cases", () => {
   describe("single item cluster (no-op)", () => {
     it("single item is never consolidated regardless of minClusterSize", async () => {
-      const store = createMockStore([
+      const store = await createMockStore([
         { key: "task:only", value: { text: "solo item" } },
       ]);
       const engine = new ConsolidationEngine({ minClusterSize: 1 });
@@ -1055,7 +1050,7 @@ describe("ConsolidationEngine — additional edge cases", () => {
     });
 
     it("two items with minClusterSize=3 — no-op returns zero summarized", async () => {
-      const store = createMockStore([
+      const store = await createMockStore([
         { key: "x:a", value: { text: "item a" } },
         { key: "x:b", value: { text: "item b" } },
       ]);
@@ -1084,7 +1079,7 @@ describe("ConsolidationEngine — additional edge cases", () => {
 
   describe("summary entry gets strength=1 and kind=summary", () => {
     it("written summary has kind=summary and strength 1 in _decay", async () => {
-      const store = createMockStore([
+      const store = await createMockStore([
         { key: "work:a", value: { text: "item a" } },
         { key: "work:b", value: { text: "item b" } },
         { key: "work:c", value: { text: "item c" } },
@@ -1092,7 +1087,7 @@ describe("ConsolidationEngine — additional edge cases", () => {
       const engine = new ConsolidationEngine();
       await engine.consolidate("s", "n", store);
 
-      const summary = store.data.get("work:__summary__")!;
+      const summary = (await store.double.valueOf("work:__summary__"))!;
       expect(summary["kind"]).toBe("summary");
       const decay = summary["_decay"] as Record<string, unknown>;
       expect(decay["strength"]).toBe(1);
@@ -1101,7 +1096,7 @@ describe("ConsolidationEngine — additional edge cases", () => {
 
   describe("child rewrite adds consolidatedInto field", () => {
     it("each child gets consolidatedInto pointing to the summary key", async () => {
-      const store = createMockStore([
+      const store = await createMockStore([
         { key: "chunk:a", value: { text: "part A" } },
         { key: "chunk:b", value: { text: "part B" } },
         { key: "chunk:c", value: { text: "part C" } },
@@ -1110,7 +1105,7 @@ describe("ConsolidationEngine — additional edge cases", () => {
       await engine.consolidate("s", "n", store);
 
       for (const key of ["chunk:a", "chunk:b", "chunk:c"]) {
-        const child = store.data.get(key)!;
+        const child = (await store.double.valueOf(key))!;
         expect(child["consolidatedInto"]).toBe("chunk:__summary__");
       }
     });
@@ -1118,7 +1113,7 @@ describe("ConsolidationEngine — additional edge cases", () => {
 
   describe("llmJudge receives all cluster entries", () => {
     it("llmJudge is called with the correct number of entries per cluster", async () => {
-      const store = createMockStore([
+      const store = await createMockStore([
         { key: "note:1", value: { text: "first note" } },
         { key: "note:2", value: { text: "second note" } },
         { key: "note:3", value: { text: "third note" } },

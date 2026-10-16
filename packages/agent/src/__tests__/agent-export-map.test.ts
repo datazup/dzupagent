@@ -8,13 +8,22 @@ import { describe, expect, it } from 'vitest'
 
 const execFileAsync = promisify(execFile)
 
+/**
+ * Packaging checks need this package's own built `dist`, which the default
+ * test task does not build. Without the packaging flag the spec is reported
+ * as skipped, never as passed; with it (see `test:packaging`) a missing
+ * `dist` fails the spec instead of returning early.
+ */
+const PACKAGING_ENV_VAR = 'DZUPAGENT_PACKAGING_TESTS'
+const packagingEnabled = (process.env[PACKAGING_ENV_VAR] ?? '').length > 0
+
 describe('agent export map', () => {
-  it('imports runtime-expanded subpaths from packed tarball output when dist exists', async () => {
-    try {
-      await access(join(process.cwd(), 'dist/index.js'))
-    } catch {
-      return
-    }
+  it.skipIf(!packagingEnabled)('imports runtime-expanded subpaths from packed tarball output', async () => {
+    await access(join(process.cwd(), 'dist/index.js')).catch(() => {
+      throw new Error(
+        `${PACKAGING_ENV_VAR} is set but dist/index.js is missing; run build:verify for @dzupagent/agent first`,
+      )
+    })
 
     const tempDir = await mkdtemp(join(tmpdir(), 'agent-pack-'))
     try {

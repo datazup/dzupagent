@@ -28,6 +28,13 @@ export interface BrowserPoolConfig {
   headless: boolean
   /** Additional Chrome launch arguments */
   launchArgs?: string[]
+  /**
+   * Explicit opt-in to run Chromium without its sandbox (`--no-sandbox`,
+   * `--disable-setuid-sandbox`, `--no-zygote`, `--single-process`). Only for
+   * containers that cannot provide the sandbox; refused when
+   * `NODE_ENV=production`. Default: false.
+   */
+  unsafeDisableSandbox?: boolean
   /** Path to Chrome/Chromium executable */
   executablePath?: string
   /** Outbound URL policy. Defaults to public HTTPS destinations only. */

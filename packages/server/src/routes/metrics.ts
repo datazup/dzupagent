@@ -108,7 +108,11 @@ export function createMetricsRoute(config: MetricsRouteConfig): Hono<AppEnv> {
   return app;
 }
 
-function createMetricsAccessGuard(
+/**
+ * Access guard for a metrics surface, or `undefined` when access is public or
+ * disabled. Shared with `/api/health/metrics` (DZUPAGENT-SEC-H-21).
+ */
+export function createMetricsAccessGuard(
   access: MetricsAccessControl
 ): MiddlewareHandler | undefined {
   if (access.mode === "unsafe-public" || access.mode === "disabled") {

@@ -323,14 +323,13 @@ describe('MemoryIntegrator', () => {
     })
 
     it('should handle partial store failures gracefully', async () => {
-      // First call (lessons) fails, second (conventions) succeeds, third (errors) succeeds
-      let callCount = 0
-      store.search.mockImplementation((_ns: string[], _opts?: { limit?: number }) => {
-        callCount++
-        if (callCount === 1) {
+      // The lessons namespace fails; conventions and errors still answer.
+      // Dispatch on the namespace, not call order (DZUPAGENT-TEST-H-09).
+      store.search.mockImplementation((ns: string[], _opts?: { limit?: number }) => {
+        if (ns[0] === 'lessons') {
           return Promise.reject(new Error('Lessons namespace unavailable'))
         }
-        if (callCount === 2) {
+        if (ns[0] === 'conventions') {
           return Promise.resolve([
             { key: 'conv-1', value: { id: 'conv-1', name: 'Use semicolons', description: 'Always use semicolons' } },
           ])

@@ -89,11 +89,12 @@ export function validateConfig(config: DzupAgentConfig): void {
  * app the final say in all three.
  *
  * ⚠️ The fourth seam INVERTS and is pinned by a test rather than assumed:
- * `invokeModel` uses `.find(m => typeof m.wrapModelCall === 'function')`, which
- * is FIRST-wins, so a plugin-supplied `wrapModelCall` pre-empts one supplied on
- * the config. That asymmetry is pre-existing behaviour of the middleware
- * runtime — reordering the merge to paper over it would break the other three
- * seams — so it is documented and locked, not silently inherited.
+ * `invokeModel` composes every `wrapModelCall` as an onion with the FIRST
+ * wrapper outermost, so a plugin-supplied `wrapModelCall` wraps one supplied on
+ * the config and can pre-empt it by not calling `model.invoke`. That asymmetry
+ * is behaviour of the middleware runtime — reordering the merge to paper over
+ * it would break the other three seams — so it is documented and locked, not
+ * silently inherited.
  *
  * ## Timing — construction, not per-run
  *

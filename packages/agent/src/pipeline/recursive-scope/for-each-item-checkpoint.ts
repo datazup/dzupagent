@@ -9,6 +9,7 @@ import type {
   RecursiveForEachItemCommitPayloadV1,
   RecursiveForEachPlannedItemV1,
 } from "./for-each-item-types.js";
+import { exactKeys } from "../../utils/exact-keys.js";
 
 const RECURSIVE_FOR_EACH_ITEM_CHECKPOINT_SCHEMA_V1 =
   "dzupagent.recursiveForEachItemCheckpoint/v1" as const;
@@ -49,17 +50,6 @@ export type RecursiveForEachItemCheckpointParseV1 =
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function exactKeys(
-  value: Record<string, unknown>,
-  expected: readonly string[],
-): boolean {
-  const actual = Object.keys(value).sort();
-  return (
-    actual.length === expected.length &&
-    actual.every((entry, index) => entry === [...expected].sort()[index])
-  );
 }
 
 export function isRecursiveForEachItemCommitPayloadV1(

@@ -5,6 +5,7 @@ import type { BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { ForgeError } from '../errors/forge-error.js'
 import { calculateBackoff } from '../utils/backoff.js'
+import { delay } from '../utils/abortable-delay.js'
 import {
   DEFAULT_RETRY_CONFIG,
   isContextLengthError,
@@ -215,7 +216,7 @@ export async function invokeWithTimeout(
           maxBackoffMs: maxBackoff,
           multiplier: 2,
         })
-        await new Promise(resolve => setTimeout(resolve, backoffMs))
+        await delay(backoffMs)
         continue
       }
 

@@ -201,7 +201,7 @@ export class AgentOrchestrator {
        * Maximum number of agents to run concurrently.
        * When set, agents run in batches rather than all at once, preventing
        * resource exhaustion with large agent lists.
-       * Default: unlimited.
+       * Default: `DEFAULT_ORCHESTRATION_FANOUT`.
        */
       maxConcurrency?: number;
       /**
@@ -213,6 +213,8 @@ export class AgentOrchestrator {
     }
   ): Promise<string> {
     let effectiveAgents = agents;
+    const maxConcurrency =
+      options?.maxConcurrency ?? DEFAULT_ORCHESTRATION_FANOUT;
 
     // Filter through circuit breaker if configured
     if (options?.circuitBreaker) {
@@ -235,7 +237,7 @@ export class AgentOrchestrator {
               signal ? { signal } : undefined
             )
         ),
-        options?.maxConcurrency,
+        maxConcurrency,
         options?.signal ? { signal: options.signal } : undefined
       );
 
@@ -272,7 +274,7 @@ export class AgentOrchestrator {
             signal ? { signal } : undefined
           )
       ),
-      options?.maxConcurrency,
+      maxConcurrency,
       options?.signal ? { signal: options.signal } : undefined
     );
     const contents = results.map((r) => r.content);

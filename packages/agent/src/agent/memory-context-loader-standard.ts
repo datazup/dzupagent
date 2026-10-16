@@ -262,7 +262,7 @@ export async function loadBoundedStandardMemoryContext(
   )
 }
 
-export function formatStandardMemoryContext(
+function formatStandardMemoryContext(
   opts: StandardMemoryRuntimeOptions,
   memory: AgentMemoryService,
   records: Record<string, unknown>[],

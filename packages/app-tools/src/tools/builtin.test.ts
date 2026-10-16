@@ -746,6 +746,45 @@ describe("record.*", () => {
       expect(JSON.parse(otherLines[0]!).entry).toBe("alt-entry");
     });
 
+    it("rejects traversal namespaces and writes nothing outside recordsDir", async () => {
+      const parent = await mkTempDir("app-tools-records-parent-");
+      try {
+        const recordsDir = path.join(parent, "records");
+        const { executors } = createBuiltinToolRegistry({ recordsDir });
+        const append = getExecutor<
+          { entry: string; namespace?: string },
+          { namespace: string; count: number }
+        >(executors, "record.append");
+        const list = getExecutor<
+          { namespace?: string },
+          { namespace: string; entries: string[] }
+        >(executors, "record.list");
+
+        for (const namespace of ["../x", "../../other-store/x", "a/b", "..", "", "a.b"]) {
+          await expect(
+            append.execute({ entry: "evil", namespace }),
+          ).rejects.toThrow(/namespace must match/);
+          expect((await list.execute({ namespace })).entries).toEqual([]);
+        }
+
+        expect(await fs.readdir(parent)).toEqual([]);
+        await expect(fs.stat(path.join(parent, "x.jsonl"))).rejects.toThrow();
+      } finally {
+        await fs.rm(parent, { recursive: true, force: true });
+      }
+    });
+
+    it("keeps accepting arbitrary namespaces when recordsDir is not set", async () => {
+      const { executors } = createBuiltinToolRegistry();
+      const append = getExecutor<
+        { entry: string; namespace?: string },
+        { namespace: string; count: number }
+      >(executors, "record.append");
+      await expect(
+        append.execute({ entry: "mem", namespace: "../x" }),
+      ).resolves.toEqual({ namespace: "../x", count: 1 });
+    });
+
     it("each JSONL record includes a ts timestamp", async () => {
       const { executors } = createBuiltinToolRegistry({ recordsDir: tmp });
       const append = getExecutor<

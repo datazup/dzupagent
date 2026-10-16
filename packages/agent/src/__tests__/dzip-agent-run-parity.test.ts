@@ -3,6 +3,7 @@ import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from '@langcha
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { tool } from '@langchain/core/tools'
 import { z } from 'zod'
+import { createEventBus, type DzupEvent } from '@dzupagent/core'
 import { DzupAgent } from '../agent/dzip-agent.js'
 import type { AgentStreamEvent, GenerateOptions } from '../agent/agent-types.js'
 
@@ -125,6 +126,63 @@ describe('DzupAgent generate()/stream() parity', () => {
       content: 'done',
       stopReason: 'complete',
     })
+  })
+
+  it('emits one llm:invoked per model call with real tokens in stream(), matching generate()', async () => {
+    const withUsage = (message: AIMessage, input: number, output: number) => {
+      message.usage_metadata = {
+        input_tokens: input,
+        output_tokens: output,
+        total_tokens: input + output,
+      }
+      return message
+    }
+
+    const runAgent = async (mode: 'generate' | 'stream') => {
+      const responses = [
+        withUsage(aiWithToolCall('echo', { text: 'x' }), 11, 7),
+        withUsage(new AIMessage('done'), 13, 5),
+      ]
+      const bus = createEventBus()
+      const invoked: Array<Extract<DzupEvent, { type: 'llm:invoked' }>> = []
+      bus.on('llm:invoked', (event) => {
+        invoked.push(event)
+      })
+      const echoTool = tool(async () => 'raw', {
+        name: 'echo',
+        description: 'echo',
+        schema: z.object({ text: z.string() }),
+      })
+      const agent = new DzupAgent({
+        id: `usage-${mode}`,
+        instructions: 'test',
+        model: createMockModel(responses),
+        tools: [echoTool],
+        eventBus: bus,
+      })
+      if (mode === 'generate') {
+        await agent.generate([new HumanMessage('run')], { runId: 'run-usage' })
+      } else {
+        await collectStreamEvents(agent, { runId: 'run-usage' })
+      }
+      return invoked
+    }
+
+    const generated = await runAgent('generate')
+    const streamed = await runAgent('stream')
+
+    expect(generated).toHaveLength(2)
+    expect(streamed).toHaveLength(2)
+    for (const event of streamed) {
+      expect(event.runId).toBe('run-usage')
+      expect(event.agentId).toBe('usage-stream')
+      expect(event.inputTokens).toBeGreaterThan(0)
+      expect(event.outputTokens).toBeGreaterThan(0)
+      expect(typeof event.costCents).toBe('number')
+    }
+    expect(streamed.map(e => [e.inputTokens, e.outputTokens])).toEqual(
+      generated.map(e => [e.inputTokens, e.outputTokens]),
+    )
   })
 
   it('reports iteration-limit completion in stream() the same way generate() does', async () => {

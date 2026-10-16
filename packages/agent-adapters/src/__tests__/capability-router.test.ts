@@ -143,6 +143,47 @@ describe('CapabilityRouter', () => {
     })
   })
 
+  describe('determinism and hard requirements', () => {
+    it('resolves equal scores by provider id regardless of registration order', () => {
+      const tieRouter = new CapabilityRouter({
+        capabilities: {
+          claude: { reasoningStrength: 0.5, capabilities: new Set() },
+          codex: { reasoningStrength: 0.5, capabilities: new Set() },
+        },
+      })
+      const task = makeTask({ requiresReasoning: true })
+
+      const forward = tieRouter.route(task, ['codex', 'claude'])
+      const reverse = tieRouter.route(task, ['claude', 'codex'])
+
+      expect(forward.provider).toBe('claude')
+      expect(reverse.provider).toBe('claude')
+      expect(forward.fallbackProviders).toEqual(['codex'])
+      expect(reverse.fallbackProviders).toEqual(['codex'])
+    })
+
+    it('returns no provider when every candidate lacks a required capability', () => {
+      // 'offline' maps to the required 'local' tag; none of these has it.
+      const task = makeTask({ tags: ['offline'] })
+
+      const decision = router.route(task, ['claude', 'codex', 'gemini'])
+
+      expect(decision.provider).toBe('auto')
+      expect(decision.confidence).toBe(0)
+      expect(decision.fallbackProviders).toEqual([])
+      expect(decision.reason).toContain('local')
+    })
+
+    it('excludes providers missing a required capability from fallbacks', () => {
+      const task = makeTask({ tags: ['offline'] })
+
+      const decision = router.route(task, ALL_PROVIDERS)
+
+      expect(decision.provider).toBe('crush')
+      expect(decision.fallbackProviders).toEqual([])
+    })
+  })
+
   describe('multi-capability task', () => {
     it('scores correctly when task has multiple matching tags', () => {
       // A task that needs both reasoning AND execution

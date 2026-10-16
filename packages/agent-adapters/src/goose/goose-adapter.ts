@@ -153,7 +153,15 @@ export class GooseAdapter extends BaseCliAdapter {
       if (input.systemPrompt) args.push('--system', input.systemPrompt)
       if (input.maxTurns !== undefined) args.push('--max-turns', String(input.maxTurns))
       if (recipe) args.push('--recipe', join(projection.root, `config/goose/recipes/${recipe.name}`))
-      args.push(...buildExtensionArgs(input))
+      const extensions = buildExtensionArgs(input)
+      // DZUPAGENT-AGENT-H-47: resolved MCP env values travel in the child's
+      // environment (inherited by the stdio extension), never in argv where
+      // any local user can read them from the process table.
+      for (const [key, value] of Object.entries(extensions.env)) {
+        if (RESERVED_GOOSE_ENV.test(key) || key in selectedCredentials) throw denied(`Goose extension environment variable ${key} would override the Goose runtime environment`, 'mcp_env')
+        env[key] = value
+      }
+      args.push(...extensions.args)
       args.push('--text', input.prompt)
       return {
         args,
@@ -345,15 +353,23 @@ function parseYamlScalar(raw: string): string {
   throw denied('Goose base profile contains a non-scalar selected value', 'profile_yaml')
 }
 
-function buildExtensionArgs(input: AgentInput): string[] {
+/** Runtime variables a projected MCP env reference must never override. */
+const RESERVED_GOOSE_ENV = /^(?:HOME|PATH|XDG_[A-Z_]+|GOOSE_[A-Z0-9_]+|DO_NOT_TRACK)$/u
+
+function buildExtensionArgs(input: AgentInput): { args: string[]; env: Record<string, string> } {
   const args: string[] = []
+  const extensionEnv: Record<string, string> = {}
   const refs = readReferenceValues(input)
   for (const descriptor of readMcpDescriptors(input)) {
     const transport = descriptor.transport
     if (transport.kind === 'stdio') {
       const env = resolveReferences(transport.envRefs, refs)
+      for (const [key, value] of Object.entries(env)) {
+        if (key in extensionEnv && extensionEnv[key] !== value) throw denied(`Goose MCP servers declare conflicting values for ${key}`, 'mcp_env')
+        quoteCommandToken(value)
+        extensionEnv[key] = value
+      }
       const command = [
-        ...Object.entries(env).map(([key, value]) => `${key}=${quoteCommandToken(value)}`),
         quoteCommandToken(transport.command),
         ...(transport.args ?? []).map(quoteCommandToken),
       ].join(' ')
@@ -367,7 +383,7 @@ function buildExtensionArgs(input: AgentInput): string[] {
   }
   const builtins = stringArray(input.options?.['gooseBuiltins'])
   if (builtins.length > 0) args.push('--with-builtin', builtins.join(','))
-  return args
+  return { args, env: extensionEnv }
 }
 
 function validateExtensionInput(input: AgentInput): void {

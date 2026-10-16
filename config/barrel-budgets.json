@@ -247,6 +247,65 @@
           "maxRootBarrelExplicitExports": 935,
           "maxRootIndexLines": 1327
         }
+      },
+      "maxFileLines": 500,
+      "fileLineDebtPins": {
+        "src/events/event-types-orchestration.ts": {
+          "maxLines": 579,
+          "shrinkTarget": 500,
+          "sourceSha256": "3f1ccfd9869fcca9b4efe1315ffb14dff7ede4d6f41e554ad9c92cfd5b8a6a4f",
+          "sourceCommit": "1bc0e576a55875680be23c2dc1d9f3144cf75a10",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 QF-34 (DZUPAGENT-ARCH-M-11): core had no per-file ceiling, so this file sat above 500 lines with no pin. Frozen at exactly 579 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
+        },
+        "src/index.ts": {
+          "maxLines": 1336,
+          "shrinkTarget": 500,
+          "sourceSha256": "cf4020140c8a05eafdeba57502bd8416ddaf601a506acb394e2d60bf41fa2412",
+          "sourceCommit": "1bc0e576a55875680be23c2dc1d9f3144cf75a10",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 QF-34 (DZUPAGENT-ARCH-M-11): core had no per-file ceiling, so this file sat above 500 lines with no pin. Frozen at exactly 1336 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
+        },
+        "src/llm/model-registry.ts": {
+          "maxLines": 870,
+          "shrinkTarget": 500,
+          "sourceSha256": "ffc6c629d8da5ff0b02eb1ff8e1331dae435ea7a427f357e780af310af89b054",
+          "sourceCommit": "1bc0e576a55875680be23c2dc1d9f3144cf75a10",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 QF-34 (DZUPAGENT-ARCH-M-11): core had no per-file ceiling, so this file sat above 500 lines with no pin. Frozen at exactly 870 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
+        },
+        "src/mcp/mcp-client.ts": {
+          "maxLines": 662,
+          "shrinkTarget": 500,
+          "sourceSha256": "250ab60e0233a3d2efb1c68b2cdd7934fea3d773a72a4ca01397e4e26fb16da4",
+          "sourceCommit": "1bc0e576a55875680be23c2dc1d9f3144cf75a10",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 QF-34 (DZUPAGENT-ARCH-M-11): core had no per-file ceiling, so this file sat above 500 lines with no pin. Frozen at exactly 662 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
+        },
+        "src/pipeline/pipeline-checkpoint-store.ts": {
+          "maxLines": 728,
+          "shrinkTarget": 500,
+          "sourceSha256": "1c097b6827fc0d211e2c4e0183732dbcb69aa966bbd0bda07bc344f967aa8798",
+          "sourceCommit": "1bc0e576a55875680be23c2dc1d9f3144cf75a10",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 QF-34 (DZUPAGENT-ARCH-M-11): core had no per-file ceiling, so this file sat above 500 lines with no pin. Frozen at exactly 728 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
+        },
+        "src/pipeline/pipeline-serialization.ts": {
+          "maxLines": 956,
+          "shrinkTarget": 500,
+          "sourceSha256": "3bedc008d483eaf2c6cd904577e3f74a59f2b262fe592d33de231e9951316f3f",
+          "sourceCommit": "1bc0e576a55875680be23c2dc1d9f3144cf75a10",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 QF-34 (DZUPAGENT-ARCH-M-11): core had no per-file ceiling, so this file sat above 500 lines with no pin. Frozen at exactly 956 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
+        },
+        "src/subagent/subagent-spawner.ts": {
+          "maxLines": 536,
+          "shrinkTarget": 500,
+          "sourceSha256": "92cb28320ef6218c0478e85629453ac649b93aab80a8d8d9dfb5f8fedf75d7bf",
+          "sourceCommit": "1bc0e576a55875680be23c2dc1d9f3144cf75a10",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 QF-34 (DZUPAGENT-ARCH-M-11): core had no per-file ceiling, so this file sat above 500 lines with no pin. Frozen at exactly 536 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
+        }
       }
     },
     "@dzupagent/security": {
@@ -254,6 +313,8 @@
       "maxFileLines": 500
     },
     "@dzupagent/agent": {
+      "maxRootBarrelExplicitExports": 448,
+      "maxRootBarrelStarExports": 1,
       "maxRootIndexLines": 732,
       "maxFileLines": 500,
       "fileLineDebtPins": {
@@ -298,12 +359,12 @@
           "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 560 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
         },
         "src/pipeline/loop-executor/for-each-loop.ts": {
-          "maxLines": 1678,
+          "maxLines": 1089,
           "shrinkTarget": 500,
-          "sourceSha256": "3a5d5db4b276c6c6a4d64c6f297e5b17ee2eba0f51ed569039c2b0ebf0712097",
-          "sourceCommit": "d99278bf62d5f296666b377690c91f246f90ff5c",
+          "sourceSha256": "043d7df9ffb0c79ac1388058037b7dd6e34315d89f875b3c839c96452cbf6970",
+          "sourceCommit": "7ced4838437d8a51c850ae348def73141ba1a382",
           "reviewBy": "2026-11-30",
-          "rationale": "Re-pin DOWN 2039->1681 (2026-08-30): the strict per-item budget lifecycle (reserve/settle/release plus the G2b outcome-unknown resolution paths) moved to for-each-item-budget.ts, and the shared reservation identity to for-each-reservation.ts. The lifecycle closed over only four loop values, so it extracted as a self-contained collaborator. Still above the 500 ceiling; shrinkTarget unchanged. The remaining bulk is the runIteration closure and ordered-prefix flushing. ARCH27-T-14 re-pin 2026-08-30: artifact-contract imports repointed to @dzupagent/runtime-contracts/pipeline-artifact (1681->1678 LOC, toward shrinkTarget)."
+          "rationale": "Re-pin DOWN 2039->1681 (2026-08-30): the strict per-item budget lifecycle (reserve/settle/release plus the G2b outcome-unknown resolution paths) moved to for-each-item-budget.ts, and the shared reservation identity to for-each-reservation.ts. The lifecycle closed over only four loop values, so it extracted as a self-contained collaborator. Still above the 500 ceiling; shrinkTarget unchanged. The remaining bulk is the runIteration closure and ordered-prefix flushing. ARCH27-T-14 re-pin 2026-08-30: artifact-contract imports repointed to @dzupagent/runtime-contracts/pipeline-artifact (1681->1678 LOC, toward shrinkTarget). Re-pin DOWN 1678->1089 (2026-10-15 MC-01 / DZUPAGENT-CODE-H-11): grown to 2061 by the economics-v2 custody paths, now decomposed behaviour-preservingly; executeForEachLoop 1850->971 LOC. The retained-economics/restore and body-complete settle resume boundaries moved to for-each-item-resume.ts, reservation refusal to for-each-item-admission.ts, the release/settle exits to for-each-item-exits.ts, the aggregate receipt to for-each-aggregate-receipt.ts, V2 custody helpers and the shared run context to for-each-run-context.ts, and the ordered-prefix flush to for-each-flush.ts."
         },
         "src/self-correction/learning-dashboard.ts": {
           "maxLines": 587,
@@ -321,14 +382,6 @@
           "reviewBy": "2026-11-16",
           "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 508 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
         },
-        "src/pipeline/executor-internals/stage-dispatch.ts": {
-          "maxLines": 1117,
-          "shrinkTarget": 500,
-          "sourceSha256": "bcd6f5eb4f1dfddb0c715d254253c2f3bf5057301c802dd98226e7bd382c8328",
-          "sourceCommit": "d99278bf62d5f296666b377690c91f246f90ff5c",
-          "reviewBy": "2026-11-16",
-          "rationale": "ARCH27-T-10 re-key 2026-08-28: pipeline-runtime/ renamed to executor-internals/ (naming inverted actual ownership) and the shared leaves (edge-resolution, error-classification, checkpoint-integrity-error, PipelineSourceBindingMismatchError) moved to pipeline-shared/, so this pin follows the file to its new path with its new sha. LOC measured 1119; shrinkTarget unchanged. ARCH27-T-14 re-pin 2026-08-30: artifact-contract imports repointed to @dzupagent/runtime-contracts/pipeline-artifact (1119->1117 LOC, toward shrinkTarget)."
-        },
         "src/pipeline/loop-executor/predicate-loop-economics.ts": {
           "maxLines": 1170,
           "shrinkTarget": 500,
@@ -338,12 +391,12 @@
           "rationale": "Floor pin 2026-08-30: this file was over the 500-LOC ceiling with no debt pin at all, so nothing recorded or halted its growth. Frozen at the measured 1174 LOC to stop further growth; shrinkTarget stays 500. This accepts no regression \u2014 it establishes the ceiling that was missing. Decompose toward the target under ARCH27-T-15. ARCH27-T-14 re-pin 2026-08-30: artifact-contract imports repointed to @dzupagent/runtime-contracts/pipeline-artifact (1174->1170 LOC, toward shrinkTarget)."
         },
         "src/pipeline/recursive-scope/control-ownership.ts": {
-          "maxLines": 1126,
+          "maxLines": 1119,
           "shrinkTarget": 500,
-          "sourceSha256": "e02a93cac2e6e54329e87566e51d00cd61da9d38d3c7c66d6439f0d03d380d52",
-          "sourceCommit": "4d52de34d06da166432fd6d4cb4662bf7b4dae6b",
+          "sourceSha256": "9594d003387ab2a434e926521de5d6a3b90fffa19be7c8eaa27f2180c9d45209",
+          "sourceCommit": "d75ac5497c1cd94383fc618ce47af7ee63f8db95",
           "reviewBy": "2026-11-30",
-          "rationale": "Floor pin 2026-08-30: this file was over the 500-LOC ceiling with no debt pin at all, so nothing recorded or halted its growth. Frozen at the measured 1126 LOC to stop further growth; shrinkTarget stays 500. This accepts no regression \u2014 it establishes the ceiling that was missing. Decompose toward the target under ARCH27-T-15."
+          "rationale": "Floor pin 2026-08-30: this file was over the 500-LOC ceiling with no debt pin at all, so nothing recorded or halted its growth. Frozen at the measured 1126 LOC to stop further growth; shrinkTarget stays 500. This accepts no regression \u2014 it establishes the ceiling that was missing. Decompose toward the target under ARCH27-T-15. Re-pin DOWN 1126->1119 (2026-10-15 QF-63 / DZUPAGENT-CODE-L-19): the local exactKeys copy moved to the shared utils/exact-keys.ts."
         },
         "src/pipeline/loop-executor/predicate-loop.ts": {
           "maxLines": 809,
@@ -408,6 +461,38 @@
           "sourceCommit": "d99278bf62d5f296666b377690c91f246f90ff5c",
           "reviewBy": "2026-11-30",
           "rationale": "Floor pin 2026-08-30: this file was over the 500-LOC ceiling with no debt pin at all, so nothing recorded or halted its growth. Frozen at the measured 521 LOC to stop further growth; shrinkTarget stays 500. This accepts no regression \u2014 it establishes the ceiling that was missing. Decompose toward the target under ARCH27-T-15. ARCH27-T-14 re-pin 2026-08-30: artifact-contract imports repointed to @dzupagent/runtime-contracts/pipeline-artifact (521->521 LOC, toward shrinkTarget)."
+        },
+        "src/agent/no-tool-generate-delegation.ts": {
+          "maxLines": 523,
+          "shrinkTarget": 500,
+          "sourceSha256": "260ed87b2cf934ea8daad63a6f98356e28b158318c5d88ac69f522b1c7d3a5c3",
+          "sourceCommit": "d75ac5497c1cd94383fc618ce47af7ee63f8db95",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 RF-03 (DZUPAGENT-ARCH-H-09): landed above the 500-line ceiling with no pin while the gate was already red. Frozen at exactly 557 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30. Re-pin DOWN 557->526 (2026-10-15 QF-44 / DZUPAGENT-ERR-M-92): the single bridge dispatch moved to no-tool-dispatch-once.ts while gaining the bridge error cause and cancelled-during-dispatch classification. Re-pin DOWN 526->523 (2026-10-15 QF-63 / DZUPAGENT-CODE-L-19): the local exactKeys copy moved to the shared utils/exact-keys.ts."
+        },
+        "src/pipeline/executor-internals/standard-node-dispatch.ts": {
+          "maxLines": 543,
+          "shrinkTarget": 500,
+          "sourceSha256": "109b280c69b2d67a94c10c521abc8b05f45795b58103419b0336f79de772e61b",
+          "sourceCommit": "7ced4838437d8a51c850ae348def73141ba1a382",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 RF-03 (DZUPAGENT-ARCH-H-09): landed above the 500-line ceiling with no pin while the gate was already red. Frozen at exactly 543 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30. Re-bound 2026-10-15 QF-46 / DZUPAGENT-ERR-M-94 at the same 543 lines: error edges now route on errorMetadata.code via nodeResultErrorCode in pipeline-shared/error-classification.ts."
+        },
+        "src/pipeline/loop-executor/for-each-item-budget-release.ts": {
+          "maxLines": 562,
+          "shrinkTarget": 500,
+          "sourceSha256": "ffd83275952b2038822a7422f05a05faaae167269278871bfa91d5ff62046593",
+          "sourceCommit": "b267452d72797d63a4424bc4f711f768ffd090d6",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 RF-03 (DZUPAGENT-ARCH-H-09): landed above the 500-line ceiling with no pin while the gate was already red. Frozen at exactly 562 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
+        },
+        "src/pipeline/loop-executor/for-each-item-economics-v2.ts": {
+          "maxLines": 650,
+          "shrinkTarget": 500,
+          "sourceSha256": "d996922fd3c847f6976bc57a67f5848bc102e5d3508c6d509623e01056d5197b",
+          "sourceCommit": "b267452d72797d63a4424bc4f711f768ffd090d6",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 RF-03 (DZUPAGENT-ARCH-H-09): landed above the 500-line ceiling with no pin while the gate was already red. Frozen at exactly 650 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
         }
       }
     },
@@ -445,24 +530,30 @@
       "maxFileLines": 500,
       "fileLineDebtPins": {
         "src/message-manager.ts": {
-          "maxLines": 641,
+          "maxLines": 608,
           "shrinkTarget": 500,
-          "sourceSha256": "1d9f3ed0520cb1cc86e3dc244fdefb4ad5198c11349351e59289d7f3685930ca",
-          "sourceCommit": "4842510311dedc542c783e5c04ca4716065fb584",
+          "sourceSha256": "9497f5a95a00818627409618fe594fa6042572c8195110b00f644082719c18f5",
+          "sourceCommit": "d75ac5497c1cd94383fc618ce47af7ee63f8db95",
           "reviewBy": "2026-11-16",
-          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 641 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 641 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target. Re-pin DOWN 640->608 (2026-10-15 QF-76 / DZUPAGENT-AGENT-M-50): token-counter selection and estimation extracted to message-token-estimate.ts while the default became model-aware."
         }
       }
     },
     "@dzupagent/rag": {
+      "maxRootBarrelExplicitExports": 49,
+      "maxRootBarrelStarExports": 1,
       "maxRootIndexLines": 75,
       "maxFileLines": 500
     },
     "@dzupagent/connectors": {
+      "maxRootBarrelExplicitExports": 73,
+      "maxRootBarrelStarExports": 1,
       "maxRootIndexLines": 95,
       "maxFileLines": 500
     },
     "@dzupagent/agent-adapters": {
+      "maxRootBarrelExplicitExports": 657,
+      "maxRootBarrelStarExports": 1,
       "maxRootIndexLines": 870,
       "rootDebtPin": {
         "maxRootIndexLines": 984,
@@ -473,14 +564,6 @@
       },
       "maxFileLines": 500,
       "fileLineDebtPins": {
-        "src/codex/codex-adapter.ts": {
-          "maxLines": 544,
-          "shrinkTarget": 500,
-          "sourceSha256": "431edecbf99abedd380a8ca239e2903e1ef4ca4b5fbd58272262a349c3c3f651",
-          "sourceCommit": "6208e29c98539ce0846289ed80af65ab554e88ce",
-          "reviewBy": "2026-11-16",
-          "rationale": "RF-03: module was over the ceiling with no pin, so the gate was red. Frozen at its current 544 bytes-bound LOC pending extraction down to the 500-LOC target."
-        },
         "src/integration/run-agent-execution.ts": {
           "maxLines": 615,
           "shrinkTarget": 500,
@@ -520,6 +603,70 @@
           "sourceCommit": "4d52de34d06da166432fd6d4cb4662bf7b4dae6b",
           "reviewBy": "2026-11-30",
           "rationale": "Floor pin 2026-08-30: this file was over the 500-LOC ceiling with no debt pin at all, so nothing recorded or halted its growth. Frozen at the measured 659 LOC to stop further growth; shrinkTarget stays 500. This accepts no regression \u2014 it establishes the ceiling that was missing. Decompose toward the target under ARCH27-T-15."
+        },
+        "src/approval/adapter-approval.ts": {
+          "maxLines": 553,
+          "shrinkTarget": 500,
+          "sourceSha256": "9c927672fea5745a971ce0bd209210ae4c08fb70b02bb83d833482c2d69a9686",
+          "sourceCommit": "b267452d72797d63a4424bc4f711f768ffd090d6",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 RF-03 (DZUPAGENT-ARCH-H-09): landed above the 500-line ceiling with no pin while the gate was already red. Frozen at exactly 553 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
+        },
+        "src/codex/codex-app-server-adapter.ts": {
+          "maxLines": 528,
+          "shrinkTarget": 500,
+          "sourceSha256": "3a77c195eb569c1f640883a94aa1b8bb3ad844f034ce8ecf672e2ddc4f5d555e",
+          "sourceCommit": "b267452d72797d63a4424bc4f711f768ffd090d6",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 RF-03 (DZUPAGENT-ARCH-H-09): landed above the 500-line ceiling with no pin while the gate was already red. Frozen at exactly 528 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
+        },
+        "src/codex/codex-app-server-client.ts": {
+          "maxLines": 503,
+          "shrinkTarget": 500,
+          "sourceSha256": "b0506b52576cd2ec3ceac3cd932862acbad2212dc7afa780e5dcae3e0b7f900c",
+          "sourceCommit": "b267452d72797d63a4424bc4f711f768ffd090d6",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 RF-03 (DZUPAGENT-ARCH-H-09): landed above the 500-line ceiling with no pin while the gate was already red. Frozen at exactly 503 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
+        },
+        "src/codex/codex-cli-adapter.ts": {
+          "maxLines": 518,
+          "shrinkTarget": 500,
+          "sourceSha256": "05351afb62d7c6ec85502b4051a0b7385fa4654176a8f60bf376e799811564c5",
+          "sourceCommit": "b267452d72797d63a4424bc4f711f768ffd090d6",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 RF-03 (DZUPAGENT-ARCH-H-09): landed above the 500-line ceiling with no pin while the gate was already red. Frozen at exactly 518 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
+        },
+        "src/codex/codex-streamed-thread-loop.ts": {
+          "maxLines": 513,
+          "shrinkTarget": 500,
+          "sourceSha256": "b017a419c17251ea3f273505831b728972a2c8520429e05859a0e5ea9c781d12",
+          "sourceCommit": "b267452d72797d63a4424bc4f711f768ffd090d6",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 RF-03 (DZUPAGENT-ARCH-H-09): landed above the 500-line ceiling with no pin while the gate was already red. Frozen at exactly 513 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
+        },
+        "src/integration/coordination-assignment-decoder.ts": {
+          "maxLines": 919,
+          "shrinkTarget": 500,
+          "sourceSha256": "6d00adf47995fd9af365c01d7f4098c942755194b2ef5083d38fc0994ce93983",
+          "sourceCommit": "b267452d72797d63a4424bc4f711f768ffd090d6",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 RF-03 (DZUPAGENT-ARCH-H-09): landed above the 500-line ceiling with no pin while the gate was already red. Frozen at exactly 919 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
+        },
+        "src/integration/coordination-attempt-continuity.ts": {
+          "maxLines": 578,
+          "shrinkTarget": 500,
+          "sourceSha256": "102b5b1246b5c4c3bed5a59b53453428689c54b56748a22220eebc3b16ebdbc2",
+          "sourceCommit": "b267452d72797d63a4424bc4f711f768ffd090d6",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 RF-03 (DZUPAGENT-ARCH-H-09): landed above the 500-line ceiling with no pin while the gate was already red. Frozen at exactly 578 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
+        },
+        "src/integration/coordination-attempt-execution.ts": {
+          "maxLines": 1007,
+          "shrinkTarget": 500,
+          "sourceSha256": "47b11d92a7fab3f05ade02f5fc087fc2cf437d6e847b7f37e288917e08e4c5f2",
+          "sourceCommit": "b267452d72797d63a4424bc4f711f768ffd090d6",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 RF-03 (DZUPAGENT-ARCH-H-09): landed above the 500-line ceiling with no pin while the gate was already red. Frozen at exactly 1007 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
         }
       }
     },
@@ -532,13 +679,16 @@
       "maxFileLines": 500
     },
     "@dzupagent/runtime-contracts": {
+      "maxRootBarrelExplicitExports": 213,
+      "maxRootBarrelStarExports": 0,
+      "maxRootBarrelSourceCount": 14,
       "maxRootIndexLines": 115,
       "rootDebtPin": {
         "maxRootIndexLines": 172,
-        "sourceSha256": "5e6fa7908ed97c7294bad443e3345ccae79e29d1bcd173b868f8be1e84308617",
-        "sourceCommit": "c9dd6b0ace9790d3fe6962f62e5ee370a59c761a",
+        "sourceSha256": "6d3874ea73505a1ace1d1ed79b9beafcc5b4078afbebc6fb2d494375b1c319ad",
+        "sourceCommit": "1bc0e576a55875680be23c2dc1d9f3144cf75a10",
         "reviewBy": "2026-09-30",
-        "rationale": "2026-08-30 workspace closure: freeze the already-integrated neutral runtime-contract compatibility root at exactly 172 lines, 14 sources, 137 explicit exports, and seven star exports. The lower 115-line target remains enforced.",
+        "rationale": "2026-08-30 workspace closure: freeze the already-integrated neutral runtime-contract compatibility root at exactly 172 lines, 14 sources, 137 explicit exports, and seven star exports. The lower 115-line target remains enforced. Renewal pending approver signature (RF-03 / DZUPAGENT-ARCH-H-09): bytes and line count unchanged since the pin; reviewBy not extended. Re-bound 2026-10-15 (RF-06 / DZUPAGENT-ARCH-H-11): the seven export-star lines became seven explicit re-export lines with the identical export-name set; line count unchanged at 172, star exports capped at 0 and explicit exports at 213.",
         "shrinkTargets": {
           "maxRootIndexLines": 115
         }
@@ -560,10 +710,28 @@
           "sourceCommit": "20213e9af24b305f067ae9284d5de7eb386e2f96",
           "reviewBy": "2026-11-16",
           "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 605 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+        },
+        "src/loop-economics-evidence-v2/inventory.ts": {
+          "maxLines": 625,
+          "shrinkTarget": 500,
+          "sourceSha256": "1f29c450271b8f2ecfe1372580e73ccb5eafe7b18886878c9e96a2359b7e5466",
+          "sourceCommit": "b267452d72797d63a4424bc4f711f768ffd090d6",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 RF-03 (DZUPAGENT-ARCH-H-09): landed above the 500-line ceiling with no pin while the gate was already red. Frozen at exactly 625 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
+        },
+        "src/pipeline-artifact/definition.ts": {
+          "maxLines": 533,
+          "shrinkTarget": 500,
+          "sourceSha256": "82ec23fe1ddb44c011b914032a276c8fcd64922cef86f989d008b43d045827dd",
+          "sourceCommit": "b267452d72797d63a4424bc4f711f768ffd090d6",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 RF-03 (DZUPAGENT-ARCH-H-09): landed above the 500-line ceiling with no pin while the gate was already red. Frozen at exactly 533 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
         }
       }
     },
     "@dzupagent/execution-contracts": {
+      "maxRootBarrelExplicitExports": 6,
+      "maxRootBarrelStarExports": 7,
       "maxRootIndexLines": 16,
       "maxFileLines": 500,
       "fileLineDebtPins": {
@@ -588,6 +756,9 @@
       }
     },
     "@dzupagent/session-control": {
+      "maxRootBarrelExplicitExports": 131,
+      "maxRootBarrelStarExports": 0,
+      "maxRootBarrelSourceCount": 12,
       "maxRootIndexLines": 12,
       "maxFileLines": 500
     },
@@ -596,6 +767,8 @@
       "maxFileLines": 500
     },
     "@dzupagent/eval-contracts": {
+      "maxRootBarrelExplicitExports": 0,
+      "maxRootBarrelStarExports": 4,
       "maxRootIndexLines": 13,
       "maxFileLines": 500
     },
@@ -632,6 +805,8 @@
       "maxFileLines": 500
     },
     "@dzupagent/adapter-types": {
+      "maxRootBarrelExplicitExports": 0,
+      "maxRootBarrelStarExports": 27,
       "maxRootIndexLines": 28,
       "rootDebtPin": {
         "maxRootIndexLines": 33,
@@ -649,10 +824,20 @@
           "sourceCommit": "4d52de34d06da166432fd6d4cb4662bf7b4dae6b",
           "reviewBy": "2026-11-30",
           "rationale": "Floor pin 2026-08-30: this file was over the 500-LOC ceiling with no debt pin at all, so nothing recorded or halted its growth. Frozen at the measured 535 LOC to stop further growth; shrinkTarget stays 500. This accepts no regression \u2014 it establishes the ceiling that was missing. Decompose toward the target under ARCH27-T-15."
+        },
+        "src/contracts/coordination-assignment.ts": {
+          "maxLines": 520,
+          "shrinkTarget": 500,
+          "sourceSha256": "94921e6a46227785f9cec9a56fb9211817ff3d2738f7fc78ce1717cf24faff54",
+          "sourceCommit": "b267452d72797d63a4424bc4f711f768ffd090d6",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 RF-03 (DZUPAGENT-ARCH-H-09): landed above the 500-line ceiling with no pin while the gate was already red. Frozen at exactly 520 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
         }
       }
     },
     "@dzupagent/adapter-rules": {
+      "maxRootBarrelExplicitExports": 15,
+      "maxRootBarrelStarExports": 1,
       "maxRootIndexLines": 30,
       "maxFileLines": 500
     },
@@ -671,7 +856,7 @@
         "sourceSha256": "04fd88a7d4d1ca0e8cca03025d567bd24dc468e726a5e8c7e821efd10af99c43",
         "sourceCommit": "2694577565a61591fa3549f2f6931d569e16bb34",
         "reviewBy": "2026-09-11",
-        "rationale": "Freeze the consolidated current stateless MCP compatibility export with zero slack while future contracts remain subpath-only."
+        "rationale": "Freeze the consolidated current stateless MCP compatibility export with zero slack while future contracts remain subpath-only. Renewal pending approver signature (RF-03 / DZUPAGENT-ARCH-H-09): bytes and line count unchanged since the pin; reviewBy not extended."
       },
       "maxFileLines": 500
     },
@@ -683,24 +868,12 @@
       "maxFileLines": 500
     },
     "@dzupagent/flow-compiler": {
+      "maxRootBarrelExplicitExports": 189,
+      "maxRootBarrelStarExports": 1,
+      "maxRootBarrelSourceCount": 36,
+      "maxRootIndexLines": 435,
       "maxFileLines": 500,
       "fileLineDebtPins": {
-        "src/compile-orchestrator/pipeline.ts": {
-          "maxLines": 560,
-          "sourceSha256": "9c5f0e1a820a8e571ccdf3080f4363499deab6f4ec3d3d8d050b63aa9550e7d2",
-          "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
-          "reviewBy": "2026-09-14",
-          "rationale": "Freeze the consolidated compile pipeline pending extraction of its interaction manifest and validation phase helpers.",
-          "shrinkTarget": 500
-        },
-        "src/stages/shape-validate-rules/control-flow.ts": {
-          "maxLines": 666,
-          "shrinkTarget": 500,
-          "sourceSha256": "6422b8bc10c885fd37f17dcced95260041625928ccc21e34c92d3094e14ee289",
-          "sourceCommit": "c9ea639cdc3547c7e26fe01ac62b8a31297248fc",
-          "reviewBy": "2026-11-16",
-          "rationale": "RF-03: module was over the ceiling with no pin, so the gate was red. Frozen at its current 666 bytes-bound LOC pending extraction down to the 500-LOC target."
-        },
         "src/execution-mapper.ts": {
           "maxLines": 660,
           "shrinkTarget": 500,
@@ -708,10 +881,20 @@
           "sourceCommit": "4d52de34d06da166432fd6d4cb4662bf7b4dae6b",
           "reviewBy": "2026-11-30",
           "rationale": "Floor pin 2026-08-30: this file was over the 500-LOC ceiling with no debt pin at all, so nothing recorded or halted its growth. Frozen at the measured 660 LOC to stop further growth; shrinkTarget stays 500. This accepts no regression \u2014 it establishes the ceiling that was missing. Decompose toward the target under ARCH27-T-15."
+        },
+        "src/types.ts": {
+          "maxLines": 505,
+          "shrinkTarget": 500,
+          "sourceSha256": "d65ea0c75096199931d90f5297db34fc48d5124fd8c2deb8c01f6f5ae75cef4d",
+          "sourceCommit": "b267452d72797d63a4424bc4f711f768ffd090d6",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 RF-03 (DZUPAGENT-ARCH-H-09): landed above the 500-line ceiling with no pin while the gate was already red. Frozen at exactly 505 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
         }
       }
     },
     "@dzupagent/flow-dsl": {
+      "maxRootBarrelExplicitExports": 0,
+      "maxRootBarrelStarExports": 15,
       "maxRootIndexLines": 15,
       "maxFileLines": 500,
       "fileLineDebtPins": {
@@ -762,6 +945,8 @@
       "maxFileLines": 500
     },
     "@dzupagent/scraper": {
+      "maxRootBarrelExplicitExports": 7,
+      "maxRootBarrelStarExports": 1,
       "maxRootIndexLines": 10,
       "maxFileLines": 500
     },
@@ -797,6 +982,16 @@
     },
     "@dzupagent/evals": {
       "maxRootIndexLines": 250,
+      "rootDebtPin": {
+        "maxRootIndexLines": 252,
+        "sourceSha256": "413dd89b40299beda1b41739144b3a357e784137b1a6738c3dc6403f926ea2c0",
+        "sourceCommit": "b267452d72797d63a4424bc4f711f768ffd090d6",
+        "reviewBy": "2026-11-30",
+        "rationale": "2026-10-15 RF-03 (DZUPAGENT-ARCH-H-09): the evals root barrel reached 252 lines against its 250-line budget with no pin. Frozen at exactly 252 lines; new public API lands on a subpath and the 250-line target stays enforced.",
+        "shrinkTargets": {
+          "maxRootIndexLines": 250
+        }
+      },
       "maxFileLines": 500
     },
     "@dzupagent/app-tools": {
@@ -804,10 +999,14 @@
       "maxFileLines": 500
     },
     "@dzupagent/code-edit-kit": {
+      "maxRootBarrelExplicitExports": 20,
+      "maxRootBarrelStarExports": 1,
       "maxRootIndexLines": 29,
       "maxFileLines": 500
     },
     "@dzupagent/hitl-kit": {
+      "maxRootBarrelExplicitExports": 0,
+      "maxRootBarrelStarExports": 9,
       "maxRootIndexLines": 5,
       "rootDebtPin": {
         "maxRootIndexLines": 6,
@@ -820,6 +1019,44 @@
     },
     "@dzupagent/subagents": {
       "maxRootIndexLines": 212,
+      "maxFileLines": 500
+    },
+    "@dzupagent/canonical-json": {
+      "maxRootBarrelExplicitExports": 0,
+      "maxRootBarrelStarExports": 0,
+      "maxRootBarrelSourceCount": 0,
+      "maxRootIndexLines": 442,
+      "maxFileLines": 500
+    },
+    "create-dzupagent": {
+      "maxRootBarrelExplicitExports": 51,
+      "maxRootBarrelStarExports": 0,
+      "maxRootBarrelSourceCount": 14,
+      "maxRootIndexLines": 78,
+      "maxFileLines": 500
+    },
+    "@dzupagent/testing": {
+      "maxRootBarrelExplicitExports": 59,
+      "maxRootBarrelStarExports": 0,
+      "maxRootBarrelSourceCount": 14,
+      "maxRootIndexLines": 97,
+      "maxFileLines": 500,
+      "fileLineDebtPins": {
+        "src/sdlc-mvp-evidence.ts": {
+          "maxLines": 942,
+          "shrinkTarget": 500,
+          "sourceSha256": "88fa4c172e95f6113b5eb6287b36f39b4ef6d49269e174bdae23de7eef7fd8ab",
+          "sourceCommit": "1bc0e576a55875680be23c2dc1d9f3144cf75a10",
+          "reviewBy": "2026-11-30",
+          "rationale": "2026-10-15 QF-34 (DZUPAGENT-ARCH-M-11): this package had no barrel-budget entry, so this file sat above 500 lines with no pin. Frozen at exactly 942 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
+        }
+      }
+    },
+    "@dzupagent/test-utils": {
+      "maxRootBarrelExplicitExports": 66,
+      "maxRootBarrelStarExports": 0,
+      "maxRootBarrelSourceCount": 7,
+      "maxRootIndexLines": 133,
       "maxFileLines": 500
     }
   }

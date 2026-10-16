@@ -30,6 +30,7 @@ import {
   ParallelRequestSchema,
   BidRequestSchema,
   ApproveRequestSchema,
+  resolveAllowedWorkingDirectory,
 } from "./request-schemas.js";
 import {
   errorResponse,
@@ -147,6 +148,23 @@ export class AdapterHttpHandler implements HandlerContext {
     if (method === "POST" && path === "/run") {
       const validation = validateBody(request.body, RunRequestSchema);
       if ("error" in validation) return validation.error;
+      const { workingDirectory } = validation.body;
+      if (workingDirectory !== undefined) {
+        const resolved = await resolveAllowedWorkingDirectory(
+          workingDirectory,
+          this.config.allowedWorkingDirectoryRoots
+        );
+        if (resolved === undefined) {
+          return jsonResponse(400, {
+            error: "Validation failed",
+            details: [{
+              path: "workingDirectory",
+              message: "workingDirectory must be an existing directory inside an allowed root",
+            }],
+          });
+        }
+        return this.handleRun({ ...validation.body, workingDirectory: resolved }, correlationId);
+      }
       return this.handleRun(validation.body, correlationId);
     }
 

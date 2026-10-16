@@ -400,6 +400,48 @@ describe('AgentRunner R5N opt-in no-tool generate delegation', () => {
     expect(legacy.invoke).not.toHaveBeenCalled()
   })
 
+  it('keeps a thrown bridge error as cause without exposing it in the message', async () => {
+    const bridgeFailure = new Error('provider said 429: secret-detail')
+    const bridge: AgentRunnerNoToolDelegationBridge = {
+      bridgeId: 'r5n-throwing-bridge/v1',
+      dispatch: async () => { throw bridgeFailure },
+    }
+    const legacy = legacyModel(response('must not replay'))
+    const error = await capturedError(() => new DzupAgent(agentConfig(legacy.model, bridge))
+      .generate([new HumanMessage('throws')], options('fallback-to-legacy')))
+    expect(error).toMatchObject({
+      code: 'bridge-threw-with-unknown-outcome',
+      phase: 'outcome-unknown',
+      replay: 'forbidden-unknown-outcome',
+    })
+    expect(error.message).toBe('AgentRunner no-tool delegation failed: bridge-threw-with-unknown-outcome')
+    expect(error.cause).toBe(bridgeFailure)
+    expect(legacy.invoke).not.toHaveBeenCalled()
+  })
+
+  it('classifies an abort during dispatch as cancelled-during-dispatch', async () => {
+    const controller = new AbortController()
+    const abortError = Object.assign(new Error('aborted'), { name: 'AbortError' })
+    const bridge: AgentRunnerNoToolDelegationBridge = {
+      bridgeId: 'r5n-aborting-bridge/v1',
+      dispatch: async () => {
+        controller.abort()
+        throw abortError
+      },
+    }
+    const legacy = legacyModel(response('must not replay'))
+    const error = await capturedError(() => new DzupAgent(agentConfig(legacy.model, bridge))
+      .generate([new HumanMessage('aborts')], { ...options('fallback-to-legacy'), signal: controller.signal }))
+    expect(error).toMatchObject({
+      code: 'cancelled-during-dispatch',
+      phase: 'outcome-unknown',
+      replay: 'forbidden-unknown-outcome',
+    })
+    expect(error.message).toBe('AgentRunner no-tool delegation failed: cancelled-during-dispatch')
+    expect(error.cause).toBe(abortError)
+    expect(legacy.invoke).not.toHaveBeenCalled()
+  })
+
   it('never replays envelope or projection rejection after runner completion', async () => {
     const bridge = new DeterministicBridge('answer', 'envelope-failure')
     const legacy = legacyModel(response('must not replay'))

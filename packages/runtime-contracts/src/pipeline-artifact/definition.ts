@@ -154,7 +154,9 @@ export interface PipelineNodeBase {
   stateWrites?: NodeStateWritePolicy;
   /**
    * Execution policy. Honoured for top-level nodes only; loop, for-each and
-   * fork body executors do not consult it.
+   * fork body executors do not consult it, so the agent pipeline validator
+   * refuses a definition that sets it on a body node
+   * (`EXECUTION_POLICY_ON_BODY_NODE`).
    */
   executionPolicy?: NodeExecutionPolicy;
   /**

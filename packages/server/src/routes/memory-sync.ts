@@ -9,7 +9,9 @@
  * actual WebSocket upgrade is handled by the server's WebSocket adapter
  * (see `createMemorySyncHandler`).
  */
+import { randomUUID } from 'node:crypto'
 import { Hono } from 'hono'
+import { secureLogger } from '@dzupagent/core/utils'
 import type { AppEnv } from '../types.js'
 import type {
   SharedMemoryNamespace,
@@ -91,30 +93,63 @@ export function createMemorySyncHandler(
         session.onEvent(config.onSyncEvent)
       }
 
-      // Wire WS messages to transport handlers
+      // Per-connection id so a session that never connected can be told
+      // apart from an idle one in the logs.
+      const connectionId = randomUUID()
+      const logFailure = (operation: string, message: string, error?: unknown): void => {
+        secureLogger.warn({
+          level: 'warn',
+          operation,
+          message,
+          connectionId,
+          nodeId: config.nodeId,
+          ...(error !== undefined
+            ? { errorName: error instanceof Error ? error.name : typeof error }
+            : {}),
+        })
+      }
+
+      // Wire WS messages to transport handlers. Malformed frames are dropped
+      // and counted; the first one per connection is logged so a misbehaving
+      // peer is visible without one log line per frame.
+      let malformedFrames = 0
       const onMessage = (data: string): void => {
+        let message: SyncMessage
         try {
-          const message = JSON.parse(data) as SyncMessage
-          for (const handler of handlers) {
-            handler(message)
+          message = JSON.parse(data) as SyncMessage
+        } catch (error) {
+          malformedFrames += 1
+          if (malformedFrames === 1) {
+            logFailure('memory-sync.frame', 'dropped malformed sync frame', error)
           }
-        } catch {
-          // Malformed message — ignore
+          return
+        }
+        for (const handler of handlers) {
+          handler(message)
         }
       }
 
       const onClose = (): void => {
-        session.disconnect().catch(() => {
-          // Non-fatal
+        session.disconnect().catch((error: unknown) => {
+          // Non-fatal, but a failed disconnect must be visible.
+          logFailure('memory-sync.disconnect', 'sync session disconnect failed', error)
         })
       }
 
       // Start session
-      session.connect(transport).catch(() => {
-        // Non-fatal — session will emit error event
+      session.connect(transport).catch((error: unknown) => {
+        // Non-fatal — the session also emits its own error event.
+        logFailure('memory-sync.connect', 'sync session connect failed', error)
       })
 
-      return { onMessage, onClose, session }
+      return {
+        onMessage,
+        onClose,
+        session,
+        get malformedFrames() {
+          return malformedFrames
+        },
+      }
     },
   }
 }
@@ -157,4 +192,6 @@ export interface SyncConnectionHandle {
   onMessage: (data: string) => void
   onClose: () => void
   session: SyncSession
+  /** Frames dropped on this connection because they were not valid JSON. */
+  readonly malformedFrames: number
 }

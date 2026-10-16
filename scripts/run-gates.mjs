@@ -76,13 +76,15 @@ const STATIC_CHECKS = [
   "check:terminal-tool-event-guards",
   "check:test-sleeps",
   "check:test-naming",
+  "check:dead-exports",
   "check:test-typecheck",
   "test:scripts",
 ];
 
-// Runs after the build because the corpus round-trip loads compiled flow
-// packages; it is not an artifact check, hence its own list.
-const POST_BUILD_CHECKS = ["check:flow-corpus-losslessness"];
+// Run after the build: test:packaging needs each package's own dist
+// (DZUPAGENT-TEST-M-13) and the corpus round-trip loads compiled flow
+// packages. Neither is an artifact check, hence their own list.
+const POST_BUILD_CHECKS = ["test:packaging", "check:flow-corpus-losslessness"];
 
 const ARTIFACT_CHECKS = [
   "check:build-artifact-integrity",

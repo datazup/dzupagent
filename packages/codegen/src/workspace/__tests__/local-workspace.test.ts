@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtemp, rm, readFile, writeFile, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -156,6 +156,47 @@ describe('LocalWorkspace', () => {
     await expect(ws.search('const', { glob: '../*.ts' })).rejects.toBeInstanceOf(
       WorkspacePathSecurityError,
     )
+  })
+
+  it('search passes a flag-like ripgrep query only as the -e operand (no option injection)', async () => {
+    const rgWorkspace = new LocalWorkspace({
+      rootDir: tempDir,
+      search: { provider: 'ripgrep' },
+      command: { timeoutMs: 5_000, allowedCommands: ['rg'] },
+    })
+    const runSpy = vi
+      .spyOn(rgWorkspace, 'runCommand')
+      .mockResolvedValue({ exitCode: 1, stdout: '', stderr: '', timedOut: false })
+
+    await rgWorkspace.search('-Le.', { glob: 'src/**/*.ts' })
+
+    expect(runSpy).toHaveBeenCalledTimes(1)
+    const [cmd, args] = runSpy.mock.calls[0]!
+    expect(cmd).toBe('rg')
+    expect(args).toContain('--no-follow')
+    expect(args).toContain('--fixed-strings')
+    expect(args).not.toContain('-L')
+    expect(args).not.toContain('--follow')
+    // The query appears exactly once, immediately after -e, as the last operand.
+    expect(args!.filter((a) => a === '-Le.')).toHaveLength(1)
+    expect(args!.at(-2)).toBe('-e')
+    expect(args!.at(-1)).toBe('-Le.')
+    expect(args!.indexOf('--glob')).toBeGreaterThan(-1)
+    expect(args![args!.indexOf('--glob') + 1]).toBe('src/**/*.ts')
+  })
+
+  it('search treats a flag-like query as a literal and does not follow symlinks (builtin)', async () => {
+    const outsideDir = await mkdtemp(join(tmpdir(), `lw-search-outside-${randomUUID()}-`))
+    try {
+      await writeFile(join(outsideDir, 'secret.txt'), 'leak -Le. here', 'utf-8')
+      await symlink(outsideDir, join(tempDir, 'linked-out'))
+      await ws.writeFile('inside.txt', 'x -Le. y\nLe-free line')
+      const results = await ws.search('-Le.')
+      expect(results.map((r) => r.filePath)).toEqual(['inside.txt'])
+      expect(results[0]!.matchText).toBe('-Le.')
+    } finally {
+      await rm(outsideDir, { recursive: true, force: true })
+    }
   })
 
   // ---- runCommand ---------------------------------------------------------

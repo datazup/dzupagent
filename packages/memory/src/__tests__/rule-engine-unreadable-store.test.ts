@@ -6,28 +6,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { DynamicRuleEngine } from '../rule-engine.js'
 import type { BaseStore } from '@langchain/langgraph'
+import { createStoreDouble } from './helpers/store-double.js'
 
+/**
+ * Shared InMemoryStore double (DZUPAGENT-TEST-H-09): `search` honours the
+ * namespace prefix and the default limit of 10. `double` seeds and inspects
+ * records without going through the spied methods.
+ */
 function mockStore() {
-  const data = new Map<string, Record<string, unknown>>()
-  return {
-    store: {
-      search: vi.fn(async (_ns: string[], opts?: { limit?: number }) => {
-        const items = [...data.entries()].map(([key, value]) => ({ key, value }))
-        return items.slice(0, opts?.limit ?? items.length)
-      }),
-      put: vi.fn(async (_ns: string[], key: string, value: Record<string, unknown>) => {
-        data.set(key, value)
-      }),
-      delete: vi.fn(async (_ns: string[], key: string) => {
-        data.delete(key)
-      }),
-      get: vi.fn(async (_ns: string[], key: string) => {
-        const value = data.get(key)
-        return value ? { key, value } : undefined
-      }),
-    } as unknown as BaseStore,
-    data,
-  }
+  const double = createStoreDouble()
+  return { store: double.store, double }
 }
 
 /** A store whose reads fail but whose writes succeed, isolating the read path. */
@@ -135,7 +123,7 @@ describe('DynamicRuleEngine — an unreadable store is not an empty one', () => 
       // The converse of the no-write assertion: proves the guard rejects only
       // the unreadable case, not every write.
       await engine.addRule({ content: 'a distinctive new rule', scope: [] })
-      expect(m.data.size).toBe(1)
+      expect(await m.double.records()).toHaveLength(1)
     })
   })
 })

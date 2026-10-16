@@ -19,6 +19,7 @@
     "build:verify": "node ../../scripts/run-with-build-custody.mjs node ../../scripts/check-build-artifact-integrity.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:packaging": "DZUPAGENT_PACKAGING_TESTS=1 vitest run src/__tests__/tool-results-export-map.test.ts",
     "test:watch": "vitest",
     "lint": "node ../../scripts/run-package-lint.mjs",
     "test:coverage": "vitest run --coverage"

@@ -28,6 +28,7 @@ import type {
   RecursiveControlScopeBindingV1,
 } from "./control-types.js";
 import type { RecursiveScopedDurablePortV1 } from "./types.js";
+import { exactKeys } from "../../utils/exact-keys.js";
 
 const DECISION_SCHEMA = "dzupagent.recursiveControlDecision/v1" as const;
 const CANDIDATE_SET_SCHEMA =
@@ -68,14 +69,6 @@ function isDigest(value: unknown): value is RecursiveScopedSha256Digest {
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function exactKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
-  const actual = Object.keys(value).sort();
-  return (
-    actual.length === expected.length &&
-    [...expected].sort().every((key, index) => actual[index] === key)
-  );
 }
 
 function stringArray(value: unknown): value is readonly string[] {

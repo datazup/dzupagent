@@ -15,7 +15,8 @@ import {
   type BranchExecutionResult,
 } from '../pipeline/executor-internals/branch-merge.js'
 import type { PipelineEdge, PipelineNode } from '@dzupagent/core'
-import type { NodeResult } from '../pipeline/pipeline-runtime-types.js'
+import type { NodeResult, NodeExecutor } from '../pipeline/pipeline-runtime-types.js'
+import { PipelineRuntime } from '../pipeline/pipeline-runtime.js'
 
 // ---------------------------------------------------------------------------
 // getNextNodeIds
@@ -153,6 +154,53 @@ describe('getErrorTarget — branch coverage', () => {
       ]],
     ])
     expect(getErrorTarget('A', m)).toBe('oomHandler')
+  })
+})
+
+describe('PipelineRuntime error edges — structured error code', () => {
+  async function routeFrom(result: Omit<NodeResult, 'nodeId' | 'durationMs' | 'output'>) {
+    const calls: string[] = []
+    const executor: NodeExecutor = async (nodeId) => {
+      calls.push(nodeId)
+      if (nodeId === 'A') return { nodeId, durationMs: 1, output: undefined, ...result }
+      return { nodeId, durationMs: 1, output: { ok: nodeId } }
+    }
+    const runtime = new PipelineRuntime({
+      definition: {
+        id: 'error-code-routing',
+        name: 'Error code routing',
+        version: '1.0.0',
+        schemaVersion: '1.0.0',
+        entryNodeId: 'A',
+        nodes: [
+          { id: 'A', type: 'agent', agentId: 'a' },
+          { id: 'OTHER', type: 'agent', agentId: 'o' },
+          { id: 'LIMITED', type: 'agent', agentId: 'l' },
+        ],
+        edges: [
+          { type: 'error', sourceNodeId: 'A', targetNodeId: 'OTHER', errorCodes: ['UPSTREAM_DOWN'] },
+          { type: 'error', sourceNodeId: 'A', targetNodeId: 'LIMITED', errorCodes: ['RATE_LIMITED'] },
+        ],
+      } as never,
+      nodeExecutor: executor,
+    })
+    await runtime.execute({})
+    return calls
+  }
+
+  it('routes on errorMetadata.code when the message carries no code', async () => {
+    const calls = await routeFrom({ error: 'limit hit', errorMetadata: { code: 'RATE_LIMITED' } })
+    expect(calls).toEqual(['A', 'LIMITED'])
+  })
+
+  it('prefers errorMetadata.code over a code parsed from the message', async () => {
+    const calls = await routeFrom({ error: '[UPSTREAM_DOWN] limit hit', errorMetadata: { code: 'RATE_LIMITED' } })
+    expect(calls).toEqual(['A', 'LIMITED'])
+  })
+
+  it('falls back to the message code when errorMetadata has no string code', async () => {
+    const calls = await routeFrom({ error: '[RATE_LIMITED] limit hit', errorMetadata: { code: 429 } })
+    expect(calls).toEqual(['A', 'LIMITED'])
   })
 })
 

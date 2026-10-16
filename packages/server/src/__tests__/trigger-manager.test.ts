@@ -7,6 +7,7 @@
  * where the interval must actually fire.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { secureLogger } from '@dzupagent/core/utils'
 import { TriggerManager } from '../triggers/trigger-manager.js'
 import type { CronTriggerConfig, WebhookTriggerConfig, ChainTriggerConfig } from '../triggers/trigger-manager.js'
 
@@ -253,6 +254,63 @@ describe('TriggerManager', () => {
       manager.register(makeChain({ id: 'ch-2', afterAgentId: 'agent-a', agentId: 'c' }))
       await manager.notifyCompletion('agent-a')
       expect(onTrigger).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  // --- rejecting onTrigger (DZUPAGENT-ERR-M-91) ---
+
+  describe('rejecting onTrigger', () => {
+    it('a rejecting cron callback logs once per tick and never rejects unhandled', async () => {
+      vi.useFakeTimers()
+      const unhandled = vi.fn()
+      process.on('unhandledRejection', unhandled)
+      const log = vi.spyOn(secureLogger, 'error').mockImplementation(() => undefined)
+      const onError = vi.fn()
+      try {
+        const failing = vi.fn().mockRejectedValue(new TypeError('db down at 10.0.0.4'))
+        manager = new TriggerManager(failing, { onTriggerError: onError })
+        manager.register(makeCron({ schedule: '*/5 * * * *' }))
+        manager.start()
+
+        await vi.advanceTimersByTimeAsync(5 * 60_000)
+        await vi.advanceTimersByTimeAsync(5 * 60_000)
+
+        expect(failing).toHaveBeenCalledTimes(2)
+        const entries = log.mock.calls
+          .map(([entry]) => entry as { operation?: string })
+          .filter((entry) => entry.operation === 'trigger.fire_failed')
+        expect(entries).toHaveLength(2)
+        expect(entries[0]).toMatchObject({ triggerId: 'cron-1', triggerType: 'cron', errorClass: 'TypeError' })
+        expect(JSON.stringify(entries)).not.toContain('10.0.0.4')
+        expect(onError).toHaveBeenCalledTimes(2)
+
+        vi.useRealTimers()
+        await new Promise((r) => setTimeout(r, 0))
+        expect(unhandled).not.toHaveBeenCalled()
+      } finally {
+        process.off('unhandledRejection', unhandled)
+      }
+    })
+
+    it('a rejecting webhook callback is logged with the trigger id and still rejects to the caller', async () => {
+      const log = vi.spyOn(secureLogger, 'error').mockImplementation(() => undefined)
+      manager = new TriggerManager(vi.fn().mockRejectedValue(new Error('boom')))
+      manager.register(makeWebhook())
+
+      await expect(manager.fireWebhook('wh-1')).rejects.toThrow('boom')
+      expect(log).toHaveBeenCalledWith(expect.objectContaining({ operation: 'trigger.fire_failed', triggerId: 'wh-1' }))
+    })
+
+    it('each rejecting chain trigger is logged', async () => {
+      const log = vi.spyOn(secureLogger, 'error').mockImplementation(() => undefined)
+      manager = new TriggerManager(vi.fn().mockRejectedValue(new Error('boom')))
+      manager.register(makeChain({ id: 'c1' }))
+      manager.register(makeChain({ id: 'c2' }))
+
+      await expect(manager.notifyCompletion('agent-a')).rejects.toThrow('boom')
+      await new Promise((r) => setTimeout(r, 0))
+      const ids = log.mock.calls.map(([entry]) => (entry as { triggerId?: string }).triggerId)
+      expect(ids).toEqual(expect.arrayContaining(['c1', 'c2']))
     })
   })
 })

@@ -16,6 +16,25 @@ import {
 
 const execFileAsync = promisify(execFile)
 
+/**
+ * Packaging checks need this package's own built `dist`, which the default
+ * test task does not build. Without the packaging flag they are reported as
+ * skipped, never as passed; with it (see `test:packaging`) a missing `dist`
+ * fails the spec instead of returning early.
+ */
+const PACKAGING_ENV_VAR = 'DZUPAGENT_PACKAGING_TESTS'
+const packagingEnabled = (process.env[PACKAGING_ENV_VAR] ?? '').length > 0
+
+async function requireDist(...files: string[]): Promise<void> {
+  for (const file of files) {
+    await access(join(process.cwd(), file)).catch(() => {
+      throw new Error(
+        `${PACKAGING_ENV_VAR} is set but ${file} is missing; run build:verify for @dzupagent/agent-adapters first`,
+      )
+    })
+  }
+}
+
 describe('agent-adapters export map', () => {
   // Root barrel is growth-frozen (barrel-budgets rootDebtPin); execution-control
   // admission lands subpath-only via ./providers.
@@ -69,12 +88,8 @@ describe('agent-adapters export map', () => {
     })
   })
 
-  it('keeps Codex goal control and capability observation on the narrow built subpath', async () => {
-    try {
-      await access(join(process.cwd(), 'dist/codex-goal-control.js'))
-    } catch {
-      return
-    }
+  it.skipIf(!packagingEnabled)('keeps Codex goal control and capability observation on the narrow built subpath', async () => {
+    await requireDist('dist/codex-goal-control.js')
 
     const mod = await import('@dzupagent/agent-adapters/codex-goal-control')
     expect(mod).toEqual(expect.objectContaining({
@@ -88,13 +103,8 @@ describe('agent-adapters export map', () => {
     }))
   })
 
-  it('resolves monitoring ESM and declarations through built package exports', async () => {
-    try {
-      await access(join(process.cwd(), 'dist/introspection/index.js'))
-      await access(join(process.cwd(), 'dist/observability/dashboard.js'))
-    } catch {
-      return
-    }
+  it.skipIf(!packagingEnabled)('resolves monitoring ESM and declarations through built package exports', async () => {
+    await requireDist('dist/introspection/index.js', 'dist/observability/dashboard.js')
 
     await execFileAsync(process.execPath, [
       '--input-type=module',
@@ -143,13 +153,8 @@ describe('agent-adapters export map', () => {
     }
   }, 30_000)
 
-  it('passes a built Q4 V1 projection unchanged through the built V2 compatibility seam', async () => {
-    try {
-      await access(join(process.cwd(), 'dist/observability/dashboard.js'))
-      await access(join(process.cwd(), '../adapter-types/dist/monitoring/dashboard.js'))
-    } catch {
-      return
-    }
+  it.skipIf(!packagingEnabled)('passes a built Q4 V1 projection unchanged through the built V2 compatibility seam', async () => {
+    await requireDist('dist/observability/dashboard.js', '../adapter-types/dist/monitoring/dashboard.js')
 
     const [projectionRuntime, dashboardRuntime, rootDashboardRuntime, coreRuntime] =
       await Promise.all([
@@ -259,15 +264,10 @@ describe('agent-adapters export map', () => {
     }
   }, 30_000)
 
-  it('imports the pipeline package subpath from built artifacts when dist exists', async () => {
-    const builtPipeline = join(process.cwd(), 'dist/pipeline/index.js')
-    try {
-      await access(builtPipeline)
-    } catch {
-      return
-    }
+  it.skipIf(!packagingEnabled)('imports the pipeline package subpath from built artifacts from built output', async () => {
+    await requireDist('dist/pipeline/index.js')
 
-    const mod = await import(builtPipeline)
+    const mod = await import(join(process.cwd(), 'dist/pipeline/index.js'))
 
     expect(mod).toEqual(expect.objectContaining({
       AdapterPipeline: expect.any(Function),
@@ -275,12 +275,8 @@ describe('agent-adapters export map', () => {
     }))
   })
 
-  it('imports recently published subpaths from packed tarball output when dist exists', async (ctx) => {
-    try {
-      await access(join(process.cwd(), 'dist/index.js'))
-    } catch {
-      return
-    }
+  it.skipIf(!packagingEnabled)('imports recently published subpaths from packed tarball output from built output', async (ctx) => {
+    await requireDist('dist/index.js')
 
     const tempDir = await mkdtemp(join(tmpdir(), 'agent-adapters-pack-'))
     try {

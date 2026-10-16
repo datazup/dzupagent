@@ -3,16 +3,89 @@
  *
  * GET /api/health         — Liveness probe (always 200)
  * GET /api/health/ready   — Readiness probe (checks DB, providers, MCP)
- * GET /api/health/metrics — Metrics endpoint (JSON format)
+ * GET /api/health/metrics — Metrics endpoint (JSON format). Mounted only when
+ *                           `prometheusMetrics.access` is configured and not
+ *                           `disabled`, behind the same access guard as
+ *                           `/metrics` (DZUPAGENT-SEC-H-21): the `/api/health`
+ *                           prefix is exempt from auth, so the guard is the
+ *                           only thing protecting it.
  */
 import { Hono } from 'hono'
+import { secureLogger } from '@dzupagent/core/utils'
 import type { AppEnv } from '../types.js'
 import type { ForgeServerConfig } from '../composition/types.js'
+import { createMetricsAccessGuard } from './metrics.js'
 
 const startTime = Date.now()
 
-export function createHealthRoutes(config: ForgeServerConfig): Hono<AppEnv> {
+/** Default bound on each readiness store check (DZUPAGENT-ERR-H-73). */
+export const DEFAULT_READINESS_CHECK_TIMEOUT_MS = 2_000
+
+export interface HealthRouteOptions {
+  /** Per-check timeout for the readiness store probes. */
+  readinessCheckTimeoutMs?: number
+}
+
+interface ReadinessCheck {
+  status: string
+  latencyMs?: number
+  metadata?: Record<string, unknown>
+}
+
+function errorClassOf(err: unknown): string {
+  if (err instanceof Error) return err.name || err.constructor.name
+  return typeof err
+}
+
+/**
+ * Run one readiness store probe, raced against `timeoutMs`. A failure or a
+ * timeout is logged once with the subsystem and the error class — never the
+ * message, which can carry connection strings — and both outcomes record
+ * latency so on-call can tell a slow store from a broken one.
+ */
+async function probeSubsystem(
+  subsystem: string,
+  probe: () => Promise<unknown>,
+  timeoutMs: number,
+): Promise<ReadinessCheck> {
+  const start = Date.now()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timedOut = new Promise<'timeout'>((resolve) => {
+    timer = setTimeout(() => resolve('timeout'), timeoutMs)
+  })
+  try {
+    const outcome = await Promise.race([probe().then(() => 'ok' as const), timedOut])
+    const latencyMs = Date.now() - start
+    if (outcome === 'timeout') {
+      secureLogger.warn({
+        operation: 'health.ready.check_timeout',
+        subsystem,
+        timeoutMs,
+        latencyMs,
+      })
+      return { status: 'timeout', latencyMs }
+    }
+    return { status: 'ok', latencyMs }
+  } catch (err) {
+    const latencyMs = Date.now() - start
+    secureLogger.error({
+      operation: 'health.ready.check_failed',
+      subsystem,
+      errorClass: errorClassOf(err),
+      latencyMs,
+    })
+    return { status: 'error', latencyMs }
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
+
+export function createHealthRoutes(
+  config: ForgeServerConfig,
+  options: HealthRouteOptions = {},
+): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
+  const checkTimeoutMs = options.readinessCheckTimeoutMs ?? DEFAULT_READINESS_CHECK_TIMEOUT_MS
 
   // Liveness — always healthy if the process is running
   app.get('/', (c) => {
@@ -26,25 +99,15 @@ export function createHealthRoutes(config: ForgeServerConfig): Hono<AppEnv> {
 
   // Readiness — check all subsystems
   app.get('/ready', async (c) => {
-    const checks: Record<string, { status: string; latencyMs?: number; metadata?: Record<string, unknown> }> = {}
+    const checks: Record<string, ReadinessCheck> = {}
 
-    // Check run store
-    const runStart = Date.now()
-    try {
-      await config.runStore.list({ limit: 1 })
-      checks['runStore'] = { status: 'ok', latencyMs: Date.now() - runStart }
-    } catch {
-      checks['runStore'] = { status: 'error' }
-    }
-
-    // Check agent store
-    const agentStart = Date.now()
-    try {
-      await config.agentStore.list({ limit: 1 })
-      checks['agentStore'] = { status: 'ok', latencyMs: Date.now() - agentStart }
-    } catch {
-      checks['agentStore'] = { status: 'error' }
-    }
+    // Run store and agent store, each bounded and logged on failure.
+    const [runStoreCheck, agentStoreCheck] = await Promise.all([
+      probeSubsystem('runStore', () => config.runStore.list({ limit: 1 }), checkTimeoutMs),
+      probeSubsystem('agentStore', () => config.agentStore.list({ limit: 1 }), checkTimeoutMs),
+    ])
+    checks['runStore'] = runStoreCheck
+    checks['agentStore'] = agentStoreCheck
 
     // Check model registry — include per-provider circuit breaker status
     const providerHealth = config.modelRegistry.getProviderHealth()
@@ -92,7 +155,7 @@ export function createHealthRoutes(config: ForgeServerConfig): Hono<AppEnv> {
 
     // Determine overall status
     const storeHealthy = checks['runStore']?.status === 'ok' && checks['agentStore']?.status === 'ok'
-    const hasError = Object.values(checks).some(c => c.status === 'error')
+    const hasError = Object.values(checks).some(c => c.status === 'error' || c.status === 'timeout')
     const hasDegraded = Object.values(checks).some(c => c.status === 'degraded')
 
     const status = hasError ? 'error' : !storeHealthy ? 'degraded' : hasDegraded ? 'degraded' : 'ok'
@@ -108,14 +171,23 @@ export function createHealthRoutes(config: ForgeServerConfig): Hono<AppEnv> {
     )
   })
 
-  // Metrics — JSON format (can be scraped by Prometheus with adapter)
-  app.get('/metrics', (c) => {
-    const metrics = config.metrics?.toJSON() ?? []
-    return c.json({
-      metrics,
-      timestamp: new Date().toISOString(),
+  // Metrics — JSON format (can be scraped by Prometheus with adapter).
+  // DZUPAGENT-SEC-H-21: same access control as `/metrics`; absent or
+  // `disabled` access leaves the path unmounted (404).
+  const metricsAccess = config.prometheusMetrics?.access
+  if (metricsAccess && metricsAccess.mode !== 'disabled') {
+    const guard = createMetricsAccessGuard(metricsAccess)
+    if (guard) {
+      app.use('/metrics', guard)
+    }
+    app.get('/metrics', (c) => {
+      const metrics = config.metrics?.toJSON() ?? []
+      return c.json({
+        metrics,
+        timestamp: new Date().toISOString(),
+      })
     })
-  })
+  }
 
   return app
 }

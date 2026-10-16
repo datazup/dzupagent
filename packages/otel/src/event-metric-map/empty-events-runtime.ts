@@ -198,6 +198,17 @@ export const emptyRuntimeMetricMap = {
       },
     ),
   ],
+  'memory:pii_redaction_failed': [
+    counter(
+      'dzip_memory_pii_redaction_failed_total',
+      'Total memory writes refused because the PII detector failed',
+      ['namespace', 'error_class'],
+      (e) => {
+        const ev = asEvent<'memory:pii_redaction_failed'>(e)
+        return { value: 1, labels: { namespace: ev.namespace, error_class: ev.errorClass } }
+      },
+    ),
+  ],
   'memory:put_failed': [
     counter(
       'dzip_memory_put_failed_total',

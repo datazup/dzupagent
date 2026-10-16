@@ -9,6 +9,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 
 import { describe, expect, it } from 'vitest'
 
+import { requireIntegration } from '../__tests__/require-integration.js'
 import { CodexAppServerStdioClient } from './codex-app-server-client.js'
 import { buildCodexContainedCommand, codexJoinReceipt } from './codex-app-server-containment.js'
 
@@ -179,7 +180,15 @@ async function runDouble(containment: boolean): Promise<{ effectWritten: boolean
   }
 }
 
-describe.skipIf(!bwrapUsable)('real PID-namespace containment', () => {
+// The only proof that no descendant effect survives close(). In the required
+// integration lane an unusable bwrap fails the suite instead of skipping it.
+const containmentGate = requireIntegration({
+  name: 'Codex app-server real PID-namespace containment',
+  available: bwrapUsable,
+  reason: 'bwrap --unshare-pid is not usable on this host',
+})
+
+describe.skipIf(containmentGate.shouldSkip)('real PID-namespace containment', () => {
   it('control: without containment the effect outlives close()', async () => {
     const result = await runDouble(false)
     expect(result.joined).toBeUndefined()

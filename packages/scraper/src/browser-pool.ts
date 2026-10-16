@@ -9,14 +9,23 @@ const DEFAULT_CONFIG: BrowserPoolConfig = {
   headless: true,
 }
 
-const DEFAULT_LAUNCH_ARGS = [
+/**
+ * Flags that disable Chromium's renderer sandbox or collapse renderer and
+ * browser into one process (DZUPAGENT-SEC-H-16). The pool renders
+ * attacker-chosen pages, so these are never defaults; they require the
+ * explicit `unsafeDisableSandbox` opt-in, which is refused in production.
+ */
+const UNSAFE_SANDBOX_FLAGS: readonly string[] = [
   '--no-sandbox',
   '--disable-setuid-sandbox',
+  '--no-zygote',
+  '--single-process',
+]
+
+const DEFAULT_LAUNCH_ARGS = [
   '--disable-dev-shm-usage',
   '--disable-accelerated-2d-canvas',
   '--no-first-run',
-  '--no-zygote',
-  '--single-process',
   '--disable-gpu',
   '--disable-background-networking',
   '--disable-default-apps',
@@ -28,6 +37,31 @@ const DEFAULT_LAUNCH_ARGS = [
   '--mute-audio',
   '--safebrowsing-disable-auto-update',
 ]
+
+function isUnsafeSandboxFlag(arg: string): boolean {
+  const name = arg.split('=')[0] ?? arg
+  return UNSAFE_SANDBOX_FLAGS.includes(name)
+}
+
+/** Resolve launch args, refusing sandbox-disabling flags without the opt-in. */
+export function resolveLaunchArgs(config: Pick<BrowserPoolConfig, 'launchArgs' | 'unsafeDisableSandbox'>): string[] {
+  const base = config.launchArgs ?? DEFAULT_LAUNCH_ARGS
+  const unsafeRequested = config.unsafeDisableSandbox === true
+  if (unsafeRequested && process.env['NODE_ENV'] === 'production') {
+    throw new Error(
+      'BrowserPool: unsafeDisableSandbox is refused when NODE_ENV=production',
+    )
+  }
+  const unsafeSupplied = base.filter(isUnsafeSandboxFlag)
+  if (unsafeSupplied.length > 0 && !unsafeRequested) {
+    throw new Error(
+      `BrowserPool: launch args ${unsafeSupplied.join(', ')} disable the Chromium sandbox; ` +
+        'set unsafeDisableSandbox: true to opt in (refused in production)',
+    )
+  }
+  if (!unsafeRequested) return [...base]
+  return [...base, ...UNSAFE_SANDBOX_FLAGS.filter((flag) => !base.includes(flag))]
+}
 
 const OPTIONAL_BROWSER_PEERS = {
   puppeteer: 'puppeteer',
@@ -358,7 +392,7 @@ export class BrowserPool {
 
   /** Launch a new browser instance */
   private async launchBrowser(launcher: unknown): Promise<unknown> {
-    const launchArgs = this.config.launchArgs ?? DEFAULT_LAUNCH_ARGS
+    const launchArgs = resolveLaunchArgs(this.config)
     const execPath =
       this.config.executablePath ?? process.env['PUPPETEER_EXECUTABLE_PATH']
 

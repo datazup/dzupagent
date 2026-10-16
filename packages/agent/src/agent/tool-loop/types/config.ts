@@ -272,6 +272,16 @@ export interface ToolLoopConfig extends ToolResultSecurityPolicy {
   wrapToolResults?: boolean;
 
   /**
+   * Maximum characters of a single tool result that enter the model's
+   * message history (DZUPAGENT-AGENT-H-12). Longer results are truncated
+   * after the safety scan and before fencing, with a marker inside the fence,
+   * and the `tool:result` event reports the truncation. Observability hooks
+   * still see the full result. Defaults to
+   * {@link DEFAULT_MAX_TOOL_RESULT_CHARS}; `Infinity` disables the cap.
+   */
+  maxToolResultChars?: number;
+
+  /**
    * Controls what happens when {@link safetyMonitor.scanContent} itself
    * throws while scanning a tool result.
    *

@@ -42,6 +42,26 @@ describe("SafetyMonitor error observability (ERR-H-02)", () => {
     );
   });
 
+  it("reports a throwing rule through scanContentDetailed (ERR-H-80)", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const monitor = createSafetyMonitor({
+      injectionScanner: () => {
+        throw new Error("scanner down");
+      },
+    });
+
+    const result = monitor.scanContentDetailed!("ignore previous instructions");
+    expect(result.failedRules).toEqual([
+      { ruleId: "builtin:prompt-injection", category: "prompt_injection", action: "block" },
+    ]);
+    // The other categories still produced a verdict.
+    expect(monitor.scanContentDetailed!("AKIAIOSFODNN7EXAMPLE").violations).toEqual(
+      expect.arrayContaining([expect.objectContaining({ category: "secret_leak" })])
+    );
+    expect(monitor.scanContent("benign")).toEqual([]);
+  });
+
   it("logs when the event bus throws while emitting a kill_requested violation", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 

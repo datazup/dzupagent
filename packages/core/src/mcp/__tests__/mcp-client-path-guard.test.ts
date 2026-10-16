@@ -86,6 +86,30 @@ describe("MCPClient jailed-fs path-escape guard", () => {
     }
   });
 
+  it.each([
+    ["read_multiple_files paths[]", { paths: ["src/ok.ts", "../../etc/passwd"] }],
+    ["move_file source", { source: "/etc/x", destination: "out/x" }],
+    ["move_file destination", { source: "in/x", destination: "/etc/cron.d/x" }],
+    ["nested target", { options: { target: "../../outside" } }],
+  ])("rejects an escaping %s (DZUPAGENT-SEC-H-13)", async (_label, args) => {
+    const client = makeClient("/workspace/tenant-a");
+    const result = await client.invokeTool("read_file", args);
+    expect(result.isError).toBe(true);
+    expect(result.errorCode).toBe("MCP_PATH_ESCAPE");
+  });
+
+  it("allows in-root paths[] and source/destination", async () => {
+    const client = makeClient("/workspace/tenant-a");
+    const result = await client.invokeTool("read_file", {
+      paths: ["a.ts", "/workspace/tenant-a/b.ts"],
+      source: "c.ts",
+      destination: "d/e.ts",
+    });
+    if (result.isError) {
+      expect(result.content[0]?.text).not.toContain("MCP_PATH_ESCAPE");
+    }
+  });
+
   it("does not block non-path argument keys", async () => {
     const client = makeClient("/workspace/tenant-a");
     // 'query' is not in PATH_ARG_KEYS — traversal-like value is not blocked.

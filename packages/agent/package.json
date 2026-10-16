@@ -82,6 +82,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run src/__tests__/pipeline-for-each-runtime.test.ts src/pipeline/__tests__/postgres-effect-journal-store.integration.test.ts",
+    "test:packaging": "DZUPAGENT_PACKAGING_TESTS=1 vitest run src/__tests__/agent-export-map.test.ts",
     "lint": "node ../../scripts/run-package-lint.mjs",
     "test:coverage": "vitest run --coverage"
   },

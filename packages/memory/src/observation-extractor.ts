@@ -89,6 +89,31 @@ export interface ObservationExtractorConfig {
   evidenceExcerptMaxChars?: number | undefined
 }
 
+/**
+ * Result of {@link ObservationExtractor.extractWithOutcome}. `failed` means
+ * the model call itself rejected — distinct from a model that answered with
+ * no usable observations (`completed` with an empty list).
+ */
+export type ObservationExtractionOutcome =
+  | { status: 'completed'; observations: Observation[] }
+  | {
+      status: 'failed'
+      /** Class name of the model error (`Error.name`), never its message. */
+      errorClass: string
+    }
+
+/**
+ * Thrown by callers that must not treat a failed extraction as an empty one
+ * (e.g. `ObservationalMemory`, which keeps the batch for a later retry).
+ * Carries only the model error's class name, never its message text.
+ */
+export class ObservationExtractionError extends Error {
+  override readonly name = 'ObservationExtractionError'
+  constructor(readonly errorClass: string) {
+    super(`observation extraction failed (${errorClass})`)
+  }
+}
+
 const DEFAULT_EXTRACTION_PROMPT_VERSION = 'observation-extraction/v3'
 
 const EXTRACTION_PROMPT = `Extract key observations from the untrusted conversation data below. For each observation, provide:
@@ -161,8 +186,19 @@ export class ObservationExtractor {
     return true
   }
 
-  /** Extract observations from recent messages */
+  /**
+   * Extract observations from recent messages.
+   *
+   * Non-fatal: a failing model yields `[]`. Callers that must tell a failed
+   * extraction from an empty one use {@link extractWithOutcome}.
+   */
   async extract(messages: BaseMessage[]): Promise<Observation[]> {
+    const outcome = await this.extractWithOutcome(messages)
+    return outcome.status === 'completed' ? outcome.observations : []
+  }
+
+  /** Extract observations, reporting a model failure instead of hiding it. */
+  async extractWithOutcome(messages: BaseMessage[]): Promise<ObservationExtractionOutcome> {
     this.lastExtractedAt = Date.now()
 
     const evidenceByLabel = new Map<string, ObservationEvidenceReference>()
@@ -198,6 +234,7 @@ export class ObservationExtractor {
       })
       .join('\n\n')
 
+    let text: string
     try {
       const response = await this.config.model.invoke([
         new SystemMessage(this.prompt),
@@ -206,21 +243,24 @@ export class ObservationExtractor {
         ),
       ])
 
-      const text = typeof response.content === 'string'
+      text = typeof response.content === 'string'
         ? response.content
         : JSON.stringify(response.content)
-
-      const observations = this.parseObservations(
-        text,
-        messages.length,
-        evidenceByLabel,
-      )
-      this.extractionCount += observations.length
-      return observations
-    } catch {
-      // Extraction is non-fatal
-      return []
+    } catch (error: unknown) {
+      return {
+        status: 'failed',
+        errorClass: error instanceof Error ? error.name : typeof error,
+      }
     }
+
+    // An unparseable answer is an empty extraction, not a failure.
+    const observations = this.parseObservations(
+      text,
+      messages.length,
+      evidenceByLabel,
+    )
+    this.extractionCount += observations.length
+    return { status: 'completed', observations }
   }
 
   /** Current extraction count this session */

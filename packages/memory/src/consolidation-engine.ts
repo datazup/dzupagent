@@ -8,7 +8,8 @@
  *   3. For each cluster of >= MIN_CLUSTER_SIZE entries:
  *        - If `llmJudge` is supplied, ask it for a summary.
  *        - Otherwise join the entries' textual content with `\n---\n`.
- *      Write the summary as `${prefix}:__summary__` and rewrite each child
+ *      Write the summary as `${prefix}:__summary__` (merging into any summary a
+ *      prior run wrote for the prefix) and rewrite each child
  *      with strength=0.1 so the decay engine collects them quickly.
  *   4. Return how many entries were summarised plus a provenance map.
  *
@@ -203,12 +204,18 @@ export class ConsolidationEngine {
       const childKeys = entries.map((e) => e.key)
       const now = Date.now()
 
+      // A prior run may already have written this prefix's summary, and its
+      // children are already marked for decay. Merge into it rather than
+      // overwrite, so the summary keeps covering every consolidated child.
+      const prior = items.find((item) => item.key === summaryKey)?.value
+      const merged = mergeWithPriorSummary(prior, summaryText, childKeys)
+
       try {
         await store.put(namespaceTuple, summaryKey, {
-          text: summaryText,
+          text: merged.text,
           kind: 'summary',
-          consolidatedFrom: childKeys,
-          createdAt: now,
+          consolidatedFrom: merged.consolidatedFrom,
+          createdAt: merged.createdAt ?? now,
           // The summary itself enters with full strength so it is retained.
           _decay: {
             strength: 1,
@@ -308,6 +315,31 @@ function extractPrefix(key: string): string {
 
 function isSummaryKey(key: string): boolean {
   return key.endsWith(':__summary__')
+}
+
+/**
+ * Fold a previously written summary into the one this run produces: the prior
+ * text is kept ahead of the new text and the provenance lists are unioned.
+ */
+function mergeWithPriorSummary(
+  prior: Record<string, unknown> | undefined,
+  text: string,
+  childKeys: string[],
+): { text: string; consolidatedFrom: string[]; createdAt: number | undefined } {
+  if (prior === undefined) {
+    return { text, consolidatedFrom: childKeys, createdAt: undefined }
+  }
+  const priorText = typeof prior['text'] === 'string' ? prior['text'] : ''
+  const priorFrom = Array.isArray(prior['consolidatedFrom'])
+    ? prior['consolidatedFrom'].filter((k): k is string => typeof k === 'string')
+    : []
+  const priorCreatedAt =
+    typeof prior['createdAt'] === 'number' ? prior['createdAt'] : undefined
+  return {
+    text: priorText.length > 0 ? `${priorText}\n---\n${text}` : text,
+    consolidatedFrom: [...new Set([...priorFrom, ...childKeys])],
+    createdAt: priorCreatedAt,
+  }
 }
 
 function isAlreadyConsolidated(value: Record<string, unknown>): boolean {

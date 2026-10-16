@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-10-08
+Date: 2026-10-15
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -872,6 +872,13 @@ Root index: `packages/runtime-contracts/src/index.ts`
 
 | Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
 | --- | --- | ---: | --- | --- |
+| `stable` | `./planning.js` | 4 | `exact:./planning.js` | `FeatureBrief`, `PersonaProfile`, `PersonaRoleType`, `WorkItem` |
+| `stable` | `./execution.js` | 4 | `exact:./execution.js` | `ExecutionRun`, `ExecutionRunStatus`, `PromptRecord`, `PromptType` |
+| `stable` | `./ledger.js` | 4 | `exact:./ledger.js` | `Artifact`, `ArtifactType`, `BudgetBucket`, `CostLedgerEntry` |
+| `stable` | `./schedule.js` | 2 | `exact:./schedule.js` | `ScheduleType`, `WorkflowSchedule` |
+| `stable` | `./script-runs.js` | 14 | `exact:./script-runs.js` | `ApprovalDecision`, `ApprovalDecisionRecord`, `ManagedArtifactRef`, `ManagedArtifactType` |
+| `stable` | `./pipeline.js` | 9 | `exact:./pipeline.js` | `CancellationSignal`, `LoopMetrics`, `NodeExecutionContext`, `NodeExecutor` |
+| `stable` | `./pipeline-interaction.js` | 39 | `exact:./pipeline-interaction.js` | `PIPELINE_INTERACTION_LIMITS`, `PIPELINE_INTERACTION_RESUME_SCHEMA`, `PIPELINE_INTERACTION_SPEC_SCHEMA`, `PIPELINE_PENDING_INTERACTION_SCHEMA` |
 | `stable` | `./canonical-execution.js` | 46 | `exact:./canonical-execution.js` | `validateExecutionRouteDecision`, `AdapterRunExecutionRequest`, `AgentExecutionRequest`, `ExecutionArtifactRef` |
 | `stable` | `./canonical-gates.js` | 16 | `exact:./canonical-gates.js` | `validateGateResult`, `GateActor`, `GateActorRequirement`, `GateCheck` |
 | `stable` | `./local-model.js` | 6 | `exact:./local-model.js` | `LocalModelCapabilityProfile`, `LocalModelEndpointDescriptor`, `LocalModelEndpointRejectionCode`, `LocalModelHealthSnapshot` |
@@ -879,13 +886,6 @@ Root index: `packages/runtime-contracts/src/index.ts`
 | `stable` | `./execution-boundary-evidence.js` | 29 | `exact:./execution-boundary-evidence.js` | `ADAPTER_POLICY_REF_SCHEMA_V1`, `EXECUTION_BOUNDARY_EVIDENCE_SCHEMA_V1`, `EXECUTION_STATE_ACCESS_INVENTORY_SCHEMA_V1`, `WORKSPACE_HANDLE_REF_SCHEMA_V1` |
 | `stable` | `./flow-runtime-input.js` | 16 | `exact:./flow-runtime-input.js` | `DEFAULT_FLOW_RUNTIME_INPUT_LIMITS`, `FLOW_CREDENTIAL_HANDLE_REF_SCHEMA`, `FLOW_RUNTIME_INPUT_CONTRACT`, `sha256Text` |
 | `stable` | `./ai-economics.js` | 19 | `exact:./ai-economics.js` | `AI_COST_UNKNOWN_REASONS`, `AI_PRICE_SOURCE_KINDS`, `AI_QUOTA_SCHEMA`, `AI_QUOTA_UNITS` |
-| `stable` | `./planning.js` | 1 | `exact:./planning.js` | `*` |
-| `stable` | `./execution.js` | 1 | `exact:./execution.js` | `*` |
-| `stable` | `./ledger.js` | 1 | `exact:./ledger.js` | `*` |
-| `stable` | `./schedule.js` | 1 | `exact:./schedule.js` | `*` |
-| `stable` | `./script-runs.js` | 1 | `exact:./script-runs.js` | `*` |
-| `stable` | `./pipeline.js` | 1 | `exact:./pipeline.js` | `*` |
-| `stable` | `./pipeline-interaction.js` | 1 | `exact:./pipeline-interaction.js` | `*` |
 
 ## @dzupagent/execution-contracts
 
@@ -1208,7 +1208,9 @@ Root index: `packages/hitl-kit/src/index.ts`
 
 ### Stable Subpaths
 
-No stable subpaths configured.
+| Subpath | Purpose |
+| --- | --- |
+| `@dzupagent/hitl-kit/testing` | framework-agnostic QuorumVoteStore adapter contract suite (DZUPAGENT-TEST-M-25) |
 
 ### Root Allowlist
 
@@ -1253,8 +1255,8 @@ No stable subpaths configured.
 
 Root index: `packages/session-control/src/index.ts`
 
-- Stable root sources: `12`
-- Deprecated transitional root sources: `0`
+- Stable root sources: `9`
+- Deprecated transitional root sources: `3`
 - Internal-only root candidates: `0`
 - Migration window: Session-control root exports and the versioned fixture are stable provider-neutral semantics; product authority, persistence, transport, and provider implementations remain in consuming hosts.
 
@@ -1262,24 +1264,25 @@ Root index: `packages/session-control/src/index.ts`
 
 | Subpath | Purpose |
 | --- | --- |
+| `@dzupagent/session-control/testing` | reference in-memory session store and command ledger plus conformance helpers (DZUPAGENT-ARCH-M-14); root re-exports are transitional |
 | `@dzupagent/session-control/fixtures/session-control-conformance-v1.json` | versioned provider-free session-control conformance fixture |
 
 ### Root Allowlist
 
 | Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
 | --- | --- | ---: | --- | --- |
-| `stable` | `./contracts.js` | 1 | `exact:./contracts.js` | `*` |
-| `stable` | `./capabilities.js` | 1 | `exact:./capabilities.js` | `*` |
-| `stable` | `./adapter.js` | 1 | `exact:./adapter.js` | `*` |
-| `stable` | `./commands.js` | 1 | `exact:./commands.js` | `*` |
-| `stable` | `./command-ledger.js` | 1 | `exact:./command-ledger.js` | `*` |
-| `stable` | `./in-memory-command-ledger.js` | 1 | `exact:./in-memory-command-ledger.js` | `*` |
-| `stable` | `./dispatch.js` | 1 | `exact:./dispatch.js` | `*` |
-| `stable` | `./conformance.js` | 1 | `exact:./conformance.js` | `*` |
-| `stable` | `./session-types.js` | 1 | `exact:./session-types.js` | `*` |
-| `stable` | `./session-reducer.js` | 1 | `exact:./session-reducer.js` | `*` |
-| `stable` | `./in-memory-session-store.js` | 1 | `exact:./in-memory-session-store.js` | `*` |
-| `stable` | `./validation.js` | 1 | `exact:./validation.js` | `*` |
+| `stable` | `./contracts.js` | 29 | `exact:./contracts.js` | `COMMAND_EVIDENCE_KINDS`, `CONTINUITY_MODES`, `COORDINATION_MODES`, `EXECUTION_STYLES` |
+| `stable` | `./capabilities.js` | 13 | `exact:./capabilities.js` | `CAPABILITY_AVAILABILITY_LEVELS`, `CAPABILITY_QUALIFICATION_LEVELS`, `CAPABILITY_SUPPORT_LEVELS`, `evaluateCapabilityDeclaration` |
+| `stable` | `./adapter.js` | 26 | `exact:./adapter.js` | `ADAPTER_METHOD_BY_CAPABILITY`, `isAdapterCapabilityCallable`, `validateAdapterConformance`, `validateAdapterOperationResult` |
+| `stable` | `./commands.js` | 14 | `exact:./commands.js` | `SESSION_CONTROL_COMMAND_ACTIONS`, `SESSION_CONTROL_COMMAND_STATUSES`, `TERMINAL_COMMAND_STATUSES`, `admitSessionControlCommand` |
+| `stable` | `./command-ledger.js` | 6 | `exact:./command-ledger.js` | `createCommandRecord`, `isTerminalCommandStatus`, `transitionCommandRecord`, `CommandRecord` |
+| `deprecated-transitional` | `./in-memory-command-ledger.js` | 2 | `exact:./in-memory-command-ledger.js` | `InMemoryCommandLedger`, `CommandRegistrationResult` |
+| `stable` | `./dispatch.js` | 3 | `exact:./dispatch.js` | `dispatchSessionCommand`, `DispatchSessionCommandInput`, `DispatchSessionCommandResult` |
+| `deprecated-transitional` | `./conformance.js` | 6 | `exact:./conformance.js` | `scanPortableSessionControlValue`, `validateSessionControlConformanceFixture`, `ConformanceResult`, `ConformanceSummary` |
+| `stable` | `./session-types.js` | 18 | `exact:./session-types.js` | `SESSION_CONTROL_MODES`, `SESSION_EVENT_SOURCES`, `SESSION_ORIGINS`, `validateNormalizedSessionEvent` |
+| `stable` | `./session-reducer.js` | 2 | `exact:./session-reducer.js` | `createSessionSnapshot`, `reduceSessionEvent` |
+| `deprecated-transitional` | `./in-memory-session-store.js` | 3 | `exact:./in-memory-session-store.js` | `InMemorySessionStore`, `SessionAppendResult`, `SessionRegistrationResult` |
+| `stable` | `./validation.js` | 9 | `exact:./validation.js` | `areJsonValuesEqual`, `asOpaqueReference`, `asSha256Digest`, `deriveExecutionPlan` |
 
 ## @dzupagent/canonical-json
 

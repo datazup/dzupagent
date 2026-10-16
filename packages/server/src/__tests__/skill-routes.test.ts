@@ -173,3 +173,34 @@ describe('Skill routes', () => {
     expect(res.status).toBe(404)
   })
 })
+
+describe('Skill compile — error classification (DZUPAGENT-ERR-H-68)', () => {
+  function registryThrowing(err: unknown): AdapterSkillRegistry {
+    const real = createDefaultSkillRegistry()
+    return Object.assign(Object.create(Object.getPrototypeOf(real) as object) as AdapterSkillRegistry, real, {
+      listProviders: () => ['codex'],
+      getCompiler: () => ({
+        compile: () => {
+          throw err
+        },
+      }),
+    }) as AdapterSkillRegistry
+  }
+
+  it('an unclassified compiler throw is a 500 with an internal code', async () => {
+    const app = createForgeApp(createTestConfig(registryThrowing(new Error('EACCES /var/lib/skills'))))
+    const res = await req(app, 'POST', '/api/skills/compile', { bundle: testBundle() })
+    expect(res.status).toBe(500)
+    const raw = await res.text()
+    expect(raw).not.toContain('EACCES')
+    expect((JSON.parse(raw) as { error: { code: string } }).error.code).toBe('INTERNAL_ERROR')
+  })
+
+  it('a typed validation throw keeps 400 VALIDATION_ERROR', async () => {
+    const err = Object.assign(new Error('bad bundle'), { code: 'SKILL_BUNDLE_INVALID' })
+    const app = createForgeApp(createTestConfig(registryThrowing(err)))
+    const res = await req(app, 'POST', '/api/skills/compile', { bundle: testBundle() })
+    expect(res.status).toBe(400)
+    expect((await res.json() as { error: { code: string } }).error.code).toBe('VALIDATION_ERROR')
+  })
+})

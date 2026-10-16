@@ -26,8 +26,9 @@ export function authMiddleware(config: AuthConfig): MiddlewareHandler<AppEnv> {
       return next()
     }
 
-    // Skip auth for health endpoints
-    if (c.req.path.startsWith('/api/health')) {
+    // Skip auth for health endpoints — exact segment match, so `/api/healthz`
+    // and similar siblings are not exempt (DZUPAGENT-SEC-H-21).
+    if (c.req.path === '/api/health' || c.req.path.startsWith('/api/health/')) {
       return next()
     }
 

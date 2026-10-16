@@ -36,31 +36,35 @@
  *     that nothing advances hangs the test; that is a test bug the suite
  *     catches, not something this gate can see.
  *
+ * DZUPAGENT-TEST-H-07: sleeps are found by scanning balanced parentheses over
+ * the comment/string-stripped source, so an arrow callback such as
+ * `setTimeout(() => r(), 50)` (whose inner `()` defeated the old `[^)]*?` line
+ * regex) is counted, and a call split across lines is counted on the line where
+ * `setTimeout` appears. The delay is the call's second top-level argument.
+ * A missing baseline file fails the gate (it used to mean "no limit"), and
+ * --update-baseline refuses to RAISE the ceiling unless --allow-raise is given.
+ *
  * Usage:
  *   node scripts/check-test-sleeps.mjs             # fail if over baseline
  *   node scripts/check-test-sleeps.mjs --report-only # print counts, exit 0
- *   node scripts/check-test-sleeps.mjs --update-baseline # rewrite baseline to current count
+ *   node scripts/check-test-sleeps.mjs --update-baseline # lower (or keep) the baseline to the current count
+ *   node scripts/check-test-sleeps.mjs --update-baseline --allow-raise # raise it (needs a reason in review)
  *   node scripts/check-test-sleeps.mjs --list-fake   # show the sleeps excluded as fake-timer
+ *   node scripts/check-test-sleeps.mjs --root=<dir> --baseline-file=<path>  # fixture runs
  */
 
 import { readFileSync, readdirSync, statSync, existsSync, writeFileSync } from 'node:fs'
-import { join, relative, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join, relative, dirname, resolve } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const ROOT = join(__dirname, '..')
-const PACKAGES_DIR = join(ROOT, 'packages')
-const BASELINE_FILE = join(__dirname, 'check-test-sleeps.baseline.json')
+const DEFAULT_ROOT = join(__dirname, '..')
+const DEFAULT_BASELINE_FILE = join(__dirname, 'check-test-sleeps.baseline.json')
 
-const SLEEP_THRESHOLD_MS = 10
+export const SLEEP_THRESHOLD_MS = 10
 
-// Matches: setTimeout(<anything>, <N>) where N is a numeric literal.
-const SLEEP_LINE_RE = /setTimeout\s*\([^)]*?,\s*(\d[\d_]*)\s*\)/g
-
-const args = process.argv.slice(2)
-const reportOnly = args.includes('--report-only')
-const updateBaseline = args.includes('--update-baseline')
-const listFake = args.includes('--list-fake')
+const SET_TIMEOUT_CALL_RE = /\bsetTimeout\s*\(/g
+const NUMERIC_DELAY_RE = /^(\d[\d_]*)$/
 
 // Recursively find test files under a package's src directory.
 function findTestFiles(dir, out = []) {
@@ -230,42 +234,97 @@ function hasSleepOk(lines, idx) {
   return prev !== undefined && /sleep-ok\s*:/.test(prev)
 }
 
-function countSleeps() {
-  const packages = existsSync(PACKAGES_DIR) ? readdirSync(PACKAGES_DIR) : []
+/**
+ * Finds every `setTimeout(...)` call in comment/string-stripped source by
+ * walking balanced parentheses, and returns the 0-based line of the
+ * `setTimeout` token plus the numeric delay (its second top-level argument)
+ * when that argument is a numeric literal.
+ * @param {string} content raw file content
+ * @returns {{ line: number, ms: number }[]}
+ */
+export function findSleepCalls(content) {
+  const code = stripNonCode(content)
+  const calls = []
+  SET_TIMEOUT_CALL_RE.lastIndex = 0
+  let match
+  while ((match = SET_TIMEOUT_CALL_RE.exec(code)) !== null) {
+    const open = match.index + match[0].length - 1
+    let depth = 0
+    let argIndex = 0
+    let argStart = open + 1
+    let delayText
+    for (let i = open; i < code.length; i++) {
+      const ch = code[i]
+      if (ch === '(' || ch === '[' || ch === '{') depth++
+      else if (ch === ')' || ch === ']' || ch === '}') {
+        depth--
+        if (depth === 0) {
+          if (argIndex === 1) delayText = code.slice(argStart, i)
+          break
+        }
+      } else if (ch === ',' && depth === 1) {
+        if (argIndex === 1) {
+          delayText = code.slice(argStart, i)
+          break
+        }
+        argIndex++
+        argStart = i + 1
+      }
+    }
+    if (delayText === undefined) continue
+    const delay = NUMERIC_DELAY_RE.exec(delayText.trim())
+    if (!delay) continue
+    const line = code.slice(0, match.index).split('\n').length - 1
+    calls.push({ line, ms: Number(delay[1].replace(/_/g, '')) })
+  }
+  return calls
+}
+
+/**
+ * Counts real-time and fake-timer sleeps in one test file's content.
+ * @param {string} content
+ * @returns {{ count: number, fake: number, fakeLines: number[] }}
+ */
+export function countSleepsInContent(content) {
+  const lines = content.split('\n')
+  const fakeLines = fakeTimerLines(content)
+  let count = 0
+  const fakeHits = []
+  for (const { line, ms } of findSleepCalls(content)) {
+    if (ms < SLEEP_THRESHOLD_MS) continue
+    if (hasSleepOk(lines, line)) continue
+    // Zero wall-cost: the enclosing scope has fake timers installed.
+    if (fakeLines.has(line)) {
+      fakeHits.push(line)
+      continue
+    }
+    count++
+  }
+  return { count, fake: fakeHits.length, fakeLines: fakeHits }
+}
+
+export function countSleeps(root = DEFAULT_ROOT) {
+  const packagesDir = join(root, 'packages')
+  const packages = existsSync(packagesDir) ? readdirSync(packagesDir) : []
   const perFile = []
   let total = 0
   let fakeTotal = 0
   const fakeSites = []
 
   for (const pkg of packages) {
-    const srcDir = join(PACKAGES_DIR, pkg, 'src')
+    const srcDir = join(packagesDir, pkg, 'src')
     if (!existsSync(srcDir)) continue
     for (const file of findTestFiles(srcDir)) {
       const content = readFileSync(file, 'utf8')
       const lines = content.split('\n')
-      const fakeLines = fakeTimerLines(content)
-      let fileCount = 0
-      let fileFake = 0
-      lines.forEach((line, idx) => {
-        SLEEP_LINE_RE.lastIndex = 0
-        let match
-        while ((match = SLEEP_LINE_RE.exec(line)) !== null) {
-          const ms = Number(match[1].replace(/_/g, ''))
-          if (ms < SLEEP_THRESHOLD_MS) continue
-          if (hasSleepOk(lines, idx)) continue
-          // Zero wall-cost: the enclosing scope has fake timers installed.
-          if (fakeLines.has(idx)) {
-            fileFake++
-            fakeSites.push(`${relative(ROOT, file)}:${idx + 1}: ${line.trim()}`)
-            continue
-          }
-          fileCount++
-        }
-      })
-      fakeTotal += fileFake
-      if (fileCount > 0) {
-        total += fileCount
-        perFile.push({ file: relative(ROOT, file), count: fileCount, fake: fileFake })
+      const result = countSleepsInContent(content)
+      fakeTotal += result.fake
+      for (const idx of result.fakeLines) {
+        fakeSites.push(`${relative(root, file)}:${idx + 1}: ${lines[idx].trim()}`)
+      }
+      if (result.count > 0) {
+        total += result.count
+        perFile.push({ file: relative(root, file), count: result.count, fake: result.fake })
       }
     }
   }
@@ -274,24 +333,68 @@ function countSleeps() {
   return { total, fakeTotal, perFile, fakeSites }
 }
 
-function loadBaseline() {
-  if (!existsSync(BASELINE_FILE)) return { maxSleeps: Infinity }
-  return JSON.parse(readFileSync(BASELINE_FILE, 'utf8'))
+/**
+ * Reads the baseline. A missing or malformed baseline is an error, never an
+ * unlimited ceiling (it used to return `maxSleeps: Infinity`).
+ * @returns {{ ok: true, maxSleeps: number } | { ok: false, reason: string }}
+ */
+export function loadBaseline(baselineFile = DEFAULT_BASELINE_FILE) {
+  if (!existsSync(baselineFile)) {
+    return { ok: false, reason: `baseline file ${baselineFile} is missing` }
+  }
+  let parsed
+  try {
+    parsed = JSON.parse(readFileSync(baselineFile, 'utf8'))
+  } catch (error) {
+    return { ok: false, reason: `baseline file ${baselineFile} is not valid JSON: ${error.message}` }
+  }
+  const maxSleeps = parsed?.maxSleeps
+  if (typeof maxSleeps !== 'number' || !Number.isInteger(maxSleeps) || maxSleeps < 0) {
+    return { ok: false, reason: `baseline file ${baselineFile} has no non-negative integer maxSleeps` }
+  }
+  return { ok: true, maxSleeps }
 }
 
-function main() {
-  const { total, fakeTotal, perFile, fakeSites } = countSleeps()
+function parseArgs(argv) {
+  const valueOf = (name) => {
+    const flag = argv.find((a) => a.startsWith(`--${name}=`))
+    return flag === undefined ? undefined : flag.slice(name.length + 3)
+  }
+  return {
+    reportOnly: argv.includes('--report-only'),
+    updateBaseline: argv.includes('--update-baseline'),
+    allowRaise: argv.includes('--allow-raise'),
+    listFake: argv.includes('--list-fake'),
+    root: resolve(valueOf('root') ?? DEFAULT_ROOT),
+    baselineFile: resolve(valueOf('baseline-file') ?? DEFAULT_BASELINE_FILE),
+  }
+}
 
-  if (updateBaseline) {
+/** @returns {number} the process exit code */
+export function runCli(argv) {
+  const options = parseArgs(argv)
+  const { total, fakeTotal, perFile, fakeSites } = countSleeps(options.root)
+
+  if (options.updateBaseline) {
+    const baseline = loadBaseline(options.baselineFile)
+    const previous = baseline.ok ? baseline.maxSleeps : undefined
+    if ((previous === undefined || total > previous) && !options.allowRaise) {
+      console.error(
+        `[check-test-sleeps] FAIL: refusing to ${previous === undefined ? 'create' : 'raise'} the baseline `
+          + `(${previous ?? 'none'} -> ${total}) without --allow-raise. The baseline ratchets down only; `
+          + 'convert the new sleeps instead, or pass --allow-raise and justify the raise in review.',
+      )
+      return 1
+    }
     writeFileSync(
-      BASELINE_FILE,
+      options.baselineFile,
       JSON.stringify(
         {
           maxSleeps: total,
           note:
-            'DZUPAGENT-TEST-L-01 baseline: ratchets down only. Bump only via ' +
-            '--update-baseline after converting sleeps to fake timers / vi.waitFor, ' +
-            'never to accommodate new sleeps.',
+            'DZUPAGENT-TEST-L-01 baseline: ratchets down only. Lower it via ' +
+            '--update-baseline after converting sleeps to fake timers / vi.waitFor; ' +
+            'raising it needs --allow-raise and must never accommodate new sleeps.',
           updatedAt: new Date().toISOString().slice(0, 10),
         },
         null,
@@ -299,16 +402,16 @@ function main() {
       ) + '\n'
     )
     console.log(
-      `[check-test-sleeps] baseline updated to ${total} (+${fakeTotal} fake-timer sleeps ignored)`
+      `[check-test-sleeps] baseline updated ${previous ?? 'none'} -> ${total} (+${fakeTotal} fake-timer sleeps ignored)`
     )
-    return
+    return 0
   }
 
   console.log(`[check-test-sleeps] total real-time sleeps: ${total}`)
   console.log(
     `[check-test-sleeps] ignored (zero-cost under vi.useFakeTimers): ${fakeTotal}`
   )
-  if (listFake) {
+  if (options.listFake) {
     console.log('[check-test-sleeps] fake-timer sleeps excluded from the count:')
     for (const site of fakeSites) console.log(`  ${site}`)
   }
@@ -317,9 +420,16 @@ function main() {
     console.log(`  ${count.toString().padStart(3)}  ${file}`)
   }
 
-  if (reportOnly) return
+  if (options.reportOnly) return 0
 
-  const baseline = loadBaseline()
+  const baseline = loadBaseline(options.baselineFile)
+  if (!baseline.ok) {
+    console.error(
+      `\n[check-test-sleeps] FAIL: ${baseline.reason}. A missing baseline is not an unlimited ` +
+        'ceiling; restore the checked-in baseline file.'
+    )
+    return 1
+  }
   if (total > baseline.maxSleeps) {
     console.error(
       `\n[check-test-sleeps] FAIL: ${total} real-time sleeps exceeds baseline of ${baseline.maxSleeps}.\n` +
@@ -328,11 +438,13 @@ function main() {
         'accommodate new sleeps — only lower it after converting offenders ' +
         '(node scripts/check-test-sleeps.mjs --update-baseline).'
     )
-    process.exitCode = 1
-    return
+    return 1
   }
 
   console.log(`[check-test-sleeps] OK (baseline: ${baseline.maxSleeps})`)
+  return 0
 }
 
-main()
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  process.exitCode = runCli(process.argv.slice(2))
+}

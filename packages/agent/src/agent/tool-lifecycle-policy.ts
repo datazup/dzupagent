@@ -173,10 +173,12 @@ export function emitToolResult(
     durationMs: number
     inputMetadataKeys: string[]
     output: unknown
+    truncation?: { originalChars: number; keptChars: number }
   },
 ): void {
   if (!context) return
   const { toolName, toolCallId, durationMs, inputMetadataKeys, output } = args
+  const truncationFields = args.truncation !== undefined ? { truncation: args.truncation } : {}
   try {
     const executionRunId = requireTerminalToolExecutionRunId({
       eventType: 'tool:result',
@@ -193,6 +195,7 @@ export function emitToolResult(
       executionRunId,
       ...(context.agentId !== undefined ? { agentId: context.agentId } : {}),
       ...(context.runId !== undefined ? { runId: context.runId } : {}),
+      ...truncationFields,
     })
   } catch {
     // Telemetry must never abort the loop.

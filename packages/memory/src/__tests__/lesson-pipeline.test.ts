@@ -1,41 +1,28 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
+import type { Mock } from 'vitest'
 import { LessonPipeline } from '../lesson-pipeline.js'
 import type { Lesson } from '../lesson-pipeline.js'
 import type { BaseStore } from '@langchain/langgraph'
+import { createStoreDouble } from './helpers/store-double.js'
+import type { StoreDouble } from './helpers/store-double.js'
 
 // ---------------------------------------------------------------------------
 // Mock store factory (mirrors observational-memory.test.ts pattern)
 // ---------------------------------------------------------------------------
 
+/**
+ * Shared InMemoryStore double (DZUPAGENT-TEST-H-09): `search` honours the
+ * namespace prefix and the default limit of 10. Its methods are pass-through
+ * spies; `_double` exposes seeding and inspection that bypass them.
+ */
 function createMockStore() {
-  const data = new Map<string, Record<string, unknown>>()
-
-  const store = {
-    search: vi.fn().mockImplementation((_ns: string[], opts?: { query?: string; limit?: number }) => {
-      const items = [...data.entries()].map(([key, value]) => ({ key, value }))
-      return Promise.resolve(items.slice(0, opts?.limit ?? items.length))
-    }),
-    put: vi.fn().mockImplementation((_ns: string[], key: string, value: Record<string, unknown>) => {
-      data.set(key, value)
-      return Promise.resolve()
-    }),
-    delete: vi.fn().mockImplementation((_ns: string[], key: string) => {
-      data.delete(key)
-      return Promise.resolve()
-    }),
-    get: vi.fn().mockImplementation((_ns: string[], key: string) => {
-      const value = data.get(key)
-      return Promise.resolve(value ? { key, value } : undefined)
-    }),
-    _data: data,
-  }
-
-  return store as unknown as BaseStore & {
-    _data: Map<string, Record<string, unknown>>
-    put: ReturnType<typeof vi.fn>
-    get: ReturnType<typeof vi.fn>
-    search: ReturnType<typeof vi.fn>
-    delete: ReturnType<typeof vi.fn>
+  const double = createStoreDouble()
+  return Object.assign(double.store, { _double: double }) as unknown as BaseStore & {
+    _double: StoreDouble
+    put: Mock
+    get: Mock
+    search: Mock
+    delete: Mock
   }
 }
 
