@@ -3,7 +3,7 @@
   "packet": "MEM-P000",
   "sourceIdentity": {
     "kind": "content-digest-set",
-    "digest": "sha256:ccabd2bbf989882050d8bf5e619b215fa26839a2965bbcf87e9b4020fb2f41b6",
+    "digest": "sha256:ecaaf557678f5984a57bb59bdf52a1851396140955e85ab0916fbedf75dff2de",
     "inputs": [
       {
         "path": "config/memory-api-census.v1.json",
@@ -84,7 +84,7 @@
       },
       {
         "path": "packages/context/package.json",
-        "sha256": "sha256:1390b955f9af1c6c65ef42d0a0df73829ab878fe6963b790abc5412e31a67818"
+        "sha256": "sha256:63f5d745febfb941f6b626ca88b32ae8cabc5e82498daa06957423361a796b7e"
       },
       {
         "path": "packages/context/src/__tests__/auto-compress-offload.test.ts",
@@ -176,7 +176,7 @@
       },
       {
         "path": "packages/memory/package.json",
-        "sha256": "sha256:4a512d5a144217f51e5ab2629380c41f62380d3508479848e5cf2b51ed747844"
+        "sha256": "sha256:a6caf4e44d2d506220ff11ffd568dcb20905141da90b70163d1e87191973a1f6"
       },
       {
         "path": "packages/memory/src/__tests__/in-memory-client.test.ts",
@@ -204,11 +204,11 @@
       },
       {
         "path": "packages/memory/src/__tests__/projections-export-map.test.ts",
-        "sha256": "sha256:7cf0f8d4c3ded885b09f0c5dcfcdf7667e76d2095ef48d3e0d1caa902dfe8a2e"
+        "sha256": "sha256:29423cbd9b458f0a753fea82d7ccb64509c467506856efd3a06adb1811d65284"
       },
       {
         "path": "packages/memory/src/__tests__/records-export-map.test.ts",
-        "sha256": "sha256:b763bcb567365e8b5a5e2a46db5e7c6eabe4111bc7ccd7e430182e5a850d5ab2"
+        "sha256": "sha256:3b18fe468577873e3679d169da149bd8bf95728c044a59d00d128264c2eb674d"
       },
       {
         "path": "packages/memory/src/__tests__/rrf-fusion.test.ts",
@@ -220,7 +220,7 @@
       },
       {
         "path": "packages/memory/src/__tests__/service-export-map.test.ts",
-        "sha256": "sha256:abaa9a46f95c531dba227d34a17cb6fa4ca80057063a42756942d95dd825b3a2"
+        "sha256": "sha256:0190c3f7f8a4f38d4c7b39bc34177bd3f77b23a96237c3849a3502d14f6fb2f6"
       },
       {
         "path": "packages/memory/src/__tests__/staged-writer.test.ts",
@@ -232,11 +232,11 @@
       },
       {
         "path": "packages/memory/src/__tests__/testing-export-map.test.ts",
-        "sha256": "sha256:22175630cc87647ef869008a0bf0898d859bc1df56a6614aaa911e36f9d2a4d6"
+        "sha256": "sha256:af0e2d83ca08751e67a09b7c35f3eed5a0fb7a3fd51aa49bbc882e6724938c95"
       },
       {
         "path": "packages/memory/src/__tests__/workers-export-map.test.ts",
-        "sha256": "sha256:ff2ede623ec774e78ced348ec1da94a09fe7b17a17b9cb9783a146f8166eab21"
+        "sha256": "sha256:96239e2ce42a0cfc408d8ecef87ecedee2bd956f7b66ba7564698dfff58fe793"
       },
       {
         "path": "packages/memory/src/index.ts",
