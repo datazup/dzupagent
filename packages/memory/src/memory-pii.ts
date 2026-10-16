@@ -63,11 +63,16 @@ function isUnscannedKey(key: string): boolean {
 }
 
 /** UUIDs and (optionally `sha256:`-prefixed) hex digests are never PII. */
-const MACHINE_TOKEN =
-  /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|(?:sha\d+:)?[0-9a-f]{16,})$/i;
+const UUID_TOKEN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DIGEST_ALGORITHM_PREFIX = /^sha\d+:/i;
+const HEX_DIGEST = /^[0-9a-f]{16,}$/i;
 
 function isMachineToken(value: string): boolean {
-  return MACHINE_TOKEN.test(value);
+  return (
+    UUID_TOKEN.test(value) ||
+    HEX_DIGEST.test(value.replace(DIGEST_ALGORITHM_PREFIX, ""))
+  );
 }
 
 function isPlainObject(node: object): boolean {

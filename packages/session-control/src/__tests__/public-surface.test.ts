@@ -19,7 +19,7 @@ function readSource(relative: string): string {
 
 describe('@dzupagent/session-control public surface', () => {
   it('root index has no export-star statements', () => {
-    expect(readSource('../index.ts')).not.toMatch(/^\s*export\s+(?:type\s+)?\*/m)
+    expect(readSource('../index.ts')).not.toMatch(/^\s*export\s+(?:type\s)?\s*\*/m)
   })
 
   it('./testing exposes the in-memory reference implementations and conformance helpers', () => {

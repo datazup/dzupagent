@@ -1,5 +1,6 @@
 import { MemorySaver } from "@langchain/langgraph";
 import type { BaseCheckpointSaver } from "@langchain/langgraph";
+import type * as PostgresSaverModule from "@langchain/langgraph-checkpoint-postgres";
 
 export interface CheckpointerConfig {
   type: "postgres" | "memory";
@@ -14,12 +15,12 @@ const POSTGRES_SAVER_MODULE = "@langchain/langgraph-checkpoint-postgres";
  * driver) for memory-only consumers.
  */
 async function loadPostgresSaver(): Promise<
-  typeof import("@langchain/langgraph-checkpoint-postgres").PostgresSaver
+  typeof PostgresSaverModule.PostgresSaver
 > {
   try {
     const mod = (await import(
       "@langchain/langgraph-checkpoint-postgres"
-    )) as typeof import("@langchain/langgraph-checkpoint-postgres");
+    )) as typeof PostgresSaverModule;
     return mod.PostgresSaver;
   } catch (cause) {
     throw new Error(

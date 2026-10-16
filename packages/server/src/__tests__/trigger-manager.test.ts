@@ -285,7 +285,7 @@ describe('TriggerManager', () => {
         expect(onError).toHaveBeenCalledTimes(2)
 
         vi.useRealTimers()
-        await new Promise((r) => setTimeout(r, 0))
+        await new Promise((r) => setImmediate(r))
         expect(unhandled).not.toHaveBeenCalled()
       } finally {
         process.off('unhandledRejection', unhandled)
@@ -308,7 +308,7 @@ describe('TriggerManager', () => {
       manager.register(makeChain({ id: 'c2' }))
 
       await expect(manager.notifyCompletion('agent-a')).rejects.toThrow('boom')
-      await new Promise((r) => setTimeout(r, 0))
+      await new Promise((r) => setImmediate(r))
       const ids = log.mock.calls.map(([entry]) => (entry as { triggerId?: string }).triggerId)
       expect(ids).toEqual(expect.arrayContaining(['c1', 'c2']))
     })

@@ -19,7 +19,7 @@ const indexSource = readFileSync(
 
 describe("@dzupagent/runtime-contracts root surface", () => {
   it("has no export-star statements", () => {
-    expect(indexSource).not.toMatch(/^\s*export\s+(?:type\s+)?\*/m);
+    expect(indexSource).not.toMatch(/^\s*export\s+(?:type\s)?\s*\*/m);
   });
 
   it("still re-exports every runtime value of the formerly star-exported modules", () => {

@@ -9,6 +9,7 @@ import type {
 } from '../sleep-consolidator.js'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseStore } from '@langchain/langgraph'
+import type * as MemoryIpc from '@dzupagent/memory-ipc'
 import type { CausalGraph } from '../causal/causal-graph.js'
 
 // DZUPAGENT-TEST-M-10: pass the real memory-ipc through, wrapping
@@ -22,7 +23,7 @@ const { batchDecayUpdateSpy, memoryIpcPassthrough } = vi.hoisted(() => {
   return {
     batchDecayUpdateSpy: spy,
     memoryIpcPassthrough: async (importOriginal: () => Promise<unknown>) => {
-      const actual = await importOriginal() as typeof import('@dzupagent/memory-ipc')
+      const actual = await importOriginal() as typeof MemoryIpc
       spy.mockImplementation(actual.batchDecayUpdate)
       return { ...actual, batchDecayUpdate: spy }
     },
