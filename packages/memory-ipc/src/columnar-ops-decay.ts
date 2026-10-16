@@ -42,7 +42,9 @@ export function findWeakIndices(table: Table, threshold = 0.1): Int32Array {
 /**
  * Compute updated decay strengths using the Ebbinghaus forgetting curve:
  *   strength = e^(-elapsed / halfLifeMs)
- * where elapsed = now - lastAccessedAt.
+ * where elapsed = now - lastAccessedAt. `decay_half_life_ms` is used as the
+ * e-folding time constant (strength 1/e after one period), the same curve as
+ * `calculateStrength` in `@dzupagent/memory`.
  *
  * Null `decay_half_life_ms` defaults to 86400000 (24h).
  * Null `decay_last_accessed_at` defaults to now (=> strength 1.0).
@@ -57,10 +59,10 @@ export function batchDecayUpdate(table: Table, now: number): Float64Array {
   const result = new Float64Array(len)
 
   try {
-    const DEFAULT_HALF_LIFE = 86400000 // 24h in ms
+    const DEFAULT_DECAY_TIME_CONSTANT_MS = 86400000 // 24h in ms
 
     for (let i = 0; i < len; i++) {
-      const halfLife = readNum(table, 'decay_half_life_ms', i, DEFAULT_HALF_LIFE)
+      const halfLife = readNum(table, 'decay_half_life_ms', i, DEFAULT_DECAY_TIME_CONSTANT_MS)
       const lastAccess = readNum(table, 'decay_last_accessed_at', i, now)
       const elapsed = now - lastAccess
       if (elapsed <= 0 || halfLife <= 0) {

@@ -125,7 +125,7 @@ describe('decay-engine', () => {
       expect(updated.accessCount).toBe(6)
     })
 
-    it('doubles halfLifeMs up to MAX_HALF_LIFE_MS', () => {
+    it('doubles halfLifeMs up to MAX_DECAY_TIME_CONSTANT_MS', () => {
       const meta = makeMeta({ halfLifeMs: 1000 })
       const updated = reinforceMemory(meta)
       expect(updated.halfLifeMs).toBe(2000)
@@ -173,7 +173,7 @@ describe('decay-engine', () => {
       expect(meta.lastAccessedAt).toBe(meta.createdAt)
     })
 
-    it('uses DEFAULT_HALF_LIFE_MS (24 hours)', () => {
+    it('uses DEFAULT_DECAY_TIME_CONSTANT_MS (24 hours)', () => {
       const meta = createDecayMetadata()
       expect(meta.halfLifeMs).toBe(24 * 60 * 60 * 1000)
     })

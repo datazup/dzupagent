@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import {
   evaluateRuleDecision,
   parseDecisionBlock,
+  withDecisionParseSuffix,
 } from "../scheduler/decision-block.js";
 // @ts-expect-error -- untyped test fakes shared with the .mjs suites
 import { baseRunSpec, createPorts, fixedClock, loadDialogueCore } from "./fakes.mjs";
@@ -59,6 +60,19 @@ describe("evaluateRuleDecision (DZUPAGENT-ERR-C-24)", () => {
   });
 });
 
+describe("withDecisionParseSuffix (DZUPAGENT-ERR-C-24)", () => {
+  it("appends parse failures to the stopReason and ignores other diagnostics", () => {
+    expect(withDecisionParseSuffix("maxTurns", "unparseable")).toBe(
+      "maxTurns;decision-parse=unparseable"
+    );
+    expect(withDecisionParseSuffix(undefined, "unrecognized-verdict")).toBe(
+      "decision-parse=unrecognized-verdict"
+    );
+    expect(withDecisionParseSuffix("maxTurns", "rule-not-evaluated")).toBe("maxTurns");
+    expect(withDecisionParseSuffix("maxTurns", undefined)).toBe("maxTurns");
+  });
+});
+
 describe("scheduler turn events carry the decision diagnostic", () => {
   it("a review turn with non-JSON output emits an event marked unparseable", async () => {
     const { DialogueScheduler } = await loadDialogueCore();
@@ -66,7 +80,7 @@ describe("scheduler turn events carry the decision diagnostic", () => {
       agent: { responses: [{ raw: '{"verdict":"reject","rationale":"trunc' }] },
     });
     const scheduler = new DialogueScheduler(ports, { clock: fixedClock() });
-    await scheduler.run({
+    const result = await scheduler.run({
       runId: "malformed-review",
       runSpec: baseRunSpec({
         turns: [
@@ -84,6 +98,30 @@ describe("scheduler turn events carry the decision diagnostic", () => {
     expect(reviewEvent.status).toBe("completed");
     expect(reviewEvent.decision.verdict).toBe("continue");
     expect(reviewEvent.decision.diagnostic).toBe("unparseable");
+    expect(result.stopReason).toMatch(/(^|;)decision-parse=unparseable$/);
+  });
+
+  it("a well-formed review leaves the stopReason unmarked", async () => {
+    const { DialogueScheduler } = await loadDialogueCore();
+    const ports = createPorts({
+      agent: { responses: [{ raw: JSON.stringify({ verdict: "continue", rationale: "ok" }) }] },
+    });
+    const scheduler = new DialogueScheduler(ports, { clock: fixedClock() });
+    const result = await scheduler.run({
+      runId: "well-formed-review",
+      runSpec: baseRunSpec({
+        turns: [
+          {
+            id: "review",
+            verb: "review",
+            participantId: "critic",
+            prompt: "review fake evidence",
+          },
+        ],
+      }),
+    });
+
+    expect(result.stopReason ?? "").not.toContain("decision-parse=");
   });
 
   it("a rule decide policy emits a not-evaluated criterion, never met:true", async () => {

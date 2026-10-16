@@ -159,3 +159,20 @@ export function shouldStopAfterDecision(
     decision?.verdict === "reject"
   );
 }
+
+/**
+ * Marks a run's stopReason when any review turn fell back on a malformed or
+ * unrecognized decision (DZUPAGENT-ERR-C-24), so a host reading only the
+ * result can tell a fallback `continue` apart from a genuine one. A
+ * `rule-not-evaluated` diagnostic is not a parse failure and adds nothing.
+ */
+export function withDecisionParseSuffix(
+  stopReason: string | undefined,
+  diagnostic: DecisionBlock["diagnostic"]
+): string | undefined {
+  if (diagnostic !== "unparseable" && diagnostic !== "unrecognized-verdict") {
+    return stopReason;
+  }
+  const suffix = `decision-parse=${diagnostic}`;
+  return stopReason === undefined ? suffix : `${stopReason};${suffix}`;
+}

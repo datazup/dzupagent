@@ -4,7 +4,7 @@
  * Implements exponential decay with spaced-repetition reinforcement:
  *   strength = storedStrength * e^(-elapsed / halfLife)
  *
- * Each access doubles the half-life (up to MAX_HALF_LIFE), so frequently
+ * Each access doubles the half-life (up to MAX_DECAY_TIME_CONSTANT_MS), so frequently
  * retrieved memories persist longer — mirroring human memory consolidation.
  */
 
@@ -25,11 +25,15 @@ export interface DecayMetadata {
   halfLifeMs: number
 }
 
-/** Default half-life: 24 hours */
-const DEFAULT_HALF_LIFE_MS = 24 * 60 * 60 * 1000
+/**
+ * Default decay time constant: 24 hours. The stored field is named
+ * `halfLifeMs`, but the curve uses it as an e-folding constant (strength falls
+ * to 1/e after one period), so the constants are named for what they are.
+ */
+const DEFAULT_DECAY_TIME_CONSTANT_MS = 24 * 60 * 60 * 1000
 
-/** Maximum half-life: 30 days */
-const MAX_HALF_LIFE_MS = 30 * 24 * 60 * 60 * 1000
+/** Maximum decay time constant: 30 days */
+const MAX_DECAY_TIME_CONSTANT_MS = 30 * 24 * 60 * 60 * 1000
 
 /** Default strength threshold for weak-memory pruning */
 const DEFAULT_PRUNE_THRESHOLD = 0.1
@@ -54,7 +58,7 @@ export function calculateStrength(meta: DecayMetadata, now?: number): number {
   // Mirror columnar-ops-decay: a zero/negative/non-finite half-life would
   // produce NaN or 0-everywhere strengths and poison eviction ordering.
   if (!Number.isFinite(meta.halfLifeMs) || meta.halfLifeMs <= 0) {
-    return elapsed <= 0 ? base : base * Math.exp(-elapsed / DEFAULT_HALF_LIFE_MS)
+    return elapsed <= 0 ? base : base * Math.exp(-elapsed / DEFAULT_DECAY_TIME_CONSTANT_MS)
   }
   return base * Math.exp(-elapsed / meta.halfLifeMs)
 }
@@ -67,12 +71,12 @@ function baseStrength(stored: unknown): number {
 
 /**
  * Reinforce a memory (access it) -- increases half-life via spaced repetition.
- * Each access doubles the half-life (up to MAX_HALF_LIFE).
+ * Each access doubles the half-life (up to MAX_DECAY_TIME_CONSTANT_MS).
  * Returns updated metadata with recalculated strength.
  */
 export function reinforceMemory(meta: DecayMetadata): DecayMetadata {
   const now = Date.now()
-  const newHalfLife = Math.min(meta.halfLifeMs * 2, MAX_HALF_LIFE_MS)
+  const newHalfLife = Math.min(meta.halfLifeMs * 2, MAX_DECAY_TIME_CONSTANT_MS)
   return {
     ...meta,
     strength: 1,
@@ -97,7 +101,7 @@ export function createDecayMetadata(opts?: { importance?: number }): DecayMetada
     accessCount: 0,
     lastAccessedAt: now,
     createdAt: now,
-    halfLifeMs: DEFAULT_HALF_LIFE_MS,
+    halfLifeMs: DEFAULT_DECAY_TIME_CONSTANT_MS,
   }
 }
 

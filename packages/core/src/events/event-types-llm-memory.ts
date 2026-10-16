@@ -41,6 +41,18 @@ export type LlmMemoryDomainEvent =
       scopeKeys?: string[]
     }
   | { type: 'memory:pii_redacted'; agentId: string }
+  /**
+   * The PII detector threw, so the write was refused and nothing was
+   * persisted. `errorClass` is the error name only (the message may echo the
+   * scanned text).
+   */
+  | {
+      type: 'memory:pii_redaction_failed'
+      namespace: string
+      key: string
+      errorClass: string
+      agentId: string
+    }
   | { type: 'memory:searched'; namespace: string; query: string; resultCount: number }
   | {
       type: 'memory:error'
