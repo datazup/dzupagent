@@ -530,12 +530,14 @@ function dirnameOf(pinKey) {
  * brand-new pin" (DZUPAGENT-ARCH-H-10). Pairs are matched by identical
  * sourceSha256 first (a pure move), then by identical file basename, then by
  * path: a directory left with exactly one removed and one added key pairs
- * them. Keys are never paired by sorted position, which matched a retired pin
- * with an unrelated new one (DZUPAGENT-CODE-M-14). Each pair maps the new
+ * them. A removed pin whose file still exists is a retired (satisfied) pin,
+ * not a move, and is never paired; keys are never paired by sorted position.
+ * Both used to match a retired pin with an unrelated new one
+ * (DZUPAGENT-CODE-M-14). Each pair maps the new
  * pin's leaves onto the removed pin's base values, so a renamed pin with a
  * higher maxLines (or a later reviewBy) is growth that needs a signature.
  */
-function collectRenamedPinBases(currentPackages, basePackages) {
+function collectRenamedPinBases(currentPackages, basePackages, pinFileExists) {
   const renames = [];
   for (const [packageName, currentEntry] of Object.entries(currentPackages ?? {})) {
     const baseEntry = basePackages?.[packageName];
@@ -545,7 +547,9 @@ function collectRenamedPinBases(currentPackages, basePackages) {
       const baseMap = baseEntry[mapKey];
       if (!currentMap || typeof currentMap !== 'object' || Array.isArray(currentMap)) continue;
       if (!baseMap || typeof baseMap !== 'object' || Array.isArray(baseMap)) continue;
-      const removed = Object.keys(baseMap).filter((key) => !(key in currentMap)).sort();
+      const removed = Object.keys(baseMap)
+        .filter((key) => !(key in currentMap) && !pinFileExists(packageName, key))
+        .sort();
       const added = Object.keys(currentMap).filter((key) => !(key in baseMap)).sort();
       if (removed.length === 0 || added.length === 0) continue;
 
@@ -637,7 +641,12 @@ function validateAcceptedGrowthRecord({ record, approvers, now }) {
  * Each record authorises exactly one `{ key, from, to }` transition and is
  * consumed once, so one signature cannot cover two raises.
  */
-export function evaluateBudgetRatchet({ budgetConfig, baseBudgetConfig, now = new Date() }) {
+export function evaluateBudgetRatchet({
+  budgetConfig,
+  baseBudgetConfig,
+  now = new Date(),
+  pinFileExists = () => false,
+}) {
   const records = budgetConfig?.acceptedGrowth ?? [];
   if (!Array.isArray(records)) {
     throw new Error(
@@ -656,7 +665,7 @@ export function evaluateBudgetRatchet({ budgetConfig, baseBudgetConfig, now = ne
 
   // A renamed pin inherits the base values of the pin it replaced.
   const renamedFrom = new Map();
-  for (const rename of collectRenamedPinBases(budgetConfig?.packages, baseBudgetConfig?.packages)) {
+  for (const rename of collectRenamedPinBases(budgetConfig?.packages, baseBudgetConfig?.packages, pinFileExists)) {
     for (const [leaf, value] of rename.baseLeaves) {
       const key = `${rename.to}/${leaf}`;
       if (!base.has(key)) {
@@ -860,7 +869,11 @@ async function main() {
     : `${resolvedBase.ref} (${resolvedBase.source})`;
   const base = readBaseBudgetConfig({ root, budgetPath, baseRef: resolvedBase.commit ?? resolvedBase.ref });
   let ratchet = base.available
-    ? evaluateBudgetRatchet({ budgetConfig, baseBudgetConfig: base.config })
+    ? evaluateBudgetRatchet({
+      budgetConfig,
+      baseBudgetConfig: base.config,
+      pinFileExists: (packageName, pinKey) => existsSync(path.join(root, packageDirFor(packageName), pinKey)),
+    })
     : { ok: true, skipped: true, reason: base.reason, messages: [], growth: [], accepted: [], unusedRecords: [] };
 
   // In CI a base equal to HEAD (or no readable base) makes the ratchet inert, so

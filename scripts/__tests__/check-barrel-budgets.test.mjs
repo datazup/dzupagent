@@ -798,6 +798,26 @@ test('a retired pin is never paired with an unrelated new pin by sorted position
   assert.deepEqual(result.growth, [])
 })
 
+test('a retired pin whose file still exists is not a rename, even alone in its directory', () => {
+  const budgetConfig = renameConfig({
+    'src/run/standard.ts': { maxLines: 800, shrinkTarget: 500, reviewBy: '2026-12-01' },
+  })
+  const baseBudgetConfig = renameConfig({
+    'src/run/dispatch.ts': { maxLines: 600, shrinkTarget: 500, reviewBy: '2026-09-01' },
+  })
+  // Without a file probe the lone pair in src/run/ is read as a move.
+  assert.equal(evaluateBudgetRatchet({ budgetConfig, baseBudgetConfig, now: NOW }).ok, false)
+  // dispatch.ts shrank under the ceiling and its pin was retired: no rename.
+  const result = evaluateBudgetRatchet({
+    budgetConfig,
+    baseBudgetConfig,
+    now: NOW,
+    pinFileExists: (packageName, pinKey) => packageName === '@dzupagent/alpha' && pinKey === 'src/run/dispatch.ts',
+  })
+  assert.equal(result.ok, true, result.messages.join('\n'))
+  assert.deepEqual(result.growth, [])
+})
+
 // --- Ratchet base selection (DZUPAGENT-ARCH-C-04) -----------------------------
 //
 // The ratchet used to compare against HEAD. Once a raise is committed HEAD's copy

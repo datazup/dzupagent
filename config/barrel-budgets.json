@@ -382,14 +382,6 @@
           "reviewBy": "2026-11-16",
           "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 508 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
         },
-        "src/pipeline/executor-internals/stage-dispatch.ts": {
-          "maxLines": 1117,
-          "shrinkTarget": 500,
-          "sourceSha256": "bcd6f5eb4f1dfddb0c715d254253c2f3bf5057301c802dd98226e7bd382c8328",
-          "sourceCommit": "d99278bf62d5f296666b377690c91f246f90ff5c",
-          "reviewBy": "2026-11-16",
-          "rationale": "ARCH27-T-10 re-key 2026-08-28: pipeline-runtime/ renamed to executor-internals/ (naming inverted actual ownership) and the shared leaves (edge-resolution, error-classification, checkpoint-integrity-error, PipelineSourceBindingMismatchError) moved to pipeline-shared/, so this pin follows the file to its new path with its new sha. LOC measured 1119; shrinkTarget unchanged. ARCH27-T-14 re-pin 2026-08-30: artifact-contract imports repointed to @dzupagent/runtime-contracts/pipeline-artifact (1119->1117 LOC, toward shrinkTarget)."
-        },
         "src/pipeline/loop-executor/predicate-loop-economics.ts": {
           "maxLines": 1170,
           "shrinkTarget": 500,
