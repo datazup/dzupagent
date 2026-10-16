@@ -166,9 +166,9 @@ export class BrowserPool {
 
       // SSRF defense-in-depth: the initial validation above only covers the
       // first URL. A 3xx redirect or a DNS rebind can steer a subsequent
-      // navigation at an internal service (169.254.169.254, 127.0.0.1,
-      // RFC1918). Enforce the same central policy on every main-frame
-      // navigation request via request interception, aborting disallowed ones.
+      // request at an internal service (169.254.169.254, 127.0.0.1,
+      // RFC1918), as can a page's subresources. Enforce the same central policy
+      // on every request via request interception, aborting disallowed ones.
       const ssrfBlock = await this.installSsrfInterception(page)
 
       const response = await typedPage.goto(url, {
@@ -212,17 +212,17 @@ export class BrowserPool {
 
   /**
    * Enable Puppeteer request interception on a page and validate every
-   * main-frame navigation request against the central outbound-URL policy.
+   * request against the central outbound-URL policy, except data: and blob: URLs.
    *
    * This closes the SSRF gap where only the initial URL was validated: HTTP
-   * 3xx redirects and DNS-rebinding both produce fresh navigation requests
+   * 3xx redirects and DNS-rebinding both produce fresh requests
    * that must be re-checked. Each candidate URL is run through
    * `validateOutboundUrl` (which resolves DNS and rejects non-public resolved
    * IPs — the same pinning-aware check used elsewhere), and disallowed
    * requests are aborted rather than allowed to reach an internal service.
    *
-   * Non-navigation subresource requests (images, scripts, XHR) are allowed
-   * through unchanged to preserve existing scraper behavior for public pages.
+   * Disallowed subresources (images, scripts, XHR) are aborted without failing
+   * the fetch, so the page's content can still be returned.
    *
    * The returned handle carries the first block reason so the caller can turn
    * an aborted navigation into a thrown error instead of silently returning a
@@ -276,8 +276,8 @@ export class BrowserPool {
   ): Promise<void> {
     const requestUrl = request.url()
 
-    // Only main-frame navigations (initial load + redirect targets) can steer
-    // the browser at an internal service in a way the initial check misses.
+    // Navigation and subresource requests can both target internal services.
+    // Only a blocked navigation or document request fails the whole fetch.
     const isNavigation =
       typeof request.isNavigationRequest === 'function'
         ? request.isNavigationRequest()
@@ -285,7 +285,15 @@ export class BrowserPool {
     const resourceType =
       typeof request.resourceType === 'function' ? request.resourceType() : undefined
 
-    if (!isNavigation && resourceType !== 'document') {
+    const isSubresource = !isNavigation && resourceType !== 'document'
+
+    let protocol: string | undefined
+    try {
+      protocol = new URL(requestUrl).protocol
+    } catch {
+      // Malformed URLs still go through the central policy's rejection path.
+    }
+    if (protocol === 'data:' || protocol === 'blob:') {
       await request.continue().catch(() => {})
       return
     }
@@ -296,7 +304,7 @@ export class BrowserPool {
       return
     }
 
-    if (!handle.blocked) {
+    if (!isSubresource && !handle.blocked) {
       handle.blocked = true
       handle.reason = validation.reason
     }

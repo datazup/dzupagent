@@ -330,17 +330,18 @@ describe('BrowserPool', () => {
 
   describe('SSRF request interception', () => {
     /**
-     * Build a mock page that supports request interception. `requestUrls` is
-     * the sequence of URLs the browser attempts to navigate to (initial URL
-     * first, then any redirect targets / rebind resolutions). Each is fed to
-     * the registered 'request' handler as an interceptable navigation request.
+     * Build a mock page that supports request interception. Strings represent
+     * navigation URLs (initial URL, redirects or rebind resolutions); objects
+     * represent subresources with the given resource type. Each request is fed
+     * to the registered 'request' handler.
      */
-    function createInterceptingPage(requestUrls: string[]) {
+    function createInterceptingPage(requestUrls: Array<string | { url: string; resourceType: string }>) {
       const requestHandlers: Array<(req: unknown) => void> = []
       const mockBrowser = { close: vi.fn().mockResolvedValue(undefined) }
 
       const continued: string[] = []
       const aborted: string[] = []
+      const abortCodes: Array<{ url: string; errorCode?: string }> = []
 
       const page = {
         setRequestInterception: vi.fn().mockResolvedValue(undefined),
@@ -348,18 +349,20 @@ describe('BrowserPool', () => {
           if (event === 'request') requestHandlers.push(handler)
         }),
         goto: vi.fn(async () => {
-          // Simulate the browser issuing each navigation request through the
+          // Simulate the browser issuing each request through the
           // interception layer, then awaiting the handlers to settle.
-          for (const url of requestUrls) {
+          for (const entry of requestUrls) {
+            const url = typeof entry === 'string' ? entry : entry.url
             const request = {
               url: () => url,
-              isNavigationRequest: () => true,
-              resourceType: () => 'document',
+              isNavigationRequest: () => typeof entry === 'string',
+              resourceType: () => typeof entry === 'string' ? 'document' : entry.resourceType,
               continue: vi.fn(async () => {
                 continued.push(url)
               }),
-              abort: vi.fn(async () => {
+              abort: vi.fn(async (errorCode?: string) => {
                 aborted.push(url)
+                abortCodes.push({ url, errorCode })
               }),
             }
             for (const handler of requestHandlers) handler(request)
@@ -376,6 +379,7 @@ describe('BrowserPool', () => {
         browser: vi.fn(() => mockBrowser),
         _continued: continued,
         _aborted: aborted,
+        _abortCodes: abortCodes,
         _mockBrowser: mockBrowser,
       }
       return page
@@ -458,6 +462,92 @@ describe('BrowserPool', () => {
       expect(result.status).toBe(200)
       expect(page._continued).toContain('https://example.com')
       expect(page._aborted).toHaveLength(0)
+    })
+
+    it('aborts a cloud metadata image subresource and still returns page content', async () => {
+      pool = new BrowserPool({ stealth: false, maxConcurrency: 1 })
+      const imageUrl = 'http://169.254.169.254/'
+      const page = createInterceptingPage([
+        'https://example.com',
+        { url: imageUrl, resourceType: 'image' },
+      ])
+      const browser = mountBrowser(page)
+      const puppeteer = await import('puppeteer')
+      ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(browser)
+
+      const result = await pool.fetch('https://example.com')
+      expect(page._aborted).toContain(imageUrl)
+      expect(page._continued).not.toContain(imageUrl)
+      expect(page._abortCodes).toContainEqual({ url: imageUrl, errorCode: 'blockedbyclient' })
+      expect(result.html).toContain('x'.repeat(200))
+      expect(result.status).toBe(200)
+    })
+
+    it('aborts loopback script and RFC1918 xhr subresources', async () => {
+      pool = new BrowserPool({ stealth: false, maxConcurrency: 1 })
+      const scriptUrl = 'http://127.0.0.1/'
+      const xhrUrl = 'http://10.0.0.5/'
+      const page = createInterceptingPage([
+        'https://example.com',
+        { url: scriptUrl, resourceType: 'script' },
+        { url: xhrUrl, resourceType: 'xhr' },
+      ])
+      const browser = mountBrowser(page)
+      const puppeteer = await import('puppeteer')
+      ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(browser)
+
+      const result = await pool.fetch('https://example.com')
+      for (const url of [scriptUrl, xhrUrl]) {
+        expect(page._aborted).toContain(url)
+        expect(page._continued).not.toContain(url)
+        expect(page._abortCodes).toContainEqual({ url, errorCode: 'blockedbyclient' })
+      }
+      expect(result.html).toContain('x'.repeat(200))
+    })
+
+    it('continues a permitted subresource alongside an aborted private subresource', async () => {
+      pool = new BrowserPool({ stealth: false, maxConcurrency: 1 })
+      const publicUrl = 'https://example.com/image.png'
+      const privateUrl = 'http://10.0.0.5/'
+      const page = createInterceptingPage([
+        'https://example.com',
+        { url: publicUrl, resourceType: 'image' },
+        { url: privateUrl, resourceType: 'xhr' },
+      ])
+      const browser = mountBrowser(page)
+      const puppeteer = await import('puppeteer')
+      ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(browser)
+
+      const result = await pool.fetch('https://example.com')
+      expect(page._continued).toContain(publicUrl)
+      expect(page._aborted).not.toContain(publicUrl)
+      expect(page._aborted).toContain(privateUrl)
+      expect(page._continued).not.toContain(privateUrl)
+      expect(page._abortCodes).toContainEqual({ url: privateUrl, errorCode: 'blockedbyclient' })
+      expect(result.html).toContain('x'.repeat(200))
+      expect(result.status).toBe(200)
+    })
+
+    it('continues a data image subresource alongside an aborted private subresource', async () => {
+      pool = new BrowserPool({ stealth: false, maxConcurrency: 1 })
+      const dataUrl = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=='
+      const privateUrl = 'http://169.254.169.254/'
+      const page = createInterceptingPage([
+        'https://example.com',
+        { url: dataUrl, resourceType: 'image' },
+        { url: privateUrl, resourceType: 'image' },
+      ])
+      const browser = mountBrowser(page)
+      const puppeteer = await import('puppeteer')
+      ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(browser)
+
+      const result = await pool.fetch('https://example.com')
+      expect(page._continued).toContain(dataUrl)
+      expect(page._aborted).not.toContain(dataUrl)
+      expect(page._aborted).toContain(privateUrl)
+      expect(page._continued).not.toContain(privateUrl)
+      expect(page._abortCodes).toContainEqual({ url: privateUrl, errorCode: 'blockedbyclient' })
+      expect(result.html).toContain('x'.repeat(200))
     })
   })
 
