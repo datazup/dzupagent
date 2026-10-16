@@ -9,7 +9,10 @@ import type { TenantRunQuota } from "../security/tenant-run-quota.js";
 import { closeTraceWithTerminalStep } from "./run-stages-utils.js";
 import { recordPendingContact } from "./pending-contacts.js";
 
-/** Default per-tenant concurrent-run cap when none is supplied on the job. */
+/**
+ * Server-side per-tenant concurrent-run cap. A job's `metadata.tenantRunLimit`
+ * hint may only tighten it, never raise or disable it.
+ */
 const DEFAULT_TENANT_RUN_LIMIT = 20;
 
 /**
@@ -90,8 +93,10 @@ export async function runAdmissionStage(options: {
   /**
    * Stage 4-D — optional per-tenant concurrent-run cap. When present and the
    * job carries a `metadata.tenantId`, the tenant's active count is checked
-   * against `metadata.tenantRunLimit` (default {@link DEFAULT_TENANT_RUN_LIMIT})
-   * before the run is admitted. Over-limit runs are rejected with
+   * against the server cap {@link DEFAULT_TENANT_RUN_LIMIT} before the run is
+   * admitted. A `metadata.tenantRunLimit` hint is honoured only when it is a
+   * positive integer below that cap, so job metadata can tighten the cap but
+   * never raise it or disable it (DZUPAGENT-SEC-M-05). Over-limit runs are rejected with
    * `TENANT_QUOTA_EXCEEDED`. On admission the active count is incremented; the
    * run-worker decrements it at any terminal state.
    */
@@ -128,15 +133,20 @@ export async function runAdmissionStage(options: {
 
   // Stage 4-D — per-tenant concurrent-run cap. Only enforced when a quota is
   // wired in AND the job carries a tenant id; single-tenant deployments and
-  // jobs without a tenant fall through unchanged.
+  // jobs without a tenant fall through unchanged. The cap is server-side; a
+  // job's tenantRunLimit hint can only tighten it (DZUPAGENT-SEC-M-05).
   const tenantId =
     typeof options.job.metadata?.["tenantId"] === "string"
       ? (options.job.metadata["tenantId"] as string)
       : undefined;
   if (options.tenantRunQuota && tenantId !== undefined) {
+    const hint = options.job.metadata?.["tenantRunLimit"];
     const limit =
-      typeof options.job.metadata?.["tenantRunLimit"] === "number"
-        ? (options.job.metadata["tenantRunLimit"] as number)
+      typeof hint === "number" &&
+      Number.isInteger(hint) &&
+      hint > 0 &&
+      hint < DEFAULT_TENANT_RUN_LIMIT
+        ? hint
         : DEFAULT_TENANT_RUN_LIMIT;
     const verdict = options.tenantRunQuota.check(tenantId, limit);
     if (!verdict.allowed) {
