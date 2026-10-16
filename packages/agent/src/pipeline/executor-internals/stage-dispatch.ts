@@ -12,30 +12,17 @@
  * @module pipeline/executor-internals/stage-dispatch
  */
 
-import type { PipelineNode, ForkNode, LoopNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
-import type {
-  PipelineState,
-  NodeResult,
-  PipelineRunResult,
-  PipelineRuntimeConfig,
-  PipelineRuntimeEvent,
-} from "../pipeline-runtime-types.js";
+import type { ForkNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
+import type { NodeResult } from "../pipeline-runtime-types.js";
 import { nodeCompletedEvent, nodeStartedEvent } from "./runtime-events.js";
 import { findJoinNode } from "../pipeline-shared/edge-resolution.js";
 import type { BranchExecutionResult } from "./branch-merge.js";
 import { handleFork as handleForkNode } from "./fork-branch-executor.js";
-import type {
-  LoopBodyGraphScheduleInput,
-  LoopBodyGraphScheduleResult,
-} from "../loop-executor/types.js";
-import type { BudgetTrackerState } from "./iteration-budget-tracker.js";
 import { persistCheckpointWithIntegrityBoundary } from "../pipeline-shared/checkpoint-integrity-error.js";
 import { findAdmittedRecursiveForkGraph } from "../loop-executor/definition-validation/graph-helpers.js";
-import {
-  executeAdmittedRecursiveFork,
-  type RecursiveForkRuntimeDeps,
-} from "./recursive-fork-runtime.js";
+import { executeAdmittedRecursiveFork } from "./recursive-fork-runtime.js";
 import type { RunFrame } from "./run-frame.js";
+import type { StageContext } from "./stage-context.js";
 
 export type { RunFrame } from "./run-frame.js";
 
@@ -48,52 +35,7 @@ export {
 } from "./loop-cursor-state.js";
 export { dispatchLoopStage, type LoopStageOutcome } from "./stage-dispatch-loop.js";
 
-/** Dependency bag exposing the executor's helpers to the stage functions. */
-export interface StageContext {
-  config: PipelineRuntimeConfig;
-  nodeMap: Map<string, PipelineNode>;
-  /** Persist a checkpoint per the configured strategy. */
-  saveCheckpoint: (frame: RunFrame) => Promise<void>;
-  /** Persist an outer control boundary regardless of the periodic strategy. */
-  saveControlCheckpoint: (
-    frame: RunFrame,
-    suspendedAtNodeId?: string,
-  ) => Promise<void>;
-  /** First next-node id for `nodeId`, evaluated against current state. */
-  next: (
-    nodeId: string,
-    runState: Record<string, unknown>,
-  ) => string | undefined;
-  /** Record the stable idempotency key for a completed node. */
-  recordIdempotencyKey: (
-    keys: Record<string, string>,
-    runId: string,
-    node: PipelineNode,
-  ) => void;
-  /** Resolve the error-edge target for a node given an error, if any. */
-  errorEdgeFor: (nodeId: string, error: unknown) => string | undefined;
-  /** Build the dependency bag for fork/branch fan-out. */
-  forkDeps: (runId: string) => Parameters<typeof handleForkNode>[0];
-  recursiveForkDeps: () => RecursiveForkRuntimeDeps;
-  /** Mutable global cost accumulator shared with standard-node dispatch. */
-  budgetTracker: BudgetTrackerState;
-  emit: (event: PipelineRuntimeEvent) => void;
-  setState: (next: PipelineState) => void;
-  runResult: (
-    runId: string,
-    state: PipelineState,
-    nodeResults: Map<string, NodeResult>,
-    totalDurationMs: number,
-    /** Failure reason; only meaningful when `state` is `"failed"`. */
-    error?: string,
-  ) => PipelineRunResult;
-  /** Execute one bounded compiler-lowered loop body through the graph walker. */
-  scheduleLoopBodyGraph: (
-    loopNode: LoopNode,
-    frame: RunFrame,
-    input: LoopBodyGraphScheduleInput,
-  ) => Promise<LoopBodyGraphScheduleResult>;
-}
+export type { StageContext } from "./stage-context.js";
 
 /**
  * Fork stage: restore branches that completed before a crash, fan out the

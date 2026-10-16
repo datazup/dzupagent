@@ -26,7 +26,7 @@ import {
   retainInFlightItemFrames,
 } from "./loop-cursor-state.js";
 import type { RunFrame } from "./run-frame.js";
-import type { StageContext } from "./stage-dispatch.js";
+import type { StageContext } from "./stage-context.js";
 
 /** The checkpoint callbacks `dispatchLoopStage` hands to the loop executor. */
 export type LoopCheckpointCallbacks = Required<

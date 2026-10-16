@@ -38,7 +38,7 @@ import {
 } from "./loop-cursor-state.js";
 import { createLoopCheckpointCallbacks } from "./loop-stage-checkpoints.js";
 import type { RunFrame } from "./run-frame.js";
-import type { StageContext } from "./stage-dispatch.js";
+import type { StageContext } from "./stage-context.js";
 
 /** Outcome of a loop stage: keep walking, or end the run with a result. */
 export type LoopStageOutcome =
