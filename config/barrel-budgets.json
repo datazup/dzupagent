@@ -228,6 +228,246 @@
       "reason": "Preserve the already-integrated provider-session root re-export at current main with zero slack while the lower 28-line target remains enforced.",
       "approvedBy": "Ninel Hodzic",
       "date": "2026-08-30"
+    },
+    {
+      "key": "@dzupagent/agent/fileLineDebtPins/src/agent/dzip-agent.ts/maxLines",
+      "from": 512,
+      "to": 532,
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin 512 -> 532 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/agent/fileLineDebtPins/src/agent/dzip-agent.ts/reviewBy",
+      "from": "2026-11-16",
+      "to": "2026-12-16",
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin review deadline 2026-11-16 -> 2026-12-16 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/agent/fileLineDebtPins/src/agent/run-engine-generate-tool-loop.ts/maxLines",
+      "from": 532,
+      "to": 560,
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin 532 -> 560 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/agent/fileLineDebtPins/src/agent/run-engine-generate-tool-loop.ts/reviewBy",
+      "from": "2026-11-30",
+      "to": "2026-12-16",
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin review deadline 2026-11-30 -> 2026-12-16 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/memory/rootDebtPin/maxRootIndexLines",
+      "from": 667,
+      "to": 668,
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin 667 -> 668 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/memory/rootDebtPin/reviewBy",
+      "from": "2026-09-09",
+      "to": "2026-12-16",
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin review deadline 2026-09-09 -> 2026-12-16 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/memory/fileLineDebtPins/src/index.ts/maxLines",
+      "from": 667,
+      "to": 668,
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin 667 -> 668 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/memory/fileLineDebtPins/src/index.ts/reviewBy",
+      "from": "2026-11-16",
+      "to": "2026-12-16",
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin review deadline 2026-11-16 -> 2026-12-16 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/memory/fileLineDebtPins/src/observational-memory.ts/maxLines",
+      "from": 990,
+      "to": 1073,
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin 990 -> 1073 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/memory/fileLineDebtPins/src/observational-memory.ts/reviewBy",
+      "from": "2026-11-16",
+      "to": "2026-12-16",
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin review deadline 2026-11-16 -> 2026-12-16 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/agent-adapters/rootDebtPin/maxRootIndexLines",
+      "from": 984,
+      "to": 1003,
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin 984 -> 1003 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/agent-adapters/rootDebtPin/reviewBy",
+      "from": "2026-09-30",
+      "to": "2026-12-16",
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin review deadline 2026-09-30 -> 2026-12-16 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/agent-adapters/fileLineDebtPins/src/integration/run-agent-execution.ts/maxLines",
+      "from": 615,
+      "to": 759,
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin 615 -> 759 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/agent-adapters/fileLineDebtPins/src/integration/run-agent-execution.ts/reviewBy",
+      "from": "2026-11-16",
+      "to": "2026-12-16",
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin review deadline 2026-11-16 -> 2026-12-16 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/agent-adapters/fileLineDebtPins/src/index.ts/maxLines",
+      "from": 984,
+      "to": 1003,
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin 984 -> 1003 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/agent-adapters/fileLineDebtPins/src/index.ts/reviewBy",
+      "from": "2026-09-30",
+      "to": "2026-12-16",
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin review deadline 2026-09-30 -> 2026-12-16 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/agent-adapters/fileLineDebtPins/src/model-discovery.ts/maxLines",
+      "from": 727,
+      "to": 728,
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin 727 -> 728 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/agent-adapters/fileLineDebtPins/src/model-discovery.ts/reviewBy",
+      "from": "2026-11-30",
+      "to": "2026-12-16",
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin review deadline 2026-11-30 -> 2026-12-16 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/runtime-contracts/rootDebtPin/reviewBy",
+      "from": "2026-09-30",
+      "to": "2026-12-16",
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin review deadline 2026-09-30 -> 2026-12-16 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/dialogue-core/fileLineDebtPins/src/dialogue-scheduler.ts/maxLines",
+      "from": 841,
+      "to": 847,
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin 841 -> 847 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/dialogue-core/fileLineDebtPins/src/dialogue-scheduler.ts/reviewBy",
+      "from": "2026-11-16",
+      "to": "2026-12-16",
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin review deadline 2026-11-16 -> 2026-12-16 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/adapter-types/rootDebtPin/maxRootIndexLines",
+      "from": 33,
+      "to": 34,
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin 33 -> 34 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/adapter-types/rootDebtPin/reviewBy",
+      "from": "2026-09-30",
+      "to": "2026-12-16",
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin review deadline 2026-09-30 -> 2026-12-16 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/express/rootDebtPin/reviewBy",
+      "from": "2026-09-11",
+      "to": "2026-12-16",
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin review deadline 2026-09-11 -> 2026-12-16 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/flow-dsl/fileLineDebtPins/src/dsl-source-map-projection.ts/maxLines",
+      "from": 645,
+      "to": 654,
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin 645 -> 654 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/flow-dsl/fileLineDebtPins/src/dsl-source-map-projection.ts/reviewBy",
+      "from": "2026-11-16",
+      "to": "2026-12-16",
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin review deadline 2026-11-16 -> 2026-12-16 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/flow-dsl/fileLineDebtPins/src/v2-authoring/migration.ts/maxLines",
+      "from": 521,
+      "to": 524,
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin 521 -> 524 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/flow-dsl/fileLineDebtPins/src/v2-authoring/migration.ts/reviewBy",
+      "from": "2026-11-16",
+      "to": "2026-12-16",
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin review deadline 2026-11-16 -> 2026-12-16 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/hitl-kit/rootDebtPin/maxRootIndexLines",
+      "from": 6,
+      "to": 9,
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin 6 -> 9 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/hitl-kit/rootDebtPin/reviewBy",
+      "from": "2026-09-14",
+      "to": "2026-12-16",
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin review deadline 2026-09-14 -> 2026-12-16 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
     }
   ],
   "packages": {
@@ -319,12 +559,12 @@
       "maxFileLines": 500,
       "fileLineDebtPins": {
         "src/agent/dzip-agent.ts": {
-          "maxLines": 512,
+          "maxLines": 532,
           "shrinkTarget": 500,
-          "sourceSha256": "81fa11c7cf9ff17460869c7af9d282c56e6b09a7c293e01c02aba649becb4a5d",
-          "sourceCommit": "291b7a68cd93724d5665b0904c2d73dd5085785e",
-          "reviewBy": "2026-11-16",
-          "rationale": "RF-03 re-pin 2026-08-18: 508->512 via 291b7a68c (native stream model gates). Frozen at measured LOC; shrinkTarget unchanged at 500."
+          "sourceSha256": "e5237bcfc313af8d81d47aa071c6dab5ba058e57ddb1586145e0c276e65a2b63",
+          "sourceCommit": "6fb608bdde5be4e57b3e963cdb57af2e0bced3dd",
+          "reviewBy": "2026-12-16",
+          "rationale": "RF-03 re-pin 2026-08-18: 508->512 via 291b7a68c (native stream model gates). Frozen at measured LOC; shrinkTarget unchanged at 500. 2026-10-16 RF-03 (DZUPAGENT-ARCH-H-09) re-pin at the measured 532 LOC (was 512; reviewBy 2026-11-16 -> 2026-12-16) after the audit-impl branch edits, signed in acceptedGrowth; operator-authorized 2026-10-16 (AMENDMENT-2 s.4)."
         },
         "src/index.ts": {
           "maxLines": 709,
@@ -447,12 +687,12 @@
           "rationale": "Floor pin 2026-08-30: this file was over the 500-LOC ceiling with no debt pin at all, so nothing recorded or halted its growth. Frozen at the measured 533 LOC to stop further growth; shrinkTarget stays 500. This accepts no regression \u2014 it establishes the ceiling that was missing. Decompose toward the target under ARCH27-T-15. ARCH27-T-14 re-pin 2026-08-30: artifact-contract imports repointed to @dzupagent/runtime-contracts/pipeline-artifact (533->528 LOC, toward shrinkTarget)."
         },
         "src/agent/run-engine-generate-tool-loop.ts": {
-          "maxLines": 532,
+          "maxLines": 560,
           "shrinkTarget": 500,
-          "sourceSha256": "eaf7b45913ef674830f35a5e13f7afad5881001903bf77f48e2e3a400f030788",
-          "sourceCommit": "4d52de34d06da166432fd6d4cb4662bf7b4dae6b",
-          "reviewBy": "2026-11-30",
-          "rationale": "Floor pin 2026-08-30: this file was over the 500-LOC ceiling with no debt pin at all, so nothing recorded or halted its growth. Frozen at the measured 532 LOC to stop further growth; shrinkTarget stays 500. This accepts no regression \u2014 it establishes the ceiling that was missing. Decompose toward the target under ARCH27-T-15."
+          "sourceSha256": "7cd26682123e412e2e2570080557392f4a4a74f549ad08ca69c021f6a735c9d2",
+          "sourceCommit": "6fb608bdde5be4e57b3e963cdb57af2e0bced3dd",
+          "reviewBy": "2026-12-16",
+          "rationale": "Floor pin 2026-08-30: this file was over the 500-LOC ceiling with no debt pin at all, so nothing recorded or halted its growth. Frozen at the measured 532 LOC to stop further growth; shrinkTarget stays 500. This accepts no regression \u2014 it establishes the ceiling that was missing. Decompose toward the target under ARCH27-T-15. 2026-10-16 RF-03 (DZUPAGENT-ARCH-H-09) re-pin at the measured 560 LOC (was 532; reviewBy 2026-11-30 -> 2026-12-16) after the audit-impl branch edits, signed in acceptedGrowth; operator-authorized 2026-10-16 (AMENDMENT-2 s.4)."
         },
         "src/pipeline/pipeline-templates.ts": {
           "maxLines": 521,
@@ -499,29 +739,29 @@
     "@dzupagent/memory": {
       "maxRootIndexLines": 643,
       "rootDebtPin": {
-        "maxRootIndexLines": 667,
-        "sourceSha256": "c85cccff86df0299583ae4a9931783b69a4ae2aa4e49101abebe3d4222e65f95",
-        "sourceCommit": "ae399f0508247ee4e56539ca686aa8eb3b453711",
-        "reviewBy": "2026-09-09",
-        "rationale": "Freeze the already-shipped memory compatibility barrel while its subpath migration is reviewed. +2 lines re-pinned to export MemoryDegradationReason, which already types the public MemoryOperationDegradation.reason and ExtractionFailure.reason but was unnameable by consumers. The reviewBy deadline is deliberately NOT extended: the subpath decision is still due on the original date."
+        "maxRootIndexLines": 668,
+        "sourceSha256": "5569550fddcf99637198480a662fb7ff1b279aa6f7213b7ad4efb05ae2dfeaf5",
+        "sourceCommit": "6fb608bdde5be4e57b3e963cdb57af2e0bced3dd",
+        "reviewBy": "2026-12-16",
+        "rationale": "Freeze the already-shipped memory compatibility barrel while its subpath migration is reviewed. +2 lines re-pinned to export MemoryDegradationReason, which already types the public MemoryOperationDegradation.reason and ExtractionFailure.reason but was unnameable by consumers. The reviewBy deadline is deliberately NOT extended: the subpath decision is still due on the original date. 2026-10-16 RF-03 (DZUPAGENT-ARCH-H-09) re-pin at the measured root (maxRootIndexLines 667 -> 668; reviewBy 2026-09-09 -> 2026-12-16), signed in acceptedGrowth; operator-authorized 2026-10-16 (AMENDMENT-2 s.4)."
       },
       "maxFileLines": 500,
       "fileLineDebtPins": {
         "src/index.ts": {
-          "maxLines": 667,
+          "maxLines": 668,
           "shrinkTarget": 500,
-          "sourceSha256": "c85cccff86df0299583ae4a9931783b69a4ae2aa4e49101abebe3d4222e65f95",
-          "sourceCommit": "ae399f0508247ee4e56539ca686aa8eb3b453711",
-          "reviewBy": "2026-11-16",
-          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 667 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target. The +2 over the original 665 re-pins the forgotten MemoryDegradationReason export (see rootDebtPin)."
+          "sourceSha256": "5569550fddcf99637198480a662fb7ff1b279aa6f7213b7ad4efb05ae2dfeaf5",
+          "sourceCommit": "6fb608bdde5be4e57b3e963cdb57af2e0bced3dd",
+          "reviewBy": "2026-12-16",
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 667 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target. The +2 over the original 665 re-pins the forgotten MemoryDegradationReason export (see rootDebtPin). 2026-10-16 RF-03 (DZUPAGENT-ARCH-H-09) re-pin at the measured 668 LOC (was 667; reviewBy 2026-11-16 -> 2026-12-16) after the audit-impl branch edits, signed in acceptedGrowth; operator-authorized 2026-10-16 (AMENDMENT-2 s.4)."
         },
         "src/observational-memory.ts": {
-          "maxLines": 990,
+          "maxLines": 1073,
           "shrinkTarget": 500,
-          "sourceSha256": "d10b0aaab21b6bdde04558c10eb8dc5e3b7f3d06fed92209781ac8112381eda0",
-          "sourceCommit": "5a5e78d73c625185300ead7a1fb7073a62563dec",
-          "reviewBy": "2026-11-16",
-          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 990 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+          "sourceSha256": "bbc9dfb7f84424df97c70769ee54a8926c05a1075b6ed31ea797394e7ba902ce",
+          "sourceCommit": "6fb608bdde5be4e57b3e963cdb57af2e0bced3dd",
+          "reviewBy": "2026-12-16",
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 990 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target. 2026-10-16 RF-03 (DZUPAGENT-ARCH-H-09) re-pin at the measured 1073 LOC (was 990; reviewBy 2026-11-16 -> 2026-12-16) after the audit-impl branch edits, signed in acceptedGrowth; operator-authorized 2026-10-16 (AMENDMENT-2 s.4)."
         }
       }
     },
@@ -556,37 +796,37 @@
       "maxRootBarrelStarExports": 1,
       "maxRootIndexLines": 870,
       "rootDebtPin": {
-        "maxRootIndexLines": 984,
-        "sourceSha256": "e6c70e4caaab20b1a6711762b05116a8d4015dda8261e95792725fb14588bb5c",
-        "sourceCommit": "c9dd6b0ace9790d3fe6962f62e5ee370a59c761a",
-        "reviewBy": "2026-09-30",
-        "rationale": "2026-08-30 workspace closure: freeze the already-integrated 22-subpath Agent Adapters compatibility barrel at exactly 984 lines, 128 sources, 642 explicit exports, and one star export. The lower 870-line architecture target remains enforced; future APIs stay subpath-first."
+        "maxRootIndexLines": 1003,
+        "sourceSha256": "2c5ac6e31c16500f6b464b3d69e5c125509c0e2d9996100c5a5b096c85ab5ee4",
+        "sourceCommit": "6fb608bdde5be4e57b3e963cdb57af2e0bced3dd",
+        "reviewBy": "2026-12-16",
+        "rationale": "2026-08-30 workspace closure: freeze the already-integrated 22-subpath Agent Adapters compatibility barrel at exactly 984 lines, 128 sources, 642 explicit exports, and one star export. The lower 870-line architecture target remains enforced; future APIs stay subpath-first. 2026-10-16 RF-03 (DZUPAGENT-ARCH-H-09) re-pin at the measured root (maxRootIndexLines 984 -> 1003; reviewBy 2026-09-30 -> 2026-12-16), signed in acceptedGrowth; operator-authorized 2026-10-16 (AMENDMENT-2 s.4)."
       },
       "maxFileLines": 500,
       "fileLineDebtPins": {
         "src/integration/run-agent-execution.ts": {
-          "maxLines": 615,
+          "maxLines": 759,
           "shrinkTarget": 500,
-          "sourceSha256": "dccfaf3d93b04ee58297cc0c839d502613243181e82c453f84a5a6046cdfa602",
-          "sourceCommit": "cdb36e2220fd7533433c1d540d2eb11205c2d12b",
-          "reviewBy": "2026-11-16",
-          "rationale": "RF-03: module was over the ceiling with no pin, so the gate was red. Frozen at its current 615 bytes-bound LOC pending extraction down to the 500-LOC target."
+          "sourceSha256": "71a150f792b7ffe96c04aa15398f678f1351f92cee779b9f78c683de550df8ad",
+          "sourceCommit": "6fb608bdde5be4e57b3e963cdb57af2e0bced3dd",
+          "reviewBy": "2026-12-16",
+          "rationale": "RF-03: module was over the ceiling with no pin, so the gate was red. Frozen at its current 615 bytes-bound LOC pending extraction down to the 500-LOC target. 2026-10-16 RF-03 (DZUPAGENT-ARCH-H-09) re-pin at the measured 759 LOC (was 615; reviewBy 2026-11-16 -> 2026-12-16) after the audit-impl branch edits, signed in acceptedGrowth; operator-authorized 2026-10-16 (AMENDMENT-2 s.4)."
         },
         "src/index.ts": {
-          "maxLines": 984,
+          "maxLines": 1003,
           "shrinkTarget": 500,
-          "sourceSha256": "e6c70e4caaab20b1a6711762b05116a8d4015dda8261e95792725fb14588bb5c",
-          "sourceCommit": "c9dd6b0ace9790d3fe6962f62e5ee370a59c761a",
-          "reviewBy": "2026-09-30",
-          "rationale": "2026-08-30 workspace closure: bind the current pure re-export barrel at exactly 984 lines with zero slack. The 500-line shrink target remains unchanged, and any later byte or line growth fails closed."
+          "sourceSha256": "2c5ac6e31c16500f6b464b3d69e5c125509c0e2d9996100c5a5b096c85ab5ee4",
+          "sourceCommit": "6fb608bdde5be4e57b3e963cdb57af2e0bced3dd",
+          "reviewBy": "2026-12-16",
+          "rationale": "2026-08-30 workspace closure: bind the current pure re-export barrel at exactly 984 lines with zero slack. The 500-line shrink target remains unchanged, and any later byte or line growth fails closed. 2026-10-16 RF-03 (DZUPAGENT-ARCH-H-09) re-pin at the measured 1003 LOC (was 984; reviewBy 2026-09-30 -> 2026-12-16) after the audit-impl branch edits, signed in acceptedGrowth; operator-authorized 2026-10-16 (AMENDMENT-2 s.4)."
         },
         "src/model-discovery.ts": {
-          "maxLines": 727,
+          "maxLines": 728,
           "shrinkTarget": 500,
-          "sourceSha256": "003bd90ddef44176cf2aad10c5cea97cffef5607ca417c87e7026278b65ac305",
-          "sourceCommit": "1ca3e38a81ff04ff240ad74632c404bffd82cdbb",
-          "reviewBy": "2026-11-30",
-          "rationale": "Re-pin DOWN 1349->727 (2026-08-30): split into four leaf collaborators - model-discovery-types.ts (declaration-only contracts, re-exported wholesale so the public surface is unchanged), model-discovery-values.ts (shape checks and coercions over untrusted provider output), model-catalog-builders.ts (assembly of observations into a validated catalog snapshot), and model-provider-apis.ts (the provider list-models endpoints). This module now owns only how each provider is interrogated. Still above the 500 ceiling; shrinkTarget unchanged."
+          "sourceSha256": "0f16839400d213fa189a8ae86ade92fb4d8f5e36b4e56f8512cbf3d0deb29e37",
+          "sourceCommit": "6fb608bdde5be4e57b3e963cdb57af2e0bced3dd",
+          "reviewBy": "2026-12-16",
+          "rationale": "Re-pin DOWN 1349->727 (2026-08-30): split into four leaf collaborators - model-discovery-types.ts (declaration-only contracts, re-exported wholesale so the public surface is unchanged), model-discovery-values.ts (shape checks and coercions over untrusted provider output), model-catalog-builders.ts (assembly of observations into a validated catalog snapshot), and model-provider-apis.ts (the provider list-models endpoints). This module now owns only how each provider is interrogated. Still above the 500 ceiling; shrinkTarget unchanged. 2026-10-16 RF-03 (DZUPAGENT-ARCH-H-09) re-pin at the measured 728 LOC (was 727; reviewBy 2026-11-30 -> 2026-12-16) after the audit-impl branch edits, signed in acceptedGrowth; operator-authorized 2026-10-16 (AMENDMENT-2 s.4)."
         },
         "src/registry/deterministic-candidate-selector.ts": {
           "maxLines": 876,
@@ -686,9 +926,9 @@
       "rootDebtPin": {
         "maxRootIndexLines": 172,
         "sourceSha256": "6d3874ea73505a1ace1d1ed79b9beafcc5b4078afbebc6fb2d494375b1c319ad",
-        "sourceCommit": "1bc0e576a55875680be23c2dc1d9f3144cf75a10",
-        "reviewBy": "2026-09-30",
-        "rationale": "2026-08-30 workspace closure: freeze the already-integrated neutral runtime-contract compatibility root at exactly 172 lines, 14 sources, 137 explicit exports, and seven star exports. The lower 115-line target remains enforced. Renewal pending approver signature (RF-03 / DZUPAGENT-ARCH-H-09): bytes and line count unchanged since the pin; reviewBy not extended. Re-bound 2026-10-15 (RF-06 / DZUPAGENT-ARCH-H-11): the seven export-star lines became seven explicit re-export lines with the identical export-name set; line count unchanged at 172, star exports capped at 0 and explicit exports at 213.",
+        "sourceCommit": "6fb608bdde5be4e57b3e963cdb57af2e0bced3dd",
+        "reviewBy": "2026-12-16",
+        "rationale": "2026-08-30 workspace closure: freeze the already-integrated neutral runtime-contract compatibility root at exactly 172 lines, 14 sources, 137 explicit exports, and seven star exports. The lower 115-line target remains enforced. Renewal pending approver signature (RF-03 / DZUPAGENT-ARCH-H-09): bytes and line count unchanged since the pin; reviewBy not extended. Re-bound 2026-10-15 (RF-06 / DZUPAGENT-ARCH-H-11): the seven export-star lines became seven explicit re-export lines with the identical export-name set; line count unchanged at 172, star exports capped at 0 and explicit exports at 213. 2026-10-16 RF-03 (DZUPAGENT-ARCH-H-09) re-pin at the measured root (bytes only; reviewBy 2026-09-30 -> 2026-12-16), signed in acceptedGrowth; operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
         "shrinkTargets": {
           "maxRootIndexLines": 115
         }
@@ -777,12 +1017,12 @@
       "maxFileLines": 500,
       "fileLineDebtPins": {
         "src/dialogue-scheduler.ts": {
-          "maxLines": 841,
+          "maxLines": 847,
           "shrinkTarget": 500,
-          "sourceSha256": "09ac71386f25dc1fe4c3a9a4a178f48e4e7396b5456c46c7d8743e825db5b993",
-          "sourceCommit": "4c7df11396c36ccaa9b90f58f6eb3cd5af7bad65",
-          "reviewBy": "2026-11-16",
-          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 841 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+          "sourceSha256": "b1fd92a64c0feeb6ede6207af44f67b0bfbd411a2832f506b2ec1e60f5daceab",
+          "sourceCommit": "6fb608bdde5be4e57b3e963cdb57af2e0bced3dd",
+          "reviewBy": "2026-12-16",
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 841 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target. 2026-10-16 RF-03 (DZUPAGENT-ARCH-H-09) re-pin at the measured 847 LOC (was 841; reviewBy 2026-11-16 -> 2026-12-16) after the audit-impl branch edits, signed in acceptedGrowth; operator-authorized 2026-10-16 (AMENDMENT-2 s.4)."
         }
       }
     },
@@ -809,11 +1049,11 @@
       "maxRootBarrelStarExports": 27,
       "maxRootIndexLines": 28,
       "rootDebtPin": {
-        "maxRootIndexLines": 33,
-        "sourceSha256": "8c6aecb2ce7e296730b939474d2ddefdbf362813917fb5941883833fd52310ed",
-        "sourceCommit": "c9dd6b0ace9790d3fe6962f62e5ee370a59c761a",
-        "reviewBy": "2026-09-30",
-        "rationale": "2026-08-30 workspace closure: freeze the already-integrated provider-session compatibility root at exactly 33 lines with zero slack. The lower 28-line target remains enforced and future contracts remain subpath-only."
+        "maxRootIndexLines": 34,
+        "sourceSha256": "3fead5dd8d3e8ae42d5a8038df3f9a5f9610628297967af6e08dbfa80e2e694b",
+        "sourceCommit": "6fb608bdde5be4e57b3e963cdb57af2e0bced3dd",
+        "reviewBy": "2026-12-16",
+        "rationale": "2026-08-30 workspace closure: freeze the already-integrated provider-session compatibility root at exactly 33 lines with zero slack. The lower 28-line target remains enforced and future contracts remain subpath-only. 2026-10-16 RF-03 (DZUPAGENT-ARCH-H-09) re-pin at the measured root (maxRootIndexLines 33 -> 34; reviewBy 2026-09-30 -> 2026-12-16), signed in acceptedGrowth; operator-authorized 2026-10-16 (AMENDMENT-2 s.4)."
       },
       "maxFileLines": 500,
       "fileLineDebtPins": {
@@ -854,9 +1094,9 @@
       "rootDebtPin": {
         "maxRootIndexLines": 41,
         "sourceSha256": "04fd88a7d4d1ca0e8cca03025d567bd24dc468e726a5e8c7e821efd10af99c43",
-        "sourceCommit": "2694577565a61591fa3549f2f6931d569e16bb34",
-        "reviewBy": "2026-09-11",
-        "rationale": "Freeze the consolidated current stateless MCP compatibility export with zero slack while future contracts remain subpath-only. Renewal pending approver signature (RF-03 / DZUPAGENT-ARCH-H-09): bytes and line count unchanged since the pin; reviewBy not extended."
+        "sourceCommit": "6fb608bdde5be4e57b3e963cdb57af2e0bced3dd",
+        "reviewBy": "2026-12-16",
+        "rationale": "Freeze the consolidated current stateless MCP compatibility export with zero slack while future contracts remain subpath-only. Renewal pending approver signature (RF-03 / DZUPAGENT-ARCH-H-09): bytes and line count unchanged since the pin; reviewBy not extended. 2026-10-16 RF-03 (DZUPAGENT-ARCH-H-09) re-pin at the measured root (bytes only; reviewBy 2026-09-11 -> 2026-12-16), signed in acceptedGrowth; operator-authorized 2026-10-16 (AMENDMENT-2 s.4)."
       },
       "maxFileLines": 500
     },
@@ -907,12 +1147,12 @@
           "rationale": "RF-03: module was over the ceiling with no pin, so the gate was red. Frozen at its current 577 bytes-bound LOC pending extraction down to the 500-LOC target."
         },
         "src/dsl-source-map-projection.ts": {
-          "maxLines": 645,
+          "maxLines": 654,
           "shrinkTarget": 500,
-          "sourceSha256": "2f012c18150a6d49b2c567680fde2788c3c2d5d26df78758b59e9042e8b13f2c",
-          "sourceCommit": "389c3b39a1893b62185145ffa304a9a9b807f791",
-          "reviewBy": "2026-11-16",
-          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at 645 bytes-bound LOC (ARCH27-T-13 canonical child-field derivation shrank it from 653); any edit fails closed until it is extracted down to the 500-LOC target."
+          "sourceSha256": "3d753a86706201e36a564655e83e357c2dbe2c624793d7f3fb9dc74e05b6d2c2",
+          "sourceCommit": "6fb608bdde5be4e57b3e963cdb57af2e0bced3dd",
+          "reviewBy": "2026-12-16",
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at 645 bytes-bound LOC (ARCH27-T-13 canonical child-field derivation shrank it from 653); any edit fails closed until it is extracted down to the 500-LOC target. 2026-10-16 RF-03 (DZUPAGENT-ARCH-H-09) re-pin at the measured 654 LOC (was 645; reviewBy 2026-11-16 -> 2026-12-16) after the audit-impl branch edits, signed in acceptedGrowth; operator-authorized 2026-10-16 (AMENDMENT-2 s.4)."
         },
         "src/primitives/built-ins-v2.ts": {
           "maxLines": 513,
@@ -931,12 +1171,12 @@
           "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at 507 bytes-bound LOC (ARCH27-T-13 canonical child-field derivation shrank it from 508); any edit fails closed until it is extracted down to the 500-LOC target."
         },
         "src/v2-authoring/migration.ts": {
-          "maxLines": 521,
+          "maxLines": 524,
           "shrinkTarget": 500,
-          "sourceSha256": "13887918736febd050eecbdb7a33f4cfc9f1e696e17d1420072fd169ec617fd5",
-          "sourceCommit": "0e6a3b56297cbe04b375c5da169f1580c8f88ec0",
-          "reviewBy": "2026-11-16",
-          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 521 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target."
+          "sourceSha256": "bf96bd1ec629946d99a110468d256db92ca4defbc4c542b9f85b2a5ab8fa87cd",
+          "sourceCommit": "6fb608bdde5be4e57b3e963cdb57af2e0bced3dd",
+          "reviewBy": "2026-12-16",
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 521 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target. 2026-10-16 RF-03 (DZUPAGENT-ARCH-H-09) re-pin at the measured 524 LOC (was 521; reviewBy 2026-11-16 -> 2026-12-16) after the audit-impl branch edits, signed in acceptedGrowth; operator-authorized 2026-10-16 (AMENDMENT-2 s.4)."
         }
       }
     },
@@ -1009,11 +1249,11 @@
       "maxRootBarrelStarExports": 9,
       "maxRootIndexLines": 5,
       "rootDebtPin": {
-        "maxRootIndexLines": 6,
-        "sourceSha256": "64378bd8c766804a1a750a0e50caf0745d84ae4b049c67ec091d9b12856e1794",
-        "sourceCommit": "b71085145d8d17befaec852d3ad8db80e72b2b89",
-        "reviewBy": "2026-09-14",
-        "rationale": "Freeze the consolidated pipeline interaction adapter root export with zero slack pending compatibility review."
+        "maxRootIndexLines": 9,
+        "sourceSha256": "2a79bf6e091bf00ef29ac26b4c856ee1f722ca880c7660382dd5bbecffdec62e",
+        "sourceCommit": "6fb608bdde5be4e57b3e963cdb57af2e0bced3dd",
+        "reviewBy": "2026-12-16",
+        "rationale": "Freeze the consolidated pipeline interaction adapter root export with zero slack pending compatibility review. 2026-10-16 RF-03 (DZUPAGENT-ARCH-H-09) re-pin at the measured root (maxRootIndexLines 6 -> 9; reviewBy 2026-09-14 -> 2026-12-16), signed in acceptedGrowth; operator-authorized 2026-10-16 (AMENDMENT-2 s.4)."
       },
       "maxFileLines": 500
     },
