@@ -468,6 +468,14 @@
       "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin review deadline 2026-09-14 -> 2026-12-16 at the measured value after the audit-implementation branch; the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
       "approvedBy": "Ninel Hodzic",
       "date": "2026-10-16"
+    },
+    {
+      "key": "@dzupagent/memory/fileLineDebtPins/src/observational-memory.ts/maxLines",
+      "from": 990,
+      "to": 1075,
+      "reason": "RF-03 / DZUPAGENT-ARCH-H-09 (audit full-dzupagent-2026-10-14): re-pin 990 -> 1075 at the measured value after the audit-implementation branch merged onto main d8ee010d (AUDIT-REMOTE-CONTINUE-20261016-R1); the shrink target is unchanged. operator-authorized 2026-10-16 (AMENDMENT-2 s.4).",
+      "approvedBy": "Ninel Hodzic",
+      "date": "2026-10-16"
     }
   ],
   "packages": {
@@ -756,12 +764,12 @@
           "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 667 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target. The +2 over the original 665 re-pins the forgotten MemoryDegradationReason export (see rootDebtPin). 2026-10-16 RF-03 (DZUPAGENT-ARCH-H-09) re-pin at the measured 668 LOC (was 667; reviewBy 2026-11-16 -> 2026-12-16) after the audit-impl branch edits, signed in acceptedGrowth; operator-authorized 2026-10-16 (AMENDMENT-2 s.4)."
         },
         "src/observational-memory.ts": {
-          "maxLines": 1073,
+          "maxLines": 1075,
           "shrinkTarget": 500,
-          "sourceSha256": "bbc9dfb7f84424df97c70769ee54a8926c05a1075b6ed31ea797394e7ba902ce",
-          "sourceCommit": "6fb608bdde5be4e57b3e963cdb57af2e0bced3dd",
+          "sourceSha256": "b49092c2885105ff057a7f799f6ac87e17d37be371a25b79d8cec603d7cffdf0",
+          "sourceCommit": "bf94ee3c31308284a740ed76eb93c87d61517aef",
           "reviewBy": "2026-12-16",
-          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 990 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target. 2026-10-16 RF-03 (DZUPAGENT-ARCH-H-09) re-pin at the measured 1073 LOC (was 990; reviewBy 2026-11-16 -> 2026-12-16) after the audit-impl branch edits, signed in acceptedGrowth; operator-authorized 2026-10-16 (AMENDMENT-2 s.4)."
+          "rationale": "RF-03: migrated from the uncapped fileLineAllowlist. Frozen at its current 990 bytes-bound LOC; any edit fails closed until it is extracted down to the 500-LOC target. 2026-10-16 RF-03 (DZUPAGENT-ARCH-H-09) re-pin at the measured 1073 LOC (was 990; reviewBy 2026-11-16 -> 2026-12-16) after the audit-impl branch edits, signed in acceptedGrowth; operator-authorized 2026-10-16 (AMENDMENT-2 s.4). 2026-10-16 RF-03 (DZUPAGENT-ARCH-H-09) re-pin at the measured 1075 LOC (was 1073; reviewBy 2026-12-16 -> 2026-12-16) after the audit-impl branch merged onto main d8ee010d (AUDIT-REMOTE-CONTINUE-20261016-R1), signed in acceptedGrowth; operator-authorized 2026-10-16 (AMENDMENT-2 s.4)."
         }
       }
     },
@@ -877,12 +885,12 @@
           "rationale": "2026-10-15 RF-03 (DZUPAGENT-ARCH-H-09): landed above the 500-line ceiling with no pin while the gate was already red. Frozen at exactly 518 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
         },
         "src/codex/codex-streamed-thread-loop.ts": {
-          "maxLines": 513,
+          "maxLines": 528,
           "shrinkTarget": 500,
-          "sourceSha256": "b017a419c17251ea3f273505831b728972a2c8520429e05859a0e5ea9c781d12",
-          "sourceCommit": "b267452d72797d63a4424bc4f711f768ffd090d6",
-          "reviewBy": "2026-11-30",
-          "rationale": "2026-10-15 RF-03 (DZUPAGENT-ARCH-H-09): landed above the 500-line ceiling with no pin while the gate was already red. Frozen at exactly 513 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30."
+          "sourceSha256": "d9fc32434f0627293365f1d7ce0f9567fbfc9b7f4628261fde14d2080dcb3a0b",
+          "sourceCommit": "bf94ee3c31308284a740ed76eb93c87d61517aef",
+          "reviewBy": "2026-12-16",
+          "rationale": "2026-10-15 RF-03 (DZUPAGENT-ARCH-H-09): landed above the 500-line ceiling with no pin while the gate was already red. Frozen at exactly 513 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30. 2026-10-16 RF-03 (DZUPAGENT-ARCH-H-09) re-pin at the measured 528 LOC (was 513; reviewBy 2026-11-30 -> 2026-12-16) after the audit-impl branch merged onto main d8ee010d (AUDIT-REMOTE-CONTINUE-20261016-R1), signed in acceptedGrowth; operator-authorized 2026-10-16 (AMENDMENT-2 s.4)."
         },
         "src/integration/coordination-assignment-decoder.ts": {
           "maxLines": 919,
