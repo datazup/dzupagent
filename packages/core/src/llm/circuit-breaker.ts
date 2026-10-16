@@ -313,11 +313,17 @@ export class KeyedCircuitBreaker {
     this.forKey(key).recordSuccess();
   }
 
-  /** Check whether the key's breaker allows traffic right now. */
+  /**
+   * Check whether the key's breaker allows traffic right now (closed or
+   * half-open). This is a read: callers use it to filter candidates, often
+   * more than once per run, so it must not consume a half-open probe slot.
+   * Per-call probe admission (DZUPAGENT-AGENT-H-20) stays on
+   * `CircuitBreaker.canExecute()`.
+   */
   isAvailable(key: string): boolean {
     const breaker = this.breakers.get(key);
     if (!breaker) return true;
-    return breaker.canExecute();
+    return breaker.getState() !== "open";
   }
 
   /** Filter a list of objects with `id` down to those whose circuit is closed/half-open. */
