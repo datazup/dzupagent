@@ -1,5 +1,13 @@
 import type { AgentExecutionSpec, AgentExecutionSpecStore } from '@dzupagent/core/persistence'
 
+export class AgentDefinitionConflictError extends Error {
+  name = 'AgentDefinitionConflictError'
+
+  constructor() {
+    super('Agent definition id already exists')
+  }
+}
+
 export interface AgentDefinitionServiceConfig {
   agentStore: AgentExecutionSpecStore
 }
@@ -50,6 +58,10 @@ export class AgentDefinitionService {
   }
 
   async create(input: CreateAgentDefinitionInput): Promise<AgentExecutionSpec | null> {
+    if (input.id !== undefined && await this.agentStore.get(input.id)) {
+      throw new AgentDefinitionConflictError()
+    }
+
     const id = input.id ?? crypto.randomUUID()
 
     await this.agentStore.save({

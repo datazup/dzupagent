@@ -77,6 +77,49 @@ describe('tenant isolation on CRUD route families', () => {
     expect(getB.status).toBe(404)
   })
 
+  it('rejects cross-tenant duplicate agent ids without exposing or replacing the original definition', async () => {
+    const config = {
+      runStore: new InMemoryRunStore(),
+      agentStore: new InMemoryAgentStore(),
+      eventBus: createEventBus(),
+      modelRegistry: new ModelRegistry(),
+    } satisfies ForgeServerConfig
+    const app = new Hono<AppEnv>()
+    installTenantHeader(app)
+    app.route('/api/agent-definitions', createAgentDefinitionRoutes(config))
+
+    const createA = await app.request('/api/agent-definitions', jsonRequest('POST', tenantA, {
+      id: 'agent-a',
+      name: 'Agent A',
+      instructions: 'Work for tenant A',
+      modelTier: 'chat',
+    }))
+    expect(createA.status).toBe(201)
+
+    const createB = await app.request('/api/agent-definitions', jsonRequest('POST', tenantB, {
+      id: 'agent-a',
+      name: 'Agent B',
+      instructions: 'Work for tenant B',
+      modelTier: 'chat',
+    }))
+    expect(createB.status).toBe(409)
+    const conflict = await createB.json()
+    expect(conflict).toEqual({
+      error: { code: 'CONFLICT', message: 'Agent definition id already exists' },
+    })
+    expect(JSON.stringify(conflict)).not.toContain('tenant-a')
+    expect(JSON.stringify(conflict)).not.toContain('Work for tenant A')
+
+    const getA = await app.request('/api/agent-definitions/agent-a', jsonRequest('GET', tenantA))
+    expect(getA.status).toBe(200)
+    expect((await getA.json()) as { data: { instructions: string } }).toMatchObject({
+      data: { instructions: 'Work for tenant A' },
+    })
+
+    const listB = await app.request('/api/agent-definitions', jsonRequest('GET', tenantB))
+    expect(((await listB.json()) as { data: unknown[] }).data).toHaveLength(0)
+  })
+
   it('scopes trigger configs by authenticated tenant', async () => {
     const app = new Hono<AppEnv>()
     installTenantHeader(app)

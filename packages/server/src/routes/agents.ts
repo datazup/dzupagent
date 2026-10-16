@@ -18,7 +18,10 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../types.js";
 import type { ForgeServerConfig } from "../composition/types.js";
-import { AgentDefinitionService } from "../services/agent-definition-service.js";
+import {
+  AgentDefinitionConflictError,
+  AgentDefinitionService,
+} from "../services/agent-definition-service.js";
 import {
   AgentCreateSchema,
   AgentUpdateSchema,
@@ -53,8 +56,15 @@ export function createAgentDefinitionRoutes(
     if (!parsed.ok) return parsed.response;
     const tenantId = tenantOf(c);
 
-    const saved = await service.create({ ...parsed.value, tenantId });
-    return data(c, saved, 201);
+    try {
+      const saved = await service.create({ ...parsed.value, tenantId });
+      return data(c, saved, 201);
+    } catch (error) {
+      if (error instanceof AgentDefinitionConflictError) {
+        return c.json({ error: { code: "CONFLICT", message: "Agent definition id already exists" } }, 409);
+      }
+      throw error;
+    }
   });
 
   // GET /api/agent-definitions/:id — Get agent definition
