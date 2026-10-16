@@ -15,6 +15,25 @@ const monitoringExports = {
   './monitoring/dashboard': 'dashboard',
 } as const
 
+/**
+ * Packaging checks need this package's own built `dist`, which the default
+ * test task does not build. Without the packaging flag they are reported as
+ * skipped, never as passed; with it (see `test:packaging`) a missing `dist`
+ * fails the spec instead of returning early.
+ */
+const PACKAGING_ENV_VAR = 'DZUPAGENT_PACKAGING_TESTS'
+const packagingEnabled = (process.env[PACKAGING_ENV_VAR] ?? '').length > 0
+
+async function requireDist(...files: string[]): Promise<void> {
+  for (const file of files) {
+    await access(join(process.cwd(), file)).catch(() => {
+      throw new Error(
+        `${PACKAGING_ENV_VAR} is set but ${file} is missing; run build:verify for @dzupagent/adapter-types first`,
+      )
+    })
+  }
+}
+
 describe('adapter-types monitoring export map', () => {
   it('publishes one narrow export per monitoring plane', async () => {
     const raw = await readFile(join(process.cwd(), 'package.json'), 'utf8')
@@ -36,12 +55,8 @@ describe('adapter-types monitoring export map', () => {
     }
   })
 
-  it('resolves ESM and declarations through built package exports when dist exists', async () => {
-    try {
-      await access(join(process.cwd(), 'dist/monitoring/dashboard.js'))
-    } catch {
-      return
-    }
+  it.skipIf(!packagingEnabled)('resolves ESM and declarations through built package exports from built output', async () => {
+    await requireDist('dist/monitoring/dashboard.js')
 
     const specifiers = Object.keys(monitoringExports).map(
       (exportPath) => `@dzupagent/adapter-types${exportPath.slice(1)}`,
@@ -88,12 +103,8 @@ describe('adapter-types monitoring export map', () => {
     }
   }, 30_000)
 
-  it('keeps V2 runtime helpers off the compatibility root barrel', async () => {
-    try {
-      await access(join(process.cwd(), 'dist/index.js'))
-    } catch {
-      return
-    }
+  it.skipIf(!packagingEnabled)('keeps V2 runtime helpers off the compatibility root barrel', async () => {
+    await requireDist('dist/index.js')
 
     const rootRuntime = await import('@dzupagent/adapter-types')
     expect(rootRuntime).not.toHaveProperty('projectAdapterMonitorDashboardV1')

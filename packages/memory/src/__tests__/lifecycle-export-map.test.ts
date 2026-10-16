@@ -24,6 +24,25 @@ const declarationNames = [
 ]
 const execFileAsync = promisify(execFile)
 
+/**
+ * Packaging checks need this package's own built `dist`, which the default
+ * test task does not build. Without the packaging flag they are reported as
+ * skipped, never as passed; with it (see `test:packaging`) a missing `dist`
+ * fails the spec instead of returning early.
+ */
+const PACKAGING_ENV_VAR = 'DZUPAGENT_PACKAGING_TESTS'
+const packagingEnabled = (process.env[PACKAGING_ENV_VAR] ?? '').length > 0
+
+async function requireDist(...files: string[]): Promise<void> {
+  for (const file of files) {
+    await access(join(process.cwd(), file)).catch(() => {
+      throw new Error(
+        `${PACKAGING_ENV_VAR} is set but ${file} is missing; run build:verify for @dzupagent/memory first`,
+      )
+    })
+  }
+}
+
 describe('@dzupagent/memory/lifecycle export', () => {
   it('declares exactly the narrow runtime and source surface', async () => {
     const packageJson = JSON.parse(await readFile(join(process.cwd(), 'package.json'), 'utf8')) as {
@@ -42,11 +61,10 @@ describe('@dzupagent/memory/lifecycle export', () => {
   it('does not widen the compatibility root barrel', async () => {
     const rootIndex = await readFile(join(process.cwd(), 'src/index.ts'), 'utf8')
     expect(rootIndex).not.toContain('./lifecycle/')
-    try {
-      await access(join(process.cwd(), 'dist/index.js'))
-    } catch {
-      return
-    }
+  })
+
+  it.skipIf(!packagingEnabled)('built root barrel stays free of the subpath runtime names', async () => {
+    await requireDist('dist/index.js')
     const { stdout } = await execFileAsync(process.execPath, [
       '--input-type=module',
       '--eval',
@@ -56,13 +74,8 @@ describe('@dzupagent/memory/lifecycle export', () => {
     for (const name of runtimeNames) expect(builtRootNames).not.toContain(name)
   })
 
-  it('resolves built JavaScript and declarations when their complete pair exists', async () => {
-    try {
-      await access(join(process.cwd(), 'dist/lifecycle/index.js'))
-      await access(join(process.cwd(), 'dist/lifecycle/index.d.ts'))
-    } catch {
-      return
-    }
+  it.skipIf(!packagingEnabled)('resolves built JavaScript and declarations when their complete pair is built', async () => {
+    await requireDist('dist/lifecycle/index.js', 'dist/lifecycle/index.d.ts')
     const { stdout } = await execFileAsync(process.execPath, [
       '--input-type=module',
       '--eval',
