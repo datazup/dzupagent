@@ -130,7 +130,7 @@ describe('DzupAgent generate()/stream() parity', () => {
 
   it('emits one llm:invoked per model call with real tokens in stream(), matching generate()', async () => {
     const withUsage = (message: AIMessage, input: number, output: number) => {
-      message.usage_metadata = {
+      ;(message as unknown as { usage_metadata: Record<string, number> }).usage_metadata = {
         input_tokens: input,
         output_tokens: output,
         total_tokens: input + output,

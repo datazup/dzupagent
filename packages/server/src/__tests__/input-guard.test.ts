@@ -10,7 +10,6 @@ import {
 import type { Run } from '@dzupagent/core'
 import { InMemoryRunQueue } from '../queue/run-queue.js'
 import { startRunWorker, type RunExecutor } from '../runtime/run-worker.js'
-import { createSafetyMonitor as createSourceSafetyMonitor } from '../../../core/src/security/monitor/safety-monitor.js'
 
 describe('createInputGuard', () => {
   describe('maxInputLength', () => {
@@ -187,7 +186,7 @@ describe('createInputGuard', () => {
 
     it('fails closed with an unknown scan status when the injection scanner throws', async () => {
       vi.spyOn(console, 'error').mockImplementation(() => undefined)
-      const safetyMonitor = createSourceSafetyMonitor({ injectionScanner: throwingInjectionScanner })
+      const safetyMonitor = createSafetyMonitor({ injectionScanner: throwingInjectionScanner })
       const guard = createInputGuard({ safetyMonitor, redactPii: false })
 
       const result = await guard.scan('untrusted input')
@@ -201,7 +200,7 @@ describe('createInputGuard', () => {
 
     it('does not forge a clean scan when explicitly configured to fail open', async () => {
       vi.spyOn(console, 'error').mockImplementation(() => undefined)
-      const safetyMonitor = createSourceSafetyMonitor({ injectionScanner: throwingInjectionScanner })
+      const safetyMonitor = createSafetyMonitor({ injectionScanner: throwingInjectionScanner })
       const guard = createInputGuard({
         safetyMonitor,
         redactPii: false,
@@ -218,7 +217,7 @@ describe('createInputGuard', () => {
 
     it('still blocks a detected violation when another rule failed', async () => {
       vi.spyOn(console, 'error').mockImplementation(() => undefined)
-      const safetyMonitor = createSourceSafetyMonitor({ injectionScanner: throwingInjectionScanner })
+      const safetyMonitor = createSafetyMonitor({ injectionScanner: throwingInjectionScanner })
       const guard = createInputGuard({ safetyMonitor, redactPii: false, scanFailureMode: 'fail-open' })
 
       const result = await guard.scan('use AKIAIOSFODNN7EXAMPLE to deploy')
@@ -230,7 +229,7 @@ describe('createInputGuard', () => {
 
     it('ignores a failed rule whose action could not block', async () => {
       vi.spyOn(console, 'error').mockImplementation(() => undefined)
-      const safetyMonitor = createSourceSafetyMonitor({
+      const safetyMonitor = createSafetyMonitor({
         rules: [{
           id: 'custom:log-only',
           category: 'tool_abuse',

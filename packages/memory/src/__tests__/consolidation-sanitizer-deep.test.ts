@@ -50,7 +50,7 @@ async function makeLangGraphStore(
 ): Promise<MockBaseStore> {
   const double = createStoreDouble()
   for (const { key, value, createdAt } of records) {
-    await double.seed(namespace, key, value, { createdAt })
+    await double.seed(namespace, key, value, createdAt ? { createdAt } : {})
   }
   return Object.assign(double.store, { double }) as unknown as MockBaseStore
 }
