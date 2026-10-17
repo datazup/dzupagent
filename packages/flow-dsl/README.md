@@ -8,6 +8,12 @@ canonical AST consumed by current compilers and hosts.
 
 Part of the [DzupAgent](../../README.md) framework.
 
+> **Current state.** The workspace current-state document
+> `DZUPFLOW_DSL_CURRENT_2026-10-07.md` records the DSL's open gaps and host
+> caveats. It is not part of this repository. Read it before you rely on a
+> node or feature for release. The `path:line` anchors in this README refer to
+> this package unless another package is named.
+
 ## Usage
 
 ```ts
@@ -24,10 +30,19 @@ if (!ok) {
 }
 ```
 
-`parseDslToDocument(source)` runs three phases in order — YAML subset parse,
-normalize (canonical AST), validate (semantic checks) — and returns a single
-`ParseDslResult`. Any diagnostic in any phase fails the call and sets
-`ok: false`.
+`parseDslToDocument(source)` runs five phases in order and returns a single
+`ParseDslResult`:
+
+1. YAML subset parse (`src/parse-dsl.ts:36`).
+2. `dzupflow/v2` lowering, only for documents that declare
+   `dsl: dzupflow/v2` (`src/parse-dsl.ts:57`).
+3. Registered composite primitive and fragment expansion
+   (`src/parse-dsl.ts:90`).
+4. Normalization to the canonical AST (`src/parse-dsl.ts:120`).
+5. Document validation (`src/parse-dsl.ts:154`).
+
+Any diagnostic in any phase stops the call and sets `ok: false`
+(`src/parse-dsl.ts:159-166`).
 
 `@dzupagent/flow-dsl/source-map` exports `createDslSourceMap(source, document)`
 to build a deterministic authored-to-canonical index after subset parsing.
@@ -79,6 +94,14 @@ steps:
 `steps` is a flat array of single-key node wrappers — `- action: { ... }`,
 `- if: { ... }`, etc. Graph-style top-level `nodes`/`edges` fields are
 explicitly rejected.
+
+`dzupflow/v1alpha-agent` is a preserved label. The normalizer keeps it as the
+document's `dsl` value, and an absent `dsl` becomes `dzupflow/v1`
+(`src/normalize.ts:109-113`). `dzupflow/v2` documents are lowered by the v2
+frontend first; any other value fails with `INVALID_DSL_VERSION`
+(`src/normalize.ts:148-158`). The label does not gate
+any node kind: `agent` and `validate` steps parse under `dsl: dzupflow/v1`
+too.
 
 Input classification is optional for compatibility. When declared, the flow
 compiler propagates the most restrictive classification through dependent
@@ -167,8 +190,16 @@ The current kernel subset is:
 - `core.set@1`;
 - `core.branch@1`, using either a legacy string `when` or the typed form below,
   plus `with.then` and optional `with.else`;
+- `core.loop@1`, with a legacy string or typed `with.condition`, a `body`,
+  and optional `maxIterations`, `onExhausted` (`fail` or `continue`),
+  `iterationTimeoutMs`, `iterationBudgetCents` and `progressKey`
+  (`src/v2/lower-v2-kernel.ts:110`, fields checked at
+  `src/v2/lower-v2-kernel.ts:273-364`);
 - exact registered primitive invocation such as `adapter.run@1`;
 - `core.complete@1`.
+
+The kernel dispatch is in `src/v2/lower-v2-kernel.ts:73-127`. Any other
+`core.*` kind fails with `V2_UNKNOWN_KERNEL`.
 
 Every `use` must include an exact version. Primitive invocations bind the
 exact V2 ref and semantic hash, and generated v1 namespace imports remain
@@ -233,13 +264,20 @@ requires strict references, declared value types, compatible operands, a
 boolean result, and control-flow availability. A valid typed condition also
 adds the required capability `flow.control.typed-condition@1`.
 
-`@dzupagent/flow-ast/typed-condition-evaluator` now publishes one reviewed,
-provider-free evaluator for that capability. No generic compiler target has
-adopted and qualified it. Compilation therefore still stops at Stage 4 with
-`TYPED_CONDITION_TARGET_UNSUPPORTED` before artifact emission. The fixed
-legacy shadow keeps unchanged hosts fail closed; it is never treated as the
-typed condition's executable meaning. Existing v1 strings and v2
-`core.branch@1` string `when` remain compatible.
+`@dzupagent/flow-ast/typed-condition-evaluator` publishes one reviewed,
+provider-free evaluator for that capability. The compiler admits it only for
+typed `core.loop@1` conditions. A typed loop condition lowers when the compile
+targets `pipeline` and the compiler option `targetCapabilities` includes
+`flow.control.typed-condition@1`
+(`flow-compiler/src/compile-orchestrator/v2-target-gates.ts:136-143`).
+Typed `when` guards and typed `core.branch@1` conditions stay refused on every
+target: compilation stops at Stage 4 with `TYPED_CONDITION_TARGET_UNSUPPORTED`
+before artifact emission
+(`flow-compiler/src/compile-orchestrator/v2-target-gates.ts:144-153`). A
+typed loop condition without that capability, or on another target, is
+refused the same way. The fixed legacy shadow keeps unchanged hosts fail
+closed; it is never treated as the typed condition's executable meaning.
+Existing v1 strings and v2 `core.branch@1` string `when` remain compatible.
 
 Successful parsing returns the same canonical `FlowDocumentV1` as equivalent
 v1 source and adds immutable `frontend` evidence to parse and canonicalize
@@ -321,8 +359,8 @@ guarded or unavailable after a terminal-catch `continue`. Unknown ports,
 non-state persistence, invalid or duplicate destinations, and out-of-bound
 binding counts fail closed. The compatibility lowering retains one
 deterministic V1 anchor only for existing analysis; the complete binding set
-stays in frontend metadata and generic artifact emission remains blocked until
-a target adopts `flow.save.primitive-multi-port@1`.
+stays in frontend metadata. Only the opt-in `pipeline` target lowers it; see
+the target-adoption notes below.
 
 The parse and canonicalize results additionally return a v2 `sourceMap`.
 Direct canonical fields compose back to exact authored `id`, `use`, `with`,
@@ -332,26 +370,48 @@ removes it immutably before returning the canonical document. Generated
 compiler diagnostics point to the parent `use`; relative edits on those
 derived paths and on adapted save targets are suppressed.
 
-No generic compiler target has adopted
-`flow.policy.primitive-narrowing@1`. Valid policy therefore stops at Stage 4
-with `V2_POLICY_TARGET_UNSUPPORTED`; when typed control is also present, both
-target-adoption diagnostics are returned together. No generic compiler target
-has adopted `flow.retry.primitive-errors@1` either, so valid retry evidence
-stops at Stage 4 with `V2_RETRY_TARGET_UNSUPPORTED` rather than being dropped
-through V1 compatibility lowering. Retry, policy, and typed-control target
-diagnostics accumulate. Terminal catch likewise stops with
-`V2_CATCH_TARGET_UNSUPPORTED` until a target adopts
-`flow.catch.primitive-terminal@1`; all four target gaps accumulate. The
-multi-port save contract likewise stops with
-`V2_MULTI_SAVE_TARGET_UNSUPPORTED`, so all five target gaps accumulate.
+The compiler's Stage 4 target gates decide which V2 step contracts reach an
+artifact (`flow-compiler/src/compile-orchestrator/v2-target-gates.ts:37-49`).
+Every target except the opt-in `pipeline` target refuses each valid binding
+with a target-adoption diagnostic instead of dropping it through V1
+compatibility lowering:
+
+- policy narrowing: `V2_POLICY_TARGET_UNSUPPORTED`
+  (`flow.policy.primitive-narrowing@1`);
+- retry: `V2_RETRY_TARGET_UNSUPPORTED` (`flow.retry.primitive-errors@1`);
+- terminal catch: `V2_CATCH_TARGET_UNSUPPORTED`
+  (`flow.catch.primitive-terminal@1`);
+- multi-port save: `V2_MULTI_SAVE_TARGET_UNSUPPORTED`
+  (`flow.save.primitive-multi-port@1`);
+- typed conditions: `TYPED_CONDITION_TARGET_UNSUPPORTED`
+  (`flow.control.typed-condition@1`).
+
+These diagnostics accumulate, so one compile reports every gap.
+
+The opt-in `pipeline` target lowers retry, catch, multi-port save and policy
+narrowing, but only on unguarded top-level steps. A top-level step is a direct
+entry of the document's `steps` list. An unguarded step has no `when` guard.
+A guarded step lowers to a branch, so no single primitive node can carry the
+binding (`flow-compiler/src/compile-orchestrator/v2-pipeline-retry.ts:60-81`).
+On `pipeline` these bindings are still refused on nested steps and on any step
+without a single primitive node. Retry with `jitter: "full"` and a multi-port
+save of a `secret` port are refused too. A policy with `requireApproval: true`
+puts an approval gate in front of the step, and the run suspends there until
+the host records an approved or rejected decision
+(`flow-compiler/src/compile-orchestrator/lowering.ts:247-249`). Typed loop conditions need
+`flow.control.typed-condition@1` in `targetCapabilities`, as described above.
+Typed `when` stays refused on `pipeline` as well. See
+[`flow-compiler/README.md:450-459`](../flow-compiler/README.md#selecting-the-pipeline-target)
+for how to select the target.
+
 The bounded frontend still fails closed on nested or non-state save targets;
 unknown kernel versions;
 unregistered primitives; conflicting versions from one namespace; and
 unregistered top-level profile/schema/fragment/connector/role/flow locks,
 outputs, state, and return surfaces.
 This is a compatibility frontend, not a new runtime. Richer kernel constructs,
-typed-condition target adoption, exact generated-field edits, and source
-pre/post hash attestation remain separate work. The existing canonical v1
+target adoption of typed branch and `when` conditions, exact generated-field
+edits, and source pre/post hash attestation remain separate work. The existing canonical v1
 formatter preserves the typed-condition sidecar and its quoted fail-closed
 shadow across parse-format-parse round trips.
 
@@ -481,9 +541,29 @@ arg         := quoted-string | signed-int | bare-string
 - `state.arr.length` / `state.s.length` — `Array.length` or `String.length`;
   returns `undefined` on non-iterable values.
 
-Standard scopes available at evaluation time include `state`, `input`,
-`output`, `node`, and `last_agent` (the most recent `agent` node result). The
-exact scope set is provided by the host runtime.
+### Reference roots and policies
+
+The first path segment is the reference root. flow-ast defines two root sets
+and two reference policies (`flow-ast/src/reference-expression/types.ts:1-30`):
+
+- **Strict roots** (`flow-ast/src/reference-expression/types.ts:1-10`):
+  `inputs`, `state`, `steps`, `loop`, `context`, `secrets`, `artifacts`,
+  `params`.
+- **Compat roots** (`flow-ast/src/reference-expression/types.ts:20-28`): all
+  strict roots plus the legacy `input`, `output`, `node`, `last_agent`,
+  `item`, and `ctx`.
+
+The policy is `compat-v1` or `strict`. Under `compat-v1`, references may use
+any compat root and reference diagnostics are warnings. Under `strict`, only
+the strict roots are allowed, and reference diagnostics are errors
+(`flow-ast/src/reference-expression/parser.ts:386-402`,
+`flow-ast/src/reference-expression/internal.ts:27`). The compiler defaults to
+`compat-v1` (`flow-compiler/src/stages/semantic.ts:225`). Unattended
+admission requires `strict` and fails with
+`UNATTENDED_STRICT_ADMISSION_REQUIRED` otherwise
+(`flow-compiler/src/stages/semantic.ts:283-293`). New flows should use the
+strict roots. The host runtime decides which values are bound to each root at
+evaluation time.
 
 ### Pipe filters (closed set)
 
@@ -502,17 +582,51 @@ Unknown filter, malformed expression, or out-of-bounds index all yield
 `undefined`. In interpolation mode `undefined` substitutes to the empty
 string; in whole-string mode the entire expression resolves to `undefined`.
 
-`resolveDeep(value, scope)` walks objects and arrays recursively, applying the
-above to every string leaf. The executor uses it for `set.assign`, `http.url`,
-`http.headers`, `http.body`, `emit.payload`, classify/approval/clarification
-prompts, and `memory.search.query`.
+The filter names are the closed `FLOW_REFERENCE_FILTERS` list
+(`flow-ast/src/reference-expression/types.ts:12-18`). The flow-ast reference
+parser reports any other name as `UNKNOWN_REFERENCE_FILTER`; the host runtime
+evaluates the filters.
+
+### `resolveFlowTemplateExpression`
+
+`@dzupagent/flow-ast` exports `resolveFlowTemplateExpression(expr, state)`
+(`flow-ast/src/condition-expression.ts:37-44`). It is the string-template
+resolver of the legacy string-condition engine and works on one string:
+
+- When `expr` is exactly one `{{ path }}`, it returns the value at `path` with
+  its original type.
+- Otherwise it replaces each `{{ path }}` with `String(value)`, and
+  `null`/`undefined` become the empty string.
+
+It resolves dotted paths only. A leading `state.` or `ctx.` is dropped and the
+rest is looked up in the object passed as `state`
+(`flow-ast/src/condition-expression/state-templates.ts:24-32`). It does not
+apply pipe filters or `[n]` indexes. It does not walk objects or arrays. A host
+that resolves templates inside nested fields such as `set.assign`,
+`http.headers`, `http.body` or `emit.payload` does that walk itself.
 
 ## Nodes
 
-Every step is a single-key wrapper object. The key is the node kind; the value
+Every step is a single-key wrapper object. The key names the node; the value
 is its body. All bodies share an optional `id`. Snake_case aliases (`error_var`,
 `flow_ref`, `value_expr`, `max_iterations`, etc.) are accepted alongside the
 camelCase form.
+
+For most nodes the wrapper key is the canonical node kind. Three authored
+wrapper keys are not node kinds. The normalizer maps each one to a node kind
+(`src/normalize-node-helpers.ts:135-166`):
+
+- `group` → `sequence`
+- `if` → `branch`
+- `clarify` → `clarification`
+
+The canonical AST has 52 node kinds (`FLOW_NODE_KINDS`,
+`flow-ast/src/types/node-registry.ts:12-69`). This section covers all of
+them. Each kind's parse, validation and lowering status is listed in the
+generated
+[flow node conformance matrix](../../docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.md).
+Nodes marked `host-only` lower to a runtime leaf and need a matching host
+handler. Nodes marked `partial` lower in a degraded or metadata-only form.
 
 ### `action`
 
@@ -538,8 +652,10 @@ Mark the flow finished.
 
 ### `set`
 
-Declarative state mutation. Values are resolved through `resolveDeep` before
-being merged into state. Journal payload records only the assigned keys (not
+Declarative state mutation. The host resolves template strings inside
+`assign` values (see
+[`resolveFlowTemplateExpression`](#resolveflowtemplateexpression)) before
+merging them into state. Journal payload records only the assigned keys (not
 their values) to avoid leaking secrets.
 
 ```yaml
@@ -604,8 +720,8 @@ at execution time. Results land in `outputVar` as `MemoryItem[]`.
 
 ### `http`
 
-Execute an HTTP request. `url`, `headers`, and `body` are all template-resolved
-via `resolveDeep` at execution.
+Execute an HTTP request. The host resolves templates in `url`, `headers`, and
+`body` at execution time.
 
 ```yaml
 - http:
@@ -641,7 +757,18 @@ an explicit `systemPrompt` is set on the node (see
 ### `agent`
 
 Multi-iteration agent loop with structured output, retry, validation, and
-policy. Available under `dsl: dzupflow/v1alpha-agent` (and forward).
+policy. It parses under `dsl: dzupflow/v1` and under the preserved
+`dzupflow/v1alpha-agent` label alike (`src/normalize.ts:109-113`); the label
+does not gate the node.
+
+`instructions` is required unless `template.ref` is set. With
+`template: { ref, inputDefaults }`, a host synthesis pass resolves the named
+template into `instructions` (and merges `inputDefaults` into `input`) before
+execution. Node-level `instructions` always win over the template. The parser
+enforces this in `src/normalize-nodes-agent/normalize-agent-node.ts:84-91`,
+and flow-ast validation enforces it in
+`flow-ast/src/validate/agent.ts:56-79`. The template shape is
+`AgentTemplateRef` (`flow-ast/src/types/agent-nodes.ts:138-143`).
 
 ```yaml
 - agent:
@@ -690,10 +817,9 @@ The current Codev host writes a resolved `systemPromptTemplate` to
 `ctx.systemPromptOverride`. A nested `prompt.systemPrompt` wins over that
 override. Adapter nodes prefer an explicit `systemPrompt`, then their own
 `persona`, then the inherited override, with `instructions` additive. Canonical
-agent nodes prefer `instructions` and otherwise fall back to the override;
-current textual `dzupflow/v1alpha-agent` authoring still requires
-`instructions`, so that fallback is reachable through canonical/programmatic
-input rather than by omitting the textual field. Nested personas replace the
+agent nodes prefer `instructions` and otherwise fall back to the override.
+Textual authoring and flow-ast validation both require `instructions` unless
+`template.ref` is set (see [`agent`](#agent)). Nested personas replace the
 outer active binding inside their body.
 
 Codev journals `persona_systemprompt_applied { personaId }` when the inherited
@@ -771,8 +897,18 @@ dropped the wrapper's `id` on every round trip before this keyword existed).
 
 ### `for_each`
 
-Iterate a state source. Supports `attachAs`, `collectInto`, `accumulator`, and
-`concurrency` for parallel iteration (see flow-ast types for details).
+Iterate a state source. Optional fields
+(`flow-ast/src/types/nodes.ts:101-128`):
+
+- `attachAs` selects enrichment mode and names the key written on each item.
+- `collect: { from, into }` collects the body output key `from` into the
+  array state key `into` (`flow-ast/src/types/nodes.ts:108-112`).
+- `accumulator: { key, window?, initialValue? }` accumulates results across
+  iterations.
+- `concurrency` is the authored parallelism; see the conformance matrix for
+  what the `pipeline` target admits.
+- `failFast` stops scheduling new iterations after the first item failure
+  (default `false`).
 
 ```yaml
 - for_each:
@@ -828,6 +964,19 @@ Pause for human approval; branch on the response.
 modes such as auto-approve, require-human, or auto-deny. Omitting the field
 preserves the explicit always-human approval gate. Untyped aliases such as
 `policyRef` are not part of the approval-node DSL contract.
+
+**Codev host caveat.** The conformance matrix lists `approval` as supported
+with native lowering. That status covers the generic compiler targets, not the
+Codev host. The current-state document `DZUPFLOW_DSL_CURRENT_2026-10-07.md`
+tracks the Codev host's handling of approval outcomes as gap G01, priority P1.
+Check G01 before you rely on the `onApprove` and `onReject` bodies running on
+Codev. The `release-strict` host-readiness profile does not catch this gap: on
+top of the default checks, it adds a block only for node kinds the matrix marks
+`partial` (gap G07, which refuses 17 partial kinds,
+`flow-compiler/src/capability-manifest/requirements.ts:127-139`), and
+`approval` is not one of them. Separately, the `skill-chain` target cannot
+express a rejection branch and drops a non-empty `onReject` body with a warning
+(`flow-compiler/src/lower/lower-skill-chain/walk.ts:327-332`).
 
 ### `clarify`
 
@@ -943,6 +1092,109 @@ Snapshot and resume points for long-running flows.
     checkpointLabel: after-plan
     onNotFound: skip # or fail
 ```
+
+### Extended node kinds
+
+The remaining 26 kinds use a dotted wrapper key that equals the node kind, for
+example `- shell.run: { ... }`. The tables list the canonical fields from
+flow-ast. Every body also accepts the common node fields, such as `id`.
+The Status column repeats the
+[conformance matrix](../../docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.md)
+entry. Recheck the matrix before you rely on a status, because it is
+generated and this README is not.
+
+```yaml
+- shell.run:
+    id: typecheck
+    command: yarn typecheck
+    cwd: packages/flow-dsl # optional
+    allowFailure: false # optional
+    output: typecheckResult
+```
+
+### `worker.dispatch`
+
+Run one CLI provider job on a worker and store its result in state
+(`flow-ast/src/types/agent-nodes.ts:213-246`).
+
+| Node              | Required fields                                     | Optional fields                                                                                                                       | Status                                                                 |
+| ----------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `worker.dispatch` | `dispatchId`, `provider`, `instructions`, `outputKey` | `model`, `reasoningEffort`, `systemPrompt`, `input`, `commandSurface` (`none` or `code`), `commandAllowlist`, `validationCommand`, `resultFormat` (`text` or `json`), `resultSchema` | [host-only](../../docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.md#nodes) |
+
+`provider` is one of `claude`, `codex`, `gemini`, `qwen`, `goose` or `crush`.
+`commandSurface` defaults to `none` (read-only).
+
+### Fleet and knowledge nodes
+
+Multi-repository fleet coordination and knowledge-store access
+(`flow-ast/src/types/agent-nodes.ts:248-289`). The compiler collects fleet
+nodes into side metadata for a host runtime.
+
+| Node                 | Required fields                  | Optional fields                  | Status                                                               |
+| -------------------- | -------------------------------- | -------------------------------- | -------------------------------------------------------------------- |
+| `fleet.dispatch`     | `mode`, `repos`, `task`          | `on_contract_change`, `output`   | [partial](../../docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.md#nodes) |
+| `fleet.gather`       | `source`                         | `strategy`, `output`             | [partial](../../docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.md#nodes) |
+| `fleet.contract-net` | `repos`, `task`                  | `output`                         | [partial](../../docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.md#nodes) |
+| `knowledge.write`    | `scope`, `entry`                 | none                             | [partial](../../docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.md#nodes) |
+| `knowledge.query`    | `filter`, `output`               | none                             | [partial](../../docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.md#nodes) |
+
+`fleet.dispatch` `mode` is one of `supervisor`, `contract-net`, `fan-out` or
+`dependency`. `repos` is a string or an array.
+
+### Implementation nodes
+
+Shell commands, evidence capture and schema checks
+(`flow-ast/src/types/agent-nodes.ts:291-313`).
+
+| Node              | Required fields                  | Optional fields                                | Status                                                                 |
+| ----------------- | -------------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------- |
+| `shell.run`       | `command`, `output`              | `cwd`, `timeoutMs`, `required`, `allowFailure` | [host-only](../../docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.md#nodes) |
+| `evidence.write`  | `source`, `output`               | `redact`                                       | [host-only](../../docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.md#nodes) |
+| `validate.schema` | `source`, `schema`, `output`     | none                                           | [host-only](../../docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.md#nodes) |
+
+`validate.schema` `schema` is an inline object or a schema reference string.
+`evidence.write` `redact: true` is the only v1 declassification contract (see
+[Document shape](#document-shape)).
+
+### Adapter nodes
+
+In-process agent-adapter calls (`flow-ast/src/types/agent-nodes.ts:315-482`).
+They share `model`, `systemPrompt`, `input`, `persona`, `reasoning` (`low`,
+`medium` or `high`), `outputSchema`, `promptPrep` (`auto` or `raw`),
+`idempotency` and `policy` as optional fields, and each needs `output`.
+
+| Node                 | Required fields                           | Additional optional fields | Status                                                                 |
+| -------------------- | ----------------------------------------- | -------------------------- | ---------------------------------------------------------------------- |
+| `adapter.run`        | `instructions`, `output`, and one of `provider` or `tags` | none                       | [host-only](../../docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.md#nodes) |
+| `adapter.race`       | `providers` (two or more), `instructions`, `output` | none                       | [host-only](../../docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.md#nodes) |
+| `adapter.parallel`   | `providers` (two or more), `instructions`, `output` | `merge` (`first-wins`, `all` or `best-of-n`; default `all`) | [host-only](../../docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.md#nodes) |
+| `adapter.supervisor` | `goal`, `output`                          | `specialists`              | [host-only](../../docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.md#nodes) |
+
+`adapter.supervisor` takes `goal` instead of `instructions`. In
+`dzupflow/v2`, `adapter.run@1` is also a registered primitive (see
+[Bounded dzupflow/v2 frontend](#bounded-dzupflowv2-frontend)).
+
+### SPDD nodes
+
+Thin adapters over Codev SPDD and planning-execution services
+(`flow-ast/src/types/spdd-nodes.ts:11-113`). Every SPDD node requires
+`spddRunId` and `outputKey`. The matrix lists Codev as the owner.
+
+| Node                        | Additional required fields              | Optional fields              | Status                                                                 |
+| --------------------------- | --------------------------------------- | ---------------------------- | ---------------------------------------------------------------------- |
+| `spdd.import_sources`       | `sourceRefs`                            | none                         | [host-only](../../docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.md#nodes) |
+| `spdd.build_source_pack`    | `sourceRefsKey`                         | `featureId`                  | [host-only](../../docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.md#nodes) |
+| `spdd.run_analysis`         | `planArtifactId`                        | `sourceArtifactIds`          | [host-only](../../docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.md#nodes) |
+| `spdd.generate_canvas`      | `promptAssetVersionId`                  | `title`, `objective`         | [host-only](../../docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.md#nodes) |
+| `spdd.validate_canvas`      | `promptAssetVersionId`                  | none                         | [host-only](../../docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.md#nodes) |
+| `spdd.review_canvas`        | `promptAssetVersionId`                  | none                         | [host-only](../../docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.md#nodes) |
+| `spdd.project_plan`         | `promptAssetVersionId`                  | none                         | [host-only](../../docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.md#nodes) |
+| `spdd.arm_dispatch`         | `planRunId`                             | none                         | [host-only](../../docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.md#nodes) |
+| `spdd.run_validation`       | `planRunId`, `executionRunId`           | `reviewerId`                 | [host-only](../../docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.md#nodes) |
+| `spdd.collect_proof`        | `planRunId`                             | `taskId`                     | [host-only](../../docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.md#nodes) |
+| `spdd.scan_drift`           | `promptAssetVersionId`                  | none                         | [host-only](../../docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.md#nodes) |
+| `spdd.create_sync_proposal` | `driftFindingIdsKey`                    | none                         | [host-only](../../docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.md#nodes) |
+| `spdd.agent_swarm`          | `subTasks` (`{ role, personaRef?, input }[]`) | none                   | [host-only](../../docs/generated/FLOW_NODE_CONFORMANCE_MATRIX.md#nodes) |
 
 ## Output-key uniqueness
 
