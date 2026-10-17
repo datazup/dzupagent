@@ -19,6 +19,12 @@ import type { RawAgentEvent, AgentArtifactEvent, RunSummary } from '@dzupagent/a
 
 export type { RawAgentEvent, AgentArtifactEvent, RunSummary }
 
+const COUNT_KEY = {
+  raw: 'rawEventCount',
+  normalized: 'normalizedEventCount',
+  artifact: 'artifactCount',
+} as const
+
 interface BufferedEntry {
   file: 'raw' | 'normalized' | 'artifact'
   line: string
@@ -37,7 +43,9 @@ export interface RetainedNormalizedEventRecord {
  * in memory and flushed when `open()` is called.
  *
  * Disk errors (full disk, missing folder) are caught and emitted as warnings
- * to stderr — the class never throws to the caller.
+ * to stderr — the class never throws to the caller. Every such failure is
+ * also recorded in {@link RunEventStore.getPersistenceHealth}, so callers
+ * that depend on complete evidence can detect degraded retention.
  */
 export class RunEventStore {
   private readonly runId: string
@@ -46,6 +54,13 @@ export class RunEventStore {
   private buffer: BufferedEntry[] = []
   private readonly counts = { rawEventCount: 0, normalizedEventCount: 0, artifactCount: 0 }
   private readonly countListeners = new Set<() => void>()
+  private readonly health = {
+    openFailed: false,
+    failedWrites: { raw: 0, normalized: 0, artifact: 0 },
+    summaryWriteFailed: false,
+    readFailed: false,
+    lastError: undefined as string | undefined,
+  }
 
   constructor({ runId, projectDir }: { runId: string; projectDir: string }) {
     this.runId = runId
@@ -71,6 +86,8 @@ export class RunEventStore {
       process.stderr.write(
         `[RunEventStore] Failed to create run directory ${this.runDir}: ${String(err)}\n`,
       )
+      this.health.openFailed = true
+      this.health.lastError = String(err)
       // Even on error, mark open so we attempt flushes (they will fail gracefully)
       this.isOpen = true
     }
@@ -128,16 +145,50 @@ export class RunEventStore {
       process.stderr.write(
         `[RunEventStore] Failed to write summary for run ${this.runId}: ${String(err)}\n`,
       )
+      this.health.summaryWriteFailed = true
+      this.health.lastError = String(err)
     }
   }
 
-  /** Synchronous live counters used by dashboard projections without file-system reads. */
+  /**
+   * Synchronous live counters used by dashboard projections without file-system reads.
+   *
+   * Counts events that are buffered before `open()` or persisted; an event
+   * whose append failed is removed again and reported by
+   * {@link RunEventStore.getPersistenceHealth}.
+   */
   getCounts(): Readonly<{
     rawEventCount: number
     normalizedEventCount: number
     artifactCount: number
   }> {
     return { ...this.counts }
+  }
+
+  /**
+   * Structured persistence health. `healthy` is false once creating the run
+   * directory, appending an event, writing the summary or reading retained
+   * records has failed. `lastError` is the most recent error message; it may
+   * name run-directory paths but never contains event content.
+   */
+  getPersistenceHealth(): Readonly<{
+    healthy: boolean
+    openFailed: boolean
+    failedWrites: Readonly<{ raw: number; normalized: number; artifact: number }>
+    summaryWriteFailed: boolean
+    readFailed: boolean
+    lastError: string | undefined
+  }> {
+    const { openFailed, failedWrites, summaryWriteFailed, readFailed, lastError } = this.health
+    const failedWriteCount = failedWrites.raw + failedWrites.normalized + failedWrites.artifact
+    return {
+      healthy: !openFailed && !summaryWriteFailed && !readFailed && failedWriteCount === 0,
+      openFailed,
+      failedWrites: { ...failedWrites },
+      summaryWriteFailed,
+      readFailed,
+      lastError,
+    }
   }
 
   /** Subscribe to counter changes. The returned cleanup is idempotent. */
@@ -192,6 +243,8 @@ export class RunEventStore {
       process.stderr.write(
         `[RunEventStore] Failed to read normalized events for run ${this.runId}: ${String(error)}\n`,
       )
+      this.health.readFailed = true
+      this.health.lastError = String(error)
       return []
     }
   }
@@ -224,6 +277,8 @@ export class RunEventStore {
       process.stderr.write(
         `[RunEventStore] Failed to count ${this.fileNameFor(file)} for run ${this.runId}: ${String(error)}\n`,
       )
+      this.health.readFailed = true
+      this.health.lastError = String(error)
       return 0
     }
   }
@@ -236,6 +291,11 @@ export class RunEventStore {
       process.stderr.write(
         `[RunEventStore] Failed to append to ${this.fileNameFor(file)} for run ${this.runId}: ${String(err)}\n`,
       )
+      this.health.failedWrites[file] += 1
+      this.health.lastError = String(err)
+      const countKey = COUNT_KEY[file]
+      this.counts[countKey] = Math.max(0, this.counts[countKey] - 1)
+      this.notifyCountsChanged()
     }
   }
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { readFile, rm, mkdtemp } from 'node:fs/promises'
+import { readFile, rm, mkdtemp, mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -375,6 +375,111 @@ describe('RunEventStore', () => {
       expect(raw).toContain('\n')
       // Must be parseable
       expect(() => JSON.parse(raw)).not.toThrow()
+    })
+  })
+
+  describe('persistence health (DZUPAGENT-REL-M-R5)', () => {
+    const rawEvent = (runId: string, timestamp: number): RawAgentEvent => ({
+      providerId: 'claude',
+      runId,
+      timestamp,
+      source: 'stdout',
+      payload: { secret: 'event-content-must-not-leak' },
+    })
+
+    it('reports healthy with no failures after successful writes', async () => {
+      const projectDir = await makeTmpDir()
+      const store = makeStore(projectDir, 'run-healthy')
+      await store.open()
+      await store.appendRaw(rawEvent('run-healthy', 1))
+
+      expect(store.getPersistenceHealth()).toEqual({
+        healthy: true,
+        openFailed: false,
+        failedWrites: { raw: 0, normalized: 0, artifact: 0 },
+        summaryWriteFailed: false,
+        readFailed: false,
+        lastError: undefined,
+      })
+      expect(store.getCounts().rawEventCount).toBe(1)
+    })
+
+    it('records an initialization failure and does not count unflushed events', async () => {
+      const parent = await makeTmpDir()
+      const projectDir = join(parent, 'not-a-directory')
+      await writeFile(projectDir, 'file', 'utf8')
+      const store = makeStore(projectDir, 'run-init-failure')
+
+      await store.appendRaw(rawEvent('run-init-failure', 1))
+      expect(store.getCounts().rawEventCount).toBe(1)
+      await expect(store.open()).resolves.toBeUndefined()
+
+      const health = store.getPersistenceHealth()
+      expect(health.healthy).toBe(false)
+      expect(health.openFailed).toBe(true)
+      expect(health.failedWrites.raw).toBe(1)
+      expect(health.lastError).toBeDefined()
+      expect(health.lastError).not.toContain('event-content-must-not-leak')
+      expect(store.getCounts().rawEventCount).toBe(0)
+    })
+
+    it('records an append failure, removes it from the counts and notifies listeners', async () => {
+      const projectDir = await makeTmpDir()
+      const runId = 'run-append-failure'
+      const store = makeStore(projectDir, runId)
+      await store.open()
+      await mkdir(join(runLogRoot(projectDir, runId), 'raw-events.jsonl'))
+      let notifications = 0
+      store.onCountsChanged(() => notifications++)
+
+      await expect(store.appendRaw(rawEvent(runId, 1))).resolves.toBeUndefined()
+
+      const health = store.getPersistenceHealth()
+      expect(health.healthy).toBe(false)
+      expect(health.failedWrites).toEqual({ raw: 1, normalized: 0, artifact: 0 })
+      expect(store.getCounts().rawEventCount).toBe(0)
+      expect(notifications).toBe(2)
+    })
+
+    it('records a summary write failure', async () => {
+      const projectDir = await makeTmpDir()
+      const runId = 'run-summary-failure'
+      const store = makeStore(projectDir, runId)
+      await store.open()
+      await mkdir(join(runLogRoot(projectDir, runId), 'summary.json'))
+
+      const summary: RunSummary = {
+        runId,
+        providerId: 'claude',
+        sessionId: 'sess-summary-failure',
+        startedAt: 1_000_000,
+        completedAt: 1_005_000,
+        durationMs: 5_000,
+        toolCallCount: 0,
+        artifactCount: 0,
+        tokenUsage: { inputTokens: 1, outputTokens: 1, costCents: 0 },
+        status: 'completed',
+      }
+      await expect(store.close(summary)).resolves.toBeUndefined()
+
+      const health = store.getPersistenceHealth()
+      expect(health.healthy).toBe(false)
+      expect(health.summaryWriteFailed).toBe(true)
+    })
+
+    it('distinguishes an unreadable retained stream from an empty one', async () => {
+      const projectDir = await makeTmpDir()
+      const runId = 'run-read-failure'
+      const store = makeStore(projectDir, runId)
+      await store.open()
+      expect(store.getPersistenceHealth().readFailed).toBe(false)
+      await mkdir(join(runLogRoot(projectDir, runId), 'normalized-events.jsonl'))
+
+      await expect(store.readNormalizedEvents()).resolves.toEqual([])
+
+      const health = store.getPersistenceHealth()
+      expect(health.healthy).toBe(false)
+      expect(health.readFailed).toBe(true)
     })
   })
 
