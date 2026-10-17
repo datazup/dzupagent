@@ -48,6 +48,7 @@ import type { BudgetTrackerState } from "./iteration-budget-tracker.js";
 import {
   beginNodeUnderLedger,
   completeNodeUnderLedger,
+  CrossRunReplayError,
   failNodeUnderLedger,
   startNodeHeartbeat,
   type BeginNodeOutcome,
@@ -183,24 +184,21 @@ export async function dispatchStandardNode(
       // proceeding without the exactly-once safety net. The degraded path below
       // synthesizes a lease with `fenceToken: 0` that is indistinguishable
       // downstream from a real one, so for chargeable per-item work the only
-      // safe answer is to stop.
-      if (config.ledgerUnavailablePolicy === "strict") {
-        defaultLogger.error(
-          "[pipeline] node ledger begin failed — failing node",
-          {
-            operation: "node.ledger.begin",
-            runId,
-            nodeId: node.id,
-            error: String(err),
-            effect: "node_failed_ledger_unavailable",
-            policy: "strict",
-          },
-        );
+      // safe answer is to stop. A cross-run replay refusal is a verdict from a
+      // reachable ledger, not an outage, so it fails closed under every policy.
+      const crossRun = err instanceof CrossRunReplayError;
+      if (crossRun || config.ledgerUnavailablePolicy === "strict") {
+        defaultLogger.error("[pipeline] node ledger begin failed — failing node", {
+          operation: "node.ledger.begin",
+          runId,
+          nodeId: node.id,
+          error: String(err),
+          effect: crossRun ? "node_failed_cross_run_replay" : "node_failed_ledger_unavailable",
+          policy: crossRun ? "fail-closed" : "strict",
+        });
         if (span) config.tracer?.endSpanWithError(span, err);
-        return fail(
-          `node "${node.id}" could not acquire a durable ledger lease and ` +
-            `ledgerUnavailablePolicy is "strict": ${String(err)}`,
-        );
+        const why = crossRun ? "refused a cross-run ledger replay" : 'could not acquire a durable ledger lease and ledgerUnavailablePolicy is "strict"';
+        return fail(`node "${node.id}" ${why}: ${String(err)}`);
       }
       // Ledger unavailability is non-fatal for liveness, but it disables the
       // exactly-once safety net for this node: a retried run can now

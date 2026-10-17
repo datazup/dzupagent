@@ -12,6 +12,7 @@
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { PipelineRuntime } from "../../pipeline-runtime.js";
+import { CrossRunReplayError } from "../node-ledger-integration.js";
 import { defaultLogger } from "@dzupagent/core/utils";
 import type { PipelineDefinition, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
 import type {
@@ -139,4 +140,41 @@ describe("dispatchStandardNode — node ledger begin failure (ERR-M-08)", () => 
       policy: "strict",
     });
   });
+
+  it.each(["degrade-open", undefined] as const)(
+    "a cross-run replay refusal fails the node closed even under policy %s",
+    async (policy) => {
+      const errorSpy = vi.spyOn(defaultLogger, "error").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(defaultLogger, "warn").mockImplementation(() => {});
+      // A reachable ledger holding run-1's completion for this node's key.
+      const ledger: NodeLedgerLike = {
+        getByIdempotencyKey: vi.fn().mockResolvedValue({ runId: "run-1", output: { charged: "run-1" } }),
+        acquire: vi.fn().mockResolvedValue(null),
+        heartbeat: vi.fn().mockResolvedValue(true),
+        complete: vi.fn().mockResolvedValue(undefined),
+        fail: vi.fn().mockResolvedValue(undefined),
+      };
+      const executor = vi.fn<NodeExecutor>().mockResolvedValue({ nodeId: "n1", output: { ok: true }, durationMs: 1 });
+
+      const result = await new PipelineRuntime({
+        definition: singleNode(NODE),
+        nodeExecutor: executor,
+        nodeLedger: ledger,
+        ...(policy !== undefined ? { ledgerUnavailablePolicy: policy } : {}),
+      }).execute();
+
+      expect(result.state).toBe("failed");
+      expect(executor).not.toHaveBeenCalled();
+      expect(warnSpy).not.toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const [, context] = errorSpy.mock.calls[0]!;
+      expect(context).toMatchObject({
+        operation: "node.ledger.begin",
+        nodeId: "n1",
+        effect: "node_failed_cross_run_replay",
+        policy: "fail-closed",
+      });
+      expect(String((context as { error?: unknown }).error)).toContain(new CrossRunReplayError("k", "run-1", "x").name);
+    },
+  );
 });
