@@ -70,6 +70,12 @@ export interface StreamingToolPolicyOptions extends ToolResultSecurityPolicy {
    * to `true` (wrapping ON), mirroring `ToolLoopConfig.wrapToolResults`.
    */
   wrapToolResults?: boolean;
+  /**
+   * DZUPAGENT-AGENT-H-12 parity — per-result cap for the model-visible
+   * ToolMessage, mirroring `ToolLoopConfig.maxToolResultChars`. Defaults to
+   * `DEFAULT_MAX_TOOL_RESULT_CHARS`; `Infinity` disables the cap.
+   */
+  maxToolResultChars?: number;
   tracer?: ToolLoopTracer;
   agentId?: string;
   runId?: string;

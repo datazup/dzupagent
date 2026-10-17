@@ -70,6 +70,9 @@ export function buildStreamingToolPolicy(
     ...(toolExec?.wrapToolResults !== undefined
       ? { wrapToolResults: toolExec.wrapToolResults }
       : {}),
+    ...(toolExec?.maxToolResultChars !== undefined
+      ? { maxToolResultChars: toolExec.maxToolResultChars }
+      : {}),
     ...(toolExec?.tracer !== undefined ? { tracer: toolExec.tracer } : {}),
     // agentId / runId mirror the executeGenerateRun fallback: when
     // `toolExecution` is provided, fall back to the surrounding agent id

@@ -76,6 +76,7 @@ export async function executeStreamingToolCall(
         budget: params.budget,
         promptInjectionGuard: policy?.promptInjectionGuard,
         wrapToolResults: policy?.wrapToolResults,
+        maxToolResultChars: policy?.maxToolResultChars,
       })
     );
   } catch (error: unknown) {

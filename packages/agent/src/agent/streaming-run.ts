@@ -16,6 +16,7 @@
  */
 
 import type { TokenUsage } from '@dzupagent/core/llm'
+import { defaultLogger } from '@dzupagent/core/utils'
 import type { BaseMessage } from '@langchain/core/messages'
 import type {
   GenerateOptions,
@@ -100,7 +101,18 @@ export async function* streamRun(
   const streamRunId = options?.runId ?? ctx.config.toolExecution?.runId
   const recordStreamUsage = (usage: TokenUsage): void => {
     wrappedOnUsage?.(usage)
-    emitLlmInvoked(ctx.config.eventBus, ctx.agentId, streamRunId, usage)
+    // Telemetry must not end the stream: a throwing custom bus (or cost
+    // lookup) inside this generator would otherwise abort the user's run
+    // after the model call already succeeded and was charged.
+    try {
+      emitLlmInvoked(ctx.config.eventBus, ctx.agentId, streamRunId, usage)
+    } catch (err) {
+      defaultLogger.warn('[agent] llm:invoked emission failed on the stream path', {
+        agentId: ctx.agentId,
+        runId: streamRunId,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
   }
 
   if (

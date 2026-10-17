@@ -12,6 +12,7 @@ import type { ToolResultGuardLike } from "@dzupagent/security";
 import type { IterationBudget } from "../guardrails/iteration-budget.js";
 import { omitUndefined } from "../utils/exact-optional.js";
 import { emitToolError, statusFromError } from "./tool-lifecycle-policy.js";
+import { capToolResultForContext } from "./tool-loop/policy-enabled-tool-executor.js";
 import type { StuckDetector } from "../guardrails/stuck-detector.js";
 import type {
   StreamingToolExecutionResult,
@@ -107,6 +108,7 @@ export function buildSuccessResult(args: {
     ) => string;
   };
   wrapToolResults?: boolean;
+  maxToolResultChars?: number;
 }): StreamingToolExecutionResult {
   const {
     toolName,
@@ -117,11 +119,13 @@ export function buildSuccessResult(args: {
     budget,
     promptInjectionGuard,
     wrapToolResults,
+    maxToolResultChars,
   } = args;
-  // Context-bound content is wrapped; `eventResult` stays raw for parity with
-  // the generate() path's observability semantics.
+  // Context-bound content is capped (DZUPAGENT-AGENT-H-12, same cap and
+  // marker as generate()) and then wrapped; `eventResult` stays raw for
+  // parity with the generate() path's observability semantics.
   const contextContent = wrapToolResultContent(
-    transformedResult,
+    capToolResultForContext(transformedResult, maxToolResultChars).text,
     promptInjectionGuard,
     wrapToolResults
   );
