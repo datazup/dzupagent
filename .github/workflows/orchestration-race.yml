@@ -42,7 +42,13 @@ jobs:
       # Enabling Corepack after setup-node is too late — that is why every
       # workflow here failed at "Setup Node.js" on every push since 2026-06-30.
       - name: Enable Corepack
-        run: corepack enable
+        run: |
+          # /usr/bin is root-owned on the self-hosted runners, so put the
+          # yarn/pnpm shims in a job-local folder on PATH instead.
+          corepack_bin="$RUNNER_TEMP/corepack-bin"
+          mkdir -p "$corepack_bin"
+          corepack enable --install-directory "$corepack_bin"
+          echo "$corepack_bin" >> "$GITHUB_PATH"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
