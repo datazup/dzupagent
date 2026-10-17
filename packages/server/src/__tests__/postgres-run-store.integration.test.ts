@@ -8,7 +8,7 @@
  * The suite is skipped automatically when Docker is unavailable or
  * testcontainers cannot be imported.
  *
- * Uses the plain `postgres:16` image. Semantic/vector storage belongs in
+ * Uses the plain `postgres:18` image. Semantic/vector storage belongs in
  * Qdrant, not in the relational Forge tables.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
@@ -57,13 +57,19 @@ interface GenericContainerCtor {
 }
 
 let GenericContainerClass: GenericContainerCtor | undefined
-let WaitClass: { forListeningPorts(): unknown } | undefined
+interface WaitLike {
+  forAll(strategies: unknown[]): unknown
+  forListeningPorts(): unknown
+  forLogMessage(message: RegExp, times?: number): unknown
+}
+
+let WaitClass: WaitLike | undefined
 let containerRuntimeAvailable = false
 
 try {
   const tc = await import('testcontainers')
   GenericContainerClass = tc.GenericContainer as unknown as GenericContainerCtor
-  WaitClass = tc.Wait as unknown as { forListeningPorts(): unknown }
+  WaitClass = tc.Wait as unknown as WaitLike
 } catch {
   // testcontainers not installed
 }
@@ -179,7 +185,7 @@ describe.skipIf(integrationGate.shouldSkip)('PostgresRunStore integration (testc
     // ----------------------------------------------------------------
     // 1. Start PostgreSQL container
     // ----------------------------------------------------------------
-    const containerDef = new GC('postgres:16')
+    const containerDef = new GC('postgres:18')
       .withName(`datazup-dzupagent-run-store-test-postgres-${process.pid}`)
       .withExposedPorts(5432)
       .withEnvironment({
@@ -189,7 +195,12 @@ describe.skipIf(integrationGate.shouldSkip)('PostgresRunStore integration (testc
       })
 
     if (WaitClass) {
-      containerDef.withWaitStrategy(WaitClass.forListeningPorts())
+      // The image's entrypoint runs a temporary server during initdb and then
+      // restarts; the second "ready" line comes from the final server.
+      containerDef.withWaitStrategy(WaitClass.forAll([
+        WaitClass.forListeningPorts(),
+        WaitClass.forLogMessage(/database system is ready to accept connections/, 2),
+      ]))
     }
 
     container = await containerDef.start()

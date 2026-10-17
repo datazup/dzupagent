@@ -32,14 +32,20 @@ interface GenericContainerCtor {
 }
 
 let GenericContainerClass: GenericContainerCtor | undefined
-let WaitClass: { forListeningPorts(): unknown } | undefined
+interface WaitLike {
+  forAll(strategies: unknown[]): unknown
+  forListeningPorts(): unknown
+  forLogMessage(message: RegExp, times?: number): unknown
+}
+
+let WaitClass: WaitLike | undefined
 const forceContainerRuntime = process.env['DZUPAGENT_RUN_TESTCONTAINERS'] === '1'
 let containerRuntimeAvailable = forceContainerRuntime
 
 try {
   const tc = await import('testcontainers')
   GenericContainerClass = tc.GenericContainer as unknown as GenericContainerCtor
-  WaitClass = tc.Wait as unknown as { forListeningPorts(): unknown }
+  WaitClass = tc.Wait as unknown as WaitLike
 } catch {
   // testcontainers is optional for local runs.
 }
@@ -127,7 +133,7 @@ describe.skipIf(integrationGate.shouldSkip)('tenant-scope Postgres migration and
   let clusterStore: DrizzleClusterStore
 
   beforeAll(async () => {
-    const containerDef = new GC('postgres:16-alpine')
+    const containerDef = new GC('postgres:18')
       .withName(`datazup-dzupagent-tenant-scope-test-postgres-${process.pid}`)
       .withExposedPorts(5432)
       .withEnvironment({
@@ -137,7 +143,12 @@ describe.skipIf(integrationGate.shouldSkip)('tenant-scope Postgres migration and
       })
 
     if (WaitClass) {
-      containerDef.withWaitStrategy(WaitClass.forListeningPorts())
+      // The image's entrypoint runs a temporary server during initdb and then
+      // restarts; the second "ready" line comes from the final server.
+      containerDef.withWaitStrategy(WaitClass.forAll([
+        WaitClass.forListeningPorts(),
+        WaitClass.forLogMessage(/database system is ready to accept connections/, 2),
+      ]))
     }
 
     container = await containerDef.start()
