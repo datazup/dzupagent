@@ -106,7 +106,8 @@ test('Turbo verifies restored dependencies and suppresses replayed cache logs', 
     turbo.globalDependencies.includes('scripts/run-with-build-custody.mjs'),
     true,
   )
-  assert.deepEqual(turbo.globalPassThroughEnv, ['DZUP_BUILD_CUSTODY_TOKEN'])
+  // YARN_INSTALL_STATE_PATH: private Yarn state through strict Turbo tasks (e50087ec).
+  assert.deepEqual(turbo.globalPassThroughEnv, ['DZUP_BUILD_CUSTODY_TOKEN', 'YARN_INSTALL_STATE_PATH'])
   assert.deepEqual(turbo.tasks['build:verify'].dependsOn, ['build'])
   assert.equal(turbo.tasks['build:verify'].cache, false)
   for (const taskName of ['build', 'typecheck', 'lint', 'test']) {
