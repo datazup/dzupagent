@@ -334,7 +334,11 @@ export function mountConsolidationHealthRoute(
     if (!scheduler) {
       return c.json({ data: { running: false } });
     }
-    return c.json({ data: scheduler.status() });
+    // DZUPAGENT-SEC-H-21 — auth-exempt path: counters only on opt-in.
+    if (runtimeConfig.exposeReadinessDetails === true) {
+      return c.json({ data: scheduler.status() });
+    }
+    return c.json({ data: { running: scheduler.status().running } });
   });
 }
 

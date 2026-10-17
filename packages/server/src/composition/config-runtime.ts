@@ -118,6 +118,15 @@ export interface ForgeRuntimeConfig {
   prometheusMetrics?: {
     access: MetricsAccessControl;
   };
+  /**
+   * DZUPAGENT-SEC-H-21 — `/api/health/*` is exempt from auth so orchestrator
+   * probes work without credentials. By default `/api/health/ready` returns
+   * only the overall and per-check status (same 200/503 codes) and
+   * `/api/health/consolidation` only `running`. Set `true` to also expose
+   * check latencies, provider circuit state, queue counts, shutdown state,
+   * uptime and consolidation counters to unauthenticated callers.
+   */
+  exposeReadinessDetails?: boolean;
   eventGateway?: EventGateway;
   consolidation?: ConsolidationConfig;
   /**

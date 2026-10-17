@@ -83,7 +83,7 @@ describe("health routes branch coverage", () => {
     const registry = new ModelRegistry();
     vi.spyOn(registry, "getProviderHealth").mockReturnValue({});
 
-    const app = createForgeApp(createTestConfig({ modelRegistry: registry }));
+    const app = createForgeApp(createTestConfig({ modelRegistry: registry, exposeReadinessDetails: true }));
     const res = await app.request("/api/health/ready");
     const data = (await res.json()) as {
       checks: Record<

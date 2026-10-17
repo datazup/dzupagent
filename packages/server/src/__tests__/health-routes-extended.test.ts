@@ -98,7 +98,7 @@ describe("Health routes — extended", () => {
       clearDeadLetter: vi.fn(),
     };
 
-    const app = createForgeApp(createTestConfig({ runQueue: mockQueue }));
+    const app = createForgeApp(createTestConfig({ runQueue: mockQueue, exposeReadinessDetails: true }));
     const res = await app.request("/api/health/ready");
     expect(res.status).toBe(200);
     const data = (await res.json()) as {
@@ -113,7 +113,7 @@ describe("Health routes — extended", () => {
 
   it("GET /api/health/ready includes shutdown state", async () => {
     const app = createForgeApp(
-      createTestConfig({ shutdown: fakeShutdown("running") })
+      createTestConfig({ shutdown: fakeShutdown("running"), exposeReadinessDetails: true })
     );
     const res = await app.request("/api/health/ready");
     const data = (await res.json()) as {

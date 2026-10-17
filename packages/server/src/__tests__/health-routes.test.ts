@@ -138,8 +138,8 @@ describe("Health routes", () => {
       expect(["ok", "degraded", "error"]).toContain(body.status);
     });
 
-    it("response body contains numeric uptime", async () => {
-      const app = createForgeApp(makeConfig());
+    it("response body contains numeric uptime when details are exposed", async () => {
+      const app = createForgeApp(makeConfig({ exposeReadinessDetails: true }));
       const body = (await (await app.request("/api/health/ready")).json()) as {
         uptime: number;
       };
@@ -258,7 +258,7 @@ describe("Health routes", () => {
         logged.push(entry);
       });
 
-      const app = createForgeApp(makeConfig({ runStore: broken }));
+      const app = createForgeApp(makeConfig({ runStore: broken, exposeReadinessDetails: true }));
       const res = await app.request("/api/health/ready");
       expect(res.status).toBe(503);
       const body = (await res.json()) as { checks: Record<string, { status: string; latencyMs?: number }> };

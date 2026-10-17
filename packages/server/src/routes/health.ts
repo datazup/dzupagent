@@ -2,7 +2,9 @@
  * Health check routes.
  *
  * GET /api/health         — Liveness probe (always 200)
- * GET /api/health/ready   — Readiness probe (checks DB, providers, MCP)
+ * GET /api/health/ready   — Readiness probe (checks DB, providers, MCP).
+ *                           Per-check status only unless
+ *                           `exposeReadinessDetails` is set.
  * GET /api/health/metrics — Metrics endpoint (JSON format). Mounted only when
  *                           `prometheusMetrics.access` is configured and not
  *                           `disabled`, behind the same access guard as
@@ -160,15 +162,18 @@ export function createHealthRoutes(
 
     const status = hasError ? 'error' : !storeHealthy ? 'degraded' : hasDegraded ? 'degraded' : 'ok'
 
-    return c.json(
-      {
-        status,
-        checks,
-        uptime: Date.now() - startTime,
-        timestamp: new Date().toISOString(),
-      },
-      status === 'ok' ? 200 : 503,
+    const code = status === 'ok' ? 200 : 503
+    const timestamp = new Date().toISOString()
+    if (config.exposeReadinessDetails === true) {
+      return c.json({ status, checks, uptime: Date.now() - startTime, timestamp }, code)
+    }
+    // DZUPAGENT-SEC-H-21 — this path is auth-exempt for probes, so by default
+    // it reveals per-check status only: no latencies, provider circuit
+    // state, queue counts or shutdown state.
+    const statusOnly = Object.fromEntries(
+      Object.entries(checks).map(([name, check]) => [name, { status: check.status }]),
     )
+    return c.json({ status, checks: statusOnly, timestamp }, code)
   })
 
   // Metrics — JSON format (can be scraped by Prometheus with adapter).
