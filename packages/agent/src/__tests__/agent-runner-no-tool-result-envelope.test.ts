@@ -232,14 +232,14 @@ describe('AgentRunner R5M no-tool legacy result envelope', () => {
       messages: messageDicts(projected.result.messages),
       middlewareState: {
         ...projected.result.middlewareState,
-        messages: messageDicts(projected.result.middlewareState?.messages ?? []),
+        messages: messageDicts((projected.result.middlewareState?.messages as readonly BaseMessage[] | undefined) ?? []),
       },
     }).toEqual({
       ...value.legacy.result,
       messages: messageDicts(value.legacy.result.messages),
       middlewareState: {
         ...value.legacy.result.middlewareState,
-        messages: messageDicts(value.legacy.result.middlewareState?.messages ?? []),
+        messages: messageDicts((value.legacy.result.middlewareState?.messages as readonly BaseMessage[] | undefined) ?? []),
       },
     })
     expect(projected.report.fullGenerateResultCompatible).toBe(true)

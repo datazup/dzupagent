@@ -18,7 +18,9 @@ const behaviorDigest = 'sha256:r5o-provider-free-single-read'
 const usage = [{ input_tokens: 10, output_tokens: 4, total_tokens: 14 },
   { input_tokens: 12, output_tokens: 5, total_tokens: 17 }]
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
-type Mutable<T> = { -readonly [K in keyof T]: Mutable<T[K]> }
+// Depth-bounded: recursing without a bound into the recursive AgentRunJsonValue exceeds the
+// checker's instantiation depth (TS2589). Drift mutations below reach at most four levels.
+type Mutable<T, D extends unknown[] = []> = D['length'] extends 6 ? T : { -readonly [K in keyof T]: Mutable<T[K], [...D, 1]> }
 const mutable = <T>(value: T): Mutable<T> => clone(value) as Mutable<T>
 
 function canonicalProfile(value: unknown): string {

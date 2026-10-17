@@ -4,7 +4,7 @@ import { tool } from '@langchain/core/tools'
 import { z } from 'zod'
 import { describe, expect, it, vi } from 'vitest'
 import { DzupAgent } from '../agent/dzip-agent.js'
-import { InMemoryAgentRunner, digestRunnerJson, type AgentRunnerReadToolDelegationRequest,
+import { InMemoryAgentRunner, type AgentRunnerReadToolDelegationRequest,
   type AgentRunnerReadToolDelegationOutcome, type AgentRunnerReadToolDelegationBridge,
   validateAgentRunnerReadToolDelegationAdmission, validateAgentRunnerReadToolDelegationSource } from '../runner.js'
 
@@ -79,8 +79,8 @@ function fixture(input: { mode?: string; blocks?: boolean; constructorUsage?: bo
       if (mode === 'failed-after-dispatch' || mode === 'outcome-unknown') return { status: mode, source: request.admission.source, code: 'fixture-failure' }
       const source = clone(request.admission.source)
       const retained = clone(result)
-      if (mode === 'source-drift') source.inputDigest = 'sha256:foreign'
-      if (mode === 'input-drift') retained.state.input[0]!.itemId = 'foreign'
+      if (mode === 'source-drift') Object.assign(source, { inputDigest: 'sha256:foreign' })
+      if (mode === 'input-drift') Object.assign(retained.state.input[0]!, { itemId: 'foreign' })
       if (mode === 'revision-drift') Object.assign(retained.state.invocations[0]!, { toolRevision: '2' })
       if (mode === 'output-drift') Object.assign(retained.state.committedItems[2]!, { output: 'foreign' })
       if (mode === 'unknown-state') Object.assign(retained.state, { extension: true })
@@ -93,7 +93,7 @@ function fixture(input: { mode?: string; blocks?: boolean; constructorUsage?: bo
   const model = { bindTools() { return this }, async invoke() {
     const index = (counts.legacyModel++) % 2
     if (mode === 'structured-correction' && counts.legacyModel >= 4) {
-      return new AIMessage({ content: '{"answer":"done"}', usage_metadata: usage[1]! })
+      return new AIMessage<StandardMessageStructure>({ content: '{"answer":"done"}', usage_metadata: usage[1]! })
     }
     return messages[index]!
   } } as unknown as BaseChatModel

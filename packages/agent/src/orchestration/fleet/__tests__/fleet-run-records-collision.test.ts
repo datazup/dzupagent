@@ -59,9 +59,9 @@ describe("writeTaskControlState version collisions", () => {
       parentId: null,
       createdAt: new Date(NOW).toISOString(),
       supersededAt: null,
-      payload: { taskId: "t1", state: "running" },
+      payload: { taskId: "t1", state: "in-progress" },
       tags: [],
-    } as KnowledgeEnvelope);
+    } satisfies KnowledgeEnvelope);
 
     await writeTaskControlState(store, "r1", "t1", "blocked", "draining queue");
 
