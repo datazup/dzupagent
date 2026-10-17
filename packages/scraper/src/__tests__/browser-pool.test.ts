@@ -362,7 +362,7 @@ describe('BrowserPool', () => {
               }),
               abort: vi.fn(async (errorCode?: string) => {
                 aborted.push(url)
-                abortCodes.push({ url, errorCode })
+                abortCodes.push({ url, ...(errorCode !== undefined ? { errorCode } : {}) })
               }),
             }
             for (const handler of requestHandlers) handler(request)

@@ -114,6 +114,8 @@ function normalizeEvent(event: AgentEvent): Record<string, unknown> {
         totalInputTokens: event.totalInputTokens,
         cacheHitRatio: event.cacheHitRatio,
       }
+    case 'adapter:file_change':
+      return { type: event.type, providerId: event.providerId, paths: event.paths }
     default: {
       const _exhaustive: never = event
       return _exhaustive

@@ -584,7 +584,7 @@ describe('Codex explicit CLI backend', () => {
 
     const events = await collect(adapter.executeWithRaw({ prompt: 'dotted events' }))
     expect(events.find((event) => event.type === 'adapter:message')).toMatchObject({ content: 'final answer', sessionId: NATIVE_ID })
-    expect(new Set(events.map(event => event.type === 'adapter:provider_raw' ? event.rawEvent.sessionId : event.sessionId))).toEqual(new Set([NATIVE_ID]))
+    expect(new Set(events.map(event => event.type === 'adapter:provider_raw' ? event.rawEvent.sessionId : ('sessionId' in event ? event.sessionId : undefined)))).toEqual(new Set([NATIVE_ID]))
     expect([...events].reverse().find((event) => event.type === 'adapter:completed')).toMatchObject({
       result: 'final answer',
       usage: { inputTokens: 7, outputTokens: 2 },
