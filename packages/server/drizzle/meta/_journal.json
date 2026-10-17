@@ -134,6 +134,20 @@
       "when": 0,
       "tag": "0018_c2_import_lock_chains",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1785396930000,
+      "tag": "0019_reflection_scored_flag",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1785931621000,
+      "tag": "0020_agent_mail_dlq_tenant",
+      "breakpoints": true
     }
   ]
 }
