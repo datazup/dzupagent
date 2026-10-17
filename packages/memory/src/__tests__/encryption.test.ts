@@ -455,19 +455,66 @@ describe('EncryptedMemoryService', () => {
     })
   })
 
-  describe('no active key', () => {
-    it('falls back to plaintext write when no active key exists', async () => {
-      const emptyProvider = createMockKeyProvider([])
+  describe('no active key (DZUPAGENT-SEC-M-06)', () => {
+    it('refuses the write instead of storing plaintext', async () => {
       const service = new EncryptedMemoryService({
         memoryService: mockMs.svc,
-        keyProvider: emptyProvider,
+        keyProvider: createMockKeyProvider([]),
       })
 
-      const value = { text: 'data', secret: 'plain' }
-      await service.put('ns', scope, 'k1', value)
+      const result = await service.put('ns', scope, 'k1', { text: 'data', secret: 'plain' })
 
-      // Should pass through as plaintext
-      expect(mockMs.putSpy).toHaveBeenCalledWith('ns', scope, 'k1', value)
+      expect(result.status).toBe('failed')
+      expect(mockMs.putSpy).not.toHaveBeenCalled()
+    })
+
+    it('refuses only encrypted namespaces and passes others through', async () => {
+      const service = new EncryptedMemoryService({
+        memoryService: mockMs.svc,
+        keyProvider: createMockKeyProvider([]),
+        encryptedNamespaces: ['secrets'],
+      })
+
+      const protectedResult = await service.put('secrets', scope, 'k1', { secret: 'plain' })
+      expect(protectedResult.status).toBe('failed')
+      expect(mockMs.putSpy).not.toHaveBeenCalled()
+
+      const innerResult = { status: 'written', piiRedacted: false } as const
+      mockMs.putSpy.mockResolvedValueOnce(innerResult)
+      const publicValue = { text: 'visible' }
+      const publicResult = await service.put('public', scope, 'k2', publicValue)
+      expect(publicResult).toBe(innerResult)
+      expect(mockMs.putSpy).toHaveBeenCalledTimes(1)
+      expect(mockMs.putSpy).toHaveBeenCalledWith('public', scope, 'k2', publicValue)
+    })
+
+    it('does not include the value in the error', async () => {
+      const service = new EncryptedMemoryService({
+        memoryService: mockMs.svc,
+        keyProvider: createMockKeyProvider([]),
+      })
+
+      const result = await service.put('ns', scope, 'k1', { text: 'data', secret: 'hunter2-sensitive' })
+
+      expect(result.status).toBe('failed')
+      if (result.status !== 'failed') return
+      expect(result.error).toContain('ns')
+      expect(result.error).not.toContain('hunter2-sensitive')
+    })
+
+    it('still encrypts when an active key exists', async () => {
+      const service = new EncryptedMemoryService({
+        memoryService: mockMs.svc,
+        keyProvider,
+      })
+
+      const result = await service.put('ns', scope, 'k1', { text: 'data', secret: 'plain' })
+
+      expect(result?.status).not.toBe('failed')
+      expect(mockMs.putSpy).toHaveBeenCalledTimes(1)
+      const stored = mockMs.putSpy.mock.calls[0]![3] as Record<string, unknown>
+      expect(stored['_encrypted_value']).toBeDefined()
+      expect(stored['secret']).toBeUndefined()
     })
   })
 

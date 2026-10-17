@@ -5,8 +5,12 @@
  * configurable plaintext fields for searchability. Decryption is
  * transparent — consumers see the original unencrypted values.
  *
- * Non-fatal: missing keys or tampered ciphertext produce warnings
- * and return undefined rather than throwing.
+ * Reads are non-fatal: missing keys or tampered ciphertext produce
+ * warnings and return undefined rather than throwing.
+ *
+ * Writes fail closed: a put to an encrypted namespace while no active
+ * key is available returns `{ status: 'failed' }` and never stores the
+ * value in plaintext.
  */
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
 import type { MemoryPutResult, MemoryService } from '../memory-service.js'
@@ -129,7 +133,9 @@ export class EncryptedMemoryService {
   /**
    * Write a record, encrypting the value for configured namespaces.
    * Plaintext fields are preserved outside the envelope for search.
-   * Returns the inner service's {@link MemoryPutResult} unchanged.
+   * Returns the inner service's {@link MemoryPutResult} unchanged, except
+   * that a write to an encrypted namespace with no active key returns
+   * `{ status: 'failed' }` without calling the inner service.
    */
   async put(
     namespace: string,
@@ -143,8 +149,12 @@ export class EncryptedMemoryService {
 
     const activeKey = await this.keyProvider.getActiveKey()
     if (!activeKey) {
-      // No active key — write plaintext (non-fatal degradation)
-      return this.memoryService.put(namespace, scope, key, value)
+      // No active key — refuse rather than persist plaintext. The error
+      // names the namespace only, never the value.
+      return {
+        status: 'failed',
+        error: `No active encryption key for encrypted namespace "${namespace}"; write refused`,
+      }
     }
 
     // Extract plaintext fields before encryption
