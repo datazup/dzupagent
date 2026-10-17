@@ -44,13 +44,14 @@
       "maxDeclarationMapBytes": 0
     },
     "@dzupagent/server": {
-      "minDeclarationFiles": 220,
+      "minDeclarationFiles": 200,
       "minDeclarationBytes": 450000,
-      "maxDeclarationFiles": 340,
-      "maxDeclarationBytes": 760000,
+      "maxDeclarationFiles": 219,
+      "maxDeclarationBytes": 601898,
       "maxDeclarationMapFiles": 0,
       "maxDeclarationMapBytes": 0,
-      "$comment": "maxDeclarationFiles re-pinned 320->340 on 2026-07-22 (DZUPAGENT-ARCH-M-06 god-module decomposition, FINAL @dzupagent/server batch): the composition/optional-routes.ts (562->172 LOC root) split added six src/composition/optional-routes/*.d.ts leaf files (context/data-routes/evaluation-routes/config-store-routes/messaging-routes/compat-routes), and the same-day sibling composition/middleware.ts, composition/types.ts, schedules/schedule-store.ts, and runtime/dzip-agent-run-executor.ts splits on this branch each emitted their own per-concern leaf .d.ts files (measured 336 files). Small headroom above the measured post-decomposition surface; this reflects file-count redistribution from large modules into leaves, not net new public API. Not a growth license."
+      "$comment": "maxDeclarationFiles re-pinned 320->340 on 2026-07-22 (DZUPAGENT-ARCH-M-06 god-module decomposition, FINAL @dzupagent/server batch): the composition/optional-routes.ts (562->172 LOC root) split added six src/composition/optional-routes/*.d.ts leaf files (context/data-routes/evaluation-routes/config-store-routes/messaging-routes/compat-routes), and the same-day sibling composition/middleware.ts, composition/types.ts, schedules/schedule-store.ts, and runtime/dzip-agent-run-executor.ts splits on this branch each emitted their own per-concern leaf .d.ts files (measured 336 files). Small headroom above the measured post-decomposition surface; this reflects file-count redistribution from large modules into leaves, not net new public API. Not a growth license.",
+      "$declarationClosureAdmission": "Re-pinned 340->219 files and 760000->601898 bytes and lowered minDeclarationFiles 220->200 on 2026-10-17 (AUDIT-FOLLOWUPS-20261017-R1, delegated decider D5) after adopting scripts/prune-private-declarations.mjs in the server build, as 31edb630 did for agent and agent-adapters. Exact base a54e1c13 measured 342 files / 756.3 KiB, red before this change, from landed audit and pilot fixes. The closure keeps the 5 manifest type entrypoints and their relative imports byte-identical and omits 123 unreachable private declaration files / 169.2 KiB. Zero slack; not a growth license."
     }
   }
 }
