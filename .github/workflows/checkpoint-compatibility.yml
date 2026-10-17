@@ -81,6 +81,18 @@ jobs:
 
       - name: Typecheck Codegen
         run: yarn workspace @dzupagent/codegen typecheck
+
+      # The job container runs as root and bind-mounts the self-hosted runner's
+      # _work folder (/__w) and tool cache (/__t). Without this step it leaves
+      # root-owned files there, and every later host-level job on that runner
+      # fails at Checkout (DZA-CI-RUNNER4-OWNERSHIP-20261017-R1).
+      - name: Restore runner ownership of the workspace
+        if: always()
+        run: |
+          owner="$(stat -c '%u:%g' /__w)"
+          for path in "$GITHUB_WORKSPACE" /__w/_temp /__t; do
+            if [ -e "$path" ]; then chown -R "$owner" "$path"; fi
+          done
     if: ${{ (github.repository == 'datazup/dzupagent' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request') }}
     container: ${{ matrix.os }}
     defaults:
