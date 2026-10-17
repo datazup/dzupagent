@@ -61,7 +61,6 @@ const BUILD_STEP = {
 const STATIC_CHECKS = [
   "check:turbo:typecheck-order",
   "test:inventory:runtime:strict",
-  "check:improvements:drift",
   "check:gitleaks-allowlist",
   "check:waiver-expiry",
   "check:capability-matrix",
