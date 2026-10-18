@@ -1,7 +1,59 @@
 import assert from 'node:assert/strict'
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { test } from 'node:test'
 
-import { evaluateCorpusLosslessness } from '../check-flow-corpus-losslessness.mjs'
+import {
+  evaluateCorpusLosslessness,
+  loadCorpusSources,
+  resolveCorpusManifestPath,
+} from '../check-flow-corpus-losslessness.mjs'
+
+const REPO_ROOT = resolve(import.meta.dirname, '../..')
+const EXAMPLES_SEGMENTS = ['docs', 'flow-dsl', 'examples']
+const MANIFEST_NAME = 'qualification.manifest.json'
+const REPO_EXAMPLES = join(REPO_ROOT, ...EXAMPLES_SEGMENTS)
+
+function tempDir(t, prefix) {
+  const dir = mkdtempSync(join(tmpdir(), prefix))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  return dir
+}
+
+function inRepoManifest(root) {
+  return join(root, ...EXAMPLES_SEGMENTS, MANIFEST_NAME)
+}
+
+function siblingManifest(workspaceRoot) {
+  return join(
+    workspaceRoot,
+    'workspace-docs',
+    'repos',
+    'dzupagent',
+    ...EXAMPLES_SEGMENTS,
+    MANIFEST_NAME,
+  )
+}
+
+function writeManifest(path, bytes) {
+  mkdirSync(resolve(path, '..'), { recursive: true })
+  writeFileSync(path, bytes)
+}
+
+/** Copies this repository's docs/flow-dsl/examples/ into a fresh temporary root. */
+function copyRepoCorpus(t) {
+  const root = tempDir(t, 'flow-corpus-copy-')
+  cpSync(REPO_EXAMPLES, join(root, ...EXAMPLES_SEGMENTS), { recursive: true })
+  return root
+}
 
 /**
  * The `minLossless` floor shipped in c4106906 but nothing passed it, so a
@@ -201,4 +253,123 @@ test('repository discovery uses its Git common directory in linked worktrees', a
     return
   }
   assert.equal(resolveAuditWorkspaceRoot(root, ''), workspace)
+})
+
+test('in-repo manifest wins', (t) => {
+  const root = tempDir(t, 'flow-corpus-root-')
+  const workspace = tempDir(t, 'flow-corpus-ws-')
+  const bytes = readFileSync(join(REPO_EXAMPLES, MANIFEST_NAME))
+  writeManifest(inRepoManifest(root), bytes)
+  writeManifest(siblingManifest(workspace), bytes)
+
+  assert.equal(
+    resolveCorpusManifestPath(root, workspace),
+    resolve(root, 'docs/flow-dsl/examples/qualification.manifest.json'),
+  )
+})
+
+test('falls back to the workspace sibling', (t) => {
+  const root = tempDir(t, 'flow-corpus-root-')
+  const workspace = tempDir(t, 'flow-corpus-ws-')
+  writeManifest(
+    siblingManifest(workspace),
+    readFileSync(join(REPO_EXAMPLES, MANIFEST_NAME)),
+  )
+
+  assert.equal(
+    resolveCorpusManifestPath(root, workspace),
+    resolve(
+      workspace,
+      'workspace-docs/repos/dzupagent/docs/flow-dsl/examples/qualification.manifest.json',
+    ),
+  )
+})
+
+test('drift between copies throws', (t) => {
+  const root = tempDir(t, 'flow-corpus-root-')
+  const workspace = tempDir(t, 'flow-corpus-ws-')
+  const bytes = readFileSync(join(REPO_EXAMPLES, MANIFEST_NAME))
+  const drifted = Buffer.from(bytes)
+  drifted[drifted.length - 1] ^= 0x01
+  writeManifest(inRepoManifest(root), bytes)
+  writeManifest(siblingManifest(workspace), drifted)
+
+  assert.throws(
+    () => resolveCorpusManifestPath(root, workspace),
+    (error) =>
+      error.message.includes(resolve(inRepoManifest(root))) &&
+      error.message.includes(resolve(siblingManifest(workspace))),
+  )
+})
+
+test('missing both throws', (t) => {
+  const root = tempDir(t, 'flow-corpus-root-')
+  const workspace = tempDir(t, 'flow-corpus-ws-')
+
+  assert.throws(
+    () => resolveCorpusManifestPath(root, workspace),
+    (error) => error.code === 'CORPUS_MANIFEST_NOT_FOUND',
+  )
+})
+
+test('no workspace-docs', (t) => {
+  // The real repository with an empty workspace root resolves to its own copy.
+  const workspace = tempDir(t, 'flow-corpus-empty-ws-')
+
+  assert.equal(
+    resolveCorpusManifestPath(REPO_ROOT, workspace),
+    join(REPO_EXAMPLES, MANIFEST_NAME),
+  )
+})
+
+test('changed byte is rejected', (t) => {
+  const root = copyRepoCorpus(t)
+  const workspace = tempDir(t, 'flow-corpus-empty-ws-')
+  const manifestPath = resolveCorpusManifestPath(root, workspace)
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+  const target = manifest.entries[0].path
+  const entryPath = join(root, ...EXAMPLES_SEGMENTS, target)
+  const bytes = readFileSync(entryPath)
+  bytes[0] ^= 0x01
+  writeFileSync(entryPath, bytes)
+
+  assert.throws(
+    () => loadCorpusSources(manifestPath),
+    (error) =>
+      error.code === 'CORPUS_ENTRY_DIGEST_MISMATCH' &&
+      error.message.includes(target),
+  )
+})
+
+test('unchanged copy is accepted', (t) => {
+  const root = copyRepoCorpus(t)
+  const workspace = tempDir(t, 'flow-corpus-empty-ws-')
+  const sources = loadCorpusSources(resolveCorpusManifestPath(root, workspace))
+
+  assert.equal(sources.length, 26)
+  assert.ok(sources.every((source) => typeof source.source === 'string'))
+})
+
+test('floor is 26', () => {
+  const script = readFileSync(
+    join(REPO_ROOT, 'scripts', 'check-flow-corpus-losslessness.mjs'),
+    'utf8',
+  )
+  assert.match(script, /^const MIN_LOSSLESS = 26;$/m)
+})
+
+test('verify runs the gate', () => {
+  const pkg = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8'))
+  const verify = pkg.scripts.verify
+
+  assert.ok(
+    verify.includes(
+      'yarn test:packaging && yarn check:flow-corpus-losslessness && yarn check:build-artifact-integrity',
+    ),
+  )
+  assert.equal(verify.split('yarn check:flow-corpus-losslessness').length - 1, 1)
+  assert.equal(
+    pkg.scripts['check:flow-corpus-losslessness'],
+    'node scripts/check-flow-corpus-losslessness.mjs --require-corpus',
+  )
 })
