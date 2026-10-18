@@ -1,0 +1,186 @@
+dsl: dzupflow/v1alpha-agent
+id: coding-pipeline
+version: 1
+title: "End-to-End Coding Pipeline"
+description: |
+  Production-ready multi-provider coding orchestration pipeline.
+  Phases: research → plan → plan-challenge → task-split+implement
+          → review → test-fix-loop → e2e gate.
+  Each phase is a subflow; this file is the master orchestrator.
+
+  Provider assignments (see 27-personas.yaml for persona definitions):
+    gemini        — web research (1 M-token context, broad synthesis)
+    claude        — planning, architecture review, code review, QA oracle
+    qwen          — adversarial plan challenge (/think mode)
+    codex         — implementation, test writing, fix loop (sandbox write)
+
+inputs:
+  feature_request:
+    type: string
+    description: "Natural-language feature request or bug report"
+    required: true
+  repo_context:
+    type: string
+    description: "Repository path or description for the agent to work in"
+    required: true
+  max_fix_iterations:
+    type: number
+    description: "Maximum test-fix loop iterations (default: 3)"
+    required: false
+    default: 3
+
+steps:
+  # ── Phase 1: Research ─────────────────────────────────────────────────────
+  - subflow:
+      id: research
+      flowRef: research-phase
+      input:
+        feature_request: "{{ inputs.feature_request }}"
+        repo_context: "{{ inputs.repo_context }}"
+      outputVar: researchBrief
+
+  # ── Phase 2: Planning ─────────────────────────────────────────────────────
+  - subflow:
+      id: planning
+      flowRef: plan-phase
+      input:
+        feature_request: "{{ inputs.feature_request }}"
+        research_brief: "{{ state.researchBrief }}"
+      outputVar: initialPlan
+
+  # ── Phase 3: Plan Challenge (2-agent debate) ──────────────────────────────
+  - subflow:
+      id: challenge
+      flowRef: plan-challenge-phase
+      input:
+        initial_plan: "{{ state.initialPlan }}"
+      outputVar: approvedPlan
+
+  - set:
+      id: stage-approved-plan
+      assign:
+        finalPlan: "{{ state.approvedPlan }}"
+
+  # Human approval gate before implementation begins.
+  # Required fields: question (string), on_approve (steps array).
+  - approval:
+      id: approve-plan
+      question: |
+        The plan has been reviewed and adversarially challenged. Approve to
+        begin implementation, or reject to return to planning.
+      on_approve:
+        - emit:
+            id: plan-approved
+            event: coding-pipeline.plan-approved
+            payload:
+              plan: "{{ state.finalPlan }}"
+        - set:
+            id: mark-plan-approved
+            assign:
+              planApproved: true
+      on_reject:
+        - emit:
+            id: plan-rejected
+            event: coding-pipeline.plan-rejected
+            payload:
+              plan: "{{ state.approvedPlan }}"
+        - complete:
+            id: stop-after-plan-rejection
+            result: plan-rejected
+
+  # ── Phase 4: Task Split + Parallel Implementation ─────────────────────────
+  - subflow:
+      id: implement
+      flowRef: task-split-implement
+      input:
+        approved_plan: "{{ state.finalPlan }}"
+        repo_context: "{{ inputs.repo_context }}"
+      outputVar: implementationSummary
+
+  # ── Phase 5: Architecture + Code Review ───────────────────────────────────
+  - subflow:
+      id: review
+      flowRef: review-phase
+      input:
+        original_plan: "{{ state.finalPlan }}"
+        implementation_summary: "{{ state.implementationSummary }}"
+      outputVar: reviewVerdict
+
+  # Gate: if review is not approved, require explicit human override.
+  - if:
+      id: review-gate
+      condition: "state.reviewVerdict.approved_for_tests"
+      then:
+        - set:
+            id: review-passed
+            assign:
+              readyForTests: true
+      else:
+        - approval:
+            id: review-override
+            question: |
+              Review returned: {{ state.reviewVerdict.verdict }}.
+              Override to proceed to testing, or reject to revise the implementation.
+            on_approve:
+              - set:
+                  id: override-accepted
+                  assign:
+                    readyForTests: true
+            on_reject:
+              - emit:
+                  id: review-blocked
+                  event: coding-pipeline.review-blocked
+                  payload:
+                    verdict: "{{ state.reviewVerdict.verdict }}"
+              - complete:
+                  id: stop-after-review-rejection
+                  result: review-rejected
+
+  # ── Phase 6: Test Write → Run → Fix Loop ─────────────────────────────────
+  - subflow:
+      id: test-fix
+      flowRef: test-fix-loop
+      input:
+        implementation_summary: "{{ state.implementationSummary }}"
+        repo_context: "{{ inputs.repo_context }}"
+        max_iterations: "{{ inputs.max_fix_iterations }}"
+      outputVar: testOutcome
+
+  # ── Phase 7: Final Gate ───────────────────────────────────────────────────
+  - if:
+      id: final-gate
+      condition: "state.testOutcome.action == 'complete'"
+      then:
+        - emit:
+            id: pipeline-success
+            event: coding-pipeline.completed
+            payload:
+              feature_request: "{{ inputs.feature_request }}"
+              plan: "{{ state.finalPlan }}"
+              implementation: "{{ state.implementationSummary }}"
+              test_outcome: "{{ state.testOutcome }}"
+      else:
+        - approval:
+            id: escalation-gate
+            question: |
+              Pipeline escalated: {{ state.testOutcome.summary }}.
+              Approve to restart from planning with findings as context,
+              or reject to abandon this run.
+            on_approve:
+              - emit:
+                  id: pipeline-escalated
+                  event: coding-pipeline.escalated
+                  payload:
+                    reason: "{{ state.testOutcome.summary }}"
+              - complete:
+                  id: complete-after-escalation
+                  result: escalated
+            on_reject:
+              - emit:
+                  id: pipeline-abandoned
+                  event: coding-pipeline.abandoned
+                  payload:
+                    reason: "{{ state.testOutcome.summary }}"
+              - complete:
+                  id: complete-after-abandonment
+                  result: abandoned

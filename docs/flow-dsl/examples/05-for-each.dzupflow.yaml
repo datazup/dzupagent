@@ -1,0 +1,39 @@
+dsl: dzupflow/v1
+id: for-each-iteration
+version: 1
+title: "For Each Iteration"
+description: |
+  The `for_each` node iterates over a collection. Required fields:
+  `source` (expression resolving to an array), `as` (loop variable name),
+  `body` (array of steps executed per item). The loop value is declared under
+  the canonical state root, such as `{{ state.item }}` in this example.
+
+inputs:
+  items:
+    type: array
+    description: "Array of items to process"
+    required: true
+
+steps:
+  - set:
+      id: init
+      assign:
+        results: []
+
+  - for_each:
+      id: process-items
+      source: "{{ inputs.items }}"
+      as: item
+      collect:
+        from: itemSummary
+        into: summaries
+      body:
+        - prompt:
+            id: analyse-item
+            userPrompt: "Analyse this item and give a one-line summary: {{ state.item }}"
+            outputKey: itemSummary
+
+  - prompt:
+      id: final-summary
+      userPrompt: "Summarise the processing of {{ inputs.items | length }} items."
+      outputKey: report

@@ -1,0 +1,39 @@
+dsl: dzupflow/v1
+id: if-branch
+version: 1
+title: "Conditional Branch (if)"
+description: |
+  The `if` node evaluates a `condition` expression and runs either the
+  `then` or `else` step arrays. `then` is required (≥1 step). `else` is
+  optional. Condition uses the runtime-supported condition-expression subset.
+
+inputs:
+  score:
+    type: number
+    description: "Numeric score 0–100"
+    required: true
+
+steps:
+  - if:
+      id: grade-gate
+      condition: "inputs.score >= 70"
+      then:
+        - set:
+            id: pass
+            assign:
+              grade: pass
+              message: "Congratulations — score {{ inputs.score }} passes."
+        - prompt:
+            id: pass-msg
+            userPrompt: "Write a congratulations message for a score of {{ inputs.score }}."
+            outputKey: feedback
+      else:
+        - set:
+            id: fail
+            assign:
+              grade: fail
+              message: "Score {{ inputs.score }} is below the passing threshold."
+        - prompt:
+            id: fail-msg
+            userPrompt: "Write an encouraging improvement message for a score of {{ inputs.score }}."
+            outputKey: feedback

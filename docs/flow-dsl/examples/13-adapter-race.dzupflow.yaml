@@ -1,0 +1,39 @@
+dsl: dzupflow/v1alpha-agent
+id: adapter-race
+version: 1
+title: "Adapter Race — Fastest Provider Wins"
+description: |
+  `adapter.race` (requires dzupflow/v1alpha-agent) sends the same prompt
+  to ≥2 providers simultaneously. The first to return a successful result
+  wins; remaining in-flight calls are cancelled.
+
+  Required: `providers` (array of ≥2 provider ids), `instructions` (string),
+  `output` (state key).
+  Optional: `reasoning`, `persona`, `model`, `input`, `promptPrep`, `idempotency`.
+
+  Use case: latency-sensitive tasks where any provider's answer is acceptable,
+  or fallback resilience without sequential retry overhead.
+
+inputs:
+  question:
+    type: string
+    description: "Question to answer as fast as possible"
+    required: true
+
+steps:
+  # Race Claude against Gemini — whichever responds first wins.
+  - adapter.race:
+      id: fast-answer
+      providers:
+        - claude
+        - gemini
+      reasoning: medium
+      instructions: |
+        Answer the following question concisely (2-3 sentences max):
+        {{ inputs.question }}
+      output: answer
+
+  - prompt:
+      id: cite-winner
+      userPrompt: "The answer was: {{ state.answer }}. Format it as a final response."
+      outputKey: finalResponse

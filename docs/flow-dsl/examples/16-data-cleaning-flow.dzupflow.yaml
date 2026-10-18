@@ -1,0 +1,28 @@
+dsl: dzupflow/v1
+id: data-cleaning-flow
+version: 1
+title: "Data Cleaning Subflow"
+description: |
+  Small reusable child flow for example 15. `meta.subflowOutput` declares the
+  one private state value that an inlining parent may expose through its
+  `outputVar`; all other child state remains namespaced.
+
+meta:
+  subflowOutput: cleaned
+
+inputs:
+  raw:
+    type: string
+    description: "Raw data to normalize"
+    required: true
+
+steps:
+  - prompt:
+      id: clean-data
+      userPrompt: |
+        Normalize the following raw data. Remove duplicate whitespace, flag
+        malformed records, and return a compact cleaned representation.
+
+        RAW DATA:
+        {{ inputs.raw }}
+      outputKey: cleaned

@@ -1,0 +1,50 @@
+dsl: dzupflow/v1
+id: try-catch-error-handling
+version: 1
+title: "Try / Catch Error Handling"
+description: |
+  The `try_catch` node wraps a `body` step array and catches errors
+  with a `catch` step array. Optional `errorVar` (or `error_var`)
+  names the state key that receives the error message string.
+  Both `body` and `catch` are required (≥1 step each).
+
+inputs:
+  risky_input:
+    type: string
+    description: "Input that may cause an error"
+    required: true
+
+steps:
+  - try_catch:
+      id: safe-operation
+      errorVar: errorMessage
+      body:
+        - prompt:
+            id: risky-step
+            userPrompt: "Process this potentially problematic input: {{ inputs.risky_input }}"
+            outputKey: result
+        - set:
+            id: mark-success
+            assign:
+              status: success
+      catch:
+        - set:
+            id: mark-error
+            assign:
+              status: error
+              error: "{{ state.errorMessage }}"
+        - emit:
+            id: error-event
+            event: operation.failed
+            payload:
+              error: "{{ state.errorMessage }}"
+              input: "{{ inputs.risky_input }}"
+        - prompt:
+            id: fallback
+            userPrompt: "Generate a safe fallback response for input: {{ inputs.risky_input }}"
+            outputKey: result
+
+  - prompt:
+      id: report
+      userPrompt: "Status: {{ state.status }}. Result: {{ state.result }}. Write a status message."
+      outputKey: statusMessage

@@ -1,0 +1,143 @@
+dsl: dzupflow/v1alpha-agent
+id: review-phase
+version: 1
+title: "Review Phase"
+description: |
+  Dual-lens review: architecture conformance + line-level code review.
+  Both run in parallel (adapter.parallel, all strategy) via Claude Opus.
+  Results are merged into a single review verdict for the orchestrator gate.
+
+  Note on parallel syntax: the `parallel` DSL node uses `branches:` as a
+  named object (not an array). adapter.parallel sends the SAME instructions
+  to multiple providers concurrently (fan-out); use `parallel` with named
+  branches when you need different instructions per branch.
+
+meta:
+  subflowOutput: reviewVerdict
+
+inputs:
+  original_plan:
+    type: string
+    description: "The approved plan (from plan-challenge-phase)"
+    required: true
+  implementation_summary:
+    type: string
+    description: "Output of task-split-implement phase"
+    required: true
+
+steps:
+  # Dual-lens parallel review using named branches.
+  # Each branch sends different instructions to a separate Claude Opus instance.
+  - parallel:
+      id: parallel-review
+      branches:
+        architecture:
+          - adapter.run:
+              id: arch-review
+              provider: claude
+              model: claude-opus-4-8
+              reasoning: high
+              persona: architecture-reviewer
+              input:
+                original_plan: "{{ inputs.original_plan }}"
+              instructions: |
+                Review the implementation for ARCHITECTURE CONFORMANCE.
+
+                ORIGINAL PLAN:
+                {{ inputs.original_plan }}
+
+                IMPLEMENTATION SUMMARY:
+                {{ inputs.implementation_summary }}
+
+                Assess:
+                - Conformance to the planned architecture
+                - Boundary violations (wrong layer, wrong package)
+                - Missing or mis-scoped abstractions
+                - Performance / scalability issues at scale
+
+                Output section labelled: ARCHITECTURE REVIEW
+                Include: verdict (approved|revise|reject), blockers[], warnings[]
+              output: archReview
+
+        code_quality:
+          - adapter.run:
+              id: code-review
+              provider: claude
+              model: claude-opus-4-8
+              reasoning: high
+              persona: code-reviewer
+              instructions: |
+                Review the implementation for CODE QUALITY and SECURITY.
+
+                IMPLEMENTATION SUMMARY:
+                {{ inputs.implementation_summary }}
+
+                Check:
+                - Logic errors, off-by-one, null-deref, race conditions
+                - OWASP Top 10 / injection / auth bypass
+                - Dead code, debug artefacts
+                - Type safety (no `any`, no non-null assertions without justification)
+                - Missing edge-case handling
+
+                Output section labelled: CODE REVIEW
+                Include: verdict (approved|request-changes), issues[] with
+                severity (critical|high|medium|low), file, description
+              output: codeReview
+
+  # Merge both review outputs into a single structured verdict.
+  - adapter.run:
+      id: merge-verdicts
+      provider: claude
+      model: claude-opus-4-8
+      reasoning: medium
+      instructions: |
+        Merge the architecture and code review outputs into a single verdict.
+
+        ARCHITECTURE REVIEW:
+        {{ state.archReview }}
+
+        CODE REVIEW:
+        {{ state.codeReview }}
+
+        Output a JSON object:
+        {
+          "verdict": "approved | revise | reject",
+          "approved_for_tests": true | false,
+          "architecture_issues": [{"severity": "...", "description": "..."}],
+          "code_issues": [{"severity": "critical|high|medium|low", "file": "...", "description": "..."}],
+          "summary": "one paragraph"
+        }
+
+        Set approved_for_tests: true only if verdict is "approved" or
+        there are no critical/high issues.
+      output: reviewVerdict
+      outputSchema:
+        type: object
+        properties:
+          verdict:
+            type: string
+            enum:
+              - approved
+              - revise
+              - reject
+          approved_for_tests:
+            type: boolean
+          architecture_issues:
+            type: array
+            items:
+              type: object
+          code_issues:
+            type: array
+            items:
+              type: object
+          summary:
+            type: string
+        required:
+          - verdict
+          - approved_for_tests
+          - summary
+
+  - checkpoint:
+      id: review-checkpoint
+      captureOutputOf: merge-verdicts
+      label: review-complete

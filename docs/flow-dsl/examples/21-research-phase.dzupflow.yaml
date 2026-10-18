@@ -1,0 +1,76 @@
+dsl: dzupflow/v1alpha-agent
+id: research-phase
+version: 1
+title: "Research Phase"
+description: |
+  Web research + synthesis for a feature request.
+  Strategy: race Gemini (broad 1M-token synthesis) against Claude (deep analysis).
+  First successful response wins. Result is a structured research brief.
+
+meta:
+  subflowOutput: researchBrief
+
+inputs:
+  feature_request:
+    type: string
+    description: "The feature or problem to research"
+    required: true
+  repo_context:
+    type: string
+    description: "Repository or codebase context"
+    required: true
+
+steps:
+  # Parallel research sweep: Gemini for broad synthesis, Claude for deep analysis.
+  # adapter.race — first successful provider result wins.
+  - adapter.race:
+      id: research-sweep
+      providers:
+        - gemini
+        - claude
+      reasoning: high
+      persona: web-researcher
+      instructions: |
+        Feature request: {{ inputs.feature_request }}
+        Repository context: {{ inputs.repo_context }}
+
+        Research the following and produce a structured brief:
+        1. Prior art — existing libraries, frameworks, or patterns that solve this.
+        2. Architectural options — at least 3 approaches with trade-offs.
+        3. Known pitfalls — common failure modes, security concerns, edge cases.
+        4. Relevant standards or RFCs.
+        5. Recommended approach with justification.
+
+        Format:
+        ## Summary
+        ## Prior Art
+        ## Architectural Options
+        ## Known Pitfalls
+        ## Recommendation
+        ## Sources
+      output: rawResearch
+
+  # Synthesise the raw research into a compact, actionable brief.
+  - adapter.run:
+      id: synthesise
+      provider: claude
+      model: claude-opus-4-8
+      reasoning: medium
+      persona: web-researcher
+      instructions: |
+        Compress the following research into a tight, actionable brief
+        for a software architect. Remove duplication. Highlight the top
+        recommendation and the top 3 risks.
+
+        RAW RESEARCH:
+        {{ state.rawResearch }}
+
+        Output a brief under 600 words with clear section headings.
+      output: researchBrief
+
+  # Checkpoint so the pipeline can resume from here on restart.
+  # captureOutputOf names the step whose output is snapshotted.
+  - checkpoint:
+      id: research-checkpoint
+      captureOutputOf: synthesise
+      label: research-complete

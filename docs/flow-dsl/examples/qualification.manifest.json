@@ -1,0 +1,161 @@
+{
+  "schema": "dzupagent.flowCorpusManifest/v1",
+  "entries": [
+    {
+      "id": "01-hello-world",
+      "path": "01-hello-world.dzupflow.yaml",
+      "sha256": "a07f758e495ccc7ec88a334e51c2bbfa5020f718cde0d326b479147163cdbfc9",
+      "qualification": "compile-example"
+    },
+    {
+      "id": "02-sequence-set",
+      "path": "02-sequence-set.dzupflow.yaml",
+      "sha256": "ec730ed5d7cb0471b805e8bad8b073f3fe026f228525d7684b19145a2da3a65d",
+      "qualification": "compile-example"
+    },
+    {
+      "id": "03-parallel",
+      "path": "03-parallel.dzupflow.yaml",
+      "sha256": "b6f34acb50cee9c10ef318fbf556eaac220e2c771a9009a35ce9f99341a97fa1",
+      "qualification": "compile-example"
+    },
+    {
+      "id": "04-branch",
+      "path": "04-branch.dzupflow.yaml",
+      "sha256": "b6dbed67b2102beed07b0a32d5f642bdbcd82cc2a4fc4c1aba209a8c8e8bb5da",
+      "qualification": "compile-example"
+    },
+    {
+      "id": "05-for-each",
+      "path": "05-for-each.dzupflow.yaml",
+      "sha256": "1ab273908214fab689c8bd308bd57de9e3685a39dcc3e1b455ef5d867b39f168",
+      "qualification": "compile-example"
+    },
+    {
+      "id": "06-loop",
+      "path": "06-loop.dzupflow.yaml",
+      "sha256": "4bffb022087dffa884db9386406c2bdcfe625fec0244201610bb109d31842069",
+      "qualification": "authoring-only"
+    },
+    {
+      "id": "07-try-catch",
+      "path": "07-try-catch.dzupflow.yaml",
+      "sha256": "da23f8bcf5e20385d41efe16d8d039c5a0d7c81557d835e3ad82e865bb154add",
+      "qualification": "compile-example"
+    },
+    {
+      "id": "08-checkpoint",
+      "path": "08-checkpoint.dzupflow.yaml",
+      "sha256": "38c4312b5e0bf8c962d99f01f7fd16beee999bdb5a5b582b5a1b7d4c8f14b0ce",
+      "qualification": "compile-example"
+    },
+    {
+      "id": "09-approval-gate",
+      "path": "09-approval-gate.dzupflow.yaml",
+      "sha256": "a7740dee1902dc56b44823b24724236f9194cb7b5545721a448bde957945e4ab",
+      "qualification": "compile-example"
+    },
+    {
+      "id": "10-knowledge-ops",
+      "path": "10-knowledge-ops.dzupflow.yaml",
+      "sha256": "5be13d4833ed0de40ee83a566a8ada0fb3b51651eee476480faf33cdaac4e32a",
+      "qualification": "compile-example"
+    },
+    {
+      "id": "11-worker-dispatch-codex",
+      "path": "11-worker-dispatch-codex.dzupflow.yaml",
+      "sha256": "40b4371f2589018b9c04ed54d4c0e2ee47af5d9955a40c6f95d8faecb66138d2",
+      "qualification": "compile-example"
+    },
+    {
+      "id": "12-fleet-fanout",
+      "path": "12-fleet-fanout.dzupflow.yaml",
+      "sha256": "c1f0341ef40cd6965d38ac13456ec12d6caa013e423c9ea820dda33488fab23b",
+      "qualification": "compile-example"
+    },
+    {
+      "id": "13-adapter-race",
+      "path": "13-adapter-race.dzupflow.yaml",
+      "sha256": "00ef54a4d2874e7898e4b848d230d120a75250dd5d62dd8963502c20c002a3bb",
+      "qualification": "compile-example"
+    },
+    {
+      "id": "14-persona-route",
+      "path": "14-persona-route.dzupflow.yaml",
+      "sha256": "a8709fd632a859a8ef406612a76faa79648cefa18c429ef7ee8b1579bc1b70de",
+      "qualification": "compile-example"
+    },
+    {
+      "id": "15-subflow-compose",
+      "path": "15-subflow-compose.dzupflow.yaml",
+      "sha256": "feb4f43a97d588fe71c82478989f7462971855e29bfabbe56f45f5225fda6ce0",
+      "qualification": "compile-example"
+    },
+    {
+      "id": "16-data-cleaning-flow",
+      "path": "16-data-cleaning-flow.dzupflow.yaml",
+      "sha256": "a17532781c3f23fd179d35bf90fcbdfd4446e78bb5748b8d984e2582ce7b578d",
+      "qualification": "compile-example"
+    },
+    {
+      "id": "17-data-analysis-flow",
+      "path": "17-data-analysis-flow.dzupflow.yaml",
+      "sha256": "fc1c5687e9b6ce548ae8582475af96ad1c988c734ba0a66cf0a7bc78197633ca",
+      "qualification": "compile-example"
+    },
+    {
+      "id": "20-coding-pipeline",
+      "path": "20-coding-pipeline.dzupflow.yaml",
+      "sha256": "96250283a9bcd79dca4f147909d46a37fc5188f9c1209bbdb8d72261c0d868be",
+      "qualification": "compile-example"
+    },
+    {
+      "id": "21-research-phase",
+      "path": "21-research-phase.dzupflow.yaml",
+      "sha256": "93e8ce92278a8afea903f5b36c8bec1a43ea5ab1bc58106d80b167914b9c894b",
+      "qualification": "compile-example"
+    },
+    {
+      "id": "22-plan-phase",
+      "path": "22-plan-phase.dzupflow.yaml",
+      "sha256": "8b64bcc961dad3a87cfe61a69a16449caa2d78dde44eec8498cd4706cf67a153",
+      "qualification": "compile-example"
+    },
+    {
+      "id": "23-plan-challenge-phase",
+      "path": "23-plan-challenge-phase.dzupflow.yaml",
+      "sha256": "fc36f28d871edcc4f2c0c95fdc93673d4f00cedfaa450150ca171a3d2b529747",
+      "qualification": "compile-example"
+    },
+    {
+      "id": "24-task-split-implement",
+      "path": "24-task-split-implement.dzupflow.yaml",
+      "sha256": "141804b3ee25a3685db09529a1faa88db5fed4400ea3333f7d84f06bbe7df0e4",
+      "qualification": "compile-example"
+    },
+    {
+      "id": "25-review-phase",
+      "path": "25-review-phase.dzupflow.yaml",
+      "sha256": "b5012c9be0be04136c81c890695cc0957360dee51a425a29d5b7c758126fd29a",
+      "qualification": "compile-example"
+    },
+    {
+      "id": "26-test-fix-loop",
+      "path": "26-test-fix-loop.dzupflow.yaml",
+      "sha256": "59fc49193e0cf15587a53a185297ad6bcd10863ace76068e0843592059f82ff0",
+      "qualification": "compile-example"
+    },
+    {
+      "id": "28-sdlc-batch-validation",
+      "path": "28-sdlc-batch-validation.dzupflow.yaml",
+      "sha256": "e8c1636a031949f11307bfb925a19c75291da1f536728e82acc9ce04182500ca",
+      "qualification": "compile-example"
+    },
+    {
+      "id": "29-sdlc-packet-fanout",
+      "path": "29-sdlc-packet-fanout.dzupflow.yaml",
+      "sha256": "21d949b046a46f0d187ea5313ee0ef4d03b866dfbceecafc800833e209cd28ce",
+      "qualification": "compile-example"
+    }
+  ]
+}

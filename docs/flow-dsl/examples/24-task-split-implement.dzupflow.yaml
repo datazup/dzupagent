@@ -1,0 +1,111 @@
+dsl: dzupflow/v1alpha-agent
+id: task-split-implement
+version: 1
+title: "Task Split + Parallel Implementation"
+description: |
+  Decomposes the approved plan into atomic tasks, then fans out to
+  Codex agents for parallel implementation. Codex runs with
+  sandbox write access — safe, isolated, terminal-native.
+
+  Implementation strategy (from AgentCoder / SWE-agent research):
+  - Each task is implemented in isolation by a separate Codex instance.
+  - Tasks with dependencies are serialised via explicit depends_on ordering.
+  - The supervisor node handles decomposition + delegation automatically.
+
+meta:
+  subflowOutput: implementationSummary
+
+inputs:
+  approved_plan:
+    type: string
+    description: "Output of plan-challenge-phase — the approved, revised plan"
+    required: true
+  repo_context:
+    type: string
+    description: "Repository path or context"
+    required: true
+
+steps:
+  # Step 1: Split the plan into atomic, codeable tasks.
+  - adapter.run:
+      id: split-tasks
+      provider: claude
+      model: claude-sonnet-4-6
+      reasoning: medium
+      persona: task-splitter
+      instructions: |
+        Decompose the following approved plan into atomic coding tasks.
+        Each task must be implementable by a single AI agent without
+        knowledge of the others (except through its depends_on inputs).
+
+        APPROVED PLAN:
+        {{ inputs.approved_plan }}
+
+        Output ONLY a YAML block:
+        tasks:
+          - id: <slug>
+            title: <one line>
+            description: <what to build — 2-3 sentences>
+            files: [<file paths>]
+            depends_on: []
+            acceptance: <done condition>
+            risk: low | medium | high
+      output: taskList
+
+  # Step 2: Supervisor delegates each task to Codex.
+  # adapter.supervisor decomposes `goal` into SubTasks and dispatches them
+  # to the listed specialists. The supervisor retries failed subtasks once.
+  - adapter.supervisor:
+      id: implement-supervisor
+      persona: implementer
+      reasoning: medium
+      specialists:
+        - codex
+      goal: |
+        Implement all tasks in the following task list.
+        Work on tasks in dependency order (depends_on must complete first).
+        For each task, read the relevant files, implement the changes,
+        and return an IMPLEMENTATION SUMMARY.
+
+        REPO CONTEXT: {{ inputs.repo_context }}
+
+        TASK LIST:
+        {{ state.taskList }}
+
+        For each task output:
+        TASK <id>: <title>
+        STATUS: complete | failed
+        FILES CHANGED: [list]
+        SUMMARY: <2-3 sentences>
+        ISSUES: <any blockers or deviations from the spec>
+      input:
+        repo_context: "{{ inputs.repo_context }}"
+        task_list: "{{ state.taskList }}"
+      output: implementationReport
+      idempotency: at-least-once
+
+  # Step 3: Consolidate per-task reports into a single implementation summary.
+  - adapter.run:
+      id: consolidate-report
+      provider: claude
+      model: claude-sonnet-4-6
+      reasoning: low
+      instructions: |
+        Consolidate the following per-task implementation reports into a
+        single IMPLEMENTATION SUMMARY document.
+
+        Include:
+        - Overall status (all-complete | partial | failed)
+        - Files changed (deduplicated list)
+        - Per-task status table
+        - Any deviations from the approved plan
+        - Issues requiring attention
+
+        IMPLEMENTATION REPORTS:
+        {{ state.implementationReport }}
+      output: implementationSummary
+
+  - checkpoint:
+      id: implement-checkpoint
+      captureOutputOf: consolidate-report
+      label: implementation-complete

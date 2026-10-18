@@ -1,0 +1,67 @@
+dsl: dzupflow/v1
+id: knowledge-ops
+version: 1
+title: "Knowledge Write + Query"
+description: |
+  `knowledge.write` stores an entry in the shared knowledge base.
+  Required: `scope` (string namespace), `entry` (object to store).
+
+  `knowledge.query` retrieves entries matching a filter.
+  Required: `filter` (object of key-value constraints), `output` (state key).
+
+  Use for multi-agent workflows where agents share findings through a
+  persistent store rather than direct message passing.
+
+inputs:
+  project_id:
+    type: string
+    description: "Project identifier for scoping knowledge"
+    required: true
+  topic:
+    type: string
+    description: "Topic to research and store"
+    required: true
+
+steps:
+  - prompt:
+      id: research
+      userPrompt: "Research {{ inputs.topic }} and produce 5 key facts."
+      outputKey: facts
+
+  # Store the research findings in the knowledge base.
+  - knowledge.write:
+      id: store-facts
+      scope: "{{ inputs.project_id }}"
+      entry:
+        kind: research
+        topic: "{{ inputs.topic }}"
+        facts: "{{ state.facts }}"
+        status: draft
+
+  - prompt:
+      id: analyse
+      userPrompt: "Analyse the implications of: {{ state.facts }}"
+      outputKey: analysis
+
+  # Store the analysis alongside the facts.
+  - knowledge.write:
+      id: store-analysis
+      scope: "{{ inputs.project_id }}"
+      entry:
+        kind: analysis
+        topic: "{{ inputs.topic }}"
+        content: "{{ state.analysis }}"
+        status: draft
+
+  # Query all draft entries for this project.
+  - knowledge.query:
+      id: retrieve-drafts
+      filter:
+        scope: "{{ inputs.project_id }}"
+        status: draft
+      output: draftEntries
+
+  - prompt:
+      id: compile
+      userPrompt: "Compile these draft entries into a final report: {{ state.draftEntries }}"
+      outputKey: report

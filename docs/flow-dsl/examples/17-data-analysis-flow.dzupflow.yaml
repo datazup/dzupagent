@@ -1,0 +1,32 @@
+dsl: dzupflow/v1
+id: data-analysis-flow
+version: 1
+title: "Data Analysis Subflow"
+description: |
+  Small reusable child flow for example 15. Its declared subflow output is
+  exported only when the parent invocation supplies an `outputVar`.
+
+meta:
+  subflowOutput: analysis
+
+inputs:
+  data:
+    type: string
+    description: "Cleaned data to analyse"
+    required: true
+  mode:
+    type: string
+    description: "Analysis depth"
+    required: false
+    default: detailed
+
+steps:
+  - prompt:
+      id: analyse-data
+      userPrompt: |
+        Analyse this cleaned data in {{ inputs.mode }} mode. Report the main
+        patterns, anomalies, and a concise recommendation.
+
+        CLEANED DATA:
+        {{ inputs.data }}
+      outputKey: analysis

@@ -1,0 +1,36 @@
+dsl: dzupflow/v1
+id: loop-with-exit
+version: 1
+title: "Loop with Exit Condition"
+description: |
+  The `loop` node repeats `body` steps while `condition` is truthy.
+  Required: `condition` (expression string), `body` (step array).
+  `maxIterations` is a required operational safety cap for this example.
+  With `continue_loop: true`, this bounded demonstration executes three times;
+  with `false`, it skips the body.
+
+inputs:
+  topic:
+    type: string
+    description: "Topic processed during each bounded iteration"
+    required: true
+  continue_loop:
+    type: boolean
+    description: "Whether the bounded loop body should execute"
+    required: true
+
+steps:
+  - loop:
+      id: iterate
+      condition: "inputs.continue_loop"
+      maxIterations: 3
+      body:
+        - prompt:
+            id: step
+            userPrompt: "Produce one concise iteration note about {{ inputs.topic }}."
+            outputKey: iterationNote
+
+  - prompt:
+      id: conclude
+      userPrompt: "Summarise the bounded loop task for {{ inputs.topic }}."
+      outputKey: summary

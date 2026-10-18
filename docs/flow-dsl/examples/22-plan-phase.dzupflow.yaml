@@ -1,0 +1,92 @@
+dsl: dzupflow/v1alpha-agent
+id: plan-phase
+version: 1
+title: "Planning Phase"
+description: |
+  Architecture planning driven by Claude Opus.
+  Produces a structured plan with ordered task list, open questions,
+  and risk ratings — ready for the plan-challenge-phase.
+
+meta:
+  subflowOutput: finalPlan
+
+inputs:
+  feature_request:
+    type: string
+    description: "The feature or problem to plan"
+    required: true
+  research_brief:
+    type: string
+    description: "Output of research-phase (structured research brief)"
+    required: true
+
+steps:
+  # Primary planner: Claude Opus for deep architectural reasoning.
+  - adapter.run:
+      id: architect-plan
+      provider: claude
+      model: claude-opus-4-8
+      reasoning: high
+      persona: software-architect
+      instructions: |
+        Feature request: {{ inputs.feature_request }}
+
+        Research brief:
+        {{ inputs.research_brief }}
+
+        Produce a complete implementation plan. The plan MUST include:
+
+        1. **Goals** — what success looks like (measurable).
+        2. **Non-goals** — what is explicitly out of scope.
+        3. **Architecture** — components, data flow, key interfaces.
+           Draw the component graph in ASCII if helpful.
+        4. **Task list** — a YAML block labelled `tasks:`, each entry:
+             - id: <slug>
+               title: <one-line description>
+               description: <2-3 sentences>
+               files: [<paths>]
+               depends_on: []
+               risk: low | medium | high
+               estimated_lines: <number>
+        5. **Open questions** — list any unresolved assumptions.
+        6. **Migration / rollback** — how to undo if the feature ships badly.
+      output: draftPlan
+      idempotency: idempotent
+
+  # Gemini completeness pass: fast second opinion on obvious omissions.
+  - adapter.run:
+      id: plan-completeness-check
+      provider: gemini
+      reasoning: medium
+      instructions: |
+        Review the following implementation plan for completeness and flag
+        any obvious omissions, contradictions, or unrealistic estimates.
+        Be brief — bullet points only, max 200 words.
+
+        PLAN:
+        {{ state.draftPlan }}
+      output: completenessNotes
+
+  # Merge completeness notes back into the plan.
+  - adapter.run:
+      id: merge-plan
+      provider: claude
+      model: claude-opus-4-8
+      reasoning: medium
+      persona: software-architect
+      instructions: |
+        You produced this initial plan:
+        {{ state.draftPlan }}
+
+        A completeness checker flagged these notes:
+        {{ state.completenessNotes }}
+
+        Incorporate any valid points into the plan. If a note is wrong,
+        add a brief rebuttal comment. Output the FINAL PLAN (full document,
+        not a diff).
+      output: finalPlan
+
+  - checkpoint:
+      id: plan-checkpoint
+      captureOutputOf: merge-plan
+      label: plan-complete

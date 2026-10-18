@@ -1,0 +1,47 @@
+dsl: dzupflow/v1
+id: parallel-fan-out
+version: 1
+title: "Parallel Branches"
+description: |
+  The `parallel` node runs named branches concurrently. `branches:` is a
+  YAML object whose keys are branch names and values are step arrays.
+  At least two branches are required. Results from each branch are
+  available in state under the output keys set within each branch.
+
+inputs:
+  topic:
+    type: string
+    description: "Topic to research in parallel"
+    required: true
+
+steps:
+  - parallel:
+      id: research
+      branches:
+        pros:
+          - prompt:
+              id: find-pros
+              userPrompt: "List 5 advantages of {{ inputs.topic }}."
+              outputKey: pros
+        cons:
+          - prompt:
+              id: find-cons
+              userPrompt: "List 5 disadvantages of {{ inputs.topic }}."
+              outputKey: cons
+        examples:
+          - prompt:
+              id: find-examples
+              userPrompt: "Give 3 real-world examples of {{ inputs.topic }}."
+              outputKey: examples
+
+  # After parallel completes, all branch outputs are in state.
+  - prompt:
+      id: synthesise
+      userPrompt: |
+        Synthesise the following research on {{ inputs.topic }}:
+        Pros: {{ state.pros }}
+        Cons: {{ state.cons }}
+        Examples: {{ state.examples }}
+
+        Write a balanced 3-paragraph summary.
+      outputKey: summary

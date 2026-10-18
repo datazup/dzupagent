@@ -1,0 +1,40 @@
+dsl: dzupflow/v1
+id: sequence-set
+version: 1
+title: "Sequence + Set"
+description: |
+  Sequential steps with `set` nodes to assign computed state.
+  `set.assign` is an object of key → value expressions.
+  Values are plain strings or template expressions.
+
+inputs:
+  user_id:
+    type: string
+    description: "User identifier"
+    required: true
+
+steps:
+  # set: initialise state values before calling any provider.
+  # assign: is the required field (not `values:`).
+  - set:
+      id: init
+      assign:
+        status: pending
+        userId: "{{ inputs.user_id }}"
+        attempt: 1
+
+  - prompt:
+      id: lookup
+      userPrompt: "Summarise the profile for user {{ state.userId }}."
+      outputKey: profile
+
+  - set:
+      id: mark-done
+      assign:
+        status: complete
+        profileLoaded: true
+
+  - prompt:
+      id: summarise
+      userPrompt: "Given this profile: {{ state.profile }}, write a one-line bio."
+      outputKey: bio

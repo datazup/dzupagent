@@ -1,0 +1,51 @@
+dsl: dzupflow/v1
+id: checkpoint-restore
+version: 1
+title: "Checkpoint + Restore"
+description: |
+  `checkpoint` snapshots the output of a named step for durable resume.
+  Required: `captureOutputOf` (step id whose output to snapshot).
+  Optional: `label` (string name for the checkpoint).
+
+  `restore` rehydrates a named checkpoint into state.
+  Required: `checkpointLabel` (the label used when the checkpoint was saved).
+  Optional: `onNotFound` (expression evaluated if no checkpoint exists).
+
+  Use case: long-running pipelines where a restart should resume from
+  the last completed phase rather than re-running everything.
+
+inputs:
+  document:
+    type: string
+    description: "Document to process"
+    required: true
+
+steps:
+  # Phase 1: expensive processing.
+  - prompt:
+      id: phase-1
+      userPrompt: "Perform deep analysis of this document: {{ inputs.document }}"
+      outputKey: analysis
+
+  # Checkpoint after phase 1 so a restart skips re-analysis.
+  - checkpoint:
+      id: after-phase-1
+      captureOutputOf: phase-1
+      label: analysis-complete
+
+  # Phase 2: use the analysis.
+  - prompt:
+      id: phase-2
+      userPrompt: "Based on this analysis: {{ state.analysis }}, generate recommendations."
+      outputKey: recommendations
+
+  - checkpoint:
+      id: after-phase-2
+      captureOutputOf: phase-2
+      label: recommendations-complete
+
+  # Phase 3: final output.
+  - prompt:
+      id: phase-3
+      userPrompt: "Combine {{ state.analysis }} and {{ state.recommendations }} into an executive summary."
+      outputKey: summary

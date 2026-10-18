@@ -1,0 +1,367 @@
+dsl: dzupflow/v1alpha-agent
+id: test-fix-loop
+version: 1
+title: "Test Write → Run → Fix Loop"
+description: |
+  Writes tests (Codex), runs them, then loops through fix iterations
+  up to max_iterations. A Claude Opus QA oracle evaluates each run
+  and decides: complete | fix | escalate.
+
+  Research basis (TDFlow / AgentCoder / SWE-bench):
+  - 75% of fix-loop value is captured in the first 2 iterations.
+  - Executable feedback (actual test output) outperforms LLM code review
+    as a fix signal by ~25%.
+  - Escalation gate prevents infinite loops on design-level failures.
+
+  Loop design:
+    iteration 0 → write tests
+    iteration 1..N → run tests → QA oracle evaluates → fix or exit
+
+meta:
+  subflowOutput: testOutcome
+
+inputs:
+  implementation_summary:
+    type: string
+    description: "Output of task-split-implement phase"
+    required: true
+  repo_context:
+    type: string
+    description: "Repository path or context"
+    required: true
+  max_iterations:
+    type: number
+    description: "Maximum fix iterations (default: 3)"
+    required: false
+    default: 3
+
+steps:
+  - set:
+      id: initialize-optional-results
+      assign:
+        testResults1: ""
+        testResults2: ""
+        oracleDecision2: {}
+        oracleDecision3: {}
+        latestTestResults: ""
+        latestOracleDecision: {}
+
+  # Step 1: Write tests (Codex, sandbox write access).
+  - adapter.run:
+      id: write-tests
+      provider: codex
+      reasoning: medium
+      persona: test-writer
+      instructions: |
+        Write comprehensive tests for the following implementation.
+
+        IMPLEMENTATION SUMMARY:
+        {{ inputs.implementation_summary }}
+
+        REPO: {{ inputs.repo_context }}
+
+        Requirements:
+        - Unit tests for every public function (happy path + ≥2 edge cases each).
+        - Integration test for each cross-module boundary.
+        - One end-to-end test per user-facing feature.
+        - All tests deterministic (mock external I/O, no sleep, no random).
+        - Follow the project's existing test framework and naming conventions.
+
+        After writing, run the tests and output the TEST RUN RESULTS.
+      output: initialTestResults
+      idempotency: at-least-once
+
+  - set:
+      id: record-initial-test-results
+      assign:
+        latestTestResults: "{{ state.initialTestResults }}"
+
+  # Step 2: QA oracle evaluates the initial test run.
+  - adapter.run:
+      id: initial-oracle
+      provider: claude
+      model: claude-opus-4-8
+      reasoning: medium
+      persona: qa-oracle
+      instructions: |
+        Evaluate the initial test run results and decide the next action.
+
+        TEST RUN RESULTS:
+        {{ state.initialTestResults }}
+
+        ITERATION: 1 of {{ inputs.max_iterations }}
+
+        Classify:
+        - all-pass: all tests green → ACTION: complete
+        - fixable: ≤ 5 failing, root causes clear → ACTION: fix
+        - blocked: failing tests expose a design flaw → ACTION: escalate
+
+        Output JSON: { "action": "complete|fix|escalate", "summary": "..." }
+      output: oracleDecision1
+      outputSchema:
+        type: object
+        properties:
+          action:
+            type: string
+            enum:
+              - complete
+              - fix
+              - escalate
+          summary:
+            type: string
+        required:
+          - action
+          - summary
+
+  - set:
+      id: record-initial-oracle
+      assign:
+        latestOracleDecision: "{{ state.oracleDecision1 }}"
+
+  # Step 3: First fix iteration (if needed).
+  - if:
+      id: fix-iter-1
+      condition: "state.oracleDecision1.action == 'fix'"
+      then:
+        - adapter.run:
+            id: fix-1
+            provider: codex
+            reasoning: medium
+            persona: fix-engineer
+            input:
+              implementation_summary: "{{ inputs.implementation_summary }}"
+            instructions: |
+              Fix the failing tests. Modify the implementation, not the tests,
+              unless a test is provably wrong.
+
+              FAILING TEST OUTPUT:
+              {{ state.initialTestResults }}
+
+              IMPLEMENTATION CONTEXT:
+              {{ inputs.implementation_summary }}
+
+              After fixing, run the full test suite and output the results.
+            output: testResults1
+
+        - set:
+            id: record-test-results-1
+            assign:
+              latestTestResults: "{{ state.testResults1 }}"
+
+        - adapter.run:
+            id: oracle-2
+            provider: claude
+            model: claude-opus-4-8
+            reasoning: medium
+            persona: qa-oracle
+            instructions: |
+              Evaluate test results after fix iteration 1.
+
+              TEST RUN RESULTS:
+              {{ state.testResults1 }}
+
+              ITERATION: 2 of {{ inputs.max_iterations }}
+
+              Output JSON: { "action": "complete|fix|escalate", "summary": "..." }
+            output: oracleDecision2
+            outputSchema:
+              type: object
+              properties:
+                action:
+                  type: string
+                  enum:
+                    - complete
+                    - fix
+                    - escalate
+                summary:
+                  type: string
+              required:
+                - action
+                - summary
+
+        - set:
+            id: record-oracle-2
+            assign:
+              latestOracleDecision: "{{ state.oracleDecision2 }}"
+
+  # Step 4: Second fix iteration (if needed).
+  - if:
+      id: fix-iter-2
+      condition: "state.oracleDecision2.action == 'fix'"
+      then:
+        - adapter.run:
+            id: fix-2
+            provider: codex
+            reasoning: high
+            persona: fix-engineer
+            input:
+              implementation_summary: "{{ inputs.implementation_summary }}"
+            instructions: |
+              Fix iteration 2. The previous fix did not resolve all failures.
+              Deeper investigation required — read the implementation files and
+              understand the root cause before patching.
+
+              FAILING TEST OUTPUT:
+              {{ state.testResults1 }}
+
+              IMPLEMENTATION CONTEXT:
+              {{ inputs.implementation_summary }}
+
+              After fixing, run the full test suite and output the results.
+            output: testResults2
+
+        - set:
+            id: record-test-results-2
+            assign:
+              latestTestResults: "{{ state.testResults2 }}"
+
+        - adapter.run:
+            id: oracle-3
+            provider: claude
+            model: claude-opus-4-8
+            reasoning: high
+            persona: qa-oracle
+            instructions: |
+              Evaluate test results after fix iteration 2 (final allowed iteration).
+
+              TEST RUN RESULTS:
+              {{ state.testResults2 }}
+
+              ITERATION: 3 of {{ inputs.max_iterations }}
+
+              If tests are still failing at this iteration, output ACTION: escalate.
+              Output JSON: { "action": "complete|fix|escalate", "summary": "..." }
+            output: oracleDecision3
+            outputSchema:
+              type: object
+              properties:
+                action:
+                  type: string
+                  enum:
+                    - complete
+                    - fix
+                    - escalate
+                summary:
+                  type: string
+              required:
+                - action
+                - summary
+
+        - set:
+            id: record-oracle-3
+            assign:
+              latestOracleDecision: "{{ state.oracleDecision3 }}"
+
+  # Step 5: Agent Q&A loop — oracle asks architect before final escalation.
+  # This models the "agent asks question → another agent rethinks and answers" pattern.
+  - if:
+      id: qa-clarify-gate
+      condition: "state.oracleDecision3.action == 'escalate' || state.oracleDecision2.action == 'escalate' || state.oracleDecision1.action == 'escalate'"
+      then:
+        # Oracle formulates a precise question for the architect.
+        - adapter.run:
+            id: oracle-question
+            provider: claude
+            model: claude-opus-4-8
+            reasoning: high
+            instructions: |
+              The test-fix loop has reached an escalation condition.
+              Before escalating to human review, formulate ONE precise technical
+              question for the software architect that, if answered, would most
+              likely unblock the failing tests.
+
+              CURRENT TEST FAILURES:
+              {{ state.latestTestResults }}
+
+              IMPLEMENTATION CONTEXT:
+              {{ inputs.implementation_summary }}
+
+              Output: QUESTION: <your single most important question>
+            output: oracleQuestion
+
+        # Architect rethinks and answers.
+        - adapter.run:
+            id: architect-answer
+            provider: claude
+            model: claude-opus-4-8
+            reasoning: high
+            persona: software-architect
+            instructions: |
+              The QA oracle has a question about the failing tests. Answer with
+              a concrete, actionable response the fix engineer can use.
+
+              QUESTION:
+              {{ state.oracleQuestion }}
+
+              IMPLEMENTATION CONTEXT:
+              {{ inputs.implementation_summary }}
+
+              Output: ANSWER: <concrete, actionable response>
+            output: architectAnswer
+
+        # Final fix attempt using the architect's answer.
+        - adapter.run:
+            id: fix-final
+            provider: codex
+            reasoning: high
+            persona: fix-engineer
+            input:
+              implementation_summary: "{{ inputs.implementation_summary }}"
+            instructions: |
+              Final fix attempt. The QA oracle asked a question and the architect
+              answered. Use the answer to resolve the remaining failures.
+
+              ARCHITECT'S ANSWER:
+              {{ state.architectAnswer }}
+
+              FAILING TESTS:
+              {{ state.latestTestResults }}
+
+              IMPLEMENTATION CONTEXT:
+              {{ inputs.implementation_summary }}
+
+              After fixing, run the full test suite and output the final results.
+            output: finalTestResults
+
+        - adapter.run:
+            id: final-oracle
+            provider: claude
+            model: claude-opus-4-8
+            reasoning: medium
+            persona: qa-oracle
+            instructions: |
+              Final evaluation after Q&A-assisted fix.
+
+              TEST RUN RESULTS:
+              {{ state.finalTestResults }}
+
+              ITERATION: final
+
+              Output JSON: { "action": "complete|fix|escalate", "summary": "..." }
+            output: testOutcome
+            outputSchema:
+              type: object
+              properties:
+                action:
+                  type: string
+                  enum:
+                    - complete
+                    - fix
+                    - escalate
+                summary:
+                  type: string
+              required:
+                - action
+                - summary
+
+      else:
+        # No escalation — promote the last oracle decision as final outcome.
+        - set:
+            id: set-final-outcome
+            assign:
+              testOutcome: "{{ state.latestOracleDecision }}"
+
+  - checkpoint:
+      id: test-fix-checkpoint
+      captureOutputOf: set-final-outcome
+      label: test-fix-loop-complete

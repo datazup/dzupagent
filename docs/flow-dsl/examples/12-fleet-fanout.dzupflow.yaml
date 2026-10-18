@@ -1,0 +1,48 @@
+dsl: dzupflow/v1
+id: fleet-fanout
+version: 1
+title: "Fleet Dispatch + Gather"
+description: |
+  `fleet.dispatch` fans out a task to multiple repos concurrently.
+  Required: `mode` (supervisor | contract-net | fan-out | dependency),
+  `repos` (array or expression), `task` (task descriptor string).
+  Optional: `output` (state key), `on_contract_change` (step id for re-routing).
+
+  `fleet.gather` collects results from a prior dispatch.
+  Required: `source` (step id of the dispatch), `output` (state key).
+  Optional: `strategy` (concat | merge | first-wins).
+
+  Note: fleet.dispatch/gather use the raw `{ type, id, ... }` shape in
+  preset YAML files. In the textual DSL (`steps:`) they use the key-wrapper
+  form as shown here.
+
+inputs:
+  repos:
+    type: array
+    description: "Array of repository paths to audit"
+    required: true
+  audit_task:
+    type: string
+    description: "Audit task description"
+    required: true
+
+steps:
+  # Fan out the audit task to all repos in parallel (supervisor mode).
+  - fleet.dispatch:
+      id: audit-dispatch
+      mode: fan-out
+      repos: "{{ inputs.repos }}"
+      task: "{{ inputs.audit_task }}"
+      output: auditOutcomes
+
+  # Gather and concatenate all results.
+  - fleet.gather:
+      id: collect-results
+      source: auditOutcomes
+      strategy: concat
+      output: allFindings
+
+  - prompt:
+      id: summarise
+      userPrompt: "Summarise these audit findings across {{ inputs.repos | length }} repos: {{ state.allFindings }}"
+      outputKey: auditReport

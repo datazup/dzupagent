@@ -1,0 +1,56 @@
+dsl: dzupflow/v1
+id: worker-dispatch-codex
+version: 1
+title: "Worker Dispatch — Codex"
+description: |
+  `worker.dispatch` sends an operator task to a CLI/SDK provider running
+  on a worker. This example dispatches to Codex with workspace-write access.
+
+  Key fields:
+  - `provider`: one of claude | codex | gemini | qwen | goose | crush
+  - `instructions`: the task prompt (required)
+  - `commandSurface`: none | code (governs what shell commands are allowed)
+  - `outputKey`: state key for the result text
+
+  Unlike `adapter.run`, worker.dispatch routes through the worker infrastructure
+  (separate process, full file-system access, sandbox policies).
+
+inputs:
+  file_path:
+    type: string
+    description: "Path to the file to refactor"
+    required: true
+  instructions:
+    type: string
+    description: "Refactoring instructions"
+    required: true
+
+steps:
+  - set:
+      id: init
+      assign:
+        targetFile: "{{ inputs.file_path }}"
+
+  - worker.dispatch:
+      id: refactor
+      dispatchId: refactor-file
+      provider: codex
+      model: codex-latest
+      commandSurface: code
+      systemPrompt: |
+        You are a senior TypeScript engineer. Follow existing code conventions.
+        Make minimal, focused changes. Do not add unrequested features.
+      instructions: |
+        Refactor the file at {{ state.targetFile }} according to these instructions:
+        {{ inputs.instructions }}
+
+        After making changes, run the existing tests to confirm nothing is broken.
+        Output a summary of what was changed and the test results.
+      outputKey: refactorResult
+
+  - emit:
+      id: done
+      event: worker.refactor.completed
+      payload:
+        file: "{{ state.targetFile }}"
+        result: "{{ state.refactorResult }}"

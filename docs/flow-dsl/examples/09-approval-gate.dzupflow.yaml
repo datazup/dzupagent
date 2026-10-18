@@ -1,0 +1,52 @@
+dsl: dzupflow/v1
+id: approval-gate
+version: 1
+title: "Approval Gate (Human-in-the-Loop)"
+description: |
+  The `approval` node pauses the run for human review. Required fields:
+  `question` (string shown to the approver), `on_approve` (steps if approved).
+  Optional: `on_reject` (steps if rejected), `options` (string array of choices).
+
+  The run suspends at the approval node and resumes when the human responds.
+  If on_reject is omitted and the human rejects, the run ends with no further steps.
+
+inputs:
+  content:
+    type: string
+    description: "Content to review before publishing"
+    required: true
+
+steps:
+  - prompt:
+      id: draft
+      userPrompt: "Write a polished version of this content: {{ inputs.content }}"
+      outputKey: draftContent
+
+  - approval:
+      id: review-gate
+      question: |
+        Please review the draft below and approve to publish or reject to revise.
+        DRAFT: {{ state.draftContent }}
+      options:
+        - Approve and publish
+        - Reject and revise
+      on_approve:
+        - emit:
+            id: publish
+            event: content.published
+            payload:
+              content: "{{ state.draftContent }}"
+        - set:
+            id: mark-published
+            assign:
+              status: published
+      on_reject:
+        - prompt:
+            id: revise
+            userPrompt: "Revise this draft based on common editorial concerns: {{ state.draftContent }}"
+            outputKey: revisedContent
+        - set:
+            id: mark-revised
+            assign:
+              status: revised
+              draftContent: "{{ state.revisedContent }}"

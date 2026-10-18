@@ -1,0 +1,57 @@
+dsl: dzupflow/v1
+id: subflow-compose
+version: 1
+title: "Subflow Composition"
+description: |
+  `subflow` invokes another flow by reference. The outer flow continues
+  after the subflow completes. Required: `flowRef` (the `id` of the
+  target flow document). Optional: `input` (object passed to the subflow's
+  `inputs`), `outputVar` (state key receiving the subflow's final output).
+
+  This example composes the canonical data-cleaning and data-analysis example
+  flows in sequence, showing how the master orchestrator pattern (file 20)
+  works at a small scale.
+
+inputs:
+  raw_data:
+    type: string
+    description: "Raw data to clean then analyse"
+    required: true
+
+steps:
+  - set:
+      id: init
+      assign:
+        data: "{{ inputs.raw_data }}"
+
+  # Invoke example 16. Its declared output is stored in `cleanedData`.
+  - subflow:
+      id: clean
+      flowRef: data-cleaning-flow
+      input:
+        raw: "{{ state.data }}"
+      outputVar: cleanedData
+
+  # Pass the cleaned data to example 17.
+  - subflow:
+      id: analyse
+      flowRef: data-analysis-flow
+      input:
+        data: "{{ state.cleanedData }}"
+        mode: detailed
+      outputVar: analysisReport
+
+  # Combine both outputs into a final report.
+  - prompt:
+      id: compile
+      userPrompt: |
+        Cleaned data summary: {{ state.cleanedData | json }}
+        Analysis report: {{ state.analysisReport | json }}
+        Compile a final executive summary.
+      outputKey: executiveSummary
+
+  - emit:
+      id: done
+      event: pipeline.completed
+      payload:
+        summary: "{{ state.executiveSummary }}"

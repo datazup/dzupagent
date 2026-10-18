@@ -1,0 +1,16 @@
+dsl: dzupflow/v1
+id: sdlc-packet-fanout-example
+version: 1
+uses:
+  sdlc: dzup.sdlc@1
+inputs:
+  readyPackets:
+    type: array
+    required: true
+steps:
+  - sdlc.packet_fanout:
+      id: packet_fanout
+      packets: inputs.readyPackets
+      concurrency: 1
+      failFast: false
+      output: packetStatuses

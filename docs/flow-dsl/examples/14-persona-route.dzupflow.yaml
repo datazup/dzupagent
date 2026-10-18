@@ -1,0 +1,53 @@
+dsl: dzupflow/v1
+id: persona-route
+version: 1
+title: "Persona + Route"
+description: |
+  `persona` wraps steps with a named persona (resolved from ProfileRegistry).
+  Required: `ref` or `personaId` (persona id string), `body` (step array ≥1 step).
+
+  `route` directs steps to a specific provider or tags-matched provider.
+  Required: `strategy` (capability | fixed-provider), `body` (step array ≥1 step).
+  For fixed-provider: also `provider`. For capability: also `tags`.
+
+inputs:
+  code_diff:
+    type: string
+    description: "Git diff to review"
+    required: true
+
+steps:
+  # Wrap a step with a persona — the system prompt is resolved from the
+  # persona registry and injected as systemPrompt for steps inside body.
+  - persona:
+      id: reviewer-persona
+      ref: senior-code-reviewer
+      body:
+        - prompt:
+            id: review
+            userPrompt: "Review this diff for correctness and security:\n{{ inputs.code_diff }}"
+            outputKey: reviewNotes
+
+  # Route to a fixed provider for the follow-up action.
+  - route:
+      id: to-claude
+      strategy: fixed-provider
+      provider: claude
+      body:
+        - prompt:
+            id: summarise-review
+            userPrompt: "Summarise these review notes in one paragraph: {{ state.reviewNotes }}"
+            outputKey: reviewSummary
+
+  # Route by capability tags (registry picks the best-matching provider).
+  - route:
+      id: to-execution-provider
+      strategy: capability
+      tags:
+        - execution
+        - code-write
+      body:
+        - prompt:
+            id: apply-fixes
+            userPrompt: "Based on {{ state.reviewSummary }}, describe the minimal fixes needed."
+            outputKey: fixPlan

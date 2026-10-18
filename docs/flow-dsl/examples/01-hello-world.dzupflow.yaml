@@ -1,0 +1,19 @@
+dsl: dzupflow/v1
+id: hello-world
+version: 1
+title: "Hello World"
+description: |
+  Minimal single-step flow. Sends a prompt to the default provider
+  and stores the result. The simplest possible dzupflow/v1 document.
+
+inputs:
+  name:
+    type: string
+    description: "Name to greet"
+    required: true
+
+steps:
+  - prompt:
+      id: greet
+      userPrompt: "Say hello to {{ inputs.name }} in one friendly sentence."
+      outputKey: greeting

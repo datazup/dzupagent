@@ -1,0 +1,117 @@
+dsl: dzupflow/v1alpha-agent
+id: plan-challenge-phase
+version: 1
+title: "Plan Challenge Phase"
+description: |
+  Two-agent adversarial debate (ChatEval-style).
+  Round 1 — Qwen challenges the plan with /think deep reasoning.
+  Round 2 — Claude Opus defends, rebuts, and produces a revised plan.
+  The revised plan is the output of this phase.
+
+  Research basis: ChatEval (2023) ablation shows adversarial pre-mortem
+  cuts post-implementation rework by ~30%. One round-trip captures most
+  of the value; diminishing returns beyond two iterations.
+
+meta:
+  subflowOutput: approvedPlan
+
+inputs:
+  initial_plan:
+    type: string
+    description: "Output of plan-phase — the plan to challenge"
+    required: true
+
+steps:
+  # Round 1: Qwen challenges with deep adversarial reasoning.
+  # reasoning: high on qwen triggers SystemPromptBuilder to append /think.
+  - adapter.run:
+      id: challenge
+      provider: qwen
+      reasoning: high
+      persona: plan-challenger
+      instructions: |
+        Challenge the following implementation plan. Be adversarial.
+        Find every weakness, hidden assumption, and failure mode.
+
+        PLAN TO CHALLENGE:
+        {{ inputs.initial_plan }}
+
+        Output a structured CRITIQUE:
+        ## Verdict
+        accept | revise | reject
+
+        ## Blockers
+        (issues that make the plan unshippable as-is)
+
+        ## Concerns
+        (significant issues that should be addressed)
+
+        ## Suggestions
+        (optional improvements)
+      output: critique
+
+  - classify:
+      id: classify-challenge-verdict
+      prompt: |
+        Classify the challenger verdict in this critique:
+        {{ state.critique }}
+      choices: [accept, revise, reject]
+      output: challengeVerdict
+      default: revise
+
+  # Round 2: Claude Opus defends, rebuts invalid criticisms,
+  # accepts valid ones, and produces a revised plan.
+  - adapter.run:
+      id: defend-and-revise
+      provider: claude
+      model: claude-opus-4-8
+      reasoning: high
+      persona: plan-defender
+      input:
+        original_plan: "{{ inputs.initial_plan }}"
+      instructions: |
+        You are the architect who produced the plan below.
+        A challenger has critiqued it. Respond to every Blocker and Concern:
+        - If valid: accept it and revise the plan section inline, mark with [REVISED].
+        - If invalid: rebut it with evidence.
+
+        ORIGINAL PLAN:
+        {{ inputs.initial_plan }}
+
+        CRITIQUE:
+        {{ state.critique }}
+
+        Output:
+        1. REBUTTAL SUMMARY — for each Blocker/Concern: accepted or rebutted + reason.
+        2. REVISED PLAN — the full plan document with [REVISED] markers.
+      output: revisedPlan
+
+  # If challenger returned "reject", surface a clarification before proceeding.
+  # The response is surfaced to the human and written only to the authored
+  # rejectionDecision state key.
+  - if:
+      id: verdict-gate
+      condition: "state.challengeVerdict == 'reject'"
+      then:
+        - clarify:
+            id: reject-clarify
+            question: |
+              The plan challenger returned a REJECT verdict. The revised plan
+              addresses the concerns, but a rejection typically warrants human
+              review. Do you want to proceed with the revised plan or return
+              to planning?
+            output: rejectionDecision
+        - set:
+            id: set-approved-plan
+            assign:
+              approvedPlan: "{{ state.revisedPlan }}"
+      else:
+        - set:
+            id: set-approved-plan-auto
+            assign:
+              approvedPlan: "{{ state.revisedPlan }}"
+
+  - checkpoint:
+      id: challenge-checkpoint
+      captureOutputOf: defend-and-revise
+      label: plan-challenge-complete
