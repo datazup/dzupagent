@@ -251,8 +251,11 @@ jobs:
       - name: Check barrel budgets
         run: yarn check:barrel-budgets
 
+      # `yarn install` above rewrites a single bin named after its package to a
+      # string, so check the committed manifests. Nothing is built in this job;
+      # publish.yml checks the bin targets after its build.
       - name: Check publish metadata
-        run: yarn check:publish-metadata
+        run: yarn check:publish-metadata --source-commit "$(git rev-parse HEAD)" --pre-build
     if: ${{ (github.repository == 'datazup/dzupagent' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) }}
 
   # TEST-H-02: fail-closed integration lane. The fail-closed helpers

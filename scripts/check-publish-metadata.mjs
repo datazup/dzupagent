@@ -33,7 +33,9 @@ function collectBinTargets(bin) {
   return [];
 }
 
-export function checkPublishMetadata(root = repoRoot, sourceCommit) {
+// preBuild skips only the bin-target existence check, which needs a build. Every
+// other rule reads package.json alone and still applies.
+export function checkPublishMetadata(root = repoRoot, sourceCommit, { preBuild = false } = {}) {
 const packagesDir = join(root, 'packages');
 const failures = [];
 const metadataDrift = [];
@@ -82,24 +84,24 @@ for (const entry of readdirSync(packagesDir, { withFileTypes: true }).sort((a, b
       failures.push(`${label}: bin[${binName}] must stay inside the package directory`);
       continue;
     }
-    if (!existsSync(join(packageDir, target))) {
+    if (!preBuild && !existsSync(join(packageDir, target))) {
       failures.push(`${label}: bin[${binName}] target is missing after build: ${target}`);
     }
   }
 }
 
-return { failures, checkedPackages, metadataDrift, sourceCommit: sourceCommit ?? null };
+return { failures, checkedPackages, metadataDrift, sourceCommit: sourceCommit ?? null, preBuild };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const at = process.argv.indexOf('--source-commit');
     if (at !== -1 && !process.argv[at + 1]) throw new Error('Missing --source-commit value');
-    const report = checkPublishMetadata(repoRoot, at === -1 ? undefined : process.argv[at + 1]);
+    const report = checkPublishMetadata(repoRoot, at === -1 ? undefined : process.argv[at + 1], { preBuild: process.argv.includes('--pre-build') });
     if (report.metadataDrift.length) console.log('Working-tree metadata differs from immutable source: ' + report.metadataDrift.join(', '));
     if (report.failures.length) {
       console.error('Publish metadata check failed:\n' + report.failures.join('\n'));
       process.exitCode = 1;
-    } else console.log(`Publish metadata valid for ${report.checkedPackages} packages (source: ${report.sourceCommit ?? 'working tree'}).`);
+    } else console.log(`Publish metadata valid for ${report.checkedPackages} packages (source: ${report.sourceCommit ?? 'working tree'}${report.preBuild ? '; bin targets not checked before build' : ''}).`);
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }
