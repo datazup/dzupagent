@@ -165,7 +165,7 @@ describe('OpenAI Responses exact hard-budget boundary', () => {
     const evaluations: AdapterHardBudgetEvaluation[] = []
     const reconciliations: AdapterHardBudgetUsageReconciliation[] = []
     const fetchImpl = vi.fn(async (
-      input: RequestInfo | URL,
+      input: string | URL | Request,
       _init?: RequestInit,
     ) => {
       const url = String(input)
@@ -241,7 +241,7 @@ describe('OpenAI Responses exact hard-budget boundary', () => {
   })
 
   it('omits both tool keys from exact zero-tool count and create bodies', async () => {
-    const fetchImpl = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+    const fetchImpl = vi.fn(async (input: string | URL | Request, _init?: RequestInit) => {
       const url = String(input)
       if (url.endsWith('/responses/input_tokens')) {
         return jsonResponse({ input_tokens: 123 })
@@ -319,7 +319,7 @@ describe('OpenAI Responses exact hard-budget boundary', () => {
   })
 
   it('allows only the count endpoint when authoritative proof is over budget', async () => {
-    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
       const url = String(input)
       if (url.endsWith('/responses/input_tokens')) {
         return jsonResponse({ input_tokens: 1_801 })
@@ -356,7 +356,7 @@ describe('OpenAI Responses exact hard-budget boundary', () => {
 
   it('records response-usage drift without rewriting the provider result', async () => {
     const reconciliations: AdapterHardBudgetUsageReconciliation[] = []
-    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
       const url = String(input)
       return url.endsWith('/responses/input_tokens')
         ? jsonResponse({ input_tokens: 123 })
