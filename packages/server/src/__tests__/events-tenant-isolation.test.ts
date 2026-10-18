@@ -22,7 +22,7 @@ import {
 } from "../events/event-gateway.js";
 import type { AppEnv } from "../types.js";
 
-function tenantHeaders(tenantId: string): HeadersInit {
+function tenantHeaders(tenantId: string): Record<string, string> {
   return { "x-test-tenant": tenantId };
 }
 

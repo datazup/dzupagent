@@ -54,7 +54,7 @@ function createTenantApp() {
   return { app, store, orchestrator };
 }
 
-function tenantHeaders(tenantId: string): HeadersInit {
+function tenantHeaders(tenantId: string): Record<string, string> {
   return {
     "Content-Type": "application/json",
     "x-test-tenant": tenantId,

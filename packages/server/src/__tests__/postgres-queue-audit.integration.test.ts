@@ -1,17 +1,30 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import postgres from 'postgres'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { PostgresRunQueue, type PostgresRunQueueDatabase } from '../queue/postgres-run-queue.js'
 const url = process.env.DZUPAGENT_AUDIT_POSTGRES_URL
+/**
+ * `postgres` is an optional peer of this package and is not installed in the
+ * repository, so its declarations are unavailable to the test typecheck (a
+ * static import is TS2307 in CI). Load it at runtime through a non-literal
+ * specifier and type only the client surface this audit uses.
+ */
+type AuditPostgresClient = {
+  unsafe(query: string, params?: unknown[]): Promise<Record<string, unknown>[]>
+  end(): Promise<void>
+}
+type AuditPostgresFactory = (url: string, options: { max: number }) => AuditPostgresClient
+const POSTGRES_SPECIFIER: string = 'postgres'
 // Explicit private fixture; never use the application's database connection.
 describe.skipIf(!url)('Postgres queue ownership audit', () => {
-  const client = postgres(url!, { max: 4 })
+  let client!: AuditPostgresClient
   const dialect = new PgDialect()
   const db: PostgresRunQueueDatabase = { async execute(statement) {
     const query = dialect.sqlToQuery(statement)
-    return await client.unsafe(query.sql, query.params as postgres.ParameterOrJSON<never>[])
+    return await client.unsafe(query.sql, query.params)
   } }
   beforeAll(async () => {
+    const { default: postgres } = (await import(POSTGRES_SPECIFIER)) as { default: AuditPostgresFactory }
+    client = postgres(url!, { max: 4 })
     await client.unsafe(`CREATE TABLE IF NOT EXISTS flow_jobs (id text primary key, run_id text, agent_id text, input jsonb, metadata jsonb, tenant_id text, priority integer default 0, attempts integer default 0, status text default 'pending', claimed_at timestamptz, claimed_by text, error text, created_at timestamptz default now(), updated_at timestamptz default now())`)
   })
   beforeEach(async () => { await client.unsafe("TRUNCATE flow_jobs") })

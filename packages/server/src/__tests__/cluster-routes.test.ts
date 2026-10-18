@@ -40,8 +40,28 @@ function request(method: string, body?: unknown, tenantId?: string): RequestInit
   }
 }
 
-function json(res: Response) {
-  return res.json()
+/**
+ * The response fields these assertions read. Node's fetch types declare
+ * `Response.json()` as `Promise<unknown>`; the DOM lib (where it is `any`) is
+ * not part of this package's types, so the body shape is stated here.
+ */
+interface ClusterRouteBody {
+  id: string
+  workspaceType: string
+  roles: Array<{ roleId: string }>
+  roleId: string
+  capabilities: string[]
+  from: string
+  to: string
+  subject: string
+  delivered: number
+  messages: Array<{ to: string }>
+  ttl: number
+  error: { code: string; message: string }
+}
+
+async function json(res: Response): Promise<ClusterRouteBody> {
+  return (await res.json()) as ClusterRouteBody
 }
 
 describe('Cluster Routes', () => {
@@ -132,7 +152,7 @@ describe('Cluster Routes', () => {
       const body = await json(res)
       expect(body.id).toBe('c1')
       expect(body.roles).toHaveLength(1)
-      expect(body.roles[0].roleId).toBe('planner')
+      expect(body.roles[0]?.roleId).toBe('planner')
     })
 
     it('returns 404 for unknown cluster', async () => {
