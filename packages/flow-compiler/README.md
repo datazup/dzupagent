@@ -456,7 +456,6 @@ const result = await createFlowCompiler({ toolResolver, target: "pipeline" })
   semantic resolution. `target: "codev-runtime"` keeps its meaning; the two
   values cannot be combined in one compile.
 - The artifact sets no `checkpointStrategy`; the host chooses one.
-- `PipelineRuntime` does not yet write an `adapter.run` output into state.
 
 ## Run correlation for DSL compiles
 

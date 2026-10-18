@@ -6,7 +6,12 @@ import type {
   RuntimeToolHandlerInput,
   RuntimeToolHandlerSuccessResult,
 } from "../pipeline-runtime-types.js";
-import { errorMessage, requiredString, stateKey } from "./arg-helpers.js";
+import {
+  errorMessage,
+  optionalString,
+  requiredString,
+  stateKey,
+} from "./arg-helpers.js";
 import { RUNTIME_TOOL_NAMES } from "./constants.js";
 import {
   buildAdapterParallelRequest,
@@ -118,6 +123,48 @@ export function createRuntimeToolHandlers(
         requiredString(args, "output", RUNTIME_TOOL_NAMES.adapterSupervisor)
     ),
   };
+}
+
+/**
+ * Runtime leaves whose compiled `arguments.output` names the state key their
+ * result is saved to. Mirrors the `requiredString(args, "output", ...)` keys of
+ * the handler table above, plus `evidence.write`, which the compiler lowers to
+ * a runtime leaf with a required `output` but which has no handler entry.
+ */
+const OUTPUT_KEYED_RUNTIME_TOOLS: ReadonlySet<string> = new Set([
+  "dzup.runtime.evidence.write",
+  RUNTIME_TOOL_NAMES.shellRun,
+  RUNTIME_TOOL_NAMES.validateSchema,
+  RUNTIME_TOOL_NAMES.adapterRun,
+  RUNTIME_TOOL_NAMES.adapterRace,
+  RUNTIME_TOOL_NAMES.adapterParallel,
+  RUNTIME_TOOL_NAMES.adapterSupervisor,
+]);
+
+/**
+ * The state key a runtime leaf's result is written to when no runtime tool
+ * handlers are configured and the host's bare node executor runs the leaf.
+ *
+ * Uses the same argument as the handler table: `outputKey` for
+ * `worker.dispatch` and `prompt` (which falls back to the node id), `output`
+ * for the shell, schema-validation, evidence and adapter leaves. Unlike the handlers it
+ * never throws: a missing, empty or non-string key yields `undefined`, and so
+ * does any other tool name (including `validate`, which writes no state).
+ */
+export function runtimeLeafStateKey(
+  toolName: string,
+  args: Record<string, unknown>,
+  nodeId: string
+): string | undefined {
+  let key: string | undefined;
+  if (toolName === RUNTIME_TOOL_NAMES.prompt) {
+    key = stateKey(args, "outputKey", nodeId);
+  } else if (toolName === RUNTIME_TOOL_NAMES.workerDispatch) {
+    key = optionalString(args, "outputKey");
+  } else if (OUTPUT_KEYED_RUNTIME_TOOLS.has(toolName)) {
+    key = optionalString(args, "output");
+  }
+  return key === undefined || key.length === 0 ? undefined : key;
 }
 
 function createPortRuntimeToolHandler<TRequest extends RuntimeToolPortRequest>(

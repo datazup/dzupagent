@@ -16,6 +16,7 @@ import {
 } from "./arg-helpers.js";
 import { RUNTIME_TOOL_NAMES, RUNTIME_TOOL_RESULT_MARKER } from "./constants.js";
 import { isRuntimeSetNode, isRuntimeToolNode } from "./node-predicates.js";
+import { runtimeLeafStateKey } from "./ports.js";
 import { runtimeToolErrorMetadata } from "./results.js";
 
 export function createRuntimeToolNodeExecutor(
@@ -27,7 +28,24 @@ export function createRuntimeToolNodeExecutor(
       return executeRuntimeSetNode(nodeId, node as ToolNode, context);
     }
 
-    if (handlers === undefined) return fallbackExecutor(nodeId, node, context);
+    if (handlers === undefined) {
+      if (!isRuntimeToolNode(node)) {
+        return fallbackExecutor(nodeId, node, context);
+      }
+      // Bare-executor path: the host executor runs the runtime leaf, and a
+      // successful output is saved under the leaf's state key, as the
+      // handler path does. Node `stateWrites` are applied after this returns.
+      const result = await fallbackExecutor(nodeId, node, context);
+      if (!result.error) {
+        const key = runtimeLeafStateKey(
+          node.toolName,
+          node.arguments ?? {},
+          nodeId
+        );
+        if (key !== undefined) context.state[key] = result.output;
+      }
+      return result;
+    }
 
     if (!isRuntimeToolNode(node)) {
       return fallbackExecutor(nodeId, node, context);
