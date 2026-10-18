@@ -35,6 +35,22 @@ type MockedPuppeteerExtra = {
   default: { use: ReturnType<typeof vi.fn>; launch: ReturnType<typeof vi.fn> }
 }
 
+/** The shape the `puppeteer` mock above installs. */
+type MockedPuppeteer = {
+  default: { launch: ReturnType<typeof vi.fn> }
+}
+
+/**
+ * The browser packages are optional peers that CI does not install, so this
+ * test must not depend on their type declarations (a literal
+ * `import('puppeteer')` is TS2307 there). Import through a non-literal
+ * specifier — the same way `browser-pool.ts` loads them — so `vi.mock` still
+ * supplies the module at runtime, and type the result as the mocked shape.
+ */
+async function importMockedPeer<T>(specifier: 'puppeteer' | 'puppeteer-extra'): Promise<T> {
+  return (await import(specifier)) as T
+}
+
 vi.mock('puppeteer-extra-plugin-stealth', () => {
   return {
     default: vi.fn(() => ({})),
@@ -477,8 +493,8 @@ describe('BrowserPool - puppeteer not installed error path', () => {
 
   it('throws descriptive error when both puppeteer-extra and puppeteer imports fail', async () => {
     const pool = new BrowserPool({ stealth: true, maxConcurrency: 1 })
-    const puppeteerExtra = (await import('puppeteer-extra')) as unknown as MockedPuppeteerExtra
-    const puppeteer = await import('puppeteer')
+    const puppeteerExtra = await importMockedPeer<MockedPuppeteerExtra>('puppeteer-extra')
+    const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
 
     puppeteerExtra.default.use.mockImplementation(() => {
       throw new Error('puppeteer-extra use failed')
@@ -516,7 +532,7 @@ describe('BrowserPool - puppeteer not installed error path', () => {
 
   it('falls back to puppeteer when stealth=false and puppeteer-extra is not used', async () => {
     const pool = new BrowserPool({ stealth: false, maxConcurrency: 1 })
-    const puppeteer = await import('puppeteer')
+    const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
 
     const mockBrowser = {
       newPage: vi.fn().mockResolvedValue({
@@ -566,7 +582,7 @@ describe('BrowserPool - idle timer expiration', () => {
     }
     mockPage.browser = vi.fn(() => mockBrowser)
 
-    const puppeteer = await import('puppeteer')
+    const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
     ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(mockBrowser)
 
     const page = await pool.acquire()
@@ -603,7 +619,7 @@ describe('BrowserPool - idle timer expiration', () => {
     }
     mockPage.browser = vi.fn(() => mockBrowser)
 
-    const puppeteer = await import('puppeteer')
+    const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
     ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(mockBrowser)
 
     const page = await pool.acquire()
@@ -642,7 +658,7 @@ describe('BrowserPool - idle timer expiration', () => {
     }
     mockPage.browser = vi.fn(() => mockBrowser)
 
-    const puppeteer = await import('puppeteer')
+    const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
     ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(mockBrowser)
 
     const page = await pool.acquire()
@@ -685,7 +701,7 @@ describe('BrowserPool - concurrency and waiting', () => {
     }
     mockPage.browser = vi.fn(() => mockBrowser)
 
-    const puppeteer = await import('puppeteer')
+    const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
     ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(mockBrowser)
 
     await pool.acquire()
@@ -732,7 +748,7 @@ describe('BrowserPool - concurrency and waiting', () => {
     mockPage1.browser = vi.fn(() => mockBrowser)
     mockPage2.browser = vi.fn(() => mockBrowser)
 
-    const puppeteer = await import('puppeteer')
+    const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
     ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(mockBrowser)
 
     const page1 = await pool.acquire()

@@ -33,6 +33,22 @@ type MockedPuppeteerExtra = {
   default: { use: ReturnType<typeof vi.fn>; launch: ReturnType<typeof vi.fn> }
 }
 
+/** The shape the `puppeteer` mock above installs. */
+type MockedPuppeteer = {
+  default: { launch: ReturnType<typeof vi.fn> }
+}
+
+/**
+ * The browser packages are optional peers that CI does not install, so this
+ * test must not depend on their type declarations (a literal
+ * `import('puppeteer')` is TS2307 there). Import through a non-literal
+ * specifier — the same way `browser-pool.ts` loads them — so `vi.mock` still
+ * supplies the module at runtime, and type the result as the mocked shape.
+ */
+async function importMockedPeer<T>(specifier: 'puppeteer' | 'puppeteer-extra'): Promise<T> {
+  return (await import(specifier)) as T
+}
+
 vi.mock('puppeteer-extra-plugin-stealth', () => {
   return {
     default: vi.fn(() => ({})),
@@ -125,7 +141,7 @@ describe('BrowserPool', () => {
     it('acquires a new page from a launched browser', async () => {
       pool = new BrowserPool({ stealth: false, maxConcurrency: 1 })
       const mockBrowser = createMockBrowser()
-      const puppeteer = await import('puppeteer')
+      const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
       ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(mockBrowser)
 
       const page = await pool.acquire()
@@ -142,7 +158,7 @@ describe('BrowserPool', () => {
         .mockResolvedValueOnce(mockPage1)
         .mockResolvedValueOnce(mockPage2)
 
-      const puppeteer = await import('puppeteer')
+      const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
       ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(mockBrowser)
 
       const page1 = await pool.acquire()
@@ -161,7 +177,7 @@ describe('BrowserPool', () => {
       const mockBrowser1 = createMockBrowser()
       const mockBrowser2 = createMockBrowser()
 
-      const puppeteer = await import('puppeteer')
+      const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
       ;(puppeteer.default.launch as ReturnType<typeof vi.fn>)
         .mockResolvedValueOnce(mockBrowser1)
         .mockResolvedValueOnce(mockBrowser2)
@@ -180,7 +196,7 @@ describe('BrowserPool', () => {
       pool = new BrowserPool({ stealth: false, maxConcurrency: 1 })
       const mockBrowser = createMockBrowser()
 
-      const puppeteer = await import('puppeteer')
+      const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
       ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(mockBrowser)
 
       const page = await pool.acquire()
@@ -197,7 +213,7 @@ describe('BrowserPool', () => {
       const mockBrowser = createMockBrowser(mockPage)
       mockPage.browser = vi.fn(() => mockBrowser)
 
-      const puppeteer = await import('puppeteer')
+      const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
       ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(mockBrowser)
 
       const page = await pool.acquire()
@@ -217,7 +233,7 @@ describe('BrowserPool', () => {
       const mockBrowser = createMockBrowser(mockPage)
       mockPage.browser = vi.fn(() => mockBrowser)
 
-      const puppeteer = await import('puppeteer')
+      const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
       ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(mockBrowser)
 
       const result = await pool.fetch('https://example.com')
@@ -237,7 +253,7 @@ describe('BrowserPool', () => {
       const mockBrowser = createMockBrowser(mockPage)
       mockPage.browser = vi.fn(() => mockBrowser)
 
-      const puppeteer = await import('puppeteer')
+      const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
       ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(mockBrowser)
 
       await pool.fetch('https://example.com', { timeout: 5000 })
@@ -253,7 +269,7 @@ describe('BrowserPool', () => {
       const mockBrowser = createMockBrowser(mockPage)
       mockPage.browser = vi.fn(() => mockBrowser)
 
-      const puppeteer = await import('puppeteer')
+      const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
       ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(mockBrowser)
 
       await pool.fetch('https://example.com', { waitFor: '#main-content' })
@@ -268,7 +284,7 @@ describe('BrowserPool', () => {
       const mockBrowser = createMockBrowser(mockPage)
       mockPage.browser = vi.fn(() => mockBrowser)
 
-      const puppeteer = await import('puppeteer')
+      const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
       ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(mockBrowser)
 
       // Should not throw
@@ -284,7 +300,7 @@ describe('BrowserPool', () => {
       const mockBrowser = createMockBrowser(mockPage)
       mockPage.browser = vi.fn(() => mockBrowser)
 
-      const puppeteer = await import('puppeteer')
+      const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
       ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(mockBrowser)
 
       const result = await pool.fetch('https://example.com')
@@ -299,7 +315,7 @@ describe('BrowserPool', () => {
       const mockBrowser = createMockBrowser(mockPage)
       mockPage.browser = vi.fn(() => mockBrowser)
 
-      const puppeteer = await import('puppeteer')
+      const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
       ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(mockBrowser)
 
       await expect(pool.fetch('https://example.com')).rejects.toThrow('Navigation failed')
@@ -316,7 +332,7 @@ describe('BrowserPool', () => {
       const mockBrowser = createMockBrowser(mockPage)
       mockPage.browser = vi.fn(() => mockBrowser)
 
-      const puppeteer = await import('puppeteer')
+      const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
       ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(mockBrowser)
 
       const result = await pool.fetch('https://example.com', {
@@ -398,7 +414,7 @@ describe('BrowserPool', () => {
       pool = new BrowserPool({ stealth: false, maxConcurrency: 1 })
       const page = createInterceptingPage(['https://example.com'])
       const browser = mountBrowser(page)
-      const puppeteer = await import('puppeteer')
+      const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
       ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(browser)
 
       await pool.fetch('https://example.com')
@@ -413,7 +429,7 @@ describe('BrowserPool', () => {
         'http://169.254.169.254/latest/meta-data/',
       ])
       const browser = mountBrowser(page)
-      const puppeteer = await import('puppeteer')
+      const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
       ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(browser)
 
       await expect(pool.fetch('https://example.com')).rejects.toThrow(/Outbound URL rejected/)
@@ -441,7 +457,7 @@ describe('BrowserPool', () => {
         'https://rebind.evil.test/',
       ])
       const browser = mountBrowser(page)
-      const puppeteer = await import('puppeteer')
+      const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
       ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(browser)
 
       await expect(pool.fetch('https://example.com')).rejects.toThrow(
@@ -455,7 +471,7 @@ describe('BrowserPool', () => {
       pool = new BrowserPool({ stealth: false, maxConcurrency: 1 })
       const page = createInterceptingPage(['https://example.com'])
       const browser = mountBrowser(page)
-      const puppeteer = await import('puppeteer')
+      const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
       ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(browser)
 
       const result = await pool.fetch('https://example.com')
@@ -472,7 +488,7 @@ describe('BrowserPool', () => {
         { url: imageUrl, resourceType: 'image' },
       ])
       const browser = mountBrowser(page)
-      const puppeteer = await import('puppeteer')
+      const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
       ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(browser)
 
       const result = await pool.fetch('https://example.com')
@@ -493,7 +509,7 @@ describe('BrowserPool', () => {
         { url: xhrUrl, resourceType: 'xhr' },
       ])
       const browser = mountBrowser(page)
-      const puppeteer = await import('puppeteer')
+      const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
       ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(browser)
 
       const result = await pool.fetch('https://example.com')
@@ -515,7 +531,7 @@ describe('BrowserPool', () => {
         { url: privateUrl, resourceType: 'xhr' },
       ])
       const browser = mountBrowser(page)
-      const puppeteer = await import('puppeteer')
+      const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
       ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(browser)
 
       const result = await pool.fetch('https://example.com')
@@ -538,7 +554,7 @@ describe('BrowserPool', () => {
         { url: privateUrl, resourceType: 'image' },
       ])
       const browser = mountBrowser(page)
-      const puppeteer = await import('puppeteer')
+      const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
       ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(browser)
 
       const result = await pool.fetch('https://example.com')
@@ -557,7 +573,7 @@ describe('BrowserPool', () => {
       const mockBrowser1 = createMockBrowser()
       const mockBrowser2 = createMockBrowser()
 
-      const puppeteer = await import('puppeteer')
+      const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
       ;(puppeteer.default.launch as ReturnType<typeof vi.fn>)
         .mockResolvedValueOnce(mockBrowser1)
         .mockResolvedValueOnce(mockBrowser2)
@@ -576,7 +592,7 @@ describe('BrowserPool', () => {
       const mockBrowser = createMockBrowser()
       mockBrowser.close.mockRejectedValue(new Error('Already closed'))
 
-      const puppeteer = await import('puppeteer')
+      const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
       ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(mockBrowser)
 
       await pool.acquire()
@@ -595,7 +611,7 @@ describe('BrowserPool', () => {
     it('loads puppeteer-extra with stealth plugin when stealth is true', async () => {
       pool = new BrowserPool({ stealth: true, maxConcurrency: 1 })
 
-      const puppeteerExtra = (await import('puppeteer-extra')) as unknown as MockedPuppeteerExtra
+      const puppeteerExtra = await importMockedPeer<MockedPuppeteerExtra>('puppeteer-extra')
       const mockBrowser = createMockBrowser()
       puppeteerExtra.default.launch.mockResolvedValue(mockBrowser)
 
@@ -611,7 +627,7 @@ describe('BrowserPool', () => {
       // Since vi.mock is hoisted, we'll test a different path:
       // Just verify that the pool still works with stealth=false
       const pool2 = new BrowserPool({ stealth: false, maxConcurrency: 1 })
-      const puppeteer = await import('puppeteer')
+      const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
       const mockBrowser = createMockBrowser()
       ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(mockBrowser)
 
@@ -639,7 +655,7 @@ describe('BrowserPool', () => {
       })
       const mockBrowser = createMockBrowser()
 
-      const puppeteer = await import('puppeteer')
+      const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
       ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(mockBrowser)
 
       await pool.acquire()
@@ -649,7 +665,7 @@ describe('BrowserPool', () => {
 
     it('default launch args keep the Chromium sandbox (DZUPAGENT-SEC-H-16)', async () => {
       pool = new BrowserPool({ stealth: false, maxConcurrency: 1 })
-      const puppeteer = await import('puppeteer')
+      const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
       ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(createMockBrowser())
 
       await pool.acquire()
@@ -681,7 +697,7 @@ describe('BrowserPool', () => {
       })
       const mockBrowser = createMockBrowser()
 
-      const puppeteer = await import('puppeteer')
+      const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
       ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(mockBrowser)
 
       await pool.acquire()
@@ -694,7 +710,7 @@ describe('BrowserPool', () => {
       pool = new BrowserPool({ stealth: false, maxConcurrency: 1, headless: false })
       const mockBrowser = createMockBrowser()
 
-      const puppeteer = await import('puppeteer')
+      const puppeteer = await importMockedPeer<MockedPuppeteer>('puppeteer')
       ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(mockBrowser)
 
       await pool.acquire()
