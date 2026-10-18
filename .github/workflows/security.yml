@@ -154,11 +154,13 @@ jobs:
           echo "=== Checking for eval() usage (excluding comments and string literals) ==="
           # Exclude lines where eval appears inside a string (quoted) or comment.
           # Baseline: prompt fragments and rule-description strings contain 'eval()' as text.
+          # Baseline: flow-ast condition-expression/source-scan.ts matches the string literal "eval(" to reject it (a detector, not a call).
           if grep -rn --include='*.ts' --include='*.js' --include='*.mjs' \
                --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=coverage --exclude-dir=test \
                --exclude-dir=__tests__ \
                -E '\beval\s*\(' packages/ \
                | grep -v "eval()" \
+               | grep -v 'packages/flow-ast/src/condition-expression/source-scan.ts:' \
                | grep -v '#'; then
             echo "::error::Found eval() call outside tests — review for injection risk"
             FOUND=1
@@ -168,12 +170,14 @@ jobs:
           echo "=== Checking for Function() constructor (excluding codegen sandbox) ==="
           # Baseline: codegen/sandbox uses new Function('m','return import(m)') as
           # a dynamic-import shim — this is intentional and sandboxed.
+          # Baseline: testing/src/sdlc-mvp-evidence.ts uses the same dynamic-import shim, called only with the fixed literal "pg".
           if grep -rn --include='*.ts' --include='*.js' --include='*.mjs' \
                --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=coverage --exclude-dir=test \
                --exclude-dir=__tests__ \
                -E '\bnew\s+Function\s*\(' packages/ \
                | grep -v 'packages/codegen/src/sandbox/' \
-               | grep -v 'packages/flow-compiler/src/stages/semantic-condition.ts'; then
+               | grep -v 'packages/flow-compiler/src/stages/semantic-condition.ts' \
+               | grep -v 'packages/testing/src/sdlc-mvp-evidence.ts:'; then
             echo "::error::Found new Function() outside codegen sandbox — potential code injection"
             FOUND=1
           fi
