@@ -170,6 +170,63 @@ describe("inactive local V2 target qualification", () => {
     expect(Object.isFrozen(first.receipt.primitiveContracts)).toBe(true);
   });
 
+  it("pins the gate precondition when a sibling loop routes the flow to pipeline", async () => {
+    const { primitive, registry, source: base } = fixture();
+    const source = `${base}  - id: rounds
+    use: core.loop@1
+    with:
+      condition:
+        eq:
+          - ref: state.again
+          - true
+      maxIterations: 1
+      body:
+        - id: tick
+          use: core.set@1
+          with:
+            assign:
+              again: false
+`;
+    const compilerOptions = {
+      toolResolver: resolver,
+      referencePolicy: "strict" as const,
+      primitiveRegistry: registry,
+      primitiveBindings: {
+        "adapter.run": {
+          ref: primitive.ref,
+          semanticHash: primitive.compatibility.semanticHash,
+        },
+      },
+    };
+    const result = await qualifyV2InactiveLocalTarget({
+      source,
+      compilerOptions,
+      hostCapabilities: V2_INACTIVE_LOCAL_TARGET_CAPABILITIES,
+      conditionBindings: { inputs: { ready: true } },
+    });
+
+    // The pipeline target admits the top-level policy, retry, catch and
+    // multi-port save, so only the typed-condition gate fires and the
+    // qualifier's exact five-gate precondition reports the other four missing.
+    expect(result).toEqual({
+      ok: false,
+      errors: [
+        {
+          code: "V2_LOCAL_TARGET_COMPILER_GATE_REQUIRED",
+          message:
+            "inactive local target qualification requires a semantically valid flow blocked by every V2 gate the routed target refuses",
+          path: "root",
+          causes: [
+            "missing:V2_POLICY_TARGET_UNSUPPORTED",
+            "missing:V2_RETRY_TARGET_UNSUPPORTED",
+            "missing:V2_CATCH_TARGET_UNSUPPORTED",
+            "missing:V2_MULTI_SAVE_TARGET_UNSUPPORTED",
+          ],
+        },
+      ],
+    });
+  });
+
   it("requires the exact closed capability set", async () => {
     const { primitive, registry, source } = fixture();
     const compilerOptions = {
