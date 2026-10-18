@@ -1,13 +1,18 @@
 /**
  * RunHandle — the public API for managing a running agent execution.
  *
- * Obtained by calling `agent.launch(input)`. The current implementation
- * provides status/journal controls, result awaiting, and event subscription.
- * Its pause/resume/cancel methods do not yet control the background execution;
- * inspect `controlCapabilities` before relying on them for side-effect safety.
+ * Obtained by calling `agent.launch(input)`. The handle provides status/journal
+ * controls, result awaiting, and event subscription. Inspect
+ * `controlCapabilities` before relying on its controls for side-effect safety:
+ * - legacy mode (default): pause/resume/cancel change handle/journal state only
+ *   and do not control the background execution;
+ * - cooperative mode (`LaunchOptions.controlMode: 'cooperative'`): cancel aborts
+ *   and pause holds the background `generate()` at the next safe point
+ *   (before-model, before-tool, after-tool).
+ * In both modes `crossProcessResume` stays `inspection-only`.
  *
  * Key design decisions (from spec-panel review):
- * - Pause currently changes handle/journal state only
+ * - Legacy pause changes handle/journal state only
  * - Resume is IDEMPOTENT: duplicate resumeToken is silently ignored
  * - Journal reconstruction is an inspection projection, not execution restart
  * - fork() creates a new run from a checkpoint (does not mutate the original)
@@ -48,6 +53,59 @@ export const LEGACY_RUN_HANDLE_CONTROL_CAPABILITIES: RunHandleControlCapabilitie
     cancel: 'handle-state-only',
     crossProcessResume: 'inspection-only',
   })
+
+/**
+ * Capability marker for a handle launched with `controlMode: 'cooperative'`.
+ *
+ * Controls are honoured by the in-process `generate()` loop at safe points.
+ * A journal still reconstructs status only (`inspection-only`), never
+ * restart-safe execution state.
+ */
+export const COOPERATIVE_RUN_HANDLE_CONTROL_CAPABILITIES: RunHandleControlCapabilities =
+  Object.freeze({
+    schema: RUN_HANDLE_CONTROL_CAPABILITIES_SCHEMA,
+    stability: 'experimental',
+    backgroundExecution: 'cooperative-safe-points',
+    pause: 'execution-authoritative',
+    resume: 'execution-authoritative',
+    cancel: 'execution-authoritative',
+    crossProcessResume: 'inspection-only',
+  })
+
+// ─── Cooperative Run Control ──────────────────────────────────────────────────
+
+/** Points in the generate tool loop where run controls are observed. */
+export type RunControlSafePoint = 'before-model' | 'before-tool' | 'after-tool'
+
+/**
+ * Port the tool loop consults at each safe point. Cancel travels on the run's
+ * `AbortSignal`, not on this port.
+ */
+export interface RunControlPort {
+  /** True while a pause has been requested and not yet released. */
+  shouldPause(): boolean
+  /** Resolves when the pause is released by `resume()` or the run is aborted. */
+  waitForResume(): Promise<void>
+  /** Report that a control was observed at a safe point. */
+  acknowledge(kind: 'pause' | 'cancel' | 'resume', at: RunControlSafePoint): void
+}
+
+/**
+ * Outcome of a cooperative control request.
+ *
+ * - `requested`: recorded but not (or no longer) awaiting observation, e.g. a
+ *   pause withdrawn by `resume()` before any safe point;
+ * - `observed-at-safe-point`: the loop observed it (`safePoint` names where),
+ *   or the background `generate()` settled after a cancel (no `safePoint`);
+ * - `timed-out`: `timeoutMs` elapsed first; the request stays pending.
+ */
+export interface ControlAcknowledgement {
+  kind: 'pause' | 'cancel' | 'resume'
+  state: 'requested' | 'observed-at-safe-point' | 'timed-out'
+  safePoint?: RunControlSafePoint
+  /** ISO-8601 timestamp of this acknowledgement. */
+  at: string
+}
 
 // ─── Result Types ─────────────────────────────────────────────────────────────
 
@@ -155,12 +213,18 @@ export interface RunHandle<
   readonly currentStatus: RunStatus
 
   /**
-   * Mark the handle paused and write a journal entry.
+   * Pause the run.
    *
-   * @experimental This does not currently pause background model/tool work.
+   * @experimental Legacy mode marks the handle paused and journals
+   * `run_paused` without pausing background model/tool work. Cooperative mode
+   * holds the loop at the next safe point; status becomes `paused` and
+   * `run_paused` (reason `'cooperative'`) is journalled when the loop
+   * acknowledges, and the implementation resolves a `ControlAcknowledgement`.
+   * Neither mode restarts execution across processes (`inspection-only`).
    *
    * @throws {InvalidRunStateError} if the run is already terminal
-   * @param options.timeoutMs — max ms to wait for current tool call (default: 30_000)
+   * @param options.timeoutMs — cooperative mode only: resolve `timed-out` if no
+   *   safe point is reached in time (no default; legacy mode ignores it)
    */
   pause(options?: { timeoutMs?: number }): Promise<void>
 
@@ -177,9 +241,13 @@ export interface RunHandle<
   resume(input?: unknown, resumeToken?: string): Promise<void>
 
   /**
-   * Mark the handle cancelled and resolve its result.
+   * Cancel the run.
    *
-   * @experimental This does not currently abort background model/tool work.
+   * @experimental Legacy mode marks the handle cancelled and resolves its
+   * result without aborting background model/tool work. Cooperative mode
+   * aborts the run's signal; the loop stops at the next safe point, the run
+   * ends `cancelled` and the implementation resolves a
+   * `ControlAcknowledgement`. Until then the request is not terminal.
    * @param reason — optional cancellation reason stored in journal
    */
   cancel(reason?: string): Promise<void>
@@ -249,4 +317,11 @@ export interface LaunchOptions {
   checkpointTtlMs?: number
   /** Metadata attached to the run_started journal entry */
   metadata?: Record<string, unknown>
+  /**
+   * Run-control semantics of the returned handle (default `'legacy'`).
+   * `'cooperative'` makes pause/resume/cancel authoritative over the
+   * background `generate()` at safe points and reports
+   * {@link COOPERATIVE_RUN_HANDLE_CONTROL_CAPABILITIES}.
+   */
+  controlMode?: 'legacy' | 'cooperative'
 }

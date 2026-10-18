@@ -695,12 +695,12 @@
           "rationale": "Floor pin 2026-08-30: this file was over the 500-LOC ceiling with no debt pin at all, so nothing recorded or halted its growth. Frozen at the measured 533 LOC to stop further growth; shrinkTarget stays 500. This accepts no regression \u2014 it establishes the ceiling that was missing. Decompose toward the target under ARCH27-T-15. ARCH27-T-14 re-pin 2026-08-30: artifact-contract imports repointed to @dzupagent/runtime-contracts/pipeline-artifact (533->528 LOC, toward shrinkTarget)."
         },
         "src/agent/run-engine-generate-tool-loop.ts": {
-          "maxLines": 560,
+          "maxLines": 541,
           "shrinkTarget": 500,
-          "sourceSha256": "7cd26682123e412e2e2570080557392f4a4a74f549ad08ca69c021f6a735c9d2",
-          "sourceCommit": "6fb608bdde5be4e57b3e963cdb57af2e0bced3dd",
+          "sourceSha256": "7d986a7a87b650caad9a5186342adda704469e4bd2122e60a99c5dfa947155c6",
+          "sourceCommit": "38b79c1c393f428aeb37595372e2b86fbc917764",
           "reviewBy": "2026-12-16",
-          "rationale": "Floor pin 2026-08-30: this file was over the 500-LOC ceiling with no debt pin at all, so nothing recorded or halted its growth. Frozen at the measured 532 LOC to stop further growth; shrinkTarget stays 500. This accepts no regression \u2014 it establishes the ceiling that was missing. Decompose toward the target under ARCH27-T-15. 2026-10-16 RF-03 (DZUPAGENT-ARCH-H-09) re-pin at the measured 560 LOC (was 532; reviewBy 2026-11-30 -> 2026-12-16) after the audit-impl branch edits, signed in acceptedGrowth; operator-authorized 2026-10-16 (AMENDMENT-2 s.4)."
+          "rationale": "Floor pin 2026-08-30: this file was over the 500-LOC ceiling with no debt pin at all, so nothing recorded or halted its growth. Frozen at the measured 532 LOC to stop further growth; shrinkTarget stays 500. This accepts no regression \u2014 it establishes the ceiling that was missing. Decompose toward the target under ARCH27-T-15. 2026-10-16 RF-03 (DZUPAGENT-ARCH-H-09) re-pin at the measured 560 LOC (was 532; reviewBy 2026-11-30 -> 2026-12-16) after the audit-impl branch edits, signed in acceptedGrowth; operator-authorized 2026-10-16 (AMENDMENT-2 s.4). 2026-10-18 B-01 (DZA-WAVE1-20261018-R5 s.3.1 item 7) shrink re-pin 560 -> 541 at the measured count: raceAgainstSignal moved to run-control-safe-points.ts and controlPort forwarded; reviewBy unchanged."
         },
         "src/pipeline/pipeline-templates.ts": {
           "maxLines": 521,

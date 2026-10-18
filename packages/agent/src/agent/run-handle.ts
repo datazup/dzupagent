@@ -1,9 +1,12 @@
 /**
  * ConcreteRunHandle — production implementation of RunHandle.
  *
- * Status/journal projection for a background agent run. The public capability
- * marker describes that pause/resume/cancel are not yet authoritative over the
- * execution itself.
+ * Status/journal projection for a background agent run. In legacy mode (the
+ * default) the capability marker reports that pause/resume/cancel are not
+ * authoritative over the execution itself. With `controlMode: 'cooperative'`
+ * the handle owns an abort controller and a {@link RunControlPort}
+ * (`CooperativeRunController`), and the generate loop honours its controls at
+ * safe points. Cross-process resume stays `inspection-only` in both modes.
  *
  * Internal `_complete`, `_fail`, `_updateStatus` methods are called by
  * the agent runner; they are not part of the public RunHandle interface.
@@ -16,13 +19,18 @@ import type {
   Unsubscribe,
   LaunchOptions,
   CheckpointInfo,
+  ControlAcknowledgement,
+  RunHandleControlCapabilities,
+  RunControlSafePoint,
 } from './run-handle-types.js'
 import {
   InvalidRunStateError,
   CheckpointExpiredError,
   ForkLimitExceededError,
   LEGACY_RUN_HANDLE_CONTROL_CAPABILITIES,
+  COOPERATIVE_RUN_HANDLE_CONTROL_CAPABILITIES,
 } from './run-handle-types.js'
+import { CooperativeRunController } from './run-control-safe-points.js'
 import type { RunJournal, RunJournalEntry } from '@dzupagent/core/persistence'
 import type { RunStatus } from '@dzupagent/core/persistence'
 import { omitUndefined } from '../utils/exact-optional.js'
@@ -44,6 +52,9 @@ export class ConcreteRunHandle<TOutput = unknown, TState = Record<string, unknow
   private readonly forkCount: Map<string, number>
   private readonly maxForks: number
   private readonly checkpointTtlMs: number
+  private readonly cooperative: CooperativeRunController | undefined
+  private cancelReason: string | undefined
+  readonly controlCapabilities: RunHandleControlCapabilities
 
   constructor(
     public readonly runId: string,
@@ -55,6 +66,16 @@ export class ConcreteRunHandle<TOutput = unknown, TState = Record<string, unknow
     this.maxForks = options.maxForks ?? 10
     this.checkpointTtlMs = options.checkpointTtlMs ?? 7 * 24 * 60 * 60 * 1000
     this.forkCount = new Map([[runId, 0]])
+    this.cooperative = options.controlMode === 'cooperative'
+      ? new CooperativeRunController({
+        onPauseObserved: (at) => this.onPauseObserved(at),
+        onCancelObserved: () => this.finishCancelled(),
+        onAcknowledgement: (ack) => this.emitSynthetic('run_control_acknowledged', { ...ack }),
+      })
+      : undefined
+    this.controlCapabilities = this.cooperative
+      ? COOPERATIVE_RUN_HANDLE_CONTROL_CAPABILITIES
+      : LEGACY_RUN_HANDLE_CONTROL_CAPABILITIES
   }
 
   // ---------------------------------------------------------------------------
@@ -65,11 +86,18 @@ export class ConcreteRunHandle<TOutput = unknown, TState = Record<string, unknow
     return this._currentStatus
   }
 
-  readonly controlCapabilities = LEGACY_RUN_HANDLE_CONTROL_CAPABILITIES
-
-  async pause(_options?: { timeoutMs?: number }): Promise<void> {
+  /**
+   * Legacy: resolves `undefined`. Cooperative: resolves the pause
+   * {@link ControlAcknowledgement}; the public signature stays `Promise<void>`
+   * because `Promise<ControlAcknowledgement | void>` is not assignable to it.
+   */
+  pause(options?: { timeoutMs?: number }): Promise<void>
+  async pause(options?: { timeoutMs?: number }): Promise<ControlAcknowledgement | void> {
     if (TERMINAL_STATUSES.includes(this._currentStatus)) {
       throw new InvalidRunStateError(this.runId, this._currentStatus, 'running')
+    }
+    if (this.cooperative) {
+      return this.cooperative.requestPause(options?.timeoutMs)
     }
     if (this._currentStatus === 'paused') {
       return // already paused -- no-op
@@ -84,6 +112,11 @@ export class ConcreteRunHandle<TOutput = unknown, TState = Record<string, unknow
   }
 
   async resume(input?: unknown, resumeToken?: string): Promise<void> {
+    // Cooperative: an unobserved pause is withdrawn without a journal entry.
+    if (this.cooperative?.pausePending && !this.cooperative.isPauseObserved) {
+      this.cooperative.release()
+      return
+    }
     if (this._currentStatus !== 'paused' && this._currentStatus !== 'suspended') {
       throw new InvalidRunStateError(
         this.runId,
@@ -110,12 +143,26 @@ export class ConcreteRunHandle<TOutput = unknown, TState = Record<string, unknow
       data: { resumeToken: token, input },
     })
     this._currentStatus = 'running'
+    this.cooperative?.release()
     this.emitSynthetic('run_resumed', { resumeToken: token, input })
   }
 
-  async cancel(reason?: string): Promise<void> {
+  /**
+   * Legacy: resolves `undefined`. Cooperative: aborts the run and resolves the
+   * cancel acknowledgement (no default timeout); not terminal until observed.
+   * The public signature stays `Promise<void>`, as for {@link pause}.
+   */
+  cancel(reason?: string, options?: { timeoutMs?: number }): Promise<void>
+  async cancel(
+    reason?: string,
+    options?: { timeoutMs?: number },
+  ): Promise<ControlAcknowledgement | void> {
     if (TERMINAL_STATUSES.includes(this._currentStatus)) {
       return // already terminal -- no-op
+    }
+    if (this.cooperative) {
+      if (!this.cooperative.cancelRequested) this.cancelReason = reason
+      return this.cooperative.requestCancel(options?.timeoutMs)
     }
 
     await this.journal.append(this.runId, {
@@ -338,6 +385,26 @@ export class ConcreteRunHandle<TOutput = unknown, TState = Record<string, unknow
     this._currentStatus = status
   }
 
+  /** Cooperative controller (port + cancel signal), or `undefined` in legacy mode. */
+  get _cooperativeControl(): CooperativeRunController | undefined {
+    return this.cooperative
+  }
+
+  /**
+   * Called by the launcher when the background `generate()` settles. After a
+   * requested cancel, a rejection or an `aborted` result ends the run
+   * `cancelled` and returns `true`. Always `false` in legacy mode.
+   */
+  _settleCooperative(outcome: { stopReason?: string } | 'rejected'): boolean {
+    const control = this.cooperative
+    if (!control) return false
+    control.settleRun()
+    if (!control.cancelRequested) return false
+    if (outcome !== 'rejected' && outcome.stopReason !== 'aborted') return false
+    this.finishCancelled()
+    return true
+  }
+
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
@@ -349,6 +416,21 @@ export class ConcreteRunHandle<TOutput = unknown, TState = Record<string, unknow
     }
     this.resultResolvers = []
     this.resultRejecters = []
+  }
+
+  private onPauseObserved(at: RunControlSafePoint): void {
+    if (TERMINAL_STATUSES.includes(this._currentStatus)) return
+    this._currentStatus = 'paused'
+    void this.journal.append(this.runId, { type: 'run_paused', data: { reason: 'cooperative' } })
+    this.emitSynthetic('run_paused', { reason: 'cooperative', safePoint: at })
+  }
+
+  /** Cooperative terminal transition: journals `run_cancelled` exactly once. */
+  private finishCancelled(): void {
+    if (TERMINAL_STATUSES.includes(this._currentStatus)) return
+    this._currentStatus = 'cancelled'
+    void this.journal.append(this.runId, { type: 'run_cancelled', data: { reason: this.cancelReason } })
+    this.resolveResult(omitUndefined({ runId: this.runId, status: 'cancelled' as const, error: this.cancelReason }))
   }
 
   private notifyHandlers(eventType: string, entry: RunJournalEntry): void {

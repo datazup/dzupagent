@@ -18,6 +18,7 @@ import type {
   CompressionDegradation,
 } from "@dzupagent/context";
 import type { IterationBudget } from "../../../guardrails/iteration-budget.js";
+import type { RunControlPort } from "../../run-handle-types.js";
 import type { StuckDetector } from "../../../guardrails/stuck-detector.js";
 import { type ToolArgValidatorConfig } from "../../tool-arg-validator.js";
 import type { ToolOutputValidator } from "../output-validator.js";
@@ -61,6 +62,12 @@ export interface ToolLoopConfig extends ToolResultSecurityPolicy {
     result: string
   ) => Promise<string>;
   signal?: AbortSignal;
+  /**
+   * Cooperative run-control port (B-01). When set, the loop observes pause
+   * and cancel at its before-model, before-tool and after-tool safe points;
+   * cancel itself arrives on `signal`. When unset the loop is unchanged.
+   */
+  controlPort?: RunControlPort;
   /** Optional stuck detector for escalating recovery. */
   stuckDetector?: StuckDetector;
   /** Called when stuck is detected. */

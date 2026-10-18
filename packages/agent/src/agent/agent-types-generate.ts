@@ -10,6 +10,7 @@ import type { ToolStat, StopReason } from "./tool-loop.js";
 import type { StuckError } from "./stuck-error.js";
 import type { RunLearnings } from "./tool-loop-learning.js";
 import type { AgentRunnerNoToolPreDispatchPolicy } from "../runner/no-tool-generate-delegation.js";
+import type { RunControlPort } from "./run-handle-types.js";
 
 /** Options for a single generate/stream call */
 export interface GenerateOptions {
@@ -43,6 +44,12 @@ export interface GenerateOptions {
   maxIterations?: number;
   /** Abort signal for cancellation */
   signal?: AbortSignal;
+  /**
+   * Cooperative run-control port, set by `launch()` in
+   * `controlMode: 'cooperative'`. The tool loop consults it at safe points
+   * (before-model, before-tool, after-tool); cancel travels on `signal`.
+   */
+  controlPort?: RunControlPort;
   /** Additional context to inject as a system message suffix */
   context?: string;
   /** Callback for token usage per LLM call */

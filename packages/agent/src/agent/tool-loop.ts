@@ -27,6 +27,7 @@ import {
   type ToolLoopState,
 } from "./tool-loop/loop-stages.js";
 import { omitUndefined } from "../utils/exact-optional.js";
+import { observeRunControl } from "./run-control-safe-points.js";
 // Note: parallel-executor.ts still exports the standalone semaphore
 // primitive (executeToolsParallel) for callers that want raw parallel
 // dispatch without the policy stack. The tool-loop's parallel path was
@@ -102,8 +103,13 @@ export async function runToolLoop(
   }
 
   for (let iteration = 0; iteration < config.maxIterations; iteration++) {
-    // Check abort signal
-    if (config.signal?.aborted) {
+    // Check abort signal. With a control port this is also the before-model
+    // safe point (cancel acknowledgement, cooperative pause).
+    if (
+      (config.controlPort !== undefined &&
+        (await observeRunControl(config.controlPort, config.signal, "before-model"))) ||
+      config.signal?.aborted
+    ) {
       stopReason = "aborted";
       break;
     }
@@ -231,6 +237,16 @@ export async function runToolLoop(
       }
     }
 
+    // Before-tool safe point (pause; cancel is also checked per tool by the
+    // scheduler).
+    if (
+      config.controlPort !== undefined &&
+      (await observeRunControl(config.controlPort, config.signal, "before-tool"))
+    ) {
+      stopReason = "aborted";
+      break;
+    }
+
     // Kernel stage: schedule tool calls sequentially or in parallel. The
     // supplied executor is the policy-decorated stage, so both scheduling
     // modes share governance, validation, scanning, timeout, telemetry,
@@ -264,6 +280,16 @@ export async function runToolLoop(
     const transition = await handleToolResults(results, state, config);
     if (transition.kind === "halt") {
       stopReason = transition.stopReason;
+      break;
+    }
+
+    // After-tool safe point: the results are folded into the transcript, so a
+    // resumed pause continues this iteration without re-dispatching the tools.
+    if (
+      config.controlPort !== undefined &&
+      (await observeRunControl(config.controlPort, config.signal, "after-tool"))
+    ) {
+      stopReason = "aborted";
       break;
     }
 

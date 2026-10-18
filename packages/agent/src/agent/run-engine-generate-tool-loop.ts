@@ -16,7 +16,7 @@ import {
 } from "@dzupagent/core/llm";
 import { injectPromptCacheMarkersForModel } from "@dzupagent/context";
 import { createRunDeadline } from "./run-deadline.js";
-import { ModelCancellationError } from "./model-timeout-error.js";
+import { raceAgainstSignal } from "./run-control-safe-points.js";
 import {
   runBeforeModelCall,
   runAfterModelCall,
@@ -223,26 +223,6 @@ export function buildPolicyConfig(
  * same order as the pre-refactor implementation.
  */
 
-/**
- * Reject as soon as the run deadline (or caller cancellation) fires, instead of
- * waiting on a provider that may never settle. Resolves normally otherwise.
- */
-function raceAgainstSignal<T>(
-  promise: Promise<T>,
-  signal: AbortSignal | undefined
-): Promise<T> {
-  if (!signal) return promise;
-  if (signal.aborted) return Promise.reject(new ModelCancellationError());
-  let onAbort: (() => void) | undefined;
-  const aborted = new Promise<never>((_resolve, reject) => {
-    onAbort = () => reject(new ModelCancellationError());
-    signal.addEventListener("abort", onAbort, { once: true });
-  });
-  return Promise.race([promise, aborted]).finally(() => {
-    if (onAbort) signal.removeEventListener("abort", onAbort);
-  }) as Promise<T>;
-}
-
 export async function setupModelCall(
   params: ExecuteGenerateRunParams,
   prelude: GuardPrelude
@@ -355,6 +335,7 @@ export async function setupModelCall(
         maxIterations: params.runState.maxIterations,
         budget: params.runState.budget,
         signal: runDeadline.signal,
+        controlPort: params.options?.controlPort,
         stuckDetector: params.runState.stuckDetector,
         toolStatsTracker: params.config.toolStatsTracker,
         intent: params.options?.intent,

@@ -5,6 +5,8 @@ import {
   CheckpointExpiredError,
   ForkLimitExceededError,
   LEGACY_RUN_HANDLE_CONTROL_CAPABILITIES,
+  COOPERATIVE_RUN_HANDLE_CONTROL_CAPABILITIES,
+  type ControlAcknowledgement,
 } from '../agent/run-handle-types.js'
 import { InMemoryRunJournal } from '@dzupagent/core'
 
@@ -368,6 +370,41 @@ describe('ConcreteRunHandle', () => {
       const now = Date.now()
       expect(cp.completedAt.getTime()).toBeGreaterThan(now - 1000)
       expect(cp.completedAt.getTime()).toBeLessThanOrEqual(now + 100)
+    })
+  })
+
+  // ── cooperative control acknowledgement ────────────────────────────────────
+
+  describe('ControlAcknowledgement', () => {
+    it('round-trips through JSON and reaches subscribers via synthetic events', async () => {
+      const handle = new ConcreteRunHandle('run-ack', 'running', journal, {
+        controlMode: 'cooperative',
+      })
+      expect(handle.controlCapabilities).toEqual(COOPERATIVE_RUN_HANDLE_CONTROL_CAPABILITIES)
+      const delivered: unknown[] = []
+      handle.subscribe('run_control_acknowledged', (entry) => delivered.push(entry.data))
+
+      const pending = handle.pause() as Promise<unknown> as Promise<ControlAcknowledgement>
+      handle._cooperativeControl!.acknowledge('pause', 'before-tool')
+      const ack = await pending
+
+      expect(ack).toMatchObject({
+        kind: 'pause',
+        state: 'observed-at-safe-point',
+        safePoint: 'before-tool',
+      })
+      expect(new Date(ack.at).toISOString()).toBe(ack.at)
+      const roundTripped = JSON.parse(JSON.stringify(ack)) as ControlAcknowledgement
+      expect(roundTripped).toEqual(ack)
+      expect(delivered).toEqual([
+        expect.objectContaining({ kind: 'pause', state: 'requested' }),
+        ack,
+      ])
+      expect(handle.currentStatus).toBe('paused')
+      const entries = await journal.getAll('run-ack')
+      expect(entries.filter((e) => e.type === 'run_paused')).toEqual([
+        expect.objectContaining({ data: { reason: 'cooperative' } }),
+      ])
     })
   })
 })

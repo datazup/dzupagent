@@ -4,8 +4,12 @@
  * `launchDaemon()` starts an agent run in the background and returns a
  * {@link RunHandle} that resolves within milliseconds, before the run
  * completes. The handle provides status/journal controls and result awaiting.
- * Its capability marker explicitly reports that it does not yet pause or abort
- * the background execution.
+ * In legacy mode (default) its capability marker reports that it does not
+ * pause or abort the background execution. With `controlMode: 'cooperative'`
+ * the launcher composes the handle's cancel signal with any caller signal and
+ * passes the handle's {@link RunControlPort} into `generate()`, so pause and
+ * cancel take effect at the loop's safe points. Cross-process resume stays
+ * `inspection-only` in both modes.
  *
  * The extraction keeps the DzupAgent class slim and allows the launch
  * lifecycle (runId allocation, journal setup, background execution) to
@@ -19,8 +23,9 @@ import type {
   GenerateOptions,
   GenerateResult,
 } from './agent-types.js'
-import type { RunHandle, LaunchOptions } from './run-handle-types.js'
+import type { RunHandle, LaunchOptions, RunControlPort } from './run-handle-types.js'
 import { ConcreteRunHandle } from './run-handle.js'
+import { composeAbortSignals } from './run-control-safe-points.js'
 
 /**
  * Minimal surface area the launcher needs from the owning agent. Accepting
@@ -55,13 +60,22 @@ export async function launchDaemon(
   })
 
   // Start execution asynchronously — do NOT await
+  const control = handle._cooperativeControl
   const generateOptions = {
     ...options?.generateOptions,
     runId: options?.generateOptions?.runId ?? runId,
+    ...(control
+      ? {
+          signal: composeAbortSignals(control.signal, options?.generateOptions?.signal),
+          controlPort: control satisfies RunControlPort,
+        }
+      : {}),
   }
 
   runInBackground(ctx, messages, handle, generateOptions).catch(
     (err: unknown) => {
+      // Cooperative: after a requested cancel a rejection ends `cancelled`.
+      if (handle._settleCooperative('rejected')) return
       const message = err instanceof Error ? err.message : String(err)
       handle._fail(message)
     },
@@ -81,6 +95,8 @@ async function runInBackground(
   generateOptions?: GenerateOptions,
 ): Promise<void> {
   const result = await ctx.generate(messages, generateOptions)
+  // Cooperative: after a requested cancel an `aborted` result ends `cancelled`.
+  if (handle._settleCooperative(result)) return
   handle._complete(result.content, {
     totalTokens: (result.usage.totalInputTokens ?? 0) + (result.usage.totalOutputTokens ?? 0),
     // Surface the per-run memory frame on the public RunResult so callers
