@@ -19,6 +19,7 @@ export default defineConfig({
     "src/plugins.ts",
     "src/pipeline.ts",
     "src/mcp/index.ts",
+    "src/mcp-client.ts",
     "src/model.ts",
     "src/utils.ts",
     "src/middleware.ts",

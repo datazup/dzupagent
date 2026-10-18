@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-10-15
+Date: 2026-10-18
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -58,6 +58,7 @@ Root index: `packages/core/src/index.ts`
 | `@dzupagent/core/security` | security facade |
 | `@dzupagent/core/facades` | namespace facade index |
 | `@dzupagent/core/middleware` | cost/rate middleware facade (canonical model pricing, ARCH-M-08) |
+| `@dzupagent/core/mcp-client` | MCP client, connection pool, reliability manager, transport capability and stdio security helpers (B-05) |
 
 ### Root Allowlist
 
