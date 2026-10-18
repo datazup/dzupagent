@@ -20,6 +20,29 @@ export interface AgentMiddleware {
     config?: Record<string, unknown>,
   ) => Promise<BaseMessage>
 
+  /**
+   * Run after a model call — observe the response and update middleware state.
+   *
+   * Order: hooks run in REVERSE middleware order (the last middleware first,
+   * innermost to outermost), after the composed `wrapModelCall` chain has
+   * returned. A rejected model call runs no `afterModel` hook.
+   *
+   * `request` is the messages the call was made with, `response` is the
+   * message the chain returned, and `state` is the per-call middleware state
+   * (the caller's record when one is supplied, otherwise a fresh `{}`).
+   *
+   * The returned object is a PATCH: it is shallow-merged into `state` (later
+   * keys win, so an outer middleware's patch overrides an inner one's).
+   * Return nothing to contribute nothing. A throwing hook is non-fatal and
+   * contributes no patch; the hooks after it still run. The hook cannot
+   * replace the response.
+   */
+  afterModel?: (ctx: {
+    request: BaseMessage[]
+    response: BaseMessage
+    state: Record<string, unknown>
+  }) => Promise<Partial<Record<string, unknown>> | void>
+
   /** Wrap a tool call result — intercept/transform tool outputs */
   wrapToolCall?: (
     toolName: string,

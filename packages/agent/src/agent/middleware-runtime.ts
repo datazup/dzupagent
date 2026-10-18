@@ -85,13 +85,24 @@ export class AgentMiddlewareRuntime {
    *   injected into the real `model.invoke` call even when a wrapper invokes
    *   the model without forwarding options. Optional so existing callers are
    *   unaffected.
+   * @param options.state Per-call middleware state. Exposed on each wrapper's
+   *   context as `state` only when supplied, and handed to every `afterModel`
+   *   hook. Patches returned by `afterModel` are merged into this record IN
+   *   PLACE, so a caller that passes the same record on its next call carries
+   *   the patches forward. Without it, the hooks share a fresh per-call `{}`.
+   *
+   * Hook order: `beforeAgent` once per run (see `runBeforeAgentHooks`), then
+   * per model call: `wrapModelCall` outer→inner, the model, then `afterModel`
+   * inner→outer (last middleware first). A rejected call runs no `afterModel`;
+   * a throwing `afterModel` is non-fatal and contributes no patch. The
+   * response returned is the chain's own object — hooks cannot replace it.
    */
   async invokeModel(
     model: BaseChatModel,
     messages: BaseMessage[],
-    options: { signal?: AbortSignal } = {}
+    options: { signal?: AbortSignal; state?: Record<string, unknown> } = {}
   ): Promise<BaseMessage> {
-    const { signal } = options;
+    const { signal, state } = options;
     const wrappers: WrapModelCall[] = [];
     for (const middleware of this.config.middleware ?? []) {
       const wrap = middleware.wrapModelCall;
@@ -103,14 +114,16 @@ export class AgentMiddlewareRuntime {
 
     const [outermost, ...innerWrappers] = wrappers;
     if (outermost === undefined) {
-      return signal
+      const response = await (signal
         ? model.invoke(messages, { signal })
-        : model.invoke(messages);
+        : model.invoke(messages));
+      return runAfterModelHooks(this.config.middleware, messages, response, state);
     }
 
     const context: Record<string, unknown> = {
       agentId: this.config.agentId,
       ...(signal ? { signal } : {}),
+      ...(state ? { state } : {}),
     };
 
     // Innermost model: the real model, or (with a signal) a view of it whose
@@ -126,7 +139,8 @@ export class AgentMiddlewareRuntime {
       next = withInvoke(model, (msgs) => wrapper(inner, msgs, context));
     }
 
-    return outermost(next, messages, context);
+    const response = await outermost(next, messages, context);
+    return runAfterModelHooks(this.config.middleware, messages, response, state);
   }
 
   async transformToolResult(
@@ -150,6 +164,43 @@ export class AgentMiddlewareRuntime {
 
     return current;
   }
+}
+
+/**
+ * Run every defined `afterModel` hook from the last middleware to the first,
+ * shallow-merging each non-null object patch into `state` in place (a fresh
+ * `{}` when the caller passed none). A throwing hook contributes no patch and
+ * does not stop the hooks after it. Resolves to the same `response` object.
+ */
+async function runAfterModelHooks(
+  middlewares: AgentMiddleware[] = [],
+  request: BaseMessage[],
+  response: BaseMessage,
+  state: Record<string, unknown> = {}
+): Promise<BaseMessage> {
+  for (let i = middlewares.length - 1; i >= 0; i--) {
+    const middleware = middlewares[i];
+    const afterModel = middleware?.afterModel;
+    if (typeof afterModel !== "function") {
+      continue;
+    }
+
+    try {
+      // Keep the middleware as `this`, as for `wrapModelCall`.
+      const patch = await afterModel.call(middleware, {
+        request,
+        response,
+        state,
+      });
+      if (patch !== null && typeof patch === "object") {
+        Object.assign(state, patch);
+      }
+    } catch {
+      // Middleware failures are non-fatal; the state merged so far survives.
+    }
+  }
+
+  return response;
 }
 
 type WrapModelCall = NonNullable<AgentMiddleware["wrapModelCall"]>;
