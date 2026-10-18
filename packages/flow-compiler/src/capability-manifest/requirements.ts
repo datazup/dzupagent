@@ -129,6 +129,17 @@ export function resolveHostReadiness(
       const descriptor = FLOW_NODE_CAPABILITY_REGISTRY[nodeKind] as
         | (typeof FLOW_NODE_CAPABILITY_REGISTRY)[FlowNodeKind]
         | undefined;
+      // Declaring every `flow.runtime.<kind>@1` capability of a partial kind is
+      // the host's statement that it executes that kind itself, so the
+      // degraded generic lowering does not block a release surface. An empty
+      // capability list never counts as such a declaration.
+      const runtimeCapabilities = descriptor?.runtimeCapabilities ?? [];
+      if (
+        runtimeCapabilities.length > 0 &&
+        runtimeCapabilities.every((capability) => hostCapabilities.has(capability))
+      ) {
+        continue;
+      }
       const detail = descriptor?.notes !== undefined ? ` ${descriptor.notes}` : "";
       diagnostics.push({
         code: "PARTIAL_NODE",

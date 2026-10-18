@@ -223,39 +223,152 @@ describe("host readiness gates", () => {
     ]);
   });
 
-  it("blocks partial node kinds only under the release-strict profile", () => {
+  it("blocks a partial node kind under release-strict unless the host declares its runtime capability, which is the host's statement that it executes the kind", () => {
     const requirements = collectFlowRequirements({
       type: "loop",
       condition: "{{ state.keepGoing }}",
       body: [{ type: "action", toolRef: "test.run", input: {} }],
     });
     expect(requirements.partialNodeKinds).toEqual(["loop"]);
+    expect(requirements.requiredCapabilities).toContain("flow.runtime.loop@1");
 
+    // The host accepts the target and every required capability except the
+    // loop runtime capability, so it does not claim to execute loops itself.
     const host = {
       schema: "dzupagent.hostCapabilityManifest/v1" as const,
       host: "fixture-host",
       version: "1.0.0",
       targets: [requirements.target],
-      capabilities: [...requirements.requiredCapabilities],
+      capabilities: requirements.requiredCapabilities.filter(
+        (capability) => capability !== "flow.runtime.loop@1",
+      ),
     };
 
-    // Same requirements + same host: default profile passes, so the profile
-    // switch is the only varied dimension.
-    expect(resolveHostReadiness(requirements, host).status).toBe("ready");
+    // Default profile: only the missing capability string blocks; partial
+    // kinds are never reported.
+    const fallback = resolveHostReadiness(requirements, host);
+    expect(fallback.status).toBe("blocked");
+    expect(fallback.diagnostics).toEqual([
+      expect.objectContaining({
+        code: "MISSING_CAPABILITY",
+        capability: "flow.runtime.loop@1",
+      }),
+    ]);
 
     const strict = resolveHostReadiness(requirements, host, {
       profile: "release-strict",
     });
     expect(strict.status).toBe("blocked");
-    expect(strict.diagnostics).toEqual([
-      expect.objectContaining({
-        code: "PARTIAL_NODE",
-        nodeKind: "loop",
-        message: expect.stringContaining("release-strict"),
-      }),
-    ]);
-    expect(strict.diagnostics[0]?.message).toContain(
-      "authored condition is runtime-owned",
+    expect(strict.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "MISSING_CAPABILITY",
+          capability: "flow.runtime.loop@1",
+        }),
+        expect.objectContaining({
+          code: "PARTIAL_NODE",
+          nodeKind: "loop",
+          message: expect.stringContaining("release-strict"),
+        }),
+      ]),
     );
+    const partial = strict.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "PARTIAL_NODE",
+    );
+    expect(partial).toHaveLength(1);
+    expect(partial[0]?.message).toContain("authored condition is runtime-owned");
+  });
+
+  describe("release-strict runtime capability skip for emit", () => {
+    const emitRequirements = collectFlowRequirements({
+      type: "emit",
+      event: "flow.completed",
+      payload: { ok: true },
+    });
+
+    const partialEmitDiagnostics = (
+      diagnostics: ReturnType<typeof resolveHostReadiness>["diagnostics"],
+    ) =>
+      diagnostics.filter(
+        (diagnostic) =>
+          diagnostic.code === "PARTIAL_NODE" && diagnostic.nodeKind === "emit",
+      );
+
+    it("treats emit as partial and requires its runtime capability", () => {
+      expect(emitRequirements.partialNodeKinds).toEqual(["emit"]);
+      expect(emitRequirements.requiredCapabilities).toContain(
+        "flow.runtime.emit@1",
+      );
+    });
+
+    it("skips PARTIAL_NODE for emit when the host declares flow.runtime.emit@1 and the other required capabilities", () => {
+      const host = {
+        schema: "dzupagent.hostCapabilityManifest/v1" as const,
+        host: "emit-executing-host",
+        version: "1.0.0",
+        targets: [emitRequirements.target],
+        capabilities: [...emitRequirements.requiredCapabilities],
+      };
+      expect(host.capabilities).toContain("flow.runtime.emit@1");
+
+      const strict = resolveHostReadiness(emitRequirements, host, {
+        profile: "release-strict",
+      });
+      expect(partialEmitDiagnostics(strict.diagnostics)).toEqual([]);
+      expect(
+        strict.diagnostics.filter(
+          (diagnostic) =>
+            (diagnostic.code as string) === "HOST_EXECUTED_PARTIAL_NODE",
+        ),
+      ).toEqual([]);
+      expect(strict.status).toBe("ready");
+      expect(strict.diagnostics).toEqual([]);
+    });
+
+    it("still blocks emit under release-strict against DZUPAGENT_PIPELINE_HOST_MANIFEST", () => {
+      expect(DZUPAGENT_PIPELINE_HOST_MANIFEST.capabilities).not.toContain(
+        "flow.runtime.emit@1",
+      );
+      const strict = resolveHostReadiness(
+        emitRequirements,
+        DZUPAGENT_PIPELINE_HOST_MANIFEST,
+        { profile: "release-strict" },
+      );
+      expect(strict.status).toBe("blocked");
+      expect(partialEmitDiagnostics(strict.diagnostics)).toEqual([
+        expect.objectContaining({
+          code: "PARTIAL_NODE",
+          nodeKind: "emit",
+          message: expect.stringContaining("release-strict"),
+        }),
+      ]);
+    });
+
+    it("still blocks emit under release-strict when the host omits flow.runtime.emit@1", () => {
+      const host = {
+        schema: "dzupagent.hostCapabilityManifest/v1" as const,
+        host: "emit-unaware-host",
+        version: "1.0.0",
+        targets: [emitRequirements.target],
+        capabilities: emitRequirements.requiredCapabilities.filter(
+          (capability) => capability !== "flow.runtime.emit@1",
+        ),
+      };
+
+      const strict = resolveHostReadiness(emitRequirements, host, {
+        profile: "release-strict",
+      });
+      expect(strict.status).toBe("blocked");
+      expect(strict.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: "MISSING_CAPABILITY",
+            capability: "flow.runtime.emit@1",
+          }),
+          expect.objectContaining({ code: "PARTIAL_NODE", nodeKind: "emit" }),
+        ]),
+      );
+      expect(partialEmitDiagnostics(strict.diagnostics)).toHaveLength(1);
+    });
   });
 });
