@@ -100,7 +100,7 @@ describe.skipIf(integrationGate.shouldSkip)('drizzle migration journal against P
         await client.end().catch(() => undefined)
         const startingUp = (error as { code?: string }).code === '57P03'
         if (!startingUp || attempt >= 60) throw error
-        // sleep-ok: real container readiness backoff; fake timers cannot advance an external Postgres restart
+        // eslint-disable-next-line no-restricted-syntax -- sleep-ok: real container readiness backoff; fake timers cannot advance an external Postgres restart
         await new Promise((resolve) => setTimeout(resolve, 500))
       }
     }

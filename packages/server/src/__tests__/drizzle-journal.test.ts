@@ -83,7 +83,7 @@ async function appliedTags(lastCreatedAt: number | undefined): Promise<string[]>
   await dialect.migrate(
     readMigrationFiles({ migrationsFolder }),
     session as unknown as Parameters<PgDialect['migrate']>[1],
-    {},
+    { migrationsFolder },
   )
   return applied
 }
