@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { spawnSync } from 'node:child_process'
@@ -11,7 +12,7 @@ const turbo = require.resolve('@turbo/linux-64/bin/turbo')
 const config = JSON.parse(fs.readFileSync(fileURLToPath(new URL('../../turbo.json', import.meta.url)), 'utf8'))
 
 test('strict Turbo tasks preserve the qualified private Yarn install-state path', t => {
-  const root = fs.mkdtempSync('/data/storage/datazup-runtime/ninel/evidence/turbo-carrier-environment-')
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'turbo-carrier-environment-'))
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   const deadline = Date.now() + 60000
   for (const name of ['bin', 'home', 'tmp', 'cache']) fs.mkdirSync(path.join(root, name), { mode: 0o700 })
