@@ -14,7 +14,6 @@ import type {
   CompilationTargetReason,
   CompilationWarning,
   CompileFailure,
-  CompileInvocationOptions,
   CompileSuccess,
   FlowCompileEvidence,
   PersonaResolver,
@@ -26,7 +25,6 @@ import type { RunEventStore } from '@dzupagent/agent-adapters/runs'
 import type { EventGateway } from '../../events/event-gateway.js'
 import type { PersonaStore } from '../../personas/persona-store.js'
 import { getSerializedJsonSizeBytes } from '../../validation/route-validator.js'
-import type { NormalizedCompileInput } from '../compile-input.js'
 import { buildCompileResultEvent } from '../compile-result-event.js'
 
 /** Allowed compilation targets — mirrors `CompilationTarget` in flow-compiler. */
@@ -237,27 +235,11 @@ export function isCompileSuccessResult(value: StreamCompileResult): value is Com
   return !isStreamErrorResult(value) && !('errors' in value)
 }
 
-export function makeCompileInvocationOptions(
-  body: CompileRequestBody,
-  input: NormalizedCompileInput,
-  runId: string,
-): CompileInvocationOptions {
-  const source =
-    input.kind === 'dsl' ? body.dsl
-      : input.kind === 'document' ? body.document
-      : body.flow
-  const correlation = runId ? { eventCorrelationId: runId, runId } : undefined
-
-  return {
-    sourceKind:
-      input.kind === 'dsl' ? 'dzupflow-dsl'
-        : input.kind === 'document' ? 'flow-document'
-        : typeof input.flowInput === 'string' ? 'flow-json-string'
-          : 'flow-object',
-    source,
-    ...(correlation ? { correlation } : {}),
-  }
-}
+/**
+ * Re-exported from `../compile-input.js` so `/compile` and `/workflows/execute`
+ * build compiler invocation options through one implementation.
+ */
+export { makeCompileInvocationOptions } from '../compile-input.js'
 
 export function publishToGateway(config: CompileRouteConfig, event: DzupEvent): void {
   try {

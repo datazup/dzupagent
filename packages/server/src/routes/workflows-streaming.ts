@@ -3,7 +3,9 @@
  *
  * Pipeline:
  *   1. Validate `flow` is a JSON-parseable string or object.
- *   2. Compile via `createFlowCompiler` with the configured tool/persona resolvers.
+ *   2. Compile via `createFlowCompiler` with the configured tool/persona resolvers,
+ *      through the same `compileNormalizedInput` path as POST /compile (DSL
+ *      reaches `compileDsl`), projecting failure diagnostics like /compile.
  *   3. Enforce skill-chain target (only skill-chain artifacts are executable here).
  *   4. Hand the lowered `SkillChain` to `SkillChainExecutor.execute` (JSON branch)
  *      or `SkillChainExecutor.stream` (SSE branch — selected by Accept header).
@@ -13,9 +15,14 @@ import { streamSSE } from 'hono/streaming'
 import { secureLogger } from '@dzupagent/core/utils'
 import type { SkillChain } from '@dzupagent/core/pipeline'
 import { SkillChainExecutor } from '@dzupagent/agent/workflow'
-import { createFlowCompiler } from '@dzupagent/flow-compiler'
+import { createFlowCompiler, type CompileResult } from '@dzupagent/flow-compiler'
 import { sanitizeError } from './route-error.js'
-import { normalizeCompileInput } from './compile-input.js'
+import {
+  compileNormalizedInput,
+  makeCompileInvocationOptions,
+  normalizeCompileInput,
+} from './compile-input.js'
+import { logInternalCompileDiagnostics, toPublicCompileDiagnostic } from './compile/shared.js'
 import {
   type ExecuteWorkflowBody,
   type WorkflowRouteConfig,
@@ -88,9 +95,16 @@ export async function executeCompiledFlow(
     ...(effectivePersonaResolver ? { personaResolver: effectivePersonaResolver } : {}),
   })
 
-  let compileResult: Awaited<ReturnType<typeof compiler.compile>>
+  // Same input path as POST /compile: DSL goes to `compileDsl` with the raw
+  // source so the dzupflow/v2 retry, catch and policy gates apply. Execute
+  // carries no run correlation, hence the empty runId.
+  let compileResult: CompileResult
   try {
-    compileResult = await compiler.compile(flowInput)
+    compileResult = await compileNormalizedInput(
+      compiler,
+      flowInput,
+      makeCompileInvocationOptions(body, normalizedInput.value, ''),
+    )
   } catch (err) {
     const { safe, internal } = sanitizeError(err)
     secureLogger.error(`[workflows] execute compile: ${internal}`)
@@ -101,18 +115,26 @@ export async function executeCompiledFlow(
   }
 
   if ('errors' in compileResult) {
-    const firstStage = compileResult.errors[0]?.stage ?? 1
+    // DZUPAGENT-ERR-H-02 (shared with /compile): infrastructure diagnostics
+    // are logged with their original text, redacted in the response and
+    // reported as 500; authored-flow diagnostics stay 400.
+    const infrastructure = logInternalCompileDiagnostics(
+      compileResult.errors,
+      compileResult.compileId,
+    )
+    const errors = compileResult.errors.map(toPublicCompileDiagnostic)
+    const firstStage = errors[0]?.stage ?? 1
     return c.json(
       {
         error: {
           code: 'COMPILE_ERROR',
-          message: compileResult.errors.map((e) => e.message).join('; '),
+          message: errors.map((e) => e.message).join('; '),
           stage: firstStage,
           compileId: compileResult.compileId,
-          errors: compileResult.errors,
+          errors,
         },
       },
-      400,
+      infrastructure ? 500 : 400,
     )
   }
 

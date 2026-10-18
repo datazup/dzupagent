@@ -6,6 +6,14 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createForgeApp, type ForgeServerConfig } from '../app.js'
 import { InMemoryPersonaStore } from '../personas/persona-store.js'
+import {
+  makeCompileInvocationOptions as makeOptionsFromCompileInput,
+  normalizeCompileInput,
+} from '../routes/compile-input.js'
+import {
+  INTERNAL_COMPILE_DIAGNOSTIC_MESSAGE,
+  makeCompileInvocationOptions as makeOptionsFromCompileShared,
+} from '../routes/compile/shared.js'
 import type * as FlowCompilerModule from '@dzupagent/flow-compiler'
 import {
   InMemoryRunStore,
@@ -24,14 +32,17 @@ import type { AppEnv } from '../types.js'
 // Mock @dzupagent/flow-compiler
 //
 // The compiled-flow branch of POST /api/workflows/execute calls
-// `createFlowCompiler(...).compile(flow)`. We stub that so the tests never
-// instantiate a real compiler — they just feed predetermined results.
+// `createFlowCompiler(...)` and then `compile(flow)` for flow/document input or
+// `compileDsl(source)` for DSL input. We stub both so the tests feed
+// predetermined results; the v2 retry test opts into the real compiler.
 //
 // Textual workflow tests never touch this module, so the mock stays idle for
 // them. `mockCompile.mockResolvedValueOnce(...)` is used per-test to set up
 // the compile outcome.
 // ---------------------------------------------------------------------------
 const mockCompile = vi.fn()
+/** DSL inputs reach `compileDsl` (shared compile-input path), not `compile`. */
+const mockCompileDsl = vi.fn()
 /**
  * The real `createFlowCompiler` takes exactly one `CompilerOptions` argument.
  * Declaring it here — rather than leaving `vi.fn()` at zero parameters — is
@@ -42,9 +53,12 @@ type FlowCompilerOptions = Parameters<
   typeof FlowCompilerModule.createFlowCompiler
 >[0]
 
-const mockCreateFlowCompiler = vi.fn((_opts: FlowCompilerOptions) => ({
-  compile: mockCompile,
-}))
+const mockCreateFlowCompiler = vi.fn(
+  (_opts: FlowCompilerOptions): Partial<Pick<FlowCompilerModule.FlowCompiler, 'compile' | 'compileDsl'>> => ({
+    compile: mockCompile,
+    compileDsl: mockCompileDsl,
+  }),
+)
 
 vi.mock('@dzupagent/flow-compiler', async (importOriginal) => {
   const actual = await importOriginal<typeof FlowCompilerModule>()
@@ -335,6 +349,7 @@ describe('Workflow routes', () => {
   describe('POST /api/workflows/execute (compiled flow)', () => {
     beforeEach(() => {
       mockCompile.mockReset()
+      mockCompileDsl.mockReset()
       mockCreateFlowCompiler.mockClear()
     })
 
@@ -409,13 +424,11 @@ describe('Workflow routes', () => {
       expect(res.status).toBe(200)
     })
 
-    it('accepts dzupflow DSL input and compiles the normalized root flow', async () => {
-      mockCompile.mockResolvedValueOnce(
+    it('accepts dzupflow DSL input and compiles the raw source through compileDsl', async () => {
+      mockCompileDsl.mockResolvedValueOnce(
         successCompile([{ skillName: 'summarize' }]),
       )
-
-      const res = await req(app, 'POST', '/api/workflows/execute', {
-        dsl: `
+      const dsl = `
 dsl: dzupflow/v1
 id: review_and_build
 version: 1
@@ -423,16 +436,122 @@ steps:
   - complete:
       id: done
       result: ok
+`
+
+      const res = await req(app, 'POST', '/api/workflows/execute', { dsl })
+      expect(res.status).toBe(200)
+      // The raw DSL text reaches compileDsl (no run correlation on execute);
+      // the lossy compile(flowInput) projection is never used for DSL.
+      expect(mockCompileDsl).toHaveBeenCalledTimes(1)
+      expect(mockCompileDsl.mock.calls[0]![0]).toBe(dsl)
+      expect(mockCompileDsl).toHaveBeenCalledWith(dsl, {})
+      expect(mockCompile).not.toHaveBeenCalled()
+    })
+
+    it('400 — a block-style dzupflow/v2 retry DSL reaches the V2 target gate (real compiler)', async () => {
+      const actual = await vi.importActual<typeof FlowCompilerModule>('@dzupagent/flow-compiler')
+      mockCreateFlowCompiler.mockImplementationOnce((cfg: FlowCompilerOptions) => actual.createFlowCompiler(cfg))
+
+      const res = await req(app, 'POST', '/api/workflows/execute', {
+        dsl: `
+dsl: dzupflow/v2
+id: retry-aware
+version: 2.0.0
+steps:
+  - id: draft
+    use: adapter.run@1
+    with:
+      provider: codex
+      instructions: Draft.
+    retry:
+      match:
+        - ADAPTER_FAILED
+      maxAttempts: 3
+    save:
+      result: state.draft
 `,
       })
-      expect(res.status).toBe(200)
-      expect(mockCompile).toHaveBeenCalledWith({
-        type: 'sequence',
-        id: 'root',
-        nodes: [
-          { type: 'complete', id: 'done', result: 'ok' },
+      expect(res.status).toBe(400)
+      const json = (await res.json()) as {
+        error: { code: string; errors: Array<{ code?: string; nodePath?: string }> }
+      }
+      expect(json.error.code).toBe('COMPILE_ERROR')
+      expect(json.error.errors).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: 'V2_RETRY_TARGET_UNSUPPORTED', nodePath: 'root.steps[0].retry' }),
+      ]))
+    })
+
+    it('500 — redacts infrastructure compile diagnostics like /compile (DZUPAGENT-ERR-H-02)', async () => {
+      const secret = 'tool catalog db password=hunter2 at 10.0.0.7'
+      mockCompile.mockResolvedValueOnce({
+        errors: [
+          {
+            stage: 3,
+            code: 'TOOL_RESOLVER_INFRA_ERROR',
+            category: 'internal',
+            message: secret,
+            suggestion: `Retry after fixing: ${secret}`,
+            nodePath: 'root',
+          },
         ],
+        compileId: 'cid-infra-1',
       })
+
+      const res = await req(app, 'POST', '/api/workflows/execute', {
+        flow: { type: 'action', tool: 'summarize' },
+      })
+      expect(res.status).toBe(500)
+      const raw = await res.text()
+      expect(raw).not.toContain('hunter2')
+      expect(raw).not.toContain(secret)
+      const json = JSON.parse(raw) as {
+        error: {
+          code: string
+          message: string
+          compileId: string
+          errors: Array<{ code?: string; message: string; suggestion?: string }>
+        }
+      }
+      expect(json.error.code).toBe('COMPILE_ERROR')
+      expect(json.error.compileId).toBe('cid-infra-1')
+      expect(json.error.message).toBe(INTERNAL_COMPILE_DIAGNOSTIC_MESSAGE)
+      expect(json.error.errors).toHaveLength(1)
+      expect(json.error.errors[0]!.code).toBe('TOOL_RESOLVER_INFRA_ERROR')
+      expect(json.error.errors[0]!.message).toBe(INTERNAL_COMPILE_DIAGNOSTIC_MESSAGE)
+      expect(json.error.errors[0]!.suggestion).toBeUndefined()
+    })
+
+    it('500 — redacts a diagnostic whose code ends in _INFRA_ERROR even without category', async () => {
+      mockCompile.mockResolvedValueOnce({
+        errors: [
+          { stage: 3, code: 'PERSONA_RESOLVER_INFRA_ERROR', message: 'secret persona store detail', nodePath: 'root' },
+        ],
+        compileId: 'cid-infra-2',
+      })
+
+      const res = await req(app, 'POST', '/api/workflows/execute', {
+        flow: { type: 'action', tool: 'summarize' },
+      })
+      expect(res.status).toBe(500)
+      const raw = await res.text()
+      expect(raw).not.toContain('secret persona store detail')
+      const json = JSON.parse(raw) as { error: { code: string; errors: Array<{ message: string }> } }
+      expect(json.error.code).toBe('COMPILE_ERROR')
+      expect(json.error.errors[0]!.message).toBe(INTERNAL_COMPILE_DIAGNOSTIC_MESSAGE)
+    })
+
+    it('shares makeCompileInvocationOptions with /compile and builds uncorrelated DSL options', () => {
+      expect(makeOptionsFromCompileShared).toBe(makeOptionsFromCompileInput)
+
+      const dsl = 'dsl: dzupflow/v1\nid: shared\nversion: 1\nsteps:\n  - complete:\n      id: done\n      result: ok\n'
+      const body = { dsl }
+      const normalized = normalizeCompileInput(body)
+      expect(normalized.ok).toBe(true)
+      if (!normalized.ok) return
+
+      const options = makeOptionsFromCompileInput(body, normalized.value, '')
+      expect(options).toStrictEqual({ sourceKind: 'dzupflow-dsl', source: dsl })
+      expect('correlation' in options).toBe(false)
     })
 
     it('returns 400 when both text and flow are provided', async () => {

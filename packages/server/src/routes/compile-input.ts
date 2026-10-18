@@ -73,6 +73,34 @@ export function normalizeCompileInput(
 }
 
 /**
+ * Build the compiler invocation options for a normalized request input. The
+ * authored source (raw DSL text, document, or flow) travels with its kind so
+ * `compileNormalizedInput` can route DSL to `compileDsl`. A non-empty `runId`
+ * becomes the run correlation; `''` means no correlation.
+ */
+export function makeCompileInvocationOptions(
+  body: CompileInputPayload,
+  input: NormalizedCompileInput,
+  runId: string,
+): CompileInvocationOptions {
+  const source =
+    input.kind === 'dsl' ? body.dsl
+      : input.kind === 'document' ? body.document
+      : body.flow
+  const correlation = runId ? { eventCorrelationId: runId, runId } : undefined
+
+  return {
+    sourceKind:
+      input.kind === 'dsl' ? 'dzupflow-dsl'
+        : input.kind === 'document' ? 'flow-document'
+        : typeof input.flowInput === 'string' ? 'flow-json-string'
+          : 'flow-object',
+    source,
+    ...(correlation ? { correlation } : {}),
+  }
+}
+
+/**
  * Compile a normalized request input. DSL sources go through `compileDsl`, the
  * only entry that carries the dzupflow/v2 frontend metadata (retry, catch,
  * policy, multi-port save) and the F-R4 durability gate to the target gates;
