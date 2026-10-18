@@ -14,13 +14,17 @@ import { delay } from '../../utils/abortable-delay.js'
 function makeCountingSignal(): { signal: AbortSignal; count: () => number; abort: () => void } {
   const ctrl = new AbortController()
   let attached = 0
+  // Listener/option types come from the signal's own declaration (Node's
+  // EventTarget), not from the DOM lib, which this package does not load.
+  type AddParams = Parameters<typeof ctrl.signal.addEventListener>
+  type RemoveParams = Parameters<typeof ctrl.signal.removeEventListener>
   const origAdd = ctrl.signal.addEventListener.bind(ctrl.signal)
   const origRemove = ctrl.signal.removeEventListener.bind(ctrl.signal)
-  ctrl.signal.addEventListener = ((type: string, listener: EventListenerOrEventListenerObject, opts?: AddEventListenerOptions | boolean) => {
+  ctrl.signal.addEventListener = ((type: string, listener: AddParams[1], opts?: AddParams[2]) => {
     if (type === 'abort') attached++
     return origAdd(type, listener, opts)
   }) as typeof ctrl.signal.addEventListener
-  ctrl.signal.removeEventListener = ((type: string, listener: EventListenerOrEventListenerObject, opts?: EventListenerOptions | boolean) => {
+  ctrl.signal.removeEventListener = ((type: string, listener: RemoveParams[1], opts?: RemoveParams[2]) => {
     if (type === 'abort') attached--
     return origRemove(type, listener, opts)
   }) as typeof ctrl.signal.removeEventListener
