@@ -1,7 +1,24 @@
+/**
+ * `content` lines carry structure. `blank` (whitespace-only) and `comment`
+ * (whole-line `#`) lines are kept as flagged tokens so literal block scalars
+ * can preserve them; every structural parser skips them via `skipFlagged`.
+ */
+type YamlLineKind = "content" | "blank" | "comment";
+
 interface YamlLine {
+  kind: YamlLineKind;
   indent: number;
   content: string;
   lineNo: number;
+}
+
+/** First index at or after `index` that holds a structural (content) line. */
+function skipFlagged(lines: YamlLine[], index: number): number {
+  let cursor = index;
+  while (cursor < lines.length && lines[cursor]!.kind !== "content") {
+    cursor += 1;
+  }
+  return cursor;
 }
 
 export interface YamlParseError {
@@ -85,14 +102,20 @@ export function parseYamlSubset(source: string): YamlParseResult {
   const lines = tokenize(source);
   if (!lines.ok) return lines;
   const normalizedLines = lines.value;
-  if (normalizedLines.length === 0) {
+  const rootIndex = skipFlagged(normalizedLines, 0);
+  if (rootIndex === normalizedLines.length) {
     return { ok: true, value: {} };
   }
 
-  const parsed = parseBlock(normalizedLines, 0, normalizedLines[0]!.indent);
+  const parsed = parseBlock(
+    normalizedLines,
+    rootIndex,
+    normalizedLines[rootIndex]!.indent,
+  );
   if (!parsed.ok) return parsed;
-  if (parsed.nextIndex !== normalizedLines.length) {
-    const next = normalizedLines[parsed.nextIndex]!;
+  const trailingIndex = skipFlagged(normalizedLines, parsed.nextIndex);
+  if (trailingIndex !== normalizedLines.length) {
+    const next = normalizedLines[trailingIndex]!;
     return {
       ok: false,
       errors: [
@@ -125,9 +148,14 @@ function tokenize(source: string): TokenizeResult {
       continue;
     }
     const trimmed = raw.trim();
-    if (trimmed.length === 0 || trimmed.startsWith("#")) continue;
+    const kind: YamlLineKind =
+      trimmed.length === 0
+        ? "blank"
+        : trimmed.startsWith("#")
+          ? "comment"
+          : "content";
     const indent = raw.match(/^ */)?.[0].length ?? 0;
-    lines.push({ indent, content: raw.slice(indent), lineNo: index + 1 });
+    lines.push({ kind, indent, content: raw.slice(indent), lineNo: index + 1 });
   }
 
   if (errors.length > 0) return { ok: false, errors };
@@ -143,8 +171,9 @@ function parseBlock(
   startIndex: number,
   indent: number
 ): BlockParseResult {
-  const current = lines[startIndex];
-  if (!current) return { ok: true, value: {}, nextIndex: startIndex };
+  const blockIndex = skipFlagged(lines, startIndex);
+  const current = lines[blockIndex];
+  if (!current) return { ok: true, value: {}, nextIndex: blockIndex };
   if (current.indent !== indent) {
     return {
       ok: false,
@@ -159,9 +188,9 @@ function parseBlock(
     };
   }
   if (current.content === "-" || current.content.startsWith("- ")) {
-    return parseSequence(lines, startIndex, indent);
+    return parseSequence(lines, blockIndex, indent);
   }
-  return parseMapping(lines, startIndex, indent);
+  return parseMapping(lines, blockIndex, indent);
 }
 
 function parseSequence(
@@ -170,9 +199,9 @@ function parseSequence(
   indent: number
 ): BlockParseResult {
   const items: unknown[] = [];
-  let index = startIndex;
+  let index = skipFlagged(lines, startIndex);
 
-  while (index < lines.length) {
+  for (; index < lines.length; index = skipFlagged(lines, index)) {
     const line = lines[index]!;
     if (line.indent < indent) break;
     if (line.indent !== indent) {
@@ -249,7 +278,8 @@ function parseSequenceMappingContinuation(
   sequenceIndent: number,
   item: Record<string, unknown>,
 ): BlockParseResult {
-  const next = lines[startIndex];
+  const nextIndex = skipFlagged(lines, startIndex);
+  const next = lines[nextIndex];
   if (
     next === undefined ||
     next.indent !== sequenceIndent + 2 ||
@@ -258,7 +288,7 @@ function parseSequenceMappingContinuation(
   ) {
     return { ok: true, value: item, nextIndex: startIndex };
   }
-  const continuation = parseMapping(lines, startIndex, sequenceIndent + 2);
+  const continuation = parseMapping(lines, nextIndex, sequenceIndent + 2);
   if (!continuation.ok) return continuation;
   return {
     ok: true,
@@ -276,9 +306,9 @@ function parseMapping(
   indent: number
 ): BlockParseResult {
   const obj: Record<string, unknown> = {};
-  let index = startIndex;
+  let index = skipFlagged(lines, startIndex);
 
-  while (index < lines.length) {
+  for (; index < lines.length; index = skipFlagged(lines, index)) {
     const line = lines[index]!;
     if (line.indent < indent) break;
     if (line.indent !== indent) {
@@ -329,12 +359,20 @@ function parseNested(
   startIndex: number,
   indent: number
 ): BlockParseResult {
-  const next = lines[startIndex];
+  const nextIndex = skipFlagged(lines, startIndex);
+  const next = lines[nextIndex];
   if (!next || next.indent < indent)
     return { ok: true, value: {}, nextIndex: startIndex };
-  return parseBlock(lines, startIndex, indent);
+  return parseBlock(lines, nextIndex, indent);
 }
 
+/**
+ * Literal (`|`) block scalar with clip chomping minus the final newline.
+ * Blank lines become empty lines and never end the block; `#` lines at or
+ * beyond the block indent are content (YAML has no comments inside block
+ * scalars); a less-indented comment or content line ends the block. Trailing
+ * empty lines are clipped.
+ */
 function parseLiteralBlock(
   lines: YamlLine[],
   startIndex: number,
@@ -344,9 +382,17 @@ function parseLiteralBlock(
   let index = startIndex;
   while (index < lines.length) {
     const line = lines[index]!;
+    if (line.kind === "blank") {
+      chunks.push("");
+      index += 1;
+      continue;
+    }
     if (line.indent < indent) break;
     chunks.push(`${" ".repeat(line.indent - indent)}${line.content}`);
     index += 1;
+  }
+  while (chunks.length > 0 && chunks[chunks.length - 1] === "") {
+    chunks.pop();
   }
   return { value: chunks.join("\n"), nextIndex: index };
 }

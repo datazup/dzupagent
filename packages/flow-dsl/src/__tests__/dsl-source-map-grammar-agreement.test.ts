@@ -90,6 +90,19 @@ describe("dual-parse grammar agreement (ARCH27-T-12)", () => {
       expect(rejected.diagnostic.code).toBe("MINI_YAML_REJECTED");
   });
 
+  it("agrees on literal blocks with an inner blank line and a # line", () => {
+    const source = "dsl: dzupflow/v1\nname: probe\ndesc: |\n  a\n\n  ## H\n  b\n";
+    const mini = parseYamlSubset(source);
+    expect(mini.ok).toBe(true);
+    if (mini.ok) {
+      expect((mini.value as Record<string, unknown>)["desc"]).toBe(
+        "a\n\n## H\nb",
+      );
+    }
+    const result = createDslSourceMapWithDiagnostics(source);
+    expect(result.ok).toBe(true);
+  });
+
   it("still builds maps for agreeing documents", () => {
     const source = "dsl: dzupflow/v1\nname: probe\nsteps:\n  - id: one\n";
     const result = createDslSourceMapWithDiagnostics(source);

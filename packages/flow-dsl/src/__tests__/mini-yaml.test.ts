@@ -180,6 +180,82 @@ describe('parseYamlSubset', () => {
         },
       })
     })
+
+    it('keeps an inner blank line', () => {
+      const result = parseYamlSubset('desc: |\n  a\n\n  b')
+      expect(result).toEqual({ ok: true, value: { desc: 'a\n\nb' } })
+    })
+
+    it('keeps a # line at block indent as content', () => {
+      const result = parseYamlSubset('body: |\n  ## H\n  text\nnext: true')
+      expect(result).toEqual({
+        ok: true,
+        value: { body: '## H\ntext', next: true },
+      })
+    })
+
+    it('keeps extra indentation on a deeper # line', () => {
+      const result = parseYamlSubset('body: |\n  a\n    # deep\n  b')
+      expect(result).toEqual({ ok: true, value: { body: 'a\n  # deep\nb' } })
+    })
+
+    it('still ignores whole-line comments between mapping keys', () => {
+      expect(parseYamlSubset('a: 1\n# note\nb: 2')).toEqual({
+        ok: true,
+        value: { a: 1, b: 2 },
+      })
+      expect(parseYamlSubset('desc: |\n  x\n# note\nnext: true')).toEqual({
+        ok: true,
+        value: { desc: 'x', next: true },
+      })
+    })
+
+    it('still clips trailing blank lines with no trailing newline', () => {
+      expect(parseYamlSubset('desc: |\n  a\n\n\nnext: 1')).toEqual({
+        ok: true,
+        value: { desc: 'a', next: 1 },
+      })
+      expect(parseYamlSubset('desc: |\n  a\n\n')).toEqual({
+        ok: true,
+        value: { desc: 'a' },
+      })
+    })
+
+    it('keeps an inner blank line in a sequence-item literal block', () => {
+      const source = 'steps:\n  - prompt: |\n      a\n\n      b\n    id: s1'
+      expect(parseYamlSubset(source)).toEqual({
+        ok: true,
+        value: { steps: [{ prompt: 'a\n\nb', id: 's1' }] },
+      })
+    })
+
+    it('ignores blank and comment lines around nested structure', () => {
+      const source = [
+        '# header',
+        '',
+        'steps:',
+        '',
+        '  # first step',
+        '  - id: one',
+        '',
+        '    # field comment',
+        '    kind: x',
+        '',
+        '  - id: two',
+        'meta:',
+        '  # nested',
+        '  owner: me',
+        '# footer',
+        '',
+      ].join('\n')
+      expect(parseYamlSubset(source)).toEqual({
+        ok: true,
+        value: {
+          steps: [{ id: 'one', kind: 'x' }, { id: 'two' }],
+          meta: { owner: 'me' },
+        },
+      })
+    })
   })
 
   describe('quoted scalar escapes', () => {
