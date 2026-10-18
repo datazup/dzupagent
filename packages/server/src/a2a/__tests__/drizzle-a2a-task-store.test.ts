@@ -433,7 +433,7 @@ describe('Agent card schema', () => {
 
     const res = await app.request('/.well-known/agent.json')
     expect(res.status).toBe(200)
-    const card = await res.json()
+    const card = (await res.json()) as ReturnType<typeof buildAgentCard>
     expect(card).toHaveProperty('name', 'test-server')
     expect(card).toHaveProperty('capabilities')
     expect(card.capabilities).toHaveLength(2)

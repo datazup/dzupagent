@@ -8,8 +8,23 @@ function makeApp() {
   return { app, store }
 }
 
-async function json(res: Response) {
-  return res.json()
+/**
+ * The response fields these assertions read. Node's fetch types declare
+ * `Response.json()` as `Promise<unknown>`; the DOM lib (where it is `any`) is
+ * not part of this package's types, so the body shape is stated here.
+ */
+interface PromptRouteBody {
+  id: string
+  name: string
+  type: string
+  status: string
+  version: number
+  prompts: Array<{ type: string }>
+  deleted: boolean
+}
+
+async function json(res: Response): Promise<PromptRouteBody> {
+  return (await res.json()) as PromptRouteBody
 }
 
 describe('Prompt routes', () => {
@@ -91,7 +106,7 @@ describe('Prompt routes', () => {
       const res = await app.request('/?type=system')
       const body = await json(res)
       expect(body.prompts).toHaveLength(1)
-      expect(body.prompts[0].type).toBe('system')
+      expect(body.prompts[0]?.type).toBe('system')
     })
   })
 

@@ -164,7 +164,7 @@ describe('compile route — RunEventStore persistence', () => {
     const res = await postCompile(app, makeFlowBody())
 
     expect(res.status).toBe(200)
-    const json = await res.json()
+    const json = (await res.json()) as { compileId: string; target: string }
     expect(json.compileId).toBe(SUCCESS_RESULT.compileId)
     expect(json.target).toBe('skill-chain')
   })
@@ -177,7 +177,7 @@ describe('compile route — RunEventStore persistence', () => {
     const res = await postCompile(app, makeFlowBody())
 
     expect(res.status).toBe(200)
-    const json = await res.json()
+    const json = (await res.json()) as { compileId: string; target: string }
     expect(json.compileId).toBe(SUCCESS_RESULT.compileId)
 
     // Allow the fire-and-forget promise to settle
