@@ -485,13 +485,16 @@ describe("F-R4 — loop typed-condition admission", () => {
   });
 
   describe("requirements and host readiness", () => {
-    const typedLoop = {
+    const untypedLoop = {
       type: "loop",
       id: "retry",
       condition: "false",
-      typedCondition: JSON.parse(TYPED_JSON),
       maxIterations: 3,
       body: [{ type: "set", id: "mark", assign: { observed: true } }],
+    } as FlowNode;
+    const typedLoop = {
+      ...untypedLoop,
+      typedCondition: JSON.parse(TYPED_JSON),
     } as FlowNode;
 
     const hostWith = (capabilities: readonly string[]) => ({
@@ -538,10 +541,7 @@ describe("F-R4 — loop typed-condition admission", () => {
     });
 
     it("a string-condition loop does not require the evaluator", () => {
-      const { typedCondition: _typed, ...untyped } = typedLoop as {
-        typedCondition?: unknown;
-      } & Record<string, unknown>;
-      const requirements = collectFlowRequirements(untyped as FlowNode);
+      const requirements = collectFlowRequirements(untypedLoop);
       expect(requirements.requiredCapabilities).not.toContain(
         FLOW_TYPED_CONDITION_CAPABILITY
       );
