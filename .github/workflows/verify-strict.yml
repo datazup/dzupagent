@@ -91,7 +91,8 @@ jobs:
     runs-on:
       group: datazup-public-builders
       labels: coolify-cicd-codev
-    timeout-minutes: 30
+    # Self-hosted runner budget: a healthy strict run takes more than 30 minutes there (run 39234272445).
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
