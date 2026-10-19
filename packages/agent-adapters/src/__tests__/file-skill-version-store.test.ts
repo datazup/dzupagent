@@ -205,9 +205,14 @@ describe("FileAdapterSkillVersionStore", () => {
         // caller rather than through the timer's catch handler.
         store.save(makeProjection("bundle-fail", 1));
 
-        // Wait past the debounce, then let the IO/microtask queue drain so the
-        // rejected persist() promise settles and its .catch runs.
-        await new Promise((r) => setTimeout(r, 30));
+        // Wait (bounded) for the rejected persist() to reach its .catch. A fixed
+        // sleep raced the ENOTDIR rejection under coverage on a loaded runner.
+        // Then drain one more macrotask so a stray unhandledRejection would
+        // have been emitted before we assert there was none.
+        await vi.waitFor(() => expect(errors).toHaveLength(1), {
+          timeout: 5000,
+          interval: 10,
+        });
         await new Promise((r) => setImmediate(r));
 
         expect(errors).toHaveLength(1);
@@ -242,7 +247,10 @@ describe("FileAdapterSkillVersionStore", () => {
 
         store.save(makeProjection("bundle-fail-2", 1));
 
-        await new Promise((r) => setTimeout(r, 30));
+        await vi.waitFor(() => expect(consoleSpy).toHaveBeenCalledTimes(1), {
+          timeout: 5000,
+          interval: 10,
+        });
         await new Promise((r) => setImmediate(r));
 
         expect(consoleSpy).toHaveBeenCalledTimes(1);
