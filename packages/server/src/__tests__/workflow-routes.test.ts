@@ -32,8 +32,9 @@ import type { AppEnv } from '../types.js'
 // Mock @dzupagent/flow-compiler
 //
 // The compiled-flow branch of POST /api/workflows/execute calls
-// `createFlowCompiler(...)` and then `compile(flow)` for flow/document input or
-// `compileDsl(source)` for DSL input. We stub both so the tests feed
+// `createFlowCompiler(...)` and then `compile(flow)` for flow input,
+// `compileDocument(document)` for document input or `compileDsl(source)` for
+// DSL input. We stub all three so the tests feed
 // predetermined results; the v2 retry test opts into the real compiler.
 //
 // Textual workflow tests never touch this module, so the mock stays idle for
@@ -43,6 +44,8 @@ import type { AppEnv } from '../types.js'
 const mockCompile = vi.fn()
 /** DSL inputs reach `compileDsl` (shared compile-input path), not `compile`. */
 const mockCompileDsl = vi.fn()
+/** Document inputs reach `compileDocument`, which runs the document-level gates. */
+const mockCompileDocument = vi.fn()
 /**
  * The real `createFlowCompiler` takes exactly one `CompilerOptions` argument.
  * Declaring it here — rather than leaving `vi.fn()` at zero parameters — is
@@ -54,8 +57,11 @@ type FlowCompilerOptions = Parameters<
 >[0]
 
 const mockCreateFlowCompiler = vi.fn(
-  (_opts: FlowCompilerOptions): Partial<Pick<FlowCompilerModule.FlowCompiler, 'compile' | 'compileDsl'>> => ({
+  (_opts: FlowCompilerOptions): Partial<
+    Pick<FlowCompilerModule.FlowCompiler, 'compile' | 'compileDocument' | 'compileDsl'>
+  > => ({
     compile: mockCompile,
+    compileDocument: mockCompileDocument,
     compileDsl: mockCompileDsl,
   }),
 )
@@ -350,6 +356,7 @@ describe('Workflow routes', () => {
     beforeEach(() => {
       mockCompile.mockReset()
       mockCompileDsl.mockReset()
+      mockCompileDocument.mockReset()
       mockCreateFlowCompiler.mockClear()
     })
 
@@ -403,7 +410,7 @@ describe('Workflow routes', () => {
     })
 
     it('accepts canonical workflow document input', async () => {
-      mockCompile.mockResolvedValueOnce(
+      mockCompileDocument.mockResolvedValueOnce(
         successCompile([{ skillName: 'summarize' }]),
       )
 
@@ -587,8 +594,18 @@ steps:
     it('returns 400 when flow is a non-string, non-object primitive', async () => {
       const res = await req(app, 'POST', '/api/workflows/execute', { flow: 42 })
       expect(res.status).toBe(400)
-      const json = (await res.json()) as { error: { code: string } }
-      expect(json.error.code).toBe('VALIDATION_ERROR')
+      // Same `failureBody` envelope as POST /compile input failures.
+      const json = (await res.json()) as {
+        ok: boolean
+        error: string
+        stage: number
+        errors: Array<{ code: string; message: string }>
+      }
+      expect(json.ok).toBe(false)
+      expect(typeof json.error).toBe('string')
+      expect(json.error).toBe(json.errors.map((e) => e.message).join('; '))
+      expect(typeof json.stage).toBe('number')
+      expect(json.errors.length).toBeGreaterThan(0)
     })
 
     it('returns 400 when target is an unknown value', async () => {

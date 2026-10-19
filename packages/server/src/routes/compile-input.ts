@@ -105,14 +105,19 @@ export function makeCompileInvocationOptions(
  * only entry that carries the dzupflow/v2 frontend metadata (retry, catch,
  * policy, multi-port save) and the F-R4 durability gate to the target gates;
  * `compile(flowInput)` would compile a lossy projection. The run correlation
- * goes to `compileDsl`, so the compiler builds `evidence.correlationIds`. Flow
- * and document inputs keep `compile(flowInput, options)`.
+ * goes to `compileDsl`, so the compiler builds `evidence.correlationIds`.
+ * Documents go through `compileDocument`, which runs the document-level gates
+ * (e.g. `requireResumePoint`) that compiling the root alone would skip. Flow
+ * inputs keep `compile(flowInput, options)`.
  */
 export async function compileNormalizedInput(
-  compiler: Pick<FlowCompiler, 'compile' | 'compileDsl'>,
+  compiler: Pick<FlowCompiler, 'compile' | 'compileDocument' | 'compileDsl'>,
   flowInput: string | object,
   invocationOptions: CompileInvocationOptions,
 ): Promise<CompileResult> {
+  if (invocationOptions.sourceKind === 'flow-document') {
+    return compiler.compileDocument(invocationOptions.source)
+  }
   if (invocationOptions.sourceKind !== 'dzupflow-dsl') {
     return compiler.compile(flowInput, invocationOptions)
   }

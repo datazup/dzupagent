@@ -35,7 +35,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:wp07": "vitest run src/__tests__/workflow-routes.test.ts",
+    "test:workflow-routes": "vitest run src/__tests__/workflow-routes.test.ts",
     "lint": "node ../../scripts/run-package-lint.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",

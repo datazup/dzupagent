@@ -2,7 +2,7 @@
  * Compiled-flow execution branch (JSON + SSE) for POST /execute.
  *
  * Pipeline:
- *   1. Validate `flow` is a JSON-parseable string or object.
+ *   1. Validate the compile input; a failure gets the /compile `failureBody` envelope.
  *   2. Compile via `createFlowCompiler` with the configured tool/persona resolvers,
  *      through the same `compileNormalizedInput` path as POST /compile (DSL
  *      reaches `compileDsl`), projecting failure diagnostics like /compile.
@@ -22,7 +22,11 @@ import {
   makeCompileInvocationOptions,
   normalizeCompileInput,
 } from './compile-input.js'
-import { logInternalCompileDiagnostics, toPublicCompileDiagnostic } from './compile/shared.js'
+import {
+  failureBody,
+  logInternalCompileDiagnostics,
+  toPublicCompileDiagnostic,
+} from './compile/shared.js'
 import {
   type ExecuteWorkflowBody,
   type WorkflowRouteConfig,
@@ -47,17 +51,7 @@ export async function executeCompiledFlow(
 ): Promise<Response> {
   const normalizedInput = normalizeCompileInput(body)
   if (!normalizedInput.ok) {
-    return c.json(
-      {
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: normalizedInput.diagnostics.map((d) => d.message).join('; '),
-          stage: normalizedInput.diagnostics[0]?.stage ?? 1,
-          errors: normalizedInput.diagnostics,
-        },
-      },
-      400,
-    )
+    return c.json(failureBody(normalizedInput.diagnostics), 400)
   }
   const { flowInput } = normalizedInput.value
 

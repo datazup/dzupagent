@@ -68,6 +68,7 @@ function parseEventTypes(ws: MockWsClient): string[] {
 
 const mockCompile = vi.fn()
 const mockCompileDsl = vi.fn()
+const mockCompileDocument = vi.fn()
 /**
  * The real `createFlowCompiler` takes exactly one `CompilerOptions` argument.
  * Declaring it here — rather than leaving `vi.fn()` at zero parameters — is
@@ -79,8 +80,11 @@ type FlowCompilerOptions = Parameters<
 >[0]
 
 const mockCreateFlowCompiler = vi.fn(
-  (_opts: FlowCompilerOptions): Partial<Pick<FlowCompilerModule.FlowCompiler, 'compile' | 'compileDsl'>> => ({
+  (_opts: FlowCompilerOptions): Partial<
+    Pick<FlowCompilerModule.FlowCompiler, 'compile' | 'compileDocument' | 'compileDsl'>
+  > => ({
     compile: mockCompile,
+    compileDocument: mockCompileDocument,
     compileDsl: mockCompileDsl,
   }),
 )
@@ -325,8 +329,8 @@ describe('POST /api/workflows/compile — JSON branch', () => {
     expect(body.errors[0]?.code).toBe('MISSING_REQUIRED_FIELD')
   })
 
-  it('200 — accepts canonical workflow document input and compiles document.root', async () => {
-    mockCompile.mockResolvedValueOnce(SUCCESS_RESULT)
+  it('200 — accepts canonical workflow document input and compiles it through compileDocument', async () => {
+    mockCompileDocument.mockResolvedValueOnce(SUCCESS_RESULT)
     const app = buildApp()
 
     const document = {
@@ -344,10 +348,7 @@ describe('POST /api/workflows/compile — JSON branch', () => {
 
     const res = await postCompile(app, { document })
     expect(res.status).toBe(200)
-    expect(mockCompile).toHaveBeenCalledWith(document.root, expect.objectContaining({
-      source: document,
-      sourceKind: 'flow-document',
-    }))
+    expect(mockCompileDocument).toHaveBeenCalledWith(document)
   })
 
   it('200 — compiles dzupflow DSL input through compileDsl with the raw source', async () => {
