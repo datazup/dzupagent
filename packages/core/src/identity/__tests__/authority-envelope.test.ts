@@ -220,16 +220,18 @@ describe("readAuthorityEnvelope", () => {
     it("pins the schema string the lab actually stamps", async () => {
       // If the lab revs its envelope schema, this reader must not keep
       // silently accepting the old one as though nothing changed.
-      const lab = await import(
-        /* @vite-ignore */
-        G01_AUTHORITY_ENVELOPE_URL.href
-      ).then(
-        (m) => (m.default ?? m) as { G01_AUTHORITY_ENVELOPE_SCHEMA: string }
+      // Read the source rather than import it: importing pulls in the lab's
+      // runtime dependencies (ajv), which CI's Scripts checkout never installs.
+      const source = await import("node:fs/promises").then((fs) =>
+        fs.readFile(G01_AUTHORITY_ENVELOPE_URL, "utf8")
       );
 
-      expect(G01_AUTHORITY_ENVELOPE_SCHEMA).toBe(
-        lab.G01_AUTHORITY_ENVELOPE_SCHEMA
-      );
+      const definitions = [
+        ...source.matchAll(/^const G01_AUTHORITY_ENVELOPE_SCHEMA = "([^"]*)";$/gm),
+      ];
+      expect(definitions).toHaveLength(1);
+
+      expect(G01_AUTHORITY_ENVELOPE_SCHEMA).toBe(definitions[0]?.[1]);
     });
 
     it("reads every field the lab's builder emits at the envelope top level", async () => {
