@@ -5,10 +5,9 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { FLOW_NODE_KINDS } from "@dzupagent/flow-ast";
 
-const README_PATH = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  "../README.md"
-);
+const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const PACKAGES_ROOT = resolve(PACKAGE_ROOT, "..");
+const README_PATH = resolve(PACKAGE_ROOT, "README.md");
 const README = readFileSync(README_PATH, "utf8");
 const LINES = README.split(/\r?\n/);
 const CURRENT_STATE_DOC = "DZUPFLOW_DSL_CURRENT_2026-10-07.md";
@@ -99,6 +98,49 @@ function missingBacktickTokens(
   return expected.filter((token) => !prose.includes(`\`${token}\``));
 }
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Resolves every inline-code anchor `` `path:start` `` or
+ * `` `path:start-end` `` for `path` in `text`, in order, and asserts that the
+ * cited line range of the real file contains the matching symbol. `src/` paths
+ * are relative to this package; any other path is relative to `packages/`.
+ */
+function expectAnchors(
+  text: string,
+  path: string,
+  symbols: readonly string[]
+): void {
+  const anchors = [
+    ...text.matchAll(
+      new RegExp(`\`${escapeRegExp(path)}:(\\d+)(?:-(\\d+))?\``, "g")
+    ),
+  ];
+  expect(
+    anchors.map((anchor) => anchor[0]),
+    `README anchors for ${path}`
+  ).toHaveLength(symbols.length);
+  const file = readFileSync(
+    resolve(path.startsWith("src/") ? PACKAGE_ROOT : PACKAGES_ROOT, path),
+    "utf8"
+  ).split(/\r?\n/);
+  anchors.forEach((anchor, index) => {
+    const start = Number(anchor[1]);
+    const end = anchor[2] === undefined ? start : Number(anchor[2]);
+    expect(start, anchor[0]).toBeGreaterThan(0);
+    expect(end, anchor[0]).toBeGreaterThanOrEqual(start);
+    expect(end, `${anchor[0]} is past the end of ${path}`).toBeLessThanOrEqual(
+      file.length
+    );
+    expect(
+      file.slice(start - 1, end).join("\n"),
+      `${anchor[0]} must contain ${symbols[index]}`
+    ).toContain(symbols[index]);
+  });
+}
+
 function collapse(text: string): string {
   return text.replace(/\s+/g, " ");
 }
@@ -144,14 +186,17 @@ describe("flow-dsl README node coverage", () => {
   it("documents for_each collect as { from, into } with a flow-ast anchor", () => {
     const forEach = nodeSection("for_each");
     expect(forEach).toContain("collect: { from, into }");
-    expect(forEach).toMatch(/types\/nodes\.ts:\d+/);
+    expectAnchors(forEach, "flow-ast/src/types/nodes.ts", [
+      "type ForEachNode",
+      "collect?:",
+    ]);
   });
 
   it("describes the agent node without the v1alpha-agent gate", () => {
     const agent = nodeSection("agent");
     expectAbsent(agent, "Available under `dsl: dzupflow/v1alpha-agent`");
     expect(README).toContain("template.ref");
-    expect(README).toMatch(/validate\/agent\.ts:\d+/);
+    expectAnchors(README, "flow-ast/src/validate/agent.ts", ["template.ref"]);
 
     const paragraphs = README.split(/\n\s*\n/);
     expect(
@@ -162,6 +207,11 @@ describe("flow-dsl README node coverage", () => {
       ),
       "README must cite src/normalize.ts:<line> next to dzupflow/v1alpha-agent"
     ).toBe(true);
+    expectAnchors(README, "src/normalize.ts", [
+      "dzupflow/v1alpha-agent",
+      "dzupflow/v1alpha-agent",
+      "dzupflow/v1alpha-agent",
+    ]);
   });
 
   it("carries the Codev host caveat in the approval section", () => {
@@ -179,6 +229,12 @@ describe("flow-dsl README node coverage", () => {
       );
     }
     expect(approval).toMatch(/\bP1\b/);
+    expectAbsent(approval, "17 partial kinds");
+    expectAnchors(
+      approval,
+      "flow-compiler/src/capability-manifest/requirements.ts",
+      ["interface ResolveHostReadinessOptions"]
+    );
   });
 });
 
@@ -196,14 +252,23 @@ describe("flow-dsl README corrections", () => {
       expectAbsent(README, stale);
     }
     expect(README).toContain("resolveFlowTemplateExpression");
-    expect(README).toMatch(/condition-expression\.ts:\d+/);
+    expectAnchors(README, "flow-ast/src/condition-expression.ts", [
+      "export function resolveFlowTemplateExpression",
+    ]);
   });
 
   it("documents the five parse phases in the Usage section", () => {
     const usage = h2("Usage");
     expect(usage).toContain("five phases");
     expect(usage).toContain("dzupflow/v2");
-    expect(usage).toMatch(/src\/parse-dsl\.ts:\d+/);
+    expectAnchors(usage, "src/parse-dsl.ts", [
+      "parseYamlSubset(",
+      "const v2 =",
+      "expandRegisteredCompositesDetailed(",
+      "normalizeDslDocument(",
+      "validateDocument(",
+      "ok: false",
+    ]);
   });
 
   it("documents strict and compat reference roots and policies", () => {
@@ -231,8 +296,16 @@ describe("flow-dsl README corrections", () => {
     ).toEqual([]);
     expect(templates).toContain("compat-v1");
     expect(templates).toContain("strict");
-    expect(templates).toMatch(/reference-expression\/types\.ts:\d+/);
-    expect(templates).toMatch(/stages\/semantic\.ts:\d+/);
+    expectAnchors(templates, "flow-ast/src/reference-expression/types.ts", [
+      "FLOW_REFERENCE_ROOTS",
+      "FLOW_REFERENCE_ROOTS",
+      "COMPAT_REFERENCE_ROOTS",
+      "FLOW_REFERENCE_FILTERS",
+    ]);
+    expectAnchors(templates, "flow-compiler/src/stages/semantic.ts", [
+      "compat-v1",
+      "UNATTENDED_STRICT_ADMISSION_REQUIRED",
+    ]);
   });
 
   it("documents the v2 kernel subset and pipeline target adoption", () => {
@@ -248,8 +321,24 @@ describe("flow-dsl README corrections", () => {
     }
     expect(bounded).toMatch(/\bunguarded\b/);
     expect(bounded).toMatch(/\btop-level\b/);
-    expect(bounded).toMatch(/lower-v2-kernel\.ts:\d+/);
-    expect(bounded).toMatch(/v2-target-gates\.ts:\d+/);
+    expectAnchors(bounded, "src/v2/lower-v2-kernel.ts", [
+      '"core.loop"',
+      "function lowerLoop(",
+      '"core.set"',
+    ]);
+    expectAnchors(
+      bounded,
+      "flow-compiler/src/compile-orchestrator/v2-target-gates.ts",
+      [
+        "FLOW_TYPED_CONDITION_CAPABILITY",
+        "TYPED_CONDITION_TARGET_UNSUPPORTED",
+        "export function collectUnsupportedV2TargetErrors(",
+      ]
+    );
+    expectAnchors(bounded, "flow-compiler/src/route-target/target-router.ts", [
+      "FEATURE_BITS.FOR_EACH",
+    ]);
+    expectAbsent(bounded, "opt-in `pipeline`");
     expectAbsent(bounded, "No generic compiler target has adopted");
   });
 });

@@ -359,8 +359,8 @@ guarded or unavailable after a terminal-catch `continue`. Unknown ports,
 non-state persistence, invalid or duplicate destinations, and out-of-bound
 binding counts fail closed. The compatibility lowering retains one
 deterministic V1 anchor only for existing analysis; the complete binding set
-stays in frontend metadata. Only the opt-in `pipeline` target lowers it; see
-the target-adoption notes below.
+stays in frontend metadata. Only the `pipeline` target lowers it; see the
+target-adoption notes below.
 
 The parse and canonicalize results additionally return a v2 `sourceMap`.
 Direct canonical fields compose back to exact authored `id`, `use`, `with`,
@@ -372,9 +372,12 @@ derived paths and on adapted save targets are suppressed.
 
 The compiler's Stage 4 target gates decide which V2 step contracts reach an
 artifact (`flow-compiler/src/compile-orchestrator/v2-target-gates.ts:37-49`).
-Every target except the opt-in `pipeline` target refuses each valid binding
-with a target-adoption diagnostic instead of dropping it through V1
-compatibility lowering:
+Every target except `pipeline` refuses each valid binding with a
+target-adoption diagnostic instead of dropping it through V1 compatibility
+lowering. A flow that contains a `loop` or `for_each` routes to `pipeline`
+without any option (`flow-compiler/src/route-target/target-router.ts:41-43`);
+any other flow reaches it only through the compiler option
+`target: "pipeline"`:
 
 - policy narrowing: `V2_POLICY_TARGET_UNSUPPORTED`
   (`flow.policy.primitive-narrowing@1`);
@@ -388,7 +391,7 @@ compatibility lowering:
 
 These diagnostics accumulate, so one compile reports every gap.
 
-The opt-in `pipeline` target lowers retry, catch, multi-port save and policy
+The `pipeline` target lowers retry, catch, multi-port save and policy
 narrowing, but only on unguarded top-level steps. A top-level step is a direct
 entry of the document's `steps` list. An unguarded step has no `when` guard.
 A guarded step lowers to a branch, so no single primitive node can carry the
@@ -970,11 +973,13 @@ with native lowering. That status covers the generic compiler targets, not the
 Codev host. The current-state document `DZUPFLOW_DSL_CURRENT_2026-10-07.md`
 tracks the Codev host's handling of approval outcomes as gap G01, priority P1.
 Check G01 before you rely on the `onApprove` and `onReject` bodies running on
-Codev. The `release-strict` host-readiness profile does not catch this gap: on
-top of the default checks, it adds a block only for node kinds the matrix marks
-`partial` (gap G07, which refuses 17 partial kinds,
-`flow-compiler/src/capability-manifest/requirements.ts:127-139`), and
-`approval` is not one of them. Separately, the `skill-chain` target cannot
+Codev. The `release-strict` host-readiness profile (gap G07) does not catch
+this gap. It only adds a `PARTIAL_NODE` diagnostic for a node kind the matrix
+marks `partial` when the host lacks that kind's `flow.runtime.<kind>@1`
+capability. Every partial kind already requires that capability, so
+`release-strict` and the default profile yield the same readiness status
+(`flow-compiler/src/capability-manifest/requirements.ts:84-97`), and
+`approval` is not partial. Separately, the `skill-chain` target cannot
 express a rejection branch and drops a non-empty `onReject` body with a warning
 (`flow-compiler/src/lower/lower-skill-chain/walk.ts:327-332`).
 

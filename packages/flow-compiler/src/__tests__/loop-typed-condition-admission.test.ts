@@ -24,11 +24,14 @@
  */
 import { describe, expect, it } from "vitest";
 
+import type { FlowNode } from "@dzupagent/flow-ast";
 import type { PipelineDefinition } from "@dzupagent/runtime-contracts/pipeline-artifact";
 
 import {
   FLOW_TYPED_CONDITION_CAPABILITY,
+  collectFlowRequirements,
   createFlowCompiler,
+  resolveHostReadiness,
 } from "../index.js";
 
 const toolResolver = {
@@ -479,5 +482,69 @@ describe("F-R4 — loop typed-condition admission", () => {
     expect(loopNode?.type).toBe("loop");
     if (loopNode?.type !== "loop") return;
     expect(loopNode.bodyGraph?.suspensionSiteNodeIds).toHaveLength(1);
+  });
+
+  describe("requirements and host readiness", () => {
+    const typedLoop = {
+      type: "loop",
+      id: "retry",
+      condition: "false",
+      typedCondition: JSON.parse(TYPED_JSON),
+      maxIterations: 3,
+      body: [{ type: "set", id: "mark", assign: { observed: true } }],
+    } as FlowNode;
+
+    const hostWith = (capabilities: readonly string[]) => ({
+      schema: "dzupagent.hostCapabilityManifest/v1" as const,
+      host: "typed-loop-host",
+      version: "1.0.0",
+      targets: ["pipeline" as const],
+      capabilities: [...capabilities],
+    });
+
+    it("a typed loop requires the typed-condition evaluator capability", () => {
+      const requirements = collectFlowRequirements(typedLoop);
+      expect(requirements.target).toBe("pipeline");
+      expect(requirements.requiredCapabilities).toContain(
+        FLOW_TYPED_CONDITION_CAPABILITY
+      );
+    });
+
+    it("a host without the evaluator is not ready for a typed loop", () => {
+      const requirements = collectFlowRequirements(typedLoop);
+      const host = hostWith(
+        requirements.requiredCapabilities.filter(
+          (capability) => capability !== FLOW_TYPED_CONDITION_CAPABILITY
+        )
+      );
+
+      const result = resolveHostReadiness(requirements, host);
+      expect(result.status).toBe("blocked");
+      expect(result.diagnostics).toEqual([
+        expect.objectContaining({
+          code: "MISSING_CAPABILITY",
+          capability: FLOW_TYPED_CONDITION_CAPABILITY,
+        }),
+      ]);
+    });
+
+    it("accepting control: a host declaring the evaluator is ready", () => {
+      const requirements = collectFlowRequirements(typedLoop);
+      const result = resolveHostReadiness(
+        requirements,
+        hostWith(requirements.requiredCapabilities)
+      );
+      expect(result.status).toBe("ready");
+    });
+
+    it("a string-condition loop does not require the evaluator", () => {
+      const { typedCondition: _typed, ...untyped } = typedLoop as {
+        typedCondition?: unknown;
+      } & Record<string, unknown>;
+      const requirements = collectFlowRequirements(untyped as FlowNode);
+      expect(requirements.requiredCapabilities).not.toContain(
+        FLOW_TYPED_CONDITION_CAPABILITY
+      );
+    });
   });
 });

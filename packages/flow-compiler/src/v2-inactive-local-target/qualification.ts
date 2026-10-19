@@ -283,7 +283,7 @@ async function validateCompilerGate(
     return {
       code: "V2_LOCAL_TARGET_COMPILER_GATE_REQUIRED",
       message:
-        "inactive local target qualification requires a semantically valid flow blocked by every V2 gate the routed target refuses",
+        "inactive local target qualification requires a semantically valid flow blocked by all five V2 gates; a loop or for_each routes to pipeline, which lowers four of them",
       path: "root",
       causes: Object.freeze([
         ...unexpected.map(

@@ -371,4 +371,56 @@ describe("host readiness gates", () => {
       expect(partialEmitDiagnostics(strict.diagnostics)).toHaveLength(1);
     });
   });
+
+  describe("D10 (a): release-strict and default agree on status for partial kinds", () => {
+    // Baseline for any later host-field design: today release-strict only adds
+    // PARTIAL_NODE diagnostics; the readiness status is the same.
+    const partialKinds = FLOW_NODE_KINDS.filter(
+      (kind) => FLOW_NODE_CAPABILITY_REGISTRY[kind].status === "partial",
+    );
+
+    it("covers at least one partial kind", () => {
+      expect(partialKinds).toContain("emit");
+    });
+
+    for (const kind of partialKinds) {
+      const runtimeCapability = `flow.runtime.${kind}@1`;
+      const requirements = {
+        schema: "dzupagent.flowRequirements/v1" as const,
+        target: "pipeline" as const,
+        semanticHash: "fixture",
+        nodeKinds: [kind],
+        requiredCapabilities: [
+          TARGET_CAPABILITY_MANIFESTS.pipeline.capability,
+          ...FLOW_NODE_CAPABILITY_REGISTRY[kind].runtimeCapabilities,
+        ].sort(),
+        partialNodeKinds: [kind],
+        unsupportedNodeKinds: [],
+      };
+      const host = (declaresRuntime: boolean) => ({
+        schema: "dzupagent.hostCapabilityManifest/v1" as const,
+        host: `partial-${kind}-host`,
+        version: "1.0.0",
+        targets: ["pipeline" as const],
+        capabilities: requirements.requiredCapabilities.filter(
+          (capability) => declaresRuntime || capability !== runtimeCapability,
+        ),
+      });
+
+      it(`${kind}: same status under both profiles with and without ${runtimeCapability}`, () => {
+        expect(requirements.requiredCapabilities).toContain(runtimeCapability);
+        for (const declaresRuntime of [true, false]) {
+          const fallback = resolveHostReadiness(requirements, host(declaresRuntime));
+          const strict = resolveHostReadiness(requirements, host(declaresRuntime), {
+            profile: "release-strict",
+          });
+          expect(strict.status).toBe(fallback.status);
+          expect(fallback.status).toBe(declaresRuntime ? "ready" : "blocked");
+          expect(
+            strict.diagnostics.some((diagnostic) => diagnostic.code === "PARTIAL_NODE"),
+          ).toBe(!declaresRuntime);
+        }
+      });
+    }
+  });
 });

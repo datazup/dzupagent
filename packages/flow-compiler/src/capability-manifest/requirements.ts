@@ -52,7 +52,10 @@ export function collectFlowRequirements(
   }
   let hasTypedCondition = false;
   visitFlow(ast, (node) => {
-    if (node.type === "branch" && node.typedCondition !== undefined) {
+    if (
+      (node.type === "branch" || node.type === "loop") &&
+      node.typedCondition !== undefined
+    ) {
       hasTypedCondition = true;
     }
   });
@@ -81,10 +84,16 @@ export function collectFlowRequirements(
 
 export interface ResolveHostReadinessOptions {
   /**
-   * "default" preserves the historical gate: target + capability strings +
-   * unsupported nodes. "release-strict" additionally blocks on `partial`
-   * node kinds — flows whose nodes lower degraded or metadata-only must not
-   * be promoted as ready for a release surface.
+   * "default" gates on target + capability strings + unsupported nodes.
+   * "release-strict" additionally reports `PARTIAL_NODE` for a partial kind
+   * whose `flow.runtime.<kind>@1` the host does not declare.
+   *
+   * For partial kinds the two profiles yield the same readiness status
+   * (D10 (a)): `collectFlowRequirements` already requires every partial
+   * kind's runtime capability, so a host that lacks it is blocked by
+   * `MISSING_CAPABILITY` under either profile, and a host that declares it
+   * is ready under both. Only the diagnostics list differs. A distinct
+   * release-strict meaning would need a new host field; none exists.
    */
   profile?: "default" | "release-strict";
 }
@@ -126,24 +135,25 @@ export function resolveHostReadiness(
 
   if (profile === "release-strict") {
     for (const nodeKind of requirements.partialNodeKinds) {
-      const descriptor = FLOW_NODE_CAPABILITY_REGISTRY[nodeKind] as
-        | (typeof FLOW_NODE_CAPABILITY_REGISTRY)[FlowNodeKind]
-        | undefined;
-      // Declaring every `flow.runtime.<kind>@1` capability of a partial kind is
-      // the host's statement that it executes that kind itself, so the
-      // degraded generic lowering does not block a release surface. An empty
-      // capability list never counts as such a declaration.
-      const runtimeCapabilities = descriptor?.runtimeCapabilities ?? [];
+      // `partialNodeKinds` only holds registry kinds, so the descriptor is
+      // always present. Declaring every `flow.runtime.<kind>@1` capability of
+      // a partial kind is the host's statement that it executes that kind
+      // itself; the same capability is a requirement, so this skip never
+      // changes the status, only whether `PARTIAL_NODE` is reported (see
+      // `ResolveHostReadinessOptions`). An empty capability list never counts
+      // as such a declaration.
+      const descriptor = FLOW_NODE_CAPABILITY_REGISTRY[nodeKind];
+      const runtimeCapabilities = descriptor.runtimeCapabilities;
       if (
         runtimeCapabilities.length > 0 &&
         runtimeCapabilities.every((capability) => hostCapabilities.has(capability))
       ) {
         continue;
       }
-      const detail = descriptor?.notes !== undefined ? ` ${descriptor.notes}` : "";
+      const detail = descriptor.notes !== undefined ? ` ${descriptor.notes}` : "";
       diagnostics.push({
         code: "PARTIAL_NODE",
-        message: `Node type "${nodeKind}" lowers only partially (${descriptor?.lowering ?? "unknown"}) and is blocked under the release-strict profile.${detail}`,
+        message: `Node type "${nodeKind}" lowers only partially (${descriptor.lowering}) and is blocked under the release-strict profile.${detail}`,
         nodeKind,
       });
     }
