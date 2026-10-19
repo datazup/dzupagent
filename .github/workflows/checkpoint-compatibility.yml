@@ -79,6 +79,11 @@ jobs:
       - name: Run checkpoint real-Git and process matrix
         run: yarn workspace @dzupagent/codegen test src/__tests__/checkpoint-manager.test.ts src/__tests__/checkpoint-manager-p002b.test.ts src/__tests__/checkpoint-manager-process.test.ts
 
+      # Codegen imports @dzupagent/core subpaths whose exports resolve to dist,
+      # so its workspace dependencies must be built before tsc can resolve them.
+      - name: Build codegen workspace dependencies
+        run: yarn build --filter=@dzupagent/codegen^...
+
       - name: Typecheck Codegen
         run: yarn workspace @dzupagent/codegen typecheck
 
