@@ -1,4 +1,5 @@
 import type { StreamEvent } from '@langchain/core/tracers/log_stream'
+import type { AgentRunEventEnvelope } from '@dzupagent/agent-types/run'
 import type { StandardSSEEvent } from './event-types.js'
 
 export type EventTransformer = (event: StreamEvent) => StandardSSEEvent | null
@@ -86,6 +87,25 @@ export class SSETransformer {
 
       default:
         return null
+    }
+  }
+
+  /**
+   * Project a run-event envelope (B-02) to an SSE frame carrying its
+   * `sequence`. `tool.started` keeps the legacy `progress` frame shape that
+   * `on_tool_start` produces, plus `sequence`; every other kind is framed as
+   * `{ type: <kind>, data: { sequence, eventId, payload } }`.
+   */
+  fromEnvelope(envelope: AgentRunEventEnvelope): StandardSSEEvent {
+    const { sequence } = envelope
+    if (envelope.type === 'tool.started') {
+      const bus = (envelope.payload as { bus?: { toolName?: unknown } } | null)?.bus
+      const tool = typeof bus?.toolName === 'string' ? bus.toolName : 'unknown'
+      return { type: 'progress', data: { status: 'running', tool, sequence } }
+    }
+    return {
+      type: envelope.type,
+      data: { sequence, eventId: envelope.eventId, payload: envelope.payload },
     }
   }
 }

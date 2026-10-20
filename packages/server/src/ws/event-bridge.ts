@@ -35,6 +35,30 @@ export interface ClientFilter extends EventSubscriptionFilter {
   runId?: string;
   /** Only receive events for this compile */
   compileId?: string;
+  /**
+   * Negotiated event schema (B-02). `'dzupagent.run-event/v1'` receives the
+   * run-event envelope for events that carry one; every other event, and
+   * every client that leaves this unset, receives the legacy frame.
+   */
+  schema?: "dzupagent.run-event/v1";
+}
+
+/** The run-event envelope schema id (`AGENT_RUN_EVENT_SCHEMA` in `@dzupagent/agent-types/run`). */
+const RUN_EVENT_SCHEMA = "dzupagent.run-event/v1" as const;
+
+/**
+ * Key under which `@dzupagent/agent` attaches the run-event envelope to the
+ * bus event it projects (non-enumerable, global symbol registry).
+ */
+const RUN_EVENT_ENVELOPE_KEY = Symbol.for(RUN_EVENT_SCHEMA);
+
+/** The legacy frame, or the run-event envelope when the client negotiated it. */
+function frameFor(envelope: EventEnvelope, schema: ClientFilter["schema"]): unknown {
+  if (schema !== RUN_EVENT_SCHEMA) return envelope;
+  const runEvent = (envelope.payload as { [RUN_EVENT_ENVELOPE_KEY]?: unknown })[
+    RUN_EVENT_ENVELOPE_KEY
+  ];
+  return runEvent ?? envelope;
 }
 
 /**
@@ -211,7 +235,7 @@ export class EventBridge {
     }
     const subscription = this.gateway.subscribe(
       resolvedFilter,
-      (envelope) => this.sendToClient(ws, envelope),
+      (envelope) => this.sendToClient(ws, envelope, resolvedFilter.schema),
       { maxQueueSize: this.maxQueueSize, overflowStrategy: "disconnect" }
     );
     this.clients.set(ws, { filter: resolvedFilter, subscription });
@@ -325,13 +349,17 @@ export class EventBridge {
     }
   }
 
-  private sendToClient(ws: WSClient, envelope: EventEnvelope): boolean {
+  private sendToClient(
+    ws: WSClient,
+    envelope: EventEnvelope,
+    schema?: ClientFilter["schema"]
+  ): boolean {
     if (ws.readyState !== WS_OPEN) {
       this.removeClient(ws);
       return false;
     }
     try {
-      ws.send(JSON.stringify(envelope));
+      ws.send(JSON.stringify(frameFor(envelope, schema)));
       return true;
     } catch {
       this.removeClient(ws);

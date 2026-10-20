@@ -15,6 +15,7 @@
  * swallowed — audit emission must not break the LLM call path.
  */
 export interface ToolCallAuditRecord {
+  /** @deprecated Inconsistent name, still emitted. Preferred alias: `tool:call` (B-02); not emitted yet. */
   type: "tool_call";
   /** Name of the tool that was invoked. */
   toolName: string;

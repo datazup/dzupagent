@@ -355,6 +355,7 @@ export type AgentRunEventType =
   | 'tool.output_delta'
   | 'tool.completed'
   | 'tool.failed'
+  | 'tool.cancel_requested'
   | 'guardrail.evaluated'
   | 'interaction.requested'
   | 'interaction.resolved'

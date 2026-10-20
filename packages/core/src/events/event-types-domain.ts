@@ -66,6 +66,7 @@ export type DomainLifecycleEvent =
     }
   | { type: "run:cancelled"; runId: string; agentId: string; reason?: string }
   | {
+      /** @deprecated Inconsistent name, still emitted. Preferred alias: `run:halted_token_exhausted` (B-02); not emitted yet. */
       type: "run:halted:token-exhausted";
       agentId: string;
       runId?: string;

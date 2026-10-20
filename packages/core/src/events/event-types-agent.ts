@@ -41,6 +41,7 @@ export type AgentDomainEvent =
    * than `effectiveTier`. The model never sees these tools.
    */
   | {
+      /** @deprecated Inconsistent name, still emitted. Preferred alias: `agent:tools_filtered` (B-02); not emitted yet. */
       type: 'agent:tools-filtered'
       agentId: string
       effectiveTier: PermissionTier

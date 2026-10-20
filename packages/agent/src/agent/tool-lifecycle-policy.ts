@@ -12,6 +12,7 @@ import {
   ToolCancellationError,
   ToolTimeoutError,
 } from './tool-timeout-error.js'
+import { emitRunEvent } from '../events/projections.js'
 
 export interface ToolLifecyclePolicyContext {
   eventBus?: DzupEventBus
@@ -114,7 +115,7 @@ export function emitToolCalled(
   if (!context) return
   const { toolName, toolCallId, inputMetadataKeys } = args
   try {
-    context.eventBus?.emit({
+    emitRunEvent(context.eventBus, context.runId, {
       type: 'tool:called',
       toolName,
       toolCallId,
@@ -185,7 +186,7 @@ export function emitToolResult(
       toolName,
       ...(context.runId !== undefined ? { executionRunId: context.runId } : {}),
     })
-    context.eventBus?.emit({
+    emitRunEvent(context.eventBus, context.runId, {
       type: 'tool:result',
       toolName,
       durationMs,
@@ -243,7 +244,7 @@ export function emitToolError(
       toolName,
       ...(context.runId !== undefined ? { executionRunId: context.runId } : {}),
     })
-    context.eventBus?.emit({
+    emitRunEvent(context.eventBus, context.runId, {
       type: 'tool:error',
       toolName,
       errorCode,
@@ -288,7 +289,7 @@ export function emitToolCancellationRequested(
   if (!context) return
   const { toolName, toolCallId, inputMetadataKeys, reason, timeoutMs } = args
   try {
-    context.eventBus?.emit({
+    emitRunEvent(context.eventBus, context.runId, {
       type: 'tool:cancel_requested',
       toolName,
       toolCallId,

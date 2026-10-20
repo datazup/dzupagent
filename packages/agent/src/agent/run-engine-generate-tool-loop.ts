@@ -5,8 +5,7 @@
  * wires LLM-audit / token-lifecycle / compression / snapshot hooks,
  * and runs `runToolLoop` to produce the {@link RunLoopResult}. All
  * event-bus emissions and OTel spans are emitted in the same order as
- * the pre-MC-026b-2 implementation.
- */
+ * the pre-MC-026b-2 implementation. */
 
 import type { BaseMessage } from "@langchain/core/messages";
 import {
@@ -49,6 +48,7 @@ import {
   hasExactGenerateContextSuffix,
 } from "./run-engine/generate-context.js";
 import { resolveHumanContactRunContext } from "../tools/human-contact-invocation.js";
+import { emitRunEvent } from "../events/projections.js";
 
 /**
  * Emit the `llm:invoked` usage event for one model call. Shared by the
@@ -66,7 +66,7 @@ export function emitLlmInvoked(
   runId: string | undefined,
   usage: TokenUsage
 ): void {
-  eventBus?.emit({
+  emitRunEvent(eventBus, runId, {
     type: "llm:invoked",
     agentId,
     ...(runId !== undefined ? { runId } : {}),
