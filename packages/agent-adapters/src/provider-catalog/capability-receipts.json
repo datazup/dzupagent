@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "dzupagent/capability-receipts/v1",
+  "receipts": [
+    {
+      "id": "AAI-B002b1d",
+      "providerId": "codex",
+      "record": "workspace-docs:repos/workspace-root/docs/ai-assistant-platform/2026-07-16-configurable-attached-ai-assistant-gap-analysis-and-implementation-plan.md#7.19",
+      "summary": "Connected real Codex MCP receipt: isolated real Codex CLI lane with the exact get_codev_capability_manifest Gateway read, normalized message/tool/completion events, local subscription auth and no API fallback.",
+      "pins": "The record pins neither a model id nor a connector version, so its catalog entry uses modelId provider-default and connectorVersion unpinned, which never match an observed connector version."
+    },
+    {
+      "id": "AAI-B002b2/E001c2b3",
+      "providerId": "claude",
+      "record": "workspace-docs:repos/workspace-root/docs/ai-assistant-platform/2026-07-16-configurable-attached-ai-assistant-gap-analysis-and-implementation-plan.md#7.27",
+      "summary": "Combined Claude app-chat lifecycle receipt: real Claude CLI send and persistence, stored-cursor stream resume, execution-local MCP tools/call receipt, exact Gateway audit, provider session lineage and deterministic cancellation.",
+      "pins": "The record pins neither a model id nor a connector version, so its catalog entry uses modelId provider-default and connectorVersion unpinned, which never match an observed connector version."
+    }
+  ],
+  "entries": [
+    {
+      "receiptId": "AAI-B002b1d",
+      "route": "codex-cli",
+      "modelId": "provider-default",
+      "connectorVersion": "unpinned",
+      "qualification": "fixture",
+      "capabilities": {
+        "tool.use/v1": "supported",
+        "streaming/v1": "supported",
+        "structured.output/v1": "unknown"
+      }
+    },
+    {
+      "receiptId": "AAI-B002b2/E001c2b3",
+      "route": "claude-cli",
+      "modelId": "provider-default",
+      "connectorVersion": "unpinned",
+      "qualification": "fixture",
+      "capabilities": {
+        "tool.use/v1": "supported",
+        "streaming/v1": "supported",
+        "structured.output/v1": "unknown"
+      }
+    }
+  ]
+}

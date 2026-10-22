@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
 import type { AdapterProviderId } from '../types.js'
+import { CAPABILITY_RECEIPTS } from '../model-capability-catalog.js'
 import { PROVIDER_CATALOG, type ProviderCatalogEntry } from '../provider-catalog/catalog.js'
+import receiptsDocument from '../provider-catalog/capability-receipts.json' with { type: 'json' }
 import {
   ProviderNotRunnableError,
   assertProviderCatalogEntry,
@@ -29,6 +31,22 @@ describe('provider catalog runnability (UD-MVP-12)', () => {
       expect(entry.qualificationReceiptId, id).toBe(receipt ?? null)
     }
     expect(getRunnableProviders().sort()).toEqual(['claude', 'codex'])
+  })
+
+  it('every runnable entry names a receipt id that exists in capability-receipts.json', () => {
+    const documented = new Map(receiptsDocument.receipts.map((receipt) => [receipt.id, receipt]))
+    for (const [id, entry] of Object.entries(PROVIDER_CATALOG) as Array<
+      [AdapterProviderId, ProviderCatalogEntry]
+    >) {
+      if (!entry.runnable) continue
+      const receipt = documented.get(entry.qualificationReceiptId ?? '')
+      expect(receipt, id).toBeDefined()
+      expect(receipt?.providerId, id).toBe(id)
+      expect(receipt?.record, id).toMatch(/^workspace-docs:repos\/.+\.md#/)
+    }
+    expect(CAPABILITY_RECEIPTS.map((receipt) => receipt.id).sort()).toEqual(
+      [...documented.keys()].sort(),
+    )
   })
 
   it.each(['qwen', 'crush', 'goose'] as const)('keeps %s non-runnable', (id) => {

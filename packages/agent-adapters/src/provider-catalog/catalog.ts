@@ -105,7 +105,9 @@ function postureRef(id: string): CatalogEntry['posture'] {
  * 2026-07-16-configurable-attached-ai-assistant-gap-analysis-and-implementation-plan.md
  * (codex: AAI-B002b1d, §7.19; claude: AAI-B002b2/E001c2b3, §7.27). Every
  * other provider, including the product-integrated qwen and crush, stays
- * non-runnable until its own receipt id is added here.
+ * non-runnable until its own receipt id is added here. Each receipt id cited
+ * here must also be listed, with its record location, in
+ * `capability-receipts.json`, which seeds MODEL_CAPABILITY_CATALOG.
  */
 export const PROVIDER_CATALOG = {
   claude: {
