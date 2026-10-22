@@ -1,6 +1,7 @@
 import {
   FLOW_NODE_KINDS,
   type FlowNode,
+  type FlowNodeKind,
   type ResolvedTool,
   type ToolResolver,
 } from "@dzupagent/flow-ast";
@@ -277,6 +278,47 @@ describe("host readiness gates", () => {
     );
     expect(partial).toHaveLength(1);
     expect(partial[0]?.message).toContain("authored condition is runtime-owned");
+  });
+
+  it("reports an unregistered partial kind in a hand-built summary as PARTIAL_NODE under release-strict instead of throwing (G62)", () => {
+    // External callers may pass a summary they built themselves; a kind that
+    // is absent from the registry must block, not crash on the lookup.
+    const unknownKind = "quantum.entangle" as string as FlowNodeKind;
+    expect(FLOW_NODE_CAPABILITY_REGISTRY[unknownKind]).toBeUndefined();
+
+    const requirements = {
+      schema: "dzupagent.flowRequirements/v1" as const,
+      target: "pipeline" as const,
+      semanticHash: "fixture",
+      nodeKinds: [unknownKind],
+      requiredCapabilities: [TARGET_CAPABILITY_MANIFESTS.pipeline.capability],
+      partialNodeKinds: [unknownKind],
+      unsupportedNodeKinds: [],
+    };
+    // The host accepts the target and every capability string, so the
+    // unregistered partial kind is the single dimension that blocks.
+    const host = {
+      schema: "dzupagent.hostCapabilityManifest/v1" as const,
+      host: "fixture-host",
+      version: "1.0.0",
+      targets: ["pipeline" as const],
+      capabilities: [...requirements.requiredCapabilities],
+    };
+
+    let strict: ReturnType<typeof resolveHostReadiness> | undefined;
+    expect(() => {
+      strict = resolveHostReadiness(requirements, host, {
+        profile: "release-strict",
+      });
+    }).not.toThrow();
+    expect(strict?.status).toBe("blocked");
+    expect(strict?.diagnostics).toEqual([
+      expect.objectContaining({
+        code: "PARTIAL_NODE",
+        nodeKind: "quantum.entangle",
+        message: expect.stringContaining("release-strict"),
+      }),
+    ]);
   });
 
   describe("release-strict runtime capability skip for emit", () => {
