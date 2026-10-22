@@ -135,14 +135,27 @@ export function resolveHostReadiness(
 
   if (profile === "release-strict") {
     for (const nodeKind of requirements.partialNodeKinds) {
-      // `partialNodeKinds` only holds registry kinds, so the descriptor is
-      // always present. Declaring every `flow.runtime.<kind>@1` capability of
-      // a partial kind is the host's statement that it executes that kind
-      // itself; the same capability is a requirement, so this skip never
-      // changes the status, only whether `PARTIAL_NODE` is reported (see
+      // G62: `collectFlowRequirements` only puts registry kinds here, but an
+      // external caller may hand-build the summary with a kind the registry
+      // does not know. Report it as `PARTIAL_NODE` instead of throwing on the
+      // missing descriptor.
+      const descriptor = FLOW_NODE_CAPABILITY_REGISTRY[nodeKind] as
+        | (typeof FLOW_NODE_CAPABILITY_REGISTRY)[FlowNodeKind]
+        | undefined;
+      if (!descriptor) {
+        diagnostics.push({
+          code: "PARTIAL_NODE",
+          message: `Node type "${nodeKind}" is not in the node capability registry and is blocked under the release-strict profile.`,
+          nodeKind,
+        });
+        continue;
+      }
+      // Declaring every `flow.runtime.<kind>@1` capability of a partial kind
+      // is the host's statement that it executes that kind itself; the same
+      // capability is a requirement, so this skip never changes the status,
+      // only whether `PARTIAL_NODE` is reported (see
       // `ResolveHostReadinessOptions`). An empty capability list never counts
       // as such a declaration.
-      const descriptor = FLOW_NODE_CAPABILITY_REGISTRY[nodeKind];
       const runtimeCapabilities = descriptor.runtimeCapabilities;
       if (
         runtimeCapabilities.length > 0 &&
