@@ -466,3 +466,174 @@ describe("host readiness gates", () => {
     }
   });
 });
+
+describe("conformance matrix provenance and host columns (WP14)", () => {
+  const provenance = {
+    sourceRevision: "adc49f84",
+    committedAt: "2026-10-21T18:04:11+02:00",
+  };
+
+  // Declares exactly what a single-node loop and return_to flow need, so the
+  // partial and host-only kinds are executable here and not on the built-in
+  // pipeline host.
+  const fixtureHost = {
+    schema: "dzupagent.hostCapabilityManifest/v1" as const,
+    host: "fixture-host",
+    version: "1.0.0",
+    targets: ["pipeline" as const, "planning-dag" as const],
+    capabilities: [
+      TARGET_CAPABILITY_MANIFESTS.pipeline.capability,
+      TARGET_CAPABILITY_MANIFESTS["planning-dag"].capability,
+      "flow.runtime.loop@1",
+      "flow.runtime.return_to@1",
+    ],
+  };
+
+  const executable = (
+    matrix: ReturnType<typeof generateFlowConformanceMatrix>,
+    host: string,
+    kind: FlowNodeKind,
+  ) =>
+    matrix.hosts
+      ?.find((column) => column.host === host)
+      ?.nodes.find((cell) => cell.kind === kind)?.executable;
+
+  it("keeps the default matrix free of provenance and host columns", () => {
+    const matrix = generateFlowConformanceMatrix();
+    expect(matrix).not.toHaveProperty("provenance");
+    expect(matrix).not.toHaveProperty("hosts");
+    expect(renderFlowConformanceMatrixMarkdown(matrix)).not.toContain(
+      "Source revision",
+    );
+  });
+
+  it("records the git provenance it is given and renders it as a header line", () => {
+    const matrix = generateFlowConformanceMatrix({ provenance });
+    expect(matrix.provenance).toEqual(provenance);
+    expect(renderFlowConformanceMatrixMarkdown(matrix)).toContain(
+      "Source revision: `adc49f84` (committed 2026-10-21T18:04:11+02:00)",
+    );
+  });
+
+  it("computes one column per host, in the order given, covering every node kind", () => {
+    const matrix = generateFlowConformanceMatrix({
+      hosts: [DZUPAGENT_PIPELINE_HOST_MANIFEST, fixtureHost],
+    });
+    expect(matrix.hosts?.map((column) => column.host)).toEqual([
+      "dzupagent.pipeline-runtime",
+      "fixture-host",
+    ]);
+    for (const column of matrix.hosts ?? []) {
+      expect(column.nodes.map((cell) => cell.kind)).toEqual([...FLOW_NODE_KINDS]);
+    }
+  });
+
+  it("marks a supported kind executable on the pipeline host (set)", () => {
+    expect(FLOW_NODE_CAPABILITY_REGISTRY.set.status).toBe("supported");
+    const matrix = generateFlowConformanceMatrix({
+      hosts: [DZUPAGENT_PIPELINE_HOST_MANIFEST, fixtureHost],
+    });
+    expect(executable(matrix, "dzupagent.pipeline-runtime", "set")).toBe(true);
+    // fixtureHost declares the planning-dag target but not flow.runtime.set@1.
+    expect(executable(matrix, "fixture-host", "set")).toBe(false);
+  });
+
+  it("marks a partial kind executable only where its runtime capability is declared (loop)", () => {
+    expect(FLOW_NODE_CAPABILITY_REGISTRY.loop.status).toBe("partial");
+    const matrix = generateFlowConformanceMatrix({
+      hosts: [DZUPAGENT_PIPELINE_HOST_MANIFEST, fixtureHost],
+    });
+    expect(executable(matrix, "dzupagent.pipeline-runtime", "loop")).toBe(false);
+    expect(executable(matrix, "fixture-host", "loop")).toBe(true);
+  });
+
+  it("marks a host-only kind executable only where its runtime capability is declared (return_to)", () => {
+    expect(FLOW_NODE_CAPABILITY_REGISTRY.return_to.status).toBe("host-only");
+    const matrix = generateFlowConformanceMatrix({
+      hosts: [DZUPAGENT_PIPELINE_HOST_MANIFEST, fixtureHost],
+    });
+    expect(executable(matrix, "dzupagent.pipeline-runtime", "return_to")).toBe(
+      false,
+    );
+    expect(executable(matrix, "fixture-host", "return_to")).toBe(true);
+  });
+
+  it("requires the host to support the kind's route target and its capability", () => {
+    const pipelineOnly = {
+      ...fixtureHost,
+      host: "pipeline-only-host",
+      targets: ["pipeline" as const],
+    };
+    const noTargetCapability = {
+      ...fixtureHost,
+      host: "no-target-capability-host",
+      capabilities: fixtureHost.capabilities.filter(
+        (capability) =>
+          capability !== TARGET_CAPABILITY_MANIFESTS.pipeline.capability,
+      ),
+    };
+    const matrix = generateFlowConformanceMatrix({
+      hosts: [pipelineOnly, noTargetCapability],
+    });
+    // return_to routes to planning-dag, which pipelineOnly does not accept.
+    expect(executable(matrix, "pipeline-only-host", "return_to")).toBe(false);
+    expect(executable(matrix, "pipeline-only-host", "loop")).toBe(true);
+    // loop routes to pipeline; resolveHostReadiness requires the target's
+    // capability string as well as the target itself.
+    expect(executable(matrix, "no-target-capability-host", "loop")).toBe(false);
+  });
+
+  it("agrees with resolveHostReadiness for single-node flows of the tested kinds", () => {
+    const flows: FlowNode[] = [
+      { type: "set", assign: { ready: true } },
+      {
+        type: "loop",
+        condition: "{{ state.keepGoing }}",
+        body: [{ type: "action", toolRef: "test.run", input: {} }],
+      },
+      {
+        type: "return_to",
+        targetId: "start",
+        condition: "{{ state.retry }}",
+      },
+    ];
+    const hosts = [DZUPAGENT_PIPELINE_HOST_MANIFEST, fixtureHost];
+    const matrix = generateFlowConformanceMatrix({ hosts });
+
+    for (const flow of flows) {
+      const requirements = collectFlowRequirements(flow);
+      expect(requirements.target).toBe(
+        FLOW_NODE_CAPABILITY_REGISTRY[flow.type].currentRoute,
+      );
+      for (const host of hosts) {
+        expect(executable(matrix, host.host, flow.type)).toBe(
+          resolveHostReadiness(requirements, host).status === "ready",
+        );
+      }
+    }
+  });
+
+  it("renders a host executability table with one column per host", () => {
+    const markdown = renderFlowConformanceMatrixMarkdown(
+      generateFlowConformanceMatrix({
+        provenance,
+        hosts: [DZUPAGENT_PIPELINE_HOST_MANIFEST, fixtureHost],
+      }),
+    );
+    expect(markdown).toContain("## Host executability");
+    expect(markdown).toContain(
+      "| Node | `dzupagent.pipeline-runtime` | `fixture-host` |",
+    );
+    expect(markdown).toContain("| `set` | yes | no |");
+    expect(markdown).toContain("| `loop` | no | yes |");
+    expect(markdown).toContain("| `return_to` | no | yes |");
+  });
+
+  it("refuses two host columns with the same host id", () => {
+    expect(() =>
+      generateFlowConformanceMatrix({
+        hosts: [DZUPAGENT_PIPELINE_HOST_MANIFEST, DZUPAGENT_PIPELINE_HOST_MANIFEST],
+      }),
+    ).toThrow(/duplicate host "dzupagent.pipeline-runtime"/);
+  });
+});
