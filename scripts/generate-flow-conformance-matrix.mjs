@@ -207,7 +207,7 @@ try {
     ],
   });
 } catch (error) {
-  fail(`Flow conformance matrix: ${error.message}`);
+  fail(`generate-flow-conformance-matrix: ${error.message}`);
 }
 
 const markdown = renderFlowConformanceMatrixMarkdown(matrix);

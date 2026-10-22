@@ -1,6 +1,10 @@
 {
   "schema": "dzupagent.flowConformanceMatrix/v1",
   "generatedFrom": "FLOW_NODE_KIND_REGISTRY",
+  "provenance": {
+    "sourceRevision": "55150e99",
+    "committedAt": "2026-10-22T18:17:40+02:00"
+  },
   "nodes": [
     {
       "kind": "sequence",
@@ -912,6 +916,222 @@
         "evidence-assertions"
       ],
       "requiresHostManifest": true
+    }
+  ],
+  "hosts": [
+    {
+      "host": "dzupagent.pipeline-runtime",
+      "version": "0.2.0",
+      "nodes": [
+        {
+          "kind": "sequence",
+          "executable": false
+        },
+        {
+          "kind": "action",
+          "executable": false
+        },
+        {
+          "kind": "for_each",
+          "executable": true
+        },
+        {
+          "kind": "branch",
+          "executable": true
+        },
+        {
+          "kind": "approval",
+          "executable": true
+        },
+        {
+          "kind": "clarification",
+          "executable": true
+        },
+        {
+          "kind": "persona",
+          "executable": true
+        },
+        {
+          "kind": "route",
+          "executable": true
+        },
+        {
+          "kind": "parallel",
+          "executable": true
+        },
+        {
+          "kind": "complete",
+          "executable": false
+        },
+        {
+          "kind": "spawn",
+          "executable": false
+        },
+        {
+          "kind": "classify",
+          "executable": false
+        },
+        {
+          "kind": "emit",
+          "executable": false
+        },
+        {
+          "kind": "memory",
+          "executable": false
+        },
+        {
+          "kind": "set",
+          "executable": true
+        },
+        {
+          "kind": "checkpoint",
+          "executable": false
+        },
+        {
+          "kind": "restore",
+          "executable": false
+        },
+        {
+          "kind": "try_catch",
+          "executable": false
+        },
+        {
+          "kind": "loop",
+          "executable": false
+        },
+        {
+          "kind": "http",
+          "executable": false
+        },
+        {
+          "kind": "wait",
+          "executable": false
+        },
+        {
+          "kind": "subflow",
+          "executable": false
+        },
+        {
+          "kind": "prompt",
+          "executable": false
+        },
+        {
+          "kind": "return_to",
+          "executable": false
+        },
+        {
+          "kind": "agent",
+          "executable": false
+        },
+        {
+          "kind": "validate",
+          "executable": false
+        },
+        {
+          "kind": "worker.dispatch",
+          "executable": false
+        },
+        {
+          "kind": "fleet.dispatch",
+          "executable": false
+        },
+        {
+          "kind": "fleet.gather",
+          "executable": false
+        },
+        {
+          "kind": "fleet.contract-net",
+          "executable": false
+        },
+        {
+          "kind": "knowledge.write",
+          "executable": false
+        },
+        {
+          "kind": "knowledge.query",
+          "executable": false
+        },
+        {
+          "kind": "shell.run",
+          "executable": false
+        },
+        {
+          "kind": "evidence.write",
+          "executable": false
+        },
+        {
+          "kind": "validate.schema",
+          "executable": false
+        },
+        {
+          "kind": "adapter.run",
+          "executable": false
+        },
+        {
+          "kind": "adapter.race",
+          "executable": false
+        },
+        {
+          "kind": "adapter.parallel",
+          "executable": false
+        },
+        {
+          "kind": "adapter.supervisor",
+          "executable": false
+        },
+        {
+          "kind": "spdd.import_sources",
+          "executable": false
+        },
+        {
+          "kind": "spdd.build_source_pack",
+          "executable": false
+        },
+        {
+          "kind": "spdd.run_analysis",
+          "executable": false
+        },
+        {
+          "kind": "spdd.generate_canvas",
+          "executable": false
+        },
+        {
+          "kind": "spdd.validate_canvas",
+          "executable": false
+        },
+        {
+          "kind": "spdd.review_canvas",
+          "executable": false
+        },
+        {
+          "kind": "spdd.project_plan",
+          "executable": false
+        },
+        {
+          "kind": "spdd.arm_dispatch",
+          "executable": false
+        },
+        {
+          "kind": "spdd.run_validation",
+          "executable": false
+        },
+        {
+          "kind": "spdd.collect_proof",
+          "executable": false
+        },
+        {
+          "kind": "spdd.scan_drift",
+          "executable": false
+        },
+        {
+          "kind": "spdd.create_sync_proposal",
+          "executable": false
+        },
+        {
+          "kind": "spdd.agent_swarm",
+          "executable": false
+        }
+      ]
     }
   ]
 }
