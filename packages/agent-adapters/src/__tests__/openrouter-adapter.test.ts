@@ -289,6 +289,57 @@ describe('OpenRouterAdapter', () => {
     expect(body['provider']).toEqual({ order: ['anthropic'], allow_fallbacks: false })
   })
 
+  describe('provider preferences and outputSchema (R-09)', () => {
+    const OUTPUT_SCHEMA = {
+      type: 'object',
+      properties: { answer: { type: 'number' } },
+      required: ['answer'],
+      additionalProperties: false,
+    }
+
+    async function sentBody(
+      config: ConstructorParameters<typeof OpenRouterAdapter>[0],
+      input: Parameters<OpenRouterAdapter['execute']>[0],
+    ): Promise<Record<string, unknown>> {
+      const fetchMock = vi.fn().mockResolvedValue(
+        mockFetchResponse(createSSEStream(['data: [DONE]'])),
+      )
+      vi.stubGlobal('fetch', fetchMock)
+      await collectEvents(new OpenRouterAdapter(config).execute(input))
+      return JSON.parse(
+        (fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string,
+      ) as Record<string, unknown>
+    }
+
+    it('defaults allow_fallbacks to false when no providerPreferences are configured', async () => {
+      const body = await sentBody({ openRouterApiKey: 'key' }, { prompt: 'hi' })
+      expect(body['provider']).toEqual({ allow_fallbacks: false })
+    })
+
+    it('honours an explicit providerPreferences', async () => {
+      const body = await sentBody(
+        { openRouterApiKey: 'key', providerPreferences: { order: ['openai'], allow_fallbacks: true } },
+        { prompt: 'hi' },
+      )
+      expect(body['provider']).toEqual({ order: ['openai'], allow_fallbacks: true })
+    })
+
+    it('sends response_format and requires parameter support when outputSchema is set', async () => {
+      const body = await sentBody({ openRouterApiKey: 'key' }, { prompt: 'hi', outputSchema: OUTPUT_SCHEMA })
+      expect(body['response_format']).toEqual({
+        type: 'json_schema',
+        json_schema: { name: 'output', schema: OUTPUT_SCHEMA, strict: true },
+      })
+      expect(body['provider']).toEqual({ allow_fallbacks: false, require_parameters: true })
+    })
+
+    it('omits response_format when no outputSchema is set', async () => {
+      const body = await sentBody({ openRouterApiKey: 'key' }, { prompt: 'hi' })
+      expect(body).not.toHaveProperty('response_format')
+      expect(body['provider']).not.toHaveProperty('require_parameters')
+    })
+  })
+
   it('uses model from input options over config default', async () => {
     const sseLines = ['data: {"choices":[{"delta":{"content":"x"}}]}', 'data: [DONE]']
     vi.stubGlobal(
@@ -365,7 +416,11 @@ describe('OpenRouterAdapter', () => {
     const body = JSON.parse(
       (fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string,
     ) as Record<string, unknown>
-    expect(body).not.toHaveProperty('response_format')
+    // R-09: the schema is forwarded instead of silently ignored.
+    expect(body['response_format']).toMatchObject({
+      type: 'json_schema',
+      json_schema: { name: 'output', strict: true },
+    })
     expect(body).not.toHaveProperty('json_schema')
   })
 

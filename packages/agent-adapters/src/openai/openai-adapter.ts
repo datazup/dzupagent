@@ -33,6 +33,7 @@ import {
   DEFAULT_MODEL,
   type OpenAIConfig,
   type OpenAIRawEvent,
+  type OpenAIResponsesInputRequest,
   type OpenAIRunResult,
 } from "./openai-types.js";
 import {
@@ -124,6 +125,7 @@ export class OpenAIAdapter
       this,
       input
     );
+    this.assertOutputSchemaSupported(input);
     resolveOpenAIApiKey(this.config);
     const model =
       opts.model ??
@@ -154,7 +156,7 @@ export class OpenAIAdapter
       const result = await runOpenAIResponsesNonStreaming({
         config: this.config,
         providerId: this.providerId,
-        inputRequest,
+        inputRequest: this.withOutputSchema(inputRequest, input),
         prompt: prepared.input.prompt,
         ...(prepared.input.systemPrompt !== undefined
           ? { systemPrompt: prepared.input.systemPrompt }
@@ -199,6 +201,7 @@ export class OpenAIAdapter
       this,
       input
     );
+    this.assertOutputSchemaSupported(input);
     // Validate API key up-front so we throw a ForgeError synchronously
     // (preserves prior behaviour expected by callers).
     resolveOpenAIApiKey(this.config);
@@ -375,6 +378,27 @@ export class OpenAIAdapter
     return this.config.transport ?? "chat-completions";
   }
 
+  /**
+   * `outputSchema` rides the Responses transport as `text.format`. The
+   * chat-completions body (openai-http.ts) cannot carry it, and the hard-budget
+   * request proof does not count a schema, so both refuse instead of ignoring.
+   */
+  private assertOutputSchemaSupported(input: AgentInput): void {
+    if (input.outputSchema === undefined) return;
+    const blocker = this.transport !== "responses" ? 'outputSchema requires transport "responses"'
+      : this.config.hardBudget ? "the hard-budget request proof does not cover outputSchema" : undefined;
+    if (blocker === undefined) return;
+    throw new ForgeError({ code: "CAPABILITY_DENIED", message: `OpenAI adapter cannot honour outputSchema: ${blocker}`,
+      recoverable: false, context: { providerId: "openai", reason: "unsupported_output_schema" } });
+  }
+
+  private withOutputSchema(request: OpenAIResponsesInputRequest, input: AgentInput): OpenAIResponsesInputRequest {
+    if (input.outputSchema === undefined) return request;
+    const format = { type: "json_schema", name: "output", schema: input.outputSchema, strict: true };
+    const formatted: OpenAIResponsesInputRequest & { text: { format: typeof format } } = { ...request, text: { format } };
+    return formatted;
+  }
+
   private async prepareHardBudgetInput(
     input: AgentInput,
     model: string,
@@ -426,7 +450,7 @@ export class OpenAIAdapter
         );
     const response = await postOpenAIResponses({
       config: this.config,
-      inputRequest,
+      inputRequest: this.withOutputSchema(inputRequest, prepared.input),
       stream: true,
       signal,
     });

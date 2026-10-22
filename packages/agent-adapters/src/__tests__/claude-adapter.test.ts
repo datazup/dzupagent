@@ -1982,4 +1982,42 @@ describe('ClaudeAgentAdapter', () => {
       expect(adapter.providerId).toBe('claude')
     })
   })
+
+  // -----------------------------------------------------------------------
+  // outputSchema (R-09): explicit refusal, never a silent ignore
+  // -----------------------------------------------------------------------
+
+  describe('outputSchema', () => {
+    const input: AgentInput = {
+      prompt: 'Return JSON',
+      outputSchema: { type: 'object', properties: { answer: { type: 'number' } } },
+    }
+    const refusal = {
+      code: 'CAPABILITY_DENIED',
+      recoverable: false,
+      context: { providerId: 'claude', reason: 'unsupported_output_schema' },
+    }
+
+    it('refuses outputSchema with unsupported_output_schema before opening a query', async () => {
+      const failure = await collectEvents(adapter.execute(input)).then(() => undefined, (error: unknown) => error)
+
+      expect(failure).toBeInstanceOf(ForgeError)
+      expect(failure).toMatchObject(refusal)
+      expect(mockQuery).not.toHaveBeenCalled()
+    })
+
+    it('refuses outputSchema on resume and at execution-control admission', async () => {
+      const resumed = await collectEvents(adapter.resumeSession('sess-1', input))
+        .then(() => undefined, (error: unknown) => error)
+      expect(resumed).toMatchObject(refusal)
+      let admissionFailure: unknown
+      try {
+        adapter.admitExecutionControls(zeroToolInput({ outputSchema: input.outputSchema }), ZERO_TOOL_REQUIREMENT)
+      } catch (error) {
+        admissionFailure = error
+      }
+      expect(admissionFailure).toMatchObject(refusal)
+      expect(mockQuery).not.toHaveBeenCalled()
+    })
+  })
 })

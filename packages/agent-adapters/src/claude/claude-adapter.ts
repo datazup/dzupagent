@@ -395,6 +395,7 @@ export class ClaudeAgentAdapter
     readonly interactionPolicy: InteractionPolicy
     readonly queryOptions: BuiltClaudeQuery
   } {
+    if (input.outputSchema !== undefined) throw new ForgeError({ code: 'CAPABILITY_DENIED', message: 'Claude SDK adapter does not forward outputSchema; use the Claude CLI adapter (--json-schema)', recoverable: false, context: { providerId: 'claude', reason: 'unsupported_output_schema' } })
     const interactionPolicy = this.resolveInteractionPolicy(input)
     return {
       interactionPolicy,

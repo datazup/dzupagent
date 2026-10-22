@@ -903,4 +903,109 @@ describe("OpenAIAdapter", () => {
       "sink down"
     );
   });
+
+  describe("outputSchema (R-09 structured output)", () => {
+    const OUTPUT_SCHEMA = {
+      type: "object",
+      properties: { answer: { type: "number" } },
+      required: ["answer"],
+      additionalProperties: false,
+    };
+
+    function responsesJson(text: string): Response {
+      return new Response(JSON.stringify({
+        status: "completed",
+        output: [{ type: "message", content: [{ type: "output_text", text }] }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+
+    it("sends text.format json_schema on the Responses transport when outputSchema is set", async () => {
+      const fetchImpl = vi.fn().mockResolvedValue(responsesJson('{"answer":42}'));
+      const adapter = new OpenAIAdapter({
+        apiKey: "fixture-key",
+        transport: "responses",
+        fetchImpl: fetchImpl as typeof fetch,
+      });
+
+      await expect(adapter.run({ prompt: "answer", outputSchema: OUTPUT_SCHEMA }))
+        .resolves.toEqual({ content: '{"answer":42}' });
+
+      const [url] = fetchImpl.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe("https://api.openai.com/v1/responses");
+      expect(bodyOf(fetchImpl.mock.calls[0])["text"]).toEqual({
+        format: { type: "json_schema", name: "output", schema: OUTPUT_SCHEMA, strict: true },
+      });
+    });
+
+    it("sends text.format on the streaming Responses path", async () => {
+      const fetchImpl = vi.fn().mockResolvedValue(mockFetchResponse(createSSEStream([
+        'data: {"type":"response.output_text.delta","delta":"{\\"answer\\":1}"}',
+        'data: {"type":"response.completed","response":{"usage":{"input_tokens":3,"output_tokens":2}}}',
+      ])));
+      const adapter = new OpenAIAdapter({
+        apiKey: "fixture-key",
+        transport: "responses",
+        fetchImpl: fetchImpl as typeof fetch,
+      });
+
+      const events = await collectEvents(adapter.execute({ prompt: "answer", outputSchema: OUTPUT_SCHEMA }));
+
+      expect(events.at(-1)).toMatchObject({ type: "adapter:completed", result: '{"answer":1}' });
+      expect(bodyOf(fetchImpl.mock.calls[0])).toMatchObject({
+        stream: true,
+        text: { format: { type: "json_schema", name: "output", schema: OUTPUT_SCHEMA, strict: true } },
+      });
+    });
+
+    it("omits text.format when no outputSchema is set", async () => {
+      const fetchImpl = vi.fn().mockResolvedValue(responsesJson("plain"));
+      const adapter = new OpenAIAdapter({
+        apiKey: "fixture-key",
+        transport: "responses",
+        fetchImpl: fetchImpl as typeof fetch,
+      });
+
+      await adapter.run({ prompt: "answer" });
+
+      const body = bodyOf(fetchImpl.mock.calls[0]);
+      expect("text" in body).toBe(false);
+      expect("response_format" in body).toBe(false);
+    });
+
+    it.each([
+      {
+        name: "the chat-completions transport",
+        config: {},
+        message: 'outputSchema requires transport "responses"',
+      },
+      {
+        name: "a hard budget on the Responses transport",
+        config: { transport: "responses" as const, hardBudget: {} as never },
+        message: "the hard-budget request proof does not cover outputSchema",
+      },
+    ])("refuses outputSchema on $name with unsupported_output_schema before any fetch", async ({ config, message }) => {
+      const fetchImpl = vi.fn();
+      const adapter = new OpenAIAdapter({
+        apiKey: "fixture-key",
+        fetchImpl: fetchImpl as typeof fetch,
+        ...config,
+      });
+      const input = { prompt: "answer", outputSchema: OUTPUT_SCHEMA };
+
+      for (const attempt of [
+        () => adapter.run(input),
+        () => collectEvents(adapter.execute(input)),
+      ]) {
+        const failure = await attempt().then(() => undefined, (error: unknown) => error);
+        expect(failure).toBeInstanceOf(ForgeError);
+        expect(failure).toMatchObject({
+          code: "CAPABILITY_DENIED",
+          recoverable: false,
+          message: `OpenAI adapter cannot honour outputSchema: ${message}`,
+          context: { providerId: "openai", reason: "unsupported_output_schema" },
+        });
+      }
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
+  });
 });

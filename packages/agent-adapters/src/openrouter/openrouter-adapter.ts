@@ -50,7 +50,10 @@ export interface OpenRouterConfig extends AdapterConfig {
   siteUrl?: string
   /** Site name for OpenRouter analytics */
   siteName?: string
-  /** Provider routing preferences */
+  /**
+   * Provider routing preferences. Default: `{ allow_fallbacks: false }`, so a
+   * pinned model never silently falls back to another upstream provider.
+   */
   providerPreferences?: {
     order?: string[]
     allow_fallbacks?: boolean
@@ -58,6 +61,7 @@ export interface OpenRouterConfig extends AdapterConfig {
 }
 
 const DEFAULT_MODEL = 'anthropic/claude-sonnet-4-5-20250514'
+const DEFAULT_PROVIDER_PREFERENCES = { allow_fallbacks: false } as const
 const OPENROUTER_API_HOST = 'openrouter.ai'
 const OPENROUTER_CHAT_COMPLETIONS_URL = 'https://openrouter.ai/api/v1/chat/completions'
 
@@ -136,14 +140,7 @@ export class OpenRouterAdapter implements AgentCLIAdapter, AdapterStreamSource<O
         ...(this.config.siteUrl ? { 'HTTP-Referer': this.config.siteUrl } : {}),
         ...(this.config.siteName ? { 'X-Title': this.config.siteName } : {}),
       },
-      body: JSON.stringify({
-        model: this.currentModel,
-        messages,
-        stream: true,
-        ...(this.config.providerPreferences
-          ? { provider: this.config.providerPreferences }
-          : {}),
-      }),
+      body: JSON.stringify(this.buildRequestBody(input, messages)),
       signal,
     }, {
       policy: { allowedHosts: [OPENROUTER_API_HOST] },
@@ -240,6 +237,31 @@ export class OpenRouterAdapter implements AgentCLIAdapter, AdapterStreamSource<O
 
   configure(opts: Partial<OpenRouterConfig>): void {
     this.config = { ...this.config, ...opts }
+  }
+
+  /**
+   * OpenRouter forwards the OpenAI `response_format`. With an `outputSchema`,
+   * `require_parameters` restricts routing to upstream providers that honour
+   * it, so the schema is never silently dropped by the selected provider.
+   */
+  private buildRequestBody(
+    input: AgentInput,
+    messages: Array<{ role: string; content: string }>,
+  ): Record<string, unknown> {
+    const preferences = this.config.providerPreferences ?? DEFAULT_PROVIDER_PREFERENCES
+    if (input.outputSchema === undefined) {
+      return { model: this.currentModel, messages, stream: true, provider: preferences }
+    }
+    return {
+      model: this.currentModel,
+      messages,
+      stream: true,
+      provider: { ...preferences, require_parameters: true },
+      response_format: {
+        type: 'json_schema',
+        json_schema: { name: 'output', schema: input.outputSchema, strict: true },
+      },
+    }
   }
 
   private resolveApiKey(): string {
