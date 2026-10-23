@@ -42,7 +42,7 @@ function request(): ExecutionOfferRoutingRequest {
     policy: { revision: 'policy/1', maxObservationAgeMs: 10000, minimumConfidence: .8, maximumCompletionMs: 10000, weights: DEFAULT_EXECUTION_OFFER_WEIGHTS,
       preferredLocal: { provider: 'codex', model: 'gpt-6.1-sol', effort: 'high' } },
     assignment: { taskId: 'task/1', stage: 'implementation', generation: 2, ownerOfferId: 'local-sol', state: 'checkpointed', sourceRef: 'git/main@123', recoveryRef: 'checkpoint/1' },
-    localPrincipal: 'user2', localHost: 'am5', environmentRef: 'host/am5/receipt', remainingBudgetMicros: 10000 }
+    localPrincipal: 'user2', localHost: 'am5', environmentRef: 'host/am5/receipt', remainingBudgetMicros: 10000, budgetCurrency: 'USD' }
 }
 function changeOp(r: ExecutionOfferRoutingRequest, id: string, changes: Partial<ExecutionOfferOperations>): ExecutionOfferRoutingRequest {
   return { ...r, operations: r.operations.map(o => o.offerId === id ? { ...o, ...changes } : o) }
@@ -114,6 +114,27 @@ describe('operational routing on existing qualification and deterministic receip
   it('never assumes unknown cost is free', () => {
     const r = request()
     expect(routeExecutionOffers({ ...r, budgets: {} }).action).toBe('wait')
+  })
+  it('reserves the full admitted token ceiling and refuses mixed monetary units', async () => {
+    const r = request(), original = r.budgets['local-sol']!
+    const expanded = { ...original, usageCeiling: { uncachedInputTokens: 1000, outputTokens: 100, cachedInputTokens: 50, cacheWriteTokens: 20, reasoningTokens: 30 },
+      tariff: { ...original.tariff, baseRates: { ...original.tariff.baseRates, cachedInputMicrosPerToken: 1, cacheWriteMicrosPerToken: 1, reasoningMicrosPerToken: 1 } }, hardCeiling: { currency: 'USD', maxAmountMicros: 5000 } }
+    let larger = { ...r, budgets: { ...r.budgets, 'local-sol': expanded }, qualification: { ...r.qualification, task: { ...r.qualification.task, maximumCostMicros: 5000 }, offers: r.qualification.offers.map(o => ({ ...o, estimatedCostMicros: 2000 })) } }
+    const d = routeExecutionOffers(larger), p = ports(larger)
+    await reserveExecutionOfferRouting(d, p)
+    expect(p.reservation.reserve).toHaveBeenCalledWith(expect.objectContaining({ allocations: [expect.objectContaining({ offerId: 'local-sol', tokens: 1200 })] }))
+    larger = changeOp({ ...larger, qualification: { ...larger.qualification, offers: larger.qualification.offers.map(o => o.offer.offerId === 'local-sol' ? { ...o, quota: { ...o.quota, remainingTokens: 500 } } : o) } }, 'local-sol', { quota: { ...larger.operations[0]!.quota, remaining: m(500, 'tokens') } })
+    expect(routeExecutionOffers(larger).eligibility.find(e => e.offerId === 'local-sol')!.reasons).toContain('QUOTA_COMMITTED_OR_RESERVED')
+    const euro = { ...r, budgets: { ...r.budgets, 'local-sol': { ...original, tariff: { ...original.tariff, currency: 'EUR' }, hardCeiling: { currency: 'EUR', maxAmountMicros: 1000 } } } }
+    expect(routeExecutionOffers(euro).eligibility.find(e => e.offerId === 'local-sol')!.reasons).toContain('BUDGET_CURRENCY_MISMATCH')
+  })
+  it('adds differing primary/reviewer ceilings once for a shared C3 quota pool', () => {
+    const r = request()
+    const shared = { ...r, qualification: { ...r.qualification, task: { ...r.qualification.task, complexity: 'C3' as const }, offers: r.qualification.offers.map(o => ({ ...o, estimatedCostMicros: 400, quota: { ...o.quota, poolRef: 'shared', remainingTokens: 650 } })) },
+      budgets: Object.fromEntries(Object.entries(r.budgets).map(([id, b]) => [id, { ...b, usageCeiling: { uncachedInputTokens: id === 'local-sol' ? 300 : 200, outputTokens: 100 } }])),
+      operations: r.operations.map(o => ({ ...o, quotaPool: 'shared', quota: { ...o.quota, remaining: m(650, 'tokens'), reviewHeadroom: m(100, 'tokens') } })) }
+    // Each role fits alone, but even the smaller pair needs600+protected100.
+    expect(routeExecutionOffers(shared).action).toBe('wait')
   })
   it('uses a restored pool only inside its new-work ramp and retains running tasks', () => {
     const r = changeOp(request(), 'local-sol', { recovery: { restoredAt: at, admitted: m(1), limit: m(1) } })

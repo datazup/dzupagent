@@ -30,6 +30,7 @@ export interface ExecutionOfferRoutingRequest {
   readonly localHost: string
   readonly environmentRef: string
   readonly remainingBudgetMicros: number
+  readonly budgetCurrency: string
   /** Missing pricing is unknown, never a zero-cost route. */
   readonly budgets: Readonly<Record<string, AiBudgetReservationRequest>>
   readonly urgency?: { readonly deadline: string; readonly exceptionRef: string }
@@ -88,7 +89,7 @@ export function routeExecutionOffers(input: ExecutionOfferRoutingRequest): Execu
       !integer(policy.maxObservationAgeMs) || policy.maxObservationAgeMs === 0 ||
       !Number.isFinite(policy.minimumConfidence) || policy.minimumConfidence < 0 || policy.minimumConfidence > 1 ||
       !Number.isFinite(policy.maximumCompletionMs) || policy.maximumCompletionMs <= 0 ||
-      !integer(request.remainingBudgetMicros) || !text(request.environmentRef) ||
+      !integer(request.remainingBudgetMicros) || !/^[A-Z]{3}$/.test(request.budgetCurrency) || !text(request.environmentRef) ||
       !text(request.localPrincipal) || !text(request.localHost) || !integer(assignment.generation) ||
       assignment.taskId !== q.task?.taskId || !text(assignment.stage) || !text(assignment.ownerOfferId) ||
       !text(assignment.sourceRef) || !text(assignment.recoveryRef) || !date(q.decidedAt) ||
@@ -132,7 +133,8 @@ export function routeExecutionOffers(input: ExecutionOfferRoutingRequest): Execu
     const committed = metricValue(o.quota.committed, 'tokens', q.decidedAt, policy, reasons, 'quota.committed')
     const review = metricValue(o.quota.reviewHeadroom, 'tokens', q.decidedAt, policy, reasons, 'quota.reviewHeadroom')
     if (remaining !== undefined && remaining !== item.quota.remainingTokens) fail('ROUTING_QUOTA_CONTRADICTION')
-    if (remaining !== undefined && committed !== undefined && review !== undefined && remaining - committed - review < q.task.contextTokens + q.task.outputTokens) reasons.push('QUOTA_COMMITTED_OR_RESERVED')
+    const demand = tokenCeiling(request.budgets?.[id])
+    if (remaining !== undefined && committed !== undefined && review !== undefined && demand !== undefined && remaining - committed - review < demand) reasons.push('QUOTA_COMMITTED_OR_RESERVED')
     for (const name of ['quality', 'continuity', 'fairness'] as const) metricValue(o[name], 'score', q.decidedAt, policy, reasons, name)
     for (const name of ['queue', 'execution', 'transfer', 'validation', 'review'] as const) metricValue(o.completion[name], 'ms', q.decidedAt, policy, reasons, `completion.${name}`)
     if (o.recovery) {
@@ -148,8 +150,10 @@ export function routeExecutionOffers(input: ExecutionOfferRoutingRequest): Execu
     else {
       const price = reserveAiBudget({ ...budget, reservedAt: q.decidedAt })
       if (price.status !== 'admitted') reasons.push(`BUDGET_${price.reason}`)
+      else if (price.currency !== request.budgetCurrency) reasons.push('BUDGET_CURRENCY_MISMATCH')
       else if (price.offerRef !== id || price.modelRef !== item.offer.model.modelRef || price.modelRevision !== item.offer.model.revision ||
           budget.usageCeiling.uncachedInputTokens < q.task.contextTokens || budget.usageCeiling.outputTokens < q.task.outputTokens) reasons.push('BUDGET_IDENTITY_OR_USAGE_MISMATCH')
+      else if (demand! > item.contextWindowTokens || budget.usageCeiling.outputTokens + (budget.usageCeiling.reasoningTokens ?? 0) > item.maximumOutputTokens) reasons.push('CONTEXT_CEILING_INSUFFICIENT')
       else {
         costs.set(id, price.reservedAmountMicros)
         if (price.reservedAmountMicros > request.remainingBudgetMicros || price.reservedAmountMicros > item.estimatedCostMicros) reasons.push('BUDGET_INSUFFICIENT')
@@ -158,7 +162,7 @@ export function routeExecutionOffers(input: ExecutionOfferRoutingRequest): Execu
     return { offerId: id, reasons }
   })
   const observations = { operations: request.operations, offers: q.offers, budgets: request.budgets,
-    assignment, environmentRef: request.environmentRef, remainingBudgetMicros: request.remainingBudgetMicros }
+    assignment, environmentRef: request.environmentRef, remainingBudgetMicros: request.remainingBudgetMicros, budgetCurrency: request.budgetCurrency }
   const base = { schema: EXECUTION_OFFER_ROUTING_SCHEMA, request, inputDigest: digestExecutionOfferRouting(request),
     observationDigest: digestExecutionOfferRouting(observations), eligibility }
   const finish = (rest: Omit<ExecutionOfferRoutingDecision, keyof typeof base | 'decisionDigest'>): ExecutionOfferRoutingDecision => {
@@ -246,6 +250,17 @@ function consistent(shared: Map<string, string>, key: string, v: unknown) {
   if (shared.has(key) && shared.get(key) !== digest) fail(`ROUTING_SHARED_OBSERVATION_CONTRADICTION:${key}`)
   shared.set(key, digest)
 }
+/** Reserve every admitted usage class, never the smaller task estimate. */
+function tokenCeiling(budget: AiBudgetReservationRequest | undefined): number | undefined {
+  if (!budget) return
+  const u = budget.usageCeiling
+  if (!u) fail('ROUTING_TOKEN_CEILING_INVALID')
+  const values = [u.uncachedInputTokens, u.outputTokens, u.cachedInputTokens ?? 0, u.cacheWriteTokens ?? 0, u.reasoningTokens ?? 0]
+  if (!values.every(integer)) fail('ROUTING_TOKEN_CEILING_INVALID')
+  const total = values.reduce((sum, v) => sum + v, 0)
+  if (!integer(total)) fail('ROUTING_TOKEN_CEILING_INVALID')
+  return total
+}
 function metricValue(m: RoutingObservation, unit: RoutingObservation['unit'], at: string, p: ExecutionOfferRoutingPolicy, reasons: string[], label: string): number | undefined {
   if (validateRoutingObservation(m).length) fail(`ROUTING_OBSERVATION_INVALID:${label}`)
   const age = Date.parse(at) - Date.parse(m.observedAt)
@@ -260,7 +275,7 @@ function findReviewer(q: TaskRoutingRequest, primary: QualifiedTaskRoutingOffer,
     const v = (m: RoutingObservation) => m.state === 'known' ? m.value : 0
     return v(c.limit) - v(c.running) - v(c.queued) - v(c.reserved) - v(c.reviewHeadroom)
   }
-  const tokenDemand = q.task.contextTokens + q.task.outputTokens
+  const primaryDemand = tokenCeiling(request.budgets[primary.offer.offerId])!
   try {
     return selectTaskExecutionRoute({ ...q, task: { ...q.task, kind: 'review', maximumCostMicros: Math.min(q.task.maximumCostMicros, request.remainingBudgetMicros) - primary.estimatedCostMicros },
       implementer: { provider: primary.offer.provider, providerFamily: primary.providerFamily, modelRef: primary.offer.model.modelRef, providerModelId: primary.offer.model.providerModelId! },
@@ -271,7 +286,8 @@ function findReviewer(q: TaskRoutingRequest, primary: QualifiedTaskRoutingOffer,
         const remaining = v.quota.remaining.state === 'known' ? v.quota.remaining.value : 0
         const committed = v.quota.committed.state === 'known' ? v.quota.committed.value : 0
         const protectedReview = v.quota.reviewHeadroom.state === 'known' ? v.quota.reviewHeadroom.value : 0
-        const quotaFit = remaining - committed - protectedReview >= tokenDemand * (v.quotaPool === p.quotaPool ? 2 : 1)
+        const demand = tokenCeiling(request.budgets[o.offer.offerId]) ?? Infinity
+        const quotaFit = remaining - committed - protectedReview >= demand + (v.quotaPool === p.quotaPool ? primaryDemand : 0)
         return { ...o, backendAvailable: o.backendAvailable && v.stages.includes('review') && slotsFit && quotaFit && totalCost <= request.remainingBudgetMicros }
       }) })
   } catch (e) { if (!(e instanceof TaskRoutingError) || e.code === 'TASK_ROUTING_INVALID') throw e; return }
@@ -335,11 +351,11 @@ export async function reserveExecutionOfferRouting(decision: ExecutionOfferRouti
     const price = reserveAiBudget({ ...decision.request.budgets[id]!, reservedAt: now })
     if (price.status !== 'admitted') fail('ROUTING_BUDGET_CHANGED')
     return { offerId: id, principal: o.principal, account: o.account, host: o.host, quotaPool: o.quotaPool, slots: 1 as const,
-      tokens: decision.request.qualification.task.contextTokens + decision.request.qualification.task.outputTokens,
+      tokens: tokenCeiling(decision.request.budgets[id])!,
       costMicros: price.reservedAmountMicros, recoveryAdmission: !!o.recovery }
   })
   const hold = await ports.reservation.reserve({ key, taskId: a.taskId, expectedGeneration: a.generation,
-    expectedSourceOfferId: a.ownerOfferId, allocations,
+    expectedSourceOfferId: a.ownerOfferId, currency: decision.request.budgetCurrency, allocations,
     decisionDigest: decision.decisionDigest, observationDigest: decision.observationDigest, offerId: decision.selectedOfferId,
     ...(decision.reviewerOfferId ? { reviewerOfferId: decision.reviewerOfferId } : {}), expiresAfterMs: ports.holdMs })
   if (!hold) fail('ROUTING_RESERVATION_RACE')

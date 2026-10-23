@@ -102,6 +102,7 @@ export interface ExecutionOfferReservationPort {
     readonly taskId: string
     readonly expectedGeneration: number
     readonly expectedSourceOfferId: string
+    readonly currency: string
     readonly decisionDigest: string
     readonly observationDigest: string
     readonly offerId: string
