@@ -3,6 +3,8 @@
  * These types are intentionally domain-agnostic and do not depend on
  * workflow orchestration services.
  */
+export { EXECUTION_OFFER_ROUTING_SCHEMA, validateRoutingObservation } from './execution-offer-routing.js';
+export type { RoutingObservation, RoutingCapacity, ExecutionOfferOperations, ExecutionOfferRoutingPolicy, ExecutionTaskAssignment, ExecutionOfferRanking, ExecutionOfferReservationPort, ExecutionOfferReservation, ExecutionOfferHandoff } from './execution-offer-routing.js';
 export type { FeatureBrief, PersonaProfile, PersonaRoleType, WorkItem } from "./planning.js";
 export type { ExecutionRun, ExecutionRunStatus, PromptRecord, PromptType } from "./execution.js";
 export type { Artifact, ArtifactType, BudgetBucket, CostLedgerEntry } from "./ledger.js";

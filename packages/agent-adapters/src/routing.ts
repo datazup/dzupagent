@@ -1,4 +1,9 @@
 /** Minimal deterministic-routing entrypoint for hosts that do not need adapters. */
+export { DEFAULT_EXECUTION_OFFER_WEIGHTS, ExecutionOfferRoutingError, routeExecutionOffers, replayExecutionOfferRouting, bindExecutionOfferRouting, reserveExecutionOfferRouting, recoverExecutionOfferRouting, digestExecutionOfferRouting } from './registry/execution-offer-routing.js';
+export type { ExecutionOfferRoutingRequest, ExecutionOfferRoutingDecision, ExecutionOfferAssessmentProposal } from './registry/execution-offer-routing.js';
+export { assessExecutionOffers } from './registry/execution-offer-assessment.js';
+export type { ExecutionOfferAssessmentPort } from './registry/execution-offer-assessment.js';
+export { buildExecutionOfferAssessmentPrompt, EXECUTION_OFFER_ASSESSMENT_TEMPLATE } from './prompts/execution-offer-assessment.js';
 export {
   classifyRouteTransition,
   createRouteSelectionReceipt,
