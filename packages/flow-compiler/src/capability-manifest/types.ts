@@ -99,10 +99,41 @@ export interface FlowValidationProfile {
   requiresHostManifest: boolean;
 }
 
+/**
+ * Where a generated matrix came from. Both values come from git, never from
+ * the wall clock, so regenerating at the same revision is byte-identical.
+ */
+export interface FlowConformanceProvenance {
+  /** `git rev-parse --short HEAD` of the checkout the matrix was generated in. */
+  sourceRevision: string;
+  /** `git log -1 --format=%cI` of that revision. */
+  committedAt: string;
+}
+
+export interface FlowHostConformanceCell {
+  kind: FlowNodeKind;
+  executable: boolean;
+}
+
+/** Whether one host executes each node kind on that kind's current route. */
+export interface FlowHostConformanceColumn {
+  host: string;
+  version: string;
+  nodes: FlowHostConformanceCell[];
+}
+
+export interface FlowConformanceMatrixOptions {
+  provenance?: FlowConformanceProvenance;
+  /** One column per host, in this order. Host ids must be unique. */
+  hosts?: HostCapabilityManifest[];
+}
+
 export interface FlowConformanceMatrix {
   schema: "dzupagent.flowConformanceMatrix/v1";
   generatedFrom: "FLOW_NODE_KIND_REGISTRY";
+  provenance?: FlowConformanceProvenance;
   nodes: FlowNodeCapabilityDescriptor[];
   targets: TargetCapabilityManifest[];
   validationProfiles: FlowValidationProfile[];
+  hosts?: FlowHostConformanceColumn[];
 }
