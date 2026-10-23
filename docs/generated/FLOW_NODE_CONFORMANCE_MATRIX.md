@@ -4,6 +4,8 @@
 
 Schema: `dzupagent.flowConformanceMatrix/v1`
 
+Source revision: `55150e99` (committed 2026-10-22T18:17:40+02:00)
+
 ## Nodes
 
 | Node | Parse | Validate | Status | Lowering | Current route | Recommended profile | Owner | Runtime requirements | Notes |
@@ -77,3 +79,64 @@ Schema: `dzupagent.flowConformanceMatrix/v1`
 | `authoring-fast` | `parse` → `document-shape` → `output-key-uniqueness` | no |
 | `compiler-focused` | `parse` → `document-shape` → `output-key-uniqueness` → `semantic-resolution` → `target-lowering` → `requirement-summary` | no |
 | `runtime-fixture` | `parse` → `document-shape` → `output-key-uniqueness` → `semantic-resolution` → `target-lowering` → `requirement-summary` → `host-readiness` → `runtime-fixture` → `evidence-assertions` | yes |
+
+## Host executability
+
+A node kind is executable on a host when the host accepts the kind's current route target and declares that target's capability and every runtime requirement of the kind, as `resolveHostReadiness` checks for a flow of that kind alone.
+
+Hosts: `dzupagent.pipeline-runtime` 0.2.0
+
+| Node | `dzupagent.pipeline-runtime` |
+| --- | --- |
+| `sequence` | no |
+| `action` | no |
+| `for_each` | yes |
+| `branch` | yes |
+| `approval` | yes |
+| `clarification` | yes |
+| `persona` | yes |
+| `route` | yes |
+| `parallel` | yes |
+| `complete` | no |
+| `spawn` | no |
+| `classify` | no |
+| `emit` | no |
+| `memory` | no |
+| `set` | yes |
+| `checkpoint` | no |
+| `restore` | no |
+| `try_catch` | no |
+| `loop` | no |
+| `http` | no |
+| `wait` | no |
+| `subflow` | no |
+| `prompt` | no |
+| `return_to` | no |
+| `agent` | no |
+| `validate` | no |
+| `worker.dispatch` | no |
+| `fleet.dispatch` | no |
+| `fleet.gather` | no |
+| `fleet.contract-net` | no |
+| `knowledge.write` | no |
+| `knowledge.query` | no |
+| `shell.run` | no |
+| `evidence.write` | no |
+| `validate.schema` | no |
+| `adapter.run` | no |
+| `adapter.race` | no |
+| `adapter.parallel` | no |
+| `adapter.supervisor` | no |
+| `spdd.import_sources` | no |
+| `spdd.build_source_pack` | no |
+| `spdd.run_analysis` | no |
+| `spdd.generate_canvas` | no |
+| `spdd.validate_canvas` | no |
+| `spdd.review_canvas` | no |
+| `spdd.project_plan` | no |
+| `spdd.arm_dispatch` | no |
+| `spdd.run_validation` | no |
+| `spdd.collect_proof` | no |
+| `spdd.scan_drift` | no |
+| `spdd.create_sync_proposal` | no |
+| `spdd.agent_swarm` | no |

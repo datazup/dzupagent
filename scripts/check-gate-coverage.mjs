@@ -24,9 +24,11 @@
  *     not pass in any tree and nobody noticed, because nothing ran it.
  *     RETIRED 2026-08-30 by operator decision.
  *   - check:flow-conformance compared against a matrix artifact last refreshed
- *     on 07-11 while the flow-* packages changed through 08-17.
- *     RETIRED 2026-08-30 by operator decision. The generator survives as the
- *     non-gate `docs:flow-conformance` if the matrix is ever wanted again.
+ *     on 07-11 while the flow-* packages changed through 08-17. Retired
+ *     2026-08-30 by operator decision; RE-ARMED 2026-10-22 under W2 (a)
+ *     (DSL-WAVE-I-20261021-R1, O4): the matrix now records its git source
+ *     revision, --check regenerates and byte-compares it, and the gate runs
+ *     in verify:strict only (see CHAIN_DELTA_ALLOWLIST), not in CI.
  *   - check:flow-corpus-losslessness:required was GREEN, and was the strictly
  *     stronger half of a pair whose WEAKER half was the one wired into CI.
  *     RESOLVED 2026-08-30: check:flow-corpus-losslessness now passes
@@ -230,6 +232,8 @@ export const CHAIN_DELTA_ALLOWLIST = {
     'COVERED IN CI, elsewhere: coverage runs as its own workflow, .github/workflows/coverage-gate.yml, per-workspace in a matrix. Running it inline would roughly double the strict lane for no extra signal.',
   'check:workspace:coverage':
     'COVERED IN CI, under a different name: this and test:coverage:workspace are two script names for one file, scripts/check-workspace-coverage.mjs, and coverage-gate.yml enforces it as `yarn test:coverage:workspace`.',
+  'check:flow-conformance':
+    'NOT COVERED IN CI: not run in CI; covered by verify:strict only. W2 (a) of DSL-WAVE-I-20261021-R1 re-armed it locally and granted no CI change; wiring it into the CI chain (run-gates.mjs strict-ci profile) is W2 (b) and needs a CI grant.',
 }
 
 /**

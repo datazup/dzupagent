@@ -3,11 +3,11 @@
   "harnessVersion": "mem-p007a-v1",
   "fixturePolicy": "invented-provider-free-only",
   "historySemantics": "lifecycle-history-evaluated-at-query-as-of",
-  "baseCommit": "38b79c1c393f428aeb37595372e2b86fbc917764",
-  "baseTree": "fe685436cfcb7bf6ffb8151c00db1187bfcaba8d",
+  "baseCommit": "f44c458543800d26fe54fb883c35bd5aeb08edb3",
+  "baseTree": "c3c6e1cd1932fe3a342f0aeafaff7f42cd56ad38",
   "configDigest": "sha256:936c9124f40283f5aef5793e2b3c641c6d28c95aeb26c0e08a84245756be0e4c",
   "source": {
-    "digest": "sha256:b5acca6b05eb065e096f02265c7c15556281df51a9294191e9f62f77af4f836c",
+    "digest": "sha256:bbb41d98d9013e8094160b8a43ce764e3fe158ec1bcbb6b7e1892f4dcb84e733",
     "files": [
       {
         "path": "config/memory-api-census.v1.json",
@@ -19,7 +19,7 @@
       },
       {
         "path": "package.json",
-        "digest": "sha256:ff1d6a419a333b670f24073c24f2d8c94944436cd5eecd8e9a3597ae54a9ce3d"
+        "digest": "sha256:f4146ec77075c6241d7c696443550ba782716e50a1d7569f48a0fa1d3e63595e"
       },
       {
         "path": "packages/agent/src/__tests__/memory-context-loader-lifecycle.test.ts",
@@ -655,7 +655,7 @@
       }
     ]
   },
-  "profileDigest": "sha256:0972a62c438457e07a004511e14f4d724832405749c17a22829f202d755d8001",
+  "profileDigest": "sha256:bae5612d6bad5019d71e38fa53c939bc5dcc931cd7e8b27d5460d7ffe4e8cb1e",
   "status": "passed",
   "counts": {
     "total": 57,
@@ -1022,8 +1022,8 @@
       "fixtureDigest": "sha256:001a4b89e1a5c0c36b409cfb37517e784df4e447aae24d2326153b1a34c43f18",
       "profileId": "mem-p007a-provider-free-baseline",
       "profileVersion": "v1",
-      "profileDigest": "sha256:0972a62c438457e07a004511e14f4d724832405749c17a22829f202d755d8001",
-      "sourceDigest": "sha256:b5acca6b05eb065e096f02265c7c15556281df51a9294191e9f62f77af4f836c",
+      "profileDigest": "sha256:bae5612d6bad5019d71e38fa53c939bc5dcc931cd7e8b27d5460d7ffe4e8cb1e",
+      "sourceDigest": "sha256:bbb41d98d9013e8094160b8a43ce764e3fe158ec1bcbb6b7e1892f4dcb84e733",
       "environment": {
         "schema": "datazup.memory.conformance-environment/v1",
         "network": "disabled",
@@ -1095,7 +1095,7 @@
           "evidenceDigests": []
         }
       ],
-      "reportDigest": "sha256:9370b6e644b9d8e2bf28d51a6ed89d197037467ed4f01b308fb8b16c9559d338"
+      "reportDigest": "sha256:c1e73670bb23bdc02bef0a90330cdbd3075fa151b94a25312bc0882484b9faac"
     },
     {
       "schema": "datazup.memory.conformance-report/v1",
@@ -1108,8 +1108,8 @@
       "fixtureDigest": "sha256:426592bdba1ee8eac3607587a53b487eb1d01b2af4fdacd2892f9da26004190c",
       "profileId": "mem-p007a-provider-free-baseline",
       "profileVersion": "v1",
-      "profileDigest": "sha256:0972a62c438457e07a004511e14f4d724832405749c17a22829f202d755d8001",
-      "sourceDigest": "sha256:b5acca6b05eb065e096f02265c7c15556281df51a9294191e9f62f77af4f836c",
+      "profileDigest": "sha256:bae5612d6bad5019d71e38fa53c939bc5dcc931cd7e8b27d5460d7ffe4e8cb1e",
+      "sourceDigest": "sha256:bbb41d98d9013e8094160b8a43ce764e3fe158ec1bcbb6b7e1892f4dcb84e733",
       "environment": {
         "schema": "datazup.memory.conformance-environment/v1",
         "network": "disabled",
@@ -1227,7 +1227,7 @@
           ]
         }
       ],
-      "reportDigest": "sha256:3e40021aeb1fbf85caaab782416e674db827a6d5eaf71780eee646f94a548732"
+      "reportDigest": "sha256:fa421334110c0bd5499651cb9efc5f5ad91f700115ce61579c3ab020b77db9de"
     },
     {
       "schema": "datazup.memory.conformance-report/v1",
@@ -1240,8 +1240,8 @@
       "fixtureDigest": "sha256:0fe1d3b258ec6c2747729c6deb6419013f26882dc906e5cc26289440f650407e",
       "profileId": "mem-p007a-provider-free-baseline",
       "profileVersion": "v1",
-      "profileDigest": "sha256:0972a62c438457e07a004511e14f4d724832405749c17a22829f202d755d8001",
-      "sourceDigest": "sha256:b5acca6b05eb065e096f02265c7c15556281df51a9294191e9f62f77af4f836c",
+      "profileDigest": "sha256:bae5612d6bad5019d71e38fa53c939bc5dcc931cd7e8b27d5460d7ffe4e8cb1e",
+      "sourceDigest": "sha256:bbb41d98d9013e8094160b8a43ce764e3fe158ec1bcbb6b7e1892f4dcb84e733",
       "environment": {
         "schema": "datazup.memory.conformance-environment/v1",
         "network": "disabled",
@@ -1350,7 +1350,7 @@
           "evidenceDigests": []
         }
       ],
-      "reportDigest": "sha256:4e15ee775d60c07d62a5b634c4d42d3456636847bad6e5faf0e37d714b03e7c1"
+      "reportDigest": "sha256:23579a38cfa711395b5b104fb74aaf8b898f0f7221e4984be2d89173303b2c65"
     },
     {
       "schema": "datazup.memory.conformance-report/v1",
@@ -1363,8 +1363,8 @@
       "fixtureDigest": "sha256:c055599e6e578f4c13744aca230ab53c087ee756429f690d975a84f4dfd5b58e",
       "profileId": "mem-p007a-provider-free-baseline",
       "profileVersion": "v1",
-      "profileDigest": "sha256:0972a62c438457e07a004511e14f4d724832405749c17a22829f202d755d8001",
-      "sourceDigest": "sha256:b5acca6b05eb065e096f02265c7c15556281df51a9294191e9f62f77af4f836c",
+      "profileDigest": "sha256:bae5612d6bad5019d71e38fa53c939bc5dcc931cd7e8b27d5460d7ffe4e8cb1e",
+      "sourceDigest": "sha256:bbb41d98d9013e8094160b8a43ce764e3fe158ec1bcbb6b7e1892f4dcb84e733",
       "environment": {
         "schema": "datazup.memory.conformance-environment/v1",
         "network": "disabled",
@@ -1674,7 +1674,7 @@
           ]
         }
       ],
-      "reportDigest": "sha256:2ad8593f45bc67245e7aae84ed1a52fa61c523a995a79017cf361d61650c4131"
+      "reportDigest": "sha256:76a58e954de02130055c449a02420be136725f41f4484687635a94ea0f06802d"
     },
     {
       "schema": "datazup.memory.conformance-report/v1",
@@ -1687,8 +1687,8 @@
       "fixtureDigest": "sha256:742ca18553e99b7639c57bef0b1f0bb8c92b4972d1f71172992d97ff0e2456bb",
       "profileId": "mem-p007a-provider-free-baseline",
       "profileVersion": "v1",
-      "profileDigest": "sha256:0972a62c438457e07a004511e14f4d724832405749c17a22829f202d755d8001",
-      "sourceDigest": "sha256:b5acca6b05eb065e096f02265c7c15556281df51a9294191e9f62f77af4f836c",
+      "profileDigest": "sha256:bae5612d6bad5019d71e38fa53c939bc5dcc931cd7e8b27d5460d7ffe4e8cb1e",
+      "sourceDigest": "sha256:bbb41d98d9013e8094160b8a43ce764e3fe158ec1bcbb6b7e1892f4dcb84e733",
       "environment": {
         "schema": "datazup.memory.conformance-environment/v1",
         "network": "disabled",
@@ -1831,7 +1831,7 @@
           "evidenceDigests": []
         }
       ],
-      "reportDigest": "sha256:9b3c966ff966de0c5fd1b89cfd97e0634d423d9ef37ea89f4009bc6c9f03216b"
+      "reportDigest": "sha256:fa4026a7ee35102354fbb30fd740af955ddb19a793e154e2139567ae8a344ed6"
     },
     {
       "schema": "datazup.memory.conformance-report/v1",
@@ -1844,8 +1844,8 @@
       "fixtureDigest": "sha256:1674fb14b238cb9ce744b6a3009a939564089b96e2cf9ef39064b7cbd2d2890b",
       "profileId": "mem-p007a-provider-free-baseline",
       "profileVersion": "v1",
-      "profileDigest": "sha256:0972a62c438457e07a004511e14f4d724832405749c17a22829f202d755d8001",
-      "sourceDigest": "sha256:b5acca6b05eb065e096f02265c7c15556281df51a9294191e9f62f77af4f836c",
+      "profileDigest": "sha256:bae5612d6bad5019d71e38fa53c939bc5dcc931cd7e8b27d5460d7ffe4e8cb1e",
+      "sourceDigest": "sha256:bbb41d98d9013e8094160b8a43ce764e3fe158ec1bcbb6b7e1892f4dcb84e733",
       "environment": {
         "schema": "datazup.memory.conformance-environment/v1",
         "network": "disabled",
@@ -1911,7 +1911,7 @@
           ]
         }
       ],
-      "reportDigest": "sha256:ca85c4f9ccd57aedc6fc330fe6e8daabefce8a647e5507cf4e913f5963670596"
+      "reportDigest": "sha256:2344042ca2ed0507c7c57d6464a6ac4c91ed7e98565350f8e1f8856ad33c4c89"
     },
     {
       "schema": "datazup.memory.conformance-report/v1",
@@ -1924,8 +1924,8 @@
       "fixtureDigest": "sha256:2f4ddb0045e61a574d09f20ce30af0cc4016ebf6c5b9f7e038122a35cdaad741",
       "profileId": "mem-p007a-provider-free-baseline",
       "profileVersion": "v1",
-      "profileDigest": "sha256:0972a62c438457e07a004511e14f4d724832405749c17a22829f202d755d8001",
-      "sourceDigest": "sha256:b5acca6b05eb065e096f02265c7c15556281df51a9294191e9f62f77af4f836c",
+      "profileDigest": "sha256:bae5612d6bad5019d71e38fa53c939bc5dcc931cd7e8b27d5460d7ffe4e8cb1e",
+      "sourceDigest": "sha256:bbb41d98d9013e8094160b8a43ce764e3fe158ec1bcbb6b7e1892f4dcb84e733",
       "environment": {
         "schema": "datazup.memory.conformance-environment/v1",
         "network": "disabled",
@@ -2513,8 +2513,8 @@
           ]
         }
       ],
-      "reportDigest": "sha256:01c97bbca8dade2d934dd9dccf59d0f274abca820e375bd4ba8eb67605f0407f"
+      "reportDigest": "sha256:14636f7a6a9f99e34e6bc244cb23c4160bbe1644a143e1dbf19241c3dba50ec2"
     }
   ],
-  "resultDigest": "sha256:4d5ce8208b0bc736ec406980af78aa49e795e704b56bda052888d273f94068c4"
+  "resultDigest": "sha256:d3813e3cbd0d8d90732220e9ed69b6cd57486bafee38ccaee99be8414c372a37"
 }
