@@ -120,7 +120,7 @@ export function routeExecutionOffers(input: ExecutionOfferRoutingRequest): Execu
     ] as const) {
       if (!capacity || Object.keys(capacity).sort().join() !== 'limit,queued,reserved,reviewHeadroom,running') fail('ROUTING_CAPACITY_INVALID')
       consistent(shared, key, capacity)
-      const counts = Object.entries(capacity).map(([name, metric]) => metricValue(metric, 'slots', q.decidedAt, policy, reasons, `${key}:${name}`))
+      const counts = (Object.entries(capacity) as [string, RoutingObservation][]).map(([name, metric]) => metricValue(metric, 'slots', q.decidedAt, policy, reasons, `${key}:${name}`))
       if (counts.every(v => v !== undefined)) {
         const { running, queued, reserved, limit, reviewHeadroom } = capacity
         const val = (m: RoutingObservation) => m.state === 'known' ? m.value : 0
@@ -137,7 +137,7 @@ export function routeExecutionOffers(input: ExecutionOfferRoutingRequest): Execu
     for (const name of ['queue', 'execution', 'transfer', 'validation', 'review'] as const) metricValue(o.completion[name], 'ms', q.decidedAt, policy, reasons, `completion.${name}`)
     if (o.recovery) {
       if (!date(o.recovery.restoredAt) || Date.parse(o.recovery.restoredAt) > Date.parse(q.decidedAt)) fail('ROUTING_RECOVERY_INVALID')
-      if ([item.offer.health.checkedAt, item.quota.checkedAt, ...Object.values(o.quota).map(m => m.observedAt),
+      if ([item.offer.health.checkedAt, item.quota.checkedAt, ...(Object.values(o.quota) as RoutingObservation[]).map(m => m.observedAt),
         o.recovery.admitted.observedAt, o.recovery.limit.observedAt].some(at => !at || Date.parse(at) < Date.parse(o.recovery!.restoredAt))) reasons.push('POST_RECOVERY_EVIDENCE_REQUIRED')
       const admitted = metricValue(o.recovery.admitted, 'slots', q.decidedAt, policy, reasons, 'recovery.admitted')
       const limit = metricValue(o.recovery.limit, 'slots', q.decidedAt, policy, reasons, 'recovery.limit')
@@ -193,7 +193,7 @@ export function routeExecutionOffers(input: ExecutionOfferRoutingRequest): Execu
       reviewers.set(id, reviewer)
     }
     const val = (m: RoutingObservation) => m.state === 'known' ? m.value : fail('ROUTING_UNKNOWN_METRIC')
-    const completionMs = Object.values(o.completion).reduce((sum, m) => sum + val(m), 0)
+    const completionMs = (Object.values(o.completion) as RoutingObservation[]).reduce((sum, m) => sum + val(m), 0)
     const effort = [...item.efforts].sort((a, b) => a.level - b.level || compare(a.name, b.name))
     const nativeEffort = q.task.complexity === 'C3' ? effort.at(-1)!.name : q.task.complexity === 'C2' ? effort.find(e => e.level >= 3)!.name : effort[0]!.name
     const preferred = policy.preferredLocal
