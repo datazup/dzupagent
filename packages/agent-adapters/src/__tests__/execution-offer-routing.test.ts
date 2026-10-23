@@ -3,7 +3,7 @@ import { materializeAiExecutionOfferSnapshot, materializeAiResolvedTargetSnapsho
 import type { RoutingObservation, RoutingCapacity, ExecutionOfferOperations, ExecutionOfferReservationPort } from '@dzupagent/runtime-contracts'
 import type { AiBudgetReservationRequest } from '@dzupagent/runtime-contracts/ai-budget-reservation'
 import type { QualifiedTaskRoutingOffer } from '../registry/complexity-routing-types.js'
-import { DEFAULT_EXECUTION_OFFER_WEIGHTS, bindExecutionOfferRouting, routeExecutionOffers, replayExecutionOfferRouting, reserveExecutionOfferRouting, recoverExecutionOfferRouting } from '../routing.js'
+import { DEFAULT_EXECUTION_OFFER_WEIGHTS, bindExecutionOfferRouting, assertExecutionOfferRoutingBinding, routeExecutionOffers, replayExecutionOfferRouting, reserveExecutionOfferRouting, recoverExecutionOfferRouting } from '../routing.js'
 import type { ExecutionOfferRoutingRequest } from '../routing.js'
 
 const at = '2026-10-23T09:00:00.000Z', expires = '2026-10-23T09:01:00.000Z'
@@ -37,7 +37,7 @@ function request(): ExecutionOfferRoutingRequest {
   const offers = [offer('local-sol', 'user2'), offer('peer', 'user1', 'claude'), offer('ninel', 'ninel', 'claude')]
   return { schema: 'dzupagent.executionOfferRouting/v1', qualification: { schema: 'dzupagent.taskRoutingRequest/v1', policyRevision: 'policy/1',
     task: { taskId: 'task/1', kind: 'implementation', complexity: 'C2', requiredCapabilities: [], contextTokens: 100, outputTokens: 100, maximumCostMicros: 1000, assessmentRef: 'assessment/1' },
-    offers: offers.map(o => o.qualified), policy: { id: 'route/1', requestId: 'task/1', hardConstraints: [], fallback: 'none', maxSelectionLatencyMs: 100 }, decidedAt: at, maxObservationAgeMs: 10000 },
+    offers: offers.map(o => o.qualified), policy: { id: 'route/1', requestId: 'task/1', hardConstraints: [], fallback: 'none', maxSelectionLatencyMs: 100, approvedTransitions: ['identity-change', 'local-to-remote'] }, decidedAt: at, maxObservationAgeMs: 10000 },
     operations: offers.map(o => o.operations), budgets: Object.fromEntries(offers.map(o => [o.qualified.offer.offerId, o.budget])),
     policy: { revision: 'policy/1', maxObservationAgeMs: 10000, minimumConfidence: .8, maximumCompletionMs: 10000, weights: DEFAULT_EXECUTION_OFFER_WEIGHTS,
       preferredLocal: { provider: 'codex', model: 'gpt-6.1-sol', effort: 'high' } },
@@ -139,6 +139,39 @@ describe('operational routing on existing qualification and deterministic receip
     const crowded = { ...r, qualification: q, operations: r.operations.map(o => ({ ...o, hostCapacity: capacity(1) })) }
     expect(routeExecutionOffers(crowded).action).toBe('wait')
   })
+  it('requires reviewer-stage qualification and accepts review-only operational profiles', () => {
+    let r = request()
+    r = { ...r, qualification: { ...r.qualification, task: { ...r.qualification.task, complexity: 'C3' } }, operations: r.operations.map(o => ({ ...o, stages: ['implementation'] })) }
+    expect(routeExecutionOffers(r).action).toBe('wait')
+    r = { ...r, operations: r.operations.map(o => ({ ...o, stages: o.offerId === 'local-sol' ? ['implementation'] : ['review'] })) }
+    const d = routeExecutionOffers(r)
+    expect(d.selectedOfferId).toBe('local-sol')
+    expect(['peer', 'ninel']).toContain(d.reviewerOfferId)
+  })
+  it('preserves protected review quotas and host slots when reserving a C3 pair', () => {
+    let r = request()
+    r = { ...r, qualification: { ...r.qualification, task: { ...r.qualification.task, complexity: 'C3' }, offers: r.qualification.offers.map(o => ({ ...o, quota: { ...o.quota, poolRef: 'shared', remainingTokens: 500 } })) },
+      operations: r.operations.map(o => ({ ...o, quotaPool: 'shared', quota: { ...o.quota, remaining: m(500, 'tokens') } })) }
+    expect(routeExecutionOffers(r).action).toBe('wait')
+    const original = request()
+    const slots = { ...original, qualification: { ...original.qualification, task: { ...original.qualification.task, complexity: 'C3' as const } }, operations: original.operations.map(o => ({ ...o, hostCapacity: capacity(2) })) }
+    expect(routeExecutionOffers(slots).action).toBe('wait')
+  })
+  it('binds transition approvals to the actual owner and rejects mismatched stages', () => {
+    const r = request()
+    expect(() => routeExecutionOffers({ ...r, qualification: { ...r.qualification, policy: { ...r.qualification.policy, originCandidateId: 'peer' } } })).toThrow('ROUTING_OWNER_MISMATCH')
+    expect(() => routeExecutionOffers({ ...r, assignment: { ...r.assignment, stage: 'review' } })).toThrow('ROUTING_STAGE_MISMATCH')
+    const unavailable = { ...r, qualification: { ...r.qualification, policy: { ...r.qualification.policy, approvedTransitions: [] }, offers: r.qualification.offers.map(o => ({ ...o, quota: { ...o.quota, available: o.offer.offerId !== 'local-sol' } })) } }
+    expect(routeExecutionOffers(unavailable).action).toBe('wait')
+  })
+  it('requires quota and health observed after restoration', () => {
+    let r = request()
+    r = { ...r, qualification: { ...r.qualification, decidedAt: '2026-10-23T09:00:00.500Z' } }
+    r = changeOp(r, 'local-sol', { recovery: { restoredAt: '2026-10-23T09:00:00.001Z', admitted: m(0), limit: m(1) } })
+    const d = routeExecutionOffers(r)
+    expect(d.eligibility.find(e => e.offerId === 'local-sol')!.reasons).toContain('POST_RECOVERY_EVIDENCE_REQUIRED')
+    expect(d.selectedOfferId).not.toBe('local-sol')
+  })
   it('preserves existing binding checks in one composed read-only review handoff', async () => {
     const r = request()
     const review = { ...r, assignment: { ...r.assignment, stage: 'review' }, qualification: { ...r.qualification, task: { ...r.qualification.task, kind: 'review' as const },
@@ -149,6 +182,9 @@ describe('operational routing on existing qualification and deterministic receip
     const context = { target, prompt: { blueprintRef: 'review', blueprintRevision: '1', blueprintDigest: hash, renderedPayloadDigest: hash }, persona: { status: 'none' as const } }
     const binding = bindExecutionOfferRouting(d, context)
     expect(validateAiExecutionBindingDigest(binding).valid).toBe(true)
+    expect(binding.taskRouting?.effort).toBe('high')
+    expect(() => assertExecutionOfferRoutingBinding(d, binding)).not.toThrow()
+    expect(() => assertExecutionOfferRoutingBinding(d, { ...binding, taskRouting: { ...binding.taskRouting!, effort: 'low' } })).toThrow('ROUTING_BINDING_MISMATCH')
     const p = ports(review), handoff = await reserveExecutionOfferRouting(d, p)
     const dispatchReview = vi.fn(async () => ({ accepted: true, bindingDigest: binding.bindingDigest }))
     expect(await dispatchReview()).toEqual(expect.objectContaining({ accepted: true }))

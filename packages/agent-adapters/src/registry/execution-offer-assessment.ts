@@ -12,6 +12,8 @@ export interface ExecutionOfferAssessmentPort {
     readonly maxTokens: number
     readonly maxCostMicros: number
     readonly maxCalls: 1
+    /** Host atomically refuses a duplicate key before contacting the provider. */
+    readonly idempotencyKey: string
   }): Promise<{ readonly output: unknown; readonly usage: { readonly tokens: number; readonly costMicros: number } }>
 }
 const active = new WeakSet<ExecutionOfferAssessmentPort>()
@@ -29,14 +31,20 @@ export async function assessExecutionOffers(request: ExecutionOfferRoutingReques
 }): Promise<{ readonly decision: ExecutionOfferRoutingDecision; readonly assessmentStatus: string; readonly usage?: { readonly tokens: number; readonly costMicros: number } }> {
   // Never assess an already assessed decision: a routing request gets at most one call.
   let baseline = routeExecutionOffers(request)
-  if (request.assessment || baseline.action !== 'select' || !options.port) return { decision: baseline, assessmentStatus: 'not-requested' }
+  if (request.assessment || request.assessmentAttempt || baseline.action !== 'select' || !options.port) return { decision: baseline, assessmentStatus: 'not-requested' }
   if (![options.maxTokens, options.maxCostMicros, options.timeoutMs, options.maxPromptCharacters].every(v => Number.isSafeInteger(v) && v > 0) ||
       options.maxCostMicros > request.remainingBudgetMicros || options.timeoutMs > 60000 || options.maxTokens > 100000) return { decision: baseline, assessmentStatus: 'invalid-allowance' }
-  if (options.signal?.aborted) return { decision: baseline, assessmentStatus: 'cancelled' }
+  const hold = (rationale: string) => routeExecutionOffers({ ...request, assessment: {
+    schema: 'dzupagent.executionOfferAssessment/v1', action: 'wait', policyRevision: request.policy.revision,
+    inputDigest: baseline.inputDigest, rationale,
+  } })
+  if (options.signal?.aborted) return { decision: hold('Caller cancelled before assessment.'), assessmentStatus: 'cancelled' }
   if (active.has(options.port)) return { decision: baseline, assessmentStatus: 'recursive-assessment-refused' }
   // Reserve the entire assessment ceiling conservatively, including unknown
   // usage on timeout. A new lane name is never a fresh task allowance.
-  request = { ...request, remainingBudgetMicros: request.remainingBudgetMicros - options.maxCostMicros }
+  const idempotencyKey = `${request.assignment.taskId}:${request.assignment.stage}:${request.assignment.generation}`
+  request = { ...request, remainingBudgetMicros: request.remainingBudgetMicros - options.maxCostMicros,
+    assessmentAttempt: { key: idempotencyKey, maxTokens: options.maxTokens, reservedCostMicros: options.maxCostMicros } }
   baseline = routeExecutionOffers(request)
   if (baseline.action !== 'select') return { decision: baseline, assessmentStatus: 'assessment-budget-unavailable' }
   const controller = new AbortController()
@@ -57,22 +65,19 @@ export async function assessExecutionOffers(request: ExecutionOfferRoutingReques
     // answer can never change this completed decision or dispatch anything.
     dispatched = true
     const pending = Promise.resolve().then(() => options.port!.assess({ prompt, signal: controller.signal,
-      maxTokens: options.maxTokens, maxCostMicros: options.maxCostMicros, maxCalls: 1 })).finally(() => {
+      maxTokens: options.maxTokens, maxCostMicros: options.maxCostMicros, maxCalls: 1, idempotencyKey })).finally(() => {
       settled = true; active.delete(options.port!)
     })
     const result = await Promise.race([pending, cancelled])
     usage = result.usage
-    if (!usage || ![usage.tokens, usage.costMicros].every(v => Number.isSafeInteger(v) && v >= 0) || usage.tokens > options.maxTokens || usage.costMicros > options.maxCostMicros) throw new Error('usage-unqualified')
+    if (!usage || ![usage.tokens, usage.costMicros].every(v => Number.isSafeInteger(v) && v >= 0) || usage.tokens > options.maxTokens || usage.costMicros > options.maxCostMicros) return { decision: hold('Assessment usage is unqualified or over its reservation; reconcile before dispatch.'), assessmentStatus: 'usage-unqualified', ...(usage ? { usage } : {}) }
     if (!result.output || typeof result.output !== 'object' || Array.isArray(result.output)) throw new Error('malformed-output')
     const proposal = result.output as ExecutionOfferAssessmentProposal
     const decision = routeExecutionOffers({ ...request, remainingBudgetMicros: request.remainingBudgetMicros,
       assessment: proposal })
     return { decision, assessmentStatus: 'accepted', usage }
   } catch (error) {
-    if (options.signal?.aborted) return { decision: routeExecutionOffers({ ...request, assessment: {
-      schema: 'dzupagent.executionOfferAssessment/v1', action: 'wait', policyRevision: request.policy.revision,
-      inputDigest: baseline.inputDigest, rationale: 'Caller cancelled; retain the source and any outstanding provider reservation.',
-    } }), assessmentStatus: 'cancelled', ...(usage ? { usage } : {}) }
+    if (options.signal?.aborted) return { decision: hold('Caller cancelled; retain the source and any outstanding provider reservation.'), assessmentStatus: 'cancelled', ...(usage ? { usage } : {}) }
     return { decision: baseline, assessmentStatus: error instanceof Error ? error.message : 'unavailable', ...(usage ? { usage } : {}) }
   } finally {
     if (timer) clearTimeout(timer)

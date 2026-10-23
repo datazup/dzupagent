@@ -8,6 +8,7 @@ import type {
 import { reserveAiBudget } from '@dzupagent/runtime-contracts/ai-budget-reservation'
 import type { AiBudgetReservationRequest } from '@dzupagent/runtime-contracts/ai-budget-reservation'
 import type { AiExecutionBinding } from '@dzupagent/runtime-contracts/ai-execution'
+import { validateAiExecutionBinding } from '@dzupagent/runtime-contracts/ai-execution'
 import {
   materializeAiExecutionBinding, materializeAiRouteDecisionBinding,
   validateAiExecutionBindingDigest,
@@ -33,6 +34,8 @@ export interface ExecutionOfferRoutingRequest {
   readonly budgets: Readonly<Record<string, AiBudgetReservationRequest>>
   readonly urgency?: { readonly deadline: string; readonly exceptionRef: string }
   readonly assessment?: ExecutionOfferAssessmentProposal
+  /** Retained even on fallback; the port must atomically enforce this key across callers. */
+  readonly assessmentAttempt?: { readonly key: string; readonly maxTokens: number; readonly reservedCostMicros: number }
 }
 
 export interface ExecutionOfferAssessmentProposal {
@@ -65,7 +68,7 @@ export interface ExecutionOfferRoutingDecision {
 export class ExecutionOfferRoutingError extends Error {
   constructor(readonly code: string) { super(code); this.name = 'ExecutionOfferRoutingError' }
 }
-const fail = (code: string): never => { throw new ExecutionOfferRoutingError(code) }
+function fail(code: string): never { throw new ExecutionOfferRoutingError(code) }
 export const digestExecutionOfferRouting = (value: unknown): `sha256:${string}` => canonicalDigestPrefixed(value, 'idempotency-v1')
 const text = (v: unknown): v is string => typeof v === 'string' && !!v.trim()
 const integer = (v: number) => Number.isSafeInteger(v) && v >= 0
@@ -94,11 +97,14 @@ export function routeExecutionOffers(input: ExecutionOfferRoutingRequest): Execu
       Object.values(policy.weights).some(w => !Number.isFinite(w) || w < 0) ||
       Math.abs(Object.values(policy.weights).reduce((a, b) => a + b, 0) - 1) > 1e-9) fail('ROUTING_WEIGHTS_INVALID')
   if (policy.preferredLocal && !Object.values(policy.preferredLocal).every(text)) fail('ROUTING_PREFERENCE_INVALID')
+  if (assignment.stage !== q.task.kind) fail('ROUTING_STAGE_MISMATCH')
+  if (request.assessmentAttempt && (!text(request.assessmentAttempt.key) || !integer(request.assessmentAttempt.maxTokens) || !integer(request.assessmentAttempt.reservedCostMicros))) fail('ROUTING_ASSESSMENT_INVALID')
   if (request.urgency && (!date(request.urgency.deadline) || !text(request.urgency.exceptionRef))) fail('ROUTING_URGENCY_INVALID')
   if (!Array.isArray(q.offers) || q.offers.length < 1 || q.offers.length > 500 ||
       !Array.isArray(request.operations) || request.operations.length !== q.offers.length) fail('ROUTING_OFFER_SET_INVALID')
   const ops = new Map(request.operations.map(o => [o.offerId, o]))
   if (ops.size !== q.offers.length || q.offers.some(o => !ops.has(o.offer.offerId))) fail('ROUTING_OFFER_SET_INVALID')
+  if (!ops.has(assignment.ownerOfferId) || (q.policy.originCandidateId !== undefined && q.policy.originCandidateId !== assignment.ownerOfferId)) fail('ROUTING_OWNER_MISMATCH')
   const shared = new Map<string, string>()
   const costs = new Map<string, number>()
   const eligibility = [...q.offers].sort((a, b) => compare(a.offer.offerId, b.offer.offerId)).map(item => {
@@ -131,6 +137,8 @@ export function routeExecutionOffers(input: ExecutionOfferRoutingRequest): Execu
     for (const name of ['queue', 'execution', 'transfer', 'validation', 'review'] as const) metricValue(o.completion[name], 'ms', q.decidedAt, policy, reasons, `completion.${name}`)
     if (o.recovery) {
       if (!date(o.recovery.restoredAt) || Date.parse(o.recovery.restoredAt) > Date.parse(q.decidedAt)) fail('ROUTING_RECOVERY_INVALID')
+      if ([item.offer.health.checkedAt, item.quota.checkedAt, ...Object.values(o.quota).map(m => m.observedAt),
+        o.recovery.admitted.observedAt, o.recovery.limit.observedAt].some(at => !at || Date.parse(at) < Date.parse(o.recovery!.restoredAt))) reasons.push('POST_RECOVERY_EVIDENCE_REQUIRED')
       const admitted = metricValue(o.recovery.admitted, 'slots', q.decidedAt, policy, reasons, 'recovery.admitted')
       const limit = metricValue(o.recovery.limit, 'slots', q.decidedAt, policy, reasons, 'recovery.limit')
       if (admitted !== undefined && limit !== undefined && admitted >= limit) reasons.push('RECOVERY_RAMP_EXHAUSTED')
@@ -160,7 +168,10 @@ export function routeExecutionOffers(input: ExecutionOfferRoutingRequest): Execu
   if (assignment.state === 'running') return finish({ action: 'retain', reasons: ['PRODUCTIVE_OWNER_RETAINED'], ranked: [] })
   if (['unknown-dispatch', 'partial-writes'].includes(assignment.state)) return finish({ action: 'reconcile', reasons: ['SOURCE_RECONCILIATION_REQUIRED'], ranked: [] })
   const qualifiedRequest: TaskRoutingRequest = { ...q, maxObservationAgeMs: Math.min(q.maxObservationAgeMs, policy.maxObservationAgeMs),
-    offers: q.offers.map(o => ({ ...o, backendAvailable: o.backendAvailable && eligibility.find(e => e.offerId === o.offer.offerId)!.reasons.length === 0 })) }
+    policy: { ...q.policy, originCandidateId: assignment.ownerOfferId },
+    // Stage suitability differs for primary and reviewer. Preserve generic
+    // operational admission here, then apply each role's stage at selection.
+    offers: q.offers.map(o => ({ ...o, backendAvailable: o.backendAvailable && eligibility.find(e => e.offerId === o.offer.offerId)!.reasons.every(r => r === 'STAGE_UNSUPPORTED') })) }
   let qualified: TaskRoutingDecision
   try { qualified = selectTaskExecutionRoute(qualifiedRequest) }
   catch (error) {
@@ -247,7 +258,7 @@ function findReviewer(q: TaskRoutingRequest, primary: QualifiedTaskRoutingOffer,
   const p = ops.get(primary.offer.offerId)!
   const available = (c: RoutingCapacity) => {
     const v = (m: RoutingObservation) => m.state === 'known' ? m.value : 0
-    return v(c.limit) - v(c.running) - v(c.queued) - v(c.reserved)
+    return v(c.limit) - v(c.running) - v(c.queued) - v(c.reserved) - v(c.reviewHeadroom)
   }
   const tokenDemand = q.task.contextTokens + q.task.outputTokens
   try {
@@ -259,8 +270,9 @@ function findReviewer(q: TaskRoutingRequest, primary: QualifiedTaskRoutingOffer,
         const slotsFit = jointSlots.every(([key, capacity]) => available(v[capacity]) >= (v[key] === p[key] ? 2 : 1))
         const remaining = v.quota.remaining.state === 'known' ? v.quota.remaining.value : 0
         const committed = v.quota.committed.state === 'known' ? v.quota.committed.value : 0
-        const quotaFit = remaining - committed >= tokenDemand * (v.quotaPool === p.quotaPool ? 2 : 1)
-        return { ...o, backendAvailable: o.backendAvailable && slotsFit && quotaFit && totalCost <= request.remainingBudgetMicros }
+        const protectedReview = v.quota.reviewHeadroom.state === 'known' ? v.quota.reviewHeadroom.value : 0
+        const quotaFit = remaining - committed - protectedReview >= tokenDemand * (v.quotaPool === p.quotaPool ? 2 : 1)
+        return { ...o, backendAvailable: o.backendAvailable && v.stages.includes('review') && slotsFit && quotaFit && totalCost <= request.remainingBudgetMicros }
       }) })
   } catch (e) { if (!(e instanceof TaskRoutingError) || e.code === 'TASK_ROUTING_INVALID') throw e; return }
 }
@@ -278,10 +290,21 @@ export function bindExecutionOfferRouting(decision: ExecutionOfferRoutingDecisio
   if (decision.action !== 'select' || !decision.receipt || !decision.selectedOfferId) fail('ROUTING_NOT_SELECTED')
   const offer = decision.request.qualification.offers.find(o => o.offer.offerId === decision.selectedOfferId)!.offer
   if (context.target.provider !== offer.provider || context.target.model !== offer.model.providerModelId || context.target.profileRef !== offer.profileRef || context.target.policyRevision !== decision.request.policy.revision) fail('ROUTING_BINDING_MISMATCH')
+  const q = decision.request.qualification
+  const review = decision.reviewerQualification?.primary.offer
   const binding = materializeAiExecutionBinding({ ...context, schema: 'dzupagent.aiExecutionBinding/v1', offer, model: offer.model,
-    routeDecision: materializeAiRouteDecisionBinding({ ...decision.receipt.decision, selectedCandidateId: decision.selectedOfferId }) })
-  if (!validateAiExecutionBindingDigest(binding).valid) fail('ROUTING_BINDING_MISMATCH')
+    routeDecision: materializeAiRouteDecisionBinding({ ...decision.receipt.decision, selectedCandidateId: decision.selectedOfferId }),
+    taskRouting: { decisionDigest: decision.decisionDigest, policyRevision: decision.request.policy.revision, complexity: q.task.complexity,
+      effort: decision.ranked.find(r => r.offerId === decision.selectedOfferId)!.effort, role: q.task.kind === 'review' ? 'reviewer' : 'primary',
+      reviewPolicy: { required: !!review, preferDifferentProviderFamily: !!review || q.task.kind === 'review',
+        ...(q.implementer ? { implementer: q.implementer } : {}), ...(review ? { reviewer: { provider: review.offer.provider, providerFamily: review.providerFamily, modelRef: review.offer.model.modelRef, providerModelId: review.offer.model.providerModelId! } } : {}) } } })
+  if (!validateAiExecutionBinding(binding).valid || !validateAiExecutionBindingDigest(binding).valid) fail('ROUTING_BINDING_MISMATCH')
   return binding
+}
+
+export function assertExecutionOfferRoutingBinding(decision: ExecutionOfferRoutingDecision, binding: AiExecutionBinding): void {
+  const expected = bindExecutionOfferRouting(decision, { target: binding.target, prompt: binding.prompt, persona: binding.persona })
+  if (digestExecutionOfferRouting(expected) !== digestExecutionOfferRouting(binding)) fail('ROUTING_BINDING_MISMATCH')
 }
 
 /** Destination confirmation precedes any source relinquishment. The host owns atomic persistence. */
@@ -307,7 +330,16 @@ export async function reserveExecutionOfferRouting(decision: ExecutionOfferRouti
       fresh.observationDigest !== decision.observationDigest || observed.assignment.generation !== decision.request.assignment.generation ||
       digestExecutionOfferRouting(observed.policy) !== digestExecutionOfferRouting(decision.request.policy)) fail('ROUTING_EVIDENCE_CHANGED')
   const a = decision.request.assignment, key = `${a.taskId}:${a.generation}:${decision.decisionDigest}`
+  const allocations = [decision.selectedOfferId, ...(decision.reviewerOfferId ? [decision.reviewerOfferId] : [])].map(id => {
+    const o = decision.request.operations.find(o => o.offerId === id)!
+    const price = reserveAiBudget({ ...decision.request.budgets[id]!, reservedAt: now })
+    if (price.status !== 'admitted') fail('ROUTING_BUDGET_CHANGED')
+    return { offerId: id, principal: o.principal, account: o.account, host: o.host, quotaPool: o.quotaPool, slots: 1 as const,
+      tokens: decision.request.qualification.task.contextTokens + decision.request.qualification.task.outputTokens,
+      costMicros: price.reservedAmountMicros, recoveryAdmission: !!o.recovery }
+  })
   const hold = await ports.reservation.reserve({ key, taskId: a.taskId, expectedGeneration: a.generation,
+    expectedSourceOfferId: a.ownerOfferId, allocations,
     decisionDigest: decision.decisionDigest, observationDigest: decision.observationDigest, offerId: decision.selectedOfferId,
     ...(decision.reviewerOfferId ? { reviewerOfferId: decision.reviewerOfferId } : {}), expiresAfterMs: ports.holdMs })
   if (!hold) fail('ROUTING_RESERVATION_RACE')
@@ -318,9 +350,12 @@ export async function reserveExecutionOfferRouting(decision: ExecutionOfferRouti
   if (!ack.accepted || !text(ack.handoffId)) fail('ROUTING_CONFIRMATION_REFUSED')
   if (Date.parse(hold.expiresAt) <= Date.parse(ports.now())) fail('ROUTING_CONFIRMATION_EXPIRED_RECONCILE')
   const item = decision.request.qualification.offers.find(o => o.offer.offerId === decision.selectedOfferId)!
+  const o = decision.request.operations.find(o => o.offerId === decision.selectedOfferId)!
   return freeze({ schema: EXECUTION_OFFER_ROUTING_SCHEMA, handoffId: ack.handoffId, taskId: a.taskId, stage: a.stage,
     sourceRef: a.sourceRef, recoveryRef: a.recoveryRef, sourceDisposition: 'retain-until-destination-ack', reservation: hold,
-    provider: item.offer.provider, model: item.offer.model.providerModelId!, effort: decision.ranked.find(r => r.offerId === decision.selectedOfferId)!.effort,
+    provider: item.offer.provider, offerId: item.offer.offerId, offerRevision: item.offer.offerRevision, profileRef: item.offer.profileRef!,
+    principal: o.principal, account: o.account, host: o.host, quotaPool: o.quotaPool,
+    model: item.offer.model.providerModelId!, effort: decision.ranked.find(r => r.offerId === decision.selectedOfferId)!.effort,
     policyRevision: decision.request.policy.revision, inputDigest: decision.inputDigest, decisionDigest: decision.decisionDigest,
     nextAction: 'destination-admission-required' })
 }

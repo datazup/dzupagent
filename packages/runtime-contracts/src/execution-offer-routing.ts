@@ -101,11 +101,24 @@ export interface ExecutionOfferReservationPort {
     readonly key: string
     readonly taskId: string
     readonly expectedGeneration: number
+    readonly expectedSourceOfferId: string
     readonly decisionDigest: string
     readonly observationDigest: string
     readonly offerId: string
     readonly reviewerOfferId?: string
     readonly expiresAfterMs: number
+    /** Aggregate these together, including repeated hosts/pools, in the same CAS. */
+    readonly allocations: readonly {
+      readonly offerId: string
+      readonly principal: string
+      readonly account: string
+      readonly host: string
+      readonly quotaPool: string
+      readonly slots: 1
+      readonly tokens: number
+      readonly costMicros: number
+      readonly recoveryAdmission: boolean
+    }[]
   }): Promise<ExecutionOfferReservation | null>
   /** Must reject expired/changed/previously consumed holds and stale assignment generations. */
   confirm(input: ExecutionOfferReservation): Promise<{ readonly accepted: boolean; readonly handoffId?: string }>
@@ -132,6 +145,13 @@ export interface ExecutionOfferHandoff {
   readonly sourceDisposition: 'retain-until-destination-ack'
   readonly reservation: ExecutionOfferReservation
   readonly provider: string
+  readonly offerId: string
+  readonly offerRevision: string
+  readonly profileRef: string
+  readonly principal: string
+  readonly account: string
+  readonly host: string
+  readonly quotaPool: string
   readonly model: string
   readonly effort: string
   readonly policyRevision: string
