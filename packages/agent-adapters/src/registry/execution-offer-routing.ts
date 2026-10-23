@@ -98,6 +98,7 @@ export function routeExecutionOffers(input: ExecutionOfferRoutingRequest): Execu
       Object.values(policy.weights).some(w => !Number.isFinite(w) || w < 0) ||
       Math.abs(Object.values(policy.weights).reduce((a, b) => a + b, 0) - 1) > 1e-9) fail('ROUTING_WEIGHTS_INVALID')
   if (policy.preferredLocal && !Object.values(policy.preferredLocal).every(text)) fail('ROUTING_PREFERENCE_INVALID')
+  if (policy.rankingEvidence !== undefined && !['strict', 'conservative'].includes(policy.rankingEvidence)) fail('ROUTING_RANKING_EVIDENCE_INVALID')
   if (assignment.stage !== q.task.kind) fail('ROUTING_STAGE_MISMATCH')
   if (request.assessmentAttempt && (!text(request.assessmentAttempt.key) || !integer(request.assessmentAttempt.maxTokens) || !integer(request.assessmentAttempt.reservedCostMicros))) fail('ROUTING_ASSESSMENT_INVALID')
   if (request.urgency && (!date(request.urgency.deadline) || !text(request.urgency.exceptionRef))) fail('ROUTING_URGENCY_INVALID')
@@ -108,6 +109,7 @@ export function routeExecutionOffers(input: ExecutionOfferRoutingRequest): Execu
   if (!ops.has(assignment.ownerOfferId) || (q.policy.originCandidateId !== undefined && q.policy.originCandidateId !== assignment.ownerOfferId)) fail('ROUTING_OWNER_MISMATCH')
   const shared = new Map<string, string>()
   const costs = new Map<string, number>()
+  const scoring = new Map<string, { quality: number; continuity: number; fairness: number; completionMs: number; uncertainty: string[]; completionQualified: boolean }>()
   const eligibility = [...q.offers].sort((a, b) => compare(a.offer.offerId, b.offer.offerId)).map(item => {
     const id = item.offer.offerId, o = ops.get(id)!
     if (![o.principal, o.account, o.host, o.quotaPool, o.authorityRef].every(text) ||
@@ -135,8 +137,24 @@ export function routeExecutionOffers(input: ExecutionOfferRoutingRequest): Execu
     if (remaining !== undefined && remaining !== item.quota.remainingTokens) fail('ROUTING_QUOTA_CONTRADICTION')
     const demand = tokenCeiling(request.budgets?.[id])
     if (remaining !== undefined && committed !== undefined && review !== undefined && demand !== undefined && remaining - committed - review < demand) reasons.push('QUOTA_COMMITTED_OR_RESERVED')
-    for (const name of ['quality', 'continuity', 'fairness'] as const) metricValue(o[name], 'score', q.decidedAt, policy, reasons, name)
-    for (const name of ['queue', 'execution', 'transfer', 'validation', 'review'] as const) metricValue(o.completion[name], 'ms', q.decidedAt, policy, reasons, `completion.${name}`)
+    const uncertainty: string[] = []
+    const soft = (m: RoutingObservation, unit: RoutingObservation['unit'], name: string) => {
+      const findings: string[] = []
+      const value = metricValue(m, unit, q.decidedAt, policy, findings, name)
+      // Invalid shapes still throw in metricValue. Wrong units and future
+      // timestamps are errors in evidence, not a lack of ranking history.
+      if (policy.rankingEvidence !== 'conservative' || m.unit !== unit || Date.parse(m.observedAt) > Date.parse(q.decidedAt)) reasons.push(...findings)
+      else uncertainty.push(...findings)
+      return value
+    }
+    const quality = soft(o.quality, 'score', 'quality') ?? 0
+    const continuity = soft(o.continuity, 'score', 'continuity') ?? 0
+    const fairness = soft(o.fairness, 'score', 'fairness') ?? 0
+    const completion = (['queue', 'execution', 'transfer', 'validation', 'review'] as const)
+      .map(name => soft(o.completion[name], 'ms', `completion.${name}`))
+    const completionQualified = completion.every(value => value !== undefined)
+    const completionMs = completionQualified ? (completion as number[]).reduce((a, b) => a + b, 0) : policy.maximumCompletionMs
+    scoring.set(id, { quality, continuity, fairness, completionMs, uncertainty, completionQualified })
     if (o.recovery) {
       if (!date(o.recovery.restoredAt) || Date.parse(o.recovery.restoredAt) > Date.parse(q.decidedAt)) fail('ROUTING_RECOVERY_INVALID')
       if ([item.offer.health.checkedAt, item.quota.checkedAt, ...(Object.values(o.quota) as RoutingObservation[]).map(m => m.observedAt),
@@ -196,24 +214,22 @@ export function routeExecutionOffers(input: ExecutionOfferRoutingRequest): Execu
       if (!reviewer) { e.reasons.push('OPERATIONAL_REVIEW_HEADROOM_REQUIRED'); continue }
       reviewers.set(id, reviewer)
     }
-    const val = (m: RoutingObservation) => m.state === 'known' ? m.value : fail('ROUTING_UNKNOWN_METRIC')
-    const completionMs = (Object.values(o.completion) as RoutingObservation[]).reduce((sum, m) => sum + val(m), 0)
+    const scores = scoring.get(id)!, completionMs = scores.completionMs
     const effort = [...item.efforts].sort((a, b) => a.level - b.level || compare(a.name, b.name))
     const nativeEffort = q.task.complexity === 'C3' ? effort.at(-1)!.name : q.task.complexity === 'C2' ? effort.find(e => e.level >= 3)!.name : effort[0]!.name
     const preferred = policy.preferredLocal
     const localPreference = !!preferred && o.principal === request.localPrincipal && o.host === request.localHost &&
       item.offer.locality === 'local' && item.offer.provider === preferred.provider && item.offer.model.providerModelId === preferred.model && nativeEffort === preferred.effort
     const cost = costs.get(id)!, weights = policy.weights
-    const score = weights.quality * val(o.quality) + weights.completion * Math.max(0, 1 - completionMs / policy.maximumCompletionMs) +
-      weights.continuity * val(o.continuity) + weights.cost * Math.max(0, 1 - cost / Math.max(1, q.task.maximumCostMicros)) + weights.fairness * val(o.fairness)
-    ranked.push({ offerId: id, score, completionMs, reservedCostMicros: cost, effort: nativeEffort, localPreference })
+    const score = weights.quality * scores.quality + weights.completion * Math.max(0, 1 - completionMs / policy.maximumCompletionMs) +
+      weights.continuity * scores.continuity + weights.cost * Math.max(0, 1 - cost / Math.max(1, q.task.maximumCostMicros)) + weights.fairness * scores.fairness
+    ranked.push({ offerId: id, score, completionMs, reservedCostMicros: cost, effort: nativeEffort, localPreference,
+      ...(policy.rankingEvidence === 'conservative' ? { completionBasis: scores.completionQualified ? 'qualified-evidence' as const : 'policy-penalty' as const, uncertainty: scores.uncertainty } : {}) })
   }
+  const fitsDeadline = (r: ExecutionOfferRanking) => !!request.urgency && r.completionBasis !== 'policy-penalty' &&
+    Date.parse(q.decidedAt) + r.completionMs <= Date.parse(request.urgency.deadline)
   ranked.sort((a, b) => {
-    const urgent = request.urgency && Date.parse(q.decidedAt) + Math.min(a.completionMs, b.completionMs) <= Date.parse(request.urgency.deadline)
-    if (urgent) {
-      const fits = (r: ExecutionOfferRanking) => Date.parse(q.decidedAt) + r.completionMs <= Date.parse(request.urgency!.deadline)
-      if (fits(a) !== fits(b)) return fits(a) ? -1 : 1
-    }
+    if (request.urgency && fitsDeadline(a) !== fitsDeadline(b)) return fitsDeadline(a) ? -1 : 1
     return Number(b.localPreference) - Number(a.localPreference) || b.score - a.score || compare(a.offerId, b.offerId)
   })
   if (!ranked.length) return finish({ action: 'wait', reasons: ['NO_OPERATIONAL_OFFER'], ranked, qualification: qualified })
@@ -230,7 +246,7 @@ export function routeExecutionOffers(input: ExecutionOfferRoutingRequest): Execu
     }
     const index = ranked.findIndex(r => r.offerId === assessment.offerId)
     if (index < 0 || (ranked[0]!.localPreference && !ranked[index]!.localPreference) ||
-        (request.urgency && Date.parse(q.decidedAt) + ranked[0]!.completionMs <= Date.parse(request.urgency.deadline) && Date.parse(q.decidedAt) + ranked[index]!.completionMs > Date.parse(request.urgency.deadline))) fail('ROUTING_ASSESSMENT_INELIGIBLE')
+        (request.urgency && fitsDeadline(ranked[0]!) && !fitsDeadline(ranked[index]!))) fail('ROUTING_ASSESSMENT_INELIGIBLE')
     ranked.unshift(...ranked.splice(index, 1))
   }
   // Reuse the deterministic rule selector and its transition/permission checks.
@@ -241,7 +257,7 @@ export function routeExecutionOffers(input: ExecutionOfferRoutingRequest): Execu
   const selectedOfferId = receipt.decision.selectedCandidateId
   if (!selectedOfferId) return finish({ action: 'wait', reasons: ['ROUTE_SELECTOR_REFUSED'], ranked, qualification: qualified, receipt, routePolicy: finalPolicy })
   const reviewer = reviewers.get(selectedOfferId)
-  return finish({ action: 'select', reasons: ['HARD_GATES_PASSED', ...(ranked[0]!.localPreference ? ['QUALIFIED_LOCAL_PREFERENCE'] : []), ...(request.urgency ? [`DEADLINE_EXCEPTION:${request.urgency.exceptionRef}`] : [])], ranked,
+  return finish({ action: 'select', reasons: ['HARD_GATES_PASSED', ...(ranked[0]!.localPreference ? ['QUALIFIED_LOCAL_PREFERENCE'] : []), ...(request.urgency && (policy.rankingEvidence !== 'conservative' || fitsDeadline(ranked[0]!)) ? [`DEADLINE_EXCEPTION:${request.urgency.exceptionRef}`] : [])], ranked,
     selectedOfferId, ...(reviewer ? { reviewerOfferId: reviewer.primary.offer.offer.offerId, reviewerQualification: reviewer } : {}), receipt, routePolicy: finalPolicy, qualification: qualified })
 }
 

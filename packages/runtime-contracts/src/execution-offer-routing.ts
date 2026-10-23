@@ -61,6 +61,8 @@ export interface ExecutionOfferRoutingPolicy {
   readonly maxObservationAgeMs: number
   readonly minimumConfidence: number
   readonly maximumCompletionMs: number
+  /** Strict by default. Conservative ranking gives uncertain soft facts no credit. */
+  readonly rankingEvidence?: 'strict' | 'conservative'
   readonly weights: {
     readonly quality: number
     readonly completion: number
@@ -89,7 +91,11 @@ export interface ExecutionTaskAssignment {
 export interface ExecutionOfferRanking {
   readonly offerId: string
   readonly score: number
+  /** A policy penalty, not a duration observation, when completionBasis says so. */
   readonly completionMs: number
+  /** Present in conservative mode; original observations remain in the request. */
+  readonly completionBasis?: 'qualified-evidence' | 'policy-penalty'
+  readonly uncertainty?: readonly string[]
   readonly reservedCostMicros: number
   readonly effort: string
   readonly localPreference: boolean

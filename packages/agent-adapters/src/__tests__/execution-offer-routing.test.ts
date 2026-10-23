@@ -3,7 +3,7 @@ import { materializeAiExecutionOfferSnapshot, materializeAiResolvedTargetSnapsho
 import type { RoutingObservation, RoutingCapacity, ExecutionOfferOperations, ExecutionOfferReservationPort } from '@dzupagent/runtime-contracts'
 import type { AiBudgetReservationRequest } from '@dzupagent/runtime-contracts/ai-budget-reservation'
 import type { QualifiedTaskRoutingOffer } from '../registry/complexity-routing-types.js'
-import { DEFAULT_EXECUTION_OFFER_WEIGHTS, bindExecutionOfferRouting, assertExecutionOfferRoutingBinding, routeExecutionOffers, replayExecutionOfferRouting, reserveExecutionOfferRouting, recoverExecutionOfferRouting } from '../routing.js'
+import { DEFAULT_EXECUTION_OFFER_WEIGHTS, bindExecutionOfferRouting, assertExecutionOfferRoutingBinding, routeExecutionOffers, replayExecutionOfferRouting, reserveExecutionOfferRouting, recoverExecutionOfferRouting, digestExecutionOfferRouting } from '../routing.js'
 import type { ExecutionOfferRoutingRequest } from '../routing.js'
 
 const at = '2026-10-23T09:00:00.000Z', expires = '2026-10-23T09:01:00.000Z'
@@ -47,6 +47,17 @@ function request(): ExecutionOfferRoutingRequest {
 function changeOp(r: ExecutionOfferRoutingRequest, id: string, changes: Partial<ExecutionOfferOperations>): ExecutionOfferRoutingRequest {
   return { ...r, operations: r.operations.map(o => o.offerId === id ? { ...o, ...changes } : o) }
 }
+function unknown(unit: RoutingObservation['unit']): RoutingObservation {
+  const { value: _value, ...metadata } = m(0, unit)
+  return { ...metadata, state: 'unknown', reason: 'no qualified sample', confidence: 0 }
+}
+function uncertainRequest(): ExecutionOfferRoutingRequest {
+  const r = request()
+  return { ...r, policy: { ...r.policy, rankingEvidence: 'conservative' }, operations: r.operations.map(o => ({ ...o,
+    quality: unknown('score'), continuity: { ...m(.8, 'score'), confidence: .3 }, fairness: unknown('score'),
+    completion: { ...o.completion, execution: unknown('ms') },
+  })) }
+}
 function ports(input: ExecutionOfferRoutingRequest) {
   const seen = new Set<string>(), accepted = new Set<string>()
   const reservation: ExecutionOfferReservationPort = {
@@ -57,6 +68,91 @@ function ports(input: ExecutionOfferRoutingRequest) {
   return { observe: async () => input, reservation, now: () => at, holdMs: 1000 }
 }
 describe('operational routing on existing qualification and deterministic receipts', () => {
+  it('keeps strict ranking as the default and validates an explicit mode', () => {
+    const r = uncertainRequest(), { rankingEvidence: _mode, ...policy } = r.policy
+    expect(routeExecutionOffers({ ...r, policy }).action).toBe('wait')
+    expect(routeExecutionOffers({ ...r, policy: { ...policy, rankingEvidence: 'strict' } }).action).toBe('wait')
+    expect(() => routeExecutionOffers({ ...r, policy: { ...policy, rankingEvidence: 'optimistic' as 'strict' } })).toThrow('ROUTING_RANKING_EVIDENCE_INVALID')
+    const normal = routeExecutionOffers(request()).ranked[0]!
+    expect(normal).not.toHaveProperty('completionBasis')
+    expect(normal).not.toHaveProperty('uncertainty')
+  })
+  it('gives uncertain ranking facts no credit and labels completion as a policy penalty', () => {
+    const r = uncertainRequest(), d = routeExecutionOffers(r)
+    expect(d.selectedOfferId).toBe('local-sol')
+    expect(d.ranked[0]!.score).toBeCloseTo(.08)
+    expect(d.ranked[0]).toEqual(expect.objectContaining({ completionMs: r.policy.maximumCompletionMs, completionBasis: 'policy-penalty',
+      uncertainty: ['EVIDENCE_REQUIRED:quality', 'EVIDENCE_REQUIRED:continuity', 'EVIDENCE_REQUIRED:fairness', 'EVIDENCE_REQUIRED:completion.execution'] }))
+    expect(d.request.operations).toEqual(r.operations)
+    expect(d.request.operations[0]!.quality).not.toHaveProperty('value')
+    expect(r.operations[0]!.continuity).toEqual(expect.objectContaining({ state: 'known', value: .8, confidence: .3 }))
+    expect(replayExecutionOfferRouting(d)).toEqual(d)
+    expect(() => replayExecutionOfferRouting({ ...d, ranked: d.ranked.map(v => ({ ...v, uncertainty: [] })) })).toThrow('ROUTING_DECISION_MISMATCH')
+  })
+  it('keeps ties deterministic with no soft credit and records stale soft evidence', () => {
+    let r = uncertainRequest(), { preferredLocal: _preferred, ...policy } = r.policy
+    r = { ...r, policy }
+    expect(routeExecutionOffers(r).selectedOfferId).toBe('local-sol')
+    expect(routeExecutionOffers({ ...r, qualification: { ...r.qualification, offers: [...r.qualification.offers].reverse() }, operations: [...r.operations].reverse() }).selectedOfferId).toBe('local-sol')
+    const stale = changeOp(r, 'local-sol', { quality: { ...m(1, 'score'), observedAt: '2026-10-23T08:59:00.000Z', expiresAt: at } })
+    expect(routeExecutionOffers(stale).ranked.find(v => v.offerId === 'local-sol')!.uncertainty).toContain('OBSERVATION_NOT_CURRENT:quality')
+  })
+  it('never uses an unknown completion penalty as a deadline fit or exception', () => {
+    let r = uncertainRequest()
+    r = { ...r, policy: { ...r.policy, maximumCompletionMs: 100 }, urgency: { deadline: '2026-10-23T09:00:00.500Z', exceptionRef: 'urgent/approved' } }
+    const d = routeExecutionOffers(r)
+    expect(d.selectedOfferId).toBe('local-sol')
+    expect(d.reasons.some(v => v.startsWith('DEADLINE_EXCEPTION:'))).toBe(false)
+    // The peer's penalty100 is numerically below the deadline, but the measured
+    // local duration1300 does not fit. The unknown peer cannot displace it.
+    r = changeOp(r, 'local-sol', { completion: { queue: m(1000, 'ms'), execution: m(100, 'ms'), transfer: m(0, 'ms'), validation: m(100, 'ms'), review: m(100, 'ms') } })
+    expect(routeExecutionOffers(r).selectedOfferId).toBe('local-sol')
+    // A qualified peer duration300 CAN establish the exception; unknown local
+    // completion100 must not win against it or be selected by an LLM proposal.
+    r = changeOp(uncertainRequest(), 'peer', { completion: request().operations[1]!.completion })
+    r = { ...r, policy: { ...r.policy, maximumCompletionMs: 100 }, urgency: { deadline: '2026-10-23T09:00:00.500Z', exceptionRef: 'urgent/approved' } }
+    expect(routeExecutionOffers(r).selectedOfferId).toBe('peer')
+    expect(() => routeExecutionOffers({ ...r, assessment: { schema: 'dzupagent.executionOfferAssessment/v1', action: 'select', policyRevision: r.policy.revision,
+      inputDigest: digestExecutionOfferRouting(r), offerId: 'local-sol', rationale: 'The numeric penalty looks fast.' } })).toThrow('ROUTING_ASSESSMENT_INELIGIBLE')
+  })
+  it.each(['quota', 'principal', 'account', 'host', 'recovery'] as const)('still holds unknown mandatory %s evidence', field => {
+    const r = uncertainRequest()
+    const operations = r.operations.map(o => field === 'quota' ? { ...o, quota: { ...o.quota, remaining: unknown('tokens') } }
+      : field === 'recovery' ? { ...o, recovery: { restoredAt: at, admitted: unknown('slots'), limit: m(1) } }
+      : { ...o, [`${field}Capacity`]: { ...o[`${field}Capacity`], limit: unknown('slots') } })
+    expect(routeExecutionOffers({ ...r, operations }).action).toBe('wait')
+  })
+  it('still holds stale or low-confidence quota, denied authority and unknown pricing', () => {
+    const r = uncertainRequest()
+    for (const remaining of [{ ...m(10000, 'tokens'), observedAt: '2026-10-23T08:59:00.000Z', expiresAt: at }, { ...m(10000, 'tokens'), confidence: .3 }]) {
+      expect(routeExecutionOffers({ ...r, operations: r.operations.map(o => ({ ...o, quota: { ...o.quota, remaining } })) }).action).toBe('wait')
+    }
+    expect(routeExecutionOffers({ ...r, operations: r.operations.map(o => ({ ...o, allowed: false })) }).action).toBe('wait')
+    expect(routeExecutionOffers({ ...r, budgets: {} }).action).toBe('wait')
+  })
+  it('refuses malformed, future and wrong-unit soft facts rather than labelling them uncertain', () => {
+    const r = uncertainRequest()
+    expect(() => routeExecutionOffers(changeOp(r, 'local-sol', { quality: m(NaN, 'score') }))).toThrow('ROUTING_OBSERVATION_INVALID')
+    const wrongUnit = { ...r, operations: r.operations.map(o => ({ ...o, quality: m(1, 'tokens') })) }
+    expect(routeExecutionOffers(wrongUnit).action).toBe('wait')
+    const future = { ...r, operations: r.operations.map(o => ({ ...o, quality: { ...m(1, 'score'), observedAt: '2026-10-23T09:00:01.000Z', expiresAt: '2026-10-23T09:01:01.000Z' } })) }
+    expect(routeExecutionOffers(future).action).toBe('wait')
+  })
+  it('preserves C3 independence and aggregate review capacity in conservative mode', () => {
+    const r = uncertainRequest(), q = { ...r.qualification, task: { ...r.qualification.task, complexity: 'C3' as const } }
+    const d = routeExecutionOffers({ ...r, qualification: q })
+    expect(d.selectedOfferId).toBe('local-sol')
+    expect(d.reviewerOfferId).toBeDefined()
+    expect(d.reviewerOfferId).not.toBe(d.selectedOfferId)
+    expect(routeExecutionOffers({ ...r, qualification: q, operations: r.operations.map(o => ({ ...o, hostCapacity: capacity(2) })) }).action).toBe('wait')
+  })
+  it('reserves with the same uncertainty policy and refuses a refresh that changes it', async () => {
+    const r = uncertainRequest(), d = routeExecutionOffers(r), p = ports(r)
+    const handoff = await reserveExecutionOfferRouting(d, { ...p, now: () => '2026-10-23T09:00:00.001Z' })
+    expect(handoff.effort).toBe('high')
+    const changed = { ...p, observe: async () => ({ ...r, policy: { ...r.policy, rankingEvidence: 'strict' as const } }) }
+    await expect(reserveExecutionOfferRouting(d, changed)).rejects.toThrow('ROUTING_EVIDENCE_CHANGED')
+  })
   it('prefers qualified local Sol/high even when the peer has a higher numeric score', () => {
     let r = request()
     r = changeOp(r, 'local-sol', { quality: m(.1, 'score') })
@@ -193,8 +289,8 @@ describe('operational routing on existing qualification and deterministic receip
     expect(d.eligibility.find(e => e.offerId === 'local-sol')!.reasons).toContain('POST_RECOVERY_EVIDENCE_REQUIRED')
     expect(d.selectedOfferId).not.toBe('local-sol')
   })
-  it('preserves existing binding checks in one composed read-only review handoff', async () => {
-    const r = request()
+  it.each(['strict', 'conservative'] as const)('preserves binding checks in a composed read-only review handoff (%s)', async mode => {
+    const r = mode === 'strict' ? request() : uncertainRequest()
     const review = { ...r, assignment: { ...r.assignment, stage: 'review' }, qualification: { ...r.qualification, task: { ...r.qualification.task, kind: 'review' as const },
       implementer: { provider: 'claude', providerFamily: 'anthropic', modelRef: 'model/implementer', providerModelId: 'claude-opus' } } }
     const d = routeExecutionOffers(review), selected = review.qualification.offers.find(o => o.offer.offerId === d.selectedOfferId)!.offer
