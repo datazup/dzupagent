@@ -1,0 +1,181 @@
+import { describe, expect, it, vi } from 'vitest'
+import { materializeAiExecutionOfferSnapshot, materializeAiResolvedTargetSnapshot, validateAiExecutionBindingDigest } from '@dzupagent/runtime-contracts/ai-execution/node'
+import type { RoutingObservation, RoutingCapacity, ExecutionOfferOperations, ExecutionOfferReservationPort } from '@dzupagent/runtime-contracts'
+import type { AiBudgetReservationRequest } from '@dzupagent/runtime-contracts/ai-budget-reservation'
+import type { QualifiedTaskRoutingOffer } from '../registry/complexity-routing-types.js'
+import { DEFAULT_EXECUTION_OFFER_WEIGHTS, bindExecutionOfferRouting, routeExecutionOffers, replayExecutionOfferRouting, reserveExecutionOfferRouting, recoverExecutionOfferRouting } from '../routing.js'
+import type { ExecutionOfferRoutingRequest } from '../routing.js'
+
+const at = '2026-10-23T09:00:00.000Z', expires = '2026-10-23T09:01:00.000Z'
+const hash = `sha256:${'a'.repeat(64)}` as const
+function m(value: number, unit: RoutingObservation['unit'] = 'slots'): RoutingObservation {
+  return { state: 'known', value, unit, observedAt: at, expiresAt: expires, provenance: 'receipt/live', confidence: 1 }
+}
+function capacity(limit = 4): RoutingCapacity { return { running: m(0), queued: m(0), reserved: m(0), limit: m(limit), reviewHeadroom: m(1) } }
+function offer(id: string, principal: string, provider = 'codex', host = 'am5'): { qualified: QualifiedTaskRoutingOffer; operations: ExecutionOfferOperations; budget: AiBudgetReservationRequest } {
+  const qualified: QualifiedTaskRoutingOffer = {
+    offer: materializeAiExecutionOfferSnapshot({ schema: 'dzupagent.aiExecutionOffer/v1', offerId: id, offerRevision: '1',
+      provider, backend: 'sdk', profileRef: `profile/${id}`, model: { modelRef: `model/${id}`, revision: '1', providerModelId: provider === 'codex' ? 'gpt-6.1-sol' : 'claude', catalogDigest: hash },
+      locality: principal === 'user2' ? 'local' : 'remote', privacyClass: 'provider', capabilities: ['coding/v1', 'code-review/v1'],
+      cacheBehavior: 'unknown', sessionBehavior: 'stateless', health: { status: 'healthy', checkedAt: at }, effectiveAt: at, expiresAt: expires, catalogDigest: hash }),
+    providerFamily: provider, qualification: { evidenceRef: 'qualification/test', maximumComplexity: 'C3', coding: 'strong' },
+    efforts: [{ name: 'high', level: 3 }], contextWindowTokens: 10000, maximumOutputTokens: 1000, estimatedCostMicros: 200,
+    costClass: 'low', estimatedLatencyMs: 100, quota: { poolRef: `pool/${id}`, available: true, remainingTokens: 10000, evidenceRef: 'quota/live', checkedAt: at },
+    authAvailable: true, backendAvailable: true, modelAvailable: true,
+  }
+  const operations: ExecutionOfferOperations = { offerId: id, principal, account: `account/${id}`, host, quotaPool: `pool/${id}`, stages: ['review', 'implementation'], authorityRef: 'admission/1', allowed: true,
+    principalCapacity: capacity(), accountCapacity: capacity(), hostCapacity: capacity(),
+    quota: { remaining: m(10000, 'tokens'), committed: m(0, 'tokens'), reviewHeadroom: m(200, 'tokens') },
+    quality: m(.8, 'score'), continuity: m(.8, 'score'), fairness: m(.5, 'score'),
+    completion: { queue: m(0, 'ms'), execution: m(100, 'ms'), transfer: m(0, 'ms'), validation: m(100, 'ms'), review: m(100, 'ms') } }
+  const budget: AiBudgetReservationRequest = { tariff: { schema: 'dzupagent.aiTariff/v2', tariffId: `tariff/${id}`, offerRef: id, modelRef: `model/${id}`, modelRevision: '1', currency: 'USD',
+    baseRates: { inputMicrosPerToken: 1, outputMicrosPerToken: 1 }, provenance: { sourceKind: 'hand-maintained', authorityId: 'operator', revision: '1', effectiveAt: at, digest: hash } },
+    usageCeiling: { uncachedInputTokens: 100, outputTokens: 100 }, hardCeiling: { currency: 'USD', maxAmountMicros: 1000 }, reservedAt: at }
+  return { qualified, operations, budget }
+}
+function request(): ExecutionOfferRoutingRequest {
+  const offers = [offer('local-sol', 'user2'), offer('peer', 'user1', 'claude'), offer('ninel', 'ninel', 'claude')]
+  return { schema: 'dzupagent.executionOfferRouting/v1', qualification: { schema: 'dzupagent.taskRoutingRequest/v1', policyRevision: 'policy/1',
+    task: { taskId: 'task/1', kind: 'implementation', complexity: 'C2', requiredCapabilities: [], contextTokens: 100, outputTokens: 100, maximumCostMicros: 1000, assessmentRef: 'assessment/1' },
+    offers: offers.map(o => o.qualified), policy: { id: 'route/1', requestId: 'task/1', hardConstraints: [], fallback: 'none', maxSelectionLatencyMs: 100 }, decidedAt: at, maxObservationAgeMs: 10000 },
+    operations: offers.map(o => o.operations), budgets: Object.fromEntries(offers.map(o => [o.qualified.offer.offerId, o.budget])),
+    policy: { revision: 'policy/1', maxObservationAgeMs: 10000, minimumConfidence: .8, maximumCompletionMs: 10000, weights: DEFAULT_EXECUTION_OFFER_WEIGHTS,
+      preferredLocal: { provider: 'codex', model: 'gpt-6.1-sol', effort: 'high' } },
+    assignment: { taskId: 'task/1', stage: 'implementation', generation: 2, ownerOfferId: 'local-sol', state: 'checkpointed', sourceRef: 'git/main@123', recoveryRef: 'checkpoint/1' },
+    localPrincipal: 'user2', localHost: 'am5', environmentRef: 'host/am5/receipt', remainingBudgetMicros: 10000 }
+}
+function changeOp(r: ExecutionOfferRoutingRequest, id: string, changes: Partial<ExecutionOfferOperations>): ExecutionOfferRoutingRequest {
+  return { ...r, operations: r.operations.map(o => o.offerId === id ? { ...o, ...changes } : o) }
+}
+function ports(input: ExecutionOfferRoutingRequest) {
+  const seen = new Set<string>(), accepted = new Set<string>()
+  const reservation: ExecutionOfferReservationPort = {
+    reserve: vi.fn(async v => { if (seen.has(v.key)) return null; seen.add(v.key); return { id: 'hold/1', key: v.key, offerId: v.offerId, ...(v.reviewerOfferId ? { reviewerOfferId: v.reviewerOfferId } : {}),
+      generation: v.expectedGeneration + 1, decisionDigest: v.decisionDigest, observationDigest: v.observationDigest, expiresAt: '2026-10-23T09:00:01.000Z' } }),
+    confirm: vi.fn(async v => { if (accepted.has(v.key)) return { accepted: false }; accepted.add(v.key); return { accepted: true, handoffId: 'handoff/1' } }),
+  }
+  return { observe: async () => input, reservation, now: () => at, holdMs: 1000 }
+}
+describe('operational routing on existing qualification and deterministic receipts', () => {
+  it('prefers qualified local Sol/high even when the peer has a higher numeric score', () => {
+    let r = request()
+    r = changeOp(r, 'local-sol', { quality: m(.1, 'score') })
+    r = changeOp(r, 'peer', { quality: m(1, 'score') })
+    const d = routeExecutionOffers(r)
+    expect(d.selectedOfferId).toBe('local-sol')
+    expect(d.ranked.find(v => v.offerId === 'peer')!.score).toBeGreaterThan(d.ranked[0]!.score)
+    expect(d.receipt?.decision.strategy).toBe('rule')
+    expect(replayExecutionOfferRouting(d)).toEqual(d)
+    expect(Object.isFrozen(d.request.operations)).toBe(true)
+  })
+  it('allows only a documented deadline exception to beat local precedence', () => {
+    const r = changeOp(request(), 'local-sol', { completion: { queue: m(1000, 'ms'), execution: m(100, 'ms'), transfer: m(0, 'ms'), validation: m(100, 'ms'), review: m(100, 'ms') } })
+    const d = routeExecutionOffers({ ...r, urgency: { deadline: '2026-10-23T09:00:00.500Z', exceptionRef: 'urgent/approval' } })
+    expect(d.selectedOfferId).not.toBe('local-sol')
+  })
+  it('refuses busy peers and exhausted local quota rather than overloading another user', () => {
+    let r = request()
+    r = { ...r, qualification: { ...r.qualification, offers: r.qualification.offers.map(o => ({ ...o, quota: { ...o.quota, available: false } })) } }
+    for (const id of ['peer', 'ninel']) r = changeOp(r, id, { principalCapacity: { ...capacity(2), queued: m(2) } })
+    const d = routeExecutionOffers(r)
+    expect(d.action).toBe('wait')
+    expect(d.eligibility.find(v => v.offerId === 'peer')!.reasons).toContain('CAPACITY_EXHAUSTED:principal:user1')
+  })
+  it.each(['codex', 'claude'])('fails over symmetrically when %s quota is exhausted', provider => {
+    let r = request()
+    r = { ...r, qualification: { ...r.qualification, offers: r.qualification.offers.map(o => ({ ...o, quota: { ...o.quota, available: o.offer.provider !== provider } })) } }
+    const d = routeExecutionOffers(r)
+    expect(d.action).toBe('select')
+    expect(r.qualification.offers.find(o => o.offer.offerId === d.selectedOfferId)!.offer.provider).not.toBe(provider)
+  })
+  it('counts all users on one physical host and rejects contradictory host snapshots', () => {
+    let r = request()
+    r = { ...r, operations: r.operations.map(o => ({ ...o, hostCapacity: { ...capacity(2), running: m(2) } })) }
+    expect(routeExecutionOffers(r).action).toBe('wait')
+    expect(() => routeExecutionOffers(changeOp(r, 'peer', { hostCapacity: capacity(10) }))).toThrow('ROUTING_SHARED_OBSERVATION_CONTRADICTION:host:am5')
+  })
+  it('rejects contradictory shared quota pools without summing their capacity', () => {
+    const r = request(), first = r.qualification.offers[0]!
+    const changed = { ...r, qualification: { ...r.qualification, offers: r.qualification.offers.map(o => ({ ...o, quota: { ...first.quota } })) },
+      operations: r.operations.map(o => ({ ...o, quotaPool: first.quota.poolRef })) }
+    expect(() => routeExecutionOffers(changeOp(changed, 'peer', { quota: { ...changed.operations[1]!.quota, committed: m(9000, 'tokens') } }))).toThrow('ROUTING_SHARED_OBSERVATION_CONTRADICTION:pool:')
+  })
+  it('holds unknown percentage-only and stale evidence without a fabricated token conversion', () => {
+    let r = request()
+    r = { ...r, operations: r.operations.map(o => ({ ...o, quota: { ...o.quota, remaining: m(99, 'percent') } })) }
+    expect(routeExecutionOffers(r).action).toBe('wait')
+    r = request()
+    const stale = { ...r, qualification: { ...r.qualification, decidedAt: expires } }
+    expect(routeExecutionOffers(stale).action).toBe('wait')
+  })
+  it.each([NaN, Infinity, -1])('rejects malformed capacity %s', value => {
+    expect(() => routeExecutionOffers(changeOp(request(), 'peer', { principalCapacity: { ...capacity(), queued: m(value) } }))).toThrow('ROUTING_OBSERVATION_INVALID')
+  })
+  it('never assumes unknown cost is free', () => {
+    const r = request()
+    expect(routeExecutionOffers({ ...r, budgets: {} }).action).toBe('wait')
+  })
+  it('uses a restored pool only inside its new-work ramp and retains running tasks', () => {
+    const r = changeOp(request(), 'local-sol', { recovery: { restoredAt: at, admitted: m(1), limit: m(1) } })
+    expect(routeExecutionOffers(r).selectedOfferId).not.toBe('local-sol')
+    expect(routeExecutionOffers({ ...r, assignment: { ...r.assignment, state: 'running' } }).action).toBe('retain')
+    const recovered = changeOp(r, 'local-sol', { recovery: { restoredAt: at, admitted: m(0), limit: m(1) } })
+    expect(routeExecutionOffers(recovered).selectedOfferId).toBe('local-sol')
+  })
+  it('replays stable ties and detects changed result evidence', () => {
+    const r = { ...request(), policy: { ...request().policy, preferredLocal: undefined } }
+    // Optional properties are absent in canonical JSON, never undefined.
+    const { preferredLocal: _, ...policy } = r.policy
+    const d = routeExecutionOffers({ ...r, policy })
+    expect(d.selectedOfferId).toBe('local-sol')
+    expect(() => replayExecutionOfferRouting({ ...d, action: 'wait' })).toThrow('ROUTING_DECISION_MISMATCH')
+  })
+  it('protects an independent C3 reviewer and shared capacity', () => {
+    const r = request(), q = { ...r.qualification, task: { ...r.qualification.task, complexity: 'C3' as const } }
+    const d = routeExecutionOffers({ ...r, qualification: q })
+    expect(d.action).toBe('select')
+    expect(d.reviewerOfferId).toBeDefined()
+    expect(d.reviewerOfferId).not.toBe(d.selectedOfferId)
+    const crowded = { ...r, qualification: q, operations: r.operations.map(o => ({ ...o, hostCapacity: capacity(1) })) }
+    expect(routeExecutionOffers(crowded).action).toBe('wait')
+  })
+  it('preserves existing binding checks in one composed read-only review handoff', async () => {
+    const r = request()
+    const review = { ...r, assignment: { ...r.assignment, stage: 'review' }, qualification: { ...r.qualification, task: { ...r.qualification.task, kind: 'review' as const },
+      implementer: { provider: 'claude', providerFamily: 'anthropic', modelRef: 'model/implementer', providerModelId: 'claude-opus' } } }
+    const d = routeExecutionOffers(review), selected = review.qualification.offers.find(o => o.offer.offerId === d.selectedOfferId)!.offer
+    const target = materializeAiResolvedTargetSnapshot({ schema: 'dzupagent.aiResolvedTarget/v1', targetId: 'target', targetRevision: '1', policyRevision: 'policy/1', operation: 'agent.run', placement: 'worker', executionStyle: 'durable',
+      routeCandidateId: selected.offerId, backend: selected.backend, provider: selected.provider, model: selected.model.providerModelId!, profileRef: selected.profileRef!, resolvedAt: at })
+    const context = { target, prompt: { blueprintRef: 'review', blueprintRevision: '1', blueprintDigest: hash, renderedPayloadDigest: hash }, persona: { status: 'none' as const } }
+    const binding = bindExecutionOfferRouting(d, context)
+    expect(validateAiExecutionBindingDigest(binding).valid).toBe(true)
+    const p = ports(review), handoff = await reserveExecutionOfferRouting(d, p)
+    const dispatchReview = vi.fn(async () => ({ accepted: true, bindingDigest: binding.bindingDigest }))
+    expect(await dispatchReview()).toEqual(expect.objectContaining({ accepted: true }))
+    expect(handoff).toEqual(expect.objectContaining({ provider: 'codex', model: 'gpt-6.1-sol', effort: 'high', stage: 'review', sourceRef: 'git/main@123' }))
+    expect(p.reservation.confirm).toHaveBeenCalledTimes(1)
+    expect(() => bindExecutionOfferRouting(d, { ...context, target: { ...target, model: 'other' } })).toThrow('ROUTING_BINDING_MISMATCH')
+    await expect(reserveExecutionOfferRouting(d, p)).rejects.toThrow('ROUTING_RESERVATION_RACE')
+  })
+  it('refuses stale generations and changed observations before reservation', async () => {
+    const r = request(), d = routeExecutionOffers(r), p = ports(r)
+    const stale = { ...p, observe: async () => ({ ...r, assignment: { ...r.assignment, generation: 3 } }) }
+    await expect(reserveExecutionOfferRouting(d, stale)).rejects.toThrow('ROUTING_EVIDENCE_CHANGED')
+    const changed = { ...p, observe: async () => changeOp(r, 'peer', { quality: m(.2, 'score') }) }
+    await expect(reserveExecutionOfferRouting(d, changed)).rejects.toThrow('ROUTING_EVIDENCE_CHANGED')
+    await expect(reserveExecutionOfferRouting(d, { ...p, now: () => expires })).rejects.toThrow('ROUTING_EVIDENCE_CHANGED')
+    expect(p.reservation.reserve).not.toHaveBeenCalled()
+  })
+  it('refuses an expired reservation and failed confirmation', async () => {
+    const r = request(), d = routeExecutionOffers(r), p = ports(r)
+    let tick = 0
+    await expect(reserveExecutionOfferRouting(d, { ...p, now: () => tick++ === 0 ? at : expires })).rejects.toThrow('ROUTING_RESERVATION_INVALID')
+    const refused = ports(r)
+    refused.reservation.confirm = vi.fn(async () => ({ accepted: false }))
+    await expect(reserveExecutionOfferRouting(d, refused)).rejects.toThrow('ROUTING_CONFIRMATION_REFUSED')
+  })
+  it('requires reconciliation for ambiguous dispatch or partial writes', () => {
+    for (const dispatch of ['unknown', 'partial-writes'] as const) expect(recoverExecutionOfferRouting({ candidateId: 'local-sol', failureCode: 'QUOTA', dispatch, compatibleOfferIds: ['peer'] })).toEqual({ kind: 'stop', code: 'RECONCILIATION_REQUIRED' })
+    expect(recoverExecutionOfferRouting({ candidateId: 'local-sol', failureCode: 'QUOTA', dispatch: 'not-started', compatibleOfferIds: ['peer'] })).toEqual({ kind: 'fallback-candidate', candidateId: 'peer' })
+  })
+})

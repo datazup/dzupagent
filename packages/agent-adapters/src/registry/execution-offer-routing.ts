@@ -3,7 +3,7 @@ import { validateRoutingObservation, EXECUTION_OFFER_ROUTING_SCHEMA } from '@dzu
 import type {
   ExecutionOfferOperations, ExecutionOfferRoutingPolicy, ExecutionTaskAssignment,
   ExecutionOfferRanking, RoutingObservation, RoutingCapacity,
-  ExecutionOfferReservationPort, ExecutionOfferHandoff,
+  ExecutionOfferReservationPort, ExecutionOfferHandoff, ExecutionRoutePolicy,
 } from '@dzupagent/runtime-contracts'
 import { reserveAiBudget } from '@dzupagent/runtime-contracts/ai-budget-reservation'
 import type { AiBudgetReservationRequest } from '@dzupagent/runtime-contracts/ai-budget-reservation'
@@ -57,6 +57,7 @@ export interface ExecutionOfferRoutingDecision {
   readonly selectedOfferId?: string
   readonly reviewerOfferId?: string
   readonly receipt?: RouteSelectionReceipt
+  readonly routePolicy?: ExecutionRoutePolicy
   readonly qualification?: TaskRoutingDecision
   readonly reviewerQualification?: TaskRoutingDecision
 }
@@ -223,10 +224,10 @@ export function routeExecutionOffers(input: ExecutionOfferRoutingRequest): Execu
     candidates: qualified.primary.policy.candidates.map(c => ({ ...c, policyCompatible: c.policyCompatible !== false && admitted.has(c.id) })) }
   const receipt = selectExecutionRouteWithReceipt(finalPolicy, { decidedAt: q.decidedAt })
   const selectedOfferId = receipt.decision.selectedCandidateId
-  if (!selectedOfferId) return finish({ action: 'wait', reasons: ['ROUTE_SELECTOR_REFUSED'], ranked, qualification: qualified, receipt })
+  if (!selectedOfferId) return finish({ action: 'wait', reasons: ['ROUTE_SELECTOR_REFUSED'], ranked, qualification: qualified, receipt, routePolicy: finalPolicy })
   const reviewer = reviewers.get(selectedOfferId)
   return finish({ action: 'select', reasons: ['HARD_GATES_PASSED', ...(ranked[0]!.localPreference ? ['QUALIFIED_LOCAL_PREFERENCE'] : []), ...(request.urgency ? [`DEADLINE_EXCEPTION:${request.urgency.exceptionRef}`] : [])], ranked,
-    selectedOfferId, ...(reviewer ? { reviewerOfferId: reviewer.primary.offer.offer.offerId, reviewerQualification: reviewer } : {}), receipt, qualification: qualified })
+    selectedOfferId, ...(reviewer ? { reviewerOfferId: reviewer.primary.offer.offer.offerId, reviewerQualification: reviewer } : {}), receipt, routePolicy: finalPolicy, qualification: qualified })
 }
 
 function consistent(shared: Map<string, string>, key: string, v: unknown) {
@@ -267,7 +268,7 @@ function findReviewer(q: TaskRoutingRequest, primary: QualifiedTaskRoutingOffer,
 export function replayExecutionOfferRouting(decision: ExecutionOfferRoutingDecision): ExecutionOfferRoutingDecision {
   const replay = routeExecutionOffers(decision.request)
   if (digestExecutionOfferRouting(replay) !== digestExecutionOfferRouting(decision)) fail('ROUTING_DECISION_MISMATCH')
-  if (decision.receipt) replayRouteSelectionReceipt(decision.receipt)
+  if (decision.receipt && decision.routePolicy) replayRouteSelectionReceipt(decision.routePolicy, decision.receipt)
   return replay
 }
 
@@ -297,7 +298,11 @@ export async function reserveExecutionOfferRouting(decision: ExecutionOfferRouti
   if (!date(now)) fail('ROUTING_CLOCK_INVALID')
   // Refresh the baseline first; an assessment is bound to its original input, not a new clock.
   const { assessment: _assessment, ...baseline } = observed
-  const fresh = routeExecutionOffers({ ...baseline, qualification: { ...observed.qualification, decidedAt: now } })
+  const { assessment: advice, ...originalBaseline } = decision.request
+  const normalized = { ...baseline, qualification: { ...baseline.qualification, decidedAt: originalBaseline.qualification.decidedAt } }
+  if (digestExecutionOfferRouting(normalized) !== digestExecutionOfferRouting(originalBaseline)) fail('ROUTING_EVIDENCE_CHANGED')
+  const current = { ...baseline, qualification: { ...observed.qualification, decidedAt: now } }
+  const fresh = routeExecutionOffers(advice ? { ...current, assessment: { ...advice, inputDigest: digestExecutionOfferRouting(current) } } : current)
   if (fresh.action !== 'select' || fresh.selectedOfferId !== decision.selectedOfferId || fresh.reviewerOfferId !== decision.reviewerOfferId ||
       fresh.observationDigest !== decision.observationDigest || observed.assignment.generation !== decision.request.assignment.generation ||
       digestExecutionOfferRouting(observed.policy) !== digestExecutionOfferRouting(decision.request.policy)) fail('ROUTING_EVIDENCE_CHANGED')
@@ -311,6 +316,7 @@ export async function reserveExecutionOfferRouting(decision: ExecutionOfferRouti
       !date(hold.expiresAt) || Date.parse(hold.expiresAt) <= Date.parse(ports.now()) || Date.parse(hold.expiresAt) > Date.parse(now) + ports.holdMs) fail('ROUTING_RESERVATION_INVALID')
   const ack = await ports.reservation.confirm(hold)
   if (!ack.accepted || !text(ack.handoffId)) fail('ROUTING_CONFIRMATION_REFUSED')
+  if (Date.parse(hold.expiresAt) <= Date.parse(ports.now())) fail('ROUTING_CONFIRMATION_EXPIRED_RECONCILE')
   const item = decision.request.qualification.offers.find(o => o.offer.offerId === decision.selectedOfferId)!
   return freeze({ schema: EXECUTION_OFFER_ROUTING_SCHEMA, handoffId: ack.handoffId, taskId: a.taskId, stage: a.stage,
     sourceRef: a.sourceRef, recoveryRef: a.recoveryRef, sourceDisposition: 'retain-until-destination-ack', reservation: hold,
