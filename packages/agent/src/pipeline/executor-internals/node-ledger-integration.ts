@@ -195,7 +195,11 @@ export async function runNodeWithHeartbeat(
         check();
         return result;
       },
-    }, emit, node, context);
+    }, (event) => {
+      emit(event);
+      // The callback may revoke execution before the backoff listener is installed.
+      check();
+    }, node, context);
     check();
     return result;
   } finally {

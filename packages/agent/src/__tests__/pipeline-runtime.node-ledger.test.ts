@@ -354,6 +354,63 @@ describe("confirmed node lease deadlines", () => {
     },
   );
 
+  it.each([undefined, 240_000] as const)(
+    "cancels synchronously from the retry event without entering backoff (timeout: %s)",
+    async (timeoutMs) => {
+      const retrying = deferred<void>();
+      const ledger = heartbeatLedger(vi.fn().mockResolvedValue(true));
+      const parent = new AbortController();
+      const add = vi.spyOn(AbortSignal.prototype, "addEventListener");
+      const remove = vi.spyOn(AbortSignal.prototype, "removeEventListener");
+      const executor = vi.fn<NodeExecutor>().mockResolvedValue({
+        nodeId: NODE.id, output: null, durationMs: 1, error: "timeout",
+      });
+      const events: string[] = [];
+      const settled = vi.fn();
+      const running = new PipelineRuntime({
+        definition: singleNode({
+          ...NODE, idempotency: "exactly-once-required", retries: 2,
+          ...(timeoutMs === undefined ? {} : { executionPolicy: { timeoutMs } }),
+        }),
+        nodeExecutor: executor, nodeLedger: ledger, signal: parent.signal,
+        retryPolicy: { initialBackoffMs: 120_000, maxBackoffMs: 120_000, jitter: false },
+        onEvent: (event) => {
+          events.push(event.type);
+          if (event.type === "pipeline:node_retry") {
+            parent.abort();
+            retrying.resolve(undefined);
+          }
+        },
+      }).execute({}, { runId: "lease-run" });
+      void running.then(settled);
+      await retrying.promise;
+      // Flush completion without advancing into the 120-second backoff.
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled).toHaveBeenCalledTimes(1);
+      const result = await running;
+      expect(Date.now()).toBe(0);
+      expect(result.state).toBe("failed");
+      expect(result.error).toContain("cancelled");
+      expect(result.totalDurationMs).toBe(0);
+      expect(executor).toHaveBeenCalledTimes(1);
+      expect(ledger.heartbeat).not.toHaveBeenCalled();
+      expect(ledger.complete).not.toHaveBeenCalled();
+      expect(ledger.fail).not.toHaveBeenCalled();
+      expect(events.filter((type) => type === "pipeline:node_retry")).toHaveLength(1);
+      expect(events).not.toContain("pipeline:node_completed");
+      expect(vi.getTimerCount()).toBe(0);
+      const abortListeners = add.mock.calls
+        .map(([type, listener], index) => ({ type, listener, signal: add.mock.contexts[index] }))
+        .filter(({ type }) => type === "abort");
+      expect(abortListeners).toHaveLength(timeoutMs === undefined ? 2 : 3);
+      for (const { listener, signal } of abortListeners) {
+        expect(remove.mock.calls.some(([type, removed], index) =>
+          type === "abort" && removed === listener && remove.mock.contexts[index] === signal,
+        )).toBe(true);
+      }
+    },
+  );
+
   it("clears an outstanding retry backoff when the lease deadline revokes execution", async () => {
     const retrying = deferred<void>();
     const renewal = deferred<boolean>();
