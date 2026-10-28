@@ -7,7 +7,7 @@
  *  - records the keys for completed nodes into the checkpoint, and
  *  - round-trips the keys through a suspend/resume cycle.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
 import { InMemoryPipelineCheckpointStore } from "../pipeline/in-memory-checkpoint-store.js";
 import {
@@ -570,4 +570,58 @@ describe("DZUPAGENT-AGENT-H-61 — declared keys are run-scoped on a shared ledg
       beginNodeUnderLedger(ledger, "run-2", "charge", "legacy-key", "run-2", Date.now()),
     ).rejects.toBeInstanceOf(CrossRunReplayError);
   });
+});
+
+describe("exactly-once-required execution contract", () => {
+  describe.each([undefined, "degrade-open", "strict"] as const)(
+    "without a ledger under outage policy %s",
+    (policy) => {
+      it.each([undefined, "charge-123"])(
+        "refuses execution with declared key %s",
+        async (declaredKey) => {
+          const node: PipelineNode = {
+            id: "charge", type: "tool", toolName: "tools.charge",
+            idempotency: "exactly-once-required", retries: 2,
+            ...(declaredKey === undefined ? {} : { declaredIdempotencyKey: declaredKey }),
+          };
+          const executor = vi.fn<NodeExecutor>();
+          const result = await new PipelineRuntime({
+            definition: linearPipeline({ nodes: [node], edges: [], entryNodeId: node.id }),
+            nodeExecutor: executor,
+            ...(policy === undefined ? {} : { ledgerUnavailablePolicy: policy }),
+          }).execute();
+
+          expect(result.state).toBe("failed");
+          expect(result.error).toContain("requires a durable ledger");
+          expect(result.nodeResults.get(node.id)?.errorMetadata?.["code"]).toBe("NODE_LEDGER_REQUIRED");
+          expect(executor).not.toHaveBeenCalled();
+        },
+      );
+    },
+  );
+
+  it.each([undefined, "charge-123"])(
+    "executes and replays the same run with declared key %s and a real ledger",
+    async (declaredKey) => {
+      const node: PipelineNode = {
+        id: "charge", type: "tool", toolName: "tools.charge",
+        idempotency: "exactly-once-required",
+        ...(declaredKey === undefined ? {} : { declaredIdempotencyKey: declaredKey }),
+      };
+      const definition = linearPipeline({ nodes: [node], edges: [], entryNodeId: node.id });
+      const ledger = new InMemoryDurableNodeLedger();
+      const executor = vi.fn<NodeExecutor>().mockResolvedValue({
+        nodeId: node.id, output: { charged: true }, durationMs: 1,
+      });
+      const config = { definition, nodeExecutor: executor, nodeLedger: ledger };
+      const first = await new PipelineRuntime(config).execute({}, { runId: "charge-run" });
+      const replay = await new PipelineRuntime(config).execute({}, { runId: "charge-run" });
+
+      expect(first.state).toBe("completed");
+      expect(replay.state).toBe("completed");
+      expect(replay.nodeResults.get(node.id)?.output).toEqual({ charged: true });
+      expect(executor).toHaveBeenCalledTimes(1);
+      expect(executor.mock.calls[0]?.[2].idempotencyKey).toBe(expectedKey(definition, "charge-run", node.id));
+    },
+  );
 });

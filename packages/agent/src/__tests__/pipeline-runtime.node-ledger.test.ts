@@ -8,11 +8,16 @@
  *  - a node whose lease was stolen mid-run is fenced out (run fails, not
  *    double-completed)
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
 import { InMemoryDurableNodeLedger } from "@dzupagent/core";
 import type { PipelineDefinition, PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
-import type { NodeExecutor } from "../pipeline/pipeline-runtime-types.js";
+import type {
+  NodeExecutor, NodeLedgerLike, NodeExecutionContext, NodeResult,
+} from "../pipeline/pipeline-runtime-types.js";
+import {
+  startNodeHeartbeat, DEFAULT_LEASE_TTL_MS, DEFAULT_HEARTBEAT_MS,
+} from "../pipeline/executor-internals/node-ledger-integration.js";
 import {
   nodeIdempotencyKey,
   nodeIdempotencyContext,
@@ -112,4 +117,294 @@ describe("PipelineRuntime × DurableNodeLedger (opt-in)", () => {
     const completion = await ledger.getByIdempotencyKey(key);
     expect(completion?.output).toEqual({ replayed: true });
   });
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+
+function heartbeatLedger(heartbeat: NodeLedgerLike["heartbeat"]): NodeLedgerLike {
+  return {
+    getByIdempotencyKey: vi.fn().mockResolvedValue(undefined),
+    acquire: vi.fn().mockResolvedValue({ owner: "lease-run", fenceToken: 1 }),
+    heartbeat,
+    complete: vi.fn().mockResolvedValue(undefined),
+    fail: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+describe("confirmed node lease deadlines", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+  });
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("serializes a hung renewal and ignores its success after revocation", async () => {
+    const pending = deferred<boolean>();
+    const heartbeat = vi.fn<NodeLedgerLike["heartbeat"]>(() => pending.promise);
+    const parent = new AbortController();
+    const remove = vi.spyOn(parent.signal, "removeEventListener");
+    const onRenewed = vi.fn();
+    const onLost = vi.fn();
+    const handle = startNodeHeartbeat(
+      heartbeatLedger(heartbeat), "r", "n", "w", 1, parent.signal,
+      1_000, 100, { onRenewed, onLost },
+    );
+
+    await vi.advanceTimersByTimeAsync(899);
+    expect(heartbeat).toHaveBeenCalledTimes(1);
+    expect(handle.signal.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(handle.signal.aborted).toBe(true);
+    expect(handle.lost()).toBe(true);
+    expect(onLost).toHaveBeenCalledTimes(1);
+    expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
+    expect(vi.getTimerCount()).toBe(0);
+
+    pending.resolve(true);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(onRenewed).not.toHaveBeenCalled();
+    expect(onLost).toHaveBeenCalledTimes(1);
+    expect(heartbeat).toHaveBeenCalledTimes(1);
+    expect(handle.lost()).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(["reject", "throw"] as const)(
+    "bounds repeated renewal errors (%s) by the last confirmed deadline",
+    async (mode) => {
+      const heartbeat = vi.fn<NodeLedgerLike["heartbeat"]>(() => {
+        if (mode === "throw") throw new Error("renewal unavailable");
+        return Promise.reject(new Error("renewal unavailable"));
+      });
+      const handle = startNodeHeartbeat(
+        heartbeatLedger(heartbeat), "r", "n", "w", 1, undefined, 1_000, 100,
+      );
+      await vi.advanceTimersByTimeAsync(100);
+      expect(handle.signal.aborted).toBe(false); // transient retry remains permitted
+      await vi.advanceTimersByTimeAsync(799);
+      expect(handle.signal.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(handle.signal.aborted).toBe(true);
+      expect(handle.lost()).toBe(true);
+      expect(heartbeat).toHaveBeenCalledTimes(8);
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it("counts a delayed acknowledgement from request time", async () => {
+    const first = deferred<boolean>();
+    const second = deferred<boolean>();
+    const heartbeat = vi.fn<NodeLedgerLike["heartbeat"]>()
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementation(() => second.promise);
+    const renewed = vi.fn();
+    const handle = startNodeHeartbeat(
+      heartbeatLedger(heartbeat), "r", "n", "w", 1, undefined,
+      1_000, 100, { onRenewed: renewed },
+    );
+    await vi.advanceTimersByTimeAsync(800);
+    first.resolve(true); // request at 100 => confirmed expiry 1_100, cutoff 1_000
+    await vi.advanceTimersByTimeAsync(0);
+    expect(renewed).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(199);
+    expect(heartbeat).toHaveBeenCalledTimes(2);
+    expect(handle.signal.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(handle.lost()).toBe(true);
+    second.resolve(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(renewed).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("renews repeatedly on success and immediately revokes on fencing", async () => {
+    const heartbeat = vi.fn<NodeLedgerLike["heartbeat"]>()
+      .mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    const handle = startNodeHeartbeat(
+      heartbeatLedger(heartbeat), "r", "n", "w", 1, undefined, 1_000, 100,
+    );
+    await vi.advanceTimersByTimeAsync(100);
+    expect(handle.lost()).toBe(false);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(heartbeat).toHaveBeenCalledTimes(2);
+    expect(handle.lost()).toBe(true);
+    expect(handle.signal.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(["stop", "cancel"] as const)(
+    "%s cleans timers and listeners while a renewal is pending",
+    async (action) => {
+      const pending = deferred<boolean>();
+      const heartbeat = vi.fn<NodeLedgerLike["heartbeat"]>(() => pending.promise);
+      const parent = new AbortController();
+      const remove = vi.spyOn(parent.signal, "removeEventListener");
+      const onRenewed = vi.fn();
+      const onLost = vi.fn();
+      const handle = startNodeHeartbeat(
+        heartbeatLedger(heartbeat), "r", "n", "w", 1, parent.signal,
+        1_000, 100, { onRenewed, onLost },
+      );
+      await vi.advanceTimersByTimeAsync(100);
+      if (action === "stop") handle.stop();
+      else parent.abort();
+      handle.stop(); // idempotent
+      pending.reject(new Error("late rejection"));
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(handle.signal.aborted).toBe(action === "cancel");
+      expect(handle.lost()).toBe(false);
+      expect(heartbeat).toHaveBeenCalledTimes(1);
+      expect(onRenewed).not.toHaveBeenCalled();
+      expect(onLost).not.toHaveBeenCalled();
+      expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it("does not start renewal for an already cancelled parent or expired acquisition", () => {
+    const heartbeat = vi.fn<NodeLedgerLike["heartbeat"]>().mockResolvedValue(true);
+    const ledger = heartbeatLedger(heartbeat);
+    const parent = new AbortController();
+    parent.abort();
+    const cancelled = startNodeHeartbeat(ledger, "r", "n", "w", 1, parent.signal, 1_000, 100);
+    const expired = startNodeHeartbeat(ledger, "r", "n", "w", 1, undefined, 1_000, 100, undefined, -1_000);
+    expect(cancelled.signal.aborted).toBe(true);
+    expect(cancelled.lost()).toBe(false);
+    expect(expired.signal.aborted).toBe(true);
+    expect(expired.lost()).toBe(true);
+    expect(heartbeat).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(["lease loss", "cancellation"] as const)(
+    "abandons an uncooperative executor on %s and discards its late result",
+    async (cause) => {
+      const entered = deferred<NodeExecutionContext>();
+      const work = deferred<NodeResult>();
+      const renewal = deferred<boolean>();
+      const ledger = heartbeatLedger(vi.fn(() => renewal.promise));
+      const parent = new AbortController();
+      const remove = vi.spyOn(parent.signal, "removeEventListener");
+      const executor = vi.fn<NodeExecutor>(async (_id, _node, context) => {
+        entered.resolve(context);
+        return work.promise;
+      });
+      const events: string[] = [];
+      const running = new PipelineRuntime({
+        definition: singleNode({ ...NODE, idempotency: "exactly-once-required", retries: 2 }),
+        nodeExecutor: executor, nodeLedger: ledger, signal: parent.signal,
+        onEvent: (event) => { events.push(event.type); },
+      }).execute({}, { runId: "lease-run" });
+      const context = await entered.promise;
+
+      if (cause === "cancellation") {
+        await vi.advanceTimersByTimeAsync(DEFAULT_HEARTBEAT_MS);
+        parent.abort();
+      } else {
+        await vi.advanceTimersByTimeAsync(DEFAULT_LEASE_TTL_MS - 1);
+      }
+      const result = await running;
+      expect(result.state).toBe("failed");
+      expect(result.error).toContain(cause === "cancellation" ? "cancelled" : "lease lost");
+      expect(result.totalDurationMs).toBeLessThan(DEFAULT_LEASE_TTL_MS);
+      expect(context.signal?.aborted).toBe(true);
+      expect(ledger.heartbeat).toHaveBeenCalledTimes(1);
+      expect(ledger.complete).not.toHaveBeenCalled();
+      expect(ledger.fail).not.toHaveBeenCalled();
+      expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
+      expect(vi.getTimerCount()).toBe(0);
+
+      renewal.resolve(true);
+      work.resolve({ nodeId: NODE.id, output: { late: true }, durationMs: 1 });
+      await vi.advanceTimersByTimeAsync(DEFAULT_LEASE_TTL_MS);
+      expect(executor).toHaveBeenCalledTimes(1);
+      expect(ledger.complete).not.toHaveBeenCalled();
+      expect(events).not.toContain("pipeline:node_completed");
+      expect(result.nodeResults.get(NODE.id)?.output).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it("clears an outstanding retry backoff when the lease deadline revokes execution", async () => {
+    const retrying = deferred<void>();
+    const renewal = deferred<boolean>();
+    const ledger = heartbeatLedger(vi.fn(() => renewal.promise));
+    const executor = vi.fn<NodeExecutor>().mockResolvedValue({
+      nodeId: NODE.id, output: null, durationMs: 1, error: "timeout",
+    });
+    const running = new PipelineRuntime({
+      definition: singleNode({ ...NODE, retries: 2 }),
+      nodeExecutor: executor, nodeLedger: ledger,
+      retryPolicy: { initialBackoffMs: 120_000, maxBackoffMs: 120_000, jitter: false },
+      onEvent: (event) => {
+        if (event.type === "pipeline:node_retry") retrying.resolve(undefined);
+      },
+    }).execute({}, { runId: "lease-run" });
+    await retrying.promise;
+    await vi.advanceTimersByTimeAsync(DEFAULT_LEASE_TTL_MS - 1);
+    const result = await running;
+    expect(result.state).toBe("failed");
+    expect(result.error).toContain("lease lost");
+    expect(executor).toHaveBeenCalledTimes(1);
+    expect(ledger.complete).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+    renewal.resolve(true);
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(executor).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("does not dispatch after acquisition consumed the initial lease window", async () => {
+    const acquiring = deferred<void>();
+    const acquired = deferred<unknown>();
+    const ledger = heartbeatLedger(vi.fn().mockResolvedValue(true));
+    ledger.acquire = vi.fn(() => { acquiring.resolve(undefined); return acquired.promise; });
+    const executor = vi.fn<NodeExecutor>();
+    const running = new PipelineRuntime({
+      definition: singleNode({ ...NODE, idempotency: "exactly-once-required" }),
+      nodeExecutor: executor, nodeLedger: ledger,
+    }).execute({}, { runId: "lease-run" });
+    await acquiring.promise;
+    await vi.advanceTimersByTimeAsync(DEFAULT_LEASE_TTL_MS);
+    acquired.resolve({ owner: "lease-run", fenceToken: 1 });
+    const result = await running;
+    expect(result.state).toBe("failed");
+    expect(result.error).toContain("lease lost");
+    expect(executor).not.toHaveBeenCalled();
+    expect(ledger.heartbeat).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(["success", "failure", "throw"] as const)(
+    "cleans heartbeat resources after terminal executor %s",
+    async (outcome) => {
+      const ledger = heartbeatLedger(vi.fn().mockResolvedValue(true));
+      const parent = new AbortController();
+      const remove = vi.spyOn(parent.signal, "removeEventListener");
+      const executor: NodeExecutor = async () => {
+        if (outcome === "throw") throw new Error("executor threw");
+        return { nodeId: NODE.id, output: "ok", durationMs: 1,
+          ...(outcome === "failure" ? { error: "executor failed" } : {}) };
+      };
+      const result = await new PipelineRuntime({
+        definition: singleNode(NODE), nodeExecutor: executor,
+        nodeLedger: ledger, signal: parent.signal,
+      }).execute({}, { runId: "lease-run" });
+      expect(result.state).toBe(outcome === "success" ? "completed" : "failed");
+      expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
+      expect(vi.getTimerCount()).toBe(0);
+      parent.abort();
+      await vi.advanceTimersByTimeAsync(DEFAULT_LEASE_TTL_MS);
+      expect(ledger.heartbeat).not.toHaveBeenCalled();
+    },
+  );
 });

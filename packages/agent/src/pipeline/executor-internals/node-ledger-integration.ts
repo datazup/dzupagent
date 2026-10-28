@@ -16,7 +16,12 @@
 import type {
   NodeLedgerLike,
   NodeLeaseLike,
+  NodeExecutionContext,
+  PipelineRuntimeConfig,
+  PipelineRuntimeEvent,
 } from "../pipeline-runtime-types.js";
+import type { PipelineNode } from "@dzupagent/runtime-contracts/pipeline-artifact";
+import { runNodeWithRetry } from "./node-retry.js";
 
 /** Default lease ttl + heartbeat budget (ms). Conservative; tune at the seam. */
 export const DEFAULT_LEASE_TTL_MS = 60_000;
@@ -49,27 +54,19 @@ export class CrossRunReplayError extends Error {
 
 /** Handle for a running heartbeat loop. */
 export interface HeartbeatHandle {
-  /**
-   * Composite signal: aborts when the run is cancelled (parent signal) OR the
-   * lease is lost (a heartbeat returned `false` → fenced out). Pass this to
-   * the node executor so a long-running node stops promptly on lease loss.
-   */
+  /** Aborts on parent cancellation, fencing, or the last confirmed lease deadline. */
   signal: AbortSignal;
-  /** True once a heartbeat reported the lease lost (fenced out). */
+  /** Checks the deadline as well, in case the event loop delayed its timer. */
   lost: () => boolean;
-  /** Stop the interval. Safe to call multiple times. */
+  /** Stops timers and removes the parent listener; late replies are ignored. */
   stop: () => void;
 }
 
 /**
- * Start renewing a node's lease on an interval while it executes. Returns a
- * {@link HeartbeatHandle} whose `signal` composes the parent run signal with a
- * lease-loss abort. On a heartbeat that returns `false` (fenced out), the
- * signal aborts and `lost()` becomes true; the caller should treat the node as
- * not-completed-by-us. A throwing heartbeat (ledger blip) is treated as
- * transient and does NOT abort — the next beat retries.
- *
- * `onRenewed`/`onLost` are optional event hooks (e.g. emit node:lease_renewed).
+ * Serialize renewals and bound them by a separate last-confirmed-lease watchdog.
+ * Errors may retry within that window; a hung renewal cannot defer the watchdog.
+ * Acknowledgements extend from request time, never from response time.
+ * confirmedAt is the initial acquisition's request time, when known.
  */
 export function startNodeHeartbeat(
   ledger: NodeLedgerLike,
@@ -80,44 +77,129 @@ export function startNodeHeartbeat(
   parentSignal: AbortSignal | undefined,
   ttlMs: number = DEFAULT_LEASE_TTL_MS,
   intervalMs: number = DEFAULT_HEARTBEAT_MS,
-  hooks?: { onRenewed?: () => void; onLost?: () => void }
+  hooks?: { onRenewed?: () => void; onLost?: () => void },
+  confirmedAt: number = Date.now(),
 ): HeartbeatHandle {
   const controller = new AbortController();
+  const safetyMs = Math.max(1, Math.min(intervalMs, ttlMs / 10));
+  let deadline = confirmedAt + ttlMs - safetyMs;
+  let active = true;
   let lost = false;
-
-  // Propagate parent cancellation into the composite signal.
-  const onParentAbort = () => controller.abort();
-  if (parentSignal !== undefined) {
-    if (parentSignal.aborted) controller.abort();
-    else parentSignal.addEventListener("abort", onParentAbort, { once: true });
-  }
-
-  const timer = setInterval(() => {
-    void ledger
-      .heartbeat(runId, nodeId, owner, fenceToken, ttlMs, Date.now())
-      .then((ok) => {
-        if (ok) {
-          hooks?.onRenewed?.();
-        } else {
-          lost = true;
-          hooks?.onLost?.();
-          controller.abort();
-        }
-      })
-      .catch(() => {
-        // Transient ledger error — do not abort; the next beat retries.
-      });
-  }, intervalMs);
-  if (typeof timer.unref === "function") timer.unref();
+  let renewalTimer: ReturnType<typeof setTimeout> | undefined;
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
 
   const stop = () => {
-    clearInterval(timer);
-    if (parentSignal !== undefined) {
-      parentSignal.removeEventListener("abort", onParentAbort);
+    active = false;
+    clearTimeout(renewalTimer);
+    clearTimeout(deadlineTimer);
+    parentSignal?.removeEventListener("abort", onParentAbort);
+  };
+  const onParentAbort = () => {
+    stop();
+    controller.abort(parentSignal?.reason);
+  };
+  const revoke = () => {
+    if (!active) return;
+    lost = true;
+    stop();
+    controller.abort(new Error("Node ledger lease lost"));
+    hooks?.onLost?.();
+  };
+  const checkDeadline = () => {
+    if (active && Date.now() >= deadline) revoke();
+    return lost;
+  };
+  const armDeadline = () => {
+    clearTimeout(deadlineTimer);
+    if (checkDeadline()) return;
+    deadlineTimer = setTimeout(revoke, deadline - Date.now());
+    deadlineTimer.unref?.();
+  };
+  const schedule = () => {
+    renewalTimer = setTimeout(() => { void renew(); }, intervalMs);
+    renewalTimer.unref?.();
+  };
+  const renew = async () => {
+    if (!active || checkDeadline()) return;
+    const requestedAt = Date.now();
+    try {
+      const ok = await ledger.heartbeat(
+        runId, nodeId, owner, fenceToken, ttlMs, requestedAt,
+      );
+      if (!active || checkDeadline()) return;
+      if (!ok) {
+        revoke();
+        return;
+      }
+      deadline = requestedAt + ttlMs - safetyMs;
+      armDeadline();
+      if (active) hooks?.onRenewed?.();
+    } catch {
+      // Retry only inside the unchanged confirmed window, including sync throws.
+      checkDeadline();
+    } finally {
+      if (active) schedule();
     }
   };
 
-  return { signal: controller.signal, lost: () => lost, stop };
+  if (!Number.isFinite(ttlMs) || ttlMs <= 1 ||
+      !Number.isFinite(intervalMs) || intervalMs <= 0) {
+    revoke();
+  } else if (parentSignal?.aborted) {
+    onParentAbort();
+  } else {
+    parentSignal?.addEventListener("abort", onParentAbort, { once: true });
+    armDeadline();
+    if (active) schedule();
+  }
+  return { signal: controller.signal, lost: checkDeadline, stop };
+}
+
+/** Abandon revoked execution and guard every retry, even for an uncooperative executor. */
+export async function runNodeWithHeartbeat(
+  config: PipelineRuntimeConfig,
+  emit: (event: PipelineRuntimeEvent) => void,
+  node: PipelineNode,
+  context: NodeExecutionContext,
+  heartbeat: HeartbeatHandle | undefined,
+): ReturnType<typeof runNodeWithRetry> {
+  if (heartbeat === undefined) return runNodeWithRetry(config, emit, node, context);
+  const { signal } = heartbeat;
+  const revokedError = () => new Error(
+    'node "' + node.id + '" ' +
+      (heartbeat.lost() ? "lease lost during execution" : "cancelled during execution"),
+  );
+  const check = () => {
+    if (heartbeat.lost() || signal.aborted) throw revokedError();
+  };
+  check();
+  const retryController = new AbortController();
+  let onAbort = () => {};
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => {
+      retryController.abort(signal.reason);
+      reject(revokedError());
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    const execution = runNodeWithRetry({
+      ...config,
+      signal: retryController.signal,
+      nodeExecutor: async (...args) => {
+        check();
+        const result = await config.nodeExecutor(...args);
+        check();
+        return result;
+      },
+    }, emit, node, context);
+    const result = await Promise.race([execution, aborted]);
+    check();
+    return result;
+  } finally {
+    retryController.abort();
+    signal.removeEventListener("abort", onAbort);
+  }
 }
 
 /**
@@ -142,16 +224,24 @@ export async function beginNodeUnderLedger(
     }
     return { kind: "replay", output: prior.output };
   }
-  const lease = (await ledger.acquire(
+  const lease = await ledger.acquire(
     runId,
     nodeId,
     idempotencyKey,
     owner,
     ttlMs,
     now
-  )) as NodeLeaseLike | null;
+  );
   if (lease === null) return { kind: "busy" };
-  return { kind: "lease", lease };
+  if (
+    typeof lease !== "object" || lease === null ||
+    !("owner" in lease) || typeof lease.owner !== "string" || lease.owner.length === 0 ||
+    !("fenceToken" in lease) || typeof lease.fenceToken !== "number" ||
+    !Number.isSafeInteger(lease.fenceToken) || lease.fenceToken <= 0
+  ) {
+    throw new Error("Node ledger returned an invalid lease");
+  }
+  return { kind: "lease", lease: { owner: lease.owner, fenceToken: lease.fenceToken } };
 }
 
 /**

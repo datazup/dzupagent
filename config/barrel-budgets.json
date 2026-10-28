@@ -719,12 +719,12 @@
           "rationale": "2026-10-15 RF-03 (DZUPAGENT-ARCH-H-09): landed above the 500-line ceiling with no pin while the gate was already red. Frozen at exactly 557 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30. Re-pin DOWN 557->526 (2026-10-15 QF-44 / DZUPAGENT-ERR-M-92): the single bridge dispatch moved to no-tool-dispatch-once.ts while gaining the bridge error cause and cancelled-during-dispatch classification. Re-pin DOWN 526->523 (2026-10-15 QF-63 / DZUPAGENT-CODE-L-19): the local exactKeys copy moved to the shared utils/exact-keys.ts."
         },
         "src/pipeline/executor-internals/standard-node-dispatch.ts": {
-          "maxLines": 541,
+          "maxLines": 533,
           "shrinkTarget": 500,
-          "sourceSha256": "744ca64aee37fd2f252bb33dc6c68bdeea25c841c97e5201311b656b84b3ea09",
-          "sourceCommit": "a54e1c137b140280ce7c797c61eebad2beb26343",
+          "sourceSha256": "8886005fca13d2f0ce5503af0eac139a02395fc00c59ba4d70ddd1752f05e798",
+          "sourceCommit": "99e22a9390f606e8d74f406d27c0b476af5fed8d",
           "reviewBy": "2026-11-30",
-          "rationale": "2026-10-17 AUDIT-FOLLOWUPS-20261017-R1: re-pinned DOWN 543 -> 541 (CrossRunReplayError fails closed under every ledger policy). 2026-10-15 RF-03 (DZUPAGENT-ARCH-H-09): landed above the 500-line ceiling with no pin while the gate was already red. Frozen at exactly 543 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30. Re-bound 2026-10-15 QF-46 / DZUPAGENT-ERR-M-94 at the same 543 lines: error edges now route on errorMetadata.code via nodeResultErrorCode in pipeline-shared/error-classification.ts."
+          "rationale": "2026-10-28 CODEX-ALL-REPOS-20261028-R1 A1 durable-execution proposal: re-pin DOWN 541 -> 533 for required-ledger admission and bounded renewal. 2026-10-17 AUDIT-FOLLOWUPS-20261017-R1: re-pinned DOWN 543 -> 541 (CrossRunReplayError fails closed under every ledger policy). 2026-10-15 RF-03 (DZUPAGENT-ARCH-H-09): landed above the 500-line ceiling with no pin while the gate was already red. Frozen at exactly 543 lines with zero slack so any further growth fails closed; extract to 500 before 2026-11-30. Re-bound 2026-10-15 QF-46 / DZUPAGENT-ERR-M-94 at the same 543 lines: error edges now route on errorMetadata.code via nodeResultErrorCode in pipeline-shared/error-classification.ts."
         },
         "src/pipeline/loop-executor/for-each-item-budget-release.ts": {
           "maxLines": 562,

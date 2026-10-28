@@ -27,7 +27,6 @@ import {
 } from "./runtime-events.js";
 import { getNextNodeIds, getErrorTarget } from "../pipeline-shared/edge-resolution.js";
 import { extractErrorCode, nodeResultErrorCode } from "../pipeline-shared/error-classification.js";
-import { runNodeWithRetry } from "./node-retry.js";
 import { matchTerminalCatch } from "./terminal-catch.js";
 import { applyStateWrites, planStateWrites } from "./state-writes.js";
 import {
@@ -50,6 +49,7 @@ import {
   completeNodeUnderLedger,
   CrossRunReplayError,
   failNodeUnderLedger,
+  runNodeWithHeartbeat,
   startNodeHeartbeat,
   type BeginNodeOutcome,
   type HeartbeatHandle,
@@ -143,14 +143,16 @@ export async function dispatchStandardNode(
     };
   };
 
-  // An approval-required node, or a budgeted node without a cost source,
-  // fails closed before its lease and execution; retry, terminal catch, error
-  // edges and recovery are not consulted.
+  // Policy preflights are terminal, before lease acquisition or execution.
+  const exactlyOnce = node.idempotency === "exactly-once-required";
   const approvalError = approvalRequiredError(node);
   const preflight =
     approvalError !== undefined
       ? { error: approvalError, code: APPROVAL_REQUIRED_CODE }
-      : budgetPreflight(node, config);
+      : budgetPreflight(node, config) ??
+        (exactlyOnce && (config.nodeLedger === undefined || !idempotencyKey)
+          ? { error: 'node "' + node.id + '" requires a durable ledger and idempotency key', code: "NODE_LEDGER_REQUIRED" }
+          : undefined);
   if (preflight !== undefined) {
     if (span) config.tracer?.endSpanWithError(span, preflight.error);
     emit(nodeFailedEvent(node.id, preflight.error));
@@ -164,12 +166,10 @@ export async function dispatchStandardNode(
     return fail(preflight.error);
   }
 
-  // P2 (opt-in): lease this node under the durable ledger. When no ledger is
-  // configured, `ledgerLease` stays undefined and the path below is identical
-  // to pre-P2 behavior.
   let ledgerLease: NodeLeaseLike | undefined;
+  const leaseRequestedAt = Date.now();
   if (config.nodeLedger !== undefined && idempotencyKey !== undefined) {
-    let begin: BeginNodeOutcome;
+    let begin: BeginNodeOutcome | undefined;
     try {
       begin = await beginNodeUnderLedger(
         config.nodeLedger,
@@ -177,34 +177,25 @@ export async function dispatchStandardNode(
         node.id,
         idempotencyKey,
         runId,
-        Date.now(),
+        leaseRequestedAt,
       );
     } catch (err) {
-      // E2: under "strict", an unreachable ledger fails the node rather than
-      // proceeding without the exactly-once safety net. The degraded path below
-      // synthesizes a lease with `fenceToken: 0` that is indistinguishable
-      // downstream from a real one, so for chargeable per-item work the only
-      // safe answer is to stop. A cross-run replay refusal is a verdict from a
-      // reachable ledger, not an outage, so it fails closed under every policy.
+      // Exactly-once and cross-run refusals cannot be weakened by outage policy.
       const crossRun = err instanceof CrossRunReplayError;
-      if (crossRun || config.ledgerUnavailablePolicy === "strict") {
+      if (crossRun || exactlyOnce || config.ledgerUnavailablePolicy === "strict") {
         defaultLogger.error("[pipeline] node ledger begin failed — failing node", {
           operation: "node.ledger.begin",
           runId,
           nodeId: node.id,
           error: String(err),
           effect: crossRun ? "node_failed_cross_run_replay" : "node_failed_ledger_unavailable",
-          policy: crossRun ? "fail-closed" : "strict",
+          policy: crossRun ? "fail-closed" : exactlyOnce ? "exactly-once-required" : "strict",
         });
         if (span) config.tracer?.endSpanWithError(span, err);
-        const why = crossRun ? "refused a cross-run ledger replay" : 'could not acquire a durable ledger lease and ledgerUnavailablePolicy is "strict"';
+        const why = crossRun ? "refused a cross-run ledger replay" : exactlyOnce ? "could not acquire the required durable ledger lease" : 'could not acquire a durable ledger lease and ledgerUnavailablePolicy is "strict"';
         return fail(`node "${node.id}" ${why}: ${String(err)}`);
       }
-      // Ledger unavailability is non-fatal for liveness, but it disables the
-      // exactly-once safety net for this node: a retried run can now
-      // double-execute a side-effecting node (duplicate payment/email). Surface
-      // the degradation loudly BEFORE falling through so it is diagnosable in
-      // real time rather than only after the fact.
+      // Weaker policies may execute without a lease; do not fabricate one.
       defaultLogger.warn("[pipeline] node ledger begin failed — degrading", {
         operation: "node.ledger.begin",
         runId,
@@ -213,9 +204,8 @@ export async function dispatchStandardNode(
         effect: "idempotency_disabled_for_node",
         policy: "degrade-open",
       });
-      begin = { kind: "lease", lease: { owner: runId, fenceToken: 0 } };
     }
-    if (begin.kind === "replay") {
+    if (begin?.kind === "replay") {
       // A completed node replays its prior result instead of re-executing.
       const replayResult: NodeResult = {
         nodeId: node.id,
@@ -246,11 +236,11 @@ export async function dispatchStandardNode(
       );
       return { kind: "continue", nextNodeId: nextIds[0] };
     }
-    if (begin.kind === "busy") {
+    if (begin?.kind === "busy") {
       // Held by a fresh lease elsewhere — abort this node's execution.
       return fail(`node "${node.id}" is leased by another worker`);
     }
-    ledgerLease = begin.lease;
+    ledgerLease = begin?.kind === "lease" ? begin.lease : undefined;
   }
 
   // P2 (opt-in): renew the lease while the node runs. The composite signal
@@ -268,6 +258,7 @@ export async function dispatchStandardNode(
       ledgerLease.owner,
       ledgerLease.fenceToken,
       config.signal,
+      undefined, undefined, undefined, leaseRequestedAt,
     );
     nodeSignal = heartbeat.signal;
   }
@@ -280,7 +271,7 @@ export async function dispatchStandardNode(
   });
 
   try {
-    const finalResult = await runNodeWithRetry(config, emit, node, context);
+    const finalResult = await runNodeWithHeartbeat(config, emit, node, context, heartbeat);
 
     if (finalResult.error) {
       if (
@@ -414,7 +405,7 @@ export async function dispatchStandardNode(
         finalResult.output,
         finalResult.durationMs,
       );
-      if (!committed) {
+      if (!committed || heartbeat?.lost() || heartbeat?.signal.aborted) {
         return fail(
           `node "${node.id}" lease lost during execution (fenced out)`,
         );
@@ -490,6 +481,7 @@ export async function dispatchStandardNode(
       error: errorMessage,
     });
 
+    if (heartbeat?.lost() || heartbeat?.signal.aborted) return fail(errorMessage);
     const errorNext = getErrorTarget(
       node.id,
       errorEdges,
