@@ -234,7 +234,9 @@ export function agentRunnerItemsToLangChainMessages(
       messages.push(
         new ToolMessage({
           id: item.itemId,
-          content: JSON.stringify(output.value),
+          // LangChain tool strings are already model-facing text. Encoding them
+          // as JSON adds quotes/escapes that were not in the tool's response.
+          content: typeof output.value === 'string' ? output.value : JSON.stringify(output.value),
           tool_call_id: item.callId,
           status: item.isError ? 'error' : 'success',
         }),
