@@ -285,26 +285,36 @@ describe("confirmed node lease deadlines", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it.each(["lease loss", "cancellation"] as const)(
-    "abandons an uncooperative executor on %s and discards its late result",
-    async (cause) => {
+  it.each([
+    { cause: "lease loss", timeoutMs: undefined },
+    { cause: "cancellation", timeoutMs: undefined },
+    { cause: "lease loss", timeoutMs: 120_000 },
+    { cause: "cancellation", timeoutMs: 120_000 },
+  ] as const)(
+    "abandons an uncooperative executor on $cause (timeout: $timeoutMs) and discards its late result",
+    async ({ cause, timeoutMs }) => {
       const entered = deferred<NodeExecutionContext>();
       const work = deferred<NodeResult>();
       const renewal = deferred<boolean>();
       const ledger = heartbeatLedger(vi.fn(() => renewal.promise));
       const parent = new AbortController();
-      const remove = vi.spyOn(parent.signal, "removeEventListener");
+      const add = vi.spyOn(AbortSignal.prototype, "addEventListener");
+      const remove = vi.spyOn(AbortSignal.prototype, "removeEventListener");
       const executor = vi.fn<NodeExecutor>(async (_id, _node, context) => {
         entered.resolve(context);
         return work.promise;
       });
       const events: string[] = [];
       const running = new PipelineRuntime({
-        definition: singleNode({ ...NODE, idempotency: "exactly-once-required", retries: 2 }),
+        definition: singleNode({
+          ...NODE, idempotency: "exactly-once-required", retries: 2,
+          ...(timeoutMs === undefined ? {} : { executionPolicy: { timeoutMs } }),
+        }),
         nodeExecutor: executor, nodeLedger: ledger, signal: parent.signal,
         onEvent: (event) => { events.push(event.type); },
       }).execute({}, { runId: "lease-run" });
       const context = await entered.promise;
+      expect(vi.getTimerCount()).toBe(timeoutMs === undefined ? 2 : 3);
 
       if (cause === "cancellation") {
         await vi.advanceTimersByTimeAsync(DEFAULT_HEARTBEAT_MS);
@@ -320,8 +330,18 @@ describe("confirmed node lease deadlines", () => {
       expect(ledger.heartbeat).toHaveBeenCalledTimes(1);
       expect(ledger.complete).not.toHaveBeenCalled();
       expect(ledger.fail).not.toHaveBeenCalled();
-      expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
       expect(vi.getTimerCount()).toBe(0);
+      // Check each listener on its original signal, including the deadline's
+      // parent listener (the executor sees a different signal when timed).
+      const abortListeners = add.mock.calls
+        .map(([type, listener], index) => ({ type, listener, signal: add.mock.contexts[index] }))
+        .filter(({ type }) => type === "abort");
+      expect(abortListeners).toHaveLength(timeoutMs === undefined ? 2 : 3);
+      for (const { listener, signal } of abortListeners) {
+        expect(remove.mock.calls.some(([type, removed], index) =>
+          type === "abort" && removed === listener && remove.mock.contexts[index] === signal,
+        )).toBe(true);
+      }
 
       renewal.resolve(true);
       work.resolve({ nodeId: NODE.id, output: { late: true }, durationMs: 1 });

@@ -182,18 +182,20 @@ export async function runNodeWithHeartbeat(
     };
     signal.addEventListener("abort", onAbort, { once: true });
   });
+  // Revocation can precede an attempt or accompany a synchronous executor throw.
+  aborted.catch(() => undefined);
   try {
-    const execution = runNodeWithRetry({
+    // Let the retry helper release its deadline resources before returning.
+    const result = await runNodeWithRetry({
       ...config,
       signal: retryController.signal,
       nodeExecutor: async (...args) => {
         check();
-        const result = await config.nodeExecutor(...args);
+        const result = await Promise.race([config.nodeExecutor(...args), aborted]);
         check();
         return result;
       },
     }, emit, node, context);
-    const result = await Promise.race([execution, aborted]);
     check();
     return result;
   } finally {
