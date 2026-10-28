@@ -267,6 +267,10 @@ export function compactCompletedToolResults(
     let originalContent: string
     try {
       originalContent = contentText(message)
+      // Structured content may carry images or provider-specific evidence.
+      // Keep it intact until block-aware compaction is qualified. Validate it
+      // above even when skipping, so malformed content still fails closed.
+      if (typeof message.content !== 'string') continue
     } catch {
       return fixedResult(messages, 'rejected', 'invalid-input', beforeMeasurement)
     }

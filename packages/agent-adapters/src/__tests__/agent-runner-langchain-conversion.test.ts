@@ -1,5 +1,5 @@
 import { AIMessage } from '@langchain/core/messages'
-import type { AgentItem } from '@dzupagent/agent-types/run'
+import type { AgentItem, AgentRunJsonValue } from '@dzupagent/agent-types/run'
 import {
   InMemoryAgentRunner,
   InMemoryAgentRunnerPersistence,
@@ -88,6 +88,37 @@ function createRunner(
 }
 
 describe('AgentRunner loss-aware LangChain conversion', () => {
+  const outputs: Array<{ name: string; output: AgentRunJsonValue; expected: string }> = [
+    { name: 'plain string', output: 'value:one', expected: 'value:one' },
+    { name: 'empty string', output: '', expected: '' },
+    { name: 'escaped string', output: 'line\n"quoted"\\tail', expected: 'line\n"quoted"\\tail' },
+    { name: 'JSON-looking string', output: '{"value":"one"}', expected: '{"value":"one"}' },
+    { name: 'object', output: { value: 'one' }, expected: '{"value":"one"}' },
+    { name: 'array', output: ['one', 2], expected: '["one",2]' },
+    { name: 'number', output: 42, expected: '42' },
+    { name: 'boolean', output: true, expected: 'true' },
+    { name: 'null', output: null, expected: 'null' },
+  ]
+
+  for (const isError of [false, true]) {
+    it.each(outputs)(`preserves $name tool output with isError=${isError}`, ({ output, expected }) => {
+      const items: AgentItem[] = [
+        { type: 'tool-call', itemId: 'call-item', callId: 'call-one', toolId: 'read', arguments: {} },
+        { type: 'tool-result', itemId: 'result-item', callId: 'call-one', output, isError },
+      ]
+      const before = JSON.stringify(items)
+      const converted = agentRunnerItemsToLangChainMessages(items)
+      expect(converted.status).toBe('converted')
+      if (converted.status !== 'converted') return
+      expect(converted.losses).toEqual([])
+      expect(converted.value[1]).toMatchObject({
+        content: expected, tool_call_id: 'call-one', id: 'result-item',
+        status: isError ? 'error' : 'success',
+      })
+      expect(JSON.stringify(items)).toBe(before)
+    })
+  }
+
   it('converts canonical roles and ordered supported blocks deterministically', () => {
     const items: AgentItem[] = [
       { type: 'message', itemId: 'system-1', role: 'system', content: [{ type: 'text', text: 'System' }] },

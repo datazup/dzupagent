@@ -54,6 +54,38 @@ function model(response = 'summary'): BaseChatModel {
 }
 
 describe('autoCompress completed tool compaction', () => {
+  it('keeps mixed media visible while compacting a separate plain-text tool result', async () => {
+    const mediaPair = toolPair('media')
+    mediaPair[1]!.content = [
+      { type: 'text', text: 'Screenshot evidence'.repeat(50) },
+      { type: 'image_url', image_url: { url: 'https://example.invalid/image.png' } },
+    ]
+    const messages = [...mediaPair, ...toolPair('plain')]
+    const before = structuredClone(mediaPair[1]!.toDict())
+    const summarizer = model()
+    const compressed = await autoCompress(messages, 'existing summary', summarizer, config())
+
+    expect(compressed.completedToolCompaction).toMatchObject({
+      status: 'completed', compactedToolCallIds: ['plain'],
+    })
+    expect(compressed.messages[1]).toBe(mediaPair[1])
+    expect(compressed.messages[1]!.toDict()).toEqual(before)
+    expect(compressed.messages[3]!.content).toBe('[Completed tool result compacted]')
+    expect(compressed.summary).toBe('existing summary')
+    expect(summarizer.invoke).not.toHaveBeenCalled()
+  })
+
+  it('leaves media-only results unchanged without claiming compression or invoking a model', async () => {
+    const messages = toolPair('media')
+    messages[1]!.content = [{ type: 'image', url: `data:image/png;base64,${'A'.repeat(800)}` }]
+    const summarizer = model()
+    const compressed = await autoCompress(messages, null, summarizer, config())
+    expect(compressed.completedToolCompaction).toMatchObject({ status: 'unchanged', reclaimedTokens: 0 })
+    expect(compressed.compressed).toBe(false)
+    expect(compressed.messages).toBe(messages)
+    expect(summarizer.invoke).not.toHaveBeenCalled()
+  })
+
   it('reclaims completed tool output before thresholding without invoking a model', async () => {
     const messages = toolPair('call-1')
     const summarizer = model()

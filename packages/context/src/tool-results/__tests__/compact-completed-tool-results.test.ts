@@ -44,6 +44,64 @@ function result(id: string, content = 'x'.repeat(400)): ToolMessage {
 }
 
 describe('compactCompletedToolResults', () => {
+  const structuredContents: Array<{ name: string; content: ToolMessage['content'] }> = [
+    { name: 'image', content: [{ type: 'text', text: 'x'.repeat(800) }, { type: 'image', url: 'data:image/png;base64,AAAA' }] },
+    { name: 'image_url', content: [{ type: 'text', text: 'x'.repeat(800) }, { type: 'image_url', image_url: { url: 'https://example.invalid/image.png' } }] },
+    { name: 'audio', content: [{ type: 'audio', data: 'A'.repeat(800), mime_type: 'audio/wav' }] },
+    { name: 'file', content: [{ type: 'file', data: 'A'.repeat(800), mime_type: 'application/pdf' }] },
+    { name: 'unknown block', content: [{ type: 'future-evidence', payload: 'x'.repeat(800) }] },
+    { name: 'text blocks', content: [{ type: 'text', text: 'x'.repeat(800) }] },
+  ]
+
+  for (const measurement of ['require-tokenizer', 'allow-heuristic'] as const) {
+    it.each(structuredContents)(`preserves $name content with ${measurement} accounting`, ({ content }) => {
+      const original = new ToolMessage({ content, tool_call_id: 'media', name: 'lookup',
+        status: 'success', artifact: { retained: true }, metadata: { source: 'fixture' } })
+      const messages: BaseMessage[] = [call('media'), original]
+      const before = structuredClone(original.toDict())
+
+      const compacted = compactCompletedToolResults(messages,
+        profile({ preserveRecentCompletedPairs: 0, measurement }),
+        measurement === 'require-tokenizer' ? { tokenCounter: exactCounter } : {})
+
+      expect(compacted).toMatchObject({ status: 'unchanged', reason: 'no-token-reclamation',
+        reclaimedTokens: 0, compactedToolCallIds: [],
+        measurementMethod: measurement === 'require-tokenizer' ? 'exact' : 'heuristic' })
+      expect(compacted.afterTokens).toBe(compacted.beforeTokens)
+      expect(compacted.messages).toBe(messages)
+      expect(compacted.messages[1]).toBe(original)
+      expect(original.toDict()).toEqual(before)
+    })
+  }
+
+  it('skips structured results without consuming the replacement limit or claiming their tokens', () => {
+    const media = new ToolMessage({ content: structuredContents[0]!.content, tool_call_id: 'media' })
+    const plain = result('plain')
+    const messages: BaseMessage[] = [call('media'), media, call('plain'), plain]
+    const compacted = compactCompletedToolResults(messages, profile({
+      preserveRecentCompletedPairs: 0, maxCompactedResults: 1, targetReclaimedTokens: 1_000_000,
+    }), { tokenCounter: exactCounter })
+
+    expect(compacted).toMatchObject({ status: 'partial', reason: 'target-not-met', compactedToolCallIds: ['plain'] })
+    expect(compacted.messages[1]).toBe(media)
+    expect(compacted.messages[3]!.content).toBe('[Completed tool result compacted]')
+    expect(compacted.reclaimedTokens).toBe(compacted.beforeTokens - compacted.afterTokens)
+    expect(compacted.reclaimedTokens).toBeGreaterThan(0)
+    expect(plain.content).toBe('x'.repeat(400))
+    expect(compactCompletedToolResults(compacted.messages, profile({ preserveRecentCompletedPairs: 0 }),
+      { tokenCounter: exactCounter }).reclaimedTokens).toBe(0)
+  })
+
+  it('retains a recent structured pair and an incomplete call while compacting an older text pair', () => {
+    const media = new ToolMessage({ content: structuredContents[0]!.content, tool_call_id: 'media' })
+    const pending = call('pending')
+    const messages: BaseMessage[] = [call('old'), result('old'), call('media'), media, pending]
+    const compacted = compactCompletedToolResults(messages, profile(), { tokenCounter: exactCounter })
+    expect(compacted.compactedToolCallIds).toEqual(['old'])
+    expect(compacted.messages[3]).toBe(media)
+    expect(compacted.messages[4]).toBe(pending)
+  })
+
   it('compacts only old fully completed pairs and preserves the recent prefix shape', () => {
     const messages: BaseMessage[] = [
       new HumanMessage('start'),
