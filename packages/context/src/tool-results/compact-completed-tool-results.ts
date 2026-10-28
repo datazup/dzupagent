@@ -229,6 +229,15 @@ export function compactCompletedToolResults(
 
   let beforeMeasurement: TokenMeasurementResult
   try {
+    // Do not invoke content getters even during the initial token measurement.
+    // A changing accessor cannot provide one value to validation and another
+    // to the compaction eligibility check.
+    for (const message of messages) {
+      const descriptor = Object.getOwnPropertyDescriptor(message, 'content')
+      if (descriptor === undefined || !('value' in descriptor)) {
+        return fixedResult(messages, 'rejected', 'invalid-input')
+      }
+    }
     beforeMeasurement = measureMessages(messages, options)
   } catch {
     return fixedResult(messages, 'rejected', 'invalid-input')
@@ -266,11 +275,15 @@ export function compactCompletedToolResults(
     }
     let originalContent: string
     try {
+      const descriptor = Object.getOwnPropertyDescriptor(message, 'content')
+      if (descriptor === undefined || !('value' in descriptor)) {
+        return fixedResult(messages, 'rejected', 'invalid-input', beforeMeasurement)
+      }
       originalContent = contentText(message)
       // Structured content may carry images or provider-specific evidence.
       // Keep it intact until block-aware compaction is qualified. Validate it
       // above even when skipping, so malformed content still fails closed.
-      if (typeof message.content !== 'string') continue
+      if (typeof descriptor.value !== 'string') continue
     } catch {
       return fixedResult(messages, 'rejected', 'invalid-input', beforeMeasurement)
     }

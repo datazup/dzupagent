@@ -92,6 +92,26 @@ describe('compactCompletedToolResults', () => {
       { tokenCounter: exactCounter }).reclaimedTokens).toBe(0)
   })
 
+  it.each(['string', 'malformed'] as const)('rejects changing structured-content accessors before they return %s', (next) => {
+    const media = result('media')
+    let reads = 0
+    Object.defineProperty(media, 'content', {
+      enumerable: true, configurable: true,
+      get: () => ++reads < 3 ? structuredContents[0]!.content
+        : next === 'string' ? 'x'.repeat(800) : undefined,
+    })
+    const messages: BaseMessage[] = [call('media'), media]
+    const counter = { count: vi.fn(exactCounter.count), countDetailed: vi.fn(exactCounter.countDetailed!) }
+    const compacted = compactCompletedToolResults(messages,
+      profile({ preserveRecentCompletedPairs: 0 }), { tokenCounter: counter })
+    expect(compacted).toMatchObject({ status: 'rejected', reason: 'invalid-input',
+      reclaimedTokens: 0, compactedToolCallIds: [] })
+    expect(compacted.messages).toBe(messages)
+    expect(reads).toBe(0)
+    expect(counter.count).not.toHaveBeenCalled()
+    expect(counter.countDetailed).not.toHaveBeenCalled()
+  })
+
   it('retains a recent structured pair and an incomplete call while compacting an older text pair', () => {
     const media = new ToolMessage({ content: structuredContents[0]!.content, tool_call_id: 'media' })
     const pending = call('pending')
