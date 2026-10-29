@@ -165,10 +165,18 @@ export class PostgreSQLConnector extends BaseSQLConnector {
       throw new Error(`PostgreSQL query failed: ${message}`)
     } finally {
       if (client) {
-        // Reset statement_timeout so the pooled connection is clean for the
-        // next consumer.
-        await client.query('SET statement_timeout = 0').catch(() => {})
-        client.release()
+        // Restore the session default (including a role- or database-level
+        // statement_timeout) for the next consumer of the pooled connection;
+        // `SET statement_timeout = 0` would disable that limit instead. If the
+        // restore fails the session state is unknown, so release with the
+        // error, which makes pg destroy the connection rather than reuse it.
+        let restoreError: Error | undefined
+        try {
+          await client.query('RESET statement_timeout')
+        } catch (err) {
+          restoreError = err instanceof Error ? err : new Error(String(err))
+        }
+        client.release(restoreError)
       }
     }
   }

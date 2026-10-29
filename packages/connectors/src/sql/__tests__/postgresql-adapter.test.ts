@@ -287,7 +287,7 @@ describe('PostgreSQLConnector', () => {
         .rejects.toThrow('PostgreSQL query failed: raw string error')
     })
 
-    it('resets statement_timeout in finally block', async () => {
+    it('restores the role statement_timeout with RESET in finally block', async () => {
       mockClientQuery
         .mockResolvedValueOnce(undefined) // SET
         .mockResolvedValueOnce({ rows: [], rowCount: 0, fields: [] })
@@ -296,8 +296,80 @@ describe('PostgreSQLConnector', () => {
       const connector = new PostgreSQLConnector(baseConfig)
       await connector.executeQuery('SELECT 1')
 
-      expect(mockClientQuery).toHaveBeenCalledWith('SET statement_timeout = 0')
-      expect(mockClientRelease).toHaveBeenCalled()
+      // `SET statement_timeout = 0` would disable a role- or database-level
+      // timeout for every later consumer of the pooled session; RESET restores
+      // the session default instead.
+      expect(mockClientQuery).toHaveBeenLastCalledWith('RESET statement_timeout')
+      expect(mockClientQuery).not.toHaveBeenCalledWith('SET statement_timeout = 0')
+      expect(mockClientRelease).toHaveBeenCalledTimes(1)
+      // Released for reuse: no error argument.
+      expect(mockClientRelease.mock.calls[0]?.[0]).toBeUndefined()
+      expect(mockClientQuery.mock.invocationCallOrder.at(-1)).toBeLessThan(
+        mockClientRelease.mock.invocationCallOrder[0]!,
+      )
+    })
+
+    it('restores the role statement_timeout after a failing query', async () => {
+      mockClientQuery
+        .mockResolvedValueOnce(undefined) // SET
+        .mockRejectedValueOnce(new Error('canceling statement due to statement timeout'))
+        .mockResolvedValueOnce(undefined) // RESET
+
+      const connector = new PostgreSQLConnector(baseConfig)
+      await expect(connector.executeQuery('SELECT pg_sleep(10)'))
+        .rejects.toThrow('PostgreSQL query failed: canceling statement due to statement timeout')
+
+      expect(mockClientQuery).toHaveBeenLastCalledWith('RESET statement_timeout')
+      expect(mockClientQuery).not.toHaveBeenCalledWith('SET statement_timeout = 0')
+      expect(mockClientRelease).toHaveBeenCalledTimes(1)
+      // Released for reuse: no error argument.
+      expect(mockClientRelease.mock.calls[0]?.[0]).toBeUndefined()
+    })
+
+    it('destroys the pooled connection when the restore fails, keeping the result', async () => {
+      const resetError = new Error('Connection terminated unexpectedly')
+      mockClientQuery
+        .mockResolvedValueOnce(undefined) // SET
+        .mockResolvedValueOnce({ rows: [{ id: 1 }], rowCount: 1, fields: [{ name: 'id', dataTypeID: 23 }] })
+        .mockRejectedValueOnce(resetError) // RESET
+
+      const connector = new PostgreSQLConnector(baseConfig)
+      const result = await connector.executeQuery('SELECT 1 AS id')
+
+      expect(result.rows).toEqual([{ id: 1 }])
+      // A session whose timeout could not be restored must not go back to the
+      // pool: pg destroys a client released with an error.
+      expect(mockClientRelease).toHaveBeenCalledTimes(1)
+      expect(mockClientRelease).toHaveBeenCalledWith(resetError)
+    })
+
+    it('destroys the pooled connection when the restore fails after a query error, surfacing the query error', async () => {
+      mockClientQuery
+        .mockResolvedValueOnce(undefined) // SET
+        .mockRejectedValueOnce(new Error('relation "users" does not exist'))
+        .mockRejectedValueOnce('reset failed') // RESET (non-Error rejection)
+
+      const connector = new PostgreSQLConnector(baseConfig)
+      await expect(connector.executeQuery('SELECT * FROM users'))
+        .rejects.toThrow('PostgreSQL query failed: relation "users" does not exist')
+
+      expect(mockClientRelease).toHaveBeenCalledTimes(1)
+      expect(mockClientRelease).toHaveBeenCalledWith(expect.any(Error))
+    })
+
+    it('destroys the pooled connection when the timeout cannot be applied', async () => {
+      mockClientQuery
+        .mockRejectedValueOnce(new Error('SET failed')) // SET
+        .mockRejectedValueOnce(new Error('RESET failed')) // RESET
+
+      const connector = new PostgreSQLConnector(baseConfig)
+      await expect(connector.executeQuery('SELECT 1'))
+        .rejects.toThrow('PostgreSQL query failed: SET failed')
+
+      // The consumer query never ran without its timeout.
+      expect(mockClientQuery).toHaveBeenCalledTimes(2)
+      expect(mockClientRelease).toHaveBeenCalledTimes(1)
+      expect(mockClientRelease).toHaveBeenCalledWith(expect.any(Error))
     })
 
     it('handles empty fields gracefully', async () => {
