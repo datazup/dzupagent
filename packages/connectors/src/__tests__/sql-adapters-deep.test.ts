@@ -259,7 +259,7 @@ describe("PostgreSQLConnector", () => {
     expect(texts.some((t) => t.includes("SET statement_timeout = 1234"))).toBe(
       true
     );
-    expect(texts.some((t) => t.includes("SET statement_timeout = 0"))).toBe(
+    expect(texts.some((t) => t.includes("RESET statement_timeout"))).toBe(
       true
     );
   });
