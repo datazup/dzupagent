@@ -208,18 +208,19 @@ function inspect(profile: LegacyRunnerExecutionProfile, result: AgentRunnerResul
       || state.agent.initialAgentId !== state.agent.currentAgentId
       || state.interactions.length !== 0 || state.interactionDecisions.length !== 0
       || state.handoffs.length !== 0 || state.invocations.length !== 1
-      || state.committedItems.length !== 4
+      || ![3, 4].includes(state.committedItems.length)
       || result.events.some((event) => ['run.suspended', 'run.resumed', 'tool.failed',
         'model.failed', 'interaction.requested', 'interaction.decided'].includes(event.type))) {
     throw new Error('single-uninterrupted-read-required')
   }
-  const [assistant, call, output, final] = state.committedItems
+  const assistant = state.committedItems.length === 4 ? state.committedItems[0] : undefined
+  const [call, output, final] = state.committedItems.slice(-3)
   const invocation = state.invocations[0]!
   const allItems = [...state.input, ...state.committedItems]
-  if (assistant?.type !== 'message' || assistant.role !== 'assistant'
+  if ((assistant !== undefined && (assistant.type !== 'message' || assistant.role !== 'assistant'))
       || call?.type !== 'tool-call' || output?.type !== 'tool-result'
       || final?.type !== 'message' || final.role !== 'assistant'
-      || [assistant, final, ...state.input].some((item) =>
+      || [...(assistant === undefined ? [] : [assistant]), final, ...state.input].some((item) =>
         item.type !== 'message' || !keys(item, ['type', 'itemId', 'role', 'content']))
       || !keys(call, ['type', 'itemId', 'callId', 'toolId', 'arguments'])
       || !keys(output, ['type', 'itemId', 'callId', 'output', 'isError'])
@@ -258,16 +259,16 @@ function inspect(profile: LegacyRunnerExecutionProfile, result: AgentRunnerResul
   // This is the exact one-read, two-turn completion trace; extra events and every
   // unrepresented payload field are outside the qualified subset.
   const request1 = (result.events[1]?.payload as Record<string, unknown> | undefined)?.requestId
-  const request2 = (result.events[10]?.payload as Record<string, unknown> | undefined)?.requestId
+  const request2 = (result.events[assistant === undefined ? 9 : 10]?.payload as Record<string, unknown> | undefined)?.requestId
   if (!identity(request1) || !identity(request2) || request1 === request2) throw new Error('model-request-identity-invalid')
   const trace = [
     { type: 'run.started', payload: { status: 'running' } },
     { type: 'model.requested', payload: { requestId: request1, turn: 1 } },
-    { type: 'model.completed', payload: { requestId: request1, turn: 1, itemType: 'message',
-      itemCount: 2, itemIds: [assistant.itemId, call.itemId], callIds: [call.callId],
+    { type: 'model.completed', payload: { requestId: request1, turn: 1, itemType: assistant === undefined ? 'tool-call' : 'message',
+      itemCount: assistant === undefined ? 1 : 2, itemIds: assistant === undefined ? [call.itemId] : [assistant.itemId, call.itemId], callIds: [call.callId],
       usageId: usage[0]!.usageId, finishReason: 'tool-calls' } },
     { type: 'usage.recorded', payload: { usageId: usage[0]!.usageId, accountingSource: usage[0]!.accountingSource } },
-    { type: 'item.added', payload: { itemId: assistant.itemId, itemType: 'message' } },
+    ...(assistant === undefined ? [] : [{ type: 'item.added', payload: { itemId: assistant.itemId, itemType: 'message' } }]),
     { type: 'item.added', payload: { itemId: call.itemId, itemType: 'tool-call' } },
     { type: 'tool.selected', payload: { invocationId: invocation.invocationId, callId: call.callId,
       toolId: call.toolId, toolRevision: invocation.toolRevision, inputDigest: invocation.inputDigest } },
@@ -351,7 +352,16 @@ export function captureLegacyReadToolResultEnvelope(input: {
           usage_metadata: input.assistantCall.usage_metadata! })
       : new AIMessage(input.assistantCall.content)
     if (input.assistantCall.usage_metadata !== undefined) stripped.usage_metadata = input.assistantCall.usage_metadata
-    const assistantCall = captureMessageEnvelopeEntry(stripped, observed.assistant, preparedInput.length, true)
+    // A call-only turn has no committed assistant message. Validate the retained
+    // empty string with the existing codec, then bind the envelope to the actual
+    // call item. This local codec view is never added to the durable trace.
+    if (observed.assistant === undefined && input.assistantCall.content !== '') return reject('output-message-invalid')
+    const capturedAssistant = captureMessageEnvelopeEntry(stripped, observed.assistant ?? {
+      type: 'message', itemId: observed.call.itemId, role: 'assistant',
+      content: [{ type: 'text', text: '' }],
+    }, preparedInput.length, true)
+    const assistantCall = typeof capturedAssistant === 'string' || observed.assistant !== undefined
+      ? capturedAssistant : { ...capturedAssistant, itemDigest: digestRunnerJson(observed.call) }
     const finalAssistant = captureMessageEnvelopeEntry(input.finalAssistant, observed.final, preparedInput.length + 2, true)
     if (typeof assistantCall === 'string' || typeof finalAssistant === 'string'
         || !usageMatches(assistantCall, observed.usage[0]!) || !usageMatches(finalAssistant, observed.usage[1]!)
@@ -401,7 +411,13 @@ export function projectLegacyReadToolGenerateResult(input: {
             && boundMessageEnvelopeEntry(entry, item)
         }) || !validMessageEnvelopeEntry(envelope.assistantCall, envelope.preparedInput.length)
         || !validMessageEnvelopeEntry(envelope.finalAssistant, envelope.preparedInput.length + 2)
-        || !boundMessageEnvelopeEntry(envelope.assistantCall, observed.assistant)
+        || !(observed.assistant === undefined
+          ? envelope.assistantCall.role === 'ai'
+            && envelope.assistantCall.content.encoding === 'string'
+            && envelope.assistantCall.content.value === ''
+            && envelope.assistantCall.itemId === observed.call.itemId
+            && envelope.assistantCall.itemDigest === digestRunnerJson(observed.call)
+          : boundMessageEnvelopeEntry(envelope.assistantCall, observed.assistant))
         || !boundMessageEnvelopeEntry(envelope.finalAssistant, observed.final)
         || !usageMatches(envelope.assistantCall, observed.usage[0]!)
         || !usageMatches(envelope.finalAssistant, observed.usage[1]!)) return reject('message-binding-invalid')

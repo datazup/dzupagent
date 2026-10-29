@@ -36,13 +36,13 @@ function comparable(result: Awaited<ReturnType<DzupAgent['generate']>>) {
       messages: (result.middlewareState?.messages as BaseMessage[]).map((message) => message.toDict()) } }
 }
 
-async function scenario(constructorUsage = false, blocks = false) {
+async function scenario(constructorUsage = false, blocks = false, emptyAssistant = false) {
   let clock = 1000
   const calls = { legacyModel: 0, legacyTool: 0, runnerModel: 0, runnerTool: 0 }
   const content = blocks ? [{ type: 'text' as const, text: 'Read complete.' }] : 'Read complete.'
   const call = { id: 'call-one', name: 'read-record', args: { recordId: 'one' } }
   const messages = [
-    new AIMessage<StandardMessageStructure>({ content: 'Reading.', tool_calls: [call],
+    new AIMessage<StandardMessageStructure>({ content: emptyAssistant ? '' : 'Reading.', tool_calls: [call],
       ...(constructorUsage ? { usage_metadata: usage[0]! } : {}) }),
     new AIMessage<StandardMessageStructure>({ content,
       ...(constructorUsage ? { usage_metadata: usage[1]! } : {}) }),
@@ -83,6 +83,11 @@ async function scenario(constructorUsage = false, blocks = false) {
       usage: { accountingSource: 'r5o-fixture', inputTokens: 12, outputTokens: 5, totalTokens: 17 },
       finishReason: 'stop' },
   ]
+  if (emptyAssistant) {
+    const first = turns[0]!
+    if (first.status !== 'completed' || !first.additionalItems?.[0]) throw new Error('Missing call fixture')
+    turns[0] = { ...first, item: first.additionalItems[0], additionalItems: [] }
+  }
   const result = await new InMemoryAgentRunner({
     model: { adapterId: 'r5o-model/v1', async invoke() { return turns[calls.runnerModel++]! } },
     tools: [{ toolId: call.name, toolRevision: '1', effectClass: 'read', async execute(request) {
@@ -119,11 +124,12 @@ async function scenario(constructorUsage = false, blocks = false) {
   return { input, projection, legacy, calls }
 }
 
-describe('R5O single-read legacy result/timing envelope', () => {
+describe.each([false, true])('R5O single-read legacy result/timing envelope (empty assistant %s)', (emptyAssistant) => {
   it.each([[false, false], [true, false], [false, true], [true, true]])(
     'matches the complete independently executed legacy result (constructor usage %s, blocks %s)',
     async (constructorUsage, blocks) => {
-      const value = await scenario(constructorUsage, blocks)
+      const value = await scenario(constructorUsage, blocks, emptyAssistant)
+      expect(value.input.result.state.committedItems).toHaveLength(emptyAssistant ? 3 : 4)
       const actual = projectLegacyReadToolGenerateResult(value.projection)
       expect(actual.status).toBe('projected')
       if (actual.status !== 'projected') return
@@ -142,7 +148,7 @@ describe('R5O single-read legacy result/timing envelope', () => {
   )
 
   it('reconstructs stable result identities after JSON roundtrip without any replay', async () => {
-    const value = await scenario()
+    const value = await scenario(false, false, emptyAssistant)
     const before = { ...value.calls }
     const first = projectLegacyReadToolGenerateResult(value.projection)
     const second = projectLegacyReadToolGenerateResult(clone(value.projection))
@@ -151,8 +157,36 @@ describe('R5O single-read legacy result/timing envelope', () => {
     expect(value.calls).toEqual(before)
   })
 
+  it.each(['text', 'role', 'item-id', 'item-digest', 'usage'])(
+    'rejects re-digested assistant %s drift without replay', async (mode) => {
+      const value = await scenario(false, false, emptyAssistant)
+      const before = { ...value.calls }
+      const envelope = mutable(value.projection.envelope)
+      if (mode === 'text') envelope.assistantCall.content = { encoding: 'string', value: 'Invented text' }
+      if (mode === 'role') envelope.assistantCall.role = 'human'
+      if (mode === 'item-id') envelope.assistantCall.itemId = 'unbound-item'
+      if (mode === 'item-digest') envelope.assistantCall.itemDigest = digestRunnerJson(value.input.result.state.committedItems.at(-1)!)
+      if (mode === 'usage') {
+        envelope.assistantCall.usageMetadata!.input_tokens += 1
+        envelope.assistantCall.usageMetadata!.total_tokens += 1
+      }
+      const { envelopeDigest: _digest, ...body } = envelope
+      envelope.envelopeDigest = digestRunnerJson(body)
+      expect(projectLegacyReadToolGenerateResult({
+        ...value.projection, envelope, expectedEnvelopeDigest: envelope.envelopeDigest,
+      }).status).toBe('rejected')
+      expect(value.calls).toEqual(before)
+    },
+  )
+
+  it('rejects an assistant message that does not match the retained trace', async () => {
+    const value = await scenario(false, false, emptyAssistant)
+    value.input.assistantCall.content = emptyAssistant ? 'Unbound text' : ''
+    expect(captureLegacyReadToolResultEnvelope(value.input).status).toBe('rejected')
+  })
+
   it('snapshots messages and timing instead of retaining mutable caller objects', async () => {
-    const value = await scenario()
+    const value = await scenario(false, false, emptyAssistant)
     const digest = value.projection.envelope.envelopeDigest
     value.input.preparedInput[0]!.content = 'caller mutation'
     value.input.assistantCall.content = 'caller mutation'
@@ -165,7 +199,7 @@ describe('R5O single-read legacy result/timing envelope', () => {
   it.each(['missing', 'negative', 'reverse', 'fractional', 'nonfinite', 'policy', 'run', 'invocation',
     'call', 'attempt', 'unknown-field', 'hidden-field', 'symbol', 'accessor'])(
     'rejects %s timing without provider work or accessor side effects', async (mode) => {
-      const value = await scenario()
+      const value = await scenario(false, false, emptyAssistant)
       const timing = mutable(value.input.timing)
       let sideEffects = 0
       if (mode === 'negative') timing.startedMs = -1
@@ -192,21 +226,21 @@ describe('R5O single-read legacy result/timing envelope', () => {
 
   it.each(['input', 'call', 'output', 'order', 'effect', 'retry', 'failed', 'unknown', 'suspended',
     'context', 'session', 'adapter', 'sandbox', 'structured', 'handoff', 'usage', 'extension', 'invocation-extension',
-    'event-call', 'duplicate-item', 'completion-evidence', 'event-extension', 'payload-extension',
+    'event-call', 'duplicate-item', 'extra-item', 'model-itemcount', 'model-itemtype', 'completion-evidence', 'event-extension', 'payload-extension',
     'usage-extension', 'usage-record-extension', 'budget-extension', 'budget-limits-extension',
     'budget-consumed-extension', 'tool-selection', 'model-itemids', 'model-callids', 'model-turn',
     'item-event', 'usage-source', 'malformed-revision', 'malformed-agent', 'empty-request',
     'interactions-object', 'decisions-object', 'handoffs-object', 'created-number', 'updated-number',
     'attempt-time-number', 'usage-time-number', 'event-time-number', 'invalid-time'])(
     'rejects %s runner drift and never replays execution', async (mode) => {
-      const value = await scenario()
+      const value = await scenario(false, false, emptyAssistant)
       const result = mutable(value.input.result)
-      const call = result.state.committedItems[1]!
+      const call = result.state.committedItems.at(-3)!
       if (mode === 'input') Object.assign(result.state.input[0]!, {
         content: [{ type: 'text', text: 'different admitted content' }],
       })
       if (mode === 'call' && call.type === 'tool-call') call.callId = 'drift'
-      if (mode === 'output') Object.assign(result.state.committedItems[2]!, { output: 'drift' })
+      if (mode === 'output') Object.assign(result.state.committedItems.at(-2)!, { output: 'drift' })
       if (mode === 'order') result.state.committedItems.reverse()
       if (mode === 'effect') result.state.invocations[0]!.effectClass = 'external'
       if (mode === 'retry') result.state.invocations[0]!.attempt = 2
@@ -223,7 +257,10 @@ describe('R5O single-read legacy result/timing envelope', () => {
       if (mode === 'extension') Object.assign(result.state, { extension: true })
       if (mode === 'invocation-extension') Object.assign(result.state.invocations[0]!, { extension: true })
       if (mode === 'event-call') Object.assign(result.events.find((event) => event.type === 'tool.started')!.payload!, { callId: 'drift' })
-      if (mode === 'duplicate-item') result.state.committedItems[3]!.itemId = result.state.input[0]!.itemId
+      if (mode === 'extra-item') result.state.committedItems.push({ type: 'message', itemId: 'unbound', role: 'assistant', content: [{ type: 'text', text: '' }] })
+      if (mode === 'model-itemcount') Object.assign(result.events.find((event) => event.type === 'model.completed')!.payload!, { itemCount: 3 })
+      if (mode === 'model-itemtype') Object.assign(result.events.find((event) => event.type === 'model.completed')!.payload!, { itemType: 'tool-result' })
+      if (mode === 'duplicate-item') result.state.committedItems.at(-1)!.itemId = result.state.input[0]!.itemId
       if (mode === 'completion-evidence') Object.assign(result.state.invocations[0]!, { completionEvidence: { resultDigest: 'drift' } })
       if (mode === 'event-extension') Object.assign(result.events[0]!, { extension: true })
       if (mode === 'payload-extension') Object.assign(result.events[0]!.payload!, { extension: true })
@@ -265,7 +302,7 @@ describe('R5O single-read legacy result/timing envelope', () => {
 
   it.each(['artifact', 'status', 'metadata', 'id', 'symbol', 'hidden-field', 'accessor'])(
     'rejects post-constructor %s message data even when toDict omits it', async (field) => {
-      const value = await scenario()
+      const value = await scenario(false, false, emptyAssistant)
       const message = value.input.toolMessage
       let sideEffects = 0
       if (field === 'artifact') Object.assign(message, { artifact: { unsupported: true } })
@@ -284,7 +321,7 @@ describe('R5O single-read legacy result/timing envelope', () => {
 
   it('rejects message accessors and serializer overrides before invoking them', async () => {
     for (const field of ['content', 'toDict']) {
-      const value = await scenario()
+      const value = await scenario(false, false, emptyAssistant)
       let sideEffects = 0
       if (field === 'content') Object.defineProperty(value.input.assistantCall, 'content', {
         enumerable: true, get() { sideEffects += 1; return 'Reading.' },
@@ -297,7 +334,7 @@ describe('R5O single-read legacy result/timing envelope', () => {
 
   it.each(['profile', 'claim', 'capture', 'prepared-array'])(
     'rejects re-digested or otherwise hidden %s extensions before capture', async (mode) => {
-      const value = await scenario()
+      const value = await scenario(false, false, emptyAssistant)
       const input = { ...value.input }
       if (mode === 'profile' || mode === 'claim') {
         const profile = mutable(input.profile)
@@ -314,7 +351,7 @@ describe('R5O single-read legacy result/timing envelope', () => {
   )
 
   it('rejects input identity drift after capture and projection-profile drift before capture', async () => {
-    const value = await scenario()
+    const value = await scenario(false, false, emptyAssistant)
     const result = mutable(value.projection.result)
     result.state.input[0]!.itemId = 'different-input-identity'
     expect(projectLegacyReadToolGenerateResult({ ...value.projection, result }).status).toBe('rejected')
@@ -325,7 +362,7 @@ describe('R5O single-read legacy result/timing envelope', () => {
   })
 
   it('rejects sparse arrays and array extensions before reading their values', async () => {
-    const value = await scenario()
+    const value = await scenario(false, false, emptyAssistant)
     const result = mutable(value.input.result)
     delete result.events[0]
     Object.assign(result.events, { extension: true })
@@ -334,7 +371,7 @@ describe('R5O single-read legacy result/timing envelope', () => {
 
   it.each(['digest', 'prepared-content', 'assistant-usage', 'tool-metadata', 'final-metadata', 'new-field'])(
     'rejects %s envelope or unsupported message evidence', async (mode) => {
-      const value = await scenario()
+      const value = await scenario(false, false, emptyAssistant)
       const envelope = mutable(value.projection.envelope)
       if (mode === 'digest') envelope.envelopeDigest = 'sha256:drift'
       if (mode === 'prepared-content') envelope.preparedInput[0]!.itemId = 'drift'
