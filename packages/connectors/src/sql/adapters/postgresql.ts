@@ -56,6 +56,27 @@ interface PgPoolLike {
   on(event: 'error', listener: (err: unknown) => void): void
 }
 
+const DEFAULT_TIMEOUT_MS = 30_000
+
+/**
+ * Sets statement_timeout to min(session default, requested) for this session.
+ * `pg_settings.setting` of statement_timeout is in milliseconds; 0 (either side)
+ * means no limit, so the other value wins; both 0 leaves no limit.
+ */
+const STATEMENT_TIMEOUT_CEILING_SQL =
+  "SELECT set_config('statement_timeout', (CASE " +
+  'WHEN s.setting::bigint > 0 AND ($1::bigint <= 0 OR s.setting::bigint < $1::bigint) THEN s.setting::bigint ' +
+  "ELSE $1::bigint END)::text, false) FROM pg_settings s WHERE s.name = 'statement_timeout'"
+
+/**
+ * The requested timeout as a whole number of milliseconds (`::bigint` refuses
+ * fractions). 0 asks for no limit of its own; a negative or non-finite value is
+ * not a request for no limit, so it falls back to the default.
+ */
+function effectiveTimeoutParam(timeoutMs: number): number {
+  return Number.isFinite(timeoutMs) && timeoutMs >= 0 ? Math.trunc(timeoutMs) : DEFAULT_TIMEOUT_MS
+}
+
 export class PostgreSQLConnector extends BaseSQLConnector {
 
   private readonly pool: PgPoolLike
@@ -134,7 +155,7 @@ export class PostgreSQLConnector extends BaseSQLConnector {
     sql: string,
     options?: QueryExecutionOptions,
   ): Promise<QueryResultData> {
-    const timeoutMs = options?.timeoutMs ?? 30_000
+    const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS
     const maxRows = options?.maxRows ?? 500
     const wrapped = this.wrapWithLimit(sql, maxRows)
 
@@ -143,8 +164,12 @@ export class PostgreSQLConnector extends BaseSQLConnector {
       client = await this.pool.connect()
 
       // Per-query timeout — applied at the session level so the database
-      // itself cancels runaway statements.
-      await client.query(`SET statement_timeout = ${String(timeoutMs)}`)
+      // itself cancels runaway statements. The session default (a role- or
+      // database-level statement_timeout, restored by RESET after each query)
+      // is a ceiling the caller may lower but never raise: apply the smaller
+      // of the two, where 0 means no limit. One statement, so a failure fails
+      // the query and the finally block below decides the connection's fate.
+      await client.query(STATEMENT_TIMEOUT_CEILING_SQL, [effectiveTimeoutParam(timeoutMs)])
 
       const result = await client.query(wrapped)
 

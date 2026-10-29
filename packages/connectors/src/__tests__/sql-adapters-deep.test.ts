@@ -256,9 +256,11 @@ describe("PostgreSQLConnector", () => {
     const { c, client } = makePg([{ id: 1 }]);
     await c.executeQuery("SELECT * FROM t", { timeoutMs: 1234, maxRows: 50 });
     const texts = client.query.mock.calls.map((args) => args[0] as string);
-    expect(texts.some((t) => t.includes("SET statement_timeout = 1234"))).toBe(
-      true
+    // L4: the timeout is applied as min(session default, 1234) via set_config.
+    const timeoutCall = client.query.mock.calls.find((args) =>
+      String(args[0]).includes("set_config('statement_timeout'")
     );
+    expect(timeoutCall?.[1]).toEqual([1234]);
     expect(texts.some((t) => t.includes("RESET statement_timeout"))).toBe(
       true
     );

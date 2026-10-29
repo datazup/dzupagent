@@ -37,6 +37,15 @@ const baseConfig: SQLConnectionConfig = {
   ssl: false,
 }
 
+/** The per-query timeout statement shape (L4): a set_config over pg_settings. */
+const CEILING_SQL_SHAPE = expect.stringMatching(/^SELECT set_config\('statement_timeout',[\s\S]*FROM pg_settings s WHERE s\.name = 'statement_timeout'$/)
+
+/** The first client query of an executeQuery call: the timeout statement and its parameters. */
+function timeoutCall(): [string, unknown[] | undefined] {
+  const call = mockClientQuery.mock.calls[0]
+  return [String(call?.[0]), call?.[1] as unknown[] | undefined]
+}
+
 // ---------------------------------------------------------------------------
 // Import after mocking
 // ---------------------------------------------------------------------------
@@ -226,7 +235,66 @@ describe('PostgreSQLConnector', () => {
       const connector = new PostgreSQLConnector(baseConfig)
       await connector.executeQuery('SELECT 1', { timeoutMs: 5000 })
 
-      expect(mockClientQuery).toHaveBeenCalledWith('SET statement_timeout = 5000')
+      expect(timeoutCall()).toEqual([CEILING_SQL_SHAPE, [5000]])
+    })
+
+    // NINEL-NL2SQL-LOWS-20261029-R1 L4: the session default (a role- or
+    // database-level statement_timeout) is a ceiling the caller cannot raise.
+    // The statement is checked against a real PostgreSQL 18 in the packet evidence.
+    describe('session statement_timeout is a ceiling', () => {
+      function okRun() {
+        mockClientQuery
+          .mockResolvedValueOnce(undefined) // ceiling SET
+          .mockResolvedValueOnce({ rows: [], rowCount: 0, fields: [] })
+          .mockResolvedValueOnce(undefined) // RESET
+      }
+
+      it('sets the smaller of the session default and the request in one statement, never a plain SET', async () => {
+        okRun()
+        await new PostgreSQLConnector(baseConfig).executeQuery('SELECT 1', { timeoutMs: 30000 })
+
+        const [sql, values] = timeoutCall()
+        expect(sql).toMatch(/set_config\('statement_timeout'/)
+        expect(sql).toMatch(/FROM pg_settings s WHERE s\.name = 'statement_timeout'/)
+        // min(default, request) where 0 means no limit on either side.
+        expect(sql).toContain('WHEN s.setting::bigint > 0 AND ($1::bigint <= 0 OR s.setting::bigint < $1::bigint) THEN s.setting::bigint')
+        expect(sql).toContain('ELSE $1::bigint END')
+        expect(values).toEqual([30000])
+        const texts = mockClientQuery.mock.calls.map((c) => String(c[0]))
+        expect(texts.some((t) => /^\s*SET\s+statement_timeout/i.test(t))).toBe(false)
+      })
+
+      it('uses the 30 s default request when no timeout is given', async () => {
+        okRun()
+        await new PostgreSQLConnector(baseConfig).executeQuery('SELECT 1')
+        expect(timeoutCall()[1]).toEqual([30000])
+      })
+
+      it.each([
+        [1234.9, 1234],
+        [0, 0],
+        [-1, 30000],
+        [Number.NaN, 30000],
+        [Number.POSITIVE_INFINITY, 30000],
+      ])('passes timeoutMs %s as %s', async (requested, sent) => {
+        okRun()
+        await new PostgreSQLConnector(baseConfig).executeQuery('SELECT 1', { timeoutMs: requested })
+        expect(timeoutCall()[1]).toEqual([sent])
+      })
+
+      it('a failing ceiling statement fails the query before it runs and still restores the session', async () => {
+        mockClientQuery
+          .mockRejectedValueOnce(new Error('permission denied for view pg_settings'))
+          .mockResolvedValueOnce(undefined) // RESET
+
+        await expect(new PostgreSQLConnector(baseConfig).executeQuery('SELECT * FROM users'))
+          .rejects.toThrow('PostgreSQL query failed: permission denied for view pg_settings')
+
+        const texts = mockClientQuery.mock.calls.map((c) => String(c[0]))
+        expect(texts).not.toContain('SELECT * FROM users LIMIT 501')
+        expect(mockClientQuery).toHaveBeenLastCalledWith('RESET statement_timeout')
+        expect(mockClientRelease).toHaveBeenCalledTimes(1)
+      })
     })
 
     it('applies LIMIT when not present', async () => {
