@@ -257,7 +257,7 @@ describe('PostgreSQLConnector', () => {
         expect(sql).toMatch(/set_config\('statement_timeout'/)
         expect(sql).toMatch(/FROM pg_settings s WHERE s\.name = 'statement_timeout'/)
         // min(default, request) where 0 means no limit on either side.
-        expect(sql).toContain('WHEN s.setting::bigint > 0 AND ($1::bigint <= 0 OR s.setting::bigint < $1::bigint) THEN s.setting::bigint')
+        expect(sql).toContain('WHEN s.reset_val::bigint > 0 AND ($1::bigint <= 0 OR s.reset_val::bigint < $1::bigint) THEN s.reset_val::bigint')
         expect(sql).toContain('ELSE $1::bigint END')
         expect(values).toEqual([30000])
         const texts = mockClientQuery.mock.calls.map((c) => String(c[0]))
@@ -294,6 +294,17 @@ describe('PostgreSQLConnector', () => {
         expect(texts).not.toContain('SELECT * FROM users LIMIT 501')
         expect(mockClientQuery).toHaveBeenLastCalledWith('RESET statement_timeout')
         expect(mockClientRelease).toHaveBeenCalledTimes(1)
+        // The session's timeout state is unknown: destroyed, not reused.
+        expect(mockClientRelease).toHaveBeenCalledWith(expect.objectContaining({
+          message: 'permission denied for view pg_settings',
+        }))
+      })
+
+      it('a successful run releases the connection for reuse', async () => {
+        okRun()
+        await new PostgreSQLConnector(baseConfig).executeQuery('SELECT 1')
+        expect(mockClientRelease).toHaveBeenCalledTimes(1)
+        expect(mockClientRelease.mock.calls[0]?.[0]).toBeUndefined()
       })
     })
 

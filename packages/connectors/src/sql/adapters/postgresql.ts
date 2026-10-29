@@ -60,12 +60,13 @@ const DEFAULT_TIMEOUT_MS = 30_000
 
 /**
  * Sets statement_timeout to min(session default, requested) for this session.
- * `pg_settings.setting` of statement_timeout is in milliseconds; 0 (either side)
- * means no limit, so the other value wins; both 0 leaves no limit.
+ * The session default is `pg_settings.reset_val`, exactly what RESET restores
+ * (role, database or server setting), in milliseconds; 0 (either side) means no
+ * limit, so the other value wins; both 0 leaves no limit.
  */
 const STATEMENT_TIMEOUT_CEILING_SQL =
   "SELECT set_config('statement_timeout', (CASE " +
-  'WHEN s.setting::bigint > 0 AND ($1::bigint <= 0 OR s.setting::bigint < $1::bigint) THEN s.setting::bigint ' +
+  'WHEN s.reset_val::bigint > 0 AND ($1::bigint <= 0 OR s.reset_val::bigint < $1::bigint) THEN s.reset_val::bigint ' +
   "ELSE $1::bigint END)::text, false) FROM pg_settings s WHERE s.name = 'statement_timeout'"
 
 /**
@@ -160,16 +161,23 @@ export class PostgreSQLConnector extends BaseSQLConnector {
     const wrapped = this.wrapWithLimit(sql, maxRows)
 
     let client: PgPoolClient | undefined
+    // Set when the per-query timeout could not be applied: the session's timeout
+    // state is then unknown, so the connection is destroyed, not reused.
+    let timeoutError: Error | undefined
     try {
       client = await this.pool.connect()
 
       // Per-query timeout — applied at the session level so the database
       // itself cancels runaway statements. The session default (a role- or
-      // database-level statement_timeout, restored by RESET after each query)
-      // is a ceiling the caller may lower but never raise: apply the smaller
-      // of the two, where 0 means no limit. One statement, so a failure fails
-      // the query and the finally block below decides the connection's fate.
-      await client.query(STATEMENT_TIMEOUT_CEILING_SQL, [effectiveTimeoutParam(timeoutMs)])
+      // database-level statement_timeout, the value RESET restores) is a
+      // ceiling the caller may lower but never raise: apply the smaller of the
+      // two, where 0 means no limit. A failure fails the query before it runs.
+      try {
+        await client.query(STATEMENT_TIMEOUT_CEILING_SQL, [effectiveTimeoutParam(timeoutMs)])
+      } catch (err) {
+        timeoutError = err instanceof Error ? err : new Error(String(err))
+        throw err
+      }
 
       const result = await client.query(wrapped)
 
@@ -194,14 +202,15 @@ export class PostgreSQLConnector extends BaseSQLConnector {
         // statement_timeout) for the next consumer of the pooled connection;
         // `SET statement_timeout = 0` would disable that limit instead. If the
         // restore fails the session state is unknown, so release with the
-        // error, which makes pg destroy the connection rather than reuse it.
+        // error, which makes pg destroy the connection rather than reuse it;
+        // the same holds when the per-query timeout could not be applied.
         let restoreError: Error | undefined
         try {
           await client.query('RESET statement_timeout')
         } catch (err) {
           restoreError = err instanceof Error ? err : new Error(String(err))
         }
-        client.release(restoreError)
+        client.release(restoreError ?? timeoutError)
       }
     }
   }
