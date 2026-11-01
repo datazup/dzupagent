@@ -263,25 +263,25 @@ async function authorizeFinalSpawn(
   await new Promise<void>((resolve, reject) => {
     let settled = false
     let timer: ReturnType<typeof setTimeout> | undefined
-    const finish = (error?: unknown): void => {
+    const finish = (ok: boolean, error?: unknown): void => {
       if (settled) return
       settled = true
       if (timer) clearTimer(timer)
       specification.signal?.removeEventListener('abort', onAbort)
-      if (error !== undefined) { controller.abort(); reject(error) }
+      if (!ok) { controller.abort(); reject(error) }
       else resolve()
     }
-    const onAbort = (): void => finish(abortedError(candidate.command))
+    const onAbort = (): void => finish(false, abortedError(candidate.command))
     specification.signal?.addEventListener('abort', onAbort, { once: true })
     if (specification.signal?.aborted) { onAbort(); return }
     if (remaining !== undefined) {
-      if (remaining <= 0) { finish(timeoutError(specification)); return }
-      timer = setTimer(() => finish(timeoutError(specification)), remaining)
+      if (remaining <= 0) { finish(false, timeoutError(specification)); return }
+      timer = setTimer(() => finish(false, timeoutError(specification)), remaining)
     }
     // Attach both handlers even after cancellation: late rejection is consumed,
     // and late success cannot escape this already-settled admission boundary.
     Promise.resolve().then(() => { if (!settled) return authorize(candidate) })
-      .then(() => finish(), error => finish(error))
+      .then(() => finish(true), error => finish(false, error))
   })
 }
 

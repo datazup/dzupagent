@@ -49,6 +49,14 @@ function createTrackedHomeProjection(cleanup: () => Promise<void>): CliHomeProje
 }
 
 describe('bounded CLI runtime', () => {
+  it.each([undefined, null])('holds a rejected authorization even when the reason is %s', async reason => {
+    const spawn = vi.fn(); const cleanup = vi.fn(async () => undefined);
+    await expect(collect(runJsonlProcess({ command: process.execPath, args: [],
+      homeProjection: createTrackedHomeProjection(cleanup),
+    }, { spawn, beforeSpawn: () => Promise.reject(reason) }))).rejects.toThrow();
+    expect(spawn).not.toHaveBeenCalled(); expect(cleanup).toHaveBeenCalledOnce();
+  });
+
   it.each(['timeout', 'abort'] as const)('settles a pending final authorizer on %s and never spawns on late resolution', async reason => {
     const controller = new AbortController();
     const spawn = vi.fn(); const cleanup = vi.fn(async () => undefined);

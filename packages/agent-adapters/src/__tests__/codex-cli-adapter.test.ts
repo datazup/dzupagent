@@ -30,6 +30,16 @@ type FakeChild = ChildProcess & {
 const NATIVE_ID = '11111111-1111-1111-1111-111111111111'
 
 describe('approved existing native Codex context', () => {
+  it('does not skip native authorization when an earlier hook rejects without a reason', async () => {
+    const root = await fixture(); const spawn = vi.fn(); const authorize = vi.fn();
+    try {
+      const adapter = new CodexCliAdapter({ nativeContext: { profileRoot: root, authorize },
+        runtimeDependencies: { spawn, beforeSpawn: () => Promise.reject() } });
+      await expect(collect(adapter.executeWithRaw({ prompt: 'held', options: { approvalPolicy: 'never' } }))).rejects.toThrow();
+      expect(authorize).not.toHaveBeenCalled(); expect(spawn).not.toHaveBeenCalled();
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
   async function fixture() {
     const root = await mkdtemp(join(tmpdir(), 'codex-existing-native-'));
     await chmod(root, 0o700);
