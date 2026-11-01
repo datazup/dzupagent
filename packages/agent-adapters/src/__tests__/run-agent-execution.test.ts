@@ -45,6 +45,42 @@ const capabilities: AdapterCapabilityProfile = {
   supportsCostUsage: true,
 };
 
+describe('explicit native API CLI materialization', () => {
+  const request: AgentExecutionRequest = {
+    providerId: 'codex', backend: 'cli', authMode: 'api_key',
+    profileRef: 'approved-native-context/v1', prompt: 'bounded native request',
+  };
+
+  it('uses only the trusted native materializer and never resolves a raw API key', async () => {
+    const resolveApiKey = vi.fn(() => { throw new Error('resolver must not run'); });
+    const materializeAdapter = vi.fn();
+    const materializeNativeCliAdapter = vi.fn(() => createFakeAdapter('codex'));
+    const result = await runAgentExecution(request, {
+      resolveApiKey, materializeAdapter, materializeNativeCliAdapter,
+    });
+    expect(result.ok).toBe(true);
+    expect(materializeNativeCliAdapter).toHaveBeenCalledWith(expect.objectContaining({
+      providerId: 'codex', backend: 'cli', authMode: 'api_key', profileRef: request.profileRef,
+    }));
+    expect(resolveApiKey).not.toHaveBeenCalled();
+    expect(materializeAdapter).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {},
+    { secretRef: 'forbidden-key' },
+    { approvedFallbackProviders: ['claude'] },
+    { providerId: 'claude' },
+    { profileRef: '' },
+  ])('rejects an unqualified or conflicting native selection %j', async patch => {
+    const materializeNativeCliAdapter = vi.fn(() => createFakeAdapter('codex'));
+    const result = await runAgentExecution({ ...request, ...patch } as AgentExecutionRequest,
+      Object.keys(patch).length ? { materializeNativeCliAdapter } : { materializeAdapter: materializeNativeCliAdapter });
+    expect(result.ok).toBe(false);
+    expect(materializeNativeCliAdapter).not.toHaveBeenCalled();
+  });
+});
+
 interface FakeAdapterOptions {
   result?: string | undefined;
   usage?: AgentEvent extends infer _

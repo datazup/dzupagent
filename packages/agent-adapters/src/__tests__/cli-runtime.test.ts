@@ -48,6 +48,49 @@ function createTrackedHomeProjection(cleanup: () => Promise<void>): CliHomeProje
 }
 
 describe('bounded CLI runtime', () => {
+  it('does not spawn after the authorization step exhausts the invocation timeout', async () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(100);
+    const spawn = vi.fn();
+    try {
+      await expect(collect(runJsonlProcess({ command: process.execPath, args: [], timeoutMs: 50 }, {
+        spawn, beforeSpawn: async () => { clock.mockReturnValue(151); },
+      }))).rejects.toThrow();
+      expect(spawn).not.toHaveBeenCalled();
+    } finally { clock.mockRestore(); }
+  });
+
+  it('authorizes the frozen final projected environment before spawning', async () => {
+    const order: string[] = [];
+    const env = { CONTEXT: 'source' };
+    const args = ['-e', "process.stdout.write(JSON.stringify({context:process.env.CONTEXT})+'\\n')"];
+    const projection = createTrackedHomeProjection(async () => { order.push('cleanup'); });
+    let candidate: unknown;
+    const records = await collect(runJsonlProcess({ command: process.execPath, args, env, homeProjection: projection }, {
+      async beforeSpawn(value) {
+        order.push('authorize'); candidate = value;
+        expect(Object.isFrozen(value)).toBe(true);
+        expect(Object.isFrozen(value.env)).toBe(true);
+        expect(Object.isFrozen(value.args)).toBe(true);
+        env.CONTEXT = 'changed-after-authorization';
+        args.push('changed-after-authorization');
+        expect(value.env).toEqual({ CONTEXT: 'source', TEST_CLI_HOME: projection.root });
+      },
+    }));
+    expect(candidate).toBeDefined();
+    expect(records).toEqual([{ context: 'source' }]);
+    expect(order).toEqual(['authorize', 'cleanup']);
+  });
+
+  it('cleans the projection without spawning when final authorization rejects', async () => {
+    const spawn = vi.fn();
+    const cleanup = vi.fn(async () => undefined);
+    await expect(collect(runJsonlProcess({ command: process.execPath, args: [], homeProjection: createTrackedHomeProjection(cleanup) }, {
+      spawn, beforeSpawn: async () => { throw new Error('expired authorization'); },
+    }))).rejects.toThrow();
+    expect(spawn).not.toHaveBeenCalled();
+    expect(cleanup).toHaveBeenCalledOnce();
+  });
+
   it('streams a normal zero-exit JSONL process without timeout, abort, or overflow classification', async () => {
     const records = await collect(runJsonlProcess({
       command: process.execPath,

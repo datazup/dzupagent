@@ -71,9 +71,21 @@ export async function* runJsonlProcess(
     assertLimits(limits)
     if (specification.homeProjection) emitHomeProjectionCreated(specification.homeProjection, dependencies)
 
-    child = spawn(specification.command, specification.args, {
+    const projectedEnv = projectionEnvironment(specification)
+    const candidate = Object.freeze({
+      command: specification.command,
+      args: Object.freeze([...specification.args]),
       cwd: specification.cwd,
-      env: projectionEnvironment(specification),
+      env: projectedEnv === undefined ? undefined : Object.freeze({ ...projectedEnv }),
+    })
+    await dependencies.beforeSpawn?.(candidate)
+    if (specification.signal?.aborted) throw abortedError(candidate.command)
+    const admissionElapsedMs = dependencies.beforeSpawn ? Math.max(0, Date.now() - startedAt) : 0
+    if (specification.timeoutMs && specification.timeoutMs > 0
+      && admissionElapsedMs >= specification.timeoutMs) throw timeoutError(specification)
+    child = spawn(candidate.command, candidate.args, {
+      cwd: candidate.cwd,
+      env: candidate.env,
       stdio: ['pipe', 'pipe', 'pipe'],
       detached: platform !== 'win32',
       shell: false,
@@ -97,7 +109,7 @@ export async function* runJsonlProcess(
     specification.signal?.addEventListener('abort', onAbort, { once: true })
     if (specification.signal?.aborted) terminate('abort')
     if (specification.timeoutMs && specification.timeoutMs > 0) {
-      timeout = setTimer(() => terminate('timeout'), specification.timeoutMs)
+      timeout = setTimer(() => terminate('timeout'), specification.timeoutMs - admissionElapsedMs)
       timeout.unref?.()
     }
 

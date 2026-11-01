@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { PassThrough } from 'node:stream'
@@ -28,6 +28,89 @@ type FakeChild = ChildProcess & {
 }
 
 const NATIVE_ID = '11111111-1111-1111-1111-111111111111'
+
+describe('approved existing native Codex context', () => {
+  async function fixture() {
+    const root = await mkdtemp(join(tmpdir(), 'codex-existing-native-'));
+    await chmod(root, 0o700);
+    await writeFile(join(root, 'sentinel'), 'unchanged');
+    return root;
+  }
+
+  it('preserves the exact profile at final spawn and keeps schema scratch separate', async () => {
+    const root = await fixture();
+    const before = await stat(root);
+    const authorize = vi.fn(async () => undefined);
+    let scratch = '';
+    const spawn = vi.fn((_command: string, args: readonly string[], options: SpawnOptions) => {
+      expect(authorize).toHaveBeenCalledOnce();
+      expect(options.env?.CODEX_HOME).toBe(root);
+      const schema = args[args.indexOf('--output-schema') + 1]!;
+      expect(schema.startsWith(root + '/')).toBe(false);
+      scratch = dirname(schema);
+      const child = createChild();
+      queueMicrotask(() => {
+        child.stdout.write(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } }) + '\n');
+        child.stdout.end(); child.stderr.end(); child.exitCode = 0; child.emit('close', 0, null);
+      });
+      return child;
+    });
+    try {
+      const adapter = new CodexCliAdapter({
+        nativeContext: { profileRoot: root, authorize },
+        runtimeDependencies: { spawn },
+      });
+      await collect(adapter.executeWithRaw({ prompt: 'bounded readonly', outputSchema: { type: 'object' },
+        options: { sandboxMode: 'read-only', approvalPolicy: 'never' } }));
+      expect(spawn).toHaveBeenCalledOnce();
+      expect(await readdir(root)).toEqual(['sentinel']);
+      const after = await stat(root);
+      expect([after.ino, after.mode, after.mtimeMs]).toEqual([before.ino, before.mode, before.mtimeMs]);
+      await expect(stat(scratch)).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it('refuses expired authority without spawning or modifying the existing context', async () => {
+    const root = await fixture();
+    const spawn = vi.fn();
+    try {
+      const adapter = new CodexCliAdapter({ nativeContext: { profileRoot: root,
+        authorize: async () => { throw new Error('expired'); } }, runtimeDependencies: { spawn } });
+      await expect(collect(adapter.executeWithRaw({ prompt: 'held', options: { approvalPolicy: 'never' } }))).rejects.toThrow();
+      expect(spawn).not.toHaveBeenCalled();
+      expect(await readdir(root)).toEqual(['sentinel']);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it.each(['persistent', 'copy', 'unsafe', 'missing-authorizer', 'write-policy'])('rejects %s before native spawn', async mode => {
+    const root = await fixture(); const spawn = vi.fn();
+    try {
+      if (mode === 'unsafe') await chmod(root, 0o755);
+      const adapter = new CodexCliAdapter({
+        nativeContext: { profileRoot: root, authorize: mode === 'missing-authorizer'
+          ? undefined as unknown as () => void
+          : async () => undefined },
+        ...(mode === 'persistent' ? { persistentSessionHome: true } : {}),
+        ...(mode === 'copy' ? { cliBaseProfileRoot: root } : {}),
+        runtimeDependencies: { spawn },
+      });
+      await expect(collect(adapter.executeWithRaw({ prompt: 'held', options: {
+        approvalPolicy: 'never', sandboxMode: mode === 'write-policy' ? 'workspace-write' : 'read-only',
+      } }))).rejects.toThrow();
+      expect(spawn).not.toHaveBeenCalled();
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it('holds a context whose permissions change while an earlier final guard awaits', async () => {
+    const root = await fixture(); const spawn = vi.fn(); const authorize = vi.fn();
+    try {
+      const adapter = new CodexCliAdapter({ nativeContext: { profileRoot: root, authorize },
+        runtimeDependencies: { spawn, beforeSpawn: async () => { await chmod(root, 0o755); } } });
+      await expect(collect(adapter.executeWithRaw({ prompt: 'held', options: { approvalPolicy: 'never' } }))).rejects.toThrow();
+      expect(spawn).not.toHaveBeenCalled(); expect(authorize).not.toHaveBeenCalled();
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+});
 
 function createChild(emitStarted = true): FakeChild {
   const child = new EventEmitter() as FakeChild

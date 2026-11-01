@@ -105,6 +105,7 @@ export interface RunAgentExecutionOptions {
   assertPreparedInput?: PrepareAgentExecutionRunnerOptions['assertPreparedInput']
   /** Private host hook for explicit binary/profile materialization. */
   materializeAdapter?: PrepareAgentExecutionRunnerOptions['materializeAdapter']
+  materializeNativeCliAdapter?: PrepareAgentExecutionRunnerOptions['materializeNativeCliAdapter']
   /** Resolves only the explicitly selected secretRef; returned values are never retained. */
   resolveApiKey?: PrepareAgentExecutionRunnerOptions['resolveApiKey']
   requiredCapabilities?: PrepareAgentExecutionRunnerOptions['requiredCapabilities']
@@ -158,6 +159,17 @@ export interface PreparedAgentExecutionEventProjection {
 }
 
 export interface PrepareAgentExecutionRunnerOptions {
+  /**
+   * Trusted host-only admission for an existing native Codex API profile.
+   * The closure owns provenance and final-spawn authorization; no raw key is resolved.
+   */
+  materializeNativeCliAdapter?: ((input: {
+    providerId: 'codex'
+    backend: 'cli'
+    authMode: 'api_key'
+    profileRef: string
+    config: AdapterConfig
+  }) => AgentCLIAdapter) | undefined
   /** Same-registry controls supplied by the admitted in-process host. */
   pipeline?: AdapterPipeline | undefined
   /** Final input accounting runs after allowed UCL/policy enrichment. */
@@ -225,6 +237,18 @@ function materializeSelectedAdapter(
       'AGENT_EXECUTION_AUTH_MODE_REQUIRED',
       'authMode must be explicit; providerId does not imply authentication',
     )
+  }
+  if (request.providerId === 'codex' && request.backend === 'cli' && request.authMode === 'api_key') {
+    if (typeof request.profileRef !== 'string' || request.profileRef.trim() === ''
+      || request.secretRef !== undefined || (request.approvedFallbackProviders?.length ?? 0) !== 0
+      || typeof options.materializeNativeCliAdapter !== 'function') {
+      throw new AgentExecutionConfigurationError('AGENT_EXECUTION_SELECTION_INVALID',
+        'Native API CLI requires an explicit qualified profile materializer without secret or fallback')
+    }
+    return options.materializeNativeCliAdapter({
+      providerId: 'codex', backend: 'cli', authMode: 'api_key', profileRef: request.profileRef,
+      config: { ...projectAdapterConfig(request), env: stripApiAuthenticationEnvironment(process.env) },
+    })
   }
   if (request.backend === 'cli' && request.authMode !== 'subscription_cli') {
     throw new AgentExecutionConfigurationError(
@@ -717,6 +741,7 @@ export async function runAgentExecution(
     onEvent,
     now,
     materializeAdapter,
+    materializeNativeCliAdapter,
     resolveApiKey,
     requiredCapabilities,
     projectInput,
@@ -731,6 +756,7 @@ export async function runAgentExecution(
       await beforePrepare?.()
       return {
       materializeAdapter,
+      materializeNativeCliAdapter,
       resolveApiKey,
       requiredCapabilities,
       projectInput,

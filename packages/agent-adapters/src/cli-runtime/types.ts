@@ -72,6 +72,13 @@ export interface CliHomeProjection {
 }
 
 export interface CliRuntimeDependencies {
+  /** Trusted host admission of the exact immutable candidate, after all projections. */
+  readonly beforeSpawn?: ((candidate: Readonly<{
+    command: string
+    args: readonly string[]
+    cwd: string | undefined
+    env: Readonly<Record<string, string>> | undefined
+  }>) => void | Promise<void>) | undefined
   readonly spawn?: ((command: string, args: readonly string[], options: SpawnOptions) => ChildProcess) | undefined
   readonly platform?: NodeJS.Platform | undefined
   readonly killProcessTree?: ((child: ChildProcess, signal: NodeJS.Signals) => void) | undefined

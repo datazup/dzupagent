@@ -152,6 +152,12 @@ export class CodexAppServerStdioClient {
         capabilities: { experimentalApi: true },
       }, { timeoutMs: remainingTimeout(deadline, monotonicNow) })
       assertInitializeResponse(initializeResult)
+      if (options.expectedCodexHome !== undefined
+        && (!isRecord(initializeResult) || initializeResult['codexHome'] !== options.expectedCodexHome
+          || options.env?.['CODEX_HOME'] !== options.expectedCodexHome)) {
+        throw new CodexAppServerClientError('CODEX_APP_SERVER_INITIALIZE_INVALID',
+          'Codex app-server native context binding did not match')
+      }
       if (client.terminalError) throw client.terminalError
       await client.writeFrame({
         method: 'initialized',
