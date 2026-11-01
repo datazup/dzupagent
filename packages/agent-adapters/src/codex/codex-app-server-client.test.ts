@@ -118,6 +118,21 @@ async function connect(
 }
 
 describe('Codex App Server bounded stdio client', () => {
+  it('rejects a returned native home that differs from the explicit binding', async () => {
+    const process = fakeProcess();
+    await expect(CodexAppServerStdioClient.connect({
+      executable: { name: 'codex', path: '/fixture/codex', realPath: '/fixture/codex', artifactDigest: ARTIFACT_DIGEST },
+      env: { CODEX_HOME: '/approved/different-home' },
+      expectedCodexHome: '/approved/different-home',
+      dependencies: {
+        spawn: () => process.child, realpath: async value => value,
+        stat: async () => ({ isFile: () => true }), access: async () => undefined,
+        digestArtifact: async () => ARTIFACT_DIGEST,
+      },
+    })).rejects.toMatchObject({ code: 'CODEX_APP_SERVER_INITIALIZE_INVALID' });
+    expect(process.frames.some(frame => frame.method === 'initialized')).toBe(false);
+  });
+
   it.each([
     ['null', null],
     ['empty object', {}],

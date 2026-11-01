@@ -1,5 +1,6 @@
 import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process'
 import { stat } from 'node:fs/promises'
+import { performance } from 'node:perf_hooks'
 import { ForgeError } from '@dzupagent/core/events'
 import {
   DEFAULT_CLI_RUNTIME_LIMITS,
@@ -16,6 +17,7 @@ export async function* runJsonlProcess(
   dependencies: CliRuntimeDependencies = {},
 ): AsyncGenerator<Record<string, unknown>> {
   const startedAt = Date.now()
+  const admissionStartedAt = performance.now()
   const limits: CliRuntimeLimits = { ...DEFAULT_CLI_RUNTIME_LIMITS, ...specification.limits }
   const spawn = dependencies.spawn ?? ((command, args, options) => nodeSpawn(command, [...args], options))
   const setTimer = dependencies.setTimer ?? setTimeout
@@ -71,9 +73,23 @@ export async function* runJsonlProcess(
     assertLimits(limits)
     if (specification.homeProjection) emitHomeProjectionCreated(specification.homeProjection, dependencies)
 
-    child = spawn(specification.command, specification.args, {
+    const projectedEnv = projectionEnvironment(specification)
+    const admissionController = new AbortController()
+    const candidate = Object.freeze({
+      command: specification.command,
+      args: Object.freeze([...specification.args]),
       cwd: specification.cwd,
-      env: projectionEnvironment(specification),
+      env: projectedEnv === undefined ? undefined : Object.freeze({ ...projectedEnv }),
+      signal: admissionController.signal,
+    })
+    await authorizeFinalSpawn(specification, dependencies, candidate, admissionController, admissionStartedAt)
+    if (specification.signal?.aborted) throw abortedError(candidate.command)
+    const admissionElapsedMs = dependencies.beforeSpawn ? Math.max(0, performance.now() - admissionStartedAt) : 0
+    if (specification.timeoutMs && specification.timeoutMs > 0
+      && admissionElapsedMs >= specification.timeoutMs) throw timeoutError(specification)
+    child = spawn(candidate.command, candidate.args, {
+      cwd: candidate.cwd,
+      env: candidate.env,
       stdio: ['pipe', 'pipe', 'pipe'],
       detached: platform !== 'win32',
       shell: false,
@@ -97,7 +113,7 @@ export async function* runJsonlProcess(
     specification.signal?.addEventListener('abort', onAbort, { once: true })
     if (specification.signal?.aborted) terminate('abort')
     if (specification.timeoutMs && specification.timeoutMs > 0) {
-      timeout = setTimer(() => terminate('timeout'), specification.timeoutMs)
+      timeout = setTimer(() => terminate('timeout'), specification.timeoutMs - admissionElapsedMs)
       timeout.unref?.()
     }
 
@@ -229,6 +245,44 @@ export async function* runJsonlProcess(
     if (child && !closed && child.exitCode === null) terminate(terminationReason ?? 'abort')
     await cleanupHomeProjection(specification.homeProjection, dependencies)
   }
+}
+
+async function authorizeFinalSpawn(
+  specification: CliRunSpecification,
+  dependencies: CliRuntimeDependencies,
+  candidate: Parameters<NonNullable<CliRuntimeDependencies['beforeSpawn']>>[0],
+  controller: AbortController,
+  startedAt: number,
+): Promise<void> {
+  const authorize = dependencies.beforeSpawn
+  if (!authorize) return
+  const remaining = specification.timeoutMs && specification.timeoutMs > 0
+    ? specification.timeoutMs - (performance.now() - startedAt) : undefined
+  const setTimer = dependencies.setTimer ?? setTimeout
+  const clearTimer = dependencies.clearTimer ?? clearTimeout
+  await new Promise<void>((resolve, reject) => {
+    let settled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const finish = (ok: boolean, error?: unknown): void => {
+      if (settled) return
+      settled = true
+      if (timer) clearTimer(timer)
+      specification.signal?.removeEventListener('abort', onAbort)
+      if (!ok) { controller.abort(); reject(error) }
+      else resolve()
+    }
+    const onAbort = (): void => finish(false, abortedError(candidate.command))
+    specification.signal?.addEventListener('abort', onAbort, { once: true })
+    if (specification.signal?.aborted) { onAbort(); return }
+    if (remaining !== undefined) {
+      if (remaining <= 0) { finish(false, timeoutError(specification)); return }
+      timer = setTimer(() => finish(false, timeoutError(specification)), remaining)
+    }
+    // Attach both handlers even after cancellation: late rejection is consumed,
+    // and late success cannot escape this already-settled admission boundary.
+    Promise.resolve().then(() => { if (!settled) return authorize(candidate) })
+      .then(() => finish(true), error => finish(false, error))
+  })
 }
 
 function projectionEnvironment(specification: CliRunSpecification): Readonly<Record<string, string>> | undefined {

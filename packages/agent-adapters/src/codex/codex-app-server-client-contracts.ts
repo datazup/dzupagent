@@ -45,6 +45,8 @@ export interface CodexAppServerClientOptions {
   readonly executable: ResolvedProbeExecutable
   readonly cwd?: string | undefined
   readonly env?: Readonly<Record<string, string>> | undefined
+  /** Optional exact native-context binding; initialization must confirm this home. */
+  readonly expectedCodexHome?: string | undefined
   readonly clientInfo?: {
     readonly name: string
     readonly title: string

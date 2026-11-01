@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { lstat, realpath } from "node:fs/promises";
+import { isAbsolute, resolve } from "node:path";
 import type {
   AdapterCapabilityProfile,
   AdapterConfig,
@@ -53,6 +55,12 @@ import {
 const execFileAsync = promisify(execFile);
 
 export interface CodexCliAdapterConfig extends Omit<AdapterConfig, "reasoning"> {
+  /** Host-only approved existing context. Never hydrated from AgentInput options. */
+  nativeContext?: {
+    readonly profileRoot: string;
+    readonly authorize: (input: AgentInput,
+      candidate: Parameters<NonNullable<CliRuntimeDependencies['beforeSpawn']>>[0]) => void | Promise<void>;
+  } | undefined;
   /** Native effort; values beyond the legacy set require exact-model evidence. */
   reasoning?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | undefined;
   nativeReasoning?: {
@@ -87,6 +95,8 @@ export class CodexCliAdapter implements AgentCLIAdapter {
   private config: CodexCliAdapterConfig;
   private readonly runtimeDependencies: CliRuntimeDependencies;
   private readonly abortControllers = new Set<AbortController>();
+  private readonly nativeContextGuards = new WeakMap<PreparedCodexCliRun,
+    NonNullable<CliRuntimeDependencies['beforeSpawn']>>();
 
   constructor(config: CodexCliAdapterConfig = {}) {
     this.runtimeDependencies = config.runtimeDependencies ?? {};
@@ -171,7 +181,13 @@ export class CodexCliAdapter implements AgentCLIAdapter {
           limits: this.config.runtimeLimits,
           malformedLinePolicy: this.config.malformedLinePolicy ?? "error",
         },
-        this.runtimeDependencies
+        this.nativeContextGuards.has(prepared) ? {
+          ...this.runtimeDependencies,
+          beforeSpawn: async candidate => {
+            await this.runtimeDependencies.beforeSpawn?.(candidate);
+            await this.nativeContextGuards.get(prepared)!(candidate);
+          },
+        } : this.runtimeDependencies
       )) {
         ordinal += 1;
         if (record["type"] === "thread.started") {
@@ -319,6 +335,7 @@ export class CodexCliAdapter implements AgentCLIAdapter {
 
   async prepareCliRun(input: AgentInput): Promise<PreparedCodexCliRun> {
     this.validateSupportedPolicy(input);
+    if (this.config.nativeContext !== undefined) return this.prepareNativeContextRun(input);
     const cwd = input.workingDirectory ?? this.config.workingDirectory;
     if (this.resolveSandbox(input) === "workspace-write" && !cwd) {
       throw policyRejected(
@@ -393,6 +410,62 @@ export class CodexCliAdapter implements AgentCLIAdapter {
     } catch (error) {
       await homeProjection.cleanup().catch(() => undefined);
       throw error;
+    }
+  }
+
+  private async prepareNativeContextRun(input: AgentInput): Promise<PreparedCodexCliRun> {
+    const context = this.config.nativeContext!;
+    if (!context || typeof context.authorize !== 'function'
+      || this.config.cliBaseProfileRoot !== undefined || this.config.cliBaseProfileFiles !== undefined
+      || this.config.persistentSessionHome === true || this.config.persistentSessionHomeRoot !== undefined
+      || this.resolveSandbox(input) !== 'read-only' || this.resolveApprovalPolicy(input) !== 'never'
+      || readMcpDescriptors(input).length !== 0) {
+      throw policyRejected('Native Codex context is not qualified', 'native_context_unqualified');
+    }
+    const profileRoot = context.profileRoot, authorize = context.authorize;
+    const identity = await this.nativeContextIdentity(profileRoot);
+    const command = this.config.cliPath ?? 'codex';
+    const outputSchema = input.outputSchema;
+    const homeProjection = await createCliHomeProjection({
+      prefix: 'dzupagent-codex-native-scratch-',
+      ...(outputSchema === undefined ? {} : { generatedFiles: {
+        outputSchema: { path: 'output-schema.json', content: `${JSON.stringify(outputSchema)}\n` },
+      } }),
+    });
+    try {
+      const prepared: PreparedCodexCliRun = {
+        args: this.buildArgs(input, homeProjection.generatedPaths['outputSchema']),
+        cwd: input.workingDirectory ?? this.config.workingDirectory,
+        env: { ...this.buildSpawnEnv(), CODEX_HOME: profileRoot }, homeProjection,
+      };
+      this.nativeContextGuards.set(prepared, async candidate => {
+        try {
+          if (candidate.command !== command || candidate.env?.['CODEX_HOME'] !== profileRoot
+            || Object.keys(candidate.env ?? {}).some(key => /^OPENAI_/u.test(key) || key === 'CODEX_ACCESS_TOKEN')
+            || await this.nativeContextIdentity(profileRoot) !== identity) throw new Error();
+          await authorize(input, candidate);
+          if (await this.nativeContextIdentity(profileRoot) !== identity) throw new Error();
+        } catch {
+          throw policyRejected('Native Codex context authorization failed', 'native_context_unqualified');
+        }
+      });
+      return prepared;
+    } catch (error) {
+      await homeProjection.cleanup().catch(() => undefined);
+      throw error;
+    }
+  }
+
+  private async nativeContextIdentity(root: string): Promise<string> {
+    try {
+      if (typeof root !== 'string' || !isAbsolute(root) || resolve(root) !== root
+        || await realpath(root) !== root) throw new Error();
+      const info = await lstat(root);
+      if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== process.getuid?.()
+        || (info.mode & 0o777) !== 0o700) throw new Error();
+      return `${info.dev}:${info.ino}:${info.uid}:${info.mode}`;
+    } catch {
+      throw policyRejected('Native Codex context is not qualified', 'native_context_unqualified');
     }
   }
 

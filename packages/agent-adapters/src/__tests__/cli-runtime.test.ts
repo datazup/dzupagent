@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events'
 import { access, mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
+import { performance } from 'node:perf_hooks'
 import { PassThrough } from 'node:stream'
 import type { ChildProcess, SpawnOptions } from 'node:child_process'
 import { describe, expect, it, vi } from 'vitest'
@@ -48,6 +49,78 @@ function createTrackedHomeProjection(cleanup: () => Promise<void>): CliHomeProje
 }
 
 describe('bounded CLI runtime', () => {
+  it.each([undefined, null])('holds a rejected authorization even when the reason is %s', async reason => {
+    const spawn = vi.fn(); const cleanup = vi.fn(async () => undefined);
+    await expect(collect(runJsonlProcess({ command: process.execPath, args: [],
+      homeProjection: createTrackedHomeProjection(cleanup),
+    }, { spawn, beforeSpawn: () => Promise.reject(reason) }))).rejects.toThrow();
+    expect(spawn).not.toHaveBeenCalled(); expect(cleanup).toHaveBeenCalledOnce();
+  });
+
+  it.each(['timeout', 'abort'] as const)('settles a pending final authorizer on %s and never spawns on late resolution', async reason => {
+    const controller = new AbortController();
+    const spawn = vi.fn(); const cleanup = vi.fn(async () => undefined);
+    let admissionSignal: AbortSignal | undefined;
+    let release!: () => void, entered!: () => void;
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    const result = collect(runJsonlProcess({ command: process.execPath, args: [],
+      ...(reason === 'timeout' ? { timeoutMs: 10 } : {}), signal: controller.signal,
+      homeProjection: createTrackedHomeProjection(cleanup),
+    }, { spawn, beforeSpawn: candidate => { admissionSignal = candidate.signal; entered(); return pending; } })).catch(error => error);
+    await ready;
+    if (reason === 'abort') controller.abort();
+    const outcome = await Promise.race([result, new Promise(resolve => { setTimeout(() => resolve('still waiting'), 100); })]);
+    expect(outcome).toMatchObject({ code: reason === 'timeout' ? 'ADAPTER_TIMEOUT' : 'AGENT_ABORTED' });
+    expect(spawn).not.toHaveBeenCalled(); expect(cleanup).toHaveBeenCalledOnce();
+    expect(admissionSignal?.aborted).toBe(true);
+    release(); await pending; await new Promise<void>(resolve => { setImmediate(resolve); });
+    expect(spawn).not.toHaveBeenCalled(); expect(cleanup).toHaveBeenCalledOnce();
+  });
+
+  it('does not spawn after the authorization step exhausts the invocation timeout', async () => {
+    const clock = vi.spyOn(performance, 'now').mockReturnValue(100);
+    const spawn = vi.fn();
+    try {
+      await expect(collect(runJsonlProcess({ command: process.execPath, args: [], timeoutMs: 50 }, {
+        spawn, beforeSpawn: async () => { clock.mockReturnValue(151); },
+      }))).rejects.toThrow();
+      expect(spawn).not.toHaveBeenCalled();
+    } finally { clock.mockRestore(); }
+  });
+
+  it('authorizes the frozen final projected environment before spawning', async () => {
+    const order: string[] = [];
+    const env = { CONTEXT: 'source' };
+    const args = ['-e', "process.stdout.write(JSON.stringify({context:process.env.CONTEXT})+'\\n')"];
+    const projection = createTrackedHomeProjection(async () => { order.push('cleanup'); });
+    let candidate: unknown;
+    const records = await collect(runJsonlProcess({ command: process.execPath, args, env, homeProjection: projection }, {
+      async beforeSpawn(value) {
+        order.push('authorize'); candidate = value;
+        expect(Object.isFrozen(value)).toBe(true);
+        expect(Object.isFrozen(value.env)).toBe(true);
+        expect(Object.isFrozen(value.args)).toBe(true);
+        env.CONTEXT = 'changed-after-authorization';
+        args.push('changed-after-authorization');
+        expect(value.env).toEqual({ CONTEXT: 'source', TEST_CLI_HOME: projection.root });
+      },
+    }));
+    expect(candidate).toBeDefined();
+    expect(records).toEqual([{ context: 'source' }]);
+    expect(order).toEqual(['authorize', 'cleanup']);
+  });
+
+  it('cleans the projection without spawning when final authorization rejects', async () => {
+    const spawn = vi.fn();
+    const cleanup = vi.fn(async () => undefined);
+    await expect(collect(runJsonlProcess({ command: process.execPath, args: [], homeProjection: createTrackedHomeProjection(cleanup) }, {
+      spawn, beforeSpawn: async () => { throw new Error('expired authorization'); },
+    }))).rejects.toThrow();
+    expect(spawn).not.toHaveBeenCalled();
+    expect(cleanup).toHaveBeenCalledOnce();
+  });
+
   it('streams a normal zero-exit JSONL process without timeout, abort, or overflow classification', async () => {
     const records = await collect(runJsonlProcess({
       command: process.execPath,
