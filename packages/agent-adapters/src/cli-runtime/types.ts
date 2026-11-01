@@ -78,6 +78,8 @@ export interface CliRuntimeDependencies {
     args: readonly string[]
     cwd: string | undefined
     env: Readonly<Record<string, string>> | undefined
+    /** Cancel qualification work if admission times out or the caller aborts. */
+    signal: AbortSignal
   }>) => void | Promise<void>) | undefined
   readonly spawn?: ((command: string, args: readonly string[], options: SpawnOptions) => ChildProcess) | undefined
   readonly platform?: NodeJS.Platform | undefined

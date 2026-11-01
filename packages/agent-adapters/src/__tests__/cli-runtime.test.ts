@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events'
 import { access, mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
+import { performance } from 'node:perf_hooks'
 import { PassThrough } from 'node:stream'
 import type { ChildProcess, SpawnOptions } from 'node:child_process'
 import { describe, expect, it, vi } from 'vitest'
@@ -48,8 +49,29 @@ function createTrackedHomeProjection(cleanup: () => Promise<void>): CliHomeProje
 }
 
 describe('bounded CLI runtime', () => {
+  it.each(['timeout', 'abort'] as const)('settles a pending final authorizer on %s and never spawns on late resolution', async reason => {
+    const controller = new AbortController();
+    const spawn = vi.fn(); const cleanup = vi.fn(async () => undefined);
+    let admissionSignal: AbortSignal | undefined;
+    let release!: () => void, entered!: () => void;
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    const result = collect(runJsonlProcess({ command: process.execPath, args: [],
+      ...(reason === 'timeout' ? { timeoutMs: 10 } : {}), signal: controller.signal,
+      homeProjection: createTrackedHomeProjection(cleanup),
+    }, { spawn, beforeSpawn: candidate => { admissionSignal = candidate.signal; entered(); return pending; } })).catch(error => error);
+    await ready;
+    if (reason === 'abort') controller.abort();
+    const outcome = await Promise.race([result, new Promise(resolve => { setTimeout(() => resolve('still waiting'), 100); })]);
+    expect(outcome).toMatchObject({ code: reason === 'timeout' ? 'ADAPTER_TIMEOUT' : 'AGENT_ABORTED' });
+    expect(spawn).not.toHaveBeenCalled(); expect(cleanup).toHaveBeenCalledOnce();
+    expect(admissionSignal?.aborted).toBe(true);
+    release(); await pending; await new Promise<void>(resolve => { setImmediate(resolve); });
+    expect(spawn).not.toHaveBeenCalled(); expect(cleanup).toHaveBeenCalledOnce();
+  });
+
   it('does not spawn after the authorization step exhausts the invocation timeout', async () => {
-    const clock = vi.spyOn(Date, 'now').mockReturnValue(100);
+    const clock = vi.spyOn(performance, 'now').mockReturnValue(100);
     const spawn = vi.fn();
     try {
       await expect(collect(runJsonlProcess({ command: process.execPath, args: [], timeoutMs: 50 }, {
