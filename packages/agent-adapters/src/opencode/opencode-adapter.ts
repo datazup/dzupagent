@@ -225,7 +225,8 @@ export class OpenCodeAdapter implements AgentCLIAdapter {
           if (completed.text) yield { ...base(), type: 'adapter:stream_delta', content: completed.text }
           if (signal.aborted) throw new Error('OpenCode operation cancelled')
           succeeded = true
-          terminal = { ...base(), type: 'adapter:completed', sessionId: sessionID, result: completed.text, usage: completed.usage, durationMs: Date.now() - startedAt }
+          terminal = { ...base(), type: 'adapter:completed', sessionId: sessionID, result: completed.text,
+            ...(completed.usage ? { usage: completed.usage } : {}), durationMs: Date.now() - startedAt }
           break
         }
         const event = item.event
