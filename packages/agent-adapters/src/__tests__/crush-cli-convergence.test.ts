@@ -132,6 +132,13 @@ describe('Crush CLI convergence contract', () => {
       })
       expect(projected.options.disabled_tools).toEqual(expect.arrayContaining(['bash', 'edit', 'write', 'fetch', 'list_mcp_resources']))
       expect(projected.options.disabled_tools).not.toContain('view')
+      // Exact upstream v0.98.1 inventory minus the six read-only tools.
+      expect([...projected.options.disabled_tools].sort()).toEqual([
+        'agent', 'bash', 'crush_info', 'crush_logs', 'job_output', 'job_kill', 'download', 'edit', 'multiedit',
+        'lsp_restart', 'lsp_symbols', 'lsp_definition', 'lsp_call_hierarchy', 'lsp_rename', 'lsp_replace_symbol',
+        'fetch', 'agentic_fetch', 'question', 'sourcegraph', 'todos', 'write',
+        'list_mcp_resources', 'read_mcp_resource',
+      ].sort())
       expect(args).toEqual(expect.arrayContaining(['--cwd', workspace, '--data-dir', join(projectionRoot, 'run-data'), 'run', '--quiet', '--', 'x']))
       expect(args).not.toEqual(expect.arrayContaining(['--output-format', '--prompt', '--system', '--permission', '--max-turns']))
       yield { type: 'text_result', content: 'ok' }
@@ -241,6 +248,10 @@ describe('Crush CLI convergence contract', () => {
       expect(config.options.disabled_tools).not.toContain('view')
       expect(config.options.disabled_tools).not.toContain('edit')
       expect(config.options.disabled_tools).toEqual(expect.arrayContaining(['bash', 'write', 'fetch']))
+      expect(config.options.disabled_tools).toEqual(expect.arrayContaining([
+        'crush_info', 'crush_logs', 'lsp_symbols', 'lsp_definition', 'lsp_call_hierarchy',
+        'lsp_rename', 'lsp_replace_symbol', 'question',
+      ]))
       yield { type: 'text_result', content: 'ok' }
     })
     await collectEvents(new CrushAdapter({ cliBaseProfileRoot: profile }).execute({
