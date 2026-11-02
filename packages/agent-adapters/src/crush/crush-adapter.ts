@@ -105,8 +105,8 @@ export class CrushAdapter extends BaseCliAdapter {
       supportsResume: false,
       supportsFork: false,
       supportsToolCalls: true,
-      // CLI/SDK adapter: runs its own in-subprocess/agentic tool loop.
-      emitsToolCalls: true,
+      // Crush runs its own tool loop, but its terminal text transport exposes no tool events.
+      emitsToolCalls: false,
       executesToolLoop: true,
       supportsStreaming: false,
       supportsCostUsage: isCrushUsageReaderAvailable(),
