@@ -66,7 +66,7 @@ export interface OptimizationDecision {
 // ---------------------------------------------------------------------------
 
 /** Default priority ordering: claude > codex > gemini > qwen > crush */
-const DEFAULT_PRIORITY: Record<AdapterProviderId, number> = {
+const DEFAULT_PRIORITY: Partial<Record<AdapterProviderId, number>> = {
   claude: 5,
   codex: 4,
   openrouter: 4,
@@ -475,11 +475,14 @@ export class CostOptimizationEngine implements TaskRoutingStrategy {
 
   /** Default priority-based fallback when insufficient data is available */
   private defaultFallback(availableProviders: AdapterProviderId[]): RoutingDecision {
-    const sorted = [...availableProviders].sort(
+    const sorted = availableProviders.filter((id) => Number.isFinite(DEFAULT_PRIORITY[id])).sort(
       (a, b) => (DEFAULT_PRIORITY[b] ?? 0) - (DEFAULT_PRIORITY[a] ?? 0),
     )
 
-    const primary = sorted[0]!
+    const primary = sorted[0]
+    if (!primary) {
+      return { provider: 'auto', reason: 'No rated adapters available for priority-based routing', fallbackProviders: [], confidence: 0 }
+    }
     return {
       provider: primary,
       reason: `Insufficient performance data — defaulting to priority-based routing ("${primary}")`,

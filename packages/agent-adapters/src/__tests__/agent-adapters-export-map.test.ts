@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { execFile } from 'node:child_process'
-import { access, lstat, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { access, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -12,6 +12,10 @@ import {
   buildExecutionControlAdmission as providerBuildExecutionControlAdmission,
   canonicalExecutionControlRequirement as providerCanonicalExecutionControlRequirement,
   executionControlRequirementSha256 as providerExecutionControlRequirementSha256,
+  PiAdapter,
+  OpenCodeAdapter,
+  ClineAdapter,
+  createCrushCliAdapter,
 } from '../providers.js'
 
 const execFileAsync = promisify(execFile)
@@ -36,6 +40,161 @@ async function requireDist(...files: string[]): Promise<void> {
 }
 
 describe('agent-adapters export map', () => {
+  it('exports optional SDK adapters through the existing providers subpath', () => {
+    expect([PiAdapter, OpenCodeAdapter, ClineAdapter, createCrushCliAdapter].every(value => typeof value === 'function')).toBe(true)
+  })
+
+  it('keeps host SDKs as exact optional peers without raising the framework Node floor', async () => {
+    const manifest = JSON.parse(await readFile(join(process.cwd(), 'package.json'), 'utf8')) as {
+      peerDependencies: Record<string, string>
+      peerDependenciesMeta: Record<string, { optional: boolean }>
+      optionalDependencies: Record<string, string>
+      dependencies: Record<string, string>
+    }
+    const peers = { '@earendil-works/pi-coding-agent': '1.5.0', '@opencode-ai/sdk': '1.19.5', '@cline/sdk': '0.2.0', '@cline/shared': '0.2.0' }
+    for (const [name, version] of Object.entries(peers)) {
+      expect(manifest.peerDependencies[name]).toBe(version)
+      expect(manifest.peerDependenciesMeta[name]).toEqual({ optional: true })
+      expect(manifest.optionalDependencies).not.toHaveProperty(name)
+      expect(manifest.dependencies).not.toHaveProperty(name)
+    }
+    const root = JSON.parse(await readFile(join(process.cwd(), '../../package.json'), 'utf8')) as { engines: { node: string } }
+    expect(root.engines.node).toBe('>=20.0.0')
+  })
+
+  it.skipIf(!packagingEnabled)('runs the packed default Cline worker through ready, cancel and confirmed teardown without SDK loading', async () => {
+    await requireDist('dist/providers.js', 'dist/providers.d.ts', 'dist/cline-worker.js', 'dist/cline/cline-adapter.d.ts')
+    if (process.platform === 'win32' || Number(process.versions.node.split('.')[0]) < 22) {
+      throw new Error('Packed Cline lifecycle qualification requires a POSIX Node >=22 host; the framework remains Node >=20')
+    }
+    const tempDir = await mkdtemp(join(tmpdir(), 'agent-adapters-packed-worker-'))
+    const env = { PATH: process.env['PATH'], HOME: tempDir, TMPDIR: tempDir,
+      npm_config_cache: join(tempDir, '.npm-cache'), npm_config_offline: 'true', npm_config_ignore_scripts: 'true' }
+    try {
+      const { stdout } = await execFileAsync('npm', ['pack', '--json', '--offline', '--ignore-scripts', '--pack-destination', tempDir], { cwd: process.cwd(), env })
+      const [packed] = JSON.parse(stdout) as Array<{ filename: string; files: Array<{ path: string }> }>
+      if (!packed) throw new Error('npm pack returned no package')
+      for (const path of ['dist/providers.js', 'dist/providers.d.ts', 'dist/cline-worker.js', 'dist/cline/cline-adapter.d.ts']) {
+        expect(packed.files.some(file => file.path === path), `packed artifact must include ${path}`).toBe(true)
+      }
+      // This test deliberately fails a symlink-only or incomplete package instead of skipping.
+      await execFileAsync('tar', ['-xzf', join(tempDir, packed.filename), '-C', tempDir], { env })
+      const packageRoot = join(tempDir, 'package')
+      const manifest = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8')) as {
+        dependencies: Record<string, string>; peerDependencies: Record<string, string>
+        peerDependenciesMeta: Record<string, { optional?: boolean }>
+      }
+      for (const name of Object.keys({ ...manifest.dependencies, ...manifest.peerDependencies })) {
+        if (manifest.peerDependenciesMeta[name]?.optional) continue
+        await mkdir(join(packageRoot, 'node_modules', name, '..'), { recursive: true })
+        await symlink(join(process.cwd(), '../../node_modules', name), join(packageRoot, 'node_modules', name), 'dir')
+      }
+      // A no-code, unexported peer makes SDK resolution fail closed even if an
+      // ancestor happens to have an installed Cline SDK. No installation occurs.
+      await mkdir(join(packageRoot, 'node_modules/@cline/sdk'), { recursive: true })
+      await writeFile(join(packageRoot, 'node_modules/@cline/sdk/package.json'), '{"name":"@cline/sdk","version":"0.0.0-fixture","exports":{}}\n')
+      const consumer = join(tempDir, 'consumer')
+      await mkdir(join(consumer, 'node_modules/@dzupagent'), { recursive: true })
+      await symlink(packageRoot, join(consumer, 'node_modules/@dzupagent/agent-adapters'), 'dir')
+      await symlink(join(process.cwd(), '../../node_modules/@types'), join(consumer, 'node_modules/@types'), 'dir')
+      await mkdir(join(consumer, 'empty-profile'))
+      await writeFile(join(consumer, 'package.json'), '{"type":"module"}\n')
+      // Reject and record even a caught attempt to load an optional SDK during import.
+      const attempts = join(tempDir, 'sdk-load-attempts')
+      await writeFile(attempts, '')
+      await writeFile(join(consumer, 'deny-sdks.mjs'), [
+        "import { appendFileSync } from 'node:fs'",
+        `const attempts = ${JSON.stringify(attempts)}`,
+        `const names = ${JSON.stringify(['@earendil-works/pi-coding-agent', '@opencode-ai/sdk', '@cline/sdk', '@cline/shared', '@cline/core', '@anthropic-ai/claude-agent-sdk', '@anthropic-ai/sdk', '@openai/codex-sdk', '@google/generative-ai', '@modelcontextprotocol/sdk'])}`,
+        'export async function resolve(specifier, context, next) {',
+        "  if (names.some(name => specifier === name || specifier.startsWith(name + '/'))) { appendFileSync(attempts, specifier + '\\n'); throw new Error('OPTIONAL_SDK_LOAD_FORBIDDEN') }",
+        '  return next(specifier, context)',
+        '}',
+      ].join('\n'))
+      await writeFile(join(consumer, 'worker-proof.mjs'), [
+        "import assert from 'node:assert/strict'",
+        "import childProcess from 'node:child_process'",
+        "import { access, readFile } from 'node:fs/promises'",
+        "import { register, syncBuiltinESMExports } from 'node:module'",
+        "import { join } from 'node:path'",
+        "register(new URL('./deny-sdks.mjs', import.meta.url))",
+        'const spawned = []',
+        'const nativeSpawn = childProcess.spawn',
+        '// Observe the real transport, retaining the exact executable, args and options.',
+        'childProcess.spawn = (...args) => {',
+        '  const child = nativeSpawn(...args)',
+        '  const observation = { child, args, messages: [], sent: [], closed: false }',
+        '  spawned.push(observation)',
+        "  child.on('message', value => observation.messages.push(value))",
+        "  child.on('close', () => { observation.closed = true })",
+        '  const send = child.send.bind(child)',
+        '  child.send = (message, ...rest) => { observation.sent.push(message); return send(message, ...rest) }',
+        '  return child',
+        '}',
+        'syncBuiltinESMExports()',
+        "const providers = await import('@dzupagent/agent-adapters/providers')",
+        "for (const name of ['PiAdapter', 'OpenCodeAdapter', 'ClineAdapter', 'createCrushCliAdapter']) assert.equal(typeof providers[name], 'function')",
+        `assert.equal(await readFile(${JSON.stringify(attempts)}, 'utf8'), '')`,
+        '// An empty fixture profile and a no-code unexported SDK prevent provider/auth effects.',
+        "const profileDir = join(process.cwd(), 'empty-profile')",
+        "const adapter = new providers.ClineAdapter({ profileDir, workingDirectory: process.cwd(), provider: 'fixture', model: 'fixture', timeoutMs: 5000 })",
+        "const stream = adapter.execute({ prompt: 'provider-free cancellation', correlationId: 'packed-worker' })",
+        'try {',
+        '  const first = await stream.next()',
+        "  assert.equal(first.value?.type, 'adapter:started')",
+        '  assert.equal(spawned.length, 1)',
+        '  const observed = spawned[0]',
+        "  assert.equal(observed.messages[0]?.type, 'ready')",
+        "  assert.equal(observed.args[1][0], new URL('../package/dist/cline-worker.js', import.meta.url).pathname)",
+        '  assert.equal(observed.args[2].detached, true)',
+        '  adapter.interrupt()',
+        '  const rest = []; for await (const event of stream) rest.push(event)',
+        "  const terminals = rest.filter(event => event.type === 'adapter:failed' || event.type === 'adapter:completed')",
+        '  assert.equal(terminals.length, 1)',
+        "  assert.equal(terminals[0].code, 'CLINE_CANCELLED')",
+        "  assert.equal(terminals[0].correlationId, 'packed-worker')",
+        "  assert.ok(observed.sent.some(message => message.type === 'cancel'))",
+        '  assert.equal(observed.closed, true)',
+        '  assert.equal(observed.child.connected, false)',
+        '  assert.throws(() => process.kill(observed.child.pid, 0), { code: "ESRCH" })',
+        '  assert.throws(() => process.kill(-observed.child.pid, 0), { code: "ESRCH" })',
+        '  await assert.rejects(access(observed.args[2].cwd), { code: "ENOENT" })',
+        '  const absentSdkEvents = []',
+        "  for await (const event of adapter.execute({ prompt: 'absent SDK' })) absentSdkEvents.push(event)",
+        "  assert.deepEqual(absentSdkEvents.map(event => event.type), ['adapter:started', 'adapter:failed'])",
+        "  assert.equal(absentSdkEvents[1].code, 'CLINE_SDK_UNAVAILABLE')",
+        '  assert.equal(spawned.length, 2)',
+        '  assert.equal(spawned[1].closed, true)',
+        '  assert.throws(() => process.kill(spawned[1].child.pid, 0), { code: "ESRCH" })',
+        '  await assert.rejects(access(spawned[1].args[2].cwd), { code: "ENOENT" })',
+        `  assert.equal(await readFile(${JSON.stringify(attempts)}, 'utf8'), '')`,
+        "  process.stdout.write('packed-default-worker: ready/cancel/closed/home-removed\\n')",
+        '} finally {',
+        '  adapter.interrupt(); await stream.return()',
+        '  childProcess.spawn = nativeSpawn; syncBuiltinESMExports()',
+        '}',
+      ].join('\n'))
+      const proof = await execFileAsync(process.execPath, [join(consumer, 'worker-proof.mjs')], { cwd: consumer, env, timeout: 15_000 })
+      expect(proof.stdout).toContain('packed-default-worker: ready/cancel/closed/home-removed')
+
+      // Resolve the real packed export map and every newly public config/dependency type.
+      const fixture = join(consumer, 'consumer.ts')
+      await writeFile(fixture, [
+        "import { PiAdapter, OpenCodeAdapter, ClineAdapter, createCrushCliAdapter } from '@dzupagent/agent-adapters/providers'",
+        "import type { AdapterConfig, PiSdkLoader, OpenCodeAdapterConfig, OpenCodeAdapterDependencies, ClineAdapterConfig, ClineTransportFactory, CrushCliAdapterConfig } from '@dzupagent/agent-adapters/providers'",
+        'export const pi = (config: AdapterConfig, loader?: PiSdkLoader) => new PiAdapter(config, loader)',
+        'export const opencode = (config: OpenCodeAdapterConfig, deps: OpenCodeAdapterDependencies) => new OpenCodeAdapter(config, deps)',
+        'export const cline = (config: ClineAdapterConfig, transport?: ClineTransportFactory) => new ClineAdapter(config, transport)',
+        'export const crush = (config: CrushCliAdapterConfig) => createCrushCliAdapter(config)',
+      ].join('\n'))
+      await execFileAsync(process.execPath, [join(process.cwd(), '../../node_modules/typescript/bin/tsc'),
+        '--noEmit', '--strict', '--skipLibCheck', '--target', 'ES2022', '--module', 'NodeNext', '--moduleResolution', 'NodeNext', fixture],
+      { cwd: consumer, env, timeout: 30_000 })
+    } finally {
+      await rm(tempDir, { recursive: true, force: true })
+    }
+  }, 90_000)
+
   // Root barrel is growth-frozen (barrel-budgets rootDebtPin); execution-control
   // admission lands subpath-only via ./providers.
   it('exposes execution-control admission from the providers entrypoint', () => {

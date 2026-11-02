@@ -55,7 +55,7 @@ const LOCAL_TAGS = new Set([
  * Approximate relative cost ranking (lower = cheaper).
  * Used by CostOptimizedRouter.
  */
-const COST_RANK: Record<AdapterProviderId, number> = {
+const COST_RANK: Partial<Record<AdapterProviderId, number>> = {
   ollama: 0,
   crush: 1,
   goose: 2,
@@ -72,7 +72,7 @@ const COST_RANK: Record<AdapterProviderId, number> = {
  * Default priority ranking when no tag-based signal is available.
  * Higher = more preferred.
  */
-const DEFAULT_PRIORITY: Record<AdapterProviderId, number> = {
+const DEFAULT_PRIORITY: Partial<Record<AdapterProviderId, number>> = {
   claude: 5,
   codex: 4,
   gemini: 3,
@@ -197,7 +197,7 @@ export class TagBasedRouter implements TaskRoutingStrategy {
 
     // Low budget constraint → prefer cheaper providers
     if (task.budgetConstraint === "low") {
-      const sorted = [...availableProviders].sort(
+      const sorted = availableProviders.filter((id) => Number.isFinite(COST_RANK[id])).sort(
         (a, b) => (COST_RANK[a] ?? 99) - (COST_RANK[b] ?? 99)
       );
       const cheapest = sorted[0];
@@ -225,7 +225,7 @@ export class TagBasedRouter implements TaskRoutingStrategy {
   private defaultDecision(
     availableProviders: AdapterProviderId[]
   ): RoutingDecision {
-    const sorted = [...availableProviders].sort(
+    const sorted = availableProviders.filter((id) => Number.isFinite(DEFAULT_PRIORITY[id])).sort(
       (a, b) => (DEFAULT_PRIORITY[b] ?? 0) - (DEFAULT_PRIORITY[a] ?? 0)
     );
     const primary = sorted[0];
@@ -252,7 +252,7 @@ export class TagBasedRouter implements TaskRoutingStrategy {
  */
 export class CostOptimizedRouter implements TaskRoutingStrategy {
   readonly name = "cost-optimized";
-  private readonly costRank: Record<string, number>;
+  private readonly costRank: Partial<Record<AdapterProviderId, number>>;
 
   constructor(costRank?: Partial<Record<AdapterProviderId, number>>) {
     this.costRank = { ...COST_RANK, ...costRank };
@@ -278,7 +278,7 @@ export class CostOptimizedRouter implements TaskRoutingStrategy {
       };
     }
 
-    const sorted = [...availableProviders].sort(
+    const sorted = availableProviders.filter((id) => Number.isFinite(this.costRank[id])).sort(
       (a, b) => (this.costRank[a] ?? 99) - (this.costRank[b] ?? 99)
     );
 

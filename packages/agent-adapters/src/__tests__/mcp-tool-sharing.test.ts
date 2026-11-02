@@ -110,6 +110,10 @@ describe('MCPToolSharingBridge', () => {
   })
 
   describe('buildAdapterToolConfig', () => {
+    it.each(['pi', 'opencode', 'cline'] as const)('rejects unimplemented %s sharing without advertising a fallback', (provider) => {
+      expect(() => bridge.buildAdapterToolConfig(provider)).toThrow('MCP tool sharing is not implemented')
+      expect(bridge.getProviderObservability(provider)).toBeNull()
+    })
     beforeEach(() => {
       bridge.registerTool(createSharedTool('tool-a', 'claude'))
       bridge.registerTool(createSharedTool('tool-b', 'codex'))

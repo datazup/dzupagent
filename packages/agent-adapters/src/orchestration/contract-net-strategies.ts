@@ -65,7 +65,7 @@ const LOCAL_TAGS = new Set([
  * locked tests, so the two tables diverge on purpose. Keep the *ordering* here
  * consistent with the canonical input-rate ordering when editing.
  */
-const COST_PER_10K_TOKENS: Record<AdapterProviderId, number> = {
+const COST_PER_10K_TOKENS: Partial<Record<AdapterProviderId, number>> = {
   ollama: 0,
   crush: 1,
   goose: 1,
@@ -79,7 +79,7 @@ const COST_PER_10K_TOKENS: Record<AdapterProviderId, number> = {
 };
 
 /** Default estimated duration in ms for a standard task. */
-const DEFAULT_DURATION_MS: Record<AdapterProviderId, number> = {
+const DEFAULT_DURATION_MS: Partial<Record<AdapterProviderId, number>> = {
   ollama: 3_000,
   crush: 2_000,
   goose: 3_000,
@@ -120,9 +120,10 @@ export class StaticBidStrategy implements BidStrategy {
       tags.some((t) => EXECUTION_TAGS.has(t));
     const isLocal = tags.some((t) => LOCAL_TAGS.has(t));
 
-    return availableProviders.map((providerId) => {
+    return availableProviders.flatMap((providerId): Bid[] => {
       const estimatedCostCents = COST_PER_10K_TOKENS[providerId];
       const estimatedDurationMs = DEFAULT_DURATION_MS[providerId];
+      if (estimatedCostCents === undefined || estimatedDurationMs === undefined) return [];
       const confidence = this.computeConfidence(
         providerId,
         isReasoning,
@@ -130,13 +131,13 @@ export class StaticBidStrategy implements BidStrategy {
         isLocal
       );
 
-      return {
+      return [{
         providerId,
         estimatedCostCents,
         confidence,
         estimatedDurationMs,
         approach: this.describeApproach(providerId, isReasoning, isExecution),
-      };
+      }];
     });
   }
 

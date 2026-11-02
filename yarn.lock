@@ -1223,7 +1223,11 @@ __metadata:
     vitest: "npm:^3.2.4"
     zod: "npm:^4.3.6"
   peerDependencies:
+    "@cline/sdk": 0.2.0
+    "@cline/shared": 0.2.0
+    "@earendil-works/pi-coding-agent": 1.5.0
     "@langchain/core": ">=1.0.0"
+    "@opencode-ai/sdk": 1.19.5
     zod: ">=4.0.0"
   dependenciesMeta:
     "@anthropic-ai/claude-agent-sdk":
@@ -1235,6 +1239,15 @@ __metadata:
     "@modelcontextprotocol/sdk":
       optional: true
     "@openai/codex-sdk":
+      optional: true
+  peerDependenciesMeta:
+    "@cline/sdk":
+      optional: true
+    "@cline/shared":
+      optional: true
+    "@earendil-works/pi-coding-agent":
+      optional: true
+    "@opencode-ai/sdk":
       optional: true
   languageName: unknown
   linkType: soft
