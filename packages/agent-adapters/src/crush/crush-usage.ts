@@ -59,7 +59,8 @@ export function isCrushUsageReaderAvailable(): boolean {
  * Sum usage over every session in `<dataDir>/crush.db` (the main session plus
  * any title or sub-agent sessions, all of which were billed). Returns
  * `undefined` when the reader, database or any required token measurement is
- * missing or invalid. Cost is optional and included only when fully measured.
+ * missing or invalid. Cost is included only for a single measured session:
+ * Crush can roll child-session cost into a parent, so summing both duplicates it.
  */
 export function readCrushUsage(dataDir: string | undefined): TokenUsage | undefined {
   if (!dataDir) return undefined
@@ -80,7 +81,7 @@ export function readCrushUsage(dataDir: string | undefined): TokenUsage | undefi
     return {
       inputTokens: input,
       outputTokens: output,
-      ...(row['cost_count'] === row['sessions'] && isMeasurement(costCents) ? { costCents } : {}),
+      ...(row['sessions'] === 1 && row['cost_count'] === 1 && isMeasurement(costCents) ? { costCents } : {}),
     }
   } catch {
     return undefined
