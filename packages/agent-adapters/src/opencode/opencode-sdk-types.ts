@@ -30,6 +30,7 @@ export interface OpenCodeMessage {
   parentID?: string
   time: { created: number; completed?: number }
   error?: unknown
+  finish?: string
   tokens?: { input: number; output: number; reasoning?: number; cache?: { read: number; write: number } }
   cost?: number
 }

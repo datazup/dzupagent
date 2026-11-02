@@ -8,6 +8,35 @@ import type { OpenCodeClient, OpenCodeEvent, OpenCodeMessage, OpenCodePart, Open
 const endpoint = 'http://127.0.0.1:4096'
 const cwd = '/work/project'
 const input = { prompt: 'hello' }
+describe('OpenCode terminal event qualification', () => {
+  const message = (): OpenCodeMessage => ({ id: 'm', sessionID: 's', role: 'assistant', parentID: 'p',
+    time: { created: 1, completed: 2 }, finish: 'stop', tokens: { input: 7, output: 3 } })
+  const mapper = () => new OpenCodeEvents('s', 'p', 0, 4096, new Set(['read']))
+  it.each(['missing-time', 'missing-finish', 'tool-calls'] as const)('rejects an unfinished reply: %s', condition => {
+    const info = message()
+    if (condition === 'missing-time') info.time = { created: 1 }
+    else if (condition === 'missing-finish') delete info.finish
+    else info.finish = 'tool-calls'
+    expect(() => mapper().complete({ info, parts: [] })).toThrow('did not complete')
+  })
+  it('defers pending arguments until running and rejects unresolved tools', () => {
+    const events = mapper(); events.acceptMessage(message())
+    const part: OpenCodePart = { id: 't', sessionID: 's', messageID: 'm', type: 'tool', callID: 'c', tool: 'read',
+      state: { status: 'pending', input: {} } }
+    expect(events.tool(part)).toEqual([])
+    part.state = { status: 'running', input: { path: 'actual' } }
+    expect(events.tool(part)).toEqual([expect.objectContaining({ type: 'adapter:tool_call', input: { path: 'actual' } })])
+    expect(() => events.complete({ info: message(), parts: [] })).toThrow('unfinished')
+    part.state = { status: 'completed', input: { path: 'actual' }, output: 'ok' }
+    expect(events.tool(part)).toEqual([expect.objectContaining({ type: 'adapter:tool_result', output: 'ok' })])
+    expect(events.complete({ info: message(), parts: [part] }).events).toEqual([])
+  })
+  it('never labels the final message token count as complete turn usage', () => {
+    const events = mapper()
+    events.acceptMessage({ ...message(), id: 'earlier', finish: 'tool-calls' })
+    expect(events.complete({ info: message(), parts: [] })).not.toHaveProperty('usage')
+  })
+})
 function deferred<T>() {
   let resolve!: (value: T) => void
   let reject!: (reason: unknown) => void
@@ -53,7 +82,7 @@ function fixture(config: OpenCodeAdapterConfig = {}) {
     const options = prompts[index]!.options
     const id = `assistant_${index}`
     return {
-      info: { id, sessionID: options.path.id, role: 'assistant', parentID: options.body.messageID, time: { created: Date.now() }, tokens: { input: 7, output: 3 }, cost: 9 },
+      info: { id, sessionID: options.path.id, role: 'assistant', parentID: options.body.messageID, time: { created: Date.now(), completed: Date.now() }, finish: 'stop', tokens: { input: 7, output: 3 }, cost: 9 },
       parts: [{ id: 'text', sessionID: options.path.id, messageID: id, type: 'text', text: 'authoritative' }], ...patch,
     }
   }
@@ -121,7 +150,8 @@ describe('OpenCode request and authoritative response', () => {
     expect(new URL((f.fetcher.mock.calls[0]![0] as Request).url).searchParams.get('directory')).toBe(cwd)
     f.finish(); const rest = await collect(run)
     expect(rest.filter(e => e.type === 'adapter:completed')).toHaveLength(1)
-    expect(rest.at(-1)).toMatchObject({ type: 'adapter:completed', result: 'authoritative', usage: { inputTokens: 7, outputTokens: 3 } })
+    expect(rest.at(-1)).toMatchObject({ type: 'adapter:completed', result: 'authoritative' })
+    expect(rest.at(-1)).not.toHaveProperty('usage')
     expect(rest.at(-1)).not.toHaveProperty('usage.costCents')
     expect(f.client.session.abort).not.toHaveBeenCalled()
     expect(f.client.event.subscribe).not.toHaveBeenCalled()

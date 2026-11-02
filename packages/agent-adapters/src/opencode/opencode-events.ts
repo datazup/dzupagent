@@ -22,6 +22,7 @@ export class OpenCodeEvents {
   private count = 0
   private readonly calls = new Set<string>()
   private readonly results = new Set<string>()
+  private readonly unfinished = new Set<string>()
   readonly messages = new Set<string>()
   constructor(
     readonly sessionID: string,
@@ -51,6 +52,13 @@ export class OpenCodeEvents {
     if (part.sessionID !== this.sessionID || !this.messages.has(part.messageID) || part.type !== 'tool') return []
     if (typeof part.callID !== 'string' || !part.callID || typeof part.tool !== 'string' || !this.allowedTools.has(part.tool) || !record(part.state) || !record(part.state.input)) throw new Error('OpenCode returned an unadmitted tool')
     const key = `${part.messageID}:${part.callID}`
+    if (!['pending', 'running', 'completed', 'error'].includes(part.state.status)) throw new Error('Invalid OpenCode tool state')
+    if (part.state.status === 'pending' || part.state.status === 'running') {
+      if (!this.unfinished.has(key)) this.bound(key)
+      this.unfinished.add(key)
+    }
+    else this.unfinished.delete(key)
+    if (part.state.status === 'pending') return []
     const events: AgentEvent[] = []
     if (!this.calls.has(key)) {
       this.bound(key); this.bound(part.state.input); this.calls.add(key)
@@ -71,6 +79,8 @@ export class OpenCodeEvents {
   complete(result: OpenCodePromptResult): { text: string; events: AgentEvent[]; usage?: TokenUsage } {
     if (!record(result) || !record(result.info) || !this.acceptMessage(result.info) || !Array.isArray(result.parts)) throw new Error('OpenCode response does not match the active turn')
     if (result.info.error !== undefined) throw new Error('OpenCode assistant failed')
+    if (!Number.isFinite(result.info.time.completed) || result.info.time.completed! < result.info.time.created
+      || result.info.finish !== 'stop') throw new Error('OpenCode assistant did not complete successfully')
     const seen = new Set<string>()
     const events: AgentEvent[] = []
     let text = ''
@@ -81,6 +91,9 @@ export class OpenCodeEvents {
       if (part.type === 'text' && typeof part.text === 'string') { this.bound(part.text); text += part.text }
       else events.push(...this.tool(part))
     }
-    return { text, events, usage: usage(result.info) }
+    if (this.unfinished.size > 0) throw new Error('OpenCode tool execution is unfinished')
+    // The prompt response contains only the last assistant message. Until a
+    // complete turn transcript is measured, its tokens are not whole-run usage.
+    return { text, events }
   }
 }
