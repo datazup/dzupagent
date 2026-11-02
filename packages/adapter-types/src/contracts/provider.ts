@@ -10,3 +10,6 @@ export type AdapterProviderId =
   | 'ollama'
   | 'openrouter'
   | 'openai'
+  | 'pi'
+  | 'opencode'
+  | 'cline'

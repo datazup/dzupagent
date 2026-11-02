@@ -83,7 +83,7 @@ interface ProviderCompactionCapability {
   maxContextTokens: number
 }
 
-const PROVIDER_COMPACTION_MAP: Record<AdapterProviderId, ProviderCompactionCapability> = {
+const PROVIDER_COMPACTION_MAP: Partial<Record<AdapterProviderId, ProviderCompactionCapability>> = {
   claude: {
     supportsCompaction: true,
     preferredStrategy: 'summarize',
@@ -184,7 +184,7 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
   }
 
   canCompact(provider: AdapterProviderId): boolean {
-    return PROVIDER_COMPACTION_MAP[provider].supportsCompaction
+    return PROVIDER_COMPACTION_MAP[provider]?.supportsCompaction ?? false
   }
 
   shouldCompact(
@@ -195,6 +195,7 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
   ): boolean {
     this.lastProvider = provider
     const caps = PROVIDER_COMPACTION_MAP[provider]
+    if (!caps) return false
 
     const tokenThreshold = caps.maxContextTokens * this.tokenThresholdRatio
     if (tokenCount >= tokenThreshold) return true
@@ -206,6 +207,7 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
 
   getCompactionRequest(sessionId: string): CompactionRequest {
     const caps = PROVIDER_COMPACTION_MAP[this.lastProvider]
+    if (!caps) throw new Error(`Compaction is unsupported for provider '${this.lastProvider}'`)
     return {
       sessionId,
       strategy: caps.preferredStrategy,
