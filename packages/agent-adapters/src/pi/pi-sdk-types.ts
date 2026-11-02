@@ -121,7 +121,8 @@ export interface PiSdk {
   VERSION: string
   SettingsManager: { inMemory(settings: PiSettings, options: { projectTrusted: false }): unknown }
   DefaultResourceLoader: new (options: PiResourceOptions) => PiResourceLoader
-  ModelRuntime: { create(options: { authPath: string; modelsPath: null; modelsStorePath: string; allowModelNetwork: false; refreshOnCreate: false; signal: AbortSignal }): Promise<PiModelRuntime> }
+  AuthStorage: { create(authPath: string): PiCredentialStore }
+  ModelRuntime: { create(options: { credentials: PiCredentialStore; modelsPath: null; modelsStorePath: string; allowModelNetwork: false; refreshOnCreate: false; signal: AbortSignal }): Promise<PiModelRuntime> }
   SessionManager: {
     create(cwd: string, sessionDir: string): PiSessionManager
     findById(cwd: string, id: string, sessionDir: string): string | undefined
@@ -131,3 +132,11 @@ export interface PiSdk {
 }
 
 export type PiSdkLoader = () => Promise<PiSdk>
+
+/** Credentials stay in the SDK store; never serialize or expose them as events. */
+export interface PiCredentialStore {
+  read(providerId: string, options?: { signal?: AbortSignal }): Promise<unknown>
+  list(options?: { signal?: AbortSignal }): Promise<readonly { providerId: string; type: string }[]>
+  modify(providerId: string, update: (current: unknown) => Promise<unknown>, options?: { signal?: AbortSignal }): Promise<unknown>
+  delete(providerId: string, options?: { signal?: AbortSignal }): Promise<void>
+}

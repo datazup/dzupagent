@@ -2,7 +2,7 @@ import { realpathSync } from 'node:fs'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import { ForgeError } from '@dzupagent/core/events'
 import type { AdapterConfig, AgentInput, InteractionPolicy } from '../types.js'
-import type { PiExtensionFactory, PiSdk, PiSession, PiSessionManager } from './pi-sdk-types.js'
+import type { PiCredentialStore, PiExtensionFactory, PiSdk, PiSession, PiSessionManager } from './pi-sdk-types.js'
 
 export function piError(code: string, message: string): ForgeError {
   return new ForgeError({ code, message, recoverable: false, context: { providerId: 'pi' } })
@@ -81,6 +81,9 @@ export function piRunConfig(config: AdapterConfig, input: AgentInput): PiRunConf
   const provider = providerOptions['provider']
   if (typeof provider !== 'string' || !provider || typeof config.model !== 'string' || !config.model) {
     throw piError('CONFIG_INVALID', 'Pi requires an explicit provider and model')
+  }
+  if (provider !== 'openai' && provider !== 'anthropic') {
+    throw piError('CAPABILITY_DENIED', 'Pi currently supports only qualified OpenAI and Anthropic API-key profiles')
   }
   const timeoutMs = config.timeoutMs ?? 300_000
   const queueCapacity = providerOptions['queueCapacity'] ?? 256
@@ -169,8 +172,13 @@ export async function createPiSession(
   })
   await resourceLoader.reload()
   check()
+  const credentials = guardedPiCredentials(sdk.AuthStorage.create(join(config.agentDir, 'auth.json')), config.provider)
+  // Fail before runtime construction, then revalidate every SDK read to close
+  // logout/replacement races without consulting ambient credentials.
+  await credentials.read(config.provider, { signal })
+  check()
   const modelRuntime = await sdk.ModelRuntime.create({
-    authPath: join(config.agentDir, 'auth.json'), modelsPath: null,
+    credentials, modelsPath: null,
     modelsStorePath: join(config.agentDir, 'models-cache.json'),
     allowModelNetwork: false, refreshOnCreate: false, signal,
   })
@@ -184,4 +192,27 @@ export async function createPiSession(
   })
   // The caller owns late-session disposal, including cancellation during create.
   return session
+}
+
+export function guardedPiCredentials(store: PiCredentialStore, provider: string): PiCredentialStore {
+  const denied = () => piError('PROVIDER_AUTH_FAILED', 'Pi requires a valid API key in the selected private profile')
+  const selected = (id: string) => {
+    if ((provider !== 'openai' && provider !== 'anthropic') || id !== provider) throw denied()
+  }
+  return {
+    async read(id, options) {
+      selected(id)
+      let value: unknown
+      try { value = await store.read(id, options) } catch { throw denied() }
+      if (value === null || typeof value !== 'object' || !('type' in value) || value.type !== 'api_key'
+        || !('key' in value) || typeof value.key !== 'string' || value.key.trim().length === 0) throw denied()
+      return value
+    },
+    async list(options) {
+      try { return (await store.list(options)).filter(entry => entry.providerId === provider && entry.type === 'api_key') }
+      catch { throw denied() }
+    },
+    async modify() { throw denied() },
+    async delete() { throw denied() },
+  }
 }

@@ -3,8 +3,9 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PiAdapter } from '../pi/pi-adapter.js'
 import { PiEventQueue, PiRunUsage } from '../pi/pi-events.js'
+import { guardedPiCredentials } from '../pi/pi-session.js'
 import type { AdapterConfig, AgentCLIAdapter, AgentEvent, AgentInput } from '../types.js'
-import type { PiCreateOptions, PiEvent, PiMessage, PiResourceOptions, PiSdk, PiSession, PiSessionManager, PiToolCall, PiToolDecision, PiUsage } from '../pi/pi-sdk-types.js'
+import type { PiCredentialStore, PiCreateOptions, PiEvent, PiMessage, PiResourceOptions, PiSdk, PiSession, PiSessionManager, PiToolCall, PiToolDecision, PiUsage } from '../pi/pi-sdk-types.js'
 
 function deferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void
@@ -12,6 +13,45 @@ function deferred<T = void>() {
   const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no })
   return { promise, resolve, reject }
 }
+
+describe('Pi selected-profile credentials', () => {
+  function store(value: unknown): PiCredentialStore {
+    return {
+      read: vi.fn(async () => value),
+      list: vi.fn(async () => [{ providerId: 'openai', type: 'api_key' }, { providerId: 'anthropic', type: 'oauth' }]),
+      modify: vi.fn(async () => value), delete: vi.fn(async () => undefined),
+    }
+  }
+  it.each(['openai', 'anthropic'])('preserves the selected %s stored key without mutation', async provider => {
+    const value = { type: 'api_key', key: 'opaque-test-key' }
+    const underlying = store(value), guard = guardedPiCredentials(underlying, provider)
+    expect(await guard.read(provider)).toBe(value)
+    await expect(guard.modify(provider, async current => current)).rejects.toMatchObject({ code: 'PROVIDER_AUTH_FAILED' })
+    await expect(guard.delete(provider)).rejects.toMatchObject({ code: 'PROVIDER_AUTH_FAILED' })
+    expect(underlying.modify).not.toHaveBeenCalled()
+    expect(underlying.delete).not.toHaveBeenCalled()
+  })
+  it.each([undefined, null, {}, { type: 'oauth' }, { type: 'api_key' },
+    { type: 'api_key', key: '' }, { type: 'api_key', key: '  ' }])('rejects invalid stored credentials', async value => {
+    await expect(guardedPiCredentials(store(value), 'openai').read('openai')).rejects.toMatchObject({ code: 'PROVIDER_AUTH_FAILED' })
+  })
+  it('rejects other providers without accessing the underlying store and filters metadata', async () => {
+    const underlying = store({ type: 'api_key', key: 'opaque-test-key' })
+    const guard = guardedPiCredentials(underlying, 'openai')
+    await expect(guard.read('anthropic')).rejects.toMatchObject({ code: 'PROVIDER_AUTH_FAILED' })
+    expect(underlying.read).not.toHaveBeenCalled()
+    expect(await guard.list()).toEqual([{ providerId: 'openai', type: 'api_key' }])
+  })
+  it('fails when credentials disappear between checks or the store rejects', async () => {
+    const underlying = store(undefined)
+    vi.mocked(underlying.read).mockResolvedValueOnce({ type: 'api_key', key: 'opaque-test-key' })
+    const guard = guardedPiCredentials(underlying, 'openai')
+    await guard.read('openai')
+    await expect(guard.read('openai')).rejects.toMatchObject({ code: 'PROVIDER_AUTH_FAILED' })
+    vi.mocked(underlying.read).mockRejectedValueOnce(new Error('sensitive-store-diagnostic'))
+    await expect(guard.read('openai')).rejects.toMatchObject({ message: 'Pi requires a valid API key in the selected private profile' })
+  })
+})
 
 async function until(predicate: () => boolean) {
   for (let i = 0; i < 100 && !predicate(); i++) await Promise.resolve()
@@ -95,7 +135,7 @@ afterEach(() => {
 
 function fixtureConfig(overrides: Partial<AdapterConfig> = {}): AdapterConfig {
   return { model: 'test-model', workingDirectory: cwd,
-    providerOptions: { agentDir, sessionDir, provider: 'test-provider' }, ...overrides }
+    providerOptions: { agentDir, sessionDir, provider: 'openai' }, ...overrides }
 }
 
 function harness(plans: Plan[] = [session => session.answer()]) {
@@ -109,6 +149,11 @@ function harness(plans: Plan[] = [session => session.answer()]) {
   })
   const sdk: PiSdk = {
     VERSION: '1.5.0',
+    AuthStorage: { create: vi.fn(() => ({
+      read: vi.fn(async () => ({ type: 'api_key', key: 'opaque-test-key' })),
+      list: vi.fn(async () => [{ providerId: 'openai', type: 'api_key' }]),
+      modify: vi.fn(async () => undefined), delete: vi.fn(async () => undefined),
+    })) },
     SettingsManager: { inMemory: vi.fn(() => ({})) },
     DefaultResourceLoader: class {
       constructor(readonly options: PiResourceOptions) { resources.push(options) }
@@ -201,9 +246,10 @@ describe('Pi adapter contract and isolation', () => {
     expect(await adapter.healthCheck()).toMatchObject({ healthy: false, sdkInstalled: false })
   })
 
-  it.each(['version', 'exports'])('rejects an incompatible SDK %s', async condition => {
+  it.each(['version', 'exports', 'auth'])('rejects an incompatible SDK %s', async condition => {
     const h = harness()
     if (condition === 'version') h.sdk.VERSION = '1.4.0'
+    else if (condition === 'auth') h.sdk.AuthStorage = {} as PiSdk['AuthStorage']
     else h.sdk.ModelRuntime = {} as PiSdk['ModelRuntime']
     expect(terminal(await collect(h.adapter.execute({ prompt: 'hi' })))).toMatchObject({ code: 'ADAPTER_SDK_INCOMPATIBLE' })
     expect(h.sdk.createAgentSession).not.toHaveBeenCalled()
@@ -222,7 +268,8 @@ describe('Pi adapter contract and isolation', () => {
     expect(h.resources[0]!.systemPromptOverride('ambient system')).toBe('host system')
     expect(h.resources[0]!.appendSystemPromptOverride(['ambient append'])).toEqual([])
     expect(h.resources[0]!.extensionFactories).toHaveLength(1)
-    expect(h.sdk.ModelRuntime.create).toHaveBeenCalledWith({ authPath: join(agentDir, 'auth.json'),
+    expect(h.sdk.AuthStorage.create).toHaveBeenCalledWith(join(agentDir, 'auth.json'))
+    expect(h.sdk.ModelRuntime.create).toHaveBeenCalledWith({ credentials: expect.objectContaining({ read: expect.any(Function) }),
       modelsPath: null, modelsStorePath: join(agentDir, 'models-cache.json'), allowModelNetwork: false,
       refreshOnCreate: false, signal: expect.any(AbortSignal) })
     expect(h.sdk.createAgentSession).toHaveBeenCalledWith(expect.objectContaining({ cwd, agentDir,
@@ -635,8 +682,8 @@ describe('Pi resume, configuration and usage provenance', () => {
     const runtimeCalls = vi.mocked(h.sdk.ModelRuntime.create).mock.results
     const firstRuntime = await runtimeCalls[0]!.value
     const secondRuntime = await runtimeCalls[1]!.value
-    expect(firstRuntime.getModel).toHaveBeenCalledWith('test-provider', 'test-model')
-    expect(secondRuntime.getModel).toHaveBeenCalledWith('test-provider', 'changed')
+    expect(firstRuntime.getModel).toHaveBeenCalledWith('openai', 'test-model')
+    expect(secondRuntime.getModel).toHaveBeenCalledWith('openai', 'changed')
     expect(h.sessions[0]!.sessionId).not.toBe(h.sessions[1]!.sessionId)
   })
 

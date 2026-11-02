@@ -33,7 +33,8 @@ export class PiAdapter extends BaseSdkAdapter<PiSdk> {
       )
       if (sdk.VERSION !== '1.5.0' || typeof sdk.createAgentSession !== 'function' ||
           typeof sdk.DefaultResourceLoader !== 'function' || typeof sdk.SettingsManager?.inMemory !== 'function' ||
-          typeof sdk.ModelRuntime?.create !== 'function' || typeof sdk.SessionManager?.create !== 'function' ||
+          typeof sdk.ModelRuntime?.create !== 'function' || typeof sdk.AuthStorage?.create !== 'function' ||
+          typeof sdk.SessionManager?.create !== 'function' ||
           typeof sdk.SessionManager?.findById !== 'function' || typeof sdk.SessionManager?.open !== 'function') {
         throw piError('ADAPTER_SDK_INCOMPATIBLE', 'Pi requires the verified 1.5.0 SDK exports')
       }
