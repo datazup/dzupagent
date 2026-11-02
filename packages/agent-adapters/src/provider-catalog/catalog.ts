@@ -45,6 +45,8 @@ export interface ProviderCapabilities {
  */
 export interface ProviderCatalogEntry extends ProviderCapabilities, CatalogEntry {
   monitorIntrospection: CatalogEntry['monitorTier']
+  /** Optional SDK host requirement; does not raise the framework's Node 20 floor. */
+  minimumNodeVersion?: string
   /**
    * True only when a qualification receipt exists for product execution
    * (D17). Independent of `productIntegrated`, which describes UI surfacing.
@@ -72,27 +74,32 @@ function postureRef(id: string): CatalogEntry['posture'] {
   return { postureId: `adapter-posture/${id}`, version: 1 }
 }
 
-/** Reserved SDK hosts: upstream availability is not shipped adapter support. */
-function reservedSdkHost(providerId: AdapterProviderId, displayName: string, repo: string): ProviderCatalogEntry {
+/** Shipped SDK seams, deliberately excluded from product and HTTP execution. */
+function sdkHost(
+  providerId: AdapterProviderId, displayName: string, repo: string,
+  capabilityProfile: ProviderCatalogEntry['capabilityProfile'],
+  toolControlSupport: ProviderToolControlSupport,
+  usage: EventFidelity['usage'],
+  minimumNodeVersion?: string,
+): ProviderCatalogEntry {
   return {
     coordinates: { providerId, backend: 'sdk' }, displayName,
     capabilityProfile: {
-      supportsResume: false, supportsFork: false, supportsToolCalls: false,
-      emitsToolCalls: false, executesToolLoop: false, supportsStreaming: false, supportsCostUsage: false,
-      supportsZeroToolDispatch: false,
-      nativeToolControls: { mode: false, allowlist: false, blocklist: false },
+      ...capabilityProfile,
       providerRequestCorrelation: {
         idempotencyKey: { accepted: false, enforcement: 'none' },
         restartLookup: { supported: false, lookupBy: [] },
       },
     },
     monitorTier: 'none', posture: postureRef(`${providerId}-sdk`),
-    eventFidelity: { raw: false, normalized: false, artifact: false, governance: false, usage: 'none' },
+    // Usage is optional provider evidence. Missing usage remains unknown, never zero.
+    eventFidelity: { ...normalizedOnly, governance: true, usage },
     upstream: { repo, docsUrl: `https://github.com/${repo}#readme` },
-    runtimeExecution: false, productIntegrated: false, ...NOT_QUALIFIED,
+    runtimeExecution: true, productIntegrated: false, ...NOT_QUALIFIED,
     httpAdapterRouting: false, monitorIntrospection: 'none', supportsReplay: false,
     approvalSupport: 'host-gated', supportsPolicyProjection: false, supportsSkillProjection: false,
-    toolControlSupport: { mode: 'none', allowlist: 'none', blocklist: 'none' },
+    toolControlSupport,
+    ...(minimumNodeVersion ? { minimumNodeVersion } : {}),
   }
 }
 
@@ -321,7 +328,8 @@ export const PROVIDER_CATALOG = {
       supportsResume: false,
       supportsFork: false,
       supportsToolCalls: true,
-      emitsToolCalls: true,
+      // Plain text transport does not observe Crush's native tool execution.
+      emitsToolCalls: false,
       executesToolLoop: true,
       supportsStreaming: false,
       supportsCostUsage: false,
@@ -330,7 +338,8 @@ export const PROVIDER_CATALOG = {
     monitorTier: 'artifact-backed',
     posture: postureRef('crush-cli'),
     lifecycleRecipeRef: 'lifecycle/crush-cli',
-    eventFidelity: normalizedOnly,
+    // Usage is parsed from the private run database when a reader is available.
+    eventFidelity: { ...normalizedOnly, usage: 'parsed' },
     upstream: {
       repo: 'charmbracelet/crush',
       docsUrl: 'https://github.com/charmbracelet/crush#readme',
@@ -345,7 +354,7 @@ export const PROVIDER_CATALOG = {
     approvalSupport: 'provider-config',
     supportsPolicyProjection: true,
     supportsSkillProjection: true,
-    toolControlSupport: { mode: 'none', allowlist: 'none', blocklist: 'none' },
+    toolControlSupport: { mode: 'native', allowlist: 'native', blocklist: 'native' },
   },
   'gemini-sdk': {
     coordinates: { providerId: 'gemini-sdk', backend: 'sdk' },
@@ -472,7 +481,25 @@ export const PROVIDER_CATALOG = {
     supportsSkillProjection: true,
     toolControlSupport: { mode: 'native', allowlist: 'native', blocklist: 'native' },
   },
-  pi: reservedSdkHost('pi', 'Pi SDK (@earendil-works/pi-coding-agent)', 'earendil-works/pi'),
-  opencode: reservedSdkHost('opencode', 'OpenCode SDK (@opencode-ai/sdk)', 'anomalyco/opencode'),
-  cline: reservedSdkHost('cline', 'Cline SDK (@cline/sdk)', 'cline/cline'),
+  // Pi resume uses explicit host-owned session roots. Fork and host sandbox/budget
+  // controls remain unsupported; tool filters do not imply zero-dispatch proof.
+  pi: sdkHost('pi', 'Pi SDK (@earendil-works/pi-coding-agent)', 'earendil-works/pi', {
+    supportsResume: true, supportsFork: false, supportsToolCalls: true,
+    emitsToolCalls: true, executesToolLoop: true, supportsStreaming: true, supportsCostUsage: true,
+    supportsZeroToolDispatch: false,
+    nativeToolControls: { mode: false, allowlist: true, blocklist: true },
+  }, { mode: 'none', allowlist: 'native', blocklist: 'native' }, 'native', '22.19.0'),
+  // OpenCode attaches only to an explicit loopback host; no owned-server mode.
+  // A final assistant message is not a measured whole-turn usage transcript.
+  opencode: sdkHost('opencode', 'OpenCode SDK (@opencode-ai/sdk)', 'anomalyco/opencode', {
+    supportsResume: true, supportsFork: false, supportsToolCalls: true,
+    emitsToolCalls: true, executesToolLoop: true, supportsStreaming: true, supportsCostUsage: false,
+    nativeToolControls: { allowlist: true, blocklist: true },
+  }, { mode: 'none', allowlist: 'native', blocklist: 'native' }, 'none'),
+  // Cline is a standalone subprocess SDK host. No resume, hub or fork mode.
+  cline: sdkHost('cline', 'Cline SDK (@cline/sdk)', 'cline/cline', {
+    supportsResume: false, supportsFork: false, supportsToolCalls: true,
+    emitsToolCalls: true, executesToolLoop: true, supportsStreaming: true, supportsCostUsage: false,
+    nativeToolControls: { mode: true, allowlist: false, blocklist: false },
+  }, { mode: 'native', allowlist: 'none', blocklist: 'none' }, 'native', '22.0.0'),
 } satisfies Record<AdapterProviderId, ProviderCatalogEntry>

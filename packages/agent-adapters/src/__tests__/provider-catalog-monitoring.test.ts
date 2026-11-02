@@ -6,6 +6,9 @@ import {
   getProviderCapabilities,
   type ProviderCatalogEntry,
 } from '../provider-catalog.js'
+import { PiAdapter } from '../pi/pi-adapter.js'
+import { OpenCodeAdapter } from '../opencode/opencode-adapter.js'
+import { ClineAdapter } from '../cline/cline-adapter.js'
 
 const EXPECTED_PROVIDERS = [
   'claude',
@@ -21,28 +24,51 @@ const EXPECTED_PROVIDERS = [
 ] as const
 
 describe('monitoring provider catalog contract (WP-M1.2)', () => {
-  it.each(['pi', 'opencode', 'cline'] as const)('keeps reserved %s SDK support unqualified', (id) => {
+  it.each(['pi', 'opencode', 'cline'] as const)('describes shipped %s SDK support without promoting execution', (id) => {
     const entry = PROVIDER_CATALOG[id]
     expect(() => assertProviderCatalogEntry(entry, id)).not.toThrow()
     expect(entry.coordinates).toEqual({ providerId: id, backend: 'sdk' })
     expect(entry.monitorTier).toBe('none')
     expect(entry.monitorIntrospection).toBe('none')
-    expect(entry.eventFidelity).toEqual({ raw: false, normalized: false, artifact: false, governance: false, usage: 'none' })
+    expect(entry.eventFidelity).toEqual({ raw: false, normalized: true, artifact: false, governance: true, usage: id === 'opencode' ? 'none' : 'native' })
+    const adapters = {
+      pi: new PiAdapter(),
+      opencode: new OpenCodeAdapter(),
+      cline: new ClineAdapter({ profileDir: '/fixture/profile', provider: 'fixture', model: 'fixture' }),
+    }
     expect(entry.capabilityProfile).toEqual({
-      supportsResume: false, supportsFork: false, supportsToolCalls: false,
-      emitsToolCalls: false, executesToolLoop: false, supportsStreaming: false, supportsCostUsage: false,
-      supportsZeroToolDispatch: false,
-      nativeToolControls: { mode: false, allowlist: false, blocklist: false },
+      ...adapters[id].getCapabilities(),
       providerRequestCorrelation: {
         idempotencyKey: { accepted: false, enforcement: 'none' },
         restartLookup: { supported: false, lookupBy: [] },
       },
     })
-    for (const field of ['runtimeExecution', 'productIntegrated', 'httpAdapterRouting', 'supportsReplay', 'supportsPolicyProjection', 'supportsSkillProjection'] as const) {
+    expect(entry.runtimeExecution).toBe(true)
+    expect(entry.runnable).toBe(false)
+    expect(entry.qualificationReceiptId).toBeNull()
+    for (const field of ['productIntegrated', 'httpAdapterRouting', 'supportsReplay', 'supportsPolicyProjection', 'supportsSkillProjection'] as const) {
       expect(entry[field], field).toBe(false)
     }
     expect(entry.approvalSupport).toBe('host-gated')
-    expect(entry.toolControlSupport).toEqual({ mode: 'none', allowlist: 'none', blocklist: 'none' })
+    expect(entry.capabilityProfile.supportsFork).toBe(false)
+  })
+
+  it('records provider-specific Node floors and only verified tool controls', () => {
+    expect(PROVIDER_CATALOG.pi.minimumNodeVersion).toBe('22.19.0')
+    expect(PROVIDER_CATALOG.cline.minimumNodeVersion).toBe('22.0.0')
+    expect(PROVIDER_CATALOG.pi.capabilityProfile.supportsZeroToolDispatch).toBe(false)
+    for (const id of ['pi', 'opencode'] as const) {
+      expect(PROVIDER_CATALOG[id].toolControlSupport).toEqual({ mode: 'none', allowlist: 'native', blocklist: 'native' })
+    }
+    expect(PROVIDER_CATALOG.cline.toolControlSupport).toEqual({ mode: 'native', allowlist: 'none', blocklist: 'none' })
+  })
+
+  it('does not confuse Crush native tools with observable events or guaranteed usage', () => {
+    expect(PROVIDER_CATALOG.crush.capabilityProfile).toMatchObject({
+      supportsToolCalls: true, emitsToolCalls: false, executesToolLoop: true,
+      supportsStreaming: false, supportsCostUsage: false,
+    })
+    expect(PROVIDER_CATALOG.crush.eventFidelity.usage).toBe('parsed')
   })
 
   it('carries a complete CatalogEntry for all ten existing adapters', () => {

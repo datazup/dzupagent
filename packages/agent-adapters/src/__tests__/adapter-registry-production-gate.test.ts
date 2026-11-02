@@ -8,6 +8,8 @@ import type {
   AgentInput,
 } from '../types.js'
 import { stubCapabilities } from './adapter-capability-stub.js'
+import { PiAdapter, OpenCodeAdapter, ClineAdapter } from '../providers.js'
+import { HTTP_ROUTABLE_PROVIDER_IDS, getProductProviders, getRunnableProviders } from '../provider-catalog.js'
 
 function createMockAdapter(providerId: AdapterProviderId): AgentCLIAdapter {
   return {
@@ -31,6 +33,25 @@ function createMockAdapter(providerId: AdapterProviderId): AgentCLIAdapter {
 }
 
 describe('ProviderAdapterRegistry production gate', () => {
+  it.each(['pi', 'opencode', 'cline'] as const)('registers %s generically while excluding it from product, HTTP and runnable routes', (id) => {
+    const adapters = {
+      pi: new PiAdapter(),
+      opencode: new OpenCodeAdapter(),
+      cline: new ClineAdapter({ profileDir: '/fixture/profile', provider: 'fixture', model: 'fixture' }),
+    }
+    const adapter = adapters[id]
+    const registry = new ProviderAdapterRegistry()
+    expect(registry.register(adapter)).toBe(registry)
+    expect(registry.get(id)).toBe(adapter)
+    expect(registry.listAdapters()).toEqual([id])
+    const production = new ProviderAdapterRegistry()
+    production.registerProductionAdapters([adapter])
+    expect(production.listAdapters()).toEqual([])
+    expect(getProductProviders()).not.toContain(id)
+    expect(getRunnableProviders()).not.toContain(id)
+    expect(HTTP_ROUTABLE_PROVIDER_IDS).not.toContain(id)
+  })
+
   describe('registerProductionAdapters', () => {
     it('registers adapter with providerId "claude" (productIntegrated: true)', () => {
       const registry = new ProviderAdapterRegistry()
