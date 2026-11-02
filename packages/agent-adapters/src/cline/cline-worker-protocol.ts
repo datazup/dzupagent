@@ -25,7 +25,7 @@ export interface ClineUsage { inputTokens: number; outputTokens: number; cachedI
 export type ClineChildMessage =
   | (ClineBinding & { type: 'ready' })
   | (ClineBinding & { type: 'event'; event: ClineStreamEvent })
-  | (ClineBinding & { type: 'approval_request'; requestId: string; toolName: string })
+  | (ClineBinding & { type: 'approval_request'; requestId: string; toolName: string; toolCallId: string; action: string })
   | (ClineBinding & { type: 'result'; success: boolean; text: string; reason: string; usage?: ClineUsage })
   | (ClineBinding & { type: 'fatal'; code: string })
 
@@ -61,7 +61,9 @@ export function isChildMessage(value: unknown): value is ClineChildMessage {
   switch (value.type) {
     case 'ready': return keys(value, BASE)
     case 'fatal': return keys(value, [...BASE, 'code']) && short(value.code)
-    case 'approval_request': return keys(value, [...BASE, 'requestId', 'toolName']) && short(value.requestId) && short(value.toolName)
+    case 'approval_request': return keys(value, [...BASE, 'requestId', 'toolName', 'toolCallId', 'action'])
+      && short(value.requestId) && short(value.toolName) && short(value.toolCallId)
+      && typeof value.action === 'string' && value.action.length > 0 && value.action.length <= 8192
     case 'event': {
       if (!keys(value, [...BASE, 'event']) || !record(value.event)) return false
       const event = value.event

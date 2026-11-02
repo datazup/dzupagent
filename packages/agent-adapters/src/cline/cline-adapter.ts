@@ -17,7 +17,8 @@ export interface ClineAdapterConfig extends AdapterConfig {
   enableTools?: boolean
   approvalTimeoutMs?: number
 }
-interface PendingApproval { respond(approved: boolean): void; dispose(): void; expiresAt: number }
+type ResolutionSource = 'caller' | 'auto-deny' | 'timeout-fallback'
+interface PendingApproval { respond(approved: boolean, source?: ResolutionSource): void; dispose(): void; expiresAt: number }
 
 /** Standalone Cline SDK: one local Node worker per execution, never a shared hub. */
 export class ClineAdapter implements AgentCLIAdapter {
@@ -55,7 +56,8 @@ export class ClineAdapter implements AgentCLIAdapter {
 
   private async *run(input: AgentInput, config: ClineAdapterConfig, controller: AbortController): AsyncGenerator<AgentEvent, void, undefined> {
     const binding: ClineBinding = { version: 1, runId: randomUUID(), sessionId: randomUUID() }
-    const queue = new ClineQueue<ClineChildMessage>()
+    const queue = new ClineQueue<ClineChildMessage | { type: 'resolution_wake' }>()
+    const resolutions: AgentEvent[] = []
     const began = Date.now()
     let transport: ClineTransport | undefined
     let terminal = false
@@ -122,8 +124,10 @@ export class ClineAdapter implements AgentCLIAdapter {
       const start = makeStart(input, config, binding)
       let ready = false
       while (!failure) {
+        while (resolutions.length) yield resolutions.shift()!
         const message = await queue.next()
         if (failure || !message) break
+        if (message.type === 'resolution_wake') continue
         if (!ready) {
           if (message.type !== 'ready') { fail('CLINE_IPC_ORDER'); break }
           ready = true
@@ -135,24 +139,33 @@ export class ClineAdapter implements AgentCLIAdapter {
           if (ownedApprovals.size >= CLINE_LIMITS.approvals || ownedApprovals.has(message.requestId)) { fail('CLINE_APPROVAL_LIMIT'); break }
           const id = `${binding.runId}:${message.requestId}`
           const expiresAt = Date.now() + start.approvalTimeoutMs
+          const question = `Allow Cline tool ${message.toolName} (${message.toolCallId})?\n${message.action}`
+          let settled = false
           ownedApprovals.add(message.requestId)
-          const respond = (approved: boolean) => {
+          const respond = (approved: boolean, source: ResolutionSource = 'caller') => {
+            if (settled) return
+            settled = true
             clearTimeout(expiry)
             this.approvals.delete(id)
             ownedApprovals.delete(message.requestId)
+            const allowed = approved && !controller.signal.aborted && !failure && !terminal && Date.now() < expiresAt
+            resolutions.push({ type: 'adapter:interaction_resolved', providerId: this.providerId, interactionId: id,
+              question, answer: allowed ? 'yes' : 'no', resolvedBy: source, timestamp: Date.now(), correlationId: input.correlationId })
+            queue.push({ type: 'resolution_wake' })
             send({ ...binding, type: 'approval_response', requestId: message.requestId,
-              approved: approved && !controller.signal.aborted && !failure && !terminal && Date.now() < expiresAt })
+              approved: allowed })
           }
-          const expiry = setTimeout(() => respond(false), start.approvalTimeoutMs)
+          const expiry = setTimeout(() => respond(false, 'timeout-fallback'), start.approvalTimeoutMs)
           this.approvals.set(id, { respond, expiresAt, dispose: () => {
-            clearTimeout(expiry); this.approvals.delete(id); ownedApprovals.delete(message.requestId)
+            respond(false, 'auto-deny')
           } })
-          if (config.interactionPolicy?.mode === 'auto-deny' || !start.enableTools) respond(false)
+          if (config.interactionPolicy?.mode === 'auto-deny' || !start.enableTools) respond(false, 'auto-deny')
           else yield { type: 'adapter:interaction_required', providerId: this.providerId, interactionId: id,
-            question: `Allow Cline tool ${message.toolName}?`, kind: 'permission', expiresAt,
+            question, kind: 'permission', expiresAt,
             timestamp: Date.now(), correlationId: input.correlationId }
         } else if (message.type === 'result') {
           await closeTransport()
+          while (resolutions.length) yield resolutions.shift()!
           terminal = true
           if (failure) yield failed(binding.sessionId, failure, input.correlationId)
           else if (message.success) yield { type: 'adapter:completed', providerId: this.providerId,
@@ -163,8 +176,11 @@ export class ClineAdapter implements AgentCLIAdapter {
         } else if (message.type === 'fatal') { fail(message.code); break }
         else { fail('CLINE_IPC_ORDER'); break }
       }
+      while (resolutions.length) yield resolutions.shift()!
       if (!terminal) { await closeTransport(); terminal = true; yield failed(binding.sessionId, failure ?? 'CLINE_WORKER_EXITED', input.correlationId) }
     } catch {
+      await closeTransport().catch(() => undefined)
+      while (resolutions.length) yield resolutions.shift()!
       if (!terminal) { terminal = true; yield failed(binding.sessionId, failure ?? 'CLINE_WORKER_START_FAILED', input.correlationId) }
     } finally {
       terminal = true

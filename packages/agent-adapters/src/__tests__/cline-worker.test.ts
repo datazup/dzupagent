@@ -113,6 +113,7 @@ describe('Cline isolated worker', () => {
     await flush()
     const request = h.output.find(item => item.type === 'approval_request')!
     expect(request.type).toBe('approval_request')
+    expect(request).toMatchObject({ toolCallId: 'call', action: '{}' })
     if (request.type !== 'approval_request') throw new Error('missing approval')
     h.receive({ ...binding, type: 'approval_response', requestId: request.requestId, approved })
     h.receive({ ...binding, type: 'approval_response', requestId: request.requestId, approved: !approved })

@@ -7,6 +7,7 @@ import type { ClineBinding, ClineChildMessage, ClineStart } from './cline-worker
 import { boundedFrame, CLINE_LIMITS, isParentMessage, sameBinding } from './cline-worker-protocol.js'
 import { clineStreamEvent, clineUsage } from './cline-events.js'
 import { clineChildEnv, settleWithin } from './cline-worker-transport.js'
+import { redactProbeText } from '../introspection/probe-runner.js'
 
 export interface ClineWorkerChannel {
   send(message: ClineChildMessage): Promise<void>
@@ -111,13 +112,21 @@ export function runClineWorker(
       if (cancelled) throw new Error('CLINE_CANCELLED')
       const requestToolApproval = async (request: ClineApprovalRequest): Promise<ClineApprovalResult> => {
         if (cancelled || terminal || request.sessionId !== binding.sessionId || !start.enableTools || approvals.size >= CLINE_LIMITS.approvals) return { approved: false }
+        let action: string
+        try {
+          const encoded = JSON.stringify(request.input, (key, value: unknown) =>
+            /(?:token|password|secret|credential|api[_-]?key|authorization)/iu.test(key) ? '[redacted]' : value)
+          if (typeof encoded !== 'string' || encoded.length === 0 || encoded.length > 8192
+            || typeof request.toolCallId !== 'string' || !request.toolCallId || request.toolCallId.length > 512) return { approved: false }
+          action = redactProbeText(encoded)
+        } catch { return { approved: false } }
         const requestId = randomUUID()
         let timer!: ReturnType<typeof setTimeout>
         const answer = new Promise<ClineApprovalResult>(resolve => {
           timer = setTimeout(() => { approvals.delete(requestId); resolve({ approved: false, reason: 'Permission expired' }) }, start.approvalTimeoutMs)
           approvals.set(requestId, { timer, resolve })
         })
-        try { await send({ ...binding, type: 'approval_request', requestId, toolName: request.toolName }) }
+        try { await send({ ...binding, type: 'approval_request', requestId, toolName: request.toolName, toolCallId: request.toolCallId, action }) }
         catch { clearTimeout(timer); approvals.get(requestId)?.resolve({ approved: false }); approvals.delete(requestId); cancel('CLINE_IPC_SEND_FAILED') }
         return answer
       }

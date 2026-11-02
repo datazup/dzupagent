@@ -97,29 +97,61 @@ describe('standalone Cline adapter', () => {
   })
 
   it('denies unknown responses and routes only exact pending permission IDs', async () => {
-    const h = fixture((emit, b) => emit({ ...b, type: 'approval_request', requestId: 'request', toolName: 'read_file' }))
+    const h = fixture((emit, b) => emit({ ...b, type: 'approval_request', requestId: 'request', toolName: 'read_file', toolCallId: 'call', action: '{"path":"file-a"}' }))
     const adapter = new ClineAdapter(config, h.factory)
     const stream = adapter.execute({ prompt: 'test' })
     await stream.next()
     const permission = (await stream.next()).value
     expect(permission).toMatchObject({ type: 'adapter:interaction_required', kind: 'permission' })
+    expect(permission && 'question' in permission ? permission.question : '').toContain('file-a')
     if (!permission || permission.type !== 'adapter:interaction_required') throw new Error('missing permission')
     expect(adapter.respondInteraction('other', 'yes')).toBe(false)
     expect(adapter.respondInteraction(permission.interactionId, 'yes')).toBe(true)
     expect(adapter.respondInteraction(permission.interactionId, 'yes')).toBe(false)
     expect(h.sent).toContainEqual({ ...h.binding(), type: 'approval_response', requestId: 'request', approved: true })
     h.emit(complete(h.binding()))
-    expect(terminal(await collect(stream))).toHaveLength(1)
+    const rest = await collect(stream)
+    expect(terminal(rest)).toHaveLength(1)
+    expect(rest.filter(event => event.type === 'adapter:interaction_resolved')).toEqual([
+      expect.objectContaining({ interactionId: permission.interactionId, answer: 'yes', resolvedBy: 'caller' }),
+    ])
   })
 
   it('auto-denies by policy and never prompts the caller', async () => {
     const h = fixture((emit, b) => {
-      emit({ ...b, type: 'approval_request', requestId: 'r', toolName: 'read_file' })
+      emit({ ...b, type: 'approval_request', requestId: 'r', toolName: 'read_file', toolCallId: 'call', action: '{}' })
       emit(complete(b))
     })
     const events = await collect(new ClineAdapter({ ...config, interactionPolicy: { mode: 'auto-deny' } }, h.factory).execute({ prompt: 'test' }))
     expect(h.sent).toContainEqual({ ...h.binding(), type: 'approval_response', requestId: 'r', approved: false })
     expect(events.some(event => event.type === 'adapter:interaction_required')).toBe(false)
+    expect(events.filter(event => event.type === 'adapter:interaction_resolved')).toEqual([
+      expect.objectContaining({ answer: 'no', resolvedBy: 'auto-deny' }),
+    ])
+  })
+
+  it('distinguishes same-name tool actions and resolves each once', async () => {
+    const h = fixture((emit, b) => {
+      emit({ ...b, type: 'approval_request', requestId: 'first', toolName: 'run_command', toolCallId: 'call-a', action: '{"command":"pwd"}' })
+      emit({ ...b, type: 'approval_request', requestId: 'second', toolName: 'run_command', toolCallId: 'call-b', action: '{"command":"rm file-a"}' })
+    })
+    const adapter = new ClineAdapter(config, h.factory)
+    const stream = adapter.execute({ prompt: 'test', correlationId: 'correlation' })
+    await stream.next()
+    const first = (await stream.next()).value
+    if (!first || first.type !== 'adapter:interaction_required') throw new Error('missing first permission')
+    expect(first.question).toContain('call-a'); expect(first.question).toContain('pwd')
+    adapter.respondInteraction(first.interactionId, 'yes')
+    expect((await stream.next()).value).toMatchObject({ type: 'adapter:interaction_resolved', resolvedBy: 'caller', correlationId: 'correlation' })
+    const second = (await stream.next()).value
+    if (!second || second.type !== 'adapter:interaction_required') throw new Error('missing second permission')
+    expect(second.question).toContain('call-b'); expect(second.question).toContain('rm file-a')
+    adapter.respondInteraction(second.interactionId, 'no')
+    h.emit(complete(h.binding()))
+    const rest = await collect(stream)
+    expect(rest.filter(event => event.type === 'adapter:interaction_resolved')).toEqual([
+      expect.objectContaining({ interactionId: second.interactionId, answer: 'no', correlationId: 'correlation' }),
+    ])
   })
 
   it('wakes pending next on return, sends cancellation and shuts down once', async () => {
