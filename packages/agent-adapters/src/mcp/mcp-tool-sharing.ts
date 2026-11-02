@@ -11,7 +11,7 @@
  */
 
 import { DzupAgentMCPServer } from "@dzupagent/core/mcp";
-import type { DzupEventBus } from "@dzupagent/core/events";
+import { ForgeError, type DzupEventBus } from "@dzupagent/core/events";
 import type {
   MCPToolDescriptor,
   MCPRequest,
@@ -197,6 +197,15 @@ export class MCPToolSharingBridge {
     const toolList = this.buildToolList();
 
     switch (providerId) {
+      case "pi":
+      case "opencode":
+      case "cline":
+        throw new ForgeError({
+          code: "CAPABILITY_DENIED",
+          message: `MCP tool sharing is not implemented for ${providerId}`,
+          recoverable: false,
+          context: { providerId, capability: "mcp-tool-sharing" },
+        });
       case "claude":
         this.recordMode(providerId, "native");
         return this.buildClaudeConfig(toolList, providerId);
