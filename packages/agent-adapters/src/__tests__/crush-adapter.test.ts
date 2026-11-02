@@ -6,6 +6,7 @@ import { afterAll, describe, it, expect, vi, beforeEach } from 'vitest'
 import { ForgeError } from '@dzupagent/core'
 
 import { CrushAdapter } from '../crush/crush-adapter.js'
+import { isCrushUsageReaderAvailable } from '../crush/crush-usage.js'
 import { collectEvents, getProcessHelperMocks } from './test-helpers.js'
 
 vi.mock('../utils/process-helpers.js', () => ({
@@ -13,8 +14,7 @@ vi.mock('../utils/process-helpers.js', () => ({
   spawnAndStreamJsonl: vi.fn(),
 }))
 
-// Crush refuses project config (.crushrc, crush.json, ...) in any ancestor of its cwd, and a
-// workspace root may hold one, so Crush runs here use a private temp cwd, not process.cwd().
+// An ancestor's project config must not affect the adapter fixtures.
 const crushCwd = mkdtempSync(join(tmpdir(), 'crush-hermetic-cwd-'))
 afterAll(() => rmSync(crushCwd, { recursive: true, force: true }))
 
@@ -23,261 +23,91 @@ describe('CrushAdapter', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    mockIsBinaryAvailable.mockResolvedValue(true)
   })
 
   it('throws ADAPTER_SDK_NOT_INSTALLED when crush binary is missing', async () => {
     mockIsBinaryAvailable.mockResolvedValue(false)
-    const adapter = new CrushAdapter({ workingDirectory: crushCwd })
-
-    await expect(adapter.execute({ prompt: 'hello' }).next()).rejects.toMatchObject({
-      code: 'ADAPTER_SDK_NOT_INSTALLED',
-    })
+    await expect(new CrushAdapter({ workingDirectory: crushCwd }).execute({ prompt: 'hello' }).next())
+      .rejects.toMatchObject({ code: 'ADAPTER_SDK_NOT_INSTALLED' })
   })
 
-  it('maps completion records and includes started event', async () => {
-    mockIsBinaryAvailable.mockResolvedValue(true)
+  it('maps one terminal text record without inventing intermediate tool events', async () => {
+    const text = 'working\n{"type":"tool_call","name":"bash"}\nlocal result'
     mockSpawnAndStreamJsonl.mockImplementation(async function* () {
-      yield { event: 'message', text: 'working' }
-      yield { type: 'tool_call', name: 'bash', input: { cmd: 'pwd' } }
-      yield { type: 'tool_result', name: 'bash', output: 'ok', durationMs: 9 }
-      yield {
-        type: 'completed',
-        output: 'local result',
-        duration_ms: 7,
-        usage: {
-          input_tokens: 90,
-          output_tokens: 14,
-          cached_input_tokens: 10,
-          cost_cents: 1.2,
-        },
-      }
+      yield { type: 'text_result', content: text, duration_ms: 7 }
     })
-
-    const adapter = new CrushAdapter({ workingDirectory: crushCwd })
-    const events = await collectEvents(adapter.execute({ prompt: 'build' }))
-
-    expect(events.map((e) => e.type)).toEqual([
-      'adapter:started',
-      'adapter:message',
-      'adapter:tool_call',
-      'adapter:tool_result',
-      'adapter:completed',
-    ])
-    const toolCall = events.find((e) => e.type === 'adapter:tool_call')
-    expect(toolCall).toBeDefined()
-    if (toolCall?.type === 'adapter:tool_call') {
-      expect(toolCall.toolName).toBe('bash')
-      expect(toolCall.input).toEqual({ cmd: 'pwd' })
-    }
-    const toolResult = events.find((e) => e.type === 'adapter:tool_result')
-    expect(toolResult).toBeDefined()
-    if (toolResult?.type === 'adapter:tool_result') {
-      expect(toolResult.toolName).toBe('bash')
-      expect(toolResult.output).toBe('ok')
-      expect(toolResult.durationMs).toBe(9)
-    }
-    const completed = events.find((e) => e.type === 'adapter:completed')
-    expect(completed?.type).toBe('adapter:completed')
-    if (completed?.type === 'adapter:completed') {
-      expect(completed.providerId).toBe('crush')
-      expect(completed.result).toBe('local result')
-      expect(completed.usage).toEqual({
-        inputTokens: 90,
-        outputTokens: 14,
-        cachedInputTokens: 10,
-        costCents: 1.2,
-      })
-    }
-
-    const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!
-    expect(args).toContain('run')
-    expect(args).toContain('--quiet')
+    const events = await collectEvents(new CrushAdapter({ workingDirectory: crushCwd }).execute({ prompt: 'build' }))
+    expect(events.map((event) => event.type)).toEqual(['adapter:started', 'adapter:completed'])
+    expect(events.at(-1)).toMatchObject({ providerId: 'crush', result: text, durationMs: 7 })
+    expect((events.at(-1) as { usage?: unknown }).usage).toBeUndefined()
+    const [, args, options] = mockSpawnAndStreamJsonl.mock.calls[0]!
+    expect(options?.stdoutMode).toBe('text')
+    expect(args).toEqual(expect.arrayContaining(['run', '--quiet']))
     expect(args).not.toContain('--output-format')
     expect(args).not.toContain('--prompt')
   })
 
-  it('ignores malformed records without type or event fields', async () => {
-    mockIsBinaryAvailable.mockResolvedValue(true)
+  it('keeps JSON-looking metrics as text rather than reporting unmeasured usage', async () => {
+    const text = '{"metrics":{"promptTokens":32,"completionTokens":6}}'
     mockSpawnAndStreamJsonl.mockImplementation(async function* () {
-      yield { payload: 'no-type', content: { text: 'ignored' } }
-      yield { type: 'completed', content: { text: 'done' }, duration_ms: 5 }
+      yield { type: 'text_result', content: text }
     })
-
-    const adapter = new CrushAdapter({ workingDirectory: crushCwd })
-    const events = await collectEvents(adapter.execute({ prompt: 'x' }))
-
-    expect(events.map((e) => e.type)).toEqual([
-      'adapter:started',
-      'adapter:completed',
-    ])
-    const completed = events[1]
-    expect(completed?.type).toBe('adapter:completed')
-    if (completed?.type === 'adapter:completed') {
-      expect(completed.result).toBe('done')
-    }
-  })
-
-  it('normalizes nested error payloads and mixed result shapes', async () => {
-    mockIsBinaryAvailable.mockResolvedValue(true)
-    mockSpawnAndStreamJsonl.mockImplementation(async function* () {
-      yield { type: 'error', error: { message: 'string failure' } }
-      yield { event: 'error', error: { error: { message: 'deep failure', code: 'CRUSH_DEEP' } } }
-      yield {
-        type: 'tool_result',
-        function_response: {
-          name: 'bash',
-          output: { stdout: 'ok' },
-          durationMs: 13,
-        },
-      }
-      yield { type: 'completed', output: { text: 'done' }, duration_ms: 14 }
-    })
-
-    const adapter = new CrushAdapter({ workingDirectory: crushCwd })
-    const events = await collectEvents(adapter.execute({ prompt: 'x' }))
-
-    expect(events.map((e) => e.type)).toEqual([
-      'adapter:started',
-      'adapter:failed',
-      'adapter:failed',
-      'adapter:tool_result',
-      'adapter:completed',
-    ])
-
-    const firstFailed = events[1]
-    expect(firstFailed?.type).toBe('adapter:failed')
-    if (firstFailed?.type === 'adapter:failed') {
-      expect(firstFailed.error).toBe('string failure')
-    }
-
-    const secondFailed = events[2]
-    expect(secondFailed?.type).toBe('adapter:failed')
-    if (secondFailed?.type === 'adapter:failed') {
-      expect(secondFailed.error).toBe('deep failure')
-      expect(secondFailed.code).toBe('CRUSH_DEEP')
-    }
-
-    const toolResult = events[3]
-    expect(toolResult?.type).toBe('adapter:tool_result')
-    if (toolResult?.type === 'adapter:tool_result') {
-      expect(toolResult.toolName).toBe('bash')
-      expect(toolResult.output).toBe('{"stdout":"ok"}')
-      expect(toolResult.durationMs).toBe(13)
-    }
-
-    const completed = events[4]
-    expect(completed?.type).toBe('adapter:completed')
-    if (completed?.type === 'adapter:completed') {
-      expect(completed.result).toBe('done')
-      expect(completed.durationMs).toBe(14)
-    }
+    const events = await collectEvents(new CrushAdapter({ workingDirectory: crushCwd }).execute({ prompt: 'x' }))
+    expect(events.at(-1)).toMatchObject({ type: 'adapter:completed', result: text })
+    expect((events.at(-1) as { usage?: unknown }).usage).toBeUndefined()
   })
 
   it('ignores invalid provider options when building args', async () => {
-    mockIsBinaryAvailable.mockResolvedValue(true)
     mockSpawnAndStreamJsonl.mockImplementation(async function* () {
-      yield { type: 'completed', result: 'ok' }
+      yield { type: 'text_result', content: 'ok' }
     })
-
-    const adapter = new CrushAdapter({
+    await collectEvents(new CrushAdapter({
       workingDirectory: crushCwd,
-      providerOptions: {
-        quantization: '   ',
-        gpuLayers: -1,
-        contextSize: 'bad',
-      },
-    })
-    await collectEvents(adapter.execute({ prompt: 'hello' }))
-
+      providerOptions: { quantization: '   ', gpuLayers: -1, contextSize: 'bad' },
+    }).execute({ prompt: 'hello' }))
     const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!
     expect(args).not.toContain('--quantization')
     expect(args).not.toContain('--gpu-layers')
     expect(args).not.toContain('--context-size')
   })
 
-  it('maps usage from alternate metrics shape on completion', async () => {
-    mockIsBinaryAvailable.mockResolvedValue(true)
-    mockSpawnAndStreamJsonl.mockImplementation(async function* () {
-      yield {
-        type: 'completed',
-        result: 'ok',
-        metrics: {
-          promptTokens: 32,
-          completionTokens: 6,
-        },
-      }
-    })
-
-    const adapter = new CrushAdapter({ workingDirectory: crushCwd })
-    const events = await collectEvents(adapter.execute({ prompt: 'hello' }))
-
-    const completed = events[1]
-    expect(completed?.type).toBe('adapter:completed')
-    if (completed?.type === 'adapter:completed') {
-      expect(completed.usage).toEqual({
-        inputTokens: 32,
-        outputTokens: 6,
-      })
-    }
-  })
-
   it('emits adapter:failed and does not rethrow for non-Forge errors', async () => {
-    mockIsBinaryAvailable.mockResolvedValue(true)
     mockSpawnAndStreamJsonl.mockImplementation(async function* () {
       throw new Error('crush failed')
     })
-
-    const adapter = new CrushAdapter({ workingDirectory: crushCwd })
-    const events = await collectEvents(adapter.execute({ prompt: 'x' }))
-
-    expect(events.map((e) => e.type)).toEqual(['adapter:started', 'adapter:failed'])
-    const failed = events[1]
-    expect(failed?.type).toBe('adapter:failed')
-    if (failed?.type === 'adapter:failed') {
-      expect(failed.error).toBe('crush failed')
-    }
+    const events = await collectEvents(new CrushAdapter({ workingDirectory: crushCwd }).execute({ prompt: 'x' }))
+    expect(events.map((event) => event.type)).toEqual(['adapter:started', 'adapter:failed'])
+    expect(events.at(-1)).toMatchObject({ error: 'crush failed' })
   })
 
-  it('throws ADAPTER_SESSION_NOT_FOUND on resumeSession', async () => {
-    const adapter = new CrushAdapter({ workingDirectory: crushCwd })
-
-    await expect(collectEvents(adapter.resumeSession('sess', { prompt: 'resume' }))).rejects.toMatchObject({
-      code: 'CAPABILITY_DENIED',
-    })
+  it('refuses unsupported resumeSession', async () => {
+    await expect(collectEvents(new CrushAdapter({ workingDirectory: crushCwd }).resumeSession('sess', { prompt: 'resume' })))
+      .rejects.toMatchObject({ code: 'CAPABILITY_DENIED' })
   })
 
   it('rethrows ForgeError after emitting adapter:failed', async () => {
-    mockIsBinaryAvailable.mockResolvedValue(true)
-    mockSpawnAndStreamJsonl.mockImplementation(async function* () {
-      throw new ForgeError({
-        code: 'ADAPTER_TIMEOUT',
-        message: 'timeout',
-        recoverable: true,
-      })
-    })
-
-    const adapter = new CrushAdapter({ workingDirectory: crushCwd })
-    await expect(collectEvents(adapter.execute({ prompt: 'x' }))).rejects.toMatchObject({
-      code: 'ADAPTER_TIMEOUT',
-    })
+    const original = new ForgeError({ code: 'ADAPTER_TIMEOUT', message: 'timeout', recoverable: true })
+    mockSpawnAndStreamJsonl.mockImplementation(async function* () { throw original })
+    const events: Array<{ type: string }> = []
+    const run = (async () => {
+      for await (const event of new CrushAdapter({ workingDirectory: crushCwd }).execute({ prompt: 'x' })) events.push(event)
+    })()
+    await expect(run).rejects.toBe(original)
+    expect(events.map((event) => event.type)).toEqual(['adapter:started', 'adapter:failed'])
   })
 
-  it('names the redacted stderr cause of a failed Crush exit in adapter:failed and rethrows the original', async () => {
-    mockIsBinaryAvailable.mockResolvedValue(true)
+  it('names the redacted stderr cause of a failed Crush exit and rethrows the original', async () => {
     const original = new ForgeError({
       code: 'ADAPTER_EXECUTION_FAILED',
       message: "Process 'crush' exited with code 1",
       recoverable: false,
       context: {
-        command: 'crush',
-        exitCode: 1,
+        command: 'crush', exitCode: 1,
         stderr: 'loading config\nAuthorization: Bearer sk-live-0123456789abcdef\nFailed to override models: large model x/y not found\n\n',
       },
     })
-    mockSpawnAndStreamJsonl.mockImplementation(async function* () {
-      throw original
-    })
-
+    mockSpawnAndStreamJsonl.mockImplementation(async function* () { throw original })
     const events: Array<{ type: string, error?: string }> = []
     const run = (async () => {
       for await (const event of new CrushAdapter({ workingDirectory: crushCwd }).execute({ prompt: 'x' })) events.push(event as { type: string, error?: string })
@@ -290,92 +120,40 @@ describe('CrushAdapter', () => {
     expect(failed?.error).not.toContain('sk-live-0123456789abcdef')
   })
 
-  it('emits fallback adapter:completed when provider stream has no completed record', async () => {
-    mockIsBinaryAvailable.mockResolvedValue(true)
+  it('completes an empty terminal text result without synthetic messages', async () => {
     mockSpawnAndStreamJsonl.mockImplementation(async function* () {
-      yield { type: 'message', content: 'still running' }
+      yield { type: 'text_result', content: '' }
     })
-
-    const adapter = new CrushAdapter({ workingDirectory: crushCwd })
-    const events = await collectEvents(adapter.execute({ prompt: 'x' }))
-
-    expect(events.map((e) => e.type)).toEqual([
-      'adapter:started',
-      'adapter:message',
-      'adapter:completed',
-    ])
-    const completed = events[events.length - 1]
-    expect(completed?.type).toBe('adapter:completed')
-    if (completed?.type === 'adapter:completed') {
-      expect(completed.result).toBe('')
-      expect(completed.durationMs).toBeGreaterThanOrEqual(0)
-    }
+    const events = await collectEvents(new CrushAdapter({ workingDirectory: crushCwd }).execute({ prompt: 'x' }))
+    expect(events.map((event) => event.type)).toEqual(['adapter:started', 'adapter:completed'])
+    expect(events.at(-1)).toMatchObject({ result: '' })
   })
 
-  it('does not emit synthetic adapter:completed after provider adapter:failed event', async () => {
-    mockIsBinaryAvailable.mockResolvedValue(true)
-    mockSpawnAndStreamJsonl.mockImplementation(async function* () {
-      yield { type: 'error', error: { message: 'provider failure', code: 'CRUSH_ERR' } }
-    })
-
-    const adapter = new CrushAdapter({ workingDirectory: crushCwd })
-    const events = await collectEvents(adapter.execute({ prompt: 'x' }))
-
-    expect(events.map((e) => e.type)).toEqual([
-      'adapter:started',
-      'adapter:failed',
-    ])
-  })
-
-  it('requires explicit no-approval policy for workspace write', async () => {
-    mockIsBinaryAvailable.mockResolvedValue(true)
-    mockSpawnAndStreamJsonl.mockImplementation(async function* () {
-      yield { type: 'completed', result: 'ok' }
-    })
-
-    const adapter = new CrushAdapter({ workingDirectory: crushCwd, sandboxMode: 'workspace-write' })
-    const events = await collectEvents(adapter.execute({ prompt: 'x' }))
+  it.each(['workspace-write', 'full-access'] as const)('requires explicit no-approval policy for %s', async (sandboxMode) => {
+    const events = await collectEvents(new CrushAdapter({ workingDirectory: crushCwd, sandboxMode }).execute({ prompt: 'x' }))
     expect(events.at(-1)).toMatchObject({ type: 'adapter:failed', code: 'CAPABILITY_DENIED' })
     expect(mockSpawnAndStreamJsonl).not.toHaveBeenCalled()
   })
 
   it('uses private config policy rather than invented permission flags', async () => {
-    mockIsBinaryAvailable.mockResolvedValue(true)
     mockSpawnAndStreamJsonl.mockImplementation(async function* () {
-      yield { type: 'completed', result: 'ok' }
+      yield { type: 'text_result', content: 'ok' }
     })
-
-    const adapter = new CrushAdapter({ workingDirectory: crushCwd, sandboxMode: 'read-only' })
-    await collectEvents(adapter.execute({ prompt: 'x' }))
-
+    await collectEvents(new CrushAdapter({ workingDirectory: crushCwd, sandboxMode: 'read-only' }).execute({ prompt: 'x' }))
     const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!
     expect(args).not.toContain('--permission')
     expect(args).toContain('--data-dir')
   })
 
-  it('requires explicit no-approval policy for full access', async () => {
-    mockIsBinaryAvailable.mockResolvedValue(true)
-    mockSpawnAndStreamJsonl.mockImplementation(async function* () {
-      yield { type: 'completed', result: 'ok' }
-    })
-
-    const adapter = new CrushAdapter({ workingDirectory: crushCwd, sandboxMode: 'full-access' })
-    const events = await collectEvents(adapter.execute({ prompt: 'x' }))
-    expect(events.at(-1)).toMatchObject({ type: 'adapter:failed', code: 'CAPABILITY_DENIED' })
-    expect(mockSpawnAndStreamJsonl).not.toHaveBeenCalled()
-  })
-
-  it('exposes runtime capabilities', () => {
-    const adapter = new CrushAdapter({ workingDirectory: crushCwd })
-    expect(adapter.getCapabilities?.()).toEqual({
+  it('distinguishes the internal tool loop from observable text transport', () => {
+    expect(new CrushAdapter({ workingDirectory: crushCwd }).getCapabilities()).toEqual({
       supportsResume: false,
       supportsFork: false,
       supportsToolCalls: true,
-      emitsToolCalls: true,
+      emitsToolCalls: false,
       executesToolLoop: true,
       supportsStreaming: false,
-      // Usage comes from the run database through node:sqlite, present on the test runtime.
-      supportsCostUsage: true,
+      supportsCostUsage: isCrushUsageReaderAvailable(),
       nativeToolControls: { mode: true, allowlist: true, blocklist: true },
     })
   })

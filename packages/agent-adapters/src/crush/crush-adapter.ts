@@ -5,6 +5,8 @@
  * approves every remaining tool. This adapter therefore projects a sanitized,
  * private provider profile and enforces policy by disabling tools before spawn.
  *
+ * Tool inventory follows v0.98.1; other executable versions require their own
+ * qualification. Project context discovery remains native Crush behavior.
  * Verified against `crush run` v0.95.0 as well. Crush rejects a model that is
  * missing from its bundled catalogue ("large model ... not found"); declare such
  * a model under the provider's `models` in the base profile. A failed run's
@@ -34,8 +36,9 @@ import { isCrushUsageReaderAvailable, readCrushUsage } from './crush-usage.js'
 const PROVIDER_ID: AdapterProviderId = 'crush'
 const CRUSH_BINARY = 'crush'
 const ALL_TOOLS = [
-  'agent', 'bash', 'job_output', 'job_kill', 'download', 'edit', 'multiedit',
+  'agent', 'bash', 'crush_info', 'crush_logs', 'job_output', 'job_kill', 'download', 'edit', 'multiedit',
   'lsp_diagnostics', 'lsp_references', 'lsp_restart', 'fetch', 'agentic_fetch',
+  'lsp_symbols', 'lsp_definition', 'lsp_call_hierarchy', 'lsp_rename', 'lsp_replace_symbol', 'question',
   'glob', 'grep', 'ls', 'sourcegraph', 'todos', 'view', 'write',
   'list_mcp_resources', 'read_mcp_resource',
 ] as const
@@ -105,8 +108,8 @@ export class CrushAdapter extends BaseCliAdapter {
       supportsResume: false,
       supportsFork: false,
       supportsToolCalls: true,
-      // CLI/SDK adapter: runs its own in-subprocess/agentic tool loop.
-      emitsToolCalls: true,
+      // Crush runs its own tool loop, but its terminal text transport exposes no tool events.
+      emitsToolCalls: false,
       executesToolLoop: true,
       supportsStreaming: false,
       supportsCostUsage: isCrushUsageReaderAvailable(),

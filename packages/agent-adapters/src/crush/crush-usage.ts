@@ -22,8 +22,21 @@ interface SqliteModule {
   }
 }
 
-const USAGE_SQL = 'SELECT COUNT(*) AS sessions, COALESCE(SUM(prompt_tokens), 0) AS input, '
-  + 'COALESCE(SUM(completion_tokens), 0) AS output, COALESCE(SUM(cost), 0) AS cost FROM sessions'
+// Validate each measurement before aggregation: SUM ignores NULL and coerces text,
+// and a positive total alone cannot reveal a negative session hidden in the sum.
+const USAGE_SQL = `SELECT COUNT(*) AS sessions, ${[
+  ['prompt_tokens', 'input'],
+  ['completion_tokens', 'output'],
+  ['cost', 'cost'],
+].map(([column, alias]) => {
+  const valid = `typeof(${column}) IN ('integer', 'real') AND ${column} >= 0 AND ${column} <= 1.7976931348623157e308`
+  return `SUM(CASE WHEN ${valid} THEN 1 ELSE 0 END) AS ${alias}_count, `
+    + `SUM(CASE WHEN ${valid} THEN CAST(${column} AS REAL) END) AS ${alias}`
+}).join(', ')} FROM sessions`
+
+function isMeasurement(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+}
 
 function loadSqlite(): SqliteModule | undefined {
   try {
@@ -45,7 +58,8 @@ export function isCrushUsageReaderAvailable(): boolean {
 /**
  * Sum usage over every session in `<dataDir>/crush.db` (the main session plus
  * any title or sub-agent sessions, all of which were billed). Returns
- * `undefined` when the reader, the database or a session row is missing.
+ * `undefined` when the reader, database or any required token measurement is
+ * missing or invalid. Cost is optional and included only when fully measured.
  */
 export function readCrushUsage(dataDir: string | undefined): TokenUsage | undefined {
   if (!dataDir) return undefined
@@ -56,11 +70,17 @@ export function readCrushUsage(dataDir: string | undefined): TokenUsage | undefi
   try {
     db = new sqlite.DatabaseSync(file, { readOnly: true })
     const row = db.prepare(USAGE_SQL).get()
-    if (!row || Number(row['sessions']) === 0) return undefined
+    if (!row || !Number.isSafeInteger(row['sessions']) || (row['sessions'] as number) <= 0) return undefined
+    const input = row['input']
+    const output = row['output']
+    if (row['input_count'] !== row['sessions'] || row['output_count'] !== row['sessions']
+      || !isMeasurement(input) || !isMeasurement(output)) return undefined
+    const cost = row['cost']
+    const costCents = isMeasurement(cost) ? cost * 100 : undefined
     return {
-      inputTokens: Number(row['input']),
-      outputTokens: Number(row['output']),
-      costCents: Number(row['cost']) * 100,
+      inputTokens: input,
+      outputTokens: output,
+      ...(row['cost_count'] === row['sessions'] && isMeasurement(costCents) ? { costCents } : {}),
     }
   } catch {
     return undefined

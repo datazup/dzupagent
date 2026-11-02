@@ -1,9 +1,13 @@
 import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { SQLInputValue } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ForgeError } from '@dzupagent/core/events'
 
 import { CrushAdapter, createCrushCliAdapter } from '../crush/crush-adapter.js'
+import { isCrushUsageReaderAvailable, readCrushUsage } from '../crush/crush-usage.js'
+import { DEFAULT_CLI_RUNTIME_LIMITS } from '../cli-runtime/types.js'
 import { collectEvents, getProcessHelperMocks } from './test-helpers.js'
 
 vi.mock('../utils/process-helpers.js', () => ({
@@ -58,6 +62,52 @@ describe('Crush CLI convergence contract', () => {
     expect(events.at(-1)).toMatchObject({ providerId: 'crush', result: 'CRUSH_OK' })
   })
 
+  it('passes the finite total timeout, cancellation and output bounds to the shared runner', async () => {
+    const { workspace } = await fixtureProfile()
+    mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, _args, options) {
+      expect(options?.timeoutMs).toBe(12_345)
+      expect(options?.signal).toBeInstanceOf(AbortSignal)
+      expect(options?.stdoutMode).toBe('text')
+      expect({ ...DEFAULT_CLI_RUNTIME_LIMITS, ...options?.limits }).toMatchObject({
+        stdoutBytes: 4 * 1024 * 1024,
+        stderrBytes: 256 * 1024,
+      })
+      yield { type: 'text_result', content: 'bounded' }
+    })
+    await collectEvents(new CrushAdapter({ timeoutMs: 12_345 }).execute({ prompt: 'x', workingDirectory: workspace }))
+    expect(mockSpawnAndStreamJsonl).toHaveBeenCalledOnce()
+  })
+
+  it('forwards explicit output limits without creating a separate runner', async () => {
+    const { workspace } = await fixtureProfile()
+    const runtimeLimits = { stdoutBytes: 2048, stderrBytes: 1024 }
+    mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, _args, options) {
+      expect(options?.limits).toEqual(runtimeLimits)
+      yield { type: 'text_result', content: 'bounded' }
+    })
+    await collectEvents(new CrushAdapter({ runtimeLimits }).execute({ prompt: 'x', workingDirectory: workspace }))
+    expect(mockSpawnAndStreamJsonl).toHaveBeenCalledOnce()
+  })
+
+  it.each(['ADAPTER_TIMEOUT', 'ADAPTER_EXECUTION_FAILED'] as const)('cleans the isolated run after %s without retrying', async (code) => {
+    const { profile, workspace } = await fixtureProfile()
+    let projectionRoot = ''
+    const failure = new ForgeError({ code, message: 'bounded runner failure', recoverable: false })
+    mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, _args, options) {
+      projectionRoot = options!.env!['CRUSH_GLOBAL_DATA']!.replace(/\/data$/u, '')
+      throw failure
+    })
+    const events: Array<{ type: string }> = []
+    const run = (async () => {
+      for await (const event of new CrushAdapter({ cliBaseProfileRoot: profile, timeoutMs: 1000 }).execute({ prompt: 'x', workingDirectory: workspace })) events.push(event)
+    })()
+    await expect(run).rejects.toBe(failure)
+    expect(events.map((event) => event.type)).toEqual(['adapter:started', 'adapter:failed'])
+    expect(mockSpawnAndStreamJsonl).toHaveBeenCalledOnce()
+    expect(projectionRoot).not.toBe('')
+    await expect(access(projectionRoot)).rejects.toThrow()
+  })
+
   it('projects one selected provider and strict read-only tools into private disposable roots', async () => {
     const { profile, workspace } = await fixtureProfile()
     let projectionRoot = ''
@@ -82,6 +132,13 @@ describe('Crush CLI convergence contract', () => {
       })
       expect(projected.options.disabled_tools).toEqual(expect.arrayContaining(['bash', 'edit', 'write', 'fetch', 'list_mcp_resources']))
       expect(projected.options.disabled_tools).not.toContain('view')
+      // Exact upstream v0.98.1 inventory minus the six read-only tools.
+      expect([...projected.options.disabled_tools].sort()).toEqual([
+        'agent', 'bash', 'crush_info', 'crush_logs', 'job_output', 'job_kill', 'download', 'edit', 'multiedit',
+        'lsp_restart', 'lsp_symbols', 'lsp_definition', 'lsp_call_hierarchy', 'lsp_rename', 'lsp_replace_symbol',
+        'fetch', 'agentic_fetch', 'question', 'sourcegraph', 'todos', 'write',
+        'list_mcp_resources', 'read_mcp_resource',
+      ].sort())
       expect(args).toEqual(expect.arrayContaining(['--cwd', workspace, '--data-dir', join(projectionRoot, 'run-data'), 'run', '--quiet', '--', 'x']))
       expect(args).not.toEqual(expect.arrayContaining(['--output-format', '--prompt', '--system', '--permission', '--max-turns']))
       yield { type: 'text_result', content: 'ok' }
@@ -191,6 +248,10 @@ describe('Crush CLI convergence contract', () => {
       expect(config.options.disabled_tools).not.toContain('view')
       expect(config.options.disabled_tools).not.toContain('edit')
       expect(config.options.disabled_tools).toEqual(expect.arrayContaining(['bash', 'write', 'fetch']))
+      expect(config.options.disabled_tools).toEqual(expect.arrayContaining([
+        'crush_info', 'crush_logs', 'lsp_symbols', 'lsp_definition', 'lsp_call_hierarchy',
+        'lsp_rename', 'lsp_replace_symbol', 'question',
+      ]))
       yield { type: 'text_result', content: 'ok' }
     })
     await collectEvents(new CrushAdapter({ cliBaseProfileRoot: profile }).execute({
@@ -289,7 +350,7 @@ describe('Crush CLI convergence contract', () => {
     expect(mockSpawnAndStreamJsonl).not.toHaveBeenCalled()
   })
 
-  it('reports token usage and cost from the run database before the run is cleaned up', async () => {
+  it.skipIf(!isCrushUsageReaderAvailable())('reports token usage and cost from the run database before the run is cleaned up', async () => {
     const { profile, workspace } = await fixtureProfile()
     mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, args) {
       const dataDir = args[args.indexOf('--data-dir') + 1]!
@@ -339,5 +400,127 @@ describe('Crush CLI convergence contract', () => {
     expect(events.at(-1)).toMatchObject({ type: 'adapter:failed', code: 'CAPABILITY_DENIED' })
     expect((events.at(-1) as { error?: string }).error).toContain('escapes its approved root')
     expect(mockSpawnAndStreamJsonl).not.toHaveBeenCalled()
+  })
+})
+
+describe('Crush usage completeness', () => {
+  const roots: string[] = []
+  const sqliteAvailable = isCrushUsageReaderAvailable()
+  const builtinProcess = process as typeof process & { getBuiltinModule: (id: string) => unknown }
+
+  afterEach(async () => {
+    vi.restoreAllMocks()
+    await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
+  })
+
+  async function database(rows: ReadonlyArray<readonly [SQLInputValue, SQLInputValue, SQLInputValue]>): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), 'crush-usage-'))
+    roots.push(root)
+    const { DatabaseSync } = await import('node:sqlite')
+    const db = new DatabaseSync(join(root, 'crush.db'))
+    try {
+      // No column affinity: numeric-looking text must remain text so coercion is tested.
+      db.exec('CREATE TABLE sessions (prompt_tokens, completion_tokens, cost)')
+      const insert = db.prepare('INSERT INTO sessions VALUES (?, ?, ?)')
+      for (const row of rows) insert.run(...row)
+    } finally {
+      db.close()
+    }
+    return root
+  }
+
+  it.skipIf(!sqliteAvailable).each([
+    { name: 'no sessions', rows: [], expected: undefined },
+    { name: 'all-null measurements', rows: [[null, null, null]], expected: undefined },
+    { name: 'missing input', rows: [[null, 2, 0]], expected: undefined },
+    { name: 'missing output', rows: [[1, null, 0]], expected: undefined },
+    { name: 'partially missing input', rows: [[2, 3, 0], [null, 4, 0]], expected: undefined },
+    { name: 'partially missing output', rows: [[2, 3, 0], [4, null, 0]], expected: undefined },
+    { name: 'measured zero', rows: [[0, 0, 0]], expected: { inputTokens: 0, outputTokens: 0, costCents: 0 } },
+    { name: 'multiple sessions', rows: [[1200, 300, 0.0125], [800, 50, 0.0025]], expected: { inputTokens: 2000, outputTokens: 350, costCents: 1.5 } },
+    { name: 'unknown cost', rows: [[1, 2, null]], expected: { inputTokens: 1, outputTokens: 2 } },
+    { name: 'partially unknown cost', rows: [[1, 2, 0.01], [3, 4, null]], expected: { inputTokens: 4, outputTokens: 6 } },
+    { name: 'numeric text input', rows: [['12', 2, 0]], expected: undefined },
+    { name: 'malformed output', rows: [[1, 'bad', 0]], expected: undefined },
+    { name: 'blob input', rows: [[new Uint8Array([1]), 2, 0]], expected: undefined },
+    { name: 'numeric text cost', rows: [[1, 2, '0.01']], expected: { inputTokens: 1, outputTokens: 2 } },
+    { name: 'negative input hidden by sum', rows: [[10, 2, 0], [-1, 2, 0]], expected: undefined },
+    { name: 'negative output hidden by sum', rows: [[1, 10, 0], [1, -1, 0]], expected: undefined },
+    { name: 'negative cost hidden by sum', rows: [[1, 2, 1], [1, 2, -0.5]], expected: { inputTokens: 2, outputTokens: 4 } },
+    { name: 'infinite input', rows: [[Infinity, 2, 0]], expected: undefined },
+    { name: 'negative infinite output', rows: [[1, -Infinity, 0]], expected: undefined },
+    { name: 'NaN input stored as null', rows: [[NaN, 2, 0]], expected: undefined },
+    { name: 'infinite cost', rows: [[1, 2, Infinity]], expected: { inputTokens: 1, outputTokens: 2 } },
+    { name: 'input sum overflow', rows: [[1e308, 2, 0], [1e308, 2, 0]], expected: undefined },
+    { name: 'output sum overflow', rows: [[1, 1e308, 0], [1, 1e308, 0]], expected: undefined },
+    { name: 'cost sum overflow', rows: [[1, 2, 1e308], [1, 2, 1e308]], expected: { inputTokens: 2, outputTokens: 4 } },
+    { name: 'cost cents overflow', rows: [[1, 2, 1e307]], expected: { inputTokens: 1, outputTokens: 2 } },
+  ])('handles $name without inventing measurements', async ({ rows, expected }) => {
+    const root = await database(rows as ReadonlyArray<readonly [SQLInputValue, SQLInputValue, SQLInputValue]>)
+    const usage = readCrushUsage(root)
+    if (expected?.costCents !== undefined) {
+      expect(usage).toMatchObject({ inputTokens: expected.inputTokens, outputTokens: expected.outputTokens })
+      expect(usage?.costCents).toBeCloseTo(expected.costCents, 10)
+    } else {
+      expect(usage).toEqual(expected)
+      if (usage) expect(usage).not.toHaveProperty('costCents')
+    }
+  })
+
+  it('omits usage when the data directory or database is missing', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'crush-usage-missing-'))
+    roots.push(root)
+    expect(readCrushUsage(undefined)).toBeUndefined()
+    expect(readCrushUsage(root)).toBeUndefined()
+  })
+
+  it.skipIf(!sqliteAvailable)('omits usage for an unreadable database or missing schema', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'crush-usage-schema-'))
+    roots.push(root)
+    await writeFile(join(root, 'crush.db'), 'not a SQLite database')
+    expect(readCrushUsage(root)).toBeUndefined()
+    await rm(join(root, 'crush.db'))
+    const { DatabaseSync } = await import('node:sqlite')
+    new DatabaseSync(join(root, 'crush.db')).close()
+    expect(readCrushUsage(root)).toBeUndefined()
+  })
+
+  it.skipIf(typeof builtinProcess.getBuiltinModule !== 'function').each([undefined, null, {}, { DatabaseSync: 1 }])('omits usage when node:sqlite is unavailable or invalid: %s', async (module) => {
+    const root = await mkdtemp(join(tmpdir(), 'crush-usage-unavailable-'))
+    roots.push(root)
+    await writeFile(join(root, 'crush.db'), '')
+    vi.spyOn(builtinProcess, 'getBuiltinModule').mockReturnValue(module)
+    expect(isCrushUsageReaderAvailable()).toBe(false)
+    expect(readCrushUsage(root)).toBeUndefined()
+  })
+
+  it.skipIf(typeof builtinProcess.getBuiltinModule !== 'function').each([
+    undefined,
+    {},
+    { sessions: 0 },
+    { sessions: -1, input_count: -1, output_count: -1, input: 0, output: 0 },
+    { sessions: Infinity, input_count: Infinity, output_count: Infinity, input: 0, output: 0 },
+    { sessions: '1', input_count: 1, output_count: 1, input: 0, output: 0 },
+    { sessions: 1, input: 0, output: 0 },
+    { sessions: 1, input_count: 1, output_count: 1, input: null, output: 0 },
+    { sessions: 1, input_count: 1, output_count: 1, input: 0, output: '0' },
+    { sessions: 1, input_count: 1, output_count: 1, input: NaN, output: 0 },
+    { sessions: 1, input_count: 1, output_count: 1, input: 0, output: -1 },
+    { sessions: 1, input_count: 0, output_count: 1, input: 0, output: 0 },
+  ])('rejects absent or invalid aggregate rows and closes the read-only handle: %s', async (row) => {
+    const root = await mkdtemp(join(tmpdir(), 'crush-usage-row-'))
+    roots.push(root)
+    await writeFile(join(root, 'crush.db'), '')
+    const close = vi.fn()
+    const opened = vi.fn()
+    class Database {
+      constructor(path: string, options: unknown) { opened(path, options) }
+      prepare() { return { get: () => row } }
+      close = close
+    }
+    vi.spyOn(builtinProcess, 'getBuiltinModule').mockReturnValue({ DatabaseSync: Database })
+    expect(readCrushUsage(root)).toBeUndefined()
+    expect(opened).toHaveBeenCalledWith(join(root, 'crush.db'), { readOnly: true })
+    expect(close).toHaveBeenCalledOnce()
   })
 })
