@@ -121,7 +121,7 @@ export interface PiSdk {
   VERSION: string
   SettingsManager: { inMemory(settings: PiSettings, options: { projectTrusted: false }): unknown }
   DefaultResourceLoader: new (options: PiResourceOptions) => PiResourceLoader
-  AuthStorage: { create(authPath: string): PiCredentialStore }
+  readStoredCredential(providerId: string, authPath: string): unknown
   ModelRuntime: { create(options: { credentials: PiCredentialStore; modelsPath: null; modelsStorePath: string; allowModelNetwork: false; refreshOnCreate: false; signal: AbortSignal }): Promise<PiModelRuntime> }
   SessionManager: {
     create(cwd: string, sessionDir: string): PiSessionManager

@@ -172,7 +172,20 @@ export async function createPiSession(
   })
   await resourceLoader.reload()
   check()
-  const credentials = guardedPiCredentials(sdk.AuthStorage.create(join(config.agentDir, 'auth.json')), config.provider)
+  const authPath = join(config.agentDir, 'auth.json')
+  // Public raw reader performs no file creation, locking, shell execution or
+  // environment interpolation. Never instantiate the resolving AuthStorage.
+  const credentials = guardedPiCredentials({
+    async read(id, options) { options?.signal?.throwIfAborted(); return sdk.readStoredCredential(id, authPath) },
+    async list(options) {
+      options?.signal?.throwIfAborted()
+      const value = sdk.readStoredCredential(config.provider, authPath)
+      return value !== null && typeof value === 'object' && 'type' in value && value.type === 'api_key'
+        ? [{ providerId: config.provider, type: 'api_key' }] : []
+    },
+    async modify() { throw piError('PROVIDER_AUTH_FAILED', 'Pi profile is read-only') },
+    async delete() { throw piError('PROVIDER_AUTH_FAILED', 'Pi profile is read-only') },
+  }, config.provider)
   // Fail before runtime construction, then revalidate every SDK read to close
   // logout/replacement races without consulting ambient credentials.
   await credentials.read(config.provider, { signal })
@@ -205,7 +218,8 @@ export function guardedPiCredentials(store: PiCredentialStore, provider: string)
       let value: unknown
       try { value = await store.read(id, options) } catch { throw denied() }
       if (value === null || typeof value !== 'object' || !('type' in value) || value.type !== 'api_key'
-        || !('key' in value) || typeof value.key !== 'string' || value.key.trim().length === 0) throw denied()
+        || !('key' in value) || typeof value.key !== 'string' || value.key.trim().length === 0
+        || /^[!$]/u.test(value.key.trim())) throw denied()
       return value
     },
     async list(options) {

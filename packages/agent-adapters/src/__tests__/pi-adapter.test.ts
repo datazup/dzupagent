@@ -32,7 +32,8 @@ describe('Pi selected-profile credentials', () => {
     expect(underlying.delete).not.toHaveBeenCalled()
   })
   it.each([undefined, null, {}, { type: 'oauth' }, { type: 'api_key' },
-    { type: 'api_key', key: '' }, { type: 'api_key', key: '  ' }])('rejects invalid stored credentials', async value => {
+    { type: 'api_key', key: '' }, { type: 'api_key', key: '  ' },
+    { type: 'api_key', key: '!command' }, { type: 'api_key', key: '$ENV' }])('rejects invalid stored credentials', async value => {
     await expect(guardedPiCredentials(store(value), 'openai').read('openai')).rejects.toMatchObject({ code: 'PROVIDER_AUTH_FAILED' })
   })
   it('rejects other providers without accessing the underlying store and filters metadata', async () => {
@@ -149,11 +150,7 @@ function harness(plans: Plan[] = [session => session.answer()]) {
   })
   const sdk: PiSdk = {
     VERSION: '1.5.0',
-    AuthStorage: { create: vi.fn(() => ({
-      read: vi.fn(async () => ({ type: 'api_key', key: 'opaque-test-key' })),
-      list: vi.fn(async () => [{ providerId: 'openai', type: 'api_key' }]),
-      modify: vi.fn(async () => undefined), delete: vi.fn(async () => undefined),
-    })) },
+    readStoredCredential: vi.fn(() => ({ type: 'api_key', key: 'opaque-test-key' })),
     SettingsManager: { inMemory: vi.fn(() => ({})) },
     DefaultResourceLoader: class {
       constructor(readonly options: PiResourceOptions) { resources.push(options) }
@@ -249,7 +246,7 @@ describe('Pi adapter contract and isolation', () => {
   it.each(['version', 'exports', 'auth'])('rejects an incompatible SDK %s', async condition => {
     const h = harness()
     if (condition === 'version') h.sdk.VERSION = '1.4.0'
-    else if (condition === 'auth') h.sdk.AuthStorage = {} as PiSdk['AuthStorage']
+    else if (condition === 'auth') h.sdk.readStoredCredential = undefined as unknown as PiSdk['readStoredCredential']
     else h.sdk.ModelRuntime = {} as PiSdk['ModelRuntime']
     expect(terminal(await collect(h.adapter.execute({ prompt: 'hi' })))).toMatchObject({ code: 'ADAPTER_SDK_INCOMPATIBLE' })
     expect(h.sdk.createAgentSession).not.toHaveBeenCalled()
@@ -268,7 +265,7 @@ describe('Pi adapter contract and isolation', () => {
     expect(h.resources[0]!.systemPromptOverride('ambient system')).toBe('host system')
     expect(h.resources[0]!.appendSystemPromptOverride(['ambient append'])).toEqual([])
     expect(h.resources[0]!.extensionFactories).toHaveLength(1)
-    expect(h.sdk.AuthStorage.create).toHaveBeenCalledWith(join(agentDir, 'auth.json'))
+    expect(h.sdk.readStoredCredential).toHaveBeenCalledWith('openai', join(agentDir, 'auth.json'))
     expect(h.sdk.ModelRuntime.create).toHaveBeenCalledWith({ credentials: expect.objectContaining({ read: expect.any(Function) }),
       modelsPath: null, modelsStorePath: join(agentDir, 'models-cache.json'), allowModelNetwork: false,
       refreshOnCreate: false, signal: expect.any(AbortSignal) })
