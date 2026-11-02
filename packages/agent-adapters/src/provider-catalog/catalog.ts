@@ -72,6 +72,30 @@ function postureRef(id: string): CatalogEntry['posture'] {
   return { postureId: `adapter-posture/${id}`, version: 1 }
 }
 
+/** Reserved SDK hosts: upstream availability is not shipped adapter support. */
+function reservedSdkHost(providerId: AdapterProviderId, displayName: string, repo: string): ProviderCatalogEntry {
+  return {
+    coordinates: { providerId, backend: 'sdk' }, displayName,
+    capabilityProfile: {
+      supportsResume: false, supportsFork: false, supportsToolCalls: false,
+      emitsToolCalls: false, executesToolLoop: false, supportsStreaming: false, supportsCostUsage: false,
+      supportsZeroToolDispatch: false,
+      nativeToolControls: { mode: false, allowlist: false, blocklist: false },
+      providerRequestCorrelation: {
+        idempotencyKey: { accepted: false, enforcement: 'none' },
+        restartLookup: { supported: false, lookupBy: [] },
+      },
+    },
+    monitorTier: 'none', posture: postureRef(`${providerId}-sdk`),
+    eventFidelity: { raw: false, normalized: false, artifact: false, governance: false, usage: 'none' },
+    upstream: { repo, docsUrl: `https://github.com/${repo}#readme` },
+    runtimeExecution: false, productIntegrated: false, ...NOT_QUALIFIED,
+    httpAdapterRouting: false, monitorIntrospection: 'none', supportsReplay: false,
+    approvalSupport: 'host-gated', supportsPolicyProjection: false, supportsSkillProjection: false,
+    toolControlSupport: { mode: 'none', allowlist: 'none', blocklist: 'none' },
+  }
+}
+
 /**
  * Provider productization policy
  * ------------------------------
@@ -82,6 +106,8 @@ function postureRef(id: string): CatalogEntry['posture'] {
  *
  * Crush entered the product surface through the Codev P2 exact-runtime,
  * recorded-auth, compound-catalog, and read-only policy admission.
+ * Its productIntegrated flag describes UI surfacing, not qualified execution;
+ * runnable remains false until a qualification receipt is recorded.
  *
  * They remain fully supported at the framework/adapter level (runtime
  * execution, policy + skill projection) but are intentionally excluded
@@ -446,4 +472,7 @@ export const PROVIDER_CATALOG = {
     supportsSkillProjection: true,
     toolControlSupport: { mode: 'native', allowlist: 'native', blocklist: 'native' },
   },
+  pi: reservedSdkHost('pi', 'Pi SDK (@earendil-works/pi-coding-agent)', 'earendil-works/pi'),
+  opencode: reservedSdkHost('opencode', 'OpenCode SDK (@opencode-ai/sdk)', 'anomalyco/opencode'),
+  cline: reservedSdkHost('cline', 'Cline SDK (@cline/sdk)', 'cline/cline'),
 } satisfies Record<AdapterProviderId, ProviderCatalogEntry>

@@ -19,6 +19,16 @@ function makeSession(
 }
 
 describe('DefaultCompactionStrategy', () => {
+  it.each(['pi', 'opencode', 'cline'] as const)('never borrows compaction limits for %s', (provider) => {
+    const strategy = new DefaultCompactionStrategy()
+    expect(strategy.canCompact(provider)).toBe(false)
+    expect(strategy.shouldCompact('claude', makeSession(), 100, 1_000_000)).toBe(true)
+    expect(strategy.shouldCompact(provider, makeSession({ providerId: provider }), 100, 1_000_000)).toBe(false)
+    expect(() => strategy.getCompactionRequest('unsupported')).toThrow(/Compaction is unsupported/)
+    expect(strategy.shouldCompact('claude', makeSession(), 100, 1_000_000)).toBe(true)
+    expect(strategy.getCompactionRequest('known').targetTokenBudget).toBe(100_000)
+  })
+
   describe('canCompact', () => {
     it('returns true for providers that support compaction', () => {
       const strategy = new DefaultCompactionStrategy()

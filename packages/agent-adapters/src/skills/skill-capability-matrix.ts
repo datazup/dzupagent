@@ -31,7 +31,7 @@ export type { CapabilityStatus, ProviderCapabilityRow, SkillCapabilityMatrix }
  * feature, but for the capability matrix we follow the design doc rules
  * that classify all CLI providers as having toolBindings "dropped".
  */
-const PROVIDER_CAPABILITIES: Record<
+const PROVIDER_CAPABILITIES: Partial<Record<
   AdapterProviderId,
   {
     toolBindings: CapabilityStatus
@@ -39,7 +39,7 @@ const PROVIDER_CAPABILITIES: Record<
     networkPolicy: CapabilityStatus
     budgetLimit: CapabilityStatus
   }
-> = {
+>> = {
   claude: { toolBindings: 'active', approvalMode: 'active', networkPolicy: 'active', budgetLimit: 'active' },
   codex: { toolBindings: 'active', approvalMode: 'active', networkPolicy: 'active', budgetLimit: 'dropped' },
   'gemini-sdk': { toolBindings: 'active', approvalMode: 'dropped', networkPolicy: 'dropped', budgetLimit: 'dropped' },

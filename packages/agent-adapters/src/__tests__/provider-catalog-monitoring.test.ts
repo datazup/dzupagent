@@ -21,8 +21,32 @@ const EXPECTED_PROVIDERS = [
 ] as const
 
 describe('monitoring provider catalog contract (WP-M1.2)', () => {
+  it.each(['pi', 'opencode', 'cline'] as const)('keeps reserved %s SDK support unqualified', (id) => {
+    const entry = PROVIDER_CATALOG[id]
+    expect(() => assertProviderCatalogEntry(entry, id)).not.toThrow()
+    expect(entry.coordinates).toEqual({ providerId: id, backend: 'sdk' })
+    expect(entry.monitorTier).toBe('none')
+    expect(entry.monitorIntrospection).toBe('none')
+    expect(entry.eventFidelity).toEqual({ raw: false, normalized: false, artifact: false, governance: false, usage: 'none' })
+    expect(entry.capabilityProfile).toEqual({
+      supportsResume: false, supportsFork: false, supportsToolCalls: false,
+      emitsToolCalls: false, executesToolLoop: false, supportsStreaming: false, supportsCostUsage: false,
+      supportsZeroToolDispatch: false,
+      nativeToolControls: { mode: false, allowlist: false, blocklist: false },
+      providerRequestCorrelation: {
+        idempotencyKey: { accepted: false, enforcement: 'none' },
+        restartLookup: { supported: false, lookupBy: [] },
+      },
+    })
+    for (const field of ['runtimeExecution', 'productIntegrated', 'httpAdapterRouting', 'supportsReplay', 'supportsPolicyProjection', 'supportsSkillProjection'] as const) {
+      expect(entry[field], field).toBe(false)
+    }
+    expect(entry.approvalSupport).toBe('host-gated')
+    expect(entry.toolControlSupport).toEqual({ mode: 'none', allowlist: 'none', blocklist: 'none' })
+  })
+
   it('carries a complete CatalogEntry for all ten existing adapters', () => {
-    expect(Object.keys(PROVIDER_CATALOG)).toEqual(EXPECTED_PROVIDERS)
+    expect(Object.keys(PROVIDER_CATALOG)).toEqual([...EXPECTED_PROVIDERS, 'pi', 'opencode', 'cline'])
 
     for (const providerId of EXPECTED_PROVIDERS) {
       const entry = PROVIDER_CATALOG[providerId]

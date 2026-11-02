@@ -276,7 +276,7 @@ function extractGuardrailHints(policy: AdapterPolicy): CompiledGuardrailHints {
 
 type ProviderCompiler = (policy: AdapterPolicy) => CompiledPolicyOverrides
 
-const PROVIDER_COMPILERS: Record<AdapterProviderId, ProviderCompiler> = {
+const PROVIDER_COMPILERS: Partial<Record<AdapterProviderId, ProviderCompiler>> = {
   codex: compileForCodex,
   claude: compileForClaude,
   gemini: compileForGemini,
@@ -305,6 +305,7 @@ export function compilePolicyForProvider(
   policy: AdapterPolicy,
 ): CompiledPolicyOverrides {
   const compiler = PROVIDER_COMPILERS[providerId]
+  if (!compiler) throw new Error(`Policy projection is unsupported for provider '${providerId}'`)
   return compiler(policy)
 }
 
@@ -319,6 +320,7 @@ export function compilePolicyForAll(
 ): ReadonlyMap<AdapterProviderId, CompiledPolicyOverrides> {
   const result = new Map<AdapterProviderId, CompiledPolicyOverrides>()
   for (const [providerId, compiler] of Object.entries(PROVIDER_COMPILERS)) {
+    if (!compiler) continue
     result.set(providerId as AdapterProviderId, compiler(policy))
   }
   return result

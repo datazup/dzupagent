@@ -49,7 +49,7 @@ describe('provider catalog runnability (UD-MVP-12)', () => {
     )
   })
 
-  it.each(['qwen', 'crush', 'goose'] as const)('keeps %s non-runnable', (id) => {
+  it.each(['qwen', 'crush', 'goose', 'pi', 'opencode', 'cline'] as const)('keeps %s non-runnable', (id) => {
     expect(PROVIDER_CATALOG[id].runnable).toBe(false)
     expect(PROVIDER_CATALOG[id].qualificationReceiptId).toBeNull()
   })
@@ -58,7 +58,7 @@ describe('provider catalog runnability (UD-MVP-12)', () => {
     expect(getProductProviders()).toEqual(['claude', 'codex', 'gemini', 'qwen', 'crush', 'openrouter', 'openai'])
   })
 
-  it.each(['qwen', 'crush', 'goose'] as const)(
+  it.each(['qwen', 'crush', 'goose', 'pi', 'opencode', 'cline'] as const)(
     'refuses %s for product execution with a typed error naming adapter and receipt',
     (id) => {
       let caught: unknown
