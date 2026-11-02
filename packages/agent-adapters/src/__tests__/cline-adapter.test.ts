@@ -130,6 +130,25 @@ describe('standalone Cline adapter', () => {
     ])
   })
 
+  it('emits exactly one timeout-fallback resolution with correlation', async () => {
+    vi.useFakeTimers()
+    try {
+      const h = fixture((emit, b) => emit({ ...b, type: 'approval_request', requestId: 'timeout', toolName: 'read_file',
+        toolCallId: 'call-timeout', action: '{"path":"file"}' }))
+      const adapter = new ClineAdapter({ ...config, approvalTimeoutMs: 20 }, h.factory)
+      const stream = adapter.execute({ prompt: 'test', correlationId: 'timeout-correlation' })
+      await stream.next()
+      const permission = (await stream.next()).value
+      expect(permission?.type).toBe('adapter:interaction_required')
+      const next = stream.next()
+      await vi.advanceTimersByTimeAsync(21)
+      expect((await next).value).toMatchObject({ type: 'adapter:interaction_resolved', answer: 'no',
+        resolvedBy: 'timeout-fallback', correlationId: 'timeout-correlation' })
+      h.emit(complete(h.binding()))
+      expect((await collect(stream)).filter(event => event.type === 'adapter:interaction_resolved')).toEqual([])
+    } finally { vi.useRealTimers() }
+  })
+
   it('distinguishes same-name tool actions and resolves each once', async () => {
     const h = fixture((emit, b) => {
       emit({ ...b, type: 'approval_request', requestId: 'first', toolName: 'run_command', toolCallId: 'call-a', action: '{"command":"pwd"}' })

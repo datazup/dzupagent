@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { runClineWorker } from '../cline/cline-worker.js'
+import { guardClineRuntimeSdk, runClineWorker } from '../cline/cline-worker.js'
 import type { ClineCoreInstance, ClineSdk } from '../cline/cline-sdk-types.js'
 import { clineStreamEvent, clineUsage } from '../cline/cline-events.js'
 import { clineChildEnv } from '../cline/cline-worker-transport.js'
@@ -10,6 +10,28 @@ const binding: ClineBinding = { version: 1, runId: 'run', sessionId: 'session' }
 const start: ClineStart = { ...binding, type: 'start', profileDir: '/provisioned-profile', cwd: '/workspace',
   provider: 'anthropic', model: 'model', prompt: 'hello', systemPrompt: 'system', enableTools: true, approvalTimeoutMs: 50 }
 const success = { sessionId: 'session', result: { text: 'answer', finishReason: 'completed', usage: { inputTokens: 3, outputTokens: 4 } } }
+it('strips unapprovable provider-native tools while retaining local tools and shutdown', async () => {
+  const shutdown = vi.fn(async () => undefined)
+  let build: ((input: unknown) => Promise<{ tools: unknown[]; modelTools?: unknown[]; shutdown(reason: string): void | Promise<void> }>) | undefined
+  const core = coreFixture().core
+  const sdk = guardClineRuntimeSdk({
+    resolveSessionBackend: async () => ({}),
+    DefaultRuntimeBuilder: class { async build() { return { tools: ['local-tool'], modelTools: ['web_search', 'image_generation'], shutdown } } },
+    LocalRuntimeHost: class {
+      constructor(options: { runtimeBuilder: { build: NonNullable<typeof build> } }) { build = options.runtimeBuilder.build }
+      startSession = core.start
+      stopSession = core.stop
+      subscribe = core.subscribe
+      dispose = core.dispose
+    },
+  })
+  await sdk.ClineCore.create({ backendMode: 'local', automation: false, clientName: 'test', distinctId: 'run',
+    toolPolicies: {}, capabilities: { requestToolApproval: async () => ({ approved: false }) } })
+  const built = await build!({})
+  expect(built.modelTools).toEqual([])
+  expect(built.tools).toEqual(['local-tool'])
+  expect(built.shutdown).toBe(shutdown)
+})
 async function flush() { for (let n = 0; n < 12; n++) await Promise.resolve() }
 function harness(core: ClineCoreInstance, loader?: () => Promise<ClineSdk>) {
   const output: ClineChildMessage[] = []
