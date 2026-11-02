@@ -1,11 +1,33 @@
 import { realpathSync } from 'node:fs'
 import { isAbsolute, join, relative, sep } from 'node:path'
-import { ForgeError } from '@dzupagent/core/events'
+import { ForgeError, type ForgeErrorCode } from '@dzupagent/core/events'
 import type { AdapterConfig, AgentInput, InteractionPolicy } from '../types.js'
 import type { PiCredentialStore, PiExtensionFactory, PiSdk, PiSession, PiSessionManager } from './pi-sdk-types.js'
 
-export function piError(code: string, message: string): ForgeError {
-  return new ForgeError({ code, message, recoverable: false, context: { providerId: 'pi' } })
+const PI_ERROR_CODES = {
+  CONFIG_INVALID: 'INVALID_CONFIG',
+  EXECUTION_CANCELLED: 'AGENT_ABORTED',
+  EXECUTION_TIMEOUT: 'ADAPTER_TIMEOUT',
+  SESSION_NOT_FOUND: 'ADAPTER_SESSION_NOT_FOUND',
+  SESSION_INVALID: 'INVALID_CONFIG',
+  SESSION_BUSY: 'ADAPTER_EXECUTION_FAILED',
+  ADAPTER_SDK_INCOMPATIBLE: 'MISSING_DEPENDENCY',
+  ADAPTER_INCOMPLETE_RESULT: 'ADAPTER_EXECUTION_FAILED',
+  ADAPTER_EVENT_QUEUE_OVERFLOW: 'ADAPTER_EXECUTION_FAILED',
+  PROVIDER_ERROR: 'ADAPTER_EXECUTION_FAILED',
+  CAPABILITY_DENIED: 'CAPABILITY_DENIED',
+  PROVIDER_AUTH_FAILED: 'PROVIDER_AUTH_FAILED',
+} as const satisfies Record<string, ForgeErrorCode>
+
+export type PiErrorReason = keyof typeof PI_ERROR_CODES
+
+function isPiErrorReason(reason: string): reason is PiErrorReason {
+  return Object.hasOwn(PI_ERROR_CODES, reason)
+}
+
+export function piError(reason: string, message: string): ForgeError {
+  const code: ForgeErrorCode = isPiErrorReason(reason) ? PI_ERROR_CODES[reason] : 'ADAPTER_EXECUTION_FAILED'
+  return new ForgeError({ code, message, recoverable: false, context: { providerId: 'pi', piReason: reason } })
 }
 
 export interface PiRunConfig {

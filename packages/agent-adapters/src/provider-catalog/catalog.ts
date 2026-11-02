@@ -61,13 +61,8 @@ function qualifiedBy(receiptId: string): Pick<ProviderCatalogEntry, 'runnable' |
 }
 
 const NOT_QUALIFIED = { runnable: false, qualificationReceiptId: null } as const
-
 const normalizedOnly: EventFidelity = {
-  raw: false,
-  normalized: true,
-  artifact: false,
-  governance: false,
-  usage: 'none',
+  raw: false, normalized: true, artifact: false, governance: false, usage: 'none',
 }
 
 function postureRef(id: string): CatalogEntry['posture'] {

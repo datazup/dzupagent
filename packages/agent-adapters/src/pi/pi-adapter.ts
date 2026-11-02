@@ -5,7 +5,7 @@ import { InteractionResolver } from '../interaction/interaction-resolver.js'
 import type { AdapterCapabilityProfile, AdapterConfig, AgentEvent, AgentInput, HealthStatus } from '../types.js'
 import { PiEventMapper, PiEventQueue, piText } from './pi-events.js'
 import { createPiSession, openPiManager, piError, piRunConfig } from './pi-session.js'
-import type { PiRunConfig } from './pi-session.js'
+import type { PiErrorReason, PiRunConfig } from './pi-session.js'
 import type { PiSdk, PiSdkLoader, PiSession, PiToolCall, PiToolDecision } from './pi-sdk-types.js'
 
 /**
@@ -153,7 +153,7 @@ class PiRun {
     return this.resolver?.respond(id, answer) ?? false
   }
 
-  cancel(code: string, message: string): void {
+  cancel(code: PiErrorReason, message: string): void {
     if (this.terminal) return
     this.controller.abort()
     this.fail(piError(code, message))

@@ -3,7 +3,9 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PiAdapter } from '../pi/pi-adapter.js'
 import { PiEventQueue, PiRunUsage } from '../pi/pi-events.js'
-import { guardedPiCredentials } from '../pi/pi-session.js'
+import { guardedPiCredentials, piError } from '../pi/pi-session.js'
+import { ForgeError } from '@dzupagent/core/events'
+import { normalizeAdapterError } from '../base/adapter-error-normalizer.js'
 import type { AdapterConfig, AgentCLIAdapter, AgentEvent, AgentInput } from '../types.js'
 import type { PiCredentialStore, PiCreateOptions, PiEvent, PiMessage, PiResourceOptions, PiSdk, PiSession, PiSessionManager, PiToolCall, PiToolDecision, PiUsage } from '../pi/pi-sdk-types.js'
 
@@ -13,6 +15,74 @@ function deferred<T = void>() {
   const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no })
   return { promise, resolve, reject }
 }
+
+describe('Pi errors use the existing framework taxonomy', () => {
+  it.each([
+    [
+      "CONFIG_INVALID",
+      "INVALID_CONFIG"
+    ],
+    [
+      "EXECUTION_CANCELLED",
+      "AGENT_ABORTED"
+    ],
+    [
+      "EXECUTION_TIMEOUT",
+      "ADAPTER_TIMEOUT"
+    ],
+    [
+      "SESSION_NOT_FOUND",
+      "ADAPTER_SESSION_NOT_FOUND"
+    ],
+    [
+      "SESSION_INVALID",
+      "INVALID_CONFIG"
+    ],
+    [
+      "SESSION_BUSY",
+      "ADAPTER_EXECUTION_FAILED"
+    ],
+    [
+      "ADAPTER_SDK_INCOMPATIBLE",
+      "MISSING_DEPENDENCY"
+    ],
+    [
+      "ADAPTER_INCOMPLETE_RESULT",
+      "ADAPTER_EXECUTION_FAILED"
+    ],
+    [
+      "ADAPTER_EVENT_QUEUE_OVERFLOW",
+      "ADAPTER_EXECUTION_FAILED"
+    ],
+    [
+      "PROVIDER_ERROR",
+      "ADAPTER_EXECUTION_FAILED"
+    ],
+    [
+      "CAPABILITY_DENIED",
+      "CAPABILITY_DENIED"
+    ],
+    [
+      "PROVIDER_AUTH_FAILED",
+      "PROVIDER_AUTH_FAILED"
+    ]
+  ] as const)('normalizes %s to %s without losing its Pi reason', (reason, code) => {
+    const error = piError(reason, 'bounded Pi failure')
+    expect(ForgeError.is(error)).toBe(true)
+    expect(error).toMatchObject({
+      code, recoverable: false, context: { providerId: 'pi', piReason: reason },
+    })
+    expect(normalizeAdapterError(error)).toMatchObject({ code, message: 'bounded Pi failure', original: error })
+  })
+
+  it.each(['UNKNOWN_PI_REASON', '__proto__', 'constructor'])('uses a safe framework fallback for %s', reason => {
+    const error = piError(reason, 'bounded Pi failure')
+    expect(error).toMatchObject({
+      code: 'ADAPTER_EXECUTION_FAILED', context: { providerId: 'pi', piReason: reason },
+    })
+    expect(normalizeAdapterError(error)).toMatchObject({ code: 'ADAPTER_EXECUTION_FAILED', original: error })
+  })
+})
 
 describe('Pi selected-profile credentials', () => {
   function store(value: unknown): PiCredentialStore {
@@ -248,7 +318,7 @@ describe('Pi adapter contract and isolation', () => {
     if (condition === 'version') h.sdk.VERSION = '1.4.0'
     else if (condition === 'auth') h.sdk.readStoredCredential = undefined as unknown as PiSdk['readStoredCredential']
     else h.sdk.ModelRuntime = {} as PiSdk['ModelRuntime']
-    expect(terminal(await collect(h.adapter.execute({ prompt: 'hi' })))).toMatchObject({ code: 'ADAPTER_SDK_INCOMPATIBLE' })
+    expect(terminal(await collect(h.adapter.execute({ prompt: 'hi' })))).toMatchObject({ code: 'MISSING_DEPENDENCY' })
     expect(h.sdk.createAgentSession).not.toHaveBeenCalled()
   })
 
@@ -278,16 +348,16 @@ describe('Pi adapter contract and isolation', () => {
     const options = { ...fixtureConfig().providerOptions }
     delete options[key]
     h.adapter.configure({ providerOptions: options })
-    expect(terminal(await collect(h.adapter.execute({ prompt: 'hi' })))).toMatchObject({ code: 'CONFIG_INVALID' })
+    expect(terminal(await collect(h.adapter.execute({ prompt: 'hi' })))).toMatchObject({ code: 'INVALID_CONFIG' })
     expect(h.loader).not.toHaveBeenCalled()
   })
 
   it('rejects missing workspace and model', async () => {
     const h = harness()
     h.adapter.configure({ workingDirectory: undefined })
-    expect(terminal(await collect(h.adapter.execute({ prompt: 'hi' })))).toMatchObject({ code: 'CONFIG_INVALID' })
+    expect(terminal(await collect(h.adapter.execute({ prompt: 'hi' })))).toMatchObject({ code: 'INVALID_CONFIG' })
     h.adapter.configure({ workingDirectory: cwd, model: undefined })
-    expect(terminal(await collect(h.adapter.execute({ prompt: 'hi' })))).toMatchObject({ code: 'CONFIG_INVALID' })
+    expect(terminal(await collect(h.adapter.execute({ prompt: 'hi' })))).toMatchObject({ code: 'INVALID_CONFIG' })
     expect(h.loader).not.toHaveBeenCalled()
   })
 
@@ -339,7 +409,7 @@ describe('Pi adapter contract and isolation', () => {
   it('fails closed if the host approval extension is not loaded', async () => {
     const h = harness()
     h.sdk.DefaultResourceLoader = class { async reload() {} }
-    expect(terminal(await collect(h.adapter.execute({ prompt: 'hi' })))).toMatchObject({ code: 'ADAPTER_SDK_INCOMPATIBLE' })
+    expect(terminal(await collect(h.adapter.execute({ prompt: 'hi' })))).toMatchObject({ code: 'MISSING_DEPENDENCY' })
     expect(h.sessions[0]!.prompt).not.toHaveBeenCalled()
     expect(h.sessions[0]!.dispose).toHaveBeenCalledTimes(1)
   })
@@ -387,7 +457,7 @@ describe('Pi settlement and event ordering', () => {
       s.answer(assistant('retry failure', 'error'))
       s.emit({ type: 'auto_retry_end', success: false, attempt: 2, finalError: 'failed' })
     }])
-    expect(terminal(await collect(h.adapter.execute({ prompt: 'hi' })))).toMatchObject({ type: 'adapter:failed', code: 'PROVIDER_ERROR', usage: { inputTokens: 10 } })
+    expect(terminal(await collect(h.adapter.execute({ prompt: 'hi' })))).toMatchObject({ type: 'adapter:failed', code: 'ADAPTER_EXECUTION_FAILED', usage: { inputTokens: 10 } })
   })
 
   it.each(['streaming', 'retrying', 'queued', 'tools', 'missing', 'deferred-handle'])('rejects unresolved settlement: %s', async mode => {
@@ -398,7 +468,7 @@ describe('Pi settlement and event ordering', () => {
       if (mode === 'tools') s.state.pendingToolCalls.add('unfinished')
       if (mode === 'streaming') Object.defineProperty(s, 'isStreaming', { get: () => true, set: () => undefined })
     }])
-    expect(terminal(await collect(h.adapter.execute({ prompt: 'hi' })))).toMatchObject({ code: 'ADAPTER_INCOMPLETE_RESULT' })
+    expect(terminal(await collect(h.adapter.execute({ prompt: 'hi' })))).toMatchObject({ code: 'ADAPTER_EXECUTION_FAILED' })
   })
 
   it('observes prompt rejection and disposes exactly once', async () => {
@@ -425,7 +495,7 @@ describe('Pi settlement and event ordering', () => {
     await until(() => h.sessions[0]!.dispose.mock.calls.length === 1)
     const events = await collect(stream)
     expect(events[0]).toMatchObject({ type: 'adapter:message', content: 'one' })
-    expect(terminal(events)).toMatchObject({ type: 'adapter:failed', code: 'ADAPTER_EVENT_QUEUE_OVERFLOW' })
+    expect(terminal(events)).toMatchObject({ type: 'adapter:failed', code: 'ADAPTER_EXECUTION_FAILED' })
     expect(h.sessions[0]!.abort).toHaveBeenCalledTimes(1)
   })
 
@@ -443,7 +513,7 @@ describe('Pi cancellation and interaction ownership', () => {
   it('pre-cancellation performs no SDK or session initialization', async () => {
     const h = harness()
     const signal = AbortSignal.abort()
-    expect(terminal(await collect(h.adapter.execute({ prompt: 'hi', signal })))).toMatchObject({ code: 'EXECUTION_CANCELLED' })
+    expect(terminal(await collect(h.adapter.execute({ prompt: 'hi', signal })))).toMatchObject({ code: 'AGENT_ABORTED' })
     expect(h.loader).not.toHaveBeenCalled()
     expect(h.sdk.createAgentSession).not.toHaveBeenCalled()
   })
@@ -455,7 +525,7 @@ describe('Pi cancellation and interaction ownership', () => {
     const controller = new AbortController()
     const result = collect(adapter.execute({ prompt: 'hi', signal: controller.signal }))
     controller.abort()
-    expect(terminal(await result)).toMatchObject({ code: 'EXECUTION_CANCELLED' })
+    expect(terminal(await result)).toMatchObject({ code: 'AGENT_ABORTED' })
     loaded.resolve(h.sdk)
     await until(() => true)
     expect(h.sdk.createAgentSession).not.toHaveBeenCalled()
@@ -469,7 +539,7 @@ describe('Pi cancellation and interaction ownership', () => {
     const result = collect(h.adapter.execute({ prompt: 'hi', signal: controller.signal }))
     await until(() => h.sdk.SessionManager.create.mock !== undefined && vi.mocked(h.sdk.SessionManager.create).mock.calls.length === 1)
     controller.abort()
-    expect(terminal(await result)).toMatchObject({ code: 'EXECUTION_CANCELLED' })
+    expect(terminal(await result)).toMatchObject({ code: 'AGENT_ABORTED' })
     reload.resolve()
     await until(() => true)
     expect(h.sdk.ModelRuntime.create).not.toHaveBeenCalled()
@@ -483,7 +553,7 @@ describe('Pi cancellation and interaction ownership', () => {
     const result = collect(h.adapter.execute({ prompt: 'hi', signal: controller.signal }))
     await until(() => vi.mocked(h.sdk.ModelRuntime.create).mock.calls.length === 1)
     controller.abort()
-    expect(terminal(await result)).toMatchObject({ code: 'EXECUTION_CANCELLED' })
+    expect(terminal(await result)).toMatchObject({ code: 'AGENT_ABORTED' })
     model.resolve({ getModel: () => ({}) })
     await until(() => true)
     expect(h.sdk.createAgentSession).not.toHaveBeenCalled()
@@ -497,7 +567,7 @@ describe('Pi cancellation and interaction ownership', () => {
     const result = collect(h.adapter.execute({ prompt: 'hi', signal: controller.signal }))
     await until(() => vi.mocked(h.sdk.createAgentSession).mock.calls.length === 1)
     controller.abort()
-    expect(terminal(await result)).toMatchObject({ code: 'EXECUTION_CANCELLED' })
+    expect(terminal(await result)).toMatchObject({ code: 'AGENT_ABORTED' })
     const late = new FakeSession('session-1', async () => undefined, s => s.answer())
     created.resolve({ session: late })
     await until(() => late.dispose.mock.calls.length === 1)
@@ -512,13 +582,13 @@ describe('Pi cancellation and interaction ownership', () => {
     const two = collect(h.adapter.execute({ prompt: 'two' }))
     await until(() => h.sessions.length === 2)
     controller.abort()
-    expect(terminal(await one)).toMatchObject({ code: 'EXECUTION_CANCELLED' })
+    expect(terminal(await one)).toMatchObject({ code: 'AGENT_ABORTED' })
     expect(h.sessions[1]!.abort).not.toHaveBeenCalled()
     const three = collect(h.adapter.execute({ prompt: 'three' }))
     await until(() => h.sessions.length === 3)
     h.adapter.interrupt()
-    expect(terminal(await two)).toMatchObject({ code: 'EXECUTION_CANCELLED' })
-    expect(terminal(await three)).toMatchObject({ code: 'EXECUTION_CANCELLED' })
+    expect(terminal(await two)).toMatchObject({ code: 'AGENT_ABORTED' })
+    expect(terminal(await three)).toMatchObject({ code: 'AGENT_ABORTED' })
     for (const session of h.sessions) expect(session.dispose).toHaveBeenCalledTimes(1)
   })
 
@@ -542,7 +612,7 @@ describe('Pi cancellation and interaction ownership', () => {
     await stream.next()
     h.sessions[0]!.abort.mockRejectedValue(new Error('abort rejected'))
     h.adapter.interrupt()
-    expect(terminal(await collect(stream))).toMatchObject({ code: 'EXECUTION_CANCELLED' })
+    expect(terminal(await collect(stream))).toMatchObject({ code: 'AGENT_ABORTED' })
     prompt.reject(new Error('late prompt rejected'))
     for (let i = 0; i < 10; i++) await Promise.resolve()
     expect(h.sessions[0]!.dispose).toHaveBeenCalledTimes(1)
@@ -597,7 +667,7 @@ describe('Pi cancellation and interaction ownership', () => {
     }
     await until(() => executed !== undefined)
     expect(executed).toBe(false)
-    expect(terminal(events)).toMatchObject({ code: 'EXECUTION_CANCELLED' })
+    expect(terminal(events)).toMatchObject({ code: 'AGENT_ABORTED' })
   })
 
   it('denies tools on interaction timeout and removes timers', async () => {
@@ -625,7 +695,7 @@ describe('Pi cancellation and interaction ownership', () => {
     const stream = h.adapter.execute({ prompt: 'hi' })
     await stream.next()
     await vi.advanceTimersByTimeAsync(10)
-    expect(terminal(await collect(stream))).toMatchObject({ code: 'EXECUTION_TIMEOUT' })
+    expect(terminal(await collect(stream))).toMatchObject({ code: 'ADAPTER_TIMEOUT' })
     expect(h.sessions[0]!.dispose).toHaveBeenCalledTimes(1)
     expect(vi.getTimerCount()).toBe(0)
   })
@@ -634,7 +704,7 @@ describe('Pi cancellation and interaction ownership', () => {
 describe('Pi resume, configuration and usage provenance', () => {
   it('uses exact synchronous findById and never falls back for an unknown session', async () => {
     const h = harness()
-    expect(terminal(await collect(h.adapter.resumeSession('unknown', { prompt: 'hi' })))).toMatchObject({ code: 'SESSION_NOT_FOUND' })
+    expect(terminal(await collect(h.adapter.resumeSession('unknown', { prompt: 'hi' })))).toMatchObject({ code: 'ADAPTER_SESSION_NOT_FOUND' })
     expect(h.sdk.SessionManager.findById).toHaveBeenCalledWith(cwd, 'unknown', sessionDir)
     expect(h.sdk.SessionManager.open).not.toHaveBeenCalled()
     expect(h.sdk.SessionManager.create).not.toHaveBeenCalled()
@@ -650,7 +720,7 @@ describe('Pi resume, configuration and usage provenance', () => {
       const outside = join(fixture, 'outside.jsonl'); writeFileSync(outside, '')
       const link = join(sessionDir, 'escape.jsonl'); symlinkSync(outside, link); h.files.set('saved', link)
     }
-    expect(terminal(await collect(h.adapter.resumeSession('saved', { prompt: 'hi' })))).toMatchObject({ code: 'SESSION_INVALID' })
+    expect(terminal(await collect(h.adapter.resumeSession('saved', { prompt: 'hi' })))).toMatchObject({ code: 'INVALID_CONFIG' })
     expect(h.sdk.createAgentSession).not.toHaveBeenCalled()
   })
 
@@ -660,7 +730,7 @@ describe('Pi resume, configuration and usage provenance', () => {
     const first = h.adapter.resumeSession('saved', { prompt: 'first' })
     await first.next()
     const second = new PiAdapter(fixtureConfig(), h.loader)
-    expect(terminal(await collect(second.resumeSession('saved', { prompt: 'second' })))).toMatchObject({ code: 'SESSION_BUSY' })
+    expect(terminal(await collect(second.resumeSession('saved', { prompt: 'second' })))).toMatchObject({ code: 'ADAPTER_EXECUTION_FAILED' })
     await first.return()
     for (let i = 0; i < 10; i++) await Promise.resolve()
     expect(terminal(await collect(second.resumeSession('saved', { prompt: 'third' })))).toMatchObject({ type: 'adapter:completed' })
@@ -715,7 +785,7 @@ describe('Pi resume, configuration and usage provenance', () => {
       result.session.messages.push(assistant('old'))
       return result
     })
-    expect(terminal(await collect(h.adapter.resumeSession('saved', { prompt: 'continue' })))).toMatchObject({ code: 'ADAPTER_INCOMPLETE_RESULT' })
+    expect(terminal(await collect(h.adapter.resumeSession('saved', { prompt: 'continue' })))).toMatchObject({ code: 'ADAPTER_EXECUTION_FAILED' })
   })
 
   it.each([undefined, false])('omits estimated or unknown cost provenance %j while retaining tokens', reported => {
