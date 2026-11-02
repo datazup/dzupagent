@@ -58,7 +58,53 @@ export const loadClineSdk: ClineWorkerDependencies['loadSdk'] = async (start, ho
   await absent(storage.resolveMcpSettingsPath())
   await absent(join(start.cwd, '.cline', 'cline_mcp_settings.json'))
   const sdkName = '@cline/sdk'
-  return await import(sdkName) as ClineSdk
+  return guardClineRuntimeSdk(await import(sdkName) as ClineRuntimeExports)
+}
+
+interface BuiltClineRuntime {
+  tools: unknown[]
+  modelTools?: unknown[]
+  shutdown(reason: string): void | Promise<void>
+  [key: string]: unknown
+}
+interface ClineRuntimeExports {
+  resolveSessionBackend(options: Parameters<ClineSdk['ClineCore']['create']>[0]): Promise<unknown>
+  DefaultRuntimeBuilder: new () => { build(input: unknown): Promise<BuiltClineRuntime> }
+  LocalRuntimeHost: new (options: {
+    sessionService: unknown
+    distinctId: string
+    capabilities: ClineStartInput['capabilities']
+    toolPolicies: ClineStartInput['toolPolicies']
+    runtimeBuilder: { build(input: unknown): Promise<BuiltClineRuntime> }
+  }) => {
+    startSession(input: ClineStartInput): ReturnType<ClineCoreInstance['start']>
+    stopSession: ClineCoreInstance['stop']
+    subscribe: ClineCoreInstance['subscribe']
+    dispose: ClineCoreInstance['dispose']
+  }
+}
+
+/** Native model tools execute without local approvals; remove them at the
+ * supported runtime-builder boundary while preserving approved local tools. */
+export function guardClineRuntimeSdk(sdk: ClineRuntimeExports): ClineSdk {
+  if (typeof sdk.resolveSessionBackend !== 'function' || typeof sdk.DefaultRuntimeBuilder !== 'function'
+    || typeof sdk.LocalRuntimeHost !== 'function') throw new Error('CLINE_SDK_VERSION_UNSUPPORTED')
+  return { ClineCore: { async create(options) {
+    const builder = new sdk.DefaultRuntimeBuilder()
+    const host = new sdk.LocalRuntimeHost({
+      sessionService: await sdk.resolveSessionBackend(options), distinctId: options.distinctId,
+      capabilities: options.capabilities, toolPolicies: options.toolPolicies,
+      runtimeBuilder: { async build(input) {
+        const built = await builder.build(input)
+        if (!built || !Array.isArray(built.tools) || typeof built.shutdown !== 'function') throw new Error('CLINE_RUNTIME_INVALID')
+        return { ...built, modelTools: [] }
+      } },
+    })
+    return {
+      start: input => host.startSession(input), stop: id => host.stopSession(id),
+      subscribe: (listener, settings) => host.subscribe(listener, settings), dispose: () => host.dispose(),
+    }
+  } } }
 }
 
 export function runClineWorker(
