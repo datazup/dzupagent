@@ -325,7 +325,7 @@ describe('CLI adapter conformance contract', () => {
     })
   })
 
-  it('attributes Crush text completion usage only to the private run database', async () => {
+  it('omits Crush cumulative usage even when a context snapshot is available', async () => {
     const measured = { inputTokens: 77, outputTokens: 18, costCents: 0.5 }
     const reader = vi.spyOn(crushUsage, 'readCrushUsage').mockReturnValue(measured)
     try {
@@ -333,9 +333,9 @@ describe('CLI adapter conformance contract', () => {
         yield { type: 'text_result', content: 'plain answer', token_usage: { prompt_tokens: 9999, completion_tokens: 9999 } }
       })
       const events = await drainEvents(new CrushAdapter({ workingDirectory: crushCwd }).execute({ prompt: 'contract' }))
-      expect(terminalEvents(events)).toEqual([expect.objectContaining({ type: 'adapter:completed', result: 'plain answer', usage: measured })])
-      const args = mockSpawnAndStreamJsonl.mock.calls.at(-1)![1]
-      expect(reader).toHaveBeenCalledWith(args[args.indexOf('--data-dir') + 1])
+      expect(terminalEvents(events)).toEqual([expect.objectContaining({ type: 'adapter:completed', result: 'plain answer' })])
+      expect(terminalEvents(events)[0]).not.toHaveProperty('usage')
+      expect(reader).not.toHaveBeenCalled()
     } finally { reader.mockRestore() }
   })
 })

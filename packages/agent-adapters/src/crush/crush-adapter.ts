@@ -11,7 +11,7 @@
  * missing from its bundled catalogue ("large model ... not found"); declare such
  * a model under the provider's `models` in the base profile. A failed run's
  * `adapter:failed` names the redacted tail of Crush's stderr, and a completed
- * run carries the token usage and cost Crush recorded in the run's database.
+ * database exposes context snapshots, so normalized cumulative usage is omitted.
  */
 
 import { readFile, realpath, stat } from 'node:fs/promises'
@@ -31,7 +31,6 @@ import type { CliRuntimeLimits } from '../cli-runtime/index.js'
 import { redactProbeText } from '../introspection/probe-runner.js'
 import { isBinaryAvailable } from '../utils/process-helpers.js'
 import { mapCliProviderEvent } from '../utils/provider-event-normalization.js'
-import { isCrushUsageReaderAvailable, readCrushUsage } from './crush-usage.js'
 
 const PROVIDER_ID: AdapterProviderId = 'crush'
 const CRUSH_BINARY = 'crush'
@@ -72,8 +71,6 @@ type JsonObject = Record<string, unknown>
 
 export class CrushAdapter extends BaseCliAdapter {
   private crushConfig: CrushCliAdapterConfig
-  /** Each live run's private `--data-dir`, by session id, read for usage when its result is mapped. */
-  private readonly runDataDirs = new Map<string, string>()
 
   constructor(config: CrushCliAdapterConfig = {}) {
     super(PROVIDER_ID, config)
@@ -112,7 +109,7 @@ export class CrushAdapter extends BaseCliAdapter {
       emitsToolCalls: false,
       executesToolLoop: true,
       supportsStreaming: false,
-      supportsCostUsage: isCrushUsageReaderAvailable(),
+      supportsCostUsage: false,
       nativeToolControls: { mode: true, allowlist: true, blocklist: true },
     }
   }
@@ -128,7 +125,6 @@ export class CrushAdapter extends BaseCliAdapter {
 
   protected override async prepareCliRun(
     input: AgentInput,
-    context?: { readonly sessionId: string },
   ): Promise<PreparedCliRun> {
     this.validateSupportedInput(input)
     const cwd = resolve(input.workingDirectory ?? this.config.workingDirectory ?? process.cwd())
@@ -158,12 +154,8 @@ export class CrushAdapter extends BaseCliAdapter {
         env,
         stdoutMode: 'text',
         limits: this.crushConfig.runtimeLimits,
-        cleanup: () => {
-          if (context) this.runDataDirs.delete(context.sessionId)
-          return projection.cleanup()
-        },
+        cleanup: () => projection.cleanup(),
       }
-      if (context) this.runDataDirs.set(context.sessionId, dataDir)
       return prepared
     } catch (error) {
       await projection.cleanup().catch(() => undefined)
@@ -173,15 +165,11 @@ export class CrushAdapter extends BaseCliAdapter {
 
   protected mapProviderEvent(record: Record<string, unknown>, sessionId: string): AgentEvent | undefined {
     if (record['type'] === 'text_result') {
-      // The text result is mapped after Crush exits and before cleanup, so the run database is complete.
-      const usage = readCrushUsage(this.runDataDirs.get(sessionId))
-      this.runDataDirs.delete(sessionId)
       return {
         type: 'adapter:completed',
         providerId: PROVIDER_ID,
         sessionId,
         result: typeof record['content'] === 'string' ? record['content'] : '',
-        ...(usage ? { usage } : {}),
         durationMs: typeof record['duration_ms'] === 'number' ? record['duration_ms'] : 0,
         timestamp: Date.now(),
       }

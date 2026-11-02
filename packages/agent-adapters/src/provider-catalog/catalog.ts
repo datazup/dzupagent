@@ -338,8 +338,8 @@ export const PROVIDER_CATALOG = {
     monitorTier: 'artifact-backed',
     posture: postureRef('crush-cli'),
     lifecycleRecipeRef: 'lifecycle/crush-cli',
-    // Usage is parsed from the private run database when a reader is available.
-    eventFidelity: { ...normalizedOnly, usage: 'parsed' },
+    // Native database token fields are latest context snapshots, not run totals.
+    eventFidelity: { ...normalizedOnly, usage: 'none' },
     upstream: {
       repo: 'charmbracelet/crush',
       docsUrl: 'https://github.com/charmbracelet/crush#readme',

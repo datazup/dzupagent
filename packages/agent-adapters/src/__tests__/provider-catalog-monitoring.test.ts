@@ -68,7 +68,7 @@ describe('monitoring provider catalog contract (WP-M1.2)', () => {
       supportsToolCalls: true, emitsToolCalls: false, executesToolLoop: true,
       supportsStreaming: false, supportsCostUsage: false,
     })
-    expect(PROVIDER_CATALOG.crush.eventFidelity.usage).toBe('parsed')
+    expect(PROVIDER_CATALOG.crush.eventFidelity.usage).toBe('none')
   })
 
   it('carries a complete CatalogEntry for all ten existing adapters', () => {
