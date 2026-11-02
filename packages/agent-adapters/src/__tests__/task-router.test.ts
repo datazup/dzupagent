@@ -23,6 +23,25 @@ function makeTask(overrides: Partial<TaskDescriptor> = {}): TaskDescriptor {
 }
 
 describe("TagBasedRouter", () => {
+  it("does not invent cost or priority for reserved hosts", () => {
+    const hosts: AdapterProviderId[] = ['pi', 'opencode', 'cline'];
+    for (const router of [new TagBasedRouter(), new CostOptimizedRouter()]) {
+      const decision = router.route(makeTask({ budgetConstraint: 'low' }), hosts);
+      expect(decision.provider).toBe('auto');
+      expect(decision.fallbackProviders).toEqual([]);
+      expect(decision.confidence).toBe(0);
+      expect(router.route(makeTask({ budgetConstraint: 'low' }), ['pi', 'codex', 'cline']).provider).toBe('codex');
+      for (const provider of hosts) {
+        expect(router.route(makeTask({ preferredProvider: provider }), hosts).provider).toBe(provider);
+      }
+    }
+    expect(new CostOptimizedRouter({ pi: 0 }).route(makeTask(), ['codex', 'pi']).provider).toBe('pi');
+    for (const rank of [NaN, Infinity, -Infinity]) {
+      expect(new CostOptimizedRouter({ pi: rank }).route(makeTask(), ['pi']).provider).toBe('auto');
+    }
+    expect(new TagBasedRouter().route(makeTask(), hosts).provider).toBe('auto');
+  });
+
   const router = new TagBasedRouter();
 
   it("has expected name", () => {

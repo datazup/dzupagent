@@ -22,6 +22,19 @@ import type {
 } from '../types.js'
 import { stubCapabilities } from './adapter-capability-stub.js'
 
+describe('reserved SDK host static bids', () => {
+  it('omits unknown estimates and preserves known numeric bids', async () => {
+    const strategy = new StaticBidStrategy()
+    const task = makeTask([])
+    expect(await strategy.generateBids(task, ['pi', 'opencode', 'cline'])).toEqual([])
+    const bids = await strategy.generateBids(task, ['pi', 'claude', 'opencode', 'crush', 'cline'])
+    expect(bids.map((bid) => [bid.providerId, bid.estimatedCostCents, bid.estimatedDurationMs])).toEqual([
+      ['claude', 5, 5000], ['crush', 1, 2000],
+    ])
+    expect(bids.every((bid) => Number.isFinite(bid.estimatedCostCents) && Number.isFinite(bid.estimatedDurationMs))).toBe(true)
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Mock helpers
 // ---------------------------------------------------------------------------

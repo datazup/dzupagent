@@ -5,7 +5,7 @@
  * provider registry primitives, and provider adapter factories.
  *
  * This subpath is intended for consumers that only need the bare
- * provider-adapter surface (Claude/Codex/Gemini/Qwen/Crush/Goose/Ollama/OpenAI/OpenRouter)
+ * provider-adapter surface (including optional Pi/OpenCode/Cline SDK hosts)
  * without orchestration, HTTP, recovery, learning, or workflow planes.
  */
 
@@ -72,7 +72,15 @@ export { GeminiCLIAdapter } from './gemini/gemini-adapter.js'
 export { GeminiSDKAdapter } from './gemini/gemini-sdk-adapter.js'
 export type { GeminiSDKAdapterConfig } from './gemini/gemini-sdk-adapter.js'
 export { QwenAdapter } from './qwen/qwen-adapter.js'
-export { CrushAdapter } from './crush/crush-adapter.js'
+export { CrushAdapter, createCrushCliAdapter } from './crush/crush-adapter.js'
+export type { CrushCliAdapterConfig } from './crush/crush-adapter.js'
+export { PiAdapter } from './pi/pi-adapter.js'
+export type { PiSdkLoader } from './pi/pi-sdk-types.js'
+export { OpenCodeAdapter } from './opencode/opencode-adapter.js'
+export type { OpenCodeAdapterConfig, OpenCodeAdapterDependencies } from './opencode/opencode-adapter.js'
+export { ClineAdapter } from './cline/cline-adapter.js'
+export type { ClineAdapterConfig } from './cline/cline-adapter.js'
+export type { ClineTransport, ClineTransportFactory } from './cline/cline-worker-transport.js'
 export { GooseAdapter, createGooseCliAdapter } from './goose/goose-adapter.js'
 export type { GooseCliAdapterConfig } from './goose/goose-adapter.js'
 export { OllamaAdapter, createOllamaAdapter, resolveLocalModelEndpoint } from './ollama/ollama-adapter.js'

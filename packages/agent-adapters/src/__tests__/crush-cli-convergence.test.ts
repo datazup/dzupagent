@@ -2,9 +2,20 @@ import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:f
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ForgeError } from '@dzupagent/core/events'
 
 import { CrushAdapter, createCrushCliAdapter } from '../crush/crush-adapter.js'
+import { isCrushUsageReaderAvailable, readCrushUsage } from '../crush/crush-usage.js'
+import { DEFAULT_CLI_RUNTIME_LIMITS } from '../cli-runtime/types.js'
 import { collectEvents, getProcessHelperMocks } from './test-helpers.js'
+
+const sqliteFixtureAvailable = (() => {
+  try {
+    const load = (process as { getBuiltinModule?: (name: string) => unknown }).getBuiltinModule
+    const sqlite = load?.('node:sqlite') as { DatabaseSync?: unknown } | undefined
+    return typeof sqlite?.DatabaseSync === 'function'
+  } catch { return false }
+})()
 
 vi.mock('../utils/process-helpers.js', () => ({
   isBinaryAvailable: vi.fn().mockResolvedValue(true),
@@ -58,6 +69,52 @@ describe('Crush CLI convergence contract', () => {
     expect(events.at(-1)).toMatchObject({ providerId: 'crush', result: 'CRUSH_OK' })
   })
 
+  it('passes the finite total timeout, cancellation and output bounds to the shared runner', async () => {
+    const { workspace } = await fixtureProfile()
+    mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, _args, options) {
+      expect(options?.timeoutMs).toBe(12_345)
+      expect(options?.signal).toBeInstanceOf(AbortSignal)
+      expect(options?.stdoutMode).toBe('text')
+      expect({ ...DEFAULT_CLI_RUNTIME_LIMITS, ...options?.limits }).toMatchObject({
+        stdoutBytes: 4 * 1024 * 1024,
+        stderrBytes: 256 * 1024,
+      })
+      yield { type: 'text_result', content: 'bounded' }
+    })
+    await collectEvents(new CrushAdapter({ timeoutMs: 12_345 }).execute({ prompt: 'x', workingDirectory: workspace }))
+    expect(mockSpawnAndStreamJsonl).toHaveBeenCalledOnce()
+  })
+
+  it('forwards explicit output limits without creating a separate runner', async () => {
+    const { workspace } = await fixtureProfile()
+    const runtimeLimits = { stdoutBytes: 2048, stderrBytes: 1024 }
+    mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, _args, options) {
+      expect(options?.limits).toEqual(runtimeLimits)
+      yield { type: 'text_result', content: 'bounded' }
+    })
+    await collectEvents(new CrushAdapter({ runtimeLimits }).execute({ prompt: 'x', workingDirectory: workspace }))
+    expect(mockSpawnAndStreamJsonl).toHaveBeenCalledOnce()
+  })
+
+  it.each(['ADAPTER_TIMEOUT', 'ADAPTER_EXECUTION_FAILED'] as const)('cleans the isolated run after %s without retrying', async (code) => {
+    const { profile, workspace } = await fixtureProfile()
+    let projectionRoot = ''
+    const failure = new ForgeError({ code, message: 'bounded runner failure', recoverable: false })
+    mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, _args, options) {
+      projectionRoot = options!.env!['CRUSH_GLOBAL_DATA']!.replace(/\/data$/u, '')
+      throw failure
+    })
+    const events: Array<{ type: string }> = []
+    const run = (async () => {
+      for await (const event of new CrushAdapter({ cliBaseProfileRoot: profile, timeoutMs: 1000 }).execute({ prompt: 'x', workingDirectory: workspace })) events.push(event)
+    })()
+    await expect(run).rejects.toBe(failure)
+    expect(events.map((event) => event.type)).toEqual(['adapter:started', 'adapter:failed'])
+    expect(mockSpawnAndStreamJsonl).toHaveBeenCalledOnce()
+    expect(projectionRoot).not.toBe('')
+    await expect(access(projectionRoot)).rejects.toThrow()
+  })
+
   it('projects one selected provider and strict read-only tools into private disposable roots', async () => {
     const { profile, workspace } = await fixtureProfile()
     let projectionRoot = ''
@@ -82,6 +139,13 @@ describe('Crush CLI convergence contract', () => {
       })
       expect(projected.options.disabled_tools).toEqual(expect.arrayContaining(['bash', 'edit', 'write', 'fetch', 'list_mcp_resources']))
       expect(projected.options.disabled_tools).not.toContain('view')
+      // Exact upstream v0.98.1 inventory minus the six read-only tools.
+      expect([...projected.options.disabled_tools].sort()).toEqual([
+        'agent', 'bash', 'crush_info', 'crush_logs', 'job_output', 'job_kill', 'download', 'edit', 'multiedit',
+        'lsp_restart', 'lsp_symbols', 'lsp_definition', 'lsp_call_hierarchy', 'lsp_rename', 'lsp_replace_symbol',
+        'fetch', 'agentic_fetch', 'question', 'sourcegraph', 'todos', 'write',
+        'list_mcp_resources', 'read_mcp_resource',
+      ].sort())
       expect(args).toEqual(expect.arrayContaining(['--cwd', workspace, '--data-dir', join(projectionRoot, 'run-data'), 'run', '--quiet', '--', 'x']))
       expect(args).not.toEqual(expect.arrayContaining(['--output-format', '--prompt', '--system', '--permission', '--max-turns']))
       yield { type: 'text_result', content: 'ok' }
@@ -191,6 +255,10 @@ describe('Crush CLI convergence contract', () => {
       expect(config.options.disabled_tools).not.toContain('view')
       expect(config.options.disabled_tools).not.toContain('edit')
       expect(config.options.disabled_tools).toEqual(expect.arrayContaining(['bash', 'write', 'fetch']))
+      expect(config.options.disabled_tools).toEqual(expect.arrayContaining([
+        'crush_info', 'crush_logs', 'lsp_symbols', 'lsp_definition', 'lsp_call_hierarchy',
+        'lsp_rename', 'lsp_replace_symbol', 'question',
+      ]))
       yield { type: 'text_result', content: 'ok' }
     })
     await collectEvents(new CrushAdapter({ cliBaseProfileRoot: profile }).execute({
@@ -289,23 +357,25 @@ describe('Crush CLI convergence contract', () => {
     expect(mockSpawnAndStreamJsonl).not.toHaveBeenCalled()
   })
 
-  it('reports token usage and cost from the run database before the run is cleaned up', async () => {
+  it.skipIf(!sqliteFixtureAvailable)('does not turn native context snapshots into cumulative run usage', async () => {
     const { profile, workspace } = await fixtureProfile()
     mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, args) {
       const dataDir = args[args.indexOf('--data-dir') + 1]!
       const { DatabaseSync } = await import('node:sqlite')
       const db = new DatabaseSync(join(dataDir, 'crush.db'))
       db.exec('CREATE TABLE sessions (id TEXT PRIMARY KEY, prompt_tokens INTEGER, completion_tokens INTEGER, cost REAL)')
-      db.exec("INSERT INTO sessions VALUES ('main', 1200, 300, 0.0125), ('title', 800, 50, 0.0025)")
+      // Native fixture had three 17/5 responses (51/15 total), but this is
+      // the latest context snapshot recorded by Crush, not cumulative usage.
+      db.exec("INSERT INTO sessions VALUES ('main', 17, 5, 0.000066)")
       db.close()
       yield { type: 'text_result', content: 'done' }
     })
     const adapter = new CrushAdapter({ cliBaseProfileRoot: profile })
-    expect(adapter.getCapabilities().supportsCostUsage).toBe(true)
+    expect(adapter.getCapabilities().supportsCostUsage).toBe(false)
     const events = await collectEvents(adapter.execute({ prompt: 'x', workingDirectory: workspace }))
     const completed = events.at(-1) as { type: string, usage?: { inputTokens: number, outputTokens: number, costCents?: number } }
-    expect(completed).toMatchObject({ type: 'adapter:completed', usage: { inputTokens: 2000, outputTokens: 350 } })
-    expect(completed.usage?.costCents).toBeCloseTo(1.5, 10)
+    expect(completed).toMatchObject({ type: 'adapter:completed' })
+    expect(completed).not.toHaveProperty('usage')
   })
 
   it('completes without usage when the run database is absent', async () => {
@@ -339,5 +409,13 @@ describe('Crush CLI convergence contract', () => {
     expect(events.at(-1)).toMatchObject({ type: 'adapter:failed', code: 'CAPABILITY_DENIED' })
     expect((events.at(-1) as { error?: string }).error).toContain('escapes its approved root')
     expect(mockSpawnAndStreamJsonl).not.toHaveBeenCalled()
+  })
+})
+
+describe('Crush cumulative usage is unavailable', () => {
+  it('keeps the compatibility reader unavailable instead of inventing totals', () => {
+    expect(isCrushUsageReaderAvailable()).toBe(false)
+    expect(readCrushUsage(undefined)).toBeUndefined()
+    expect(readCrushUsage('/unread-context-snapshot')).toBeUndefined()
   })
 })

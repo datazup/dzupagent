@@ -157,7 +157,7 @@ export class ContextInjectionMiddleware {
   ): number {
     // Use canHandle to find the effective window:
     // The effective window is the largest totalTokens that canHandle returns true for
-    const contextWindows: Record<AdapterProviderId, number> = {
+    const contextWindows: Partial<Record<AdapterProviderId, number>> = {
       claude: 200_000,
       codex: 128_000,
       gemini: 1_000_000,
@@ -169,7 +169,18 @@ export class ContextInjectionMiddleware {
       openai: 128_000,
       ollama: 32_000,
     };
-    const rawWindow = contextWindows[providerId] ?? 0;
+    if (!router.canHandle(providerId, { inputTokens: 0, outputTokens: 0, totalTokens: 0, fitsInContext: true })) {
+      throw new Error(`Context budget is unknown for provider "${providerId}"`);
+    }
+    // Explicit router windows may opt reserved providers in. Find an upper bound
+    // through the public API when no static default exists.
+    let rawWindow = contextWindows[providerId] ?? 1;
+    if (contextWindows[providerId] === undefined) {
+      while (router.canHandle(providerId, { inputTokens: 0, outputTokens: 0, totalTokens: rawWindow, fitsInContext: true })) {
+        if (rawWindow >= Number.MAX_SAFE_INTEGER / 2) return rawWindow;
+        rawWindow *= 2;
+      }
+    }
 
     // Probe the router to find the effective window (with safety margin applied)
     // We test with a synthetic estimate; the router applies its own safety margin
@@ -188,7 +199,8 @@ export class ContextInjectionMiddleware {
     // Binary search for the effective threshold
     let low = 0;
     let high = rawWindow;
-    while (high - low > 100) {
+    const precision = contextWindows[providerId] === undefined ? 1 : 100;
+    while (high - low > precision) {
       const mid = Math.floor((low + high) / 2);
       const midEstimate = {
         inputTokens: 0,

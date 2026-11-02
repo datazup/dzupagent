@@ -37,7 +37,7 @@ import type {
 export class ContextAwareRouter implements TaskRoutingStrategy {
   readonly name = "context-aware";
 
-  private readonly contextWindows: Record<AdapterProviderId, number>;
+  private readonly contextWindows: Partial<Record<AdapterProviderId, number>>;
   private readonly safetyMargin: number;
   private readonly defaultOutputTokens: number;
   private readonly tokenEstimator: (text: string) => number;
@@ -109,13 +109,18 @@ export class ContextAwareRouter implements TaskRoutingStrategy {
     task: TaskDescriptor,
     availableProviders: AdapterProviderId[]
   ): RoutingDecision {
+    // Unknown or invalid windows cannot participate, including fallback paths.
+    availableProviders = availableProviders.filter((id) => this.getEffectiveWindow(id) > 0);
+    const inputTokens = this.estimateTaskInputTokens(task);
+    const totalTokens = inputTokens + this.defaultOutputTokens;
+    if (!Number.isFinite(totalTokens) || totalTokens < 0) {
+      return { provider: "auto", reason: "Invalid context token estimate", fallbackProviders: [], confidence: 0 };
+    }
     // Respect explicit preference if available and fits
     if (
       task.preferredProvider &&
       availableProviders.includes(task.preferredProvider)
     ) {
-      const inputTokens = this.estimateTaskInputTokens(task);
-      const totalTokens = inputTokens + this.defaultOutputTokens;
       const effectiveWindow = this.getEffectiveWindow(task.preferredProvider);
 
       if (totalTokens <= effectiveWindow) {
@@ -138,9 +143,6 @@ export class ContextAwareRouter implements TaskRoutingStrategy {
         confidence: 0,
       };
     }
-
-    const inputTokens = this.estimateTaskInputTokens(task);
-    const totalTokens = inputTokens + this.defaultOutputTokens;
 
     // Filter providers that can handle the context
     const fittingProviders = availableProviders.filter((providerId) =>
@@ -195,22 +197,26 @@ export class ContextAwareRouter implements TaskRoutingStrategy {
   /** Check if a specific provider can handle the estimated context */
   canHandle(providerId: AdapterProviderId, estimate: ContextEstimate): boolean {
     const effectiveWindow = this.getEffectiveWindow(providerId);
-    return estimate.totalTokens <= effectiveWindow;
+    return effectiveWindow > 0 && Number.isFinite(estimate.totalTokens) &&
+      estimate.totalTokens >= 0 && estimate.totalTokens <= effectiveWindow;
   }
 
   /** Get effective context window (after safety margin) for a provider */
   private getEffectiveWindow(providerId: AdapterProviderId): number {
     const rawWindow = this.contextWindows[providerId] ?? 0;
-    return Math.floor(rawWindow * (1 - this.safetyMargin));
+    if (!Number.isFinite(rawWindow) || rawWindow <= 0) return 0;
+    const effectiveWindow = Math.floor(rawWindow * (1 - this.safetyMargin));
+    return Number.isFinite(effectiveWindow) && effectiveWindow > 0 ? effectiveWindow : 0;
   }
 
   /** Find the best recommended provider by priority among those that fit */
   private findRecommendedProvider(
     totalTokens: number
   ): AdapterProviderId | undefined {
+    if (!Number.isFinite(totalTokens) || totalTokens < 0) return undefined;
     for (const providerId of PROVIDER_PRIORITY) {
       const effectiveWindow = this.getEffectiveWindow(providerId);
-      if (totalTokens <= effectiveWindow) {
+      if (effectiveWindow > 0 && totalTokens <= effectiveWindow) {
         return providerId;
       }
     }

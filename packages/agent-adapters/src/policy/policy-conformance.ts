@@ -61,7 +61,7 @@ interface ProviderCapabilities {
   supportsStructuredOutput: boolean
 }
 
-const PROVIDER_CAPABILITIES: Record<AdapterProviderId, ProviderCapabilities> = {
+const PROVIDER_CAPABILITIES: Partial<Record<AdapterProviderId, ProviderCapabilities>> = {
   claude: {
     supportsSandbox: true,
     supportsNetworkToggle: false,
@@ -187,6 +187,13 @@ export class PolicyConformanceChecker {
     _compiled: CompiledPolicyOverrides,
   ): PolicyConformanceResult {
     const caps = PROVIDER_CAPABILITIES[provider]
+    if (!caps) {
+      return {
+        conformant: false,
+        violations: [{ field: 'provider', reason: `Policy projection is unsupported for provider '${provider}'`, severity: 'error' }],
+        warnings: [],
+      }
+    }
     const violations: PolicyViolation[] = []
     const warnings: string[] = []
 

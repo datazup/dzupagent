@@ -32,6 +32,17 @@ const ALL_PROVIDERS: AdapterProviderId[] = [
 // ---------------------------------------------------------------------------
 
 describe('compilePolicyForProvider', () => {
+  it.each(['pi', 'opencode', 'cline'] as const)('explicitly denies unsupported %s projection', (provider) => {
+    expect(() => compilePolicyForProvider(provider, {})).toThrow(/Policy projection is unsupported/)
+    const result = new PolicyConformanceChecker().check(provider, {}, { config: {}, inputOptions: {}, guardrails: {} })
+    expect(result.conformant).toBe(false)
+    expect(result.violations).toEqual([{ field: 'provider', reason: `Policy projection is unsupported for provider '${provider}'`, severity: 'error' }])
+    const all = compilePolicyForAll({ maxTurns: 3 })
+    expect([...all.keys()]).toEqual(ALL_PROVIDERS)
+    expect(all.size).toBe(10)
+    expect(all.has(provider)).toBe(false)
+  })
+
   describe('empty policy', () => {
     it('should produce empty config and inputOptions for every provider', () => {
       const policy: AdapterPolicy = {}

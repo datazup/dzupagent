@@ -9,7 +9,7 @@
 import { estimateTokens } from "@dzupagent/core/llm";
 import type { AdapterProviderId } from "../../types.js";
 
-export const DEFAULT_CONTEXT_WINDOWS: Record<AdapterProviderId, number> = {
+export const DEFAULT_CONTEXT_WINDOWS: Partial<Record<AdapterProviderId, number>> = {
   claude: 200_000,
   codex: 128_000,
   gemini: 1_000_000,

@@ -60,6 +60,20 @@ function seedEngine(
 // ---------------------------------------------------------------------------
 
 describe('CostOptimizationEngine', () => {
+  it('does not recommend unknown hosts from static priority or missing measurements', () => {
+    const engine = new CostOptimizationEngine()
+    const hosts: AdapterProviderId[] = ['pi', 'opencode', 'cline']
+    const task = makeTask(['coding'])
+    expect(engine.recommend(task, hosts)).toBeUndefined()
+    expect(engine.route(task, hosts)).toMatchObject({ provider: 'auto', confidence: 0, fallbackProviders: [] })
+    expect(engine.route(task, ['pi', 'codex']).provider).toBe('codex')
+    expect(engine.route(makeTask(['coding'], { preferredProvider: 'pi' }), hosts).provider).toBe('pi')
+    seedEngine(engine, 'pi', ['coding'], 5, 0.9, 10)
+    seedEngine(engine, 'opencode', ['coding'], 5, 0.85, 0)
+    expect(engine.recommend(task, hosts)?.recommendedProvider).toBe('opencode')
+    expect(engine.route(task, hosts).provider).toBe('opencode')
+  })
+
   let engine: CostOptimizationEngine
   let bus: DzupEventBus
 
