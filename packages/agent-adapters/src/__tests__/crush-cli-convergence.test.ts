@@ -366,7 +366,7 @@ describe('Crush CLI convergence contract', () => {
     const events = await collectEvents(adapter.execute({ prompt: 'x', workingDirectory: workspace }))
     const completed = events.at(-1) as { type: string, usage?: { inputTokens: number, outputTokens: number, costCents?: number } }
     expect(completed).toMatchObject({ type: 'adapter:completed', usage: { inputTokens: 2000, outputTokens: 350 } })
-    expect(completed.usage?.costCents).toBeCloseTo(1.5, 10)
+    expect(completed.usage).not.toHaveProperty('costCents')
   })
 
   it('completes without usage when the run database is absent', async () => {
@@ -437,7 +437,7 @@ describe('Crush usage completeness', () => {
     { name: 'partially missing input', rows: [[2, 3, 0], [null, 4, 0]], expected: undefined },
     { name: 'partially missing output', rows: [[2, 3, 0], [4, null, 0]], expected: undefined },
     { name: 'measured zero', rows: [[0, 0, 0]], expected: { inputTokens: 0, outputTokens: 0, costCents: 0 } },
-    { name: 'multiple sessions', rows: [[1200, 300, 0.0125], [800, 50, 0.0025]], expected: { inputTokens: 2000, outputTokens: 350, costCents: 1.5 } },
+    { name: 'multiple sessions with ambiguous parent-child cost', rows: [[1200, 300, 0.0125], [800, 50, 0.0025]], expected: { inputTokens: 2000, outputTokens: 350 } },
     { name: 'unknown cost', rows: [[1, 2, null]], expected: { inputTokens: 1, outputTokens: 2 } },
     { name: 'partially unknown cost', rows: [[1, 2, 0.01], [3, 4, null]], expected: { inputTokens: 4, outputTokens: 6 } },
     { name: 'numeric text input', rows: [['12', 2, 0]], expected: undefined },
