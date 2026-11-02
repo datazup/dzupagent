@@ -131,10 +131,18 @@
     "zod": ">=4.0.0"
   },
   "peerDependenciesMeta": {
-    "@cline/sdk": { "optional": true },
-    "@cline/shared": { "optional": true },
-    "@earendil-works/pi-coding-agent": { "optional": true },
-    "@opencode-ai/sdk": { "optional": true }
+    "@cline/sdk": {
+      "optional": true
+    },
+    "@cline/shared": {
+      "optional": true
+    },
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@opencode-ai/sdk": {
+      "optional": true
+    }
   },
   "optionalDependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.301",
