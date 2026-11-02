@@ -37,6 +37,46 @@ function makeInput(
 // ---------------------------------------------------------------------------
 
 describe("ContextAwareRouter", () => {
+  it.each(['pi', 'opencode', 'cline'] as const)('excludes unknown %s windows even at zero tokens', (provider) => {
+    const router = new ContextAwareRouter({ defaultOutputTokens: 0, tokenEstimator: () => 0 })
+    expect(router.canHandle(provider, { inputTokens: 0, outputTokens: 0, totalTokens: 0, fitsInContext: true })).toBe(false)
+    const decision = router.route(makeTask('', { preferredProvider: provider }), ['pi', 'opencode', 'cline'])
+    expect(decision).toMatchObject({ provider: 'auto', fallbackProviders: [], confidence: 0 })
+    const mixed = router.route(makeTask('', { preferredProvider: provider }), [provider, 'codex'])
+    expect(mixed.provider).toBe('codex')
+    expect(mixed.fallbackProviders).not.toContain(provider)
+    expect(Number.isFinite(mixed.confidence)).toBe(true)
+    const oversized = router.route(makeTask('', { estimatedInputTokens: 2_000_000 }), [provider, 'codex', 'gemini'])
+    expect(oversized.provider).toBe('gemini')
+    expect(oversized.fallbackProviders).toEqual(['codex'])
+    expect(Number.isFinite(oversized.confidence)).toBe(true)
+    expect(oversized.reason).not.toMatch(/NaN|Infinity/)
+    const withoutGemini = router.route(makeTask('', { estimatedInputTokens: 2_000_000 }), [provider, 'codex'])
+    expect(withoutGemini.provider).toBe('codex')
+    expect(withoutGemini.fallbackProviders).toEqual([])
+    expect(Number.isFinite(withoutGemini.confidence)).toBe(true)
+    const middleware = new ContextInjectionMiddleware()
+    middleware.addInjection({ label: 'ctx', content: 'context', priority: 1 })
+    expect(() => middleware.enrichInput(makeInput('hello'), provider, router)).toThrow(/Context budget is unknown/)
+    expect(middleware.getInjections()).toHaveLength(1)
+    const optedIn = new ContextAwareRouter({ contextWindows: { [provider]: 10_000 }, defaultOutputTokens: 0 })
+    expect(optedIn.route(makeTask('hello', { preferredProvider: provider }), [provider]).provider).toBe(provider)
+    expect(middleware.enrichInput(makeInput('hello'), provider, optedIn).prompt).toContain('context')
+    const smallWindow = new ContextAwareRouter({ contextWindows: { [provider]: 100 }, defaultOutputTokens: 0 })
+    expect(middleware.enrichInput(makeInput('hello'), provider, smallWindow).prompt).toContain('context')
+    for (const window of [0, -1, NaN, Infinity]) {
+      const invalid = new ContextAwareRouter({ contextWindows: { [provider]: window }, defaultOutputTokens: 0 })
+      expect(invalid.route(makeTask(''), [provider]).provider).toBe('auto')
+      expect(() => middleware.enrichInput(makeInput(''), provider, invalid)).toThrow(/Context budget is unknown/)
+    }
+  });
+
+  it.each([NaN, Infinity, -Infinity, -1])('refuses invalid context estimate %s with finite confidence', (estimatedInputTokens) => {
+    const router = new ContextAwareRouter({ defaultOutputTokens: 0 });
+    const decision = router.route(makeTask('', { estimatedInputTokens, preferredProvider: 'claude' }), ['claude']);
+    expect(decision).toMatchObject({ provider: 'auto', confidence: 0, fallbackProviders: [] });
+  });
+
   let router: ContextAwareRouter;
 
   beforeEach(() => {

@@ -6,6 +6,25 @@ import { CodexSkillCompiler } from '../skills/compilers/codex-skill-compiler.js'
 import { ClaudeSkillCompiler } from '../skills/compilers/claude-skill-compiler.js'
 import { CliSkillCompiler } from '../skills/compilers/cli-skill-compiler.js'
 import { AdapterSkillRegistry, createDefaultSkillRegistry } from '../skills/adapter-skill-registry.js'
+import { SkillCapabilityMatrixBuilder } from '../skills/skill-capability-matrix.js'
+
+describe('reserved SDK host skill projection', () => {
+  it.each(['pi', 'opencode', 'cline'] as const)('omits %s even with a caller-supplied compiler', (providerId) => {
+    const registry = createDefaultSkillRegistry()
+    expect(registry.listProviders()).not.toContain(providerId)
+    expect(() => registry.compile(makeBundle(), providerId)).toThrow(/No skill compiler/)
+    let compiled = false
+    registry.register({
+      providerId,
+      compile() { compiled = true; throw new Error('unsupported compiler must not run') },
+      validate() { throw new Error('unsupported validator must not run') },
+    })
+    const matrix = new SkillCapabilityMatrixBuilder(registry).buildForSkill(makeBundle())
+    expect(matrix.providers[providerId]).toBeUndefined()
+    expect(matrix.providers.claude?.systemPrompt).toBe('active')
+    expect(compiled).toBe(false)
+  })
+})
 
 // ---------------------------------------------------------------------------
 // Fixtures

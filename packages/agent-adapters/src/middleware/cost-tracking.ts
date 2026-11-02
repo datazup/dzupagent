@@ -28,11 +28,11 @@ function isProviderRawStreamEvent(
 // ARCH-M-08: rates are no longer hand-maintained here. They project the
 // canonical `PROVIDER_RATE_TABLE` from `@dzupagent/core/middleware` via
 // `getModelRate`, so adapter costs can never drift from core cost tracking.
-// `AdapterProviderId` is a subset of the canonical provider-family keys.
+// Reserved agent-host IDs have no rate until explicitly qualified.
 
 type ProviderRates = ModelRate;
 
-const PROVIDER_RATES: Record<AdapterProviderId, ProviderRates> = {
+const PROVIDER_RATES: Partial<Record<AdapterProviderId, ProviderRates>> = {
   claude: getModelRate("claude"),
   codex: getModelRate("codex"),
   gemini: getModelRate("gemini"),
@@ -229,6 +229,11 @@ export class CostTrackingMiddleware {
   }
 
   private recordUsage(providerId: AdapterProviderId, usage: TokenUsage): void {
+    // Validate before creating an accumulator or changing any observable state.
+    const costCents = usage.costCents ?? this.estimateCost(providerId, usage);
+    if (!Number.isFinite(costCents) || costCents < 0) {
+      throw new Error(`Invalid cost for provider "${providerId}"`);
+    }
     const acc = this.getAccumulator(providerId);
 
     acc.inputTokens += usage.inputTokens;
@@ -237,7 +242,6 @@ export class CostTrackingMiddleware {
     acc.cacheWriteTokens += usage.cacheWriteTokens ?? 0;
     acc.invocations += 1;
 
-    const costCents = usage.costCents ?? this.estimateCost(providerId, usage);
     acc.costCents += costCents;
     this.totalCostCents += costCents;
     this.notifyUsageChanged();
@@ -309,7 +313,7 @@ export class CostTrackingMiddleware {
     usage: TokenUsage
   ): number {
     const rates = PROVIDER_RATES[providerId];
-    if (!rates) return 0;
+    if (!rates) throw new Error(`Cost rate is unknown for provider "${providerId}"; measured costCents is required`);
 
     const cacheReadTokens = usage.cachedInputTokens ?? 0;
     const cacheWriteTokens = usage.cacheWriteTokens ?? 0;

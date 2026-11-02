@@ -3,7 +3,7 @@ import { createEventBus } from '@dzupagent/core'
 import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 import { CostTrackingMiddleware } from '../middleware/cost-tracking.js'
-import type { AgentEvent, AgentCompletedEvent, AgentStartedEvent, TokenUsage } from '../types.js'
+import type { AdapterProviderId, AgentEvent, AgentCompletedEvent, AgentStartedEvent, TokenUsage } from '../types.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -26,7 +26,7 @@ function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
 }
 
 function makeCompletedEvent(
-  providerId: 'claude' | 'codex' | 'gemini' | 'qwen' | 'crush',
+  providerId: AdapterProviderId,
   usage?: TokenUsage,
 ): AgentCompletedEvent {
   return {
@@ -45,6 +45,31 @@ function makeCompletedEvent(
 // ---------------------------------------------------------------------------
 
 describe('CostTrackingMiddleware', () => {
+  it.each(['pi', 'opencode', 'cline'] as const)('requires measured cost for %s without mutating on refusal', async (provider) => {
+    const bus = createEventBus()
+    const events = collectBusEvents(bus)
+    const middleware = new CostTrackingMiddleware({ maxBudgetCents: 10, eventBus: bus })
+    let changes = 0
+    middleware.onUsageChanged(() => { changes++ })
+    const record = (usage: TokenUsage) => collectAll(middleware.wrap(yieldEvents([makeCompletedEvent(provider, usage)])))
+    const before = middleware.getUsage()
+    await expect(record({ inputTokens: 10, outputTokens: 2 })).rejects.toThrow(/Cost rate is unknown/)
+    expect(middleware.getUsage()).toEqual(before)
+    expect(changes).toBe(0)
+    expect(events).toEqual([])
+    await record({ inputTokens: 10, outputTokens: 2, costCents: 0 })
+    await record({ inputTokens: 10, outputTokens: 2, costCents: 3 })
+    expect(middleware.getUsage().perProvider[provider]).toMatchObject({ costCents: 3, inputTokens: 20, outputTokens: 4, invocations: 2 })
+    const measured = middleware.getUsage()
+    await expect(record({ inputTokens: 50, outputTokens: 20 })).rejects.toThrow(/Cost rate is unknown/)
+    for (const costCents of [NaN, Infinity, -1]) {
+      await expect(record({ inputTokens: 50, outputTokens: 20, costCents })).rejects.toThrow(/Invalid cost/)
+    }
+    expect(middleware.getUsage()).toEqual(measured)
+    expect(changes).toBe(2)
+    expect(events).toEqual([])
+  })
+
   it('keeps cost accounting cumulative across concurrent and consecutive wrappers', async () => {
     const middleware = new CostTrackingMiddleware({ maxBudgetCents: 100 })
     const completion = makeCompletedEvent('codex', { inputTokens: 1, outputTokens: 1, costCents: 2 })

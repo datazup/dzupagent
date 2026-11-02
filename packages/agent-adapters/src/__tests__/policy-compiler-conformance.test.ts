@@ -8,6 +8,7 @@ import type {
   AdapterPolicy,
 } from '../policy/policy-compiler.js'
 import { PolicyConformanceChecker } from '../policy/policy-conformance.js'
+import { getProviderCapabilities } from '../provider-catalog.js'
 import type { AdapterProviderId } from '../types.js'
 
 // ---------------------------------------------------------------------------
@@ -27,11 +28,28 @@ const ALL_PROVIDERS: AdapterProviderId[] = [
   'ollama',
 ]
 
+// Independent expectation: native/host filter support does not imply policy projection.
+const TOOL_FILTER_PROVIDERS: readonly AdapterProviderId[] = [
+  'codex', 'claude', 'crush', 'openai', 'ollama', 'pi', 'opencode',
+]
+
 // ---------------------------------------------------------------------------
 // compilePolicyForProvider
 // ---------------------------------------------------------------------------
 
 describe('compilePolicyForProvider', () => {
+  it.each(['pi', 'opencode', 'cline'] as const)('explicitly denies unsupported %s projection', (provider) => {
+    const policy: AdapterPolicy = { allowedTools: ['read'], blockedTools: ['shell'] }
+    expect(() => compilePolicyForProvider(provider, policy)).toThrow(/Policy projection is unsupported/)
+    const result = new PolicyConformanceChecker().check(provider, policy, { config: {}, inputOptions: {}, guardrails: {} })
+    expect(result.conformant).toBe(false)
+    expect(result.violations).toEqual([{ field: 'provider', reason: `Policy projection is unsupported for provider '${provider}'`, severity: 'error' }])
+    const all = compilePolicyForAll({ maxTurns: 3 })
+    expect([...all.keys()]).toEqual(ALL_PROVIDERS)
+    expect(all.size).toBe(10)
+    expect(all.has(provider)).toBe(false)
+  })
+
   describe('empty policy', () => {
     it('should produce empty config and inputOptions for every provider', () => {
       const policy: AdapterPolicy = {}
@@ -490,8 +508,29 @@ describe('PolicyConformanceChecker', () => {
   // -------------------------------------------------------------------------
 
   describe('allowedTools and blockedTools', () => {
+    it.each(TOOL_FILTER_PROVIDERS)('advertises both tool filters for %s', (provider) => {
+      const support = getProviderCapabilities(provider)?.toolControlSupport
+      expect(support).toBeDefined()
+      expect(support!.allowlist).not.toBe('none')
+      expect(support!.blocklist).not.toBe('none')
+    })
+
+    it.each(ALL_PROVIDERS.filter((provider) => TOOL_FILTER_PROVIDERS.includes(provider)))(
+      'accepts both projected tool filters for %s',
+      (provider) => {
+        const result = compileAndCheck(provider, { allowedTools: ['read'], blockedTools: ['shell'] })
+        expect(result.violations.filter((v) => v.field === 'allowedTools' || v.field === 'blockedTools')).toEqual([])
+      },
+    )
+
+    it('keeps both Cline tool filters unsupported', () => {
+      expect(getProviderCapabilities('cline')?.toolControlSupport).toEqual({
+        mode: 'native', allowlist: 'none', blocklist: 'none',
+      })
+    })
+
     it('should produce a warning for allowedTools on providers without allowlist support', () => {
-      for (const provider of ALL_PROVIDERS.filter((p) => p !== 'claude' && p !== 'openai' && p !== 'codex' && p !== 'ollama')) {
+      for (const provider of ALL_PROVIDERS.filter((provider) => !TOOL_FILTER_PROVIDERS.includes(provider))) {
         const result = compileAndCheck(provider, { allowedTools: ['read', 'write'] })
         const violation = result.violations.find((v) => v.field === 'allowedTools')
         expect(violation).toBeDefined()
@@ -526,7 +565,7 @@ describe('PolicyConformanceChecker', () => {
     })
 
     it('should produce a warning for blockedTools on providers without blocklist support', () => {
-      for (const provider of ALL_PROVIDERS.filter((p) => p !== 'claude' && p !== 'openai' && p !== 'codex' && p !== 'ollama')) {
+      for (const provider of ALL_PROVIDERS.filter((provider) => !TOOL_FILTER_PROVIDERS.includes(provider))) {
         const result = compileAndCheck(provider, { blockedTools: ['shell'] })
         const violation = result.violations.find((v) => v.field === 'blockedTools')
         expect(violation).toBeDefined()

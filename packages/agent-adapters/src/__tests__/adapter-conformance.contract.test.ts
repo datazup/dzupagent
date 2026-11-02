@@ -12,6 +12,11 @@ import { GooseAdapter } from '../goose/goose-adapter.js'
 import { ClaudeAgentAdapter } from '../claude/claude-adapter.js'
 import { CodexAdapter } from '../codex/codex-adapter.js'
 import { OpenRouterAdapter } from '../openrouter/openrouter-adapter.js'
+import { PiAdapter, OpenCodeAdapter, ClineAdapter } from '../providers.js'
+import type { PiMessage, PiResourceOptions, PiSdk, PiSession } from '../pi/pi-sdk-types.js'
+import type { OpenCodeClient, OpenCodeSdk } from '../opencode/opencode-sdk-types.js'
+import type { ClineTransportFactory } from '../cline/cline-worker-transport.js'
+import * as crushUsage from '../crush/crush-usage.js'
 import type { AgentCLIAdapter, AgentEvent, AdapterProviderId, TokenUsage } from '../types.js'
 import { getProcessHelperMocks } from './test-helpers.js'
 
@@ -51,7 +56,7 @@ type CliConformanceCase = {
   adapter: AgentCLIAdapter
   input?: Parameters<AgentCLIAdapter['execute']>[0]
   completedRecord: Record<string, unknown>
-  expectedUsage: TokenUsage
+  expectedUsage?: TokenUsage
   expectedArgs: string[]
 }
 
@@ -126,17 +131,9 @@ describe('CLI adapter conformance contract', () => {
       providerId: 'crush',
       adapter: new CrushAdapter({ workingDirectory: crushCwd }),
       completedRecord: {
-        type: 'completed',
-        output: 'crush done',
+        type: 'text_result',
+        content: 'crush done',
         duration_ms: 31,
-        token_usage: {
-          prompt_tokens: 77,
-          completion_tokens: 18,
-        },
-      },
-      expectedUsage: {
-        inputTokens: 77,
-        outputTokens: 18,
       },
       expectedArgs: ['--data-dir', 'run', '--quiet', '--', 'contract'],
     },
@@ -171,7 +168,7 @@ describe('CLI adapter conformance contract', () => {
   for (const testCase of cases) {
     it(`${testCase.providerId} emits exactly one terminal completed event with usage attribution`, async () => {
       mockSpawnAndStreamJsonl.mockImplementation(async function* () {
-        yield { type: 'message', content: `${testCase.providerId} hello` }
+        if (testCase.providerId !== 'crush') yield { type: 'message', content: `${testCase.providerId} hello` }
         yield testCase.completedRecord
       })
 
@@ -186,19 +183,26 @@ describe('CLI adapter conformance contract', () => {
         expect(completed.providerId).toBe(testCase.providerId)
         if (testCase.expectedUsage !== undefined) {
           expect(completed.usage).toEqual(testCase.expectedUsage)
+        } else {
+          expect(completed.usage).toBeUndefined()
         }
+        if (testCase.providerId === 'crush') expect(completed.result).toBe('crush done')
       }
 
       const [, args] = mockSpawnAndStreamJsonl.mock.calls.at(-1)!
       for (const arg of testCase.expectedArgs) {
         expect(args).toContain(arg)
       }
+      if (testCase.providerId === 'crush') {
+        expect(mockSpawnAndStreamJsonl.mock.calls.at(-1)?.[2]?.stdoutMode).toBe('text')
+        expect(events.some(event => event.type === 'adapter:tool_call' || event.type === 'adapter:tool_result')).toBe(false)
+      }
     })
 
     it(`${testCase.providerId} treats provider failure as terminal without adding synthetic completion`, async () => {
       mockSpawnAndStreamJsonl.mockImplementation(async function* () {
-        if (testCase.providerId === 'goose') {
-          throw new ForgeError({ code: 'PROVIDER_UNAVAILABLE', message: 'goose failed', recoverable: false })
+        if (testCase.providerId === 'goose' || testCase.providerId === 'crush') {
+          throw new ForgeError({ code: 'PROVIDER_UNAVAILABLE', message: `${testCase.providerId} failed`, recoverable: false })
         }
         yield { type: 'error', error: { message: `${testCase.providerId} failed`, code: 'PROVIDER_UNAVAILABLE' } }
       })
@@ -223,7 +227,7 @@ describe('CLI adapter conformance contract', () => {
         expect(failed.providerId).toBe(testCase.providerId)
         expect(failed.code).toBe('PROVIDER_UNAVAILABLE')
       }
-      if (testCase.providerId === 'goose') expect(thrown).toMatchObject({ code: 'PROVIDER_UNAVAILABLE' })
+      if (testCase.providerId === 'goose' || testCase.providerId === 'crush') expect(thrown).toMatchObject({ code: 'PROVIDER_UNAVAILABLE' })
       else expect(thrown).toBeUndefined()
     })
 
@@ -231,7 +235,7 @@ describe('CLI adapter conformance contract', () => {
       let markAbortHandlerReady!: () => void
       const abortHandlerReady = new Promise<void>((resolve) => { markAbortHandlerReady = resolve })
       mockSpawnAndStreamJsonl.mockImplementation(async function* (_binary, _args, opts) {
-        yield { type: 'message', content: `${testCase.providerId} running` }
+        if (testCase.providerId !== 'crush') yield { type: 'message', content: `${testCase.providerId} running` }
         await new Promise<void>((resolve) => {
           if (opts?.signal?.aborted) {
             markAbortHandlerReady()
@@ -253,9 +257,9 @@ describe('CLI adapter conformance contract', () => {
       expect(first.value?.type).toBe('adapter:started')
 
       let third
-      if (testCase.providerId === 'goose') {
+      if (testCase.providerId === 'goose' || testCase.providerId === 'crush') {
         const pending = stream.next()
-        // Goose prepares a private filesystem projection before entering spawn.
+        // These adapters prepare a private filesystem projection before spawn.
         // Wait for the actual fake abort boundary, not an event-loop tick.
         await abortHandlerReady
         testCase.adapter.interrupt()
@@ -319,6 +323,165 @@ describe('CLI adapter conformance contract', () => {
     await expect(drainEvents(adapter.resumeSession('sess-1', { prompt: 'resume' }))).rejects.toMatchObject({
       code: 'CAPABILITY_DENIED',
     })
+  })
+
+  it('omits Crush cumulative usage even when a context snapshot is available', async () => {
+    const measured = { inputTokens: 77, outputTokens: 18, costCents: 0.5 }
+    const reader = vi.spyOn(crushUsage, 'readCrushUsage').mockReturnValue(measured)
+    try {
+      mockSpawnAndStreamJsonl.mockImplementation(async function* () {
+        yield { type: 'text_result', content: 'plain answer', token_usage: { prompt_tokens: 9999, completion_tokens: 9999 } }
+      })
+      const events = await drainEvents(new CrushAdapter({ workingDirectory: crushCwd }).execute({ prompt: 'contract' }))
+      expect(terminalEvents(events)).toEqual([expect.objectContaining({ type: 'adapter:completed', result: 'plain answer' })])
+      expect(terminalEvents(events)[0]).not.toHaveProperty('usage')
+      expect(reader).not.toHaveBeenCalled()
+    } finally { reader.mockRestore() }
+  })
+})
+
+// These seams never import an optional SDK, connect to a host, or read auth.
+function piContractFixture(pending = false) {
+  let listener: ((event: { type: 'message_end'; message: PiMessage }) => void) | undefined
+  let release!: () => void
+  const wait = new Promise<void>(resolve => { release = resolve })
+  const dispose = vi.fn()
+  const unsubscribe = vi.fn()
+  const session: PiSession = {
+    sessionId: 'pi-contract', messages: [], isStreaming: false, isRetrying: false,
+    pendingMessageCount: 0, state: { pendingToolCalls: new Set() },
+    subscribe: callback => { listener = callback; return unsubscribe },
+    prompt: async () => {
+      if (pending) { await wait; return }
+      const message: PiMessage = { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'pi answer' }] }
+      session.messages.push(message)
+      listener?.({ type: 'message_end', message })
+    },
+    abort: async () => { release() }, dispose,
+    // Lifetime totals must never become current-turn usage.
+    getSessionStats: () => ({ tokens: { input: 9999, output: 9999, cacheRead: 0, cacheWrite: 0, total: 19998 }, cost: 100 }),
+  }
+  const sdk: PiSdk = {
+    VERSION: '1.5.0', SettingsManager: { inMemory: () => ({}) },
+    DefaultResourceLoader: class {
+      constructor(private readonly options: PiResourceOptions) {}
+      async reload() {
+        for (const factory of this.options.extensionFactories) await factory({ on: () => () => undefined })
+      }
+    },
+    readStoredCredential: () => ({ type: 'api_key', key: 'in-memory-fixture' }),
+    ModelRuntime: { create: async () => ({ getModel: () => ({}) }) },
+    SessionManager: {
+      create: () => ({ getSessionId: () => session.sessionId, getCwd: () => crushCwd, getSessionFile: () => undefined }),
+      findById: () => undefined,
+      open: () => { throw new Error('no persisted session in fixture') },
+    },
+    createAgentSession: async () => ({ session }),
+  }
+  const loader = vi.fn(async () => sdk)
+  const adapter = new PiAdapter({ model: 'fixture', workingDirectory: crushCwd,
+    providerOptions: { provider: 'openai', agentDir: crushCwd, sessionDir: crushCwd } }, loader)
+  return { adapter, loader, closed: dispose, unsubscribe }
+}
+
+function openCodeContractFixture(pending = false) {
+  const cancelled = vi.fn()
+  const fetcher = vi.fn<typeof fetch>(async () => new Response(new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('data: {"type":"server.connected","properties":{}}\n\n'))
+    }, cancel: cancelled,
+  }), { headers: { 'content-type': 'text/event-stream' } }))
+  const aborted = vi.fn(async () => ({ data: true }))
+  const client: OpenCodeClient = {
+    tool: { ids: async () => ({ data: [] }) },
+    session: {
+      create: async () => ({ data: { id: 'opencode-contract', directory: crushCwd } }),
+      abort: aborted,
+      prompt: async options => {
+        if (pending) return new Promise(() => undefined)
+        const info = { id: 'answer', role: 'assistant', sessionID: options.path.id,
+          parentID: options.body.messageID, time: { created: Date.now(), completed: Date.now() }, finish: 'stop' }
+        return { data: { info, parts: [{ id: 'text', type: 'text', text: 'opencode answer', messageID: info.id, sessionID: info.sessionID }] } }
+      },
+    },
+    event: { subscribe: async () => { throw new Error('SDK SSE must not bypass the injected fetch') } },
+    postSessionIdPermissionsPermissionId: async () => ({ data: true }),
+  }
+  const loader = vi.fn(async (): Promise<OpenCodeSdk> => ({ createOpencodeClient: () => client }))
+  const adapter = new OpenCodeAdapter({ baseUrl: 'http://127.0.0.1:4096', cwd: crushCwd, cleanupTimeoutMs: 20 },
+    { loadSdk: loader, fetch: fetcher })
+  return { adapter, loader, closed: cancelled, aborted }
+}
+
+function clineContractFixture(pending = false) {
+  const closed = vi.fn(async () => undefined)
+  const factory = vi.fn<ClineTransportFactory>(async (binding, emit) => {
+    emit({ ...binding, type: 'ready' })
+    return { shutdown: closed, send: async message => {
+      if (message.type === 'start' && !pending) emit({ ...binding, type: 'result', success: true, text: 'cline answer', reason: 'completed' })
+    } }
+  })
+  const adapter = new ClineAdapter({ profileDir: crushCwd, workingDirectory: crushCwd, provider: 'fixture', model: 'fixture' }, factory)
+  return { adapter, loader: factory, closed }
+}
+
+describe('optional SDK hosts shared conformance', () => {
+  const cases = [
+    { id: 'pi', fixture: piContractFixture },
+    { id: 'opencode', fixture: openCodeContractFixture },
+    { id: 'cline', fixture: clineContractFixture },
+  ] as const
+  for (const { id, fixture } of cases) {
+    it(`${id} emits one attributed completion, keeps unknown usage absent and closes its seam`, async () => {
+      const h = fixture()
+      expect(h.loader).not.toHaveBeenCalled()
+      const events = await drainEvents(h.adapter.execute({ prompt: 'contract', correlationId: 'sdk-contract' }))
+      expect(events[0]).toMatchObject({ type: 'adapter:started', providerId: id })
+      expect(terminalEvents(events)).toEqual([expect.objectContaining({ type: 'adapter:completed', providerId: id, result: `${id} answer` })])
+      const terminal = terminalEvents(events)[0]
+      expect(terminal && 'usage' in terminal ? terminal.usage : undefined).toBeUndefined()
+      expect(events.every(event => event.correlationId === 'sdk-contract')).toBe(true)
+      expect(h.closed).toHaveBeenCalledOnce()
+    })
+
+    it(`${id} wakes a pending read on interrupt and closes without synthetic completion`, async () => {
+      const h = fixture(true)
+      const stream = h.adapter.execute({ prompt: 'contract' })
+      expect((await stream.next()).value).toMatchObject({ type: 'adapter:started' })
+      const next = stream.next()
+      h.adapter.interrupt()
+      const events: AgentEvent[] = []
+      const first = await next
+      if (!first.done) events.push(first.value)
+      events.push(...await drainEvents(stream))
+      expect(terminalEvents(events)).toEqual([expect.objectContaining({ type: 'adapter:failed', providerId: id })])
+      expect(h.closed).toHaveBeenCalledOnce()
+    })
+
+    it(`${id} refuses unsupported budget controls before loading or transport effects`, async () => {
+      const h = fixture()
+      const run = async () => drainEvents(h.adapter.execute({ prompt: 'contract', maxBudgetUsd: 0 }))
+      if (id === 'cline') await expect(run()).rejects.toThrow('CLINE_UNSUPPORTED_CONTROL')
+      else expect(terminalEvents(await run())).toEqual([expect.objectContaining({ type: 'adapter:failed', providerId: id })])
+      expect(h.loader).not.toHaveBeenCalled()
+      expect(h.closed).not.toHaveBeenCalled()
+    })
+  }
+
+  it('rejects OpenCode owned-server mode and unowned resume before SDK loading', async () => {
+    const h = openCodeContractFixture()
+    h.adapter.configure({ mode: 'owned' })
+    expect(terminalEvents(await drainEvents(h.adapter.execute({ prompt: 'contract' })))[0]).toMatchObject({ type: 'adapter:failed' })
+    h.adapter.configure({ mode: 'attached' })
+    expect(terminalEvents(await drainEvents(h.adapter.resumeSession('foreign', { prompt: 'contract' })))[0]).toMatchObject({ type: 'adapter:failed' })
+    expect(h.loader).not.toHaveBeenCalled()
+  })
+
+  it('rejects Cline resume without spawning a worker', async () => {
+    const h = clineContractFixture()
+    const adapter: AgentCLIAdapter = h.adapter
+    await expect(drainEvents(adapter.resumeSession('old', { prompt: 'contract' }))).rejects.toThrow('CLINE_RESUME_UNSUPPORTED')
+    expect(h.loader).not.toHaveBeenCalled()
   })
 })
 
