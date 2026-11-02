@@ -9,6 +9,14 @@ import { isCrushUsageReaderAvailable, readCrushUsage } from '../crush/crush-usag
 import { DEFAULT_CLI_RUNTIME_LIMITS } from '../cli-runtime/types.js'
 import { collectEvents, getProcessHelperMocks } from './test-helpers.js'
 
+const sqliteFixtureAvailable = (() => {
+  try {
+    const load = (process as { getBuiltinModule?: (name: string) => unknown }).getBuiltinModule
+    const sqlite = load?.('node:sqlite') as { DatabaseSync?: unknown } | undefined
+    return typeof sqlite?.DatabaseSync === 'function'
+  } catch { return false }
+})()
+
 vi.mock('../utils/process-helpers.js', () => ({
   isBinaryAvailable: vi.fn().mockResolvedValue(true),
   spawnAndStreamJsonl: vi.fn(),
@@ -349,7 +357,7 @@ describe('Crush CLI convergence contract', () => {
     expect(mockSpawnAndStreamJsonl).not.toHaveBeenCalled()
   })
 
-  it.skipIf(typeof (process as { getBuiltinModule?: unknown }).getBuiltinModule !== 'function')('does not turn native context snapshots into cumulative run usage', async () => {
+  it.skipIf(!sqliteFixtureAvailable)('does not turn native context snapshots into cumulative run usage', async () => {
     const { profile, workspace } = await fixtureProfile()
     mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, args) {
       const dataDir = args[args.indexOf('--data-dir') + 1]!
