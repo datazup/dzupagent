@@ -436,7 +436,7 @@ export class CodexCliAdapter implements AgentCLIAdapter {
       const prepared: PreparedCodexCliRun = {
         args: this.buildArgs(input, homeProjection.generatedPaths['outputSchema']),
         cwd: input.workingDirectory ?? this.config.workingDirectory,
-        env: { ...this.buildSpawnEnv(), CODEX_HOME: profileRoot }, homeProjection,
+        env: buildNativeContextEnv(this.config.env, profileRoot), homeProjection,
       };
       this.nativeContextGuards.set(prepared, async candidate => {
         try {
@@ -582,6 +582,27 @@ export class CodexCliAdapter implements AgentCLIAdapter {
     }
     return env;
   }
+}
+
+/**
+ * Replacement environment for native-context runs (WB-IMAGE-NATIVE-ENV-REPAIR-20261104-R1).
+ * Contains only the configured, non-sensitive entries plus CODEX_HOME. It never reads
+ * `process.env`, so ambient variables set by unrelated imports (for example Sharp's
+ * VIPSHOME) cannot reach the strict native authorizer. Error text names no variable.
+ */
+export function buildNativeContextEnv(
+  configEnv: Readonly<Record<string, string>> | undefined,
+  codexHome: string,
+): Readonly<Record<string, string>> {
+  if (typeof codexHome !== "string" || codexHome.length === 0) {
+    throw policyRejected("Native Codex context is not qualified", "native_context_env_unqualified");
+  }
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(configEnv ?? {})) {
+    if (typeof value === "string" && !isSensitiveEnvKey(key)) env[key] = value;
+  }
+  env["CODEX_HOME"] = codexHome;
+  return env;
 }
 
 export function createCodexCliAdapter(
