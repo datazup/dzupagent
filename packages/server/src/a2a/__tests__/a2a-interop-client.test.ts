@@ -92,6 +92,9 @@ class RawClient {
   }
 }
 
+/** Credentials as the fixture middleware reads them: an owner (key id) and a tenant, independently. */
+const as = (owner: string, tenant: string) => ({ 'x-test-owner': owner, 'x-test-tenant': tenant })
+
 const textMessage = (text: string) => ({ role: 'user', parts: [{ type: 'text', text }] })
 
 describe('A2A independent-client interoperability (DzupAgent server)', () => {
@@ -102,8 +105,9 @@ describe('A2A independent-client interoperability (DzupAgent server)', () => {
     const app = new Hono()
     // Same shape the production auth middleware leaves on the context.
     app.use('*', async (c, next) => {
-      const key = c.req.header('x-test-key')
-      if (key) c.set('apiKey' as never, { id: key, tenantId: `tenant-${key}` } as never)
+      const owner = c.req.header('x-test-owner')
+      const tenant = c.req.header('x-test-tenant')
+      if (owner && tenant) c.set('apiKey' as never, { id: owner, tenantId: tenant } as never)
       await next()
     })
     const agentCard = buildAgentCard({
@@ -132,12 +136,13 @@ describe('A2A independent-client interoperability (DzupAgent server)', () => {
     expect(type).toMatch(/application\/json/)
     expect(body).toMatchObject({ name: 'interop-server', version: '1.2.3' })
     expect(typeof body['url']).toBe('string')
-    const capabilities = body['capabilities'] as Array<Record<string, unknown>>
-    expect(capabilities.map((entry) => entry['name'])).toEqual(['echo-agent'])
+    expect(body['capabilities']).toEqual([
+      { name: 'echo-agent', description: 'Echoes input', inputSchema: { type: 'object', properties: {} } },
+    ])
   })
 
   it('drives tasks/send, tasks/get and tasks/cancel as a plain JSON-RPC client', async () => {
-    const client = new RawClient(base, { 'x-test-key': 'alice' })
+    const client = new RawClient(base, as('alice', 'tenant-1'))
     const sent = await client.call('tasks/send', { message: textMessage('hello'), agentName: 'echo-agent' })
     expect(sent.error).toBeUndefined()
     const task = sent.result as { id: string; state: string }
@@ -158,7 +163,7 @@ describe('A2A independent-client interoperability (DzupAgent server)', () => {
   })
 
   it('reports JSON-RPC errors with the specified codes', async () => {
-    const client = new RawClient(base, { 'x-test-key': 'alice' })
+    const client = new RawClient(base, as('alice', 'tenant-1'))
     expect((await client.call('tasks/nope')).error?.code).toBe(JSONRPC_METHOD_NOT_FOUND)
     expect((await client.call('tasks/send', { agentName: 'echo-agent' })).error?.code).toBe(JSONRPC_INVALID_PARAMS)
     expect((await client.call('tasks/get', {})).error?.code).toBe(JSONRPC_INVALID_PARAMS)
@@ -170,7 +175,7 @@ describe('A2A independent-client interoperability (DzupAgent server)', () => {
   })
 
   it('answers a batch with one response per request, matched by id', async () => {
-    const client = new RawClient(base, { 'x-test-key': 'alice' })
+    const client = new RawClient(base, as('alice', 'tenant-1'))
     const { json } = await client.raw(
       JSON.stringify([
         { jsonrpc: '2.0', id: 'a', method: 'tasks/send', params: { message: textMessage('batch'), agentName: 'echo-agent' } },
@@ -183,18 +188,22 @@ describe('A2A independent-client interoperability (DzupAgent server)', () => {
     expect(responses[1]?.error?.code).toBe(A2A_TASK_NOT_FOUND)
   })
 
-  it('does not reveal another caller\'s task: cross-owner reads look like unknown tasks', async () => {
-    const alice = new RawClient(base, { 'x-test-key': 'alice' })
-    const bob = new RawClient(base, { 'x-test-key': 'bob' })
+  it('does not reveal another caller\'s task: a different owner or a different tenant sees an unknown task', async () => {
+    const alice = new RawClient(base, as('alice', 'tenant-1'))
     const task = (await alice.call('tasks/send', { message: textMessage('private'), agentName: 'echo-agent' }))
       .result as { id: string }
-    expect((await bob.call('tasks/get', { id: task.id })).error?.code).toBe(A2A_TASK_NOT_FOUND)
-    expect((await bob.call('tasks/cancel', { id: task.id })).error?.code).toBe(A2A_TASK_NOT_FOUND)
-    expect((await alice.call('tasks/get', { id: task.id })).result).toBeDefined()
+    const sameTenantOtherOwner = new RawClient(base, as('bob', 'tenant-1'))
+    const sameOwnerOtherTenant = new RawClient(base, as('alice', 'tenant-2'))
+    for (const intruder of [sameTenantOtherOwner, sameOwnerOtherTenant]) {
+      expect((await intruder.call('tasks/get', { id: task.id })).error?.code).toBe(A2A_TASK_NOT_FOUND)
+      expect((await intruder.call('tasks/cancel', { id: task.id })).error?.code).toBe(A2A_TASK_NOT_FOUND)
+    }
+    const owned = (await alice.call('tasks/get', { id: task.id })).result as { id: string; state: string }
+    expect([owned.id, owned.state]).toEqual([task.id, 'submitted'])
   })
 
   it('records the dialect gap against v0.3.0: message/send and /.well-known/agent-card.json are not served', async () => {
-    const client = new RawClient(base, { 'x-test-key': 'alice' })
+    const client = new RawClient(base, as('alice', 'tenant-1'))
     expect((await client.call('message/send', { message: textMessage('hi') })).error?.code).toBe(JSONRPC_METHOD_NOT_FOUND)
     expect((await client.card('/.well-known/agent-card.json')).status).toBe(404)
   })
