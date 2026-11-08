@@ -155,6 +155,6 @@ describe('InMemoryBaseStore bounded-growth defaults and validation (DZM-P3a)', (
     ).rejects.toThrow(/in-memory store/)
     await expect(
       createStore({ type: 'postgres', connectionString, ttlMs: 10 }),
-    ).rejects.toThrow(/in-memory store/)
+    ).rejects.toThrow(/ttlMs.*at least 60000 ms.*postgres store/)
   })
 })

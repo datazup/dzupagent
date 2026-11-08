@@ -2,7 +2,8 @@
  * Store factory — creates a LangGraph BaseStore from configuration.
  *
  * Supports:
- * - `postgres`: PostgresStore via @langchain/langgraph-checkpoint-postgres
+ * - `postgres`: PostgresStore via @langchain/langgraph-checkpoint-postgres,
+ *   optionally with opt-in record expiry (`ttlMs`, `ttlSweepIntervalMs`)
  * - `memory`: InMemoryBaseStore for development and testing (no database required),
  *   optionally bounded by `maxRecords` / `ttlMs`
  */
@@ -44,11 +45,36 @@ export interface StoreConfig {
    */
   maxRecords?: number | undefined
   /**
-   * In-memory store only: a record expires this many milliseconds after its
-   * last write. Expired records are never returned and are physically
-   * deleted. Postgres rejects this option rather than ignoring it.
+   * Opt-in record expiry: a record expires this many milliseconds after its
+   * last write. Expired records are never returned and are physically deleted.
+   * Unset (the default) means records never expire.
+   *
+   * - `memory`: any positive finite number; expired records are deleted on the
+   *   next read or write.
+   * - `postgres`: at least 60000 (one minute, the library's unit). Passed to
+   *   `PostgresStore` as `ttl: { defaultTtl: ttlMs / 60000, refreshOnRead: false,
+   *   sweepIntervalMinutes }`, so reads never extend a record's life. Reads and
+   *   searches skip expired rows; a background sweeper deletes them every
+   *   `ttlSweepIntervalMs` (default 60 minutes). `closeMemoryStore` stops the
+   *   sweeper (it calls the store's `stop()`). No migration of our own: the
+   *   library's `setup()` migrations already create `store.expires_at`.
+   *
+   * Existing Postgres data: a row that is not rewritten while this option is
+   * on, and whose `expires_at` is `NULL`, is kept. Rows written by this factory
+   * before `ttlMs` was supported have `expires_at = NULL`. Rewriting an existing
+   * key while the option is on gives it an expiry, like any new row. The sweeper
+   * is schema-wide: it deletes every expired row in the store's schema,
+   * including rows another TTL-configured client wrote, so the guarantee holds
+   * for the whole schema only when no other client writes TTL rows to it.
    */
   ttlMs?: number | undefined
+  /**
+   * Postgres store only, and only together with `ttlMs`: milliseconds between
+   * runs of the expired-row sweeper. At least 60000 (one minute) and at most
+   * 2147483647 (the Node.js timer maximum). Default: 60 minutes, the library's
+   * default. The memory store rejects it.
+   */
+  ttlSweepIntervalMs?: number | undefined
 }
 
 /**
@@ -84,11 +110,44 @@ interface InMemoryGrowthLimits {
   ttlMs?: number | undefined
 }
 
+/** The Postgres library counts TTLs in minutes; anything shorter is refused. */
+const POSTGRES_MIN_TTL_MS = 60_000
+/** Library default sweep interval (60 minutes), passed explicitly so the sweeper starts. */
+const POSTGRES_DEFAULT_SWEEP_INTERVAL_MS = 60 * 60_000
+/** Node.js timer maximum; above it `setInterval` fires after 1 ms. */
+const MAX_TIMER_MS = 2_147_483_647
+
 function validateGrowthLimits(config: StoreConfig): void {
-  const { maxRecords, ttlMs } = config
-  if (maxRecords === undefined && ttlMs === undefined) return
+  const { maxRecords, ttlMs, ttlSweepIntervalMs } = config
+  if (maxRecords === undefined && ttlMs === undefined && ttlSweepIntervalMs === undefined) return
+  if (ttlSweepIntervalMs !== undefined && config.type !== 'postgres') {
+    throw new Error('ttlSweepIntervalMs is supported only by the postgres store')
+  }
+  if (ttlSweepIntervalMs !== undefined && ttlMs === undefined) {
+    throw new Error('ttlSweepIntervalMs requires ttlMs')
+  }
   if (config.type !== 'memory') {
-    throw new Error('maxRecords/ttlMs are supported only by the in-memory store')
+    if (config.type !== 'postgres' || maxRecords !== undefined) {
+      throw new Error('maxRecords/ttlMs are supported only by the in-memory store')
+    }
+    if (ttlMs !== undefined && !(Number.isFinite(ttlMs) && ttlMs >= POSTGRES_MIN_TTL_MS)) {
+      throw new Error(
+        `ttlMs must be a finite number of at least ${POSTGRES_MIN_TTL_MS} ms (one minute) for the postgres store, got ${String(ttlMs)}`,
+      )
+    }
+    if (
+      ttlSweepIntervalMs !== undefined &&
+      !(
+        Number.isFinite(ttlSweepIntervalMs) &&
+        ttlSweepIntervalMs >= POSTGRES_MIN_TTL_MS &&
+        ttlSweepIntervalMs <= MAX_TIMER_MS
+      )
+    ) {
+      throw new Error(
+        `ttlSweepIntervalMs must be a finite number of at least ${POSTGRES_MIN_TTL_MS} ms (one minute) and at most ${MAX_TIMER_MS} ms for the postgres store, got ${String(ttlSweepIntervalMs)}`,
+      )
+    }
+    return
   }
   if (maxRecords !== undefined && !(Number.isInteger(maxRecords) && maxRecords > 0)) {
     throw new Error(`maxRecords must be a positive integer, got ${String(maxRecords)}`)
@@ -262,10 +321,24 @@ export async function createStore(config: StoreConfig): Promise<BaseStore> {
           fields: config.index.fields ?? ['text'],
         }
       : undefined
-    const store = PostgresStore.fromConnString(
-      config.connectionString,
-      indexConfig ? { index: indexConfig } : undefined,
-    )
+    const ttlConfig =
+      config.ttlMs !== undefined
+        ? {
+            defaultTtl: config.ttlMs / 60_000,
+            refreshOnRead: false,
+            sweepIntervalMinutes:
+              (config.ttlSweepIntervalMs ?? POSTGRES_DEFAULT_SWEEP_INTERVAL_MS) / 60_000,
+          }
+        : undefined
+    // Without `ttlMs` this is exactly the pre-TTL call: `{ index }` or `undefined`.
+    const options =
+      indexConfig || ttlConfig
+        ? {
+            ...(indexConfig ? { index: indexConfig } : {}),
+            ...(ttlConfig ? { ttl: ttlConfig } : {}),
+          }
+        : undefined
+    const store = PostgresStore.fromConnString(config.connectionString, options)
     await store.setup()
     return attachMemoryStoreCapabilities(store as BaseStore, config.capabilities)
   }
