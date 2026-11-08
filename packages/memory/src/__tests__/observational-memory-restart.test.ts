@@ -635,7 +635,54 @@ describe('ObservationalMemory restart (MC-03a)', () => {
       expect(await h.ctl.bufferRecord()).toBeNull()
       assertFactsExactlyOnce((await h.durableCandidates()).map(record => record.value), ['M1', 'M2'])
 
+      // (b) replay after the obligation was recovered: A is durable but not staged.
+      expect(recordsWithFact(writerRecords(om), 'M1')).toEqual([])
+      const replay = await om.observe(turn(1))
+      expect(replay!.skippedDuplicates).toBe(1)
+      expect(replay!.staged).toEqual([])
+      assertFactsExactlyOnce((await h.durableCandidates()).map(record => record.value), ['M1', 'M2'])
+
       om = h.start({ observerThreshold: 2 }) // restart
+      await h.confirmAll(om)
+      assertFactsExactlyOnce(await h.stored(), ['M1', 'M2'])
+    })
+
+    it('(a) a candidate persisted and then evicted from the writer is not staged again on replay', async () => {
+      const h = await harness()
+      h.model.confidence = 0.5
+      const smallWriter = new StagedWriter({ maxPending: 1, autoPromoteThreshold: 0.7, autoConfirmThreshold: 1.01 })
+      let om = h.start({ observerThreshold: 2, stagedWriter: smallWriter })
+      await om.observe(turn(1)) // F1 persisted
+      await om.observe(turn(2)) // F2 persisted; capturing F2 evicts F1
+      expect(recordsWithFact(writerRecords(om), 'M1')).toEqual([])
+      const replay = await om.observe(turn(1))
+      expect(replay!.skippedDuplicates).toBe(1)
+      expect(replay!.staged).toEqual([])
+      assertFactsExactlyOnce((await h.durableCandidates()).map(record => record.value), ['M1', 'M2'])
+
+      om = h.start({ observerThreshold: 2 }) // restart
+      await h.confirmAll(om)
+      assertFactsExactlyOnce(await h.stored(), ['M1', 'M2'])
+    })
+
+    it('(c) restoring more candidates than the writer holds still dedups every durable one', async () => {
+      const h = await harness()
+      h.model.confidence = 0.5
+      const seeder = h.start({ observerThreshold: 4 })
+      await seeder.observe(turn(1))
+      await seeder.observe(turn(2)) // M1, M2 persisted as captured candidates
+
+      const smallWriter = new StagedWriter({ maxPending: 1, autoPromoteThreshold: 0.7, autoConfirmThreshold: 1.01 })
+      let om = h.start({ observerThreshold: 4, stagedWriter: smallWriter }) // restart
+      await om.listPendingObservationCandidates()
+      expect(writerRecords(om)).toHaveLength(1) // capacity 1: one restored record was evicted
+      await om.observe(turn(1))
+      const replay = await om.observe(turn(2))
+      expect(replay!.skippedDuplicates).toBe(2)
+      expect(replay!.staged).toEqual([])
+      assertFactsExactlyOnce((await h.durableCandidates()).map(record => record.value), ['M1', 'M2'])
+
+      om = h.start({ observerThreshold: 4 }) // restart
       await h.confirmAll(om)
       assertFactsExactlyOnce(await h.stored(), ['M1', 'M2'])
     })
@@ -646,9 +693,12 @@ describe('ObservationalMemory restart (MC-03a)', () => {
       await om.observe(turn(1))
       await persistBoundary(om)
       expect(recordIds(await h.ctl.bufferRecord())).toEqual(['u1', 'a1'])
-      expect(await om.observe(turn(2))).not.toBeNull()
+      const processed = await om.observe(turn(2))
+      assertFactsExactlyOnce(processed!.staged.map(record => record.value), ['M1', 'M2'])
       await persistBoundary(om)
       expect(await h.ctl.bufferRecord()).toBeNull()
+      await h.confirmAll(om)
+      assertFactsExactlyOnce(await h.stored(), ['M1', 'M2'])
     })
 
     it('holds batch plus arrivals while the run is blocked, then only the arrivals', async () => {
@@ -664,11 +714,20 @@ describe('ObservationalMemory restart (MC-03a)', () => {
       expect(during!['messagesSinceLastRun']).toBe(4)
 
       hold.release.open()
-      expect(await run).not.toBeNull()
+      const first = await run
+      assertFactsExactlyOnce(first!.staged.map(record => record.value), ['M1'])
       await persistBoundary(om)
       const after = await h.ctl.bufferRecord()
       expect(recordIds(after)).toEqual(['u2', 'a2'])
       expect(after!['messagesSinceLastRun']).toBe(2)
+
+      // Drain the retained arrivals.
+      const drained = await om.observe([])
+      assertFactsExactlyOnce(drained!.staged.map(record => record.value), ['M2'])
+      await persistBoundary(om)
+      expect(await h.ctl.bufferRecord()).toBeNull()
+      await h.confirmAll(om)
+      assertFactsExactlyOnce(await h.stored(), ['M1', 'M2'])
     })
 
     describe.each([
@@ -830,8 +889,12 @@ describe('ObservationalMemory restart (MC-03a)', () => {
       expect(h.ctl.count('delete', BUF_NS)).toBe(0)
 
       h.ctl.off(failingRead)
-      await om.observe(turn(7))
+      const recovered = await om.observe(turn(7))
       expect(h.model.calls).toEqual([turnContents(1, 2, 3, 4, 5, 6, 7)])
+      const all = ['M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M7']
+      assertFactsExactlyOnce(recovered!.staged.map(record => record.value), all)
+      await h.confirmAll(om)
+      assertFactsExactlyOnce(await h.stored(), all)
     })
 
     it('surfaces a rejected write and retries it with the newest snapshot', async () => {
@@ -911,7 +974,12 @@ describe('ObservationalMemory restart (MC-03a)', () => {
       const results = await Promise.all([om.observe(turn(4)), om.observe(turn(5))])
       expect(h.ctl.count('get', BUF_NS) - readsBefore).toBe(1)
       expect(h.model.calls).toEqual([turnContents(1, 2, 3, 4, 5)])
-      expect(results.filter(result => result !== null)).toHaveLength(1)
+      const ran = results.filter(result => result !== null)
+      expect(ran).toHaveLength(1)
+      const markers = ['M1', 'M2', 'M3', 'M4', 'M5']
+      assertFactsExactlyOnce(ran[0]!.staged.map(record => record.value), markers)
+      await h.confirmAll(om)
+      assertFactsExactlyOnce(await h.stored(), markers)
     })
 
     it('reset() while a write is held leaves no resurrected record', async () => {

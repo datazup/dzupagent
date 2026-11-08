@@ -1161,6 +1161,32 @@ export class ObservationalMemory {
         this.emitLifecycleCount('observation:state:read-failed', messages.length, 'dedup-read')
         throw new ObservationStateReadError('dedup-read')
       }
+      // Durable non-terminal candidates stay comparable after writer eviction.
+      const candidateTexts: string[] = []
+      let candidates: Awaited<ReturnType<NonNullable<ObservationCandidateStore['loadWithStatus']>>>
+      try {
+        candidates = await this.candidateStore!.loadWithStatus!(
+          this.config.namespace,
+          this.config.scope,
+        )
+      } catch (error: unknown) {
+        candidates = {
+          status: 'failed',
+          errorClass: error instanceof Error ? error.name : typeof error,
+        }
+      }
+      if (candidates.status === 'failed') {
+        this.emitLifecycleCount('observation:state:read-failed', messages.length, 'candidate-dedup-read')
+        throw new ObservationStateReadError('candidate-restore')
+      }
+      if (candidates.status === 'loaded') {
+        for (const record of candidates.records) {
+          durableKeys.add(record.key)
+          if (record.stage === 'rejected') continue
+          if (typeof record.value['text'] === 'string') candidateTexts.push(record.value['text'])
+        }
+      }
+      stagedTexts.push(...candidateTexts)
       for (const item of durable) durableKeys.add(item.key)
       existingTexts = durable
         .map(item => {
