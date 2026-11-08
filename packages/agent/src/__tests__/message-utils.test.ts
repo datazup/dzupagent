@@ -21,7 +21,15 @@ describe('message-utils', () => {
 
     expect(prepared).toHaveLength(2)
     expect(prepared[0]).toBeInstanceOf(SystemMessage)
-    expect((prepared[0] as SystemMessage).content).toBe(
+    // MC-04b: ordered text blocks whose joined text is the former string.
+    expect((prepared[0] as SystemMessage).content).toEqual([
+      { type: 'text', text: 'Base instructions' },
+      { type: 'text', text: '\n\n## Memory Context\n- prior fact' },
+      { type: 'text', text: `\n\n${formatSummaryContext('Conversation summary')}` },
+    ])
+    expect(
+      ((prepared[0] as SystemMessage).content as Array<{ text: string }>).map(b => b.text).join(''),
+    ).toBe(
       [
         'Base instructions',
         '## Memory Context\n- prior fact',
@@ -39,7 +47,10 @@ describe('message-utils', () => {
       messages: [],
     })
 
-    expect((prepared[0] as SystemMessage).content).toBe('\n\n## Memory Context\n- retained')
+    // MC-04b: the empty instructions block is omitted; the joined text is unchanged.
+    expect((prepared[0] as SystemMessage).content).toEqual([
+      { type: 'text', text: '\n\n## Memory Context\n- retained' },
+    ])
   })
 
   it('estimates tokens using the same concatenated message content semantics as DzupAgent', () => {

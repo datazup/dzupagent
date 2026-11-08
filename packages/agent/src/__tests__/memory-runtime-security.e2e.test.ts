@@ -48,7 +48,14 @@ function count(haystack: string, needle: string): number {
 }
 
 function contentOf(message: BaseMessage): string {
-  return typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+  if (typeof message.content === 'string') return message.content
+  // MC-04b: the prepared system message is ordered text blocks whose joined
+  // text is the former single string.
+  const blocks = message.content as Array<{ type?: unknown; text?: unknown }>
+  if (blocks.every(b => b.type === 'text' && typeof b.text === 'string')) {
+    return blocks.map(b => b.text as string).join('')
+  }
+  return JSON.stringify(message.content)
 }
 
 function makeRecordingModel() {

@@ -10,6 +10,8 @@ import {
   deserializeMessages,
 } from '../agent/agent-state.js'
 import type { SerializedMessage } from '../agent/agent-state.js'
+import { formatSummaryContext } from '@dzupagent/context'
+import { buildPreparedMessages } from '../agent/message-utils.js'
 
 describe('serializeMessages', () => {
   it('serializes system message', () => {
@@ -74,7 +76,7 @@ describe('serializeMessages', () => {
     expect(serializeMessages([])).toEqual([])
   })
 
-  it('serializes message with array content to JSON string', () => {
+  it('serializes text-only block array content as its joined text (MC-04b)', () => {
     const messages = [
       new HumanMessage({
         content: [{ type: 'text', text: 'hello' }],
@@ -82,7 +84,20 @@ describe('serializeMessages', () => {
     ]
     const result = serializeMessages(messages)
 
-    expect(result[0]!.content).toBe(JSON.stringify([{ type: 'text', text: 'hello' }]))
+    // MC-04b: a text-only block array (every block exactly `type` and `text`)
+    // serializes as its concatenated text, no longer as JSON.
+    expect(result[0]!.content).toBe('hello')
+  })
+
+  it('serializes other array content to a JSON string (unchanged, MC-04b)', () => {
+    const cases = [
+      [{ type: 'text', text: 'a', cache_control: { type: 'ephemeral' } }],
+      [{ type: 'text', text: 'a' }, { type: 'image_url', image_url: { url: 'data:x' } }],
+    ]
+    for (const content of cases) {
+      const result = serializeMessages([new HumanMessage({ content: content as never })])
+      expect(result[0]!.content).toBe(JSON.stringify(content))
+    }
   })
 
   it('preserves the name field on named messages', () => {
@@ -245,5 +260,38 @@ describe('serialize/deserialize round-trip', () => {
     const serialized = serializeMessages([])
     const deserialized = deserializeMessages(serialized)
     expect(deserialized).toEqual([])
+  })
+
+  it('round-trips a prepared block system message (instructions, memory, summary) to the identical former string (MC-04b)', () => {
+    const params = {
+      baseInstructions: 'You are the agent.\nFollow the rules.',
+      memoryContext: '## Memory Context\n- fact one\n',
+      conversationSummary: '## Goal\nShip MC-04b.',
+    }
+    const [system, human] = buildPreparedMessages({ ...params, messages: [new HumanMessage('go')] })
+    expect(Array.isArray(system!.content)).toBe(true)
+    expect(system!.content).toHaveLength(3)
+    // Today's single string for the same inputs.
+    const legacy = [
+      params.baseInstructions,
+      params.memoryContext,
+      formatSummaryContext(params.conversationSummary),
+    ].join('\n\n')
+
+    const serialized = serializeMessages([system!, human!])
+    expect(serialized[0]).toEqual({ role: 'system', content: legacy })
+    const restored = deserializeMessages(serialized)
+    expect(restored[0]).toBeInstanceOf(SystemMessage)
+    expect(restored[0]!.content).toBe(legacy)
+    expect(restored[1]!.content).toBe('go')
+  })
+
+  it('keeps other array content in its JSON form across a round-trip (MC-04b)', () => {
+    const content = [
+      { type: 'text', text: 'I', cache_control: { type: 'ephemeral' } },
+      { type: 'text', text: '\n\nmemo' },
+    ]
+    const restored = deserializeMessages(serializeMessages([new SystemMessage({ content: content as never })]))
+    expect(restored[0]!.content).toBe(JSON.stringify(content))
   })
 })

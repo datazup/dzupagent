@@ -261,7 +261,8 @@ describe('AgentRunner R5M no-tool legacy result envelope', () => {
       messageDicts(value.legacy.result.messages),
     )
     expect(value.envelope.preparedInput.map((entry) => entry.content.encoding))
-      .toEqual(['string', 'string', 'string', 'standard-text-blocks'])
+      // MC-04b: the prepared system message is ordered text blocks.
+      .toEqual(['standard-text-blocks', 'string', 'string', 'standard-text-blocks'])
   })
 
   it('reconstructs from JSON with deterministic envelope and result identities', async () => {

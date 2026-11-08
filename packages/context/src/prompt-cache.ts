@@ -162,7 +162,9 @@ const CONTENT_ADDRESSED_MIN_LENGTH = 2000
  * This is a convenience wrapper that works with the LangChain message types
  * used throughout dzupagent-core. Each marked message has its content
  * normalized to a content-block array with `cache_control` on the last
- * block — the only placement `@langchain/anthropic` serializes to the wire
+ * block (for a system message whose content is two or more text blocks, on
+ * block 0 instead — MC-04b) — the only placement `@langchain/anthropic`
+ * serializes to the wire
  * (see {@link _setCacheControl}). The same marker is mirrored onto
  * `additional_kwargs` as an inert observability signal.
  *
@@ -201,11 +203,19 @@ export function applyCacheBreakpoints(
   // Anthropic allows at most four breakpoints. Reserve exactly one for the
   // system prelude, using the last system message so multiple system blocks
   // are still cached as a single prefix boundary.
+  //
+  // MC-04b: when that message's content is an array of two or more text
+  // blocks (the ordered instructions / memory / summary shape built by
+  // `buildPreparedMessages`), the breakpoint goes on block 0 — the stable
+  // instruction prefix — so changing recall or a new summary in later blocks
+  // does not move the cached bytes. This is an intentional change for any
+  // caller passing multi-block system content: only its first block is
+  // cached. A string or single-block system message keeps today's placement.
   const systemBreakpointCount = systemIndices.length > 0 ? 1 : 0
   const lastSystemIndex = systemIndices[systemIndices.length - 1]
   if (lastSystemIndex !== undefined) {
     const systemMessage = result[lastSystemIndex]
-    if (systemMessage) _setCacheControl(systemMessage)
+    if (systemMessage) _setSystemCacheControl(systemMessage)
   }
 
   // Collect non-system indices for downstream strategies.
@@ -329,6 +339,41 @@ function _setCacheControl(m: BaseMessage): void {
     cache_control: CACHE_MARKER,
   }
   m.content = _markContentBlocks(m.content)
+}
+
+/** True for a string block or a `{ type: 'text', text: string }` block. */
+function _isTextBlock(block: unknown): boolean {
+  if (typeof block === 'string') return true
+  if (!block || typeof block !== 'object') return false
+  const b = block as { type?: unknown; text?: unknown }
+  return b.type === 'text' && typeof b.text === 'string'
+}
+
+/**
+ * Place the one system breakpoint (MC-04b).
+ *
+ * - content an array of two or more text blocks → `cache_control` on block 0,
+ *   and removed from every later block so the system message carries exactly
+ *   one breakpoint;
+ * - anything else (string, single block, mixed blocks) → today's placement via
+ *   {@link _setCacheControl}.
+ */
+function _setSystemCacheControl(m: BaseMessage): void {
+  const content = m.content
+  if (!Array.isArray(content) || content.length < 2 || !content.every(_isTextBlock)) {
+    _setCacheControl(m)
+    return
+  }
+  m.additional_kwargs = {
+    ...m.additional_kwargs,
+    cache_control: CACHE_MARKER,
+  }
+  m.content = content.map((b, index) => {
+    const block = typeof b === 'string' ? { type: 'text', text: b } : { ...(b as object) }
+    if (index === 0) return { ...block, cache_control: CACHE_MARKER }
+    delete (block as { cache_control?: unknown }).cache_control
+    return block
+  }) as unknown as BaseMessage['content']
 }
 
 /**
