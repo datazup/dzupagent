@@ -21,8 +21,10 @@ function createMockStore(
   }
   return {
     data,
-    search: vi.fn(async (): Promise<ConsolidationStoreItem[]> => {
-      return [...data.entries()].map(([key, value]) => ({ key, value }));
+    // Fixture (MC-05b): a real store returns each item's own namespace; this
+    // flat mock holds every record at the namespace it is queried with.
+    search: vi.fn(async (ns: string[] = []): Promise<ConsolidationStoreItem[]> => {
+      return [...data.entries()].map(([key, value]) => ({ key, value, namespace: [...ns] }));
     }),
     put: vi.fn(
       async (_ns: string[], key: string, value: Record<string, unknown>) => {
@@ -57,11 +59,12 @@ function createPagingStore(
     searchCalls,
     search: vi.fn(
       async (
-        _ns: string[],
+        ns: string[],
         options?: { query?: string; limit?: number; offset?: number }
       ): Promise<ConsolidationStoreItem[]> => {
         searchCalls.push({ limit: options?.limit, offset: options?.offset });
-        const all = [...data.entries()].map(([key, value]) => ({ key, value }));
+        // Fixture (MC-05b): items carry the namespace a real store returns.
+        const all = [...data.entries()].map(([key, value]) => ({ key, value, namespace: [...ns] }));
         const offset = options?.offset ?? 0;
         const limit = options?.limit ?? all.length;
         return all.slice(offset, offset + limit);
@@ -259,9 +262,10 @@ describe("MemoryPruner", () => {
       data: new Map(),
       search: vi.fn(
         async (): Promise<ConsolidationStoreItem[]> => [
-          { key: "a", value: { createdAt: now - tenDays } },
-          { key: "b", value: {}, createdAt: new Date(now - tenDays) },
-          { key: "c", value: { _decay: { createdAt: now, strength: 0.9 } } },
+          // Fixture (MC-05b): `namespace` as a real store returns it.
+          { key: "a", value: { createdAt: now - tenDays }, namespace: [] },
+          { key: "b", value: {}, createdAt: new Date(now - tenDays), namespace: [] },
+          { key: "c", value: { _decay: { createdAt: now, strength: 0.9 } }, namespace: [] },
         ]
       ),
       put: vi.fn(),
@@ -372,6 +376,8 @@ describe("MemoryPruner", () => {
         (_, i) => ({
           key: `entry:${i}`,
           value: { _decay: { createdAt: now, strength: 0.5 } },
+          // Fixture (MC-05b): `namespace` as a real store returns it.
+          namespace: [],
         })
       );
       const store: ConsolidationStore = {

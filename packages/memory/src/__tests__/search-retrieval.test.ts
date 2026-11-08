@@ -104,8 +104,10 @@ function makeBaseStore(
     },
   );
   const search = vi.fn(
-    async (_ns: string[], opts?: { query?: string; limit?: number }) => {
-      const items = [...data.entries()].map(([key, value]) => ({ key, value }));
+    async (ns: string[], opts?: { query?: string; limit?: number }) => {
+      // Fixture (MC-05b): a real store returns each item's own namespace;
+      // this flat mock holds every record at the namespace it is queried with.
+      const items = [...data.entries()].map(([key, value]) => ({ key, value, namespace: [...ns] }));
       return opts?.limit !== undefined ? items.slice(0, opts.limit) : items;
     },
   );

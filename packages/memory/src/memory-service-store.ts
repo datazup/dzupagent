@@ -13,6 +13,7 @@ import type { NamespaceConfig, SemanticStoreAdapter } from "./memory-types.js";
 import { sanitizeMemoryContent } from "./memory-sanitizer.js";
 import { defaultMemoryPIIDetector, redactStringLeaves } from "./memory-pii.js";
 import { createDecayMetadata } from "./decay-engine.js";
+import { namespaceEquals } from "./namespace-match.js";
 import type { MemoryStoreCapabilities } from "./store-capabilities.js";
 import type { ReferenceTracker } from "./provenance/reference-tracker.js";
 import { deriveMemoryEntryId } from "./provenance/reference-tracker.js";
@@ -373,6 +374,13 @@ export const FULL_READ_MAX_RECORDS = 50_000;
  * Read a whole namespace with explicit, paginated `search` calls
  * (DZUPAGENT-AGENT-H-40). LangGraph stores default `search` to 10 results, so
  * an option-less call silently truncates every full read on Postgres.
+ *
+ * Exact leaf read (MC-05b): only items whose own `namespace` equals `tuple`
+ * segment by segment are returned. Postgres `search` is a string `LIKE` prefix
+ * on the `:`-joined path, so `['memories', 't1']` would otherwise also return
+ * `['memories', 't10']`; descendant namespaces of `tuple` are excluded too, and
+ * an item without a `namespace` is dropped (fail closed). Paging still follows
+ * the raw page size, so filtered-out rows never end the scan early.
  */
 export async function searchAllInNamespace(
   store: BaseStore,
@@ -384,7 +392,9 @@ export async function searchAllInNamespace(
   for (let offset = 0; offset < maxRecords; offset += pageSize) {
     const limit = Math.min(pageSize, maxRecords - offset);
     const page = await store.search(tuple, { limit, offset });
-    all.push(...page);
+    for (const item of page) {
+      if (namespaceEquals(item, tuple)) all.push(item);
+    }
     if (page.length < limit) break;
   }
   return all;

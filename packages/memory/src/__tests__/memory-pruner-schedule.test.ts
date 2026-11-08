@@ -21,8 +21,10 @@ function createMockStore(
   for (const { key, value } of records) data.set(key, value);
   return {
     data,
-    search: vi.fn(async (): Promise<ConsolidationStoreItem[]> =>
-      [...data.entries()].map(([key, value]) => ({ key, value })),
+    // Fixture (MC-05b): a real store returns each item's own namespace; this
+    // flat mock holds every record at the namespace it is queried with.
+    search: vi.fn(async (ns: string[] = []): Promise<ConsolidationStoreItem[]> =>
+      [...data.entries()].map(([key, value]) => ({ key, value, namespace: [...ns] })),
     ),
     put: vi.fn(async (_ns: string[], key: string, value: Record<string, unknown>) => {
       data.set(key, value);

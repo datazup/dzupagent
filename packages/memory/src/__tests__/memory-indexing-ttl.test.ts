@@ -65,13 +65,16 @@ function makePrunerStore(
   return {
     data,
     deleteCalls,
-    search: vi.fn(async (): Promise<ConsolidationStoreItem[]> => {
+    // Fixture (MC-05b): a real store returns each item's own namespace; this
+    // flat mock holds every record at the namespace it is queried with.
+    search: vi.fn(async (ns: string[] = []): Promise<ConsolidationStoreItem[]> => {
       return itemsWithMeta
         .filter((r) => data.has(r.key))
         .map((r) => ({
           key: r.key,
           value: data.get(r.key)!,
           createdAt: r.createdAt,
+          namespace: [...ns],
         }));
     }),
     put: vi.fn(
@@ -399,9 +402,10 @@ describe("GC runs — MemoryPruner full and partial GC", () => {
     const store: ConsolidationStore = {
       search: vi.fn(
         async (): Promise<ConsolidationStoreItem[]> => [
-          { key: "exp1", value: makeDecay(now - SEVEN_DAYS * 2) },
-          { key: "exp2", value: makeDecay(now - SEVEN_DAYS * 2) },
-          { key: "exp3", value: makeDecay(now - SEVEN_DAYS * 2) },
+          // Fixture (MC-05b): `namespace` as a real store returns it.
+          { key: "exp1", value: makeDecay(now - SEVEN_DAYS * 2), namespace: [] },
+          { key: "exp2", value: makeDecay(now - SEVEN_DAYS * 2), namespace: [] },
+          { key: "exp3", value: makeDecay(now - SEVEN_DAYS * 2), namespace: [] },
         ]
       ),
       put: vi.fn(),
@@ -464,7 +468,8 @@ describe("GC runs — MemoryPruner full and partial GC", () => {
     const store: ConsolidationStore = {
       search: vi.fn(async (ns: string[]): Promise<ConsolidationStoreItem[]> => {
         nsCallRecord.push(ns);
-        return [{ key: "exp", value: makeDecay(now - SEVEN_DAYS * 2) }];
+        // Fixture (MC-05b): `namespace` as a real store returns it.
+        return [{ key: "exp", value: makeDecay(now - SEVEN_DAYS * 2), namespace: [...ns] }];
       }),
       put: vi.fn(),
       delete: vi.fn(),

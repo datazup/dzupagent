@@ -209,7 +209,8 @@ function createLegacyStore() {
       const prefix = `${namespace.join('/')}:`
       return [...data.entries()]
         .filter(([entry]) => entry.startsWith(prefix))
-        .map(([entry, value]) => ({ key: entry.slice(prefix.length), value }))
+        // Fixture (MC-05b): `namespace` as a real store returns it.
+        .map(([entry, value]) => ({ key: entry.slice(prefix.length), value, namespace: [...namespace] }))
     },
     delete: async (namespace: string[], item: string) => {
       data.delete(key(namespace, item))

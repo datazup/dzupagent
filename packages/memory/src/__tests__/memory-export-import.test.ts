@@ -46,7 +46,8 @@ function makeStore(): { store: BaseStore; size: () => number } {
       const prefix = `${ns.join("/")}::`;
       const items = [...data.entries()]
         .filter(([k]) => k.startsWith(prefix))
-        .map(([k, value]) => ({ key: k.slice(prefix.length), value }));
+        // Fixture (MC-05b): `namespace` as a real store returns it.
+        .map(([k, value]) => ({ key: k.slice(prefix.length), value, namespace: [...ns] }));
       return opts?.limit !== undefined ? items.slice(0, opts.limit) : items;
     }),
     delete: vi.fn(async (ns: string[], key: string) => {

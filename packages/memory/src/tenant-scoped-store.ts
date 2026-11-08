@@ -15,6 +15,7 @@ import {
   getMemoryStoreCapabilities,
   type MemoryStoreCapabilities,
 } from './store-capabilities.js'
+import { namespaceUnder } from './namespace-match.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -142,7 +143,14 @@ export class TenantScopedStore {
       return Object.keys(searchOptions).length > 0 ? searchOptions : undefined
     })()
 
-    const results = await this.store.search(prefixed, searchOptions)
+    // Tenant isolation (MC-05b): Postgres `search` is a string `LIKE` prefix
+    // on the `:`-joined path, so tenant `t1`'s prefix also returns tenant
+    // `t10`'s rows. Keep only items whose own `namespace` is under this
+    // store's tenant prefix, segment by segment; an item without a
+    // `namespace` is dropped (fail closed).
+    const tenantPrefix = this._namespacePrefix
+    const results = (await this.store.search(prefixed, searchOptions))
+      .filter(item => namespaceUnder(item, tenantPrefix))
     const filtered = this.capabilities.supportsSearchFilters || options?.filter === undefined
       ? results
       : results.filter((item: { value: Record<string, unknown> }) =>
@@ -152,10 +160,10 @@ export class TenantScopedStore {
     return filtered
       .filter((item: { value: Record<string, unknown> }) => !isTombstoneRecord(item.value))
       .slice(0, options?.limit ?? Number.POSITIVE_INFINITY)
-      .map((item: { key: string; value: Record<string, unknown>; namespace?: string[] }) => ({
+      .map((item: { key: string; value: Record<string, unknown>; namespace: string[] }) => ({
       key: item.key,
       value: item.value as Record<string, unknown>,
-      namespace: this.stripPrefix(item.namespace ?? prefixed),
+      namespace: this.stripPrefix(item.namespace),
       }))
   }
 

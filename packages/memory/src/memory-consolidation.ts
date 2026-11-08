@@ -11,6 +11,7 @@
  *   4. Prune   -- remove stale or low-value entries
  */
 import type { BaseStore } from '@langchain/langgraph'
+import { namespaceUnder } from './namespace-match.js'
 
 export interface ConsolidationConfig {
   /** Max entries to keep per namespace after pruning */
@@ -31,6 +32,8 @@ const DEFAULT_MAX_ENTRIES = 50
 const DEFAULT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
 
 interface ParsedEntry {
+  /** The entry's own stored namespace — the delete target. */
+  namespace: string[]
   key: string
   value: Record<string, unknown>
   text: string
@@ -51,7 +54,14 @@ export async function consolidateNamespace(
   const now = Date.now()
 
   // Phase 1: Orient -- load all entries
-  const items = await store.search(namespace, { limit: 200 })
+  //
+  // Segment-exact scope (MC-05b): Postgres `search` is a string `LIKE` prefix
+  // on the `:`-joined path, so `['memories', 't1']` also returns rows stored
+  // under `['memories', 't10']`. Only items whose own `namespace` is the
+  // prefix or a descendant of it are considered; an item without a
+  // `namespace` is ignored (fail closed) and never deleted.
+  const items = (await store.search(namespace, { limit: 200 }))
+    .filter(item => namespaceUnder(item, namespace))
   const before = items.length
 
   if (before === 0) {
@@ -62,6 +72,7 @@ export async function consolidateNamespace(
   const entries: ParsedEntry[] = items.map(item => {
     const val = item.value as Record<string, unknown>
     return {
+      namespace: [...item.namespace],
       key: item.key,
       value: val,
       text: typeof val['text'] === 'string' ? val['text'] : '',
@@ -72,14 +83,17 @@ export async function consolidateNamespace(
     }
   })
 
-  // Phase 3: Consolidate -- deduplicate by text similarity
+  // Phase 3: Consolidate -- deduplicate by text similarity.
+  // Entries are keyed by record identity (namespace plus key), and every
+  // delete targets the entry's own namespace, never the scan prefix.
   const seen = new Map<string, ParsedEntry>()
   let merged = 0
 
   for (const entry of entries) {
+    const entryId = recordIdentity(entry)
     const normalized = entry.text.toLowerCase().trim().replace(/\s+/g, ' ')
     if (!normalized) {
-      seen.set(entry.key, entry)
+      seen.set(entryId, entry)
       continue
     }
 
@@ -99,11 +113,11 @@ export async function consolidateNamespace(
         if (entryTime > existingTime) {
           // New entry is newer -- replace
           seen.delete(existingKey)
-          seen.set(entry.key, entry)
-          await store.delete(namespace, existingKey)
+          seen.set(entryId, entry)
+          await store.delete(existing.namespace, existing.key)
         } else {
           // Existing is newer -- delete this one
-          await store.delete(namespace, entry.key)
+          await store.delete(entry.namespace, entry.key)
         }
         merged++
         isDuplicate = true
@@ -112,31 +126,31 @@ export async function consolidateNamespace(
     }
 
     if (!isDuplicate) {
-      seen.set(entry.key, entry)
+      seen.set(entryId, entry)
     }
   }
 
   // Phase 4: Prune -- remove old entries if over limit
   let pruned = 0
-  const remaining = [...seen.entries()]
+  const remaining = [...seen.values()]
 
   // Sort by timestamp (newest first)
-  remaining.sort(([, a], [, b]) => getEntryTime(b) - getEntryTime(a))
+  remaining.sort((a, b) => getEntryTime(b) - getEntryTime(a))
 
   // Prune entries that exceed maxEntries
   if (remaining.length > maxEntries) {
     const toPrune = remaining.slice(maxEntries)
-    for (const [key] of toPrune) {
-      await store.delete(namespace, key)
+    for (const entry of toPrune) {
+      await store.delete(entry.namespace, entry.key)
       pruned++
     }
   }
 
   // Prune entries older than maxAgeMs (only among those kept within limit)
-  for (const [key, entry] of remaining.slice(0, maxEntries)) {
+  for (const entry of remaining.slice(0, maxEntries)) {
     const entryTime = getEntryTime(entry)
     if (entryTime > 0 && now - entryTime > maxAgeMs) {
-      await store.delete(namespace, key)
+      await store.delete(entry.namespace, entry.key)
       pruned++
     }
   }
@@ -163,6 +177,11 @@ export async function consolidateAll(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** Record identity is namespace plus key; JSON keeps the encoding injective. */
+function recordIdentity(entry: ParsedEntry): string {
+  return JSON.stringify([entry.namespace, entry.key])
+}
 
 function getEntryTime(entry: ParsedEntry): number {
   const ts = entry.timestamp || entry.createdAt

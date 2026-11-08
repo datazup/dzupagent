@@ -30,10 +30,11 @@ class FakeStore {
   async search(
     ns: string[],
     opts?: { query?: string; limit?: number },
-  ): Promise<Array<{ key: string; value: Record<string, unknown> }>> {
+  ): Promise<Array<{ key: string; value: Record<string, unknown>; namespace: string[] }>> {
     const bucket = this.data.get(this.nsKey(ns))
     if (!bucket) return []
-    const items = [...bucket.entries()].map(([key, value]) => ({ key, value }))
+    // Fixture (MC-05b): `namespace` as a real store returns it.
+    const items = [...bucket.entries()].map(([key, value]) => ({ key, value, namespace: [...ns] }))
     if (opts?.query) {
       const q = opts.query.toLowerCase()
       const filtered = items.filter(i => {
