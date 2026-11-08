@@ -14,26 +14,26 @@
  */
 
 import type { BaseStore } from '@langchain/langgraph'
-import type { BaseMessage } from '@langchain/core/messages'
+import type { MessageType } from '@langchain/core/messages'
 import {
   AIMessage,
+  BaseMessage,
   ChatMessage,
   FunctionMessage,
   HumanMessage,
+  RemoveMessage,
   SystemMessage,
   ToolMessage,
 } from '@langchain/core/messages'
 
 export const OBSERVATION_BUFFER_SCHEMA = 'dzupagent/observation-buffer/v1' as const
 
-/** Message types the backlog can round-trip. */
-export type PersistedObservationMessageType =
-  | 'human'
-  | 'ai'
-  | 'system'
-  | 'tool'
-  | 'generic'
-  | 'function'
+/**
+ * The message `_getType()` value. Every type round-trips: LangChain's own
+ * types are rebuilt with their class, any other subtype as a
+ * {@link RestoredObservationMessage} carrying the same type.
+ */
+export type PersistedObservationMessageType = string
 
 /**
  * The message fields the observation extractor reads: `_getType()`,
@@ -42,7 +42,8 @@ export type PersistedObservationMessageType =
  */
 export interface PersistedObservationMessage {
   type: PersistedObservationMessageType
-  content: string | unknown[]
+  /** `message.content` as JSON data (string or content blocks). */
+  content: unknown
   id?: string | undefined
   role?: string | undefined
   name?: string | undefined
@@ -81,7 +82,10 @@ export interface ObservationBufferStore {
   delete(targetNamespace: string, scope: Record<string, string>): Promise<boolean>
 }
 
-/** A message whose extractor-visible fields cannot be stored and rebuilt. */
+/**
+ * A message whose content is not JSON data, so its extractor-visible fields
+ * cannot be stored and rebuilt.
+ */
 export class ObservationBufferSerializationError extends Error {
   override readonly name = 'ObservationBufferSerializationError'
   constructor(readonly messageType: string) {
@@ -89,14 +93,18 @@ export class ObservationBufferSerializationError extends Error {
   }
 }
 
-const SUPPORTED_TYPES = new Set<string>([
-  'human',
-  'ai',
-  'system',
-  'tool',
-  'generic',
-  'function',
-])
+/**
+ * A restored message of a type LangChain has no constructor for (a custom
+ * `BaseMessage` subtype). It presents the stored type, content and id.
+ */
+export class RestoredObservationMessage extends BaseMessage {
+  readonly type: MessageType
+
+  constructor(type: string, content: unknown, id?: string) {
+    super({ content: content as string, ...(id !== undefined ? { id } : {}) })
+    this.type = type as MessageType
+  }
+}
 
 /** Same text the extractor derives from a message (`observation-extractor.ts`). */
 function extractorContent(content: unknown): string {
@@ -111,13 +119,18 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined
 }
 
-/**
- * Rebuild a message from its persisted fields.
- * Throws {@link ObservationBufferSerializationError} for an unsupported type.
- */
+/** Rebuild a message from its persisted fields (every type round-trips). */
 export function deserializeObservationMessage(
   persisted: PersistedObservationMessage,
 ): BaseMessage {
+  const message = constructMessage(persisted)
+  // Constructors may normalise content (RemoveMessage forces []); the
+  // extractor must see exactly what was observed.
+  ;(message as unknown as { content: unknown }).content = persisted.content
+  return message
+}
+
+function constructMessage(persisted: PersistedObservationMessage): BaseMessage {
   const content = persisted.content as string
   const id = persisted.id !== undefined ? { id: persisted.id } : {}
   switch (persisted.type) {
@@ -133,8 +146,11 @@ export function deserializeObservationMessage(
       return new ChatMessage({ content, ...id, role: persisted.role ?? '' })
     case 'function':
       return new FunctionMessage({ content, ...id, name: persisted.name ?? '' })
+    case 'remove':
+      // RemoveMessage requires an id; content is restored by the caller.
+      return new RemoveMessage({ id: persisted.id ?? '' })
     default:
-      throw new ObservationBufferSerializationError(String(persisted.type))
+      return new RestoredObservationMessage(persisted.type, persisted.content, persisted.id)
   }
 }
 
@@ -146,20 +162,22 @@ export function serializeObservationMessage(
   message: BaseMessage,
 ): PersistedObservationMessage {
   const type = message._getType()
-  if (!SUPPORTED_TYPES.has(type)) {
-    throw new ObservationBufferSerializationError(type)
-  }
   const raw = message as unknown as Record<string, unknown>
   const id = typeof message.id === 'string' ? message.id : undefined
-  const persisted: PersistedObservationMessage = {
-    type: type as PersistedObservationMessageType,
-    content: typeof message.content === 'string'
-      ? message.content
-      : jsonClone(message.content) as unknown[],
-    ...(id !== undefined ? { id } : {}),
-    ...(type === 'generic' ? { role: optionalString(raw['role']) ?? '' } : {}),
-    ...(type === 'function' ? { name: optionalString(raw['name']) ?? '' } : {}),
-    ...(type === 'tool' ? { toolCallId: optionalString(raw['tool_call_id']) ?? '' } : {}),
+  let persisted: PersistedObservationMessage
+  try {
+    persisted = {
+      type,
+      content: typeof message.content === 'string'
+        ? message.content
+        : jsonClone(message.content),
+      ...(id !== undefined ? { id } : {}),
+      ...(type === 'generic' ? { role: optionalString(raw['role']) ?? '' } : {}),
+      ...(type === 'function' ? { name: optionalString(raw['name']) ?? '' } : {}),
+      ...(type === 'tool' ? { toolCallId: optionalString(raw['tool_call_id']) ?? '' } : {}),
+    }
+  } catch {
+    throw new ObservationBufferSerializationError(type)
   }
   const rebuilt = deserializeObservationMessage(jsonClone(persisted))
   if (
@@ -180,13 +198,13 @@ function parsePersistedMessage(value: unknown): PersistedObservationMessage | nu
   if (!isRecord(value)) return null
   const type = value['type']
   const content = value['content']
-  if (typeof type !== 'string' || !SUPPORTED_TYPES.has(type)) return null
-  if (typeof content !== 'string' && !Array.isArray(content)) return null
+  if (typeof type !== 'string' || type.length === 0) return null
+  if (content === undefined) return null
   for (const field of ['id', 'role', 'name', 'toolCallId']) {
     if (value[field] !== undefined && typeof value[field] !== 'string') return null
   }
   return {
-    type: type as PersistedObservationMessageType,
+    type,
     content,
     ...(typeof value['id'] === 'string' ? { id: value['id'] } : {}),
     ...(typeof value['role'] === 'string' ? { role: value['role'] } : {}),

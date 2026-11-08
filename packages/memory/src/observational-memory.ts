@@ -333,8 +333,14 @@ export class ObservationalMemory {
   private bufferAppliedRevision = 0
   /** Last candidate-store failure in loadPersistedCandidates (pendingBuffer only). */
   private candidateLoadFailed = false
-  /** Staged candidate keys whose last putCandidateState returned false or threw. */
-  private readonly candidateObligations = new Set<string>()
+  /**
+   * Staged candidates whose last putCandidateState returned false or threw,
+   * with a copy of the record so the retry survives writer eviction. Cleared
+   * only by a verified write or a verified durable flush.
+   */
+  private readonly candidateObligations = new Map<string, StagedRecord>()
+  /** Candidate keys loaded from the candidate store (pendingBuffer only). */
+  private readonly restoredCandidateKeys = new Set<string>()
 
   constructor(private readonly config: ObservationalMemoryConfig) {
     if (config.pendingBuffer) {
@@ -747,6 +753,7 @@ export class ObservationalMemory {
           && priorReceipt.valueDigest === observationCandidateValueDigest(record)
         ) {
           this.releaseInFlight(record)
+          this.candidateObligations.delete(record.key)
           persisted.push(record)
           await this.candidateStore?.remove(record)
           continue
@@ -777,6 +784,7 @@ export class ObservationalMemory {
             }
             // Write and receipt verified: durable from here on.
             this.releaseInFlight(record)
+            this.candidateObligations.delete(record.key)
             await this.candidateStore.remove(record)
           }
           this.releaseInFlight(record)
@@ -790,6 +798,22 @@ export class ObservationalMemory {
           await this.restoreConfirmedObservation(record)
         }
       }
+    } catch (error: unknown) {
+      // pendingBuffer mode: an exceptional exit (a receipt read or cleanup
+      // rejection) must not hide records whose persistence is unverified.
+      if (this.pendingBuffer) {
+        for (const record of confirmed) {
+          if (this.inFlightFlushes.get(record.key) !== record) continue
+          this.stagedWriter?.restore(record)
+          this.releaseInFlight(record)
+          this.emitLifecycle(
+            'observation:candidate:restored',
+            record,
+            'confirmed observation flush aborted; will be retried',
+          )
+        }
+      }
+      throw error
     } finally {
       for (const record of confirmed) this.releaseInFlight(record)
     }
@@ -1023,21 +1047,33 @@ export class ObservationalMemory {
     for (const record of this.inFlightFlushes.values()) {
       if (typeof record.value['text'] === 'string') texts.push(record.value['text'])
     }
+    // Unresolved obligations stay non-terminal even after writer eviction.
+    for (const record of this.candidateObligations.values()) {
+      if (record.stage === 'rejected') continue
+      if (typeof record.value['text'] === 'string') texts.push(record.value['text'])
+    }
     return texts
   }
 
+  /** pendingBuffer mode: never reuse a key that is staged, in flight, restored or durable. */
+  private isObservationKeyOccupied(key: string, durableKeys: Set<string>): boolean {
+    return this.stagedWriter?.get(key) !== undefined
+      || this.inFlightFlushes.has(key)
+      || this.candidateObligations.has(key)
+      || this.restoredCandidateKeys.has(key)
+      || durableKeys.has(key)
+  }
+
   /**
-   * Retry every unresolved candidate persistence obligation. A key that is
-   * neither staged nor in flight has nothing left to persist. Resolves `true`
-   * when no obligation remains.
+   * Retry every unresolved candidate persistence obligation, with the live
+   * record when it is still staged or in flight, else with the retained copy
+   * (the writer may have evicted it). Resolves `true` when none remains.
    */
   private async retryCandidateObligations(): Promise<boolean> {
-    for (const key of [...this.candidateObligations]) {
-      const record = this.stagedWriter?.get(key) ?? this.inFlightFlushes.get(key)
-      if (!record) {
-        this.candidateObligations.delete(key)
-        continue
-      }
+    for (const [key, retained] of [...this.candidateObligations]) {
+      const record = this.stagedWriter?.get(key)
+        ?? this.inFlightFlushes.get(key)
+        ?? retained
       await this.putCandidateState(
         record,
         'candidate state retry could not be persisted',
@@ -1106,6 +1142,7 @@ export class ObservationalMemory {
     const observations = extraction.observations
 
     let existingTexts: string[]
+    const durableKeys = new Set<string>()
     if (persistedBuffer) {
       // Snapshot staged and in-flight texts before awaiting the durable read,
       // so a record that becomes durable during the read is seen in one of
@@ -1124,6 +1161,7 @@ export class ObservationalMemory {
         this.emitLifecycleCount('observation:state:read-failed', messages.length, 'dedup-read')
         throw new ObservationStateReadError('dedup-read')
       }
+      for (const item of durable) durableKeys.add(item.key)
       existingTexts = durable
         .map(item => {
           const text = (item.value as Record<string, unknown>)['text']
@@ -1177,7 +1215,12 @@ export class ObservationalMemory {
         continue
       }
 
-      const key = `obs-${Date.now()}-${this.observationSequence++}`
+      let key = `obs-${Date.now()}-${this.observationSequence++}`
+      // pendingBuffer mode: a restart in the same millisecond restarts the
+      // sequence at 0, so skip keys that are already occupied.
+      while (persistedBuffer && this.isObservationKeyOccupied(key, durableKeys)) {
+        key = `obs-${Date.now()}-${this.observationSequence++}`
+      }
       const value = {
         text: obs.text,
         category: obs.category,
@@ -1402,6 +1445,7 @@ export class ObservationalMemory {
         return
       }
       const records = loaded.status === 'loaded' ? loaded.records : []
+      for (const record of records) this.restoredCandidateKeys.add(record.key)
       for (const record of records) {
         const receipt = await store.getReceipt(
           record.namespace,
@@ -1498,7 +1542,13 @@ export class ObservationalMemory {
       // Converted to a lifecycle failure below.
     }
     // pendingBuffer mode: an unresolved obligation blocks processing.
-    if (this.pendingBuffer) this.candidateObligations.add(record.key)
+    if (this.pendingBuffer) {
+      this.candidateObligations.set(record.key, {
+        ...record,
+        scope: { ...record.scope },
+        value: { ...record.value },
+      })
+    }
     this.emitLifecycle(
       'observation:candidate:persistence-failed',
       record,

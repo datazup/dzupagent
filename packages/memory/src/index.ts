@@ -224,6 +224,7 @@ export {
   BaseStoreObservationBufferStore,
   OBSERVATION_BUFFER_SCHEMA,
   ObservationBufferSerializationError,
+  RestoredObservationMessage,
   deserializeObservationMessage,
   parseObservationBufferRecord,
   serializeObservationMessage,

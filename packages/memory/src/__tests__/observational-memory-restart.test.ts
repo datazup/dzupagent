@@ -17,6 +17,7 @@ import type { BaseStore } from '@langchain/langgraph'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import {
   AIMessage,
+  BaseMessage,
   ChatMessage,
   FunctionMessage,
   HumanMessage,
@@ -24,7 +25,8 @@ import {
   SystemMessage,
   ToolMessage,
 } from '@langchain/core/messages'
-import type { BaseMessage } from '@langchain/core/messages'
+import type { MessageType } from '@langchain/core/messages'
+import { StagedWriter } from '../staged-writer.js'
 import { ObservationalMemory } from '../observational-memory.js'
 import type {
   ObservationalMemoryConfig,
@@ -141,6 +143,9 @@ function gate(): Gate {
 class FakeModel {
   /** Message contents presented on each call, in order. */
   readonly calls: string[][] = []
+  /** Full conversation text presented on each call. */
+  readonly prompts: string[] = []
+  confidence = 0.9
   failNext = 0
   empty = false
   /** Negative control: cite an existing but wrong message. */
@@ -156,6 +161,7 @@ class FakeModel {
     const text = prompt[1]!.content as string
     const lines = [...text.matchAll(/^\[(m\d+)\] (\w+): (.*)$/gm)]
     this.calls.push(lines.map(line => line[3]!))
+    this.prompts.push(text)
     const hold = this.hold
     if (hold) {
       this.hold = null
@@ -176,7 +182,7 @@ class FakeModel {
         const label = this.wrongCitation
           ? lines[(index + 1) % lines.length]![1]!
           : line[1]!
-        out.push({ text: FACTS[marker], category: 'fact', confidence: 0.9, evidenceRefs: [label] })
+        out.push({ text: FACTS[marker], category: 'fact', confidence: this.confidence, evidenceRefs: [label] })
       }
     })
     return { content: JSON.stringify(out) }
@@ -264,6 +270,9 @@ class ControlledStore {
 class FlakyCandidateStore implements ObservationCandidateStore {
   failing: ((record: StagedRecord) => boolean) | null = null
   mode: 'false' | 'throw' = 'false'
+  /** Number of upcoming getReceipt / remove calls that reject. */
+  receiptFailures = 0
+  removeFailures = 0
 
   constructor(private readonly inner: MemoryServiceObservationCandidateStore) {}
 
@@ -276,8 +285,20 @@ class FlakyCandidateStore implements ObservationCandidateStore {
     }
     return this.inner.put(record)
   }
-  remove(record: StagedRecord) { return this.inner.remove(record) }
-  getReceipt(ns: string, scope: Record<string, string>, key: string) { return this.inner.getReceipt(ns, scope, key) }
+  async remove(record: StagedRecord): Promise<boolean> {
+    if (this.removeFailures > 0) {
+      this.removeFailures--
+      throw new Error('candidate cleanup unavailable')
+    }
+    return this.inner.remove(record)
+  }
+  async getReceipt(ns: string, scope: Record<string, string>, key: string) {
+    if (this.receiptFailures > 0) {
+      this.receiptFailures--
+      throw new Error('receipt read unavailable')
+    }
+    return this.inner.getReceipt(ns, scope, key)
+  }
   putReceipt(...args: Parameters<ObservationCandidateStore['putReceipt']>) { return this.inner.putReceipt(...args) }
   prune(...args: Parameters<ObservationCandidateStore['prune']>) { return this.inner.prune(...args) }
 }
@@ -396,20 +417,6 @@ async function seedConfirmedF1(h: Awaited<ReturnType<typeof harness>>): Promise<
 // ---------------------------------------------------------------------------
 
 describe('ObservationalMemory restart (MC-03a)', () => {
-  // Deterministic, strictly increasing clock. Observation keys are
-  // `obs-${Date.now()}-${seq}` with `seq` restarting at 0 per instance, so a
-  // restart within the same millisecond can reuse a restored candidate's key
-  // (pre-existing, recorded in the packet's defects.md; content-addressed keys
-  // are deferred by the admission). These cases test restart semantics, not
-  // that collision.
-  beforeEach(() => {
-    let now = 1_800_000_000_000
-    vi.spyOn(Date, 'now').mockImplementation(() => ++now)
-  })
-  afterEach(() => {
-    vi.restoreAllMocks()
-  })
-
   describe('oracle', () => {
     it('negative control: a fake citing an existing but wrong message fails the evidence comparison', async () => {
       const h = await harness()
@@ -560,7 +567,79 @@ describe('ObservationalMemory restart (MC-03a)', () => {
     })
   })
 
+  describe('c. exactly once: flush failures', () => {
+    it('c5. a receipt-read failure during a flush keeps the detached record visible', async () => {
+      const h = await harness()
+      const seededKey = await seedConfirmedF1(h)
+      const flaky = new FlakyCandidateStore(h.candidateStore)
+      let om = h.start({ observerThreshold: 2, candidateStore: flaky })
+      await om.listPendingObservationCandidates()
+      flaky.receiptFailures = 1
+      await expect(om.flushConfirmedObservations()).rejects.toThrow(/receipt read/)
+      expect(recordsWithFact([...writerRecords(om), ...inFlight(om).values()], 'M1')
+        .map(record => record.key)).toEqual([seededKey])
+
+      await om.observe(turn(1)) // replay
+      await persistBoundary(om)
+      om = h.start({ observerThreshold: 2 }) // restart
+      await h.confirmAll(om)
+      assertFactsExactlyOnce(await h.stored(), ['M1'])
+    })
+
+    it('c6. a cleanup failure mid-batch keeps the remaining detached record visible', async () => {
+      const h = await harness()
+      const seeder = h.start({ observerThreshold: 4 })
+      await seeder.observe(turn(1))
+      const seeded = await seeder.observe(turn(2))
+      for (const candidate of seeded!.staged) {
+        expect(await h.candidateStore.put({ ...candidate, stage: 'confirmed', confirmedAt: Date.now() }))
+          .toBe(true)
+      }
+      const flaky = new FlakyCandidateStore(h.candidateStore)
+      let om = h.start({ observerThreshold: 4, candidateStore: flaky })
+      expect(await om.listPendingObservationCandidates()).toHaveLength(2)
+      flaky.removeFailures = 1
+      await expect(om.flushConfirmedObservations()).rejects.toThrow(/cleanup/)
+      const storedNow = (await h.stored()).map(record => record['text'])
+      const visible = [...writerRecords(om), ...inFlight(om).values()].map(record => record.value['text'])
+      expect(storedNow).toHaveLength(1)
+      expect([...storedNow, ...visible].sort()).toEqual([FACTS['M1'], FACTS['M2']].sort())
+
+      await om.observe(turn(1)) // replay
+      await om.observe(turn(2))
+      await persistBoundary(om)
+      om = h.start({ observerThreshold: 4 }) // restart
+      await h.confirmAll(om)
+      assertFactsExactlyOnce(await h.stored(), ['M1', 'M2'])
+    })
+  })
+
   describe('d. retention and handoff', () => {
+    it('keeps an obligation whose captured record the writer evicted; the fact ends stored once', async () => {
+      const h = await harness()
+      h.model.confidence = 0.5 // stays captured, so the writer may evict it
+      const flaky = new FlakyCandidateStore(h.candidateStore)
+      flaky.failing = record => record.value['text'] === FACTS['M1']
+      const smallWriter = new StagedWriter({ maxPending: 1, autoPromoteThreshold: 0.7, autoConfirmThreshold: 1.01 })
+      let om = h.start({ observerThreshold: 2, candidateStore: flaky, stagedWriter: smallWriter })
+      await om.observe(turn(1)) // A's write fails: batch kept
+      const retry = await om.observe(turn(2)) // A skipped as a duplicate; capturing B evicts A
+      expect(retry!.skippedDuplicates).toBe(1)
+      expect(recordsWithFact(writerRecords(om), 'M1')).toEqual([])
+      await persistBoundary(om)
+      expect(recordIds(await h.ctl.bufferRecord())).toEqual(['u1', 'a1', 'u2', 'a2'])
+
+      flaky.failing = null
+      await om.observe([]) // retry persists A from the retained copy
+      await persistBoundary(om)
+      expect(await h.ctl.bufferRecord()).toBeNull()
+      assertFactsExactlyOnce((await h.durableCandidates()).map(record => record.value), ['M1', 'M2'])
+
+      om = h.start({ observerThreshold: 2 }) // restart
+      await h.confirmAll(om)
+      assertFactsExactlyOnce(await h.stored(), ['M1', 'M2'])
+    })
+
     it('deletes the record after a processed run with no arrivals', async () => {
       const h = await harness()
       const om = h.start({ observerThreshold: 4 })
@@ -914,24 +993,97 @@ describe('ObservationalMemory restart (MC-03a)', () => {
       expect(h.ctl.calls.filter(call => call.ns === BUF_NS)).toEqual([])
     })
 
-    it('round-trips every supported message type on the fields the extractor reads', () => {
-      const messages: BaseMessage[] = [
-        new HumanMessage({ id: 'h', content: 'plain' }),
-        new AIMessage({ id: 'ai', content: [{ type: 'text', text: 'block content' }] }),
-        new SystemMessage({ content: 'no id' }),
-        new ToolMessage({ id: 't', content: 'tool out', tool_call_id: 'call-1' }),
-        new ChatMessage({ id: 'g', content: 'generic', role: 'critic' }),
-        new FunctionMessage({ id: 'f', content: 'fn out', name: 'lookup' }),
-      ]
-      for (const message of messages) {
-        const persisted = JSON.parse(JSON.stringify(serializeObservationMessage(message)))
-        const rebuilt = deserializeObservationMessage(persisted)
-        expect(rebuilt._getType()).toBe(message._getType())
-        expect(JSON.stringify(rebuilt.content)).toBe(JSON.stringify(message.content))
-        expect(rebuilt.id).toBe(message.id)
-      }
-      expect(() => serializeObservationMessage(new RemoveMessage({ id: 'r' })))
-        .toThrow(/cannot round-trip/)
+    it('round-trips every message type through the real buffer store, incl. RemoveMessage and a custom subtype', async () => {
+      const h = await harness()
+      const originals = mixedMessages()
+      const om = h.start({ observerThreshold: 100 })
+      expect(await om.observe(originals)).toBeNull()
+      await persistBoundary(om)
+
+      const loaded = await h.pendingBuffer.load(OBS_NS, SCOPE)
+      expect(loaded.status).toBe('loaded')
+      const rebuilt = loaded.status === 'loaded'
+        ? loaded.record.messages.map(deserializeObservationMessage)
+        : []
+      expect(rebuilt).toHaveLength(originals.length)
+      rebuilt.forEach((message, i) => {
+        const original = originals[i]!
+        expect(message._getType()).toBe(original._getType())
+        expect(JSON.stringify(message.content)).toBe(JSON.stringify(original.content))
+        expect(message.id).toBe(original.id)
+      })
+      expect(rebuilt.map(message => message._getType()))
+        .toEqual(['human', 'ai', 'system', 'tool', 'generic', 'function', 'remove', 'note'])
+      expect(serializeObservationMessage(new RemoveMessage({ id: 'r' })))
+        .toEqual({ type: 'remove', content: [], id: 'r' })
+    })
+
+    it('the extractor sees identical input for a restored mixed-type backlog', async () => {
+      const control = await harness()
+      const live = control.start({ observerThreshold: 9 })
+      await live.observe(mixedMessages())
+      await live.observe(turn(2).slice(0, 1))
+
+      const h = await harness()
+      let om = h.start({ observerThreshold: 9 })
+      await om.observe(mixedMessages())
+      await persistBoundary(om)
+      om = h.start({ observerThreshold: 9 }) // restart
+      await om.observe(turn(2).slice(0, 1))
+
+      expect(h.model.prompts).toHaveLength(1)
+      expect(h.model.prompts).toEqual(control.model.prompts)
+    })
+  })
+
+  describe('h. same-timestamp restart (no key reuse)', () => {
+    // A fixed clock across both instances: the sequence restarts at 0, so the
+    // first key of the restarted instance equals the restored one.
+    beforeEach(() => {
+      vi.spyOn(Date, 'now').mockReturnValue(1_800_000_000_000)
+    })
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    it('never reuses a restored candidate key', async () => {
+      const h = await harness()
+      let om = h.start({ observerThreshold: 2 })
+      await om.observe(turn(1))
+      om = h.start({ observerThreshold: 2 }) // restart, same millisecond
+      await om.observe(turn(2))
+      assertFactsExactlyOnce((await h.durableCandidates()).map(record => record.value), ['M1', 'M2'])
+      await h.confirmAll(om)
+      assertFactsExactlyOnce(await h.stored(), ['M1', 'M2'])
+    })
+
+    it('never overwrites a durable observation key', async () => {
+      const h = await harness()
+      let om = h.start({ observerThreshold: 2 })
+      await om.observe(turn(1))
+      await h.confirmAll(om)
+      om = h.start({ observerThreshold: 2 }) // restart, same millisecond
+      await om.observe(turn(2))
+      await h.confirmAll(om)
+      assertFactsExactlyOnce(await h.stored(), ['M1', 'M2'])
     })
   })
 })
+
+/** A custom BaseMessage subtype the extractor reads like any other. */
+class NoteMessage extends BaseMessage {
+  readonly type = 'note' as unknown as MessageType
+}
+
+function mixedMessages(): BaseMessage[] {
+  return [
+    new HumanMessage({ id: 'h1', content: userText(1) }),
+    new AIMessage({ id: 'ai1', content: [{ type: 'text', text: 'block reply' }] }),
+    new SystemMessage({ content: 'system note without id' }),
+    new ToolMessage({ id: 't1', content: 'tool output', tool_call_id: 'call-1' }),
+    new ChatMessage({ id: 'g1', content: 'critic remark', role: 'critic' }),
+    new FunctionMessage({ id: 'f1', content: 'function output', name: 'lookup' }),
+    new RemoveMessage({ id: 'r1' }),
+    new NoteMessage({ id: 'n1', content: 'custom subtype note' }),
+  ]
+}
