@@ -6,6 +6,15 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 
 import { DzupAgent } from '../agent/dzip-agent.js'
 
+/** MC-04b: the prepared system message is ordered text blocks; read their joined text. */
+function systemText(message: SystemMessage | undefined): string {
+  const content = message?.content
+  if (typeof content === 'string') return content
+  return ((content ?? []) as Array<{ text?: unknown }>)
+    .map(block => (typeof block.text === 'string' ? block.text : ''))
+    .join('')
+}
+
 const mockArrowRuntime = vi.hoisted(() => ({
   extendMemoryServiceWithArrow: vi.fn(),
   selectMemoriesByBudget: vi.fn(),
@@ -94,9 +103,9 @@ describe('DzupAgent generate memory context integration', () => {
     expect(callMessages).toBeDefined()
     const systemMessage = callMessages?.find((message) => message instanceof SystemMessage) as SystemMessage | undefined
     expect(systemMessage).toBeDefined()
-    expect(systemMessage?.content).toContain('Base instructions')
-    expect(systemMessage?.content).toContain('## Memory Context')
-    expect(systemMessage?.content).toContain('[facts] selected fact')
+    expect(systemText(systemMessage)).toContain('Base instructions')
+    expect(systemText(systemMessage)).toContain('## Memory Context')
+    expect(systemText(systemMessage)).toContain('[facts] selected fact')
   })
 
   it('falls back to the standard memory path when Arrow setup fails', async () => {
@@ -129,9 +138,9 @@ describe('DzupAgent generate memory context integration', () => {
     const callMessages = model.invoke.mock.calls[0]?.[0] as unknown[] | undefined
     expect(callMessages).toBeDefined()
     const systemMessage = callMessages?.find((message) => message instanceof SystemMessage) as SystemMessage | undefined
-    expect(systemMessage?.content).toContain('Base instructions')
-    expect(systemMessage?.content).toContain('## Memory Context')
-    expect(systemMessage?.content).toContain('stored fact')
+    expect(systemText(systemMessage)).toContain('Base instructions')
+    expect(systemText(systemMessage)).toContain('## Memory Context')
+    expect(systemText(systemMessage)).toContain('stored fact')
   })
 
   it('threads generate runId into prompt memory reads for provenance tracking', async () => {
@@ -247,8 +256,8 @@ describe('DzupAgent frozenSnapshot config wiring', () => {
         (message) => message instanceof SystemMessage,
       ) as SystemMessage | undefined
       expect(systemMessage).toBeDefined()
-      expect(systemMessage?.content).toContain('Base instructions')
-      expect(systemMessage?.content).toContain('cached fact')
+      expect(systemText(systemMessage)).toContain('Base instructions')
+      expect(systemText(systemMessage)).toContain('cached fact')
     }
   })
 

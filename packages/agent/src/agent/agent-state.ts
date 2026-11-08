@@ -53,10 +53,31 @@ function messageTypeToRole(msg: BaseMessage): SerializedMessage['role'] {
   }
 }
 
-/** Extract string content from a message (handles string and array content) */
+/** A block with exactly the keys `type` (`'text'`) and `text` (a string). */
+function isPlainTextBlock(block: unknown): block is { type: 'text'; text: string } {
+  if (!block || typeof block !== 'object' || Array.isArray(block)) return false
+  const b = block as Record<string, unknown>
+  return Object.keys(b).sort().join('|') === 'text|type'
+    && b['type'] === 'text'
+    && typeof b['text'] === 'string'
+}
+
+/**
+ * Extract string content from a message (handles string and array content).
+ *
+ * MC-04b: a text-only block array (every block exactly `type` and `text`, as
+ * `buildPreparedMessages` builds the system message) serializes as its texts
+ * concatenated with no separator, which is byte-identical to the former
+ * single-string system content. Other array content keeps the JSON form.
+ */
 function extractContent(content: BaseMessage['content']): string {
   if (typeof content === 'string') return content
-  if (Array.isArray(content)) return JSON.stringify(content)
+  if (Array.isArray(content)) {
+    if (content.every(isPlainTextBlock)) {
+      return content.map((block) => block.text).join('')
+    }
+    return JSON.stringify(content)
+  }
   return String(content)
 }
 

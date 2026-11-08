@@ -15,6 +15,22 @@
  * passed explicitly as `autoCompressConfig.tokenCounter`.
  *
  * One `MC04A_RESULT <json>` line is printed per transcript.
+ *
+ * MC-04b (MEMCTX-CACHE-PREFIX-20261108-R1), case e/f extension: every step
+ * also measures the serialized Anthropic payload (`convertPromptToAnthropic`,
+ * local only) from the start of `system` through the system breakpoint, and
+ * asserts it is byte-identical across all rounds and the idempotence check.
+ * A fourth, cache-eligible fixture repeats the long chat with an instruction
+ * block of at least 1 400 o200k tokens; the original three are the disclosed
+ * short-prefix case (structurally stable, not cache-eligible).
+ *
+ * In this package `@dzupagent/context` resolves to a prebuilt `dist` and
+ * relative imports into `packages/context` are forbidden (boundary test). The
+ * system breakpoint is therefore placed by the test-local `markSystemBlock0`
+ * (the item-1 rule, pinned to `applyCacheBreakpoints` by the context test's
+ * "contract" case), and the item-4 gate decision is computed locally with the
+ * counter `resolveTokenCounter` selects for a Claude id (`TiktokenCounter`).
+ * `cacheMarkers*` keep MC-04a's method (the installed injector) unchanged.
  */
 import { createRequire } from 'node:module'
 import { beforeAll, describe, expect, it } from 'vitest'
@@ -26,6 +42,8 @@ import {
   type BaseMessage,
 } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
+import { ChatPromptValue } from '@langchain/core/prompt_values'
+import { convertPromptToAnthropic } from '@langchain/anthropic'
 import {
   CharEstimateCounter,
   TiktokenCounter,
@@ -144,6 +162,25 @@ const INSTRUCTIONS = [
   'Answer concisely and cite file paths.',
 ].join('\n')
 
+/** Case f: the cache-eligible instruction block (>= 1 400 o200k tokens, no trailing whitespace). */
+const LONG_INSTRUCTIONS = [
+  'You are the MC-04b cache-eligible fixture agent.',
+  '',
+  'Named constraints (must survive every compression verbatim):',
+  ...NAMED_CONSTRAINTS.map(c => `- ${c}`),
+  '',
+  'Working policy:',
+  text('instructions-policy', 1_600),
+  '',
+  'Extended policy:',
+  text('instructions-policy-extended', 6_400),
+  '',
+  'Answer concisely and cite file paths.',
+].join('\n')
+
+/** Eligibility margin over Anthropic's 1 024-token minimum (o200k estimate). */
+const ELIGIBLE_PREFIX_TOKENS = 1_400
+
 // ---------- Transcript builders --------------------------------------------------
 
 function toolCall(id: string, name: string, args: Record<string, unknown>) {
@@ -159,7 +196,11 @@ function toolResult(id: string, name: string, content: string): ToolMessage {
 }
 
 interface Fixture {
-  name: 'tool-heavy' | 'long-chat' | 'mixed-pending'
+  name: 'tool-heavy' | 'long-chat' | 'mixed-pending' | 'eligible-long-chat'
+  /** Instruction text of the leading system message. */
+  instructions: string
+  /** Case f: `short-prefix` (disclosed negative) or `cache-eligible`. */
+  prefixClass: 'short-prefix' | 'cache-eligible'
   initial: () => BaseMessage[]
   /** Fixed batch appended before round `round` (2 or 3). */
   batch: (round: number) => BaseMessage[]
@@ -263,15 +304,31 @@ function mixedBatch(round: number): BaseMessage[] {
   ] // 10 messages, ends in a new pending tail
 }
 
+function eligibleLongChatInitial(): BaseMessage[] {
+  return [new SystemMessage(LONG_INSTRUCTIONS), ...longChatInitial().slice(1)]
+}
+
+const SHORT = { instructions: INSTRUCTIONS, prefixClass: 'short-prefix' as const }
+
 const FIXTURES: Fixture[] = [
-  { name: 'tool-heavy', initial: toolHeavyInitial, batch: toolHeavyBatch, pendingTail: 0, pendingIds: () => [] },
-  { name: 'long-chat', initial: longChatInitial, batch: longChatBatch, pendingTail: 0, pendingIds: () => [] },
+  { name: 'tool-heavy', ...SHORT, initial: toolHeavyInitial, batch: toolHeavyBatch, pendingTail: 0, pendingIds: () => [] },
+  { name: 'long-chat', ...SHORT, initial: longChatInitial, batch: longChatBatch, pendingTail: 0, pendingIds: () => [] },
   {
     name: 'mixed-pending',
+    ...SHORT,
     initial: mixedInitial,
     batch: mixedBatch,
     pendingTail: 2,
     pendingIds: round => [`mx-r${round}-b`],
+  },
+  {
+    name: 'eligible-long-chat',
+    instructions: LONG_INSTRUCTIONS,
+    prefixClass: 'cache-eligible',
+    initial: eligibleLongChatInitial,
+    batch: longChatBatch,
+    pendingTail: 0,
+    pendingIds: () => [],
   },
 ]
 
@@ -318,7 +375,14 @@ const CLAUDE_MODEL = { model: CLAUDE_MODEL_ID } as unknown as BaseChatModel
 // ---------- Measurement helpers ----------------------------------------------------
 
 function contentText(m: BaseMessage): string {
-  return typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+  if (typeof m.content === 'string') return m.content
+  // MC-04b: a text-only block array (the prepared/compressed system message)
+  // reads as its joined text, which equals the former single string.
+  const blocks = m.content as Array<{ type?: unknown; text?: unknown }>
+  if (blocks.every(b => b.type === 'text' && typeof b.text === 'string')) {
+    return blocks.map(b => b.text as string).join('')
+  }
+  return JSON.stringify(m.content)
 }
 
 function toolCallsOf(m: BaseMessage): ReturnType<typeof toolCall>[] {
@@ -351,6 +415,74 @@ function cacheMarkers(messages: BaseMessage[]): number {
   return injectPromptCacheMarkersForModel(messages, CLAUDE_MODEL).filter(
     m => (m.additional_kwargs as { cache_control?: unknown }).cache_control !== undefined,
   ).length
+}
+
+/**
+ * MC-04b: the payload `system` field the installed converter produces for the
+ * cached messages, cut through the system breakpoint.
+ */
+interface PrefixMeasure {
+  /** Index of the system block carrying `cache_control` (-1 when none). */
+  breakpointIndex: number
+  /** Serialized system blocks from the start through the breakpoint. */
+  bytes: string
+  /** Text of those blocks, for the o200k token estimate. */
+  text: string
+  /**
+   * Whether the item-4 size gate (tokenizer estimate >= 1024) would open for
+   * this prompt. Structural placement above is measured independent of it.
+   */
+  cacheGateOpen: boolean
+}
+
+/** MC-04b item 1 system-breakpoint rule (verbatim copy of the context test's contract helper). */
+function markSystemBlock0(messages: BaseMessage[]): BaseMessage[] {
+  const marker = { type: 'ephemeral' }
+  return messages.map((m, index) => {
+    if (index !== 0 || m._getType() !== 'system') return m
+    const content = m.content
+    if (typeof content === 'string') {
+      return new SystemMessage({ content: content ? [{ type: 'text', text: content, cache_control: marker }] : '' })
+    }
+    const blocks = (content as Array<Record<string, unknown>>).map((b) => ({ ...b }))
+    const textOnly = blocks.length >= 2 && blocks.every((b) => b['type'] === 'text' && typeof b['text'] === 'string')
+    if (textOnly) {
+      blocks.forEach((b, j) => {
+        if (j === 0) b['cache_control'] = marker
+        else delete b['cache_control']
+      })
+    } else if (blocks.length > 0) {
+      blocks[blocks.length - 1]!['cache_control'] = marker
+    }
+    return new SystemMessage({ content: blocks as never })
+  })
+}
+
+/** MC-04b item 4 gate: tokenizer estimate (string, or JSON of block content) >= 1024 for the Claude id. */
+const GATE_COUNTER = new TiktokenCounter()
+function cacheGateOpen(messages: BaseMessage[]): boolean {
+  const tokens = messages.reduce((sum, m) => sum + GATE_COUNTER.count(
+    typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+    CLAUDE_MODEL_ID,
+  ), 0)
+  return tokens >= 1024
+}
+
+function prefixMeasure(messages: BaseMessage[]): PrefixMeasure {
+  const cached = markSystemBlock0(messages)
+  const gateOpen = cacheGateOpen(messages)
+  const payload = convertPromptToAnthropic(new ChatPromptValue(cached)) as { system?: unknown }
+  const system = (typeof payload.system === 'string'
+    ? [{ type: 'text', text: payload.system }]
+    : (payload.system ?? [])) as Array<{ text?: string; cache_control?: unknown }>
+  const breakpointIndex = system.findIndex(b => b.cache_control !== undefined)
+  const through = breakpointIndex < 0 ? [] : system.slice(0, breakpointIndex + 1)
+  return {
+    breakpointIndex,
+    bytes: JSON.stringify(through),
+    text: through.map(b => b.text ?? '').join(''),
+    cacheGateOpen: gateOpen,
+  }
 }
 
 function occurrences(haystack: string, needle: string): number {
@@ -410,6 +542,8 @@ interface Step {
   cacheMarkersAfter: number
   summaryCallsBefore: number
   summaryCallsAfter: number
+  prefixBefore: PrefixMeasure
+  prefixAfter: PrefixMeasure
 }
 
 interface Run {
@@ -442,6 +576,7 @@ async function runScenario(fixture: Fixture): Promise<Run> {
     const inputSnapshot = snapshot(input)
     const tokensBefore = totalTokens(input)
     const cacheMarkersBefore = cacheMarkers(input)
+    const prefixBefore = prefixMeasure(input)
     const inputIsPreviousOutput = previousOutput === null || batched || input === previousOutput
 
     const result = await plugin.maybeCompress(input, model)
@@ -462,6 +597,8 @@ async function runScenario(fixture: Fixture): Promise<Run> {
       cacheMarkersAfter: cacheMarkers(result.messages),
       summaryCallsBefore,
       summaryCallsAfter: prompts.length,
+      prefixBefore,
+      prefixAfter: prefixMeasure(result.messages),
     })
     previousOutput = result.messages
     transcript = result.messages
@@ -476,6 +613,29 @@ function instructionPrefix(content: string): string {
   if (idx < 0) return content
   // `writeSummary` joins instructions and summary with one blank line.
   return content.slice(0, idx).replace(/\n\n$/, '')
+}
+
+/** Case e/f: the reusable prefix across every measured payload of a run. */
+function reusablePrefix(run: Run) {
+  const measures = [run.steps[0]!.prefixBefore, ...run.steps.map(s => s.prefixAfter)]
+  const stable = measures.every(m => m.breakpointIndex >= 0 && m.bytes === measures[0]!.bytes)
+  // Informative only: leading serialized characters shared by every payload.
+  let common = measures[0]!.bytes.length
+  for (const m of measures) {
+    let i = 0
+    while (i < common && i < m.bytes.length && m.bytes[i] === measures[0]!.bytes[i]) i++
+    common = i
+  }
+  const bytes = stable ? Buffer.byteLength(measures[0]!.bytes, 'utf8') : 0
+  const tokens = stable ? COUNTER.count(measures[0]!.text, COUNT_MODEL_ID) : 0
+  return {
+    prefixStable: stable,
+    payloads: measures.length,
+    reusablePrefixBytes: bytes,
+    reusablePrefixTokens: tokens,
+    commonLeadingSerializedChars: common,
+    eligible: stable && tokens >= ELIGIBLE_PREFIX_TOKENS,
+  }
 }
 
 function stepRound(label: Step['label']): number {
@@ -509,7 +669,7 @@ describe('MC-04a compression economy on fixed transcripts', () => {
         for (const step of run.steps) {
           const head = step.output[0]!
           expect(head.type, step.label).toBe('system')
-          expect(instructionPrefix(head.text), step.label).toBe(INSTRUCTIONS)
+          expect(instructionPrefix(head.text), step.label).toBe(fixture.instructions)
           for (const constraint of NAMED_CONSTRAINTS) {
             expect(instructionPrefix(head.text), `${step.label}: ${constraint}`).toContain(constraint)
           }
@@ -601,6 +761,35 @@ describe('MC-04a compression economy on fixed transcripts', () => {
         expect(step.output.slice(1).map(s => s.fp)).toEqual(step.input.slice(1).map(s => s.fp))
       })
 
+      it('case e: the instruction-prefix payload bytes through the system breakpoint are identical across all rounds and the idempotence check', () => {
+        // Case a's precondition, checked on this fixture's instructions first.
+        expect(fixture.instructions, 'no trailing whitespace').toBe(fixture.instructions.trimEnd())
+        expect(`${fixture.instructions}\n\n`.includes(SUMMARY_PREFIX)).toBe(false)
+        const expectedBytes = JSON.stringify([
+          { type: 'text', text: fixture.instructions, cache_control: { type: 'ephemeral' } },
+        ])
+        for (const step of run.steps) {
+          for (const [phase, m] of [['before', step.prefixBefore], ['after', step.prefixAfter]] as const) {
+            expect(m.breakpointIndex, `${step.label} ${phase}`).toBe(0)
+            expect(m.bytes, `${step.label} ${phase}`).toBe(expectedBytes)
+          }
+        }
+        expect(reusablePrefix(run).prefixStable).toBe(true)
+      })
+
+      it(`case f: reusable prefix is ${fixture.prefixClass === 'cache-eligible' ? 'stable and cache-eligible' : 'stable but reported ineligible (short prefix)'}`, () => {
+        const reusable = reusablePrefix(run)
+        expect(reusable.prefixStable).toBe(true)
+        if (fixture.prefixClass === 'cache-eligible') {
+          expect(COUNTER_INFO.name).toBe('TiktokenCounter')
+          expect(reusable.reusablePrefixTokens).toBeGreaterThanOrEqual(ELIGIBLE_PREFIX_TOKENS)
+          expect(reusable.eligible).toBe(true)
+        } else {
+          expect(reusable.reusablePrefixTokens).toBeLessThan(1_024)
+          expect(reusable.eligible).toBe(false)
+        }
+      })
+
       it('prints the MC04A_RESULT measurement line', () => {
         const result = {
           transcript: fixture.name,
@@ -608,9 +797,12 @@ describe('MC-04a compression economy on fixed transcripts', () => {
           keepRecentMessages: KEEP,
           maxMessages: AUTO_CONFIG.maxMessages,
           maxMessageTokens: AUTO_CONFIG.maxMessageTokens,
-          instructionPrefixTokens: COUNTER.count(INSTRUCTIONS, COUNT_MODEL_ID),
-          instructionPrefixChars: INSTRUCTIONS.length,
+          instructionPrefixTokens: COUNTER.count(fixture.instructions, COUNT_MODEL_ID),
+          instructionPrefixChars: fixture.instructions.length,
+          instructionsTrailingWhitespace: fixture.instructions !== fixture.instructions.trimEnd(),
           cacheModelId: CLAUDE_MODEL_ID,
+          prefixClass: fixture.prefixClass,
+          ...reusablePrefix(run),
           steps: run.steps.map(s => ({
             step: s.label,
             compressed: s.compressed,
@@ -621,6 +813,14 @@ describe('MC-04a compression economy on fixed transcripts', () => {
             cacheMarkersBefore: s.cacheMarkersBefore,
             cacheMarkersAfter: s.cacheMarkersAfter,
             summaryCalls: s.summaryCallsAfter - s.summaryCallsBefore,
+            breakpointIndexBefore: s.prefixBefore.breakpointIndex,
+            breakpointIndexAfter: s.prefixAfter.breakpointIndex,
+            cacheGateOpenBefore: s.prefixBefore.cacheGateOpen,
+            cacheGateOpenAfter: s.prefixAfter.cacheGateOpen,
+            prefixBytesAfter: Buffer.byteLength(s.prefixAfter.bytes, 'utf8'),
+            prefixTokensAfter: COUNTER.count(s.prefixAfter.text, COUNT_MODEL_ID),
+            prefixStable: s.prefixBefore.bytes === s.prefixAfter.bytes
+              && s.prefixAfter.bytes === run.steps[0]!.prefixBefore.bytes,
           })),
         }
         console.log(`MC04A_RESULT ${JSON.stringify(result)}`)

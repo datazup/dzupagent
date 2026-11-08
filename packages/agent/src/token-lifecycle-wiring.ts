@@ -24,6 +24,7 @@ import {
 import type { TokenUsage } from '@dzupagent/core/llm'
 import {
   formatSummaryContext,
+  resolveModelId,
   type TokenLifecycleManager,
   type TokenLifecycleStatus,
 } from '@dzupagent/context'
@@ -102,25 +103,52 @@ export interface AgentLoopPlugin {
 /** Header written by `formatSummaryContext` (same shape as `buildPreparedMessages`). */
 const SUMMARY_PREFIX = '## Prior Conversation Context\n\n'
 
-type TextBlock = { type?: string; text?: unknown }
+type TextBlock = { type?: string; text?: unknown; [key: string]: unknown }
 
-function isSummaryBlock(block: TextBlock): boolean {
-  return block.type === 'text'
-    && typeof block.text === 'string'
-    && block.text.startsWith(SUMMARY_PREFIX)
+/** Text a content block contributes to the joined system text (`''` for non-text blocks). */
+function blockText(block: TextBlock): string {
+  return block.type === 'text' && typeof block.text === 'string' ? block.text : ''
 }
 
-/** Read the summary section previously merged into a system message. */
+/** The block texts concatenated in order, with no separator (`J`). */
+function joinedText(blocks: readonly TextBlock[]): string {
+  return blocks.map(blockText).join('')
+}
+
+/**
+ * Read the summary section previously merged into a system message.
+ *
+ * Block content uses legacy recognition (MC-04b): the summary is found in the
+ * joined block text exactly as the string path finds it, so
+ * `readSummary(blocks) === readSummary(joined(blocks))` for every text-only
+ * block array.
+ */
 function readSummary(content: BaseMessage['content']): string | null {
-  if (typeof content === 'string') {
-    const idx = content.indexOf(SUMMARY_PREFIX)
-    return idx < 0 ? null : content.slice(idx + SUMMARY_PREFIX.length)
-  }
-  const block = (content as TextBlock[]).find(isSummaryBlock)
-  return block ? (block.text as string).slice(SUMMARY_PREFIX.length) : null
+  const text = typeof content === 'string' ? content : joinedText(content as TextBlock[])
+  const idx = text.indexOf(SUMMARY_PREFIX)
+  return idx < 0 ? null : text.slice(idx + SUMMARY_PREFIX.length)
 }
 
-/** Replace (or add) the summary section of a system message's content. */
+/**
+ * Replace (or add) the summary section of a system message's content.
+ *
+ * The result is the ordered-text-block shape `buildPreparedMessages` produces
+ * (MC-04b), and its joined text equals the former string result byte for
+ * byte:
+ *
+ * - string content: with `base` = the content without its summary section,
+ *   `trimEnd()`ed — no summary keeps the string `base`; an empty `base` gives
+ *   the single block `summaryContext`; otherwise `[base, '\n\n' + summary]`.
+ * - block content, legacy recognition on the joined text `J`:
+ *   - cut: with `idx = J.indexOf(prefix)`, blocks that end before `idx` are
+ *     kept unchanged, the block containing `idx` is truncated to its text
+ *     before `idx`, and everything from `idx` on is dropped (`idx < 0` keeps
+ *     every block);
+ *   - trim: the last remaining text block is `trimEnd()`ed and omitted when
+ *     that empties it, repeatedly, as the string path trims `base`;
+ *   - append: the replacement is its own block, `'\n\n' + summary` when a
+ *     block remains and `summary` otherwise; an empty summary appends nothing.
+ */
 function writeSummary(
   content: BaseMessage['content'],
   summaryContext: string,
@@ -129,11 +157,81 @@ function writeSummary(
     const idx = content.indexOf(SUMMARY_PREFIX)
     const base = (idx < 0 ? content : content.slice(0, idx)).trimEnd()
     if (!summaryContext) return base
-    return base ? `${base}\n\n${summaryContext}` : summaryContext
+    if (!base) return [{ type: 'text', text: summaryContext }] as BaseMessage['content']
+    return [
+      { type: 'text', text: base },
+      { type: 'text', text: `\n\n${summaryContext}` },
+    ] as BaseMessage['content']
   }
-  const blocks = (content as TextBlock[]).filter(block => !isSummaryBlock(block))
-  if (summaryContext) blocks.push({ type: 'text', text: summaryContext })
-  return blocks as BaseMessage['content']
+
+  const source = content as TextBlock[]
+  const idx = joinedText(source).indexOf(SUMMARY_PREFIX)
+
+  // Cut at the joined index.
+  const kept: TextBlock[] = []
+  let offset = 0
+  for (const block of source) {
+    if (idx < 0) {
+      kept.push(block)
+      continue
+    }
+    const length = blockText(block).length
+    if (offset >= idx) break
+    if (offset + length <= idx) {
+      kept.push(block)
+    } else {
+      kept.push({ ...block, text: blockText(block).slice(0, idx - offset) })
+      break
+    }
+    offset += length
+  }
+
+  // Trim, as the string path's `trimEnd()` of `base`.
+  while (kept.length > 0) {
+    const last = kept[kept.length - 1]!
+    if (last.type !== 'text' || typeof last.text !== 'string') break
+    const trimmed = last.text.trimEnd()
+    if (trimmed.length > 0) {
+      if (trimmed !== last.text) kept[kept.length - 1] = { ...last, text: trimmed }
+      break
+    }
+    kept.pop()
+  }
+
+  // Append the replacement as its own block.
+  if (summaryContext) {
+    kept.push({ type: 'text', text: kept.length > 0 ? `\n\n${summaryContext}` : summaryContext })
+  }
+  return kept as BaseMessage['content']
+}
+
+/**
+ * @internal Test seam for the MC-04b text-compatibility oracle. Not part of
+ * the package surface (`index.ts` re-exports only named plugin symbols).
+ */
+export { readSummary as _readSummaryForTest, writeSummary as _writeSummaryForTest }
+
+/**
+ * MC-04b item 3: when the caller's config selects no counter (neither
+ * `tokenCounter` nor `summaryModelId`, and no `charsPerToken` override), pass
+ * the call's model id as `summaryModelId` so `resolveTokenCounter` selects
+ * the tokenizer for the compression decision. Explicit settings keep today's
+ * behaviour unchanged.
+ */
+function withDefaultCounterModel(
+  config: AutoCompressConfig | undefined,
+  model: BaseChatModel,
+): AutoCompressConfig | undefined {
+  if (
+    config?.tokenCounter !== undefined
+    || config?.summaryModelId !== undefined
+    || config?.charsPerToken !== undefined
+  ) {
+    return config
+  }
+  const modelId = resolveModelId(model)
+  if (!modelId) return config
+  return { ...config, summaryModelId: modelId }
 }
 
 /**
@@ -273,7 +371,13 @@ export function createTokenLifecyclePlugin(
       if (status === 'ok' || status === 'warn') {
         return { messages, summary: existingSummary, compressed: false }
       }
-      return compressTranscript(hooks, messages, model, existingSummary, autoCompressConfig)
+      return compressTranscript(
+        hooks,
+        messages,
+        model,
+        existingSummary,
+        withDefaultCounterModel(autoCompressConfig, model),
+      )
     },
     shouldHalt() {
       if (disposed) return false

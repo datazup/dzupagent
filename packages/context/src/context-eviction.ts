@@ -5,6 +5,7 @@
  * exceeds the token threshold it is replaced with a head/tail preview
  * so the agent can decide whether to read specific sections.
  */
+import type { TokenCounter } from "./token-lifecycle.js";
 
 export interface EvictionConfig {
   /** Estimated token threshold before eviction triggers (default 20 000) */
@@ -15,6 +16,13 @@ export interface EvictionConfig {
   headLines: number;
   /** Number of lines to keep from the end (default 20) */
   tailLines: number;
+  /**
+   * Optional token counter (MC-04b item 5, opt-in). When given, eviction
+   * compares its token count of the content with `tokenThreshold` instead
+   * of `content.length` with `tokenThreshold * charsPerToken`. Without it,
+   * behaviour is unchanged.
+   */
+  tokenCounter?: TokenCounter;
 }
 
 const DEFAULTS: EvictionConfig = {
@@ -49,15 +57,23 @@ export function evictIfNeeded(
   config?: Partial<EvictionConfig>
 ): EvictionResult {
   const cfg = { ...DEFAULTS, ...config };
-  const charThreshold = cfg.tokenThreshold * cfg.charsPerToken;
 
-  if (content.length < charThreshold) {
-    return { evicted: false, content };
+  let countedTokens: number | undefined;
+  if (cfg.tokenCounter) {
+    countedTokens = cfg.tokenCounter.count(content);
+    if (countedTokens < cfg.tokenThreshold) {
+      return { evicted: false, content };
+    }
+  } else {
+    const charThreshold = cfg.tokenThreshold * cfg.charsPerToken;
+    if (content.length < charThreshold) {
+      return { evicted: false, content };
+    }
   }
 
   return {
     evicted: true,
-    content: buildPreview(content, identifier, cfg),
+    content: buildPreview(content, identifier, cfg, undefined, countedTokens),
     originalLength: content.length,
     lineCount: content.split("\n").length,
   };
@@ -67,18 +83,19 @@ function buildPreview(
   content: string,
   identifier: string,
   cfg: EvictionConfig,
-  recoveryHint?: string
+  recoveryHint?: string,
+  countedTokens?: number
 ): string {
   const lines = content.split("\n");
   const lineCount = lines.length;
   const head = lines.slice(0, cfg.headLines).join("\n");
   const tail = lines.slice(-cfg.tailLines).join("\n");
   const omitted = Math.max(0, lineCount - cfg.headLines - cfg.tailLines);
+  const tokens =
+    countedTokens ?? Math.ceil(content.length / cfg.charsPerToken);
 
   return [
-    `[Content truncated — ${lineCount} lines, ~${Math.ceil(
-      content.length / cfg.charsPerToken
-    )} tokens]`,
+    `[Content truncated — ${lineCount} lines, ~${tokens} tokens]`,
     "",
     `--- First ${cfg.headLines} lines ---`,
     head,
@@ -142,7 +159,13 @@ export async function evictWithOffload(
   const hint = `[Full content offloaded to ${path} — use read_file("${path}", { offset, limit }) to recover omitted sections]`;
   return {
     ...legacy,
-    content: buildPreview(content, identifier, cfg, hint),
+    content: buildPreview(
+      content,
+      identifier,
+      cfg,
+      hint,
+      cfg.tokenCounter ? cfg.tokenCounter.count(content) : undefined
+    ),
     offloadPath: path,
   };
 }
